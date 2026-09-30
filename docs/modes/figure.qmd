@@ -411,11 +411,19 @@ The **F** menu offers **x view** (**v**) and **y view** (**b**); on cropped plot
 row's displayed key when **v** is already assigned. In X-ray, select an axis row and press
 **v** for **Axis view…** to focus that axis in the Inspector.
 
-Lines, points, ticks and gridlines re-project inside the existing plot frame; exports include
-the same view. Existing ticks fade in the outer 4% of the axis, including exactly at a new
-limit. No extra ticks are generated on zoom-out. Filled marks and non-series marks, such as
-a dashed reference line, stay put. A log view needs positive limits and positive data.
-For multi-panel plots the view applies to all panels; placeholders show the first panel.
+Lines, points, bars, heatmap cells, hexagons, contour bands and box or violin bodies re-project
+inside the existing plot frame; exports include the same view. A viewed axis is re-ticked: its
+generated ticks, labels and gridlines give way to a fresh set laid out for the new limits (nice
+steps with matching labels on a linear axis, decades on a log one; an axis of categories, dates
+or fixed labels keeps its own ticks, which move with their values and fade in the outer 4%).
+Non-series marks, such as a dashed reference line, and raster layers stay put. A log view needs
+positive limits and positive data. For multi-panel plots the view applies to all panels;
+placeholders show the first panel.
+
+A plot with a **twin value axis** (an `ax.twinx()` or `twiny()` in fluxplot 0.3.2 or later) shows
+a **y2** (or **x2**) row too: the twin's own limits and scale, applied to the series drawn on it
+while the panel's other series stay where they are. A secondary axis that only relabels its
+parent through a function follows the parent and has no row of its own.
 
 ## Colour scales
 
@@ -431,7 +439,10 @@ the key shows. Every element recolours as you type, together with the key's grad
 ticks, and nothing regenerates. An empty field uses the generated value shown as its
 placeholder; finishing an edit makes one undo step, **Escape** cancels it and **Reset** restores
 the generated scale. An edit that cannot be painted, such as a log minimum at zero or a minimum
-above the maximum, is refused with its reason and the plot keeps the last valid colours.
+above the maximum, is refused with its reason and the plot keeps the last valid colours. A scale
+that also carries an **opacity channel** (fluxplot's `alpha_by`: a hexagon's count, a cell's
+p-value) keeps every element's opacity through a recolour; the block names the channel and its
+range, and it is edited in the source.
 
 Live edits are element state: they are saved with the figure, honoured by exports and Paper
 embeds, tween in slides and travel with copies of the plot. **Apply to source** writes the

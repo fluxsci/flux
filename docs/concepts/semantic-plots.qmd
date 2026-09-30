@@ -130,6 +130,17 @@ returns every series' exact values and per-point ids, hexmatrix bins, glowbar / 
 statistics, heatmap values, image channels, axis domains and each significance bracket's test and
 p, windowing long arrays; hovering a part with **Ctrl** held shows the same facts on the canvas.
 
+fluxplot 0.3.2 adds what the rest of the colour plan needs and Flux consumes it all: a scale's
+**opacity channel** (`alpha_by`: a hexagon's count, a cell's p-value) recolours live with the
+palette; **twin value axes** (`ax.twinx()`, secondary axes) have their own axis view; bars,
+cells and hexagons carry **stable keys** and their data boxes, so an axis view moves them and a
+Become between two versions of a plot tweens them member by member; every axis records its
+**tick scheme**, so a viewed axis is re-ticked; fits (`fp.regression`, `fp.kde`), steps, stems,
+images and the figure's own title, legend and annotations are named parts that `get-plot-data`
+and the hover readout report. Two ids changed names in 0.3.2 — spines are `axis.x.spine.bottom`
+and some series slugs were regularised — and the manifest's `idAliases` maps the old names, so
+overrides, captions and effects saved against an older plot keep pointing at the same parts.
+
 New imports and linked-source reloads verify the SVG/manifest checksum before accepting the
 bundle. If generation is still writing files or the sidecar belongs to another SVG, Flux keeps
 the last accepted plot and reports the mismatch. This check precedes any legacy SVG repair.

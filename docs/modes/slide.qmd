@@ -70,7 +70,9 @@ effects; successive effects on the same target start after its existing effects 
 **Auto-animate** builds a plot's entrance sequence from its semantic anatomy and the plot's own
 hints: axes and their colour key first, then gridlines, then the data (lines draw on, bars grow from
 their baseline, points and hexagons stagger in), and last the legend, annotations and brackets,
-each after the short delay the plot suggests.
+each after the short delay the plot suggests. A multi-panel plot offers **panel by panel**: the
+same four phases for each panel in turn (an inset right after its host), with the figure's title
+first and its shared legend last.
 
 Drag a box from empty timing-grid space to select the effects it intersects. Hold **Shift**
 (or Ctrl/Cmd) to add to the selection. Crossing a collapsed group span selects its members.
@@ -241,6 +243,11 @@ tweens a number in a text element ("n = 1,247" counts up in place). Draw-on/off 
 **trim path** control (direction, anchor, single/both-ends/middle-out, partial windows), and
 wipes pick their direction.
 
+**by** orders the ramp: **order** (target order), **x →** or **y ↑** (data position), **value**
+(each part's own value — a hexagon's mean, a cell's value, a bar's height — low to high),
+**count** (observations per hexagon) or **data index** (the generator's index). The order comes
+from the plot's data, so a hexmatrix can fill from its emptiest hexagon to its fullest.
+
 Use **Stagger → Each** for the delay between ranks, or **Total** for the time between the
 first and last item starting. Switching modes preserves the current span. **From → Random**
 uses a repeatable order; edit **Seed** or click **↻** to reshuffle (one Undo restores it).
@@ -252,6 +259,7 @@ A single target has no stagger tail.
 ```bash
 flux set-track talk slide1 effect1 --stagger-total 800 --stagger-curve enter --stagger-from random --seed 42
 flux set-track talk slide1 effect1 --stagger-each 30
+flux set-track talk slide1 effect1 --stagger-each 30 --stagger-by count
 ```
 
 ## Transforms {#transforms}
@@ -406,11 +414,13 @@ zooms, pans or rescales the data inside the plot; the plot's position and size c
 the same time. A ghost can therefore float away while zooming into a smaller data range.
 A saved view also applies in Figure mode, Paper embeds and exports.
 
-Lines and points move through the new axis mapping. Existing ticks, gridlines and tick labels
-move with their data values and fade near the edges. A log view requires positive limits and
-positive data; an unsupported series keeps its original geometry and the animation reports why.
-Bars, boxes, violins and filled areas keep their original geometry in this version. Zooming out
-does not generate extra ticks; regenerate the plot to obtain a newly laid-out set of guides.
+Lines, points, bars, heatmap cells, hexagons, contour bands and box or violin bodies move
+through the new axis mapping. During the glide the existing ticks, gridlines and tick labels
+move with their data values and fade near the edges; at rest the viewed axis is re-ticked for its
+new limits (categories, dates and fixed labels keep their own ticks). A log view requires
+positive limits and positive data; an unsupported series keeps its original geometry and the
+animation reports why. Images and rasterized layers keep their geometry. A twin value axis
+(fluxplot 0.3.2 `y2` / `x2`) has its own limits in the view.
 
 A plot needs a manifest with series and calibrated axes. Unsupported axes stay disabled with
 a reason. Select a plot and use **Axis view** in the Object inspector, or **x view** / **y view** in
@@ -425,7 +435,11 @@ placeholders show the first panel's limits.
 
 Asset Becomes and Changes of a data view use the same projection, so one Change may combine
 new data, axis limits and movement. Shared semantic parts tween; removed parts fade out in
-the first 40% and added parts fade in during the last 40%. A local SVG structure change fades
+the first 40% and added parts fade in during the last 40%. Between two versions of a plot whose
+members carry stable keys (fluxplot 0.3.2: bars by category, heatmap cells and hexagons by row
+and column), each member tweens to its namesake — a bar grows or shrinks to its new height, a
+hexagon's colour passes through the colour scale's law at the intermediate value — so a bar
+chart or a hexmatrix with new data is a Become candidate even without lines or points. A local SVG structure change fades
 that part. An SVG without semantic IDs uses a whole-plot crossfade. Matching ignores positional
 ids (matplotlib's numbered `ytick_7`-style ids and Flux's stamped ones), so a tick keeps its
 identity when a regenerated plot renumbers them, and the last frame is the new plot exactly.

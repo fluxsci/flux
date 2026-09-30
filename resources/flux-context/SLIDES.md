@@ -56,7 +56,7 @@ flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 
 flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
-     [--x-scale linear|log --y-scale linear|log --reset] [--beat beatId]            # (set_plot_view) data view, or a Change at a deck beat
+     [--x-scale linear|log --y-scale linear|log --y2-min N --y2-max N --y2-scale linear|log --reset] [--beat beatId]  # (set_plot_view) data view (a twin axis by --y2-*/--x2-*), or a Change at a deck beat
 flux set-plot-color-scale <figureId|deckId/slideId> <elId> [--scale id --cmap crameri.batlow --reversed --norm log
      --vmin N --vmax N --center N --gamma N --extend both --reset] [--beat beatId] [--regenerate]  # (set_plot_color_scale) live colour scale, or a Change
 flux get-plot-color-scales <figureId|deckId/slideId> <elId> [--beat beatId]                  # (get_plot_color_scales) scales, editability, live view
@@ -87,7 +87,7 @@ flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (anima
 flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
      [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
      [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
-     [--stagger-from start|end|center|edges|random] [--seed uint32]
+     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index] [--seed uint32]
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -183,8 +183,15 @@ patches limits/scales; omitted fields inherit. A figure target writes the object
 `deck/slide` target with `--beat` writes `state.view` on that step's Change and preserves
 other state. Without `--beat`, it edits Design. `--reset` clears the view (at a step this
 writes `view:null`). The Inspector and F-menu expose the same controls. Log limits and data
-must be positive. Lines, points and existing guides project; filled/non-series marks stay
-put. Ticks fade in the outer 4%, including new limits; zoom-out does not invent ticks.
+must be positive. Lines, points, bars, heatmap cells, hexagons, contour bands and box / violin
+bodies project (fluxplot 0.3.2 records their data geometry); reference lines and rasters stay
+put. During a glide the existing ticks move and fade in the outer 4%; at rest the viewed axis is
+re-ticked for its new limits (categories / dates / fixed labels keep theirs). A twin value axis
+(`axes[].y2` / `.x2`) takes `--y2-min --y2-max --y2-scale` (`--x2-…`) and moves only the series
+drawn on it. Two versions of a keyed plot (bars by category, cells and hexagons by row.col —
+`capabilities.valueMorph`) Become each other member by member: heights tween, colour values pass
+through the colour law. `--stagger-by value|count|data-index` orders a ramp by each part's data
+(`data-value` / `data-count` / `data-index`; `x` / `y` by position, `index` by target order).
 
 **Colour scale** is the same kind of prop for colour-mapped plots (hexbin, heatmap, scatter
 `c=`, contour bands, colour-mapped bars/lines) saved by fluxplot ≥ 0.3.1: `set-plot-color-scale`

@@ -498,6 +498,62 @@ Persistence invariants (all machine-checked — do not weaken):
     the X-ray row tooltips: roles come from the part index, the node's `data-role`, else the id
     grammar (`.cell.r.c`, `.hex.r.c`, `.level.n`); members without an index entry find their
     series by id prefix; scaffold returns null. Gate `verify-plot-readout`.
+  **fluxplot 0.3.2 and the M6 Flux halves (C4, C7, B6, F4, F7 — 2026-09-30):**
+  - *idAliases (C7).* fluxplot 0.3.2 renamed spines (`axis.x.spine` → `axis.x.spine.bottom`,
+    the collision-repaired `axis.x.spine-2` → `.top`), moved the figure background to figure
+    scope (`figure.background`) and regularised some series slugs; `manifest.idAliases` maps
+    each old id — or an old series ROOT, which stands for every id under it — to the new one,
+    panel-prefixed on both sides. `tree.aliasPartId` resolves (exact, then the longest old
+    prefix followed by a dot; an id that already is a current target passes through) and
+    `resolveTargets` — the hub for overrides, slide part targets and X-ray leaves — applies it,
+    so nothing saved against a pre-0.3.2 plot is lost. Gate `verify-id-aliases`.
+  - *Twin axes (C4).* `axes[].y2` / `.x2` (twinx / twiny; a `fp.secondary_axis` too, but on a
+    functional scale with no anchors it is `supported: false` and never viewable — it follows its
+    parent) and `series[].axis: "y2"`. `PlotView` has `y2` / `x2`; `viewFits` returns their fits
+    when usable and `seriesFits(fits, series.axis)` picks the pair a series projects through
+    (live views onto the panel's Fit objects, so blending the panel fits blends them); the
+    twin's ticks are guides of their own axis key (`guideData` matches `axis.(x|y|x2|y2)`);
+    `plotViewPatch` / `setPlotView` / `set_plot_view` take `y2Min`… and refuse a key the plot
+    lacks; `viewControls.plotAxisKeys` lists the viewable keys for the Inspector. Gate
+    `verify-plot-view-twin`.
+  - *The opacity channel (B6).* `colorScales[].alpha = {source, range, norm{kind, vmin, vmax}}`
+    with `data-alpha-value` per element; `colorscale.alphaFor` is fluxplot's law (a missing
+    value takes the low alpha) and `colorScaleDom` writes fill-/stroke-opacity from it through
+    every recolour (an element without a value under such a scale KEEPS its own opacity —
+    `writePaint`'s `"keep"`), serialising opacities like matplotlib (`shortFloat`: `%f` with
+    trailing zeros stripped). Plain linear key labels follow ScalarFormatter (`ticks.scalarLabels`:
+    uniform decimals, unicode minus) — the alpha fixture's `−1.0 … 1.0` key exposed the gap.
+    The editor shows the channel read-only. Fixture `hexmatrix-alpha`; the DOM gate checks
+    opacities hex-for-hex against the regenerated twin.
+  - *Re-projection of filled marks and re-ticking (F4).* `project.filledLeaves(series)` names the
+    polygons a view may move (bars, cells, hexagons, contour bands, box / violin parts — never a
+    listed layer's own group, never an image); `projectDom` parses each `M/L/Z` path once into
+    DATA units through the generated fits (`polygonInData`) and re-projects vertex by vertex every
+    frame (`writePolygons`), so a bar lands on center ± width/2 and baseline + length, a cell or
+    hexagon on its recorded `data-x0/x1/y0/y1`. At rest with a static view (`applyPlotView`
+    without `opts`), an axis whose fit changed is re-ticked (`retick`): the generated ticks,
+    labels and gridlines hide (pristine-recorded `display`), clones of the first visible
+    template sit at `ticksFor` positions with `scalarLabels` / `formatTick` text, inserted in
+    tick order and marked `data-projection-tick`; `restoreProjection` removes them. Only `auto` /
+    `multiple` / `log` locators with `plain` / `log` formatters are re-ticked; category / date /
+    fixed / sci keep the moving, fading ticks (a tween always does). `plotViewIssues` names only
+    images and rasterized layers as unchanged. Gate `verify-plot-view-filled`.
+  - *Value morphs, data-order stagger, per-panel build (F7).* `stagger.by` ∈ `"index" | "x" |
+    "y" | "data" | {key: "value" | "count" | "index"}` (`slide/staggerData`: the compiler ranks
+    from the manifest — hexagon values / counts, cell values, bar heights, point colour values —
+    the player from the node's `data-*`, both alike; `set_track --stagger-by value|count|
+    data-index`, the Animator's order menu). A Become / Change between two plot versions tweens
+    keyed filled marks member by member (`projectDom` with `opts.series`: A's leaf ↔ B's by
+    `data-key`, else by id; geometry in data units when vertex counts match; the colour value
+    lerped and painted through the colour law with this frame's view — the transform host passes
+    `projectionOptions.colorScale`), gated by `capabilities.valueMorph` on both versions
+    (`project.keyedMorphable`; `hasTweenableSeries` counts it, so a bar chart pair is a Become
+    candidate). `autoAnimatePlot(manifest, elId, { perPanel })` builds one four-phase sequence
+    per panel (manifest order, an inset right after its host; figure titles lead, figure legend
+    entries close), beat ids `auto-<group>-<phase>`, `autoPhase = group·4 + phase`; the Animate
+    panel offers "panel by panel" for multi-panel plots. Fixtures `features.*` / `features-b.*`
+    (`scripts/fixtures/fluxplot03/make_features.py`, run from a fluxplot checkout: one figure
+    exercising every 0.3.2 payload, and a second draw of it). Gate `verify-plot-value-morph`.
   - *Verb gates and the stale dist:* a gate that connects to `flux-mcp.ts` must pass
     `FLUX_MCP_TOOLSET: 'full'` in the child's env (the `--toolset` argv is ignored by
     `flux-mcp.ts`); `tsxRun` always runs the source, but `resolveOwnCliCommandsSync` prefers
@@ -8940,3 +8996,34 @@ semantic-plots, cli). check 0/0, check:headless clean, pure tier green (see the 
 - Not every slide host resolves the theme: `verify-slide-handoff-browser` hands `renderSlide` the
   deck's theme ID string as `ctx.theme`. Anything reading theme colours in the render path must
   accept an unresolved theme (`themeIsResolved`) and paint nothing rather than throw.
+
+### 2026-09-30 — fluxplot 0.3.2 consumed; M6 Flux halves (C4, C7, B6, F4, F7) (Claude Fable 5.1, `main`)
+**Work:** Vendored schema re-synced from fluxplot 1bc6f6a (spec 0.3.2) with the fluxplot03
+fixtures regenerated and a new `features.*` / `features-b.*` pair drawn from one figure that
+exercises every 0.3.2 payload; `get_plot_data` and the readouts cover fits, densities, steps,
+stems, twin axes, images, the figure block and the opacity channel. Saved part ids resolve
+through `idAliases` (`tree.aliasPartId` inside `resolveTargets`). Twin value axes are their own
+view keys (`PlotView.y2/x2`, `seriesFits`, Inspector rows, `set_plot_view --y2-*`). Live colour
+scales carry the opacity channel (`alphaFor`, fill-/stroke-opacity through every recolour, hex-
+for-hex against the regenerated `hexmatrix-alpha` twin) and plain keys label like
+ScalarFormatter. The axis view re-projects filled marks vertex by vertex and re-ticks the viewed
+axis at rest. Stagger orders by data value / count / index; two keyed plot versions Become each
+other member by member; the auto-build can go panel by panel. Gates: `verify-id-aliases`,
+`verify-plot-view-twin`, `verify-plot-view-filled`, `verify-plot-value-morph` (pure), the
+colorscale DOM gate extended, `verify-plot-view` / `verify-fluxplot03` re-pinned to the new
+behaviour. check 0/0, check:headless clean, pure tier green (see the report in the commit
+range). UI-tier gates not run (no display in this session).
+**Learnings:**
+- Promoted to §3: the 0.3.2 block above (aliases, twins, opacity channel, filled-mark
+  re-projection and re-ticking, value morphs / data stagger / per-panel build).
+- A view applies to EVERY panel of a plot: measure "before" geometry on a restored root, or the
+  other panels' shapes are already re-projected by the view under test.
+- matplotlib's ScalarFormatter gives every tick of a set the same number of decimals and a
+  unicode minus (`_set_format`); a live key that prints `-1` beside a regenerated `−1.0` fails
+  byte parity even when every colour matches.
+- An alias table with leaf targets must not re-alias a current id through its own old prefix
+  (`axis.x.spine.bottom` ↛ `axis.x.spine.bottom.bottom`): check the targets before the prefixes.
+- `insertBefore(clone, template.nextSibling)` in a loop reverses the order; keep a cursor.
+- Known generator gap (fluxplot 1bc6f6a): a figure-legend entry standing for a BAR container has
+  no `series` (bar marks carry member ids, no group id, and `figure_scope` skips them); Flux
+  tolerates the null and the plot-data gate documents it.
