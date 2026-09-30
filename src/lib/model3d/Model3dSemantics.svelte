@@ -82,7 +82,7 @@
     {#each fields as [id, source] (id)}
       <div class="value-field" data-model-field={id}>
         <div class="field-head"><span>{source.label ?? manifest?.parts?.find(p => p.id === id)?.label ?? id}</span><button disabled={!editable || !element.fields?.[id]} on:click={() => field(id, null)} title="Restore the source colormap and range">Reset</button></div>
-        <button class="map-choice" aria-label={`${source.label ?? id} colormap`} disabled={!editable} on:click={() => picker = picker === id ? null : id} aria-expanded={picker === id}><span class="map-bar" style={`background:linear-gradient(to right,${resolvedColormap(source, element.fields?.[id]).map(([v,c]) => `${c} ${v*100}%`).join(",")})`}></span><span>{element.fields?.[id]?.cmap ?? source.cmap.name}</span></button>
+        <button class="map-choice" aria-label={`${source.label ?? id} colormap`} disabled={!editable} on:click={() => picker = picker === id ? null : id} aria-expanded={picker === id}><span class="map-bar" style={`background:linear-gradient(to right,${resolvedColormap(source, element.fields?.[id]).map(([v,c]) => `${c} ${v*100}%`).join(",")})`}></span><span class="map-name">{element.fields?.[id]?.cmap ?? source.cmap.name}</span></button>
         {#if picker === id}<div class="picker"><ColormapPicker mode="map" value={element.fields?.[id]?.cmap ?? source.cmap.name} onPick={value => { field(id, { cmap: value }); picker = null; }} onCancel={() => picker = null}/></div>{/if}
         <div class="range">
           <NumberField label="Min" value={element.fields?.[id]?.range?.[0] ?? source.range[0]} max={element.fields?.[id]?.range?.[1] ?? source.range[1]} step={rangeStep(source.range)} disabled={!editable} on:commit={e => range(id, source.range, 0, e.detail)} on:scrub={e => range(id, source.range, 0, e.detail, true)}/>
@@ -120,9 +120,12 @@
   .value-field { display: grid; gap: 6px; min-width: 0; }
   button { color: var(--c-tx); background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); font: 11px var(--font-ui); padding: 3px 6px; cursor: var(--cursor-cross-hover); }
   button:disabled { opacity: .45; }
-  .map-choice { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
-  .map-bar { width: 60px; height: 12px; flex: none; }
-  .map-choice span { overflow: hidden; text-overflow: ellipsis; }
+  /* The colourbar fills the field's width (owner inbox 2026-09-30: a 60px bar in
+     a wide field read as sloppy); the colormap name keeps its own width and
+     ellipsises only when the field is genuinely narrow. */
+  .map-choice { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; }
+  .map-bar { flex: 1 1 auto; min-width: 48px; height: 12px; border-radius: 2px; }
+  .map-name { flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
   .range { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .picker { border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); overflow: hidden; }
   .note, .frame-label { color: var(--c-tx-muted); font-size: 11px; }

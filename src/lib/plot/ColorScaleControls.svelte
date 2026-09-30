@@ -23,6 +23,12 @@
   export let elementId: string;
   /** The property menu's armed row: opened, no summary. */
   export let compact = false;
+  /** "wide": the host gave this editor its whole body (the property menu's
+   *  colour-scale view) — controls on the left, the palette list always open
+   *  on the right. "stack": one column, the palette list opens inline. */
+  export let layout: "stack" | "wide" = "stack";
+  /** Wide layout: Escape inside the always-open palette list leaves the editor. */
+  export let onClose: (() => void) | undefined = undefined;
   // the disclosure state is the user's (bound, not re-applied on every model update — Svelte 5
   // would close the block under a typing user and drop focus)
   let opened = compact;
@@ -42,6 +48,9 @@
   let busy = false;
   let status = "";
   let picking: string | null = null;
+  // Wide layout: the scale the permanent palette list edits (its chip was the
+  // last one clicked; the first scale until then).
+  $: target = layout === "wide" ? (scales.find((s) => s.id === picking) ?? scales[0] ?? null) : null;
   // legacy (pre-0.3.1) drafts: regenerate-only
   let legacy: Record<string, { cmap: string; min: number | null; max: number | null }> = {};
   $: for (const key of legacyKeys) if (!legacy[key]) {
@@ -79,7 +88,7 @@
   async function pickMap(scaleId: string, name: string) {
     await ensureColormapLuts();
     choose(scaleId, { cmap: name });
-    picking = null;
+    if (layout !== "wide") picking = null;
   }
   function typedMap(scaleId: string, value: string) {
     const name = value.trim();
@@ -124,9 +133,10 @@
 </script>
 
 {#if plot && (scales.length || legacyKeys.length)}
-  <details class="color-scales" class:compact bind:open={opened}>
+  <details class="color-scales" class:compact class:wide={layout === "wide" && !!target} bind:open={opened}>
     <summary>Colour scales</summary>
     <form on:submit|preventDefault={applyToSource}>
+      <div class="controls">
       {#each scales as scale (scale.id)}
         {@const v = view(scale.id)}
         {@const eff = effective[scale.id]}
@@ -137,14 +147,15 @@
           <label>Palette
             <span class="cmapctl">
               <button type="button" class="cmapbtn" title="Browse every colormap fluxplot ships" aria-label={`${scale.id} colormap`} disabled={!scale.editable?.cmap}
-                on:click={() => (picking = picking === scale.id ? null : scale.id)}>
+                class:target={target?.id === scale.id && scales.length > 1}
+                on:click={() => (picking = layout === "wide" ? scale.id : picking === scale.id ? null : scale.id)}>
                 <span class="cmapbar" style={`background:${gradientOf(scale)}`}></span>
               </button>
               <input on:keydown|stopPropagation value={cmapName(scale)} spellcheck="false" aria-label={`${scale.id} palette`} disabled={!scale.editable?.cmap}
                 on:change={(e) => typedMap(scale.id, e.currentTarget.value)} />
             </span>
           </label>
-          {#if picking === scale.id}
+          {#if picking === scale.id && layout !== "wide"}
             <div class="cmappick">
               <ColormapPicker mode="map" value={cmapName(scale)} onPick={(name) => void pickMap(scale.id, name)} onCancel={() => (picking = null)} />
             </div>
@@ -204,6 +215,16 @@
           <label>Maximum <input on:keydown|stopPropagation type="number" step="any" bind:value={legacy[key].max} placeholder="Auto" aria-label={`${key} maximum`} /></label>
         </fieldset>
       {/each}
+      </div>
+      {#if target}
+        <div class="palette-pane" data-color-scale-palette={target.id}>
+          {#if scales.length > 1}<div class="pane-head">Palette · {describeScale(target)}</div>{/if}
+          {#key target.id}
+            <ColormapPicker mode="map" value={cmapName(target)} autofocus={false} onPick={(name) => void pickMap(target.id, name)} onCancel={() => onClose?.()} />
+          {/key}
+        </div>
+      {/if}
+      <div class="notes">
       {#if scales.length}
         <p>Edits show live. Apply to source rewrites the recipe's colour controls and regenerates the plot and its key from the data.</p>
       {:else}
@@ -216,6 +237,7 @@
         </button>
         {#if status && !busy}<span class="status" role="status">{status}</span>{/if}
       </div>
+      </div>
     </form>
   </details>
 {/if}
@@ -227,12 +249,17 @@
   .compact summary { display: none; }
   fieldset { border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); display: grid; gap: 6px; margin: 6px 0; padding: 8px; }
   legend { font: 10px var(--font-mono); color: var(--c-tx-muted); padding: 0 4px; }
-  label { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  /* Every row fits its column: nothing scrolls sideways or pokes past its
+     highlight (owner inbox 2026-09-30). */
+  form { min-width: 0; }
+  .controls, .notes { min-width: 0; }
+  label { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; }
   label.inline { justify-content: flex-start; gap: 6px; }
   input, select { color: inherit; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); padding: 3px 4px; font: 11px var(--font-mono); }
   input[type="checkbox"] { width: auto; }
-  .cmapctl { display: flex; align-items: center; gap: 6px; }
-  .cmapctl input { width: 118px; }
+  .cmapctl { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; justify-content: flex-end; max-width: 260px; }
+  .cmapctl input { flex: 1 1 auto; width: 0; min-width: 60px; }
+  .cmapbtn.target { border-color: var(--c-accent); }
   .cmapbtn { width: 56px; height: 22px; padding: 2px; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); }
   .cmapbar { display: block; width: 100%; height: 100%; border-radius: 2px; }
   .cmappick { margin: 2px 0 6px; padding: 6px; border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); }
@@ -243,4 +270,10 @@
   .actions { display: flex; align-items: center; gap: 8px; }
   p { color: var(--c-tx-muted); margin: 4px 0; }
   [role="alert"] { color: #f4a5a5; }
+  /* Wide: controls with their notes beneath | the always-open palette list. */
+  .wide form { display: grid; grid-template-columns: minmax(240px, 0.85fr) minmax(300px, 1.15fr); grid-template-rows: auto 1fr; column-gap: 14px; align-items: start; }
+  .wide .controls, .wide .notes { grid-column: 1; }
+  .wide .palette-pane { grid-column: 2; grid-row: 1 / span 2; min-width: 0; margin-top: 6px; }
+  .wide .palette-pane :global(.list) { max-height: min(52vh, 560px); }
+  .pane-head { font: 10px var(--font-mono); color: var(--c-tx-muted); margin-bottom: 4px; }
 </style>

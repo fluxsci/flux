@@ -12,6 +12,33 @@
   export let elementId: string;
   export let axis: 'x' | 'y' | 'y2' | 'x2' | undefined = undefined;
   export let autofocus = false;
+  /** Armed from the property menu (f, then v/b): the wheel adjusts the focused
+   *  limit wherever the mouse is, Space accepts min → max → done, Enter is done. */
+  export let armed = false;
+  export let onDone: (() => void) | undefined = undefined;
+  const limitFields: NumberField[] = [];
+  let limitSlots: { key: string; end: number }[] = [];
+  $: limitSlots = (usable && defaults ? (axis ? [axis] : plotAxisKeys(manifest)) : []).flatMap(key => [0, 1].map(end => ({ key, end })));
+  function focusedLimit(): number {
+    const inputs = [...(host?.querySelectorAll<HTMLInputElement>('[data-axis-view-row] input') ?? [])];
+    return inputs.indexOf(document.activeElement as HTMLInputElement);
+  }
+  function onWinWheel(e: WheelEvent) {
+    if (!armed) return;
+    const i = focusedLimit();
+    if (i < 0 || !limitFields[i]) return;
+    e.preventDefault();
+    e.stopPropagation(); // the canvas must not zoom, the menu body must not scroll
+    limitFields[i].wheelBy(e);
+  }
+  async function advance(key: string, end: number) {
+    if (end === 0) {
+      await tick();
+      const input = host?.querySelectorAll<HTMLInputElement>(`[data-axis-view-row="${key}"] input`)[1];
+      if (input && !input.disabled) { input.focus(); input.select(); return; }
+    }
+    onDone?.();
+  }
   let host: HTMLDivElement;
   let error = '';
   const session = editSession();
@@ -48,6 +75,8 @@
   function choose(fields: PlotViewFields) { session.run(() => apply(fields)); session.finish(); }
 </script>
 
+<svelte:window on:wheel|capture|nonpassive={onWinWheel} />
+
 <div class="axis-view" data-axis-view bind:this={host}>
   {#if !axis}<div class="heading">Axis view</div>{/if}
   {#if usable && defaults}
@@ -55,7 +84,9 @@
       <div class="axis-row" data-axis-view-row={key}>
         <span class="axis-name" title={key === 'y2' ? 'the right (twin) value axis' : key === 'x2' ? 'the top (twin) value axis' : undefined}>{key}</span>
         {#each [0, 1] as end}
-          <NumberField label={end ? 'max' : 'min'} title={`${key} ${end ? 'max' : 'min'} (data units)`}
+          <NumberField bind:this={limitFields[limitSlots.findIndex(s => s.key === key && s.end === end)]} advanceOnSpace={armed}
+            on:advance={() => advance(key, end)} on:done={() => onDone?.()}
+            label={end ? 'max' : 'min'} title={`${key} ${end ? 'max' : 'min'} (data units)`}
             value={plot?.view?.[key]?.domain?.[end] ?? axisOf(key)?.domain?.[end] ?? 0}
             empty={!plot?.view?.[key]?.domain || plot.view[key]!.domain![end] === axisOf(key)?.domain?.[end]}
             placeholder={axisOf(key)?.domain ? String(axisOf(key)!.domain[end]) : "Unavailable"} step={stepFor(axisOf(key)?.domain)} live optional

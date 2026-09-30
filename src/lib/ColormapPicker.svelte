@@ -155,6 +155,7 @@
   <div class="list">
     {#each groups as g (g.type)}
       <div class="gtitle">{g.type}<span class="gcount">{g.maps.length}</span></div>
+      <div class="maps">
       {#each g.maps as m (m.name)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div class="cm" class:cur={m === selected} role="option" tabindex="-1" aria-selected={m === selected} data-map={m.name} title={qualifiedName(collection, m)}
@@ -163,6 +164,7 @@
           <span class="nm">{m.name}{#if m.family}<span class="fam">{m.family}</span>{/if}</span>
         </div>
       {/each}
+      </div>
     {/each}
   </div>
   <div class="foot">
@@ -202,7 +204,15 @@
   .gbtn { height: 20px; padding: 0 8px; background: var(--c-bg-2); border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-2); font: 11px var(--font-serif); white-space: nowrap; }
   .gbtn b { font: 600 10.5px var(--font-mono); color: var(--c-tx-hi); }
   .gbtn:hover { border-color: var(--c-accent); color: var(--c-tx-hi); background: var(--c-accent-tint); }
-  .list { display: flex; flex-direction: column; gap: 1px; max-height: min(56vh, 620px); overflow-y: auto; padding-right: 2px; }
+  /* The list uses the width its host gives it: once there is room for two
+     readable bars it flows each group into two columns (column-major, so ↓
+     still walks down), halving the scrolling (owner inbox 2026-09-30). */
+  .list { display: flex; flex-direction: column; gap: 1px; max-height: min(56vh, 620px); overflow-y: auto; padding-right: 2px; container-type: inline-size; }
+  .maps { display: flex; flex-direction: column; gap: 1px; }
+  @container (min-width: 420px) {
+    .maps { display: block; columns: 2; column-gap: 14px; }
+    .maps .cm { break-inside: avoid; margin-bottom: 1px; }
+  }
   .gtitle { display: flex; flex-shrink: 0; align-items: center; gap: 8px; font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); padding: 8px 4px 3px; border-bottom: 1px solid var(--c-line); margin-bottom: 2px; }
   .gtitle:first-child { padding-top: 2px; }
   .gcount { color: var(--c-tx-faint); font-weight: 400; }

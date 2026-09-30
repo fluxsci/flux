@@ -44,7 +44,9 @@
   import { scene3dManifests } from "./model3d/store";
   import type { Element as FluxElement, Figure } from "./types";
 
-  type Mode = "hotkey" | "field" | "option" | "color" | "search";
+  // "wide": a field that needs room (the colour scale) owns the whole body,
+  // the way "color" gives it to the colour picker.
+  type Mode = "hotkey" | "field" | "option" | "color" | "search" | "wide";
 
   const session = editSession();
   onDestroy(() => session.finish());
@@ -52,6 +54,9 @@
   let mode: Mode = "hotkey";
   let activeKey: string | null = null;
   let colorField: Field | null = null;
+  let wideField: Field | null = null;
+  let vw = typeof window === "undefined" ? 1600 : window.innerWidth;
+  let vh = typeof window === "undefined" ? 1000 : window.innerHeight;
   let draft = "";
   let optIndex = 0;
   let search = "";
@@ -64,8 +69,19 @@
   // data changes (the global style library too — it feeds the style fields).
   $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles, $scene3dManifests) : [];
   $: groups = groupFields(fields);
-  $: cols = fields.length > 18 ? 3 : fields.length > 8 ? 2 : 1;
-  $: width = mode === "color" ? 620 : cols === 3 ? 664 : cols === 2 ? 452 : 240;
+  // Columns by row count, plus one more whenever the rows (~46px each) would not
+  // fit the window's height — as far as the window's width allows.
+  $: cols = menuColumns(fields.length, vw, vh);
+  function menuColumns(n: number, w: number, h: number): 1 | 2 | 3 {
+    const byCount = n > 18 ? 3 : n > 8 ? 2 : 1;
+    const byHeight = Math.ceil((n * 46) / Math.max(200, h - 160));
+    const fit = w >= 680 ? 3 : w >= 468 ? 2 : 1;
+    return Math.min(fit, Math.max(byCount, byHeight)) as 1 | 2 | 3;
+  }
+  // The panel sizes to what it shows — a column per ~8 rows, the colour picker's
+  // 620, the colour-scale view's 780 (controls beside an always-open palette
+  // list) — and never past the window (owner inbox 2026-09-30).
+  $: width = Math.max(240, Math.min(mode === "color" ? 620 : mode === "wide" ? 780 : cols === 3 ? 664 : cols === 2 ? 452 : 240, vw - 16));
   $: sQ = search.trim().toLowerCase();
   $: sResults = sQ ? fields.filter((f) => `${f.label} ${f.group} ${f.key}`.toLowerCase().includes(sQ)) : fields;
   $: if (sIndex >= sResults.length) sIndex = Math.max(0, sResults.length - 1);
@@ -205,6 +221,7 @@
     mode = "hotkey";
     activeKey = null;
     colorField = null;
+    wideField = null;
     search = "";
     sIndex = 0;
     wheel.reset();
@@ -247,6 +264,17 @@
       colorField = f;
       activeKey = f.key;
       mode = "color";
+      return;
+    }
+    if (f.kind === "colorScale") {
+      wideField = f;
+      activeKey = f.key;
+      mode = "wide";
+      // The palette list takes the keyboard: ↑↓ walk, Enter applies, Esc goes back.
+      void tick().then(() => {
+        if (mode !== "wide") return;
+        (panelEl?.querySelector<HTMLElement>(".palette-pane .cmp") ?? panelEl)?.focus({ preventScroll: true });
+      });
       return;
     }
     if (f.kind === "toggle" || f.kind === "action") {
@@ -302,6 +330,7 @@
     mode = "hotkey";
     activeKey = null;
     colorField = null;
+    wideField = null;
     setDimensionBase(null);
     focusPanel();
   }
@@ -331,7 +360,7 @@
     wheelField(e, active);
   }
   function onWheel(e: WheelEvent) {
-    if (mode === "color" || mode === "search") return;
+    if (mode === "color" || mode === "search" || mode === "wide") return;
     let f: Field | null = null;
     if ((mode === "field" || mode === "option") && active) f = active;
     else {
@@ -423,6 +452,15 @@
       if (lk === "f") { e.preventDefault(); confirmField(); close(); }
       return;
     }
+    if (mode === "wide") {
+      // Controls inside own their keys (a limit's Escape reverts it; the palette
+      // list's Escape comes back through onClose); from anywhere else Escape
+      // returns to the menu and f closes it.
+      if (typing) return;
+      if (k === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); backToHotkey(); return; }
+      if (lk === "f") { e.preventDefault(); e.stopImmediatePropagation(); close(); return; }
+      return;
+    }
     if (active?.kind === "axisView" && !typing && (k === "Escape" || lk === "f")) {
       e.preventDefault(); e.stopImmediatePropagation(); confirmField(); return;
     }
@@ -464,7 +502,7 @@
   };
 </script>
 
-<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:resize={resizePlacement} on:wheel|capture|nonpassive={onWinWheel} />
+<svelte:window bind:innerWidth={vw} bind:innerHeight={vh} on:keydown={onWin} on:pointermove={onPointerMove} on:resize={resizePlacement} on:wheel|capture|nonpassive={onWinWheel} />
 
 {#if $fluxFigMenuOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -501,8 +539,15 @@
         </div>
 
         {#if fields.some(f => f.hint)}<p class="part-mode-note">{fields.find(f => f.hint)?.hint}</p>{/if}
-        <div class="body" class:cols2={mode !== "color" && cols === 2} class:cols3={mode !== "color" && cols === 3}>
-          {#if mode === "color" && colorField}
+        <div class="body" class:cols2={mode !== "color" && mode !== "wide" && cols === 2} class:cols3={mode !== "color" && mode !== "wide" && cols === 3}>
+          {#if mode === "wide" && wideField?.colorScale}
+            <div class="color-mode wide-mode">
+              <div class="cm-head"><span class="hk">{wideField.key}</span> {wideField.label}<button class="back" on:click={backToHotkey} title="Back to the properties (Esc)">← back <span class="hk">esc</span></button></div>
+              {#await import("./plot/ColorScaleControls.svelte") then module}
+                <svelte:component this={module.default} elementId={wideField.colorScale.elementId} compact layout="wide" onClose={backToHotkey} />
+              {/await}
+            </div>
+          {:else if mode === "color" && colorField}
             <div class="color-mode">
               <div class="cm-head"><span class="hk">{colorField.key}</span> {colorField.label}</div>
               <ColorPicker target={colorField.target ?? "fill"} allowNone={colorField.label !== "text color" && colorField.label !== "text colour"} onDone={backToHotkey} onCancel={backToHotkey} />
@@ -547,15 +592,11 @@
                       {:else if f.kind === "axisView" && f.axisView}
                         {#if armed}
                           {#await import("./plot/AxisView.svelte") then module}
-                            <svelte:component this={module.default} {...f.axisView} autofocus />
+                            <svelte:component this={module.default} {...f.axisView} autofocus armed onDone={confirmField} />
                           {/await}
                         {:else}<button class="actbtn" on:click={() => activate(f)}>Edit…</button>{/if}
                       {:else if f.kind === "colorScale" && f.colorScale}
-                        {#if armed}
-                          {#await import("./plot/ColorScaleControls.svelte") then module}
-                            <svelte:component this={module.default} elementId={f.colorScale.elementId} compact />
-                          {/await}
-                        {:else}<button class="actbtn" on:click={() => activate(f)}>Edit…</button>{/if}
+                        <button class="actbtn" on:click={() => activate(f)}>Edit…</button>
                       {:else if f.kind === "action"}
                         <button class="actbtn" on:click={() => activate(f)}>run</button>
                       {:else if f.kind === "select"}
@@ -613,10 +654,18 @@
         </div>
 
         <div class="foot">
-          <span><b class="hk">s</b> search</span>
-          <span><b class="hk">f</b>/esc close</span>
-          <span><b class="hk">↕</b> wheel adjusts</span>
-          <span><b class="hk">␣</b> applies</span>
+          {#if mode === "wide"}
+            <span><b class="hk">↑↓</b> walk palettes</span>
+            <span><b class="hk">↵</b> applies</span>
+            <span><b class="hk">r</b> reverse</span>
+            <span><b class="hk">esc</b> back</span>
+            <span><b class="hk">f</b> close</span>
+          {:else}
+            <span><b class="hk">s</b> search</span>
+            <span><b class="hk">f</b>/esc close</span>
+            <span><b class="hk">↕</b> wheel adjusts</span>
+            <span><b class="hk">␣</b> applies</span>
+          {/if}
         </div>
       </div>
     </div>
@@ -708,6 +757,8 @@
   .opt.cur .ok { color: var(--c-accent); }
   .color-mode { padding: 6px 4px 8px; }
   .cm-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-tx); margin-bottom: 8px; }
+  .cm-head .back { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-muted); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .cm-head .back:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); }
   .results { padding: 2px 0 6px; }
   .res { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; height: 26px; padding: 0 6px; cursor: var(--cursor-cross-hover); }
   .res.active { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); color: var(--c-tx-hi); }

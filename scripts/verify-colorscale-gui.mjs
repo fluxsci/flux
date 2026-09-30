@@ -146,9 +146,49 @@ try {
   await waitFor(page, s => !!document.querySelector(s), M.max);
   await type('10', M.max); await page.keyboard.press('Enter'); await waitForFrame(page);
   h.eq((await model()).cs?.rates?.norm?.vmax, 10, 'the F-menu edits through the same control');
+  // Owner inbox 2026-09-30: the colour scale gets the whole menu, which widens
+  // to fit it (controls beside an always-open palette list); nothing scrolls sideways.
+  const wide = await page.evaluate(() => { const m = document.querySelector('.fluxFigMenu'), b = m.querySelector('.body'), r = m.getBoundingClientRect(); return { w: r.width, inView: r.left >= 0 && r.right <= innerWidth, hscroll: b.scrollWidth > b.clientWidth + 1, pane: !!m.querySelector('.palette-pane .cmp'), rows: m.querySelectorAll('.field').length }; });
+  h.ok(wide.w >= 700 && wide.inView && !wide.hscroll, `the colour-scale view widens the menu on screen with no sideways scroll (${Math.round(wide.w)}px)`);
+  h.ok(wide.pane && wide.rows === 0, 'the palette list is open beside the controls, which own the whole body');
+  const cols = await page.$eval('.fluxFigMenu .palette-pane .maps', n => getComputedStyle(n).columnCount);
+  h.eq(cols, '2', 'a wide palette list flows into two columns');
+  const beforePick = (await model()).history;
+  await page.evaluate(() => [...document.querySelectorAll('.fluxFigMenu .palette-pane .cm')].find(n => n.dataset.map === 'plasma')?.click()); // the regenerated source is magma already
+  await waitFor(page, () => /plasma/.test(document.querySelector('.fluxFigMenu input[aria-label="rates palette"]')?.value ?? ''), null, { label: 'palette applied from the open list' });
+  h.eq((await model()).history, beforePick + 1, 'one click in the always-open list applies a palette, one undo');
+  h.ok(!!(await page.$('.fluxFigMenu .palette-pane .cmp')), '…and the list stays open for the next try');
+  await page.focus('.fluxFigMenu .palette-pane .cmp'); await page.keyboard.press('Escape');
+  await waitFor(page, () => document.querySelectorAll('.fluxFigMenu .field').length > 0);
+  h.ok(!(await page.$('.fluxFigMenu .palette-pane')), 'Escape returns to the property rows');
+  await page.setViewport({ width: 700, height: 900 });
+  await page.keyboard.press(key);
+  await waitFor(page, () => !!document.querySelector('.fluxFigMenu .palette-pane'));
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const narrow = await page.evaluate(() => { const r = document.querySelector('.fluxFigMenu').getBoundingClientRect(); return { right: r.right, w: r.width }; });
+  h.ok(narrow.right <= 700 && narrow.w <= 684, `on a narrow window the view stays inside it (${Math.round(narrow.w)}px)`);
+  await page.setViewport({ width: 1500, height: 1000 });
+  await page.keyboard.press('Escape');
   mkdirSync('test-results/colorscale', { recursive: true });
   await page.screenshot({ path: 'test-results/colorscale/figure-menu.png' });
   await page.evaluate(() => document.activeElement?.blur()); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+
+  // The X-ray widens while a palette is being chosen, then gives the room back.
+  await waitFor(page, () => !document.querySelector('.fluxFigMenu'));
+  await page.evaluate(() => { const F = window.__flux, fig = F.get(F.fig.project).figures.find(f => f.elements.some(e => e.id === 'cs-plot')); F.fig.xrayRoot.set({ kind: 'element', figId: fig.id, elementId: 'cs-plot' }); F.fig.xrayOpen.set(true); });
+  await waitFor(page, () => !!document.querySelector('.xray.placed .color-scales'));
+  await page.evaluate(() => { const d = document.querySelector('.xray .color-scales'); if (!d.open) d.querySelector('summary').click(); });
+  const xrayW = () => page.$eval('.xray', n => Math.round(n.getBoundingClientRect().width));
+  const restW = await xrayW();
+  await page.click('.xray .cmapbtn'); await waitFor(page, () => !!document.querySelector('.xray .cmappick .cmp'));
+  const openW = await xrayW();
+  h.ok(openW >= 600 && openW > restW, `the X-ray widens for the palette list (${restW} → ${openW}px)`);
+  h.eq(await page.$eval('.xray .cmappick .maps', n => getComputedStyle(n).columnCount), '2', '…which flows into two columns there');
+  h.ok(await page.$eval('.xray .srcline', n => n.getBoundingClientRect().height >= 12), 'the X-ray header rows keep their height beside a tall colour-scale block');
+  await page.focus('.xray .cmappick .cmp'); await page.keyboard.press('Escape');
+  await waitFor(page, () => !document.querySelector('.xray .cmappick'));
+  h.eq(await xrayW(), restW, 'closing the list returns the X-ray to its width');
+  await page.evaluate(() => window.__flux.fig.xrayOpen.set(false));
 
   // Slide: an "Edit after step" writes state.colorScale on a Change; the ruler scrubs colours
   await seed('Slide');
