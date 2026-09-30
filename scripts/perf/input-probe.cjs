@@ -208,7 +208,10 @@ async function measure(label, run, traceName) {
   if (qualify) assertWindow(win, [await js("({visible:document.visibilityState,focused:document.hasFocus()})")]);
   ipcLedger.clear(); await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
   if (traceName) await contentTracing.startRecording({ included_categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing', 'cc', 'input', 'ui', 'viz', 'gpu', 'toplevel', 'latencyInfo', 'benchmark', ...(process.env.PROBE_INVALIDATION === '1' ? ['disabled-by-default-devtools.timeline.invalidationTracking', 'disabled-by-default-blink.invalidation'] : [])], excluded_categories: ['*'] });
+  const prof = cdpOk && (process.env.PROBE_PROFILE || '').split(',').includes(label.split(':').pop());
+  if (prof) { await win.webContents.debugger.sendCommand('Profiler.enable'); await win.webContents.debugger.sendCommand('Profiler.setSamplingInterval', { interval: 100 }); await win.webContents.debugger.sendCommand('Profiler.start'); }
   await run();
+  if (prof) { const { profile } = await win.webContents.debugger.sendCommand('Profiler.stop'); fs.writeFileSync(path.join(out, `profile-${label.replace(/[^a-z0-9]+/gi, '-')}.cpuprofile`), JSON.stringify(profile)); }
   const wallMs = Date.now() - t0; const cpu = cpuSnapshot(); const m1 = await cdpMetrics();
   let trace = null; if (traceName) trace = await contentTracing.stopRecording(path.join(out, traceName + '.json'));
   const r = await js('window.__p.stop()');
