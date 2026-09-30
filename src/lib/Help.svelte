@@ -142,7 +142,7 @@
             ["Alt + M / L", "Figure-Meta / mark panel label"],
             ["Shift + Alt + M / G", "Pin Figure-Meta / Plot gallery"],
             ["⌃⇧K", "Import PNG/SVG files"],
-            ["Alt + G / R", "Plot gallery / X-ray (⇧ or ⌃-click picks several rows; a animates them in Slide)"],
+            ["Alt + G / R", "Plot gallery / X-ray (⇧/⌃-click or drag picks rows; a siblings, Alt+A all results, f properties, m animates in Slide)"],
             ["Alt + 1 / 2", "In the Plot gallery: project plots / global plot library"],
             ["⌃ + S", "Save"],
           ],

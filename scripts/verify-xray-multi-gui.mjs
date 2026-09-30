@@ -6,7 +6,9 @@
 //     x hides it on all of them, x again shows all
 //   · Shift+click picks a run of part rows; x hides the pick; Enter opens the
 //     property menu for the whole pick (and Escape closes only the menu)
-//   · in Slide mode `a` offers Appear/Emphasize/Disappear/Change; `1` lands
+//   · f opens properties like Enter; Alt+A picks every search result; `a` adds
+//     counterpart parts, then siblings; a press-and-sweep picks a range
+//   · in Slide mode `m` offers Appear/Emphasize/Disappear/Change; `1` lands
 //     one appearance per picked target on the timeline and closes the X-ray
 //   Run (dev server on :1420): node scripts/verify-xray-multi-gui.mjs
 import { readFileSync } from "node:fs";
@@ -163,6 +165,46 @@ try {
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
   ok(!!(await page.$(".xray")), "Escape closes the menu, the X-ray stays");
+  // --- 3b. owner inbox 2026-09-30: f = Show Properties, Alt+A = every result, a = siblings,
+  // press-and-sweep picks a range (Ctrl/⌘ at the press adds) ---------------------------------
+  await page.keyboard.press("f");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu"), null, { label: "f opens the property menu" });
+  ok(!!(await page.$(".xray")), "f opens the property menu for the pick, like Enter, over the X-ray");
+  await page.keyboard.press("Escape");
+  await waitForGone(page, ".fluxFigMenu");
+  await page.click(".xray .search-in"); await page.type(".xray .search-in", "Tick marks");
+  await waitFor(page, () => document.querySelectorAll('.xray .row[data-kind="part"]').length >= 4, null, { label: "tick search results" });
+  await page.keyboard.down("Alt"); await page.keyboard.press("KeyA"); await page.keyboard.up("Alt");
+  await waitFor(page, () => document.activeElement?.classList.contains("xray"), null, { label: "Alt+A returns to the tree" });
+  const want = ["xm-a:axis.x.ticks", "xm-a:axis.y.ticks", "xm-b:axis.x.ticks", "xm-b:axis.y.ticks"];
+  ps = [...new Set(await parts())];
+  ok(ps.length === 4 && want.every((p) => ps.includes(p)), `Alt+A in search picks every result (${ps.join(", ")})`);
+  const xTicks = await page.evaluate(() => [...document.querySelectorAll('.xray .row[data-kind="part"]')].find((r) => r.dataset.rid.includes("xm-a") && r.dataset.rid.includes("axis.x.ticks"))?.dataset.rid);
+  await page.evaluate((rid) => document.querySelector(`.xray .row[data-rid="${rid}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })), xTicks);
+  await page.keyboard.press("Backspace"); // clears the search: the full tree
+  await page.keyboard.press("a");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 2, null, { label: "a picks the counterpart" });
+  ps = await parts();
+  ok(ps.includes("xm-a:axis.x.ticks") && ps.includes("xm-a:axis.y.ticks"), `a adds the counterpart part under the sibling axis (${ps.join(", ")})`);
+  await page.keyboard.press("a");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length > 2, null, { label: "a again widens to siblings" });
+  ps = await parts();
+  ok(ps.includes("xm-a:axis.x.tick-labels") && ps.includes("xm-a:axis.y.gridlines") && ps.every((p) => p.startsWith("xm-a:axis.")), `a again takes every sibling under both axes (${ps.length})`);
+  const labelBox = (i) => page.evaluate((n) => { const r = document.querySelectorAll(".xray .row")[n].querySelector(".rlabel").getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, i);
+  const sweep = async (from, to, additive = false) => {
+    const a = await labelBox(from), b = await labelBox(to);
+    if (additive) await page.keyboard.down("Control");
+    await page.mouse.move(a.x, a.y); await page.mouse.down();
+    await page.mouse.move(b.x, (a.y + b.y) / 2, { steps: 4 }); await page.mouse.move(b.x, b.y, { steps: 4 });
+    await page.mouse.up();
+    if (additive) await page.keyboard.up("Control");
+  };
+  await sweep(0, 2);
+  ok(await page.$$eval(".xray .row.sel", (r) => r.length) === 3, "a press-and-sweep over three rows picks exactly those three");
+  await sweep(4, 5, true);
+  ok(await page.$$eval(".xray .row.sel", (r) => r.length) === 5, "a Ctrl-held second sweep adds its rows to the pick");
+  await sweep(1, 1);
+  ok(await page.$$eval(".xray .row.sel", (r) => r.length) === 1, "a plain click (no sweep) still picks one row");
   const animFig = await page.evaluate(() => document.querySelector(".xray .animbtn")?.disabled);
   ok(animFig === true, "Animate selected is greyed out in Figure mode");
   await page.keyboard.press("Escape");
@@ -209,9 +251,9 @@ try {
   await sleep(100);
   const animSlide = await page.evaluate(() => document.querySelector(".xray .animbtn")?.disabled);
   ok(animSlide === false, "Animate selected is live in Slide mode once rows are picked");
-  await page.keyboard.press("a");
+  await page.keyboard.press("m");
   await sleep(150);
-  ok(await page.evaluate(() => !!document.querySelector(".xray .animmenu")), "a opens the animate chooser");
+  ok(await page.evaluate(() => !!document.querySelector(".xray .animmenu")), "m opens the animate chooser (a is select-siblings)");
   ok(await page.$$eval('.xray .am', els => els.some(e => e.textContent.includes('5') && e.textContent.includes('Appear from…'))), "X-ray always offers 5 Appear from in Slide mode");
   ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become'))), "X-ray has no Become item while no Become is armed");
   await page.keyboard.press("1");
@@ -240,7 +282,7 @@ try {
   await clickRow("common", "X axis");
   await clickRow("part", "X axis", { metaKey: true });
   await page.$eval('.xray', (el) => el.focus());
-  await page.keyboard.press('a');
+  await page.keyboard.press('m');
   await waitFor(page, () => document.querySelector('.xray .am-ttl')?.textContent.includes('2 targets'));
   const beforeDuplicate = await page.evaluate(() => window.__flux.slide.currentDeck().slides.flatMap((s) => s.beats.flatMap((b) => b.tracks)).length);
   await page.keyboard.press('2');
@@ -256,7 +298,7 @@ try {
   await page.mouse.move(plotBox.x,plotBox.y);
   await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');
   await waitFor(page, () => document.activeElement?.classList.contains('xray'));
-  await clickRow('part','X axis');await page.keyboard.press('a');
+  await clickRow('part','X axis');await page.keyboard.press('m');
   await waitFor(page, () => !!document.querySelector('.xray .animmenu'));
   ok(await page.$$eval('.xray .am', els => els.some(e => e.textContent.includes('b') && e.textContent.includes('Become'))), 'armed X-ray offers b Become');
   ok(await page.$eval('.xray .am-ttl', el => el.textContent.includes('becomes…')), 'armed X-ray menu header names a waiting source');
@@ -264,7 +306,7 @@ try {
   await page.evaluate(() => window.__flux.fig.selectOnly('xm-t'));
   await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');
   await waitFor(page, () => document.activeElement?.classList.contains('xray'));
-  await clickRow('part','X axis');await page.keyboard.press('a');
+  await clickRow('part','X axis');await page.keyboard.press('m');
   await waitFor(page, () => !!document.querySelector('.xray .animmenu'));
   ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become')) && els.some(e => e.textContent.includes('Appear from…'))), 'cancelling removes b while preserving 5');
 

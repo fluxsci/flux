@@ -14,7 +14,10 @@
   // on that row's node "as if x-rayed alone" (breadcrumb + Backspace pop the
   // root stack). Eye / 'x' dispatch per row kind: part → id-keyed override,
   // element → hidden flag, group → GroupDef eye, common → every plot's override.
-  // In Slide mode, 'a' animates the pick (Appear / Emphasize / Disappear /
+  // 'a' widens the pick to its siblings (counterpart parts first), Alt+A picks
+  // every search result, a press-and-sweep over rows picks a range (Ctrl/⌘ at
+  // the press adds to the pick), and F — like Enter — shows properties.
+  // In Slide mode, 'm' animates the pick (Appear / Emphasize / Disappear /
   // Change) straight onto the timeline. Regenerate stays, gated on a
   // recipe-backed plot root. Always dark — an x-ray screen by nature — but flat:
   // no scanlines, no glow, no boot flicker; it opens beside the selection.
@@ -436,6 +439,74 @@
     applySelection(rows.map((r) => r.node).filter((n) => n.kind !== "set"));
   }
 
+  /** The parent of every row id in the tree (common rows are top-level: no parent). */
+  function parentsOf(t: XRow | null): Map<string, XRow> {
+    const out = new Map<string, XRow>();
+    const walk = (n: XRow) => { for (const c of n.children) { out.set(c.id, n); walk(c); } };
+    if (t) walk(t);
+    return out;
+  }
+  /** 'a' — widen the pick to its siblings. First press: the SAME part under each
+   *  sibling of its parent (X axis › Tick marks → Y axis › Tick marks too), so one
+   *  key reaches the counterpart parts. When that adds nothing (already there, or
+   *  no counterparts), the press takes every row under the same parent instead. */
+  function pickSiblings() {
+    const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
+    if (!picked.length) return;
+    const parent = parentsOf(tree);
+    const have = new Set(picked.map((n) => n.id));
+    const counterparts = new Set(have);
+    for (const n of picked) {
+      const p = parent.get(n.id), g = p && parent.get(p.id);
+      for (const aunt of g?.children ?? []) for (const c of aunt.children) if (c.role === n.role && c.label === n.label && c.kind === n.kind) counterparts.add(c.id);
+    }
+    let next = counterparts;
+    if (next.size === have.size) {
+      next = new Set(have);
+      for (const n of picked) for (const c of parent.get(n.id)?.children ?? []) next.add(c.id);
+    }
+    if (next.size === have.size) return;
+    for (const id of next) revealAncestors(id, parent);
+    selectedIds = next;
+    selectedId ??= picked[0].id;
+    applySelection([...next].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r));
+  }
+  function revealAncestors(id: string, parent: Map<string, XRow>) {
+    for (let p = parent.get(id); p; p = parent.get(p.id)) expanded.add(p.id);
+    expanded = expanded;
+  }
+
+  // --- drag-select: press on a row and sweep; Ctrl/⌘ at the press adds to the pick --------
+  let sweep: { startId: string; base: Set<string>; moved: boolean } | null = null;
+  let sweepClickGuard = false;
+  function onRowPointerDown(e: PointerEvent, n: XRow) {
+    if (e.button !== 0 || e.shiftKey || (e.target as HTMLElement).closest("button")) return;
+    sweep = { startId: n.id, base: e.ctrlKey || e.metaKey ? new Set(selectedIds) : new Set(), moved: false };
+  }
+  function onRowPointerEnter(e: PointerEvent, n: XRow) {
+    if (!sweep || !(e.buttons & 1)) return;
+    // Chrome delivers a boundary event late when rows re-render under a still
+    // pointer (a search filter): entering the pressed row itself is not a sweep.
+    if (!sweep.moved && n.id === sweep.startId) return;
+    const ids = rows.map((r) => r.node.id);
+    const a = ids.indexOf(sweep.startId), b = ids.indexOf(n.id);
+    if (a < 0 || b < 0) return;
+    sweep.moved = true;
+    const next = new Set(sweep.base);
+    for (const id of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) if (!id.startsWith("set:")) next.add(id);
+    selectedIds = next;
+    selectedId = n.id;
+    anchorId = sweep.startId;
+    applySelection([...next].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r));
+  }
+  function onSweepEnd() {
+    // The click that ends a sweep must not re-pick one row. It fires in this same
+    // task only when the press and release share a row; otherwise it lands on
+    // the tree, so the guard never outlives this task.
+    if (sweep?.moved) { sweepClickGuard = true; setTimeout(() => (sweepClickGuard = false)); }
+    sweep = null;
+  }
+
   // --- Show Properties: the pick → property menu ON TOP --------------------------------
   function showProperties() {
     const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
@@ -601,6 +672,7 @@
   }
 
   function onRowClick(e: MouseEvent, n: XRow) {
+    if (sweepClickGuard) { sweepClickGuard = false; return; }
     if (e.detail > 1) return; // the dblclick handler re-roots
     pick(n, e);
   }
@@ -626,7 +698,7 @@
     if (animMenu) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (k === "Escape" || lk === "a") { animMenu = false; return; }
+      if (k === "Escape" || lk === "m") { animMenu = false; return; }
       const opt = animOptions.find((o) => o.key === k);
       if (opt) animate(opt.kind);
       return;
@@ -643,16 +715,31 @@
       enterSearch();
       return;
     }
-    if (mod && lk === "a") {
+    // Ctrl/⌘+A picks every row; Alt+A picks every search result (the rows
+    // shown, which after a search ARE the results — same pick, search-first name).
+    if ((mod && lk === "a") || (e.altKey && e.code === "KeyA")) {
       e.preventDefault();
       e.stopImmediatePropagation();
       pickAll();
       return;
     }
-    if (lk === "a" && canAnimate) {
+    if (lk === "a" && !mod && !e.altKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      pickSiblings();
+      return;
+    }
+    if (lk === "m" && !mod && !e.altKey && canAnimate) {
       e.preventDefault();
       e.stopImmediatePropagation();
       if (pickedRows.length || selRow) animMenu = true;
+      return;
+    }
+    // F opens the property menu for the pick, exactly like Enter (the F-menu's own key).
+    if (lk === "f" && !mod && !e.altKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      showProperties();
       return;
     }
     if (lk === "v" && axisFor(selRow)) { e.preventDefault(); e.stopImmediatePropagation(); showAxisView(selRow); return; }
@@ -690,6 +777,10 @@
       e.preventDefault();
       search = "";
       backToTree();
+    } else if (e.altKey && e.code === "KeyA" && rows.length) {
+      e.preventDefault();
+      pickAll();
+      backToTree();
     } else if (e.key === "Enter" && rows[0]) {
       e.preventDefault();
       pick(rows[selectedId ? Math.max(0, rows.findIndex((r) => r.node.id === selectedId)) : 0]?.node ?? rows[0].node);
@@ -704,7 +795,7 @@
   const eyeGlyph = (n: XRow) => (n.kind === "common" && n.hiddenCount && n.hiddenCount < (n.elementIds?.length ?? 0) ? "◐" : n.hidden ? "○" : "◉");
 </script>
 
-<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} />
+<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:pointerup={onSweepEnd} on:pointercancel={onSweepEnd} />
 
 {#if $xrayOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -780,6 +871,8 @@
                 style={`padding-left:${6 + r.depth * 14}px`}
                 title={rowReadout?.id === r.node.id ? rowReadout.text : undefined}
                 on:mouseenter={() => (rowReadout = readoutForRow(r.node))}
+                on:pointerdown={(e) => onRowPointerDown(e, r.node)}
+                on:pointerenter={(e) => onRowPointerEnter(e, r.node)}
                 on:click={(e) => onRowClick(e, r.node)}
                 on:dblclick={() => onRowDblClick(r.node)}
               >
@@ -820,11 +913,11 @@
             {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become <span class="hk">b</span></button>{/if}
             <span class="pickinfo">{selectedIds.size > 1 ? `${selectedIds.size} picked` : ""}</span>
             {#if axisFor(selRow)}<button class="showprops" on:click={() => showAxisView(selRow)}><b class="hk">v</b> Axis view…</button>{/if}
-            <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (a)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
-              Animate selected <span class="hk">a</span>
+            <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (m)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
+              Animate selected <span class="hk">m</span>
             </button>
             <button class="showprops" disabled={!(pickedRows.length || selRow) || (pickedRows.length ? pickedRows : selRow ? [selRow] : []).every((n) => rowBlocked(n, $editorSelectionExclusions))} on:click={showProperties}>
-              Show Properties <span class="hk">↵</span>
+              Show Properties <span class="hk">↵</span><span class="hk">f</span>
             </button>
           </div>
         {/if}
@@ -832,6 +925,9 @@
         <div class="foot">
           <span><b class="hk">↑↓</b> navigate</span>
           <span><b class="hk">⇧/⌃ click</b> multi</span>
+          <span><b class="hk">drag</b> sweep</span>
+          <span><b class="hk">a</b> siblings</span>
+          <span><b class="hk">alt+a</b> all results</span>
           <span><b class="hk">x</b> hide</span>
           <span><b class="hk">dbl-click</b> re-root</span>
           <span><b class="hk">⌫</b> back</span>
@@ -845,6 +941,9 @@
 
 <style>
   .model-controls { padding: 0 0 8px; }
+  /* A palette being chosen gets the room to show two columns of maps (owner
+     inbox 2026-09-30); the ResizeObserver re-clamps the panel on screen. */
+  .xray:has(:global(.cmappick)) { width: min(640px, calc(100vw - 16px)); }
   /* Radiograph, flat: a near-black tube field with phosphor accents and mono
      type — always dark by nature (the --xr-* ramp, never the theme-scoped
      --c-* ramp). No gradients, glow, scanlines or entrance theatrics: it is a
@@ -856,7 +955,7 @@
     pointer-events: auto;
     position: absolute;
     visibility: hidden;
-    width: 460px;
+    width: min(460px, calc(100vw - 16px));
     max-height: min(74vh, calc(100vh - 16px));
     display: flex;
     flex-direction: column;
@@ -899,6 +998,9 @@
   .search-in { flex: 1; background: none; border: none; outline: none; color: var(--xr-tx); font: 12px var(--font-mono); padding: 0; }
   .search-in::placeholder { color: var(--xr-tx-dim); }
   .tree { overflow-y: auto; padding: 4px 6px 6px; min-height: 0; flex: 1 1 auto; }
+  /* Only the tree yields height: the header, source line, search row, actions
+     and footer keep theirs however tall the colour-scale block grows. */
+  .xhead, .srcline, .search-row, .actions, .foot { flex-shrink: 0; }
   .section { display: flex; align-items: baseline; gap: 8px; padding: 8px 6px 3px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; }
   .scount { text-transform: none; letter-spacing: 0; }
   .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; scroll-margin-block: 4px; border-radius: var(--r-0); cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none; }

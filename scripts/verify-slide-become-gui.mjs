@@ -176,7 +176,7 @@ try{
   check(JSON.stringify((await read()).slide)===beforeSwap,'one GUI Undo restores the exact pre-swap slide');
   await seed();await openTransform('Become');await openPlotXray();await pickRows();
   check(!handoff(await read()),'X-ray row picking never prematurely confirms the canvas pick');
-  await page.keyboard.press('a');await paint();
+  await page.keyboard.press('m');await paint();
   check(await page.$eval('.xray .am-ttl',e=>e.textContent.includes('Path 1')),'the destination menu names the waiting source');
   await page.keyboard.press('b');await paint();
   check(JSON.stringify((await read()).slide)===pairBytes,'X-ray b writes exactly the two-spine canvas hand-off bytes');
@@ -188,7 +188,7 @@ try{
   const pathPoint=await page.$eval('[data-editor-element-id="bh-path"] path',el=>{const p=el.getPointAtLength(el.getTotalLength()*.5),q=new DOMPoint(p.x,p.y).matrixTransform(el.getScreenCTM());return{x:q.x,y:q.y};});
   await page.mouse.click(pathPoint.x,pathPoint.y);await paint();
   check(JSON.stringify((await read()).slide)===pairBytes,'Appear split-menu from two X-ray spines writes byte-identical hand-off');
-  await seed();await page.evaluate(()=>window.__flux.fig.selectOnly('bh-plot'));await openPlotXray();await pickRows();await page.keyboard.press('a');await page.keyboard.press('5');await paint();
+  await seed();await page.evaluate(()=>window.__flux.fig.selectOnly('bh-plot'));await openPlotXray();await pickRows();await page.keyboard.press('m');await page.keyboard.press('5');await paint();
   await page.mouse.click(pathPoint.x,pathPoint.y);await paint();
   check(JSON.stringify((await read()).slide)===pairBytes,'X-ray a then 5 authors the same hand-off from its destination');
   await seed();await openTransform('Become');await pickPart('axis.x.spine',true);const cancelBytes=JSON.stringify((await read()).slide);await page.keyboard.press('Escape');await paint();
