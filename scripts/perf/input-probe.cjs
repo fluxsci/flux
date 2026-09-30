@@ -161,18 +161,22 @@ const qualificationState=()=>({time:performance.now(),visible:document.visibilit
 for(const type of ['focus','blur','visibilitychange'])window.addEventListener(type,()=>{if(p.running)p.qualification.push({...qualificationState(),event:type})},true);
 window.addEventListener('pointermove',()=>{p.moves++},true);
 window.addEventListener('pointerdown',(e)=>{p.downs++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.downPaint.push(performance.now()-t0)))},true);
-window.addEventListener('wheel',()=>{p.wheels++},{capture:true,passive:true});
+window.addEventListener('wheel',(e)=>{p.wheels++;if(e.ctrlKey)requestAnimationFrame(()=>{p.zoomTicks++;if(document.querySelector('.zoom-proxy.live'))p.proxyTicks++})},{capture:true,passive:true});
 window.addEventListener('scroll',()=>{p.scrolls++},{capture:true,passive:true});
 window.addEventListener('keydown',(e)=>{p.keys++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.longtasks.push(Math.round(e.duration))}).observe({type:'longtask'})}catch{}
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.evts.push({n:e.name,d:Math.round(e.duration),proc:Math.round(e.processingEnd-e.processingStart)})}).observe({type:'event',durationThreshold:16})}catch{}
-p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
-p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice()};return {qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
+p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.zoomTicks=0;p.proxyTicks=0;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
+p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice()};return {zoomTicks:p.zoomTicks,proxyTicks:p.proxyTicks,qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
 return 'installed'})()`;
 
 // CSS scenarios — bisect knobs. `base` is the shipped app.
 const SCENARIOS = {
   base: '',
+  live: '', // zoom-path: window.__noZoomProxy — every zoom burst runs live
+  liveNoText: '.canvas-host .scene-svg text{display:none !important}',
+  liveGeomPrec: '.canvas-host .scene-svg text{text-rendering:geometricPrecision !important}',
+  noText: '.canvas-host .scene-svg text{display:none !important}',
   nocursor: '*,*::before,*::after{cursor:default !important}', // no hardware family anywhere
   syscross: '*,*::before,*::after{cursor:crosshair !important}', // platform crosshair, no image
   noring: '.click-ring{display:none !important}', // no click ring
@@ -188,12 +192,15 @@ const SCENARIOS = {
 };
 async function setScenario(name) {
   const css = SCENARIOS[name]; if (css === undefined) throw Error('unknown scenario ' + name);
+  await js(`window.__noZoomProxy=${/^live/.test(name)}`);
   await js(`(()=>{let s=document.getElementById('__probe_css');if(!s){s=document.createElement('style');s.id='__probe_css';document.head.appendChild(s)}s.textContent=${JSON.stringify(css)};return true})()`);
   await sleep(350);
 }
 async function measure(label, run, traceName) {
   await model3dProbe?.beforePhase(label);
   if (qualify) assertWindow(win, [await js("({visible:document.visibilityState,focused:document.hasFocus()})")]);
+  { const f = await js('(()=>{const f=window.__snapFail;window.__snapFail=null;return f})()').catch(() => null); if (f && !fs.existsSync(path.join(out, 'snapfail.svg'))) { fs.writeFileSync(path.join(out, 'snapfail.svg'), f.svg); log('snapfail', { err: f.err, stage: f.stage, bytes: f.svg.length }); } }
+  const snapBefore = await js('(()=>{const L=window.__snapLog;window.__snapLog=null;return L?L.c:null})()').catch(() => null);
   await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
   if (traceName) await contentTracing.startRecording({ included_categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing', 'cc', 'input', 'ui', 'viz', 'gpu', 'toplevel', 'latencyInfo', 'benchmark', ...(process.env.PROBE_INVALIDATION === '1' ? ['disabled-by-default-devtools.timeline.invalidationTracking', 'disabled-by-default-blink.invalidation'] : [])], excluded_categories: ['*'] });
   await run();
@@ -208,7 +215,11 @@ async function measure(label, run, traceName) {
   await model3dProbe?.afterPhase(label, r);
   // compress the cursor sequence: kind:imageHash × count @ ms since phase start
   const seq = []; for (const c of cursorLog) { const k = c.type + (c.h ? ':' + c.h : ''); if (!seq.length || seq.at(-1).k !== k) seq.push({ k, n: 1, t: c.t }); else seq.at(-1).n++; }
-  const res = { label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
+  const snapEv = await js('window.__snapLog?.ev ?? null').catch(() => null);
+  const snap = await js('(()=>{const L=window.__snapLog;window.__snapLog=null;return L?L.c:null})()').catch(() => null);
+  const foldLog = await js('(()=>{const k=window.__foldLog;window.__foldLog=null;return k})()').catch(() => null);
+  const abortKeys = await js('(()=>{const k=window.__abortKeys;window.__abortKeys=null;return k})()').catch(() => null);
+  const res = { snapEv, foldLog, abortKeys, zoomTicks: r.zoomTicks, proxyTicks: r.proxyTicks, snapBefore, snap, label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
     cursorChanges: cursorLog.length, cursorSeq: seq.slice(0, 40).map((s) => `${s.k}x${s.n}@${s.t}`), slowEvents: r.evts.slice(0, 12), trace };
   log('measure', res); return res;
 }
@@ -401,7 +412,7 @@ async function figurePhases(mode = 'figure') {
     await wait(() => js(`${bakedJs} > ${z0} * 1.05`), 'prezoom folded'); await sleep(2500);
     geo = await scanGeo(); if (target) target = await targetRect();
     const z1 = await js(bakedJs);
-    const pre = { steps: zoomSteps, bakedBefore: z0, bakedAfter: z1, ratio: +(z1 / z0).toFixed(2), proxyWarm: await js(`!!document.querySelector('${modeRoot} .zoom-proxy')`), target, empty: geo.empty, plotNodesOnScreen: await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`) };
+    const pre = { steps: zoomSteps, bakedBefore: z0, bakedAfter: z1, ratio: +(z1 / z0).toFixed(2), proxyWarm: await js(`!!document.querySelector('${modeRoot} .zoom-proxy')`), snapLog: await js('window.__snapLog?.ev?.slice(-40) ?? null').catch(() => null), target, empty: geo.empty, plotNodesOnScreen: await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`) };
     log('prezoom', pre); results.prezoom = pre;
     if (!geo.empty) geo.empty = { x: geo.host.r - 40, y: geo.host.b - 40 }; // zoomed content may cover every scanned spot; fall back to the corner
   }
@@ -474,6 +485,7 @@ async function figurePhases(mode = 'figure') {
     // Electron wheel signs are opposite DOM wheel signs: POSITIVE zooms IN.
     // The older phases mostly ran below fit zoom and never exercised a deep
     // baked raster followed by a rapid zoom-out, the owner's reported failure.
+    if (wantPhase('zoomDeep') && process.env.PROBE_PRE_REST) await sleep(+process.env.PROBE_PRE_REST); // zoom-path: let the zoom proxy land first
     if (wantPhase('zoomDeep')) R.zoomDeep = await measureFrames(`${mode}:${sc}:zoomDeep`, region, async () => {
       ctrlDown();
       // This burst used to lean on the wheel CEILING (16×) to land at exactly 16. The
@@ -500,6 +512,27 @@ async function figurePhases(mode = 'figure') {
     // 10. FAST pan and pan in bursts (cool-downs → demotion + re-cull between)
     if (wantPhase('panFast')) R.panFast = await measureFrames(`${mode}:${sc}:panFast`, region, async () => { for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, 80); await sleep(8); } for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, -80); await sleep(8); } await sleep(600); }, tr('panFast'));
     if (wantPhase('panBursts')) R.panBursts = await measureFrames(`${mode}:${sc}:panBursts`, region, async () => { for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60); await sleep(8); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60); await sleep(8); } await sleep(320); } await sleep(600); }, tr('panBursts'));
+    // 11. REALISTIC SEQUENCES (2026-09-30, zoom-path): the owner zooms right after moving things. Each phase is
+    // <action> → gap → one zoom burst (12 ticks in + 12 out, 16 ms apart, returns to the same zoom). The
+    // result's proxyTicks/zoomTicks is the fraction of zoom frames the raster proxy carried; snap.burst:* why.
+    const zb = async (n = 12) => { ctrlDown(); for (let i = 0; i < n; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < n; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); };
+    const shortDrag = async (moves = 30) => { mouse({ type: 'mouseMove', x: A.x, y: A.y }); await sleep(60); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(30); for (let i = 1; i <= moves; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i, y: A.y + Math.round(i / 2) }); await sleep(12); } mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + moves, y: A.y + Math.round(moves / 2) }); };
+    const backToCentre = async () => { mouse({ type: 'mouseMove', x: cx, y: cy }); };
+    const seqGap = +(process.env.PROBE_SEQ_GAP || 0);
+    if (wantPhase('ricTest')) { const rows = []; for (let k = 0; k < 4; k++) { await sleep(1500); rows.push(await js(`new Promise(r=>{const t=performance.now();const tm=setTimeout(()=>r({ric:null,vis:document.visibilityState,focus:document.hasFocus()}),4000);requestIdleCallback(()=>{clearTimeout(tm);r({ric:Math.round(performance.now()-t),vis:document.visibilityState,focus:document.hasFocus()})})})`)); } log('ricTest', rows); R.ricTest = rows; }
+    if (wantPhase('seqRestZoom')) { await sleep(3500); R.seqRestZoom = await measure(`${mode}:${sc}:seqRestZoom`, async () => { await zb(); await sleep(600); }, tr('seqRestZoom')); }
+    if (wantPhase('seqDragZoom')) { await sleep(2000); R.seqDragZoom = await measure(`${mode}:${sc}:seqDragZoom`, async () => { await shortDrag(); await backToCentre(); await sleep(seqGap || 500); await zb(); await sleep(600); }, tr('seqDragZoom')); await undo(); }
+    if (wantPhase('seqPanZoom')) { await sleep(2000); R.seqPanZoom = await measure(`${mode}:${sc}:seqPanZoom`, async () => { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 25); await sleep(8); } await sleep(seqGap || 300); await zb(); await sleep(600); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -25); await sleep(8); } await sleep(300); }, tr('seqPanZoom')); }
+    if (wantPhase('seqZoomZoom')) { await sleep(2000); R.seqZoomZoom = await measure(`${mode}:${sc}:seqZoomZoom`, async () => { await zb(); await sleep(seqGap || 300); await zb(); await sleep(600); }, tr('seqZoomZoom')); }
+    if (wantPhase('seqZoomDragZoom')) { await sleep(2000); R.seqZoomDragZoom = await measure(`${mode}:${sc}:seqZoomDragZoom`, async () => { await zb(); await sleep(300); await shortDrag(); await backToCentre(); await sleep(seqGap || 300); await zb(); await sleep(600); }, tr('seqZoomDragZoom')); await undo(); }
+    if (wantPhase('editIdle')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2500); R.editIdle = await measure(`${mode}:${sc}:editIdle`, async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(3500); }, tr('editIdle')); await undo(); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
+    if (wantPhase('seqEditZoom')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2000); R.seqEditZoom = await measure(`${mode}:${sc}:seqEditZoom`, async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(seqGap || 500); await zb(); await sleep(600); }, tr('seqEditZoom')); await undo(); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
+    // 12. zoom, then press-drag the target right away (the pointerdown fold, contract §4): downPaint is the hitch.
+    // zoomDragNow presses 40 ms after the last tick (unfolded residual → foldZoomNow repaints in the pointerdown turn);
+    // zoomDragLate presses 400 ms after (the settle fold already ran) — the difference is the pointerdown fold.
+    const zoomThenDrag = async (gap) => { await zb(); await sleep(gap); mouse({ type: 'mouseMove', x: A.x, y: A.y }); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(30); for (let i = 1; i <= 20; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i * 2, y: A.y + i }); await sleep(12); } mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + 40, y: A.y + 20 }); await sleep(400); };
+    if (wantPhase('zoomDragNow')) { for (let k = 0; k < 3; k++) { await sleep(2000); R['zoomDragNow' + k] = await measure(`${mode}:${sc}:zoomDragNow${k}`, () => zoomThenDrag(40), tr('zoomDragNow' + k)); await undo(); await backToCentre(); } }
+    if (wantPhase('zoomDragLate')) { for (let k = 0; k < 3; k++) { await sleep(2000); R['zoomDragLate' + k] = await measure(`${mode}:${sc}:zoomDragLate${k}`, () => zoomThenDrag(400), tr('zoomDragLate' + k)); await undo(); await backToCentre(); } }
     // 8. ctrl-wheel zoom in then out (residual scale mid-burst, one fold at settle)
     if (wantPhase('zoom')) R.zoom = await measure(`${mode}:${sc}:zoom`, async () => { ctrlDown(); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(40); } await sleep(500); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(40); } ctrlUp(); await sleep(500); }, tr('zoom'));
   }
