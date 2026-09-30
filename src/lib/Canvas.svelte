@@ -517,7 +517,11 @@
     const covered = vx >= cullRect.x && vy >= cullRect.y &&
       vx + hostW / viewZ <= cullRect.x + cullRect.w && vy + hostH / viewZ <= cullRect.y + cullRect.h;
     if ((!sceneHot && !zoomUnsettled && key !== cullKey) || !covered) {
-      if (proxyActive) endZoomProxy();
+      // No proxy abort here: a re-cull that changes the mounted set bumps
+      // mountedGen / visibleFigures, i.e. the snapshot's sceneKey, and the
+      // key check below ends the proxy in this same flush. A re-cull that
+      // mounts nothing new (every zoom-out past the cull buffer on a small
+      // canvas) used to throw a valid proxy away after ~8 ticks (2026-09-30).
       cullKey = key;
       const cz = covered ? z : viewZ;
       const rect = (m: number): Rect => ({

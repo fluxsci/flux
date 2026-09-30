@@ -120,9 +120,16 @@ export function serializeSceneSnapshot(sceneSvg: SVGSVGElement, box: WorldBox, S
     (root as SVGElement | null)?.style.setProperty(p, inherited.getPropertyValue(p));
   }
   const style = fontCss ? `<style>${fontCss}</style>` : "";
+  // innerHTML is the HTML fragment serializer even for SVG content: it writes
+  // U+00A0 as `&nbsp;`, an entity XML does not define, and the image decoder
+  // then rejects the WHOLE snapshot (every matplotlib label with a no-break
+  // space → no proxy, every zoom live; 2026-09-30). `&nbsp;` is the only
+  // non-XML entity that serializer emits (&amp; &lt; &gt; &quot; are XML's own),
+  // and a literal "&nbsp;" in text serializes as "&amp;nbsp;", so this is exact.
+  const body = clone.innerHTML.replace(/&nbsp;/g, "&#160;");
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" ` +
-    `viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${style}${clone.innerHTML}</svg>`;
+    `viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${style}${body}</svg>`;
   return { svg, w, h };
 }
 
