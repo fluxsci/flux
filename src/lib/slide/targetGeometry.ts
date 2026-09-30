@@ -14,7 +14,7 @@ import { resolveTargets } from "../plot/tree";
 import { svgIntrinsicPx, cropViewBoxValue, ptTrueFactors } from "../plot/compensate";
 import { parseStyleAttr, readPaint } from "../plot/paint";
 import { IDENTITY, compose, parseTransform, applyToNodes, applyToPoint, type SvgMatrix } from "../plot/svgMatrix";
-import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit } from "../plot/project";
+import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit, retickable } from "../plot/project";
 
 export interface GeometryCtx {
   manifest(assetId: string): FluxPlotManifest | undefined;
@@ -208,6 +208,10 @@ function projectedGeometry(plot: SemanticPlotElement, root: Element, manifest: F
     const record = (axes as unknown as Record<string, { domain: number[] } | undefined>)[guide.axis];
     if (!fit || !original || !record) continue; // a twin axis the panel cannot project
     if (fit.m === original.m && fit.c === original.c && fit.log === original.log) continue;
+    // at rest the DOM writer re-ticks this axis (F4): the generated ticks, labels and gridlines
+    // are hidden and clones stand at the new positions — the model hides them too, so no flight
+    // ever carries a hidden tick
+    if (retickable(manifest, plot.view, axes.panelId, guide.axis)) { opacities.set(node, 0); continue; }
     const pixel = projectWith(fit, guide.value), origin = projectWith(original, guide.value);
     const ends = record.domain.map(v => projectWith(original, v));
     const lo = Math.min(...ends), hi = Math.max(...ends);

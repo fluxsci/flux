@@ -3,7 +3,7 @@
 import type { PlotView, PlotAxisKey } from "../types";
 import type { FluxPlotManifest, FluxPlotSeries, FluxPlotAxis } from "./types";
 import { partDomId } from "./parse";
-import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves,
+import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, retickable,
   seriesAxes, seriesVertices, seriesTweenable, viewFits, lerpData, type Fit, type Fits, type MorphPoint } from "./project";
 import { transformToAncestor } from "./svgMatrix";
 import { ticksFor, scalarLabels, formatTick } from "./ticks";
@@ -467,7 +467,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
   const atRest = !!opts?.assetChange && (progress >= 1 && !view || progress <= 0 && !opts.fromView);
   // at rest with a view, an axis whose domain or scale changed gets ticks generated for the new
   // domain (its own scheme: nice 1·2·5 steps or decades) in place of the generated ones (F4)
-  const reticked = !opts && !!view ? retick(root, plan, view) : new Set<Element>();
+  const reticked = !opts && !!view ? retick(root, plan, view, manifest) : new Set<Element>();
   if (!reticked.size) dropRetick(root);
   for (const g of plan.guides) {
     if (reticked.has(g.node)) continue;
@@ -490,7 +490,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
  *  decimals for a plain linear axis, 10ᵏ for a log one). Category, date, fixed and offset
  *  (sci) schemes keep the generated ticks, which the guide pass moves and fades instead.
  *  Returns the generated guide nodes that were replaced (hidden). */
-function retick(root: Element, plan: Projection, view: PlotView): Set<Element> {
+function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxPlotManifest): Set<Element> {
   dropRetick(root);
   const replaced = new Set<Element>();
   const clones: Element[] = [];
@@ -503,13 +503,10 @@ function retick(root: Element, plan: Projection, view: PlotView): Set<Element> {
     const [panelIndex, axis] = key.split("|") as [string, PlotAxisKey];
     const panel = plan.panels[Number(panelIndex)];
     const patch = view[axis];
-    if (!patch?.domain && !patch?.scale) continue;
-    const fit = panel.fits[axis], raw = panel.rawA[axis];
-    if (!fit || !raw || (fit.m === raw.m && fit.c === raw.c && fit.log === raw.log)) continue;
     const panelId = [...(plan.axesInfo.keys())][Number(panelIndex)];
-    const scheme = plan.axesInfo.get(panelId)?.[axis];
-    const locator = scheme?.locator ?? "auto", formatter = scheme?.formatter ?? "plain";
-    if (!["auto", "multiple", "log"].includes(locator) || !["plain", "log"].includes(formatter)) continue;
+    if (!patch || !retickable(manifest, view, panelId, axis)) continue;
+    const fit = panel.fits[axis], raw = panel.rawA[axis];
+    if (!fit || !raw) continue;
     const domain = patch.domain ?? [dataOfPixel(raw, (panel.ranges[axis] ?? panel.xRange)[0]), dataOfPixel(raw, (panel.ranges[axis] ?? panel.xRange)[1])];
     const log = fit.log;
     const values = ticksFor(log ? "log" : "linear", Math.min(...domain), Math.max(...domain));

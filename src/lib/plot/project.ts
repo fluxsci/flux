@@ -209,6 +209,23 @@ export function guideData(manifest: FluxPlotManifest, root: Element, elId = ""):
   return out;
 }
 
+/** Whether a static view re-ticks `axis` of `panelId` (F4): the view names that axis, its fit
+ *  differs from the generated one, and the axis' scheme is one nice ticks can stand in for
+ *  (`auto` / `multiple` / `log` locators with `plain` / `log` formatters — categories, dates,
+ *  fixed labels and offset (sci) schemes keep the generated ticks, which a view moves and fades).
+ *  The DOM writer (projectDom.retick) and the geometry model (slide/targetGeometry) both ask. */
+export function retickable(manifest: FluxPlotManifest, view: PlotView | undefined, panelId: string | undefined, axis: PlotAxisKey): boolean {
+  const patch = view?.[axis];
+  if (!patch?.domain && !patch?.scale) return false;
+  const axes = seriesAxes(manifest, { panelId } as FluxPlotSeries);
+  const record = axes ? (axes as unknown as Record<string, (FluxPlotAxis & { tickLocator?: string; tickFormatter?: string }) | undefined>)[axis] : undefined;
+  if (!record) return false;
+  if (!["auto", "multiple", "log"].includes(record.tickLocator ?? "auto") || !["plain", "log"].includes(record.tickFormatter ?? "plain")) return false;
+  const raw = viewFits(manifest, undefined, panelId), fits = viewFits(manifest, view, panelId);
+  const a = raw?.[axis], b = fits?.[axis];
+  return !!a && !!b && (a.m !== b.m || a.c !== b.c || a.log !== b.log);
+}
+
 /** Roles whose members are polygons a view can re-project vertex by vertex (F4). */
 const FILLED_ROLES = new Set(["bar", "area", "box", "violin", "whisker", "cap", "median", "mean", "flier", "segment", "errorbar",
   "x-heatmap", "x-hexbin", "x-contourf", "x-contour", "x-hex", "cell", "contour-level"]);

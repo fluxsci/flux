@@ -59,7 +59,7 @@ try {
   h.ok(tickLabel.length > 0 && tickLabel.every(n => paintOf(n, 'fill') === FLUX_DARK.text), 'tick-label fill equals the deck text colour');
   const title = Array.from(root.querySelectorAll('[data-role="axis-title"]')).flatMap(n => Array.from(n.querySelectorAll('path, text')));
   h.ok(title.length === 0 || title.every(n => paintOf(n, 'fill') === FLUX_DARK.text), 'axis titles take the deck text colour');
-  const spine = leaves(root, 'panel.small.axis.x.spine');
+  const spine = leaves(root, 'panel.small.axis.x.spine.bottom');
   h.ok(spine.length > 0 && spine.every(n => paintOf(n, 'stroke') === FLUX_DARK.textMuted), 'spines take the muted text colour');
   const ticks = leaves(root, 'panel.small.axis.x.tick.1');
   h.ok(ticks.length > 0 && ticks.every(n => paintOf(n, 'stroke') === FLUX_DARK.text), 'tick marks take the deck text colour');
