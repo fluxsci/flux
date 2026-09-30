@@ -14,7 +14,7 @@
 // firewall regression was isolated in one run). Optional Chrome trace per phase.
 //
 //   node scripts/perf/input-probe.cjs <projectDir> [--surface=figure|paper|both|slide|all]
-//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,resizeHeavy,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
+//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,resizeHeavy,cropHeavy,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
 //        [--qualify] preserve production background throttling and fail on unusable display/focus loss
@@ -458,23 +458,33 @@ async function figurePhases(mode = 'figure') {
     }
     // 5g. HEAVY resize (2026-09-30, "adjusting sizes"): select the target, grab its bottom-right handle from the
     // overlay DOM, --dragMoves moves every --dragMs ms (diagonal in-and-out plus a drift so the commit is real), release, undo.
-    if (wantPhase('resizeHeavy')) {
+    // importNode counter (resize-preview, 2026-09-30): every plot mount/re-render is one deep importNode of the
+    // cached plot DOM, so the count per phase is "plot renders per gesture" without touching app source.
+    const countImports = () => js(`(()=>{if(!window.__imp){const o=document.importNode.bind(document);window.__imp={n:0,ms:0};document.importNode=(nd,d)=>{const t=performance.now();const r=o(nd,d);if(d){window.__imp.n++;window.__imp.ms+=performance.now()-t}return r}}window.__imp.n=0;window.__imp.ms=0})()`);
+    const readImports = async (label) => { const r = await js('({n:window.__imp.n,ms:Math.round(window.__imp.ms)})'); log('imports', { label, ...r }); return r; };
+    const resizeGesture = (name, modsDown) => async () => {
       await click(A.x, A.y, 20); await sleep(350);
-      // bottom-right corner handle when it is inside the host; zoomed in, a corner may lie off-screen — take the
-      // farthest handle that is still visible (any edge/corner resizes; the cost under test is the same).
       const hd = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();const hs=[...document.querySelectorAll('${modeRoot} .overlay-svg rect.handle')].map(r=>{const b=r.getBoundingClientRect();return {x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}}).filter(p=>p.x>h.left+12&&p.x<h.right-12&&p.y>h.top+12&&p.y<h.bottom-12);if(!hs.length)return null;return hs.sort((a,b)=>(b.x+b.y)-(a.x+a.y))[0]})()`);
-      if (!hd) throw Error('resizeHeavy: no selection handles after clicking the target');
+      if (!hd) throw Error(name + ': no selection handles after clicking the target');
       log('resizeHandle', hd);
-      R.resizeHeavy = await measure(`${mode}:${sc}:resizeHeavy`, async () => {
+      const modifiers = modsDown ? ['control'] : [];
+      await countImports();
+      R[name] = await measure(`${mode}:${sc}:${name}`, async () => {
         const N = +(process.env.PROBE_DRAG_MOVES || 150), dt = +(process.env.PROBE_DRAG_MS || 8);
-        mouse({ type: 'mouseMove', x: hd.x, y: hd.y }); await sleep(150);
-        mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: hd.x, y: hd.y }); await sleep(100);
+        if (modsDown) win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Control' });
+        mouse({ type: 'mouseMove', x: hd.x, y: hd.y, modifiers }); await sleep(150);
+        mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: hd.x, y: hd.y, modifiers }); await sleep(100);
+        if (modsDown) win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Control' });
         let lx = hd.x, ly = hd.y;
-        for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; const d = 80 * Math.sin(th) + (50 * i) / N; lx = Math.round(hd.x + d); ly = Math.round(hd.y + d * 0.7); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: lx, y: ly }); await sleep(dt); }
+        for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; const d = (modsDown ? -1 : 1) * (80 * Math.sin(th) + (50 * i) / N); lx = Math.round(hd.x + d); ly = Math.round(hd.y + d * 0.7); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: lx, y: ly }); await sleep(dt); }
         await sleep(100); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly }); await sleep(400);
-      }, tr('resizeHeavy'));
+      }, tr(name));
+      R[name].imports = await readImports(name);
       await undo();
-    }
+    };
+    if (wantPhase('resizeHeavy')) await resizeGesture('resizeHeavy', false)();
+    // 5h. crop gesture: Control held on the handle press (figure-v1 P5 crop; drag inward so the window shrinks).
+    if (wantPhase('cropHeavy')) await resizeGesture('cropHeavy', true)();
     // 5d. three idle seconds after an edit + undo: whatever lands here (autosave, journal, deferred work) is a hitch the user gets for free
     if (wantPhase('idle')) R.idle = await measure(`${mode}:${sc}:idle`, async () => { await sleep(3000); }, tr('idle'));
     await click(geo.empty.x, geo.empty.y, 10); await sleep(300);
