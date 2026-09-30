@@ -86,12 +86,14 @@ selects several lanes; **Ctrl/Cmd+A** selects this step's effects. **Ctrl/Cmd+G*
 timing. Double-click a group name to rename it; drag its span to retime or move the whole group. Right-click a lane for these actions and moves to named steps. Ctrl/Cmd-wheel zooms timing;
 **fit ⟲** restores automatic scaling. Vertical grid lines run through every lane at the
 ruler's ticks; while you drag, a guide follows the edge you are moving and runs the full
-height of the ruler when it snaps to another effect's edge or to the 50 ms grid, and a single
+height of the ruler when it snaps to another effect's edge or to a grid line — every major and
+minor line drawn is a snap target (the 50 ms round-number grid still catches drags between
+them), and a resize snaps the effect's *end* onto the line — and a single
 selected effect shows its start and end across all lanes so alignment reads at a glance.
 
 The **X-ray** (**Alt+R**) animates too: select one plot — or several — press **Alt+R**, pick
 the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
-a multi-plot X-ray lists the parts every plot shares), then press **A** and choose
+a multi-plot X-ray lists the parts every plot shares), then press **M** and choose
 **Appear**, **Emphasize**, **Disappear** or **Change**. Appearance actions give each picked part
 its own effect on the current step, ready to retime. **Change** selects the whole owning objects;
 part-style edits are captured in each plot’s Change. Selecting the same part through
@@ -328,7 +330,7 @@ The bar names what is waiting and how to choose its destination:
   A hand-off has one destination object: pick parts of one plot, or group several objects
   first and pick their group in the X-ray.
 - Hover a plot and press **Alt+R** to open its X-ray while picking. Select rows, then press
-  **b** (**Become**), either in the tree or its **a** menu. Axis rows include their
+  **b** (**Become**), either in the tree or its **m** menu. Axis rows include their
   spine, ticks and labels; expand them to choose only the spine. The menu names the source
   that is waiting.
 - **Escape** or **Cancel** leaves the pick without creating a transform. Changing slides
@@ -347,7 +349,7 @@ choose one object or plot parts as the source.
 To work from the other end, select the destination object or plot parts and choose
 **Appear ▾ → Appear from…**. The main **Appear** button still adds a normal entrance.
 The bar now names what **appears from…**; click its source, or **Ctrl+click** source parts.
-In the X-ray, **a**, then **5** (**Appear from…**) starts this same flow from the picked
+In the X-ray, **m**, then **5** (**Appear from…**) starts this same flow from the picked
 rows. Both routes create exactly the same hand-off.
 
 **Pair** chooses how the outlines match: **auto**, **by position**, **by order**, **by data**,

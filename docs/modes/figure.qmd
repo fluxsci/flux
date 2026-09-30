@@ -271,11 +271,15 @@ its **Colour scale** instead. The headless twin is `set-series-color`.
 
 **Alt+R** opens the **X-ray**: the anatomy of the selected plot (or group) as a tree, placed
 beside the selection. Walk it with the arrow keys, hide/show any part with **x**, press
-**Enter** to select the picked parts and open their properties, and — for recipe-backed
+**Enter** (or **F**) to select the picked parts and open their properties, and — for recipe-backed
 plots — hit **Regenerate** to re-run the script that made it, right from the panel. Rows
 **multi-select**: **Shift+click** picks a run, **Ctrl+click** (Mac **⌘+click**) toggles one,
-**Ctrl+A** picks everything, and **x**, **Enter** and the property menu then act on all of
-them — hide five series at once, or restyle them together. Select **several plots** before
+**Ctrl+A** picks everything, **Alt+A** picks every search result, and a press-and-drag over
+rows picks the run you sweep (hold **Ctrl** when you press to add a second sweep to the pick).
+**a** widens the pick to its siblings: first the same part under each sibling of its parent —
+*X axis › Tick marks* adds *Y axis › Tick marks* — then, pressed again, every row under the same
+parent. **x**, **Enter** and the property menu then act on all of them — hide five series at
+once, or restyle them together. Select **several plots** before
 pressing **Alt+R** and the X-ray shows each plot's tree plus a **Common parts** list of
 what they all share, so hiding the x-axis of four plots is one row and one keypress.
 **Double-click** a row (or **Ctrl+Enter**) to re-root the X-ray on it. Keyboard navigation
@@ -335,7 +339,9 @@ colour opens the **palette** — every row on one line, the whole grid in view �
 full **spectrum** beside it (a saturation/value square and a hue bar, seeded from the current
 colour), a hex field and an **eyedropper**; hovering a swatch previews it live, a click
 applies it, and a drag on the square previews until you let go. The hex field and spectrum
-follow the preview, and the opacity readout shows the selection's current value (or **mixed**).
+follow the preview. The opacity slider under the spectrum is the *picked paint's* own
+opacity — a fill picker sets the fill's, a stroke picker the stroke's (a text colour sets the
+object's opacity) — and shows the selection's current value (or **mixed**).
 Releasing the hue or opacity slider applies that adjustment and keeps the picker open so
 you can continue tuning the colour.
 The eyedropper samples a colour from your screen. On Linux it uses your desktop's
@@ -361,7 +367,9 @@ the menu works with the mouse alone as well; **s** searches the properties. It c
 essentials (position, size with **aspect lock**, rotation, opacity) plus the deep cuts: dashed
 strokes with dash/gap control, **arrowheads** on lines *and* open paths (filled or V-line,
 sized, with round/flat/square caps), **corner radius** on rectangles *and* paths,
-no-fill/no-stroke, text styling — and **save as preset** for anything you want to reuse. The
+no-fill/no-stroke, separate **fill opacity** (**b**) and **stroke opacity** (**t**) — each
+independent of the object's **opacity**, which multiplies both — text styling — and **save as
+preset** for anything you want to reuse. The
 right rail carries the same properties (fill, stroke and text colours with their palette
 names, sizes, stroke widths, arrowheads), so the menu is a choice, not a requirement.
 
@@ -408,7 +416,10 @@ shown as its placeholder. **Reset** restores both generated axes. Typing or whee
 the change; finishing the edit makes one undo step, and **Escape** cancels it.
 
 The **F** menu offers **x view** (**v**) and **y view** (**b**); on cropped plots, follow the
-row's displayed key when **v** is already assigned. In X-ray, select an axis row and press
+row's displayed key when **v** is already assigned. Once a view is open there, the mouse wheel
+adjusts the focused limit wherever the pointer is (the canvas does not zoom); **Space** accepts
+the minimum and moves to the maximum, and **Space** again (or **Enter**) accepts it and returns to
+the menu. In X-ray, select an axis row and press
 **v** for **Axis view…** to focus that axis in the Inspector.
 
 Lines, points, bars, heatmap cells, hexagons, contour bands and box or violin bodies re-project
@@ -430,7 +441,11 @@ parent through a function follows the parent and has no row of its own.
 A colour-mapped plot saved by fluxplot 0.3.1 or later (hexbin, heatmap, scatter with `c=`,
 contour bands, colour-mapped bars and lines) records each colour scale's exact law — its colormap
 table, its normalisation and limits — and every coloured element's data value. Select the plot to
-edit **Colour scales** in the Object inspector, one block per scale. The **palette** takes any
+edit **Colour scales** in the Object inspector, one block per scale. In the **F** menu, the
+**colour scale** row opens the editor with the whole menu to itself, widened to fit: the
+controls on the left and the palette list always open on the right, so trying palettes is one
+click (or **↑/↓** and **Enter**) each; **Esc** returns to the other properties. The X-ray widens
+while its palette list is open, and a wide list shows each type's maps in two columns. The **palette** takes any
 colormap fluxplot ships, typed by name or picked from the collections behind the preview bar;
 **Reverse** flips it; the **norm** kind offers the kinds the scale allows (linear, log, power,
 symlog; a centre appears for two-slope norms, gamma for power, the linear threshold and scale

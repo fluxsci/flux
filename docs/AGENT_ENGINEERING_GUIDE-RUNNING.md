@@ -1251,7 +1251,9 @@ Persistence invariants (all machine-checked — do not weaken):
   keyframed appearances, independent of story order; content paint must not erase an entrance.
   Only ID-less plots retain the whole-content fallback. Union
   vertex indices preserve missing-data gaps; unmatched markers and line edges fade.
-  Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu;
+  Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu (armed
+  there with `armed` + `onDone`: a window-capture wheel steps the FOCUSED limit from anywhere
+  via `NumberField.wheelBy`, and `advanceOnSpace` makes Space accept min → max → done, Enter done);
   `plot/viewControls.ts` normalizes data-unit fields for both GUI and `set-plot-view`.
   Nullable live NumberFields own an editSession, with preview, one undo and Escape rollback.
   X-ray axis-row `v` focuses the corresponding Inspector row. The verb writes through
@@ -1566,12 +1568,18 @@ Persistence invariants (all machine-checked — do not weaken):
     `applyPartStyle`, hide (`x`), nudge, B/I/U, the menu, the Inspector, Animate — fans out
     over the list in ONE commit.
   - **X-ray (`Xray.svelte` + `xray/buildXrayTree.ts`).** Rows multi-select (click, Ctrl/⌘,
-    Shift-range, Ctrl+A, Shift+↑/↓); double-click or Ctrl+Enter re-roots; `x` hides the whole
-    pick (any shown → hide all); `r`, Escape or the Alt+R chord close. Several selected plots
+    Shift-range, Ctrl+A, Alt+A = every search result, Shift+↑/↓, and a press-and-sweep over
+    rows — Ctrl/⌘ at the press adds; the click ending a sweep is swallowed for one task only);
+    `a` widens the pick to its siblings (first the same role+label under each sibling of the
+    parent — X axis › Tick marks → Y axis › Tick marks — then, when that adds nothing, every
+    child of the parent); `f`, like Enter, shows properties; double-click or Ctrl+Enter
+    re-roots; `x` hides the whole pick (any shown → hide all); `r`, Escape or the Alt+R chord
+    close. While a colour scale's palette list is open the panel widens to 640 px (CSS
+    `:has(.cmappick)`; the ResizeObserver re-clamps it) and only `.tree` yields height. Several selected plots
     open ONE x-ray rooted at `{kind:"elements"}`: `commonPartRows` lists parts whose id AND
     role agree across every plot (`common:<partId>` rows fan out to all of them), then each
     plot's tree. Slide registers `xrayAnimate` (`xray/animateHook.ts`) so **Animate selected**
-    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change · 5 Appear from · 6 Animate like) routes ordinary appearance picks through the
+    (`m` since 2026-09-30, when `a` became select-siblings; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change · 5 Appear from · 6 Animate like) routes ordinary appearance picks through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
     Reopening follows the full plot selection even when a primary drilled part exists.
@@ -1857,8 +1865,10 @@ Persistence invariants (all machine-checked — do not weaken):
     ColorBrewer / Paul Tol / Project; Shift+Tab cycles, `settings.paletteCollection` opens
     first) and Tab switches its left column to `ColormapPicker` (collections × types, preview
     bars; in "color" mode a hover along the chosen bar previews the colour at that position
-    and a click commits it); `ColorScaleControls` (Inspector, the F-menu's `colour scale`
-    field, X-ray) edits a fluxplot ≥ 0.3.1 plot's colour scales LIVE through
+    and a click commits it); `ColorScaleControls` (Inspector, X-ray, and the F-menu's `colour
+    scale` field — which opens the menu's `"wide"` mode: the editor owns the body, the panel
+    widens to 780 px clamped to the window, `layout="wide"` puts the controls beside an
+    always-open palette list, Esc returns) edits a fluxplot ≥ 0.3.1 plot's colour scales LIVE through
     `ops.setPlotColorScale` with AxisView's edit-session UX (preview while typing, one undo,
     Escape cancels) — the picker in "map" mode writes the picked map as its table — and its
     "Apply to source" writes the complete v2 control and regenerates through
@@ -2439,6 +2449,22 @@ Run it through the hermetic runner; never validate a migration on real projects.
   mutation that would accidentally trigger recomputation. F03 is fixed and gated by
   `verify-figure-editing-gui.mjs`.
 
+- **A project root must be promoted in main BEFORE `currentProject` changes.** Its subscribers
+  read project files at once (the annotation store reads `.meta/feedback.ndjson`). `enterLoaded`
+  used to open with a bare `stopProjectWatch()`, whose `watchRoot(null)` cleared the pending
+  root, so every re-open of a project with a feedback ledger toasted "refused path outside
+  project/app roots" (2026-09-30). `startProjectWatch(root)` now runs first. Reproduce guard
+  refusals only with a project OUTSIDE `app.getPath("temp")` and userData: both are always
+  allowed, so a `/tmp` fixture can never fail (the probe that "could not reproduce" did exactly
+  that). `~/.config/flux/diagnostics/events.json` timestamps PATH_DENIED refusals.
+- **Chrome delivers a boundary event late when DOM re-renders under a still pointer.** After a
+  search filter swaps the rows, the `pointerenter` for the row under the cursor arrives with
+  the NEXT pointer event — the press — carrying `buttons=1`. A sweep-select that trusts any
+  entered-with-button event mistakes a plain click for a sweep and swallows it; the X-ray only
+  counts entering a DIFFERENT row than the pressed one.
+- **A click that ends on another element fires on their common ancestor, not either row.**
+  A "swallow the click that ends a sweep" flag therefore may never be consumed; clear it at the
+  end of the task (`setTimeout`) rather than waiting for the click.
 - **Keep-alive modes can share accessible labels.** Scope browser controls to the editor
   under test and check `elementFromPoint` before pointer gestures. An unscoped sidebar
   selector in `verify-figure-controls-gui.mjs` found Paper's hidden handle and dragged the
@@ -9027,3 +9053,21 @@ range). UI-tier gates not run (no display in this session).
 - Known generator gap (fluxplot 1bc6f6a): a figure-legend entry standing for a BAR container has
   no `series` (bar marks carry member ids, no group id, and `figure_scope` skips them); Flux
   tolerates the null and the plot-data gate documents it.
+
+### 2026-09-30 — Annotations open race + owner inbox batch: F-menu/X-ray geometry, channel alpha, axis-view keys, timeline snap (Claude Opus 5.5, `main`)
+**Work:** Fixed the project-open race that refused `.meta/feedback.ndjson`. Worked the owner's
+nine inbox items: the F-menu's colour scale opens a wide view (controls beside an always-open
+palette list; panel widens, clamped to the window) and wide palette lists flow into two columns;
+the X-ray widens while picking a palette and keeps its header rows; X-ray `f` = properties,
+`a` = siblings, Alt+A = all results, press-and-sweep multi-select, Animate moved to `m`; the
+armed axis view takes the wheel from anywhere with Space min → max → done; `fillOpacity` /
+`strokeOpacity` across op, schema, both renderers, tween, PPTX, bridge, CLI, F-menu (b/t),
+picker slider and Inspector; the animator's button styles (lost to a `.b, .per-panel` slip in
+3d7717eb) restored; timeline drags snap to the drawn minor grid and resizes snap their end edge.
+**Learnings:**
+- Promoted to §9: root promotion before `currentProject`, `/tmp` fixtures never trip fsGuard,
+  Chrome's late boundary events, and click-on-common-ancestor for sweep guards.
+- A snap grid must be the grid that is DRAWN; an invisible fixed grid (50 ms) under a drawn one
+  (62.5 ms) makes visible lines unreachable. Snap duration drags in absolute time (origin = start).
+- A "no undo entry" result can be correct: re-picking the value the source already has is an
+  identity edit that `finishGesture` rolls back — check the baseline before blaming history.
