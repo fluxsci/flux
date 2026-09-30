@@ -58,8 +58,14 @@ import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 import type { Box, TextOpts } from "../src/lib/ops";
-import { setPlotView } from "../src/lib/ops";
+import { setPlotView, setPlotColorScale } from "../src/lib/ops";
 import { plotViewPatch, type PlotViewFields } from "../src/lib/plot/viewControls";
+import { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
+import { plotColorScaleIssues } from "../src/lib/plot/colorScaleDom";
+import { effectiveScale } from "../src/lib/plot/colorscale";
+import { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
+import { runRecipe } from "./recipe";
+import type { ColorScaleView } from "../src/lib/types";
 import { plotViewIssues } from "../src/lib/plot/project";
 import type { Asset, Project, SemanticPlotElement } from "../src/lib/types";
 import type { Model3dElement, Scene3dManifest } from "../src/lib/model3d/types";
@@ -441,6 +447,139 @@ export async function setPlotViewVerb(root: string, target: string, elementId: s
     if (!track) throw new ValidationError(`Could not set a view on ${elementId}.`);
     return { ...result, trackId: track.id };
   });
+}
+
+/** Fields of the `set_plot_color_scale` verb: one scale's edit plus where it lands. */
+export type ColorScaleVerbFields = ColorScaleFields & { beatId?: string; regenerate?: boolean };
+export interface ColorScaleVerbResult {
+  scaleId: string;
+  /** The edited scale's live view (null: it paints as generated). */
+  scale: ColorScaleView | null;
+  /** The element's whole colorScale record — what a beat's Change carries. */
+  colorScale: Record<string, ColorScaleView> | null;
+  issues: string[];
+  trackId?: string;
+  regenerated?: { recipe: string; control: Record<string, unknown>; refreshed: number };
+}
+
+/** The recipe a figure plot regenerates from: its authored path, else the plots/ convention. */
+async function plotRecipeFile(root: string, el: SemanticPlotElement): Promise<{ abs: string; rel: string }> {
+  const rels = [el.source?.recipePath, j("plots", `${el.assetId}.recipe.json`)].filter((r): r is string => !!r);
+  for (const rel of rels) {
+    const abs = safeJoin(root, rel);
+    try { await fs.access(abs); return { abs, rel }; } catch { /* next */ }
+  }
+  throw new ValidationError(`Plot ${el.id} has no recipe to regenerate (looked for ${rels.join(", ")}).`);
+}
+
+/** Shared figure/slide colour-scale authoring (colour-system plan A7.6): the CLI/MCP twin of
+ *  the Inspector's editor. A figure target edits the object, a deckId/slideId target edits
+ *  Design, `--beat` that step's Change endpoint. `regenerate` (figure targets) also writes the
+ *  complete v2 `__fluxplot__[scaleId]` control, re-runs the recipe, refreshes the figure's
+ *  copies and clears the live override — the source then paints what the view showed. */
+export async function setPlotColorScaleVerb(root: string, target: string, elementId: string, fields: ColorScaleVerbFields): Promise<ColorScaleVerbResult> {
+  const { beatId, regenerate, ...edit } = fields;
+  await ensureColormapLuts(); // named colormaps resolve to their tables at write time
+  const apply = async (project: Project, el: SemanticPlotElement, deckId?: string) => {
+    const manifest = await readPlotManifest(root, el, deckId);
+    let scaleId = "";
+    try {
+      const scale = pickScale(manifest, edit.scaleId);
+      scaleId = scale.id;
+      setPlotColorScale(project, el.id, scale.id, colorScalePatch(scale, el.colorScale?.[scale.id], edit, colormapLut), scale);
+    } catch (e) { throw new ValidationError(e instanceof Error ? e.message : String(e)); }
+    const result: ColorScaleVerbResult = {
+      scaleId, scale: el.colorScale?.[scaleId] ?? null, colorScale: el.colorScale ?? null,
+      issues: plotColorScaleIssues(manifest, el.colorScale, colormapLut),
+    };
+    return { result, el, manifest };
+  };
+  const parts = target.split("/");
+  if (parts.length === 1) {
+    if (beatId) throw new ValidationError("--beat requires a deckId/slideId target.");
+    const { result, el, manifest } = await mutateFigModel(root, "set_plot_color_scale", async ({ project }) => {
+      const figure = project.figures.find(f => f.id === target);
+      if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+      const el = figure.elements.find(e => e.id === elementId);
+      if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+      return apply(project, el);
+    });
+    if (!regenerate) return result;
+    // Apply to source: the recipe learns the complete control for this scale, the plot and its
+    // key regenerate from the data, the figure copies refresh, and the override is redundant.
+    const scale = pickScale(manifest, result.scaleId);
+    const control = controlFromView(scale, result.scale ?? undefined, colormapLut);
+    const recipe = await plotRecipeFile(root, el);
+    const stored = JSON.parse(await fs.readFile(recipe.abs, "utf8")) as { params?: Record<string, unknown> };
+    const controls = { ...((stored.params?.__fluxplot__ as Record<string, unknown> | undefined) ?? {}), [scale.id]: control };
+    const run = await runRecipe(recipe.abs, { __fluxplot__: controls });
+    if (run.code !== 0) throw new Error(`recipe exited ${run.code}; the live override stays in place\n${run.stderr.slice(-2000)}`);
+    const sync = await syncFigureAssets(root, target);
+    await mutateFigModel(root, "set_plot_color_scale", ({ project }) => { setPlotColorScale(project, elementId, scale.id, null); });
+    return { ...result, scale: null, colorScale: null, issues: [], regenerated: { recipe: recipe.rel, control, refreshed: sync.refreshed.length } };
+  }
+  if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+  if (regenerate) throw new ValidationError("--regenerate works on a figure target: a deck holds copies of the plot.");
+  const [deckId, slideId] = parts;
+  return mutateDeck(root, deckId, "set_plot_color_scale", async deck => {
+    const slide = mustSlide(deck, slideId);
+    let el = slide.elements.find(e => e.id === elementId);
+    if (beatId) {
+      const bi = slide.beats.findIndex(b => b.id === beatId);
+      if (bi < 1) throw new ValidationError("Choose an existing build step after Design.");
+      el = (await compileDeckSlide(root, deck, slideId)).sample(bi).elements.find(e => e.id === elementId);
+    }
+    if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+    const { result } = await apply({ figures: [{ elements: [el] }] } as Project, el, deckId);
+    if (!beatId) return result;
+    const track = slideOps.setTransform(deck, slideId, beatId, elementId, { state: { colorScale: result.colorScale } });
+    if (!track) throw new ValidationError(`Could not set a colour scale on ${elementId}.`);
+    return { ...result, trackId: track.id };
+  });
+}
+
+/** What an agent needs before editing a plot's colours: every scale with its generated
+ *  record, what may change, the live view where the target holds one, and how it paints. */
+export async function getPlotColorScales(root: string, target: string, elementId: string, beatId?: string) {
+  await ensureColormapLuts();
+  const parts = target.split("/");
+  let el: SemanticPlotElement | undefined, deckId: string | undefined;
+  if (parts.length === 1) {
+    if (beatId) throw new ValidationError("--beat requires a deckId/slideId target.");
+    const { project } = await loadFigModel(root);
+    const figure = project.figures.find(f => f.id === target);
+    if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+    const found = figure.elements.find(e => e.id === elementId);
+    if (found?.type === "plot") el = found;
+  } else {
+    if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+    const [id, slideId] = parts;
+    deckId = id;
+    const deck = await loadDeck(root, id);
+    const slide = mustSlide(deck, slideId);
+    let found = slide.elements.find(e => e.id === elementId);
+    if (beatId) {
+      const bi = slide.beats.findIndex(b => b.id === beatId);
+      if (bi < 1) throw new ValidationError("Choose an existing build step after Design.");
+      found = (await compileDeckSlide(root, deck, slideId)).sample(bi).elements.find(e => e.id === elementId);
+    }
+    if (found?.type === "plot") el = found;
+  }
+  if (!el) throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+  const manifest = await readPlotManifest(root, el, deckId);
+  const scales = (manifest?.colorScales ?? []).map(scale => {
+    const view = el!.colorScale?.[scale.id];
+    const eff = effectiveScale(scale, view, colormapLut);
+    const { lut: _lut, ...colormap } = scale.colormap;
+    return {
+      id: scale.id, label: scale.label ?? null, recolor: scale.recolor, editable: scale.editable ?? null, normKinds: normKindsFor(scale),
+      generated: { colormap: { ...colormap, N: scale.colormap.N }, norm: scale.norm, mappables: scale.mappables, colorbars: scale.colorbars },
+      view: view ?? null,
+      effective: { colormap: typeof view?.cmap === "string" ? view.cmap : view?.cmap?.name ?? (view?.cmap ? "table" : scale.colormap.name), reversed: !!view?.reversed, norm: eff.norm },
+      issues: eff.issues,
+    };
+  });
+  return { target, elementId, manifestVersion: manifest?.schemaVersion ?? null, scales };
 }
 
 /** set-transform: add or update THE transform track for a target on a beat

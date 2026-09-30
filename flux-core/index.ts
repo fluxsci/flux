@@ -151,6 +151,10 @@ export {
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
   setPlotViewVerb,
+  setPlotColorScaleVerb,
+  getPlotColorScales,
+  type ColorScaleVerbFields,
+  type ColorScaleVerbResult,
   addGhostTransform,
   groupTracksVerb,
   ungroupTracksVerb,
@@ -166,6 +170,11 @@ export {
   type ValidateDeckResult,
 } from "./slides";
 
+// Shared live colour-scale law and authoring (colour-system plan A7): the GUI's modules.
+export { normalize as colorScaleNormalize, lookup as colormapLookup, colorFor as colorScaleColorFor, effectiveScale, viewIsIdentity as colorScaleViewIsIdentity } from "../src/lib/plot/colorscale";
+export { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
+export { setPlotColorScale } from "../src/lib/ops";
+export { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
 // Shared plot projection and figure-model view mutation.
 export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, projectWith, blendFit, seriesAxes, seriesVertices, hasTweenableSeries, plotViewIssues } from "../src/lib/plot/project";
 export type { Fit, Fits, MorphPoint } from "../src/lib/plot/project";

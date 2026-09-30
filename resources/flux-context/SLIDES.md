@@ -57,6 +57,9 @@ flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]               
 
 flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
      [--x-scale linear|log --y-scale linear|log --reset] [--beat beatId]            # (set_plot_view) data view, or a Change at a deck beat
+flux set-plot-color-scale <figureId|deckId/slideId> <elId> [--scale id --cmap crameri.batlow --reversed --norm log
+     --vmin N --vmax N --center N --gamma N --extend both --reset] [--beat beatId] [--regenerate]  # (set_plot_color_scale) live colour scale, or a Change
+flux get-plot-color-scales <figureId|deckId/slideId> <elId> [--beat beatId]                  # (get_plot_color_scales) scales, editability, live view
 
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state] [--curve 'spring(0.35)']
@@ -182,6 +185,18 @@ other state. Without `--beat`, it edits Design. `--reset` clears the view (at a 
 writes `view:null`). The Inspector and F-menu expose the same controls. Log limits and data
 must be positive. Lines, points and existing guides project; filled/non-series marks stay
 put. Ticks fade in the outer 4%, including new limits; zoom-out does not invent ticks.
+
+**Colour scale** is the same kind of prop for colour-mapped plots (hexbin, heatmap, scatter
+`c=`, contour bands, colour-mapped bars/lines) saved by fluxplot ≥ 0.3.1: `set-plot-color-scale`
+patches the colormap, its direction, the norm kind (within what the scale allows), the limits
+and norm parameters, and `extend`; omitted fields inherit, `--reset` clears the scale. A figure
+target writes the object; a `deck/slide` target with `--beat` writes `state.colorScale` on that
+step's Change, so colours tween through data values (limits interpolate, log limits in log
+space, a changed colormap blends its tables); without `--beat` it edits Design. Every element
+carrying a `data-value` recolours together with the colorbar's gradient and ticks, in place, with
+no regeneration; raster scales (images, filled contours) report themselves and only regenerate.
+`--regenerate` on a figure target writes the complete v2 `__fluxplot__` control into the recipe
+and re-runs it, then clears the live override. `get-plot-color-scales` lists what a plot has.
 
 **Ghost transforms** create ordinary independent result Elements with a birth Change track
 (`ghostFrom` names the source; `target` names the result; `to.state` is its destination patch).

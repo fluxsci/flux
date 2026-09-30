@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog";
 import type { PlotViewFields } from "../src/lib/plot/viewControls";
+import type { ColorScaleVerbFields } from "./slides";
 import { EASING_TOKENS, CURVE_CATALOG, parseCurve } from "../src/lib/slide/curves";
 import type { EasingToken, PairPolicy, Track, PresetName } from "../src/lib/slide/types";
 import { PAIR_POLICY_IDS } from "../src/lib/slide/targets";
@@ -2487,10 +2488,10 @@ export const VERBS: VerbDef[] = [
     cli: "rerun-plot",
     cliRoot: "flags",
     summary:
-      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots.",
+      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans, or JSON objects such as the __fluxplot__ colour controls — see set_plot_color_scale --regenerate for the guided form). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots.",
     params: {
       recipePath: z.string(),
-      params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+      params: z.record(z.unknown()).optional(),
       only: z.union([z.boolean(), z.string()]).optional(),
     },
     cliArgs: [
@@ -2502,7 +2503,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flagRest", into: "params" },
     ],
     handler: (_ctx, a) =>
-      core.runRecipe(s(a.recipePath), (a.params ?? {}) as Record<string, string | boolean>, {
+      core.runRecipe(s(a.recipePath), (a.params ?? {}) as Record<string, unknown>, {
         only: a.only === true ? true : typeof a.only === "string" ? a.only : undefined,
       }),
     render: {
@@ -3115,12 +3116,68 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "set_plot_color_scale", scope: "project", cli: "set-plot-color-scale", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Recolour a plot's colour scale LIVE, in data units, without touching the source: colormap (any map fluxplot ships, e.g. viridis, crameri.batlow, cmr.ember, or *_r), reversed, norm kind (within the scale's editable.normKinds), vmin/vmax, center (twoslope/centered), gamma (power), linthresh/linscale (symlog), extend. target is a figureId or deckId/slideId; --scale names the scale when the plot has several; a slide --beat writes that step's Change endpoint (the colours tween), without it edit Design. Omitted fields are preserved, null restores one field's generated value, --reset restores the whole scale. --regenerate (figure targets) also writes the complete v2 __fluxplot__ control into the recipe, re-runs it, refreshes the figure's copies and clears the live override. Raster scales (images, contourf) accept only --regenerate edits. get_plot_color_scales lists what a plot has.",
+    params: {
+      target: z.string(), elementId: z.string(), scaleId: z.string().optional(), beatId: z.string().optional(),
+      cmap: z.string().nullable().optional(), reversed: z.boolean().nullable().optional(),
+      norm: z.enum(["linear", "log", "symlog", "power", "twoslope", "centered"]).nullable().optional(),
+      vmin: z.number().finite().nullable().optional(), vmax: z.number().finite().nullable().optional(), vcenter: z.number().finite().nullable().optional(),
+      gamma: z.number().finite().nullable().optional(), linthresh: z.number().finite().nullable().optional(), linscale: z.number().finite().nullable().optional(),
+      extend: z.enum(["neither", "min", "max", "both"]).nullable().optional(),
+      reset: z.boolean().optional(), regenerate: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "flag", at: "scale", into: "scaleId" },
+      { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "cmap", into: "cmap" },
+      { kind: "flag", at: "reversed", into: "reversed", as: "boolean" },
+      { kind: "flag", at: "norm", into: "norm" },
+      { kind: "flag", at: "vmin", into: "vmin", as: "number" },
+      { kind: "flag", at: "vmax", into: "vmax", as: "number" },
+      { kind: "flag", at: "center", into: "vcenter", as: "number" },
+      { kind: "flag", at: "gamma", into: "gamma", as: "number" },
+      { kind: "flag", at: "linthresh", into: "linthresh", as: "number" },
+      { kind: "flag", at: "linscale", into: "linscale", as: "number" },
+      { kind: "flag", at: "extend", into: "extend" },
+      { kind: "flag", at: "reset", into: "reset", as: "boolean" },
+      { kind: "flag", at: "regenerate", into: "regenerate", as: "boolean" },
+    ],
+    handler: (ctx, a) => {
+      const { target, elementId, ...fields } = a;
+      return core.setPlotColorScaleVerb(ctx.root, s(target), s(elementId), fields as ColorScaleVerbFields);
+    },
+    render: {
+      human: (r) => ({ out: JSON.stringify(r) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "get_plot_color_scales", readOnly: true, scope: "project", cli: "get-plot-color-scales", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "List a plot's colour scales (fluxplot ≥ 0.3.1): id, label, recolor mode (live or raster), what is editable, the norm kinds it may switch to, the generated colormap and norm, the live view held by the target (a figure, a deck's Design, or a --beat's resolved state) and the effective norm with any issues.",
+    params: { target: z.string(), elementId: z.string(), beatId: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "flag", at: "beat", into: "beatId" },
+    ],
+    handler: (ctx, a) => core.getPlotColorScales(ctx.root, s(a.target), s(a.elementId), a.beatId as string | undefined),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_transform",
     scope: "project",
     cli: "set-transform",
     cliRoot: "flags",
     summary:
-      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade. For 3D models, compatible topology morphs and incompatible topology crossfades; known original model source receipts persist and bare targets clear old provenance. Explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
+      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade. For 3D models, compatible topology morphs and incompatible topology crossfades; known original model source receipts persist and bare targets clear old provenance. Explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales; `state.colorScale` ({scaleId: {cmap, reversed, norm:{kind, vmin, vmax, …}, extend}}) recolours a plot's colour scale in data units (set_plot_color_scale --beat is the guided form). Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
