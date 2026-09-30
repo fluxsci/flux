@@ -14,11 +14,15 @@
 // firewall regression was isolated in one run). Optional Chrome trace per phase.
 //
 //   node scripts/perf/input-probe.cjs <projectDir> [--surface=figure|paper|both|slide|all]
-//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
+//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
 //        [--qualify] preserve production background throttling and fail on unusable display/focus loss
 //        [--model3d-s8=model|image] qualified public-example fixture assertions
+//        [--target=<elementId>] drag/hover target element (default: first on-screen plot)
+//        [--zoomSteps=N] before the phases, N ctrl-wheel notches IN about the target (×e^0.18 each), settle 2.5 s (proxy warm)
+//        phases dragHeavy (N=--dragMoves moves every --dragMs ms, Lissajous + drift), altDupDrag (same with Alt+Shift held:
+//        duplicate-on-drag, axis-locked), idleAfterDup (3 s after the duplicate lands: autosave + proxy retake) — 2026-09-30
 //
 // The project is COPIED to a scratch dir (nothing of the user's is touched);
 // HOME/XDG are isolated (no single-instance clash with a running Flux); the
@@ -50,7 +54,7 @@ if (!process.versions.electron) {
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
-    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', '') };
+    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8') };
   delete env.VITE_DEV_SERVER_URL; delete env.ELECTRON_RUN_AS_NODE;
   const electronArgs = [__filename, project];
   if (process.platform === 'linux') electronArgs.push('--no-sandbox', `--ozone-platform=${ozone}`);
@@ -374,11 +378,33 @@ async function figurePhases(mode = 'figure') {
   let last = -1; for (let i = 0; i < 60; i++) { const n = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`); if (n === last) break; last = n; await sleep(400); } // lazy parse settles
   if (mode === 'figure') await model3dProbe?.prepareFigure();
   log('dom', await js(`({mode:'${mode}',elements:document.querySelectorAll('${modeRoot} [data-editor-element-id]').length,plotNodes:document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})`));
-  const geo = await js(`(()=>{const root=document.querySelector('${modeRoot}');const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
+  const scanGeo = () => js(`(()=>{const root=document.querySelector('${modeRoot}');const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
     const plots=[...root.querySelectorAll('[data-editor-element-id]')].filter(n=>window.__model3dS8 ? window.__model3dS8.ids.includes(n.dataset.editorElementId) : n.querySelector('svg')).map(n=>{const r=n.getBoundingClientRect();return {id:n.dataset.editorElementId,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>20&&p.h>20&&p.x>h.left+40&&p.x<h.right-40&&p.y>h.top+40&&p.y<h.bottom-40);
     let empty=null;for(let y=h.bottom-30;y>h.top+40&&!empty;y-=20){for(let x=h.right-30;x>h.left+40;x-=20){const el=document.elementFromPoint(x,y);if(el&&el.closest('.canvas-host')&&!el.closest('[data-editor-element-id],.figure-titlebar,.ruler,.overlay-svg')){empty={x,y};break}}}
     return {host:{l:Math.round(h.left),t:Math.round(h.top),r:Math.round(h.right),b:Math.round(h.bottom)},plots:plots.slice(0,4),nplots:plots.length,empty}})()`);
+  let geo = await scanGeo();
   log('geo', geo);
+  // --target: measure a NAMED element (the owner's laggy hexmatrix, say) instead of whichever plot is first.
+  const targetId = process.env.PROBE_TARGET || '';
+  const targetRect = () => js(`(()=>{const n=document.querySelector('${modeRoot} [data-editor-element-id="${targetId}"]');if(!n)return null;const r=n.getBoundingClientRect();return {id:'${targetId}',x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}})()`);
+  let target = null;
+  if (targetId) { target = await targetRect(); if (!target) throw Error('target element not mounted: ' + targetId); log('target', target); }
+  // --zoomSteps: zoom IN about the target (or host centre) BEFORE the phases, then settle long enough for the
+  // fold (180 ms) and the zoom-proxy snapshot (1.5 s quiet + idle). The owner's lag is worst zoomed in.
+  const zoomSteps = +(process.env.PROBE_ZOOM_STEPS || 0);
+  if (zoomSteps > 0) {
+    const zx = target ? target.x : Math.round((geo.host.l + geo.host.r) / 2), zy = target ? target.y : Math.round((geo.host.t + geo.host.b) / 2);
+    const bakedJs = `Number(/scale\\(([-\\d.e]+)/.exec(document.querySelector('${modeRoot} .scene-svg > g').getAttribute('transform'))[1])`;
+    const z0 = await js(bakedJs);
+    mouse({ type: 'mouseMove', x: zx, y: zy }); await sleep(200);
+    ctrlDown(); for (let i = 0; i < zoomSteps; i++) { wheel(zx, zy, 0, 120, ['control']); await sleep(30); } ctrlUp();
+    await wait(() => js(`${bakedJs} > ${z0} * 1.05`), 'prezoom folded'); await sleep(2500);
+    geo = await scanGeo(); if (target) target = await targetRect();
+    const z1 = await js(bakedJs);
+    const pre = { steps: zoomSteps, bakedBefore: z0, bakedAfter: z1, ratio: +(z1 / z0).toFixed(2), proxyWarm: await js(`!!document.querySelector('${modeRoot} .zoom-proxy')`), target, empty: geo.empty, plotNodesOnScreen: await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`) };
+    log('prezoom', pre); results.prezoom = pre;
+    if (!geo.empty) geo.empty = { x: geo.host.r - 40, y: geo.host.b - 40 }; // zoomed content may cover every scanned spot; fall back to the corner
+  }
   log('selection', await js(`(()=>{const s=document.getSelection();const a=s&&s.anchorNode;return {ranges:s?s.rangeCount:0,anchor:a?(a.nodeName+(a.parentElement?'<'+a.parentElement.className.toString().slice(0,30):'')):null,inCanvas:!!(a&&document.querySelector('${modeRoot} .canvas-host')?.contains(a))}})()`));
   if (!geo.plots.length || !geo.empty) throw Error('need at least one on-screen plot and an empty canvas spot');
   const bg = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host');const c=getComputedStyle(h).backgroundColor.match(/[\\d.]+/g)||[240,240,240];return {win:{w:innerWidth,h:innerHeight},lum:0.114*+c[2]+0.587*+c[1]+0.299*+c[0]}})()`);
@@ -386,7 +412,7 @@ async function figurePhases(mode = 'figure') {
   log('frameRegion', region);
   { const b = win.getContentBounds(); const g = `${b.x + region.l},${b.y + region.t} ${region.r - region.l}x${region.b - region.t}`; log('screenRegion', { g, bgLum: region.bgLum, bounds: b }); }
   log('animations', await js("document.getAnimations().map(a=>({target:(a.effect&&a.effect.target&&(a.effect.target.className&&a.effect.target.className.baseVal||a.effect.target.className||a.effect.target.tagName)+'').toString().slice(0,40),props:Object.keys((a.effect&&a.effect.getKeyframes&&a.effect.getKeyframes()[0])||{}).filter(k=>!/offset|computedOffset|easing|composite/.test(k)),state:a.playState}))"));
-  const A = geo.plots[0], B = geo.plots[Math.min(1, geo.plots.length - 1)];
+  const A = target ?? geo.plots[0], B = geo.plots.find((p) => p.id !== A.id) ?? A;
   results[mode] = {};
   for (const sc of scenarios) {
     await setScenario(sc);
@@ -404,6 +430,32 @@ async function figurePhases(mode = 'figure') {
     // 5. press-drag plot A (real move gesture), then Ctrl+Z
     if (wantPhase('dragPlot')) R.dragPlot = await measure(`${mode}:${sc}:dragPlot`, async () => { mouse({ type: 'mouseMove', x: A.x, y: A.y }); await sleep(150); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(150); for (let i = 1; i <= 8; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i * 5, y: A.y + i * 3 }); await sleep(40); } await sleep(150); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + 40, y: A.y + 24 }); await sleep(300); }, tr('dragPlot'));
     if (wantPhase('dragPlot')) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] }); await sleep(250); }
+    // 5e. HEAVY drag (2026-09-30, the owner's "lag while dragging, worst zoomed in"): press on the target, --dragMoves
+    // moves every --dragMs ms along a Lissajous path plus a drift (ends at +60,+40 so the commit is a real edit), release.
+    const undo = async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] }); await sleep(400); };
+    const heavyPath = async (mods) => {
+      const N = +(process.env.PROBE_DRAG_MOVES || 150), dt = +(process.env.PROBE_DRAG_MS || 8), Rr = Math.min(120, Math.round((geo.host.r - geo.host.l) / 5));
+      const km = mods.length ? mods.map((m) => ({ type: 'keyDown', keyCode: m === 'alt' ? 'Alt' : m === 'shift' ? 'Shift' : 'Control' })) : [];
+      for (const k of km) win.webContents.sendInputEvent(k);
+      mouse({ type: 'mouseMove', x: A.x, y: A.y, modifiers: mods }); await sleep(150);
+      mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y, modifiers: mods }); await sleep(100);
+      let lx = A.x, ly = A.y;
+      for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; lx = Math.round(A.x + Rr * Math.sin(th) + (60 * i) / N); ly = Math.round(A.y + Rr * 0.6 * Math.sin(2 * th) + (40 * i) / N); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown', ...mods], x: lx, y: ly }); await sleep(dt); }
+      await sleep(100); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly, modifiers: mods });
+      for (const k of km) win.webContents.sendInputEvent({ ...k, type: 'keyUp' });
+      await sleep(400);
+    };
+    if (wantPhase('dragHeavy')) { R.dragHeavy = await measure(`${mode}:${sc}:dragHeavy`, () => heavyPath([]), tr('dragHeavy')); await undo(); }
+    // 5f. the same drag with Alt+Shift held = duplicate-on-drag (performAltDup on the first move), axis-locked; then 3 idle
+    // seconds for whatever the duplicate triggers (figures autosave at 700 ms, zoom-proxy retake after 1.5 s quiet); then undo.
+    if (wantPhase('altDupDrag')) {
+      const before = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length`);
+      R.altDupDrag = await measure(`${mode}:${sc}:altDupDrag`, () => heavyPath(['alt', 'shift']), tr('altDupDrag'));
+      const after = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length`);
+      log('altDup', { elementsBefore: before, elementsAfter: after, duplicated: after > before });
+      if (wantPhase('idleAfterDup')) R.idleAfterDup = await measure(`${mode}:${sc}:idleAfterDup`, async () => { await sleep(3000); }, tr('idleAfterDup'));
+      await undo();
+    }
     // 5d. three idle seconds after an edit + undo: whatever lands here (autosave, journal, deferred work) is a hitch the user gets for free
     if (wantPhase('idle')) R.idle = await measure(`${mode}:${sc}:idle`, async () => { await sleep(3000); }, tr('idle'));
     await click(geo.empty.x, geo.empty.y, 10); await sleep(300);
