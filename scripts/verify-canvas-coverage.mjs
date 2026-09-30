@@ -46,11 +46,14 @@ try {
   await fresh(before);
   await page.keyboard.down('Control'); await page.mouse.wheel({ deltaY: -20 });
   h.ok(await page.$eval('.zoom-proxy', i => i.classList.contains('live')), 'fresh covered scene uses the fast zoom path');
+  // Record the retired image BEFORE the edit: after the zoom settles the fresh
+  // capture follows within ~300 ms (2026-09-30), i.e. inside the sleep below.
+  const old = await page.$eval('.zoom-proxy', i => i.dataset.snap);
   await page.evaluate(() => window.__flux.fig.commit(p => { p.figures[0].elements[0].fill = '#008800'; }));
   await waitFor(page, () => getComputedStyle(document.querySelector('.scene')).opacity === '1', null, { timeout: 1000, label: 'edit reveals live scene' });
   h.ok(!await page.$eval('.zoom-proxy', i => i.classList.contains('live')), 'content edit during zoom retires the stale image immediately');
   await page.keyboard.up('Control'); await sleep(600);
-  const old = await page.$eval('.zoom-proxy', i => i.dataset.snap); await fresh(old);
+  await fresh(old);
   const ungridded = await page.$eval('.zoom-proxy', i => i.dataset.snap);
   await page.evaluate(() => window.__flux.settings.update(s => ({ ...s, showGrid: !s.showGrid })));
   await fresh(ungridded);

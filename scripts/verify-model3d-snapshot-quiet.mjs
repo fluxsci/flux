@@ -1,4 +1,4 @@
-/** Real hover defers optional SVG snapshot work; quiet resumes a pixel-valid proxy. */
+/** Hover alone creates no snapshot work and no longer postpones or rejects a current one (2026-09-30); content changes reject obsolete work; quiet yields a pixel-valid proxy. */
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { launch, gotoApp, clickMode, waitFor, realErrors, APP_URL } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
@@ -50,7 +50,7 @@ try {
     const timeout = window.setTimeout;
     window.setTimeout = function(callback, delay, ...args) {
       const id = Reflect.apply(timeout, this, [callback, delay, ...args]);
-      if (delay === 1500) state.quietTimers.push({ id, time: performance.now() });
+      if (delay === 1500 || delay === 300) state.quietTimers.push({ id, time: performance.now() });
       return id;
     };
     const idle = window.requestIdleCallback;
@@ -86,34 +86,50 @@ try {
   h.eq(await page.evaluate(() => window.__snapshotQuiet.svgs.length), 0, 'pure hover creates no optional snapshot work');
   h.ok(await page.evaluate(() => window.__snapshotQuiet.moves.length > 20 && window.__snapshotQuiet.moves.every(m => m.trusted && m.promoted !== 'transform')), 'real hover does not promote the live scene');
 
+  // 2026-09-30 contract: pointer motion without a gesture neither postpones nor
+  // rejects a snapshot — only content changes (and gestures) do. Restarting the
+  // quiet on every move meant every "move the mouse, then zoom" ran live.
   const before = await page.evaluate(() => ({ svg: window.__snapshotQuiet.svgs.length, moves: window.__snapshotQuiet.moves.length, started: performance.now() }));
   await nudge(id); result.pendingHoverMoves = await hover();
-  result.pending = await page.evaluate(before => ({ ...before, end: performance.now(), svg: window.__snapshotQuiet.svgs.length, moves: window.__snapshotQuiet.moves.slice(before.moves) }), before);
-  h.ok(result.pending.end - before.started > 1500 && result.pending.moves.length > 35 && result.pending.moves.every(m => m.trusted), 'sustained real pointer input crosses the original quiet deadline');
-  h.eq(result.pending.svg, before.svg, 'no SVG snapshot starts during sustained hover after an edit');
-  h.eq(await proxy(), initial, 'pending hover does not replace the prior invisible bitmap');
+  result.pending = await page.evaluate(before => ({ ...before, end: performance.now(), svgs: window.__snapshotQuiet.svgs.slice(before.svg), moves: window.__snapshotQuiet.moves.slice(before.moves) }), before);
+  h.ok(result.pending.end - before.started > 1500 && result.pending.moves.length > 35 && result.pending.moves.every(m => m.trusted), 'sustained real pointer input crosses the quiet deadline');
+  h.eq(result.pending.svgs.length, 1, 'exactly one SVG snapshot starts after the edit, during sustained hover');
+  h.ok(result.pending.svgs[0]?.time < result.pending.moves.at(-1).time, 'hover does not postpone the snapshot past the last pointer move');
   await ready(initial); const settled = await proxy();
-  result.quiet = await page.evaluate(() => ({ svgs: window.__snapshotQuiet.svgs, rasters: window.__snapshotQuiet.rasters, lastMove: window.__snapshotQuiet.moves.at(-1).time }));
-  h.eq(result.quiet.svgs.length, 1, 'true quiet eventually produces one fresh snapshot');
-  h.ok(result.quiet.svgs[0].time > result.quiet.lastMove && result.quiet.rasters.length === 1, 'snapshot rasterization follows the last pointer activity');
+  h.ok(settled !== initial, 'the edit is captured while the pointer keeps moving');
+  result.quiet = await page.evaluate(() => ({ svgs: window.__snapshotQuiet.svgs, rasters: window.__snapshotQuiet.rasters }));
+  h.eq(result.quiet.rasters.length, 1, 'one snapshot rasterizes once');
 
+  // A CURRENT in-flight snapshot survives pointer motion and publishes.
   const priorIdles = await page.evaluate(() => { window.__snapshotQuiet.hold = true; return window.__snapshotQuiet.idles.length; });
   await nudge(id);
   p = await point(); await page.mouse.move(p.x + 12, p.y);
   await waitFor(page, count => window.__snapshotQuiet.idles.length > count, priorIdles, { label: 'real quiet timer registers idle capture' });
-  // Headless Chromium can postpone a no-timeout idle callback indefinitely
-  // without a subsequent frame. Supply one test-only frame after registration;
-  // the browser still delivers the callback and the actual SVG still decodes.
+  // Headless Chromium can postpone an idle callback without a subsequent frame;
+  // supply one test-only frame (the callback also has a timeout since 2026-09-30).
   await page.screenshot({ path: out + '/held-capture-frame.png' });
   await waitFor(page, () => window.__snapshotQuiet.held, null, { label: 'hold only an already decoded SVG snapshot continuation' });
   const held = await page.evaluate(() => ({ svg: window.__snapshotQuiet.svgs.length, rasters: window.__snapshotQuiet.rasters.length }));
   p = await point(); await page.mouse.move(p.x + 20, p.y);
   await page.evaluate(() => window.__snapshotQuiet.release());
-  result.inflightHoverMoves = await hover();
-  h.eq(await proxy(), settled, 'pointer activity rejects an obsolete asynchronous snapshot publication');
-  h.eq(await page.evaluate(() => window.__snapshotQuiet.rasters.length), held.rasters, 'obsolete decoded SVG performs no raster readback after hover resumes');
-  h.eq(await page.evaluate(() => window.__snapshotQuiet.svgs.length), held.svg, 'cancelled in-flight work is not retried during sustained hover');
-  await ready(settled);
+  result.inflightHoverMoves = await hover(600);
+  await ready(settled); const current = await proxy();
+  h.ok(current !== settled, 'pointer activity does not reject a current asynchronous snapshot publication');
+  h.eq(await page.evaluate(() => window.__snapshotQuiet.rasters.length), held.rasters + 1, 'the held snapshot rasterizes once after release');
+
+  // An OBSOLETE in-flight snapshot (content changed while it decoded) is still rejected.
+  const priorIdles2 = await page.evaluate(() => { window.__snapshotQuiet.hold = true; return window.__snapshotQuiet.idles.length; });
+  await nudge(id);
+  await waitFor(page, count => window.__snapshotQuiet.idles.length > count, priorIdles2, { label: 'second idle capture registered' });
+  await page.screenshot({ path: out + '/held-capture-frame-2.png' });
+  await waitFor(page, () => window.__snapshotQuiet.held, null, { label: 'second snapshot held after decode' });
+  const held2 = await page.evaluate(() => ({ svg: window.__snapshotQuiet.svgs.length, rasters: window.__snapshotQuiet.rasters.length }));
+  await nudge(id); // content changes under the in-flight capture
+  await page.evaluate(() => window.__snapshotQuiet.release());
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 150)));
+  h.eq(await proxy(), current, 'a content change rejects the obsolete asynchronous snapshot publication');
+  h.eq(await page.evaluate(() => window.__snapshotQuiet.rasters.length), held2.rasters, 'the obsolete decoded SVG performs no raster');
+  await ready(current);
   result.pixels = await page.evaluate(() => {
     const image = document.querySelector('.zoom-proxy'), rect = image.getBoundingClientRect(), mesh = document.querySelector('[data-model3d-poster]').getBoundingClientRect();
     const c = document.createElement('canvas'); c.width = image.firstElementChild.width; c.height = image.firstElementChild.height;
