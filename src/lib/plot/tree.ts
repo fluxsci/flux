@@ -73,14 +73,35 @@ function indexTree(root: PartNode | undefined): Map<string, PartNode> {
   return m;
 }
 
-/** The concrete leaf ids an override key controls. Group/container → its leaves; leaf → itself. */
+/** The current id for a part id an OLDER fluxplot emitted (colour-system plan C7). fluxplot
+ *  0.3.2 renamed spines (`axis.x.spine` → `axis.x.spine.bottom`) and re-slugged some series
+ *  roots; `manifest.idAliases` maps each old id — or an old series root standing for every id
+ *  under it — to the new one, panel-prefixed on both sides. Exact match first, then the longest
+ *  prefix key followed by a dot; an id no alias covers is returned as is. The alias table is
+ *  read from the manifest each call (it is small) so a regenerated manifest is honoured. */
+export function aliasPartId(manifest: FluxPlotManifest | undefined, id: string): string {
+  const aliases = (manifest as { idAliases?: Record<string, string> } | undefined)?.idAliases;
+  if (!aliases || !id) return id;
+  const exact = aliases[id];
+  if (exact) return exact;
+  // an id that already IS (or sits under) a current alias target is current: a leaf alias's
+  // target (`axis.x.spine.bottom`) must not be re-aliased through its own old prefix
+  for (const target of Object.values(aliases)) if (id === target || id.startsWith(target + ".")) return id;
+  let best: string | null = null;
+  for (const key of Object.keys(aliases)) if (id.startsWith(key + ".") && (best === null || key.length > best.length)) best = key;
+  return best === null ? id : aliases[best] + id.slice(best.length);
+}
+
+/** The concrete leaf ids an override key controls. Group/container → its leaves; leaf → itself.
+ *  A key saved under an id an older fluxplot emitted is resolved through `idAliases` first. */
 export function resolveTargets(manifest: FluxPlotManifest | undefined, key_: string): string[] {
+  const aliased = aliasPartId(manifest, key_);
   const tree = manifest?.parts as PartNode | undefined;
-  if (!tree) return [key_];
-  const node = indexTree(tree).get(key_);
-  if (!node) return [key_]; // a literal leaf id not present in the tree
+  if (!tree) return [aliased];
+  const node = indexTree(tree).get(aliased);
+  if (!node) return [aliased]; // a literal leaf id not present in the tree
   if (node.role === "group" || (node.children && node.children.length)) return leavesUnder(node);
-  return [key_];
+  return [aliased];
 }
 
 // ---------------------------------------------------------------------------

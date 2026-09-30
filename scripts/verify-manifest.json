@@ -1,5 +1,5 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation \u2014 a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping. Execution metadata is authoritative and independent of selectors. Every attempt receives scratch HOME/config/cache/library; blocked and flaky are not passes. Native no-sandbox is explicit test-only FLUX_ELECTRON_NO_SANDBOX=1. Network tests require FLUX_ALLOW_TEST_NETWORK=1.",
+  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation — a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) — this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) — the tier exists for pathMap's electron/** mapping. Execution metadata is authoritative and independent of selectors. Every attempt receives scratch HOME/config/cache/library; blocked and flaky are not passes. Native no-sandbox is explicit test-only FLUX_ELECTRON_NO_SANDBOX=1. Network tests require FLUX_ALLOW_TEST_NETWORK=1.",
   "tiers": {
     "pure": [
       "verify-an-bridge.ts",
@@ -338,6 +338,7 @@
       "verify-series-color.ts",
       "verify-plot-data.ts",
       "verify-plot-readout.ts",
+      "verify-id-aliases.ts",
       "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
@@ -2063,7 +2064,7 @@
       ]
     },
     {
-      "$why": "A dependency the start-up crawl misses is optimized on first use and every open page is reloaded \u2014 under the ui tier that reload lands on whatever gate is running (the 2026-09-26 plot-gallery popup close). The gate runs the real cold crawl and pins every worker-only import into optimizeDeps.include.",
+      "$why": "A dependency the start-up crawl misses is optimized on first use and every open page is reloaded — under the ui tier that reload lands on whatever gate is running (the 2026-09-26 plot-gallery popup close). The gate runs the real cold crawl and pins every worker-only import into optimizeDeps.include.",
       "glob": "vite.config.ts",
       "run": [
         "verify-dev-prebundle.ts",
@@ -2071,7 +2072,7 @@
       ]
     },
     {
-      "$why": "2026-09-18 text arrangement \u2014 text.ts blockLayout is the ONE source for how a text element's lines sit in their box (align incl. justify, valign, line height, paragraph spacing, tracking); export.ts serializes it for BOTH engines and the slide player binds the same spans, so a change here must clear the pure contract, the live surfaces and the slide/export parity gates.",
+      "$why": "2026-09-18 text arrangement — text.ts blockLayout is the ONE source for how a text element's lines sit in their box (align incl. justify, valign, line height, paragraph spacing, tracking); export.ts serializes it for BOTH engines and the slide player binds the same spans, so a change here must clear the pure contract, the live surfaces and the slide/export parity gates.",
       "glob": "{src/lib/text.ts,src/lib/export.ts,src/lib/textRuns.ts}",
       "run": [
         "verify-text-arrange.ts",
@@ -2389,7 +2390,7 @@
       ]
     },
     {
-      "$why": "2026-09-16 colour collections \u2014 fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
+      "$why": "2026-09-16 colour collections — fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
       "glob": "{src/lib/color/**,src/lib/ColormapPicker.svelte,src/lib/ColorPicker.svelte,src/lib/plot/ColorScaleControls.svelte,scripts/gen-color-collections.mjs}",
       "run": [
         "verify-colorpicker-narrow.mjs",
@@ -2420,7 +2421,7 @@
       ]
     },
     {
-      "$why": "2026-09-25 the editor zoom range lives in ONE module \u2014 the wheel (Canvas.svelte) and the toolbar buttons clamp through it; the raster gate proves the deep-zoom path.",
+      "$why": "2026-09-25 the editor zoom range lives in ONE module — the wheel (Canvas.svelte) and the toolbar buttons clamp through it; the raster gate proves the deep-zoom path.",
       "glob": "{src/lib/interact/zoomLimits.ts,src/lib/Toolbar.svelte}",
       "run": [
         "verify-zoom-limits.ts",
@@ -2429,7 +2430,7 @@
       ]
     },
     {
-      "$why": "2026-09-15 the crosshair cursor family \u2014 Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
+      "$why": "2026-09-15 the crosshair cursor family — Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
       "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte,src/lib/interact/compositorDrive.ts,src/lib/interact/zoomProxy.ts}",
       "run": [
         "verify-cursor-policy.ts",
@@ -2508,7 +2509,7 @@
       ]
     },
     {
-      "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here \u2014 a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
+      "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here — a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
       "glob": "{extension/**,scripts/build-extension.mjs,scripts/sign-extension.mjs,scripts/lib/extensionVersion.mjs}",
       "run": [
         "verify-extension.ts",
@@ -2603,7 +2604,7 @@
       ]
     },
     {
-      "$why": "tokens.css owns the `:root, .ts-scaled` type scale \u2014 Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
+      "$why": "tokens.css owns the `:root, .ts-scaled` type scale — Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
       "glob": "src/styles/tokens.css",
       "run": [
         "verify-paper-textscale.ts",
@@ -2723,7 +2724,7 @@
       ]
     },
     {
-      "$why": "2026-09-15 Snapshot & annotate \u2014 the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay \u2192 popover \u2192 ledger); the IPC contract pins the win:capture channel.",
+      "$why": "2026-09-15 Snapshot & annotate — the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay → popover → ledger); the IPC contract pins the win:capture channel.",
       "glob": "{src/shell/agent/**,src/lib/project/annotations.ts,src/lib/project/annotationCapture.ts}",
       "run": [
         "verify-feedback-snapshot.ts",
@@ -2980,7 +2981,7 @@
       ]
     },
     {
-      "$why": "2026-09-15 surface redesign \u2014 the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
+      "$why": "2026-09-15 surface redesign — the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
       "glob": "{src/lib/FluxFigMenu.svelte,src/lib/ColorPicker.svelte,src/lib/NumberField.svelte,src/lib/Xray.svelte,src/lib/xray/**,src/lib/ui/anchor.ts,src/lib/interact/propertyMenu.ts,src/lib/interact/wheelLaw.ts,src/lib/interact/elementProperties.ts,src/lib/slide/animateSelection.ts,src/lib/Inspector.svelte}",
       "run": [
         "verify-colorpicker-narrow.mjs",
@@ -3059,6 +3060,14 @@
       "glob": "{README.md,docs/**/*.qmd,docs/for_agents/**,resources/{flux-context,agent-skills}/**,src/**/*.svelte,src/shell/command/*.ts}",
       "run": [
         "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan C7: saved part ids resolve through manifest.idAliases (fluxplot 0.3.2 renames).",
+      "glob": "{src/lib/plot/tree.ts,src/lib/plot/parse.ts}",
+      "run": [
+        "verify-id-aliases.ts",
+        "tier:pure"
       ]
     }
   ],
@@ -9444,6 +9453,15 @@
       "coverage": "behavior"
     },
     "verify-plot-readout.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-id-aliases.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
