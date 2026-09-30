@@ -14,7 +14,7 @@
 // firewall regression was isolated in one run). Optional Chrome trace per phase.
 //
 //   node scripts/perf/input-probe.cjs <projectDir> [--surface=figure|paper|both|slide|all]
-//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
+//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,resizeHeavy,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
 //        [--qualify] preserve production background throttling and fail on unusable display/focus loss
@@ -454,6 +454,25 @@ async function figurePhases(mode = 'figure') {
       const after = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length`);
       log('altDup', { elementsBefore: before, elementsAfter: after, duplicated: after > before });
       if (wantPhase('idleAfterDup')) R.idleAfterDup = await measure(`${mode}:${sc}:idleAfterDup`, async () => { await sleep(3000); }, tr('idleAfterDup'));
+      await undo();
+    }
+    // 5g. HEAVY resize (2026-09-30, "adjusting sizes"): select the target, grab its bottom-right handle from the
+    // overlay DOM, --dragMoves moves every --dragMs ms (diagonal in-and-out plus a drift so the commit is real), release, undo.
+    if (wantPhase('resizeHeavy')) {
+      await click(A.x, A.y, 20); await sleep(350);
+      // bottom-right corner handle when it is inside the host; zoomed in, a corner may lie off-screen — take the
+      // farthest handle that is still visible (any edge/corner resizes; the cost under test is the same).
+      const hd = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();const hs=[...document.querySelectorAll('${modeRoot} .overlay-svg rect.handle')].map(r=>{const b=r.getBoundingClientRect();return {x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}}).filter(p=>p.x>h.left+12&&p.x<h.right-12&&p.y>h.top+12&&p.y<h.bottom-12);if(!hs.length)return null;return hs.sort((a,b)=>(b.x+b.y)-(a.x+a.y))[0]})()`);
+      if (!hd) throw Error('resizeHeavy: no selection handles after clicking the target');
+      log('resizeHandle', hd);
+      R.resizeHeavy = await measure(`${mode}:${sc}:resizeHeavy`, async () => {
+        const N = +(process.env.PROBE_DRAG_MOVES || 150), dt = +(process.env.PROBE_DRAG_MS || 8);
+        mouse({ type: 'mouseMove', x: hd.x, y: hd.y }); await sleep(150);
+        mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: hd.x, y: hd.y }); await sleep(100);
+        let lx = hd.x, ly = hd.y;
+        for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; const d = 80 * Math.sin(th) + (50 * i) / N; lx = Math.round(hd.x + d); ly = Math.round(hd.y + d * 0.7); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: lx, y: ly }); await sleep(dt); }
+        await sleep(100); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly }); await sleep(400);
+      }, tr('resizeHeavy'));
       await undo();
     }
     // 5d. three idle seconds after an edit + undo: whatever lands here (autosave, journal, deferred work) is a hitch the user gets for free
