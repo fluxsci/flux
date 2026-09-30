@@ -3331,9 +3331,40 @@
           h: displayBox.h * $viewport.zoom,
         }
       : null;
-  $: handlesScreen = selScreen
+  // Move gestures: the selection chrome (box, handles, rotate stem) is drawn at
+  // the gesture-start box and rides ONE rigid translate through the compositor
+  // drive, instead of rewriting its geometry per pointermove. Changing overlay
+  // geometry re-runs Chromium's layerization (PaintArtifactCompositor::Update,
+  // O(paint chunks)) every frame, just like an inline transform write
+  // (2026-09-30, notes/perf_figure_responsiveness_2026-09-30/report-drag-layer.md).
+  // Exact: during a move displayBox === liveBox === gesture.ob + (gDX, gDY).
+  $: chromeMove =
+    dragging && gesture?.kind === "move" && liveBox && af && gesture.figId === af.id
+      ? gesture
+      : null;
+  $: selChrome =
+    chromeMove && af
+      ? {
+          x: $viewport.panX + (af.x + chromeMove.ob.x) * $viewport.zoom,
+          y: $viewport.panY + (af.y + chromeMove.ob.y) * $viewport.zoom,
+          w: chromeMove.ob.w * $viewport.zoom,
+          h: chromeMove.ob.h * $viewport.zoom,
+        }
+      : selScreen;
+  $: selChromeTransform = chromeMove ? `translate(${gDX * $viewport.zoom}px, ${gDY * $viewport.zoom}px)` : "";
+  function chromeDrive(node: SVGGElement, t: string) {
+    const d = createTransformDrive(node);
+    const apply = (next: string) => {
+      d.set(next);
+      if (next) d.hot();
+      else d.cool();
+    };
+    apply(t);
+    return { update: apply, destroy: () => d.destroy() };
+  }
+  $: handlesScreen = selChrome
     ? HANDLES.map((h) => {
-        const [hx, hy] = handlePos(h, selScreen);
+        const [hx, hy] = handlePos(h, selChrome);
         return { h, x: hx - HS / 2, y: hy - HS / 2, cursor: cursorFor[h] };
       })
     : [];
@@ -4184,27 +4215,28 @@
         r="5"
         on:pointerdown={(e) => onLineEndDown(e, 2)}
       />
-    {:else if selScreen && !editingInfo && !editPathId}
-      <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
+    {:else if selChrome && !editingInfo && !editPathId}
+      <g class="sel-chrome" use:chromeDrive={selChromeTransform}>
+      <rect class="sel-box" x={selChrome.x} y={selChrome.y} width={selChrome.w} height={selChrome.h} fill="none" />
       {#if !selLocked}
         <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
         <line
           class="rot-stem"
-          x1={selScreen.x + selScreen.w / 2}
-          y1={selScreen.y}
-          x2={selScreen.x + selScreen.w / 2}
-          y2={selScreen.y - 15}
+          x1={selChrome.x + selChrome.w / 2}
+          y1={selChrome.y}
+          x2={selChrome.x + selChrome.w / 2}
+          y2={selChrome.y - 15}
         />
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <circle
           class="rot-handle"
-          cx={selScreen.x + selScreen.w / 2}
-          cy={selScreen.y - 20}
+          cx={selChrome.x + selChrome.w / 2}
+          cy={selChrome.y - 20}
           r="5"
           on:pointerdown={onRotateDown}
         />
         {#if gesture?.kind === "rotate" && rotateTip}
-          <text class="rot-tip" x={selScreen.x + selScreen.w / 2 + 12} y={selScreen.y - 18}>{rotateTip}</text>
+          <text class="rot-tip" x={selChrome.x + selChrome.w / 2 + 12} y={selChrome.y - 18}>{rotateTip}</text>
         {/if}
         {#each handlesScreen as hd}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -4219,6 +4251,7 @@
           />
         {/each}
       {/if}
+      </g>
     {/if}
 
     <!-- selected plot part -->

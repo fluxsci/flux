@@ -17,6 +17,9 @@
 //        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
+//        [--layers] mid-drag compositor layer snapshot (CDP LayerTree: count, top layers, owning node, compositing reasons,
+//        the dragged element's will-change + document.getAnimations()) into results.layers — STRUCTURE ONLY: the LayerTree
+//        agent inflates Paint/browser time, never time a --layers run. Scenarios combine with '+' (e.g. noOverlay+ovSel).
 //        [--qualify] preserve production background throttling and fail on unusable display/focus loss
 //        [--model3d-s8=model|image] qualified public-example fixture assertions
 //        [--target=<elementId>] drag/hover target element (default: first on-screen plot)
@@ -54,7 +57,7 @@ if (!process.versions.electron) {
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
-    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8') };
+    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8'), PROBE_LAYERS: args.includes('--layers') ? '1' : '0' };
   delete env.VITE_DEV_SERVER_URL; delete env.ELECTRON_RUN_AS_NODE;
   const electronArgs = [__filename, project];
   if (process.platform === 'linux') electronArgs.push('--no-sandbox', `--ozone-platform=${ozone}`);
@@ -185,9 +188,34 @@ const SCENARIOS = {
   sceneContain: '.canvas-host .scene{contain:layout style}', // diagnostic: containment on the panned wrapper
   hostOverflow: '.canvas-host{overflow:visible !important}', // diagnostic: host clip off
   geomPrec: '.canvas-host .scene-svg{text-rendering:geometricPrecision}', // SVG text laid out scale-independently (no relayout per zoom tick)
+  elNoWC: '.canvas-host .el{will-change:auto !important}', // drag-layer bisect: the dragged <g class=el> without will-change (translate3d still inline)
+  ovGuides: '.canvas-host .overlay-svg .guide{display:none !important}', // drag-layer overlay bisect: smart guides
+  ovMeasure: '.canvas-host .overlay-svg .measure,.canvas-host .overlay-svg .measure-label,.canvas-host .overlay-svg .measure-bg{display:none !important}', // distance readouts
+  ovSel: '.canvas-host .overlay-svg .sel-box,.canvas-host .overlay-svg .handle,.canvas-host .overlay-svg .rot-handle,.canvas-host .overlay-svg .hover-box,.canvas-host .overlay-svg .hover-trace{display:none !important}', // selection box + handles + hover
+  sceneNoWC: '.canvas-host .scene{will-change:auto !important}', // drag-layer bisect: the scene wrapper not promoted by will-change (its paused animation still is)
+  noInspector: 'aside.inspector{visibility:hidden !important}', // drag-layer paint bisect: live x/y readouts not painted
+  noHud: '.arrange-hud,.canvas-host .hud{visibility:hidden !important}', // drag-layer paint bisect
 };
+// --layers: mid-gesture compositor layer snapshot (CDP LayerTree) + the dragged element's animations/will-change.
+let layerLatest = null, layerOn = false; const layerMsgs = {};
+async function layerSnapshot(tag) {
+  const dbg = win.webContents.debugger;
+  if (!layerOn) { layerOn = true; dbg.on('message', (_e, m, p) => { layerMsgs[m] = (layerMsgs[m] || 0) + 1; if (m === 'LayerTree.layerTreeDidChange') { layerMsgs.keys = Object.keys(p || {}).join(','); if (p.layers) layerLatest = p.layers; } }); await dbg.sendCommand('DOM.enable').catch(() => {}); await dbg.sendCommand('LayerTree.enable'); await sleep(200); }
+  const t0 = Date.now(); await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))'); while (!layerLatest && Date.now() - t0 < 1500) await sleep(20);
+  const L = layerLatest || [];
+  const described = [];
+  for (const l of L.filter((l) => l.drawsContent).sort((a, b) => b.width * b.height - a.width * a.height).slice(0, 24)) {
+    let node = null; if (l.backendNodeId) { try { const d = await dbg.sendCommand('DOM.describeNode', { backendNodeId: l.backendNodeId }); node = `${d.node.nodeName}.${(d.node.attributes || []).reduce((acc, v, i, a) => (a[i - 1] === 'class' ? v : acc), '')}${(d.node.attributes || []).reduce((acc, v, i, a) => (a[i - 1] === 'data-editor-element-id' ? '#' + v : acc), '')}`; } catch { node = 'backend#' + l.backendNodeId; } }
+    described.push({ node, w: Math.round(l.width), h: Math.round(l.height), paints: l.paintCount, compositingReasons: undefined });
+  }
+  for (const d of described) { const l = L.find((x) => Math.round(x.width) === d.w && Math.round(x.height) === d.h && x.drawsContent); try { const r = await dbg.sendCommand('LayerTree.compositingReasons', { layerId: l.layerId }); d.compositingReasons = r.compositingReasonIds || r.compositingReasons; } catch {} }
+  const dom = await js(`(()=>{const g=[...document.querySelectorAll('.canvas-host g.el')].filter(g=>g.style.transform);return {movingEls:g.length,willChange:g.map(x=>getComputedStyle(x).willChange),anims:document.getAnimations().map(a=>((a.effect&&a.effect.target&&(a.effect.target.getAttribute('class')||a.effect.target.tagName))+'').slice(0,30)+':'+a.playState),sceneWC:getComputedStyle(document.querySelector('.canvas-host .scene')).willChange,dpr:devicePixelRatio,win:[innerWidth,innerHeight]}})()`);
+  const snap = { tag, msgs: { ...layerMsgs }, layers: L.length, drawing: L.filter((l) => l.drawsContent).length, top: described, dom };
+  log('layers', snap); (results.layers ??= []).push(snap);
+}
 async function setScenario(name) {
-  const css = SCENARIOS[name]; if (css === undefined) throw Error('unknown scenario ' + name);
+  const parts = name.split('+'); for (const p of parts) if (SCENARIOS[p] === undefined) throw Error('unknown scenario ' + p);
+  const css = parts.map((p) => SCENARIOS[p]).join('\n'); // `a+b` combines scenarios
   await js(`(()=>{let s=document.getElementById('__probe_css');if(!s){s=document.createElement('style');s.id='__probe_css';document.head.appendChild(s)}s.textContent=${JSON.stringify(css)};return true})()`);
   await sleep(350);
 }
@@ -440,7 +468,7 @@ async function figurePhases(mode = 'figure') {
       mouse({ type: 'mouseMove', x: A.x, y: A.y, modifiers: mods }); await sleep(150);
       mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y, modifiers: mods }); await sleep(100);
       let lx = A.x, ly = A.y;
-      for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; lx = Math.round(A.x + Rr * Math.sin(th) + (60 * i) / N); ly = Math.round(A.y + Rr * 0.6 * Math.sin(2 * th) + (40 * i) / N); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown', ...mods], x: lx, y: ly }); await sleep(dt); }
+      for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; lx = Math.round(A.x + Rr * Math.sin(th) + (60 * i) / N); ly = Math.round(A.y + Rr * 0.6 * Math.sin(2 * th) + (40 * i) / N); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown', ...mods], x: lx, y: ly }); await sleep(dt); if (i === (N >> 1) && process.env.PROBE_LAYERS === '1') await layerSnapshot(`mid-drag${mods.length ? '-' + mods.join('+') : ''}`); }
       await sleep(100); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly, modifiers: mods });
       for (const k of km) win.webContents.sendInputEvent({ ...k, type: 'keyUp' });
       await sleep(400);
