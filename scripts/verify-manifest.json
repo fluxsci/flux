@@ -289,6 +289,7 @@
       "verify-recovery-entry.ts",
       "verify-eyedropper.ts",
       "verify-text-arrange.ts",
+      "verify-resize-preview.ts",
       "verify-text-runs.ts",
       "verify-figure-metadata.ts",
       "verify-caption-postscript.ts",
@@ -2423,6 +2424,17 @@
         "verify-vanilla-inline.mjs",
         "verify-text-arrange-gui.mjs",
         "group:model3d-gui"
+      ]
+    },
+    {
+      "$why": "2026-09-30 resize preview — plots follow a resize by a transient transform on their live scene group (resizePreview.ts through sceneTransforms.ts), rendered once at release; the pure gate proves the transform equals the committed geometry, the ui gates drive real resize/crop/Esc/move gestures.",
+      "glob": "{src/lib/interact/resizePreview.ts,src/lib/interact/sceneTransforms.ts}",
+      "run": [
+        "verify-resize-preview.ts",
+        "verify-crop.mjs",
+        "verify-fig-esc.mjs",
+        "verify-f5-drag.mjs",
+        "verify-v020-geometry-gui.mjs"
       ]
     },
     {

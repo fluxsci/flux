@@ -10,6 +10,7 @@
   import { editSession } from "./interact/editSession";
   const textEdits = editSession();
   import { transientSceneTransforms } from "./interact/sceneTransforms";
+  import { resizePreviewTransform, transientResizeKind } from "./interact/resizePreview";
   const sceneTransforms = transientSceneTransforms();
   import { frameHandleRect } from "./interact/frameResize";
   import { figureFramePreview } from "./store";
@@ -2395,10 +2396,14 @@
       dragging = true;
       // F5 flicker-free move: a move applies a transient GPU transform to the live
       // scene groups (no hide, no re-decode, no overlay copy), so SVG/plot/image
-      // elements never blank. Only resize freezes the originals + uses the overlay
-      // (cheap geometry). The data model stays frozen until pointer-up either way.
+      // elements never blank. Resize freezes the originals + uses the overlay copy
+      // (cheap geometry) EXCEPT for plots, which stay live under a transient transform
+      // (resizeTransforms: re-mounting a plot copy per move was ~120 ms). Crop keeps
+      // its ghost overlay for every kind. The data model stays frozen until pointer-up.
       gestureHiddenIds =
-        gesture?.kind === "resize" ? new Set(gestureEls.map((el) => el.id)) : new Set();
+        gesture?.kind === "resize"
+          ? new Set(gestureEls.filter((el) => gesture?.kind === "resize" && (gesture.crop || !transientResizeKind(el))).map((el) => el.id))
+          : new Set();
     }
   }
 
@@ -3776,6 +3781,20 @@
     return gestureEls.map(original=>{const el={...original};remapResize(el,original,g,gNb!);return el;});
   })();
   $: if (dragging && gesture?.kind==="resize" && !gesture.crop && resizedEls.length) liveBox=selectionBBox(resizedEls);
+  // Resize preview split (perf 2026-09-30): plots follow the box by a transient transform on their
+  // LIVE scene group (no re-mount per move; one render at the release commit); every other kind
+  // keeps the overlay copy. resizedEls[i] is the remap of gestureEls[i].
+  $: overlayResizedEls = resizedEls.filter((el) => !transientResizeKind(el));
+  $: resizeTransforms = (() => {
+    if (!dragging || gesture?.kind !== "resize" || gesture.crop || !resizedEls.length) return null;
+    const m = new Map<string, string>();
+    resizedEls.forEach((el, i) => {
+      if (!transientResizeKind(el)) return;
+      const t = resizePreviewTransform(gestureEls[i], el);
+      if (t) m.set(el.id, t);
+    });
+    return m;
+  })();
 
   // Crop overlay (figure-v1 P5): a GHOST of the full content at 0.35 opacity +
   // a full-opacity copy clipped to the live window (= the cropped preview —
@@ -3808,12 +3827,10 @@
       opacity: 1,
     };
     delete (ghost as ImageElement | SemanticPlotElement).crop;
-    const live: Element = { ...ghost, id: `${o.id}-croplive` };
     const ccx = cropRes.x + cropRes.width / 2;
     const ccy = cropRes.y + cropRes.height / 2;
     return {
       ghost,
-      live,
       wrap: o.rotation ? `rotate(${o.rotation} ${ccx} ${ccy})` : null,
       clip: { x: cropRes.x, y: cropRes.y, w: cropRes.width, h: cropRes.height },
     };
@@ -3842,7 +3859,7 @@
       ? `translate(${gesture.cx}px, ${gesture.cy}px) rotate(${gRotDeg}deg) translate(${-gesture.cx}px, ${-gesture.cy}px)`
       : "";
 
-  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform);
+  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform, resizeTransforms);
 
   // F8 frame move: the figure being moved + its transient GPU transform, plus
   // smart-guide lines (world-absolute, drawn full-viewport in the overlay).
@@ -4039,7 +4056,7 @@
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
-        {#each resizedEls as el (el.id)}
+        {#each overlayResizedEls as el (el.id)}
           <ElementView element={el} />
         {/each}
       </g>
@@ -4057,8 +4074,10 @@
               height={cropOverlay.clip.h}
             />
           </clipPath>
-          <g opacity="0.35"><ElementView element={cropOverlay.ghost} /></g>
-          <g clip-path="url(#flux-crop-live)"><ElementView element={cropOverlay.live} /></g>
+          <g opacity="0.35"><g id="flux-crop-ghost"><ElementView element={cropOverlay.ghost} /></g></g>
+          <!-- the live window is the SAME content: a native <use> clone of the ghost (full opacity,
+               clipped) instead of a second ElementView — a second plot mount was ~120 ms at crop start -->
+          <use href="#flux-crop-ghost" clip-path="url(#flux-crop-live)" />
           <rect
             class="crop-outline"
             x={cropOverlay.clip.x}

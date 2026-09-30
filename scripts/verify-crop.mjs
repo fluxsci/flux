@@ -140,7 +140,12 @@ try {
   // mid-drag affordance: ghost + clipped live copy + Crop chip
   const mid = await page.evaluate(() => ({
     ghost: !!document.getElementById("plot1-cropghost__figure"),
-    live: !!document.getElementById("plot1-croplive__figure"),
+    // the live window is a native <use> clone of the ghost, clipped to the crop window (perf 2026-09-30)
+    live: (() => {
+      const u = document.querySelector('.overlay-svg use[href="#flux-crop-ghost"][clip-path="url(#flux-crop-live)"]');
+      const g = document.getElementById("flux-crop-ghost");
+      return !!u && !!g?.querySelector("#plot1-cropghost__figure") && !!document.querySelector("#flux-crop-live rect");
+    })(),
     chip: [...document.querySelectorAll("text.crop-chip")].some((t) => /crop/i.test(t.textContent ?? "")),
     origHidden:
       document.getElementById("plot1__figure")?.closest("g.el")?.style.visibility === "hidden",
