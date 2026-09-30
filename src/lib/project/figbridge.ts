@@ -62,7 +62,7 @@ import { ensureFigureReferenceKeys } from "./figureIdentity";
 import { reconcileCaptionFiles, captionConflictMessage, type CaptionBaseline } from "./captionReconcile";
 import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "./figureReferenceSync";
 import { applyTextLayout } from "../text";
-import { fileBridge, joinPath } from "./types";
+import { fileBridge, joinPath, type FileBridge } from "./types";
 import { ConflictError } from "../autosave";
 import { assertStoreTenant } from "../tenancy";
 import {
@@ -529,6 +529,37 @@ export interface FigSource {
 let readCaptionRoot: string | null = null;
 let readCaptionBaselines = new Map<string, CaptionBaseline>();
 
+// Paper's read-only view re-reads fig/ after EVERY figures autosave (figRevision).
+// Asset bytes and .fluxplot.json sidecars dominate that read (a real project:
+// ~190 MB of text + 20 MB of svg/png per save, 0.8-1 s of renderer main thread
+// deserializing IPC replies, perf 2026-09-30) yet almost never change. Cache the
+// decoded value per absolute path, validated by a fresh stat on every read: any
+// write (atomic tmp+rename -> new inode; in-place -> mtime/ctime/size) re-reads.
+// No stat support (mem bridge) or a failed stat -> plain read, never a hit.
+type FigSourceFile = { key: string; value: Promise<unknown> };
+let figSourceCacheRoot: string | null = null;
+const figSourceCache = new Map<string, FigSourceFile>();
+async function readFigSourceFile<T>(fig: FileBridge, path: string, seen: Set<string>, read: () => Promise<T>): Promise<T> {
+  seen.add(path);
+  let key: string | null = null;
+  try {
+    const st = fig.stat ? await fig.stat(path) : null;
+    if (st) key = `${st.mtimeMs}:${st.ctimeMs ?? ""}:${st.size}:${st.ino ?? ""}`;
+  } catch { key = null; }
+  const hit = key === null ? undefined : figSourceCache.get(path);
+  // The entry holds the in-flight read too: overlapping loads (Paper's first
+  // load at open + the first save's re-read) share one read instead of two.
+  if (hit && hit.key === key) return hit.value as Promise<T>;
+  // A write between the stat and the read caches newer content under the older
+  // key; the next stat differs, so that only costs one extra read.
+  const value = read();
+  if (key === null) { figSourceCache.delete(path); return value; }
+  const entry: FigSourceFile = { key, value };
+  figSourceCache.set(path, entry);
+  value.catch(() => { if (figSourceCache.get(path) === entry) figSourceCache.delete(path); });
+  return value;
+}
+
 export async function readFigSource(root: string): Promise<FigSource> {
   if (readCaptionRoot !== root) { readCaptionRoot = root; readCaptionBaselines.clear(); }
   const empty: FigSource = {
@@ -597,6 +628,8 @@ export async function readFigSource(root: string): Promise<FigSource> {
   }
   if (captionState.conflicts.length) console.warn(captionConflictMessage(captionState.conflicts));
 
+  if (figSourceCacheRoot !== root) { figSourceCacheRoot = root; figSourceCache.clear(); }
+  const seenFiles = new Set<string>();
   const assetData: Record<string, string> = {};
   const assetManifests: Record<string, FluxPlotManifest> = {};
   const model3dManifests: Record<string, Scene3dManifest> = {};
@@ -615,9 +648,12 @@ export async function readFigSource(root: string): Promise<FigSource> {
         if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;
         continue;
       }
-      const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
-      assetData[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
-      if (a.kind === "png") captureSnipMeta(a.id, bytes);
+      const decoded = await readFigSourceFile(fig, joinPath(root, SUB, a.path), seenFiles, async () => {
+        const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path!)));
+        return { url: bytesToDataUrl(bytes, mimeFor(a.kind)), bytes: a.kind === "png" ? bytes : null };
+      });
+      assetData[a.id] = decoded.url;
+      if (decoded.bytes) captureSnipMeta(a.id, decoded.bytes);
     } catch (error) {
       if (a.kind === "glb") issues.push({ assetId: a.id, message: String(error) });
       /* Missing images retain the existing read-only behavior. */
@@ -628,12 +664,14 @@ export async function readFigSource(root: string): Promise<FigSource> {
       try {
         const mpath = joinPath(root, SUB, `assets/${a.id}.fluxplot.json`);
         if (await fig.exists(mpath))
-          assetManifests[a.id] = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
+          assetManifests[a.id] = await readFigSourceFile(fig, mpath, seenFiles, async () => JSON.parse(await fig.readText(mpath)) as FluxPlotManifest);
       } catch {
         /* unreadable sidecar — leaf-id overrides still apply */
       }
     }
   }
+
+  for (const path of figSourceCache.keys()) if (!seenFiles.has(path)) figSourceCache.delete(path);
 
   // Prefer the per-figure caption file (F7 single-source); fall back to the
   // cached index caption for older projects without caption files.

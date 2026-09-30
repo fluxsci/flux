@@ -115,6 +115,7 @@
       "verify-refformat.ts",
       "verify-embed-normalize.ts",
       "verify-paper-render-overrides.ts",
+      "verify-fig-source-cache.ts",
       "verify-export-qmd.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",

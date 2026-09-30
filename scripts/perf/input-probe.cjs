@@ -128,6 +128,18 @@ const doTrace = process.env.PROBE_TRACE === '1';
 const surface = process.env.PROBE_SURFACE || 'figure';
 const phaseFilter = (process.env.PROBE_PHASES || '').split(',').filter(Boolean);
 const wantPhase = (n) => !phaseFilter.length || phaseFilter.includes(n);
+// PROBE_IPC=1: per-phase ledger of every ipcMain handler (calls, handler ms, arg/result bytes) —
+// the renderer's "Receive mojo reply" self time names ElectronApiIPC but not the channel (2026-09-30).
+const ipcLedger = new Map();
+if (process.env.PROBE_IPC === '1') {
+  const { ipcMain } = require('electron');
+  const sz = (v) => { try { if (v == null) return 0; if (typeof v === 'string') return v.length; if (v.byteLength != null) return v.byteLength; const j = JSON.stringify(v); return j ? j.length : 0; } catch { return -1; } };
+  const rec = (ch, ms, a, r) => { const e = ipcLedger.get(ch) || { n: 0, ms: 0, maxMs: 0, argB: 0, resB: 0, maxResB: 0 }; e.n++; e.ms += ms; e.maxMs = Math.max(e.maxMs, ms); e.argB += a; e.resB += r; e.maxResB = Math.max(e.maxResB, r); ipcLedger.set(ch, e); };
+  const h0 = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (ch, fn) => h0(ch, async (ev, ...args) => { const t = performance.now(); let r; try { r = await fn(ev, ...args); return r; } finally { rec(ch, performance.now() - t, sz(args), sz(r)); if (process.env.PROBE_IPC_PATHS === '1' && typeof args[0] === 'string' && /^fs:read/.test(ch)) rec(ch + ' ' + args[0].replace(/^.*?\/(fig|slides|\.meta|plots)\//, '$1/'), performance.now() - t, 0, sz(r)); } });
+  const o0 = ipcMain.on.bind(ipcMain);
+  ipcMain.on = (ch, fn) => o0(ch, (ev, ...args) => { const t = performance.now(); try { return fn(ev, ...args); } finally { rec('on:' + ch, performance.now() - t, sz(args), sz(ev.returnValue)); } });
+}
 require(path.join(repo, 'electron/main.cjs'));
 
 let win;
@@ -194,9 +206,12 @@ async function setScenario(name) {
 async function measure(label, run, traceName) {
   await model3dProbe?.beforePhase(label);
   if (qualify) assertWindow(win, [await js("({visible:document.visibilityState,focused:document.hasFocus()})")]);
-  await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
+  ipcLedger.clear(); await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
   if (traceName) await contentTracing.startRecording({ included_categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing', 'cc', 'input', 'ui', 'viz', 'gpu', 'toplevel', 'latencyInfo', 'benchmark', ...(process.env.PROBE_INVALIDATION === '1' ? ['disabled-by-default-devtools.timeline.invalidationTracking', 'disabled-by-default-blink.invalidation'] : [])], excluded_categories: ['*'] });
+  const prof = cdpOk && (process.env.PROBE_PROFILE || '').split(',').includes(label.split(':').pop());
+  if (prof) { await win.webContents.debugger.sendCommand('Profiler.enable'); await win.webContents.debugger.sendCommand('Profiler.setSamplingInterval', { interval: 100 }); await win.webContents.debugger.sendCommand('Profiler.start'); }
   await run();
+  if (prof) { const { profile } = await win.webContents.debugger.sendCommand('Profiler.stop'); fs.writeFileSync(path.join(out, `profile-${label.replace(/[^a-z0-9]+/gi, '-')}.cpuprofile`), JSON.stringify(profile)); }
   const wallMs = Date.now() - t0; const cpu = cpuSnapshot(); const m1 = await cdpMetrics();
   let trace = null; if (traceName) trace = await contentTracing.stopRecording(path.join(out, traceName + '.json'));
   const r = await js('window.__p.stop()');
@@ -210,6 +225,8 @@ async function measure(label, run, traceName) {
   const seq = []; for (const c of cursorLog) { const k = c.type + (c.h ? ':' + c.h : ''); if (!seq.length || seq.at(-1).k !== k) seq.push({ k, n: 1, t: c.t }); else seq.at(-1).n++; }
   const res = { label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
     cursorChanges: cursorLog.length, cursorSeq: seq.slice(0, 40).map((s) => `${s.k}x${s.n}@${s.t}`), slowEvents: r.evts.slice(0, 12), trace };
+  if (process.env.PROBE_DUMP_JS) { try { res.dump = await js(process.env.PROBE_DUMP_JS); } catch (e) { res.dump = String(e); } }
+  if (ipcLedger.size) { res.ipc = Object.fromEntries([...ipcLedger].sort((a, b) => b[1].ms - a[1].ms).map(([k, v]) => [k, { n: v.n, ms: +v.ms.toFixed(1), maxMs: +v.maxMs.toFixed(1), argKB: +(v.argB / 1024).toFixed(1), resKB: +(v.resB / 1024).toFixed(1), maxResKB: +(v.maxResB / 1024).toFixed(1) }])); }
   log('measure', res); return res;
 }
 

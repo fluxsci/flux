@@ -210,7 +210,7 @@ export interface FileBridge {
   exists(p: string): Promise<boolean>;
   // File identity (mtime+size) for cache keying (the enrich parse cache); null when
   // absent. Optional: older bridges / the web demo may not provide it.
-  stat?(p: string): Promise<{ atimeMs?: number; mtimeMs: number; ctimeMs?: number; size: number } | null>;
+  stat?(p: string): Promise<{ atimeMs?: number; mtimeMs: number; ctimeMs?: number; size: number; ino?: number } | null>;
   setTimes?(p: string, times: { atimeMs: number; mtimeMs: number }): Promise<void>;
   // List a directory's entries (files + subdirs). Optional: older bridges / the
   // web demo may not provide it. Used by the Plot Importer to browse plots/.
