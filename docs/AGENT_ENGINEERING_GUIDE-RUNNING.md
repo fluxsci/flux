@@ -3153,6 +3153,16 @@ outside this PNG packaging change.
   `Layerize`). A paused Web Animation driven by `setKeyframes`/`currentTime`, or a native
   scroll offset, layerizes ONCE per gesture. `interact/compositorDrive.ts` is the shared
   answer; `scripts/perf/layerize-lab.mjs` reproduces both behaviours standalone.
+  Element MOVES obey it too (2026-09-30): `interact/sceneTransforms.ts` drives the dragged
+  `<g class=el>` through the drive, and the selection chrome (box, handles, rotate stem) is
+  drawn at the gesture-start box inside `.sel-chrome` and rides ONE rigid translate — changing
+  overlay geometry per move re-layerizes exactly like an inline transform write (75 of 75
+  frames before, 12–23 after; `verify-f5-drag` asserts both animations mid-drag and nothing
+  animated or styled at rest). Keep the dragged element PROMOTED for the gesture: a 2D,
+  non-composited move repaints the subtree into the scene layer and re-rasters its tiles every
+  frame (~10× GPU raster). Promotion drags Overlap layers along (19 at fit, 33 at 8.7× on a
+  6-plot canvas) — stable within a gesture under the drive. Find what re-layerizes with
+  `input-probe.cjs --trace` + CSS-scenario combos (`a+b`) and `--layers` for the layer list.
 - **Paint chunks are the unit of layerization cost, and clip-paths make chunks.** matplotlib
   puts the same `clip-path` on nearly every element; each is a chunk; a 21-plot figure is
   thousands of chunks, so every overlay repaint (hover outline, selection box) paid ~10 ms of
