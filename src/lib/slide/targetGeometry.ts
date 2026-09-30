@@ -205,14 +205,16 @@ function projectedGeometry(plot: SemanticPlotElement, root: Element, manifest: F
     const raw = viewFits(manifest, undefined, axes.panelId), fits = viewFits(manifest, plot.view, axes.panelId);
     if (!raw || !fits) continue;
     const fit = fits[guide.axis], original = raw[guide.axis];
+    const record = (axes as unknown as Record<string, { domain: number[] } | undefined>)[guide.axis];
+    if (!fit || !original || !record) continue; // a twin axis the panel cannot project
     if (fit.m === original.m && fit.c === original.c && fit.log === original.log) continue;
     const pixel = projectWith(fit, guide.value), origin = projectWith(original, guide.value);
-    const ends = axes[guide.axis].domain.map(v => projectWith(original, v));
+    const ends = record.domain.map(v => projectWith(original, v));
     const lo = Math.min(...ends), hi = Math.max(...ends);
     const fade = Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
     opacities.set(node, fade);
     const delta = Number.isFinite(pixel) ? pixel - origin : 0;
-    offsets.set(node, translate(guide.axis === "x" ? delta : 0, guide.axis === "y" ? delta : 0));
+    offsets.set(node, translate(guide.axis.startsWith("x") ? delta : 0, guide.axis.startsWith("y") ? delta : 0));
   }
   return { outlines, offsets, opacities };
 }

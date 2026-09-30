@@ -3087,12 +3087,15 @@ export const VERBS: VerbDef[] = [
   {
     name: "set_plot_view", scope: "project", cli: "set-plot-view", cliRoot: "flags",
     notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
-    summary: "Set a plot's data view in data units. target is a figureId or deckId/slideId. A slide --beat edits that step's Change endpoint; without it edit Design. Omitted fields are preserved, --reset restores generator defaults. Lines, points and existing guides re-project; filled marks and reference lines stay put; no new ticks are generated.",
+    summary: "Set a plot's data view in data units. target is a figureId or deckId/slideId. A slide --beat edits that step's Change endpoint; without it edit Design. Omitted fields are preserved, --reset restores generator defaults. Lines, points, bars, cells, hexagons and existing guides re-project; ticks are regenerated for the new domain; reference lines stay put. A twin value axis (fluxplot axes[].y2 / .x2 — ax.twinx(), a secondary axis) has its own --y2-min/--y2-max/--y2-scale (--x2-…).",
     params: {
       target: z.string(), elementId: z.string(), beatId: z.string().optional(),
       xMin: z.number().finite().optional(), xMax: z.number().finite().optional(),
       yMin: z.number().finite().optional(), yMax: z.number().finite().optional(),
-      xScale: z.enum(["linear", "log"]).optional(), yScale: z.enum(["linear", "log"]).optional(), reset: z.boolean().optional(),
+      xScale: z.enum(["linear", "log"]).optional(), yScale: z.enum(["linear", "log"]).optional(),
+      y2Min: z.number().finite().optional(), y2Max: z.number().finite().optional(), y2Scale: z.enum(["linear", "log"]).optional(),
+      x2Min: z.number().finite().optional(), x2Max: z.number().finite().optional(), x2Scale: z.enum(["linear", "log"]).optional(),
+      reset: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "target", required: true },
@@ -3104,6 +3107,12 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "y-max", into: "yMax", as: "number" },
       { kind: "flag", at: "x-scale", into: "xScale" },
       { kind: "flag", at: "y-scale", into: "yScale" },
+      { kind: "flag", at: "y2-min", into: "y2Min", as: "number" },
+      { kind: "flag", at: "y2-max", into: "y2Max", as: "number" },
+      { kind: "flag", at: "y2-scale", into: "y2Scale" },
+      { kind: "flag", at: "x2-min", into: "x2Min", as: "number" },
+      { kind: "flag", at: "x2-max", into: "x2Max", as: "number" },
+      { kind: "flag", at: "x2-scale", into: "x2Scale" },
       { kind: "flag", at: "reset", into: "reset", as: "boolean" },
     ],
     handler: (ctx, a) => {

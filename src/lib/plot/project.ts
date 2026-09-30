@@ -1,6 +1,6 @@
 // Shared data→SVG projection for plot views, asset Becomes and data pairing.
 // No DOM construction or browser geometry APIs; guide recovery reads attributes.
-import type { PlotView } from "../types";
+import type { PlotView, PlotAxisKey } from "../types";
 import type { FluxPlotManifest, FluxPlotAxis, FluxPlotSeries } from "./types";
 import { partDomId } from "./parse";
 import { applyToPoint, transformToAncestor } from "./svgMatrix";
@@ -12,7 +12,14 @@ export interface Fit {
   linear?: number;
   logarithmic?: number;
 }
-export interface Fits { x: Fit; y: Fit }
+/** The panel's fits; `y2` / `x2` are present when the panel has a twin value axis (C4). */
+export interface Fits { x: Fit; y: Fit; y2?: Fit; x2?: Fit }
+/** The two fits a series projects through: its panel's, or its twin's for the axis it reads. */
+export function seriesFits(fits: Fits, axis: string | undefined): Fits | null {
+  if (axis === "y2") return fits.y2 ? { x: fits.x, y: fits.y2 } : null;
+  if (axis === "x2") return fits.x2 ? { x: fits.x2, y: fits.y } : null;
+  return fits;
+}
 export interface MorphPoint { index: number; x: number; y: number }
 export interface MorphController {
   seek(u: number, raw?: number): void;
@@ -88,9 +95,9 @@ export function usableAxis(axis: FluxPlotAxis): boolean {
 export function viewFits(manifest: FluxPlotManifest, view?: PlotView, panelId?: string): Fits | null {
   const axes = seriesAxes(manifest, { panelId } as FluxPlotSeries);
   if (!axes || axes.projection && axes.projection !== "rectilinear") return null;
-  const fit = (key: "x" | "y"): Fit | null => {
-    const axis = axes[key], patch = view?.[key];
-    if (!usableAxis(axis)) return null;
+  const fit = (key: PlotAxisKey): Fit | null => {
+    const axis = (axes as unknown as Record<string, FluxPlotAxis | undefined>)[key], patch = view?.[key];
+    if (!axis || !usableAxis(axis)) return null;
     if (!patch?.domain && !patch?.scale) return axisFit(axis);
     const domain = patch.domain ?? axis.domain;
     const changed = { ...axis, domain, scale: patch.scale ?? axis.scale,
@@ -99,7 +106,16 @@ export function viewFits(manifest: FluxPlotManifest, view?: PlotView, panelId?: 
     return usableAxis(changed) ? axisFit(changed) : null;
   };
   const x = fit("x"), y = fit("y");
-  return x && y ? { x, y } : null;
+  if (!x || !y) return null;
+  const out: Fits = { x, y };
+  // a twin's value axis (ax.twinx / twiny, a secondary axis): its own fit, viewable on its own
+  for (const key of ["y2", "x2"] as const) {
+    if (!(axes as unknown as Record<string, unknown>)[key]) continue;
+    const f = fit(key);
+    if (f) out[key] = f;
+    else if (view?.[key]) return null; // a view was asked of an unusable twin axis
+  }
+  return out;
 }
 
 export function seriesTweenable(a: FluxPlotSeries, b: FluxPlotSeries | null | undefined, axA: SeriesAxes | undefined, axB: SeriesAxes | undefined): boolean {
@@ -151,7 +167,7 @@ export function projectSeries(a: FluxPlotSeries, b: FluxPlotSeries | null, from:
 
 /** Recover a guide's anchor after its own/ancestor SVG attribute transforms.
  * This is deliberately attribute-only: it also runs in linkedom. */
-function guidePixel(node: Element, root: Element, axis: "x" | "y"): number | null {
+function guidePixel(node: Element, root: Element, axis: PlotAxisKey): number | null {
   const drawable = ["path", "text", "line", "use"].includes(node.tagName.toLowerCase()) ? node : node.querySelector("path,text,line,use");
   if (!drawable) return null;
   const nums = (s: string) => (s.match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi) ?? []).map(Number);
@@ -167,18 +183,19 @@ export function guideAxes(manifest: FluxPlotManifest, leaf: string): SeriesAxes 
   if (manifest.axes?.length === 1) return manifest.axes[0];
   return manifest.axes?.find(ax => ax.panelId && leaf.startsWith(`${ax.panelId}.axis.`));
 }
-export function guideData(manifest: FluxPlotManifest, root: Element, elId = ""): Map<string, { axis: "x" | "y"; value: number }> {
-  const out = new Map<string, { axis: "x" | "y"; value: number }>();
+export function guideData(manifest: FluxPlotManifest, root: Element, elId = ""): Map<string, { axis: PlotAxisKey; value: number }> {
+  const out = new Map<string, { axis: PlotAxisKey; value: number }>();
   const prefix = elId ? partDomId(elId, "") : "";
   for (const node of Array.from(root.querySelectorAll("[id]"))) {
     const id = node.getAttribute("id") ?? "";
     if (!id.startsWith(prefix)) continue;
-    const leaf = id.slice(prefix.length), match = /(?:^|\.)axis\.(x|y)\.(?:tick|gridline|ticklabel|tick-label)\.\d+$/.exec(leaf);
+    const leaf = id.slice(prefix.length), match = /(?:^|\.)axis\.(x|y|x2|y2)\.(?:tick|gridline|ticklabel|tick-label)\.\d+$/.exec(leaf);
     if (!match) continue;
-    const axis = match[1] as "x" | "y", axes = guideAxes(manifest, leaf);
-    if (!axes || !usableAxis(axes[axis])) continue;
-    const px = guidePixel(node, root, axis);
-    if (px !== null) out.set(leaf, { axis, value: dataOfPixel(axisFit(axes[axis]), px) });
+    const axis = match[1] as PlotAxisKey, axes = guideAxes(manifest, leaf);
+    const record = axes ? (axes as unknown as Record<string, FluxPlotAxis | undefined>)[axis] : undefined;
+    if (!record || !usableAxis(record)) continue;
+    const px = guidePixel(node, root, axis.startsWith("x") ? "x" : "y");
+    if (px !== null) out.set(leaf, { axis, value: dataOfPixel(axisFit(record), px) });
   }
   return out;
 }
@@ -191,8 +208,10 @@ export function plotViewIssues(manifest: FluxPlotManifest | undefined, view: Plo
   for (const axes of manifest.axes) if (!viewFits(manifest, view, axes.panelId)) issues.push("Plot view has unusable axes or an invalid domain (log domains must be positive).");
   let filled = false;
   for (const s of manifest.series) {
-    const vertices = seriesVertices(s), fits = viewFits(manifest, view, s.panelId);
+    const vertices = seriesVertices(s), panelFits = viewFits(manifest, view, s.panelId);
     if (!vertices.length || s.capabilities?.dataMorph === false || s.rasterized || s.roles?.some(r => !["line", "point"].includes(r))) { filled = true; continue; }
+    const fits = panelFits ? seriesFits(panelFits, (s as { axis?: string }).axis) : null;
+    if (panelFits && !fits) issues.push(`Series ‹${s.id}› reads a twin axis (${(s as { axis?: string }).axis}) this plot cannot project; it stays put.`);
     if (fits && vertices.some(p => fits.x.log && p.x <= 0 || fits.y.log && p.y <= 0)) issues.push(`Series ‹${s.id}› has non-positive data; its log view is not applied.`);
   }
   if (filled) issues.push("View applies to lines, points and guides of this plot; filled marks remain unchanged.");

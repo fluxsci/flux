@@ -117,7 +117,7 @@ const ELEMENT_DEF = {
       source: { type: "object" },
       manifestRef: { type: "object" },
       // animation v2: the data view (axis domain/scale crop), per axis
-      view: { type: "object", properties: Object.fromEntries(["x", "y"].map((axis) => [axis, {
+      view: { type: "object", properties: Object.fromEntries(["x", "y", "y2", "x2"].map((axis) => [axis, {
         type: "object",
         properties: { domain: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }, scale: { enum: ["linear", "log"] } },
       }])) },

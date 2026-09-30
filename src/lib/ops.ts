@@ -1691,17 +1691,18 @@ export function setPlotView(p: Project, elementId: Id, patch: Partial<PlotView> 
     if (el.id !== elementId || el.type !== "plot") continue;
     if (patch === null) { delete el.view; continue; }
     const view: PlotView = structuredClone(el.view ?? {});
-    for (const key of ["x", "y"] as const) {
+    for (const key of ["x", "y", "y2", "x2"] as const) {
       if (!(key in patch)) continue;
       const value = patch[key];
       if (!value || !Object.keys(value).length) { delete view[key]; continue; }
       const axis = { ...view[key], ...value };
-      if (axis.domain === undefined || defaults && axis.domain[0] === defaults[key].domain[0] && axis.domain[1] === defaults[key].domain[1]) delete axis.domain;
+      const def = (defaults as unknown as Record<string, { domain: number[]; scale: string } | undefined> | undefined)?.[key];
+      if (axis.domain === undefined || def && axis.domain[0] === def.domain[0] && axis.domain[1] === def.domain[1]) delete axis.domain;
       else axis.domain = [...axis.domain];
-      if (axis.scale === undefined || axis.scale === defaults?.[key].scale) delete axis.scale;
+      if (axis.scale === undefined || axis.scale === def?.scale) delete axis.scale;
       if (axis.domain || axis.scale) view[key] = axis; else delete view[key];
     }
-    if (view.x || view.y) el.view = view; else delete el.view;
+    if (view.x || view.y || view.y2 || view.x2) el.view = view; else delete el.view;
   }
 }
 

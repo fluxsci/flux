@@ -1,9 +1,9 @@
 // The one attribute writer for static plot views and animated data/view changes.
 // All identities, fits and guide values bind once; frames reuse numeric buffers.
-import type { PlotView } from "../types";
-import type { FluxPlotManifest, FluxPlotSeries } from "./types";
+import type { PlotView, PlotAxisKey } from "../types";
+import type { FluxPlotManifest, FluxPlotSeries, FluxPlotAxis } from "./types";
 import { partDomId } from "./parse";
-import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries,
+import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries, seriesFits,
   seriesAxes, seriesVertices, seriesTweenable, viewFits, lerpData, type Fit, type Fits, type MorphPoint } from "./project";
 
 interface Field { value: string | null; written: boolean }
@@ -117,9 +117,15 @@ interface Panel {
   fits: Fits;
   xRange: [number, number]; yRange: [number, number];
   xEndRange: [number, number]; yEndRange: [number, number];
+  /** Pixel ranges per axis key (the twins' too), start and end. */
+  ranges: Partial<Record<PlotAxisKey, [number, number]>>;
+  endRanges: Partial<Record<PlotAxisKey, [number, number]>>;
 }
 interface SeriesBinding {
   panel: Panel;
+  /** The fits this series projects through: the panel's, or the twin's for `series.axis`
+   *  (live views onto the panel's Fit objects, so a blended panel fit is seen here too). */
+  from: Fits; to: Fits; fits: Fits;
   pairs: ReturnType<typeof pairVertices>;
   vertices: MorphPoint[];
   line: Element | null;
@@ -128,7 +134,7 @@ interface SeriesBinding {
   markers: { node: Element; vertex: number; ox: number; oy: number; ex: number; ey: number }[];
 }
 interface GuideBinding {
-  node: Element; panel: Panel; axis: "x" | "y"; value: number; endValue: number;
+  node: Element; panel: Panel; axis: PlotAxisKey; value: number; endValue: number;
   origin: number; end: number; delta: { dx?: number; dy?: number };
 }
 interface Projection {
@@ -158,22 +164,33 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     const to = (manifest.axes.length === 1 ? opts?.to : undefined) ?? viewFits(opts?.toManifest ?? manifest, view, ax.panelId);
     const endAxes = (opts?.toManifest ?? manifest).axes.find(a => a.panelId === ax.panelId);
     if (!rawA || !rawB || !from || !to || !endAxes) continue;
-    const range = (key: "x" | "y", axes = ax): [number, number] => {
-      const fit = axisFit(axes[key]);
-      return [projectWith(fit, axes[key].domain[0]), projectWith(fit, axes[key].domain[1])];
+    const range = (key: PlotAxisKey, axes = ax): [number, number] | undefined => {
+      const record = (axes as unknown as Record<string, FluxPlotAxis | undefined>)[key];
+      if (!record) return undefined;
+      const fit = axisFit(record);
+      return [projectWith(fit, record.domain[0]), projectWith(fit, record.domain[1])];
     };
-    panels.set(ax.panelId, { from, to, rawA, rawB, fits: { x: { ...from.x }, y: { ...from.y } },
-      xRange: range("x"), yRange: range("y"), xEndRange: range("x", endAxes), yEndRange: range("y", endAxes) });
+    const fits: Fits = { x: { ...from.x }, y: { ...from.y } };
+    if (from.y2 && to.y2) fits.y2 = { ...from.y2 };
+    if (from.x2 && to.x2) fits.x2 = { ...from.x2 };
+    const ranges: Panel["ranges"] = {}, endRanges: Panel["ranges"] = {};
+    for (const key of ["x", "y", "y2", "x2"] as const) { const r = range(key), e = range(key, endAxes); if (r) ranges[key] = r; if (e) endRanges[key] = e; }
+    panels.set(ax.panelId, { from, to, rawA, rawB, fits,
+      xRange: ranges.x!, yRange: ranges.y!, xEndRange: endRanges.x!, yEndRange: endRanges.y!, ranges, endRanges });
   }
   const series: SeriesBinding[] = [];
   for (const a of manifest.series ?? []) {
     const panel = panels.get(a.panelId), b = opts?.series?.(a) ?? null;
     if (!panel || a.rasterized || a.capabilities?.dataMorph === false || a.roles?.some(r => !["line", "point"].includes(r))) continue;
     if (opts?.series && (!b || !seriesTweenable(a, b, seriesAxes(manifest, a), seriesAxes(opts.toManifest ?? manifest, b)))) continue;
+    // a series on a twin's value axis projects through that axis' fit (C4)
+    const axisKey = (a as { axis?: string }).axis;
+    const sFrom = seriesFits(panel.from, axisKey), sTo = seriesFits(panel.to, axisKey), sFits = seriesFits(panel.fits, axisKey);
+    if (!sFrom || !sTo || !sFits) continue;
     const pairs = pairVertices(a, b);
     if (!pairs.length || pairs.some(p =>
-      (panel.from.x.log || panel.to.x.log) && (p.a.x <= 0 || p.b.x <= 0) ||
-      (panel.from.y.log || panel.to.y.log) && (p.a.y <= 0 || p.b.y <= 0))) continue;
+      (sFrom.x.log || sTo.x.log) && (p.a.x <= 0 || p.b.x <= 0) ||
+      (sFrom.y.log || sTo.y.log) && (p.a.y <= 0 || p.b.y <= 0))) continue;
     const found = a.svg?.line ? q(a.svg.line) : null;
     const line = found?.tagName.toLowerCase() === "path" ? found : found?.querySelector("path") ?? null;
     if (line) { nodes.add(line); reserve(line, ["d"], []); }
@@ -186,11 +203,11 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
       if (!node || vertex === undefined) continue;
       reserve(node, node.tagName.toLowerCase() === "circle" ? ["cx", "cy"] : [], node.tagName.toLowerCase() === "circle" ? [] : ["translate"]);
       const start = aPoints.get(p.svgId) ?? p, end = bPoints.get(p.svgId) ?? start;
-      const rawStart = aPoints.has(p.svgId) ? panel.rawA : panel.rawB;
+      const rawStart = seriesFits(aPoints.has(p.svgId) ? panel.rawA : panel.rawB, axisKey) ?? panel.rawA, rawEnd = seriesFits(panel.rawB, axisKey) ?? panel.rawB;
       markers.push({ node, vertex, ox: projectWith(rawStart.x, start.x), oy: projectWith(rawStart.y, start.y),
-        ex: projectWith(panel.rawB.x, end.x), ey: projectWith(panel.rawB.y, end.y) });
+        ex: projectWith(rawEnd.x, end.x), ey: projectWith(rawEnd.y, end.y) });
     }
-    const binding: SeriesBinding = { panel, pairs, vertices: pairs.map(p => ({ ...p.a })), line, markers };
+    const binding: SeriesBinding = { panel, from: sFrom, to: sTo, fits: sFits, pairs, vertices: pairs.map(p => ({ ...p.a })), line, markers };
     if (line && b) {
       const av = seriesVertices(a), bv = seriesVertices(b);
       if (av.length !== bv.length || av.some((p, i) => p.index !== bv[i]?.index)) {
@@ -222,9 +239,11 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
   for (const [leaf, g] of new Map([...targetData, ...data])) {
     const axes = guideAxes(manifest, leaf), panel = panels.get(axes?.panelId), node = q(leaf);
     if (!axes || !panel || !node) continue;
+    const rawFitA = (data.has(leaf) ? panel.rawA : panel.rawB)[g.axis], rawFitB = panel.rawB[g.axis];
+    if (!rawFitA || !rawFitB || !panel.fits[g.axis]) continue;
     reserve(node, ["transform"], ["opacity"]);
-    guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin: projectWith((data.has(leaf) ? panel.rawA : panel.rawB)[g.axis], g.value),
-      end: projectWith(panel.rawB[g.axis], targetData.get(leaf)?.value ?? g.value), delta: g.axis === "x" ? { dx: 0 } : { dy: 0 } });
+    guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin: projectWith(rawFitA, g.value),
+      end: projectWith(rawFitB, targetData.get(leaf)?.value ?? g.value), delta: g.axis.startsWith("x") ? { dx: 0 } : { dy: 0 } });
   }
   return { series, guides, panels: [...panels.values()], interpolated: opts?.geometryInterpolated ?? false };
 }
@@ -246,9 +265,11 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
   const plan = projection(root, manifest, view, elId, opts), t = Math.max(0, Math.min(1, opts?.t ?? 1));
   for (const panel of plan.panels) {
     blendFit(panel.from.x, panel.to.x, t, panel.fits.x); blendFit(panel.from.y, panel.to.y, t, panel.fits.y);
+    if (panel.fits.y2 && panel.from.y2 && panel.to.y2) blendFit(panel.from.y2, panel.to.y2, t, panel.fits.y2);
+    if (panel.fits.x2 && panel.from.x2 && panel.to.x2) blendFit(panel.from.x2, panel.to.x2, t, panel.fits.x2);
   }
   for (const s of plan.series) {
-    sampleSeries(s.pairs, s.panel.from, s.panel.to, t, s.vertices, s.panel.fits);
+    sampleSeries(s.pairs, s.from, s.to, t, s.vertices, s.fits);
     if (s.line) {
       const topology = s.topology;
       if (!topology) writeSeriesLine(s.line, s.vertices);
@@ -281,15 +302,15 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
   const progress = opts?.raw ?? t;
   const atRest = !!opts?.assetChange && (progress >= 1 && !view || progress <= 0 && !opts.fromView);
   for (const g of plan.guides) {
-    const p = g.panel, fit = p.fits[g.axis], raw = p.rawA[g.axis];
+    const p = g.panel, fit = p.fits[g.axis]!, raw = p.rawA[g.axis]!;
     // Unchanged guides keep their original bytes, including ticks at the edge.
     if (fit.m === raw.m && fit.c === raw.c && fit.log === raw.log && fit.linear === undefined && (!plan.interpolated || g.origin === g.end)) continue;
-    const pixel = projectWith(fit, lerpData(g.value, g.endValue, t, p.from[g.axis].log && p.to[g.axis].log));
-    const a = g.axis === "x" ? p.xRange : p.yRange, b = g.axis === "x" ? p.xEndRange : p.yEndRange;
+    const pixel = projectWith(fit, lerpData(g.value, g.endValue, t, !!p.from[g.axis]?.log && !!p.to[g.axis]?.log));
+    const a = p.ranges[g.axis] ?? (g.axis.startsWith("x") ? p.xRange : p.yRange), b = p.endRanges[g.axis] ?? (g.axis.startsWith("x") ? p.xEndRange : p.yEndRange);
     const edge0 = a[0] + (b[0] - a[0]) * t, edge1 = a[1] + (b[1] - a[1]) * t;
     const lo = Math.min(edge0, edge1), hi = Math.max(edge0, edge1);
     const fade = atRest ? 1 : Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
-    g.delta[g.axis === "x" ? "dx" : "dy"] = Number.isFinite(pixel) ? pixel - (g.origin + (plan.interpolated ? (g.end - g.origin) * t : 0)) : 0;
+    g.delta[g.axis.startsWith("x") ? "dx" : "dy"] = Number.isFinite(pixel) ? pixel - (g.origin + (plan.interpolated ? (g.end - g.origin) * t : 0)) : 0;
     writeGuide(g.node, g.delta, fade);
   }
 }

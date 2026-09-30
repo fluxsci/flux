@@ -470,7 +470,13 @@ export interface PlotAxisView {
 export interface PlotView {
   x?: PlotAxisView;
   y?: PlotAxisView;
+  /** A twin's value axis (fluxplot `axes[].y2` / `.x2`: ax.twinx(), twiny(), a secondary axis). */
+  y2?: PlotAxisView;
+  x2?: PlotAxisView;
 }
+/** The view keys a plot may have: the panel's own axes and its twins'. */
+export type PlotAxisKey = "x" | "y" | "y2" | "x2";
+export const PLOT_AXIS_KEYS: readonly PlotAxisKey[] = ["x", "y", "y2", "x2"];
 
 // A style override for one semantic part. Open-ended; each key maps to a
 // presentation property applied to the matching inlined node(s).

@@ -4,13 +4,13 @@
   import { plotManifests } from './store';
   import { setPlotView } from '../ops';
   import { editSession } from '../interact/editSession';
-  import { plotViewPatch, type PlotViewFields } from './viewControls';
+  import { plotViewPatch, plotAxisKeys, type PlotViewFields } from './viewControls';
   import { plotViewIssues, usableAxis } from './project';
   import { axisViewFocus } from './axisViewState';
   import NumberField from '../NumberField.svelte';
 
   export let elementId: string;
-  export let axis: 'x' | 'y' | undefined = undefined;
+  export let axis: 'x' | 'y' | 'y2' | 'x2' | undefined = undefined;
   export let autofocus = false;
   let host: HTMLDivElement;
   let error = '';
@@ -19,10 +19,11 @@
   $: el = $project.figures.flatMap(f => f.elements).find(e => e.id === elementId);
   $: plot = el?.type === 'plot' ? el : undefined;
   $: manifest = plot ? $plotManifests[plot.assetId] : undefined;
-  $: defaults = manifest?.axes?.[0];
+  $: defaults = manifest?.axes?.[0] as (Record<string, { domain: number[]; scale: string } | undefined> & NonNullable<typeof manifest>['axes'][number]) | undefined;
+  const axisOf = (key: string) => defaults?.[key] as Parameters<typeof usableAxis>[0] | undefined;
   $: usable = !!defaults && !!manifest?.series?.length;
   $: issues = plotViewIssues(manifest, plot?.view);
-  async function focusRow(key: 'x' | 'y') {
+  async function focusRow(key: 'x' | 'y' | 'y2' | 'x2') {
     await tick();
     const input = host?.querySelector<HTMLInputElement>(`[data-axis-view-row="${key}"] input`);
     input?.focus(); input?.select();
@@ -50,20 +51,20 @@
 <div class="axis-view" data-axis-view bind:this={host}>
   {#if !axis}<div class="heading">Axis view</div>{/if}
   {#if usable && defaults}
-    {#each (axis ? [axis] : ['x', 'y'] as const) as key}
+    {#each (axis ? [axis] : plotAxisKeys(manifest)) as key}
       <div class="axis-row" data-axis-view-row={key}>
-        <span class="axis-name">{key}</span>
+        <span class="axis-name" title={key === 'y2' ? 'the right (twin) value axis' : key === 'x2' ? 'the top (twin) value axis' : undefined}>{key}</span>
         {#each [0, 1] as end}
           <NumberField label={end ? 'max' : 'min'} title={`${key} ${end ? 'max' : 'min'} (data units)`}
-            value={plot?.view?.[key]?.domain?.[end] ?? defaults[key]?.domain?.[end] ?? 0}
-            empty={!plot?.view?.[key]?.domain || plot.view[key]!.domain![end] === defaults[key]?.domain?.[end]}
-            placeholder={defaults[key]?.domain ? String(defaults[key].domain[end]) : "Unavailable"} step={stepFor(defaults[key]?.domain)} live optional
-            disabled={!usableAxis(defaults[key])}
+            value={plot?.view?.[key]?.domain?.[end] ?? axisOf(key)?.domain?.[end] ?? 0}
+            empty={!plot?.view?.[key]?.domain || plot.view[key]!.domain![end] === axisOf(key)?.domain?.[end]}
+            placeholder={axisOf(key)?.domain ? String(axisOf(key)!.domain[end]) : "Unavailable"} step={stepFor(axisOf(key)?.domain)} live optional
+            disabled={!axisOf(key) || !usableAxis(axisOf(key)!)}
             on:preview={e => apply({ [`${key}${end ? 'Max' : 'Min'}`]: e.detail ?? null })}
             on:scrub={e => apply({ [`${key}${end ? 'Max' : 'Min'}`]: e.detail })} />
         {/each}
-        {#if usableAxis(defaults[key])}
-          <label class="scale">scale<select aria-label={`${key} scale`} value={plot?.view?.[key]?.scale ?? defaults[key].scale}
+        {#if axisOf(key) && usableAxis(axisOf(key)!)}
+          <label class="scale">scale<select aria-label={`${key} scale`} value={plot?.view?.[key]?.scale ?? axisOf(key)!.scale}
             on:change={e => choose({ [`${key}Scale`]: e.currentTarget.value })}>
             <option value="linear">linear</option><option value="log">log</option>
           </select></label>
