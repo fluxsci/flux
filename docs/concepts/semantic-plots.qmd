@@ -121,6 +121,15 @@ preserving your named-part overrides; the plot needs a runnable recipe, and the 
 that plot's save, leaving sibling outputs untouched. Plots saved before 0.3.1 keep the
 regenerate-only palette and range fields in **X-Ray**.
 
+The same manifest carries each series' **colour** (its hex and, when fluxplot drew it from a
+palette, the exact token) and every scaffold element's **theme token**, so Flux can give a whole
+series one colour — **Series colour** in the Plot part section, `set-series-color` headless — and
+let a slide plot **follow the deck theme** (its ink, axes and gridlines take the theme's colours;
+data colours never move). Reading a figure's data is a verb, not a squint: `get-plot-data`
+returns every series' exact values and per-point ids, hexmatrix bins, glowbar / fluxbox
+statistics, heatmap values, image channels, axis domains and each significance bracket's test and
+p, windowing long arrays; hovering a part with **Ctrl** held shows the same facts on the canvas.
+
 New imports and linked-source reloads verify the SVG/manifest checksum before accepting the
 bundle. If generation is still writing files or the sidecar belongs to another SVG, Flux keeps
 the last accepted plot and reports the mismatch. This check precedes any legacy SVG repair.

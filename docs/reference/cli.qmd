@@ -49,7 +49,9 @@ view figures and canvas overviews without a source checkout or a separate render
 ```bash
 flux compose-figure plots/*.svg --id fig1 --rows 2   # plots → one labeled multi-panel figure
 flux render-figure fig1 --png --out /tmp/fig1.png    # render it to look at
-flux restyle fig1 control.line --stroke '#205EA6'    # restyle one series (survives regeneration)
+flux restyle fig1 control.line --stroke '#205EA6'    # restyle one part (survives regeneration)
+flux set-series-color fig1 control '#205EA6'         # one colour for a whole series + its legend swatch
+flux get-plot-data fig1 --series control --limit 50  # the plot's DATA: exact x/y, bins, stats, brackets
 flux cite-doi 10.1038/nature12373                    # fetch a reference into the project
 flux compile --to pdf                                # compile the manuscript via Quarto
 ```

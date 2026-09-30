@@ -47,12 +47,19 @@ export function mixHex(a: string, b: string, t: number): string {
   return toHex([0, 1, 2].map((i) => ca[i] * (1 - t) + cb[i] * t) as [number, number, number]);
 }
 
+/** A theme the writer can follow: a resolved DeckTheme with concrete text and background colours
+ *  (a host that hands the deck's theme ID string, or a partial theme, gets the generated ink). */
+export function themeIsResolved(theme: unknown): theme is DeckTheme {
+  const t = theme as Partial<DeckTheme> | null | undefined;
+  return !!t && typeof t === "object" && typeof t.text === "string" && typeof t.background === "string";
+}
+
 /** Token → paint under a deck theme (`"none"` = transparent). The one mapping every host uses. */
 export function themeInkPaints(theme: DeckTheme): Record<InkToken, string> {
   const text = theme.text.toLowerCase(), bg = theme.background.toLowerCase();
   return {
     ink: text, label: text, tick: text,
-    axis: theme.textMuted.toLowerCase(),
+    axis: (theme.textMuted ?? theme.text).toLowerCase(),
     grid: mixHex(bg, text, GRID_MIX),
     plot: "none", paper: "none",
   };
@@ -104,7 +111,7 @@ export interface PlotThemeResult {
  *  follow) restores the generated paint. Idempotent: the same theme twice writes nothing. */
 export function applyPlotTheme(root: Element, manifest: FluxPlotManifest | undefined, theme: DeckTheme | null | undefined): PlotThemeResult {
   void manifest; // the tags in the SVG are the source; the manifest's style block is informational
-  if (!theme) { restorePlotTheme(root); return { painted: 0, paints: null }; }
+  if (!themeIsResolved(theme)) { restorePlotTheme(root); return { painted: 0, paints: null }; }
   const paints = themeInkPaints(theme);
   const key = INK_TOKENS.map((t) => paints[t]).join("|");
   let st = roots.get(root);

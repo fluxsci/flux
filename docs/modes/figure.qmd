@@ -246,7 +246,10 @@ Selection follows Figma's logic, tuned for plots:
   use empty space inside its rectangular bounds even when the SVG background is transparent.
   You can never accidentally drag one bar out of a chart.
 - **Ctrl+click** pierces to the exact **part** under the cursor — a series' line, one point, an
-  axis label — even on an unselected plot. Hold **Ctrl** and hover to preview what you'd get.
+  axis label — even on an unselected plot. Hold **Ctrl** and hover to preview what you'd get;
+  a data part also shows its **readout** beside the box — a point's x and y, a bar's category
+  and height, a hexagon's count, a heatmap cell's value, a box's statistics, a significance
+  bracket's test and p — read from the plot's manifest, never from the picture.
 - **Double-click** descends a level: into a group, into a plot's parts, into text editing,
   into a path's nodes.
 - Whatever part you've drilled stays plain-draggable, and **Escape** steps back out one level
@@ -255,7 +258,16 @@ Selection follows Figma's logic, tuned for plots:
 With a part selected, press **F** to open **Properties** and restyle it — color, width, size, font, opacity, visibility,
 even a positional nudge in the plot's own units. The same fields sit in the right rail's
 **Plot part** section. Part edits are stored as overrides keyed to the part's stable name, so
-**they survive regeneration** of the plot.
+**they survive regeneration** of the plot. Recolouring a series' whole line or points repaints its
+legend swatch too, so the key never lies about the colour; recolouring one bar or one point is a
+highlight and leaves the key alone.
+
+When the picked part belongs to a plain series, the **Plot part** section also offers **Series
+colour**: one colour for the whole series — its line, its markers' faces and edges, its bars or
+band, its error bars and its legend swatch — written as one override per part, so it survives
+regeneration like any part edit, with **reset** to return to the generated colours. A
+colour-mapped series (a heatmap, a hexbin, a scatter coloured by value) has no series colour: edit
+its **Colour scale** instead. The headless twin is `set-series-color`.
 
 **Alt+R** opens the **X-ray**: the anatomy of the selected plot (or group) as a tree, placed
 beside the selection. Walk it with the arrow keys, hide/show any part with **x**, press
@@ -431,6 +443,15 @@ without a recorded scale keep the regenerate-only palette and range fields.
 The **F** menu offers **colour scale** (**c**, or the key the row displays) with the same
 controls, and X-ray shows them under the plot's regenerate controls. The headless twin is
 `set-plot-color-scale` (see the Slide mode chapter).
+
+## View as
+
+**View as…** in the toolbar shows the whole canvas the way a colour-deficient reader sees it —
+**deuteranopia**, **protanopia**, **tritanopia** (Machado 2009 at full severity, the same
+simulation fluxplot's accessibility lint uses) — or in **greyscale** (luminance, what a black-and-
+white print keeps). It is a way of looking, applied as a display filter over the canvas: nothing
+in the figure changes, exports are untouched, and it lasts for the session. Use it while choosing
+series colours or a colormap; a pair of series that merge under deuteranopia need a different pair.
 
 # Drawing
 

@@ -442,6 +442,17 @@ The figure form saves the view on the object. A deck/slide target without `--bea
 Design object; with `--beat`, it writes a Change's `state.view` at that step, preserving other
 changed properties and inheriting earlier limits. `--reset` restores the generated axes.
 
+### Plots follow the deck theme
+
+A plot saved by fluxplot 0.3.1 or later tags every piece of its scaffold — tick labels, titles,
+ticks, spines, gridlines, backgrounds — with the theme token it was drawn in. On a slide the
+plot **follows the deck theme** by default: its ink takes the theme's text colour, its axes the
+muted text, its gridlines a faint mix of text into the background, and its backgrounds turn
+transparent, so a plot saved on white reads on *Flux Dark* without a regeneration. Data colours
+never change. **Follow deck theme** in the Object inspector turns it off for one plot (a plot
+whose white ground is the point). Copies of the plot in Figure mode and Paper keep their generated
+ink: there is no deck theme to follow there.
+
 ### Colour scale: recolouring in data units
 
 A colour-mapped plot saved by fluxplot 0.3.1 or later carries **Colour scales**, element state
@@ -467,6 +478,10 @@ flux set-plot-color-scale talk/slide1 plot1 --reset --beat beat3
 flux set-plot-color-scale figure1 plot1 --scale rates --cmap magma --regenerate
 flux get-plot-color-scales talk/slide1 plot1 --beat beat2
 ```
+
+**set-series-color** / **set_series_color** gives a whole series one colour on a slide's Design
+(`flux set-series-color talk/slide1 counts '#205ea6' --element plot1`), and **View as…** in the
+toolbar previews the stage as a colour-deficient audience sees it (see the Figure chapter).
 
 The figure form saves the scale on the object; `--regenerate` also writes the complete
 `__fluxplot__` control into the recipe, re-runs it, refreshes the figure and clears the live

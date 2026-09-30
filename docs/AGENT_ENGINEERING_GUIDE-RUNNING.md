@@ -450,6 +450,58 @@ Persistence invariants (all machine-checked — do not weaken):
   `partStyle.partKind` (after `data-kind` and the manifest kind, before the DOM tag, with the
   DOM's `data-role` as the second role source) and `autobuild.presetForRole` (text never draws
   on, lines self-draw, unknown text roles narrate with the annotations) both use.
+  **The wider colour system (plan M4 / M5 Flux halves, 2026-09-30):**
+  - *Themes (B1).* fluxplot ≥ 0.3.1 tags every scaffold node with `data-ink-fill` /
+    `data-ink-stroke` = ink | label | tick | axis | grid | plot | paper and records the generated
+    values in `manifest.style.tokens`. `plot/themeDom.applyPlotTheme(root, manifest, deckTheme)`
+    maps them onto the deck (ink/label/tick → text, axis → textMuted, grid → 15 % text into bg,
+    plot/paper → `none`), writes concrete hex on the tagged drawables (never `var()`: exports
+    and the deck runtime paint from the bytes), records pristine paint per node and restores on a
+    null theme — the same discipline as colorScaleDom. Every plot host calls it BEFORE
+    `applyPlotColorScale` and `applyOverrides`. When: `plotFollowsTheme(el, host)` =
+    `el.followTheme ?? host === "slide"` — on by default on slides, off in Figure / Paper (no deck
+    theme there); `ops.setPlotFollowTheme(p, id, bool | null)` writes / clears the flag (null =
+    host default, so untouched files stay byte-identical). Slide mode publishes its resolved theme
+    through the `plotTheme` store for the shared Canvas (`PlotElement` passes it into `mountPlot`,
+    which folds it into `signature` / `snap`); Present / export / transform use `ctx.theme`, which
+    some gates pass UNRESOLVED (the theme ID string) — `themeIsResolved` guards, painting nothing.
+    Gate `verify-plot-theme`.
+  - *Series colour (B2) and the legend coupling (F6).* `plot/seriesColor` names every part a
+    series is drawn by (`svg.*`, `components[].svgId` + `members`, `points[].svgId`) plus its
+    legend swatches (`guides[legend].entries[].series → swatch`), each with the paint it takes
+    (`paintForRole`: point / swatch / x-hexbin → both, kind line → stroke, kind shape → fill, text
+    → none); `ops.setSeriesColor` writes one override per part (null clears exactly those keys)
+    and refuses a colour-mapped series (`color.scale` / `hex: "varies"` / `field.colorScale`).
+    `ops.setPartOverride(…, manifest?)` mirrors a fill / stroke colour onto the swatches ONLY
+    when the part is the series' whole drawing (`seriesPrimaryOf`: a string-valued `svg.*` id);
+    one bar or one point is a highlight and leaves the key alone. The GUI resolves the manifest
+    through the `plotManifests` store, flux-core passes it. Verb `set_series_color` (figure or
+    deck Design; elementId optional with one plot), Inspector **Series colour** (`ColorField`,
+    never a native colour input). Gate `verify-series-color`.
+  - *View as (B3).* `color/cvd.ts`: fluxplot's Machado 2009 severity-1.0 matrices (pinned by
+    `scripts/fixtures/cvd_machado.json`, copied from `colorcheck._MACHADO[kind][10]`) and
+    Rec. 709 greyscale as `feColorMatrix type="matrix"` filters (4×5: each colour row + zero
+    alpha weight + zero offset, identity alpha row) declared `color-interpolation-filters=
+    "linearRGB"` — the space the matrices are fitted in and the SVG default. `ViewAsToggle`
+    (shared Toolbar) sets the session store; `Canvas.svelte` puts `url(#flux-view-as-<kind>)` on
+    the scene svg. A way of looking: no document change, nothing persisted. Gate
+    `verify-cvd-filter`.
+  - *Reading data (F5).* `plot/plotData.plotData(manifest, {seriesId, fields, offset, limit})`
+    is the `get_plot_data` verb's reader: series without renderer bookkeeping (`svg`,
+    `components`, `capabilities` dropped), colour scales without their LUT unless `fields`
+    includes `lut`, axes without pixel anchors, overlays whole, guides without parts, the style
+    block. `paginate` windows ONLY arrays longer than `limit` (default 1000, max 10000) from
+    `offset` and lists every cut in `pages` with its true length; short arrays pass whole even at
+    an offset. Gate `verify-plot-data`.
+  - *Readouts (F6).* `plot/readout.partReadout(manifest, partId, attrs)` is the ONE text builder
+    for the canvas deep-hover box (`Canvas.partHoverBox` adds `text`, drawn beside the rect) and
+    the X-ray row tooltips: roles come from the part index, the node's `data-role`, else the id
+    grammar (`.cell.r.c`, `.hex.r.c`, `.level.n`); members without an index entry find their
+    series by id prefix; scaffold returns null. Gate `verify-plot-readout`.
+  - *Verb gates and the stale dist:* a gate that connects to `flux-mcp.ts` must pass
+    `FLUX_MCP_TOOLSET: 'full'` in the child's env (the `--toolset` argv is ignored by
+    `flux-mcp.ts`); `tsxRun` always runs the source, but `resolveOwnCliCommandsSync` prefers
+    `dist/flux-cli.mjs` — `npm run build:cli` after adding a verb, before judging a red twin.
 - **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` on `spec` before the
   2D reader: `fluxplot/scene3d` has its own schema and byte-identical generator fixtures in
   `scripts/fixtures/model3d/fluxplot/`. Invalid or unknown metadata degrades to a plain mesh
@@ -8862,3 +8914,29 @@ fluxplot03-gui, plot-view-gui, fmenu-surface green.
   output that needs fluxplot's full data (the LUT module) must skip that mode explicitly.
 - matplotlib writes a fully transparent paint as `none`; a live writer must serialise the same
   way or byte parity with a regenerated plot fails on the `bad` colour.
+
+### 2026-09-30 — Colour system, Flux halves of M4 and M5 (B1, B2, B3, F5, F6) (Claude Fable 5.1, `main`)
+**Work:** Re-synced fluxplot's schema (22401c6: style, quality, series colour / image / band,
+overlay stats, notebook recipes) and the fluxplot03 fixtures. Slide plots follow the deck theme
+(`plot/themeDom`, `followTheme`, Inspector toggle, every plot host); one colour for a whole
+series (`plot/seriesColor`, `ops.setSeriesColor`, `set_series_color`, Inspector **Series
+colour**) with `restyle` of a series' whole line / points repainting its legend swatch; **View
+as** (`color/cvd.ts`, `ViewAsToggle`) over the canvas; `get_plot_data` (`plot/plotData`,
+windowed arrays); hover readouts (`plot/readout`) on the canvas deep-hover box and X-ray rows.
+Five pure gates (`verify-plot-theme`, `verify-series-color`, `verify-cvd-filter`,
+`verify-plot-data`, `verify-plot-readout`), two verbs in the golden, user docs (figure, slide,
+semantic-plots, cli). check 0/0, check:headless clean, pure tier green (see the commit).
+**Learnings:**
+- Promoted to §3: the whole colour-system block above (themes, series colour + legend coupling,
+  View as, reading data, readouts) and the two verb-gate traps (`FLUX_MCP_TOOLSET` env, stale
+  `dist/flux-cli.mjs`).
+- linkedom re-serialises a touched `style` attribute without spaces: a byte snapshot of style
+  strings fails after any `style.setProperty`; compare normalised declarations or parsed paints.
+- `feColorMatrix` rows are 5 wide (R G B A offset): a 3×3 padded with one zero yields 17
+  numbers and a silently ignored filter — the gate counts 20.
+- matplotlib leaves a tick path's fill undeclared (default black) and fluxplot therefore tags it
+  `data-ink-fill="tick"`; a theme writer may paint it (zero-area path, harmless) but must skip
+  drawables whose paint is declared `none`.
+- Not every slide host resolves the theme: `verify-slide-handoff-browser` hands `renderSlide` the
+  deck's theme ID string as `ctx.theme`. Anything reading theme colours in the render path must
+  accept an unresolved theme (`themeIsResolved`) and paint nothing rather than throw.
