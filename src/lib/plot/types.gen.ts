@@ -93,6 +93,40 @@ export interface FluxPlotManifestGen {
    * Portable colour scales, one per colour-control key; see definitions/colorScale.
    */
   colorScales?: ColorScale[];
+  /**
+   * The theme in force at save: its name (null once the rcParams were changed by hand) and the scaffold colours by token (ink, label, tick, axis, grid, plot, paper), which data-ink-fill / data-ink-stroke on scaffold elements refer to.
+   */
+  style?: {
+    theme: string | null;
+    tokens: {
+      ink: string;
+      label: string;
+      tick: string;
+      axis: string;
+      grid: string;
+      plot: string;
+      paper: string;
+    };
+  };
+  /**
+   * Lint findings recorded at save (fp.save(lint=...)): quality.color lists colorcheck findings.
+   */
+  quality?: {
+    color?: {
+      kind:
+        | "cvd-confusable"
+        | "greyscale-confusable"
+        | "low-contrast-mark"
+        | "low-contrast-text"
+        | "non-uniform"
+        | "non-monotone";
+      a: string;
+      b?: string | null;
+      value: number;
+      threshold: number;
+      message: string;
+    }[];
+  };
 }
 /**
  * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
@@ -133,26 +167,34 @@ export interface Series {
     y?: number | null;
   }[];
   /**
-   * The series' colour: scale = the colorScales[] id colouring it; hex / alpha / token / palette are the primary paint (B2).
+   * The series' colour: hex = its primary paint (or 'varies' for a colour-mapped collection), alpha, token = the exact palette token naming it, palette = its position in the active cycle, scale = the colorScales[] id colouring it.
    */
   color?: {
     scale?: string;
     hex?: string;
     alpha?: number;
-    token?: string | null;
-    palette?: {} | null;
+    token?: string;
+    palette?: {
+      name: string;
+      index: number;
+    };
   };
   bar?: {
     orientation?: string;
     baseline?: (number | null)[];
     length?: (number | null)[];
   };
+  /**
+   * An area's inputs: fp.band records {x, lo, hi, what}, fp.area {x, y1, y2}; a promoted fill_between only its polygon paths.
+   */
   band?: {
     paths?: unknown[];
     x?: (number | null)[];
     lo?: (number | null)[];
     hi?: (number | null)[];
     what?: string;
+    y1?: (number | null)[];
+    y2?: (number | null)[];
   };
   uncertainty?: {
     xerr?: unknown[] | null;
@@ -164,6 +206,24 @@ export interface Series {
   fluxbox?: SignatureStats;
   hexmatrix?: Hexmatrix;
   surface?: Surface;
+  /**
+   * An fp.image: its channels (each a colorScales[] entry, <series>.<channel>), LUTs, display ranges, pixel size and extent.
+   */
+  image?: {
+    shape: number[];
+    channels: {
+      name: string;
+      lut?: string | {};
+      displayRange: number[];
+      scale: string;
+      controlKey?: string;
+    }[];
+    composite?: "add" | "max";
+    origin?: "upper" | "lower";
+    extent?: number[];
+    units?: string;
+    pixelSize?: number[] | null;
+  };
 }
 /**
  * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
@@ -278,7 +338,7 @@ export interface SignatureStats {
   whiskerLow?: number | null;
   whiskerHigh?: number | null;
   outliers?: (number | null)[];
-  palette?: unknown;
+  palette?: string | string[] | null;
 }
 /**
  * fp.hexmatrix payload: the lattice, the statistic and every hexagon drawn.
@@ -444,6 +504,28 @@ export interface Overlay {
   p?: number;
   text?: string;
   rasterized?: boolean;
+  /**
+   * The test behind a significance bracket (fp.brackets): the fp.stats row it was drawn from.
+   */
+  stats?: {
+    test?: string;
+    statistic?: number;
+    p?: number;
+    pCorrected?: number;
+    correction?: string;
+    effectSizeMethod?: string;
+    effectSize?: number;
+    ciLow?: number;
+    ciHigh?: number;
+    n?: (number | null)[] | number;
+    dof?: number;
+    alternative?: string;
+  };
+  /**
+   * A scale bar's length in data units.
+   */
+  length?: number;
+  units?: string;
 }
 /**
  * A parts-tree node: a leaf (ref + role), a group (id, members, groupRole / memberRole) or a container (id, children).
@@ -537,7 +619,7 @@ export interface FluxPlotRecipeGen {
    * How the producing script was determined, plus the interpreter, platform, package versions, script hash and Git state.
    */
   provenance?: {
-    scriptDiscovery: "automatic" | "explicit" | "unavailable" | "suppressed";
+    scriptDiscovery: "automatic" | "explicit" | "notebook" | "unavailable" | "suppressed";
     scriptSha256?: string;
     python?: string;
     platform?: string;
@@ -556,4 +638,12 @@ export interface FluxPlotRecipeGen {
     bytes?: number;
   }[];
   env?: {} | null;
+  /**
+   * The notebook (and cell) that produced the plot when no script did: recorded for provenance, not rerunnable.
+   */
+  notebook?: {
+    path: string;
+    cell?: string | null;
+    sha256?: string | null;
+  };
 }
