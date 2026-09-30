@@ -2080,6 +2080,15 @@ with the live scene frozen (was 780–930 ms at 33 ms; the settle fold is one 55
 phase with zero long tasks (scrolling was 60–130 ms tasks). Slide mode measures the same as
 Figure. The native Electron key-to-paint gate stays the production oracle for edits. Reader open / project open / whole-doc find are 1s-class navigations and
 within budget. Update these measurements when the corresponding workflow is changed.
+Remeasured 2026-09-30 on the owner's `responsivity_testing` canvas (6 plots incl. a 3,143-node
+hexmatrix, production bundle, headless 1600×1000, `scripts/perf/input-probe.cjs --target=… --phases=
+dragHeavy,altDupDrag,idleAfterDup,resizeHeavy,idle,panSmall,zoomFast`, three-repeat medians —
+record in `notes/perf_figure_responsiveness_2026-09-30/README.md`): drag 262–303 ms of task per 2 s
+at 16.8 ms p95 (was 317–351); Alt+Shift duplicate-drag 367–391 ms with one ~75 ms mount task (was
+1588–1619 with 217–283 ms stalls); the 3 s after any edit ~50–95 ms (was 870–1190); corner-handle
+resize of the hexmatrix ~500 ms with one ~85 ms release render at 16.7 ms p95 (was 1871 at 200 ms
+p95, ~7 fps); pan 55–80 ms. The remaining hitch class is a synchronous 3k-node plot mount (~60–85 ms:
+the duplicate's copy, the resize/crop release render, a cull re-mount inside a wheel event).
 
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
@@ -3421,6 +3430,30 @@ outside this PNG packaging change.
   (`scripts/create-model3d-demo.ts`) build in an owned staging directory and publish the
   finished tree atomically after a final check.
 
+- **A hidden pane's subscriptions are still live (2026-09-30).** The kept-alive Paper mode subscribes to
+  `figRevision` and re-read EVERY fig asset and `.fluxplot.json` manifest of the whole project after every
+  figures autosave (245–418 MB over IPC per save on a 7-element canvas, mostly twice because the fig watcher
+  re-bumps on Flux's own write) — ~1 s of renderer main thread per edit that no JS profile showed
+  (`Receive mojo reply` on ElectronApiIPC). `readFigSource` now caches per path behind a fresh `fs:stat`
+  (mtime+ctime+size+inode; gate `verify-fig-source-cache`). Rule: a mode that stays mounted while hidden must
+  not do work proportional to the project on another mode's edits; check every `figRevision` subscriber
+  (SlideMode `refreshDeckSources`, InboxPanel `loadFigures`) before adding one.
+- **A plot's box is in its mount signature (2026-09-30).** `mountPlot` re-clones the whole plot (importNode +
+  prefixIds + overrides + view + pt-true) when width/height change, so any preview that hands a plot a fresh
+  box per pointermove runs at ~7 fps on a 3k-node plot. Gesture previews for plots must be transient
+  transforms on the live `.el` (move, rotate, and now resize via `interact/resizePreview.ts`) with ONE render
+  at release; `verify-resize-preview` pins the transform math.
+- **HTML serialization is not XML (2026-09-30).** `innerHTML` writes U+00A0 as `&nbsp;`, which is undefined in
+  XML: an SVG `<img>` built from it fails `decode()` silently and the zoom proxy never existed on any scene
+  with a no-break space in a label. Serialize scene copies with `XMLSerializer` (or escape to `&#160;`) and
+  surface a decode failure in the dev counters, never swallow it.
+- **Probe hygiene (2026-09-30):** an editing phase leaves ~1 s of deferred work (autosave, hidden-pane
+  reloads, proxy retake) that lands in the NEXT phase — put `idle` after every edit and never read a pan/zoom
+  number from a phase that follows an edit; multi-scenario runs are confounded the same way (one scenario per
+  process); a real-display Electron launched from a sandboxed agent shell can silently fall back to software
+  compositing (check `gpu_compositing` in runtime.json); on an idle X11-maximized window
+  `requestIdleCallback` never fires (a snapshot scheduled through it waits for the next gesture).
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **3D v1 is triangle-mesh visualization.** N2 (3D lines and points) remains out of
@@ -3553,6 +3586,16 @@ outside this PNG packaging change.
   refuses to evict a figure whose autosave failed, and the in-memory bridge cannot persist
   `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
   (`verify-xray-multi-gui.mjs`) instead of switching modes.
+
+- **Plot mount cost (2026-09-30, deferred):** mounting a 3k-node plot is ~60–85 ms of synchronous JS
+  (prefixIds ~21 ms, the projection bind ~17 ms, importNode ~6 ms after the 2026-09-30 diet) and runs inside
+  input events: the duplicate's copy on the first alt-drag move, the resize/crop release render, a cull
+  re-mount inside a wheel tick. Levers, not built: a prefixed-clone cache per asset, the mount sliced off the
+  input event, cheaper prefixIds. Also deferred: Paper loading only the assets the manuscript embeds (the
+  100× fix for the hidden-pane reload), the fig watcher's double `figRevision` bump on our own write, and
+  ANGLE-Vulkan (`--use-angle=vulkan --enable-features=Vulkan`, −32–42 % GPU raster on Wayland/NVIDIA) as an
+  opt-in. Display facts for this desktop: two Dell 4K panels at 60 Hz that support 120 Hz; native Wayland is
+  the right default (X11 renders 2.56× the pixels through Mutter's downsample).
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -9081,3 +9124,33 @@ picker slider and Inspector; the animator's button styles (lost to a `.b, .per-p
   (62.5 ms) makes visible lines unreachable. Snap duration drags in absolute time (origin = start).
 - A "no undo entry" result can be correct: re-picking the value the source already has is an
   identity edit that `finishGesture` rolls back — check the baseline before blaming history.
+
+### 2026-09-30 — Figure responsiveness team: drag / duplicate / resize / zoom lag on a 7-element canvas (Claude Fable 5.1 lead + six Claude Opus 5.5 teammates, `perf/*` → `perf/integrate-2026-09-30`)
+**Work:** Owner: lag while dragging, Alt+Shift-duplicating and quick-zooming in Figure, worst zoomed in,
+on a canvas of six plots. Built a trimmed fixture of the owner's project, extended the input probe
+(`--target`, `--zoomSteps`, `dragHeavy`, `altDupDrag`, `idleAfterDup`, `resizeHeavy`), took a
+three-repeat baseline, then ran six angles in parallel worktrees, each verified by the lead with the same
+battery (record: `notes/perf_figure_responsiveness_2026-09-30/`). Four mechanisms, all fixed on the
+integration branch: (1) the hidden Paper pane re-read every asset and manifest of the project (245–418 MB
+of IPC) after every figures autosave — a stat-validated read cache in `figbridge.ts`; (2) the resize preview
+re-mounted the whole plot per pointermove — plots now ride a transient transform and render once at
+release (`interact/resizePreview.ts`); (3) every drag frame re-layerized (bare transform writes on `.el`
+plus selection-chrome geometry rewrites) — the compositor drive for elements and a rigid chrome translate;
+(4) the zoom proxy never decoded (`innerHTML` → `&nbsp;`) and was discarded by any re-cull — fixed in
+`zoomProxy.ts`/Canvas (see the zoom-path report for the quiet-timer and canvas-proxy follow-through).
+Ruled out with numbers: the JS side of a drag (0.5 ms per event, Chromium coalesces to one move per frame)
+and the display/GPU configuration (no main-thread tax; Wayland already best). Numbers in §6; the plot-mount
+cost is the deferred next lever (§10). Gates: new `verify-fig-source-cache`, `verify-resize-preview`,
+strengthened `verify-f5-drag` and `verify-crop`; touched pure + UI gates green; check 0/0.
+**Learnings:**
+- Promoted to §9: hidden panes' subscriptions, the plot box in the mount signature, HTML-vs-XML
+  serialization, and the probe-hygiene set (post-edit tails, one scenario per process, sandboxed
+  software compositing, `requestIdleCallback` on X11-maximized).
+- A `taskMs` far above `scriptMs` with no long JS is IPC deserialization or Blink lifecycle — read the
+  trace's self time and, for IPC, count `ipcMain.handle` replies per phase (the probes on `perf/save-clone`
+  and `perf/gpu-env` both grew a ledger for this).
+- Two teammates found the same root cause from opposite ends (an IPC ledger vs. a DOM-fingerprint of the
+  runs where Paper happened not to mount) — the cheapest confirmation of a mechanism is a second,
+  independent route to it.
+- `pgrep -f <pattern>` matches the shell that runs it; a `while pgrep` wait loop never ends.
+
