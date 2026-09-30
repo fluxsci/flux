@@ -110,11 +110,16 @@ fp.save(fig, "plots/correlation.svg")
 For a modest matrix, `cells=True` makes individual cells addressable. Large fields stay efficient
 as one named raster layer. Raw matrix values are only included when `include_values=True`.
 
-To change colors in Flux, open **X-Ray** on the plot, expand **Color scales**, edit the palette or
-range, and choose **Apply and regenerate**. The recorded script updates the plot and colorbar
-from source data while preserving your named-part overrides. The plot needs a runnable recipe;
-nonstandard normalization ranges are edited in Python. The desktop action targets that plot's
-save, leaving sibling outputs untouched.
+With fluxplot 0.3.1 or later the saved plot records each colour scale's exact law — the colormap
+table, the normalisation and its limits — and every coloured element's data value, so Flux
+recolours the plot itself. Select the plot and edit **Colour scales** in the Object inspector, or
+**colour scale** in its **F** menu: the palette, its direction, the norm kind, the limits and
+`extend` change live, together with the colorbar, and the edit is saved with the figure or slide
+and tweens in a talk. **Apply to source** writes the complete colour controls into the recipe
+(`__fluxplot__`, keyed by the series name) and regenerates the plot from source data while
+preserving your named-part overrides; the plot needs a runnable recipe, and the action targets
+that plot's save, leaving sibling outputs untouched. Plots saved before 0.3.1 keep the
+regenerate-only palette and range fields in **X-Ray**.
 
 New imports and linked-source reloads verify the SVG/manifest checksum before accepting the
 bundle. If generation is still writing files or the sidecar belongs to another SVG, Flux keeps

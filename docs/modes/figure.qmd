@@ -405,6 +405,33 @@ limit. No extra ticks are generated on zoom-out. Filled marks and non-series mar
 a dashed reference line, stay put. A log view needs positive limits and positive data.
 For multi-panel plots the view applies to all panels; placeholders show the first panel.
 
+## Colour scales
+
+A colour-mapped plot saved by fluxplot 0.3.1 or later (hexbin, heatmap, scatter with `c=`,
+contour bands, colour-mapped bars and lines) records each colour scale's exact law — its colormap
+table, its normalisation and limits — and every coloured element's data value. Select the plot to
+edit **Colour scales** in the Object inspector, one block per scale. The **palette** takes any
+colormap fluxplot ships, typed by name or picked from the collections behind the preview bar;
+**Reverse** flips it; the **norm** kind offers the kinds the scale allows (linear, log, power,
+symlog; a centre appears for two-slope norms, gamma for power, the linear threshold and scale
+for symlog); **min** and **max** are data units; **extend** chooses which out-of-range arrows
+the key shows. Every element recolours as you type, together with the key's gradient and its
+ticks, and nothing regenerates. An empty field uses the generated value shown as its
+placeholder; finishing an edit makes one undo step, **Escape** cancels it and **Reset** restores
+the generated scale. An edit that cannot be painted, such as a log minimum at zero or a minimum
+above the maximum, is refused with its reason and the plot keeps the last valid colours.
+
+Live edits are element state: they are saved with the figure, honoured by exports and Paper
+embeds, tween in slides and travel with copies of the plot. **Apply to source** writes the
+complete colour controls of every scale into the plot's recipe, regenerates the plot from its
+data and clears the live edit, so the source file paints the same colours; it needs a runnable
+recipe. A scale drawn as one raster image reports itself and can only regenerate. Older plots
+without a recorded scale keep the regenerate-only palette and range fields.
+
+The **F** menu offers **colour scale** (**c**, or the key the row displays) with the same
+controls, and X-ray shows them under the plot's regenerate controls. The headless twin is
+`set-plot-color-scale` (see the Slide mode chapter).
+
 # Drawing
 
 The shape tools do what you expect; the **pen** (P) is placement-assisted: click to place

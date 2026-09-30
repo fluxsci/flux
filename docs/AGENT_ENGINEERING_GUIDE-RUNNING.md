@@ -426,7 +426,30 @@ Persistence invariants (all machine-checked — do not weaken):
   `style` (it is the SVG default) — read an absent fill as `#000000`. Recipe colour controls
   are v2: `{cmap: name | {lut, under, over, bad}, reversed, vmin, vmax, norm: {kind, …},
   extend}`, written back completely on every save; the old flat `{cmap, vmin, vmax}` stays
-  valid.
+  valid. One scale may colour mappables in several panels (fluxplot A4 shared scales) — never
+  assume one panel per scale; address groups by `data-color-scale`, keys by `colorbars[]`.
+  **Flux's half (plan M3, 2026-09-30):** `plot/colorscale.ts` is the pure law (`normalize`,
+  `lookup`, `effectiveScale`; `verify-colorscale-parity` proves it hex-for-hex against
+  `scripts/fixtures/colorscale_vectors.json`, 1998 vectors). The element state is
+  `SemanticPlotElement.colorScale: {<scaleId>: ColorScaleView}` — `cmap` (a name or a
+  `{lut, under, over, bad, name}` table), `reversed`, `norm {kind, vmin, vmax, vcenter, gamma,
+  linthresh, linscale}`, `extend` — written ONLY through `ops.setPlotColorScale` (copy-on-write
+  like `setPlotView`; a value equal to the generated scale becomes absence, an empty scale
+  disappears) after `plot/colorScaleControls.colorScalePatch` validated it (kinds within
+  `editable.normKinds`, limits only when `editable.limits`, the norm's own rules). **A named
+  colormap is resolved to its table at write time** by the picker and the verbs
+  (`color/colormapLuts.ts` loads the generated 300 KB `colormapLuts.gen.ts` lazily; the eager
+  bundle never carries it and `exportDeck` marks it external), so a saved document never depends
+  on the table; a bare name still paints once the table loads (`mount.ts` re-renders via
+  `plotGen`). `controlFromView` turns a view into the complete v2 recipe control for "Apply to
+  source" (`plot/regenerate.ts` in the GUI, `setPlotColorScaleVerb --regenerate` headless: write
+  the control, `runRecipe`, `syncFigureAssets`, clear the override). Verbs:
+  `set_plot_color_scale` / `get_plot_color_scales` (figure, deck Design, `--beat` Change).
+  Roles and kinds (plan F2): `buildPartIndex` gives member leaves their group's `memberRole` and
+  every part the manifest's `kind`; `tree.KIND_BY_ROLE` is the ONE role → kind fallback that
+  `partStyle.partKind` (after `data-kind` and the manifest kind, before the DOM tag, with the
+  DOM's `data-role` as the second role source) and `autobuild.presetForRole` (text never draws
+  on, lines self-draw, unknown text roles narrate with the annotations) both use.
 - **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` on `spec` before the
   2D reader: `fluxplot/scene3d` has its own schema and byte-identical generator fixtures in
   `scripts/fixtures/model3d/fluxplot/`. Invalid or unknown metadata degrades to a plain mesh
@@ -1726,11 +1749,35 @@ Persistence invariants (all machine-checked — do not weaken):
     ColorBrewer / Paul Tol / Project; Shift+Tab cycles, `settings.paletteCollection` opens
     first) and Tab switches its left column to `ColormapPicker` (collections × types, preview
     bars; in "color" mode a hover along the chosen bar previews the colour at that position
-    and a click commits it); `ColorScaleControls` (X-ray Color scales) shows the current map
-    as a bar and opens the picker in "map" mode, filling the palette field with the
-    qualified name; a plot with colour-scaled fields gets a `c colour scale… (X-ray)` action
-    in its menu. Gates: `verify-color-collections.ts` (pure, the bundle + helpers), the
-    collections leg of `verify-fmenu-surface`, the picker leg of `verify-fluxplot03-gui`.
+    and a click commits it); `ColorScaleControls` (Inspector, the F-menu's `colour scale`
+    field, X-ray) edits a fluxplot ≥ 0.3.1 plot's colour scales LIVE through
+    `ops.setPlotColorScale` with AxisView's edit-session UX (preview while typing, one undo,
+    Escape cancels) — the picker in "map" mode writes the picked map as its table — and its
+    "Apply to source" writes the complete v2 control and regenerates through
+    `plot/regenerate.ts`; a manifest without `colorScales` keeps the regenerate-only
+    palette/range fields. Its `<details>` BINDS its open state: Svelte 5 re-applies a plain
+    `open={…}` on every model update, which closed the block under a typing user and dropped
+    focus. Gates: `verify-color-collections.ts` (pure, the bundle + helpers), the collections
+    leg of `verify-fmenu-surface`, `verify-colorscale-gui` and the picker leg of
+    `verify-fluxplot03-gui`.
+  - **Live colour scales (plan A7):** `plot/colorScaleDom.applyPlotColorScale(root, manifest,
+    colorScale, elId)` is the ONE DOM writer; every plot host (mount, inlineMarkup, export,
+    slide render, slide transform) calls it BEFORE `applyOverrides` so an explicit per-part paint
+    still wins, and it is idempotent at any frame. It caches per-root bindings in WeakMaps
+    (typed arrays of values, the last colour slot per node) and writes only paints whose slot
+    changed — 6000 elements take ~7 ms per limit change even in linkedom (`verify-colorscale-dom`
+    holds the 100 ms budget) — serialising like matplotlib (transparent → `none`, translucent →
+    `*-opacity`, absent fill = black). It redraws each key's gradient (two stops per LUT entry)
+    and re-places its major AND minor ticks and labels through the guide's `anchors`, with
+    fluxplot's own tick scheme (`plot/ticks.ts`: decades plus 3×10ᵏ under three decades, minors
+    2–9, plain labels), and restores pristine bytes for an absent or identity view. An
+    unresolved colormap name keeps the generated paint and is reported (`unresolved`) for a
+    re-apply. `mount.ts` must list `colorScale` in its re-render signature (`snap`/`sameSnap`/
+    `signature`) — it did not at first, and the canvas stayed put while export recoloured.
+    Slides: `tween.lerpColorScales` interpolates views (log limits in log space, tables per entry
+    in OKLab, kinds / names / extend step at raw 0.5) and the transform host completes absent
+    ends from the manifest (`tweenColorScales`) so "as generated" → edited glides instead of
+    stepping.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -8785,3 +8832,33 @@ real `0.3.0` shape and green again.
   omission a DOM recolour must handle).
 - A structural `assert.equal` between two parsed copies of the same JSON is an identity
   check and fails; `deepEqual` for data (the first cut of the new gate).
+
+### 2026-09-30 — Live colour scales (colour-system plan M3: A7.1–A7.8, F2 Flux half) (Claude Fable 5.1, `main`)
+**Work:** Flux paints a fluxplot ≥ 0.3.1 plot's colour scales itself: the pure law
+(`plot/colorscale.ts`, 1998 parity vectors hex-for-hex), the element state `colorScale` +
+`ops.setPlotColorScale`, the one DOM writer (`plot/colorScaleDom.ts`: every data-value element,
+the key's gradient, major/minor ticks and labels; pristine restore; typed-array bindings) in all
+five plot hosts, the editor (`ColorScaleControls.svelte` in Inspector / F-menu / X-ray with Apply
+to source through `plot/regenerate.ts`), the verbs `set_plot_color_scale` /
+`get_plot_color_scales` (figure, Design, `--beat`, `--regenerate`), slide tweens
+(`lerpColorScales` + manifest-completed `tweenColorScales`), lazy full LUT tables
+(`color/colormapLuts*.ts`, external to the deck runtime), and F2's manifest kinds / memberRole
+through `buildPartIndex`, `partKind` and autobuild. Gates: `verify-colorscale-{parity,dom,verb}`
+(pure) and `verify-colorscale-gui` (ui); fixtures under `scripts/fixtures/colorscale/`
+(regenerable from fluxplot by `make_fixtures.py`, with a hermetic stub recipe for the
+regenerate leg). Colour tables regenerated from fluxplot HEAD (its new Flexoki colormap
+collection leads the picker; `verify-color-collections` and `verify-fmenu-surface` updated).
+check 0/0, check:headless clean, pure tier green after three fixes (a stale `dist/flux-cli.mjs`,
+the regenerated flux-context bundle, the five-collection expectation), ui: colorscale-gui,
+fluxplot03-gui, plot-view-gui, fmenu-surface green.
+**Learnings:**
+- Promoted to §3/§4: the colorScale state and write-time table rule, the DOM writer's
+  contract and budget, the tick scheme, the tween completion, `mount.ts`'s re-render
+  signature, the Svelte 5 `<details open>` trap, the F2 role/kind precedence.
+- A pure-tier gate that launches the CLI through `resolveOwnCliCommandsSync` runs
+  `dist/flux-cli.mjs` when one exists — a stale build fails `verify-inbox` against fresh
+  source with a baffling "MCP differs" diff; `npm run build:cli` first.
+- `gen-color-collections --check` is round-tripped from the 32-stop bundle by its gate, so any
+  output that needs fluxplot's full data (the LUT module) must skip that mode explicitly.
+- matplotlib writes a fully transparent paint as `none`; a live writer must serialise the same
+  way or byte parity with a regenerated plot fails on the `bad` colour.

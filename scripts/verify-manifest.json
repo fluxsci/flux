@@ -330,6 +330,9 @@
       "verify-slide-camera.ts",
       "verify-plot-binding.ts",
       "verify-plot-view-verb.ts",
+      "verify-colorscale-parity.ts",
+      "verify-colorscale-dom.ts",
+      "verify-colorscale-verb.ts",
       "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
@@ -504,6 +507,7 @@
       "verify-ask-gui.mjs",
       "verify-background-run-gui.mjs",
       "verify-plot-view-gui.mjs",
+      "verify-colorscale-gui.mjs",
       "verify-model3d-gui.mjs",
       "verify-model3d-export.mjs",
       "verify-model3d-orbit-gui.mjs",
@@ -1310,6 +1314,69 @@
         "group:inline-slides",
         "group:slide-stash",
         "group:slide-clips"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/colorscale.ts",
+      "run": [
+        "verify-colorscale-parity.ts",
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/{colorScaleDom,ticks}.ts",
+      "run": [
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs",
+        "verify-plot-view-gui.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/{colorScaleControls,regenerate}.ts",
+      "run": [
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs",
+        "verify-registry-parity.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/ColorScaleControls.svelte",
+      "run": [
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/color/colormapLuts*.ts",
+      "run": [
+        "verify-colorscale-parity.ts",
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-startup.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/colorscale/**",
+      "run": [
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/colorscale_vectors.json",
+      "run": [
+        "verify-colorscale-parity.ts"
       ]
     },
     {
@@ -8665,6 +8732,44 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-colorscale-parity.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-colorscale-dom.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-colorscale-verb.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-colorscale-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
     },

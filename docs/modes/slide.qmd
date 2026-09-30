@@ -442,6 +442,38 @@ The figure form saves the view on the object. A deck/slide target without `--bea
 Design object; with `--beat`, it writes a Change's `state.view` at that step, preserving other
 changed properties and inheriting earlier limits. `--reset` restores the generated axes.
 
+### Colour scale: recolouring in data units
+
+A colour-mapped plot saved by fluxplot 0.3.1 or later carries **Colour scales**, element state
+like the axis view: the palette, its direction, the norm kind, the limits and `extend`. A Change
+of a colour scale repaints every coloured element and the key's gradient and ticks through the
+data values, so one step can narrow a heatmap's range, switch a hexbin to a log scale or swap its
+colormap while the plot moves. Limits glide (log limits in log space), a new palette blends table
+by table, a changed norm kind switches at the midpoint. A saved scale also applies in Figure mode,
+Paper embeds and exports.
+
+Select the plot and edit **Colour scales** in the Object inspector. At **After step N** the edit
+becomes a Change on that step, with one undo per edit; scrubbing the Animator previews the glide.
+A scale drawn as one raster image cannot recolour live and reports itself.
+
+The CLI/MCP twin is **set-plot-color-scale** / **set_plot_color_scale**;
+**get-plot-color-scales** / **get_plot_color_scales** lists a plot's scales, what may change
+and the live view a figure, a Design or a step holds:
+
+```sh
+flux set-plot-color-scale figure1 plot1 --cmap crameri.batlow --vmax 20
+flux set-plot-color-scale talk/slide1 plot1 --norm log --vmin 1 --vmax 100 --beat beat2
+flux set-plot-color-scale talk/slide1 plot1 --reset --beat beat3
+flux set-plot-color-scale figure1 plot1 --scale rates --cmap magma --regenerate
+flux get-plot-color-scales talk/slide1 plot1 --beat beat2
+```
+
+The figure form saves the scale on the object; `--regenerate` also writes the complete
+`__fluxplot__` control into the recipe, re-runs it, refreshes the figure and clears the live
+edit. A deck/slide target without `--beat` edits the Design object; with `--beat` it writes
+`state.colorScale` at that step, inheriting earlier edits. `--scale` names the scale when a
+plot has several; omitted fields are preserved and `--reset` restores the generated scale.
+
 ## Cascading tracks
 
 Select several tracks and press **Ctrl+Shift+C**: the same [cascade](figure.qmd#cascade)
