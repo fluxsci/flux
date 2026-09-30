@@ -23,7 +23,7 @@ export interface FluxPlotSeries {
   panelId?: string;
   rasterized?: boolean;
   capabilities?: { dataMorph: boolean };
-  components?: { role: string; svgId: string; members?: string[] }[];
+  components?: { role: string; svgId: string; members?: string[]; memberRole?: string }[];
   field?: FluxPlotField;
   label?: string;
   points?: { index: number; svgId: string; x: number; y: number }[];
@@ -76,20 +76,30 @@ export interface PartNode {
   role?: string;
   axis?: string;
   groupRole?: string;
-  // Authored display label. fluxplot doesn't emit one (labels derive from role);
-  // DERIVED manifests (plot/derive.ts, for non-fluxplot SVGs) set it so the
-  // X-ray shows "X tick 3" instead of the raw "xtick_3" node id.
+  /** Role of every id in `members` (fluxplot ≥ 0.3.1: a group's members share
+   *  `groupRole`; a field layer's members are cells / contour-level / x-hex). */
+  memberRole?: string;
+  // Authored display label. fluxplot ≥ 0.3.1 emits one for series (the legend
+  // label, else the series name) and legend entries (the entry text); DERIVED
+  // manifests (plot/derive.ts, for non-fluxplot SVGs) set it so the X-ray shows
+  // "X tick 3" instead of the raw "xtick_3" node id.
   label?: string;
   members?: string[];
   children?: PartNode[];
 }
 
 /** A per-role default animation the generator suggests (manifest.build.presets),
- *  e.g. { animation: "draw-on", durationMs: 400 } or stagger-in with staggerMs. */
+ *  e.g. { animation: "draw-on", durationMs: 400 } or stagger-in with staggerMs.
+ *  `animation` is fluxplot's closed vocabulary (presets.PRESET_NAMES): draw-on ·
+ *  fade-in · stagger-in · grow-from-baseline · fade-rise · write-on · pop-in.
+ *  `delayMs` offsets the reveal inside its phase; `staggerBy` names the data
+ *  attribute a stagger-in orders its members by. */
 export interface FluxPlotBuildPreset {
   animation: string;
   durationMs?: number;
+  delayMs?: number;
   staggerMs?: number;
+  staggerBy?: "x" | "y" | "index" | "value" | "count" | "category";
 }
 
 // Flat lookup of one addressable part, resolved from the manifest by semantic id.
@@ -105,7 +115,7 @@ export interface PartInfo {
 
 /** A field's source-data color contract. Raster color changes require regeneration. */
 export interface FluxPlotField {
-  kind: "heatmap" | "contour" | "contourf";
+  kind: "heatmap" | "contour" | "contourf" | "hexbin" | "scatter";
   shape: number[];
   controlKey: string;
   cmap: string;

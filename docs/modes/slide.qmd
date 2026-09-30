@@ -67,7 +67,10 @@ To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plo
 
 Text rises in, shapes pop, and lines and paths draw on. Adding another appearance keeps the existing
 effects; successive effects on the same target start after its existing effects by default.
-**Auto-animate** builds a plot's entrance sequence from its semantic anatomy.
+**Auto-animate** builds a plot's entrance sequence from its semantic anatomy and the plot's own
+hints: axes and their colour key first, then gridlines, then the data (lines draw on, bars grow from
+their baseline, points and hexagons stagger in), and last the legend, annotations and brackets,
+each after the short delay the plot suggests.
 
 Drag a box from empty timing-grid space to select the effects it intersects. Hold **Shift**
 (or Ctrl/Cmd) to add to the selection. Crossing a collapsed group span selects its members.

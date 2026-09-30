@@ -377,6 +377,23 @@ Persistence invariants (all machine-checked — do not weaken):
   Reserved `__fluxplot__` controls travel only in FLUX_PARAMS, and successful reruns retain the
   freshly emitted provenance sidecar. Gates: `verify-fluxplot03.ts`,
   `verify-fluxplot-recipe-ipc.ts`, `verify-fluxplot03-gui.mjs`, plus source-sync and slide gates.
+  **0.3.1 (additive, 2026-09-29):** every parts-tree leaf carries `role`, every group and
+  field component `memberRole` (cell / contour-level / x-hex / point), series and legend-entry
+  nodes a `label`; `build.presets[role].animation` is fluxplot's CLOSED vocabulary (draw-on ·
+  fade-in · stagger-in · grow-from-baseline · fade-rise · write-on · pop-in, enumerated in its
+  schema) with `delayMs` and `staggerBy` hints, and legend / colorbar / title presets are now
+  actually emitted. `slide/autobuild.ts` maps the whole vocabulary (bars grow from their
+  baseline unless the plot says stagger-in; text may fade or rise, never draw on), applies
+  `delayMs` as the track start, builds the colour key with the axes, and resolves a
+  `build.order` entry that is only a group MEMBER (fluxplot lists `counts.bar.0`, the tree
+  groups `counts.bars`) to its owning group — which is how bars ever got a build step. The
+  colour-control key in `recipe.params.__fluxplot__` is now the SERIES root (`rates`), not the
+  axes' position (`axes.1.rates`); fluxplot still honours the legacy key. Fixtures:
+  `scripts/fixtures/fluxplot03/` is a byte copy of fluxplot's `tests/fixtures/polish/`
+  (regenerate there with `uv run python tests/generate_polish_fixtures.py`, then copy);
+  `presets.*` is the build-hint fixture `verify-slide-autobuild.ts` pins. Prefer the manifest's
+  `role` / `memberRole` over `tree.inferRole` for new code; the regex stays for pre-0.3.1
+  manifests.
 - **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` on `spec` before the
   2D reader: `fluxplot/scene3d` has its own schema and byte-identical generator fixtures in
   `scripts/fixtures/model3d/fluxplot/`. Invalid or unknown metadata degrades to a plain mesh
@@ -8702,3 +8719,19 @@ segments and closed fullscreen Present with one Escape.
   idle watcher step; a restarted server passed. Restart it before judging such a failure.
 - Under heavy load `verify-fluxconfig` can fail: two concurrent `installLaunchers` in one
   process share the `flux.tmp-<pid>` name and one rename hits ENOENT. Not fixed here.
+
+### 2026-09-30 — fluxplot 0.3.1 build-preset vocabulary and leaf roles (Claude Fable 5.1, `main`)
+**Work:** Consumed fluxplot 0.3.1 (colour-system plan M1): `autobuild.ts` maps the closed
+animation vocabulary (`grow-from-baseline` → growBaseline, `fade-rise` → fadeRise), honours
+`delayMs` as the track start and `staggerBy` where the player can, builds the colour key with the
+axes, lets bars grow unless the plot says stagger-in and text rise, and resolves a `build.order`
+member id to its owning group (bars never had a build step before). Types gained `memberRole`,
+`delayMs` / `staggerBy` and the `hexbin` / `scatter` field kinds. Shared fixtures regenerated
+from fluxplot (`scripts/fixtures/fluxplot03/`, new `presets.*`). check 0/0, check:headless clean,
+pure 360/360 (the guide edit landed during the cohort).
+**Learnings:**
+- Promoted to §3: the 0.3.1 additive fields, the fixture regeneration recipe, and the
+  member-id → group resolution.
+- `presetForRole` used to force every text role to `fade` BEFORE reading the authored
+  animation, so no manifest hint could ever make an annotation rise; refuse the impossible
+  (draw-on / scale on text), not the whole hint.

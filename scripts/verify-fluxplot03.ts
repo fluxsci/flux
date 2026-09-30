@@ -21,7 +21,7 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 const dir = new URL("./fixtures/fluxplot03/", import.meta.url);
 const load = async (name: string) => ({ svg: await readFile(new URL(`${name}.svg`, dir), "utf8"),
   manifest: JSON.parse(await readFile(new URL(`${name}.fluxplot.json`, dir), "utf8")) as FluxPlotManifest });
-for (const name of ["panels-a", "panels-b", "fields"]) {
+for (const name of ["panels-a", "panels-b", "fields", "presets"]) {
   const { svg, manifest } = await load(name);
   // fileURLToPath, never `.pathname`: a Windows file URL's pathname is "/C:/…",
   // which is not a path the fs can open, and validatePlot then reported the

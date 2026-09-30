@@ -34,49 +34,66 @@ import { presetDef } from "./presetCatalog";
 import { isHandoff, resolveTargetLeaves, targetPartIds, isWholeElementRef } from "./targets";
 import { resolveBeat } from "./resolve";
 
-// manifest animation name → player preset name
+// manifest animation name → player preset name. fluxplot's closed vocabulary
+// (presets.PRESET_NAMES, enumerated in its schema since 0.3.1) is the first
+// block; the bare legacy spellings below it come from hand-written manifests.
 const ANIM_TO_PRESET: Record<string, PresetName> = {
   "draw-on": "drawOn",
   "fade-in": "fade",
-  fade: "fade",
   "stagger-in": "stagger",
-  grow: "growBaseline",
-  "grow-baseline": "growBaseline",
+  "grow-from-baseline": "growBaseline",
+  "fade-rise": "fadeRise",
   "write-on": "writeOn",
   "pop-in": "popIn",
+  fade: "fade",
+  grow: "growBaseline",
+  "grow-baseline": "growBaseline",
   rise: "fadeRise",
 };
 
 // roles that must never draw-on / scale (they're text or fills) — always fade.
-const TEXTISH = new Set(["tick-label", "axis-title", "title", "subtitle", "legend-label", "label", "annotation"]);
+const TEXTISH = new Set(["tick-label", "axis-title", "title", "subtitle", "legend-label", "label", "annotation", "colorbar-label", "colorbar-tick-label"]);
 // roles whose natural reveal is the self-draw (a stroked path).
 const STROKABLE = new Set(["spine", "tick", "line", "reference-line", "significance-bracket", "errorbar"]);
 
 // a leaf/child role → the high-level build.presets key it inherits from.
 function highLevelKey(role: string): string {
   if (role === "spine" || role === "tick" || role === "tick-label" || role === "axis-title" || role === "title") return "axis";
+  if (role.startsWith("colorbar-")) return "colorbar";
   return role;
 }
 
 // which beat (phase) a role reveals in. Grouping build.order into phases makes
-// each "advance" expose a coherent layer the way a talk is narrated.
+// each "advance" expose a coherent layer the way a talk is narrated. A colour
+// key is scaffold (it explains the data), so it builds with the axes.
 const PHASE: Record<string, number> = {
   axis: 0, spine: 0, tick: 0, "tick-label": 0, "axis-title": 0, title: 0, subtitle: 0,
-  gridline: 1,
+  colorbar: 0, "colorbar-solids": 0, "colorbar-outline": 0, "colorbar-label": 0, "colorbar-tick": 0, "colorbar-tick-label": 0,
+  gridline: 1, "colorbar-gridline": 1,
   line: 2, area: 2, point: 2, bar: 2, "reference-line": 2, errorbar: 2,
-  legend: 3, "legend-entry": 3, "legend-swatch": 3, "legend-label": 3, annotation: 3, overlay: 3,
+  legend: 3, "legend-entry": 3, "legend-swatch": 3, "legend-label": 3, annotation: 3, overlay: 3, "significance-bracket": 3,
 };
 const PHASE_LABELS = ["Axes", "Gridlines", "Data", "Legend & annotations"];
 
 /** The reveal preset for a role, honouring the plot's authored animation but
- *  refusing nonsense (draw-on a text label) and routing points to a stagger. */
+ *  refusing nonsense (draw-on a text label) and routing points to a stagger.
+ *  Bars stagger only when the plot says so; otherwise they grow from their
+ *  baseline, the generator's default for them. */
 function presetForRole(role: string, anim?: string): PresetName {
-  if (TEXTISH.has(role)) return "fade";
-  if (role === "point" || role === "bar") return "stagger";
   const mapped = anim ? ANIM_TO_PRESET[anim] : undefined;
+  if (TEXTISH.has(role)) return mapped === "fadeRise" ? "fadeRise" : "fade"; // text may fade or rise, never draw/scale
+  if (role === "point") return "stagger";
+  if (role === "bar") return anim === "stagger-in" ? "stagger" : (mapped ?? "growBaseline");
   if (mapped) return mapped;
   if (STROKABLE.has(role)) return "drawOn";
   return "fade";
+}
+
+/** The player's stagger ordering key for a plot's `staggerBy` hint. The player
+ *  reads data-x / data-y / array order today; the value/count/category keys
+ *  (hexagons by value) fall back to x until the player learns them. */
+function staggerAxis(by?: string): "index" | "x" | "y" {
+  return by === "y" || by === "index" ? by : "x";
 }
 
 function singular(s: string): string {
@@ -89,7 +106,9 @@ interface PlanTrack {
   role: string;
   preset: PresetName;
   durationMs: number;
+  delayMs?: number;
   staggerMs?: number;
+  staggerBy?: string;
   nLeaves: number;
 }
 
@@ -100,13 +119,18 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
   const xray = buildPartTree(manifest);
   if (!xray) return [];
 
-  // index every node by id + by role
+  // index every node by id + by role, and every group MEMBER by its owning
+  // group: fluxplot lists a bar series' components (counts.bar.0, .1, …) in
+  // build.order while the tree groups them as counts.bars, so a member id
+  // resolves to the group that reveals it (once).
   const byId = new Map<string, XrayNode>();
   const byRole = new Map<string, XrayNode[]>();
+  const memberOwner = new Map<string, XrayNode>();
   const walk = (n: XrayNode) => {
     byId.set(n.id, n);
     const list = byRole.get(n.role);
     if (list) list.push(n); else byRole.set(n.role, [n]);
+    if (n.isGroup && !n.children.length) for (const leaf of n.targets) if (!memberOwner.has(leaf)) memberOwner.set(leaf, n);
     n.children.forEach(walk);
   };
   walk(xray);
@@ -135,18 +159,20 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
       role: node.role,
       preset,
       durationMs: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400,
+      delayMs: cfg?.delayMs,
       staggerMs: cfg?.staggerMs,
+      staggerBy: cfg?.staggerBy,
       nLeaves: node.targets.length,
     });
   };
 
   for (const entry of order) {
-    const node = byId.get(entry);
+    const node = byId.get(entry) ?? memberOwner.get(entry);
     if (node && node.children.length) {
       // container ("axis.x"): per-child, skipping children handled by a role-ref step
       for (const c of node.children) if (!roleClaims.has(c.role)) emit(c);
     } else if (node) {
-      emit(node); // a group ("setosa.points") or leaf ("fit.line")
+      emit(node); // a group ("setosa.points", "counts.bars") or leaf ("fit.line")
     } else {
       // a role-ref ("gridlines") → every node of that role
       for (const n of byRole.get(singular(entry)) ?? []) emit(n);
@@ -166,14 +192,14 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
  *  and the geometry (line/area) starts partway through that stagger so it
  *  resolves "just as the points finish" — the user's exact scatter beat. */
 function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrack[], ids: string[], index: number): Track {
-  const track: Track = { id: ids[index], target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: 0 };
+  const track: Track = { id: ids[index], target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: pt.delayMs ?? 0 };
   if (pt.preset === "stagger") {
-    track.stagger = { perMs: pt.staggerMs ?? 40, by: "x", from: "start" };
+    track.stagger = { perMs: pt.staggerMs ?? 40, by: staggerAxis(pt.staggerBy), from: "start" };
     track.params = { child: "fade" }; // points FADE in (staggered) — cleaner than rise for a scatter
   }
   if (phase === 2 && pt.preset !== "stagger") {
     const pts = peers.find((p) => p.preset === "stagger");
-    if (pts) track.anchor = { trackId: ids[peers.indexOf(pts)], edge: "start", offsetMs: Math.round(0.5 * pts.nLeaves * (pts.staggerMs ?? 40)) };
+    if (pts) track.anchor = { trackId: ids[peers.indexOf(pts)], edge: "start", offsetMs: (pt.delayMs ?? 0) + Math.round(0.5 * pts.nLeaves * (pts.staggerMs ?? 40)) };
   }
   return track;
 }
@@ -199,9 +225,9 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
   const anim = presets[role]?.animation ?? presets[highLevelKey(role)]?.animation;
   const preset = presetForRole(role, anim);
   const cfg = presets[role] ?? presets[highLevelKey(role)];
-  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, start: 0 };
+  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, start: cfg?.delayMs ?? 0 };
   if (preset === "stagger") {
-    track.stagger = { perMs: cfg?.staggerMs ?? 40, by: "x", from: "start" };
+    track.stagger = { perMs: cfg?.staggerMs ?? 40, by: staggerAxis(cfg?.staggerBy), from: "start" };
     track.params = { child: "fade" };
   }
   return track;
