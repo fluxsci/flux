@@ -747,8 +747,7 @@
 
           <div class="tree">
             {#if rootPlot && recipePath}
-              <ColorScaleControls assetId={rootPlot.assetId} manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
-                on:regenerate={(event) => regenerate(event.detail)} />
+              <ColorScaleControls elementId={rootPlot.id} />
             {/if}
             {#if rootModel}<div class="model-controls"><Model3dSemantics element={rootModel}/></div>{/if}
             {#each rows as r, ri (r.node.id)}

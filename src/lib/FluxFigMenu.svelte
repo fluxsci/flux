@@ -550,6 +550,12 @@
                             <svelte:component this={module.default} {...f.axisView} autofocus />
                           {/await}
                         {:else}<button class="actbtn" on:click={() => activate(f)}>Edit…</button>{/if}
+                      {:else if f.kind === "colorScale" && f.colorScale}
+                        {#if armed}
+                          {#await import("./plot/ColorScaleControls.svelte") then module}
+                            <svelte:component this={module.default} elementId={f.colorScale.elementId} compact />
+                          {/await}
+                        {:else}<button class="actbtn" on:click={() => activate(f)}>Edit…</button>{/if}
                       {:else if f.kind === "action"}
                         <button class="actbtn" on:click={() => activate(f)}>run</button>
                       {:else if f.kind === "select"}

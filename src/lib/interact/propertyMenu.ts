@@ -36,7 +36,7 @@ import { fluxFigMenuOpen } from "../settings";
 import { getSnipMeta } from "../snipMeta";
 import { pushToast } from "../toast";
 
-export type FieldKind = "number" | "text" | "select" | "toggle" | "color" | "action" | "axisView";
+export type FieldKind = "number" | "text" | "select" | "toggle" | "color" | "action" | "axisView" | "colorScale";
 export interface FieldOption {
   value: string;
   label: string;
@@ -52,6 +52,8 @@ export interface Field {
   options?: FieldOption[];
   target?: "fill" | "stroke";
   axisView?: { elementId: string; axis: "x" | "y" };
+  /** The live colour-scale editor for a plot (colour-system plan A7.5). */
+  colorScale?: { elementId: string };
   step?: number;
   factor?: number;
   min?: number;
@@ -629,7 +631,11 @@ export function buildMenuFields(
             axisView: { elementId: el.id, axis }, get: () => "Edit…", apply: () => {} });
         }
       }
-      if (el.type === "plot" && manifests[el.assetId]?.series?.some((s) => s.field?.controlKey)) {
+      if (el.type === "plot" && manifests[el.assetId]?.colorScales?.length) {
+        // a fluxplot ≥ 0.3.1 plot: its colour scales edit LIVE, right here (A7.5)
+        const key = ["c", ..."123456qwtadgvbn"].find((k) => !fields.some((f) => f.key === k));
+        if (key) fields.push({ key, label: "colour scale", group: "Plot", kind: "colorScale", colorScale: { elementId: el.id }, get: () => "Edit…", apply: () => {} });
+      } else if (el.type === "plot" && manifests[el.assetId]?.series?.some((s) => s.field?.controlKey)) {
         fields.push({
           key: "c",
           label: "colour scale… (X-ray)",

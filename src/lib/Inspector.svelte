@@ -606,6 +606,11 @@
           {#await import("./plot/AxisView.svelte") then module}
             <svelte:component this={module.default} elementId={single.id} />
           {/await}
+          {#if $plotManifests[single.assetId]?.colorScales?.length || $plotManifests[single.assetId]?.series?.some((s) => s.field?.controlKey)}
+            {#await import("./plot/ColorScaleControls.svelte") then module}
+              <svelte:component this={module.default} elementId={single.id} />
+            {/await}
+          {/if}
           <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
                text/strokes pt-true; content scale multiplies glyphs + strokes. -->
           {#if contentScalable(single.assetId, $plotManifests)}
