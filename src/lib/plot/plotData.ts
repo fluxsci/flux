@@ -33,6 +33,10 @@ export interface PlotDataResult {
   overlays?: Record<string, unknown>[];
   guides?: Record<string, unknown>[];
   style?: unknown;
+  /** Figure-scope parts (suptitle, sup-labels, figure legends, fig.text, the figure background). */
+  figure?: unknown;
+  /** The panels (`insetOf` names an inset's host). */
+  panels?: Record<string, unknown>[];
   /** Every array that was windowed, by JSON path. Empty when nothing was. */
   pages: PlotDataPage[];
   offset: number;
@@ -41,11 +45,12 @@ export interface PlotDataResult {
 
 export const DEFAULT_LIMIT = 1000;
 export const MAX_LIMIT = 10000;
-export const SECTIONS = ["series", "colorScales", "axes", "overlays", "guides", "style"] as const;
+export const SECTIONS = ["series", "colorScales", "axes", "overlays", "guides", "style", "figure", "panels"] as const;
 /** The per-series keys carried (the drawn-parts bookkeeping — svg ids, components, capabilities —
- *  is for the renderer, not for reasoning about data). */
-const SERIES_KEYS = ["id", "name", "kind", "label", "panelId", "roles", "data", "points", "color", "bar", "band", "uncertainty",
-  "distribution", "field", "glowbar", "fluxbox", "hexmatrix", "image", "surface"] as const;
+ *  is for the renderer, not for reasoning about data). `axis` says a series reads a twin's value
+ *  axis (`y2` / `x2`); the payloads are fluxplot's per-kind records. */
+const SERIES_KEYS = ["id", "name", "kind", "label", "panelId", "axis", "roles", "data", "points", "color", "bar", "band", "uncertainty",
+  "distribution", "field", "glowbar", "fluxbox", "hexmatrix", "image", "surface", "step", "stem", "regression", "kde"] as const;
 
 /** Window `value`'s long arrays in place (on a copy), recording each cut. Arrays of fewer than
  *  `limit` entries pass whole; the walk continues into objects and into the kept entries. */
@@ -121,5 +126,7 @@ export function plotData(manifest: FluxPlotManifest | undefined, opts: PlotDataO
     });
   }
   if (wanted.has("style")) out.style = (manifest as { style?: unknown }).style ?? null;
+  if (wanted.has("figure")) out.figure = (manifest as { figure?: unknown }).figure ?? null;
+  if (wanted.has("panels")) out.panels = ((manifest as { panels?: Record<string, unknown>[] }).panels ?? []).map((p) => ({ ...p }));
   return out;
 }

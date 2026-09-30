@@ -528,7 +528,7 @@
     </linearGradient>
   </defs>
   <g id="figure" data-role="figure" data-kind="container">
-    <g id="panel.matrix.figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
+    <g id="figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
       <path d="M 0 172.8  L 360 172.8  L 360 0  L 0 0  z " style="fill: #ffffff"/>
     </g>
     <g id="panel.matrix.plot-area" data-role="plot-area" data-kind="container">
@@ -536,15 +536,15 @@
         <path d="M 25.903365 152.79976  L 130.046225 152.79976  L 130.046225 18.118365  L 25.903365 18.118365  z " style="fill: #ffffff"/>
       </g>
       <g id="panel.matrix.correlation.x-heatmap" data-role="x-heatmap" data-series="correlation" data-kind="shape" data-color-scale="correlation" data-paint="fill">
-        <path d="M 25.903365 152.79976  L 60.617652 152.79976  L 60.617652 107.905962  L 25.903365 107.905962  L 25.903365 152.79976  " clip-path="url(#pf9a8b3ae16)" style="fill: #fde725" id="panel.matrix.correlation.x-heatmap.cell.0.0" data-role="cell" data-index="0" data-series="correlation" data-kind="shape" data-row="0" data-column="0" data-value="1.0"/>
-        <path d="M 60.617652 152.79976  L 95.331939 152.79976  L 95.331939 107.905962  L 60.617652 107.905962  L 60.617652 152.79976  " clip-path="url(#pf9a8b3ae16)" style="fill: #414487" id="panel.matrix.correlation.x-heatmap.cell.0.1" data-role="cell" data-index="1" data-series="correlation" data-kind="shape" data-row="0" data-column="1" data-value="0.2"/>
-        <path d="M 95.331939 152.79976  L 130.046225 152.79976  L 130.046225 107.905962  L 95.331939 107.905962  L 95.331939 152.79976  " clip-path="url(#pf9a8b3ae16)" style="fill: #355f8d" id="panel.matrix.correlation.x-heatmap.cell.0.2" data-role="cell" data-index="2" data-series="correlation" data-kind="shape" data-row="0" data-column="2" data-value="0.3"/>
-        <path d="M 25.903365 107.905962  L 60.617652 107.905962  L 60.617652 63.012163  L 25.903365 63.012163  L 25.903365 107.905962  " clip-path="url(#pf9a8b3ae16)" style="fill: #414487" id="panel.matrix.correlation.x-heatmap.cell.1.0" data-role="cell" data-index="3" data-series="correlation" data-kind="shape" data-row="1" data-column="0" data-value="0.2"/>
-        <path d="M 60.617652 107.905962  L 95.331939 107.905962  L 95.331939 63.012163  L 60.617652 63.012163  L 60.617652 107.905962  " clip-path="url(#pf9a8b3ae16)" style="fill: #fde725" id="panel.matrix.correlation.x-heatmap.cell.1.1" data-role="cell" data-index="4" data-series="correlation" data-kind="shape" data-row="1" data-column="1" data-value="1.0"/>
-        <path d="M 95.331939 107.905962  L 130.046225 107.905962  L 130.046225 63.012163  L 95.331939 63.012163  L 95.331939 107.905962  " clip-path="url(#pf9a8b3ae16)" style="fill: none" id="panel.matrix.correlation.x-heatmap.cell.1.2" data-role="cell" data-index="5" data-series="correlation" data-kind="shape" data-row="1" data-column="2" data-missing="1"/>
-        <path d="M 25.903365 63.012163  L 60.617652 63.012163  L 60.617652 18.118365  L 25.903365 18.118365  L 25.903365 63.012163  " clip-path="url(#pf9a8b3ae16)" style="fill: #355f8d" id="panel.matrix.correlation.x-heatmap.cell.2.0" data-role="cell" data-index="6" data-series="correlation" data-kind="shape" data-row="2" data-column="0" data-value="0.3"/>
-        <path d="M 60.617652 63.012163  L 95.331939 63.012163  L 95.331939 18.118365  L 60.617652 18.118365  L 60.617652 63.012163  " clip-path="url(#pf9a8b3ae16)" style="fill: #22a884" id="panel.matrix.correlation.x-heatmap.cell.2.1" data-role="cell" data-index="7" data-series="correlation" data-kind="shape" data-row="2" data-column="1" data-value="0.6"/>
-        <path d="M 95.331939 63.012163  L 130.046225 63.012163  L 130.046225 18.118365  L 95.331939 18.118365  L 95.331939 63.012163  " clip-path="url(#pf9a8b3ae16)" style="fill: #fde725" id="panel.matrix.correlation.x-heatmap.cell.2.2" data-role="cell" data-index="8" data-series="correlation" data-kind="shape" data-row="2" data-column="2" data-value="1.0"/>
+        <path d="M 25.903365 152.79976  L 60.617652 152.79976  L 60.617652 107.905962  L 25.903365 107.905962  L 25.903365 152.79976  " clip-path="url(#pf9a8b3ae16)" style="fill: #fde725" id="panel.matrix.correlation.x-heatmap.cell.0.0" data-role="cell" data-index="0" data-series="correlation" data-kind="shape" data-row="0" data-column="0" data-key="0.0" data-x0="0.0" data-x1="1.0" data-y0="0.0" data-y1="1.0" data-value="1.0"/>
+        <path d="M 60.617652 152.79976  L 95.331939 152.79976  L 95.331939 107.905962  L 60.617652 107.905962  L 60.617652 152.79976  " clip-path="url(#pf9a8b3ae16)" style="fill: #414487" id="panel.matrix.correlation.x-heatmap.cell.0.1" data-role="cell" data-index="1" data-series="correlation" data-kind="shape" data-row="0" data-column="1" data-key="0.1" data-x0="1.0" data-x1="2.0" data-y0="0.0" data-y1="1.0" data-value="0.2"/>
+        <path d="M 95.331939 152.79976  L 130.046225 152.79976  L 130.046225 107.905962  L 95.331939 107.905962  L 95.331939 152.79976  " clip-path="url(#pf9a8b3ae16)" style="fill: #355f8d" id="panel.matrix.correlation.x-heatmap.cell.0.2" data-role="cell" data-index="2" data-series="correlation" data-kind="shape" data-row="0" data-column="2" data-key="0.2" data-x0="2.0" data-x1="3.0" data-y0="0.0" data-y1="1.0" data-value="0.3"/>
+        <path d="M 25.903365 107.905962  L 60.617652 107.905962  L 60.617652 63.012163  L 25.903365 63.012163  L 25.903365 107.905962  " clip-path="url(#pf9a8b3ae16)" style="fill: #414487" id="panel.matrix.correlation.x-heatmap.cell.1.0" data-role="cell" data-index="3" data-series="correlation" data-kind="shape" data-row="1" data-column="0" data-key="1.0" data-x0="0.0" data-x1="1.0" data-y0="1.0" data-y1="2.0" data-value="0.2"/>
+        <path d="M 60.617652 107.905962  L 95.331939 107.905962  L 95.331939 63.012163  L 60.617652 63.012163  L 60.617652 107.905962  " clip-path="url(#pf9a8b3ae16)" style="fill: #fde725" id="panel.matrix.correlation.x-heatmap.cell.1.1" data-role="cell" data-index="4" data-series="correlation" data-kind="shape" data-row="1" data-column="1" data-key="1.1" data-x0="1.0" data-x1="2.0" data-y0="1.0" data-y1="2.0" data-value="1.0"/>
+        <path d="M 95.331939 107.905962  L 130.046225 107.905962  L 130.046225 63.012163  L 95.331939 63.012163  L 95.331939 107.905962  " clip-path="url(#pf9a8b3ae16)" style="fill: none" id="panel.matrix.correlation.x-heatmap.cell.1.2" data-role="cell" data-index="5" data-series="correlation" data-kind="shape" data-row="1" data-column="2" data-key="1.2" data-x0="2.0" data-x1="3.0" data-y0="1.0" data-y1="2.0" data-missing="1"/>
+        <path d="M 25.903365 63.012163  L 60.617652 63.012163  L 60.617652 18.118365  L 25.903365 18.118365  L 25.903365 63.012163  " clip-path="url(#pf9a8b3ae16)" style="fill: #355f8d" id="panel.matrix.correlation.x-heatmap.cell.2.0" data-role="cell" data-index="6" data-series="correlation" data-kind="shape" data-row="2" data-column="0" data-key="2.0" data-x0="0.0" data-x1="1.0" data-y0="2.0" data-y1="3.0" data-value="0.3"/>
+        <path d="M 60.617652 63.012163  L 95.331939 63.012163  L 95.331939 18.118365  L 60.617652 18.118365  L 60.617652 63.012163  " clip-path="url(#pf9a8b3ae16)" style="fill: #22a884" id="panel.matrix.correlation.x-heatmap.cell.2.1" data-role="cell" data-index="7" data-series="correlation" data-kind="shape" data-row="2" data-column="1" data-key="2.1" data-x0="1.0" data-x1="2.0" data-y0="2.0" data-y1="3.0" data-value="0.6"/>
+        <path d="M 95.331939 63.012163  L 130.046225 63.012163  L 130.046225 18.118365  L 95.331939 18.118365  L 95.331939 63.012163  " clip-path="url(#pf9a8b3ae16)" style="fill: #fde725" id="panel.matrix.correlation.x-heatmap.cell.2.2" data-role="cell" data-index="8" data-series="correlation" data-kind="shape" data-row="2" data-column="2" data-key="2.2" data-x0="2.0" data-x1="3.0" data-y0="2.0" data-y1="3.0" data-value="1.0"/>
       </g>
       <g id="panel.matrix.axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
         <g id="xtick_1">
@@ -638,16 +638,16 @@
           </g>
         </g>
       </g>
-      <g id="panel.matrix.axis.y.spine" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.matrix.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 25.903365 152.79976  L 25.903365 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.matrix.axis.y.spine-2" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.matrix.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 130.046225 152.79976  L 130.046225 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.matrix.axis.x.spine" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.matrix.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 25.903365 152.79976  L 130.046225 152.79976  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.matrix.axis.x.spine-2" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.matrix.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 25.903365 18.118365  L 130.046225 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
       <g id="panel.matrix.figure.title" data-role="title" data-kind="text" data-ink-fill="ink">
@@ -732,16 +732,16 @@
           </g>
         </g>
       </g>
-      <g id="panel.contours.axis.y.spine" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.contours.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 210.093599 152.79976  L 210.093599 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.contours.axis.y.spine-2" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.contours.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 314.23646 152.79976  L 314.23646 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.contours.axis.x.spine" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.contours.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 210.093599 152.79976  L 314.23646 152.79976  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.contours.axis.x.spine-2" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.contours.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 210.093599 18.118365  L 314.23646 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
       <g id="panel.contours.figure.title" data-role="title" data-kind="text" data-ink-fill="ink">

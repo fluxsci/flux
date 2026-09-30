@@ -1,0 +1,64 @@
+{
+  "args": [
+    "make_features.py"
+  ],
+  "command": "/home/driessen2/fluxplot/.venv/bin/python3",
+  "cwd": "../../../../fluxplot",
+  "env": null,
+  "generatedAt": "2026-09-30T00:00:00Z",
+  "inputs": [],
+  "output": "features.svg",
+  "outputs": {
+    "manifest": "features.fluxplot.json",
+    "svg": "features.svg"
+  },
+  "params": {
+    "__fluxplot__": {
+      "cells.dapi": {
+        "cmap": "image.mono:#0000ff",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 308.5078444658325,
+        "vmin": 11.833419282536106
+      },
+      "cells.gfp": {
+        "cmap": "image.mono:#008000",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 209.64580802980012,
+        "vmin": 1.473830099170711
+      },
+      "mean": {
+        "cmap": "cmasher.rainforest",
+        "extend": "neither",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 1.5211036590748694,
+        "vmin": -1.808868830236149
+      },
+      "theme": "light"
+    }
+  },
+  "plot": "features",
+  "provenance": {
+    "git": {
+      "commit": "1bc6f6a4c5c1031e8266d9adeecf7ca9b66d028a",
+      "dirty": true
+    },
+    "packages": {
+      "fluxplot": "0.1.0",
+      "matplotlib": "3.11.0"
+    },
+    "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+    "python": "3.13.7",
+    "scriptDiscovery": "explicit"
+  },
+  "schemaVersion": "0.3.2",
+  "script": {
+    "path": "make_features.py"
+  },
+  "spec": "fluxplot/recipe"
+}

@@ -29,6 +29,93 @@ export type Axis = {
     epoch?: string;
     unit?: string;
   };
+  tickLocator?: string;
+  tickFormatter?: string;
+  /**
+   * A secondary axis: samples of the parent → secondary transform.
+   */
+  secondary?: {
+    of: "x" | "y";
+    samples: [number, number][];
+  };
+};
+/**
+ * A twiny's value axis (shares y with the panel).
+ */
+export type Axis1 = {
+  scale: string;
+  label?: string;
+  base?: number;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  domain: [number, number];
+  /**
+   * @minItems 0
+   */
+  anchors: {
+    data: number;
+    svg: number;
+  }[];
+  supported?: boolean;
+  ticks?: {
+    value: number;
+    label: string;
+  }[];
+  units?: {
+    kind: string;
+    epoch?: string;
+    unit?: string;
+  };
+  tickLocator?: string;
+  tickFormatter?: string;
+  /**
+   * A secondary axis: samples of the parent → secondary transform.
+   */
+  secondary?: {
+    of: "x" | "y";
+    samples: [number, number][];
+  };
+};
+/**
+ * A twinx's value axis (shares x with the panel).
+ */
+export type Axis2 = {
+  scale: string;
+  label?: string;
+  base?: number;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  domain: [number, number];
+  /**
+   * @minItems 0
+   */
+  anchors: {
+    data: number;
+    svg: number;
+  }[];
+  supported?: boolean;
+  ticks?: {
+    value: number;
+    label: string;
+  }[];
+  units?: {
+    kind: string;
+    epoch?: string;
+    unit?: string;
+  };
+  tickLocator?: string;
+  tickFormatter?: string;
+  /**
+   * A secondary axis: samples of the parent → secondary transform.
+   */
+  secondary?: {
+    of: "x" | "y";
+    samples: [number, number][];
+  };
 };
 
 export interface FluxPlotManifestGen {
@@ -62,6 +149,8 @@ export interface FluxPlotManifestGen {
       x1: number;
       y1: number;
     };
+    x2?: Axis1;
+    y2?: Axis2;
   }[];
   series: Series[];
   guides?: Guide[];
@@ -88,6 +177,10 @@ export interface FluxPlotManifestGen {
     svgId: string;
     label?: string;
     index?: number;
+    /**
+     * The panel this panel is an inset of (ax.inset_axes).
+     */
+    insetOf?: string;
   }[];
   /**
    * Portable colour scales, one per colour-control key; see definitions/colorScale.
@@ -127,6 +220,27 @@ export interface FluxPlotManifestGen {
       message: string;
     }[];
   };
+  /**
+   * Ids an older fluxplot gave the same parts: old id (or old id prefix, for a series root) → current id. Resolve saved overrides through it; kept for one minor version after a rename.
+   */
+  idAliases?: {
+    [k: string]: string;
+  };
+  /**
+   * Figure-scope parts (unprefixed ids): the suptitle, sup-labels, figure legends, fig.text annotations and the figure's own extra artists.
+   */
+  figure?: {
+    title?: string;
+    xlabel?: string;
+    ylabel?: string;
+    legends?: string[];
+    annotations?: {
+      id: string;
+      text?: string | null;
+    }[];
+    extras?: string[];
+    background?: string;
+  };
 }
 /**
  * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
@@ -140,9 +254,16 @@ export interface Series {
   svg: {
     [k: string]: string | string[];
   };
+  /**
+   * The series' numbers as plotted; xLabels / yLabels name the category behind each on a categorical axis, xIso / yIso the ISO-8601 instant on a date axis.
+   */
   data?: {
     x?: (number | null)[];
     y?: (number | null)[];
+    xLabels?: (string | null)[];
+    yLabels?: (string | null)[];
+    xIso?: (string | null)[];
+    yIso?: (string | null)[];
   };
   label?: string;
   panelId?: string;
@@ -153,12 +274,20 @@ export interface Series {
   };
   capabilities?: {
     dataMorph: boolean;
+    /**
+     * Members carry stable keys (data-key): two versions can be tweened member by member.
+     */
+    valueMorph?: boolean;
   };
   components?: {
     role: string;
     svgId: string;
     members?: string[];
     memberRole?: string;
+    /**
+     * Manifest-only id of this series' member group when svgId is a collection shared with other series (seaborn hue splits).
+     */
+    groupId?: string;
   }[];
   points?: {
     index: number;
@@ -183,6 +312,12 @@ export interface Series {
     orientation?: string;
     baseline?: (number | null)[];
     length?: (number | null)[];
+    center?: (number | null)[];
+    width?: (number | null)[];
+    /**
+     * Stable per-bar keys (the category label under each bar); also data-key on the bar element.
+     */
+    keys?: string[];
   };
   /**
    * An area's inputs: fp.band records {x, lo, hi, what}, fp.area {x, y1, y2}; a promoted fill_between only its polygon paths.
@@ -196,9 +331,13 @@ export interface Series {
     y1?: (number | null)[];
     y2?: (number | null)[];
   };
+  /**
+   * An errorbar's errors broadcast to the N points: xerr / yerr are N values, or [lower, upper] (each N) when errShape is asymmetric.
+   */
   uncertainty?: {
     xerr?: unknown[] | null;
     yerr?: unknown[] | null;
+    errShape?: "scalar" | "symmetric" | "asymmetric" | null;
   };
   distribution?: Distribution;
   field?: Field;
@@ -223,6 +362,45 @@ export interface Series {
     extent?: number[];
     units?: string;
     pixelSize?: number[] | null;
+  };
+  /**
+   * Present when the series is drawn against a twin's value axis (axes[].y2 / .x2).
+   */
+  axis?: "x2" | "y2";
+  step?: {
+    where: "pre" | "post" | "mid";
+    drawstyle?: string;
+  };
+  stem?: {
+    baseline?: number;
+    orientation?: string;
+  };
+  /**
+   * fp.regression: the fit as drawn.
+   */
+  regression?: {
+    kind: "linear" | "poly" | "lowess";
+    degree?: number | null;
+    coefficients?: number[] | null;
+    r2?: number;
+    p?: number | null;
+    n: number;
+    ci: number;
+    dof?: number;
+    frac?: number;
+    bootstrap?: number;
+    grid?: (number | null)[];
+    fit?: (number | null)[];
+  };
+  /**
+   * fp.kde: the density as drawn.
+   */
+  kde?: {
+    grid: (number | null)[];
+    density: (number | null)[];
+    bandwidth: number;
+    method?: string | number;
+    n: number;
   };
 }
 /**
@@ -594,6 +772,22 @@ export interface ColorScale {
     limits: boolean;
     normKinds: string[];
     center: boolean;
+  };
+  /**
+   * A second, opacity channel (alpha_by): each element's fill-opacity runs over range with its data-alpha-value under norm.
+   */
+  alpha?: {
+    source: string;
+    /**
+     * @minItems 2
+     * @maxItems 2
+     */
+    range: [number, number];
+    norm: {
+      kind: "linear" | "log";
+      vmin?: number | null;
+      vmax?: number | null;
+    };
   };
 }
 

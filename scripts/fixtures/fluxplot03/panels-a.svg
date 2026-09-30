@@ -4,7 +4,7 @@
     <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
   </defs>
   <g id="figure" data-role="figure" data-kind="container">
-    <g id="panel.small.figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
+    <g id="figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
       <path d="M 0 172.8  L 360 172.8  L 360 0  L 0 0  z " style="fill: #ffffff"/>
     </g>
     <g id="panel.small.plot-area" data-role="plot-area" data-kind="container">
@@ -100,16 +100,16 @@
           <use xlink:href="#m060a041486" x="164.261145" y="23.603847" style="fill: #1f77b4; stroke: #1f77b4" id="panel.small.control.point.4" data-role="point" data-series="control" data-index="4" data-x="4.0" data-y="4.9999999999999996e-06" data-kind="shape"/>
         </g>
       </g>
-      <g id="panel.small.axis.y.spine" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.small.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 30.36274 138.798979  L 30.36274 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.small.axis.y.spine-2" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.small.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 170.63726 138.798979  L 170.63726 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.small.axis.x.spine" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.small.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 30.36274 138.798979  L 170.63726 138.798979  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.small.axis.x.spine-2" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.small.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 30.36274 18.118365  L 170.63726 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
       <g id="panel.small.figure.title" data-role="title" data-kind="text" data-ink-fill="ink">
@@ -203,16 +203,16 @@
           <use xlink:href="#m060a041486" x="350.623645" y="23.603847" style="fill: #1f77b4; stroke: #1f77b4" id="panel.large.control.point.4" data-role="point" data-series="control" data-index="4" data-x="4.0" data-y="500.0" data-kind="shape"/>
         </g>
       </g>
-      <g id="panel.large.axis.y.spine" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.large.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 216.72524 138.798979  L 216.72524 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.large.axis.y.spine-2" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.large.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
         <path d="M 356.99976 138.798979  L 356.99976 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.large.axis.x.spine" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.large.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 216.72524 138.798979  L 356.99976 138.798979  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
-      <g id="panel.large.axis.x.spine-2" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+      <g id="panel.large.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
         <path d="M 216.72524 18.118365  L 356.99976 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
       </g>
       <g id="panel.large.figure.title" data-role="title" data-kind="text" data-ink-fill="ink">

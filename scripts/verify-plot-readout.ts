@@ -68,9 +68,28 @@ try {
   const cb = presets.guides!.find(g => g.role === 'colorbar')!;
   const key = partReadout(presets, cb.svgId!);
   h.ok(!!key && key.title.startsWith('Colour scale') && /viridis|cmasher|crameri|\w+, log|\w+, linear/.test(key.lines[0]), `a colorbar reads its scale (${key?.lines[0]})`);
+  // the 0.3.2 payloads from real generator output (features.*)
+  const features = load('features');
+  const fit = partReadout(features, 'panel.fit.dose.fit')!;
+  h.eq(fit.title, 'Dose response · regression', 'a regression series names its kind');
+  h.ok(fit.lines.some(l => l.startsWith('linear fit: slope ')) && fit.lines.some(l => /^R² [\d.]+, p/.test(l)) && fit.lines.some(l => l.startsWith('n = 30, 95% band')), `a fit reads slope, R², p and n (${fit.lines.join(' | ')})`);
+  const kde = partReadout(features, 'panel.fit.density.line')!;
+  h.ok(kde.lines.some(l => /^density estimate, bandwidth [\d.]+, n = 120$/.test(l)), `a kde reads its bandwidth and n (${kde.lines.join(' | ')})`);
+  h.ok(partReadout(features, 'panel.twin.state.line')!.lines.includes('step (post)'), 'a step reads where');
+  h.ok(partReadout(features, 'panel.twin.temp.line')!.lines.includes('on the right (y2) axis'), 'a twin series says which axis it reads');
+  const hexA = partReadout(features, 'panel.hex.mean.hex.3.3', { 'data-alpha-value': '7' })!;
+  h.ok(hexA.lines.includes('opacity by count 7'), `a hexagon reads its opacity channel (${hexA.lines.join(' | ')})`);
+  const brF = features.overlays!.find(o => o.role === 'significance-bracket')!;
+  const brRead = partReadout(features, brF.svgId!)!;
+  h.eq(brRead.lines[0], "Welch's t-test", 'a real fp.brackets bracket reads its test');
+  h.ok(/^p [<=] .* \(holm\)$/.test(brRead.lines[1]) && brRead.lines[3] === 'n = 8 / 8', `with its corrected p and sizes (${brRead.lines.join(' | ')})`);
+  h.eq(partReadout(features, 'panel.image.scalebar.0')!.lines, ['2 µm'], 'a scale bar reads its length');
+  h.eq(partReadout(features, 'figure.legend.entry.0.swatch')!.title, 'Legend · Dose response', 'a figure legend swatch names its series');
+  const attrsAlpha = nodeAttrs({ getAttribute: (n: string) => (n === 'data-alpha-value' ? '3' : n === 'data-key' ? '1.2' : null) });
+  h.eq([attrsAlpha['data-alpha-value'], attrsAlpha['data-key']], ['3', '1.2'], 'nodeAttrs reads the alpha value and the member key');
   // scaffold says nothing
   h.eq(partReadout(presets, 'panel.counts.axis.x.tick.1'), null, 'a tick has no readout');
-  h.eq(partReadout(presets, 'panel.counts.axis.x.spine'), null, 'a spine has no readout');
+  h.eq(partReadout(presets, 'panel.counts.axis.x.spine.bottom'), null, 'a spine has no readout');
   h.eq(partReadout(undefined, 'x'), null, 'no manifest, no readout');
   // the text form and the DOM attribute reader
   h.eq(readoutText(bar1), 'Counts · bar 1\nx = b\nheight 5', 'readoutText joins title and lines');

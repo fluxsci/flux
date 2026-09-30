@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://flux.dev/schemas/fluxplot-manifest-0.3.1.json",
+  "$id": "https://flux.dev/schemas/fluxplot-manifest-0.3.2.json",
   "title": "FluxPlot manifest",
   "type": "object",
   "required": [
@@ -116,6 +116,14 @@
               "x1",
               "y1"
             ]
+          },
+          "x2": {
+            "$ref": "#/definitions/axis",
+            "description": "A twiny's value axis (shares y with the panel)."
+          },
+          "y2": {
+            "$ref": "#/definitions/axis",
+            "description": "A twinx's value axis (shares x with the panel)."
           }
         },
         "required": [
@@ -228,6 +236,10 @@
           },
           "index": {
             "type": "integer"
+          },
+          "insetOf": {
+            "type": "string",
+            "description": "The panel this panel is an inset of (ax.inset_axes)."
           }
         },
         "required": [
@@ -349,6 +361,63 @@
           }
         }
       }
+    },
+    "idAliases": {
+      "type": "object",
+      "description": "Ids an older fluxplot gave the same parts: old id (or old id prefix, for a series root) → current id. Resolve saved overrides through it; kept for one minor version after a rename.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "figure": {
+      "type": "object",
+      "description": "Figure-scope parts (unprefixed ids): the suptitle, sup-labels, figure legends, fig.text annotations and the figure's own extra artists.",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "xlabel": {
+          "type": "string"
+        },
+        "ylabel": {
+          "type": "string"
+        },
+        "legends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "extras": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "background": {
+          "type": "string"
+        }
+      }
     }
   },
   "definitions": {
@@ -428,6 +497,40 @@
           "required": [
             "kind"
           ]
+        },
+        "tickLocator": {
+          "type": "string"
+        },
+        "tickFormatter": {
+          "type": "string"
+        },
+        "secondary": {
+          "type": "object",
+          "description": "A secondary axis: samples of the parent → secondary transform.",
+          "required": [
+            "of",
+            "samples"
+          ],
+          "properties": {
+            "of": {
+              "type": "string",
+              "enum": [
+                "x",
+                "y"
+              ]
+            },
+            "samples": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
         }
       },
       "required": [
@@ -1236,8 +1339,45 @@
                   "null"
                 ]
               }
+            },
+            "xLabels": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "yLabels": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "xIso": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "yIso": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             }
-          }
+          },
+          "description": "The series' numbers as plotted; xLabels / yLabels name the category behind each on a categorical axis, xIso / yIso the ISO-8601 instant on a date axis."
         },
         "label": {
           "type": "string"
@@ -1264,6 +1404,10 @@
           "properties": {
             "dataMorph": {
               "type": "boolean"
+            },
+            "valueMorph": {
+              "type": "boolean",
+              "description": "Members carry stable keys (data-key): two versions can be tweened member by member."
             }
           },
           "required": [
@@ -1289,6 +1433,10 @@
               },
               "memberRole": {
                 "type": "string"
+              },
+              "groupId": {
+                "type": "string",
+                "description": "Manifest-only id of this series' member group when svgId is a collection shared with other series (seaborn hue splits)."
               }
             },
             "required": [
@@ -1383,6 +1531,31 @@
                   "null"
                 ]
               }
+            },
+            "center": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "width": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "keys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Stable per-bar keys (the category label under each bar); also data-key on the bar element."
             }
           }
         },
@@ -1457,8 +1630,21 @@
                 "array",
                 "null"
               ]
+            },
+            "errShape": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "scalar",
+                "symmetric",
+                "asymmetric",
+                null
+              ]
             }
-          }
+          },
+          "description": "An errorbar's errors broadcast to the N points: xerr / yerr are N values, or [lower, upper] (each N) when errShape is asymmetric."
         },
         "distribution": {
           "$ref": "#/definitions/distribution"
@@ -1559,6 +1745,162 @@
             "shape",
             "channels"
           ]
+        },
+        "axis": {
+          "type": "string",
+          "enum": [
+            "x2",
+            "y2"
+          ],
+          "description": "Present when the series is drawn against a twin's value axis (axes[].y2 / .x2)."
+        },
+        "step": {
+          "type": "object",
+          "properties": {
+            "where": {
+              "type": "string",
+              "enum": [
+                "pre",
+                "post",
+                "mid"
+              ]
+            },
+            "drawstyle": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "where"
+          ]
+        },
+        "stem": {
+          "type": "object",
+          "properties": {
+            "baseline": {
+              "type": "number"
+            },
+            "orientation": {
+              "type": "string"
+            }
+          }
+        },
+        "regression": {
+          "type": "object",
+          "description": "fp.regression: the fit as drawn.",
+          "required": [
+            "kind",
+            "n",
+            "ci"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "linear",
+                "poly",
+                "lowess"
+              ]
+            },
+            "degree": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "coefficients": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number"
+              }
+            },
+            "r2": {
+              "type": "number"
+            },
+            "p": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "n": {
+              "type": "integer"
+            },
+            "ci": {
+              "type": "number"
+            },
+            "dof": {
+              "type": "integer"
+            },
+            "frac": {
+              "type": "number"
+            },
+            "bootstrap": {
+              "type": "integer"
+            },
+            "grid": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "fit": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "kde": {
+          "type": "object",
+          "description": "fp.kde: the density as drawn.",
+          "required": [
+            "grid",
+            "density",
+            "bandwidth",
+            "n"
+          ],
+          "properties": {
+            "grid": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "density": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "bandwidth": {
+              "type": "number"
+            },
+            "method": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "n": {
+              "type": "integer"
+            }
+          }
         }
       },
       "required": [
@@ -2070,6 +2412,55 @@
             "normKinds",
             "center"
           ]
+        },
+        "alpha": {
+          "type": "object",
+          "description": "A second, opacity channel (alpha_by): each element's fill-opacity runs over range with its data-alpha-value under norm.",
+          "required": [
+            "source",
+            "range",
+            "norm"
+          ],
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "range": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "norm": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "log"
+                  ]
+                },
+                "vmin": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "vmax": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
         }
       },
       "required": [

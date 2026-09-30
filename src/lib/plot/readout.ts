@@ -34,6 +34,15 @@ function categoryAt(manifest: FluxPlotManifest | undefined, panelId: string | un
   return num(value);
 }
 
+/** "opacity by <source> <value>" when the element carries the scale's alpha channel (B6). */
+function alphaLine(manifest: FluxPlotManifest, sRec: Rec | undefined, attrs: Record<string, string | null | undefined>): string[] {
+  const raw = attrs["data-alpha-value"];
+  if (raw == null || raw === "") return [];
+  const scaleId = (rec(sRec?.color)?.scale ?? rec(sRec?.field)?.colorScale) as string | undefined;
+  const alpha = rec((manifest.colorScales ?? []).find((sc) => sc.id === scaleId)?.alpha as unknown);
+  return [`opacity by ${alpha?.source ?? "value"} ${num(Number(raw))}`];
+}
+
 function statsLines(stats: Rec | undefined, keys: [string, string][]): string[] {
   if (!stats) return [];
   return keys.filter(([k]) => stats[k] !== undefined && stats[k] !== null).map(([k, label]) => `${label} ${num(stats[k])}`);
@@ -68,6 +77,7 @@ export function partReadout(manifest: FluxPlotManifest | undefined, partId: stri
       const c = i !== undefined ? arr(data?.c)?.[i] : undefined;
       if (c !== undefined) lines.push(`value ${num(c)}`);
       if (dataValue != null) lines.push(`value ${missing ? "missing" : num(Number(dataValue))}`);
+      lines.push(...alphaLine(manifest, sRec, attrs));
       return { title: `${label} · point ${i ?? ""}`.trim(), lines };
     }
     case "bar": {
@@ -89,6 +99,7 @@ export function partReadout(manifest: FluxPlotManifest | undefined, partId: stri
         if (bin.count !== undefined) lines.push(`count ${num(bin.count)}`);
         if (bin.value !== undefined && bin.value !== bin.count) lines.push(`${(rec(sRec?.hexmatrix)?.valueLabel as string) || "value"} ${num(bin.value)}`);
       } else if (dataValue != null) lines.push(`value ${missing ? "missing" : num(Number(dataValue))}`);
+      lines.push(...alphaLine(manifest, sRec, attrs));
       return { title: `${label} · hexagon${bin ? ` ${bin.row},${bin.col}` : ""}`, lines };
     }
     case "cell": {
@@ -98,6 +109,7 @@ export function partReadout(manifest: FluxPlotManifest | undefined, partId: stri
       if (value === undefined && m && field) value = arr(arr(field.values)?.[Number(m[1])])?.[Number(m[2])];
       lines.push(`value ${value === null ? "missing" : num(value)}`);
       if (m) lines.push(`row ${m[1]}, column ${m[2]}`);
+      lines.push(...alphaLine(manifest, sRec, attrs));
       return { title: `${label} · cell`, lines };
     }
     case "contour-level": {
@@ -162,6 +174,23 @@ export function partReadout(manifest: FluxPlotManifest | undefined, partId: stri
   if (band?.what) lines.push(`band: ${band.what}`);
   const image = rec(sRec?.image);
   if (image) lines.push(`image ${(arr(image.shape) ?? []).join("×")}${arr(image.channels) ? `, ${(arr(image.channels) as Rec[]).map((c) => c.name).join(" + ")}` : ""}`);
+  // fitted curves, steps and stems say what they are (fluxplot 0.3.2 payloads)
+  const fit = rec(sRec?.regression);
+  if (fit) {
+    const coef = arr(fit.coefficients);
+    lines.push(`${fit.kind === "lowess" ? `lowess (span ${num(fit.frac)})` : fit.kind === "poly" ? `polynomial, degree ${fit.degree}` : "linear fit"}${coef && fit.kind === "linear" ? `: slope ${num(coef[0])}, intercept ${num(coef[1])}` : ""}`);
+    const r2 = fit.r2 !== undefined ? `R² ${num(fit.r2, 3)}` : "";
+    const p = pValue(fit.p);
+    if (r2 || p) lines.push([r2, p].filter(Boolean).join(", "));
+    if (fit.n !== undefined) lines.push(`n = ${num(fit.n)}${fit.ci !== undefined ? `, ${Math.round(Number(fit.ci) * 100)}% band` : ""}`);
+  }
+  const kde = rec(sRec?.kde);
+  if (kde) lines.push(`density estimate, bandwidth ${num(kde.bandwidth, 3)}, n = ${num(kde.n)}`);
+  const step = rec(sRec?.step);
+  if (step) lines.push(`step (${step.where})`);
+  const stem = rec(sRec?.stem);
+  if (stem) lines.push(`stems from ${num(stem.baseline)}`);
+  if (sRec?.axis) lines.push(`on the ${sRec.axis === "y2" ? "right (y2)" : "top (x2)"} axis`);
   if (dataValue != null) lines.push(`value ${missing ? "missing" : num(Number(dataValue))}`);
   const col = rec(sRec?.color);
   if (col?.hex && col.hex !== "varies") lines.push(`colour ${col.hex}${col.token ? ` (${col.token})` : ""}`);
@@ -178,7 +207,7 @@ export function readoutText(r: Readout | null): string {
 export function nodeAttrs(node: { getAttribute(n: string): string | null; querySelector?(s: string): { getAttribute(n: string): string | null } | null } | null | undefined): Record<string, string | null> {
   if (!node) return {};
   const out: Record<string, string | null> = {};
-  for (const a of ["data-role", "data-series", "data-value", "data-missing", "data-level-low", "data-level-high", "data-index"]) {
+  for (const a of ["data-role", "data-series", "data-value", "data-missing", "data-level-low", "data-level-high", "data-index", "data-alpha-value", "data-key"]) {
     out[a] = node.getAttribute(a) ?? node.querySelector?.(`[${a}]`)?.getAttribute(a) ?? null;
   }
   return out;

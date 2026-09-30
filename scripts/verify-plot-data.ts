@@ -64,7 +64,44 @@ try {
   let threw = '';
   try { plotData(manifest, { seriesId: 'nope' }); } catch (e) { threw = (e as Error).message; }
   h.ok(threw.includes('Series not found'), 'an unknown series is refused with the known ids');
-  // stats on a bracket (synthetic: the fixture predates fp.brackets)
+  // the 0.3.2 payloads, from real generator output (features.* — scripts/fixtures/fluxplot03/make_features.py)
+  const features = JSON.parse(await readFile(join(fixtures, 'features.fluxplot.json'), 'utf8')) as FluxPlotManifest;
+  const feat = plotData(features);
+  const byId = Object.fromEntries(feat.series!.map(s => [s.id as string, s]));
+  const reg = byId['panel.fit.dose'].regression as { kind: string; coefficients: number[]; r2: number; p: number; n: number; ci: number; grid: number[]; fit: number[] };
+  h.eq([reg.kind, reg.coefficients.length, reg.n, reg.ci], ['linear', 2, 30, 0.95], 'a regression series carries its fit record');
+  h.ok(reg.r2 > 0.5 && reg.p < 0.001 && reg.grid.length === 100 && reg.fit.length === 100, 'with R², p and the fitted curve');
+  h.eq((byId['panel.fit.dose'].band as { what: string }).what, '95% CI', 'and its band names what it is');
+  const kde = byId['panel.fit.density'].kde as { grid: number[]; density: number[]; bandwidth: number; n: number };
+  h.ok(kde.grid.length === 200 && kde.density.length === 200 && kde.bandwidth > 0 && kde.n === 120, 'a kde series carries grid, density, bandwidth and n');
+  h.eq((byId['panel.twin.state'].step as { where: string }).where, 'post', 'a step series carries where');
+  h.eq(byId['panel.twin.temp'].axis, 'y2', 'a series on a twin says which value axis it reads');
+  const twinAxes = feat.axes!.find(a => a.panelId === 'panel.twin') as { y2: { label: string; domain: number[] }; x2: { secondary: { of: string; samples: number[][] } }; x: { tickLocator: string; tickFormatter: string } };
+  h.eq(twinAxes.y2.label, 'temperature (°C)', 'axes[].y2 is returned');
+  h.ok(twinAxes.x2.secondary.of === 'x' && twinAxes.x2.secondary.samples.length >= 2, 'a secondary axis carries its sampled transform');
+  h.eq([twinAxes.x.tickLocator, twinAxes.x.tickFormatter], ['auto', 'plain'], 'every axis carries its tick scheme');
+  const barF = byId['panel.cells.means'].bar as { keys: string[]; center: number[]; width: number[] };
+  h.eq(barF.keys, ['ctl', 'low', 'high'], 'bars carry their category keys');
+  h.eq((byId['panel.cells.means'].uncertainty as { errShape: string }).errShape, 'symmetric', 'errorbars say their shape');
+  const img = byId['panel.image.cells'].image as { channels: { name: string; scale: string }[]; pixelSize: number[]; units: string };
+  h.eq(img.channels.map(c => c.name), ['dapi', 'gfp'], 'an image lists its channels');
+  h.eq([img.pixelSize, img.units], [[0.5, 0.5], 'µm'], 'with pixel size and units');
+  const alphaScale = feat.colorScales!.find(sc => sc.id === 'mean') as { alpha: { source: string; range: number[]; norm: { kind: string } } };
+  h.eq([alphaScale.alpha.source, alphaScale.alpha.range, alphaScale.alpha.norm.kind], ['count', [0.3, 1], 'linear'], 'a colour scale returns its alpha channel');
+  const stats = feat.overlays!.filter(o => o.role === 'significance-bracket').map(o => (o as { stats: { test: string; pCorrected: number; correction: string } }).stats);
+  h.ok(stats.length === 3 && stats.every(s => s.test === "Welch's t-test" && s.correction === 'holm' && typeof s.pCorrected === 'number'), 'brackets carry the test behind their stars');
+  h.eq((feat.overlays!.find(o => o.role === 'scalebar') as { length: number; units: string }).length, 2, 'a scale bar carries its length');
+  const fig = feat.figure as { title: string; legends: string[]; annotations: { id: string; text: string }[]; background: string };
+  h.eq([fig.title, fig.legends, fig.background], ['figure.title', ['figure.legend'], 'figure.background'], 'the figure block is returned');
+  h.eq(fig.annotations, [{ id: 'figure.annotation.0', text: 'A' }], 'with its annotations');
+  const figLegend = feat.guides!.find(g => g.id === 'figure.legend') as { entries: { text: string; series: string }[] };
+  h.eq(figLegend.entries.filter(e => e.series).map(e => e.series), ['panel.fit.dose', 'panel.fit.density', 'panel.twin.rate', 'panel.twin.state', 'panel.twin.temp'], 'a figure legend joins its entries to panel-prefixed series (lines, fits, a twin series)');
+  // known generator gap (fluxplot 1bc6f6a): a figure-legend entry standing for a BAR container has no series
+  // (bar marks carry member ids, no group id, and figure_scope skips them); Flux tolerates the null.
+  h.eq(figLegend.entries.find(e => e.text === 'Mean')?.series, undefined, 'the bar entry is left unjoined by the generator (documented gap)');
+  h.eq(feat.panels!.length, 5, 'panels are returned');
+  h.ok(!plotData(features, { fields: ['series'] }).figure, 'fields narrows figure and panels too');
+  // stats on a bracket (synthetic on the presets fixture, whose bracket predates fp.brackets)
   const withStats = structuredClone(manifest);
   (withStats.overlays![1] as Record<string, unknown>).stats = { test: "Welch's t-test", p: 0.03, effectSize: 1.2, correction: 'holm' };
   h.eq((plotData(withStats, { fields: ['overlays'] }).overlays![1] as { stats: { test: string } }).stats.test, "Welch's t-test", 'a bracket\'s stats block is returned');

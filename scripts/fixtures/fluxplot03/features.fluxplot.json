@@ -1,0 +1,6626 @@
+{
+  "artifact": {
+    "svgSha256": "9d4ae784bf8be18c58df737ac617b4d47bce83c44c8f8aca498470e0e8ee2393"
+  },
+  "axes": [
+    {
+      "id": "panel.fit.plot-area",
+      "panelId": "panel.fit",
+      "pixelBox": {
+        "x0": 29.581099375,
+        "x1": 194.443481765044,
+        "y0": 38.81843876582191,
+        "y1": 197.26301346550272
+      },
+      "projection": "rectilinear",
+      "svgId": "panel.fit.plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -0.6486033517707981,
+            "svg": 29.581099375000004
+          },
+          {
+            "data": 12.231411845967013,
+            "svg": 194.443481765044
+          }
+        ],
+        "domain": [
+          -0.6486033517707981,
+          12.231411845967013
+        ],
+        "label": "dose",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−2",
+            "value": -2.0
+          },
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          },
+          {
+            "label": "6",
+            "value": 6.0
+          },
+          {
+            "label": "8",
+            "value": 8.0
+          },
+          {
+            "label": "10",
+            "value": 10.0
+          },
+          {
+            "label": "12",
+            "value": 12.0
+          },
+          {
+            "label": "14",
+            "value": 14.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": -3.7069547449565317,
+            "svg": 197.26301346550272
+          },
+          {
+            "data": 20.776098611090752,
+            "svg": 38.81843876582191
+          }
+        ],
+        "domain": [
+          -3.7069547449565317,
+          20.776098611090752
+        ],
+        "label": "response",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−5",
+            "value": -5.0
+          },
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "5",
+            "value": 5.0
+          },
+          {
+            "label": "10",
+            "value": 10.0
+          },
+          {
+            "label": "15",
+            "value": 15.0
+          },
+          {
+            "label": "20",
+            "value": 20.0
+          },
+          {
+            "label": "25",
+            "value": 25.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "panel.twin.plot-area",
+      "panelId": "panel.twin",
+      "pixelBox": {
+        "x0": 227.024938327544,
+        "x1": 391.8873207175877,
+        "y0": 38.81843876582191,
+        "y1": 197.26301346550272
+      },
+      "projection": "rectilinear",
+      "svgId": "panel.twin.plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -0.55,
+            "svg": 227.024938327544
+          },
+          {
+            "data": 11.55,
+            "svg": 391.8873207175877
+          }
+        ],
+        "domain": [
+          -0.55,
+          11.55
+        ],
+        "label": "time (s)",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−2",
+            "value": -2.0
+          },
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          },
+          {
+            "label": "6",
+            "value": 6.0
+          },
+          {
+            "label": "8",
+            "value": 8.0
+          },
+          {
+            "label": "10",
+            "value": 10.0
+          },
+          {
+            "label": "12",
+            "value": 12.0
+          }
+        ]
+      },
+      "x2": {
+        "anchors": [],
+        "domain": [
+          -0.009166666666666667,
+          0.1925
+        ],
+        "label": "time (min)",
+        "scale": "function",
+        "secondary": {
+          "of": "x",
+          "samples": [
+            [
+              -0.55,
+              -0.009166666666666667
+            ],
+            [
+              0.9625000000000001,
+              0.01604166666666667
+            ],
+            [
+              2.4750000000000005,
+              0.04125000000000001
+            ],
+            [
+              3.9875000000000007,
+              0.06645833333333334
+            ],
+            [
+              5.500000000000001,
+              0.09166666666666669
+            ],
+            [
+              7.012500000000001,
+              0.11687500000000002
+            ],
+            [
+              8.525,
+              0.14208333333333334
+            ],
+            [
+              10.037500000000001,
+              0.1672916666666667
+            ],
+            [
+              11.55,
+              0.1925
+            ]
+          ]
+        },
+        "supported": false,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−0.025",
+            "value": -0.025
+          },
+          {
+            "label": "0.000",
+            "value": 0.0
+          },
+          {
+            "label": "0.025",
+            "value": 0.025
+          },
+          {
+            "label": "0.050",
+            "value": 0.05000000000000001
+          },
+          {
+            "label": "0.075",
+            "value": 0.07500000000000001
+          },
+          {
+            "label": "0.100",
+            "value": 0.1
+          },
+          {
+            "label": "0.125",
+            "value": 0.12500000000000003
+          },
+          {
+            "label": "0.150",
+            "value": 0.15000000000000002
+          },
+          {
+            "label": "0.175",
+            "value": 0.17500000000000002
+          },
+          {
+            "label": "0.200",
+            "value": 0.2
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": -0.14987474933020273,
+            "svg": 197.26301346550272
+          },
+          {
+            "data": 3.1473697359342574,
+            "svg": 38.81843876582191
+          }
+        ],
+        "domain": [
+          -0.14987474933020273,
+          3.1473697359342574
+        ],
+        "label": "rate (Hz)",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−0.5",
+            "value": -0.5
+          },
+          {
+            "label": "0.0",
+            "value": 0.0
+          },
+          {
+            "label": "0.5",
+            "value": 0.5
+          },
+          {
+            "label": "1.0",
+            "value": 1.0
+          },
+          {
+            "label": "1.5",
+            "value": 1.5
+          },
+          {
+            "label": "2.0",
+            "value": 2.0
+          },
+          {
+            "label": "2.5",
+            "value": 2.5
+          },
+          {
+            "label": "3.0",
+            "value": 3.0
+          },
+          {
+            "label": "3.5",
+            "value": 3.5
+          }
+        ]
+      },
+      "y2": {
+        "anchors": [
+          {
+            "data": 24.55253939284766,
+            "svg": 197.26301346550278
+          },
+          {
+            "data": 35.49749812415011,
+            "svg": 38.818438765821995
+          }
+        ],
+        "domain": [
+          24.55253939284766,
+          35.49749812415011
+        ],
+        "label": "temperature (°C)",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "24",
+            "value": 24.0
+          },
+          {
+            "label": "26",
+            "value": 26.0
+          },
+          {
+            "label": "28",
+            "value": 28.0
+          },
+          {
+            "label": "30",
+            "value": 30.0
+          },
+          {
+            "label": "32",
+            "value": 32.0
+          },
+          {
+            "label": "34",
+            "value": 34.0
+          },
+          {
+            "label": "36",
+            "value": 36.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "panel.hex.plot-area",
+      "panelId": "panel.hex",
+      "pixelBox": {
+        "x0": 478.69965693863224,
+        "x1": 643.5620393286765,
+        "y0": 44.20719679797045,
+        "y1": 191.87425543335416
+      },
+      "projection": "rectilinear",
+      "svgId": "panel.hex.plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -3.8472597885147986,
+            "svg": 478.69965693863224
+          },
+          {
+            "data": 3.4293043741374833,
+            "svg": 643.5620393286765
+          }
+        ],
+        "domain": [
+          -3.8472597885147986,
+          3.4293043741374833
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−4",
+            "value": -4.0
+          },
+          {
+            "label": "−3",
+            "value": -3.0
+          },
+          {
+            "label": "−2",
+            "value": -2.0
+          },
+          {
+            "label": "−1",
+            "value": -1.0
+          },
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "1",
+            "value": 1.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "3",
+            "value": 3.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": -3.576026620258139,
+            "svg": 191.87425543335416
+          },
+          {
+            "data": 3.7720968573453706,
+            "svg": 44.20719679797045
+          }
+        ],
+        "domain": [
+          -3.576026620258139,
+          3.7720968573453706
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−4",
+            "value": -4.0
+          },
+          {
+            "label": "−3",
+            "value": -3.0
+          },
+          {
+            "label": "−2",
+            "value": -2.0
+          },
+          {
+            "label": "−1",
+            "value": -1.0
+          },
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "1",
+            "value": 1.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "3",
+            "value": 3.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "panel.cells.plot-area",
+      "panelId": "panel.cells",
+      "pixelBox": {
+        "x0": 29.581099375,
+        "x1": 194.443481765044,
+        "y0": 229.06270483156916,
+        "y1": 387.50727953125
+      },
+      "projection": "rectilinear",
+      "svgId": "panel.cells.plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -0.54,
+            "svg": 29.581099374999997
+          },
+          {
+            "data": 2.5400000000000005,
+            "svg": 194.44348176504397
+          }
+        ],
+        "domain": [
+          -0.54,
+          2.5400000000000005
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "category",
+        "tickLocator": "category",
+        "ticks": [
+          {
+            "label": "ctl",
+            "value": 0.0
+          },
+          {
+            "label": "low",
+            "value": 1.0
+          },
+          {
+            "label": "high",
+            "value": 2.0
+          }
+        ],
+        "units": {
+          "kind": "category"
+        }
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 387.50727953125
+          },
+          {
+            "data": 3.774731993636271,
+            "svg": 229.06270483156916
+          }
+        ],
+        "domain": [
+          0.0,
+          3.774731993636271
+        ],
+        "label": "value",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0.0",
+            "value": 0.0
+          },
+          {
+            "label": "0.5",
+            "value": 0.5
+          },
+          {
+            "label": "1.0",
+            "value": 1.0
+          },
+          {
+            "label": "1.5",
+            "value": 1.5
+          },
+          {
+            "label": "2.0",
+            "value": 2.0
+          },
+          {
+            "label": "2.5",
+            "value": 2.5
+          },
+          {
+            "label": "3.0",
+            "value": 3.0
+          },
+          {
+            "label": "3.5",
+            "value": 3.5
+          },
+          {
+            "label": "4.0",
+            "value": 4.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "panel.image.plot-area",
+      "panelId": "panel.image",
+      "pixelBox": {
+        "x0": 227.024938327544,
+        "x1": 391.8873207175877,
+        "y0": 246.46159878514317,
+        "y1": 370.10838557767596
+      },
+      "projection": "rectilinear",
+      "svgId": "panel.image.plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 227.024938327544
+          },
+          {
+            "data": 8.0,
+            "svg": 391.8873207175877
+          }
+        ],
+        "domain": [
+          0.0,
+          8.0
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "1",
+            "value": 1.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "3",
+            "value": 3.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          },
+          {
+            "label": "5",
+            "value": 5.0
+          },
+          {
+            "label": "6",
+            "value": 6.0
+          },
+          {
+            "label": "7",
+            "value": 7.0
+          },
+          {
+            "label": "8",
+            "value": 8.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 6.0,
+            "svg": 370.10838557767596
+          },
+          {
+            "data": 0.0,
+            "svg": 246.46159878514317
+          }
+        ],
+        "domain": [
+          6.0,
+          0.0
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "1",
+            "value": 1.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "3",
+            "value": 3.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          },
+          {
+            "label": "5",
+            "value": 5.0
+          },
+          {
+            "label": "6",
+            "value": 6.0
+          }
+        ]
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "figure.title",
+      "panel.fit.axis.x",
+      "panel.fit.axis.y",
+      "panel.fit.dose.fit",
+      "panel.fit.density.line",
+      "panel.fit.dose.points",
+      "panel.fit.dose.band",
+      "panel.fit.density.fill",
+      "panel.twin.axis.x",
+      "panel.twin.axis.y",
+      "panel.twin.axis.x2",
+      "panel.twin.axis.y2",
+      "panel.twin.rate.line",
+      "panel.twin.state.line",
+      "panel.twin.temp.line",
+      "panel.hex.axis.x",
+      "panel.hex.axis.y",
+      "panel.hex.colorbar.color",
+      "panel.hex.mean.hexes",
+      "panel.cells.axis.x",
+      "panel.cells.axis.y",
+      "panel.cells.means.bar.0",
+      "panel.cells.means.bar.1",
+      "panel.cells.means.bar.2",
+      "panel.cells.means.errorbar",
+      "panel.cells.means.cap",
+      "panel.cells.means.cap.1",
+      "panel.cells.significance-bracket.ctl-low",
+      "panel.cells.significance-bracket.low-high",
+      "panel.cells.significance-bracket.ctl-high",
+      "panel.image.axis.x",
+      "panel.image.axis.y",
+      "panel.image.colorbar.gfp",
+      "panel.image.cells.image",
+      "panel.image.scalebar.0",
+      "figure.annotation.0"
+    ],
+    "presets": {
+      "area": {
+        "animation": "fade-in",
+        "durationMs": 500
+      },
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "bar": {
+        "animation": "grow-from-baseline",
+        "durationMs": 500
+      },
+      "cap": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "colorbar": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "errorbar": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "line": {
+        "animation": "draw-on",
+        "durationMs": 800
+      },
+      "point": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "index",
+        "staggerMs": 40
+      },
+      "scalebar": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "significance-bracket": {
+        "animation": "fade-rise",
+        "delayMs": 200,
+        "durationMs": 300
+      },
+      "x-hex": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "value",
+        "staggerMs": 4
+      },
+      "x-hexbin": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "value",
+        "staggerMs": 4
+      }
+    }
+  },
+  "colorScales": [
+    {
+      "alpha": {
+        "norm": {
+          "kind": "linear",
+          "vmax": 69.0,
+          "vmin": 1.0
+        },
+        "range": [
+          0.3,
+          1.0
+        ],
+        "source": "count"
+      },
+      "colorbars": [
+        "panel.hex.colorbar.color"
+      ],
+      "colormap": {
+        "N": 256,
+        "bad": "#00000000",
+        "discrete": false,
+        "lut": [
+          "#000000ff",
+          "#000000ff",
+          "#000000ff",
+          "#010001ff",
+          "#010001ff",
+          "#020102ff",
+          "#030102ff",
+          "#040103ff",
+          "#050104ff",
+          "#060205ff",
+          "#080206ff",
+          "#090208ff",
+          "#0b0309ff",
+          "#0d030bff",
+          "#0f030dff",
+          "#10030fff",
+          "#120411ff",
+          "#140413ff",
+          "#150415ff",
+          "#170417ff",
+          "#190519ff",
+          "#1a051bff",
+          "#1c051eff",
+          "#1e0520ff",
+          "#1f0522ff",
+          "#210525ff",
+          "#220527ff",
+          "#24052aff",
+          "#26052cff",
+          "#27052fff",
+          "#290532ff",
+          "#2a0535ff",
+          "#2b0437ff",
+          "#2d043aff",
+          "#2e043dff",
+          "#300440ff",
+          "#310344ff",
+          "#320347ff",
+          "#33034aff",
+          "#34024dff",
+          "#360250ff",
+          "#370254ff",
+          "#380157ff",
+          "#39015aff",
+          "#3a015eff",
+          "#3a0161ff",
+          "#3b0164ff",
+          "#3c0167ff",
+          "#3c016bff",
+          "#3d016eff",
+          "#3d0271ff",
+          "#3e0374ff",
+          "#3e0477ff",
+          "#3e057aff",
+          "#3e077cff",
+          "#3e097fff",
+          "#3e0c81ff",
+          "#3e0e84ff",
+          "#3e1086ff",
+          "#3d1388ff",
+          "#3d168aff",
+          "#3c188cff",
+          "#3b1b8dff",
+          "#3b1d8eff",
+          "#3a2090ff",
+          "#392291ff",
+          "#372591ff",
+          "#362792ff",
+          "#352a93ff",
+          "#342c93ff",
+          "#322f93ff",
+          "#313193ff",
+          "#2f3393ff",
+          "#2d3593ff",
+          "#2c3893ff",
+          "#2a3a93ff",
+          "#283c92ff",
+          "#263e92ff",
+          "#254091ff",
+          "#234291ff",
+          "#214390ff",
+          "#1f4590ff",
+          "#1d478fff",
+          "#1b498eff",
+          "#194b8eff",
+          "#174c8dff",
+          "#164e8cff",
+          "#144f8cff",
+          "#12518bff",
+          "#10528aff",
+          "#0e548aff",
+          "#0c5589ff",
+          "#0b5788ff",
+          "#095888ff",
+          "#075a87ff",
+          "#065b86ff",
+          "#055c86ff",
+          "#045e85ff",
+          "#035f84ff",
+          "#026084ff",
+          "#026283ff",
+          "#016383ff",
+          "#016482ff",
+          "#016582ff",
+          "#016781ff",
+          "#016880ff",
+          "#016980ff",
+          "#016a7fff",
+          "#026c7fff",
+          "#026d7eff",
+          "#026e7eff",
+          "#036f7eff",
+          "#03707dff",
+          "#04727dff",
+          "#04737cff",
+          "#05747cff",
+          "#05757bff",
+          "#06767bff",
+          "#07787aff",
+          "#07797aff",
+          "#087a79ff",
+          "#097b79ff",
+          "#097c78ff",
+          "#0a7e78ff",
+          "#0b7f77ff",
+          "#0c8076ff",
+          "#0c8176ff",
+          "#0d8275ff",
+          "#0e8474ff",
+          "#0f8574ff",
+          "#108673ff",
+          "#118772ff",
+          "#128872ff",
+          "#138a71ff",
+          "#148b70ff",
+          "#158c6fff",
+          "#168d6eff",
+          "#188e6dff",
+          "#198f6cff",
+          "#1a916bff",
+          "#1c926aff",
+          "#1e9369ff",
+          "#1f9468ff",
+          "#219567ff",
+          "#239665ff",
+          "#259864ff",
+          "#279963ff",
+          "#299a61ff",
+          "#2b9b60ff",
+          "#2d9c5eff",
+          "#2f9d5dff",
+          "#329e5bff",
+          "#349f5aff",
+          "#36a058ff",
+          "#39a156ff",
+          "#3ba354ff",
+          "#3ea452ff",
+          "#41a550ff",
+          "#43a64eff",
+          "#46a74cff",
+          "#49a74aff",
+          "#4ca848ff",
+          "#4fa946ff",
+          "#52aa43ff",
+          "#55ab41ff",
+          "#58ac3fff",
+          "#5cad3cff",
+          "#5fae39ff",
+          "#62ae37ff",
+          "#66af34ff",
+          "#69b031ff",
+          "#6cb02eff",
+          "#70b12bff",
+          "#74b227ff",
+          "#77b224ff",
+          "#7bb321ff",
+          "#7fb31dff",
+          "#83b419ff",
+          "#86b415ff",
+          "#8ab511ff",
+          "#8eb50dff",
+          "#92b509ff",
+          "#96b605ff",
+          "#99b603ff",
+          "#9db602ff",
+          "#a1b701ff",
+          "#a4b702ff",
+          "#a8b705ff",
+          "#abb708ff",
+          "#afb80cff",
+          "#b2b811ff",
+          "#b5b815ff",
+          "#b8b91aff",
+          "#bbb91eff",
+          "#beb922ff",
+          "#c1ba26ff",
+          "#c3ba2aff",
+          "#c6bb2eff",
+          "#c8bb33ff",
+          "#cbbc36ff",
+          "#cdbc3aff",
+          "#cfbd3eff",
+          "#d2bd42ff",
+          "#d4be46ff",
+          "#d6bf4aff",
+          "#d8bf4eff",
+          "#dac052ff",
+          "#dcc156ff",
+          "#dec15aff",
+          "#e0c25eff",
+          "#e1c361ff",
+          "#e3c365ff",
+          "#e5c469ff",
+          "#e7c56dff",
+          "#e8c671ff",
+          "#eac775ff",
+          "#ebc879ff",
+          "#edc87dff",
+          "#eec981ff",
+          "#efca84ff",
+          "#f1cb88ff",
+          "#f2cc8cff",
+          "#f3cd90ff",
+          "#f4ce94ff",
+          "#f6cf98ff",
+          "#f7d09cff",
+          "#f8d2a0ff",
+          "#f9d3a4ff",
+          "#f9d4a8ff",
+          "#fad5acff",
+          "#fbd6b0ff",
+          "#fcd8b4ff",
+          "#fcd9b8ff",
+          "#fddabcff",
+          "#fddcc0ff",
+          "#feddc4ff",
+          "#fedfc7ff",
+          "#ffe0cbff",
+          "#ffe2cfff",
+          "#ffe3d3ff",
+          "#ffe5d6ff",
+          "#ffe6daff",
+          "#ffe8ddff",
+          "#ffeae1ff",
+          "#ffece4ff",
+          "#ffede7ff",
+          "#feefeaff",
+          "#fef1edff",
+          "#fef3f0ff",
+          "#fef5f2ff",
+          "#fef6f5ff",
+          "#fef8f7ff",
+          "#fefaf9ff",
+          "#fefcfbff",
+          "#fffdfdff",
+          "#ffffffff"
+        ],
+        "name": "cmasher.rainforest",
+        "over": "#ffffffff",
+        "source": "cmasher",
+        "under": "#000000ff"
+      },
+      "editable": {
+        "center": false,
+        "cmap": true,
+        "limits": true,
+        "normKinds": [
+          "linear",
+          "log",
+          "power",
+          "symlog"
+        ]
+      },
+      "id": "mean",
+      "kind": "continuous",
+      "label": "mean",
+      "mappables": [
+        "panel.hex.mean.hexes"
+      ],
+      "norm": {
+        "clip": false,
+        "extend": "neither",
+        "kind": "linear",
+        "vmax": 1.5211036590748694,
+        "vmin": -1.808868830236149
+      },
+      "recolor": "live"
+    },
+    {
+      "colorbars": [],
+      "colormap": {
+        "N": 256,
+        "bad": "#00000000",
+        "discrete": false,
+        "lut": [
+          "#000000ff",
+          "#000001ff",
+          "#000002ff",
+          "#000003ff",
+          "#000004ff",
+          "#000005ff",
+          "#000006ff",
+          "#000007ff",
+          "#000008ff",
+          "#000009ff",
+          "#00000aff",
+          "#00000bff",
+          "#00000cff",
+          "#00000dff",
+          "#00000eff",
+          "#00000fff",
+          "#000010ff",
+          "#000011ff",
+          "#000012ff",
+          "#000013ff",
+          "#000014ff",
+          "#000015ff",
+          "#000016ff",
+          "#000017ff",
+          "#000018ff",
+          "#000019ff",
+          "#00001aff",
+          "#00001bff",
+          "#00001cff",
+          "#00001dff",
+          "#00001eff",
+          "#00001fff",
+          "#000020ff",
+          "#000021ff",
+          "#000022ff",
+          "#000023ff",
+          "#000024ff",
+          "#000025ff",
+          "#000026ff",
+          "#000027ff",
+          "#000028ff",
+          "#000029ff",
+          "#00002aff",
+          "#00002bff",
+          "#00002cff",
+          "#00002dff",
+          "#00002eff",
+          "#00002fff",
+          "#000030ff",
+          "#000031ff",
+          "#000032ff",
+          "#000033ff",
+          "#000034ff",
+          "#000035ff",
+          "#000036ff",
+          "#000037ff",
+          "#000038ff",
+          "#000039ff",
+          "#00003aff",
+          "#00003bff",
+          "#00003cff",
+          "#00003dff",
+          "#00003eff",
+          "#00003fff",
+          "#000040ff",
+          "#000041ff",
+          "#000042ff",
+          "#000043ff",
+          "#000044ff",
+          "#000045ff",
+          "#000046ff",
+          "#000047ff",
+          "#000048ff",
+          "#000049ff",
+          "#00004aff",
+          "#00004bff",
+          "#00004cff",
+          "#00004dff",
+          "#00004eff",
+          "#00004fff",
+          "#000050ff",
+          "#000051ff",
+          "#000052ff",
+          "#000053ff",
+          "#000054ff",
+          "#000055ff",
+          "#000056ff",
+          "#000057ff",
+          "#000058ff",
+          "#000059ff",
+          "#00005aff",
+          "#00005bff",
+          "#00005cff",
+          "#00005dff",
+          "#00005eff",
+          "#00005fff",
+          "#000060ff",
+          "#000061ff",
+          "#000062ff",
+          "#000063ff",
+          "#000064ff",
+          "#000065ff",
+          "#000066ff",
+          "#000067ff",
+          "#000068ff",
+          "#000069ff",
+          "#00006aff",
+          "#00006bff",
+          "#00006cff",
+          "#00006dff",
+          "#00006eff",
+          "#00006fff",
+          "#000070ff",
+          "#000071ff",
+          "#000072ff",
+          "#000073ff",
+          "#000074ff",
+          "#000075ff",
+          "#000076ff",
+          "#000077ff",
+          "#000078ff",
+          "#000079ff",
+          "#00007aff",
+          "#00007bff",
+          "#00007cff",
+          "#00007dff",
+          "#00007eff",
+          "#00007fff",
+          "#000080ff",
+          "#000081ff",
+          "#000082ff",
+          "#000083ff",
+          "#000084ff",
+          "#000085ff",
+          "#000086ff",
+          "#000087ff",
+          "#000088ff",
+          "#000089ff",
+          "#00008aff",
+          "#00008bff",
+          "#00008cff",
+          "#00008dff",
+          "#00008eff",
+          "#00008fff",
+          "#000090ff",
+          "#000091ff",
+          "#000092ff",
+          "#000093ff",
+          "#000094ff",
+          "#000095ff",
+          "#000096ff",
+          "#000097ff",
+          "#000098ff",
+          "#000099ff",
+          "#00009aff",
+          "#00009bff",
+          "#00009cff",
+          "#00009dff",
+          "#00009eff",
+          "#00009fff",
+          "#0000a0ff",
+          "#0000a1ff",
+          "#0000a2ff",
+          "#0000a3ff",
+          "#0000a4ff",
+          "#0000a5ff",
+          "#0000a6ff",
+          "#0000a7ff",
+          "#0000a8ff",
+          "#0000a9ff",
+          "#0000aaff",
+          "#0000abff",
+          "#0000acff",
+          "#0000adff",
+          "#0000aeff",
+          "#0000afff",
+          "#0000b0ff",
+          "#0000b1ff",
+          "#0000b2ff",
+          "#0000b3ff",
+          "#0000b4ff",
+          "#0000b5ff",
+          "#0000b6ff",
+          "#0000b7ff",
+          "#0000b8ff",
+          "#0000b9ff",
+          "#0000baff",
+          "#0000bbff",
+          "#0000bcff",
+          "#0000bdff",
+          "#0000beff",
+          "#0000bfff",
+          "#0000c0ff",
+          "#0000c1ff",
+          "#0000c2ff",
+          "#0000c3ff",
+          "#0000c4ff",
+          "#0000c5ff",
+          "#0000c6ff",
+          "#0000c7ff",
+          "#0000c8ff",
+          "#0000c9ff",
+          "#0000caff",
+          "#0000cbff",
+          "#0000ccff",
+          "#0000cdff",
+          "#0000ceff",
+          "#0000cfff",
+          "#0000d0ff",
+          "#0000d1ff",
+          "#0000d2ff",
+          "#0000d3ff",
+          "#0000d4ff",
+          "#0000d5ff",
+          "#0000d6ff",
+          "#0000d7ff",
+          "#0000d8ff",
+          "#0000d9ff",
+          "#0000daff",
+          "#0000dbff",
+          "#0000dcff",
+          "#0000ddff",
+          "#0000deff",
+          "#0000dfff",
+          "#0000e0ff",
+          "#0000e1ff",
+          "#0000e2ff",
+          "#0000e3ff",
+          "#0000e4ff",
+          "#0000e5ff",
+          "#0000e6ff",
+          "#0000e7ff",
+          "#0000e8ff",
+          "#0000e9ff",
+          "#0000eaff",
+          "#0000ebff",
+          "#0000ecff",
+          "#0000edff",
+          "#0000eeff",
+          "#0000efff",
+          "#0000f0ff",
+          "#0000f1ff",
+          "#0000f2ff",
+          "#0000f3ff",
+          "#0000f4ff",
+          "#0000f5ff",
+          "#0000f6ff",
+          "#0000f7ff",
+          "#0000f8ff",
+          "#0000f9ff",
+          "#0000faff",
+          "#0000fbff",
+          "#0000fcff",
+          "#0000fdff",
+          "#0000feff",
+          "#0000ffff"
+        ],
+        "name": "image.mono:#0000ff",
+        "over": "#0000ffff",
+        "source": "custom",
+        "under": "#000000ff"
+      },
+      "editable": {
+        "center": false,
+        "cmap": true,
+        "limits": true,
+        "normKinds": [
+          "linear",
+          "log",
+          "power",
+          "symlog"
+        ]
+      },
+      "id": "cells.dapi",
+      "kind": "continuous",
+      "label": "dapi",
+      "mappables": [
+        "panel.image.cells.image"
+      ],
+      "norm": {
+        "clip": false,
+        "extend": "neither",
+        "kind": "linear",
+        "vmax": 308.5078444658325,
+        "vmin": 11.833419282536106
+      },
+      "recolor": "regenerate"
+    },
+    {
+      "colorbars": [],
+      "colormap": {
+        "N": 256,
+        "bad": "#00000000",
+        "discrete": false,
+        "lut": [
+          "#000000ff",
+          "#000100ff",
+          "#000100ff",
+          "#000200ff",
+          "#000200ff",
+          "#000300ff",
+          "#000300ff",
+          "#000400ff",
+          "#000400ff",
+          "#000500ff",
+          "#000500ff",
+          "#000600ff",
+          "#000600ff",
+          "#000700ff",
+          "#000700ff",
+          "#000800ff",
+          "#000800ff",
+          "#000900ff",
+          "#000900ff",
+          "#000a00ff",
+          "#000a00ff",
+          "#000b00ff",
+          "#000b00ff",
+          "#000c00ff",
+          "#000c00ff",
+          "#000d00ff",
+          "#000d00ff",
+          "#000e00ff",
+          "#000e00ff",
+          "#000f00ff",
+          "#000f00ff",
+          "#001000ff",
+          "#001000ff",
+          "#001100ff",
+          "#001100ff",
+          "#001200ff",
+          "#001200ff",
+          "#001300ff",
+          "#001300ff",
+          "#001400ff",
+          "#001400ff",
+          "#001500ff",
+          "#001500ff",
+          "#001600ff",
+          "#001600ff",
+          "#001700ff",
+          "#001700ff",
+          "#001800ff",
+          "#001800ff",
+          "#001900ff",
+          "#001900ff",
+          "#001a00ff",
+          "#001a00ff",
+          "#001b00ff",
+          "#001b00ff",
+          "#001c00ff",
+          "#001c00ff",
+          "#001d00ff",
+          "#001d00ff",
+          "#001e00ff",
+          "#001e00ff",
+          "#001f00ff",
+          "#001f00ff",
+          "#002000ff",
+          "#002000ff",
+          "#002100ff",
+          "#002100ff",
+          "#002200ff",
+          "#002200ff",
+          "#002300ff",
+          "#002300ff",
+          "#002400ff",
+          "#002400ff",
+          "#002500ff",
+          "#002500ff",
+          "#002600ff",
+          "#002600ff",
+          "#002700ff",
+          "#002700ff",
+          "#002800ff",
+          "#002800ff",
+          "#002900ff",
+          "#002900ff",
+          "#002a00ff",
+          "#002a00ff",
+          "#002b00ff",
+          "#002b00ff",
+          "#002c00ff",
+          "#002c00ff",
+          "#002d00ff",
+          "#002d00ff",
+          "#002e00ff",
+          "#002e00ff",
+          "#002f00ff",
+          "#002f00ff",
+          "#003000ff",
+          "#003000ff",
+          "#003100ff",
+          "#003100ff",
+          "#003200ff",
+          "#003200ff",
+          "#003300ff",
+          "#003300ff",
+          "#003400ff",
+          "#003400ff",
+          "#003500ff",
+          "#003500ff",
+          "#003600ff",
+          "#003600ff",
+          "#003700ff",
+          "#003700ff",
+          "#003800ff",
+          "#003800ff",
+          "#003900ff",
+          "#003900ff",
+          "#003a00ff",
+          "#003a00ff",
+          "#003b00ff",
+          "#003b00ff",
+          "#003c00ff",
+          "#003c00ff",
+          "#003d00ff",
+          "#003d00ff",
+          "#003e00ff",
+          "#003e00ff",
+          "#003f00ff",
+          "#003f00ff",
+          "#004000ff",
+          "#004000ff",
+          "#004100ff",
+          "#004100ff",
+          "#004200ff",
+          "#004200ff",
+          "#004300ff",
+          "#004300ff",
+          "#004400ff",
+          "#004400ff",
+          "#004500ff",
+          "#004500ff",
+          "#004600ff",
+          "#004600ff",
+          "#004700ff",
+          "#004700ff",
+          "#004800ff",
+          "#004800ff",
+          "#004900ff",
+          "#004900ff",
+          "#004a00ff",
+          "#004a00ff",
+          "#004b00ff",
+          "#004b00ff",
+          "#004c00ff",
+          "#004c00ff",
+          "#004d00ff",
+          "#004d00ff",
+          "#004e00ff",
+          "#004e00ff",
+          "#004f00ff",
+          "#004f00ff",
+          "#005000ff",
+          "#005000ff",
+          "#005100ff",
+          "#005100ff",
+          "#005200ff",
+          "#005200ff",
+          "#005300ff",
+          "#005300ff",
+          "#005400ff",
+          "#005400ff",
+          "#005500ff",
+          "#005500ff",
+          "#005600ff",
+          "#005600ff",
+          "#005700ff",
+          "#005700ff",
+          "#005800ff",
+          "#005800ff",
+          "#005900ff",
+          "#005900ff",
+          "#005a00ff",
+          "#005a00ff",
+          "#005b00ff",
+          "#005b00ff",
+          "#005c00ff",
+          "#005c00ff",
+          "#005d00ff",
+          "#005d00ff",
+          "#005e00ff",
+          "#005e00ff",
+          "#005f00ff",
+          "#005f00ff",
+          "#006000ff",
+          "#006000ff",
+          "#006100ff",
+          "#006100ff",
+          "#006200ff",
+          "#006200ff",
+          "#006300ff",
+          "#006300ff",
+          "#006400ff",
+          "#006400ff",
+          "#006500ff",
+          "#006500ff",
+          "#006600ff",
+          "#006600ff",
+          "#006700ff",
+          "#006700ff",
+          "#006800ff",
+          "#006800ff",
+          "#006900ff",
+          "#006900ff",
+          "#006a00ff",
+          "#006a00ff",
+          "#006b00ff",
+          "#006b00ff",
+          "#006c00ff",
+          "#006c00ff",
+          "#006d00ff",
+          "#006d00ff",
+          "#006e00ff",
+          "#006e00ff",
+          "#006f00ff",
+          "#006f00ff",
+          "#007000ff",
+          "#007000ff",
+          "#007100ff",
+          "#007100ff",
+          "#007200ff",
+          "#007200ff",
+          "#007300ff",
+          "#007300ff",
+          "#007400ff",
+          "#007400ff",
+          "#007500ff",
+          "#007500ff",
+          "#007600ff",
+          "#007600ff",
+          "#007700ff",
+          "#007700ff",
+          "#007800ff",
+          "#007800ff",
+          "#007900ff",
+          "#007900ff",
+          "#007a00ff",
+          "#007a00ff",
+          "#007b00ff",
+          "#007b00ff",
+          "#007c00ff",
+          "#007c00ff",
+          "#007d00ff",
+          "#007d00ff",
+          "#007e00ff",
+          "#007e00ff",
+          "#007f00ff",
+          "#007f00ff",
+          "#008000ff"
+        ],
+        "name": "image.mono:#008000",
+        "over": "#008000ff",
+        "source": "custom",
+        "under": "#000000ff"
+      },
+      "editable": {
+        "center": false,
+        "cmap": true,
+        "limits": true,
+        "normKinds": [
+          "linear",
+          "log",
+          "power",
+          "symlog"
+        ]
+      },
+      "id": "cells.gfp",
+      "kind": "continuous",
+      "label": "gfp",
+      "mappables": [
+        "panel.image.cells.image"
+      ],
+      "norm": {
+        "clip": false,
+        "extend": "neither",
+        "kind": "linear",
+        "vmax": 209.64580802980012,
+        "vmin": 1.473830099170711
+      },
+      "recolor": "regenerate"
+    }
+  ],
+  "figure": {
+    "annotations": [
+      {
+        "id": "figure.annotation.0",
+        "text": "A"
+      }
+    ],
+    "background": "figure.background",
+    "legends": [
+      "figure.legend"
+    ],
+    "title": "figure.title"
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.1.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "panel.fit.axis.x",
+      "role": "axis",
+      "svgId": "panel.fit.axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "panel.fit.axis.y",
+      "role": "axis",
+      "svgId": "panel.fit.axis.y"
+    },
+    {
+      "axis": "x",
+      "id": "panel.twin.axis.x",
+      "role": "axis",
+      "svgId": "panel.twin.axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "panel.twin.axis.y",
+      "role": "axis",
+      "svgId": "panel.twin.axis.y"
+    },
+    {
+      "axis": "x2",
+      "id": "panel.twin.axis.x2",
+      "role": "axis",
+      "svgId": "panel.twin.axis.x2"
+    },
+    {
+      "axis": "y2",
+      "id": "panel.twin.axis.y2",
+      "role": "axis",
+      "svgId": "panel.twin.axis.y2"
+    },
+    {
+      "axis": "x",
+      "id": "panel.hex.axis.x",
+      "role": "axis",
+      "svgId": "panel.hex.axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "panel.hex.axis.y",
+      "role": "axis",
+      "svgId": "panel.hex.axis.y"
+    },
+    {
+      "anchors": [
+        {
+          "svg": 191.87425543335425,
+          "value": -1.808868830236149
+        },
+        {
+          "svg": 44.20719679797045,
+          "value": 1.5211036590748694
+        }
+      ],
+      "axisLength": 147.6670586353838,
+      "cmap": "cmasher.rainforest",
+      "colorScale": "mean",
+      "extend": "neither",
+      "id": "panel.hex.colorbar.color",
+      "label": "mean",
+      "mappable": "panel.hex.mean.hexes",
+      "normalization": {
+        "clip": false,
+        "kind": "Normalize",
+        "vmax": 1.5211036590748694,
+        "vmin": -1.808868830236149
+      },
+      "orientation": "vertical",
+      "parts": [
+        {
+          "kind": "text",
+          "role": "colorbar-label",
+          "svgId": "panel.hex.colorbar.color.label"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-outline",
+          "svgId": "panel.hex.colorbar.color.outline"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.hex.colorbar.color.tick.1"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.hex.colorbar.color.tick-label.1"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.hex.colorbar.color.tick.2"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.hex.colorbar.color.tick-label.2"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.hex.colorbar.color.tick.3"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.hex.colorbar.color.tick-label.3"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.hex.colorbar.color.tick.4"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.hex.colorbar.color.tick-label.4"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.hex.colorbar.color.tick.5"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.hex.colorbar.color.tick-label.5"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.hex.colorbar.color.tick.6"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.hex.colorbar.color.tick-label.6"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.hex.colorbar.color.tick.7"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.hex.colorbar.color.tick-label.7"
+        },
+        {
+          "kind": "shape",
+          "role": "colorbar-solids",
+          "svgId": "panel.hex.colorbar.color.solids"
+        }
+      ],
+      "role": "colorbar",
+      "svgId": "panel.hex.colorbar.color",
+      "tickFormatter": "plain",
+      "tickLocator": "auto",
+      "ticks": [
+        -1.5,
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0,
+        1.5
+      ]
+    },
+    {
+      "axis": "x",
+      "id": "panel.cells.axis.x",
+      "role": "axis",
+      "svgId": "panel.cells.axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "panel.cells.axis.y",
+      "role": "axis",
+      "svgId": "panel.cells.axis.y"
+    },
+    {
+      "axis": "x",
+      "id": "panel.image.axis.x",
+      "role": "axis",
+      "svgId": "panel.image.axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "panel.image.axis.y",
+      "role": "axis",
+      "svgId": "panel.image.axis.y"
+    },
+    {
+      "anchors": [
+        {
+          "svg": 363.74059332629787,
+          "value": 1.473830099170711
+        },
+        {
+          "svg": 252.82939103652123,
+          "value": 209.64580802980012
+        }
+      ],
+      "axisLength": 110.91120228977664,
+      "cmap": "image.mono:#008000",
+      "extend": "neither",
+      "id": "panel.image.colorbar.gfp",
+      "label": "GFP",
+      "normalization": {
+        "clip": false,
+        "kind": "Normalize",
+        "vmax": 209.64580802980012,
+        "vmin": 1.473830099170711
+      },
+      "orientation": "vertical",
+      "parts": [
+        {
+          "kind": "text",
+          "role": "colorbar-label",
+          "svgId": "panel.image.colorbar.gfp.label"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-outline",
+          "svgId": "panel.image.colorbar.gfp.outline"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.1"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.1"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.2"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.2"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.3"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.3"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.4"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.4"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.5"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.5"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.6"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.6"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.7"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.7"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "panel.image.colorbar.gfp.tick.8"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "panel.image.colorbar.gfp.tick-label.8"
+        },
+        {
+          "kind": "shape",
+          "role": "colorbar-solids",
+          "svgId": "panel.image.colorbar.gfp.solids"
+        }
+      ],
+      "role": "colorbar",
+      "svgId": "panel.image.colorbar.gfp",
+      "tickFormatter": "plain",
+      "tickLocator": "auto",
+      "ticks": [
+        25.0,
+        50.0,
+        75.0,
+        100.0,
+        125.0,
+        150.0,
+        175.0,
+        200.0
+      ]
+    },
+    {
+      "entries": [
+        {
+          "label": "figure.legend.entry.0.label",
+          "series": "panel.fit.dose",
+          "swatch": "figure.legend.entry.0.swatch",
+          "text": "Dose response"
+        },
+        {
+          "label": "figure.legend.entry.1.label",
+          "series": "panel.fit.density",
+          "swatch": "figure.legend.entry.1.swatch",
+          "text": "Density"
+        },
+        {
+          "label": "figure.legend.entry.2.label",
+          "series": "panel.twin.rate",
+          "swatch": "figure.legend.entry.2.swatch",
+          "text": "Rate"
+        },
+        {
+          "label": "figure.legend.entry.3.label",
+          "series": "panel.twin.state",
+          "swatch": "figure.legend.entry.3.swatch",
+          "text": "State"
+        },
+        {
+          "label": "figure.legend.entry.4.label",
+          "swatch": "figure.legend.entry.4.swatch",
+          "text": "Mean"
+        },
+        {
+          "label": "figure.legend.entry.5.label",
+          "series": "panel.twin.temp",
+          "swatch": "figure.legend.entry.5.swatch",
+          "text": "Temperature"
+        }
+      ],
+      "id": "figure.legend",
+      "role": "legend",
+      "svgId": "figure.legend"
+    }
+  ],
+  "idAliases": {
+    "panel.cells.axis.x.spine": "panel.cells.axis.x.spine.bottom",
+    "panel.cells.axis.y.spine": "panel.cells.axis.y.spine.left",
+    "panel.fit.axis.x.spine": "panel.fit.axis.x.spine.bottom",
+    "panel.fit.axis.y.spine": "panel.fit.axis.y.spine.left",
+    "panel.fit.figure.background": "figure.background",
+    "panel.hex.axis.x.spine": "panel.hex.axis.x.spine.bottom",
+    "panel.hex.axis.y.spine": "panel.hex.axis.y.spine.left",
+    "panel.image.axis.x.spine": "panel.image.axis.x.spine.bottom",
+    "panel.image.axis.y.spine": "panel.image.axis.y.spine.left",
+    "panel.twin.axis.x.spine": "panel.twin.axis.x.spine.bottom",
+    "panel.twin.axis.x2.spine": "panel.twin.axis.x2.spine.top",
+    "panel.twin.axis.y.spine": "panel.twin.axis.y.spine.left",
+    "panel.twin.axis.y2.spine": "panel.twin.axis.y2.spine.right"
+  },
+  "overlays": [
+    {
+      "between": [
+        "ctl",
+        "low"
+      ],
+      "id": "panel.cells.significance-bracket.ctl-low",
+      "kind": "line",
+      "label": "**",
+      "name": "ctl-low",
+      "p": 0.005951236438236211,
+      "role": "significance-bracket",
+      "stats": {
+        "alternative": "two-sided",
+        "ciHigh": -0.4123427919572171,
+        "ciLow": -2.8286870771076957,
+        "correction": "holm",
+        "dof": 13.928983849603444,
+        "effectSize": -1.532123210830686,
+        "effectSizeMethod": "Hedges' g (non-pooled SD)",
+        "n": [
+          8,
+          8
+        ],
+        "p": 0.005951236438236211,
+        "pCorrected": 0.005951236438236211,
+        "statistic": -3.2410298690649126,
+        "test": "Welch's t-test"
+      },
+      "svgId": "panel.cells.significance-bracket.ctl-low"
+    },
+    {
+      "between": [
+        "low",
+        "high"
+      ],
+      "id": "panel.cells.significance-bracket.low-high",
+      "kind": "line",
+      "label": "***",
+      "name": "low-high",
+      "p": 7.105983432409032e-05,
+      "role": "significance-bracket",
+      "stats": {
+        "alternative": "two-sided",
+        "ciHigh": -1.467802406115534,
+        "ciLow": -4.549731523594666,
+        "correction": "holm",
+        "dof": 13.615960264618494,
+        "effectSize": -2.8446524031357305,
+        "effectSizeMethod": "Hedges' g (non-pooled SD)",
+        "n": [
+          8,
+          8
+        ],
+        "p": 3.552991716204516e-05,
+        "pCorrected": 7.105983432409032e-05,
+        "statistic": -6.0175339297102,
+        "test": "Welch's t-test"
+      },
+      "svgId": "panel.cells.significance-bracket.low-high"
+    },
+    {
+      "between": [
+        "ctl",
+        "high"
+      ],
+      "id": "panel.cells.significance-bracket.ctl-high",
+      "kind": "line",
+      "label": "***",
+      "name": "ctl-high",
+      "p": 1.1368770515141096e-06,
+      "role": "significance-bracket",
+      "stats": {
+        "alternative": "two-sided",
+        "ciHigh": -2.5751663489991845,
+        "ciLow": -6.670907843366175,
+        "correction": "holm",
+        "dof": 13.25836106397535,
+        "effectSize": -4.370871436390897,
+        "effectSizeMethod": "Hedges' g (non-pooled SD)",
+        "n": [
+          8,
+          8
+        ],
+        "p": 3.7895901717136983e-07,
+        "pCorrected": 1.1368770515141096e-06,
+        "statistic": -9.24607419236536,
+        "test": "Welch's t-test"
+      },
+      "svgId": "panel.cells.significance-bracket.ctl-high"
+    },
+    {
+      "id": "panel.image.scalebar.0",
+      "kind": "line",
+      "label": "2 µm",
+      "length": 2.0,
+      "name": "0",
+      "role": "scalebar",
+      "svgId": "panel.image.scalebar.0",
+      "units": "µm"
+    },
+    {
+      "id": "figure.annotation.0",
+      "kind": "text",
+      "role": "annotation",
+      "svgId": "figure.annotation.0",
+      "text": "A"
+    }
+  ],
+  "panels": [
+    {
+      "id": "panel.fit",
+      "index": 0,
+      "label": "fit",
+      "svgId": "panel.fit.plot-area"
+    },
+    {
+      "id": "panel.twin",
+      "index": 1,
+      "label": "twin",
+      "svgId": "panel.twin.plot-area"
+    },
+    {
+      "id": "panel.hex",
+      "index": 2,
+      "label": "hex",
+      "svgId": "panel.hex.plot-area"
+    },
+    {
+      "id": "panel.cells",
+      "index": 3,
+      "label": "cells",
+      "svgId": "panel.cells.plot-area"
+    },
+    {
+      "id": "panel.image",
+      "index": 4,
+      "label": "image",
+      "svgId": "panel.image.plot-area"
+    }
+  ],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "panel.fit.axes.background",
+                "role": "background"
+              },
+              {
+                "axis": "x",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.fit.axis.x.spine.bottom",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.fit.axis.x.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.fit.axis.x.tick.1",
+                      "panel.fit.axis.x.tick.2",
+                      "panel.fit.axis.x.tick.3",
+                      "panel.fit.axis.x.tick.4",
+                      "panel.fit.axis.x.tick.5",
+                      "panel.fit.axis.x.tick.6",
+                      "panel.fit.axis.x.tick.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.fit.axis.x.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.fit.axis.x.ticklabel.1",
+                      "panel.fit.axis.x.ticklabel.2",
+                      "panel.fit.axis.x.ticklabel.3",
+                      "panel.fit.axis.x.ticklabel.4",
+                      "panel.fit.axis.x.ticklabel.5",
+                      "panel.fit.axis.x.ticklabel.6",
+                      "panel.fit.axis.x.ticklabel.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.fit.axis.x.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.fit.axis.x",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "y",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.fit.axis.y.spine.left",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.fit.axis.y.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.fit.axis.y.tick.1",
+                      "panel.fit.axis.y.tick.2",
+                      "panel.fit.axis.y.tick.3",
+                      "panel.fit.axis.y.tick.4",
+                      "panel.fit.axis.y.tick.5"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.fit.axis.y.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.fit.axis.y.ticklabel.1",
+                      "panel.fit.axis.y.ticklabel.2",
+                      "panel.fit.axis.y.ticklabel.3",
+                      "panel.fit.axis.y.ticklabel.4",
+                      "panel.fit.axis.y.ticklabel.5"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.fit.axis.y.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.fit.axis.y",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.fit.dose.fit",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.fit.dose.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.fit.dose.point.0",
+                      "panel.fit.dose.point.1",
+                      "panel.fit.dose.point.2",
+                      "panel.fit.dose.point.3",
+                      "panel.fit.dose.point.4",
+                      "panel.fit.dose.point.5",
+                      "panel.fit.dose.point.6",
+                      "panel.fit.dose.point.7",
+                      "panel.fit.dose.point.8",
+                      "panel.fit.dose.point.9",
+                      "panel.fit.dose.point.10",
+                      "panel.fit.dose.point.11",
+                      "panel.fit.dose.point.12",
+                      "panel.fit.dose.point.13",
+                      "panel.fit.dose.point.14",
+                      "panel.fit.dose.point.15",
+                      "panel.fit.dose.point.16",
+                      "panel.fit.dose.point.17",
+                      "panel.fit.dose.point.18",
+                      "panel.fit.dose.point.19",
+                      "panel.fit.dose.point.20",
+                      "panel.fit.dose.point.21",
+                      "panel.fit.dose.point.22",
+                      "panel.fit.dose.point.23",
+                      "panel.fit.dose.point.24",
+                      "panel.fit.dose.point.25",
+                      "panel.fit.dose.point.26",
+                      "panel.fit.dose.point.27",
+                      "panel.fit.dose.point.28",
+                      "panel.fit.dose.point.29"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "shape",
+                    "ref": "panel.fit.dose.band",
+                    "role": "area"
+                  }
+                ],
+                "id": "panel.fit.dose",
+                "kind": "container",
+                "label": "Dose response",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.fit.density.line",
+                    "role": "line"
+                  },
+                  {
+                    "kind": "shape",
+                    "ref": "panel.fit.density.fill",
+                    "role": "area"
+                  }
+                ],
+                "id": "panel.fit.density",
+                "kind": "container",
+                "label": "Density",
+                "role": "series"
+              }
+            ],
+            "id": "panel.fit.plot-area",
+            "kind": "container",
+            "role": "plot-area"
+          }
+        ],
+        "id": "panel.fit",
+        "kind": "container",
+        "label": "fit",
+        "role": "panel"
+      },
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "panel.twin.axes.background",
+                "role": "background"
+              },
+              {
+                "axis": "x",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.twin.axis.x.spine.bottom",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.twin.axis.x.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.twin.axis.x.tick.1",
+                      "panel.twin.axis.x.tick.2",
+                      "panel.twin.axis.x.tick.3",
+                      "panel.twin.axis.x.tick.4",
+                      "panel.twin.axis.x.tick.5",
+                      "panel.twin.axis.x.tick.6"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.twin.axis.x.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.twin.axis.x.ticklabel.1",
+                      "panel.twin.axis.x.ticklabel.2",
+                      "panel.twin.axis.x.ticklabel.3",
+                      "panel.twin.axis.x.ticklabel.4",
+                      "panel.twin.axis.x.ticklabel.5",
+                      "panel.twin.axis.x.ticklabel.6"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.twin.axis.x.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.twin.axis.x",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "y",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.twin.axis.y.spine.left",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.twin.axis.y.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.twin.axis.y.tick.1",
+                      "panel.twin.axis.y.tick.2",
+                      "panel.twin.axis.y.tick.3",
+                      "panel.twin.axis.y.tick.4",
+                      "panel.twin.axis.y.tick.5",
+                      "panel.twin.axis.y.tick.6",
+                      "panel.twin.axis.y.tick.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.twin.axis.y.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.twin.axis.y.ticklabel.1",
+                      "panel.twin.axis.y.ticklabel.2",
+                      "panel.twin.axis.y.ticklabel.3",
+                      "panel.twin.axis.y.ticklabel.4",
+                      "panel.twin.axis.y.ticklabel.5",
+                      "panel.twin.axis.y.ticklabel.6",
+                      "panel.twin.axis.y.ticklabel.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.twin.axis.y.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.twin.axis.y",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "x2",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.twin.axis.x2.spine.top",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.twin.axis.x2.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.twin.axis.x2.tick.1",
+                      "panel.twin.axis.x2.tick.2",
+                      "panel.twin.axis.x2.tick.3",
+                      "panel.twin.axis.x2.tick.4",
+                      "panel.twin.axis.x2.tick.5",
+                      "panel.twin.axis.x2.tick.6",
+                      "panel.twin.axis.x2.tick.7",
+                      "panel.twin.axis.x2.tick.8"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.twin.axis.x2.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.twin.axis.x2.ticklabel.1",
+                      "panel.twin.axis.x2.ticklabel.2",
+                      "panel.twin.axis.x2.ticklabel.3",
+                      "panel.twin.axis.x2.ticklabel.4",
+                      "panel.twin.axis.x2.ticklabel.5",
+                      "panel.twin.axis.x2.ticklabel.6",
+                      "panel.twin.axis.x2.ticklabel.7",
+                      "panel.twin.axis.x2.ticklabel.8"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.twin.axis.x2.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.twin.axis.x2",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "y2",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.twin.axis.y2.spine.right",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.twin.axis.y2.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.twin.axis.y2.tick.1",
+                      "panel.twin.axis.y2.tick.2",
+                      "panel.twin.axis.y2.tick.3",
+                      "panel.twin.axis.y2.tick.4",
+                      "panel.twin.axis.y2.tick.5"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.twin.axis.y2.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.twin.axis.y2.ticklabel.1",
+                      "panel.twin.axis.y2.ticklabel.2",
+                      "panel.twin.axis.y2.ticklabel.3",
+                      "panel.twin.axis.y2.ticklabel.4",
+                      "panel.twin.axis.y2.ticklabel.5"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.twin.axis.y2.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.twin.axis.y2",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.twin.rate.line",
+                    "role": "line"
+                  }
+                ],
+                "id": "panel.twin.rate",
+                "kind": "container",
+                "label": "Rate",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.twin.state.line",
+                    "role": "line"
+                  }
+                ],
+                "id": "panel.twin.state",
+                "kind": "container",
+                "label": "State",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.twin.temp.line",
+                    "role": "line"
+                  }
+                ],
+                "id": "panel.twin.temp",
+                "kind": "container",
+                "label": "Temperature",
+                "role": "series"
+              }
+            ],
+            "id": "panel.twin.plot-area",
+            "kind": "container",
+            "role": "plot-area"
+          }
+        ],
+        "id": "panel.twin",
+        "kind": "container",
+        "label": "twin",
+        "role": "panel"
+      },
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "panel.hex.axes.background",
+                "role": "background"
+              },
+              {
+                "axis": "x",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.hex.axis.x.spine.bottom",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.hex.axis.x.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.hex.axis.x.tick.1",
+                      "panel.hex.axis.x.tick.2",
+                      "panel.hex.axis.x.tick.3",
+                      "panel.hex.axis.x.tick.4",
+                      "panel.hex.axis.x.tick.5",
+                      "panel.hex.axis.x.tick.6",
+                      "panel.hex.axis.x.tick.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.hex.axis.x.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.hex.axis.x.ticklabel.1",
+                      "panel.hex.axis.x.ticklabel.2",
+                      "panel.hex.axis.x.ticklabel.3",
+                      "panel.hex.axis.x.ticklabel.4",
+                      "panel.hex.axis.x.ticklabel.5",
+                      "panel.hex.axis.x.ticklabel.6",
+                      "panel.hex.axis.x.ticklabel.7"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.hex.axis.x",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "y",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.hex.axis.y.spine.left",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.hex.axis.y.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.hex.axis.y.tick.1",
+                      "panel.hex.axis.y.tick.2",
+                      "panel.hex.axis.y.tick.3",
+                      "panel.hex.axis.y.tick.4",
+                      "panel.hex.axis.y.tick.5",
+                      "panel.hex.axis.y.tick.6",
+                      "panel.hex.axis.y.tick.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.hex.axis.y.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.hex.axis.y.ticklabel.1",
+                      "panel.hex.axis.y.ticklabel.2",
+                      "panel.hex.axis.y.ticklabel.3",
+                      "panel.hex.axis.y.ticklabel.4",
+                      "panel.hex.axis.y.ticklabel.5",
+                      "panel.hex.axis.y.ticklabel.6",
+                      "panel.hex.axis.y.ticklabel.7"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.hex.axis.y",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "children": [
+                  {
+                    "groupRole": "x-hexbin",
+                    "id": "panel.hex.mean.hexes",
+                    "kind": "shape",
+                    "memberRole": "x-hex",
+                    "members": [
+                      "panel.hex.mean.hex.1.3",
+                      "panel.hex.mean.hex.1.4",
+                      "panel.hex.mean.hex.1.5",
+                      "panel.hex.mean.hex.2.1",
+                      "panel.hex.mean.hex.2.2",
+                      "panel.hex.mean.hex.2.3",
+                      "panel.hex.mean.hex.2.4",
+                      "panel.hex.mean.hex.2.5",
+                      "panel.hex.mean.hex.2.6",
+                      "panel.hex.mean.hex.3.0",
+                      "panel.hex.mean.hex.3.1",
+                      "panel.hex.mean.hex.3.2",
+                      "panel.hex.mean.hex.3.3",
+                      "panel.hex.mean.hex.3.4",
+                      "panel.hex.mean.hex.3.5",
+                      "panel.hex.mean.hex.3.6",
+                      "panel.hex.mean.hex.3.7",
+                      "panel.hex.mean.hex.4.2",
+                      "panel.hex.mean.hex.4.3",
+                      "panel.hex.mean.hex.4.4",
+                      "panel.hex.mean.hex.4.5",
+                      "panel.hex.mean.hex.4.6",
+                      "panel.hex.mean.hex.4.7",
+                      "panel.hex.mean.hex.5.1",
+                      "panel.hex.mean.hex.5.2",
+                      "panel.hex.mean.hex.5.3",
+                      "panel.hex.mean.hex.5.4",
+                      "panel.hex.mean.hex.5.5",
+                      "panel.hex.mean.hex.5.6",
+                      "panel.hex.mean.hex.5.7",
+                      "panel.hex.mean.hex.6.1",
+                      "panel.hex.mean.hex.6.2",
+                      "panel.hex.mean.hex.6.3",
+                      "panel.hex.mean.hex.6.4",
+                      "panel.hex.mean.hex.6.5",
+                      "panel.hex.mean.hex.6.6",
+                      "panel.hex.mean.hex.6.7",
+                      "panel.hex.mean.hex.7.2",
+                      "panel.hex.mean.hex.7.3",
+                      "panel.hex.mean.hex.7.5",
+                      "panel.hex.mean.hex.8.6"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.hex.mean",
+                "kind": "container",
+                "label": "mean",
+                "role": "series"
+              }
+            ],
+            "id": "panel.hex.plot-area",
+            "kind": "container",
+            "role": "plot-area"
+          },
+          {
+            "children": [
+              {
+                "groupRole": "tick",
+                "id": "panel.hex.colorbar.color.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "panel.hex.colorbar.color.tick.1",
+                  "panel.hex.colorbar.color.tick.2",
+                  "panel.hex.colorbar.color.tick.3",
+                  "panel.hex.colorbar.color.tick.4",
+                  "panel.hex.colorbar.color.tick.5",
+                  "panel.hex.colorbar.color.tick.6",
+                  "panel.hex.colorbar.color.tick.7"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "panel.hex.colorbar.color.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "panel.hex.colorbar.color.tick-label.1",
+                  "panel.hex.colorbar.color.tick-label.2",
+                  "panel.hex.colorbar.color.tick-label.3",
+                  "panel.hex.colorbar.color.tick-label.4",
+                  "panel.hex.colorbar.color.tick-label.5",
+                  "panel.hex.colorbar.color.tick-label.6",
+                  "panel.hex.colorbar.color.tick-label.7"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "panel.hex.colorbar.color.label",
+                "role": "colorbar-label"
+              },
+              {
+                "kind": "line",
+                "ref": "panel.hex.colorbar.color.outline",
+                "role": "colorbar-outline"
+              },
+              {
+                "kind": "shape",
+                "ref": "panel.hex.colorbar.color.solids",
+                "role": "colorbar-solids"
+              }
+            ],
+            "id": "panel.hex.colorbar.color",
+            "kind": "container",
+            "role": "colorbar"
+          }
+        ],
+        "id": "panel.hex",
+        "kind": "container",
+        "label": "hex",
+        "role": "panel"
+      },
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "panel.cells.axes.background",
+                "role": "background"
+              },
+              {
+                "axis": "x",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.cells.axis.x.spine.bottom",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.cells.axis.x.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.cells.axis.x.tick.0",
+                      "panel.cells.axis.x.tick.1",
+                      "panel.cells.axis.x.tick.2"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.cells.axis.x.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.cells.axis.x.ticklabel.0",
+                      "panel.cells.axis.x.ticklabel.1",
+                      "panel.cells.axis.x.ticklabel.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.cells.axis.x",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "y",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.cells.axis.y.spine.left",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.cells.axis.y.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.cells.axis.y.tick.0",
+                      "panel.cells.axis.y.tick.1",
+                      "panel.cells.axis.y.tick.2",
+                      "panel.cells.axis.y.tick.3",
+                      "panel.cells.axis.y.tick.4",
+                      "panel.cells.axis.y.tick.5",
+                      "panel.cells.axis.y.tick.6",
+                      "panel.cells.axis.y.tick.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.cells.axis.y.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.cells.axis.y.ticklabel.0",
+                      "panel.cells.axis.y.ticklabel.1",
+                      "panel.cells.axis.y.ticklabel.2",
+                      "panel.cells.axis.y.ticklabel.3",
+                      "panel.cells.axis.y.ticklabel.4",
+                      "panel.cells.axis.y.ticklabel.5",
+                      "panel.cells.axis.y.ticklabel.6",
+                      "panel.cells.axis.y.ticklabel.7"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.cells.axis.y.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.cells.axis.y",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "children": [
+                  {
+                    "groupRole": "bar",
+                    "id": "panel.cells.means.bars",
+                    "kind": "shape",
+                    "memberRole": "bar",
+                    "members": [
+                      "panel.cells.means.bar.0",
+                      "panel.cells.means.bar.1",
+                      "panel.cells.means.bar.2"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "errorbar",
+                    "id": "panel.cells.means.errorbars",
+                    "kind": "line",
+                    "memberRole": "errorbar",
+                    "members": [
+                      "panel.cells.means.errorbar"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "cap",
+                    "id": "panel.cells.means.caps",
+                    "kind": "line",
+                    "memberRole": "cap",
+                    "members": [
+                      "panel.cells.means.cap",
+                      "panel.cells.means.cap.1"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.cells.means",
+                "kind": "container",
+                "label": "Mean",
+                "role": "series"
+              },
+              {
+                "kind": "line",
+                "ref": "panel.cells.significance-bracket.ctl-low",
+                "role": "significance-bracket"
+              },
+              {
+                "kind": "line",
+                "ref": "panel.cells.significance-bracket.low-high",
+                "role": "significance-bracket"
+              },
+              {
+                "kind": "line",
+                "ref": "panel.cells.significance-bracket.ctl-high",
+                "role": "significance-bracket"
+              }
+            ],
+            "id": "panel.cells.plot-area",
+            "kind": "container",
+            "role": "plot-area"
+          }
+        ],
+        "id": "panel.cells",
+        "kind": "container",
+        "label": "cells",
+        "role": "panel"
+      },
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "panel.image.axes.background",
+                "role": "background"
+              },
+              {
+                "axis": "x",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.image.axis.x.spine.bottom",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.image.axis.x.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.image.axis.x.tick.0",
+                      "panel.image.axis.x.tick.1",
+                      "panel.image.axis.x.tick.2",
+                      "panel.image.axis.x.tick.3",
+                      "panel.image.axis.x.tick.4",
+                      "panel.image.axis.x.tick.5",
+                      "panel.image.axis.x.tick.6",
+                      "panel.image.axis.x.tick.7",
+                      "panel.image.axis.x.tick.8"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.image.axis.x.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.image.axis.x.ticklabel.0",
+                      "panel.image.axis.x.ticklabel.1",
+                      "panel.image.axis.x.ticklabel.2",
+                      "panel.image.axis.x.ticklabel.3",
+                      "panel.image.axis.x.ticklabel.4",
+                      "panel.image.axis.x.ticklabel.5",
+                      "panel.image.axis.x.ticklabel.6",
+                      "panel.image.axis.x.ticklabel.7",
+                      "panel.image.axis.x.ticklabel.8"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.image.axis.x",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "y",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.image.axis.y.spine.left",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.image.axis.y.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.image.axis.y.tick.0",
+                      "panel.image.axis.y.tick.1",
+                      "panel.image.axis.y.tick.2",
+                      "panel.image.axis.y.tick.3",
+                      "panel.image.axis.y.tick.4",
+                      "panel.image.axis.y.tick.5",
+                      "panel.image.axis.y.tick.6"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.image.axis.y.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.image.axis.y.ticklabel.0",
+                      "panel.image.axis.y.ticklabel.1",
+                      "panel.image.axis.y.ticklabel.2",
+                      "panel.image.axis.y.ticklabel.3",
+                      "panel.image.axis.y.ticklabel.4",
+                      "panel.image.axis.y.ticklabel.5",
+                      "panel.image.axis.y.ticklabel.6"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.image.axis.y",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "shape",
+                    "ref": "panel.image.cells.image",
+                    "role": "image"
+                  }
+                ],
+                "id": "panel.image.cells",
+                "kind": "container",
+                "label": "cells",
+                "role": "series"
+              },
+              {
+                "kind": "line",
+                "ref": "panel.image.scalebar.0",
+                "role": "scalebar"
+              }
+            ],
+            "id": "panel.image.plot-area",
+            "kind": "container",
+            "role": "plot-area"
+          },
+          {
+            "children": [
+              {
+                "groupRole": "tick",
+                "id": "panel.image.colorbar.gfp.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "panel.image.colorbar.gfp.tick.1",
+                  "panel.image.colorbar.gfp.tick.2",
+                  "panel.image.colorbar.gfp.tick.3",
+                  "panel.image.colorbar.gfp.tick.4",
+                  "panel.image.colorbar.gfp.tick.5",
+                  "panel.image.colorbar.gfp.tick.6",
+                  "panel.image.colorbar.gfp.tick.7",
+                  "panel.image.colorbar.gfp.tick.8"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "panel.image.colorbar.gfp.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "panel.image.colorbar.gfp.tick-label.1",
+                  "panel.image.colorbar.gfp.tick-label.2",
+                  "panel.image.colorbar.gfp.tick-label.3",
+                  "panel.image.colorbar.gfp.tick-label.4",
+                  "panel.image.colorbar.gfp.tick-label.5",
+                  "panel.image.colorbar.gfp.tick-label.6",
+                  "panel.image.colorbar.gfp.tick-label.7",
+                  "panel.image.colorbar.gfp.tick-label.8"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "panel.image.colorbar.gfp.label",
+                "role": "colorbar-label"
+              },
+              {
+                "kind": "line",
+                "ref": "panel.image.colorbar.gfp.outline",
+                "role": "colorbar-outline"
+              },
+              {
+                "kind": "shape",
+                "ref": "panel.image.colorbar.gfp.solids",
+                "role": "colorbar-solids"
+              }
+            ],
+            "id": "panel.image.colorbar.gfp",
+            "kind": "container",
+            "role": "colorbar"
+          }
+        ],
+        "id": "panel.image",
+        "kind": "container",
+        "label": "image",
+        "role": "panel"
+      },
+      {
+        "kind": "text",
+        "ref": "figure.title",
+        "role": "title"
+      },
+      {
+        "kind": "text",
+        "ref": "figure.annotation.0",
+        "role": "annotation"
+      },
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "figure.legend.entry.0.swatch",
+                "role": "legend-swatch"
+              },
+              {
+                "kind": "text",
+                "ref": "figure.legend.entry.0.label",
+                "role": "legend-label"
+              }
+            ],
+            "id": "figure.legend.entry.0",
+            "kind": "container",
+            "label": "Dose response",
+            "role": "legend-entry"
+          },
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "figure.legend.entry.1.swatch",
+                "role": "legend-swatch"
+              },
+              {
+                "kind": "text",
+                "ref": "figure.legend.entry.1.label",
+                "role": "legend-label"
+              }
+            ],
+            "id": "figure.legend.entry.1",
+            "kind": "container",
+            "label": "Density",
+            "role": "legend-entry"
+          },
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "figure.legend.entry.2.swatch",
+                "role": "legend-swatch"
+              },
+              {
+                "kind": "text",
+                "ref": "figure.legend.entry.2.label",
+                "role": "legend-label"
+              }
+            ],
+            "id": "figure.legend.entry.2",
+            "kind": "container",
+            "label": "Rate",
+            "role": "legend-entry"
+          },
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "figure.legend.entry.3.swatch",
+                "role": "legend-swatch"
+              },
+              {
+                "kind": "text",
+                "ref": "figure.legend.entry.3.label",
+                "role": "legend-label"
+              }
+            ],
+            "id": "figure.legend.entry.3",
+            "kind": "container",
+            "label": "State",
+            "role": "legend-entry"
+          },
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "figure.legend.entry.4.swatch",
+                "role": "legend-swatch"
+              },
+              {
+                "kind": "text",
+                "ref": "figure.legend.entry.4.label",
+                "role": "legend-label"
+              }
+            ],
+            "id": "figure.legend.entry.4",
+            "kind": "container",
+            "label": "Mean",
+            "role": "legend-entry"
+          },
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "figure.legend.entry.5.swatch",
+                "role": "legend-swatch"
+              },
+              {
+                "kind": "text",
+                "ref": "figure.legend.entry.5.label",
+                "role": "legend-label"
+              }
+            ],
+            "id": "figure.legend.entry.5",
+            "kind": "container",
+            "label": "Temperature",
+            "role": "legend-entry"
+          }
+        ],
+        "id": "figure.legend",
+        "kind": "container",
+        "role": "legend"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "hexmatrix",
+  "schemaVersion": "0.3.2",
+  "series": [
+    {
+      "band": {
+        "hi": [
+          2.904609404877866,
+          3.0491163964010344,
+          3.1937612978763834,
+          3.3385505042602066,
+          3.4834907710148455,
+          3.6285892362122167,
+          3.7738534438771474,
+          3.919291368594906,
+          4.064911441396127,
+          4.2107225769178855,
+          4.35673420182151,
+          4.50295628442502,
+          4.649399365480168,
+          4.796074589990017,
+          4.94299373992191,
+          5.090169267621528,
+          5.23761432967547,
+          5.38534282090125,
+          5.533369408063906,
+          5.681709562826345,
+          5.830379593335613,
+          5.97939667372878,
+          6.1287788707102955,
+          6.27854516620803,
+          6.428715474959477,
+          6.579310655715501,
+          6.730352514580988,
+          6.881863798845757,
+          7.033868179503686,
+          7.186390220523929,
+          7.339455332838751,
+          7.493089710964286,
+          7.6473202501919255,
+          7.8021744423997355,
+          7.957680248756725,
+          8.113865947948577,
+          8.27075995905957,
+          8.428390638913818,
+          8.586786054513235,
+          8.745973732200493,
+          8.905980386298822,
+          9.066831631194225,
+          9.228551682069215,
+          9.391163050691981,
+          9.554686243719269,
+          9.719139471786423,
+          9.88453837813791,
+          10.050895795613686,
+          10.218221540394541,
+          10.386522250001581,
+          10.555801271663949,
+          10.726058605381644,
+          10.897290903925523,
+          11.069491529774483,
+          11.242650666747732,
+          11.41675548200531,
+          11.591790332302757,
+          11.767737007004726,
+          11.944574999454472,
+          12.122281797883804,
+          12.300833187110209,
+          12.480203552747685,
+          12.660366180473003,
+          12.84129354394349,
+          13.022957576157232,
+          13.205329920290115,
+          13.38838215725786,
+          13.572086008374784,
+          13.75641351247188,
+          13.94133717767108,
+          14.126830108680993,
+          14.312866110985484,
+          14.49941977365229,
+          14.686466532712258,
+          14.873982717171504,
+          15.061945579740215,
+          15.250333314313504,
+          15.439125062140503,
+          15.628300908483721,
+          15.81784187141529,
+          16.007729884230756,
+          16.197947772793054,
+          16.38847922895513,
+          16.579308781054085,
+          16.77042176232488,
+          16.961804277949998,
+          17.15344317134284,
+          17.345325990157722,
+          17.53744095242731,
+          17.729776913148534,
+          17.922323331569643,
+          18.11507023937262,
+          18.308008209896133,
+          18.501128328503114,
+          18.694422164162916,
+          18.88788174229028,
+          19.081499518860376,
+          19.275268355801288,
+          19.469181497650673,
+          19.66323254945224
+        ],
+        "lo": [
+          -0.43066059204774354,
+          -0.23660954024617697,
+          -0.042696398396790736,
+          0.15107243854412067,
+          0.3446902151142168,
+          0.5381497932415804,
+          0.7314436289013848,
+          0.9245637475083608,
+          1.1175017180318747,
+          1.3102486258348511,
+          1.5027950442559614,
+          1.6951310049771862,
+          1.887245967246773,
+          2.0791287860616587,
+          2.2707676794545013,
+          2.462150195079617,
+          2.6532631763504106,
+          2.8440927284493656,
+          3.0346241846114443,
+          3.2248420731737397,
+          3.4147300859892065,
+          3.6042710489207748,
+          3.7934468952639944,
+          3.9822386430909926,
+          4.1706263776642825,
+          4.358589240232993,
+          4.54610542469224,
+          4.733152183752207,
+          4.919705846419013,
+          5.105741848723504,
+          5.291234779733417,
+          5.476158444932617,
+          5.660485949029712,
+          5.844189800146637,
+          6.027242037114382,
+          6.209614381247264,
+          6.3912784134610074,
+          6.572205776931494,
+          6.752368404656812,
+          6.931738770294288,
+          7.1102901595206935,
+          7.287996957950023,
+          7.464834950399771,
+          7.64078162510174,
+          7.8158164753991874,
+          7.989921290656763,
+          8.163080427630012,
+          8.335281053478974,
+          8.506513352022854,
+          8.676770685740548,
+          8.846049707402916,
+          9.014350417009956,
+          9.181676161790811,
+          9.348033579266586,
+          9.513432485618072,
+          9.677885713685228,
+          9.841408906712516,
+          10.004020275335282,
+          10.16574032621027,
+          10.326591571105673,
+          10.486598225204004,
+          10.645785902891262,
+          10.804181318490679,
+          10.961811998344928,
+          11.11870600945592,
+          11.274891708647772,
+          11.430397515004762,
+          11.585251707212572,
+          11.739482246440211,
+          11.893116624565746,
+          12.046181736880568,
+          12.198703777900812,
+          12.35070815855874,
+          12.502219442823508,
+          12.653261301688996,
+          12.80385648244502,
+          12.954026791196465,
+          13.103793086694202,
+          13.253175283675718,
+          13.402192364068881,
+          13.550862394578152,
+          13.699202549340592,
+          13.847229136503246,
+          13.994957627729027,
+          14.142402689782969,
+          14.289578217482589,
+          14.43649736741448,
+          14.583172591924328,
+          14.729615672979477,
+          14.875837755582985,
+          15.021849380486609,
+          15.167660516008368,
+          15.313280588809587,
+          15.458718513527351,
+          15.603982721192281,
+          15.74908118638965,
+          15.89402145314429,
+          16.03881065952811,
+          16.183455561003463,
+          16.32796255252663
+        ],
+        "what": "95% CI",
+        "x": [
+          0.0,
+          0.10101010101010101,
+          0.20202020202020202,
+          0.30303030303030304,
+          0.40404040404040403,
+          0.5050505050505051,
+          0.6060606060606061,
+          0.7070707070707071,
+          0.8080808080808081,
+          0.9090909090909091,
+          1.0101010101010102,
+          1.1111111111111112,
+          1.2121212121212122,
+          1.3131313131313131,
+          1.4141414141414141,
+          1.5151515151515151,
+          1.6161616161616161,
+          1.7171717171717171,
+          1.8181818181818181,
+          1.9191919191919191,
+          2.0202020202020203,
+          2.121212121212121,
+          2.2222222222222223,
+          2.323232323232323,
+          2.4242424242424243,
+          2.525252525252525,
+          2.6262626262626263,
+          2.727272727272727,
+          2.8282828282828283,
+          2.929292929292929,
+          3.0303030303030303,
+          3.131313131313131,
+          3.2323232323232323,
+          3.3333333333333335,
+          3.4343434343434343,
+          3.5353535353535355,
+          3.6363636363636362,
+          3.7373737373737375,
+          3.8383838383838382,
+          3.9393939393939394,
+          4.040404040404041,
+          4.141414141414141,
+          4.242424242424242,
+          4.343434343434343,
+          4.444444444444445,
+          4.545454545454545,
+          4.646464646464646,
+          4.747474747474747,
+          4.848484848484849,
+          4.94949494949495,
+          5.05050505050505,
+          5.151515151515151,
+          5.252525252525253,
+          5.353535353535354,
+          5.454545454545454,
+          5.555555555555555,
+          5.656565656565657,
+          5.757575757575758,
+          5.858585858585858,
+          5.959595959595959,
+          6.0606060606060606,
+          6.161616161616162,
+          6.262626262626262,
+          6.363636363636363,
+          6.4646464646464645,
+          6.565656565656566,
+          6.666666666666667,
+          6.767676767676767,
+          6.8686868686868685,
+          6.96969696969697,
+          7.070707070707071,
+          7.171717171717171,
+          7.2727272727272725,
+          7.373737373737374,
+          7.474747474747475,
+          7.575757575757575,
+          7.6767676767676765,
+          7.777777777777778,
+          7.878787878787879,
+          7.979797979797979,
+          8.080808080808081,
+          8.181818181818182,
+          8.282828282828282,
+          8.383838383838384,
+          8.484848484848484,
+          8.585858585858587,
+          8.686868686868687,
+          8.787878787878787,
+          8.88888888888889,
+          8.98989898989899,
+          9.09090909090909,
+          9.191919191919192,
+          9.292929292929292,
+          9.393939393939394,
+          9.494949494949495,
+          9.595959595959595,
+          9.696969696969697,
+          9.797979797979798,
+          9.8989898989899,
+          10.0
+        ]
+      },
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#205ea6",
+        "palette": {
+          "index": 0,
+          "name": "flexoki.light"
+        },
+        "token": "flexoki.blue-600"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.fit.dose.fit"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.fit.dose.point.0",
+            "panel.fit.dose.point.1",
+            "panel.fit.dose.point.2",
+            "panel.fit.dose.point.3",
+            "panel.fit.dose.point.4",
+            "panel.fit.dose.point.5",
+            "panel.fit.dose.point.6",
+            "panel.fit.dose.point.7",
+            "panel.fit.dose.point.8",
+            "panel.fit.dose.point.9",
+            "panel.fit.dose.point.10",
+            "panel.fit.dose.point.11",
+            "panel.fit.dose.point.12",
+            "panel.fit.dose.point.13",
+            "panel.fit.dose.point.14",
+            "panel.fit.dose.point.15",
+            "panel.fit.dose.point.16",
+            "panel.fit.dose.point.17",
+            "panel.fit.dose.point.18",
+            "panel.fit.dose.point.19",
+            "panel.fit.dose.point.20",
+            "panel.fit.dose.point.21",
+            "panel.fit.dose.point.22",
+            "panel.fit.dose.point.23",
+            "panel.fit.dose.point.24",
+            "panel.fit.dose.point.25",
+            "panel.fit.dose.point.26",
+            "panel.fit.dose.point.27",
+            "panel.fit.dose.point.28",
+            "panel.fit.dose.point.29"
+          ],
+          "role": "point",
+          "svgId": "panel.fit.dose.points"
+        },
+        {
+          "role": "area",
+          "svgId": "panel.fit.dose.band"
+        }
+      ],
+      "data": {},
+      "id": "panel.fit.dose",
+      "kind": "regression",
+      "label": "Dose response",
+      "name": "dose",
+      "panelId": "panel.fit",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.fit.dose.point.0",
+          "x": 0.0,
+          "y": 6.081838242770365
+        },
+        {
+          "index": 1,
+          "svgId": "panel.fit.dose.point.1",
+          "x": 0.3448275862068966,
+          "y": -2.594088683318019
+        },
+        {
+          "index": 2,
+          "svgId": "panel.fit.dose.point.2",
+          "x": 0.6896551724137931,
+          "y": 3.8706804520722473
+        },
+        {
+          "index": 3,
+          "svgId": "panel.fit.dose.point.3",
+          "x": 1.0344827586206897,
+          "y": 2.416184925675175
+        },
+        {
+          "index": 4,
+          "svgId": "panel.fit.dose.point.4",
+          "x": 1.3793103448275863,
+          "y": 3.163666933020487
+        },
+        {
+          "index": 5,
+          "svgId": "panel.fit.dose.point.5",
+          "x": 1.7241379310344829,
+          "y": 4.155012570372192
+        },
+        {
+          "index": 6,
+          "svgId": "panel.fit.dose.point.6",
+          "x": 2.0689655172413794,
+          "y": 1.0634760175675675
+        },
+        {
+          "index": 7,
+          "svgId": "panel.fit.dose.point.7",
+          "x": 2.413793103448276,
+          "y": 5.156824899884035
+        },
+        {
+          "index": 8,
+          "svgId": "panel.fit.dose.point.8",
+          "x": 2.7586206896551726,
+          "y": 4.4075048819328755
+        },
+        {
+          "index": 9,
+          "svgId": "panel.fit.dose.point.9",
+          "x": 3.1034482758620694,
+          "y": 13.301171447082869
+        },
+        {
+          "index": 10,
+          "svgId": "panel.fit.dose.point.10",
+          "x": 3.4482758620689657,
+          "y": 7.623987019559292
+        },
+        {
+          "index": 11,
+          "svgId": "panel.fit.dose.point.11",
+          "x": 3.793103448275862,
+          "y": 6.984393583730602
+        },
+        {
+          "index": 12,
+          "svgId": "panel.fit.dose.point.12",
+          "x": 4.137931034482759,
+          "y": 7.644321715421438
+        },
+        {
+          "index": 13,
+          "svgId": "panel.fit.dose.point.13",
+          "x": 4.482758620689656,
+          "y": 7.388045238816584
+        },
+        {
+          "index": 14,
+          "svgId": "panel.fit.dose.point.14",
+          "x": 4.827586206896552,
+          "y": 7.131078207934585
+        },
+        {
+          "index": 15,
+          "svgId": "panel.fit.dose.point.15",
+          "x": 5.172413793103448,
+          "y": 8.977018735185863
+        },
+        {
+          "index": 16,
+          "svgId": "panel.fit.dose.point.16",
+          "x": 5.517241379310345,
+          "y": 11.239752845979089
+        },
+        {
+          "index": 17,
+          "svgId": "panel.fit.dose.point.17",
+          "x": 5.862068965517242,
+          "y": 10.315996235129129
+        },
+        {
+          "index": 18,
+          "svgId": "panel.fit.dose.point.18",
+          "x": 6.206896551724139,
+          "y": 13.225862233505737
+        },
+        {
+          "index": 19,
+          "svgId": "panel.fit.dose.point.19",
+          "x": 6.551724137931035,
+          "y": 11.427981948763392
+        },
+        {
+          "index": 20,
+          "svgId": "panel.fit.dose.point.20",
+          "x": 6.8965517241379315,
+          "y": 12.393346716360226
+        },
+        {
+          "index": 21,
+          "svgId": "panel.fit.dose.point.21",
+          "x": 7.241379310344828,
+          "y": 15.953710667942866
+        },
+        {
+          "index": 22,
+          "svgId": "panel.fit.dose.point.22",
+          "x": 7.586206896551724,
+          "y": 14.469521390202877
+        },
+        {
+          "index": 23,
+          "svgId": "panel.fit.dose.point.23",
+          "x": 7.931034482758621,
+          "y": 12.886094252909896
+        },
+        {
+          "index": 24,
+          "svgId": "panel.fit.dose.point.24",
+          "x": 8.275862068965518,
+          "y": 14.048115154252807
+        },
+        {
+          "index": 25,
+          "svgId": "panel.fit.dose.point.25",
+          "x": 8.620689655172415,
+          "y": 16.012084746268226
+        },
+        {
+          "index": 26,
+          "svgId": "panel.fit.dose.point.26",
+          "x": 8.965517241379311,
+          "y": 19.318451930266672
+        },
+        {
+          "index": 27,
+          "svgId": "panel.fit.dose.point.27",
+          "x": 9.310344827586208,
+          "y": 15.426276586695487
+        },
+        {
+          "index": 28,
+          "svgId": "panel.fit.dose.point.28",
+          "x": 9.655172413793103,
+          "y": 15.995641262531446
+        },
+        {
+          "index": 29,
+          "svgId": "panel.fit.dose.point.29",
+          "x": 10.0,
+          "y": 19.004627202551383
+        }
+      ],
+      "regression": {
+        "ci": 0.95,
+        "coefficients": [
+          1.6758623144574374,
+          1.2369744064150614
+        ],
+        "degree": 1,
+        "dof": 28,
+        "fit": [
+          1.2369744064150614,
+          1.4062534280774288,
+          1.5755324497397962,
+          1.7448114714021636,
+          1.914090493064531,
+          2.0833695147268987,
+          2.252648536389266,
+          2.4219275580516335,
+          2.591206579714001,
+          2.7604856013763683,
+          2.9297646230387357,
+          3.099043644701103,
+          3.2683226663634706,
+          3.437601688025838,
+          3.6068807096882054,
+          3.776159731350573,
+          3.9454387530129402,
+          4.114717774675308,
+          4.283996796337675,
+          4.4532758180000425,
+          4.62255483966241,
+          4.791833861324777,
+          4.961112882987145,
+          5.130391904649511,
+          5.2996709263118795,
+          5.468949947974247,
+          5.638228969636614,
+          5.807507991298982,
+          5.976787012961349,
+          6.146066034623717,
+          6.315345056286084,
+          6.484624077948451,
+          6.653903099610819,
+          6.823182121273186,
+          6.992461142935554,
+          7.161740164597921,
+          7.3310191862602885,
+          7.500298207922656,
+          7.669577229585023,
+          7.838856251247391,
+          8.008135272909758,
+          8.177414294572124,
+          8.346693316234493,
+          8.51597233789686,
+          8.685251359559228,
+          8.854530381221593,
+          9.02380940288396,
+          9.19308842454633,
+          9.362367446208697,
+          9.531646467871065,
+          9.700925489533432,
+          9.8702045111958,
+          10.039483532858167,
+          10.208762554520534,
+          10.378041576182902,
+          10.54732059784527,
+          10.716599619507637,
+          10.885878641170004,
+          11.055157662832372,
+          11.224436684494739,
+          11.393715706157106,
+          11.562994727819474,
+          11.732273749481841,
+          11.901552771144209,
+          12.070831792806576,
+          12.240110814468943,
+          12.40938983613131,
+          12.578668857793678,
+          12.747947879456046,
+          12.917226901118413,
+          13.08650592278078,
+          13.255784944443148,
+          13.425063966105515,
+          13.594342987767883,
+          13.76362200943025,
+          13.932901031092618,
+          14.102180052754985,
+          14.271459074417352,
+          14.44073809607972,
+          14.610017117742085,
+          14.779296139404455,
+          14.948575161066822,
+          15.117854182729188,
+          15.287133204391557,
+          15.456412226053924,
+          15.625691247716293,
+          15.794970269378659,
+          15.964249291041025,
+          16.133528312703394,
+          16.30280733436576,
+          16.472086356028125,
+          16.641365377690494,
+          16.81064439935286,
+          16.979923421015233,
+          17.1492024426776,
+          17.318481464339964,
+          17.487760486002333,
+          17.6570395076647,
+          17.826318529327068,
+          17.995597550989434
+        ],
+        "grid": [
+          0.0,
+          0.10101010101010101,
+          0.20202020202020202,
+          0.30303030303030304,
+          0.40404040404040403,
+          0.5050505050505051,
+          0.6060606060606061,
+          0.7070707070707071,
+          0.8080808080808081,
+          0.9090909090909091,
+          1.0101010101010102,
+          1.1111111111111112,
+          1.2121212121212122,
+          1.3131313131313131,
+          1.4141414141414141,
+          1.5151515151515151,
+          1.6161616161616161,
+          1.7171717171717171,
+          1.8181818181818181,
+          1.9191919191919191,
+          2.0202020202020203,
+          2.121212121212121,
+          2.2222222222222223,
+          2.323232323232323,
+          2.4242424242424243,
+          2.525252525252525,
+          2.6262626262626263,
+          2.727272727272727,
+          2.8282828282828283,
+          2.929292929292929,
+          3.0303030303030303,
+          3.131313131313131,
+          3.2323232323232323,
+          3.3333333333333335,
+          3.4343434343434343,
+          3.5353535353535355,
+          3.6363636363636362,
+          3.7373737373737375,
+          3.8383838383838382,
+          3.9393939393939394,
+          4.040404040404041,
+          4.141414141414141,
+          4.242424242424242,
+          4.343434343434343,
+          4.444444444444445,
+          4.545454545454545,
+          4.646464646464646,
+          4.747474747474747,
+          4.848484848484849,
+          4.94949494949495,
+          5.05050505050505,
+          5.151515151515151,
+          5.252525252525253,
+          5.353535353535354,
+          5.454545454545454,
+          5.555555555555555,
+          5.656565656565657,
+          5.757575757575758,
+          5.858585858585858,
+          5.959595959595959,
+          6.0606060606060606,
+          6.161616161616162,
+          6.262626262626262,
+          6.363636363636363,
+          6.4646464646464645,
+          6.565656565656566,
+          6.666666666666667,
+          6.767676767676767,
+          6.8686868686868685,
+          6.96969696969697,
+          7.070707070707071,
+          7.171717171717171,
+          7.2727272727272725,
+          7.373737373737374,
+          7.474747474747475,
+          7.575757575757575,
+          7.6767676767676765,
+          7.777777777777778,
+          7.878787878787879,
+          7.979797979797979,
+          8.080808080808081,
+          8.181818181818182,
+          8.282828282828282,
+          8.383838383838384,
+          8.484848484848484,
+          8.585858585858587,
+          8.686868686868687,
+          8.787878787878787,
+          8.88888888888889,
+          8.98989898989899,
+          9.09090909090909,
+          9.191919191919192,
+          9.292929292929292,
+          9.393939393939394,
+          9.494949494949495,
+          9.595959595959595,
+          9.696969696969697,
+          9.797979797979798,
+          9.8989898989899,
+          10.0
+        ],
+        "kind": "linear",
+        "n": 30,
+        "p": 1.528767196280154e-12,
+        "r2": 0.83691016913358
+      },
+      "roles": [
+        "area",
+        "line",
+        "point"
+      ],
+      "svg": {
+        "area": "panel.fit.dose.band",
+        "line": "panel.fit.dose.fit",
+        "points": "panel.fit.dose.points"
+      }
+    },
+    {
+      "band": {
+        "x": [
+          -0.06314811550998845,
+          -0.004308393272721145,
+          0.054531328964546155,
+          0.11337105120181346,
+          0.17221077343908076,
+          0.23105049567634806,
+          0.28989021791361536,
+          0.34872994015088266,
+          0.40756966238814996,
+          0.46640938462541726,
+          0.5252491068626846,
+          0.5840888290999519,
+          0.6429285513372192,
+          0.7017682735744865,
+          0.7606079958117538,
+          0.8194477180490211,
+          0.8782874402862884,
+          0.9371271625235555,
+          0.995966884760823,
+          1.0548066069980904,
+          1.1136463292353576,
+          1.1724860514726247,
+          1.2313257737098922,
+          1.2901654959471596,
+          1.3490052181844268,
+          1.407844940421694,
+          1.4666846626589614,
+          1.5255243848962288,
+          1.584364107133496,
+          1.6432038293707631,
+          1.7020435516080306,
+          1.760883273845298,
+          1.8197229960825652,
+          1.8785627183198323,
+          1.9374024405570995,
+          1.9962421627943672,
+          2.055081885031634,
+          2.1139216072689013,
+          2.1727613295061694,
+          2.2316010517434366,
+          2.290440773980704,
+          2.349280496217971,
+          2.408120218455238,
+          2.4669599406925053,
+          2.5257996629297725,
+          2.5846393851670397,
+          2.643479107404308,
+          2.702318829641575,
+          2.761158551878842,
+          2.8199982741161094,
+          2.8788379963533766,
+          2.9376777185906437,
+          2.996517440827911,
+          3.055357163065178,
+          3.114196885302446,
+          3.1730366075397134,
+          3.2318763297769806,
+          3.2907160520142478,
+          3.349555774251515,
+          3.408395496488782,
+          3.4672352187260493,
+          3.5260749409633165,
+          3.5849146632005846,
+          3.643754385437852,
+          3.702594107675119,
+          3.761433829912386,
+          3.8202735521496534,
+          3.8791132743869206,
+          3.9379529966241877,
+          3.996792718861456,
+          4.055632441098723,
+          4.11447216333599,
+          4.173311885573257,
+          4.232151607810525,
+          4.290991330047792,
+          4.349831052285059,
+          4.408670774522327,
+          4.467510496759594,
+          4.526350218996861,
+          4.585189941234129,
+          4.644029663471396,
+          4.702869385708663,
+          4.76170910794593,
+          4.820548830183197,
+          4.8793885524204645,
+          4.938228274657733,
+          4.997067996895,
+          5.055907719132267,
+          5.114747441369534,
+          5.173587163606801,
+          5.232426885844069,
+          5.291266608081336,
+          5.350106330318604,
+          5.408946052555871,
+          5.467785774793138,
+          5.526625497030405,
+          5.585465219267673,
+          5.64430494150494,
+          5.703144663742207,
+          5.761984385979474,
+          5.820824108216741,
+          5.879663830454009,
+          5.938503552691277,
+          5.997343274928544,
+          6.056182997165811,
+          6.115022719403078,
+          6.173862441640345,
+          6.2327021638776126,
+          6.291541886114881,
+          6.350381608352148,
+          6.409221330589415,
+          6.468061052826682,
+          6.526900775063949,
+          6.585740497301217,
+          6.644580219538484,
+          6.703419941775751,
+          6.762259664013018,
+          6.821099386250286,
+          6.879939108487553,
+          6.938778830724821,
+          6.997618552962088,
+          7.056458275199355,
+          7.115297997436622,
+          7.174137719673889,
+          7.232977441911157,
+          7.291817164148425,
+          7.350656886385692,
+          7.409496608622959,
+          7.468336330860226,
+          7.527176053097493,
+          7.586015775334761,
+          7.644855497572028,
+          7.703695219809295,
+          7.762534942046563,
+          7.82137466428383,
+          7.880214386521097,
+          7.939054108758364,
+          7.997893830995632,
+          8.056733553232899,
+          8.115573275470165,
+          8.174412997707433,
+          8.2332527199447,
+          8.292092442181968,
+          8.350932164419234,
+          8.409771886656502,
+          8.46861160889377,
+          8.527451331131036,
+          8.586291053368305,
+          8.64513077560557,
+          8.703970497842839,
+          8.762810220080105,
+          8.821649942317373,
+          8.880489664554641,
+          8.939329386791908,
+          8.998169109029176,
+          9.057008831266442,
+          9.11584855350371,
+          9.174688275740976,
+          9.233527997978245,
+          9.29236772021551,
+          9.351207442452779,
+          9.410047164690047,
+          9.468886886927313,
+          9.527726609164581,
+          9.586566331401848,
+          9.645406053639116,
+          9.704245775876382,
+          9.76308549811365,
+          9.821925220350916,
+          9.880764942588184,
+          9.939604664825453,
+          9.998444387062719,
+          10.057284109299987,
+          10.116123831537253,
+          10.174963553774521,
+          10.233803276011788,
+          10.292642998249056,
+          10.351482720486324,
+          10.41032244272359,
+          10.469162164960858,
+          10.528001887198124,
+          10.586841609435393,
+          10.645681331672659,
+          10.704521053909927,
+          10.763360776147195,
+          10.822200498384461,
+          10.88104022062173,
+          10.939879942858996,
+          10.998719665096264,
+          11.05755938733353,
+          11.116399109570798,
+          11.175238831808064,
+          11.234078554045333,
+          11.2929182762826,
+          11.351757998519867,
+          11.410597720757135,
+          11.469437442994401,
+          11.52827716523167,
+          11.587116887468936,
+          11.645956609706204
+        ],
+        "y1": [
+          6.50483865535589e-05,
+          8.71156578196328e-05,
+          0.00011564218431737419,
+          0.0001521668913103665,
+          0.0001984877217363186,
+          0.0002566758837369233,
+          0.0003290830955661515,
+          0.0004183399882046633,
+          0.0005273440185837887,
+          0.0006592356156229224,
+          0.0008173618326873179,
+          0.0010052275004709904,
+          0.0012264347292099411,
+          0.0014846125418575885,
+          0.001783339353468057,
+          0.002126061854348182,
+          0.0025160145062251304,
+          0.002956144225975714,
+          0.003449044830560028,
+          0.003996905398442315,
+          0.004601475855422917,
+          0.005264051852477111,
+          0.0059854794564163285,
+          0.006766178454711575,
+          0.007606181354732014,
+          0.008505183627175663,
+          0.009462599595859992,
+          0.010477617779823251,
+          0.011549249570168839,
+          0.012676365927384938,
+          0.013857718288580118,
+          0.015091941967030476,
+          0.01637754281902023,
+          0.017712870593991254,
+          0.019096084886722577,
+          0.02052512168445711,
+          0.021997669888385512,
+          0.023511167691510734,
+          0.0250628282056432,
+          0.026649702243842825,
+          0.028268783780073376,
+          0.029917160516672446,
+          0.0315922084525762,
+          0.03329182565734595,
+          0.035014696914143176,
+          0.03676057776058448,
+          0.038530583929710996,
+          0.04032747039622768,
+          0.042155883208097496,
+          0.04402256700523251,
+          0.04593651152606782,
+          0.04790902139634032,
+          0.04995369501722173,
+          0.05208630039982115,
+          0.05432453836390878,
+          0.056687686717714715,
+          0.05919612298269488,
+          0.061870728038406715,
+          0.06473217880347043,
+          0.06780014470337485,
+          0.07109241002402564,
+          0.07462395195741119,
+          0.07840601168022669,
+          0.08244520248059338,
+          0.08674270397342958,
+          0.09129359401069757,
+          0.09608636926358369,
+          0.10110270107546777,
+          0.10631746478262138,
+          0.11169906835704234,
+          0.11721009042854899,
+          0.12280821938229464,
+          0.12844746555452033,
+          0.13407959908356382,
+          0.13965574837209002,
+          0.14512808001557762,
+          0.15045147189461822,
+          0.15558508800328047,
+          0.1604937670913203,
+          0.16514914735177932,
+          0.1695304655898321,
+          0.17362499038132542,
+          0.1774280729978152,
+          0.1809428253268254,
+          0.1841794584912079,
+          0.18715433727391625,
+          0.1898888219626792,
+          0.19240797947978833,
+          0.19473924888784425,
+          0.1969111424654788,
+          0.1989520531052299,
+          0.2008892229855212,
+          0.20274790897871478,
+          0.20455075905462214,
+          0.2063173931097972,
+          0.20806416318861504,
+          0.20980405367202473,
+          0.21154667296913343,
+          0.21329828529097106,
+          0.2150618343584792,
+          0.21683691995132026,
+          0.21861970205443657,
+          0.2204027245724554,
+          0.22217466940228436,
+          0.2239200701490781,
+          0.22561903098880934,
+          0.22724700831289552,
+          0.2287747193254604,
+          0.23016824162965516,
+          0.23138936052022244,
+          0.23239620631854133,
+          0.23314420344411968,
+          0.23358732747265284,
+          0.2336796382251426,
+          0.2333770284413582,
+          0.23263910152442216,
+          0.2314310708978442,
+          0.22972556010214407,
+          0.22750417873099069,
+          0.22475875573474993,
+          0.22149212861648718,
+          0.2177184136974662,
+          0.21346271702746883,
+          0.20876028490390183,
+          0.20365513398737994,
+          0.19819824003095665,
+          0.19244539773872074,
+          0.18645488915893815,
+          0.18028511199970002,
+          0.17399232105396256,
+          0.16762862540839385,
+          0.1612403623133595,
+          0.1548669375714989,
+          0.1485401849301495,
+          0.1422842566121143,
+          0.13611601732030967,
+          0.13004587814335222,
+          0.12407897760688313,
+          0.11821659674961077,
+          0.11245768474579237,
+          0.10680037148893985,
+          0.10124335303164941,
+          0.09578705340572273,
+          0.09043449010683176,
+          0.08519179805220926,
+          0.08006839563587977,
+          0.07507680426326074,
+          0.07023215740831529,
+          0.06555145521824676,
+          0.061052634944989054,
+          0.05675353552001079,
+          0.05267083644795441,
+          0.04881904736977412,
+          0.04520961598557806,
+          0.04185020961774362,
+          0.03874421074401087,
+          0.03589045056206683,
+          0.03328318821446248,
+          0.03091232772331885,
+          0.028763850800306797,
+          0.02682043215562282,
+          0.025062195178489975,
+          0.023467560158965995,
+          0.02201413464814563,
+          0.020679596032962783,
+          0.01944251971128723,
+          0.018283112044597687,
+          0.017183815081302338,
+          0.01612975933621736,
+          0.015109051068173401,
+          0.014112890870972894,
+          0.013135530337316195,
+          0.012174082467068168,
+          0.01122820884955855,
+          0.010299712054612881,
+          0.00939206486974537,
+          0.008509908941566986,
+          0.007658554110653497,
+          0.006843506523655954,
+          0.00607004884989745,
+          0.005342890101151592,
+          0.004665896178446248,
+          0.004041905871866789,
+          0.0034726310934475313,
+          0.0029586350183122183,
+          0.0024993778219984312,
+          0.0020933169842860017,
+          0.0017380477098790413,
+          0.0014304688112478006,
+          0.001166960237747062,
+          0.0009435600864992422,
+          0.0007561311330072583,
+          0.000600509409888826,
+          0.00047262989971974366,
+          0.0003686267921324077,
+          0.00028490783631517037,
+          0.00021820400279355637,
+          0.00016559691003278188,
+          0.0001245272744993497,
+          9.278804527887777e-05
+        ],
+        "y2": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#bc5215",
+        "palette": {
+          "index": 1,
+          "name": "flexoki.light"
+        },
+        "token": "flexoki.orange-600"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.fit.density.line"
+        },
+        {
+          "role": "area",
+          "svgId": "panel.fit.density.fill"
+        }
+      ],
+      "data": {
+        "x": [
+          -0.06314811550998845,
+          -0.004308393272721145,
+          0.054531328964546155,
+          0.11337105120181346,
+          0.17221077343908076,
+          0.23105049567634806,
+          0.28989021791361536,
+          0.34872994015088266,
+          0.40756966238814996,
+          0.46640938462541726,
+          0.5252491068626846,
+          0.5840888290999519,
+          0.6429285513372192,
+          0.7017682735744865,
+          0.7606079958117538,
+          0.8194477180490211,
+          0.8782874402862884,
+          0.9371271625235555,
+          0.995966884760823,
+          1.0548066069980904,
+          1.1136463292353576,
+          1.1724860514726247,
+          1.2313257737098922,
+          1.2901654959471596,
+          1.3490052181844268,
+          1.407844940421694,
+          1.4666846626589614,
+          1.5255243848962288,
+          1.584364107133496,
+          1.6432038293707631,
+          1.7020435516080306,
+          1.760883273845298,
+          1.8197229960825652,
+          1.8785627183198323,
+          1.9374024405570995,
+          1.9962421627943672,
+          2.055081885031634,
+          2.1139216072689013,
+          2.1727613295061694,
+          2.2316010517434366,
+          2.290440773980704,
+          2.349280496217971,
+          2.408120218455238,
+          2.4669599406925053,
+          2.5257996629297725,
+          2.5846393851670397,
+          2.643479107404308,
+          2.702318829641575,
+          2.761158551878842,
+          2.8199982741161094,
+          2.8788379963533766,
+          2.9376777185906437,
+          2.996517440827911,
+          3.055357163065178,
+          3.114196885302446,
+          3.1730366075397134,
+          3.2318763297769806,
+          3.2907160520142478,
+          3.349555774251515,
+          3.408395496488782,
+          3.4672352187260493,
+          3.5260749409633165,
+          3.5849146632005846,
+          3.643754385437852,
+          3.702594107675119,
+          3.761433829912386,
+          3.8202735521496534,
+          3.8791132743869206,
+          3.9379529966241877,
+          3.996792718861456,
+          4.055632441098723,
+          4.11447216333599,
+          4.173311885573257,
+          4.232151607810525,
+          4.290991330047792,
+          4.349831052285059,
+          4.408670774522327,
+          4.467510496759594,
+          4.526350218996861,
+          4.585189941234129,
+          4.644029663471396,
+          4.702869385708663,
+          4.76170910794593,
+          4.820548830183197,
+          4.8793885524204645,
+          4.938228274657733,
+          4.997067996895,
+          5.055907719132267,
+          5.114747441369534,
+          5.173587163606801,
+          5.232426885844069,
+          5.291266608081336,
+          5.350106330318604,
+          5.408946052555871,
+          5.467785774793138,
+          5.526625497030405,
+          5.585465219267673,
+          5.64430494150494,
+          5.703144663742207,
+          5.761984385979474,
+          5.820824108216741,
+          5.879663830454009,
+          5.938503552691277,
+          5.997343274928544,
+          6.056182997165811,
+          6.115022719403078,
+          6.173862441640345,
+          6.2327021638776126,
+          6.291541886114881,
+          6.350381608352148,
+          6.409221330589415,
+          6.468061052826682,
+          6.526900775063949,
+          6.585740497301217,
+          6.644580219538484,
+          6.703419941775751,
+          6.762259664013018,
+          6.821099386250286,
+          6.879939108487553,
+          6.938778830724821,
+          6.997618552962088,
+          7.056458275199355,
+          7.115297997436622,
+          7.174137719673889,
+          7.232977441911157,
+          7.291817164148425,
+          7.350656886385692,
+          7.409496608622959,
+          7.468336330860226,
+          7.527176053097493,
+          7.586015775334761,
+          7.644855497572028,
+          7.703695219809295,
+          7.762534942046563,
+          7.82137466428383,
+          7.880214386521097,
+          7.939054108758364,
+          7.997893830995632,
+          8.056733553232899,
+          8.115573275470165,
+          8.174412997707433,
+          8.2332527199447,
+          8.292092442181968,
+          8.350932164419234,
+          8.409771886656502,
+          8.46861160889377,
+          8.527451331131036,
+          8.586291053368305,
+          8.64513077560557,
+          8.703970497842839,
+          8.762810220080105,
+          8.821649942317373,
+          8.880489664554641,
+          8.939329386791908,
+          8.998169109029176,
+          9.057008831266442,
+          9.11584855350371,
+          9.174688275740976,
+          9.233527997978245,
+          9.29236772021551,
+          9.351207442452779,
+          9.410047164690047,
+          9.468886886927313,
+          9.527726609164581,
+          9.586566331401848,
+          9.645406053639116,
+          9.704245775876382,
+          9.76308549811365,
+          9.821925220350916,
+          9.880764942588184,
+          9.939604664825453,
+          9.998444387062719,
+          10.057284109299987,
+          10.116123831537253,
+          10.174963553774521,
+          10.233803276011788,
+          10.292642998249056,
+          10.351482720486324,
+          10.41032244272359,
+          10.469162164960858,
+          10.528001887198124,
+          10.586841609435393,
+          10.645681331672659,
+          10.704521053909927,
+          10.763360776147195,
+          10.822200498384461,
+          10.88104022062173,
+          10.939879942858996,
+          10.998719665096264,
+          11.05755938733353,
+          11.116399109570798,
+          11.175238831808064,
+          11.234078554045333,
+          11.2929182762826,
+          11.351757998519867,
+          11.410597720757135,
+          11.469437442994401,
+          11.52827716523167,
+          11.587116887468936,
+          11.645956609706204
+        ],
+        "y": [
+          6.50483865535589e-05,
+          8.71156578196328e-05,
+          0.00011564218431737419,
+          0.0001521668913103665,
+          0.0001984877217363186,
+          0.0002566758837369233,
+          0.0003290830955661515,
+          0.0004183399882046633,
+          0.0005273440185837887,
+          0.0006592356156229224,
+          0.0008173618326873179,
+          0.0010052275004709904,
+          0.0012264347292099411,
+          0.0014846125418575885,
+          0.001783339353468057,
+          0.002126061854348182,
+          0.0025160145062251304,
+          0.002956144225975714,
+          0.003449044830560028,
+          0.003996905398442315,
+          0.004601475855422917,
+          0.005264051852477111,
+          0.0059854794564163285,
+          0.006766178454711575,
+          0.007606181354732014,
+          0.008505183627175663,
+          0.009462599595859992,
+          0.010477617779823251,
+          0.011549249570168839,
+          0.012676365927384938,
+          0.013857718288580118,
+          0.015091941967030476,
+          0.01637754281902023,
+          0.017712870593991254,
+          0.019096084886722577,
+          0.02052512168445711,
+          0.021997669888385512,
+          0.023511167691510734,
+          0.0250628282056432,
+          0.026649702243842825,
+          0.028268783780073376,
+          0.029917160516672446,
+          0.0315922084525762,
+          0.03329182565734595,
+          0.035014696914143176,
+          0.03676057776058448,
+          0.038530583929710996,
+          0.04032747039622768,
+          0.042155883208097496,
+          0.04402256700523251,
+          0.04593651152606782,
+          0.04790902139634032,
+          0.04995369501722173,
+          0.05208630039982115,
+          0.05432453836390878,
+          0.056687686717714715,
+          0.05919612298269488,
+          0.061870728038406715,
+          0.06473217880347043,
+          0.06780014470337485,
+          0.07109241002402564,
+          0.07462395195741119,
+          0.07840601168022669,
+          0.08244520248059338,
+          0.08674270397342958,
+          0.09129359401069757,
+          0.09608636926358369,
+          0.10110270107546777,
+          0.10631746478262138,
+          0.11169906835704234,
+          0.11721009042854899,
+          0.12280821938229464,
+          0.12844746555452033,
+          0.13407959908356382,
+          0.13965574837209002,
+          0.14512808001557762,
+          0.15045147189461822,
+          0.15558508800328047,
+          0.1604937670913203,
+          0.16514914735177932,
+          0.1695304655898321,
+          0.17362499038132542,
+          0.1774280729978152,
+          0.1809428253268254,
+          0.1841794584912079,
+          0.18715433727391625,
+          0.1898888219626792,
+          0.19240797947978833,
+          0.19473924888784425,
+          0.1969111424654788,
+          0.1989520531052299,
+          0.2008892229855212,
+          0.20274790897871478,
+          0.20455075905462214,
+          0.2063173931097972,
+          0.20806416318861504,
+          0.20980405367202473,
+          0.21154667296913343,
+          0.21329828529097106,
+          0.2150618343584792,
+          0.21683691995132026,
+          0.21861970205443657,
+          0.2204027245724554,
+          0.22217466940228436,
+          0.2239200701490781,
+          0.22561903098880934,
+          0.22724700831289552,
+          0.2287747193254604,
+          0.23016824162965516,
+          0.23138936052022244,
+          0.23239620631854133,
+          0.23314420344411968,
+          0.23358732747265284,
+          0.2336796382251426,
+          0.2333770284413582,
+          0.23263910152442216,
+          0.2314310708978442,
+          0.22972556010214407,
+          0.22750417873099069,
+          0.22475875573474993,
+          0.22149212861648718,
+          0.2177184136974662,
+          0.21346271702746883,
+          0.20876028490390183,
+          0.20365513398737994,
+          0.19819824003095665,
+          0.19244539773872074,
+          0.18645488915893815,
+          0.18028511199970002,
+          0.17399232105396256,
+          0.16762862540839385,
+          0.1612403623133595,
+          0.1548669375714989,
+          0.1485401849301495,
+          0.1422842566121143,
+          0.13611601732030967,
+          0.13004587814335222,
+          0.12407897760688313,
+          0.11821659674961077,
+          0.11245768474579237,
+          0.10680037148893985,
+          0.10124335303164941,
+          0.09578705340572273,
+          0.09043449010683176,
+          0.08519179805220926,
+          0.08006839563587977,
+          0.07507680426326074,
+          0.07023215740831529,
+          0.06555145521824676,
+          0.061052634944989054,
+          0.05675353552001079,
+          0.05267083644795441,
+          0.04881904736977412,
+          0.04520961598557806,
+          0.04185020961774362,
+          0.03874421074401087,
+          0.03589045056206683,
+          0.03328318821446248,
+          0.03091232772331885,
+          0.028763850800306797,
+          0.02682043215562282,
+          0.025062195178489975,
+          0.023467560158965995,
+          0.02201413464814563,
+          0.020679596032962783,
+          0.01944251971128723,
+          0.018283112044597687,
+          0.017183815081302338,
+          0.01612975933621736,
+          0.015109051068173401,
+          0.014112890870972894,
+          0.013135530337316195,
+          0.012174082467068168,
+          0.01122820884955855,
+          0.010299712054612881,
+          0.00939206486974537,
+          0.008509908941566986,
+          0.007658554110653497,
+          0.006843506523655954,
+          0.00607004884989745,
+          0.005342890101151592,
+          0.004665896178446248,
+          0.004041905871866789,
+          0.0034726310934475313,
+          0.0029586350183122183,
+          0.0024993778219984312,
+          0.0020933169842860017,
+          0.0017380477098790413,
+          0.0014304688112478006,
+          0.001166960237747062,
+          0.0009435600864992422,
+          0.0007561311330072583,
+          0.000600509409888826,
+          0.00047262989971974366,
+          0.0003686267921324077,
+          0.00028490783631517037,
+          0.00021820400279355637,
+          0.00016559691003278188,
+          0.0001245272744993497,
+          9.278804527887777e-05
+        ]
+      },
+      "id": "panel.fit.density",
+      "kde": {
+        "bandwidth": 0.6069682184147813,
+        "density": [
+          6.50483865535589e-05,
+          8.71156578196328e-05,
+          0.00011564218431737419,
+          0.0001521668913103665,
+          0.0001984877217363186,
+          0.0002566758837369233,
+          0.0003290830955661515,
+          0.0004183399882046633,
+          0.0005273440185837887,
+          0.0006592356156229224,
+          0.0008173618326873179,
+          0.0010052275004709904,
+          0.0012264347292099411,
+          0.0014846125418575885,
+          0.001783339353468057,
+          0.002126061854348182,
+          0.0025160145062251304,
+          0.002956144225975714,
+          0.003449044830560028,
+          0.003996905398442315,
+          0.004601475855422917,
+          0.005264051852477111,
+          0.0059854794564163285,
+          0.006766178454711575,
+          0.007606181354732014,
+          0.008505183627175663,
+          0.009462599595859992,
+          0.010477617779823251,
+          0.011549249570168839,
+          0.012676365927384938,
+          0.013857718288580118,
+          0.015091941967030476,
+          0.01637754281902023,
+          0.017712870593991254,
+          0.019096084886722577,
+          0.02052512168445711,
+          0.021997669888385512,
+          0.023511167691510734,
+          0.0250628282056432,
+          0.026649702243842825,
+          0.028268783780073376,
+          0.029917160516672446,
+          0.0315922084525762,
+          0.03329182565734595,
+          0.035014696914143176,
+          0.03676057776058448,
+          0.038530583929710996,
+          0.04032747039622768,
+          0.042155883208097496,
+          0.04402256700523251,
+          0.04593651152606782,
+          0.04790902139634032,
+          0.04995369501722173,
+          0.05208630039982115,
+          0.05432453836390878,
+          0.056687686717714715,
+          0.05919612298269488,
+          0.061870728038406715,
+          0.06473217880347043,
+          0.06780014470337485,
+          0.07109241002402564,
+          0.07462395195741119,
+          0.07840601168022669,
+          0.08244520248059338,
+          0.08674270397342958,
+          0.09129359401069757,
+          0.09608636926358369,
+          0.10110270107546777,
+          0.10631746478262138,
+          0.11169906835704234,
+          0.11721009042854899,
+          0.12280821938229464,
+          0.12844746555452033,
+          0.13407959908356382,
+          0.13965574837209002,
+          0.14512808001557762,
+          0.15045147189461822,
+          0.15558508800328047,
+          0.1604937670913203,
+          0.16514914735177932,
+          0.1695304655898321,
+          0.17362499038132542,
+          0.1774280729978152,
+          0.1809428253268254,
+          0.1841794584912079,
+          0.18715433727391625,
+          0.1898888219626792,
+          0.19240797947978833,
+          0.19473924888784425,
+          0.1969111424654788,
+          0.1989520531052299,
+          0.2008892229855212,
+          0.20274790897871478,
+          0.20455075905462214,
+          0.2063173931097972,
+          0.20806416318861504,
+          0.20980405367202473,
+          0.21154667296913343,
+          0.21329828529097106,
+          0.2150618343584792,
+          0.21683691995132026,
+          0.21861970205443657,
+          0.2204027245724554,
+          0.22217466940228436,
+          0.2239200701490781,
+          0.22561903098880934,
+          0.22724700831289552,
+          0.2287747193254604,
+          0.23016824162965516,
+          0.23138936052022244,
+          0.23239620631854133,
+          0.23314420344411968,
+          0.23358732747265284,
+          0.2336796382251426,
+          0.2333770284413582,
+          0.23263910152442216,
+          0.2314310708978442,
+          0.22972556010214407,
+          0.22750417873099069,
+          0.22475875573474993,
+          0.22149212861648718,
+          0.2177184136974662,
+          0.21346271702746883,
+          0.20876028490390183,
+          0.20365513398737994,
+          0.19819824003095665,
+          0.19244539773872074,
+          0.18645488915893815,
+          0.18028511199970002,
+          0.17399232105396256,
+          0.16762862540839385,
+          0.1612403623133595,
+          0.1548669375714989,
+          0.1485401849301495,
+          0.1422842566121143,
+          0.13611601732030967,
+          0.13004587814335222,
+          0.12407897760688313,
+          0.11821659674961077,
+          0.11245768474579237,
+          0.10680037148893985,
+          0.10124335303164941,
+          0.09578705340572273,
+          0.09043449010683176,
+          0.08519179805220926,
+          0.08006839563587977,
+          0.07507680426326074,
+          0.07023215740831529,
+          0.06555145521824676,
+          0.061052634944989054,
+          0.05675353552001079,
+          0.05267083644795441,
+          0.04881904736977412,
+          0.04520961598557806,
+          0.04185020961774362,
+          0.03874421074401087,
+          0.03589045056206683,
+          0.03328318821446248,
+          0.03091232772331885,
+          0.028763850800306797,
+          0.02682043215562282,
+          0.025062195178489975,
+          0.023467560158965995,
+          0.02201413464814563,
+          0.020679596032962783,
+          0.01944251971128723,
+          0.018283112044597687,
+          0.017183815081302338,
+          0.01612975933621736,
+          0.015109051068173401,
+          0.014112890870972894,
+          0.013135530337316195,
+          0.012174082467068168,
+          0.01122820884955855,
+          0.010299712054612881,
+          0.00939206486974537,
+          0.008509908941566986,
+          0.007658554110653497,
+          0.006843506523655954,
+          0.00607004884989745,
+          0.005342890101151592,
+          0.004665896178446248,
+          0.004041905871866789,
+          0.0034726310934475313,
+          0.0029586350183122183,
+          0.0024993778219984312,
+          0.0020933169842860017,
+          0.0017380477098790413,
+          0.0014304688112478006,
+          0.001166960237747062,
+          0.0009435600864992422,
+          0.0007561311330072583,
+          0.000600509409888826,
+          0.00047262989971974366,
+          0.0003686267921324077,
+          0.00028490783631517037,
+          0.00021820400279355637,
+          0.00016559691003278188,
+          0.0001245272744993497,
+          9.278804527887777e-05
+        ],
+        "grid": [
+          -0.06314811550998845,
+          -0.004308393272721145,
+          0.054531328964546155,
+          0.11337105120181346,
+          0.17221077343908076,
+          0.23105049567634806,
+          0.28989021791361536,
+          0.34872994015088266,
+          0.40756966238814996,
+          0.46640938462541726,
+          0.5252491068626846,
+          0.5840888290999519,
+          0.6429285513372192,
+          0.7017682735744865,
+          0.7606079958117538,
+          0.8194477180490211,
+          0.8782874402862884,
+          0.9371271625235555,
+          0.995966884760823,
+          1.0548066069980904,
+          1.1136463292353576,
+          1.1724860514726247,
+          1.2313257737098922,
+          1.2901654959471596,
+          1.3490052181844268,
+          1.407844940421694,
+          1.4666846626589614,
+          1.5255243848962288,
+          1.584364107133496,
+          1.6432038293707631,
+          1.7020435516080306,
+          1.760883273845298,
+          1.8197229960825652,
+          1.8785627183198323,
+          1.9374024405570995,
+          1.9962421627943672,
+          2.055081885031634,
+          2.1139216072689013,
+          2.1727613295061694,
+          2.2316010517434366,
+          2.290440773980704,
+          2.349280496217971,
+          2.408120218455238,
+          2.4669599406925053,
+          2.5257996629297725,
+          2.5846393851670397,
+          2.643479107404308,
+          2.702318829641575,
+          2.761158551878842,
+          2.8199982741161094,
+          2.8788379963533766,
+          2.9376777185906437,
+          2.996517440827911,
+          3.055357163065178,
+          3.114196885302446,
+          3.1730366075397134,
+          3.2318763297769806,
+          3.2907160520142478,
+          3.349555774251515,
+          3.408395496488782,
+          3.4672352187260493,
+          3.5260749409633165,
+          3.5849146632005846,
+          3.643754385437852,
+          3.702594107675119,
+          3.761433829912386,
+          3.8202735521496534,
+          3.8791132743869206,
+          3.9379529966241877,
+          3.996792718861456,
+          4.055632441098723,
+          4.11447216333599,
+          4.173311885573257,
+          4.232151607810525,
+          4.290991330047792,
+          4.349831052285059,
+          4.408670774522327,
+          4.467510496759594,
+          4.526350218996861,
+          4.585189941234129,
+          4.644029663471396,
+          4.702869385708663,
+          4.76170910794593,
+          4.820548830183197,
+          4.8793885524204645,
+          4.938228274657733,
+          4.997067996895,
+          5.055907719132267,
+          5.114747441369534,
+          5.173587163606801,
+          5.232426885844069,
+          5.291266608081336,
+          5.350106330318604,
+          5.408946052555871,
+          5.467785774793138,
+          5.526625497030405,
+          5.585465219267673,
+          5.64430494150494,
+          5.703144663742207,
+          5.761984385979474,
+          5.820824108216741,
+          5.879663830454009,
+          5.938503552691277,
+          5.997343274928544,
+          6.056182997165811,
+          6.115022719403078,
+          6.173862441640345,
+          6.2327021638776126,
+          6.291541886114881,
+          6.350381608352148,
+          6.409221330589415,
+          6.468061052826682,
+          6.526900775063949,
+          6.585740497301217,
+          6.644580219538484,
+          6.703419941775751,
+          6.762259664013018,
+          6.821099386250286,
+          6.879939108487553,
+          6.938778830724821,
+          6.997618552962088,
+          7.056458275199355,
+          7.115297997436622,
+          7.174137719673889,
+          7.232977441911157,
+          7.291817164148425,
+          7.350656886385692,
+          7.409496608622959,
+          7.468336330860226,
+          7.527176053097493,
+          7.586015775334761,
+          7.644855497572028,
+          7.703695219809295,
+          7.762534942046563,
+          7.82137466428383,
+          7.880214386521097,
+          7.939054108758364,
+          7.997893830995632,
+          8.056733553232899,
+          8.115573275470165,
+          8.174412997707433,
+          8.2332527199447,
+          8.292092442181968,
+          8.350932164419234,
+          8.409771886656502,
+          8.46861160889377,
+          8.527451331131036,
+          8.586291053368305,
+          8.64513077560557,
+          8.703970497842839,
+          8.762810220080105,
+          8.821649942317373,
+          8.880489664554641,
+          8.939329386791908,
+          8.998169109029176,
+          9.057008831266442,
+          9.11584855350371,
+          9.174688275740976,
+          9.233527997978245,
+          9.29236772021551,
+          9.351207442452779,
+          9.410047164690047,
+          9.468886886927313,
+          9.527726609164581,
+          9.586566331401848,
+          9.645406053639116,
+          9.704245775876382,
+          9.76308549811365,
+          9.821925220350916,
+          9.880764942588184,
+          9.939604664825453,
+          9.998444387062719,
+          10.057284109299987,
+          10.116123831537253,
+          10.174963553774521,
+          10.233803276011788,
+          10.292642998249056,
+          10.351482720486324,
+          10.41032244272359,
+          10.469162164960858,
+          10.528001887198124,
+          10.586841609435393,
+          10.645681331672659,
+          10.704521053909927,
+          10.763360776147195,
+          10.822200498384461,
+          10.88104022062173,
+          10.939879942858996,
+          10.998719665096264,
+          11.05755938733353,
+          11.116399109570798,
+          11.175238831808064,
+          11.234078554045333,
+          11.2929182762826,
+          11.351757998519867,
+          11.410597720757135,
+          11.469437442994401,
+          11.52827716523167,
+          11.587116887468936,
+          11.645956609706204
+        ],
+        "method": "scott",
+        "n": 120
+      },
+      "kind": "kde",
+      "label": "Density",
+      "name": "density",
+      "panelId": "panel.fit",
+      "roles": [
+        "area",
+        "line"
+      ],
+      "svg": {
+        "area": "panel.fit.density.fill",
+        "line": "panel.fit.density.line"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#205ea6",
+        "palette": {
+          "index": 0,
+          "name": "flexoki.light"
+        },
+        "token": "flexoki.blue-600"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.twin.rate.line"
+        }
+      ],
+      "data": {
+        "x": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0
+        ],
+        "y": [
+          2.0,
+          2.479425538604203,
+          2.8414709848078967,
+          2.9974949866040546,
+          2.909297426825682,
+          2.5984721441039564,
+          2.1411200080598674,
+          1.64921677231038,
+          1.2431975046920718,
+          1.022469882334903,
+          1.0410757253368614,
+          1.294459674429608
+        ]
+      },
+      "id": "panel.twin.rate",
+      "kind": "line",
+      "label": "Rate",
+      "name": "rate",
+      "panelId": "panel.twin",
+      "roles": [
+        "line"
+      ],
+      "svg": {
+        "line": "panel.twin.rate.line"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#bc5215",
+        "palette": {
+          "index": 1,
+          "name": "flexoki.light"
+        },
+        "token": "flexoki.orange-600"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.twin.state.line"
+        }
+      ],
+      "data": {
+        "x": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0
+        ],
+        "y": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "id": "panel.twin.state",
+      "kind": "step",
+      "label": "State",
+      "name": "state",
+      "panelId": "panel.twin",
+      "roles": [
+        "line"
+      ],
+      "step": {
+        "drawstyle": "steps-post",
+        "where": "post"
+      },
+      "svg": {
+        "line": "panel.twin.state.line"
+      }
+    },
+    {
+      "axis": "y2",
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#bc5215",
+        "palette": {
+          "index": 1,
+          "name": "flexoki.light"
+        },
+        "token": "flexoki.orange-600"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.twin.temp.line"
+        }
+      ],
+      "data": {
+        "x": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0
+        ],
+        "y": [
+          35.0,
+          34.72478473157369,
+          33.92943630388474,
+          32.7015115293407,
+          31.176187866514947,
+          29.52138225992812,
+          27.91926581726429,
+          26.546209301250617,
+          25.553367158934794,
+          25.050037516997772,
+          25.091629976444604,
+          25.67356578531882
+        ]
+      },
+      "id": "panel.twin.temp",
+      "kind": "line",
+      "label": "Temperature",
+      "name": "temp",
+      "panelId": "panel.twin",
+      "roles": [
+        "line"
+      ],
+      "svg": {
+        "line": "panel.twin.temp.line"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": true
+      },
+      "color": {
+        "hex": "varies",
+        "scale": "mean"
+      },
+      "components": [
+        {
+          "memberRole": "x-hex",
+          "members": [
+            "panel.hex.mean.hex.1.3",
+            "panel.hex.mean.hex.1.4",
+            "panel.hex.mean.hex.1.5",
+            "panel.hex.mean.hex.2.1",
+            "panel.hex.mean.hex.2.2",
+            "panel.hex.mean.hex.2.3",
+            "panel.hex.mean.hex.2.4",
+            "panel.hex.mean.hex.2.5",
+            "panel.hex.mean.hex.2.6",
+            "panel.hex.mean.hex.3.0",
+            "panel.hex.mean.hex.3.1",
+            "panel.hex.mean.hex.3.2",
+            "panel.hex.mean.hex.3.3",
+            "panel.hex.mean.hex.3.4",
+            "panel.hex.mean.hex.3.5",
+            "panel.hex.mean.hex.3.6",
+            "panel.hex.mean.hex.3.7",
+            "panel.hex.mean.hex.4.2",
+            "panel.hex.mean.hex.4.3",
+            "panel.hex.mean.hex.4.4",
+            "panel.hex.mean.hex.4.5",
+            "panel.hex.mean.hex.4.6",
+            "panel.hex.mean.hex.4.7",
+            "panel.hex.mean.hex.5.1",
+            "panel.hex.mean.hex.5.2",
+            "panel.hex.mean.hex.5.3",
+            "panel.hex.mean.hex.5.4",
+            "panel.hex.mean.hex.5.5",
+            "panel.hex.mean.hex.5.6",
+            "panel.hex.mean.hex.5.7",
+            "panel.hex.mean.hex.6.1",
+            "panel.hex.mean.hex.6.2",
+            "panel.hex.mean.hex.6.3",
+            "panel.hex.mean.hex.6.4",
+            "panel.hex.mean.hex.6.5",
+            "panel.hex.mean.hex.6.6",
+            "panel.hex.mean.hex.6.7",
+            "panel.hex.mean.hex.7.2",
+            "panel.hex.mean.hex.7.3",
+            "panel.hex.mean.hex.7.5",
+            "panel.hex.mean.hex.8.6"
+          ],
+          "role": "x-hexbin",
+          "svgId": "panel.hex.mean.hexes"
+        }
+      ],
+      "data": {},
+      "field": {
+        "cmap": "cmasher.rainforest",
+        "cmapSpec": "cmasher.rainforest",
+        "colorScale": "mean",
+        "controlKey": "mean",
+        "extend": "neither",
+        "kind": "hexbin",
+        "label": "mean",
+        "missingColor": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normalization": {
+          "clip": false,
+          "kind": "Normalize",
+          "vmax": 1.5211036590748694,
+          "vmin": -1.808868830236149
+        },
+        "overColor": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "shape": [
+          41
+        ],
+        "underColor": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "hexmatrix": {
+        "aspect": "auto",
+        "bins": [
+          {
+            "col": 3,
+            "count": 2.0,
+            "row": 1,
+            "svgId": "panel.hex.mean.hex.1.3",
+            "value": -0.17428481315547728,
+            "x": -0.7241561933035938,
+            "y": -2.7047882235317244
+          },
+          {
+            "col": 4,
+            "count": 2.0,
+            "row": 1,
+            "svgId": "panel.hex.mean.hex.1.4",
+            "value": -0.13585346628064834,
+            "x": 0.1681591196138923,
+            "y": -2.7047882235317244
+          },
+          {
+            "col": 5,
+            "count": 2.0,
+            "row": 1,
+            "svgId": "panel.hex.mean.hex.1.5",
+            "value": 1.0843317360616282,
+            "x": 1.0604744325313789,
+            "y": -2.7047882235317244
+          },
+          {
+            "col": 1,
+            "count": 1.0,
+            "row": 2,
+            "svgId": "panel.hex.mean.hex.2.1",
+            "value": -0.4583155731512321,
+            "x": -2.9549444755973115,
+            "y": -1.8335498268053092
+          },
+          {
+            "col": 2,
+            "count": 2.0,
+            "row": 2,
+            "svgId": "panel.hex.mean.hex.2.2",
+            "value": -0.21072138982090838,
+            "x": -2.0626291626798245,
+            "y": -1.8335498268053092
+          },
+          {
+            "col": 3,
+            "count": 5.0,
+            "row": 2,
+            "svgId": "panel.hex.mean.hex.2.3",
+            "value": -0.10364327907029665,
+            "x": -1.1703138497623375,
+            "y": -1.8335498268053092
+          },
+          {
+            "col": 4,
+            "count": 13.0,
+            "row": 2,
+            "svgId": "panel.hex.mean.hex.2.4",
+            "value": 0.09386354610652917,
+            "x": -0.27799853684485054,
+            "y": -1.8335498268053092
+          },
+          {
+            "col": 5,
+            "count": 14.0,
+            "row": 2,
+            "svgId": "panel.hex.mean.hex.2.5",
+            "value": 0.3369481102524293,
+            "x": 0.614316776072636,
+            "y": -1.8335498268053092
+          },
+          {
+            "col": 6,
+            "count": 7.0,
+            "row": 2,
+            "svgId": "panel.hex.mean.hex.2.6",
+            "value": 0.3112419907150558,
+            "x": 1.5066320889901235,
+            "y": -1.8335498268053092
+          },
+          {
+            "col": 0,
+            "count": 1.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.0",
+            "value": 1.5210869091729187,
+            "x": -3.401102132056055,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 1,
+            "count": 1.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.1",
+            "value": 0.8306652773920857,
+            "x": -2.5087868191385683,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 2,
+            "count": 8.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.2",
+            "value": -0.5092615350346412,
+            "x": -1.6164715062210808,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 3,
+            "count": 19.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.3",
+            "value": 0.08162537446424092,
+            "x": -0.7241561933035938,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 4,
+            "count": 44.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.4",
+            "value": -0.052395362584271694,
+            "x": 0.1681591196138923,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 5,
+            "count": 23.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.5",
+            "value": 0.08955311288700882,
+            "x": 1.0604744325313789,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 6,
+            "count": 8.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.6",
+            "value": 0.5037664921919185,
+            "x": 1.9527897454488672,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 7,
+            "count": 1.0,
+            "row": 3,
+            "svgId": "panel.hex.mean.hex.3.7",
+            "value": 1.5211036590748694,
+            "x": 2.8451050583663546,
+            "y": -0.9623114300788944
+          },
+          {
+            "col": 2,
+            "count": 5.0,
+            "row": 4,
+            "svgId": "panel.hex.mean.hex.4.2",
+            "value": 0.7675846778291064,
+            "x": -2.0626291626798245,
+            "y": -0.09107303335247918
+          },
+          {
+            "col": 3,
+            "count": 26.0,
+            "row": 4,
+            "svgId": "panel.hex.mean.hex.4.3",
+            "value": 0.07016927085623349,
+            "x": -1.1703138497623375,
+            "y": -0.09107303335247918
+          },
+          {
+            "col": 4,
+            "count": 69.0,
+            "row": 4,
+            "svgId": "panel.hex.mean.hex.4.4",
+            "value": 0.0654630003313792,
+            "x": -0.27799853684485054,
+            "y": -0.09107303335247918
+          },
+          {
+            "col": 5,
+            "count": 42.0,
+            "row": 4,
+            "svgId": "panel.hex.mean.hex.4.5",
+            "value": -0.10714006301014514,
+            "x": 0.614316776072636,
+            "y": -0.09107303335247918
+          },
+          {
+            "col": 6,
+            "count": 17.0,
+            "row": 4,
+            "svgId": "panel.hex.mean.hex.4.6",
+            "value": 0.5179573092859787,
+            "x": 1.5066320889901235,
+            "y": -0.09107303335247918
+          },
+          {
+            "col": 7,
+            "count": 3.0,
+            "row": 4,
+            "svgId": "panel.hex.mean.hex.4.7",
+            "value": 0.2962877449692755,
+            "x": 2.398947401907611,
+            "y": -0.09107303335247918
+          },
+          {
+            "col": 1,
+            "count": 3.0,
+            "row": 5,
+            "svgId": "panel.hex.mean.hex.5.1",
+            "value": 0.15418827411183736,
+            "x": -2.5087868191385683,
+            "y": 0.780165363373936
+          },
+          {
+            "col": 2,
+            "count": 10.0,
+            "row": 5,
+            "svgId": "panel.hex.mean.hex.5.2",
+            "value": -0.1450334605226848,
+            "x": -1.6164715062210808,
+            "y": 0.780165363373936
+          },
+          {
+            "col": 3,
+            "count": 29.0,
+            "row": 5,
+            "svgId": "panel.hex.mean.hex.5.3",
+            "value": 0.06949347664977966,
+            "x": -0.7241561933035938,
+            "y": 0.780165363373936
+          },
+          {
+            "col": 4,
+            "count": 47.0,
+            "row": 5,
+            "svgId": "panel.hex.mean.hex.5.4",
+            "value": 0.13956219638449446,
+            "x": 0.1681591196138923,
+            "y": 0.780165363373936
+          },
+          {
+            "col": 5,
+            "count": 32.0,
+            "row": 5,
+            "svgId": "panel.hex.mean.hex.5.5",
+            "value": -0.09396039771067827,
+            "x": 1.0604744325313789,
+            "y": 0.780165363373936
+          },
+          {
+            "col": 6,
+            "count": 5.0,
+            "row": 5,
+            "svgId": "panel.hex.mean.hex.5.6",
+            "value": -0.7166040519315757,
+            "x": 1.9527897454488672,
+            "y": 0.780165363373936
+          },
+          {
+            "col": 7,
+            "count": 2.0,
+            "row": 5,
+            "svgId": "panel.hex.mean.hex.5.7",
+            "value": 0.1126949914095834,
+            "x": 2.8451050583663546,
+            "y": 0.780165363373936
+          },
+          {
+            "col": 1,
+            "count": 1.0,
+            "row": 6,
+            "svgId": "panel.hex.mean.hex.6.1",
+            "value": 0.9738321991929461,
+            "x": -2.9549444755973115,
+            "y": 1.6514037601003504
+          },
+          {
+            "col": 2,
+            "count": 1.0,
+            "row": 6,
+            "svgId": "panel.hex.mean.hex.6.2",
+            "value": -0.10802119990496993,
+            "x": -2.0626291626798245,
+            "y": 1.6514037601003504
+          },
+          {
+            "col": 3,
+            "count": 8.0,
+            "row": 6,
+            "svgId": "panel.hex.mean.hex.6.3",
+            "value": -0.23808704230206232,
+            "x": -1.1703138497623375,
+            "y": 1.6514037601003504
+          },
+          {
+            "col": 4,
+            "count": 16.0,
+            "row": 6,
+            "svgId": "panel.hex.mean.hex.6.4",
+            "value": -0.08884555542602762,
+            "x": -0.27799853684485054,
+            "y": 1.6514037601003504
+          },
+          {
+            "col": 5,
+            "count": 15.0,
+            "row": 6,
+            "svgId": "panel.hex.mean.hex.6.5",
+            "value": 0.1260603802530349,
+            "x": 0.614316776072636,
+            "y": 1.6514037601003504
+          },
+          {
+            "col": 6,
+            "count": 9.0,
+            "row": 6,
+            "svgId": "panel.hex.mean.hex.6.6",
+            "value": 0.33327935092924077,
+            "x": 1.5066320889901235,
+            "y": 1.6514037601003504
+          },
+          {
+            "col": 7,
+            "count": 1.0,
+            "row": 6,
+            "svgId": "panel.hex.mean.hex.6.7",
+            "value": -0.30122678345494547,
+            "x": 2.398947401907611,
+            "y": 1.6514037601003504
+          },
+          {
+            "col": 2,
+            "count": 1.0,
+            "row": 7,
+            "svgId": "panel.hex.mean.hex.7.2",
+            "value": -1.808868830236149,
+            "x": -1.6164715062210808,
+            "y": 2.5226421568267656
+          },
+          {
+            "col": 3,
+            "count": 3.0,
+            "row": 7,
+            "svgId": "panel.hex.mean.hex.7.3",
+            "value": 1.4168634711860373,
+            "x": -0.7241561933035938,
+            "y": 2.5226421568267656
+          },
+          {
+            "col": 5,
+            "count": 1.0,
+            "row": 7,
+            "svgId": "panel.hex.mean.hex.7.5",
+            "value": -0.06420072913400163,
+            "x": 1.0604744325313789,
+            "y": 2.5226421568267656
+          },
+          {
+            "col": 6,
+            "count": 1.0,
+            "row": 8,
+            "svgId": "panel.hex.mean.hex.8.6",
+            "value": -0.09490149836452257,
+            "x": 1.5066320889901235,
+            "y": 3.393880553553181
+          }
+        ],
+        "binwidth": null,
+        "boxAspect": 0.8956989247311827,
+        "dropped": 0,
+        "extent": [
+          -3.332081302399862,
+          2.914125888022547,
+          -2.995201022440529,
+          3.1912712595277606
+        ],
+        "gridsize": 7,
+        "hexArea": 0.7774193626006608,
+        "hexRadius": 0.070799689880994,
+        "mincnt": 1,
+        "mode": "points",
+        "n": 500,
+        "nBins": 41,
+        "orientation": "pointy",
+        "reduce": "mean",
+        "scale": {
+          "x": "linear",
+          "y": "linear"
+        },
+        "sparse": null,
+        "stat": null,
+        "valueLabel": "mean",
+        "weighted": false
+      },
+      "id": "panel.hex.mean",
+      "kind": "hexmatrix",
+      "name": "mean",
+      "panelId": "panel.hex",
+      "roles": [
+        "x-hexbin"
+      ],
+      "svg": {
+        "x-hexbin": "panel.hex.mean.hexes"
+      }
+    },
+    {
+      "bar": {
+        "baseline": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "center": [
+          0.0,
+          1.0,
+          2.0
+        ],
+        "keys": [
+          "ctl",
+          "low",
+          "high"
+        ],
+        "length": [
+          1.0210941693360742,
+          1.6943688373575,
+          2.8089979051201297
+        ],
+        "orientation": "vertical",
+        "width": [
+          0.8,
+          0.8,
+          0.8
+        ]
+      },
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": true
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#205ea6",
+        "palette": {
+          "index": 0,
+          "name": "flexoki.light"
+        },
+        "token": "flexoki.blue-600"
+      },
+      "components": [
+        {
+          "role": "bar",
+          "svgId": "panel.cells.means.bar.0"
+        },
+        {
+          "role": "bar",
+          "svgId": "panel.cells.means.bar.1"
+        },
+        {
+          "role": "bar",
+          "svgId": "panel.cells.means.bar.2"
+        },
+        {
+          "role": "errorbar",
+          "svgId": "panel.cells.means.errorbar"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.cells.means.cap"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.cells.means.cap.1"
+        }
+      ],
+      "data": {
+        "x": [
+          0.0,
+          1.0,
+          2.0
+        ],
+        "xLabels": [
+          "ctl",
+          "low",
+          "high"
+        ],
+        "y": [
+          1.0210941693360742,
+          1.6943688373575,
+          2.8089979051201297
+        ]
+      },
+      "id": "panel.cells.means",
+      "kind": "bar",
+      "label": "Mean",
+      "name": "means",
+      "panelId": "panel.cells",
+      "roles": [
+        "bar",
+        "cap",
+        "errorbar"
+      ],
+      "svg": {
+        "bars": [
+          "panel.cells.means.bar.0",
+          "panel.cells.means.bar.1",
+          "panel.cells.means.bar.2"
+        ],
+        "cap": "panel.cells.means.cap",
+        "caps": [
+          "panel.cells.means.cap",
+          "panel.cells.means.cap.1"
+        ],
+        "errorbar": "panel.cells.means.errorbar",
+        "errorbars": [
+          "panel.cells.means.errorbar"
+        ]
+      },
+      "uncertainty": {
+        "errShape": "symmetric",
+        "xerr": null,
+        "yerr": [
+          0.43004682455537335,
+          0.4003619381414661,
+          0.3379233067483745
+        ]
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": false
+      },
+      "components": [
+        {
+          "role": "image",
+          "svgId": "panel.image.cells.image"
+        }
+      ],
+      "data": {},
+      "id": "panel.image.cells",
+      "image": {
+        "channels": [
+          {
+            "controlKey": "cells.dapi",
+            "displayRange": [
+              11.833419282536106,
+              308.5078444658325
+            ],
+            "lut": "image.mono:#0000ff",
+            "name": "dapi",
+            "scale": "cells.dapi"
+          },
+          {
+            "controlKey": "cells.gfp",
+            "displayRange": [
+              1.473830099170711,
+              209.64580802980012
+            ],
+            "lut": "image.mono:#008000",
+            "name": "gfp",
+            "scale": "cells.gfp"
+          }
+        ],
+        "composite": "add",
+        "extent": [
+          0.0,
+          8.0,
+          6.0,
+          0.0
+        ],
+        "origin": "upper",
+        "pixelSize": [
+          0.5,
+          0.5
+        ],
+        "shape": [
+          12,
+          16
+        ],
+        "units": "µm"
+      },
+      "kind": "image",
+      "name": "cells",
+      "panelId": "panel.image",
+      "roles": [
+        "image"
+      ],
+      "svg": {
+        "image": "panel.image.cells.image"
+      }
+    }
+  ],
+  "size": {
+    "height": 403.2,
+    "unit": "pt",
+    "width": 691.1999999999999
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": "light",
+    "tokens": {
+      "axis": "#575653",
+      "grid": "#dad8ce",
+      "ink": "#100f0f",
+      "label": "#100f0f",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#575653"
+    }
+  },
+  "svg": "features.svg"
+}

@@ -1,6 +1,6 @@
 {
   "artifact": {
-    "svgSha256": "5768f3601654bfd1d796834066959e74c46dc5dfbef50add8aa0ce1dc44f8e4e"
+    "svgSha256": "f046491cc9c64b5714186ab7a14886a921862805c9bdbb654730dcf1f933efe8"
   },
   "axes": [
     {
@@ -32,6 +32,8 @@
         "label": "Time",
         "scale": "linear",
         "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
         "ticks": [
           {
             "label": "−2",
@@ -73,6 +75,8 @@
         "label": "Response",
         "scale": "linear",
         "supported": true,
+        "tickFormatter": "sci",
+        "tickLocator": "auto",
         "ticks": [
           {
             "label": "0",
@@ -126,6 +130,8 @@
         "label": "Time",
         "scale": "linear",
         "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
         "ticks": [
           {
             "label": "−2",
@@ -167,6 +173,8 @@
         "label": "Response",
         "scale": "linear",
         "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
         "ticks": [
           {
             "label": "0",
@@ -197,7 +205,6 @@
       "panel.small.axis.x",
       "panel.small.axis.y",
       "panel.small.figure.title",
-      "gridlines",
       "panel.small.control.line",
       "panel.small.control.points",
       "panel.large.axis.x",
@@ -231,6 +238,9 @@
       }
     }
   },
+  "figure": {
+    "background": "figure.background"
+  },
   "generator": {
     "matplotlib": "3.11.0",
     "name": "fluxplot",
@@ -262,6 +272,17 @@
       "svgId": "panel.large.axis.y"
     }
   ],
+  "idAliases": {
+    "panel.large.axis.x.spine": "panel.large.axis.x.spine.bottom",
+    "panel.large.axis.x.spine-2": "panel.large.axis.x.spine.top",
+    "panel.large.axis.y.spine": "panel.large.axis.y.spine.left",
+    "panel.large.axis.y.spine-2": "panel.large.axis.y.spine.right",
+    "panel.small.axis.x.spine": "panel.small.axis.x.spine.bottom",
+    "panel.small.axis.x.spine-2": "panel.small.axis.x.spine.top",
+    "panel.small.axis.y.spine": "panel.small.axis.y.spine.left",
+    "panel.small.axis.y.spine-2": "panel.small.axis.y.spine.right",
+    "panel.small.figure.background": "figure.background"
+  },
   "overlays": [],
   "panels": [
     {
@@ -280,12 +301,12 @@
   "parts": {
     "children": [
       {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
         "children": [
-          {
-            "kind": "shape",
-            "ref": "panel.small.figure.background",
-            "role": "background"
-          },
           {
             "children": [
               {
@@ -298,12 +319,12 @@
                 "children": [
                   {
                     "kind": "line",
-                    "ref": "panel.small.axis.x.spine",
+                    "ref": "panel.small.axis.x.spine.bottom",
                     "role": "spine"
                   },
                   {
                     "kind": "line",
-                    "ref": "panel.small.axis.x.spine-2",
+                    "ref": "panel.small.axis.x.spine.top",
                     "role": "spine"
                   },
                   {
@@ -345,12 +366,12 @@
                 "children": [
                   {
                     "kind": "line",
-                    "ref": "panel.small.axis.y.spine",
+                    "ref": "panel.small.axis.y.spine.left",
                     "role": "spine"
                   },
                   {
                     "kind": "line",
-                    "ref": "panel.small.axis.y.spine-2",
+                    "ref": "panel.small.axis.y.spine.right",
                     "role": "spine"
                   },
                   {
@@ -441,12 +462,12 @@
                 "children": [
                   {
                     "kind": "line",
-                    "ref": "panel.large.axis.x.spine",
+                    "ref": "panel.large.axis.x.spine.bottom",
                     "role": "spine"
                   },
                   {
                     "kind": "line",
-                    "ref": "panel.large.axis.x.spine-2",
+                    "ref": "panel.large.axis.x.spine.top",
                     "role": "spine"
                   },
                   {
@@ -488,12 +509,12 @@
                 "children": [
                   {
                     "kind": "line",
-                    "ref": "panel.large.axis.y.spine",
+                    "ref": "panel.large.axis.y.spine.left",
                     "role": "spine"
                   },
                   {
                     "kind": "line",
-                    "ref": "panel.large.axis.y.spine-2",
+                    "ref": "panel.large.axis.y.spine.right",
                     "role": "spine"
                   },
                   {
@@ -576,11 +597,12 @@
     "role": "figure"
   },
   "plotType": "line",
-  "schemaVersion": "0.3.1",
+  "schemaVersion": "0.3.2",
   "series": [
     {
       "capabilities": {
-        "dataMorph": true
+        "dataMorph": true,
+        "valueMorph": false
       },
       "color": {
         "alpha": 1.0,
@@ -651,7 +673,8 @@
     },
     {
       "capabilities": {
-        "dataMorph": true
+        "dataMorph": true,
+        "valueMorph": false
       },
       "color": {
         "alpha": 1.0,
