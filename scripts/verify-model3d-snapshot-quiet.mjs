@@ -7,7 +7,7 @@ const out = 'test-results/model3d/snapshot-quiet'; await mkdir(out, { recursive:
 const fixture = { bytes: (await readFile('scripts/fixtures/model3d/fluxplot/continuous.glb')).toString('base64'), manifest: await readFile('scripts/fixtures/model3d/fluxplot/continuous.fluxplot.json', 'utf8') };
 const { browser, page } = await launch({ width: 1400, height: 1000 });
 const result = {};
-const proxy = () => page.$eval('.zoom-proxy', node => node.src);
+const proxy = () => page.$eval('.zoom-proxy', node => node.dataset.snap);
 const point = () => page.$eval('[data-model3d-poster]', node => { const r = node.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
 const hover = async (ms = 2100) => {
   const p = await point(), start = Date.now(); let moves = 0;
@@ -20,7 +20,7 @@ const hover = async (ms = 2100) => {
 };
 const ready = previous => waitFor(page, previous => {
   const image = document.querySelector('.zoom-proxy');
-  return !!image?.complete && image.naturalWidth > 0 && (!previous || image.src !== previous) && !image.classList.contains('live');
+  return image?.firstElementChild?.width > 0 && (!previous || image.dataset.snap !== previous) && !image.classList.contains('live');
 }, previous, { timeout: 20000, label: 'decoded current zoom proxy after actual quiet' });
 const nudge = async id => {
   const before = await page.evaluate(id => window.__flux.figures()[0].elements.find(e => e.id === id)?.x, id);
@@ -116,8 +116,8 @@ try {
   await ready(settled);
   result.pixels = await page.evaluate(() => {
     const image = document.querySelector('.zoom-proxy'), rect = image.getBoundingClientRect(), mesh = document.querySelector('[data-model3d-poster]').getBoundingClientRect();
-    const c = document.createElement('canvas'); c.width = image.naturalWidth; c.height = image.naturalHeight;
-    const ctx = c.getContext('2d'); ctx.drawImage(image, 0, 0);
+    const c = document.createElement('canvas'); c.width = image.firstElementChild.width; c.height = image.firstElementChild.height;
+    const ctx = c.getContext('2d'); ctx.drawImage(image.firstElementChild, 0, 0);
     const x = Math.max(0, Math.round((mesh.x - rect.x) * c.width / rect.width)), y = Math.max(0, Math.round((mesh.y - rect.y) * c.height / rect.height));
     const w = Math.min(c.width - x, Math.round(mesh.width * c.width / rect.width)), h = Math.min(c.height - y, Math.round(mesh.height * c.height / rect.height));
     const data = ctx.getImageData(x, y, w, h).data; let blue = 0;

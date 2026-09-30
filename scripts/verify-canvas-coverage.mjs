@@ -6,7 +6,7 @@ const h = harness('verify-canvas-coverage');
 const { browser, page } = await launch();
 const fresh = previous => waitFor(page, src => {
   const i = document.querySelector('.zoom-proxy');
-  return i?.complete && i.naturalWidth > 0 && i.src !== src && !i.classList.contains('live');
+  return i?.firstElementChild?.width > 0 && i.dataset.snap !== src && !i.classList.contains('live');
 }, previous ?? '', { timeout: 20000, label: 'current snapshot' });
 try {
   await gotoApp(page, { url: APP_URL + '?fixture=demo', settle: 500 });
@@ -37,7 +37,7 @@ try {
   }), 'zoom immediately after a long pan keeps visible scene coverage');
   await page.keyboard.up('Control'); await sleep(600);
 
-  const before = await page.$eval('.zoom-proxy', i => i.src);
+  const before = await page.$eval('.zoom-proxy', i => i.dataset.snap);
   await page.evaluate(() => {
     const F = window.__flux.fig;
     F.commit(p => { p.figures[0].width = 900; p.figures[0].elements = p.figures[0].elements.slice(0, 1); });
@@ -50,8 +50,8 @@ try {
   await waitFor(page, () => getComputedStyle(document.querySelector('.scene')).opacity === '1', null, { timeout: 1000, label: 'edit reveals live scene' });
   h.ok(!await page.$eval('.zoom-proxy', i => i.classList.contains('live')), 'content edit during zoom retires the stale image immediately');
   await page.keyboard.up('Control'); await sleep(600);
-  const old = await page.$eval('.zoom-proxy', i => i.src); await fresh(old);
-  const ungridded = await page.$eval('.zoom-proxy', i => i.src);
+  const old = await page.$eval('.zoom-proxy', i => i.dataset.snap); await fresh(old);
+  const ungridded = await page.$eval('.zoom-proxy', i => i.dataset.snap);
   await page.evaluate(() => window.__flux.settings.update(s => ({ ...s, showGrid: !s.showGrid })));
   await fresh(ungridded);
   h.ok(true, 'grid appearance invalidates the raster even without a model edit');
@@ -70,7 +70,7 @@ try {
     h.eq(await page.evaluate(() => getSelection().rangeCount > 0), !hidden, hidden ? 'wheel clears a stale selection in a hidden pane' : 'wheel preserves a selection in a visible pane');
   }
   await page.evaluate(() => document.querySelector('#audit-selection')?.remove());
-  const small = await page.$eval('.zoom-proxy', i => i.src);
+  const small = await page.$eval('.zoom-proxy', i => i.dataset.snap);
   await page.setViewport({ width: 2400, height: 1800, deviceScaleFactor: 2 });
   await page.evaluate(() => {
     const F = window.__flux.fig;
@@ -79,10 +79,10 @@ try {
     F.viewport.set({ zoom: 1, panX: -1600, panY: -1300 });
   });
   await fresh(small);
-  const capped = await page.$eval('.zoom-proxy', i => ({ src: i.src, pixels: i.naturalWidth * i.naturalHeight }));
+  const capped = await page.$eval('.zoom-proxy', i => ({ src: i.dataset.snap, pixels: i.firstElementChild.width * i.firstElementChild.height }));
   h.ok(capped.pixels <= 3_000_000, 'actual large DPR=2 Canvas raster respects the physical pixel budget');
   await sleep(4000); // longer than two quiet-capture intervals
-  h.eq(await page.$eval('.zoom-proxy', i => i.src), capped.src, 'pixel-capped snapshots stay cached instead of rebuilding forever at idle');
+  h.eq(await page.$eval('.zoom-proxy', i => i.dataset.snap), capped.src, 'pixel-capped snapshots stay cached instead of rebuilding forever at idle');
   h.eq(realErrors(page), [], 'clean browser console');
 } catch (e) { h.fail(String(e)); console.error(e); }
 await h.done(() => browser.close());

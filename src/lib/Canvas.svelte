@@ -53,7 +53,7 @@
   import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
   import { restorePlotClip, partDomId } from "./plot/parse";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
-  import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
+  import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, coarseScale, proxyCovers, type ZoomSnapshot, type ProxyRaster } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
   import { viewAs, viewAsFilter } from "./color/cvd";
   import { partReadout, readoutText, nodeAttrs } from "./plot/readout";
@@ -810,6 +810,7 @@
   let proxyActive = false;
   let snapScheduled = false;
   let snapGen = 0; // bumps on every scheduling — a stale async snapshot is dropped
+  let snapSerial = 0; // identifies a landed snapshot (data-snap on the proxy; gates compare it)
   // Everything that changes what the MOUNTED scene looks like. Not the viewport,
   // not the baked zoom: the snapshot is drawn in world units at its own raster
   // scale, so pans and folds never invalidate it (only content does).
@@ -843,14 +844,15 @@
   // 1k nodes) plus Blink's parse of the image (~7 ms per 1k nodes). So it waits
   // for the scene to be QUIET (no content change for SNAPSHOT_QUIET_MS — a
   // cold figure's plots arrive one by one and must not trigger one each; a run
-  // of nudges must not host one between two keys), runs in a real idle slot (no
-  // forced timeout), and is skipped altogether above SNAPSHOT_MAX_NODES — that
+  // of nudges must not host one between two keys), runs in an idle slot (a short
+  // timeout only AFTER the quiet interval), and is skipped altogether above SNAPSHOT_MAX_NODES — that
   // scene zooms live, as before. verify-scale-lazy-assets pins that a cold settle
   // stays free of snapshot tasks; the native figure gate pins key-to-paint.
   // Quiet must outlast a working rhythm (nudge, nudge, nudge…): a snapshot that
   // lands between two edits is a 40–150 ms key-to-paint outlier (the production
   // gate caught exactly that at 600 ms). A zoom that starts sooner runs live.
   const SNAPSHOT_QUIET_MS = 1500;
+  const SNAPSHOT_IDLE_TIMEOUT_MS = 300; // after the quiet interval, not instead of it
   // ~7 ms of parse per 1k nodes: 20k ≈ 140 ms at idle is the most this may cost.
   const SNAPSHOT_MAX_NODES = 20_000;
   let snapQuietTimer: ReturnType<typeof setTimeout> | null = null;
@@ -879,9 +881,14 @@
       if (snapScheduled) return;
       snapScheduled = true;
       const gen = snapGen;
-      const ric = (globalThis as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+      const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
       const run = () => { snapIdle = null; void takeSnapshot(gen); };
-      if (ric) snapIdle = ric(run);
+      // The quiet interval already proved the user idle; the timeout only covers
+      // Chromium postponing idle periods on a visible window that renders no
+      // frames (seen on Wayland and X11 maximized, 2026-09-30): without it the
+      // capture ran when the NEXT gesture woke the frame loop, inside it, and
+      // was thrown away — the proxy was never ready for that gesture.
+      if (ric) snapIdle = ric(run, { timeout: SNAPSHOT_IDLE_TIMEOUT_MS });
       else snapIdle = window.setTimeout(run, 250);
     }, SNAPSHOT_QUIET_MS);
   }
@@ -911,9 +918,14 @@
     if (!box) return; // the scene is out of view — nothing to proxy
     const S = snapshotScale(box, renderZoom, Math.min(2, window.devicePixelRatio || 1));
     if (S === null) return; // a box no image could hold — the gesture runs live
+    const dprS = Math.min(2, window.devicePixelRatio || 1);
+    // ONE serialization and ONE parse of the whole mounted scene; the sharp
+    // region is drawn as a crop of it and the coarse backing
+    // (the whole scene, ≤1 MP) from all of it — the parse is the cost, not the draw.
+    const Sc = coarseScale(scene, box, S, dprS);
     let ser: ReturnType<typeof serializeSceneSnapshot>;
     try {
-      ser = serializeSceneSnapshot(sceneSvgEl, box, S);
+      ser = serializeSceneSnapshot(sceneSvgEl, Sc === null ? box : scene, S);
     } catch {
       return; // a scene we cannot serialize simply has no proxy
     }
@@ -924,65 +936,110 @@
     // <img> as vector content every time its area repaints, and the resting proxy
     // covers the scene — that cost ~20 ms per nudge at 1,600 elements even when
     // the image sat on its own composited layer (2026-09-16). So the image is
-    // rasterized ONCE here, at device resolution, and the <img> shows a PNG whose
-    // tiles are a plain blit. PNG encode and decode run off the main thread.
+    // rasterized ONCE here, at device resolution, into a canvas that is shown
+    // as-is: its texture is a plain blit.
     const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     const svgImg = new Image();
     svgImg.src = svgUrl;
-    let pngUrl: string | undefined;
+    let sharpCanvas: HTMLCanvasElement;
+    let coarse: ProxyRaster | null = null;
+    const sw = Math.max(1, Math.floor(box.bw * S));
+    const sh = Math.max(1, Math.floor(box.bh * S));
     try {
       await svgImg.decode();
       if (snapshotDestroyed || gen !== snapGen || key !== sceneKey || sceneHot) { URL.revokeObjectURL(svgUrl); return; }
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const cw = Math.max(1, Math.floor(ser.w * dpr));
-      const ch = Math.max(1, Math.floor(ser.h * dpr));
-      const canvas = document.createElement("canvas");
-      canvas.width = cw;
-      canvas.height = ch;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("no 2d context");
-      ctx.drawImage(svgImg, 0, 0, cw, ch);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-      if (!blob) throw new Error("toBlob failed");
-      pngUrl = URL.createObjectURL(blob);
-      const png = new Image();
-      png.src = pngUrl;
-      await png.decode();
+      const dpr = dprS;
+      // Intrinsic px of the serialized image per world unit (floored sizes, exact per axis).
+      const kx = ser.w / (Sc === null ? box.bw : scene.bw);
+      const ky = ser.h / (Sc === null ? box.bh : scene.bh);
+      // The canvas IS the proxy bitmap: no toBlob/PNG round trip. toBlob forced
+      // a synchronous GPU flush + readback of the SVG raster on the main thread
+      // (24 ms for a 0.2 MP canvas, 81 ms for 1 MP here, 2026-09-30); a hosted
+      // accelerated canvas is rasterized by the GPU process and composited as a
+      // plain texture — still a bitmap, never the SVG-image redraw trap.
+      const raster = (sx: number, sy: number, sW: number, sH: number, w: number, h: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.floor(w * dpr));
+        canvas.height = Math.max(1, Math.floor(h * dpr));
+        canvas.style.cssText = `display:block;width:${w}px;height:${h}px`; // block: no line-box baseline offset
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("no 2d context");
+        // A GPU reset loses an accelerated canvas's pixels: never let a blank
+        // bitmap stand in for the scene — drop the snapshot (it re-captures once quiet).
+        canvas.addEventListener("contextlost", () => {
+          if (zoomSnap && (zoomSnap.canvas === canvas || zoomSnap.coarse?.canvas === canvas)) {
+            if (proxyActive) endZoomProxy();
+            zoomSnap = null;
+          }
+        });
+        // Crop by placing the WHOLE image under the canvas clip: the 9-argument
+        // source-rect drawImage is not needed and is no cheaper.
+        const fx = canvas.width / sW, fy = canvas.height / sH;
+        ctx.drawImage(svgImg, -sx * fx, -sy * fy, ser.w * fx, ser.h * fy);
+        return canvas;
+      };
+      sharpCanvas = Sc === null
+        ? raster(0, 0, ser.w, ser.h, ser.w, ser.h)
+        : raster((box.bx - scene.bx) * kx, (box.by - scene.by) * ky, box.bw * kx, box.bh * ky, sw, sh);
+      if (Sc !== null) {
+        const cW = Math.max(1, Math.floor(scene.bw * Sc));
+        const cH = Math.max(1, Math.floor(scene.bh * Sc));
+        coarse = { canvas: raster(0, 0, ser.w, ser.h, cW, cH), bx: scene.bx, by: scene.by, bw: scene.bw, bh: scene.bh, w: cW, h: cH };
+      }
     } catch {
-      if (pngUrl) URL.revokeObjectURL(pngUrl);
       URL.revokeObjectURL(svgUrl);
       return;
     }
     URL.revokeObjectURL(svgUrl);
     if (snapshotDestroyed || gen !== snapGen || key !== sceneKey || proxyActive || !paneActive) {
-      URL.revokeObjectURL(pngUrl);
+      releaseCanvas(sharpCanvas);
+      if (coarse) releaseCanvas(coarse.canvas);
       return;
     }
     const prev = zoomSnap;
-    zoomSnap = { sceneKey: key, url: pngUrl, bx: box.bx, by: box.by, bw: box.bw, bh: box.bh, S, captureZoom: v.zoom, w: ser.w, h: ser.h };
-    if (prev) URL.revokeObjectURL(prev.url);
+    zoomSnap = { sceneKey: key, gen: ++snapSerial, canvas: sharpCanvas, bx: box.bx, by: box.by, bw: box.bw, bh: box.bh, S, captureZoom: v.zoom, w: Sc === null ? ser.w : sw, h: Sc === null ? ser.h : sh, coarse };
+    if (prev) revokeSnapshot(prev);
+  }
+  /** Free a proxy canvas's backing store now rather than at GC. */
+  function releaseCanvas(c: HTMLCanvasElement) {
+    c.width = 0;
+    c.height = 0;
+  }
+  function revokeSnapshot(z: ZoomSnapshot) {
+    releaseCanvas(z.canvas);
+    if (z.coarse) releaseCanvas(z.coarse.canvas);
+  }
+  /** Host a proxy canvas inside its positioned wrapper (swapped when the snapshot is retaken). */
+  function hostCanvas(node: HTMLElement, c: HTMLCanvasElement) {
+    node.replaceChildren(c);
+    return { update(n: HTMLCanvasElement) { if (node.firstChild !== n) node.replaceChildren(n); } };
   }
   function beginZoomProxy() {
     if (!zoomSnap || proxyActive || Object.keys($modelPreviews).length) return;
     if (zoomSnap.sceneKey !== sceneKey || !sceneBox ||
-      !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH })) return;
+      !proxyCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH })) return;
     proxyActive = true;
     // Place it for THIS viewport before it shows (its rest transform is stale by design), then promote.
     proxyDriveRef?.set(zoomProxyTransform(zoomSnap, $viewport.panX, $viewport.panY, $viewport.zoom));
     proxyDriveRef?.hot();
+    if (zoomSnap.coarse) {
+      coarseDriveRef?.set(zoomProxyTransform(zoomSnap.coarse, $viewport.panX, $viewport.panY, $viewport.zoom));
+      coarseDriveRef?.hot();
+    }
   }
   // Bounds/content may change DURING a burst too (zoom out, pan, Undo, a
   // source refresh, slide navigation). Never hide fresh content behind a
   // stale or cropped image. Abort in the same flush as the new viewport.
   $: if (proxyActive && Object.keys($modelPreviews).length) endZoomProxy();
   $: if (proxyActive && zoomSnap && (!paneActive || zoomSnap.sceneKey !== sceneKey ||
-    !sceneBox || !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH }))) endZoomProxy();
+    !sceneBox || !proxyCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH }))) endZoomProxy();
   function endZoomProxy() {
     if (!proxyActive) return;
     // Demote the scene BEFORE the fold's repaint: a non-animating layer waits
     // for its tiles, so the frame that brings the live scene back is complete.
     coolLiveScene();
     proxyDriveRef?.cool();
+    coarseDriveRef?.cool();
     proxyActive = false;
   }
   function coolLiveScene() {
@@ -998,7 +1055,25 @@
     scenePending = null;
   }
   $: proxyTransform = zoomSnap ? zoomProxyTransform(zoomSnap, $viewport.panX, $viewport.panY, $viewport.zoom) : "";
+  $: coarseTransform = zoomSnap?.coarse ? zoomProxyTransform(zoomSnap.coarse, $viewport.panX, $viewport.panY, $viewport.zoom) : "";
   let proxyDriveRef: TransformDrive | null = null;
+  let coarseDriveRef: TransformDrive | null = null;
+  // The coarse backing rides the same live-only drive as the sharp image.
+  function coarseDrive(node: HTMLElement, transform: string) {
+    const d = createTransformDrive(node);
+    d.set(transform);
+    coarseDriveRef = d;
+    if (proxyActive) d.hot();
+    return {
+      update(t: string) {
+        if (proxyActive) d.set(t);
+      },
+      destroy() {
+        d.destroy();
+        if (coarseDriveRef === d) coarseDriveRef = null;
+      },
+    };
+  }
   function proxyDrive(node: HTMLElement, transform: string) {
     const d = createTransformDrive(node);
     d.set(transform);
@@ -1020,7 +1095,7 @@
   onDestroy(() => {
     snapshotDestroyed = true;
     cancelSnapshot();
-    if (zoomSnap) URL.revokeObjectURL(zoomSnap.url);
+    if (zoomSnap) revokeSnapshot(zoomSnap);
   });
   $: if ($viewport.zoom !== renderZoom) scheduleZoomFold();
   // Gesture starts promote in the same event turn their pointerdown runs
@@ -4070,17 +4145,26 @@
   <!-- ZOOM PROXY: an invisible cached raster at rest; it carries a
        zoom burst on the compositor while the live scene above is frozen and
        hidden (rationale in the script). -->
+  {#if zoomSnap?.coarse}
+    <div
+      class="zoom-proxy-coarse"
+      class:live={proxyActive}
+      style:width={`${zoomSnap.coarse.w}px`}
+      style:height={`${zoomSnap.coarse.h}px`}
+      use:hostCanvas={zoomSnap.coarse.canvas}
+      use:coarseDrive={coarseTransform}
+    ></div>
+  {/if}
   {#if zoomSnap}
-    <img
+    <div
       class="zoom-proxy"
       class:live={proxyActive}
-      src={zoomSnap.url}
-      alt=""
-      draggable="false"
+      data-snap={zoomSnap.gen}
       style:width={`${zoomSnap.w}px`}
       style:height={`${zoomSnap.h}px`}
+      use:hostCanvas={zoomSnap.canvas}
       use:proxyDrive={proxyTransform}
-    />
+    ></div>
   {/if}
   </div>
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
@@ -4613,7 +4697,8 @@
        block in the script). `contain: paint` is likewise FORBIDDEN: it clips
        panned content outside the host box. */
   }
-  .zoom-proxy {
+  .zoom-proxy,
+  .zoom-proxy-coarse {
     position: absolute;
     left: 0;
     top: 0;
@@ -4623,7 +4708,8 @@
     will-change: transform; /* its own fixed-size layer: promoted for the gesture, never grows with zoom */
     user-select: none;
   }
-  .zoom-proxy.live {
+  .zoom-proxy.live,
+  .zoom-proxy-coarse.live {
     opacity: 1;
   }
   .scene-svg {

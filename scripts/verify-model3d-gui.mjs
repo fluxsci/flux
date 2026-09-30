@@ -91,14 +91,14 @@ try {
   await page.evaluate(id => { const F = window.__flux; F.fig.partSelection.set(null); F.fig.selection.set(new Set([id])); }, setup.id);
 
   h.section('zoom proxy and residency');
-  await waitFor(page, () => { const i = document.querySelector('.zoom-proxy'); return !!i?.complete && i.naturalWidth > 0 && !i.classList.contains('live'); }, null, { timeout: 20000, label: 'decoded zoom proxy' });
+  await waitFor(page, () => { const i = document.querySelector('.zoom-proxy'); return i?.firstElementChild?.width > 0 && !i.classList.contains('live'); }, null, { timeout: 20000, label: 'decoded zoom proxy' });
   results.proxy = await page.evaluate(id => {
     const i = document.querySelector('.zoom-proxy'), r = i.getBoundingClientRect(), m = document.querySelector(`[data-editor-element-id="${id}"] image[data-model3d-poster]`).getBoundingClientRect();
-    const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; const ctx = c.getContext('2d'); ctx.drawImage(i, 0, 0);
+    const c = document.createElement('canvas'); c.width = i.firstElementChild.width; c.height = i.firstElementChild.height; const ctx = c.getContext('2d'); ctx.drawImage(i.firstElementChild, 0, 0);
     const x = Math.max(0, Math.round((m.x - r.x) * c.width / r.width)), y = Math.max(0, Math.round((m.y - r.y) * c.height / r.height));
     const w = Math.min(c.width - x, Math.round(m.width * c.width / r.width)), ht = Math.min(c.height - y, Math.round(m.height * c.height / r.height));
     const p = ctx.getImageData(x, y, w, ht).data; let blue = 0; for (let k = 0; k < p.length; k += 4) if (p[k + 2] > p[k] + 30 && p[k + 2] > p[k + 1] + 30 && p[k + 3] > 100) blue++;
-    return { blue, pixels: w * ht, crop: { x, y, w, h: ht }, src: i.src };
+    return { blue, pixels: w * ht, crop: { x, y, w, h: ht }, src: i.dataset.snap };
   }, setup.id);
   h.ok(results.proxy.blue > 300, 'actual zoom proxy raster contains blue model pixels');
   point = await center(selector); await page.mouse.move(point.x, point.y); await page.keyboard.down('Control'); await page.mouse.wheel({ deltaY: -60 }); await page.keyboard.up('Control');
