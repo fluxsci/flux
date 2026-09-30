@@ -189,6 +189,11 @@
             {#each ["neither", "min", "max", "both"] as x}<option value={x}>{x}</option>{/each}
           </select></label>
           <button type="button" class="reset" disabled={!v} on:click={() => choose(scale.id, { reset: true })}>Reset</button>
+          {#if scale.alpha}
+            <p class="alpha" data-color-scale-alpha={scale.id} title="A second, opacity channel fluxplot recorded (alpha_by): each element's fill-opacity follows its own value. Edit it in the source (alpha_by, alpha_range, alpha_norm).">
+              Opacity by {scale.alpha.source}: {scale.alpha.range[0]}–{scale.alpha.range[1]}{scale.alpha.norm.kind === "log" ? ", log" : ""}{scale.alpha.norm.vmin != null ? ` over ${scale.alpha.norm.vmin}…${scale.alpha.norm.vmax}` : ""} (source-only)
+            </p>
+          {/if}
         </fieldset>
       {/each}
       {#each legacyKeys as key (key)}

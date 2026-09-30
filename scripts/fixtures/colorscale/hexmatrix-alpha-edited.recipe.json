@@ -7,25 +7,25 @@
   "env": null,
   "generatedAt": "2026-09-30T00:00:00Z",
   "inputs": [],
-  "output": "heatmap-edited.svg",
+  "output": "hexmatrix-alpha-edited.svg",
   "outputs": {
-    "manifest": "heatmap-edited.fluxplot.json",
-    "svg": "heatmap-edited.svg"
+    "manifest": "hexmatrix-alpha-edited.fluxplot.json",
+    "svg": "hexmatrix-alpha-edited.svg"
   },
   "params": {
     "__fluxplot__": {
-      "m": {
+      "mean": {
         "cmap": "crameri.batlow",
         "extend": "neither",
         "norm": {
           "kind": "linear"
         },
-        "vmax": 40.0,
-        "vmin": 10.0
+        "vmax": 1.0,
+        "vmin": -1.0
       }
     }
   },
-  "plot": "heatmap-edited",
+  "plot": "hexmatrix-alpha-edited",
   "provenance": {
     "git": {
       "commit": "3ae245203ac416aac5f4bfe36921bac5a6c6f374",

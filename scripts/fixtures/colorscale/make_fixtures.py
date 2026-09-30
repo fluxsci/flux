@@ -25,6 +25,8 @@ OUT = pathlib.Path(os.environ.get("FLUX_COLORSCALE_OUT") or HERE)
 EDITS = {
     "hexmatrix": {"rates": {"cmap": "magma", "vmax": 20}},
     "heatmap": {"m": {"cmap": "crameri.batlow", "vmin": 10, "vmax": 40, "norm": {"kind": "linear"}}},
+    # B6: a mean map whose opacity is the count per hexagon; the edit recolours, the channel stays
+    "hexmatrix-alpha": {"mean": {"cmap": "crameri.batlow", "vmin": -1, "vmax": 1}},
 }
 
 
@@ -44,6 +46,13 @@ def heatmap(ax):
     fp.colorbar(im, label="Value")
 
 
+def hexmatrix_alpha(ax):
+    rng = np.random.default_rng(5)
+    x, y = rng.normal(size=600), rng.normal(size=600)
+    fp.hexmatrix(x=x, y=y, C=np.tanh(x * y) + rng.normal(0, 0.2, 600), ax=ax, gridsize=8, series="mean",
+                 cmap="viridis", alpha_by="count", alpha_range=(0.25, 1.0), colorbar_label="mean")
+
+
 def save(name, draw, suffix=""):
     fig, ax = plt.subplots(figsize=(3.4, 2.8), layout="constrained")
     draw(ax)
@@ -53,7 +62,7 @@ def save(name, draw, suffix=""):
 
 
 def main():
-    plots = (("hexmatrix", hexmatrix), ("heatmap", heatmap))
+    plots = (("hexmatrix", hexmatrix), ("heatmap", heatmap), ("hexmatrix-alpha", hexmatrix_alpha))
     if os.environ.get("FLUX_PARAMS"):
         # a Flux rerun ("Apply to source"): draw with the controls Flux passed, base names only
         for name, draw in plots:

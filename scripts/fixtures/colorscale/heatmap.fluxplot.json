@@ -1,6 +1,6 @@
 {
   "artifact": {
-    "svgSha256": "6384d15e13d64067dc729bf9712e629bf40c3a6e1a9768de98aae78c5f355f71"
+    "svgSha256": "034284f8fa142b1a50aa6a282043cee57455d17719ae077034399dfc5ac6a07a"
   },
   "axes": [
     {
@@ -31,6 +31,8 @@
         "label": "",
         "scale": "linear",
         "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
         "ticks": [
           {
             "label": "0",
@@ -72,6 +74,8 @@
         "label": "",
         "scale": "linear",
         "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
         "ticks": [
           {
             "label": "0",
@@ -110,7 +114,6 @@
       "axis.x",
       "axis.y",
       "colorbar.color",
-      "gridlines",
       "m.x-heatmap"
     ],
     "presets": {
@@ -435,6 +438,9 @@
       "recolor": "live"
     }
   ],
+  "figure": {
+    "background": "figure.background"
+  },
   "generator": {
     "matplotlib": "3.11.0",
     "name": "fluxplot",
@@ -547,6 +553,12 @@
       ]
     }
   ],
+  "idAliases": {
+    "axis.x.spine": "axis.x.spine.bottom",
+    "axis.x.spine-2": "axis.x.spine.top",
+    "axis.y.spine": "axis.y.spine.left",
+    "axis.y.spine-2": "axis.y.spine.right"
+  },
   "overlays": [],
   "parts": {
     "children": [
@@ -567,12 +579,12 @@
             "children": [
               {
                 "kind": "line",
-                "ref": "axis.x.spine",
+                "ref": "axis.x.spine.bottom",
                 "role": "spine"
               },
               {
                 "kind": "line",
-                "ref": "axis.x.spine-2",
+                "ref": "axis.x.spine.top",
                 "role": "spine"
               },
               {
@@ -613,12 +625,12 @@
             "children": [
               {
                 "kind": "line",
-                "ref": "axis.y.spine",
+                "ref": "axis.y.spine.left",
                 "role": "spine"
               },
               {
                 "kind": "line",
-                "ref": "axis.y.spine-2",
+                "ref": "axis.y.spine.right",
                 "role": "spine"
               },
               {
@@ -782,11 +794,12 @@
     "role": "figure"
   },
   "plotType": "heatmap",
-  "schemaVersion": "0.3.1",
+  "schemaVersion": "0.3.2",
   "series": [
     {
       "capabilities": {
-        "dataMorph": false
+        "dataMorph": false,
+        "valueMorph": true
       },
       "color": {
         "hex": "varies",

@@ -251,6 +251,29 @@ export function effectiveScale(scale: FluxPlotColorScale, view: ColorScaleView |
 }
 
 /** True when `view` changes nothing about `scale` (every field restates the generated value). */
+/** The opacity channel of a scale (fluxplot `alpha_by`, colour-system plan B6). */
+export type ColorScaleAlpha = NonNullable<FluxPlotColorScale["alpha"]>;
+
+/** An element's opacity from the scale's alpha channel and its `data-alpha-value`: fluxplot's
+ *  law — the value runs linearly (or by log10) from `norm.vmin` → `range[0]` to `norm.vmax` →
+ *  `range[1]`, clipped; a missing / non-finite value (or one ≤ 0 under log) takes the low end;
+ *  equal limits give the high end. */
+export function alphaFor(alpha: ColorScaleAlpha, value: number): number {
+  const [a0, a1] = alpha.range;
+  const { vmin, vmax, kind } = alpha.norm;
+  if (vmin == null || vmax == null) return a1;
+  const finite = Number.isFinite(value) && (kind !== "log" || value > 0);
+  if (!finite) return a0;
+  if (!(vmax > vmin)) return a1;
+  const t = kind === "log" ? (Math.log10(value) - Math.log10(vmin)) / (Math.log10(vmax) - Math.log10(vmin)) : (value - vmin) / (vmax - vmin);
+  return a0 + Math.min(1, Math.max(0, t)) * (a1 - a0);
+}
+
+/** matplotlib's short float: `%f` with trailing zeros stripped (`0.310294`, `0.5`, `1`). */
+export function shortFloat(v: number): string {
+  return String(parseFloat(v.toFixed(6)));
+}
+
 export function viewIsIdentity(scale: FluxPlotColorScale, view: ColorScaleView | undefined): boolean {
   if (!view) return true;
   if (view.reversed) return false;

@@ -14,5 +14,12 @@
         "kind": "linear"
       }
     }
+  },
+  "hexmatrix-alpha": {
+    "mean": {
+      "cmap": "crameri.batlow",
+      "vmin": -1,
+      "vmax": 1
+    }
   }
 }

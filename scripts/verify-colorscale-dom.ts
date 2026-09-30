@@ -18,7 +18,7 @@ import { parseHTML } from 'linkedom';
 import { harness } from './lib/harness.mjs';
 import { applyPlotColorScale, restoreColorScales, plotColorScaleIssues } from '../src/lib/plot/colorScaleDom';
 import { colorScalePatch } from '../src/lib/plot/colorScaleControls';
-import { effectiveScale, colorFor } from '../src/lib/plot/colorscale';
+import { effectiveScale, colorFor, alphaFor, shortFloat } from '../src/lib/plot/colorscale';
 import { colormapLut, ensureColormapLuts } from '../src/lib/color/colormapLuts';
 import { lerpColorScales } from '../src/lib/slide/tween';
 import type { FluxPlotManifest } from '../src/lib/plot/types';
@@ -55,7 +55,7 @@ const viewOf = (edit: { cmap?: string; vmin?: number; vmax?: number; norm?: { ki
 
 try {
   await ensureColormapLuts();
-  for (const name of ['hexmatrix', 'heatmap']) {
+  for (const name of ['hexmatrix', 'heatmap', 'hexmatrix-alpha']) {
     const base = load(name), twin = load(`${name}-edited`);
     const [scaleId, edit] = Object.entries(EDITS[name])[0];
     const scale = base.manifest.colorScales!.find(s => s.id === scaleId)!;
@@ -101,6 +101,36 @@ try {
     const eff = effectiveScale(scale, { reversed: true }, colormapLut);
     const wrong = valueNodes(rev, scaleId).filter(n => n.getAttribute('data-missing') !== '1' && paint(n).fill !== colorFor(eff, Number(n.getAttribute('data-value'))).slice(0, 7).toLowerCase());
     h.eq(wrong.length, 0, `${name}: reversed paints through the same law as colorFor`);
+  }
+
+  // B6 — the opacity channel: fill-opacity (and stroke-opacity for fill+stroke paints) follows
+  // each element's data-alpha-value through fluxplot's law, before and after a recolour
+  {
+    const base = load('hexmatrix-alpha');
+    const scale = base.manifest.colorScales!.find(s => s.id === 'mean')!;
+    h.ok(!!scale.alpha && scale.alpha.source === 'count' && scale.alpha.range[0] === 0.25, 'the fixture scale records its alpha channel (count → 0.25…1)');
+    const wrap = mount(base.svg);
+    const nodes = valueNodes(wrap, 'mean').filter(n => n.getAttribute('data-alpha-value'));
+    h.ok(nodes.length >= 20, `${nodes.length} hexagons carry data-alpha-value`);
+    const expect = (n: Element) => shortFloat(alphaFor(scale.alpha!, Number(n.getAttribute('data-alpha-value'))));
+    h.eq(nodes.filter(n => shortFloat(paint(n).fo) !== expect(n) || shortFloat(paint(n).so) !== expect(n)).length, 0, 'as generated, every hexagon\'s fill- and stroke-opacity equal the channel law of its value');
+    applyPlotColorScale(wrap, base.manifest, { mean: { cmap: 'magma', norm: { vmax: 0.5 } } }, 'plot');
+    h.eq(nodes.filter(n => shortFloat(paint(n).fo) !== expect(n) || shortFloat(paint(n).so) !== expect(n)).length, 0, 'after a live recolour every hexagon keeps its channel opacity');
+    h.ok(nodes.some(n => paint(n).fill !== '#000000' && paint(n).fo < 1), 'and is both recoloured and translucent');
+    const lo = alphaFor(scale.alpha!, NaN), hiV = alphaFor(scale.alpha!, scale.alpha!.norm.vmax as number);
+    h.eq([lo, hiV], [0.25, 1], 'a missing value takes the low alpha; the maximum the high');
+    h.ok(Number.isFinite(alphaFor({ source: 'p', range: [0, 1], norm: { kind: 'log', vmin: 0.001, vmax: 1 } }, 0.0316227766)), 'a log channel is finite');
+    h.ok(Math.abs(alphaFor({ source: 'p', range: [0, 1], norm: { kind: 'log', vmin: 0.001, vmax: 1 } }, Math.sqrt(0.001)) - 0.5) < 1e-9, 'a log channel maps the geometric midpoint to the middle alpha');
+    h.eq(alphaFor({ source: 'p', range: [0.2, 0.9], norm: { kind: 'linear', vmin: 3, vmax: 3 } }, 3), 0.9, 'equal limits give the high alpha');
+    // a plain element (no data-alpha-value) under a scale with a channel keeps its own opacity
+    const plain = mount(base.svg);
+    const bare = valueNodes(plain, 'mean')[0];
+    bare.removeAttribute('data-alpha-value');
+    style(drawable(bare)).setProperty('fill-opacity', '0.7');
+    applyPlotColorScale(plain, base.manifest, { mean: { cmap: 'magma' } }, 'plot');
+    h.eq(paint(bare).fo, 0.7, 'an element without a channel value keeps its own opacity through a recolour');
+    restoreColorScales(wrap);
+    h.eq(nodes.filter(n => shortFloat(paint(n).fo) !== expect(n)).length, 0, 'restore leaves the generated opacities');
   }
 
   // issues keep the generated paint

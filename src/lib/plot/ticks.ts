@@ -78,6 +78,26 @@ export function formatTick(v: number, formatter: TickFormatter = "plain"): { tex
   return { text: formatPlain(v) };
 }
 
+/** matplotlib's ScalarFormatter labels for one tick set: every label carries the same number of
+ *  decimals — the fewest that still distinguish the ticks (`_set_format`) — and a unicode minus
+ *  (`axes.unicode_minus`). `["−1.0", "−0.5", "0.0", "0.5", "1.0"]`, `["10", "20", "30"]`. */
+export function scalarLabels(values: number[]): string[] {
+  if (!values.length) return [];
+  const finite = values.filter(Number.isFinite);
+  let range = finite.length ? Math.max(...finite) - Math.min(...finite) : 0;
+  if (range === 0) range = finite.length ? Math.max(...finite.map(Math.abs)) : 0;
+  if (range === 0) range = 1;
+  const oom = Math.floor(Math.log10(range));
+  let sigfigs = Math.max(0, 3 - oom);
+  const thresh = 1e-3 * 10 ** oom;
+  while (sigfigs >= 0) {
+    const off = Math.max(...finite.map((v) => Math.abs(v - Number(v.toFixed(sigfigs)))));
+    if (off < thresh) sigfigs -= 1; else break;
+  }
+  sigfigs += 1;
+  return values.map((v) => (Number.isFinite(v) ? (Math.abs(v) < 0.5 * 10 ** -sigfigs ? 0 : v).toFixed(sigfigs).replace("-", "\u2212") : ""));
+}
+
 /** The ticks for a norm's limits: decades on a log scale, nice steps otherwise. */
 export function ticksFor(kind: string, vmin: number, vmax: number, target = 5): number[] {
   return kind === "log" ? logTicks(vmin, vmax) : linearTicks(vmin, vmax, target);

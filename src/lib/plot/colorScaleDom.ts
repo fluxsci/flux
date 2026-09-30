@@ -18,13 +18,17 @@
 import type { FluxPlotManifest, FluxPlotColorScale, FluxPlotGuide } from "./types";
 import type { ColorScaleView } from "../types";
 import { partDomId } from "./parse";
-import { effectiveScale, parseColormap, slotFor, normalize, INDEX_KINDS, rgbHex, viewIsIdentity,
+import { effectiveScale, parseColormap, slotFor, normalize, INDEX_KINDS, rgbHex, viewIsIdentity, alphaFor, shortFloat,
   type ParsedColormap, type LutResolver, type EffectiveScale } from "./colorscale";
 import { colormapLut } from "../color/colormapLuts";
-import { ticksFor, logMinorTicks, formatTick } from "./ticks";
+import { ticksFor, logMinorTicks, formatTick, scalarLabels } from "./ticks";
 
 type Paint = "fill" | "stroke" | "both";
-interface Binding { nodes: Element[]; values: Float64Array; missing: Uint8Array; paint: Paint; last: Int32Array; tableKey: string }
+interface Binding {
+  nodes: Element[]; values: Float64Array; missing: Uint8Array; paint: Paint; last: Int32Array; tableKey: string;
+  /** Each element's `data-alpha-value` (NaN when it carries none): the scale's opacity channel. */
+  alphaValues: Float64Array | null;
+}
 interface RootState { groups: Map<string, Binding[]>; touched: Set<Element>; keys: Map<string, KeyState[]> }
 interface PristinePaint { fill: string; stroke: string; fillOpacity: string; strokeOpacity: string; hadStyle: boolean }
 interface KeyState { gradient: Element | null; stops: Node[] | null; ticks: TickNode[]; labels: TickNode[]; minors: TickNode[]; clones: Element[]; guide: FluxPlotGuide; offset: number }
@@ -55,15 +59,20 @@ function bindings(root: Element, st: RootState, scaleId: string): Binding[] {
   if (cached) return cached;
   const out: Binding[] = [];
   for (const group of Array.from(root.querySelectorAll(`[data-color-scale="${scaleId.replace(/["\\]/g, "\\$&")}"]`))) {
-    const nodes: Element[] = [], vals: number[] = [], miss: number[] = [];
+    const nodes: Element[] = [], vals: number[] = [], miss: number[] = [], alphas: number[] = [];
+    let anyAlpha = false;
     const candidates = group.matches?.("[data-value],[data-missing]") ? [group] : Array.from(group.querySelectorAll("[data-value],[data-missing]"));
     for (const n of candidates) {
       const missing = n.getAttribute("data-missing") === "1";
       const v = missing ? NaN : Number(n.getAttribute("data-value"));
       if (!missing && !Number.isFinite(v)) continue;
-      nodes.push(n); vals.push(v); miss.push(missing ? 1 : 0);
+      const a = n.getAttribute("data-alpha-value");
+      const av = a == null || a === "" ? NaN : Number(a);
+      if (a != null && a !== "") anyAlpha = true;
+      nodes.push(n); vals.push(v); miss.push(missing ? 1 : 0); alphas.push(av);
     }
-    if (nodes.length) out.push({ nodes, values: Float64Array.from(vals), missing: Uint8Array.from(miss), paint: paintOf(group), last: new Int32Array(nodes.length).fill(-1), tableKey: "" });
+    if (nodes.length) out.push({ nodes, values: Float64Array.from(vals), missing: Uint8Array.from(miss), paint: paintOf(group), last: new Int32Array(nodes.length).fill(-1), tableKey: "",
+      alphaValues: anyAlpha ? Float64Array.from(alphas) : null });
   }
   st.groups.set(scaleId, out);
   return out;
@@ -81,14 +90,23 @@ function capture(node: Element): PristinePaint {
   return rec;
 }
 
-function writePaint(node: Element, st: RootState, paint: Paint, hex: string, alpha: number): void {
+function writePaint(node: Element, st: RootState, paint: Paint, hex: string, alpha: number, channel?: number | "keep"): void {
   for (const d of drawable(node)) {
     capture(d); st.touched.add(d);
     const style = (d as SVGElement).style;
     // matplotlib's SVG writer: a fully transparent colour is `none`, a translucent one carries
-    // its opacity, an opaque one nothing (so a live paint serialises as a regenerated one would)
+    // its opacity, an opaque one nothing (so a live paint serialises as a regenerated one would).
+    // An element under the scale's opacity channel (alpha_by) takes the channel's alpha in
+    // place of the colour's, as matplotlib's per-element alpha does — a transparent (bad)
+    // colour stays transparent.
     const value = alpha <= 0 ? "none" : hex;
-    const opacity = alpha > 0 && alpha < 1 ? String(Math.round(alpha * 1000) / 1000) : "";
+    if (channel === "keep" && alpha > 0) { // the scale has an opacity channel this element is not in: its own opacity stands
+      if (paint !== "stroke") style.setProperty("fill", value);
+      if (paint !== "fill") style.setProperty("stroke", value);
+      continue;
+    }
+    const eff = alpha <= 0 ? 0 : typeof channel === "number" ? channel : alpha;
+    const opacity = eff > 0 && eff < 1 ? shortFloat(eff) : "";
     if (paint !== "stroke") { style.setProperty("fill", value); if (opacity) style.setProperty("fill-opacity", opacity); else style.removeProperty("fill-opacity"); }
     if (paint !== "fill") { style.setProperty("stroke", value); if (opacity) style.setProperty("stroke-opacity", opacity); else style.removeProperty("stroke-opacity"); }
   }
@@ -144,6 +162,7 @@ export function applyPlotColorScale(root: Element, manifest: FluxPlotManifest | 
     const parsed = parseColormap(eff.colormap);
     const integer = INDEX_KINDS.includes(eff.norm.kind);
     const tableKey = `${eff.colormap.name}|${eff.colormap.N}|${eff.colormap.lut[0]}|${eff.colormap.lut[eff.colormap.N - 1]}|${eff.colormap.under}|${eff.colormap.over}|${eff.colormap.bad}`;
+    const alphaChannel = scale.alpha;
     for (const b of bindings(root, state, scale.id)) {
       const fresh = b.tableKey !== tableKey;
       b.tableKey = tableKey;
@@ -153,7 +172,11 @@ export function applyPlotColorScale(root: Element, manifest: FluxPlotManifest | 
         if (!fresh && slot === b.last[i]) { active.add(b.nodes[i]); continue; }
         b.last[i] = slot;
         const c = parsed.colors[slot];
-        writePaint(b.nodes[i], state, b.paint, rgbHex(c), c.a);
+        // the opacity channel (B6): an element carrying data-alpha-value keeps its channel alpha
+        // through every recolour; one without keeps its own opacity
+        const av = b.alphaValues ? b.alphaValues[i] : NaN;
+        const channel = alphaChannel ? (b.alphaValues && !Number.isNaN(av) ? alphaFor(alphaChannel, av) : "keep") : undefined;
+        writePaint(b.nodes[i], state, b.paint, rgbHex(c), c.a, channel);
         active.add(b.nodes[i]);
       }
     }
@@ -305,6 +328,8 @@ function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, sc
     const minors = (k.minors.length && eff.norm.kind === "log" ? logMinorTicks(eff.norm.vmin, eff.norm.vmax, majors.map((p) => p.v)) : [])
       .map((v) => ({ v, pos: at(v) })).filter((p) => Number.isFinite(p.pos));
     const formatter = (g.tickFormatter ?? "plain") as Parameters<typeof formatTick>[1];
+    // a plain (ScalarFormatter) key labels every major with the same decimals and a unicode minus
+    const plainLabels = formatter === "plain" && eff.norm.kind !== "log" ? scalarLabels(majors.map((p) => p.v)) : null;
     const ensure = (list: TickNode[], i: number, kind: string): TickNode => {
       if (i < list.length) return list[i];
       const last = list[list.length - 1];
@@ -328,7 +353,7 @@ function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, sc
       const l = ensure(k.labels, i, "tick-label"); snapshot(l);
       const target = tickTarget(l);
       place(target, vertical, pos + (vertical ? k.offset : 0));
-      const label = formatTick(v, formatter);
+      const label = plainLabels ? { text: plainLabels[i] } : formatTick(v, formatter);
       if (target.tagName.toLowerCase() === "text") {
         if (label.exponent !== undefined) target.innerHTML = `${label.base}<tspan baseline-shift="super" style="font-size: 70%">${label.exponent}</tspan>`;
         else target.textContent = label.text;
