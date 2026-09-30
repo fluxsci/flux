@@ -3610,7 +3610,8 @@ outside this PNG packaging change.
   input event, cheaper prefixIds. Also deferred: Paper loading only the assets the manuscript embeds (the
   100× fix for the hidden-pane reload), the fig watcher's double `figRevision` bump on our own write, and
   ANGLE-Vulkan (`--use-angle=vulkan --enable-features=Vulkan`, −32–42 % GPU raster on Wayland/NVIDIA) as an
-  opt-in. Display facts for this desktop: two Dell 4K panels at 60 Hz that support 120 Hz; native Wayland is
+  opt-in, and the zoom-proxy capture policy (a capture must not start while a button is down / should wait
+  for a short pointer-still moment, or become incremental — ~7 ms of parse per 1k nodes today). Display facts for this desktop: two Dell 4K panels at 60 Hz that support 120 Hz; native Wayland is
   the right default (X11 renders 2.56× the pixels through Mutter's downsample).
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
@@ -9155,9 +9156,10 @@ plus selection-chrome geometry rewrites) — the compositor drive for elements a
 (4) the zoom proxy never decoded (`innerHTML` → `&nbsp;`), was discarded by any re-cull, lost coverage
 past ~2× on zoom-out, paid a 24–81 ms synchronous `toBlob` readback, and its `requestIdleCallback` starved
 on real displays — fixed in `zoomProxy.ts`/Canvas (XML-safe serialization, cull no longer aborts, a coarse
-≤ 1 MP whole-scene backing, the canvas is the bitmap, a 300 ms idle timeout); the 1.5 s quiet window that
-gates the capture is unchanged and is the documented follow-up (a zoom soon after an edit or while the
-pointer keeps moving is still live).
+≤ 1 MP whole-scene backing, the canvas is the bitmap, a 300 ms idle timeout; pointer motion no longer postpones the
+capture and a pointer/wheel gesture re-arms it after 300 ms while keyboard/agent edits keep the 1.5 s
+window). Still live: a zoom within ~0.6 s of releasing a drag or within 1.5 s of opening a figure; and in a
+fast drag rhythm the ~80 ms capture can land on the next press — the documented follow-up (§10).
 Ruled out with numbers: the JS side of a drag (0.5 ms per event, Chromium coalesces to one move per frame)
 and the display/GPU configuration (no main-thread tax; Wayland already best). Numbers in §6; the plot-mount
 cost is the deferred next lever (§10). Gates: new `verify-fig-source-cache`, `verify-resize-preview`,
