@@ -536,7 +536,7 @@ let readCaptionBaselines = new Map<string, CaptionBaseline>();
 // decoded value per absolute path, validated by a fresh stat on every read: any
 // write (atomic tmp+rename -> new inode; in-place -> mtime/ctime/size) re-reads.
 // No stat support (mem bridge) or a failed stat -> plain read, never a hit.
-type FigSourceFile = { key: string; value: unknown };
+type FigSourceFile = { key: string; value: Promise<unknown> };
 let figSourceCacheRoot: string | null = null;
 const figSourceCache = new Map<string, FigSourceFile>();
 async function readFigSourceFile<T>(fig: FileBridge, path: string, seen: Set<string>, read: () => Promise<T>): Promise<T> {
@@ -547,12 +547,16 @@ async function readFigSourceFile<T>(fig: FileBridge, path: string, seen: Set<str
     if (st) key = `${st.mtimeMs}:${st.ctimeMs ?? ""}:${st.size}:${st.ino ?? ""}`;
   } catch { key = null; }
   const hit = key === null ? undefined : figSourceCache.get(path);
-  if (hit && hit.key === key) return hit.value as T;
+  // The entry holds the in-flight read too: overlapping loads (Paper's first
+  // load at open + the first save's re-read) share one read instead of two.
+  if (hit && hit.key === key) return hit.value as Promise<T>;
   // A write between the stat and the read caches newer content under the older
   // key; the next stat differs, so that only costs one extra read.
-  const value = await read();
-  if (key === null) figSourceCache.delete(path);
-  else figSourceCache.set(path, { key, value });
+  const value = read();
+  if (key === null) { figSourceCache.delete(path); return value; }
+  const entry: FigSourceFile = { key, value };
+  figSourceCache.set(path, entry);
+  value.catch(() => { if (figSourceCache.get(path) === entry) figSourceCache.delete(path); });
   return value;
 }
 
