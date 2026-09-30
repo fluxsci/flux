@@ -90,7 +90,8 @@ try {
   const plotSvg = (ys: number[]) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="400"><g id="s.line"><path d="M40 ${ys[0]} L440 ${ys[1]}" stroke="#000" fill="none"/></g></svg>`;
   const plotManifest = (ys: number[]) => JSON.stringify({
-    spec: "fluxplot", schemaVersion: "1", plotType: "line", svg: "", size: { width: 480, height: 400, unit: "px" },
+    // a real 0.3 manifest shape (fluxplot has only ever emitted 0.x; a >0 major is refused as "newer fluxplot")
+    spec: "fluxplot/manifest", schemaVersion: "0.3.0", plotType: "line", svg: "", size: { width: 480, height: 400, unit: "px" },
     axes: [{ x: { scale: "linear", domain: [0, 5], anchors: [{ data: 0, svg: 40 }, { data: 5, svg: 440 }] },
              y: { scale: "linear", domain: [0, 10], anchors: [{ data: 0, svg: 380 }, { data: 10, svg: 20 }] } }],
     series: [{ id: "s", svg: { line: "s.line" }, data: { x: [1, 4], y: ys } }],

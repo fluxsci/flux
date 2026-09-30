@@ -394,6 +394,39 @@ Persistence invariants (all machine-checked — do not weaken):
   `presets.*` is the build-hint fixture `verify-slide-autobuild.ts` pins. Prefer the manifest's
   `role` / `memberRole` over `tree.inferRole` for new code; the regex stays for pre-0.3.1
   manifests.
+  **The schema is vendored, and the types derive from it (F3, 2026-09-30):**
+  `src/lib/plot/schemas/{manifest,recipe}.schema.json` are byte copies of fluxplot's schemas
+  (`scripts/sync-fluxplot-schemas.mjs [--fluxplot <path>]`; `SOURCE.json` records the fluxplot
+  commit), `src/lib/plot/types.gen.ts` is json-schema-to-typescript over them (dev dependency;
+  `--types-only` regenerates), and `plot/types.ts` DERIVES the app types from `types.gen.ts`,
+  narrowing only `spec` (derived manifests), `series.svg` / `points` and the optional
+  `parts` / `build`. Never add a manifest field by hand: change fluxplot's schema, re-sync.
+  `SCHEMAS.manifest` (flux-core `validate` / `validate_plot`) IS the vendored schema for 0.3+
+  manifests; `SCHEMAS.manifestLegacy` keeps the loose reader for pre-0.3 and hand-authored
+  `specVersion` fixtures, and a manifest with neither version key is named as such.
+  `contract.plotTooNew` refuses a manifest whose major exceeds `SUPPORTED_MANIFEST_MAJOR` (0)
+  with a "made by a newer fluxplot" message before any other check. Gate:
+  `verify-fluxplot-schema.ts` (pure): types current, every fluxplot03 fixture validates, a
+  preset name outside the vocabulary and a 1.x manifest are refused. fluxplot's side is
+  `tests/test_schema_complete.py`, which proves its schema declares every emitted key
+  (strict copy), so a re-sync never brings undeclared fields.
+  **colorScales (fluxplot 0.3.1 / plan M2):** every colour-mapped mark's exact law —
+  `colormap.lut` (the full matplotlib table as `#rrggbbaa`, plus under/over/bad), `norm`
+  ({kind, vmin, vmax, clip, extend, vcenter?, gamma?, linthresh?, linscale?, base?,
+  boundaries?}), `mappables` (svg groups it colours), `colorbars`, `recolor` (live | raster |
+  regenerate) and `editable`. Each coloured element carries `data-value` (or `data-missing`),
+  its group `data-color-scale` + `data-paint` (fill | stroke | fill stroke); contour bands add
+  `data-level-low/high`. Colour keys are ONE `<rect>` filled by a hard-stepped
+  `<linearGradient id="<solids>.gradient">` (two stops per LUT entry, user-space along the
+  key's axis) with `anchors` (vmin / vcenter / vmax ↔ svg), `axisLength`, `tickLocator`,
+  `tickFormatter`, `extendParts`. The lookup rule a consumer must reproduce is
+  `lut[trunc(x·N)]`, `x == 1` → last, `x < 0` → under, `x·N ≥ N` → over, NaN → bad (boundary
+  norms yield an index directly); `scripts/fixtures/colorscale_vectors.json` (to be copied from
+  fluxplot with M3) carries the parity vectors. matplotlib omits a BLACK fill from an element's
+  `style` (it is the SVG default) — read an absent fill as `#000000`. Recipe colour controls
+  are v2: `{cmap: name | {lut, under, over, bad}, reversed, vmin, vmax, norm: {kind, …},
+  extend}`, written back completely on every save; the old flat `{cmap, vmin, vmax}` stays
+  valid.
 - **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` on `spec` before the
   2D reader: `fluxplot/scene3d` has its own schema and byte-identical generator fixtures in
   `scripts/fixtures/model3d/fluxplot/`. Invalid or unknown metadata degrades to a plain mesh
@@ -8735,3 +8768,20 @@ pure 360/360 (the guide edit landed during the cohort).
 - `presetForRole` used to force every text role to `fade` BEFORE reading the authored
   animation, so no manifest hint could ever make an annotation rise; refuse the impossible
   (draw-on / scale on text), not the whole hint.
+
+### 2026-09-30 — Vendored fluxplot schema, generated plot types, version ceiling (Claude Fable 5.1, `main`)
+**Work:** Colour-system plan F3 (Flux half): `scripts/sync-fluxplot-schemas.mjs` vendors
+fluxplot's manifest + recipe schemas into `src/lib/plot/schemas/` with the source commit and
+generates `types.gen.ts` (json-schema-to-typescript, new dev dependency); `plot/types.ts` now
+derives from it; flux-core validates 0.3+ manifests with the vendored schema (legacy reader
+kept for pre-0.3 / `specVersion` fixtures); `plotTooNew` refuses a >0.x manifest with a clear
+message. Shared fixtures regenerated with `colorScales`. Gate `verify-fluxplot-schema.ts`.
+check 0/0, check:headless clean, pure 360/361 with the one red being `verify-slide-headless-e2e`'s
+inline fixture declaring `schemaVersion: "1"` (a version fluxplot never emitted); corrected to a
+real `0.3.0` shape and green again.
+**Learnings:**
+- Promoted to §3: the vendoring recipe, the derive-don't-hand-write rule for plot types, the
+  legacy/modern schema split, and the colorScales contract summary (incl. the black-fill
+  omission a DOM recolour must handle).
+- A structural `assert.equal` between two parsed copies of the same JSON is an identity
+  check and fails; `deepEqual` for data (the first cut of the new gate).

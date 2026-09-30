@@ -7,10 +7,24 @@ export function modernPlot(manifest: Pick<FluxPlotManifest, "schemaVersion">): b
   return major > 0 || minor >= 3;
 }
 
+/** The manifest major this Flux understands: fluxplot's 0.x contract (the vendored schema in
+ *  src/lib/plot/schemas/). A later major is a breaking change by definition. */
+export const SUPPORTED_MANIFEST_MAJOR = 0;
+
+/** A clear refusal for a manifest made by a newer fluxplot, or null when it is readable. */
+export function plotTooNew(manifest: Pick<FluxPlotManifest, "schemaVersion">): string | null {
+  const [major] = String(manifest.schemaVersion ?? "0").split(".").map(Number);
+  if (!Number.isFinite(major) || major <= SUPPORTED_MANIFEST_MAJOR) return null;
+  return `Manifest schema ${manifest.schemaVersion} was made by a newer fluxplot than this Flux understands ` +
+    `(it reads ${SUPPORTED_MANIFEST_MAJOR}.x) — update Flux, or regenerate the plot with a matching fluxplot`;
+}
+
 export function plotContractErrors(svg: string, value: unknown, strict = true): string[] {
   const errors: string[] = [];
   if (!value || typeof value !== "object" || Array.isArray(value)) return ["Manifest must be a JSON object"];
   const m = value as FluxPlotManifest;
+  const tooNew = plotTooNew(m);
+  if (tooNew) return [tooNew];
   if (!strict && !modernPlot(m)) return errors;
   if (!Array.isArray(m.series)) return ["Manifest must contain a series array"];
   if (modernPlot(m) && !Array.isArray(m.axes)) return ["Manifest must contain an axes array"];
@@ -58,7 +72,7 @@ export function plotContractErrors(svg: string, value: unknown, strict = true): 
       ref(p.svgId);
       if (!Number.isInteger(p.index) || p.index < 0 || indices.has(p.index) || !Number.isFinite(p.x) || !Number.isFinite(p.y)) errors.push(`Invalid point identity in "${s.id}"`);
       indices.add(p.index);
-      if (data?.x && (data.x[p.index] !== p.x || data.y[p.index] !== p.y)) errors.push(`Point data disagree with source observation in "${s.id}"`);
+      if (data?.x && data.y && (data.x[p.index] !== p.x || data.y[p.index] !== p.y)) errors.push(`Point data disagree with source observation in "${s.id}"`);
     }
   }
   for (const g of m.guides ?? []) { ref(g.svgId); ref(g.mappable); g.parts?.forEach((p) => ref(p.svgId)); }

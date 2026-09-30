@@ -2,63 +2,33 @@
 // emitted by the Python library). The app reads this to know a plot's parts,
 // data values, coordinate mapping, and build order. See Flux_SemanticSVG_Spec.md.
 
-export interface FluxPlotAxis {
-  supported?: boolean;
-  units?: { kind: string; [key: string]: unknown };
-  ticks?: { value: number; label: string }[];
-  scale: string; // linear | log | ...
-  label?: string;
-  base?: number; // for log scales
-  domain: [number, number];
-  anchors: { data: number; svg: number }[]; // data↔SVG-pixel mapping (interpolate)
-}
+import type * as Gen from "./types.gen";
 
-export interface FluxPlotSeries {
-  id: string;
-  name?: string;
-  kind?: string | null;
-  roles?: string[];
+// The generated contract (json-schema-to-typescript over the vendored fluxplot schemas —
+// scripts/sync-fluxplot-schemas.mjs). Everything below DERIVES from it: new manifest fields
+// arrive by re-syncing, and the few narrowings the app relies on are spelled out here.
+export type { Gen };
+
+export type FluxPlotAxis = Gen.Axis;
+
+/** A series. `svg` and `points` are narrowed: the app indexes `svg.line` / `svg.points` as
+ *  strings and `svg.bars` as a list, and a listed point always has finite coordinates
+ *  (fluxplot drops null-coordinate points from `points[]`). */
+export interface FluxPlotSeries extends Omit<Gen.Series, "svg" | "points"> {
   svg: { line?: string; points?: string; bars?: string[]; [k: string]: string | string[] | undefined };
-  data?: { x: (number | null)[]; y: (number | null)[] };
-  panelId?: string;
-  rasterized?: boolean;
-  capabilities?: { dataMorph: boolean };
-  components?: { role: string; svgId: string; members?: string[]; memberRole?: string }[];
-  field?: FluxPlotField;
-  label?: string;
   points?: { index: number; svgId: string; x: number; y: number }[];
 }
 
-export interface FluxPlotGuide {
-  id: string;
-  svgId?: string;
-  role: string;
-  axis?: string;
-  mappable?: string;
-  parts?: { svgId: string; role: string }[];
-  entries?: { series: string }[];
-}
+export type FluxPlotGuide = Gen.Guide;
+export type FluxPlotOverlay = Gen.Overlay;
+export type FluxPlotColorScale = Gen.ColorScale;
+export type FluxPlotRecipe = Gen.FluxPlotRecipeGen;
 
-export interface FluxPlotOverlay {
-  id: string;
-  svgId: string;
-  role: string;
-  name?: string;
-  label?: string;
-  between?: string[];
-  p?: number;
-}
-
-export interface FluxPlotManifest {
+/** The manifest. `spec` is widened (DERIVED manifests for vanilla svgs carry their own spec),
+ *  `parts` / `build` stay optional (pre-0.2.0 manifests lack them). */
+export interface FluxPlotManifest
+  extends Omit<Gen.FluxPlotManifestGen, "spec" | "series" | "guides" | "overlays" | "parts" | "build"> {
   spec: string;
-  schemaVersion: string;
-  generator?: { name: string; version: string; matplotlib?: string };
-  plotType: string;
-  svg: string;
-  size: { width: number; height: number; unit: string };
-  artifact?: { svgSha256?: string };
-  panels?: { id: string; svgId: string; label?: string; index?: number }[];
-  axes: { id?: string; svgId?: string; panelId?: string; projection?: string; x: FluxPlotAxis; y: FluxPlotAxis; pixelBox?: unknown }[];
   series: FluxPlotSeries[];
   guides?: FluxPlotGuide[];
   overlays?: FluxPlotOverlay[];
@@ -67,40 +37,19 @@ export interface FluxPlotManifest {
 }
 
 /** A node in the manifest's hierarchical part tree (the scene graph the generator
- *  emits). A leaf has `id`/`ref`; a group carries `members` (concrete leaf ids); a
- *  container carries `children`. Consumed by buildPartTree/resolveTargets and the
- *  slide player's part targeting. */
-export interface PartNode {
-  id?: string;
-  ref?: string;
-  role?: string;
-  axis?: string;
-  groupRole?: string;
-  /** Role of every id in `members` (fluxplot ≥ 0.3.1: a group's members share
-   *  `groupRole`; a field layer's members are cells / contour-level / x-hex). */
-  memberRole?: string;
-  // Authored display label. fluxplot ≥ 0.3.1 emits one for series (the legend
-  // label, else the series name) and legend entries (the entry text); DERIVED
-  // manifests (plot/derive.ts, for non-fluxplot SVGs) set it so the X-ray shows
-  // "X tick 3" instead of the raw "xtick_3" node id.
-  label?: string;
-  members?: string[];
-  children?: PartNode[];
-}
+ *  emits). A leaf has `id`/`ref` (+ `role` since fluxplot 0.3.1); a group carries
+ *  `members` (concrete leaf ids) with `groupRole` / `memberRole`; a container carries
+ *  `children`. DERIVED manifests (plot/derive.ts) set `label` so the X-ray reads friendly.
+ *  Consumed by buildPartTree/resolveTargets and the slide player's part targeting. */
+export type PartNode = Gen.PartNode;
 
-/** A per-role default animation the generator suggests (manifest.build.presets),
- *  e.g. { animation: "draw-on", durationMs: 400 } or stagger-in with staggerMs.
- *  `animation` is fluxplot's closed vocabulary (presets.PRESET_NAMES): draw-on ·
- *  fade-in · stagger-in · grow-from-baseline · fade-rise · write-on · pop-in.
- *  `delayMs` offsets the reveal inside its phase; `staggerBy` names the data
- *  attribute a stagger-in orders its members by. */
-export interface FluxPlotBuildPreset {
-  animation: string;
-  durationMs?: number;
-  delayMs?: number;
-  staggerMs?: number;
-  staggerBy?: "x" | "y" | "index" | "value" | "count" | "category";
-}
+/** A per-role default animation the generator suggests (manifest.build.presets):
+ *  `animation` is fluxplot's closed vocabulary, `delayMs` offsets the reveal inside its
+ *  phase, `staggerBy` names the data attribute a stagger-in orders its members by. */
+export type FluxPlotBuildPreset = NonNullable<Gen.FluxPlotManifestGen["build"]["presets"]>[string];
+
+/** A field's source-data colour contract; the portable law is colorScales[field.colorScale]. */
+export type FluxPlotField = Gen.Field;
 
 // Flat lookup of one addressable part, resolved from the manifest by semantic id.
 export interface PartInfo {
@@ -113,16 +62,3 @@ export interface PartInfo {
   label?: string;
 }
 
-/** A field's source-data color contract. Raster color changes require regeneration. */
-export interface FluxPlotField {
-  kind: "heatmap" | "contour" | "contourf" | "hexbin" | "scatter";
-  shape: number[];
-  controlKey: string;
-  cmap: string;
-  normalization: { kind: string; vmin: number | null; vmax: number | null; [key: string]: unknown };
-  maskedIndices?: number[];
-  values?: (number | null)[][];
-  levels?: number[];
-  extent?: number[];
-  grid?: { x: number[] | number[][]; y: number[] | number[][] };
-}

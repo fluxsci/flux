@@ -1,4 +1,5 @@
 import scene3dSchema from "../model3d/scene3d.schema.json";
+import fluxplotManifestSchema from "../plot/schemas/manifest.schema.json";
 
 // Versioned JSON Schemas (draft-07) for the Flux project file types. These are
 // the machine contract an agent validates its writes against (AI_agent_considerations
@@ -409,10 +410,15 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  manifest: {
+  // fluxplot's OWN manifest schema, vendored by scripts/sync-fluxplot-schemas.mjs (F3): one
+  // contract for both repos. Pre-0.3 manifests and hand-authored fixtures keyed by `specVersion`
+  // validate against `manifestLegacy` below (see flux-core/validate.ts).
+  manifest: fluxplotManifestSchema as Record<string, unknown>,
+
+  manifestLegacy: {
     $schema: draft,
-    $id: "flux/fluxplot-manifest.schema.json",
-    title: "FluxPlot semantic-SVG manifest (*.fluxplot.json)",
+    $id: "flux/fluxplot-manifest-legacy.schema.json",
+    title: "FluxPlot semantic-SVG manifest (*.fluxplot.json), pre-0.3 / legacy fixtures",
     type: "object",
     // The FluxPlot library emits `schemaVersion` (+ spec:"fluxplot/manifest");
     // older hand-authored fixtures use `specVersion`. Accept either version key so
@@ -667,6 +673,7 @@ export const SCHEMA_FILENAMES: Record<keyof typeof SCHEMAS, string> = {
   figIndex: "fig-index.schema.json",
   canvas: "canvas.schema.json",
   manifest: "fluxplot-manifest.schema.json",
+  manifestLegacy: "fluxplot-manifest-legacy.schema.json",
   scene3d: "scene3d.schema.json",
   recipe: "recipe.schema.json",
   deck: "deck.schema.json",
