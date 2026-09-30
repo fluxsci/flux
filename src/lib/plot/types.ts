@@ -55,6 +55,9 @@ export type FluxPlotField = Gen.Field;
 export interface PartInfo {
   id: string;
   role: string;
+  /** The manifest's own kind (text | line | shape | container; fluxplot ≥ 0.3.1 writes one on
+   *  every parts-tree node, members inherit their group's) — read before any role table. */
+  kind?: string;
   series?: string;
   index?: number;
   x?: number;

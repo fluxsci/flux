@@ -13,10 +13,36 @@ import type { FluxPlotManifest, PartNode } from "./types";
 // manifest it belongs to, and is re-exported here for existing importers.
 export type { PartNode };
 
+/** A part's kind: what its editors and its reveal animation may assume about it. */
+export type PartKind = "text" | "line" | "shape" | "container";
+
+/** The ONE role → kind fallback (colour-system plan F2). A manifest node's own `kind` wins
+ *  wherever it exists (fluxplot ≥ 0.3.1 writes one on every parts-tree node and `memberRole`
+ *  on groups); this table answers for older manifests, id-inferred roles and role refs. Roles
+ *  it does not name are shapes unless the DOM says otherwise (partStyle.partKind). */
+export const KIND_BY_ROLE: Record<string, PartKind> = {
+  "axis-title": "text", title: "text", subtitle: "text", "tick-label": "text", "legend-label": "text", label: "text",
+  annotation: "text", "colorbar-label": "text", "colorbar-tick-label": "text",
+  line: "line", "reference-line": "line", gridline: "line", spine: "line", errorbar: "line", tick: "line", axis: "line",
+  "significance-bracket": "line", "colorbar-tick": "line", "colorbar-outline": "line",
+  series: "container", "plot-area": "container", figure: "container", legend: "container", "legend-entry": "container",
+  "axis-group": "container", "axes-group": "container", "field-group": "container",
+};
+export const KNOWN_KINDS = new Set<string>(["text", "line", "shape", "container"]);
+export function kindForRole(role: string): PartKind {
+  return KIND_BY_ROLE[role] ?? "shape";
+}
+/** A node's kind: the manifest's, else the role table's. */
+export function kindOfNode(node: { kind?: string | null } | undefined, role: string): PartKind {
+  return node?.kind && KNOWN_KINDS.has(node.kind) ? (node.kind as PartKind) : kindForRole(role);
+}
+
 // A node rendered in the X-Ray tree.
 export interface XrayNode {
   id: string; // the addressable key (override is stored under this)
   role: string;
+  /** text | line | shape | container — the manifest's kind, else the role table's. */
+  kind: PartKind;
   label: string;
   axis?: string;
   isGroup: boolean; // group or container (controls a subtree)
@@ -198,9 +224,11 @@ export function buildPartTree(manifest: FluxPlotManifest | undefined): XrayNode 
     const role = n.role ?? inferRole(id);
     const childNodes = (n.children ?? []).map(toXray);
     const isGroup = role === "group" || childNodes.length > 0;
+    const shownRole = role === "group" ? n.groupRole ?? "group" : role;
     return {
       id,
-      role: role === "group" ? n.groupRole ?? "group" : role,
+      role: shownRole,
+      kind: kindOfNode(n, isGroup && role !== "group" ? "container" : shownRole),
       label: labelFor(n, role),
       axis: n.axis,
       isGroup,

@@ -22,7 +22,7 @@ import { familyOf } from "./family";
 //    "advance" reveals a coherent layer, matching how a presenter narrates.
 // ---------------------------------------------------------------------------
 
-import { buildPartTree, type XrayNode } from "../plot/tree";
+import { buildPartTree, kindForRole, type PartKind, type XrayNode } from "../plot/tree";
 import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
 import { hasTweenableSeries } from "../plot/project";
@@ -51,10 +51,10 @@ const ANIM_TO_PRESET: Record<string, PresetName> = {
   rise: "fadeRise",
 };
 
-// roles that must never draw-on / scale (they're text or fills) — always fade.
-const TEXTISH = new Set(["tick-label", "axis-title", "title", "subtitle", "legend-label", "label", "annotation", "colorbar-label", "colorbar-tick-label"]);
-// roles whose natural reveal is the self-draw (a stroked path).
-const STROKABLE = new Set(["spine", "tick", "line", "reference-line", "significance-bracket", "errorbar"]);
+// What a part MAY do comes from its kind (the manifest's, else tree.KIND_BY_ROLE — plan F2):
+// text never draws on or scales, a stroked line's natural reveal is the self-draw. Gridlines
+// and whole axes fade (a self-drawing grid is noise).
+const NO_DRAW_LINES = new Set(["gridline", "axis", "colorbar-gridline"]);
 
 // a leaf/child role → the high-level build.presets key it inherits from.
 function highLevelKey(role: string): string {
@@ -66,7 +66,7 @@ function highLevelKey(role: string): string {
 // which beat (phase) a role reveals in. Grouping build.order into phases makes
 // each "advance" expose a coherent layer the way a talk is narrated. A colour
 // key is scaffold (it explains the data), so it builds with the axes.
-const PHASE: Record<string, number> = {
+const ROLE_PHASE: Record<string, number> = {
   axis: 0, spine: 0, tick: 0, "tick-label": 0, "axis-title": 0, title: 0, subtitle: 0,
   colorbar: 0, "colorbar-solids": 0, "colorbar-outline": 0, "colorbar-label": 0, "colorbar-tick": 0, "colorbar-tick-label": 0,
   gridline: 1, "colorbar-gridline": 1,
@@ -79,13 +79,13 @@ const PHASE_LABELS = ["Axes", "Gridlines", "Data", "Legend & annotations"];
  *  refusing nonsense (draw-on a text label) and routing points to a stagger.
  *  Bars stagger only when the plot says so; otherwise they grow from their
  *  baseline, the generator's default for them. */
-function presetForRole(role: string, anim?: string): PresetName {
+function presetForRole(role: string, anim?: string, kind: PartKind = kindForRole(role)): PresetName {
   const mapped = anim ? ANIM_TO_PRESET[anim] : undefined;
-  if (TEXTISH.has(role)) return mapped === "fadeRise" ? "fadeRise" : "fade"; // text may fade or rise, never draw/scale
+  if (kind === "text") return mapped === "fadeRise" ? "fadeRise" : "fade"; // text may fade or rise, never draw/scale
   if (role === "point") return "stagger";
   if (role === "bar") return anim === "stagger-in" ? "stagger" : (mapped ?? "growBaseline");
   if (mapped) return mapped;
-  if (STROKABLE.has(role)) return "drawOn";
+  if (kind === "line" && !NO_DRAW_LINES.has(role)) return "drawOn";
   return "fade";
 }
 
@@ -151,8 +151,9 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
   const emit = (node: XrayNode) => {
     if (seen.has(node.id)) return;
     seen.add(node.id);
-    const preset = presetForRole(node.role, animFor(node));
-    const ph = PHASE[node.role] ?? PHASE[highLevelKey(node.role)] ?? 2;
+    const preset = presetForRole(node.role, animFor(node), node.kind);
+    // an unknown role narrates by its kind: text joins the annotations, marks join the data
+    const ph = ROLE_PHASE[node.role] ?? ROLE_PHASE[highLevelKey(node.role)] ?? (node.kind === "text" ? 3 : 2);
     const cfg = presets[node.role] ?? presets[highLevelKey(node.role)];
     phases[ph].push({
       part: node.id,

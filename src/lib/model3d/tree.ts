@@ -16,13 +16,13 @@ function partLabel(part: ReturnType<typeof buildScene3dPartIndex>[string]): stri
   return own && own !== noun ? `${noun} · ${own}` : noun;
 }
 export function buildModel3dTree(manifest?: Scene3dManifest, info?: Pick<Model3dInfo, 'partNames'>): XrayNode {
-  const root: XrayNode = { id: '@model', role: 'model3d', label: '3D model', isGroup: true, targets: [], children: [] };
+  const root: XrayNode = { id: '@model', role: 'model3d', kind: 'container', label: '3D model', isGroup: true, targets: [], children: [] };
   if (!manifest) {
-    root.children = [...new Set(info?.partNames ?? [])].map(id => ({ id, role: 'mesh', label: id, isGroup: false, targets: [id], children: [] }));
+    root.children = [...new Set(info?.partNames ?? [])].map(id => ({ id, role: 'mesh', kind: 'shape' as const, label: id, isGroup: false, targets: [id], children: [] }));
     root.targets = root.children.map(n => n.id); return root;
   }
   const index = buildScene3dPartIndex(manifest), nodes = new Map<string, XrayNode>();
-  for (const part of Object.values(index)) nodes.set(part.id, { id: part.id, role: part.role, label: partLabel(part), isGroup: false, targets: part.synthetic ? [] : [part.id], children: [] });
+  for (const part of Object.values(index)) nodes.set(part.id, { id: part.id, role: part.role, kind: 'shape', label: partLabel(part), isGroup: false, targets: part.synthetic ? [] : [part.id], children: [] });
   for (const part of Object.values(index)) {
     const node = nodes.get(part.id)!;
     const parent = part.parent ? nodes.get(part.parent) : root;

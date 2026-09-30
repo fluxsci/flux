@@ -581,11 +581,14 @@ export function buildPartIndex(m: FluxPlotManifest | undefined): Record<string, 
       const k = n.id ?? n.ref;
       if (k && !idx[k]) {
         const role = n.role === "group" ? (n.groupRole ?? "group") : (n.role ?? inferRole(k));
-        idx[k] = { id: k, role, label: labelForPart(n) };
+        idx[k] = { id: k, role, label: labelForPart(n), ...(n.kind ? { kind: n.kind } : {}) };
       }
       for (const member of n.members ?? []) {
         if (!idx[member]) {
-          idx[member] = { id: member, role: inferRole(member), label: labelForPart({ id: member }) };
+          // a member leaf has no node of its own: the group's memberRole names its role
+          // (fluxplot ≥ 0.3.1, plan F2), the id grammar is the fallback; it shares the group's kind
+          const role = n.memberRole ?? inferRole(member);
+          idx[member] = { id: member, role, label: labelForPart({ id: member, role }), ...(n.kind ? { kind: n.kind } : {}) };
         }
       }
       for (const c of n.children ?? []) walk(c);
@@ -601,7 +604,7 @@ export function buildPartIndex(m: FluxPlotManifest | undefined): Record<string, 
     const bars = s.svg?.bars;
     if (Array.isArray(bars)) bars.forEach((b, i) => (idx[b] = { id: b, role: "bar", series: s.id, index: i }));
   }
-  for (const o of m.overlays ?? []) idx[o.svgId] = { id: o.svgId, role: o.role, label: o.label };
+  for (const o of m.overlays ?? []) idx[o.svgId] = { id: o.svgId, role: o.role, label: o.label, ...(o.kind ? { kind: o.kind } : {}) };
   for (const g of m.guides ?? []) if (g.svgId) idx[g.svgId] = { id: g.svgId, role: g.role };
   return idx;
 }
