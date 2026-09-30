@@ -26,6 +26,11 @@ try {
   await page.evaluate(({ w, h }) => window.__flux.fig.viewport.set({ zoom: 16, panX: w / 2 - 620 * 16, panY: h / 2 - 440 * 16 }), host);
   await waitFor(page, () => document.querySelector('.scene-svg > g').getAttribute('transform') === 'scale(16)', null, { label: 'deep zoom folded' });
   await sleep(250); // real raster has settled before the adverse zoom-out
+  // At 16x culling mounts few nodes, so the scene is under the proxy's density
+  // cap and a snapshot may land 300 ms after the fold (2026-09-30). This gate is
+  // about the LIVE path: a grid toggle re-keys the proxy and starts a full 1.5 s
+  // quiet, so the zoom-out below runs on uncached live SVG throughout.
+  await page.evaluate(() => window.__flux.settings.update(s => ({ ...s, showGrid: !s.showGrid })));
   await page.mouse.move(host.x, host.y);
   await page.keyboard.down('Control');
   const samples = [];
@@ -52,6 +57,7 @@ try {
     return Number(/scale\(([-\d.e]+)/.exec(document.querySelector('.scene-svg > g').getAttribute('transform'))[1]) === v.zoom && !sc.getAnimations().length;
   }, null, { label: 'sharp idle fold' });
   h.eq(await page.evaluate(() => JSON.stringify(window.__flux.get(window.__flux.fig.project))), original, 'zoom leaves all authored project data unchanged');
+  await page.evaluate(() => window.__flux.settings.update(s => ({ ...s, showGrid: !s.showGrid })));
   await page.mouse.wheel({ deltaX: 20 });
   h.eq(await page.$eval('.scene', sc => sc.getAnimations().length), 1, 'translation still uses the fast compositor drive');
   mkdirSync('test-results/zoom-repair', { recursive: true });

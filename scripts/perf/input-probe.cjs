@@ -233,6 +233,7 @@ async function setScenario(name) {
   const parts = name.split('+'); for (const p of parts) if (SCENARIOS[p] === undefined) throw Error('unknown scenario ' + p);
   const css = parts.map((p) => SCENARIOS[p]).join('\n'); // `a+b` combines scenarios
   await js(`window.__noZoomProxy=${/^live/.test(name)}`);
+  if (process.env.PROBE_SNAP_QUIET) await js(`window.__snapQuietMs=${+process.env.PROBE_SNAP_QUIET}`); // scratch-instrumented builds only
   await js(`(()=>{let s=document.getElementById('__probe_css');if(!s){s=document.createElement('style');s.id='__probe_css';document.head.appendChild(s)}s.textContent=${JSON.stringify(css)};return true})()`);
   await sleep(350);
 }
@@ -608,6 +609,12 @@ async function figurePhases(mode = 'figure') {
     if (wantPhase('seqZoomZoom')) { await sleep(2000); R.seqZoomZoom = await measure(`${mode}:${sc}:seqZoomZoom`, async () => { await zb(); await sleep(seqGap || 300); await zb(); await sleep(600); }, tr('seqZoomZoom')); }
     if (wantPhase('seqZoomDragZoom')) { await sleep(2000); R.seqZoomDragZoom = await measure(`${mode}:${sc}:seqZoomDragZoom`, async () => { await zb(); await sleep(300); await shortDrag(); await backToCentre(); await sleep(seqGap || 300); await zb(); await sleep(600); }, tr('seqZoomDragZoom')); await undo(); }
     if (wantPhase('editIdle')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2500); R.editIdle = await measure(`${mode}:${sc}:editIdle`, async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(3500); }, tr('editIdle')); await undo(); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
+    // 13. nudge rhythm: ArrowRight every PROBE_NUDGE_MS (default 600) × 12 on the selected target — a snapshot that lands
+    // between two nudges shows up as a keyPaint (key → second rAF) outlier. Then undo them all.
+    if (wantPhase('nudgeRhythm')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2500); const nms = +(process.env.PROBE_NUDGE_MS || 600); R.nudgeRhythm = await measure(`${mode}:${sc}:nudgeRhythm`, async () => { for (let i = 0; i < 12; i++) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(nms); } await sleep(600); }, tr('nudgeRhythm')); for (let i = 0; i < 12; i++) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] }); await sleep(120); } await sleep(400); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
+    // 14. drag rhythm: 8 short drags of the target, PROBE_DRAG_GAP ms (default 400) apart — a post-gesture snapshot that
+    // lands on the next press shows up in downPaint. Then undo them all.
+    if (wantPhase('dragRhythm')) { await sleep(2000); const gap = +(process.env.PROBE_DRAG_GAP || 400); R.dragRhythm = await measure(`${mode}:${sc}:dragRhythm`, async () => { for (let k = 0; k < 8; k++) { await shortDrag(15); await sleep(gap); } await sleep(400); }, tr('dragRhythm')); for (let i = 0; i < 8; i++) { await undo(); } await backToCentre(); }
     if (wantPhase('seqEditZoom')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2000); R.seqEditZoom = await measure(`${mode}:${sc}:seqEditZoom`, async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(seqGap || 500); await zb(); await sleep(600); }, tr('seqEditZoom')); await undo(); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
     // 12. zoom, then press-drag the target right away (the pointerdown fold, contract §4): downPaint is the hitch.
     // zoomDragNow presses 40 ms after the last tick (unfolded residual → foldZoomNow repaints in the pointerdown turn);

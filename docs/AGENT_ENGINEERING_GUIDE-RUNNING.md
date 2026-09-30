@@ -1755,9 +1755,13 @@ Persistence invariants (all machine-checked — do not weaken):
     throughout the gesture; edits or escaping its bounds restore the live scene
     immediately. Above the density cap, during capture, or without a current image,
     use live rendering. Cancel queued/async captures on changes, pane hide and teardown.
-    Ordinary canvas pointer activity also restarts the snapshot quiet interval: hover
-    is interaction, even without a gesture. Defer pending work only; keep an existing
-    valid bitmap and do not promote the live scene for hover.
+    Pointer motion without a gesture does NOT restart or cancel the snapshot
+    (2026-09-30; it used to, and every "move the mouse, then zoom" ran live):
+    only content changes and gestures do. The quiet is 1.5 s after a content
+    change, 300 ms when the change lands as a pointer/wheel gesture cools (drag →
+    zoom is the common flow; keyboard nudges keep 1.5 s — a 300 ms quiet for them
+    put a ~70 ms snapshot after every nudge). The idle callback has a 300 ms timeout
+    after the quiet (real displays postpone idle callbacks on frameless windows).
     Quality refresh compares zoom with the CAPTURE zoom, not the pixel-capped raster
     scale (the latter caused endless idle captures at high DPI). At settle, demote
     the live layer before its repaint and restore sharp content. Screencasts sample

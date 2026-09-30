@@ -722,6 +722,7 @@
       sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS); // still busy — re-check
     } else {
       sceneHot = false; // idle demotion → full-quality re-raster + tile release
+      gestureCooledAt = performance.now(); // a pointer/wheel gesture just ended: its snapshot may follow quickly
       sceneDriveRef?.cool(); // same frame as the demotion: the plain style holds the value
     }
   }
@@ -852,6 +853,17 @@
   // lands between two edits is a 40–150 ms key-to-paint outlier (the production
   // gate caught exactly that at 600 ms). A zoom that starts sooner runs live.
   const SNAPSHOT_QUIET_MS = 1500;
+  // …except right after a pointer/wheel gesture ends (drag commit, pan, zoom
+  // fold): the owner zooms right after moving things, and a gesture is not a
+  // rhythm of edits the way keyboard nudges are. Measured 2026-09-30 (zoom-path
+  // report): drag → 500 ms → zoom went 0/24 → 24/24 proxied ticks; a 300 ms
+  // quiet for ALL edits instead put a snapshot after every nudge (~70 ms of
+  // main thread each) and raised nudge key-to-paint p50 by up to 30 ms.
+  const SNAPSHOT_QUIET_AFTER_GESTURE_MS = 300;
+  // When the last gesture's scene cooled. Only a scheduling in the same moment
+  // (the cool itself re-runs the scheduling block) gets the short quiet; a
+  // content change later (a nudge, an agent edit) waits the full interval.
+  let gestureCooledAt = -Infinity;
   const SNAPSHOT_IDLE_TIMEOUT_MS = 300; // after the quiet interval, not instead of it
   // ~7 ms of parse per 1k nodes: 20k ≈ 140 ms at idle is the most this may cost.
   const SNAPSHOT_MAX_NODES = 20_000;
@@ -875,6 +887,7 @@
     snapScheduled = false;
   }
   function scheduleSnapshot() {
+    const quiet = performance.now() - gestureCooledAt < 50 ? SNAPSHOT_QUIET_AFTER_GESTURE_MS : SNAPSHOT_QUIET_MS;
     cancelSnapshot();
     snapQuietTimer = setTimeout(() => {
       snapQuietTimer = null;
@@ -890,7 +903,7 @@
       // was thrown away — the proxy was never ready for that gesture.
       if (ric) snapIdle = ric(run, { timeout: SNAPSHOT_IDLE_TIMEOUT_MS });
       else snapIdle = window.setTimeout(run, 250);
-    }, SNAPSHOT_QUIET_MS);
+    }, quiet);
   }
   async function takeSnapshot(gen: number) {
     snapScheduled = false;
@@ -1045,6 +1058,7 @@
   function coolLiveScene() {
     sceneDriveRef?.cool();
     sceneHot = false;
+    gestureCooledAt = performance.now();
     if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
     sceneCoolTimer = null;
   }
@@ -2487,10 +2501,10 @@
   }
 
   function onPointerMove(e: PointerEvent) {
-    // Hover is interaction too: a pending SVG snapshot can parse/raster for
-    // tens of milliseconds. Keep that work behind the same quiet interval,
-    // without promoting the live scene or invalidating an existing bitmap.
-    if (snapWanted && !Object.keys($modelPreviews).length && paneActive && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
+    // Hover does NOT postpone the zoom snapshot (2026-09-30): the quiet timer
+    // restarts only on content changes and gestures. Restarting it on every
+    // move meant anyone who moved the mouse and then zoomed within the quiet
+    // interval — i.e. every quick zoom — got the live path.
     // Ruler-guide drag (modal — no Gesture).
     if (guideDrag) {
       onGuideDragMove(e);
