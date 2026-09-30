@@ -54,6 +54,7 @@
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
+  import { viewAs, viewAsFilter } from "./color/cvd";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
@@ -3910,7 +3911,7 @@
     style:will-change={sceneHot && !zoomUnsettled && !proxyActive ? "transform" : null}
     style:opacity={proxyActive ? 0 : null}
   >
-    <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg" bind:this={sceneSvgEl}>
+    <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg" bind:this={sceneSvgEl} style:filter={viewAsFilter($viewAs)}>
       <g transform={`scale(${renderZoom})`}>
         {#each visibleFigures as fig (fig.id)}
           {@const bounds = gesture?.kind === "figresize" && gesture.figId === fig.id && frameDraft

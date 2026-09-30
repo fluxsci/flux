@@ -333,6 +333,7 @@
       "verify-colorscale-parity.ts",
       "verify-colorscale-dom.ts",
       "verify-plot-theme.ts",
+      "verify-cvd-filter.ts",
       "verify-colorscale-verb.ts",
       "verify-series-color.ts",
       "verify-slide-stagger.ts",
@@ -1324,6 +1325,14 @@
       "run": [
         "verify-plot-theme.ts",
         "verify-colorscale-dom.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan B3: the View-as colour-deficiency filter (color/cvd.ts, ViewAsToggle) over the canvas root; the matrices are fluxplot's Machado tables.",
+      "glob": "{src/lib/color/cvd.ts,src/lib/ViewAsToggle.svelte,scripts/fixtures/cvd_machado.json}",
+      "run": [
+        "verify-cvd-filter.ts",
         "tier:pure"
       ]
     },
@@ -9394,6 +9403,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-cvd-filter.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "behavior"
     }
