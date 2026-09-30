@@ -235,13 +235,19 @@ const plans = new WeakMap<Element, CachedProjection[]>();
 function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): Projection {
   if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], shapes: [], interpolated: false, axesInfo: new Map() };
   const nodes = roots.get(root) ?? new Set<Element>(); roots.set(root, nodes);
-  const index = new Map<string, Element>();
-  // One lookup per leaf, including unusual punctuation in semantic IDs.
+  // One id index per bind (first element in document order wins, exactly what
+  // root.querySelector('[id="…"]') returned): a per-leaf querySelector scanned
+  // the whole subtree per leaf — ~35 ms for a 3k-leaf hexmatrix mount (perf 2026-09-30).
+  // bind only inserts id-less residue nodes, so the index cannot go stale.
+  let index: Map<string, Element> | null = null;
   const q = (leaf: string): Element | null => {
     const id = elId ? partDomId(elId, leaf) : leaf;
-    const prior = index.get(id); if (prior) return prior;
-    const node = root.querySelector(`[id="${id.replace(/["\\]/g, "\\$&")}"]`);
-    if (node) { index.set(id, node); nodes.add(node); }
+    if (!index) {
+      index = new Map();
+      for (const el of Array.from(root.querySelectorAll("[id]"))) { const v = el.getAttribute("id"); if (v !== null && !index.has(v)) index.set(v, el); }
+    }
+    const node = index.get(id) ?? null;
+    if (node) nodes.add(node);
     return node;
   };
   const panels = new Map<string | undefined, Panel>();
