@@ -2096,8 +2096,11 @@ record in `notes/perf_figure_responsiveness_2026-09-30/README.md`): drag 262–3
 at 16.8 ms p95 (was 317–351); Alt+Shift duplicate-drag 367–391 ms with one ~75 ms mount task (was
 1588–1619 with 217–283 ms stalls); the 3 s after any edit ~50–95 ms (was 870–1190); corner-handle
 resize of the hexmatrix ~500 ms with one ~85 ms release render at 16.7 ms p95 (was 1871 at 200 ms
-p95, ~7 fps); pan 55–80 ms. The remaining hitch class is a synchronous 3k-node plot mount (~60–85 ms:
-the duplicate's copy, the resize/crop release render, a cull re-mount inside a wheel event).
+p95, ~7 fps); pan 55–80 ms; a ctrl-wheel zoom burst after a ≥ 1.5 s pause 93–116 ms with 8–9 ms of
+layout on the zoom proxy (was 303–374 with 113–133 ms of live SVG relayout; the proxy had never
+decoded on this project). The remaining hitch class is a synchronous 3k-node plot mount (~60–85 ms:
+the duplicate's copy, the resize/crop release render, a cull re-mount inside a wheel event), plus the
+~75 ms proxy re-capture 1.5 s after an edit and the live zoom that a burst inside that window still gets.
 
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
@@ -9145,8 +9148,12 @@ of IPC) after every figures autosave — a stat-validated read cache in `figbrid
 re-mounted the whole plot per pointermove — plots now ride a transient transform and render once at
 release (`interact/resizePreview.ts`); (3) every drag frame re-layerized (bare transform writes on `.el`
 plus selection-chrome geometry rewrites) — the compositor drive for elements and a rigid chrome translate;
-(4) the zoom proxy never decoded (`innerHTML` → `&nbsp;`) and was discarded by any re-cull — fixed in
-`zoomProxy.ts`/Canvas (see the zoom-path report for the quiet-timer and canvas-proxy follow-through).
+(4) the zoom proxy never decoded (`innerHTML` → `&nbsp;`), was discarded by any re-cull, lost coverage
+past ~2× on zoom-out, paid a 24–81 ms synchronous `toBlob` readback, and its `requestIdleCallback` starved
+on real displays — fixed in `zoomProxy.ts`/Canvas (XML-safe serialization, cull no longer aborts, a coarse
+≤ 1 MP whole-scene backing, the canvas is the bitmap, a 300 ms idle timeout); the 1.5 s quiet window that
+gates the capture is unchanged and is the documented follow-up (a zoom soon after an edit or while the
+pointer keeps moving is still live).
 Ruled out with numbers: the JS side of a drag (0.5 ms per event, Chromium coalesces to one move per frame)
 and the display/GPU configuration (no main-thread tax; Wayland already best). Numbers in §6; the plot-mount
 cost is the deferred next lever (§10). Gates: new `verify-fig-source-cache`, `verify-resize-preview`,
