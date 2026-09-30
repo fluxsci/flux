@@ -495,6 +495,11 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     F.push({ key: "h", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => (capEl as { cap?: string }).cap ?? "round", apply: (v) => { const ids = [...sel]; mutate((proj) => ops.setElementStyle(proj, ids, { cap: v as "butt" | "round" | "square" })); } });
   }
 
+  // Per-channel alpha. Pushed after every older Fill/Stroke row so their hotkeys
+  // never move (uniqueFieldKeys: the earlier row keeps a contested key).
+  if (shapeEl) property("fillOpacity");
+  if (strokeEl) property("strokeOpacity");
+
   // Presets — save a SINGLE primitive, or a GROUP of primitives + text, to the
   // machine-global design library. Insert side lives on Ctrl+P.
   if (presetableSelection(els)) {

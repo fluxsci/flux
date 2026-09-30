@@ -3,7 +3,7 @@
   import { assetData } from "./assets";
   import { project } from "./store";
   import { assetDisplaySize } from "./ops";
-  import { lineRender, elementBBox, dashAttr } from "./geometry";
+  import { lineRender, elementBBox, dashAttr, channelOpacity } from "./geometry";
   import { pathRender } from "./path";
   import { elementPaints } from "./color/gradient";
   import { blockLayout, letterSpacing } from "./text";
@@ -125,6 +125,8 @@
       stroke={paints.stroke}
       stroke-width={element.strokeWidth}
       stroke-dasharray={dashAttr(element)}
+      fill-opacity={channelOpacity(element.fillOpacity)}
+      stroke-opacity={channelOpacity(element.strokeOpacity)}
     />
   {:else if element.type === "ellipse"}
     <ellipse
@@ -136,6 +138,8 @@
       stroke={paints.stroke}
       stroke-width={element.strokeWidth}
       stroke-dasharray={dashAttr(element)}
+      fill-opacity={channelOpacity(element.fillOpacity)}
+      stroke-opacity={channelOpacity(element.strokeOpacity)}
     />
   {:else if element.type === "line"}
     {@const lr = lineRender(element)}
@@ -157,11 +161,13 @@
       stroke-width={element.strokeWidth}
       stroke-linecap={lr.cap}
       stroke-dasharray={dashAttr(element)}
+      stroke-opacity={channelOpacity(element.strokeOpacity)}
     />
     {#each lr.polys as tri}
       <polygon
         points={tri.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill={paints.heads}
+        fill-opacity={channelOpacity(element.strokeOpacity)}
       />
     {/each}
     {#each lr.vees as v}
@@ -169,6 +175,7 @@
         points={v.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill="none"
         stroke={paints.heads}
+        stroke-opacity={channelOpacity(element.strokeOpacity)}
         stroke-width={element.strokeWidth}
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -195,11 +202,14 @@
       stroke-linejoin="round"
       stroke-linecap={element.cap ?? "round"}
       stroke-dasharray={dashAttr(element)}
+      fill-opacity={channelOpacity(element.fillOpacity)}
+      stroke-opacity={channelOpacity(element.strokeOpacity)}
     />
     {#each pr.polys as tri}
       <polygon
         points={tri.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill={paints.heads}
+        fill-opacity={channelOpacity(element.strokeOpacity)}
       />
     {/each}
     {#each pr.vees as v}
@@ -207,6 +217,7 @@
         points={v.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill="none"
         stroke={paints.heads}
+        stroke-opacity={channelOpacity(element.strokeOpacity)}
         stroke-width={element.strokeWidth}
         stroke-linecap="round"
         stroke-linejoin="round"

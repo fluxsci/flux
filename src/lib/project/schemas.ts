@@ -154,12 +154,16 @@ const ELEMENT_DEF = {
       strokeWidth: { type: "number" },
       cornerRadius: { type: "number" },
       dash: NUMBER_ARRAY,
+      fillOpacity: { type: "number", minimum: 0, maximum: 1 },
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
     }),
     elementBranch("ellipse", [], {
       fill: { type: "string" },
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
       dash: NUMBER_ARRAY,
+      fillOpacity: { type: "number", minimum: 0, maximum: 1 },
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
     }),
     elementBranch("line", ["x1", "y1", "x2", "y2"], {
       x1: { type: "number" },
@@ -171,6 +175,7 @@ const ELEMENT_DEF = {
       arrowStart: {}, // legacy-tolerant
       arrowEnd: {},
       dash: NUMBER_ARRAY,
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
     }),
     elementBranch("path", ["d"], {
       d: { type: "string" },
@@ -180,6 +185,8 @@ const ELEMENT_DEF = {
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
       dash: NUMBER_ARRAY,
+      fillOpacity: { type: "number", minimum: 0, maximum: 1 },
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
       arrowStart: { type: "boolean" },
       arrowEnd: { type: "boolean" },
       arrowStyle: { type: "string" },

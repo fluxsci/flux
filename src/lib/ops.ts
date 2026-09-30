@@ -1440,6 +1440,10 @@ export interface ElementStylePatch {
   arrowSize?: number;
   /** Dash pattern in canvas px for the four stroked primitives; [] = solid. */
   dash?: number[];
+  /** Per-channel alpha 0–1 (fill: rect/ellipse/path; stroke: those + line).
+   *  1 removes the property — opaque is the absence. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   /** Colormap gradients (2026-09-16): set one, or null to return to the solid
    *  colour. A solid `fill` / `stroke` / `color` patch also clears its map. */
   fillMap?: GradientFill | null;
@@ -1490,6 +1494,14 @@ export function detachOnManualEdit(p: Project, e: TextElement, keys: Iterable<st
       return;
     }
   }
+}
+
+// Sanitized channel-alpha write: clamp to 0–1; opaque deletes the property.
+function setChannelOpacity(e: { fillOpacity?: number; strokeOpacity?: number }, key: "fillOpacity" | "strokeOpacity", v: number): void {
+  if (!Number.isFinite(v)) return;
+  const c = Math.min(1, Math.max(0, v));
+  if (c >= 1) delete e[key];
+  else e[key] = c;
 }
 
 // Sanitized dash write: keep only finite non-negative values; empty → solid
@@ -1577,12 +1589,15 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
         if (patch.arrowStyle != null) e.arrowStyle = patch.arrowStyle;
         if (patch.arrowSize != null) e.arrowSize = Math.max(0.5, patch.arrowSize);
         if (patch.dash != null) setDash(e, patch.dash);
+        if (patch.strokeOpacity != null) setChannelOpacity(e, "strokeOpacity", patch.strokeOpacity);
       } else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
         if (patch.fill != null) e.fill = patch.fill;
         if (patch.stroke != null) e.stroke = patch.stroke;
         if (patch.strokeWidth != null) e.strokeWidth = patch.strokeWidth;
         if (e.type === "rect" && patch.cornerRadius != null) e.cornerRadius = patch.cornerRadius;
         if (patch.dash != null) setDash(e, patch.dash);
+        if (patch.fillOpacity != null) setChannelOpacity(e, "fillOpacity", patch.fillOpacity);
+        if (patch.strokeOpacity != null) setChannelOpacity(e, "strokeOpacity", patch.strokeOpacity);
         if (e.type === "path") {
           // Arrowheads on OPEN paths — the same flags as lines. Meaningless on
           // closed paths (renderer ignores them there), but stored regardless

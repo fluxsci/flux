@@ -14,7 +14,9 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { editSession } from "./interact/editSession";
   import { WheelStepper, wheelDelta } from "./interact/wheelLaw";
-  import { project, selection, partSelection, partSelections } from "./store";
+  import { project, selection, partSelection, partSelections, mutate } from "./store";
+  import { setElementStyle } from "./ops";
+  import { numericProperties } from "./interact/elementProperties";
   import { applyColor, applyColormap, addRecentColor, setOpacity, currentColor, currentGradient, nameForHex } from "./colors";
   import { selectionTargets } from "./interact/selectionTargets";
   import { FLEXOKI } from "./flexoki";
@@ -203,8 +205,21 @@
   $: at = rows[cursor.r]?.swatches[Math.min(cursor.c, (rows[cursor.r]?.swatches.length ?? 1) - 1)] ?? null;
   $: shownName = shownHex === "none" ? `no ${target}` : at?.hex.toLowerCase() === shownHex.toLowerCase() ? at.name : nameForHex(shownHex) ?? shownHex;
   $: editable = $partSelection ? [] : $project.figures.flatMap((f) => selectionTargets(f, $selection, { editable: true }));
-  $: opacity = editable[0]?.opacity ?? 1;
-  $: mixedOpacity = editable.some((e) => (e.opacity ?? 1) !== opacity);
+  // The slider edits the PICKED paint's own alpha (fill → fillOpacity, stroke →
+  // strokeOpacity) on the elements that have that channel; a text colour (no
+  // channel) keeps editing the element opacity.
+  $: channel = target === "fill" ? ("fillOpacity" as const) : ("strokeOpacity" as const);
+  $: channelEls = editable.filter((e) => numericProperties[channel].read(e) !== undefined);
+  $: alphaOf = (e: (typeof editable)[number]) => (channelEls.length ? numericProperties[channel].read(e) ?? 1 : e.opacity ?? 1);
+  $: alphaEls = channelEls.length ? channelEls : editable;
+  $: opacity = alphaEls[0] ? alphaOf(alphaEls[0]) : 1;
+  $: mixedOpacity = alphaEls.some((e) => alphaOf(e) !== opacity);
+  $: opacityLabel = channelEls.length ? `${target} opacity` : "opacity";
+  function setAlpha(v: number) {
+    if (!channelEls.length) { setOpacity(v, true); return; }
+    const ids = channelEls.map((e) => e.id), key = channel;
+    mutate((p) => setElementStyle(p, ids, { [key]: v }));
+  }
 
   onMount(() => {
     showColor(currentColor(target));
@@ -391,7 +406,7 @@
         on:input={(e) => onHue(e, false)} on:change={(e) => onHue(e, true)} on:keydown={onRangeKey} />
     </div>
     {#if editable.length}
-      <label class="erow"><span>opacity</span><input type="range" min="0" max="1" step="0.01" value={opacity} aria-valuetext={mixedOpacity ? "Mixed" : `${Math.round(opacity * 100)}%`} on:input={(e) => session.run(() => setOpacity(parseFloat(e.currentTarget.value), true))} on:change={() => session.finish()} on:keydown={onRangeKey} /><output>{mixedOpacity ? "mixed" : `${Math.round(opacity * 100)}%`}</output></label>
+      <label class="erow"><span>{opacityLabel}</span><input type="range" min="0" max="1" step="0.01" value={opacity} aria-label={opacityLabel} aria-valuetext={mixedOpacity ? "Mixed" : `${Math.round(opacity * 100)}%`} on:input={(e) => session.run(() => setAlpha(parseFloat(e.currentTarget.value)))} on:change={() => session.finish()} on:keydown={onRangeKey} /><output>{mixedOpacity ? "mixed" : `${Math.round(opacity * 100)}%`}</output></label>
     {/if}
     <div class="hint"><b>hover</b> preview · <b>click</b>/<b>space</b> apply · <b>wasd</b>/arrows walk · <b>#</b> type a hex · <b>esc</b> revert</div>
   </div>

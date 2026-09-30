@@ -278,6 +278,12 @@ export function arrowHeadLen(
   return head;
 }
 
+/** A per-channel alpha (fillOpacity / strokeOpacity) as an SVG attribute value:
+ *  undefined when absent or opaque, so unchanged elements render byte-identically. */
+export function channelOpacity(v: number | undefined): number | undefined {
+  return v != null && Number.isFinite(v) && v < 1 ? Math.max(0, v) : undefined;
+}
+
 /** The dash pattern as an SVG stroke-dasharray value (undefined = solid). */
 export function dashAttr(e: { dash?: number[] }): string | undefined {
   return e.dash && e.dash.length ? e.dash.join(" ") : undefined;

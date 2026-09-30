@@ -407,8 +407,8 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t): Ele
     // one-sided props: numerics default sensibly, everything else steps
     if (k === "rotation") {
       out[k] = lerpRot(Number(va ?? 0), Number(vb ?? 0), t);
-    } else if (k === "opacity") {
-      out[k] = lerp(Number(va ?? 1), Number(vb ?? 1), t);
+    } else if (k === "opacity" || k === "fillOpacity" || k === "strokeOpacity") {
+      out[k] = lerp(Number(va ?? 1), Number(vb ?? 1), t); // absent = opaque on every channel
     } else if (k === "orbitZoom") {
       out[k] = Math.exp(lerp(Math.log(Number(va ?? 1)), Math.log(Number(vb ?? 1)), t));
     } else if (k === "fields") {

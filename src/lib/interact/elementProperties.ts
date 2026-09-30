@@ -7,7 +7,7 @@ import type { Element, Project } from '../types';
 import { setBoxDim, setElementStyle, detachOnManualEdit, supportsBoxDim } from '../ops';
 import { plotHasContentScaleTargets } from '../plot/store';
 
-export type NumericProperty = 'x' | 'y' | 'width' | 'height' | 'rotation' | 'opacity' | 'strokeWidth' | 'fontSize' | 'lineHeight' | 'letterSpacing' | 'paragraphSpacing' | 'cornerRadius' | 'contentScale' | ModelViewNumber | 'modelFrame';
+export type NumericProperty = 'x' | 'y' | 'width' | 'height' | 'rotation' | 'opacity' | 'strokeWidth' | 'fontSize' | 'lineHeight' | 'letterSpacing' | 'paragraphSpacing' | 'cornerRadius' | 'fillOpacity' | 'strokeOpacity' | 'contentScale' | ModelViewNumber | 'modelFrame';
 export interface NumericDescriptor {
   /** `key` is the property menu's hotkey — LEFT-HAND keys only (1–6, q w e r t, a d g, z x c v b;
    *  f and s are the menu's own): the right hand stays on the wheel. */
@@ -51,6 +51,10 @@ export const numericProperties: Record<NumericProperty, NumericDescriptor> = {
   // 0 is the property's absence, so a reset leaves the file untouched.
   letterSpacing: { label: 'letter spacing (pt)', shortLabel: 'Tracking (pt)', key: 'h', group: 'Text', step: .1, softMin: -2, softMax: 6, read: e => e.type === 'text' ? (e.letterSpacing ?? 0) * .75 : undefined },
   paragraphSpacing: { label: 'paragraph spacing (pt)', shortLabel: 'Para space (pt)', key: 'n', group: 'Text', step: .5, min: 0, softMax: 36, read: e => e.type === 'text' ? (e.paragraphSpacing ?? 0) * .75 : undefined },
+  // Per-channel alpha (owner inbox 2026-09-30): independent of `opacity`, which
+  // multiplies both; 1 is the absence of the property.
+  fillOpacity: { label: 'fill opacity', shortLabel: 'Fill α', key: 'b', group: 'Fill', step: .05, min: 0, max: 1, read: e => e.type === 'rect' || e.type === 'ellipse' || e.type === 'path' ? e.fillOpacity ?? 1 : undefined },
+  strokeOpacity: { label: 'stroke opacity', shortLabel: 'Stroke α', key: 't', group: 'Stroke', step: .05, min: 0, max: 1, read: e => e.type === 'rect' || e.type === 'ellipse' || e.type === 'path' || e.type === 'line' ? e.strokeOpacity ?? 1 : undefined },
   cornerRadius: { label: 'corner radius', shortLabel: 'Radius', key: 'v', group: 'Fill', step: 1, min: 0, softMax: 120, read: e => e.type === 'rect' || e.type === 'path' ? e.cornerRadius ?? 0 : undefined },
   // The K tool's persisted geometric factor for plots (Inspector: Content scale) — a rare row, so an
   // index-finger key (h) per the left-hand policy.
@@ -74,6 +78,7 @@ export function setNumericProperty(project: Project, element: Element, property:
   else if ((MODEL_VIEW_NUMBERS as readonly string[]).includes(property)) setModelView(project, [element.id], { [property]: value });
   else if (property === 'width' || property === 'height') setBoxDim(element, property === 'width' ? 'w' : 'h', value, base);
   else if (property === 'cornerRadius') setElementStyle(project, [element.id], { cornerRadius: value });
+  else if (property === 'fillOpacity' || property === 'strokeOpacity') setElementStyle(project, [element.id], { [property]: value });
   else if (property === 'fontSize' || property === 'lineHeight') {
     if (element.type !== 'text') return;
     element[property] = property === 'fontSize' ? value * 4 / 3 : value;

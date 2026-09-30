@@ -59,6 +59,7 @@
       "verify-fetchflow.ts",
       "verify-figfamily.ts",
       "verify-ops.ts",
+      "verify-channel-opacity.ts",
       "verify-fig-order.ts",
       "verify-doc-order.ts",
       "verify-doc-delete.ts",
@@ -5295,6 +5296,15 @@
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": true,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-channel-opacity.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,

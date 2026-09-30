@@ -34,7 +34,7 @@ import { applyOverrides, partDomId } from "../../plot/parse";
 import { compensatePtTrue, restorePtTrue, compilePtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
-import { elementBBox, dashAttr } from "../../geometry";
+import { elementBBox, dashAttr, channelOpacity } from "../../geometry";
 import { pathRender } from "../../path";
 import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
@@ -278,6 +278,8 @@ export function createTransform(
     set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
     const dash = dashAttr(el);
     if (dash) set(L.body, "stroke-dasharray", dash); else L.body.removeAttribute("stroke-dasharray");
+    for (const [name, v] of [["fill-opacity", channelOpacity(el.fillOpacity)], ["stroke-opacity", channelOpacity(el.strokeOpacity)]] as const)
+      if (v != null) set(L.body, name, String(v)); else L.body.removeAttribute(name);
     for (let i = 0; i < L.fixed.length; i++) {
       const h = morphPlan!.fixedHeads[i], node = L.fixed[i];
       const w = Math.max(el.width, 1e-6), hh = Math.max(el.height, 1e-6);

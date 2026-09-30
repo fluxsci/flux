@@ -1,7 +1,7 @@
 import { xmlEscape as esc } from "./xml";
 import { passivePaint } from "./plot/passiveSvg";
 import type { Element, Figure, ImageElement, TextElement } from "./types";
-import { lineRender, elementBBox, dashAttr } from "./geometry";
+import { lineRender, elementBBox, dashAttr, channelOpacity } from "./geometry";
 import { pathRender } from "./path";
 import { elementPaints, paintDefsSvg } from "./color/gradient";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
@@ -13,6 +13,14 @@ import { model3dStaticSvg, type Model3dSvgContext } from './model3d/static';
 function dashA(e: { dash?: number[] }): string {
   const v = dashAttr(e);
   return v ? ` stroke-dasharray="${v}"` : "";
+}
+// Per-channel alpha attributes (or nothing) — mirrors the canvas channelOpacity.
+function chanA(name: "fill-opacity" | "stroke-opacity", v: number | undefined): string {
+  const o = channelOpacity(v);
+  return o != null ? ` ${name}="${o}"` : "";
+}
+function paintA(e: { fillOpacity?: number; strokeOpacity?: number }, fill = true): string {
+  return (fill ? chanA("fill-opacity", e.fillOpacity) : "") + chanA("stroke-opacity", e.strokeOpacity);
 }
 
 
@@ -176,7 +184,7 @@ export function elementToSvg(
         paintDefsSvg(P) +
           `<rect x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
           `rx="${e.cornerRadius}" fill="${esc(passivePaint(P.fill))}" stroke="${esc(passivePaint(P.stroke))}" ` +
-          `stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
+          `stroke-width="${e.strokeWidth}"${dashA(e)}${paintA(e)}${op(e)}/>`,
       );
     }
     case "ellipse": {
@@ -186,7 +194,7 @@ export function elementToSvg(
         paintDefsSvg(P) +
           `<ellipse cx="${e.x + e.width / 2}" cy="${e.y + e.height / 2}" ` +
           `rx="${e.width / 2}" ry="${e.height / 2}" fill="${esc(passivePaint(P.fill))}" ` +
-          `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
+          `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}"${dashA(e)}${paintA(e)}${op(e)}/>`,
       );
     }
     case "line": {
@@ -199,16 +207,16 @@ export function elementToSvg(
         paintDefsSvg(P) +
         `<line x1="${e.x + lr.x1}" y1="${e.y + lr.y1}" x2="${e.x + lr.x2}" y2="${e.y + lr.y2}" ` +
         `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}" ` +
-        `stroke-linecap="${esc(lr.cap)}"${dashA(e)}${op(e)}/>`;
+        `stroke-linecap="${esc(lr.cap)}"${dashA(e)}${paintA(e, false)}${op(e)}/>`;
       for (const tri of lr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
-        s += `<polygon points="${pts}" fill="${esc(passivePaint(P.heads))}"${op(e)}/>`;
+        s += `<polygon points="${pts}" fill="${esc(passivePaint(P.heads))}"${chanA("fill-opacity", e.strokeOpacity)}${op(e)}/>`;
       }
       for (const v of lr.vees) {
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
           `<polyline points="${pts}" fill="none" stroke="${esc(passivePaint(P.heads))}" ` +
-          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
+          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${chanA("stroke-opacity", e.strokeOpacity)}${op(e)}/>`;
       }
       return rot(e, s);
     }
@@ -219,17 +227,17 @@ export function elementToSvg(
         paintDefsSvg(P) +
         `<path d="${esc(pr.d)}" fill="${esc(passivePaint(P.fill))}" ` +
         `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}" ` +
-        `stroke-linejoin="round" stroke-linecap="${esc(e.cap ?? "round")}"${dashA(e)}${op(e)} ` +
+        `stroke-linejoin="round" stroke-linecap="${esc(e.cap ?? "round")}"${dashA(e)}${paintA(e)}${op(e)} ` +
         `transform="translate(${e.x} ${e.y})"/>`;
       for (const tri of pr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
-        s += `<polygon points="${pts}" fill="${esc(passivePaint(P.heads))}"${op(e)}/>`;
+        s += `<polygon points="${pts}" fill="${esc(passivePaint(P.heads))}"${chanA("fill-opacity", e.strokeOpacity)}${op(e)}/>`;
       }
       for (const v of pr.vees) {
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
           `<polyline points="${pts}" fill="none" stroke="${esc(passivePaint(P.heads))}" ` +
-          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
+          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${chanA("stroke-opacity", e.strokeOpacity)}${op(e)}/>`;
       }
       return rot(e, s);
     }

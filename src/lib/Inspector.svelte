@@ -986,6 +986,17 @@
             on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }} />
         {/if}
       </div>
+      <!-- Per-channel alpha, independent of the element opacity (which multiplies both). -->
+      <div class="row">
+        {#if single.type !== "line"}
+          <NumberField label="Fill α" value={single.fillOpacity ?? 1} min={0} max={1} step={0.05}
+            on:commit={(e) => { const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { fillOpacity: e.detail })); }}
+            on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { fillOpacity: e.detail })); }} />
+        {/if}
+        <NumberField label="Stroke α" value={single.strokeOpacity ?? 1} min={0} max={1} step={0.05}
+          on:commit={(e) => { const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { strokeOpacity: e.detail })); }}
+          on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { strokeOpacity: e.detail })); }} />
+      </div>
       {#if single.type === "line" || (single.type === "path" && !single.closed)}
         <div class="row">
           <label class="chk">Cap

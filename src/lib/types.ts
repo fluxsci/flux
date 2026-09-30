@@ -311,6 +311,10 @@ export interface RectElement extends ElementBase {
   /** Colormap gradients (win over `fill` / `stroke` while set). */
   fillMap?: GradientFill | null;
   strokeMap?: GradientFill | null;
+  /** Per-channel alpha, 0–1, independent of the element's `opacity` (which
+   *  multiplies both). Absent = opaque, so files without it are unchanged. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   strokeWidth: number;
   cornerRadius: number;
   /** Dash pattern in canvas px (SVG stroke-dasharray values, e.g. [6, 4]).
@@ -325,6 +329,10 @@ export interface EllipseElement extends ElementBase {
   /** Colormap gradients (win over `fill` / `stroke` while set). */
   fillMap?: GradientFill | null;
   strokeMap?: GradientFill | null;
+  /** Per-channel alpha, 0–1, independent of the element's `opacity` (which
+   *  multiplies both). Absent = opaque, so files without it are unchanged. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   strokeWidth: number;
   dash?: number[];
 }
@@ -339,6 +347,8 @@ export interface LineElement extends ElementBase {
   stroke: string;
   /** Colormap gradient along the line's box (wins over `stroke` while set). */
   strokeMap?: GradientFill | null;
+  /** Stroke alpha, 0–1, independent of `opacity`; absent = opaque. */
+  strokeOpacity?: number;
   strokeWidth: number;
   arrowStart: boolean;
   arrowEnd: boolean;
@@ -377,6 +387,10 @@ export interface PathElement extends ElementBase {
   /** Colormap gradients (win over `fill` / `stroke` while set). */
   fillMap?: GradientFill | null;
   strokeMap?: GradientFill | null;
+  /** Per-channel alpha, 0–1, independent of the element's `opacity` (which
+   *  multiplies both). Absent = opaque, so files without it are unchanged. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   strokeWidth: number;
   closed: boolean;
   // When present, the AUTHORITATIVE editable geometry; `d` is derived from it.

@@ -185,7 +185,7 @@ function rectXml(ctx: SlideContext, el: Extract<Element, { type: "rect" | "ellip
       ? `<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val ${int(Math.min(50000, (r / short) * 100000))}"/></a:avLst></a:prstGeom>`
       : '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>';
   }
-  return `<p:sp>${nv(ctx, el, "sp")}<p:spPr>${xfrm(ctx, el.x, el.y, el.width, el.height, el.rotation, el.flipX, el.flipY)}${geom}${solid(pptxColor(el.fill), opacity)}${outlineXml(ctx, el.stroke, el.strokeWidth, opacity, el.dash)}</p:spPr></p:sp>`;
+  return `<p:sp>${nv(ctx, el, "sp")}<p:spPr>${xfrm(ctx, el.x, el.y, el.width, el.height, el.rotation, el.flipX, el.flipY)}${geom}${solid(pptxColor(el.fill), opacity * (el.fillOpacity ?? 1))}${outlineXml(ctx, el.stroke, el.strokeWidth, opacity * (el.strokeOpacity ?? 1), el.dash)}</p:spPr></p:sp>`;
 }
 
 function arrowEnds(el: { arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: "filled" | "vee" }): string {
@@ -205,7 +205,7 @@ function lineXml(ctx: SlideContext, el: Extract<Element, { type: "line" }>): str
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
   const cap = el.cap === "butt" ? "flat" : el.cap === "square" ? "sq" : "rnd";
   const opacity = el.opacity ?? 1;
-  const ln = outlineXml(ctx, el.stroke, el.strokeWidth, opacity, el.dash, ` cap="${cap}"`).replace("</a:ln>", `${arrowEnds(el)}</a:ln>`);
+  const ln = outlineXml(ctx, el.stroke, el.strokeWidth, opacity * (el.strokeOpacity ?? 1), el.dash, ` cap="${cap}"`).replace("</a:ln>", `${arrowEnds(el)}</a:ln>`);
   return `<p:cxnSp>${nv(ctx, el, "cxnSp")}<p:spPr>${xfrm(ctx, x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y), 0, b.x < a.x, b.y < a.y)}<a:prstGeom prst="line"><a:avLst/></a:prstGeom>${ln}</p:spPr></p:cxnSp>`;
 }
 
@@ -220,8 +220,8 @@ function pathXml(ctx: SlideContext, el: Extract<Element, { type: "path" }>): str
   for (const s of segs) d += s.line ? `<a:lnTo>${p(s.x3, s.y3)}</a:lnTo>` : `<a:cubicBezTo>${p(s.x1, s.y1)}${p(s.x2, s.y2)}${p(s.x3, s.y3)}</a:cubicBezTo>`;
   if (outline.closed) d += "<a:close/>";
   const opacity = el.opacity ?? 1;
-  const fill = outline.closed ? solid(pptxColor(el.fill), opacity) : "<a:noFill/>";
-  const ln = outlineXml(ctx, el.stroke, el.strokeWidth, opacity, el.dash).replace("</a:ln>", `${arrowEnds(el as never)}</a:ln>`);
+  const fill = outline.closed ? solid(pptxColor(el.fill), opacity * (el.fillOpacity ?? 1)) : "<a:noFill/>";
+  const ln = outlineXml(ctx, el.stroke, el.strokeWidth, opacity * (el.strokeOpacity ?? 1), el.dash).replace("</a:ln>", `${arrowEnds(el as never)}</a:ln>`);
   const geom = `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${int(W)}" h="${int(H)}"${outline.closed ? "" : ' fill="none"'}>${d}</a:path></a:pathLst></a:custGeom>`;
   return `<p:sp>${nv(ctx, el, "sp")}<p:spPr>${xfrm(ctx, el.x, el.y, el.width, el.height, el.rotation)}${geom}${fill}${ln}</p:spPr></p:sp>`;
 }
