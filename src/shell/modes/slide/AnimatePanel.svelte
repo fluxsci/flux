@@ -418,8 +418,8 @@
     color: var(--c-tx-muted); margin-right: 4px;
   }
   .spacer { flex: 1; }
-  .b, .per-panel { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font: 11px var(--font-ui); color: var(--c-tx-muted); }
-  .magic {
+  .per-panel { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font: 11px var(--font-ui); color: var(--c-tx-muted); }
+  .b, .magic {
     height: 24px; padding: 3px 8px; font: 12px var(--font-ui); line-height: 1;
     color: var(--c-tx-2); background: transparent; border: 1px solid var(--c-line-strong);
     border-radius: var(--r-ui); cursor: var(--cursor-cross-hover); white-space: nowrap;

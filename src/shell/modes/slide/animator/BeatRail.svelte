@@ -12,7 +12,7 @@
   import { slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat, TrackGroup } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
-  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, isDanglingTrack, trackKindLabel, minorTicks } from "./shared";
+  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, gridLineAt, isDanglingTrack, trackKindLabel, minorTicks, minorTickStep } from "./shared";
   import { hoverTrackId, timelinePxPerMs } from "./animatorState";
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat, copySelectedTiming, pasteSelectedTiming, canPasteTiming } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -47,6 +47,8 @@
   // The vertical time grid under the lanes: every ruler tick is a major line,
   // with fainter minor lines between them (one element per line, see .grid-layer).
   const minors = $derived(minorTicks(duration, tickStep, scale));
+  // Drags snap to exactly the lines drawn above (majors are multiples of the minor step).
+  const gridStep = $derived(minorTickStep(tickStep, scale));
   const timeWidth = $derived(Math.max(timelineWidth-230, duration*scale+32));
   const fmt = (ms:number) => `${(ms/1000).toFixed(ms % 1000 ? 2 : 0)}s`;
   type Row = {group:TrackGroup; tracks:Track[]} | {track:Track};
@@ -167,7 +169,7 @@
     d.row=rowNode?Number(rowNode.dataset.rowIndex):null;
     const o=d.orig.find(o=>o.id===d.primary)!;
     const value=d.kind==="start"?o.start:o.duration;
-    d.dx=snapMs(value+dx/d.scale,d.magnets.map(m=>d.kind==="start"?m.ms:m.ms-o.start),d.scale,!e.altKey)-value;
+    d.dx=snapMs(value+dx/d.scale,d.magnets.map(m=>d.kind==="start"?m.ms:m.ms-o.start),d.scale,!e.altKey,gridStep,d.kind==="start"?0:o.start)-value;
     const hovered=document.elementFromPoint(e.clientX,e.clientY)?.closest<HTMLElement>("[data-track-id]")?.dataset.trackId;
     const matches=d.magnets.filter(m=>Math.abs(m.ms-(o.start+d.dx))<.5);
     const magnet=matches.find(m=>m.trackId===hovered)??matches[0];
@@ -220,15 +222,14 @@
   // Alignment guides. While a bar/edge drags, the moving edge (its start for a
   // retime, its end for a resize) is a full-height line; when the snapped value
   // — the same snapMs result the drag already applies — lands on a magnet
-  // (another track's start/end) or a 50ms grid line, that line lights too, so
+  // (another track's start/end) or a grid line, that line lights too, so
   // the snap is SEEN. At rest, one selected track shows its start and end.
   const dragGuide = $derived.by(() => {
     const d = drag; if (!d || d.moving) return null;
     const o = d.orig.find(o => o.id === d.primary); if (!o) return null;
     const edge = d.kind === "start" ? Math.max(0, o.start + d.dx) : o.start + Math.max(1, o.duration + d.dx);
     const magnet = d.magnets.find(m => Math.abs(m.ms - edge) <= .5)?.ms;
-    const grid = Math.round(edge / 50) * 50;
-    const snap = magnet ?? (Math.abs(grid - edge) <= .5 ? grid : null);
+    const snap = magnet ?? gridLineAt(edge, gridStep);
     return { edge, snap, linked: !!d.anchor };
   });
   const selGuide = $derived.by(() => {

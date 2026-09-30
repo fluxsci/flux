@@ -138,19 +138,35 @@ export function minorTicks(durationMs: number, tickStep: number, pxPerMs: number
   return out;
 }
 
-/** Snap a ms value: magnet-snap to other tracks' boundaries + the nearest 50ms
- *  grid line within an 8-screen-px threshold; otherwise quantize to 10ms so
- *  drags land on round numbers. Alt disables via `enabled:false`. */
-export function snapMs(ms: number, magnets: number[], pxPerMs: number, enabled: boolean): number {
+/** Snap a ms value within an 8-screen-px threshold, nearest first, to other
+ *  tracks' boundaries (magnets) or a DRAWN grid line (`gridStepMs`: the
+ *  timeline's minor step, so every major and minor line it paints is a snap
+ *  target). Failing those, the 50ms round-number grid (same threshold), then
+ *  10ms quantization. `originMs` places the value on the beat's time axis: a
+ *  duration drag passes the track's start, so the END edge (not the duration)
+ *  lands on the line. Alt disables via `enabled:false`. */
+export function snapMs(ms: number, magnets: number[], pxPerMs: number, enabled: boolean, gridStepMs = 50, originMs = 0): number {
   if (!enabled) return Math.max(0, Math.round(ms));
   const thresholdMs = 8 / pxPerMs;
-  const grid = Math.round(ms / 50) * 50;
-  let best = grid;
-  let bestD = Math.abs(ms - grid);
+  const onGrid = (step: number) => Math.round((ms + originMs) / step) * step - originMs;
+  let best = onGrid(gridStepMs);
+  let bestD = Math.abs(ms - best);
   for (const m of magnets) {
     const d = Math.abs(ms - m);
     if (d < bestD) { best = m; bestD = d; }
   }
   if (bestD <= thresholdMs) return Math.max(0, best);
+  const round = onGrid(50);
+  if (Math.abs(ms - round) <= thresholdMs) return Math.max(0, round);
   return Math.max(0, Math.round(ms / 10) * 10);
+}
+
+/** True when `ms` sits on a snap grid line (a drawn line of `gridStepMs`, or the
+ *  50ms round-number grid) — the drag guide lights the line it snapped to. */
+export function gridLineAt(ms: number, gridStepMs: number): number | null {
+  for (const step of [gridStepMs, 50]) {
+    const g = Math.round(ms / step) * step;
+    if (Math.abs(g - ms) <= .5) return g;
+  }
+  return null;
 }

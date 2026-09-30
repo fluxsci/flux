@@ -8,7 +8,7 @@ import { harness } from "./lib/harness.mjs";
 import * as ops from "../src/lib/slide/ops";
 import { resolveTrack, resolveBeat, resolveStart, slideAnimStyles } from "../src/lib/slide/resolve";
 import { compileSlide } from "../src/lib/slide/compile";
-import { trackEndMs, beatEndMs } from "../src/shell/modes/slide/animator/shared";
+import { trackEndMs, beatEndMs, snapMs, gridLineAt, minorTicks, minorTickStep } from "../src/shell/modes/slide/animator/shared";
 import { videoEventsForPlan } from "../src/lib/slide/mediaTimeline";
 import { staggerSpan } from "../src/lib/slide/stagger";
 import { resolveEasing } from "../src/lib/slide/easing";
@@ -21,6 +21,19 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 import * as core from "../flux-core/index";
 
 const h = harness("verify-slide-resolve");
+
+// Timeline snapping targets exactly the grid the Animator draws (owner, 2026-09-30:
+// a 0.37s clip could never reach the minor line at 0.375s between two 0.25s ticks).
+{
+  const pxPerMs = .4, tick = 250, step = minorTickStep(tick, pxPerMs);
+  h.ok(minorTicks(1000, tick, pxPerMs).includes(375), "a minor line is drawn at 375ms when zoomed in");
+  h.eq(snapMs(370, [], pxPerMs, true, step), 375, "a start drag near a drawn minor line snaps onto it");
+  h.eq(snapMs(271, [], pxPerMs, true, step, 100), 275, "a duration drag snaps its END edge (start 100 + 275 = 375) onto the drawn line");
+  h.eq(snapMs(377, [380], pxPerMs, true, step), 375, "the nearest candidate wins between a grid line and a magnet");
+  h.eq(snapMs(372, [], pxPerMs, false, step), 372, "Alt drags stay unsnapped");
+  h.eq(snapMs(310, [], .05, true, minorTickStep(1000, .05)), 300, "zoomed out, the 50ms round-number grid still catches drags between drawn lines");
+  h.eq(gridLineAt(375, step), 375, "the drag guide recognises a drawn minor line");
+}
 let presetDeck: ReturnType<typeof ops.createDeck> | undefined;
 const deck = ops.createDeck({ id: "styles", withTitleSlide: false });
 const slide = ops.addSlide(deck, { id: "s" });
