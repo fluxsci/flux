@@ -3172,6 +3172,28 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "set_series_color", scope: "project", cli: "set-series-color", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Give a whole plot series one colour: its line (stroke), points (face + edge), bars / band (fill), error bars, and its legend swatch — one override per part, all surviving regeneration (restyle_part colours ONE part; this colours the series and keeps the key honest). target is a figureId (elementId optional when it has one plot) or deckId/slideId (the slide's Design). color is #rrggbb; --clear (or color null) restores the generated colours. A colour-mapped series (a heatmap, hexmatrix, scatter c=) is refused: edit its colour scale with set_plot_color_scale.",
+    params: { target: z.string(), elementId: z.string().optional(), seriesId: z.string(), color: z.string().nullable().optional(), clear: z.boolean().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "seriesId", required: true },
+      { kind: "pos", at: 2, into: "color" },
+      { kind: "flag", at: "element", into: "elementId" },
+      { kind: "flag", at: "clear", into: "clear", as: "boolean" },
+    ],
+    handler: (ctx, a) => {
+      const colour = a.clear ? null : a.color == null ? null : s(a.color);
+      if (!a.clear && a.color == null) throw new ValidationError("Pass a colour (#rrggbb) or --clear.");
+      return core.setSeriesColorVerb(ctx.root, s(a.target), a.elementId as string | undefined, s(a.seriesId), colour);
+    },
+    render: {
+      human: (r) => ({ err: `✓ ${(r as { seriesId: string }).seriesId}: ${(r as { color: string | null }).color ?? "generated colours"} on ${(r as { parts: unknown[] }).parts.length} part(s) of ${(r as { elementId: string }).elementId}` }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_transform",
     scope: "project",
     cli: "set-transform",

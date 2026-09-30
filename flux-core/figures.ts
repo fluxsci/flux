@@ -702,6 +702,8 @@ export async function setPartOverride(
           );
         }
       }
+      ops.setPartOverride(project, elId, partId, patch, manifest ?? undefined); // the manifest finds the legend swatch
+      return { elementId: elId };
     }
     ops.setPartOverride(project, elId, partId, patch);
     return { elementId: elId };

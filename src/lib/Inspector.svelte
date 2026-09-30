@@ -36,6 +36,7 @@
   } from "./textStyles";
   import { plotManifests, plotHasContentScaleTargets } from "./plot/store";
   import { semanticPartIndex } from "./plot/partStyle";
+  import { seriesColorIssue, seriesPartIds } from "./plot/seriesColor";
   import { scene3dManifests } from "./model3d/store";
   import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
   import { partBreadcrumb } from "./plot/partStyle";
@@ -202,6 +203,24 @@
     const idx = semanticPartIndex(plotEl.type === "model3d" ? $scene3dManifests[plotEl.assetId] : $plotManifests[plotEl.assetId]);
     return idx[ps.partId] ?? { id: ps.partId, role: "part" };
   })();
+  // plan B2: the series the picked part draws, when one colour can paint it whole
+  $: seriesColorTarget = (() => {
+    if (!plotEl || plotEl.type !== "plot" || !partInfo?.series || partCount > 1) return null;
+    const manifest = $plotManifests[plotEl.assetId];
+    if (!manifest || seriesColorIssue(manifest, partInfo.series)) return null;
+    const ids = seriesPartIds(manifest, partInfo.series);
+    const ov = plotEl.overrides ?? {};
+    const overridden = ids.map((id) => ov[id]).find((o) => typeof o?.stroke === "string" || typeof o?.fill === "string");
+    const generated = manifest.series?.find((x) => x.id === partInfo!.series)?.color?.hex;
+    const hex = (typeof overridden?.stroke === "string" ? overridden.stroke : typeof overridden?.fill === "string" ? overridden.fill : generated) ?? "#000000";
+    return { elementId: plotEl.id, seriesId: partInfo.series, manifest, hex: /^#[0-9a-fA-F]{6}/.test(hex) ? hex.slice(0, 7).toLowerCase() : "#000000", overridden: !!overridden };
+  })();
+  function setSeriesColor(hex: string | null) {
+    const t = seriesColorTarget;
+    if (!t) return;
+    try { commit((p) => { ops.setSeriesColor(p, t.elementId, t.manifest, t.seriesId, hex); }); }
+    catch (e) { pushToast("error", "Series colour not applied", { detail: errMsg(e) }); }
+  }
   // Display label: the extended part index's human label, a composed
   // role · series · #index for data entries, the raw id last.
   $: partLabel = partInfo
@@ -512,6 +531,19 @@
           <p class="note">data: x = {partInfo.x}, y = {partInfo.y}</p>
         {/if}
         {#if partFields.some(f => f.hint)}<p class="note">{partFields.find(f => f.hint)?.hint}</p>{/if}
+        {#if seriesColorTarget}
+          <!-- plan B2: one colour for the whole series (line, points, bars, error bars, legend swatch) -->
+          <div class="pfields series-colour" data-series-colour={seriesColorTarget.seriesId}>
+            <div class="pf">
+              <span class="pk"></span>
+              <span class="pl" title="Every part of series ‹{seriesColorTarget.seriesId}› and its legend swatch take this colour; the edit survives regeneration">Series colour</span>
+              <span class="pc series-colour-field">
+                <ColorField value={seriesColorTarget.hex} fallback="#000000" label="Series colour" onchange={(hex) => setSeriesColor(hex)} />
+                {#if seriesColorTarget.overridden}<button class="tgl" title="Back to the generated colours" on:click={() => setSeriesColor(null)}>reset</button>{/if}
+              </span>
+            </div>
+          </div>
+        {/if}
         <div class="pfields">
           {#each partFields as f (f.key)}
             {@const range = fieldRange(f)}

@@ -141,6 +141,13 @@ Field edits switch to source colours and keep explicit part fills, which can
 intentionally hide a value map on that part. `--reset` on `set-model-field` removes
 that field's remapping only.
 
+To recolour a whole series at once — its line, points, bars, error bars AND its legend swatch —
+use `set-series-color <figureId> <seriesId> '#205EA6' [--element <elementId>]` (`--clear` restores the
+generated colours). It writes one override per part, so it survives regeneration like `restyle`;
+a colour-mapped series (heatmap, hexmatrix, scatter with c=) is refused — edit its colour scale with
+`set-plot-color-scale` instead. `restyle` of a series' whole line or points repaints its legend
+swatch too, so the key never lies about the colour.
+
 Use `--state inflated=.5 --state bent=.2` to patch named weights (`0` removes a
 weight), or `--frame 2.5` for a sequence; the two forms are exclusive. `--state` is
 the only repeatable flag; duplicate names, unknown shapes and non-finite weights are

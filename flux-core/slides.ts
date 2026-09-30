@@ -58,7 +58,8 @@ import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 import type { Box, TextOpts } from "../src/lib/ops";
-import { setPlotView, setPlotColorScale } from "../src/lib/ops";
+import { setPlotView, setPlotColorScale, setSeriesColor } from "../src/lib/ops";
+import { seriesParts } from "../src/lib/plot/seriesColor";
 import { plotViewPatch, type PlotViewFields } from "../src/lib/plot/viewControls";
 import { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
 import { plotColorScaleIssues } from "../src/lib/plot/colorScaleDom";
@@ -535,6 +536,52 @@ export async function setPlotColorScaleVerb(root: string, target: string, elemen
     const track = slideOps.setTransform(deck, slideId, beatId, elementId, { state: { colorScale: result.colorScale } });
     if (!track) throw new ValidationError(`Could not set a colour scale on ${elementId}.`);
     return { ...result, trackId: track.id };
+  });
+}
+
+export interface SeriesColorVerbResult {
+  elementId: string;
+  seriesId: string;
+  /** The colour written (null: the series' generated colours are back). */
+  color: string | null;
+  /** Every part the colour reached, with the paint it took. */
+  parts: { partId: string; role: string; paint: "fill" | "stroke" | "both" }[];
+}
+
+/** One colour for a whole series (colour-system plan B2): the CLI/MCP twin of the Inspector's
+ *  "Series colour" field. A figure target edits the object (elementId may be omitted when the
+ *  figure has one plot), a deckId/slideId target edits the slide's Design. `color` null clears. */
+export async function setSeriesColorVerb(root: string, target: string, elementId: string | undefined, seriesId: string, color: string | null): Promise<SeriesColorVerbResult> {
+  if (color !== null && !/^#[0-9a-fA-F]{6}$/.test(color) && !/^#[0-9a-fA-F]{8}$/.test(color) && color !== "none") throw new ValidationError(`color must be a hex colour (#rrggbb), got ${color}`);
+  const hex = color === null ? null : color.toLowerCase();
+  const apply = async (project: Project, el: SemanticPlotElement, deckId?: string): Promise<SeriesColorVerbResult> => {
+    const manifest = await readPlotManifest(root, el, deckId);
+    if (!manifest) throw new ValidationError(`Plot ${el.id} has no manifest; a series colour needs one.`);
+    try { setSeriesColor(project, el.id, manifest, seriesId, hex); } catch (e) { throw new ValidationError(e instanceof Error ? e.message : String(e)); }
+    return { elementId: el.id, seriesId, color: hex, parts: seriesParts(manifest, seriesId) };
+  };
+  const parts = target.split("/");
+  if (parts.length === 1) {
+    return mutateFigModel(root, "set_series_color", async ({ project }) => {
+      const figure = project.figures.find(f => f.id === target);
+      if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+      let el = elementId ? figure.elements.find(e => e.id === elementId) : undefined;
+      if (!elementId) {
+        const plots = figure.elements.filter(e => e.type === "plot");
+        if (plots.length !== 1) throw new ValidationError(`Figure ${target} has ${plots.length} plots; pass elementId.`);
+        el = plots[0];
+      }
+      if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+      return apply(project, el);
+    });
+  }
+  if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+  const [deckId, slideId] = parts;
+  return mutateDeck(root, deckId, "set_series_color", async deck => {
+    const slide = mustSlide(deck, slideId);
+    const el = elementId ? slide.elements.find(e => e.id === elementId) : slide.elements.filter(e => e.type === "plot").length === 1 ? slide.elements.find(e => e.type === "plot") : undefined;
+    if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId ?? "(one plot expected)"} in ${target}`);
+    return apply({ figures: [{ elements: [el] }] } as Project, el, deckId);
   });
 }
 

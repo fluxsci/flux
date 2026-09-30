@@ -145,6 +145,7 @@
   "set_part_visibility",
   "set_plot_color_scale",
   "set_plot_view",
+  "set_series_color",
   "set_slide",
   "set_style",
   "set_text_run_color",

@@ -153,6 +153,8 @@ export {
   setPlotViewVerb,
   setPlotColorScaleVerb,
   getPlotColorScales,
+  setSeriesColorVerb,
+  type SeriesColorVerbResult,
   type ColorScaleVerbFields,
   type ColorScaleVerbResult,
   addGhostTransform,
@@ -173,7 +175,8 @@ export {
 // Shared live colour-scale law and authoring (colour-system plan A7): the GUI's modules.
 export { normalize as colorScaleNormalize, lookup as colormapLookup, colorFor as colorScaleColorFor, effectiveScale, viewIsIdentity as colorScaleViewIsIdentity } from "../src/lib/plot/colorscale";
 export { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
-export { setPlotColorScale } from "../src/lib/ops";
+export { setPlotColorScale, setSeriesColor } from "../src/lib/ops";
+export { seriesColorPatch, seriesParts, seriesPartIds, legendSwatchesOf, seriesOf, seriesPrimaryOf, seriesColorIssue } from "../src/lib/plot/seriesColor";
 export { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
 // Shared plot projection and figure-model view mutation.
 export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, projectWith, blendFit, seriesAxes, seriesVertices, hasTweenableSeries, plotViewIssues } from "../src/lib/plot/project";

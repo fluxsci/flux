@@ -334,6 +334,7 @@
       "verify-colorscale-dom.ts",
       "verify-plot-theme.ts",
       "verify-colorscale-verb.ts",
+      "verify-series-color.ts",
       "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
@@ -1323,6 +1324,15 @@
       "run": [
         "verify-plot-theme.ts",
         "verify-colorscale-dom.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan B2: one colour for a whole series (plot/seriesColor.ts, ops.setSeriesColor, the set_series_color verb) and the restyle -> legend swatch coupling (F6).",
+      "glob": "src/lib/plot/seriesColor.ts",
+      "run": [
+        "verify-series-color.ts",
+        "verify-registry-parity.ts",
         "tier:pure"
       ]
     },
@@ -9375,6 +9385,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-series-color.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": false,
       "coverage": "behavior"
     }

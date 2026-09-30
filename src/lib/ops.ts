@@ -40,6 +40,9 @@ import type { ColorScaleView,
   GradientFill,
 } from "./types";
 import type { FluxPlotColorScale, FluxPlotManifest } from "./plot/types";
+import { get as readStore } from "svelte/store";
+import { plotManifests } from "./plot/store";
+import { seriesColorPatch, seriesColorIssue, seriesPrimaryOf, legendSwatchesOf, swatchMirror } from "./plot/seriesColor";
 import { resizeFrame } from "./interact/frameResize";
 import { newId } from "./ids";
 import { ensureFigureReferenceKeys, mintFigureReferenceKey } from "./project/figureIdentity";
@@ -1753,12 +1756,36 @@ export function setPlotFollowTheme(p: Project, elementId: Id, follow: boolean | 
   }
 }
 
-export function setPartOverride(p: Project, elementId: Id, partId: string, patch: PartOverride): void {
+export function setPartOverride(p: Project, elementId: Id, partId: string, patch: PartOverride, manifest?: FluxPlotManifest): void {
   for (const f of p.figures)
     for (const e of f.elements) {
       if (e.id !== elementId || (e.type !== "plot" && e.type !== "model3d")) continue;
       mergePartOverride(e, partId, patch);
+      // plan F6: recolouring a series' whole line / points / area reaches its legend swatch too
+      // (the key stays honest); one bar or one point is a highlight and leaves the key alone
+      if (e.type !== "plot") continue;
+      const mirror = swatchMirror(patch);
+      if (!mirror) continue;
+      const m = manifest ?? readStore(plotManifests)[e.assetId];
+      const series = seriesPrimaryOf(m, partId);
+      if (!series) continue;
+      for (const swatch of legendSwatchesOf(m, series)) if (swatch !== partId) mergePartOverride(e, swatch, mirror);
     }
+}
+
+/** One colour for every part of a series and its legend swatch (plan B2): the line's stroke,
+ *  the markers' faces and edges, the bars' fills … as `plot/seriesColor` names them. `null`
+ *  clears exactly those keys. Returns the per-part patch written, or throws for an unknown or
+ *  colour-mapped series. */
+export function setSeriesColor(p: Project, elementId: Id, manifest: FluxPlotManifest | undefined, seriesId: string, color: string | null): Record<string, PartOverride> {
+  const issue = seriesColorIssue(manifest, seriesId);
+  if (issue) throw new Error(issue);
+  const patch = seriesColorPatch(manifest, seriesId, color);
+  for (const f of p.figures) for (const e of f.elements) {
+    if (e.id !== elementId || e.type !== "plot") continue;
+    for (const [partId, q] of Object.entries(patch)) mergePartOverride(e, partId, q);
+  }
+  return patch;
 }
 
 // ---------------------------------------------------------------------------
