@@ -1744,6 +1744,15 @@ export function setPlotColorScale(p: Project, elementId: Id, scaleId: string, pa
 /** Write a per-part override onto a semantic plot, keyed by stable semantic id
  *  (e.g. "control.line"). Survives regeneration (ids are deterministic).
  *  Extracted from colors.ts `applyPartStyleTo`. */
+/** Whether a plot's scaffold ink follows the deck theme (plan B1). `null` restores the host
+ *  default (on for slides, off in Paper / Figure), so an untouched element stays byte-identical. */
+export function setPlotFollowTheme(p: Project, elementId: Id, follow: boolean | null): void {
+  for (const f of p.figures) for (const el of f.elements) {
+    if (el.id !== elementId || el.type !== "plot") continue;
+    if (follow === null) delete el.followTheme; else el.followTheme = follow;
+  }
+}
+
 export function setPartOverride(p: Project, elementId: Id, partId: string, patch: PartOverride): void {
   for (const f of p.figures)
     for (const e of f.elements) {

@@ -41,6 +41,7 @@ import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
+import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
@@ -381,6 +382,7 @@ export function createTransform(
         const frameManifest = ctx.plotManifest ? ctx.plotManifest(p.assetId) : get(plotManifests)[p.assetId];
         // this frame's live colour scales (completed from the manifest so an absent end glides),
         // before overrides so explicit paints win
+        applyPlotTheme(inst, frameManifest, plotFollowsTheme(p, "slide") ? ctx.theme : null);
         applyPlotColorScale(inst, frameManifest, tweenColorScales(frameManifest, (pre as SemanticPlotElement).colorScale, (end as SemanticPlotElement).colorScale, t, raw) ?? p.colorScale, p.id);
         applyOverrides(inst, p.overrides, p.id, frameManifest);
         ghostOpacity?.(p);

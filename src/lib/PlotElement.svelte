@@ -6,6 +6,7 @@
   import { assetDisplaySize } from "./ops";
   import { hasPlotDom, plotGen, requestPlotDom, retainPlot, releasePlot } from "./plot/store";
   import { mountPlot } from "./plot/mount";
+  import { plotTheme } from "./plot/themeDom";
 
   export let element: SemanticPlotElement;
   $: e = element;
@@ -52,7 +53,7 @@
 <rect class="plot-hit-area" x={e.x} y={e.y} width={e.width} height={e.height} fill="transparent" />
 
 {#if inline}
-  <g use:mountPlot={{ element: e, gen }}></g>
+  <g use:mountPlot={{ element: e, gen, theme: $plotTheme }}></g>
 {:else if $assetData[e.assetId]}
   <!-- Crop honored on the <image> fallback too (P5): nested-svg viewport, same
        window semantics as the inline mount's viewBox sub-rect. Read `$project`

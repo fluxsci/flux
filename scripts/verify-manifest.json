@@ -332,6 +332,7 @@
       "verify-plot-view-verb.ts",
       "verify-colorscale-parity.ts",
       "verify-colorscale-dom.ts",
+      "verify-plot-theme.ts",
       "verify-colorscale-verb.ts",
       "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
@@ -1314,6 +1315,15 @@
         "group:inline-slides",
         "group:slide-stash",
         "group:slide-clips"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan B1: a slide plot's scaffold ink follows the deck theme (plot/themeDom.ts); every plot host applies it before overrides.",
+      "glob": "{src/lib/plot/themeDom.ts,src/lib/slide/theme.ts}",
+      "run": [
+        "verify-plot-theme.ts",
+        "verify-colorscale-dom.ts",
+        "tier:pure"
       ]
     },
     {
@@ -9351,6 +9361,15 @@
       "coverage": "behavior"
     },
     "verify-fluxplot-schema.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-theme.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

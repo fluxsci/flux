@@ -123,6 +123,8 @@ const ELEMENT_DEF = {
       }])) },
       // colour-system plan A7: live colour-scale edits keyed by the manifest's colorScales[].id
       colorScale: { type: "object", additionalProperties: COLOR_SCALE_VIEW },
+      // colour-system plan B1: the scaffold ink follows the deck theme (absent = on for slides)
+      followTheme: { type: "boolean" },
     }),
     elementBranch("text", ["text"], {
       text: { type: "string" },

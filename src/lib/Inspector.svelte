@@ -483,6 +483,12 @@
       if (el.type === "plot") delete el.contentScale;
     });
   }
+  // plan B1: a slide plot's scaffold ink follows the deck theme unless told not to
+  function setFollowTheme(on: boolean) {
+    const id = single?.id;
+    if (!id) return;
+    commit((p) => ops.setPlotFollowTheme(p, id, on ? null : false));
+  }
   const arrowOf = (e: Element | undefined) => (e && (e.type === "line" || (e.type === "path" && !e.closed)) ? (e as Element & { arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: "filled" | "vee"; arrowSize?: number }) : null);
   function setArrow(patch: Partial<{ arrowStart: boolean; arrowEnd: boolean; arrowStyle: "filled" | "vee"; arrowSize: number }>) {
     const ids = editableIds();
@@ -610,6 +616,13 @@
             {#await import("./plot/ColorScaleControls.svelte") then module}
               <svelte:component this={module.default} elementId={single.id} />
             {/await}
+          {/if}
+          {#if slideMode && $plotManifests[single.assetId]?.style}
+            <!-- plan B1: fluxplot tags the scaffold ink; on a slide it follows the deck theme -->
+            <label class="row follow-theme" title="Paint the plot's axes, ticks, labels and gridlines in the deck theme's ink (data colours are never changed)">
+              <input type="checkbox" data-follow-theme checked={single.followTheme ?? true} on:change={(e) => setFollowTheme(e.currentTarget.checked)} />
+              <span>Follow deck theme</span>
+            </label>
           {/if}
           <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
                text/strokes pt-true; content scale multiplies glyphs + strokes. -->

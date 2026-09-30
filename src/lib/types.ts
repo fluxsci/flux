@@ -436,6 +436,10 @@ export interface SemanticPlotElement extends ElementBase {
   // engine; absent = the generated colours (untouched files stay byte-identical). An
   // ordinary element prop, so a slide Change of it animates the scale.
   colorScale?: Record<string, ColorScaleView>;
+  // Whether the plot's scaffold ink follows the host's deck theme (colour-system plan B1):
+  // fluxplot tags every scaffold node with a theme token and plot/themeDom maps the tokens onto
+  // the deck's text / muted / background colours. Absent = on for slides, off in Paper / Figure.
+  followTheme?: boolean;
 }
 
 /** One live colour-scale edit. Every field is optional and means "as generated" when

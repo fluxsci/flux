@@ -22,6 +22,7 @@
 
 import { applyPlotView, preparePlotView } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
+import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
@@ -671,6 +672,8 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
   const ghostOpacity = compileGhostPartOpacity(inst, el, ctx);
   const manifest = ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId];
   preparePlotView(inst, manifest, el.view, el.id);
+  // the deck's ink on the scaffold (plan B1) and the live colour scales, before overrides
+  applyPlotTheme(inst, manifest, plotFollowsTheme(el, "slide") ? ctx.theme : null);
   applyPlotColorScale(inst, manifest, el.colorScale, el.id);
   applyOverrides(inst, el.overrides, el.id, manifest);
   ghostOpacity?.(el);

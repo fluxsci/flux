@@ -105,6 +105,7 @@
   import Toolbar from "../../../lib/Toolbar.svelte";
   import ColorField from "../../../lib/ColorField.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
+  import { plotTheme } from "../../../lib/plot/themeDom";
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
@@ -202,6 +203,8 @@
   const overlay = $derived($deckOverlay);
   const stage = $derived(overlay?.stage ?? slideOps.DEFAULT_STAGE);
   const theme = $derived(resolveTheme(overlay?.theme));
+  // the shared Canvas paints a plot's scaffold in the deck's ink while Slide mode edits (plan B1)
+  $effect(() => { plotTheme.set(theme); return () => plotTheme.set(null); });
   const slideIds = $derived(overlay?.slides.map((s) => s.id) ?? []);
   const activeSlide = $derived.by(() => {
     void $project; // composedSlide reads the project non-reactively
