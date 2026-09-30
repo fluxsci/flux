@@ -3827,12 +3827,10 @@
       opacity: 1,
     };
     delete (ghost as ImageElement | SemanticPlotElement).crop;
-    const live: Element = { ...ghost, id: `${o.id}-croplive` };
     const ccx = cropRes.x + cropRes.width / 2;
     const ccy = cropRes.y + cropRes.height / 2;
     return {
       ghost,
-      live,
       wrap: o.rotation ? `rotate(${o.rotation} ${ccx} ${ccy})` : null,
       clip: { x: cropRes.x, y: cropRes.y, w: cropRes.width, h: cropRes.height },
     };
@@ -4076,8 +4074,10 @@
               height={cropOverlay.clip.h}
             />
           </clipPath>
-          <g opacity="0.35"><ElementView element={cropOverlay.ghost} /></g>
-          <g clip-path="url(#flux-crop-live)"><ElementView element={cropOverlay.live} /></g>
+          <g opacity="0.35"><g id="flux-crop-ghost"><ElementView element={cropOverlay.ghost} /></g></g>
+          <!-- the live window is the SAME content: a native <use> clone of the ghost (full opacity,
+               clipped) instead of a second ElementView — a second plot mount was ~120 ms at crop start -->
+          <use href="#flux-crop-ghost" clip-path="url(#flux-crop-live)" />
           <rect
             class="crop-outline"
             x={cropOverlay.clip.x}
