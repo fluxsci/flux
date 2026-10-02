@@ -332,7 +332,7 @@ console.log("── destination SETS (Oct-2: TargetRef.members) ──");
   const { deck, slideId, beats } = deckWith([rect("src", { x: 161, y: 111, width: 135, height: 45, fill: "#d95f02" }), ...dots, line("other")]);
   const result = ops.becomeTransform(deck, slideId, beats[1], "src", reordered, { compiled: setCompile(deck) })!;
   const track = deck.slides[0].beats[1].tracks.find(t => t.id === result.trackId)!;
-  ok(JSON.stringify(track.to) === JSON.stringify({ become: { ref: { element: "e3", members: [{ element: "e3" }, { element: "e1" }, { element: "e2" }] }, mode: "handoff", pair: "auto", reveal: "flip" }, state: {} }) && deck.slides[0].elements.length === 5, "rect → three loose ellipses writes ONE hand-off with to.become.ref.members; nothing is consumed");
+  ok(JSON.stringify(track.to) === JSON.stringify({ become: { ref: { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] }, mode: "handoff", pair: "auto", reveal: "flip" }, state: {} }) && deck.slides[0].elements.length === 5, "rect → three loose ellipses (picked e3, e1, e2) writes ONE hand-off with members in the slide's object order; nothing is consumed");
   ok(validateDeckFile(structuredClone(deck)).length === 0, "the set record validates against the real deck schema");
   const compiled = setCompile(deck);
   const inventory = compiled.handoffs.find(h => h.trackId === track.id)!;
@@ -399,7 +399,8 @@ console.log("── destination SETS (Oct-2: TargetRef.members) ──");
   ok(embedded.members!.every(m => m.element.startsWith("emb-")), "embed namespacing remaps every set member");
   const remapped = structuredClone(track);
   remapBecomeTarget(remapped, new Map([["e1", "x1"], ["e3", "x3"]]));
-  ok(JSON.stringify(remapped.to!.become!.ref) === JSON.stringify({ element: "x3", members: [{ element: "x3" }, { element: "x1" }, { element: "e2" }] }), "remapBecomeTarget maps each member's element and nothing else");
+  ok(remapped.to!.become!.ref.element === "x1", "the representative element follows its member");
+  ok(JSON.stringify(remapped.to!.become!.ref) === JSON.stringify({ element: "x1", members: [{ element: "x1" }, { element: "e2" }, { element: "x3" }] }), "remapBecomeTarget maps each member's element and nothing else");
 }
 
 console.log("── legacy morph normalizes ──");

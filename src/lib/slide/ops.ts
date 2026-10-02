@@ -1318,9 +1318,16 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   if (sourceRef.members) throw new Error("Choose an object or plot parts as the Become source, rather than a set of objects.");
   // A destination set is canonicalized once (dedupe, merge, 1-member collapse).
   const ref = normalizeRef(typeof dest === "string" ? { element: dest } : dest);
-  const sourceId = sourceRef.element, targetId = ref.element;
   const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
   if (!slide || bi < 0) return null;
+  // Every route (canvas clicks in any order, X-ray, Appear from…, CLI) writes
+  // the same bytes: set members are stored in the slide's own object order.
+  if (ref.members) {
+    const order = new Map(slide.elements.map((e, i) => [e.id, i] as const));
+    ref.members = ref.members.map((m, i) => [m, i] as const).sort((a, b) => (order.get(a[0].element) ?? Infinity) - (order.get(b[0].element) ?? Infinity) || a[1] - b[1]).map(([m]) => m);
+    ref.element = ref.members[0].element;
+  }
+  const sourceId = sourceRef.element, targetId = ref.element;
   if (bi < 1) throw new Error("Become needs a build step after Design. Choose or add a step first.");
   if (sameRef(sourceRef, ref)) throw new Error("Choose a different object for the source to become.");
   if (sourceRef.group) throw new Error("Choose an object or plot parts as the Become source, rather than a group.");
