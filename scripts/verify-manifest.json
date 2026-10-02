@@ -3628,6 +3628,15 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-fig-source-cache.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-no-native-color-input.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -6055,6 +6064,15 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-resize-preview.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     },
     "verify-s2.ts": {
