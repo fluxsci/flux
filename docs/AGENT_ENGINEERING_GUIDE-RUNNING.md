@@ -1055,7 +1055,9 @@ Persistence invariants (all machine-checked — do not weaken):
   floor 0.55) — its inline scripts are CSP-hashed (PAGINATOR/LIVE_SCROLL/TBLFIT, w12 gate).
   **The pipe source COLLAPSES to one "Table N" pill off-caret** (2026-08-10, owner: a long
   table's markdown drowned the prose you were reading) — `science/tableFold.ts`, the embed-chip
-  rule generalized to a multi-line construct. CodeMirror only accepts a line-break-spanning
+  rule generalized to a multi-line construct (the slide-embed chip, §4 "Inline slides in Paper",
+  is the same rule again; a source-line chip's double-click goes through
+  `science/chipActivation.ts` because a chip-level `dblclick` never fires, §9). CodeMirror only accepts a line-break-spanning
   replace from a StateField, so this is the one paper field whose decorations depend on the
   SELECTION as well as the document; the rules that make that safe are: the rendered block
   widget below is a SEPARATE, doc-pure field (never rebuilt, never swapped — what burned the
@@ -1992,6 +1994,22 @@ autosave awaits it before taking its snapshot/baseline. Typing remains live, and
 buffer saves after restoration without a false divergence conflict. Flush included live buffers
 before acquiring the lease and release it in `finally`.
 
+**The source line folds to a chip** (2026-10-02, owner): off-caret, an embed's raw
+`![](…){.flux-slide …}` line reads `▷ <deck title> · Slide <N>` (`flux-embedchip slide`,
+the figure chip's CSS family; N is the 1-based POSITION, the slide's name rides the tooltip —
+names drift from position, and the owner's prose cites slides by position). The fold is a
+ViewPlugin inside `slideEmbeds()` that reads the block field's entries, so it folds exactly
+the lines that carry a player; chips.ts skips `.flux-slide` lines. Same rules as the figure
+chip: inline atomic replace from indent to line end, revealed when a selection touches the
+line, the block field never rebuilt for the selection. Labels resolve synchronously from
+`science/slideChipCatalog.ts` (one per editor: a deck is read on first sight and re-read on
+repository invalidation, the old entry answering until the new read settles, so there is no
+per-keystroke IO and no fallback flash; `Slide <short id>` while pending, dimmed
+`unresolved` when the deck or slide is missing). A prose keystroke costs zero chip builds,
+even when the block field re-scans (entries compared by span + source, else mapped);
+`paperPerf.slideChips` counts builds. The player is mounted in a `display:flow-root` host,
+because CodeMirror measures a block widget's border box and the shared stylesheet's
+`margin:16px auto` would otherwise desync the height map (§9).
 The `inline-slides` group covers core, editor, lifecycle and scale. Build-dependent
 `verify-slide-embed-export.mjs` renders actual Quarto HTML/PDF/Word and opens HTML offline;
 `verify-slide-embed-electron.cjs` checks the built app, native input, watchers and PDF IPC in
@@ -3211,6 +3229,22 @@ outside this PNG packaging change.
   embed on every figure edit, inside the autosave's reply (170 ms). Figures in Paper are
   `<img>`s fed by the idle render queue; widget constructors compute nothing heavier than the
   model box.
+- **A source-line chip never receives its own double-click.** The first click puts the caret
+  on the line, the reveal removes the chip's DOM, and Chrome sends the second mousedown and
+  the `dblclick` to the raw text instead. The figure chip's "double-click to open in Figure"
+  was dead for real users from the start; synthetic `dispatchEvent(new MouseEvent("dblclick"))`
+  tests passed. `chipActivation.ts` arms the action on the first press. One editor
+  mousedown handler fires it on the `detail === 2` press on the same line and document, and
+  swallows that press so CodeMirror selects no word. Gate with real input: down/up, then
+  down/up with `clickCount: 2`, after `scrollIntoView`, and assert `elementFromPoint` hit the
+  chip. Without that check a click on an off-screen chip "passes" a must-stay-put assertion.
+- **A block widget's vertical margins are invisible to CodeMirror's height map.** CodeMirror
+  measures the widget's border box, so `.flux-slide-embed { margin: 16px auto }` put the map
+  32 px behind the DOM per embedded slide. ArrowDown then skipped lines below a slide, since
+  vertical motion mixes the map with DOM coordinates. Tell:
+  `coordsAtPos(l.from).top − documentTop − lineBlockAt(l.from).top` grows by the margin sum
+  after each widget. Use padding, or a `display:flow-root` host that contains the margins.
+  The host is the fix when the stylesheet is shared with an export.
 - **Blink relayouts SVG text whenever an ancestor scale changes.** Each residual zoom tick
   restyles/relayouts every `<text>` (≈300 per tick here) and repaints the scene — ~20 ms per
   tick over 21 plots, independent of the compositor drive; `text-rendering:
@@ -9176,3 +9210,17 @@ strengthened `verify-f5-drag` and `verify-crop`; touched pure + UI gates green; 
   independent route to it.
 - `pgrep -f <pattern>` matches the shell that runs it; a `while pgrep` wait loop never ends.
 
+### 2026-10-02 — Paper: slide-embed source line folds to a "Deck 3 · Slide 4" chip (Claude Opus 5.5, `oct2/paper-embed-chip`)
+**Work:** An embedded slide's raw `![](…){.flux-slide …}` line now folds to `▷ <deck title> · Slide <N>` the way a
+figure embed folds to its name chip. It comes from a fold ViewPlugin in `slideEmbeds()` over the block field's
+entries, plus a synchronous per-editor label catalog fed by repository deck reads. Driving it in the app surfaced
+two older bugs, both fixed. The figure chip's double-click never opened Figure for a real user. Every embedded
+slide also desynced the height map by 32 px, so ArrowDown skipped lines under it. Gates: new
+`verify-slide-embed-chip.ts` (pure) and `.mjs` (ui), plus a real-double-click check in `verify-embed-chip.mjs`.
+All were red on base and are green now. `paper-gate` grows to 72.
+**Learnings:**
+- Promoted to §9: source-line chips never receive their own double-click, and block-widget margins are invisible
+  to the height map. The §4 inline-slides body records the chip's design.
+- A gate's "nothing happened" assertion after a click must first prove the click hit its target
+  (`elementFromPoint`). An earlier walk had scrolled the chip off-screen, and the unresolved-chip check passed on
+  a click into the page background.
