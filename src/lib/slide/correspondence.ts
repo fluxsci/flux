@@ -21,6 +21,9 @@ export interface CorrespondencePair {
   landing?: { x: number; y: number; scale: number };
   crossfade?: true;
   boxes?: { a: StageOutline["bbox"]; b: StageOutline["bbox"] };
+  /** A paired outline that still fades like a leftover: "out" over the first
+   *  40 %, "in" over the last 40 % (a filled ring's travelling fill underlay). */
+  fade?: "out" | "in";
 }
 export interface CorrespondencePlan {
   pairs: CorrespondencePair[];
@@ -205,8 +208,26 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean): 
   for (const p of ordered) { acc += total ? p.len / total : 1 / ordered.length; cuts.push(clamp(acc)); }
   cuts[cuts.length - 1] = 1;
   const tiles = pieces(splitSide, cuts);
-  return ordered.map((p, i) => ({ a: source ? tiles[i] : p.o, b: source ? p.o : tiles[i] }));
+  const pairs: CorrespondencePair[] = ordered.map((p, i) => ({ a: source ? tiles[i] : p.o, b: source ? p.o : tiles[i] }));
+  // A FILLED ring split into open arcs paints almost none of its interior, so
+  // without help the fill would vanish on the first flight frame (and pop in
+  // on the last when many pieces merge into one ring). Its fill-only copy rides
+  // first, beneath the pieces, as an ordinary leftover: a source dissolves over
+  // the first 40 %, a destination resolves over the last 40 % — frame 0 and the
+  // landing stay exactly the endpoint's own render.
+  // The underlay travels toward the partners' centre, so it stays with the
+  // departing (or arriving) pieces rather than lingering where the ring was.
+  if (single.closed && isFilled(single)) {
+    const underlay: StageOutline = { ...single, paint: { ...single.paint, stroke: "none", strokeWidth: 0, dash: undefined, arrowStart: false, arrowEnd: false } };
+    const x0 = Math.min(...partners.map(o => o.bbox.x)), y0 = Math.min(...partners.map(o => o.bbox.y));
+    const x1 = Math.max(...partners.map(o => o.bbox.x + o.bbox.w)), y1 = Math.max(...partners.map(o => o.bbox.y + o.bbox.h));
+    const c = center(single), dx = (x0 + x1) / 2 - c.x, dy = (y0 + y1) / 2 - c.y;
+    const moved: StageOutline = { ...underlay, nodes: underlay.nodes.map(n => ({ ...copyNode(n), x: n.x + dx, y: n.y + dy })), bbox: { ...underlay.bbox, x: underlay.bbox.x + dx, y: underlay.bbox.y + dy } };
+    pairs.unshift(source ? { a: underlay, b: moved, fade: "out" } : { a: moved, b: underlay, fade: "in" });
+  }
+  return pairs;
 }
+const isFilled = (o: StageOutline) => !["", "none", "transparent"].includes(o.paint.fill.trim().toLowerCase());
 
 function byData(A: StageOutline[], B: StageOutline[], hint: DataHint): CorrespondencePair[] {
   const axis = hint.axis ?? dataAxis(A, B, hint) ?? "x";
@@ -366,7 +387,7 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       path = { nodes: [], closed: one.closed, paint: { ...one.paint }, opacity: 1, owner: { a: a?.owner, b: b?.owner } };
       buffers.set(path, buf); out[i] = path;
     }
-    path.opacity = !b ? clamp(1 - t / 0.4) : !a ? clamp((t - 0.6) / 0.4) : 1;
+    path.opacity = !b || pair.fade === "out" ? clamp(1 - t / 0.4) : !a || pair.fade === "in" ? clamp((t - 0.6) / 0.4) : 1;
     if (!a || !b || t === 0 || t === 1 || pair.crossfade) {
       const end = !a ? b! : !b ? a : t < 0.5 ? a : b;
       path.nodes = end === a ? buf.a : buf.b;
