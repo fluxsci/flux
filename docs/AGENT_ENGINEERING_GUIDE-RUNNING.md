@@ -164,6 +164,9 @@ The established shared cores — extend these, don't duplicate them:
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | Stage-space geometry for element, plot-part and group targets | `src/lib/slide/targetGeometry.ts` | `verify-target-geometry.ts` (pure/core parity), `verify-target-geometry-browser.ts` (live CTM) |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
+| Text-rewrite matching, morph plan and timeline (the glyph-matched text morph) | `src/lib/slide/textMatch.ts` (pure; `player/textMorph.ts` is its browser driver) | `verify-text-match.ts` (passes, policy, caps, timeline), `verify-text-morph-browser.ts` (exported player), `verify-transform-gui.mjs` (presented Change) |
+| Letter outlines for text ↔ shape (placement, counters, glyph boxes; which texts fly as letters) | `src/lib/text/glyphOutlines.ts` + `slide/glyphTexts.ts` (pure); `text/glyphFont.ts` parses font bytes (opentype.js, never in the export runtime) | `verify-glyph-outlines.ts` (incl. GUI-bridge vs Node vs flux-core bake bytes), `verify-text-morph-browser.ts` |
+| Font request identity and system font files (Electron main `fonts:lookup` + flux-core bake) | `src/lib/text/fontRequest.mjs` (plain ESM, also the renderer's key) + `fontFiles.mjs` (Node) | `verify-glyph-outlines.ts`, `verify-ipc-contract.ts` |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
@@ -1367,16 +1370,46 @@ Persistence invariants (all machine-checked — do not weaken):
   bridge reproduces today's Become exactly. Part `paint.strokeWidth`/`dash` are STAGE px:
   declared × `fs` × sqrt(sx·sy) (the outer viewBox→box scale), i.e. declared × contentScale
   × px-per-user-unit at any box size (4/3 for a matplotlib pt viewBox), pinned against the
-  live computed stroke × screen-CTM scale. Text is a box-only crossfade target: explicit
-  SVG bounds/textLength are used when present; otherwise its anchor is retained without
+  live computed stroke × screen-CTM scale. Text INSIDE A PLOT is a box-only crossfade target:
+  explicit SVG bounds/textLength are used when present; otherwise its anchor is retained without
   guessing glyph metrics. The hand-off clone renderer measures text once with live
-  `getBBox()`. Plot `view` data uses the shared projection kernel before stage mapping;
+  `getBBox()`. A text ELEMENT becomes letter outlines when `GeometryCtx.glyphs` is supplied
+  (the text-morph paragraph below). Plot `view` data uses the shared projection kernel before stage mapping;
   spines remain fixed while guides follow the DOM writer's data coordinates/fading.
   `plotStageMapping` factors that same viewBox/crop/flip/placement mapping for axis
   fits used by data pairing. A rotated plot cannot supply a stage-axis-aligned fit:
   correspondence falls back to spatial/tile pairing, preserving visible geometry.
   Gates: `verify-target-geometry` (linkedom plus core parity) and
   `verify-target-geometry-browser` (real renderSlide/Chrome CTM, pure tier).
+- **Text animates by content, not by fading** (oct2 W3, 2026-10-02). A text rewrite (Change, a
+  text Consume, a hand-off between two whole upright texts) is `contentPlan` mode `textMorph`.
+  Only a pure digit change keeps the in-place count-up. `slide/textMatch.ts` (pure) matches
+  words in five passes: exact LCS, folded LCS in gaps, reorders by content, digit count-ups,
+  then character blocks between close leftover words (policy and caps are pinned constants).
+  It cuts runs at visual lines and style segments, glues a fading suffix to its stem's glide
+  (`with`), and owns the windows (`textMorphTimeline`). `player/textMorph.ts` measures both
+  endpoints by rendering them once through the serializer, using `getStartPositionOfChar` /
+  `getExtentOfChar` mapped through SVG white-space collapsing. It never guesses metrics. Each
+  span is a `<svg><text>` clone on a pre-armed, promoted, capped layer, so glyph baselines move
+  sub-pixel. Endpoints show the A / B layers. Rules learned:
+  (1) inside the Change wrapper the span layer is COUNTER-SCALED by the wrapper's composite
+  scale, so it is in stage px (otherwise text stretches with a changing box, the old crossfade's
+  visible artifact); (2) a text morph or glyph morph must NOT run `applyTextLayout` on the
+  per-frame content. Re-hugging the stepped text made the box jump at 0.5 and squashed the B
+  layer at rest. The endpoint render instead uses `layoutForMorph`, which wraps but keeps the
+  authored box. Text ↔ drawn shape flies LETTER OUTLINES: `GeometryCtx.glyphs` (player
+  `glyphProvider.ts`), placed at measured baselines, counters keyholed (`text/glyphOutlines.ts`).
+  A filled shape splits by AREA into reading-order strips (`correspondence.sliceIntoLetters`);
+  cutting its outline into open pieces dropped the fill at t = 0+. The live shape is held over
+  the seams for 15 % of raw progress. Fonts come from ONE registered loader per host:
+  `registerGlyphFonts` (GUI: `fonts:lookup` → `text/fontFiles.mjs`; export/embed:
+  `payload.glyphs`, baked by `gatherPayload` for exactly the morphing characters). The resolver
+  walks the CSS stack like the browser. It STOPS at app-served families (`BUNDLED_FAMILIES`:
+  Gelasio is variable WOFF2 → boxes), because the browser paints those and never falls through
+  to the system serif. No readable outline → rounded glyph boxes that crossfade into the text,
+  diagnosed through `CompileOptions.glyphStatus`. Measured: glide Δx sd 0.015 stage px/ms (a
+  plain move is 0.017); landing ≤ 0.12 stage px (Skia's ¼-device-px glyph quantum, the same
+  class as a plain text move); cold first seek ≤ 35 ms. Gates: `group:text-morph`.
 - **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
   **Highlights** (Alt+A). CLI `highlights` / `add-highlight` and MCP `list_highlights`,
   `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
@@ -2229,6 +2262,10 @@ headless path again on `windows-latest` as `test-windows` — both of the latter
 (`continue-on-error`, promotion rule in §10). A gate that is green on Linux and red on Windows
 is the reason the Windows job exists; read §9's Windows entries before touching the gate.
 
+Every script named in a tier needs an `execution` contract in the manifest. One missing
+contract aborts `--tier pure` before anything runs ("Missing/invalid execution contract"). This
+happened on `slides-oct2` @ 2541dc58 for `verify-fig-source-cache.ts` and
+`verify-resize-preview.ts`, fixed on `oct2/text-morph`. Add the contract with the tier entry.
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
 why); child processes are owned by `TestProcessScope` (`scripts/lib/testProcess.mjs`). Node 22 is
@@ -3144,6 +3181,17 @@ outside this PNG packaging change.
   nothing on the element; `<svelte:window on:keydown>` handlers fire in mount order
   (FluxFigMenu before Xray in FigureMode), so a handler that `stopImmediatePropagation()`s
   must guard on its own open state (`$fluxFigMenuOpen`).
+- **"Painted" in a gate means visible AND opaque** (2026-10-02). Several slide gates counted
+  a `<text>` as painted unless an ancestor had `opacity: 0`, the old crossfade's only hiding
+  mechanism. Layered drivers (the outline morph, the text morph, the glyph morph) hide idle
+  layers with `visibility: hidden`, so those gates read future text as painted. Check computed
+  `visibility` too, and when an SVG group carries the `visibility` attribute, check the children's
+  computed visibility. Do not trust their opacity attributes.
+- **opentype.js resolves to two different builds**: bundlers (Vite, esbuild) take its ESM
+  `module` (named exports only), Node/tsx take its UMD `main` (a CommonJS namespace, so named
+  imports fail with "does not provide an export named 'parse'"). Import the namespace and fall
+  back to `.default` (`text/glyphFont.ts`). Keep the parser out of `export/runtime.ts`'s import
+  graph: exported decks read baked records (`verify-text-morph-browser` greps the HTML).
 - **Editing sources while the ui tier runs** produces `PAGEERR <Identifier> is not defined`
   in whichever gate is mid-flight (a half-swapped module). Freeze sources, then rerun the
   failed gate alone before believing it.
@@ -9176,3 +9224,23 @@ strengthened `verify-f5-drag` and `verify-crop`; touched pure + UI gates green; 
   independent route to it.
 - `pgrep -f <pattern>` matches the shell that runs it; a `while pgrep` wait loop never ends.
 
+
+### 2026-10-02 — Text animation by content: the glyph-matched text morph and letter outlines (Claude Opus 5.5, `oct2/text-morph`)
+**Work:** Owner ask (Deck 3 slide 4): text Becomes and Changes looked like "sloppy/basic fades".
+Text rewrites now play a Magic-Move-style morph. Shared words glide, including reorders, case
+changes and grown stems ("quick" → "quickly"); the rest fades as reading-order letter waves.
+This covers Change, Consume and text ↔ text hand-offs. Text ↔ shape Becomes fly real letter
+outlines: system fonts over a new `fonts:lookup` IPC, or baked into exports. A filled shape
+splits by area into one strip per letter, and fonts without readable outlines fall back to
+glyph boxes. New gates `verify-text-match`, `verify-glyph-outlines` and
+`verify-text-morph-browser`; six existing gates pinned the old crossfade and were updated with
+evidence. Frames are in `notes/slides_oct2/reports/W3/`.
+**Learnings:**
+- Promoted to §4: the text-morph paragraph (counter-scaled span frame, no per-frame
+  `applyTextLayout`, area slicing, one font loader per host, bundled families stop resolution)
+  and the bridge's plot-text vs text-element distinction. Promoted to §9: "painted" means
+  visible and opaque in gates; opentype.js resolves to two builds. Promoted to §7: a missing
+  execution contract aborts `--tier pure` (two were missing on the base and are fixed here).
+- Measure the browser's own glyph positions and never compute them. Spans cloned per substring
+  land within 0.05 stage px of the real text. Positions recomputed from font metrics would
+  disagree with browser shaping at the flip.

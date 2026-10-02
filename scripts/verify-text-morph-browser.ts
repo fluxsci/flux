@@ -215,7 +215,12 @@ try {
     const t = document.querySelector(`[data-el-id="${id}"] text`) as SVGTextElement, ctm = t.getScreenCTM()!;
     return Array.from({ length: t.getNumberOfChars() }, (_, i) => { const e = t.getExtentOfChar(i); const a = new DOMPoint(e.x, e.y).matrixTransform(ctm), c = new DOMPoint(e.x + e.width, e.y + e.height).matrixTransform(ctm); return { x: a.x, y: a.y, r: c.x, b: c.y }; });
   }, id);
-  await seek(5, 500); let fl = await flight();
+  // The very first seek finds the baked font still loading (a promise): boxes.
+  // Parked there, the player repaints once the font lands — outlines, no seek.
+  await seek(5, 500);
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 60)));
+  let fl = await flight();
+  h.eq(fl.count, 11, "a scrub parked while the font loads repaints from boxes to the 11 letter outlines without another seek");
   h.ok(fl.count >= 10 && fl.source === "hidden" && fl.dest === "hidden", `mid-flight: ${fl.count} letter rings fly (≥ 10) while both objects hide`);
   await seek(5, 30); fl = await flight();
   h.ok(fl.holds.some((x) => x.cls === "sl-handoff-shape" && x.opacity > 0.5), "leaving: the rect itself covers its slice seams for the first 15 %");

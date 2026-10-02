@@ -23,7 +23,7 @@ import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
 import { modelHandoffMedia } from "./model3dHandoff";
 import { createHandoff, type HandoffController } from "./handoff";
-import { createGlyphProvider } from "./glyphProvider";
+import { createGlyphProvider, glyphFontsRevision } from "./glyphProvider";
 import type { TextElement } from "../../types";
 import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState } from "../tween";
@@ -826,9 +826,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); unsubscribeFonts(); for (const set of Object.values(listeners)) set.clear(); }
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
+  // A letter font that lands while a scrub is parked mid-flight repaints that
+  // frame once (boxes → outlines); playing frames pick it up on their own.
+  let fontsSeen = -1;
+  const unsubscribeFonts = glyphFontsRevision.subscribe((rev) => { if (fontsSeen >= 0 && !playing && si >= 0 && specs.length) paint(); fontsSeen = rev; });
   if (deck.slides.length) goTo(0, 0);
   return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }

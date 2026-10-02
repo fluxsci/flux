@@ -281,6 +281,15 @@ above the stage always identifies where subsequent edits will go. Chained change
 steps; colors blend perceptually and rewritten numbers digit-tween. Drop a captured property in the
 Animation inspector's **Δ** row to let it inherit from earlier steps.
 
+**Rewriting text** plays a *text morph*. Words the old and new text share glide from where
+they were to where they land, even when they change order, case or style; a word that grows
+into a longer one (*quick* → *quickly*, *Microscope* → *Microscopy*) glides and gains its new
+letters on the way. Everything else fades: old letters drift down and fade in reading
+order while the new ones rise in, so the line turns over left to right without ever going
+empty. Crossing words pass on slightly separated lanes, and a size, weight or colour change
+travels with each word. A rewrite of more than 200 characters moves line by line. A change
+of a single number still counts up in place.
+
 For a box move, the **Arc** slider bends the path to either side of the straight line.
 Zero keeps it straight; the endpoints stay fixed. The small path preview shows the bend.
 Arc shares the transform's easing and can be inherited from an animation style.
@@ -357,7 +366,16 @@ or **tile**. Connected strokes, such as two axis spines, form one path. Order fo
 indices; tile divides one outline among its partners. By data lands points at their values
 on the destination axis. This supports **data ↔ summary**: points can become a distribution,
 or a summary can expand back into its points. Unmatched sources fade out; unmatched
-parts of the destination fade in. Text and images crossfade while their boxes move.
+parts of the destination fade in. Images crossfade while their boxes move.
+
+**Text and shapes.** When a shape becomes text, it splits into one piece per letter, in
+reading order, and each piece pours into its letter's outline. When text becomes a shape,
+the letters fuse into it. A text that becomes another text plays the text morph described
+under Change, whether by Consume or by hand-off. Letter outlines come from the font
+installed on your computer, and an exported presentation carries the outlines of the
+letters it needs. When no outline is readable, the letters land as rounded boxes and then
+fade into the text, and the Animation inspector reports it. This happens with the bundled
+Gelasio typeface or in a browser preview without the desktop app.
 
 After a hand-off to some of a plot's parts, when the plot has no appearance effects yet,
 the toast offers **Auto-animate the rest…**. It adds the plot's remaining build phases after
@@ -696,5 +714,6 @@ not delete the source. HTML exports retain manual playback; PDF and Word show st
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
 | A plot Become fades a series instead of morphing its data | Continuous data motion requires shared series ids, supported data and matching axis scales. A series without a tweenable counterpart fades on its own (the Animation inspector lists it); only an SVG without semantic IDs crossfades as a whole. |
 | An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
+| A shape becomes text and the letters land as boxes ("No readable outlines for …") | The text's font has no outline Flux can read: Gelasio, the bundled theme font, ships only as a web font; a browser preview has no access to installed fonts → set the text in an installed font (Georgia, Arial, …) to see letter outlines; the boxes still land on each letter and fade into the text |
 | "Couldn't open that deck — its file may be missing or corrupt." appears while an agent edits the deck | An older Flux mistook a reload overtaken by the agent’s next edit for a bad file → update Flux; the deck on disk is intact, so reopening it shows the agent’s version |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |
