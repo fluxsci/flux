@@ -34,10 +34,21 @@ function axisHint(ref: TargetRef, outlines: StageOutline[], frame: SlideFrame, c
   return fits ? plotStageMapping(plot, root).fitX(fits.x) : undefined;
 }
 
+/** Letters fly as outlines only toward or from something DRAWN: a text whose
+ *  other side is itself text/raster keeps its box (the text morph or the box
+ *  crossfade owns that pair), so glyph geometry is never planned for nothing. */
+const drawn = (outlines: StageOutline[]) => outlines.some(o => !o.paint.text && !o.paint.raster);
+const lettered = (outlines: StageOutline[]) => outlines.some(o => o.paint.text);
+
 export function planHandoff(track: Track, frame: SlideFrame, ctx: GeometryCtx): CorrespondencePlan {
   const spec = track.to!.become as BecomeSpec, source = trackRef(track);
-  const a = targetOutlines(source, frame, ctx).filter(o => insideCrop(o, frame));
-  const b = targetOutlines(spec.ref, frame, ctx).filter(o => insideCrop(o, frame));
+  const boxed = ctx.glyphs ? { ...ctx, glyphs: undefined } : ctx;
+  let a = targetOutlines(source, frame, boxed).filter(o => insideCrop(o, frame));
+  let b = targetOutlines(spec.ref, frame, boxed).filter(o => insideCrop(o, frame));
+  if (ctx.glyphs) {
+    if (lettered(a) && drawn(b)) a = targetOutlines(source, frame, ctx).filter(o => insideCrop(o, frame));
+    if (lettered(b) && drawn(a)) b = targetOutlines(spec.ref, frame, ctx).filter(o => insideCrop(o, frame));
+  }
   const data: DataHint = { destAxisFit: axisHint(spec.ref, b, frame, ctx), sourceAxisFit: axisHint(source, a, frame, ctx) };
   const dest = frame.elements.find(el => el.id === spec.ref.element);
   // Whole-plot default: one source becomes the merged axes, not a slice of

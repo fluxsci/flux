@@ -175,6 +175,9 @@ export interface FileBridge {
   discardModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
   model3dSourceFingerprint?(request: import("../model3d/source").ModelSourceFingerprintRequest): Promise<import("../model3d/source").ModelSourceFingerprint>;
   model3dAvailability?(): Promise<{ disabled: boolean }>;
+  /** System font bytes for a CSS font request (text ↔ shape letter outlines);
+   *  null bytes when no readable font file backs it. */
+  fontLookup?(request: { family: string; weight?: number; style?: string }): Promise<{ key: string; bytes: Uint8Array | null; format: string | null }>;
   runnerCapabilities?(): Promise<RunnerCapability[]>;
   runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
   runnerSend?(options: { runId: string; text: string; images?: RunnerImage[] }): Promise<void>;

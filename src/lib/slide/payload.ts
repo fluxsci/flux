@@ -18,6 +18,9 @@ import type { ExportPayload } from "./export/runtime";
 import { slideAssetIds } from "./deckProject";
 import type { Asset } from "../types";
 import { validEmbedId } from "./embed";
+import { textGlyphNeeds, type GlyphStyle, type BakedGlyphFont } from "../text/glyphOutlines";
+import { fontRequestKey } from "../text/fontRequest.mjs";
+import { glyphTextTracks } from "./glyphTexts";
 export type { ExportPayload } from "./export/runtime";
 export interface SlidePayloadIO {
   readText(path: string): Promise<string>;
@@ -29,6 +32,13 @@ export interface SlidePayloadIO {
   /** Static writers keep model bytes cold; native/worker poster preparation is separate. */
   modelData?: "inline" | "omit";
   modelPoster?(request: StaticModelPosterRequest, projectRelativePath: string): Promise<string>;
+  /** System font bytes for a CSS font request (text/fontFiles.mjs lookupFont in
+   *  Node, the `fonts:lookup` IPC in the GUI). Absent: letters in a text ↔ shape
+   *  Become land as glyph boxes in the export. */
+  glyphFont?(style: GlyphStyle): Promise<Uint8Array | null>;
+  /** The GUI file bridge's IPC form of the same lookup (Paper spreads the
+   *  bridge into its embed IO, so its embeds bake letters without new wiring). */
+  fontLookup?(request: GlyphStyle): Promise<{ bytes: Uint8Array | null } | null>;
 }
 const join = (...parts: string[]) => parts.join("/");
 export function underRoot(root: string, rel: string): string {
@@ -254,13 +264,38 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   for (const d of danglingTrackTargets(deck)) {
     warnings.push(`slide "${d.slideId}" beat "${d.beatId}" animates a deleted element ("${d.target}") — the track plays as a no-op`);
   }
+  const glyphFont = io.glyphFont ?? (io.fontLookup ? async (style: GlyphStyle) => { const r = await io.fontLookup!(style); return r?.bytes ? new Uint8Array(r.bytes) : null; } : undefined);
+  const glyphs = glyphFont ? await bakeDeckGlyphs(deck, glyphFont) : {};
   const portableDeck = { ...deck, assets: [...deck.assets] };
   for (const { asset } of modelFiles.values()) if (!portableDeck.assets.some(a => a.id === asset.id)) portableDeck.assets.push(asset);
   return { payload: portablePayload({ deck: portableDeck, plots, assets,
     ...(Object.keys(videos).length ? { videos } : {}),
     ...(modelFiles.size ? { models, modelManifests, modelPosters } : {}),
     ...(Object.keys(assetSizes).length ? { assetSizes } : {}),
+    ...(Object.keys(glyphs).length ? { glyphs } : {}),
   }), warnings };
+}
+
+/** Bake exactly the characters those texts paint, per font request key, keys
+ *  and glyphs sorted — both engines emit identical bytes for identical fonts. */
+async function bakeDeckGlyphs(deck: Deck, glyphFont: (style: GlyphStyle) => Promise<Uint8Array | null>): Promise<Record<string, BakedGlyphFont>> {
+  const needs = new Map<string, { style: GlyphStyle; chars: Set<string> }>();
+  for (const { text: el } of deck.slides.flatMap(glyphTextTracks)) for (const need of textGlyphNeeds(el)) {
+    const key = fontRequestKey(need.style);
+    if (!needs.has(key)) needs.set(key, { style: need.style, chars: new Set() });
+    for (const ch of need.chars) needs.get(key)!.chars.add(ch);
+  }
+  if (!needs.size) return {};
+  const { parseGlyphFont, bakeGlyphs } = await import("../text/glyphFont");
+  const out: Record<string, BakedGlyphFont> = {};
+  for (const key of [...needs.keys()].sort()) {
+    const { style, chars } = needs.get(key)!;
+    let bytes: Uint8Array | null = null;
+    try { bytes = await glyphFont(style); } catch { bytes = null; }
+    const src = bytes ? parseGlyphFont(bytes) : null;
+    if (src) out[key] = bakeGlyphs(src, chars);
+  }
+  return out;
 }
 
 /** Keep source lookup data until after gathering; portable embeds contain no notes or local paths. */

@@ -9,6 +9,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createDeck, addSlide, addElement, addBeat, setTransform } from "../src/lib/slide/ops";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
+import { gatherPayload } from "../src/lib/slide/payload";
+import { lookupFont } from "../src/lib/text/fontFiles.mjs";
 import type { Slide } from "../src/lib/slide/types";
 import type { TextElement } from "../src/lib/types";
 import { harness } from "./lib/harness.mjs";
@@ -50,8 +52,25 @@ try {
   const s4 = add("legacy"); addElement(deck, s4.id, text("t", 100, 100, "one two three four five six", { align: "justify", sizing: "fixed", width: 200, height: 80, lines: ["one two three", "four five six"] }));
   change(s4, "t", { text: "seven eight nine ten", width: 260 });
 
+  // 5 — P2: a filled rect hands off to the word (letters as outlines).
+  const rect = (id: string, x: number, y: number) => ({ id, type: "rect" as const, x, y, width: 220, height: 90, rotation: 0, fill: "#d95f0e", stroke: "#222222", strokeWidth: 2, cornerRadius: 6 });
+  const s5 = add("pour"); addElement(deck, s5.id, rect("r", 60, 200));
+  addElement(deck, s5.id, text("w", 420, 230, "Microscopy", { fontSize: 48, fontWeight: 700, color: "#1f3a93" }));
+  change(s5, "r", {}).to!.become = { mode: "handoff", ref: { element: "w" } };
+  // 6 — P2: a Consume retype rect → text inside ONE element.
+  const s6 = add("consume"); addElement(deck, s6.id, rect("r", 60, 200));
+  change(s6, "r", { type: "text", x: 420, y: 230, width: 300, height: 56, text: "Optics", fontFamily: "Arial", fontSize: 48, fontWeight: 400, fontStyle: "normal", align: "left", color: "#1f3a93", sizing: "auto" });
+
+  // The real bake (payload.ts) through the shared resolver, as export-deck does.
+  const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p) };
+  const baked = (await gatherPayload(tmp, deck, { ...io, glyphFont: async (style) => (await lookupFont(style)).bytes })).payload;
+  h.ok(Object.keys(baked.glyphs ?? {}).sort().join() === "Arial|400|normal,Arial|700|normal", `the export bakes the two morphing texts' fonts (${Object.keys(baked.glyphs ?? {}).join(", ")})`);
+  const exported = await exportDeckHtml(baked);
+  h.ok(!/opentype/i.test(exported.html), "the offline runtime carries baked records, never the font parser");
   const file = path.join(tmp, "text-morph.html");
-  await fs.writeFile(file, (await exportDeckHtml({ deck, plots: {} })).html);
+  await fs.writeFile(file, exported.html);
+  const boxesFile = path.join(tmp, "text-morph-boxes.html");
+  await fs.writeFile(boxesFile, (await exportDeckHtml({ deck, plots: {} })).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
   await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
   const errors: string[] = []; page.on("pageerror", (err: Error) => errors.push(String(err))); page.on("console", (msg) => { if (msg.type() === "error") errors.push(msg.text()); });
@@ -181,6 +200,56 @@ try {
     return { a: A.style.transform, b: B.style.transform, ha: glyphW(A), hb: glyphW(B) };
   });
   h.ok(/scale\(/.test(legacy.a) && /scale\(/.test(legacy.b) && Math.abs(legacy.ha - legacy.hb) < 2, "fallback: both endpoint renders keep their natural glyph size (no stretch with the box)");
+  // --- 5: rect → word hand-off, letters as outlines ------------------------------------
+  const flight = () => page.evaluate(() => {
+    const paths = Array.from(document.querySelectorAll<SVGPathElement>(".sl-flight .sl-handoff-path"));
+    const shown = paths.filter((p) => Number(p.getAttribute("opacity") ?? 1) > 0.01 && getComputedStyle(p).visibility !== "hidden");
+    const ctm = (document.querySelector(".sl-flight") as SVGSVGElement).getScreenCTM()!;
+    const box = (p: SVGPathElement) => { const b = p.getBBox(); const a = new DOMPoint(b.x, b.y).matrixTransform(ctm), c = new DOMPoint(b.x + b.width, b.y + b.height).matrixTransform(ctm); return { x: a.x, y: a.y, r: c.x, b: c.y }; };
+    const holds = Array.from(document.querySelectorAll<SVGGElement>(".sl-flight .sl-handoff-shape, .sl-flight .sl-handoff-text")).map((g) => ({ cls: g.getAttribute("class"), opacity: Number(g.getAttribute("opacity") ?? 0) }));
+    return { count: shown.length, boxes: shown.map(box), fills: shown.map((p) => p.getAttribute("fill")), driver: document.querySelector(".sl-flight .sl-handoff")?.getAttribute("data-driver"), holds,
+      source: getComputedStyle(document.querySelector('[data-el-id="r"]')!).visibility, dest: getComputedStyle(document.querySelector('[data-el-id="w"]')!).visibility };
+  });
+  /** The destination word's per-letter extent boxes (screen px). */
+  const letterBoxes = (id: string) => page.evaluate((id) => {
+    const t = document.querySelector(`[data-el-id="${id}"] text`) as SVGTextElement, ctm = t.getScreenCTM()!;
+    return Array.from({ length: t.getNumberOfChars() }, (_, i) => { const e = t.getExtentOfChar(i); const a = new DOMPoint(e.x, e.y).matrixTransform(ctm), c = new DOMPoint(e.x + e.width, e.y + e.height).matrixTransform(ctm); return { x: a.x, y: a.y, r: c.x, b: c.y }; });
+  }, id);
+  await seek(5, 500); let fl = await flight();
+  h.ok(fl.count >= 10 && fl.source === "hidden" && fl.dest === "hidden", `mid-flight: ${fl.count} letter rings fly (≥ 10) while both objects hide`);
+  await seek(5, 30); fl = await flight();
+  h.ok(fl.holds.some((x) => x.cls === "sl-handoff-shape" && x.opacity > 0.5), "leaving: the rect itself covers its slice seams for the first 15 %");
+  await seek(5, 999); fl = await flight();
+  const lb = await letterBoxes("w");
+  const inside = fl.boxes.every((b) => lb.some((l) => b.x >= l.x - 0.5 * scale && b.r <= l.r + 0.5 * scale && b.y >= l.y - 0.5 * scale && b.b <= l.b + 0.5 * scale));
+  h.ok(fl.count === 11 && inside, `landing: each of the ${fl.count} rings (M-i-c-r-o-s-c-o-p-y, i in two parts) sits inside its letter's own box (≤ 0.5 px)`);
+  h.ok(fl.fills.every((f) => /rgb\(31, 58, 147\)|#1f3a93/i.test(f ?? "")), "landing: the rings carry the text colour (OKLab-lerped, clamped)");
+  await seek(5, 1000); fl = await flight();
+  h.ok(fl.count === 0 && fl.dest === "visible" && fl.source === "hidden", "raw 1: the flight empties and the live word flips in");
+  await seek(5, 0); fl = await flight();
+  h.ok(fl.count === 0 && fl.source === "visible" && fl.dest === "hidden", "reverse seek: the rect is back, the word hidden");
+
+  // --- 6: Consume rect → text in one element ---------------------------------------------
+  const consume = () => page.evaluate(() => {
+    const w = document.querySelector<HTMLElement>('[data-el-id="r"]')!, m = w.querySelector<HTMLElement>(".sl-glyph-morph");
+    const layers = m ? Array.from(m.parentElement!.children).map((n) => ({ vis: getComputedStyle(n).visibility, opacity: Number(getComputedStyle(n).opacity) })) : [];
+    return { paths: m ? Array.from(m.querySelectorAll("path")).filter((p) => Number(p.getAttribute("opacity")) > 0.01).length : -1, layers, width: w.style.width, visible: getComputedStyle(m ?? w).visibility };
+  });
+  await seek(6, 500); let cs = await consume();
+  h.ok(cs.paths >= 6 && cs.layers[1]?.vis === "visible", `consume mid-flight: the element's own morph layer pours the rect into ${cs.paths} letter rings`);
+  await seek(6, 1000); cs = await consume();
+  h.ok(cs.layers[1]?.vis === "hidden" && cs.layers[2]?.vis === "visible" && cs.width === "300px", `consume at rest: the end text shows in the AUTHORED box (width ${cs.width}, never re-hugged)`);
+
+  // --- the glyph-box fallback (an export without baked fonts) -----------------------------
+  await page.goto(pathToFileURL(boxesFile).href); await page.waitForFunction("!!window.fluxDeck?.seek");
+  await seek(5, 500); fl = await flight();
+  h.ok(fl.count === 10, `no font: the rect still splits into one box per letter (${fl.count})`);
+  await seek(5, 930); fl = await flight();
+  const textHold = fl.holds.find((x) => x.cls === "sl-handoff-text");
+  h.ok(!!textHold && textHold.opacity > 0.3 && textHold.opacity < 0.7, `no font: boxes land, then crossfade into the live word over the final 15 % (text at ${textHold?.opacity.toFixed(2)})`);
+  await seek(5, 1000); fl = await flight();
+  h.ok(fl.count === 0 && fl.dest === "visible", "no font: raw 1 shows only the live word");
+
   h.eq(errors, [], "no console errors");
 } finally {
   await browser?.close();

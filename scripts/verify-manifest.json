@@ -379,7 +379,8 @@
       "verify-slide-model3d-parts-browser.ts",
       "verify-slide-model3d-scale.ts",
       "verify-text-match.ts",
-      "verify-text-morph-browser.ts"
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -874,7 +875,8 @@
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
       "verify-text-match.ts",
-      "verify-text-morph-browser.ts"
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -1222,6 +1224,7 @@
     "text-morph": [
       "verify-text-match.ts",
       "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts",
       "verify-slide-tween.ts",
       "verify-slide-handoff-browser.ts",
       "verify-slide-export-transform.ts"
@@ -1466,6 +1469,21 @@
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
         "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "$why": "2026-10-02 letter outlines (oct2 W3): fontRequest/fontFiles (Node + main + renderer key), glyphFont (opentype.js), glyphOutlines (placement, keyholes, boxes), the GUI loader, the slide glyph provider and the shared which-texts scan; keep the slide-player regression groups the player/** rule carries.",
+      "glob": "{src/lib/text/**,src/lib/slide/glyphTexts.ts,src/lib/slide/player/glyphProvider.ts}",
+      "run": [
+        "group:text-morph",
+        "verify-ipc-contract.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
       ]
     },
     {
@@ -2987,6 +3005,16 @@
         "verify-background-run.ts",
         "verify-background-run-gui.mjs",
         "verify-mcp-readonly.ts"
+      ]
+    },
+    {
+      "$why": "2026-10-02 fonts:lookup (oct2 W3): the IPC family resolving system font files through src/lib/text/fontFiles.mjs for text ↔ shape letter outlines; the contract gate pins the channel, the glyph gate drives the handler.",
+      "glob": "electron/ipc/fonts.cjs",
+      "run": [
+        "verify-glyph-outlines.ts",
+        "verify-ipc-contract.ts",
+        "tier:presence",
+        "tier:pure"
       ]
     },
     {
@@ -9605,6 +9633,15 @@
       "coverage": "behavior"
     },
     "verify-resize-preview.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-glyph-outlines.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

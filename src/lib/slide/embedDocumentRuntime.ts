@@ -5,6 +5,7 @@ import { restoreEmbedModels, type SharedModelPayload } from './embedModels';
 import { payloadModelHost } from './export/model3dPayloadHost';
 import { previewModelHost } from './previewModelClient';
 import type { Model3dHost } from '../model3d/host';
+import { registerGlyphFonts, bakedGlyphLoader } from "./player/glyphProvider";
 /** `modelBridge`: the live Paper preview carries model metadata only and draws
  * through the parent's worker service (previewModelBridge.ts); exported
  * documents inline their GLBs and render with the conditional model runtime. */
@@ -13,6 +14,8 @@ export function boot(): void {
   const node = document.getElementById("flux-slide-data");
   if (!node) return;
   const data = JSON.parse(node.textContent || "{}") as Data;
+  // Letter outlines for text ↔ shape Becomes come from every occurrence's bake.
+  registerGlyphFonts(bakedGlyphLoader(Object.assign({}, ...Object.values(data.payloads ?? {}).map(p => (p as { glyphs?: ExportPayload["glyphs"] }).glyphs ?? {}))));
   const states: Record<string, EmbedPlaybackState & { source: string }> = {};
   const players = new Map<string, SlideEmbedPlayer>();
   const payloads = new Map<string, ExportPayload>();

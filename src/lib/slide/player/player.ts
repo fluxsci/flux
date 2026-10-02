@@ -23,6 +23,8 @@ import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
 import { modelHandoffMedia } from "./model3dHandoff";
 import { createHandoff, type HandoffController } from "./handoff";
+import { createGlyphProvider } from "./glyphProvider";
+import type { TextElement } from "../../types";
 import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
@@ -118,6 +120,8 @@ interface Spec {
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
   handoff?: HandoffController;
+  /** Asynchronous preparation play must wait for (letter-outline fonts). */
+  ready?: { isReady(): boolean; ready(): Promise<void> };
   trackId?: string;
   /** All expanded children share this compiled track, including id-less decks. */
   owner?: Track;
@@ -146,7 +150,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   }
   const contentRoots = new Map<string, HTMLElement>();
   const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
-  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups };
+  // Letter outlines for text ↔ shape flights, measured inside this camera layer.
+  const glyphProvider = createGlyphProvider(cameraLayer, { ...opts, theme: opts.theme });
+  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups, glyphs: (el: TextElement) => glyphProvider.outlines(el) };
   const handoffs: HandoffRecord[] = compiled.handoffs;
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
@@ -220,11 +226,14 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const upright = (el: typeof textA) => !!el && !el.rotation && !el.flipX && !el.flipY;
           const text = textA?.type === "text" && textB?.type === "text" && upright(textA) && upright(textB)
             ? { a: textA, b: textB, render: { ...opts, ghostPartFactors: opts.ghostPartFactors } as SlideRenderCtx, durationMs: ct.duration } : undefined;
+          // One side a whole text, the other not: its letters fly as outlines.
+          const letterTexts = text ? [] : [...handoff.source, ...handoff.destination].filter(t => t.partIds === null).map(t => elementOf(t.elementId)).filter((el): el is TextElement => el?.type === "text");
+          const glyphs = letterTexts.length ? { ready: () => Promise.all(letterTexts.map(el => glyphProvider.ready(el))).then(() => {}), revision: () => glyphProvider.revision() } : undefined;
           const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec, text,
             plan: () => planHandoff(track, preFrame, geometry),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
-              order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
+              order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId), glyphs,
               node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),
               crop: owner => {
                 const el = preFrame.elements.find(e => e.id === owner.elementId);
@@ -259,14 +268,18 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           model3d: opts.model3d, modelAsset: opts.modelAsset, modelManifest: opts.modelManifest,
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
-          ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration,
+          ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration, glyphs: glyphProvider,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
+        // A text ↔ shape retype flies letter outlines: play waits for their fonts.
+        const retypeText = preEl.type !== endEl.type ? [preEl, endEl].find((el): el is TextElement => el.type === "text") : undefined;
+        let fontsReady = !retypeText;
+        const ready = retypeText ? { isReady: () => fontsReady, ready: () => glyphProvider.ready(retypeText).finally(() => { fontsReady = true; }) } : undefined;
         specs.push({
           node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
           delay: ct.start, duration: ct.duration,
           ease: ct.ease,
-          morph: driver,
+          morph: driver, ...(ready ? { ready } : {}),
         });
         continue;
       }
@@ -727,9 +740,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const session = generation;
     // Parsing/upload is completed before starting the authored clock. A later
     // navigation/cancel owns a new generation and cannot start this old cue.
-    if (models && !models.isReady() || specs.some(spec => spec.handoff && !spec.handoff.isReady())) {
+    if (models && !models.isReady() || specs.some(spec => spec.handoff && !spec.handoff.isReady() || spec.ready && !spec.ready.isReady())) {
       const resumeReady = () => { if (session === generation) begin(from, to, instant); };
-      void Promise.all([models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]).then(resumeReady, resumeReady);
+      void Promise.all([models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]).then(resumeReady, resumeReady);
       return;
     }
     bi = Math.max(0, Math.min(beats() - 1, to));
@@ -817,7 +830,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */

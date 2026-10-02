@@ -5,6 +5,7 @@ import { embedPlayerOptions, compileSlideFor } from "../embedRender";
 import { planSlideVideo, videoFrame, videoOptions, videoSize, type SlideVideoOptions } from "../video";
 import type { ExportPayload } from "./runtime";
 import { videoAudioSegments, videoEventsForPlan } from "../mediaTimeline";
+import { registerGlyphFonts, bakedGlyphLoader } from "../player/glyphProvider";
 
 /** Isolated capture host: no editor stores, presenter chrome, timers or rAF. */
 export async function boot(payload: ExportPayload, input: Partial<SlideVideoOptions>) {
@@ -34,6 +35,8 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
   // flight layer so a moving element is ONE raster moved across frames, not a
   // fresh layer per frame (which bakes its fractional offset in and steps).
   holdFlightLayers(true);
+  // Letters of text ↔ shape Becomes fly from the payload's baked outlines.
+  registerGlyphFonts(bakedGlyphLoader(payload.glyphs ?? {}));
   const player = createPlayer(host, deck, playerOptions);
   await player.readyMedia();
   const timing = { resolvedTracks: compileSlideFor(payload).cues.map(c => c.tracks.map(t => t.track)) };

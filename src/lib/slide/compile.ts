@@ -1,6 +1,6 @@
 /** DOM-free cue compilation and inspected state. Compilation is revision-scoped;
  * playback binds its targets once and samples only the active cue's properties. */
-import type { Element } from "../types";
+import type { Element, TextElement } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
@@ -21,6 +21,7 @@ import { trackDuration } from "./timing";
 import { sampleCamera } from "./camera";
 import { modelPairDiagnostic, modelVideoHandoff, type ModelAssetLookup } from "./model3dMorph";
 export { trackDuration } from "./timing";
+import { glyphTextTracks } from "./glyphTexts";
 export { ghostTargetIds } from "./ghost";
 
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
@@ -29,6 +30,9 @@ export interface CompileOptions extends StyleContext, ModelAssetLookup {
   modelManifest?: (assetId: string) => Scene3dManifest | undefined;
   /** Pristine prepared roots, when available, for outline diagnostics. */
   plotRoot?: GeometryCtx["plotRoot"];
+  /** Whether a text's letters have readable font outlines (the GUI's glyph
+   *  provider). "missing" diagnoses a text ↔ shape Become that lands as boxes. */
+  glyphStatus?: (text: TextElement) => "ready" | "missing" | "pending";
 }
 export interface CompiledTrack { track: Track; beat: number; start: number; duration: number; end: number; parts: string[]; ranks: number[]; maxRank: number; ease: ResolvedCurve }
 export interface PartFrame { opacity: number; visible: boolean; transform?: string }
@@ -350,6 +354,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     const a = targetOutlines(trackRef(ct.track), frame, ctx), b = targetOutlines(ref, frame, ctx);
     if (a.length && b.length && a.every(o => o.paint.text || o.paint.raster) && b.every(o => o.paint.text || o.paint.raster))
       issues.push({ trackId: ct.track.id, target: ct.track.target, reason: "Neither side of this Become has an outline; it crossfades" });
+  }
+  if (opts.glyphStatus) for (const { track, text } of glyphTextTracks(slide)) {
+    if (opts.glyphStatus(text) !== "missing") continue;
+    const family = text.fontFamily.split(",")[0].replace(/["']/g, "").trim() || "this font";
+    issues.push({ trackId: track.id, target: track.target, reason: `No readable outlines for ${family}: the letters of “${text.text.slice(0, 24)}${text.text.length > 24 ? "…" : ""}” land as boxes, then fade into the text.` });
   }
   return { cues, issues, sample, handoffs, resolveTarget };
 }
