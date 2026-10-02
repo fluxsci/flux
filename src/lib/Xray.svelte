@@ -50,7 +50,7 @@
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
   import { partReadout, readoutText } from "./plot/readout";
-  import { buildXrayTree, partRowId, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
+  import { buildXrayTree, partRowId, commonPartRows, targetLabel, rowParents, widenToSiblings, type XRow, type XrayTarget } from "./xray/buildXrayTree";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
@@ -58,7 +58,7 @@
   import { focusAxisView } from "./plot/axisViewState";
   import { fluxFigMenuOpen } from "./settings";
   import { anchorPanel, reclampPanel, unionRects, type Rect } from "./ui/anchor";
-  import { xrayAnimate, xrayBecomeSource, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
+  import { xrayAnimate, xrayBecomeSource, xrayPickSink, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
   import type { FluxPlotManifest } from "./plot/types";
 
   // --- the pinned root + its tree -----------------------------------------
@@ -382,6 +382,7 @@
    *  that names one) become the plural part selection; whole objects and
    *  group members become the element selection. */
   function applySelection(picked: XRow[]) {
+    publishPick(picked);
     const exclusions = get(editorSelectionExclusions);
     const parts: { elementId: string; partId: string }[] = [];
     const elements = new Set<string>();
@@ -439,33 +440,14 @@
     applySelection(rows.map((r) => r.node).filter((n) => n.kind !== "set"));
   }
 
-  /** The parent of every row id in the tree (common rows are top-level: no parent). */
-  function parentsOf(t: XRow | null): Map<string, XRow> {
-    const out = new Map<string, XRow>();
-    const walk = (n: XRow) => { for (const c of n.children) { out.set(c.id, n); walk(c); } };
-    if (t) walk(t);
-    return out;
-  }
-  /** 'a' — widen the pick to its siblings. First press: the SAME part under each
-   *  sibling of its parent (X axis › Tick marks → Y axis › Tick marks too), so one
-   *  key reaches the counterpart parts. When that adds nothing (already there, or
-   *  no counterparts), the press takes every row under the same parent instead. */
+  /** 'a' — widen the pick to its siblings (`xray/buildXrayTree.ts widenToSiblings`, the
+   *  ONE rule the Slide Become picker shares): first the same part under each sibling
+   *  of its parent, then — when that adds nothing — every row under the same parent. */
   function pickSiblings() {
     const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
-    if (!picked.length) return;
-    const parent = parentsOf(tree);
-    const have = new Set(picked.map((n) => n.id));
-    const counterparts = new Set(have);
-    for (const n of picked) {
-      const p = parent.get(n.id), g = p && parent.get(p.id);
-      for (const aunt of g?.children ?? []) for (const c of aunt.children) if (c.role === n.role && c.label === n.label && c.kind === n.kind) counterparts.add(c.id);
-    }
-    let next = counterparts;
-    if (next.size === have.size) {
-      next = new Set(have);
-      for (const n of picked) for (const c of parent.get(n.id)?.children ?? []) next.add(c.id);
-    }
-    if (next.size === have.size) return;
+    const parent = rowParents(tree);
+    const next = widenToSiblings(tree, picked, parent);
+    if (!next) return;
     for (const id of next) revealAncestors(id, parent);
     selectedIds = next;
     selectedId ??= picked[0].id;
@@ -625,8 +607,16 @@
     { kind: "animate-like", label: "Animate like…", key: "6", hint: "Pick another object's effect in this step" },
     ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows"}] : []),
   ] as AnimateOption[];
-  function animateTargets(kind?: XrayAnimateKind): XrayAnimateTarget[] {
-    const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
+  /** A waiting Become pick follows the rows live (animateHook `xrayPickSink`). */
+  function publishPick(picked: XRow[]) {
+    const sink = get(xrayPickSink);
+    if (!sink || !get(xrayBecomeSource) || !root) return;
+    const fig = get(project).figures.find((f) => f.id === root.figId);
+    const ids = root.kind === "element" ? [root.elementId] : root.kind === "elements" ? root.elementIds : fig ? membersDeep(fig, root.groupId).map((e) => e.id) : [];
+    sink({ rootElementIds: ids, targets: animateTargets("become-destination", picked) });
+  }
+  function animateTargets(kind?: XrayAnimateKind, rows?: XRow[]): XrayAnimateTarget[] {
+    const picked = rows ?? (pickedRows.length ? pickedRows : selRow ? [selRow] : []);
     const exclusions = get(editorSelectionExclusions);
     const out: XrayAnimateTarget[] = [];
     const fig = root ? get(project).figures.find((f) => f.id === root.figId) : null;
