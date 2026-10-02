@@ -1185,13 +1185,38 @@
   function confirmPick(pick: TargetPick, picks = pick.picks) {
     if (!picks.length) return;
     if (pick.kind === "appearFrom") {
-      // The picks are SOURCES here: a Become has one source object or part set.
-      if (picks.length > 1) { pushToast("info", "Pick one object, or parts of one object, to appear from"); return; }
-      performBecome(pick, picks[0]);
+      // The picks are SOURCES here. Several sources MERGE: each hands off to
+      // the same destination, which reveals when the last of them lands.
+      if (picks.length > 1) performMerge(pick, picks); else performBecome(pick, picks[0]);
       return;
     }
     const ref = composeDest(picks);
     if (ref) performBecome(pick, ref);
+  }
+  /** Many → one: one hand-off per picked source into the armed destination,
+   *  written in ONE transaction (one Undo), all with the same new-track timing. */
+  function performMerge(pick: TargetPick, sources: TargetRef[]) {
+    const s = activeSlide;
+    if (!s || s.id !== pick.slideId) return;
+    const dest = pick.source;
+    pickState = null;
+    try {
+      const options = { animStyles: overlay?.animStyles, modelManifest: (id: string) => get(scene3dManifests)[id], plotManifest: (id: string) => get(plotManifests)[id], modelAsset: (id: string) => get(project).assets.find(a => a.id === id) };
+      const trackIds = commitDeckLive(d => {
+        const slide = slideOps.slideById(d, s.id), beat = slide?.beats[pick.beatIndex];
+        if (!slide || !beat) throw new Error("The step no longer exists.");
+        return sources.map(source => slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, compiled: compileSlide(slide, stage, options), modelAsset: options.modelAsset})!.trackId);
+      });
+      if (!trackIds?.length) return;
+      activeBeat.set(pick.beatIndex); selTrackIds.set(trackIds);
+      enterEndpointEdit(trackIds, "t2"); inspectorTab = "animation";
+      pushToast("success", `‹${refLabel({element: sources[0].element, members: sources})}› merge into ‹${refLabel(dest)}›`, {ttl: 3500});
+    } catch (error) {
+      selectRef(pick.source);
+      lastPickSelection = JSON.stringify(selectedRefs());
+      pickState = pick;
+      pushToast("error", "Couldn't merge those objects", { detail: errMsg(error) });
+    }
   }
   function performBecome(pick: TargetPick, ref: TargetRef) {
     const s = activeSlide;

@@ -76,6 +76,8 @@ flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>      
 flux become <deck> <slideId> <beatId> <sourceId> --to <elId> --to <elId> [--to …]  # a destination SET: one hand-off into several objects
      [--members '[{"element":"plot1","parts":["s1.point.0"]},{"element":"ellipse2"}]']  # …or objects + parts of any plots; always a hand-off
 flux appear-from <deck> <slideId> <beatId> --members '<json>' --from <sourceId>       # the same set, authored from its destination side
+# MERGE many → one: run appear-from (or become --target) once per source with the SAME destination;
+# identical destinations co-land and the destination appears when the last flight lands.
 flux swap-become <deck> <slideId> <trackId>                                        # (swap_become) reverse a hand-off, keeping timing/style/followers
 flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]          # data-only: keep the frame, replace the plot content
      [--start ms --duration ms --easing e]                                         # shared series tween; with none, force authors it (series fade)

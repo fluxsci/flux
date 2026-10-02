@@ -1370,6 +1370,10 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     if (unborn.some(b => sources.some(t => t.elementId === b.target))) throw new Error("The source is not yet born at this step. Choose a later step.");
     for (const other of slide.beats[bi].tracks) {
       if (other === existing || other.disabled || other.preset !== "transform" || !isHandoff(other)) continue;
+      // MERGE: several sources may hand off to the SAME destination ref; the
+      // destination reveals at the group's last landing (compile `merge`).
+      // (A crossfading mesh-part landing has no flight to hold, so it never merges.)
+      if (sameRef(other.to.become.ref, ref) && !compiled.handoffs.find(h => h.trackId === other.id)?.crossfade) continue;
       if (handoffTargetsOverlap(destination, compiled.resolveTarget(other.to.become.ref, bi)))
         throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
     }

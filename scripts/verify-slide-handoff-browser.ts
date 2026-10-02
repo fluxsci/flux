@@ -70,7 +70,11 @@ try {
   addElement(deck, refused.id, pathEl("source")); addElement(deck, refused.id, plot("dest", "box"));
   addElement(deck, refused.id, { ...pathEl("refused-source"), y: 300 });
   const accepted = handoff(refused, "source", { element: "dest", parts: spines });
-  refused.beats[1].tracks.push({ ...structuredClone(accepted), id: "refused-flight", target: "refused-source", start: 1500 });
+  // An identical destination ref now MERGES (Oct-2); a partial overlap — one of
+  // the two landed spines — is still refused.
+  const refusedTrack = { ...structuredClone(accepted), id: "refused-flight", target: "refused-source", start: 1500 };
+  refusedTrack.to!.become!.ref = { element: "dest", parts: ["axis.x.spine"] };
+  refused.beats[1].tracks.push(refusedTrack);
   const refusedPlan = compileSlide(refused, deck.stage, { plotManifest: id => plots[id]?.manifest });
   h.ok(refusedPlan.issues.some(issue => issue.trackId === "refused-flight" && /already lands/.test(issue.reason)) && refusedPlan.handoffs.length === 1, "the compiler excludes a second overlapping landing even with a later start");
   const playerSource = await fs.readFile(new URL("../src/lib/slide/player/player.ts", import.meta.url), "utf8");
@@ -89,6 +93,14 @@ try {
   addElement(deck, mixedSlide.id, plot("dest2", "sine", 620, { y: 300, width: 300, height: 90 }));
   addElement(deck, mixedSlide.id, dot("e1", 420));
   handoff(mixedSlide, "source", { element: "dest", members: [{ element: "dest", parts: ["peaches.box"] }, { element: "dest2", parts: ["2hz.line"] }, { element: "e1" }] });
+  // MERGE: three ellipses → one rect, staggered starts 0 / 150 / 300 ms.
+  const mergeSlide = add("merge");
+  addElement(deck, mergeSlide.id, { id: "dest", type: "rect", x: 161, y: 111, width: 135, height: 45, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+  for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, mergeSlide.id, dot(id, y));
+  const mergeBeat = addBeat(deck, mergeSlide.id, { id: "merge-flight" })!;
+  ["e1", "e2", "e3"].forEach((id, i) => mergeBeat.tracks.push({ id: `m-${id}`, target: id, preset: "transform", start: 150 * i, duration: 600, easing: "linear", to: { become: { mode: "handoff", ref: { element: "dest" } }, state: {} } }));
+  const mergePlan = compileSlide(mergeSlide, deck.stage);
+  h.ok(mergePlan.handoffs.length === 3 && mergePlan.handoffs.every(x => x.merge?.landAt === 900 && x.merge.trackIds.length === 3) && !mergePlan.issues.length, "three hand-offs into one rect compile as one merge landing at 900 ms");
   const setPlan = compileSlide(mixedSlide, deck.stage, { plotManifest: id => plots[id]?.manifest });
   h.ok(setPlan.handoffs.length === 1 && setPlan.handoffs[0].destination.map(d => `${d.elementId}:${d.partIds?.join(",") ?? "*"}`).join(" ") === "dest:peaches.box dest2:2hz.line e1:*" && !setPlan.issues.length, "the compiler resolves each set member against its own plot's manifest");
 
@@ -269,6 +281,35 @@ try {
     h.ok(m.source === "hidden" && m.box === "visible" && m.line === "visible" && m.dot === "visible" && m.count === 0, "mixed set: landing reveals every member in its own plot and hides the source");
     await seek(M, 0); m = await mixed();
     h.ok(m.source === "visible" && m.box === "hidden" && m.line === "hidden" && m.dot === "hidden", "mixed set: reverse seek restores the source");
+  }
+  // --- merge in the exported player ------------------------------------------
+  {
+    const G = 12;
+    const merge = () => page.evaluate(() => {
+      const flight = document.querySelector(".sl-flight") as SVGSVGElement;
+      const layers = Array.from(flight.querySelectorAll(".sl-handoff")).filter(l => l.getAttribute("visibility") !== "hidden");
+      const paths = layers.flatMap(l => Array.from(l.querySelectorAll<SVGPathElement>(".sl-handoff-path"))).filter(p => Number(p.getAttribute("opacity") ?? 1) > 0);
+      const toFlight = (node: SVGGraphicsElement) => flight.getScreenCTM()!.inverse().multiply(node.getScreenCTM()!);
+      const pts = paths.map(p => { const m = toFlight(p), len = p.getTotalLength(); return Array.from({ length: 16 }, (_, i) => { const q = p.getPointAtLength(len * i / 15); return { x: m.a * q.x + m.e, y: m.d * q.y + m.f }; }); });
+      const vis = (id: string) => getComputedStyle(document.querySelector(`[data-el-id="${id}"]`)!).visibility;
+      return { layers: layers.length, paths: paths.length, pts, dest: vis("dest"), dots: ["e1", "e2", "e3"].map(vis) };
+    });
+    await seek(G, 0); let m = await merge();
+    h.ok(m.dest === "hidden" && m.dots.every(v => v === "visible") && m.paths === 0, "merge: at zero the three ellipses show, the rect is hidden and nothing flies");
+    await seek(G, 400); m = await merge();
+    h.ok(m.layers === 3 && m.paths >= 3 && m.dots.every(v => v === "hidden") && m.dest === "hidden", `merge: mid-flight all three converge at once (${m.paths} pieces in ${m.layers} flights)`);
+    await seek(G, 750); m = await merge();
+    h.ok(m.layers === 3 && m.paths >= 3 && m.dest === "hidden", "merge: after the first two land (600, 750 ms) their pieces HOLD on the rect while the last still flies; the rect stays hidden");
+    h.ok(await page.evaluate(() => { const layers = Array.from(document.querySelectorAll(".sl-flight > .sl-handoff")).filter(l => l.getAttribute("visibility") !== "hidden"); return layers.length === 3 && Array.from(layers[0].querySelectorAll(".sl-handoff-path")).length === 2 && layers.slice(1).every(l => l.querySelectorAll(".sl-handoff-path").length === 1); }), "merge: the last lander's layer (its piece + the rect's fill underlay) lies BENEATH the other landers' pieces");
+    await seek(G, 899.999); m = await merge();
+    const onRect = (p: { x: number; y: number }) => Math.min(Math.abs(p.x - 161), Math.abs(p.x - 296), Math.abs(p.y - 111), Math.abs(p.y - 156));
+    h.ok(m.pts.length >= 3 && m.pts.every(points => points.every(p => onRect(p) < 0.5)), `merge: just before the reveal every piece lies on the rect's outline within 0.5 px (max ${Math.max(...m.pts.flat().map(onRect)).toFixed(3)})`);
+    await seek(G, 900); m = await merge();
+    h.ok(m.dest === "visible" && m.dots.every(v => v === "hidden") && m.paths === 0, "merge: the rect reveals at the LAST landing and the flight layer empties");
+    await seek(G, 400); await seek(G, 0); m = await merge();
+    h.ok(m.dest === "hidden" && m.dots.every(v => v === "visible") && m.paths === 0, "merge: reverse seek restores the ellipses and hides the rect");
+    await seek(G, 450);
+    await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-merge.png") });
   }
   await seek(5, 500);
 

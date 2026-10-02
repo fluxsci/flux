@@ -59,8 +59,13 @@ export interface HandoffOptions {
   spec: BecomeSpec;
   ctx: HandoffCtx;
   media?: HandoffMedia;
+  /** Insert this flight's layer before that one (a merge's last lander, whose
+   *  fill underlay must lie beneath every co-lander's pieces). */
+  beneath?: Element | null;
 }
 export interface HandoffController extends MorphController {
+  /** The flight layer this controller draws into (one `g.sl-handoff`). */
+  readonly layer: SVGGElement;
   /** A later Appear releases the source's exit without affecting its target. */
   releaseSource(): void;
   isReady(): boolean;
@@ -88,7 +93,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   layer.setAttribute("class", "sl-handoff");
   layer.setAttribute("data-handoff", id);
   layer.setAttribute("visibility", "hidden");
-  flight.appendChild(layer);
+  if (opts.beneath && opts.beneath.parentNode === flight) flight.insertBefore(layer, opts.beneath); else flight.appendChild(layer);
   const custom = opts.media?.mount?.(layer);
   let readyState = !opts.media, preparation: Promise<void> | undefined;
   let disposed = false, prepared = false, plan: CorrespondencePlan | undefined, sampled: CorrespondencePlan | undefined;
@@ -312,7 +317,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   }
 
   warmWhenIdle(() => { if (!disposed && flight.isConnected) ensure(); });
-  return { seek, targetRoot: ctx.targetRoot,
+  return { seek, layer, targetRoot: ctx.targetRoot,
     isReady: () => readyState,
     ready() { ensure(); return preparation ??= Promise.resolve(opts.media?.ready()).finally(() => { readyState = true; }); },
     releaseSource() {

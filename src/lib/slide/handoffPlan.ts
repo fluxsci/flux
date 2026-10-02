@@ -37,9 +37,34 @@ function axisHint(ref: TargetRef, outlines: StageOutline[], frame: SlideFrame, c
   return fits ? plotStageMapping(plot, root).fitX(fits.x) : undefined;
 }
 
-export function planHandoff(track: Track, frame: SlideFrame, ctx: GeometryCtx): CorrespondencePlan {
+/** `group` (MERGE, Oct-2): every hand-off of the step landing on this same
+ *  destination ref, in story order, this track included. Each lander plans
+ *  the ONE shared correspondence of all their sources against the destination
+ *  (the time-reverse of a set split: the destination tiles among the sources)
+ *  and keeps only the pairs its own source owns; the last lander also carries
+ *  the destination-only pairs (leftovers, a filled ring's underlay), which
+ *  resolve as the group lands. */
+export function planHandoff(track: Track, frame: SlideFrame, ctx: GeometryCtx, group?: readonly Track[]): CorrespondencePlan {
+  if (group && group.length > 1) return planMergeShare(track, frame, ctx, group);
+  return planOne(track, frame, ctx);
+}
+
+const ownerKey = (o: { elementId: string; partId?: string }) => `${o.elementId}\0${o.partId ?? ""}`;
+function planMergeShare(track: Track, frame: SlideFrame, ctx: GeometryCtx, group: readonly Track[]): CorrespondencePlan {
+  const isMe = (t: Track) => t === track || !!t.id && t.id === track.id;
+  // Every lander plans the SAME correspondence (group order), so the pieces
+  // they share out tile the destination exactly once.
+  const sources = group.map(t => targetOutlines(trackRef(t), frame, ctx).filter(o => insideCrop(o, frame)));
+  const full = planOne(track, frame, ctx, sources.flat());
+  const mine = new Set(sources[group.findIndex(isMe)]?.map(o => ownerKey(o.owner)) ?? []);
+  const last = isMe(group[group.length - 1]);
+  const pairs = full.pairs.filter(p => p.fade || !p.a ? last : (p.a.owner.members ?? [p.a.owner]).some(m => mine.has(ownerKey(m))));
+  return { pairs, policy: full.policy, driver: full.driver, destinations: full.destinations, prepare() { for (const p of pairs) p.plan?.prepare(); } };
+}
+
+function planOne(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlines?: StageOutline[]): CorrespondencePlan {
   const spec = track.to!.become as BecomeSpec, source = trackRef(track);
-  const a = targetOutlines(source, frame, ctx).filter(o => insideCrop(o, frame));
+  const a = sourceOutlines ?? targetOutlines(source, frame, ctx).filter(o => insideCrop(o, frame));
   const b = targetOutlines(spec.ref, frame, ctx).filter(o => insideCrop(o, frame));
   const data: DataHint = { destAxisFit: axisHint(spec.ref, b, frame, ctx), sourceAxisFit: axisHint(source, a, frame, ctx) };
   const dest = frame.elements.find(el => el.id === spec.ref.element);

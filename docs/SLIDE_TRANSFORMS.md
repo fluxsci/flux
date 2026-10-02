@@ -40,7 +40,14 @@ adds a shared `TargetRef`: `{element, parts?, selector?, group?, members?}`. `me
 is an ad-hoc destination SET: one level of element or part-set refs of any objects/plots,
 never a group or a set; `normalizeRef` dedupes it, merges one element's parts, collapses a
 single member and sets `element = members[0].element`; Become stores members in slide order.
-A set is only ever a Become destination (always hand-off; never a source, Consume or Swap). `trackRef` derives it,
+A set is only ever a Become destination (always hand-off; never a source, Consume or Swap).
+**Merge** is the reverse: several hand-offs of one step whose destination refs are identical
+(`sameRef`) co-land instead of being refused as overlapping. `CompiledSlide.handoffs[].merge`
+= `{trackIds, landAt}`; the destination stays hidden until `landAt` (the group's latest end),
+each lander plans ONE shared correspondence of all sources (the destination tiles among
+them) and keeps its own pairs, earlier landers hold their landed frame, and the last
+lander's layer (with any fill underlay) lies beneath the others. Partial overlaps and
+crossfading mesh landings are still refused. `trackRef` derives it,
 `targetKey` gives its canonical identity, and `resolveTargetLeaves` expands parts and groups.
 The family law allows one transform per complete source ref per step. A whole-plot Change
 and a hand-off of one box can coexist; part styling Changes still use the whole plot's

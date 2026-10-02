@@ -130,6 +130,11 @@ interface Spec {
 export { transformPreState } from "../tween";
 
 type HandoffRecord = CompiledSlide["handoffs"][number];
+/** A curve over a span k× longer than its own: the original curve runs in the
+ *  first 1/k of the span and stays at its endpoint afterwards (a merge hold). */
+function holdCurve(curve: ResolvedCurve, k: number): ResolvedCurve {
+  return { ...curve, key: `${curve.key}|hold:${k}`, fn: p => curve.fn(Math.min(1, p * k)), clamped: p => curve.clamped(Math.min(1, p * k)) };
+}
 const flightLayers = new WeakMap<Spec[], SVGSVGElement>();
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
@@ -148,6 +153,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
   const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups };
   const handoffs: HandoffRecord[] = compiled.handoffs;
+  const mergeLayers = new Map<string, SVGGElement>();
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent
@@ -215,8 +221,14 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const elementOf = (id: string) => preFrame.elements.find(e => e.id === id);
           const whole = !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null;
           const modelFlight = [...handoff.source, ...handoff.destination].some(t => t.partIds === null && elementOf(t.elementId)?.type === "model3d");
+          // MERGE: all landers plan from one frame (the group's first start)
+          // and share the destination's pieces out among their sources.
+          const group = handoff.merge ? handoff.merge.trackIds.map(id => cue.tracks.find(c => c.track.id === id)!).filter(Boolean) : [];
+          const planFrame = group.length > 1 ? compiled.sample(bi, Math.min(...group.map(c => c.start))) : preFrame;
+          const lastLander = group.length > 1 && group[group.length - 1].track.id === track.id;
           const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
-            plan: () => planHandoff(track, preFrame, geometry),
+            beneath: lastLander ? group.map(c => mergeLayers.get(c.track.id ?? "")).find(Boolean) : undefined,
+            plan: () => planHandoff(track, planFrame, geometry, group.length > 1 ? group.map(c => c.track) : undefined),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
               order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
@@ -230,16 +242,21 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // The surviving content belongs to the destination identity. Never
           // redirect later source tracks into that other element's DOM.
           if (driver.targetRoot && handoff.destination.length === 1) contentRoots.set(handoff.destination[0].elementId, driver.targetRoot);
+          if (group.length > 1 && track.id) mergeLayers.set(track.id, driver.layer);
+          // A merging lander that lands before the group's last holds its
+          // landed frame (eased progress pinned at 1) until `landAt`, where the
+          // whole group reveals the destination together on raw = 1.
+          const hold = handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration;
           specs.push({ node: sourceNodes[0] as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
-            delay: ct.start, duration: ct.duration,
-            ease: ct.ease,
+            delay: ct.start, duration: hold,
+            ease: hold > ct.duration ? holdCurve(ct.ease, hold / Math.max(1e-9, ct.duration)) : ct.ease,
             morph: driver, handoff: driver });
           if (handoff.spec.reveal === "draw") {
             const draw = { ...track, preset: "drawOn" as const, params: undefined };
             for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
               node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
               key: `handoff-draw:${track.id}`, prep: na.prep, preset: "drawOn", trackId: track.id, owner: track,
-              delay: ct.start + ct.duration, duration: DUR.gentle,
+              delay: ct.start + hold, duration: DUR.gentle,
               ease: resolveCurve(draw),
             });
           }

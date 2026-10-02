@@ -403,6 +403,45 @@ console.log("── destination SETS (Oct-2: TargetRef.members) ──");
   ok(JSON.stringify(remapped.to!.become!.ref) === JSON.stringify({ element: "x1", members: [{ element: "x1" }, { element: "e2" }, { element: "x3" }] }), "remapBecomeTarget maps each member's element and nothing else");
 }
 
+console.log("── MERGE: many sources → one destination (Oct-2 stretch) ──");
+{
+  const { planHandoff } = await import("../src/lib/slide/handoffPlan");
+  const { sampleCorrespondence } = await import("../src/lib/slide/correspondence");
+  const dots = [ellipse("e1", { x: 458, y: 71, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 }), ellipse("e2", { x: 458, y: 124, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 }), ellipse("e3", { x: 458, y: 176, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 })];
+  const { deck, slideId, beats } = deckWith([rect("dest", { x: 161, y: 111, width: 135, height: 45, fill: "#d95f02", cornerRadius: 0 }), ...dots, rect("other", { x: 20, y: 300 })]);
+  const before = structuredClone(deck);
+  const ids = ["e1", "e2", "e3"].map((id, i) => ops.appearFrom(deck, slideId, beats[1], { element: "dest" }, id, { compiled: compileSlide(deck.slides[0]), start: i * 100 })!.trackId);
+  const tracks = deck.slides[0].beats[1].tracks;
+  ok(ids.length === 3 && new Set(ids).size === 3 && tracks.every(t => t.to?.become?.mode === "handoff" && t.to.become.ref.element === "dest" && !t.to.become.ref.members) && deck.slides[0].elements.length === 5, "Appear from… ×3 writes three hand-offs into the SAME rect; the old 'already lands' refusal no longer applies to an identical destination");
+  ok(validateDeckFile(structuredClone(deck)).length === 0, "the merge validates against the real deck schema");
+  const compiled = compileSlide(deck.slides[0]);
+  ok(compiled.handoffs.length === 3 && compiled.handoffs.every(h => JSON.stringify(h.merge) === JSON.stringify({ trackIds: ids, landAt: 800 })) && !compiled.issues.length, "compile groups the three as one merge in story order, landing at the group's latest end (800 ms)");
+  const vis = (frame: ReturnType<typeof compiled.sample>, id: string) => frame.presentation.elementStates[id]?.visible ?? true;
+  const at = (t: number) => compiled.sample(1, t);
+  ok(!vis(compiled.sample(0), "dest") && !vis(at(0), "dest") && ["e1", "e2", "e3"].every(id => vis(at(0), id)), "before the merge: three ellipses show, the rect waits hidden (Design included)");
+  ok(!vis(at(150), "e1") && !vis(at(150), "e2") && vis(at(150), "e3") && !vis(at(150), "dest"), "each source hides as its own flight starts (staggered starts)");
+  ok(!vis(at(650), "dest") && !vis(at(799), "dest"), "the rect stays hidden after the FIRST landing (600 ms) until the LAST (800 ms)");
+  ok(vis(at(800), "dest") && ["e1", "e2", "e3"].every(id => !vis(at(800), id)) && vis(compiled.sample(1), "dest"), "at the last landing the rect reveals and every ellipse stays hidden");
+  ok(!vis(at(0), "dest") && vis(at(0), "e1"), "reverse seek restores the sources and hides the rect again");
+  // Each lander keeps its own share of ONE shared tiling of the rect.
+  const frame = compiled.sample(1, 0), ctx = { manifest: () => undefined, plotRoot: () => undefined, groups: undefined };
+  const plans = tracks.map(t => planHandoff(t, frame, ctx, tracks));
+  plans.forEach(p => p.prepare());
+  const flying = plans.map(p => p.pairs.filter(q => q.a && q.b && !q.fade));
+  ok(flying.every((f, i) => f.length === 1 && f[0].a!.owner.elementId === ["e1", "e2", "e3"][i] && f[0].b!.owner.elementId === "dest" && !f[0].b!.closed), "each lander flies its own ellipse into its own piece of the rect");
+  const perimeter = 2 * (135 + 45), lengthOf = (nodes: { x: number; y: number }[]) => nodes.slice(1).reduce((sum, n, i) => sum + Math.hypot(n.x - nodes[i].x, n.y - nodes[i].y), 0);
+  ok(Math.abs(flying.reduce((sum, f) => sum + lengthOf(f[0].b!.nodes), 0) - perimeter) < 1e-6, "the three pieces tile the rect's whole perimeter exactly once (the time-reverse of the set split)");
+  ok(plans[0].pairs.every(q => !q.fade) && plans[1].pairs.every(q => !q.fade) && plans[2].pairs.some(q => q.fade === "in" && q.b!.closed && q.b!.paint.stroke === "none"), "only the last lander carries the rect's fill underlay, which resolves over the last 40 %");
+  const landed = plans.map(p => sampleCorrespondence(p, 1).filter((_, i) => !p.pairs[i].fade)[0]);
+  ok(landed.every((path, i) => path.nodes.length === flying[i][0].b!.nodes.length && path.nodes.every((n, j) => Math.abs(n.x - flying[i][0].b!.nodes[j].x) < 1e-9 && Math.abs(n.y - flying[i][0].b!.nodes[j].y) < 1e-9)), "every lander's last frame is exactly its piece of the rect's own outline");
+  // The overlap law still refuses a PARTIAL overlap of the merged destination.
+  const mergedBytes = JSON.stringify(deck);
+  assert.throws(() => ops.becomeTransform(deck, slideId, beats[1], "other", { element: "dest", members: [{ element: "dest" }, { element: "e1" }] }, { compiled: compileSlide(deck.slides[0]) }), /already lands|includes the source/); checks++;
+  ok(JSON.stringify(deck) === mergedBytes, "a different ref that overlaps the merged destination is still refused, atomically");
+  ops.removeTracks(deck, slideId, ids);
+  ok(JSON.stringify(deck.slides[0].beats) === JSON.stringify(before.slides[0].beats), "removing the three lanes restores the slide's steps");
+}
+
 console.log("── legacy morph normalizes ──");
 {
   const raw = { schemaVersion: "0.4.0", id: "old", title: "Old", created: "", modified: "", stage: { width: 640, height: 360 }, theme: "flux-dark", defaults: { transition: "none", buildEasing: "smooth", advance: "click" }, assets: [],

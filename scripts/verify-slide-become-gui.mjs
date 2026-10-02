@@ -239,12 +239,21 @@ try{
   await clickObject('set-rect');state=await read();
   const groupTrack=JSON.parse(groupBytes).beats[1].tracks[0];
   check(JSON.stringify(handoff(state)?.to)===JSON.stringify(groupTrack.to)&&handoff(state)?.target==='set-rect','Appear from… writes the same set hand-off from the destination side');
-  // Several SOURCES for one destination are not a set (one Become has one source).
+  // MERGE (stretch): Appear from… on the rect, Shift+click three ellipses → three hand-offs into the rect.
   await seedSet();await page.evaluate(()=>window.__flux.fig.selectOnly('set-rect'));await paint();
+  const mergeBefore=JSON.stringify((await read()).slide);
   await page.click('[aria-label="Appear options"]');await clickText('.menu button[role="menuitem"]','Appear from…');
-  await clickObject('set-e1',true);await clickObject('set-e2',true);await page.keyboard.press('Enter');await paint();
-  check(!handoff(await read())&&await page.evaluate(()=>[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('Pick one object, or parts of one object, to appear from'))),'Appear from… with several sources explains that a Become has one source');
-  await page.keyboard.press('Escape');
+  await clickObject('set-e1',true);await clickObject('set-e2',true);await clickObject('set-e3',true);
+  check(!handoff(await read())&&await page.$$eval('.presentation-target',els=>els.length===3),'Appear from… accumulates three source ellipses without committing');
+  await page.keyboard.press('Enter');await paint();state=await read();
+  const merged=state.slide.beats[1].tracks;
+  check(merged.length===3&&JSON.stringify(merged.map(t=>t.target).sort())==='["set-e1","set-e2","set-e3"]'&&merged.every(t=>t.to?.become?.mode==='handoff'&&JSON.stringify(t.to.become.ref)==='{"element":"set-rect"}')&&state.slide.elements.length===4,'Enter writes three hand-offs, one per ellipse, each into the rect (a merge)');
+  check(await page.evaluate(()=>[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('‹3 ellipses› merge into ‹Rect›'))),'the toast reads "‹3 ellipses› merge into ‹Rect›"');
+  check(JSON.stringify([...state.tracks].sort())===JSON.stringify(merged.map(t=>t.id).sort())&&!state.presentation.hiddenElementIds.includes('set-rect')&&['set-e1','set-e2','set-e3'].every(id=>state.presentation.hiddenElementIds.includes(id)),'all three lanes are selected; After checkout shows the rect and hides the ellipses');
+  check(await page.$$eval('.lane-row .track-label',els=>els.filter(e=>/→ Rect$/.test(e.firstChild.textContent.trim())).length===3),'three lanes read "ellipse N → Rect"');
+  await page.click('[aria-label="Undo"]');await paint();
+  check(JSON.stringify((await read()).slide)===mergeBefore,'one Undo removes the whole merge');
+  await page.screenshot({path:'test-results/slide-become-merge.png'});
   await seed();await openTransform('Become');await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);await clickText('.become-bar button','Become');await paint();
   await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].find(el=>el.textContent.toLowerCase().includes('x axis spine + 1'));const button=[...toast.querySelectorAll('button')].find(el=>el.textContent.includes('Auto-animate the rest'));button.click();});await paint();state=await read();
   const landingIndex=state.slide.beats.findIndex(b=>b.id==='bh-step'),generated=state.slide.beats.flatMap((b,i)=>b.tracks.filter(t=>t.generatedBy==='auto-reveal').map(t=>({t,i})));
