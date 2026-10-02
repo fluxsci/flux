@@ -76,6 +76,22 @@ try {
   const playerSource = await fs.readFile(new URL("../src/lib/slide/player/player.ts", import.meta.url), "utf8");
   h.ok(!/function handoffsFor\b|interface HandoffRecord\b/.test(playerSource) && /type HandoffRecord = CompiledSlide\["handoffs"\]\[number\]/.test(playerSource), "the player consumes the compiler's hand-off record type without a second detection path");
 
+  // Oct-2 destination SETS: the owner's Deck 3 slide 2 (rect → three loose
+  // ellipses), and a set mixing parts of TWO plots with a loose ellipse.
+  const dot = (id: string, y: number) => ({ id, type: "ellipse" as const, x: 458, y, width: 21, height: 21, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0 });
+  const setSlide = add("set-ellipses");
+  addElement(deck, setSlide.id, { id: "source", type: "rect", x: 161, y: 111, width: 135, height: 45, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+  for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, setSlide.id, dot(id, y));
+  handoff(setSlide, "source", { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] });
+  const mixedSlide = add("set-mixed");
+  addElement(deck, mixedSlide.id, pathEl("source"));
+  addElement(deck, mixedSlide.id, plot("dest", "box", 300, { width: 300, height: 180 }));
+  addElement(deck, mixedSlide.id, plot("dest2", "sine", 620, { y: 300, width: 300, height: 90 }));
+  addElement(deck, mixedSlide.id, dot("e1", 420));
+  handoff(mixedSlide, "source", { element: "dest", members: [{ element: "dest", parts: ["peaches.box"] }, { element: "dest2", parts: ["2hz.line"] }, { element: "e1" }] });
+  const setPlan = compileSlide(mixedSlide, deck.stage, { plotManifest: id => plots[id]?.manifest });
+  h.ok(setPlan.handoffs.length === 1 && setPlan.handoffs[0].destination.map(d => `${d.elementId}:${d.partIds?.join(",") ?? "*"}`).join(" ") === "dest:peaches.box dest2:2hz.line e1:*" && !setPlan.issues.length, "the compiler resolves each set member against its own plot's manifest");
+
   // In-memory curves until M3 enables their persisted schema.
   const springPaths = structuredClone(b), springGlyphs = structuredClone(d);
   springPaths.id = "spring-pairs"; springGlyphs.id = "spring-glyphs";
@@ -197,6 +213,63 @@ try {
   state = await inspect();
   h.ok(state.count === 0 && state.visibleFlight === 0 && await page.$eval('[data-el-id="refused-source"]', el => getComputedStyle(el).visibility === "visible"), "the exported player creates NO visible flight paths for a compiler-refused overlapping landing");
   h.eq(await page.$$eval(".sl-handoff", nodes => nodes.length), 1, "only the compiler-accepted flight owns a controller layer");
+  // --- destination sets in the exported player ------------------------------
+  {
+    // tsx keeps function names via an injected __name helper the page lacks.
+    await page.evaluate("globalThis.__name = (fn) => fn");
+    const ellipses = ["e1", "e2", "e3"];
+    const setState = () => page.evaluate((ids: string[]) => {
+      const flight = document.querySelector(".sl-flight") as SVGSVGElement;
+      const paths = Array.from(flight.querySelectorAll<SVGPathElement>(".sl-handoff-path")).filter(el => getComputedStyle(el).visibility !== "hidden" && Number(getComputedStyle(el).opacity) > 0 && flight.getAttribute("visibility") !== "hidden" && el.closest(".sl-handoff")?.getAttribute("visibility") !== "hidden");
+      const toFlight = (node: SVGGraphicsElement) => flight.getScreenCTM()!.inverse().multiply(node.getScreenCTM()!);
+      const box = (node: SVGGraphicsElement) => { const b = node.getBBox(), m = toFlight(node); return { x: m.a * b.x + m.e, y: m.d * b.y + m.f, w: m.a * b.width, h: m.d * b.height }; };
+      const vis = (id: string) => getComputedStyle(document.querySelector(`[data-el-id="${id}"]`)!).visibility;
+      const shapes = ids.map(id => { const el = document.querySelector(`[data-el-id="${id}"]`)!.querySelector("ellipse,path,circle") as SVGGraphicsElement; return box(el); });
+      // Each visible flight piece sampled along its length, in flight (stage) px.
+      const pieces = paths.map(p => { const m = toFlight(p), len = p.getTotalLength(); return Array.from({ length: 24 }, (_, i) => { const q = p.getPointAtLength(len * i / 23); return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f }; }); });
+      return { count: paths.length, source: vis("source"), dest: ids.map(vis), shapes, pieces, union: paths.length ? (() => { const bs = paths.map(p => box(p)); const x = Math.min(...bs.map(b => b.x)), y = Math.min(...bs.map(b => b.y)); return { x, y, cx: (x + Math.max(...bs.map(b => b.x + b.w))) / 2, cy: (y + Math.max(...bs.map(b => b.y + b.h))) / 2 }; })() : null };
+    }, ellipses);
+    const S = 10;
+    await seek(S, 0); let st = await setState();
+    h.ok(st.source === "visible" && st.dest.every(v => v === "hidden") && st.count === 0, "set: at raw 0 the rect shows, the three ellipses are hidden and the flight layer is empty");
+    await seek(S, 250); const q1 = await setState();
+    await seek(S, 500); const q2 = await setState();
+    await seek(S, 750); const q3 = await setState();
+    h.ok([q1, q2, q3].every(q => q.source === "hidden" && q.dest.every(v => v === "hidden") && q.count >= 3), `set: mid-flight both sides hide and the flight draws ≥ 3 pieces (${[q1, q2, q3].map(q => q.count).join("/")})`);
+    const target = { cx: 468.5, cy: (71 + 197) / 2 };
+    const dist = (u: { cx: number; cy: number } | null) => u ? Math.hypot(u.cx - target.cx, u.cy - target.cy) : Infinity;
+    h.ok(dist(q1.union) > dist(q2.union) && dist(q2.union) > dist(q3.union), `set: the pieces' union converges on the ellipses (${[q1, q2, q3].map(q => dist(q.union).toFixed(1)).join(" → ")} px)`);
+    await seek(S, 999.999); st = await setState();
+    // The last flight frame is each destination's own outline (§4: a pixel-invisible flip).
+    const fits = st.pieces.map(points => {
+      const shape = st.shapes.reduce((best, b) => Math.hypot(b.x + b.w / 2 - points[0].x, b.y + b.h / 2 - points[0].y) < Math.hypot(best.x + best.w / 2 - points[0].x, best.y + best.h / 2 - points[0].y) ? b : best);
+      const rx = shape.w / 2, ry = shape.h / 2, cx = shape.x + rx, cy = shape.y + ry;
+      return { shape: st.shapes.indexOf(shape), error: Math.max(...points.map(p => Math.abs(Math.hypot((p.x - cx) / rx, (p.y - cy) / ry) - 1) * Math.min(rx, ry))) };
+    });
+    h.ok(st.count === 3 && new Set(fits.map(f => f.shape)).size === 3 && fits.every(f => f.error < 0.5), `set: at raw .999999 every piece lies on its own ellipse's outline within 0.5 px (${fits.map(f => f.error.toFixed(3)).join(", ")})`);
+    await seek(S, 1000); st = await setState();
+    h.ok(st.source === "hidden" && st.dest.every(v => v === "visible") && st.count === 0, "set: at raw 1 the three ellipses show, the rect is hidden and the flight layer is empty");
+    await seek(S, 500); await seek(S, 0); st = await setState();
+    h.ok(st.source === "visible" && st.dest.every(v => v === "hidden") && st.count === 0, "set: reverse seek restores the rect and hides the ellipses again");
+    await seek(S, 500);
+    await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-set.png") });
+    // Parts of two plots + an ellipse.
+    const M = 11;
+    const mixed = () => page.evaluate(() => {
+      const flight = document.querySelector(".sl-flight")!;
+      const v = (sel: string) => { const n = document.querySelector(sel); return n ? getComputedStyle(n).visibility : "missing"; };
+      return { source: v('[data-el-id="source"]'), box: v('[id="dest__peaches.box"]'), line: v('[id="dest2__2hz.line"]'), dot: v('[data-el-id="e1"]'), other: v('[id="dest__oranges.box"]'),
+        count: flight.getAttribute("visibility") === "hidden" ? 0 : Array.from(flight.querySelectorAll(".sl-handoff-path")).filter(el => getComputedStyle(el).visibility !== "hidden" && Number(getComputedStyle(el).opacity) > 0).length };
+    });
+    await seek(M, 0); let m = await mixed();
+    h.ok(m.source === "visible" && m.box === "hidden" && m.line === "hidden" && m.dot === "hidden" && m.other === "visible", "mixed set: before the flight only the members hide (a box of one plot, a curve of another, an ellipse)");
+    await seek(M, 500); m = await mixed();
+    h.ok(m.source === "hidden" && m.count >= 3 && m.box === "hidden" && m.line === "hidden" && m.dot === "hidden", `mixed set: one source flies into all three members at once (${m.count} pieces)`);
+    await seek(M, 1000); m = await mixed();
+    h.ok(m.source === "hidden" && m.box === "visible" && m.line === "visible" && m.dot === "visible" && m.count === 0, "mixed set: landing reveals every member in its own plot and hides the source");
+    await seek(M, 0); m = await mixed();
+    h.ok(m.source === "visible" && m.box === "hidden" && m.line === "hidden" && m.dot === "hidden", "mixed set: reverse seek restores the source");
+  }
   await seek(5, 500);
 
   await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-colour.png") });

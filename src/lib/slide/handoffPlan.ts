@@ -24,6 +24,9 @@ function insideCrop(outline: StageOutline, frame: SlideFrame): boolean {
 }
 
 function axisHint(ref: TargetRef, outlines: StageOutline[], frame: SlideFrame, ctx: GeometryCtx): DataHint["destAxisFit"] {
+  // A set has no single destination axis to land data on: auto pairs it by
+  // position or tiles (choosePolicy without a fit).
+  if (ref.members) return undefined;
   const plot = frame.elements.find(el => el.id === ref.element);
   if (plot?.type !== "plot" || plot.rotation % 360 !== 0) return undefined;
   const manifest = ctx.manifest(plot.assetId), root = ctx.plotRoot(plot.assetId);
@@ -49,6 +52,21 @@ export function planHandoff(track: Track, frame: SlideFrame, ctx: GeometryCtx): 
       const flight = planCorrespondence(a, spines, { pair: "tile", data });
       const rest = planCorrespondence([], b.filter(o => !spines.includes(o)));
       return { pairs: [...flight.pairs, ...rest.pairs], policy: "tile", driver: flight.driver,
+        destinations: [...flight.destinations, ...rest.destinations], prepare() { flight.prepare(); rest.prepare(); } };
+    }
+  }
+  if (spec.ref.members && (!spec.pair || spec.pair === "auto" || spec.pair === "tile")) {
+    // A set member that is a WHOLE plot lands like a whole-plot hand-off: its
+    // merged spines take part in the flight with the other members, and its
+    // remaining parts fade in on the b-only envelope.
+    const wholePlots = new Set(spec.ref.members.filter(m => isWholeElementRef(m) && frame.elements.find(el => el.id === m.element)?.type === "plot").map(m => m.element));
+    const spine = (o: StageOutline) => /(?:^|\.)axis\.[xy]\.spine$/.test(o.owner.partId ?? "");
+    const spined = new Set([...wholePlots].filter(id => b.some(o => o.owner.elementId === id && spine(o))));
+    if (spined.size) {
+      const flying = b.filter(o => !spined.has(o.owner.elementId) || spine(o)), resting = b.filter(o => !flying.includes(o));
+      const flight = planCorrespondence(a, flying, { pair: spec.pair, data });
+      const rest = planCorrespondence([], resting);
+      return { pairs: [...flight.pairs, ...rest.pairs], policy: flight.policy, driver: flight.driver,
         destinations: [...flight.destinations, ...rest.destinations], prepare() { flight.prepare(); rest.prepare(); } };
     }
   }

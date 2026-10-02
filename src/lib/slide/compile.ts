@@ -13,7 +13,7 @@ import { staggerKey, manifestCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
-import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, type ResolvedTarget } from "./targets";
+import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, refElementIds, type ResolvedTarget } from "./targets";
 import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
@@ -165,7 +165,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       && modelVideoHandoff(transformPreState(slide, source[0].elementId, ct.beat) ?? undefined, transformPreState(slide, destination[0].elementId, ct.beat) ?? undefined);
     const unborn = births.filter(b => !b.enabled || b.beat > ct.beat || b.beat === ct.beat && b.start > ct.start);
     const crossfade = meshParts(destination, ct.beat);
-    let reason = !slide.elements.some(e => e.id === spec.ref.element) ? "Destination parts not found. Retarget this Become."
+    const missingMembers = refElementIds(spec.ref).filter(id => !slide.elements.some(e => e.id === id));
+    let reason = missingMembers.length === refElementIds(spec.ref).length ? "Destination parts not found. Retarget this Become."
       : unborn.some(b => b.target === spec.ref.element || destination.some(t => t.elementId === b.target)) ? "The destination is not yet born at this step. Choose a later step."
       : !destination.length ? "Destination parts not found. Retarget this Become."
       : !source.length ? "Source parts not found. Retarget this Become."
@@ -179,6 +180,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     if (!reason && handoffs.some(h => h.beat === ct.beat && handoffTargetsOverlap(destination, h.destination)))
       reason = "Another hand-off in this step already lands on these destination parts. Choose different parts or another step.";
     if (reason) { issues.push({ trackId: ct.track.id, target: ct.track.target, reason }); continue; }
+    // A set that lost some members (deleted objects) still lands on the rest; say so.
+    if (missingMembers.length) issues.push({ trackId: ct.track.id, target: ct.track.target,
+      reason: `${missingMembers.length === 1 ? "One destination object is" : `${missingMembers.length} destination objects are`} missing; the hand-off lands on the rest. Retarget this Become.` });
     handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec, ...(crossfade ? { crossfade: true as const } : {}) });
     flights.set(ct, { source: keysOf(source), destination: keysOf(destination), crossfade });
   }

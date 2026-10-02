@@ -460,7 +460,8 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
 /** Shared eligibility for the inspector and the post-Become toast. */
 export function canAutoAnimateRest(slide: Slide, ref: TargetRef, manifest: FluxPlotManifest | undefined): boolean {
   const plot = slide.elements.find(e => e.id === ref.element);
-  return plot?.type === "plot" && !!manifest && !ref.group && !isWholeElementRef(ref)
+  // A set may span several objects; the remainder build is one plot's (D2).
+  return plot?.type === "plot" && !!manifest && !ref.group && !ref.members && !isWholeElementRef(ref)
     && !slide.beats.some(b => b.tracks.some(t => t.target === plot.id && familyOf(t) === "appearance"));
 }
 

@@ -34,6 +34,7 @@ import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
+import { normalizeRef, setLabel } from "../src/lib/slide/targets";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel, mutateFigModel } from "./model";
 import { syncFigureAssets } from "./figures";
@@ -1177,8 +1178,29 @@ export async function swapBecomeVerb(root: string, deckId: string, slideId: stri
 
 export type BecomeOptions = Omit<slideOps.BecomeOptions, "compiled" | "modelAsset"> & {
   targetId?: string; assetId?: string; parts?: string[]; sourceParts?: string[]; force?: boolean;
+  /** A destination SET (`--to a --to b`, or `--members '[{"element":…,"parts":[…]}]'`). */
+  members?: TargetRef[];
 };
 const partRef = (element: string, parts?: string[]): TargetRef => ({ element, ...(parts?.length ? { parts } : {}) });
+/** The destination a verb names: one element (+ parts), or a set of members. */
+function destinationRef(element: string | undefined, parts: string[] | undefined, members: TargetRef[] | undefined): TargetRef {
+  if (!members) return partRef(element!, parts);
+  if (parts?.length) throw new Error("--part names parts of one --target; give each set member its own parts in --members instead.");
+  if (!Array.isArray(members) || !members.length) throw new Error("--members needs at least one {\"element\": …} entry.");
+  return normalizeRef({ element: members[0]?.element, members });
+}
+/** Element id → its plot manifest (set labels count parts by role). */
+function elementManifest(slide: Slide, options: { plotManifest: (assetId: string) => FluxPlotManifest | undefined }) {
+  return (elementId: string) => {
+    const el = slide.elements.find(e => e.id === elementId);
+    return el?.type === "plot" ? options.plotManifest(el.assetId) : undefined;
+  };
+}
+/** What the human/MCP line calls the destination of a set result. */
+function setDescription(deck: Deck, slideId: string, ref: TargetRef | undefined, manifests: (elementId: string) => FluxPlotManifest | undefined): string | undefined {
+  if (!ref?.members) return undefined;
+  return setLabel(ref.members, mustSlide(deck, slideId).elements, manifests);
+}
 
 /** Headless twin of Become: a live destination (consume or hand-off), or
  * another plot asset's content in the existing source frame. */
@@ -1190,17 +1212,18 @@ export async function become(
   sourceId: string,
   opts: BecomeOptions = {},
 ): Promise<slideOps.BecomeResult & { assetId?: string }> {
-  if (!!opts.targetId === !!opts.assetId) throw new Error("become needs exactly one of --target <elementId> or --asset <assetId>");
+  if ([opts.targetId, opts.assetId, opts.members].filter(v => v != null).length !== 1) throw new Error("become needs exactly one of --target <elementId>, --to <elementId> (repeatable), --members <json> or --asset <assetId>");
   if (opts.assetId && (opts.parts || opts.sourceParts || opts.mode || opts.pair || opts.reveal)) throw new Error("Parts, mode, pair and reveal require --target, rather than --asset.");
   return mutateDeck(root, deckId, "become", async (deck) => {
     const slide = mustSlide(deck, slideId);
-    if (opts.targetId) {
+    if (opts.targetId || opts.members) {
       const options = await slideCompileOptions(root, deck, slideId);
-      const result = slideOps.becomeTransform(deck, slideId, beatId, partRef(sourceId, opts.sourceParts), partRef(opts.targetId, opts.parts), {
+      const result = slideOps.becomeTransform(deck, slideId, beatId, partRef(sourceId, opts.sourceParts), destinationRef(opts.targetId, opts.parts, opts.members), {
         ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
       });
       if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
-      return result;
+      const label = setDescription(deck, slideId, result.ref, elementManifest(slide, options));
+      return label ? { ...result, destination: label } : result;
     }
     const assetId = opts.assetId!;
     const found = slideOps.findElement(deck, sourceId);
@@ -1234,16 +1257,18 @@ export async function become(
 }
 
 /** Destination-side authoring; shares the same pure op and manifest resolution. */
-export async function appearFrom(root: string, deckId: string, slideId: string, beatId: string, destId: string, sourceId: string,
-  opts: Omit<BecomeOptions, "targetId" | "assetId" | "force" | "mode"> = {}): Promise<slideOps.BecomeResult> {
+export async function appearFrom(root: string, deckId: string, slideId: string, beatId: string, destId: string | undefined, sourceId: string,
+  opts: Omit<BecomeOptions, "targetId" | "assetId" | "force" | "mode"> = {}): Promise<slideOps.BecomeResult & { destination?: string }> {
+  if ((destId == null) === (opts.members == null)) throw new Error("appear-from needs exactly one of --dest <elementId> or --members <json>");
   return mutateDeck(root, deckId, "appear_from", async deck => {
     const slide = mustSlide(deck, slideId);
     const options = await slideCompileOptions(root, deck, slideId);
-    const result = slideOps.appearFrom(deck, slideId, beatId, partRef(destId, opts.parts), partRef(sourceId, opts.sourceParts), {
+    const result = slideOps.appearFrom(deck, slideId, beatId, destinationRef(destId, opts.parts, opts.members), partRef(sourceId, opts.sourceParts), {
       ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
     });
     if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
-    return result;
+    const label = setDescription(deck, slideId, result.ref, elementManifest(slide, options));
+    return label ? { ...result, destination: label } : result;
   });
 }
 

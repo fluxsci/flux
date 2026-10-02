@@ -33,7 +33,7 @@ import { targetOutlines } from "./targetGeometry";
 import { diffState, transformPreState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
-import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef } from "./targets";
+import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef, normalizeRef, refElementIds } from "./targets";
 import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
 import { modelBecomeResult, modelVideoHandoff } from "./model3dMorph";
 import {
@@ -1315,7 +1315,9 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, source: Id,
 export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, source: TargetRef | Id, dest: TargetRef | Id, opts?: BecomeOptions): BecomeResult | null;
 export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: TargetRef | Id, dest: TargetRef | Id, opts: BecomeOptions = {}): BecomeResult | null {
   sourceRef = typeof sourceRef === "string" ? { element: sourceRef } : sourceRef;
-  const ref = typeof dest === "string" ? { element: dest } : dest;
+  if (sourceRef.members) throw new Error("Choose an object or plot parts as the Become source, rather than a set of objects.");
+  // A destination set is canonicalized once (dedupe, merge, 1-member collapse).
+  const ref = normalizeRef(typeof dest === "string" ? { element: dest } : dest);
   const sourceId = sourceRef.element, targetId = ref.element;
   const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
   if (!slide || bi < 0) return null;
@@ -1325,6 +1327,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   const source = slide.elements.find((e) => e.id === sourceId), target = slide.elements.find((e) => e.id === targetId);
   if (!source) throw new Error("The source object is missing from this slide.");
   if (!target) throw new Error("The object to become is missing from this slide.");
+  if (refElementIds(ref).some(id => !slide.elements.some(e => e.id === id))) throw new Error("One of the destination objects is missing from this slide.");
   // The whole source hides at landing, and every part inside it with it.
   if (target.type === "model3d" && sourceId === targetId && isWholeElementRef(sourceRef) && !ref.group)
     throw new Error("A 3D model cannot become one of its own parts. Fade the part in with Appear instead.");
@@ -1347,6 +1350,8 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     const destination = compiled.resolveTarget(ref, bi), sources = compiled.resolveTarget(sourceRef, bi);
     if (!destination.length) throw new Error("Destination parts not found. Retarget this Become.");
     if (!sources.length) throw new Error("Source parts not found. Retarget this Become.");
+    // A set's members must stay clear of the source: it hides as they land.
+    if (ref.members && handoffTargetsOverlap(sources, destination)) throw new Error("The destination set includes the source. Pick other objects for it to become.");
     const ids = new Set([...sources, ...destination].map(t => t.elementId));
     if (!posterVideo && slide.elements.some(e => ids.has(e.id) && e.type === "video")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
     // Preserve the source's effective style/anchor timing when replacing its
@@ -1366,7 +1371,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     delete track.disabled;
     return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
   }
-  if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error("Consume requires whole objects, without parts or groups. Use hand-off instead.");
+  if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error(ref.members ? "Consume needs one whole destination object; a set of objects hands off. Use hand-off instead." : "Consume requires whole objects, without parts or groups. Use hand-off instead.");
   if (compiled.births.some((b) => b.target === targetId)) throw new Error("A ghost copy cannot be a Become target. Duplicate it into an ordinary object first.");
   const frame = compiled.sample(bi);
   if (frame.presentation.unbornElementIds?.includes(sourceId)) throw new Error("The source is not yet born at this step. Choose a later step.");
@@ -1412,6 +1417,7 @@ export function swapBecome(deck: Deck, slideId: Id, trackId: Id, opts: CompileOp
   if (!slide || !track || track.preset !== "transform" || !isHandoff(track)) throw new Error("Choose a hand-off Become to swap direction.");
   const spec = track.to.become;
   if (spec.ref.group) throw new Error("Groups cannot be Become sources. Choose an object or plot parts.");
+  if (spec.ref.members) throw new Error("A set destination cannot be reversed: a Become has one source. Author each reverse hand-off from its own object.");
   if (track.ghostFrom) throw new Error("This track creates a ghost. Keep its birth and author a reverse hand-off in a later step.");
   if (slide.beats[bi].tracks.some(other => other.id !== trackId && familyOf(other) === "transform" && sameRef(trackRef(other), spec.ref)))
     throw new Error("The destination already has a transform in this step.");
