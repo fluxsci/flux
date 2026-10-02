@@ -9,7 +9,9 @@ import { buildPartTree, type XrayNode } from "./plot/tree";
 export interface EditorHighlight { elementId: string; partIds?: readonly string[] }
 export interface EditorCanvasPresentation {
   highlight?: EditorHighlight | readonly EditorHighlight[] | null;
-  /** Destination picking permits Shift deep-selection without starting a drag. */
+  /** An embedded picker (Slide's Become picker) owns canvas presses and draws
+   *  its own hover: the canvas suppresses its hover box, deep-part hover and
+   *  Alt caliper. The picker claims presses before they reach the canvas. */
   picking?: boolean;
   hiddenElementIds?: readonly string[];
   /** Objects which do not exist at this frame, even in Show hidden. */
