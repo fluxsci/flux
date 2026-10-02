@@ -183,7 +183,9 @@ edits. **Detach** keeps the current settings as independent values.
 
 ![A linked effect with a duration override and its use-style reset.](../images/animation-style-override.png)
 
-Right-click a timing bar and choose **Animate like…**, then pick an object on the canvas.
+Right-click a timing bar and choose **Animate like…**, then click an object on the canvas.
+The picker's outline and hover show which object you are on and name its effect in this step;
+one click commits.
 Its effect in this step supplies the style. If it has no style, Flux creates **Like ‹object
 label›** and links both effects. A multi-selection links in bulk; incompatible families are
 reported. In the X-ray, **6** arms the same pick for the selected objects or parts. **Esc** cancels.
@@ -320,21 +322,41 @@ ghost's creation lane removes that copy and its later effects; Undo restores the
 become another object or part of a plot. Select the source first. To start from plot parts,
 **Ctrl+click** a part or pick several rows in the **X-ray** before arming Become.
 
-The bar names what is waiting and how to choose its destination:
+Choosing Become enters the **Become picker**, a temporary mode. The slide wears a soft green
+outline, the canvas around it dims slightly, the source gets a dashed green outline, and the bar
+above the canvas names what is waiting (**‹Rect› becomes…**). Nothing is moved or edited while
+picking: every click on the canvas is a pick.
 
-- Click a drawn object to use it immediately, or draw a new shape with the usual tools.
-- Click a plot to hand off to the whole plot. **Ctrl+click** picks just the part under the
-  pointer, such as a box or an axis spine.
-- Hold **Shift** while clicking to add picks without confirming. **Shift+Ctrl+click** adds
-  plot parts. Each picked part stays outlined; **Enter** or **Become** confirms the set.
-  A hand-off has one destination object: pick parts of one plot, or group several objects
-  first and pick their group in the X-ray.
-- Hover a plot and press **Alt+R** to open its X-ray while picking. Select rows, then press
-  **b** (**Become**), either in the tree or its **m** menu. Axis rows include their
-  spine, ticks and labels; expand them to choose only the spine. The menu names the source
-  that is waiting.
-- **Escape** or **Cancel** leaves the pick without creating a transform. Changing slides
-  also cancels it.
+- **Hover** outlines the finest thing under the pointer: a single point, bar, box, tick or
+  label of a plot, or one member of a group. The bar names it exactly as its timeline lane will,
+  with the point's data where it has one.
+- **Click** picks it. Picking is always multi-select: keep clicking to add more, and click a
+  picked thing again to remove it. Picks wear a solid green outline (a ring around round marks),
+  numbered in picking order when there are few of them; the bar lists them as chips
+  (**6 points · W1**, **2 ellipses**) that you can remove with ×.
+- **Drag** anywhere on the stage to draw a box: it picks everything **fully inside**. Data marks
+  win over ticks and labels; a whole object inside the box is picked whole. **Alt+drag**
+  removes what it encloses.
+- **Alt+click** picks the whole plot or group instead of the part. **A** widens the last pick to
+  its siblings: the other members of its group, then the same part of every series, then the
+  rest of its series. **Backspace** drops the last pick.
+- **Double-click** picks something and confirms at once, the quick path for a single object.
+- **B**, **Enter** or the **Become** button confirms. **Escape** or **Cancel** leaves the picker
+  without creating a transform and puts the source selection back. Changing slides or steps also
+  cancels.
+- **Add mode** lets the source become something that does not exist yet. Press a drawing tool
+  key (**R** rect, **O** ellipse, **L** line, **P** pen, **T** text), **Ctrl+P** for a preset or
+  **Alt+G** for a gallery plot, or choose from **Add ▾** on the bar. The outline gains an inner
+  dashed line and the editor works as usual: everything you draw or insert joins the pick.
+  **Enter** or **Done** returns to picking with those objects picked; **Escape** also returns,
+  and a second **Escape** cancels.
+- **X-ray**: hover a plot and press **Alt+R**. Rows you select join the pick and rows you clear
+  leave it, live on the canvas; points picked on the canvas stay picked. Axis rows include their
+  spine, ticks and labels; expand them to choose only the spine. **B** in the X-ray confirms the
+  whole pick, and closing the X-ray keeps it.
+
+A hand-off has one destination object until destination sets arrive: pick parts of one plot, one
+object, or a group (Alt+click a member, or its row in the X-ray).
 
 A loose drawn destination between whole objects uses **Consume**: its appearance becomes the source's After state
 and the destination is removed. The source keeps its identity; one Undo restores both.
@@ -348,7 +370,8 @@ choose one object or plot parts as the source.
 
 To work from the other end, select the destination object or plot parts and choose
 **Appear ▾ → Appear from…**. The main **Appear** button still adds a normal entrance.
-The bar now names what **appears from…**; click its source, or **Ctrl+click** source parts.
+The same picker opens and the bar names what **appears from…**; pick its source (one object or
+parts of one plot) and confirm with **B** or **Enter**, or double-click it.
 In the X-ray, **m**, then **5** (**Appear from…**) starts this same flow from the picked
 rows. Both routes create exactly the same hand-off.
 

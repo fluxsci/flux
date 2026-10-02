@@ -1583,12 +1583,34 @@ Persistence invariants (all machine-checked — do not weaken):
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
     Reopening follows the full plot selection even when a primary drilled part exists.
-    Slide's one `pickState` owns Become, Appear from and Animate like. While Become is
-    armed, `xrayBecomeSource` names the waiting source and `b` confirms the picked destination
-    rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
-    Canvas's view-only `picking` allows Shift+Ctrl/Meta part picks without starting a drag;
-    `EditorCanvasPresentation.highlight` accepts a list so every accumulated part stays lit.
-    Escape or slide/step changes cancel. The pick commits one ref through `becomeTransform`
+    **The Become picker (2026-10-02, `src/shell/modes/slide/pick/`) owns Become, Appear from
+    and Animate like** — one temporary mode: `pickState.svelte.ts` (the `BecomePicker` state
+    machine: `pick` / `add` sub-states, keys, X-ray sink, Add-mode id diff), `pickModel.ts`
+    (pure: ordered units, toggle/conflict law, units → refs, `composeDestination`, chips, the
+    fully-inside marquee law with data preference, `widenParts`; `verify-become-picker.ts`),
+    `stageHit.ts` (DOM: hit node → unit through `resolvePartId`/`isScaffoldPart`, rects scoped
+    to the element's wrapper, stage coords), `PickOverlay.svelte`, `BecomeBar.svelte`. While
+    picking the overlay claims canvas presses in the CAPTURE phase on `.canvas-wrap` (rulers,
+    guides, Space/middle pans, the wheel and non-Select tools pass); Canvas's `picking` now only
+    suppresses its own hover box, deep-part hover and caliper. The hover unit is the finest
+    meaningful one (a plot's semantic leaf — scaffold means the whole plot — or a group member);
+    the bar names it with `refLabel`. Outlines live in stage coordinates under ONE transformed
+    group (a pan rewrites one attribute) and the frame comes from `presentationViewport` math,
+    not a DOM read per frame. The mode accent (`--c-pick` ring + 22 px halo + 6 % backdrop dim
+    on `.pick-frame`, one ≤ 220 ms entry, then rest) is the ONE scoped exception to the no-glow
+    rule, pinned by `verify-become-picker-gui.mjs`. The editor selection is cleared while
+    picking and restored on cancel; other selection routes (Layers, Ctrl+A) add to the pick.
+    Double-click reads the platform click count (`click.detail`), never a timer. Drawing,
+    Ctrl+P and Alt+G enter Add mode: every element created meanwhile joins the pick (one unit
+    per element) — drawing no longer confirms. X-ray parity: `xrayPickSink` receives every
+    user-driven row pick (`applySelection`); the picker replaces only the units the X-ray can
+    show (its seeded rows and its own picks — series members have no rows), and `b` confirms
+    the whole pick. The `a` rule is ONE function, `xray/buildXrayTree.ts widenToSiblings`,
+    generic over X-ray rows and plot part-tree nodes. Several separate objects compose W1's
+    `TargetRef.members` set through `normalizeRef` when it exists, else the pick refuses with a
+    toast (never a ref an older `becomeTransform` would read as "the whole first object").
+    While Become is armed, `xrayBecomeSource` names the waiting source. Escape (Add mode / the
+    X-ray first) or slide/step changes cancel. The pick commits one ref through `becomeTransform`
     or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
     compiler's future hand-off destination visibility while ordinary appearances stay editable.
     Inspector retargeting starts from `trackRef`, preserving the source's part/selector binding.
@@ -9175,4 +9197,27 @@ strengthened `verify-f5-drag` and `verify-crop`; touched pure + UI gates green; 
   runs where Paper happened not to mount) — the cheapest confirmation of a mechanism is a second,
   independent route to it.
 - `pgrep -f <pattern>` matches the shell that runs it; a `while pgrep` wait loop never ends.
+
+### 2026-10-02 — The Become picker: a distinct, temporary pick mode (Claude Opus 5.5, `oct2/become-ui`)
+**Work:** Owner ask (Deck 3 slide 3): once Become is chosen, enter a polished mode — a green
+glow on the slide, multi-select by default, a cool hover outline with context outside the slide,
+marquee, Confirm/`b`, an Add mode for drawing or inserting destinations, distinct pick outlines,
+click-to-unpick, X-ray parity. Built `src/shell/modes/slide/pick/` (state machine, pure model,
+DOM hit/rects, overlay, bar) and wired Become, Appear from…, Animate like… and the Inspector's
+retarget through it; SlideMode lost its inline pick code. Gates: new `verify-become-picker.ts`
+(pure, 35) and `verify-become-picker-gui.mjs` (ui, 52); `verify-slide-become-gui.mjs` updated
+for the superseded first-click-confirms and draw-consumes contracts.
+**Learnings:**
+- Promoted to §4: the picker's architecture, the capture-phase press ownership, the scoped
+  glow exception, X-ray ownership of only the rows it can show, the shared `a` rule.
+- A double-click must read `click.detail`; a home-made 400 ms timer turned two quick toggles
+  (pick, unpick) into a confirm. `preventDefault` on `pointerdown` suppresses the compat mouse
+  events but not `click`, so the click still carries the platform's count.
+- Plot part trees hold group MEMBERS only in `targets`, not as nodes or X-ray rows: anything
+  that maps a leaf back to "its row" must take the DEEPEST node holding it (a series and its
+  points group can both hold exactly one leaf), and a sink fed by X-ray rows must not delete
+  leaf picks the tree cannot show.
+- `git diff slides-oct2` maps a worker's changes against the integration branch TIP, which can
+  move (the orchestrator's manifest fix ab285a7e) — cherry-pick such a base fix rather than
+  debug a runner that refuses before running anything.
 

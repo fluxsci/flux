@@ -190,12 +190,17 @@ Everything in the Figure table works on the stage. Additionally:
 | **Ctrl+Shift+E** | Transform ▸ Become: pick the object the selection turns into *(animator open)* |
 | **Ctrl+Shift+C** | Cascade across selected tracks (falls back to element cascade) |
 | **M** *(in the X-ray)* | Animate the picked rows: **1** Appear, **2** Emphasize, **3** Disappear, **4** Change, **5** Appear from…, **6** Animate like… |
-| **Ctrl+click** *(Become pick)* | Pick a plot part as the destination (or the source for Appear from…) |
-| **Shift+click** / **Shift+Ctrl+click** *(Become pick)* | Add objects / plot parts without confirming |
-| **Enter** *(Become pick)* | Confirm the accumulated destination (one object or parts of one plot) |
-| **Alt+R** *(Become pick)* | X-ray the hovered or selected plot to pick destination rows |
-| **B** *(X-ray while Become is armed)* | Become: confirm the picked rows |
-| **Escape** *(Become / Appear from… pick)* | Cancel without creating a transform |
+| **click** *(Become pick)* | Pick or unpick the part or object under the pointer (no modifier needed; Shift / Ctrl+click do the same) |
+| **Alt+click** *(Become pick)* | Pick the whole plot or group instead of the part |
+| **drag** *(Become pick)* | Marquee: pick everything fully inside (**Alt+drag** removes) |
+| **double-click** *(Become pick)* | Pick it and confirm at once |
+| **A** *(Become pick)* | Widen the last pick to its siblings |
+| **Backspace** *(Become pick)* | Drop the last pick |
+| **B** / **Enter** *(Become pick)* | Confirm the pick |
+| **R O L P T** *(Become pick)* · **Ctrl+P** · **Alt+G** | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
+| **Alt+R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live |
+| **B** *(X-ray while Become is armed)* | Become: confirm the whole pick |
+| **Escape** *(Become / Appear from… pick)* | Leave Add mode or close the X-ray first; then cancel without creating a transform |
 | **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |
 
 In the animator dock: **←/→** beats · **↑/↓** tracks · **Ctrl+D** duplicate tracks ·
