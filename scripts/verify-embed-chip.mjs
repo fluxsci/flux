@@ -4,7 +4,8 @@
 // embeds.ts stays doc-pure). Verifies: chip shows the name; reveal-on-caret
 // with ZERO scrollHeight change; ArrowDown crosses the embed line in exactly
 // one keypress; unresolved embeds get the dimmed variant and KEEP their alt;
-// renaming the figure updates the chip with zero document change.
+// renaming the figure updates the chip with zero document change; a REAL
+// double-click on the chip opens Figure mode.
 //   Run (dev server on :1420 must be up): node scripts/verify-embed-chip.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
 
@@ -102,6 +103,32 @@ const rename = await page.evaluate(async (s) => {
   };
 }, seed("Figure 3"));
 
+// A REAL double-click opens Figure. The first click reveals the source and
+// removes the chip, so the second press and the dblclick land on raw text —
+// chipActivation.ts arms the action on the first press (2026-10-02: before
+// that, a chip-level dblclick listener never fired for a real user).
+await page.evaluate(() => {
+  const view = window.__fluxView || (window.__flux?.editors ?? [])[0];
+  view.dispatch({ selection: { anchor: 0 } });
+  view.focus();
+});
+await sleep(100);
+const chipBox = await page.$eval(".flux-embedchip:not(.unresolved)", (e) => {
+  e.scrollIntoView({ block: "center" });
+  const r = e.getBoundingClientRect();
+  return { x: r.x + Math.min(20, r.width / 2), y: r.y + r.height / 2 };
+});
+await page.mouse.move(chipBox.x, chipBox.y);
+await page.mouse.down();
+await page.mouse.up();
+await page.mouse.down({ clickCount: 2 });
+await page.mouse.up({ clickCount: 2 });
+let opensFigure = false;
+for (let i = 0; i < 40 && !opensFigure; i++) {
+  await sleep(50);
+  opensFigure = await page.evaluate(() => window.__flux?.get(window.__flux.panes.focusedMode) === "figure");
+}
+
 await shot(page, "embed-chip");
 const errs = realErrors(page);
 await browser.close();
@@ -116,6 +143,7 @@ const checks = {
   walkOk,
   chipRenamed: rename.chipRenamed,
   docUnchanged: rename.docUnchanged,
+  realDoubleClickOpensFigure: opensFigure,
 };
 console.log(JSON.stringify({ embedChip: checks, chips: res.collapsed?.chips, walk, errs }, null, 2));
 const ok = !res.error && Object.values(checks).every(Boolean) && errs.length === 0;

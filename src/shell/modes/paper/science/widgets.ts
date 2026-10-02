@@ -3,13 +3,14 @@
 // eq(), so a chip's DOM is reused while typing elsewhere but re-rendered when the
 // underlying figure/bib data loads or changes (Flux_Paper_Plan.md B1/B5).
 
-import { WidgetType } from "@codemirror/view";
+import { WidgetType, type EditorView } from "@codemirror/view";
 import { resolveFigure } from "../scholar/figures";
 import { resolveCite } from "../scholar/bib";
 import { formatNumericLabel, type CitationStyle } from "../scholar/citeNumbering";
 import type { PaperNumbering } from "../scholar/numberingFacet";
 import { renderTexCached } from "./katexLoader";
 import { handlersForEl } from "./chipContext";
+import { armChipActivation } from "./chipActivation";
 
 /** Inline `$…$` math (2.1) — an atomic inline chip like cites/cross-refs: rendered
  *  KaTeX in place, raw TeX revealed when the selection touches it (chips.ts owns
@@ -104,18 +105,19 @@ export class EmbedSrcWidget extends WidgetType {
   eq(o: EmbedSrcWidget) {
     return o.label === this.label && o.display === this.display && o.resolved === this.resolved;
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const el = document.createElement("span");
     el.className = "flux-embedchip" + (this.resolved ? "" : " unresolved");
     el.textContent = `⌗ ${this.display}`;
     el.title = this.resolved
       ? `${this.raw.trim()}\nClick to place the caret (reveals the source); double-click to open in Figure`
       : `Unresolved figure embed: ${this.raw.trim()}`;
-    el.addEventListener("dblclick", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handlersForEl(el)?.chip?.onActivate?.({ kind: "figref", label: this.label }, el);
-    });
+    // The first click reveals the source and removes this element, so the
+    // double-click is armed here and fired by chipActivation (see there).
+    // Resolve handlers through view.dom: `el` may be detached by then.
+    armChipActivation(view, el, () =>
+      handlersForEl(view.dom)?.chip?.onActivate?.({ kind: "figref", label: this.label }, view.dom),
+    );
     return el;
   }
   ignoreEvent(e: Event) {
