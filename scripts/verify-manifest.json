@@ -377,7 +377,8 @@
       "verify-model3d-embed.ts",
       "verify-slide-model3d-parts.ts",
       "verify-slide-model3d-parts-browser.ts",
-      "verify-slide-model3d-scale.ts"
+      "verify-slide-model3d-scale.ts",
+      "verify-become-picker.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -532,7 +533,8 @@
       "verify-slide-model3d-gui.mjs",
       "verify-model3d-embed-gui.mjs",
       "verify-slide-model3d-morph-gui.mjs",
-      "verify-slide-model3d-parts-gui.mjs"
+      "verify-slide-model3d-parts-gui.mjs",
+      "verify-become-picker-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -870,7 +872,9 @@
       "verify-slide-handoff-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
-      "verify-slide-stagger.ts"
+      "verify-slide-stagger.ts",
+      "verify-become-picker.ts",
+      "verify-become-picker-gui.mjs"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -2464,7 +2468,8 @@
         "verify-canvas-zoom-raster.mjs",
         "verify-text-arrange-gui.mjs",
         "verify-cross-figure-drag.mjs",
-        "verify-model3d-snapshot-quiet.mjs"
+        "verify-model3d-snapshot-quiet.mjs",
+        "verify-become-picker-gui.mjs"
       ]
     },
     {
@@ -2478,6 +2483,31 @@
         "group:inline-slides",
         "group:slide-stash",
         "group:paper-gate"
+      ]
+    },
+    {
+      "$why": "2026-10-02 the Slide Become picker (pick/): one temporary mode for Become / Appear from / Animate like — its pure model, its GUI gate, the Become record gate and the surfaces it shares (X-ray parity, the annotate hover vocabulary, the surface contract's scoped glow exception). Retains the slide/** entry's groups it shadows.",
+      "glob": "{src/shell/modes/slide/pick/**,src/shell/modes/slide/SlideMode.svelte}",
+      "run": [
+        "verify-become-picker.ts",
+        "verify-become-picker-gui.mjs",
+        "verify-slide-become-gui.mjs",
+        "group:slide-transforms",
+        "verify-xray-multi-gui.mjs",
+        "verify-xray-theme.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-annotation-surface-gui.mjs",
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-slide-editor-gui.mjs",
+        "verify-slide-marquee-gui.mjs",
+        "verify-slide-canvas-presentation-gui.mjs",
+        "verify-figure-controls-gui.mjs",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
       ]
     },
     {
@@ -2625,7 +2655,10 @@
       "glob": "src/styles/tokens.css",
       "run": [
         "verify-paper-textscale.ts",
-        "verify-paper-textsize-gui.mjs"
+        "verify-paper-textsize-gui.mjs",
+        "verify-become-picker-gui.mjs",
+        "verify-xray-theme.mjs",
+        "verify-fmenu-surface.mjs"
       ]
     },
     {
@@ -3021,7 +3054,8 @@
         "verify-panel-label-menu.mjs",
         "verify-no-retired-agent-layer.ts",
         "verify-plot-view-gui.mjs",
-        "group:model3d-xray"
+        "group:model3d-xray",
+        "verify-become-picker-gui.mjs"
       ]
     },
     {
@@ -9563,6 +9597,26 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-become-picker.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-become-picker-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }
