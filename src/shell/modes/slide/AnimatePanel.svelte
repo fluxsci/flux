@@ -375,7 +375,7 @@
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
       {/if}
       <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
-      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change · +E become. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Alt+A / Alt+D align starts / ends (repeat to cycle, +Shift resizes), Space plays/pauses.">Keyboard ⌨</span>
+      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change · +E become. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Alt+A / Alt+D align starts / ends (repeat to cycle, +Shift resizes), Ctrl/Cmd+Alt-drag a bar onto another lane inherits its animation, Space plays/pauses.">Keyboard ⌨</span>
     </div>
 
     <div class="dock-body">

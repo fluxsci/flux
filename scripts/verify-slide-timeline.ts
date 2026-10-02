@@ -497,6 +497,79 @@ const timing = (deck: ReturnType<typeof featureFig>["deck"], ids: string[]) => d
   check(alignTrackEdges(f.deck, "ff", "b", ["vid"], "end", 900, { mode: "resize" }).refused[0]?.reason === "Video commands have no duration to resize", "a video command refuses a resize with a reason");
 }
 
+// Inherit (Ctrl+Alt-drag): exact animation parameters, field by field (owner, 2026-10-02).
+{
+  const { resolveTrack } = await import("../src/lib/slide/resolve");
+  const { defaultEasingFor } = await import("../src/lib/slide/presetCatalog");
+  const HOW = ["preset", "duration", "curve", "influence", "easing", "stagger", "params", "arc"] as const;
+  const how = (deck: any, t: any) => { const r = resolveTrack(t, deck); return JSON.stringify(Object.fromEntries(HOW.map(k => [k, k === "duration" ? r.duration ?? null : (r as any)[k] ?? null]))); };
+  const track = (f: ReturnType<typeof featureFig>, id: string) => f.beat().tracks.find(t => t.id === id)!;
+  {
+    const f = featureFig();
+    Object.assign(track(f, "ell1"), { groupId: "g", disabled: true, part: "series.0", easing: "linear", params: { scale: .5 } });
+    const r = inheritTrack(f.deck, "ff", "rect", f.ell);
+    const e0 = track(f, "ell0"), e1 = track(f, "ell1");
+    check(r.inherited.length === 4 && r.refused.length === 0 && r.styleId === undefined, "an unlinked source copies onto every target");
+    check(e0.preset === "fadeRise" && e0.duration === 952.6867379224138 && JSON.stringify(e0.curve) === JSON.stringify({ kind: "spring", bounce: 0 }) && e0.start === 0, "the four ellipses carry fadeRise's duration 952.69, spring bounce 0 and preset; their starts stay put");
+    check(how(f.deck, e0) === how(f.deck, track(f, "rect")), "the target resolves to exactly the source's HOW");
+    check(e1.groupId === "g" && e1.disabled === true && e1.part === "series.0" && e1.target === "ell1-el" && e1.id === "ell1", "bindings, group, enabled state and identity never travel");
+    check(e1.easing === undefined && e1.influence === undefined && e1.params === undefined, "the target's own timing group and params are replaced by the source's (absent stays absent)");
+  }
+  {
+    const f = featureFig();
+    Object.assign(track(f, "ell0"), { anchor: { trackId: "path", edge: "end", offsetMs: 20 } });
+    inheritTrack(f.deck, "ff", "rect", ["ell0", "ell1"]);
+    check(track(f, "ell0").anchor?.trackId === "path", "without includeStart an anchored target keeps its timing anchor");
+    inheritTrack(f.deck, "ff", "rect", ["ell0", "ell1"], { includeStart: true });
+    check(track(f, "ell0").anchor === undefined && track(f, "ell0").start === 1000 && track(f, "ell1").start === 1000, "includeStart (Shift at release) copies the source's resolved start and detaches the anchor");
+  }
+  {
+    // A different phase: an entrance's timing onto an exit keeps the exit an exit.
+    const f = featureFig();
+    f.beat().tracks.push({ id: "out", target: "o", preset: "popOut", duration: 300, start: 2000, params: { scale: .2 } });
+    inheritTrack(f.deck, "ff", "path", ["out"]);
+    const out = track(f, "out");
+    check(out.preset === "popOut" && JSON.stringify(out.params) === JSON.stringify({ scale: .2 }) && out.duration === 1000 && out.easing === defaultEasingFor("drawOn"), "across phases only timing travels; an absent curve materializes the source preset's default easing");
+    // Transform → appearance: timing only, no arc.
+    f.beat().tracks.push({ id: "tx", target: "p", preset: "transform", duration: 800, arc: .5, curve: { kind: "spring", bounce: .3 }, to: { state: { x: 10 } } });
+    inheritTrack(f.deck, "ff", "tx", ["ell2"]);
+    const e2 = track(f, "ell2");
+    check(e2.preset === "popIn" && e2.duration === 800 && e2.arc === undefined && JSON.stringify(e2.curve) === JSON.stringify({ kind: "spring", bounce: .3 }), "a transform's timing onto an appearance: duration and curve, never its arc or preset");
+    inheritTrack(f.deck, "ff", "rect", ["tx"]);
+    check(track(f, "tx").preset === "transform" && JSON.stringify(track(f, "tx").to) === JSON.stringify({ state: { x: 10 } }) && track(f, "tx").arc === .5, "…and the reverse keeps the transform's endpoint, preset and arc");
+  }
+  {
+    // A linked source: targets link to its style plus the source's own overrides.
+    const f = featureFig();
+    f.deck.animStyles = [{ id: "rise", name: "Rise", family: "appearance", track: { preset: "fadeRise", duration: 640, start: 40, curve: { kind: "spring", bounce: .2 }, stagger: { perMs: 30 } } }];
+    Object.assign(track(f, "rect"), { styleId: "rise", duration: 500 });
+    delete track(f, "rect").curve;
+    Object.assign(track(f, "ell0"), { easing: "linear", stagger: { perMs: 10 } });
+    const r = inheritTrack(f.deck, "ff", "rect", ["ell0", "ell1"]);
+    const e0 = track(f, "ell0");
+    check(r.styleId === "rise" && e0.styleId === "rise" && e0.duration === 500 && e0.easing === undefined && e0.stagger === undefined && e0.preset === "fadeRise", "a linked source links the targets, clears their overrides and copies the source's own (duration 500)");
+    check(how(f.deck, e0) === how(f.deck, track(f, "rect")) && resolveTrack(e0, f.deck).start === 0, "…so they resolve exactly like the source, and keep their place in time over the style's start");
+    f.deck.animStyles[0].track.curve = { kind: "spring", bounce: .5 };
+    check(JSON.stringify(resolveTrack(e0, f.deck).curve) === JSON.stringify({ kind: "spring", bounce: .5 }), "…and they follow later style edits (they are linked, not copied)");
+    f.beat().tracks.push({ id: "tx2", target: "q", preset: "transform", duration: 600, to: { state: { x: 5 } } });
+    const refused = inheritTrack(f.deck, "ff", "rect", ["tx2"]);
+    check(refused.inherited.length === 0 && /Family mismatch/.test(refused.refused[0]?.reason ?? ""), "a cross-family link is refused with linkTrackStyle's reason");
+  }
+  {
+    // A linked target taking an unlinked source detaches (materializes) first.
+    const f = featureFig();
+    f.deck.animStyles = [{ id: "pop", name: "Pop", family: "appearance", track: { preset: "popIn", duration: 200, stagger: { perMs: 25 } } }];
+    Object.assign(track(f, "ell0"), { styleId: "pop" }); delete track(f, "ell0").duration;
+    inheritTrack(f.deck, "ff", "rect", ["ell0"]);
+    check(track(f, "ell0").styleId === undefined && how(f.deck, track(f, "ell0")) === how(f.deck, track(f, "rect")), "a linked target is detached and then takes the source's HOW (no style stagger left behind)");
+    // Refusals.
+    f.beat().tracks.push({ id: "vid", target: "v", preset: "videoStart", start: 0 });
+    check(/video command/i.test(inheritTrack(f.deck, "ff", "vid", ["ell1"]).refused[0]?.reason ?? "") && /Video commands/.test(inheritTrack(f.deck, "ff", "rect", ["vid"]).refused[0]?.reason ?? ""), "video commands and animations refuse each other both ways");
+    check(inheritTrack(f.deck, "ff", "rect", ["rect"]).refused[0]?.reason === "An effect cannot inherit from itself", "a self-inherit is refused");
+    check(inheritTrack(f.deck, "ff", "nope", ["ell1"]).refused[0]?.reason === "Source effect not found in this step" && inheritTrack(f.deck, "ff", "rect", ["ell1"], { beatId: "base" }).refused.length === 1, "a missing source or a beat filter that excludes it refuses");
+  }
+}
+
 console.log(`\nSLIDE TIMELINE: PASS (${h.checks} assertions)`);
 
 await h.done();

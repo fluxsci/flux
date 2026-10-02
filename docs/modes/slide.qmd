@@ -114,6 +114,29 @@ flux align-tracks talk slide1 --tracks e3,e4,e5 --edge end --to rect2      # rec
 flux align-tracks talk slide1 --tracks e3,e4 --edge start --to 250 --resize  # starts at 250 ms
 ```
 
+## Inherit an effect's animation
+
+To give several effects exactly the animation of another one, select them, hold **Ctrl+Alt**
+(**⌘+⌥** on macOS) and drag one of their bars onto the other effect's lane. The bars stay where
+they are; a dashed line runs from the selection to the pointer, the lane under it lights, and a
+label reads **Inherit from ‹rect 2›**. Release to apply; release anywhere else or press
+**Escape** to cancel. The effects keep their own start times unless you hold **Shift** as you
+release, which copies the start too. One **Undo** reverts the whole drop, and a toast names
+what was inherited (**4 effects inherit ‹rect 2› · 953 ms · spring**). **Inherit animation
+from…** on a bar's right-click menu does the same with one click on the source lane.
+
+Inherit copies the source's duration, easing or spring and stagger. Between two entrances (or two
+exits, or two transforms) the effect itself and its options come too — four pops become four
+rises. Across kinds only the timing travels, so an exit stays an exit. If the source uses an
+[animation style](#animation-styles), the effects link to that style instead and follow its
+later edits. What the effects animate, their transform endpoints, links, groups and on/off state
+never change. Video commands and animations do not share timing. `inherit-track` is the
+CLI and MCP twin:
+
+```bash
+flux inherit-track talk slide1 --from rect2 --to e3,e4,e5,e6 [--include-start]
+```
+
 The **X-ray** (**Alt+R**) animates too: select one plot — or several — press **Alt+R**, pick
 the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
 a multi-plot X-ray lists the parts every plot shares), then press **M** and choose
@@ -132,7 +155,8 @@ issue to inspect its track. The **Easing** field shows the timing curve and open
 
 Keyboard commands belong to the focused surface. In the animation dock or inspector, **Delete**
 removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts,
-**Alt+Shift+left/right** adjusts durations, and **Alt+A** / **Alt+D** align starts / ends. On the canvas, Delete removes objects and arrows move
+**Alt+Shift+left/right** adjusts durations, and **Alt+A** / **Alt+D** align starts / ends.
+**Ctrl+Alt-drag** a bar onto another lane to inherit its animation. On the canvas, Delete removes objects and arrows move
 them. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset, **G** Stagger, and **E**
 opens Easing. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
 

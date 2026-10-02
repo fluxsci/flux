@@ -15,6 +15,8 @@ export async function seedFeatureFig(page) {
     let sid, bid;
     const el = (type, id, x, y, extra = {}) => ({ type, id, name: id, x, y, width: 60, height: 60, rotation: 0, fill: "#da702c", stroke: "#222222", strokeWidth: 2, ...extra });
     f.slide.commitDeckLive(d => {
+      // Track ids are unique deck-wide: replace an earlier seeding rather than duplicate its ids.
+      for (const old of d.slides.filter(s => s.name === "Align and inherit")) f.slideOps.deleteSlide(d, old.id);
       const s = f.slideOps.addSlide(d, { layout: "blank", name: "Align and inherit" }); sid = s.id;
       s.elements = [
         el("rect", "ff-path", 40, 60, { cornerRadius: 0 }), el("rect", "ff-rect", 180, 60, { cornerRadius: 0 }),
@@ -207,4 +209,97 @@ export async function verifyAlign(page, ok) {
   await paint(page);
   ok(all(ends(await timing(page)), 1000), "the menu's Align ends applies the same first candidate");
   await undo(page);
+}
+
+/** Press Ctrl+Alt on a bar and sweep the pointer onto `toSel` (not released). */
+async function inheritDrag(page, fromSel, toSel, { steps = 8 } = {}) {
+  const a = await (await page.$(fromSel)).boundingBox(), b = await (await page.$(toSel)).boundingBox();
+  const from = { x: a.x + Math.min(20, a.width / 2), y: a.y + a.height / 2 }, to = { x: b.x + Math.min(40, b.width / 2), y: b.y + b.height / 2 };
+  await page.keyboard.down("Control"); await page.keyboard.down("Alt");
+  await page.mouse.move(from.x, from.y); await page.mouse.down();
+  for (let i = 1; i <= steps; i++) await page.mouse.move(from.x + (to.x - from.x) * i / steps, from.y + (to.y - from.y) * i / steps);
+  await paint(page);
+  return to;
+}
+async function release(page, { shift = false } = {}) {
+  if (shift) await page.keyboard.down("Shift");
+  await page.mouse.up();
+  if (shift) await page.keyboard.up("Shift");
+  await page.keyboard.up("Alt"); await page.keyboard.up("Control");
+  await paint(page);
+}
+const inheritView = page => page.evaluate(() => ({
+  target: [...document.querySelectorAll(".beatrail .lane-row.inherit-target")].map(e => e.dataset.trackId),
+  label: document.querySelector(".inherit-label")?.textContent ?? null,
+  dash: (() => { const l = document.querySelector(".beatrail .guide-layer .inherit-guide line"); return l ? getComputedStyle(l).strokeDasharray : null; })(),
+  bars: [...document.querySelectorAll(".beatrail .lane-row[data-track-id] .trk")].map(b => b.style.left),
+}));
+
+/** 3.3 — Ctrl+Alt-drag Inherit: guide, lane highlight, release/Shift/Escape, the menu twin. */
+export async function verifyInherit(page, ok) {
+  mkdirSync(SHOTS, { recursive: true });
+  for (const dismiss of await page.$$('.toasts button.t-x')) await dismiss.click();
+  await seedFeatureFig(page);
+  await waitFor(page, () => document.querySelectorAll(".beatrail .lane-row[data-track-id]").length === 6, null, { timeout: 5000, label: "FeatureFig lanes" });
+  await selectEllipses(page);
+  const before = await timing(page), rest = await inheritView(page);
+  const bar = id => `.lane-row[data-track-id="${id}"] .trk`;
+  await inheritDrag(page, bar(ELL[1]), bar("ff-t-rect"));
+  let v = await inheritView(page);
+  ok(v.target.length === 1 && v.target[0] === "ff-t-rect", "Ctrl+Alt-drag onto rect 2's lane highlights exactly that lane", JSON.stringify(v));
+  ok(v.dash && /3/.test(v.dash) && v.label === "Inherit from ‹ff-rect›", "…a dashed guide runs to the pointer and the label names the source", JSON.stringify(v));
+  ok(JSON.stringify(v.bars) === JSON.stringify(rest.bars), "…and the bars do not move");
+  await page.screenshot({ path: `${SHOTS}/inherit-drag.png` });
+  // Over a selected bar: nothing to inherit from.
+  const sel = await (await page.$(bar(ELL[3]))).boundingBox();
+  await page.mouse.move(sel.x + 10, sel.y + sel.height / 2); await paint(page);
+  v = await inheritView(page);
+  ok(v.target.length === 0 && v.label === "Pick an effect…", "over a selected lane nothing lights and the label asks for an effect", JSON.stringify(v));
+  await release(page);
+  ok(JSON.stringify(await timing(page)) === JSON.stringify(before), "dropping on a selected bar does nothing");
+  // Release on rect 2.
+  await inheritDrag(page, bar(ELL[1]), bar("ff-t-rect"));
+  v = await inheritView(page);
+  ok(v.target[0] === "ff-t-rect", "a second gesture lights rect 2 again", JSON.stringify({ v, sel: await page.evaluate(() => window.__flux.get(window.__flux.slide.selTrackIds)) }));
+  await release(page);
+  let t = await timing(page);
+  ok(ELL.every(id => t[id].preset === "fadeRise" && t[id].duration === 952.69 && t[id].curve?.kind === "spring" && t[id].curve.bounce === 0 && t[id].start === 0),
+    "release: the four ellipses inherit fadeRise · 952.69 ms · spring bounce 0 and keep their starts", JSON.stringify({ t: ELL.map(id => t[id]), toasts: await page.evaluate(() => document.querySelector(".toasts")?.textContent), sel: await page.evaluate(() => window.__flux.get(window.__flux.slide.selTrackIds)) }));
+  ok(await page.evaluate(() => /4 effects inherit ‹ff-rect› · 953 ms · spring/.test(document.querySelector(".toasts")?.textContent ?? "")), "…with a toast naming the source, its duration and curve");
+  ok(await page.evaluate(() => !document.querySelector(".beatrail .inherit-guide, .beatrail .lane-row.inherit-target, .inherit-label")), "…and nothing of the gesture is left at rest");
+  await page.screenshot({ path: `${SHOTS}/inherit-after.png` });
+  await undo(page);
+  ok(JSON.stringify(await timing(page)) === JSON.stringify(before), "one Undo restores all four");
+  // Shift at release also copies the start.
+  await inheritDrag(page, bar(ELL[0]), bar("ff-t-rect"));
+  ok((await inheritView(page)).label === "Inherit from ‹ff-rect›", "label before Shift");
+  await page.keyboard.down("Shift"); await paint(page);
+  ok((await inheritView(page)).label === "Inherit from ‹ff-rect› + start", "holding Shift says the start comes too");
+  await page.keyboard.up("Shift");
+  await release(page, { shift: true });
+  t = await timing(page);
+  ok(ELL.every(id => t[id].start === 1000 && t[id].preset === "fadeRise"), "Shift at release also copies the start (1000 ms)", JSON.stringify(starts(t)));
+  await undo(page);
+  // Escape cancels with no document change.
+  await inheritDrag(page, bar(ELL[2]), bar("ff-t-path"));
+  ok((await inheritView(page)).target[0] === "ff-t-path", "the guide follows onto path 1's lane");
+  await page.keyboard.press("Escape"); await paint(page);
+  ok((await inheritView(page)).target.length === 0, "Escape clears the highlight and guide");
+  await release(page);
+  ok(JSON.stringify(await timing(page)) === JSON.stringify(before), "…and releasing afterwards changes nothing");
+  ok(await page.evaluate(() => window.__flux.get(window.__flux.slide.selTrackIds).length === 4), "…the selection survives the cancelled gesture");
+  // The bar menu's twin: arm, then click the source lane.
+  const b1 = await (await page.$(bar(ELL[1]))).boundingBox();
+  await page.mouse.click(b1.x + 10, b1.y + b1.height / 2, { button: "right" });
+  await waitFor(page, () => !!document.querySelector(".menu[role=menu]"), null, { timeout: 3000, label: "bar menu" });
+  await page.evaluate(() => [...document.querySelectorAll(".menu[role=menu] button")].find(b => /^Inherit animation from/.test(b.textContent))?.click());
+  await paint(page);
+  ok(await page.evaluate(() => /Click the effect to inherit from/.test(document.querySelector(".beatrail .drag-status")?.textContent ?? "")), "the menu's Inherit animation from… arms a one-click pick");
+  await page.hover('.lane-row[data-track-id="ff-t-path"] .track-label'); await paint(page);
+  ok((await inheritView(page)).target[0] === "ff-t-path", "…the hovered lane lights as the source");
+  await page.click('.lane-row[data-track-id="ff-t-path"] .track-label'); await paint(page);
+  t = await timing(page);
+  ok(ELL.every(id => t[id].preset === "drawOn" && t[id].duration === 1000), "…and clicking it inherits path 1's animation", JSON.stringify(ELL.map(id => t[id])));
+  await undo(page);
+  ok(JSON.stringify(await timing(page)) === JSON.stringify(before), "…undone in one step");
 }

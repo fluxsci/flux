@@ -1,10 +1,10 @@
 <script lang="ts">
   import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
 
-  import { getContext, onDestroy, tick } from "svelte";
+  import { getContext, onDestroy, tick, untrack } from "svelte";
   import { deckOverlay, activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
   import { selection, partSelection, editGen } from "../../../../lib/store";
-  import { alignCandidates, alignCycleStep, alignTrackEdges, trackEdges, type AlignCandidate, type AlignEdge, type AlignMode } from "../../../../lib/slide/alignTracks";
+  import { alignCandidates, alignCycleStep, alignTrackEdges, inheritTrack, trackEdges, type AlignCandidate, type AlignEdge, type AlignMode } from "../../../../lib/slide/alignTracks";
   import { trackDuration } from "../../../../lib/slide/compile";
   import { resolveBeat, type ManifestFor } from "../../../../lib/slide/resolve";
   import { pushToast } from "../../../../lib/toast";
@@ -18,6 +18,8 @@
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat, copySelectedTiming, pasteSelectedTiming, canPasteTiming } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
   import { resolveCurve } from "../../../../lib/slide/curves";
+  import { resolveTrack } from "../../../../lib/slide/resolve";
+  import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
   import { curvePath } from "./CurveField.svelte";
   import TimelineMenu, { type MenuItem } from "./TimelineMenu.svelte";
 
@@ -120,6 +122,7 @@
     if(!$selTrackIds.includes(t.id))chooseTrack(t);
     menu={x:e.clientX,y:e.clientY,items:[
       {label:"Animate like…",action:animateLike},
+      {label:"Inherit animation from…",hint:"Then click the effect · or Ctrl+Alt-drag onto it",action:armInheritPick},
       {label:"Align starts",hint:"Alt+A · Alt+Shift+A resizes",action:()=>alignSelection("start")},
       {label:"Align ends",hint:"Alt+D · Alt+Shift+D resizes",action:()=>alignSelection("end")},
       {label:"Copy timing",action:copySelectedTiming,disabled:familyOf(t)==="media"},
@@ -213,7 +216,11 @@
     return resolveBeat({ ...beat, tracks }, deck, manifestFor);
   });
   function down(e:PointerEvent,t:Track,kind:"start"|"duration",leftEdge=false) {
-    if(e.button!==0||!t.id||kind==="duration"&&familyOf(t)==="media")return;
+    if(e.button!==0||!t.id)return;
+    // Inherit owns Ctrl/⌘+Alt before Follow timing (Ctrl) and copy (Alt) read them.
+    if(inheritPick){e.preventDefault();e.stopPropagation();pickInheritSource(t);return;}
+    if((e.ctrlKey||e.metaKey)&&e.altKey){startInherit(e,t);return;}
+    if(kind==="duration"&&familyOf(t)==="media")return;
     e.preventDefault();e.stopPropagation();
     const link=leftEdge&&(e.metaKey||e.ctrlKey);
     if(!link&&(e.shiftKey||e.metaKey||e.ctrlKey)){chooseTrack(t,true);return;}
@@ -284,6 +291,118 @@
     }
     sealHistory();
   }
+  // --- Inherit: Ctrl/⌘+Alt-drag the selected bars onto another lane --------
+  // The bars stay put. A dashed guide runs from the selection's right-middle to
+  // the pointer, the lane under it lights, and releasing there gives the
+  // selection that effect's exact animation (alignTracks.ts inheritTrack, one
+  // Undo); Shift at release also copies its start. Anywhere else, or Escape,
+  // cancels without an edit. Pointer capture + edge scrolling as the marquee.
+  type Inherit={pointer:number;ids:string[];from:{x:number;y:number};client:{x:number;y:number};over:string|null;shift:boolean;area:HTMLDivElement;content:HTMLDivElement};
+  let inherit=$state.raw<Inherit|null>(null);
+  let inheritFrame=0;
+  let inheritPick=$state.raw<string[]|null>(null);
+  const inheritIds=$derived(new Set(inherit?.ids??inheritPick??[]));
+  const inheritOver=$derived(inherit?inherit.over:inheritPick&&$hoverTrackId&&!inheritPick.includes($hoverTrackId)?$hoverTrackId:null);
+  function laneTrackAt(x:number,y:number,exclude:readonly string[]):string|null {
+    const id=document.elementFromPoint(x,y)?.closest<HTMLElement>(".lane-row[data-track-id]")?.dataset.trackId;
+    return id&&!exclude.includes(id)&&beat.tracks.some(t=>t.id===id)?id:null;
+  }
+  function startInherit(e:PointerEvent,t:Track) {
+    if(!trackArea||!timeline||!t.id)return;
+    e.preventDefault();e.stopPropagation();stopScrub();cancelMarquee();
+    if(!$selTrackIds.includes(t.id))chooseTrack(t); else onFocusDock();
+    const ids=$selTrackIds.filter(id=>beat.tracks.some(x=>x.id===id));
+    const origin=timeline.getBoundingClientRect();
+    let right=-Infinity,top=Infinity,bottom=-Infinity;
+    for(const node of timeline.querySelectorAll<HTMLElement>(".lane-row[data-track-id] .trk")) {
+      if(!ids.includes(node.closest<HTMLElement>("[data-track-id]")?.dataset.trackId??""))continue;
+      const b=node.getBoundingClientRect();right=Math.max(right,b.right);top=Math.min(top,b.top);bottom=Math.max(bottom,b.bottom);
+    }
+    if(!Number.isFinite(right)){const b=(e.currentTarget as HTMLElement).getBoundingClientRect();right=b.right;top=b.top;bottom=b.bottom;}
+    inherit={pointer:e.pointerId,ids,from:{x:right-origin.left,y:(top+bottom)/2-origin.top},client:{x:e.clientX,y:e.clientY},over:null,shift:e.shiftKey,area:trackArea,content:timeline};
+    trackArea.setPointerCapture(e.pointerId);
+    window.addEventListener("pointermove",moveInherit);window.addEventListener("pointerup",finishInherit);
+    window.addEventListener("pointercancel",cancelInheritPointer);window.addEventListener("keydown",inheritKey,true);
+    window.addEventListener("blur",cancelInherit);trackArea.addEventListener("scroll",updateInherit);
+    trackArea.addEventListener("lostpointercapture",cancelInheritPointer);
+  }
+  function updateInherit() {
+    const g=inherit;if(!g)return;
+    const over=laneTrackAt(g.client.x,g.client.y,g.ids);
+    inherit={...g,over};
+  }
+  function inheritScroll() {
+    inheritFrame=0;
+    const g=inherit;if(!g)return;
+    const r=g.area.getBoundingClientRect(),left=r.left+g.area.clientLeft,top=r.top+g.area.clientTop;
+    const speed=(p:number,min:number,max:number)=>p<min+24?-Math.min(16,(min+24-p)*.5):p>max-24?Math.min(16,(p-max+24)*.5):0;
+    const x=g.area.scrollLeft,y=g.area.scrollTop;
+    g.area.scrollLeft+=speed(g.client.x,left+220,left+g.area.clientWidth);
+    g.area.scrollTop+=speed(g.client.y,top+25,top+g.area.clientHeight);
+    if(x!==g.area.scrollLeft||y!==g.area.scrollTop){updateInherit();inheritFrame=requestAnimationFrame(inheritScroll);}
+  }
+  function moveInherit(e:PointerEvent) {
+    const g=inherit;if(!g||e.pointerId!==g.pointer)return;
+    e.preventDefault();
+    inherit={...g,client:{x:e.clientX,y:e.clientY},shift:e.shiftKey,over:laneTrackAt(e.clientX,e.clientY,g.ids)};
+    if(!inheritFrame)inheritFrame=requestAnimationFrame(inheritScroll);
+  }
+  function cancelInherit() {
+    const g=inherit;inherit=null;
+    if(inheritFrame)cancelAnimationFrame(inheritFrame);inheritFrame=0;
+    window.removeEventListener("pointermove",moveInherit);window.removeEventListener("pointerup",finishInherit);
+    window.removeEventListener("pointercancel",cancelInheritPointer);window.removeEventListener("keydown",inheritKey,true);window.removeEventListener("blur",cancelInherit);
+    if(g){g.area.removeEventListener("scroll",updateInherit);g.area.removeEventListener("lostpointercapture",cancelInheritPointer);if(g.area.hasPointerCapture(g.pointer))g.area.releasePointerCapture(g.pointer);}
+  }
+  function cancelInheritPointer(e:PointerEvent){if(e.pointerId===inherit?.pointer)cancelInherit();}
+  function finishInherit(e:PointerEvent) {
+    const g=inherit;if(!g||e.pointerId!==g.pointer)return;
+    const over=laneTrackAt(e.clientX,e.clientY,g.ids);
+    cancelInherit();
+    if(over)applyInherit(over,g.ids,e.shiftKey);
+  }
+  function inheritKey(e:KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if(!inherit&&!inheritPick)return;
+    // Capture before the dock's Escape/Delete/navigation handlers can run.
+    if(e.key==="Escape"){e.preventDefault();e.stopImmediatePropagation();cancelInherit();inheritPick=null;window.removeEventListener("keydown",inheritKey,true);}
+    else if(inherit){if(e.key==="Shift")inherit={...inherit,shift:true};else if(!["Control","Meta","Alt"].includes(e.key)){e.preventDefault();e.stopImmediatePropagation();}}
+  }
+  function inheritKeyUp(e:KeyboardEvent){if(inherit&&e.key==="Shift")inherit={...inherit,shift:false};}
+  /** The bar menu's twin: arm a one-click pick of the source lane. */
+  function armInheritPick() {
+    const ids=$selTrackIds.filter(id=>beat.tracks.some(t=>t.id===id));
+    if(!ids.length)return;
+    inheritPick=ids;onFocusDock();
+    window.addEventListener("keydown",inheritKey,true);
+  }
+  function pickInheritSource(t:Track) {
+    const ids=inheritPick;inheritPick=null;window.removeEventListener("keydown",inheritKey,true);
+    if(ids&&t.id&&!ids.includes(t.id))applyInherit(t.id,ids,false);
+  }
+  function curveWord(t:Track):string {
+    return t.curve?.kind??t.easing??(t.influence?"influence":defaultEasingFor(t.preset));
+  }
+  function applyInherit(sourceId:string,ids:string[],includeStart:boolean) {
+    const source=beat.tracks.find(t=>t.id===sourceId);if(!source)return;
+    const result=commitDeckLive(d=>inheritTrack(d,slide.id,sourceId,ids,{includeStart,beatId:beat.id,manifestFor}));
+    sealHistory();
+    const r=resolveTrack(source,deck), n=result.inherited.length;
+    const style=result.styleId?$deckOverlay?.animStyles?.find(s=>s.id===result.styleId)?.name:undefined;
+    if(n)pushToast("info",`${n} effect${n===1?"":"s"} inherit ‹${label(source)}› · ${Math.round(trackDuration(r))} ms · ${curveWord(r)}${style?` · style ‹${style}›`:""}${includeStart?" · start":""}`);
+    if(result.refused.length)pushToast("error",[...new Set(result.refused.map(x=>x.reason))].join("; "));
+    selTrackIds.set(ids);
+  }
+  const inheritGuide=$derived.by(()=>{
+    const g=inherit;if(!g)return null;
+    const origin=g.content.getBoundingClientRect();
+    return {x1:g.from.x-220,y1:g.from.y-25,x2:g.client.x-origin.left-220,y2:g.client.y-origin.top-25};
+  });
+  const inheritLabel=$derived.by(()=>{
+    const g=inherit;if(!g)return null;
+    const t=g.over?beat.tracks.find(x=>x.id===g.over):null;
+    return {x:g.client.x,y:g.client.y,text:t?`Inherit from ‹${label(t)}›${g.shift?" + start":""}`:"Pick an effect…",live:!!t};
+  });
   const drawStart=(t:Track)=>(t.start??0)*scale;
   const drawWidth=width;
   // Alignment guides. While a bar/edge drags, the moving edge (its start for a
@@ -415,12 +534,12 @@
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if(e.key==="Escape"&&drag){e.preventDefault();cancel();}
   }
-  onDestroy(()=>{cancelMarquee();cancel();stopScrub();hoverTrackId.set(null);clearTimeout(flashTimer);});
-  $effect(()=>{const context=slide.id+":"+beat.id+":"+scale+":"+selectedOnly;void context;cancelMarquee();});
+  onDestroy(()=>{cancelMarquee();cancel();stopScrub();cancelInherit();window.removeEventListener("keydown",inheritKey,true);hoverTrackId.set(null);clearTimeout(flashTimer);});
+  $effect(()=>{const context=slide.id+":"+beat.id+":"+scale+":"+selectedOnly;void context;cancelMarquee();untrack(()=>{cancelInherit();if(inheritPick){inheritPick=null;window.removeEventListener("keydown",inheritKey,true);}});});
   $effect(()=>{const i=$activeBeat;void tick().then(()=>document.querySelector(`[data-step-index="${i}"]`)?.scrollIntoView({block:"nearest",inline:"nearest"}));});
 </script>
 
-<svelte:window onkeydown={keyCancel}/>
+<svelte:window onkeydown={keyCancel} onkeyup={inheritKeyUp}/>
 <div class="beatrail" bind:clientWidth={timelineWidth}>
   <div class="step-strip" aria-label="Presentation steps">
     {#each slide.beats as b,i (b.id)}
@@ -475,8 +594,8 @@
           </div>
         {:else}{@const t=row.track}{@const tx=familyOf(t)==="transform"}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} data-beat={$activeBeat} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
-            <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t,deck)}`}>
+          <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:inherit-target={!!t.id&&inheritOver===t.id} class:inherit-source={!!t.id&&inheritIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} data-beat={$activeBeat} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
+            <button class="target-label track-label" onclick={e=>inheritPick?pickInheritSource(t):chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t,deck)}`}>
               <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{trackKindLabel(t,deck)}{t.disabled?" · disabled":""}</small>
             </button>
             <div class="time-cell">
@@ -503,13 +622,14 @@
       <!-- One compositor line spans every lane; playback must not rewrite a
            layout property in every track on every frame. -->
       <span class="playhead" style={`transform:translateX(${time*scale}px)`}></span>
-      {#if dragGuide || selGuide || alignFlash?.ms != null}
+      {#if dragGuide || selGuide || alignFlash?.ms != null || inheritGuide}
         <div class="guide-layer" aria-hidden="true">
+          {#if inheritGuide}<svg class="inherit-guide" aria-hidden="true"><line x1={inheritGuide.x1} y1={inheritGuide.y1} x2={inheritGuide.x2} y2={inheritGuide.y2}/><circle cx={inheritGuide.x1} cy={inheritGuide.y1} r="2.5"/></svg>{/if}
           {#if alignFlash?.ms != null}<span class="guide snap align-flash" class:fading={alignFlash.fading} style={`left:${alignFlash.ms*scale}px`}></span>{/if}
           {#if dragGuide}
             <span class="guide" style={`left:${dragGuide.edge*scale}px`}></span>
             {#if dragGuide.snap != null}<span class="guide snap" class:linked={dragGuide.linked} style={`left:${dragGuide.snap*scale}px`}></span>{/if}
-          {:else if selGuide}
+          {:else if selGuide && !inherit}
             <span class="guide sel" class:linked={selGuide.linked} style={`left:${selGuide.start*scale}px`}></span>
             <span class="guide sel" style={`left:${selGuide.end*scale}px`}></span>
           {/if}
@@ -520,6 +640,9 @@
   </div>
   {#if drag}<div class="drag-status">{drag.moving?drag.over!=null?`${drag.copy?"Copy":"Move"} to step ${drag.over}`:"Move effect row":`${drag.kind}: ${fmt(Math.max(0,(drag.orig.find(o=>o.id===drag?.primary)?.[drag.kind]??0)+drag.dx))}`} · Escape cancels</div>{/if}
   {#if marqueeBox}<div class="drag-status">{marqueeIds?.length ?? 0} selected · Escape cancels</div>{/if}
+  {#if inherit}<div class="drag-status">Inherit: release on an effect · Shift also copies its start · Escape cancels</div>{/if}
+  {#if inheritPick}<div class="drag-status">Click the effect to inherit from · Escape cancels</div>{/if}
+  {#if inheritLabel}<div class="inherit-label" class:live={inheritLabel.live} style={`left:${inheritLabel.x+14}px;top:${inheritLabel.y+16}px`}>{inheritLabel.text}</div>{/if}
 </div>
 {#if menu}<TimelineMenu x={menu.x} y={menu.y} items={menu.items} onClose={()=>menu=null}/>{/if}
 
@@ -623,6 +746,20 @@
   .lane-row { height: var(--row); border-bottom: 1px solid var(--c-line); }
   .lane-row.selected { background: var(--c-accent-tint); }
   .lane-row.disabled { opacity: .5; }
+  /* Inherit: the lane you would release on — accent tint, inset rail and a hairline frame */
+  .lane-row.inherit-target { background: var(--c-accent-tint); box-shadow: inset 0 0 0 1px var(--c-accent); }
+  .inherit-target .target-label { background: color-mix(in oklab, var(--c-accent) 22%, var(--c-bg-raised)); box-shadow: inset 2px 0 0 var(--c-accent); color: var(--c-tx-hi); }
+  /* while inheriting, the guide crosses the sticky label column too */
+  .guide-layer:has(.inherit-guide) { z-index: 4; }
+  .inherit-guide { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+  .inherit-guide line { stroke: var(--c-accent); stroke-width: 1px; stroke-dasharray: 3 3; }
+  .inherit-guide circle { fill: var(--c-accent); }
+  .inherit-label {
+    position: fixed; z-index: 90; padding: 2px 7px; pointer-events: none; white-space: nowrap;
+    font: 10.5px/16px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2);
+    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui);
+  }
+  .inherit-label.live { color: var(--c-tx-hi); border-color: var(--c-accent); }
   .target-label {
     position: sticky; left: 0; z-index: 3; height: auto; min-width: 0; padding: 3px 9px;
     display: flex; align-items: center; gap: 7px; color: var(--c-tx);

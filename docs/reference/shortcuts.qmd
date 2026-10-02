@@ -201,7 +201,8 @@ Everything in the Figure table works on the stage. Additionally:
 In the animator dock: **←/→** beats · **↑/↓** tracks · **Ctrl+D** duplicate tracks ·
 **Ctrl+G**/**Ctrl+Shift+G** group/ungroup tracks · **Alt+←/→** nudge start ·
 **Alt+Shift+←/→** trim duration · **Alt+A** / **Alt+D** align starts / ends (press again for
-the next lane above; **+Shift** resizes instead of moving) · **[** / **]** move track to previous/next beat ·
+the next lane above; **+Shift** resizes instead of moving) · **Ctrl+Alt-drag** a bar onto another
+lane to inherit that effect's animation (**+Shift** at release also copies its start) · **[** / **]** move track to previous/next beat ·
 **X** disable · **Delete**/**Backspace** remove · **Enter** jump to the properties fields ·
 **Space** play/pause · **Ctrl+A** select this step’s effects · **Escape** stop preview or clear
 the selection/endpoint edit. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset,
