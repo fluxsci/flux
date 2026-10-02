@@ -220,6 +220,7 @@
       "verify-fluxplot03.ts",
       "verify-fluxplot-recipe-ipc.ts",
       "verify-slide-embed-core.ts",
+      "verify-slide-embed-chip.ts",
       "verify-slide-video.ts",
       "verify-slide-video-model.ts",
       "verify-slide-media.ts",
@@ -482,6 +483,7 @@
       "verify-plot-gallery.mjs",
       "verify-plot-hit-area.mjs",
       "verify-paper-slide-embeds.mjs",
+      "verify-slide-embed-chip.mjs",
       "verify-slide-embed-lifecycle.mjs",
       "verify-slide-video-clips-gui.mjs",
       "verify-gallery-workflow.mjs",
@@ -728,6 +730,8 @@
       "verify-slide-embed-core.ts",
       "verify-paper-slide-embeds.mjs",
       "verify-slide-embed-lifecycle.mjs",
+      "verify-slide-embed-chip.ts",
+      "verify-slide-embed-chip.mjs",
       "verify-render-optimizations.mjs",
       "verify-v020-paper-slide.ts",
       "verify-v020-export-recovery.ts",
@@ -813,6 +817,8 @@
     "inline-slides": [
       "verify-slide-embed-core.ts",
       "verify-paper-slide-embeds.mjs",
+      "verify-slide-embed-chip.ts",
+      "verify-slide-embed-chip.mjs",
       "verify-slide-embed-lifecycle.mjs",
       "verify-scale-paper-slide-embeds.mjs",
       "verify-model3d-embed.ts",
@@ -2610,6 +2616,18 @@
       "run": [
         "verify-paper-history-keys.ts",
         "group:paper-gate",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-10-02 W5: an embedded slide's source line folds to a '▷ Deck 3 · Slide 4' chip (slideEmbeds fold plugin + slideChipCatalog), and both source chips share the double-click arming in chipActivation (the first click reveals the source, so a chip-level dblclick never fired). Keeps the broader Paper entry's paper-gate + pure tier.",
+      "glob": "src/shell/modes/paper/science/{slideEmbeds,chips,widgets,chipActivation,slideChipCatalog}.ts",
+      "run": [
+        "verify-slide-embed-chip.ts",
+        "verify-slide-embed-chip.mjs",
+        "verify-embed-chip.mjs",
+        "group:paper-gate",
+        "group:inline-slides",
         "tier:pure"
       ]
     },
@@ -5606,6 +5624,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-slide-embed-chip.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-paper-split.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -6353,6 +6382,15 @@
       "coverage": "behavior"
     },
     "verify-slide-embed-core.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-embed-chip.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

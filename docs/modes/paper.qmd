@@ -208,7 +208,8 @@ at full size — scroll (or arrow) through long lists, search by name or caption
 project has more than one canvas, use the dropdown next to the search box to limit the list
 (and your search) to a single canvas. In the text, the embed is a
 compact **⌗ name chip** with the live figure rendered beneath it — the real thing from
-[Figure mode](figure.qmd), with its caption. Captions live on the figure itself (edited in
+[Figure mode](figure.qmd), with its caption. Put the caret on the chip's line to see its
+source, or double-click the chip to open the figure. Captions live on the figure itself (edited in
 **Figure-Meta**, **Alt+M**, available in Paper and Figure), so figure and caption can never drift apart; exports carry them
 automatically. Hover the figure for width controls (50% · 75% · 100% · Auto — or drag the
 grip), and **Open in Figure** jumps to editing it.
@@ -225,6 +226,10 @@ the thing it points to — a table or equation reference scrolls the editor to i
 
 Use **/slide** or **Ctrl+K → Insert slide…**, choose a deck, then choose a slide.
 The picker previews the completed slide. The block in your document starts at **step 0**.
+In the text, the embed line shows as a compact **▷ Deck 3 · Slide 4** chip (the deck's title
+and the slide's position; hover it for the slide's name). Put the caret on the line to see
+its source, or double-click the chip to open that slide in Slide mode. A dimmed chip means
+its deck or slide is missing.
 
 Click the artwork or **›** underneath it to advance one animation step. Tracks within a
 step play together with their authored timing. Automatic and “with previous” steps still

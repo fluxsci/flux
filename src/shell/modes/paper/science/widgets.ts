@@ -11,6 +11,8 @@ import type { PaperNumbering } from "../scholar/numberingFacet";
 import { renderTexCached } from "./katexLoader";
 import { handlersForEl } from "./chipContext";
 import { armChipActivation } from "./chipActivation";
+import type { SlideChipLabel } from "./slideChipCatalog";
+import type { SlideEmbedRef } from "../../../../lib/slide/embed";
 
 /** Inline `$…$` math (2.1) — an atomic inline chip like cites/cross-refs: rendered
  *  KaTeX in place, raw TeX revealed when the selection touches it (chips.ts owns
@@ -118,6 +120,47 @@ export class EmbedSrcWidget extends WidgetType {
     armChipActivation(view, el, () =>
       handlersForEl(view.dom)?.chip?.onActivate?.({ kind: "figref", label: this.label }, view.dom),
     );
+    return el;
+  }
+  ignoreEvent(e: Event) {
+    return e.type === "dblclick";
+  }
+}
+
+/** The collapsed SLIDE-embed source line: `▷ Deck 3 · Slide 4` in the same
+ *  chip family as the figure chip (`flux-embedchip` + `slide`). The label is
+ *  resolved synchronously by slideChipCatalog; slideEmbeds.ts owns the
+ *  collapse/reveal and the live player block below, which this never touches. */
+export class SlideSrcWidget extends WidgetType {
+  constructor(
+    readonly ref: SlideEmbedRef,
+    readonly label: SlideChipLabel,
+    readonly onOpen: (ref: SlideEmbedRef) => void,
+  ) {
+    super();
+  }
+  eq(o: SlideSrcWidget) {
+    return (
+      o.ref.deck === this.ref.deck &&
+      o.ref.slide === this.ref.slide &&
+      o.label.text === this.label.text &&
+      o.label.tooltip === this.label.tooltip &&
+      o.label.resolved === this.label.resolved &&
+      o.label.pending === this.label.pending
+    );
+  }
+  toDOM(view: EditorView) {
+    const el = document.createElement("span");
+    el.className = "flux-embedchip slide" + (this.label.resolved ? "" : " unresolved") + (this.label.pending ? " pending" : "");
+    el.textContent = `▷ ${this.label.text}`;
+    el.title = this.label.tooltip;
+    el.dataset.deck = this.ref.deck;
+    el.dataset.slide = this.ref.slide;
+    // An unresolved chip opens nothing (as the figure chip); the block below
+    // carries the Replace… repair.
+    armChipActivation(view, el, () => {
+      if (this.label.resolved) this.onOpen(this.ref);
+    });
     return el;
   }
   ignoreEvent(e: Event) {

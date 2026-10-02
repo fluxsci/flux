@@ -1,11 +1,16 @@
-import { StateEffect, StateField, type Extension } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
+import { StateEffect, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
+import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { scanSlideEmbeds, serializeSlideEmbed, parseSlideEmbed, embedKey, type SlideEmbedRef } from "../../../../lib/slide/embed";
 import type { SlideRepository, SlideSnapshot } from "../../../../lib/slide/embedRepository";
 import { mountSlideEmbed, SLIDE_EMBED_CSS, type EmbedPlaybackState, type SlideEmbedPlayer } from "../../../../lib/slide/embedPlayer";
-import { touchesMe } from "./changeGate";
+import { touchesMe, paperPerf } from "./changeGate";
+import { SlideSrcWidget } from "./widgets";
+import { chipActivation } from "./chipActivation";
+import { createSlideChipCatalog, slideChipLabel, type SlideChipCatalog } from "./slideChipCatalog";
 
 export const resetSlidePlayback = StateEffect.define<null>();
+/** The chip catalog settled a deck read: re-derive the source-line chips. */
+const refreshSlideChips = StateEffect.define<null>();
 interface Entry { from: number; to: number; ref: SlideEmbedRef; playback: { value?: EmbedPlaybackState; ratio?: number }; duplicate: boolean }
 interface Mount { key: string; update(entry: Entry): void; destroy(): void }
 const mounts = new WeakMap<HTMLElement, Mount>();
@@ -106,8 +111,14 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
         else if (controller) { controller.pauseOffscreen(); controller.destroy(); controller = undefined; if (snapshot) { const img = document.createElement("img"); img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(snapshot.poster)}`; img.style.width = "100%"; content.append(img); } }
       }, { root: view.scrollDOM, rootMargin: "200px" });
       observer.observe(wrap); update(current);
-      mounts.set(wrap, { key: embedKey(current.ref), update, destroy() { alive = false; version++; cancelDrag?.(); observer.disconnect(); off(); controller?.destroy(); } });
-      return wrap;
+      // CodeMirror measures a block widget by its border box, so the shared
+      // stylesheet's `margin:16px auto` was invisible to the height map: every
+      // slide shifted the map 32px against the DOM below it, and ArrowDown
+      // skipped lines under an embedded slide. A flow-root host contains those
+      // margins in its own box (export keeps the stylesheet unchanged).
+      const host = document.createElement("div"); host.className = "flux-slide-embed-host"; host.style.display = "flow-root"; host.append(wrap);
+      mounts.set(host, { key: embedKey(current.ref), update, destroy() { alive = false; version++; cancelDrag?.(); observer.disconnect(); off(); controller?.destroy(); } });
+      return host;
     }
     updateDOM(dom: HTMLElement) { const found = mounts.get(dom); if (!found || found.key !== embedKey(this.entry.ref)) return false; found.update(this.entry); return true; }
     destroy(dom: HTMLElement) { mounts.get(dom)?.destroy(); mounts.delete(dom); }
@@ -123,7 +134,7 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
     const marks = entries.flatMap(e => [Decoration.line({ class: "cm-flux-embedsrc" }).range(e.from), Decoration.widget({ widget: new SlideWidget(e), block: true, side: 1 }).range(e.to)]);
     return { decorations: Decoration.set(marks, true), entries };
   }
-  return StateField.define<{ decorations: DecorationSet; entries: Entry[] }>({
+  const field = StateField.define<{ decorations: DecorationSet; entries: Entry[] }>({
     create: state => build(state.doc.toString()),
     update(value, tr) {
       if (tr.effects.some(e => e.is(resetSlidePlayback))) return build(tr.newDoc.toString());
@@ -134,4 +145,64 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
     },
     provide: field => EditorView.decorations.from(field, value => value.decorations),
   });
+  // The SOURCE line folds to a `▷ Deck 3 · Slide 4` chip unless a selection
+  // touches it — the figure-chip rule (chips.ts): an inline atomic replace of
+  // the line's content (indent kept), so the line stays and vertical motion
+  // still costs one keypress, and the block field above stays doc-pure (it is
+  // never rebuilt for the selection). Its entries are the one scan, so the
+  // chip folds exactly the lines that carry a player. Caret motion costs a
+  // re-derive only when it crosses an embed line's reveal state.
+  const touches = (state: EditorState, e: Entry) => state.selection.ranges.some(r => r.from <= e.to && r.to >= e.from);
+  const fold = ViewPlugin.fromClass(class {
+    decorations: DecorationSet = Decoration.none;
+    mask = "";
+    catalog: SlideChipCatalog;
+    alive = true;
+    constructor(readonly view: EditorView) {
+      // One catalog per editor: deck reads happen on first sight and on
+      // repository invalidation only; a settled change re-derives the chips.
+      this.catalog = createSlideChipCatalog(repository, () => { if (this.alive) view.dispatch({ effects: refreshSlideChips.of(null) }); });
+      this.build(view.state);
+    }
+    build(state: EditorState) {
+      paperPerf.slideChips++;
+      const { entries } = state.field(field), doc = state.doc, marks: Range<Decoration>[] = [];
+      let mask = "";
+      for (const e of entries) {
+        const open = touches(state, e);
+        mask += open ? "1" : "0";
+        if (open || e.to > doc.length || e.from > e.to) continue;
+        const line = doc.lineAt(e.from);
+        if (line.from !== e.from || line.to !== e.to) continue; // mid-rebuild mapping: never fold a stale span
+        const indent = line.text.length - line.text.trimStart().length;
+        const label = slideChipLabel(e.ref, this.catalog.lookup(e.ref), line.text);
+        marks.push(Decoration.replace({ widget: new SlideSrcWidget(e.ref, label, onOpen) }).range(line.from + indent, line.to));
+      }
+      this.mask = mask;
+      this.decorations = Decoration.set(marks, true);
+    }
+    update(u: ViewUpdate) {
+      const before = u.startState.field(field), after = u.state.field(field);
+      if (u.transactions.some(t => t.effects.some(e => e.is(refreshSlideChips)))) return this.build(u.state);
+      // The block field MAPS its entries on prose edits and re-scans when an
+      // edit lands within a line of an embed (its change gate). Either way,
+      // when every embed kept its span and its source, the chips are mapped:
+      // a prose keystroke costs zero chip builds.
+      const same = (e: Entry, i: number) => {
+        const p = before.entries[i];
+        if (e.ref === p.ref) return true;
+        return e.from === u.changes.mapPos(p.from, 1) && e.to === u.changes.mapPos(p.to, -1) && JSON.stringify(e.ref) === JSON.stringify(p.ref);
+      };
+      if (before !== after && (before.entries.length !== after.entries.length || !after.entries.every(same))) return this.build(u.state);
+      if (!u.docChanged && !u.selectionSet) return;
+      const mask = after.entries.map(e => touches(u.state, e) ? "1" : "0").join("");
+      if (mask !== this.mask) return this.build(u.state);
+      if (u.docChanged) this.decorations = this.decorations.map(u.changes);
+    }
+    destroy() { this.alive = false; this.catalog.dispose(); }
+  }, {
+    decorations: v => v.decorations,
+    provide: plugin => EditorView.atomicRanges.of(view => view.plugin(plugin)?.decorations ?? Decoration.none),
+  });
+  return [field, fold, chipActivation];
 }
