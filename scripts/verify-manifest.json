@@ -1251,6 +1251,13 @@
       ]
     },
     {
+      "$why": "2026-10-02 W4: the timeline grid, Alt+A/D align and Ctrl+Alt-drag Inherit checks run inside the animator gate.",
+      "glob": "scripts/lib/animatorAlignChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs"
+      ]
+    },
+    {
       "glob": "src/main.ts",
       "run": [
         "tier:pure",

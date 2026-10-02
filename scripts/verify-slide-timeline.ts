@@ -389,6 +389,28 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   check(flips === 1 && frames.every(f => f.painted === f.model), `painted discrete cap agrees with raw compiler state, one flip (observed ${flips})`);
 }
 
+// The animator's time grid covers the whole DRAWN extent, not the beat (owner,
+// 2026-10-02: two 1.5 s bars left the grid and ruler stopping at 1.5 s).
+{
+  const { timeGrid, tickStepFor, minorTickStep, minorTicks, GRID_LINE_CAP } = await import("../src/shell/modes/slide/animator/shared");
+  const extent = 2783, px = .6, g = timeGrid(extent, px);
+  check(g.tickStep === tickStepFor(px) && g.minorStep === minorTickStep(g.tickStep, px), "at fit zoom the grid keeps the zoom's natural tick and minor steps (snap = drawn)");
+  check(g.majors.at(-1)! > 1500 && g.majors.at(-1)! >= extent - g.tickStep && g.majors.at(-1)! <= extent, `ruler ticks continue past the last bar to the drawn extent (last ${g.majors.at(-1)})`);
+  const lastLine = Math.max(g.majors.at(-1)!, g.minors.at(-1)!);
+  check(lastLine >= extent - g.minorStep && lastLine <= extent && g.minors.at(-1)! > 1500, `grid lines reach the drawn extent within one minor step (last ${lastLine})`);
+  check(g.minors.every(t => t % g.tickStep !== 0), "minor lines never duplicate a major line");
+  check(JSON.stringify(minorTicks(extent, g.tickStep, px)) === JSON.stringify(g.minors), "minorTicks takes the drawn extent (the parameter is the drawn range)");
+  for (const [ms, zoom] of [[60000, 1], [60000, .6], [600000, .015], [120000, .31]] as const) {
+    const big = timeGrid(ms, zoom), lines = big.majors.length + big.minors.length;
+    check(lines <= GRID_LINE_CAP, `a ${ms / 1000}s extent at ${zoom}px/ms mounts ${lines} ≤ ${GRID_LINE_CAP} grid lines`);
+    check(big.majors.every(t => t % big.minorStep === 0) && big.minors.every(t => t % big.minorStep === 0), "a coarsened grid stays on its own minor step (the snap grid)");
+    check(Math.max(big.majors.at(-1)!, big.minors.at(-1) ?? 0) >= ms - big.minorStep, "a coarsened grid still reaches the extent");
+  }
+  const capped = timeGrid(60000, 1);
+  check(capped.minorStep === 250 && capped.tickStep === 250 && capped.minors.length === 0, "past the cap the minor step doubles until it meets the tick (60 s at 1 px/ms: 250 ms lines)");
+  check(timeGrid(0, .5).majors.length === 1 && timeGrid(0, .5).minors.length === 0, "an empty extent draws only the zero line");
+}
+
 console.log(`\nSLIDE TIMELINE: PASS (${h.checks} assertions)`);
 
 await h.done();

@@ -469,6 +469,9 @@ try {
   const { verifyMotion } = await import("./lib/animatorMotionChecks.mjs");
   await verifyMotion(page, ok);
 
+  const { verifyTimelineGrid } = await import("./lib/animatorAlignChecks.mjs");
+  await verifyTimelineGrid(page, ok);
+
   // Camera authoring uses the actual Zoom action, path toggle and duration op.
   // The linked-style checks above end on an inserted preset slide, so the
   // camera target is placed on whichever slide is active now.

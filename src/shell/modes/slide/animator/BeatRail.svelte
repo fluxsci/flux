@@ -12,7 +12,7 @@
   import { slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat, TrackGroup } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
-  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, gridLineAt, isDanglingTrack, trackKindLabel, minorTicks, minorTickStep } from "./shared";
+  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, gridLineAt, isDanglingTrack, trackKindLabel, timeGrid } from "./shared";
   import { hoverTrackId, timelinePxPerMs } from "./animatorState";
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat, copySelectedTiming, pasteSelectedTiming, canPasteTiming } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -42,14 +42,21 @@
   const beat = $derived(slide.beats[$activeBeat] ?? slide.beats[0]);
   const duration = $derived(Math.max(1000, beatEndMs(beat?.tracks ?? [], slide, manifestFor, deck)));
   const scale = $derived($timelinePxPerMs ?? Math.max(.015, Math.min(.6, (timelineWidth - 240) / duration)));
-  const tickStep = $derived(scale > .3 ? 250 : scale > .12 ? 500 : scale > .05 ? 1000 : 2000);
-  const ticks = $derived(Array.from({length:Math.floor(duration/tickStep)+1},(_,i)=>i*tickStep));
+  const timeWidth = $derived(Math.max(timelineWidth-230, duration*scale+32));
+  // The time grid fills the whole DRAWN extent (owner, 2026-10-02: it used to
+  // stop at the last bar's end). Scrub stays clamped to `duration`; drags snap
+  // to `gridStep`, exactly the minor lines drawn (shared.ts timeGrid).
+  const grid = $derived(timeGrid(timeWidth / scale, scale));
+  // Lines stop 1px short of the layer edge. A label past the beat's end needs
+  // room for its text, so the extended ruler never widens the scroller (an
+  // absolute label past the edge would grow its scrollable overflow).
+  const ticks = $derived(grid.majors.filter(t => t * scale <= timeWidth - 1));
+  const tickLabels = $derived(grid.majors.filter(t => t <= duration || t * scale <= timeWidth - 40));
   // The vertical time grid under the lanes: every ruler tick is a major line,
   // with fainter minor lines between them (one element per line, see .grid-layer).
-  const minors = $derived(minorTicks(duration, tickStep, scale));
+  const minors = $derived(grid.minors.filter(t => t * scale <= timeWidth - 1));
   // Drags snap to exactly the lines drawn above (majors are multiples of the minor step).
-  const gridStep = $derived(minorTickStep(tickStep, scale));
-  const timeWidth = $derived(Math.max(timelineWidth-230, duration*scale+32));
+  const gridStep = $derived(grid.minorStep);
   const fmt = (ms:number) => `${(ms/1000).toFixed(ms % 1000 ? 2 : 0)}s`;
   type Row = {group:TrackGroup; tracks:Track[]} | {track:Track};
   const rows = $derived.by(():Row[] => {
@@ -386,7 +393,7 @@
       <div class="ruler-row"><div class="label-head">Object / effect</div>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="ruler" onpointerdown={scrub} title="Drag to inspect any frame">
-          {#each ticks as t}<span class="tick" style={`left:${t*scale}px`}>{fmt(t)}</span>{/each}
+          {#each tickLabels as t}<span class="tick" style={`left:${t*scale}px`}>{fmt(t)}</span>{/each}
           {#if dragGuide?.snap != null}<span class="snap-mark" style={`left:${dragGuide.snap*scale}px`}></span>{/if}
           <span class="ruler-head" style={`transform:translateX(${time*scale}px)`}></span>
         </div>

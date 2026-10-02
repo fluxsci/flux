@@ -121,6 +121,11 @@ export function autoPxPerMs(maxEndMs: number): number {
   return Math.max(0.04, Math.min(0.35, 260 / Math.max(1, maxEndMs)));
 }
 
+/** The ruler's major tick step for a zoom (px per ms): ticks stay ≥ ~60px apart. */
+export function tickStepFor(pxPerMs: number): number {
+  return pxPerMs > .3 ? 250 : pxPerMs > .12 ? 500 : pxPerMs > .05 ? 1000 : 2000;
+}
+
 /** The minor grid step between two ruler ticks: half a tick, a quarter once
  *  the timeline is zoomed in past .3 px/ms (a 250ms tick then subdivides to
  *  62.5ms lines that still sit ≥18px apart). */
@@ -128,14 +133,48 @@ export function minorTickStep(tickStep: number, pxPerMs: number): number {
   return tickStep / (pxPerMs > 0.3 ? 4 : 2);
 }
 
-/** The minor grid lines of a beat: every subdivision of the ruler ticks that
- *  is NOT itself a tick (the timeline draws ticks as major lines). */
-export function minorTicks(durationMs: number, tickStep: number, pxPerMs: number): number[] {
-  const step = minorTickStep(tickStep, pxPerMs);
+/** The minor grid lines over a drawn time extent: every subdivision of the
+ *  ruler ticks in [0, extentMs] that is NOT itself a tick (the timeline draws
+ *  ticks as major lines). `extentMs` is the DRAWN range (the whole visible
+ *  time axis), not the beat's duration. */
+export function minorTicks(extentMs: number, tickStep: number, pxPerMs: number, step = minorTickStep(tickStep, pxPerMs)): number[] {
   const per = Math.round(tickStep / step);
   const out: number[] = [];
-  for (let i = 1; i * step <= durationMs; i++) if (i % per) out.push(i * step);
+  for (let i = 1; i * step <= extentMs; i++) if (per > 1 && i % per) out.push(i * step);
   return out;
+}
+
+/** At most this many grid lines (majors + minors) are mounted at once. */
+export const GRID_LINE_CAP = 400;
+
+export interface TimeGrid {
+  /** Ruler tick spacing (major lines and labels). */
+  tickStep: number;
+  /** The drawn minor spacing — also the drag SNAP grid (2026-09-30: a snap grid
+   *  must be the grid that is drawn). Equal to `tickStep` when minors are off. */
+  minorStep: number;
+  majors: number[];
+  minors: number[];
+}
+
+/** The animator's time grid over the whole DRAWN extent (owner, 2026-10-02:
+ *  the grid fills the visible time axis even after the last bar ends; scrub and
+ *  snapping keep their own ranges). Node budget: a 60s beat zoomed to 1px/ms
+ *  would mount ~1,200 lines, so when `extentMs / minorStep + 1` exceeds
+ *  `GRID_LINE_CAP` the MINOR step doubles (62.5 → 125 → 250 ms …) until it
+ *  meets the tick step, then the tick step doubles too. Steps stay powers of
+ *  two of the zoom's natural step, so every coarser line is also a line of the
+ *  finer grid, and the coarsened minor step is what drags snap to. At fit zoom
+ *  the cap never binds (lines sit ≥15px apart, ~W/15 lines). */
+export function timeGrid(extentMs: number, pxPerMs: number, cap = GRID_LINE_CAP): TimeGrid {
+  const extent = Math.max(0, extentMs);
+  let tickStep = tickStepFor(pxPerMs), minorStep = minorTickStep(tickStep, pxPerMs);
+  while (Math.floor(extent / minorStep) + 1 > cap) {
+    if (minorStep < tickStep) minorStep *= 2;
+    else { tickStep *= 2; minorStep = tickStep; }
+  }
+  const majors = Array.from({ length: Math.floor(extent / tickStep) + 1 }, (_, i) => i * tickStep);
+  return { tickStep, minorStep, majors, minors: minorTicks(extent, tickStep, pxPerMs, minorStep) };
 }
 
 /** Snap a ms value within an 8-screen-px threshold, nearest first, to other
