@@ -1,10 +1,13 @@
 // Paper's slide-embed SOURCE chip (owner inbox 2026-10-02): an embedded
-// slide's raw `![](…){.flux-slide …}` line folds to `▷ <deck title> · Slide N`
-// exactly the way a figure embed folds to its name chip. Pinned in the app:
-//   - the chip shows the deck title + 1-based ordinal; the raw text is hidden;
-//   - a caret on the line reveals the raw source, moving off re-folds, and the
-//     line's height never changes (feel contract: no layout shift on reveal);
-//   - every doc line still costs exactly one ArrowDown;
+// slide's raw `![](…){.flux-slide …}` line folds to `▷ <deck title> · <slide
+// name>` (the player footer's text) exactly the way a figure embed folds to
+// its name chip. Pinned in the app:
+//   - the chip shows the footer's label; the raw text is hidden;
+//   - a caret on the line reveals the source with its long values elided
+//     (`deck="…"`), a caret on a value reveals that value, moving off
+//     re-folds, and neither the line's nor the document's height ever changes
+//     (the figure chip's feel contract);
+//   - every doc line costs exactly one ArrowDown, through every embed;
 //   - a REAL double-click (the first click reveals the source and removes the
 //     chip) opens Slide mode on that deck + slide;
 //   - an unknown deck renders the dimmed unresolved chip and opens nothing;
@@ -72,6 +75,7 @@ try {
   ];
   await view((text) => { const v = window.__fluxView; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, selection: { anchor: 0 } }); v.focus(); }, lines.join("\n"));
   await waitFor(page, (sel) => document.querySelector(sel)?.textContent.includes("Evidence talk"), SLIDE_CHIP, { timeout: 10000 });
+  await sleep(300); // the player below settles its measured height
   await waitFor(page, () => !!document.querySelector(".cm-editor .flux-slide-art"), null, { timeout: 12000 });
 
   const collapsed = await page.evaluate(() => {
@@ -79,14 +83,16 @@ try {
     const lines = [...document.querySelectorAll(".cm-line.cm-flux-embedsrc")].map((l) => l.textContent ?? "");
     return { chips, lines };
   });
-  h.eq(collapsed.chips.find((c) => c.cls.includes("slide") && !c.cls.includes("unresolved"))?.text, "▷ Evidence talk · Slide 2", "slide chip shows the deck title + 1-based ordinal");
+  h.eq(collapsed.chips.find((c) => c.cls.includes("slide") && !c.cls.includes("unresolved"))?.text, "▷ Evidence talk · Results", "slide chip shows the footer's label: deck title · slide name");
+  h.eq(await page.$eval(".cm-editor .flux-slide-title", (e) => e.textContent), "Evidence talk · Results", "…which is exactly the player footer's text");
   h.ok(!collapsed.lines.some((l) => l.includes("renders/results-step-0.svg")), "the raw slide source is not visible while folded");
   h.ok(collapsed.lines.some((l) => l.startsWith("  ▷")), "the line's indent is preserved before the chip");
   h.ok(collapsed.chips.some((c) => c.cls === "flux-embedchip slide unresolved" && c.text === "▷ Missing slide deck"), "an unknown deck renders the unresolved chip");
   h.ok(collapsed.chips.some((c) => c.cls === "flux-embedchip" && c.text === "⌗ Growth"), "the figure chip beside it is unchanged");
-  h.ok(await page.$eval(SLIDE_CHIP, (e) => /Slide 2 of 2 — “Results”/.test(e.title) && /double-click to open in Slide/.test(e.title)), "tooltip names the slide and the gestures");
+  h.ok(await page.$eval(SLIDE_CHIP, (e) => /Evidence talk · Results — slide 2 of 2/.test(e.title) && /double-click to open in Slide/.test(e.title)), "tooltip names the slide and the gestures");
 
-  // Reveal on caret, re-fold off it — with no height change of the line or the doc.
+  // Reveal on caret, re-fold off it — the figure chip's contract: ZERO change
+  // in the line's height and the document's height.
   const metrics = () => page.evaluate(() => {
     const v = window.__fluxView, line = v.state.doc.line(4);
     const el = v.domAtPos(line.from).node;
@@ -94,35 +100,44 @@ try {
     return { h: lineEl.getBoundingClientRect().height, doc: v.contentDOM.scrollHeight, text: lineEl.textContent };
   });
   const folded = await metrics();
-  await view(() => { const v = window.__fluxView; v.dispatch({ selection: { anchor: v.state.doc.line(4).from + 8 } }); });
+  const oneRow = await page.evaluate(() => {
+    const line = [...document.querySelectorAll(".cm-line.cm-flux-embedsrc")][0];
+    const probe = line.cloneNode(false); probe.textContent = "x"; line.parentElement.append(probe);
+    const hh = probe.getBoundingClientRect().height; probe.remove(); return hh;
+  });
+  h.ok(Math.abs(folded.h - oneRow) < 0.5, `the chip keeps the one-row 12px/1.65 source-line metrics (${folded.h} vs ${oneRow})`);
+  await view(() => { const v = window.__fluxView; const l = v.state.doc.line(4); v.dispatch({ selection: { anchor: l.from + 2 } }); });
   await sleep(50);
   const open = await metrics();
-  h.ok(open.text.includes('deck="talk"') && !open.text.includes("▷"), "a caret on the line reveals the raw source");
+  h.ok(open.text.startsWith("  ![](…){#… .flux-slide deck=\"…\" slide=\"…\" width=50%}"), `a caret on the line reveals the source, long values elided (${open.text})`);
+  h.ok(Math.abs(open.h - folded.h) < 0.5 && Math.abs(open.doc - folded.doc) < 0.5, `reveal changes neither the line's nor the document's height (${folded.h}/${open.h}, ${folded.doc}/${open.doc})`);
+  await view(() => { const v = window.__fluxView; const l = v.state.doc.line(4); v.dispatch({ selection: { anchor: l.from + l.text.indexOf('deck="') + 7 } }); });
+  await sleep(50);
+  const onValue = await metrics();
+  h.ok(onValue.text.includes('deck="talk"') && onValue.text.includes('slide="…"') && onValue.text.includes("{#…"), "a caret on a value reveals that value only");
+  h.ok(Math.abs(onValue.h - folded.h) < 0.5, "…still one row");
   await view(() => { const v = window.__fluxView; v.dispatch({ selection: { anchor: v.state.doc.line(3).from } }); });
   await sleep(50);
   const refolded = await metrics();
-  h.ok(refolded.text.includes("▷ Evidence talk · Slide 2"), "moving off re-folds the line");
-  // A revealed 50%-width line can wrap; compare the folded single-row line
-  // against a revealed one only through the document height of the folded states.
-  h.ok(Math.abs(refolded.h - folded.h) < 0.5 && Math.abs(refolded.doc - folded.doc) < 0.5, `fold → reveal → fold returns to the identical height (${folded.h} / ${refolded.h})`);
-  const oneRow = await page.evaluate(() => {
-    const prose = [...document.querySelectorAll(".cm-line.cm-flux-embedsrc")][0];
-    const probe = prose.cloneNode(false); probe.textContent = "x"; prose.parentElement.append(probe);
-    const hh = probe.getBoundingClientRect().height; probe.remove(); return hh;
-  });
-  h.ok(Math.abs(folded.h - oneRow) < 0.5, `the chip keeps the 12px/1.65 source-line metrics (${folded.h} vs ${oneRow})`);
+  h.ok(refolded.text.includes("▷ Evidence talk · Results"), "moving off re-folds the line");
+  h.ok(Math.abs(refolded.h - folded.h) < 0.5 && Math.abs(refolded.doc - folded.doc) < 0.5, "fold → reveal → fold returns to the identical height");
 
-  // ArrowDown visits every document line in order — never skipping one under
-  // a slide player (its margins once desynced CodeMirror's height map by 32px
-  // per slide). A folded line is one row and costs one press to enter; once
-  // revealed, its long raw source wraps like prose, one press per visual row.
+  // Exactly one ArrowDown per document line — through both slide lines (whose
+  // revealed form stays one row), the figure chip and every block widget.
+  // The players' margins once desynced CodeMirror's height map 32 px per slide.
   await view(() => { const v = window.__fluxView; v.dispatch({ selection: { anchor: 0 } }); v.focus(); });
-  const walk = [1];
-  for (let i = 0; i < 2 * lines.length && walk.at(-1) < lines.length; i++) {
+  const walk = [];
+  for (let i = 0; i < lines.length - 1; i++) {
     await page.keyboard.press("ArrowDown");
     walk.push(await view(() => { const v = window.__fluxView; return v.state.doc.lineAt(v.state.selection.main.head).number; }));
   }
-  h.ok(walk.at(-1) === lines.length && walk.every((n, i) => i === 0 || n - walk[i - 1] === 0 || n - walk[i - 1] === 1), `ArrowDown visits every line in order, none skipped (${walk.join(",")})`);
+  h.eq(walk, lines.slice(1).map((_, i) => i + 2), "every line costs exactly one ArrowDown");
+  const up = [];
+  for (let i = 0; i < lines.length - 1; i++) {
+    await page.keyboard.press("ArrowUp");
+    up.push(await view(() => { const v = window.__fluxView; return v.state.doc.lineAt(v.state.selection.main.head).number; }));
+  }
+  h.eq(up, lines.slice(1).map((_, i) => lines.length - 1 - i), "…and exactly one ArrowUp");
   const offsets = await page.evaluate(() => {
     const v = window.__fluxView;
     return [5, 9].map((n) => { const l = v.state.doc.line(n); return v.coordsAtPos(l.from).top - v.documentTop - v.lineBlockAt(l.from).top; });
@@ -155,7 +170,7 @@ try {
     await window.fig.writeText(file, JSON.stringify(d));
     (await import("/src/shell/scholar/revisions.ts")).bumpSlideEmbeds();
   }, ROOT);
-  await waitFor(page, (sel) => document.querySelector(sel)?.textContent === "▷ Renamed talk · Slide 2", SLIDE_CHIP, { timeout: 5000 });
+  await waitFor(page, (sel) => document.querySelector(sel)?.textContent === "▷ Renamed talk · Results", SLIDE_CHIP, { timeout: 5000 });
   h.ok(true, "renaming the deck updates the chip without a reload");
   h.eq(await view(() => window.__fluxView.state.doc.toString()), before, "the rename changes nothing in the document");
   await shot(page, "slide-embed-chip");

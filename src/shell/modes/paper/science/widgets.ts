@@ -168,6 +168,28 @@ export class SlideSrcWidget extends WidgetType {
   }
 }
 
+/** One elided value on a REVEALED slide-embed source line (`…`, the full
+ *  value in the tooltip). slideEmbeds.ts drops it the moment a selection
+ *  touches the value, so the caret only ever edits real text. */
+export class SourceElideWidget extends WidgetType {
+  constructor(readonly text: string) {
+    super();
+  }
+  eq(o: SourceElideWidget) {
+    return o.text === this.text;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "flux-srcelide";
+    el.textContent = "…";
+    el.title = this.text;
+    return el;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
 export class CiteWidget extends WidgetType {
   readonly display: string;
   readonly resolved: boolean;

@@ -113,6 +113,16 @@ export const fluxTheme = EditorView.theme(
       padding: "0 6px",
       cursor: "default",
     },
+    /* A revealed slide-embed line elides its long values (caption, path,
+       ids) to `…` until the caret reaches each one (slideEmbeds.ts), so the
+       line stays one row. Inline, no vertical padding: metrics unchanged. */
+    ".cm-flux-embedsrc .flux-srcelide": {
+      display: "inline",
+      background: "color-mix(in srgb, var(--c-tx-faint) 14%, transparent)",
+      borderRadius: "var(--r-1)",
+      padding: "0 2px",
+      cursor: "text",
+    },
     ".cm-flux-embedsrc .flux-embedchip.unresolved": {
       color: "var(--c-tx-faint) !important",
       background: "transparent",

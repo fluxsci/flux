@@ -40,7 +40,7 @@ clobbers their work). For big rewrites of hand-edited prose, prefer proposing th
   linked block with a generated step-0 SVG. Optional `--width`, `--caption`, and a unique
   `--anchor` use the same document syntax as the picker. HTML advances one authored beat
   per click; PDF/Word show step 0. Source IDs survive deck renames/reordering. In the
-  editor the embed line shows as a `▷ <deck title> · Slide <N>` chip (N = position in the deck). Do not copy
+  editor the embed line shows as a `▷ <deck title> · <slide name>` chip, the player footer's label. Do not copy
   speaker notes into the caption or use figure-reference normalization on `.flux-slide` blocks.
 - **Compile:** `compile --doc paper/report.qmd --to pdf|html|docx` (needs `quarto` on PATH).
 

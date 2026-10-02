@@ -226,10 +226,11 @@ the thing it points to — a table or equation reference scrolls the editor to i
 
 Use **/slide** or **Ctrl+K → Insert slide…**, choose a deck, then choose a slide.
 The picker previews the completed slide. The block in your document starts at **step 0**.
-In the text, the embed line shows as a compact **▷ Deck 3 · Slide 4** chip (the deck's title
-and the slide's position; hover it for the slide's name). Put the caret on the line to see
-its source, or double-click the chip to open that slide in Slide mode. A dimmed chip means
-its deck or slide is missing.
+In the text, the embed line shows as a compact **▷ Deck 3 · Slide 4** chip with the deck's
+title and the slide's name, as under the slide itself. Hover the chip for the slide's position
+in its deck. Put the caret on the line to see its source. Long values such as the IDs and the
+image path show as **…** until the caret reaches them. Double-click the chip to open that
+slide in Slide mode. A dimmed chip means its deck or slide is missing.
 
 Click the artwork or **›** underneath it to advance one animation step. Tracks within a
 step play together with their authored timing. Automatic and “with previous” steps still

@@ -1995,13 +1995,19 @@ buffer saves after restoration without a false divergence conflict. Flush includ
 before acquiring the lease and release it in `finally`.
 
 **The source line folds to a chip** (2026-10-02, owner): off-caret, an embed's raw
-`![](…){.flux-slide …}` line reads `▷ <deck title> · Slide <N>` (`flux-embedchip slide`,
-the figure chip's CSS family; N is the 1-based POSITION, the slide's name rides the tooltip —
-names drift from position, and the owner's prose cites slides by position). The fold is a
+`![](…){.flux-slide …}` line reads `▷ <deck title> · <slide name>` (`flux-embedchip slide`,
+the figure chip's CSS family). That is the player footer's exact text (`embedPlayer.ts`;
+"Deck 3 · Slide 4" are default names), with `Slide <position>` for an unnamed slide; the
+position rides the tooltip. The fold is a
 ViewPlugin inside `slideEmbeds()` that reads the block field's entries, so it folds exactly
 the lines that carry a player; chips.ts skips `.flux-slide` lines. Same rules as the figure
 chip: inline atomic replace from indent to line end, revealed when a selection touches the
-line, the block field never rebuilt for the selection. Labels resolve synchronously from
+line, the block field never rebuilt for the selection. The feel contract also holds:
+reveal changes no height, and every line costs one vertical keypress. A full source runs
+about 180 characters and would wrap, so a REVEALED line elides its long values (caption,
+path, anchor id, deck and slide ids: `slideSourceSpans`) to `…` until a selection touches
+each one. That gives `![](…){#… .flux-slide deck="…" slide="…" width=50%}`, one row, and
+every character stays real, editable source. Labels resolve synchronously from
 `science/slideChipCatalog.ts` (one per editor: a deck is read on first sight and re-read on
 repository invalidation, the old entry answering until the new read settles, so there is no
 per-keystroke IO and no fallback flash; `Slide <short id>` while pending, dimmed
@@ -9211,8 +9217,9 @@ strengthened `verify-f5-drag` and `verify-crop`; touched pure + UI gates green; 
 - `pgrep -f <pattern>` matches the shell that runs it; a `while pgrep` wait loop never ends.
 
 ### 2026-10-02 — Paper: slide-embed source line folds to a "Deck 3 · Slide 4" chip (Claude Opus 5.5, `oct2/paper-embed-chip`)
-**Work:** An embedded slide's raw `![](…){.flux-slide …}` line now folds to `▷ <deck title> · Slide <N>` the way a
-figure embed folds to its name chip. It comes from a fold ViewPlugin in `slideEmbeds()` over the block field's
+**Work:** An embedded slide's raw `![](…){.flux-slide …}` line now folds to `▷ <deck title> · <slide name>` (the
+player footer's text) the way a figure embed folds to its name chip. Its revealed form elides long values until the
+caret reaches them, so it keeps the figure chip's contract: zero height change, one keypress per line. It comes from a fold ViewPlugin in `slideEmbeds()` over the block field's
 entries, plus a synchronous per-editor label catalog fed by repository deck reads. Driving it in the app surfaced
 two older bugs, both fixed. The figure chip's double-click never opened Figure for a real user. Every embedded
 slide also desynced the height map by 32 px, so ArrowDown skipped lines under it. Gates: new

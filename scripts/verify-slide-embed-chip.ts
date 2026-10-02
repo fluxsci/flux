@@ -4,7 +4,10 @@
 // repository's deck reads. Pinned here, hermetically, against the REAL
 // repository over a scratch project:
 //   - first sight is `pending` (fallback "Slide <short id>"), one deck read,
-//     then "Deck title · Slide <1-based ordinal>"; the name rides the tooltip;
+//     then "<deck title> · <slide name>" — the player footer's text exactly —
+//     with "Slide <position>" for an unnamed slide and the position in the
+//     tooltip;
+//   - slideSourceSpans lists exactly the values a revealed line elides;
 //   - lookups never re-read (no per-keystroke IO), whatever the count;
 //   - unknown deck / slide no longer in the deck → unresolved (dimmed) label;
 //   - a repository invalidation (deck write) re-reads and notifies ONCE, and
@@ -20,7 +23,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { inlineSlideFixture } from "./fixtures/inline-slide";
 import { createSlideRepository } from "../src/lib/slide/embedRepository";
-import { createSlideChipCatalog, slideChipLabel, type SlideCatalogDeck } from "../src/shell/modes/paper/science/slideChipCatalog";
+import { createSlideChipCatalog, slideChipLabel, slideSourceSpans, type SlideCatalogDeck } from "../src/shell/modes/paper/science/slideChipCatalog";
 
 const h = harness("verify-slide-embed-chip");
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-slide-chip-"));
@@ -43,11 +46,11 @@ try {
   const talk = inlineSlideFixture("talk");
   talk.title = "Deck 3";
   // Names deliberately drift from position (the owner's Deck 3 has its
-  // "Title" slide second): the chip says the ORDINAL.
+  // "Title" slide second): the chip says the NAME, like the footer.
   talk.slides = [
     { ...structuredClone(talk.slides[1]), id: "intro", name: "Slide 2" },
     { ...structuredClone(talk.slides[0]), id: "results", name: "Title" },
-    { ...structuredClone(talk.slides[1]), id: "third", name: "Slide 3" },
+    { ...structuredClone(talk.slides[1]), id: "third", name: "" },
   ];
   await fs.writeFile(path.join(root, "project.json"), JSON.stringify({ slides: [{ id: "talk", path: "slides/talk/deck.json", title: "Deck 3" }] }));
   await writeDeck(talk);
@@ -64,12 +67,12 @@ try {
   await tick();
   h.eq(changes, 1, "the settled read notifies once");
   const resolved = slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw);
-  h.eq(resolved.text, "Deck 3 · Slide 2", "deck title + 1-based ordinal, mid-dot like the widget footer");
+  h.eq(resolved.text, "Deck 3 · Title", "deck title · slide name — the widget footer's text");
   h.ok(resolved.resolved && !resolved.pending, "resolved label is the accent chip");
-  h.ok(resolved.tooltip.includes("Slide 2 of 3 — “Title”") && resolved.tooltip.includes(raw) && /double-click to open in Slide/.test(resolved.tooltip),
-    "tooltip carries position-of-count, the slide's own name, the raw line and the gesture hint");
+  h.ok(resolved.tooltip.includes("Deck 3 · Title — slide 2 of 3") && resolved.tooltip.includes(raw) && /double-click to open in Slide/.test(resolved.tooltip),
+    "tooltip carries the position, the raw line and the gesture hint");
   const third = slideChipLabel({ deck: "talk", slide: "third" }, catalog.lookup({ deck: "talk", slide: "third" }), raw);
-  h.ok(third.text === "Deck 3 · Slide 3" && !third.tooltip.includes("“Slide 3”"), "a default name equal to the ordinal is not repeated");
+  h.eq(third.text, "Deck 3 · Slide 3", "an unnamed slide falls back to its 1-based position");
 
   const before = reads;
   for (let i = 0; i < 2000; i++) catalog.lookup({ deck: "talk", slide: i % 2 ? "results" : "intro" });
@@ -91,12 +94,12 @@ try {
   talk.title = "Evidence deck";
   await writeDeck(talk);
   repo.invalidate();
-  h.eq(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).text, "Deck 3 · Slide 2",
+  h.eq(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).text, "Deck 3 · Title",
     "while the fresh read is in flight the old entry still answers (no fallback flash)");
   await tick();
   await tick();
   h.ok(changes === 1, `one invalidation → one notification (${changes})`);
-  h.eq(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).text, "Evidence deck · Slide 2", "rename reaches the label");
+  h.eq(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).text, "Evidence deck · Title", "rename reaches the label");
 
   // Reorder: ordinal follows position.
   talk.slides = [talk.slides[1], talk.slides[0], talk.slides[2]];
@@ -104,7 +107,16 @@ try {
   repo.invalidate();
   await tick();
   await tick();
-  h.eq(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).text, "Evidence deck · Slide 1", "reordering renumbers the chip");
+  h.ok(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).tooltip.includes("slide 1 of 3"), "reordering renumbers the position in the tooltip");
+  h.eq(slideChipLabel({ deck: "talk", slide: "third" }, catalog.lookup({ deck: "talk", slide: "third" }), raw).text, "Evidence deck · Slide 3", "…and an unnamed slide's fallback");
+
+  // The values a revealed line elides: caption, path, anchor id, deck, slide.
+  const src = '  ![A caption](../slides/d/renders/s-step-0.svg){#slide-abc .flux-slide deck="deck_1" slide=\'slide_2\' width=50% data-x=1}';
+  h.eq(slideSourceSpans(src).map(([a, b]) => src.slice(a, b)), ["A caption", "../slides/d/renders/s-step-0.svg", "slide-abc", "deck_1", "slide_2"],
+    "slideSourceSpans: caption, path, anchor, quoted deck/slide values — never width or other attributes");
+  const bare = "![](p.svg){.flux-slide deck=d1 slide=s1}";
+  h.eq(slideSourceSpans(bare).map(([a, b]) => bare.slice(a, b)), ["p.svg", "d1", "s1"], "empty caption and absent anchor are skipped; unquoted values elide whole");
+  h.eq(slideSourceSpans("prose ![x](y) no attrs"), [], "a non-embed line has no spans");
 
   changes = 0;
   repo.invalidate();

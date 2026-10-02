@@ -4,9 +4,9 @@ import { scanSlideEmbeds, serializeSlideEmbed, parseSlideEmbed, embedKey, type S
 import type { SlideRepository, SlideSnapshot } from "../../../../lib/slide/embedRepository";
 import { mountSlideEmbed, SLIDE_EMBED_CSS, type EmbedPlaybackState, type SlideEmbedPlayer } from "../../../../lib/slide/embedPlayer";
 import { touchesMe, paperPerf } from "./changeGate";
-import { SlideSrcWidget } from "./widgets";
+import { SlideSrcWidget, SourceElideWidget } from "./widgets";
 import { chipActivation } from "./chipActivation";
-import { createSlideChipCatalog, slideChipLabel, type SlideChipCatalog } from "./slideChipCatalog";
+import { createSlideChipCatalog, slideChipLabel, slideSourceSpans, type SlideChipCatalog } from "./slideChipCatalog";
 
 export const resetSlidePlayback = StateEffect.define<null>();
 /** The chip catalog settled a deck read: re-derive the source-line chips. */
@@ -152,7 +152,19 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
   // never rebuilt for the selection). Its entries are the one scan, so the
   // chip folds exactly the lines that carry a player. Caret motion costs a
   // re-derive only when it crosses an embed line's reveal state.
-  const touches = (state: EditorState, e: Entry) => state.selection.ranges.some(r => r.from <= e.to && r.to >= e.from);
+  const touchesSpan = (state: EditorState, from: number, to: number) => state.selection.ranges.some(r => r.from <= to && r.to >= from);
+  const touches = (state: EditorState, e: Entry) => touchesSpan(state, e.from, e.to);
+  // A REVEALED line keeps its long values elided until the caret reaches each
+  // one (slideSourceSpans): the full ~180-char source would wrap to 2–3 rows,
+  // breaking the figure chip's contract — zero height change on reveal, one
+  // ArrowDown per line. The reveal state of a line is "0" (folded) or "1" plus
+  // one bit per value; caret motion re-derives only when that string changes.
+  const lineState = (state: EditorState, e: Entry) => {
+    if (!touches(state, e)) return "0";
+    let bits = "1";
+    for (const [a, b] of slideSourceSpans(state.doc.sliceString(e.from, e.to))) bits += touchesSpan(state, e.from + a, e.from + b) ? "1" : "0";
+    return bits;
+  };
   const fold = ViewPlugin.fromClass(class {
     decorations: DecorationSet = Decoration.none;
     mask = "";
@@ -169,11 +181,17 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
       const { entries } = state.field(field), doc = state.doc, marks: Range<Decoration>[] = [];
       let mask = "";
       for (const e of entries) {
-        const open = touches(state, e);
-        mask += open ? "1" : "0";
-        if (open || e.to > doc.length || e.from > e.to) continue;
+        const bits = lineState(state, e);
+        mask += bits + "|";
+        if (e.to > doc.length || e.from > e.to) continue;
         const line = doc.lineAt(e.from);
         if (line.from !== e.from || line.to !== e.to) continue; // mid-rebuild mapping: never fold a stale span
+        if (bits !== "0") {
+          slideSourceSpans(line.text).forEach(([a, b], i) => {
+            if (bits[i + 1] === "0") marks.push(Decoration.replace({ widget: new SourceElideWidget(line.text.slice(a, b)) }).range(line.from + a, line.from + b));
+          });
+          continue;
+        }
         const indent = line.text.length - line.text.trimStart().length;
         const label = slideChipLabel(e.ref, this.catalog.lookup(e.ref), line.text);
         marks.push(Decoration.replace({ widget: new SlideSrcWidget(e.ref, label, onOpen) }).range(line.from + indent, line.to));
@@ -195,7 +213,7 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
       };
       if (before !== after && (before.entries.length !== after.entries.length || !after.entries.every(same))) return this.build(u.state);
       if (!u.docChanged && !u.selectionSet) return;
-      const mask = after.entries.map(e => touches(u.state, e) ? "1" : "0").join("");
+      const mask = after.entries.map(e => lineState(u.state, e) + "|").join("");
       if (mask !== this.mask) return this.build(u.state);
       if (u.docChanged) this.decorations = this.decorations.map(u.changes);
     }

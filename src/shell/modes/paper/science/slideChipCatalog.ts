@@ -1,5 +1,5 @@
 // The synchronous label catalog behind Paper's slide-embed chip
-// ("▷ Deck 3 · Slide 4"). The decoration pass must resolve a label without
+// ("▷ Deck 3 · Slide 4" — the deck title and slide name, as the footer). The decoration pass must resolve a label without
 // waiting (the way `resolveFigure(label)` does for figure chips), so this keeps
 // `{deckId → {title, slides:[{id,name}]}}` for exactly the decks the document
 // references, filled from the embed repository's deck reads.
@@ -84,7 +84,7 @@ export function createSlideChipCatalog(source: SlideCatalogSource, onChange: () 
       (d) =>
         settle(id, ticket, {
           deck: {
-            title: d.title?.trim() || "Untitled deck",
+            title: d.title ?? "",
             slides: (d.slides ?? []).map((s) => ({ id: s.id, name: s.name ?? "" })),
           },
         }),
@@ -135,29 +135,57 @@ export interface SlideChipLabel {
 /** Short, stable fallback while a deck is read: `Slide murfeg`. */
 const shortId = (id: string) => id.replace(/^slide[_-]?/, "").slice(0, 6) || id.slice(0, 6);
 
-/** Chip text: deck TITLE + the slide's 1-based ORDINAL, mid-dot like the
- *  widget footer. The slide's own name rides the tooltip (names drift from
- *  position — Deck 3's "Title" slide sits second). */
+/** Chip text = the player footer below it, exactly: deck TITLE · slide NAME
+ *  (`embedPlayer.ts`; "Deck 3 · Slide 4" are the default names). An unnamed
+ *  slide falls back to its 1-based position; the position always rides the
+ *  tooltip, since names can drift from it. */
 export function slideChipLabel(ref: Pick<SlideEmbedRef, "deck" | "slide">, info: SlideChipInfo, raw: string): SlideChipLabel {
   const source = raw.trim();
   const how = "Click to place the caret (reveals the source); double-click to open in Slide";
   if (info.state === "resolved") {
-    const at = `Slide ${info.ordinal}`;
-    const name = info.slideName && info.slideName !== at ? ` — “${info.slideName}”` : "";
+    const text = `${info.deckTitle} · ${info.slideName || `Slide ${info.ordinal}`}`;
     return {
-      text: `${info.deckTitle} · ${at}`,
+      text,
       resolved: true,
       pending: false,
-      tooltip: `${info.deckTitle} · ${at} of ${info.count}${name}\n${source}\n${how}`,
+      tooltip: `${text} — slide ${info.ordinal} of ${info.count}\n${source}\n${how}`,
     };
   }
   if (info.state === "pending") {
     return { text: `Slide ${shortId(ref.slide)}`, resolved: true, pending: true, tooltip: `${source}\n${how}` };
   }
   return {
-    text: info.deckTitle ? `${info.deckTitle} · missing slide` : "Missing slide deck",
+    text: info.deckTitle != null ? `${info.deckTitle} · missing slide` : "Missing slide deck",
     resolved: false,
     pending: false,
     tooltip: `Unresolved slide embed — ${info.reason}: ${source}`,
   };
+}
+
+/** The long, opaque VALUES of a slide-embed source line, as [from, to)
+ *  offsets into the line: caption, poster path, `#` anchor id, deck id and
+ *  slide id. Paper's revealed line elides each one to `…` until a selection
+ *  touches it, so the revealed line stays one row — identical metrics to the
+ *  folded chip line (the feel contract) — while every character remains real,
+ *  editable source. Empty values are not listed. */
+export function slideSourceSpans(line: string): [number, number][] {
+  const m = /^(\s*)!\[((?:\\.|[^\]])*)\]\(([^)]*)\)\{([^}]*)\}\s*$/.exec(line);
+  if (!m) return [];
+  const out: [number, number][] = [];
+  const push = (a: number, b: number) => { if (b > a) out.push([a, b]); };
+  const capFrom = m[1].length + 2, capTo = capFrom + m[2].length;
+  push(capFrom, capTo);
+  const pathFrom = capTo + 2, pathTo = pathFrom + m[3].length;
+  push(pathFrom, pathTo);
+  const attrs = pathTo + 2;
+  let anchored = false;
+  for (const t of m[4].matchAll(/(?:[^\s"']+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')+/g)) {
+    const at = attrs + t.index!, tok = t[0];
+    if (tok.startsWith("#") && !anchored) { anchored = true; push(at + 1, at + tok.length); continue; }
+    const kv = /^(deck|slide)=/.exec(tok);
+    if (!kv) continue;
+    const v = at + kv[0].length, quoted = /^(["']).*\1$/.test(tok.slice(kv[0].length));
+    push(quoted ? v + 1 : v, quoted ? at + tok.length - 1 : at + tok.length);
+  }
+  return out;
 }
