@@ -238,6 +238,8 @@ usage: flux <verb> [root] [args] [--flags]
   anim-style <create|set|delete|list> <deckId> [styleId] [--name N --family F --preset P --start ms --duration ms --easing E --stagger JSON]   linked deck animation styles
   animate-like <deckId> <slideId> --from <trackId> --to <trackId,…>   link effects to the source's style
   set-track <deckId> <slideId> <trackId> [--style id|--no-style] [--anchor trackId:start|end[:offsetMs]|--no-anchor] [--start ms --duration ms --easing E]   timing and style overrides
+  align-tracks <deckId> <slideId> --tracks t1,t2… --edge start|end --to <ms>|<trackId>[:start|end] [--beat id|index] [--resize]   align starts / ends (the Animator's Alt+A / Alt+D)
+  inherit-track <deckId> <slideId> --from <trackId> --to <trackId,…> [--beat id|index] [--include-start]   targets take the source's exact animation (Ctrl+Alt-drag)
   group-tracks <deckId> <slideId> <beatId> t1,t2… [--label L]   bundle lanes under a collapsible TrackGroup
   ungroup-tracks <deckId> <slideId> <beatId> t1,t2…   dissolve the lanes' groups
   cascade-tracks <deckId> <slideId> <start|duration|influence.in|influence.out|stagger.perMs> t1,t2… [--delta n | --factor n] [--order timeline|list] [--reverse] [--first-fixed]   stepped timing delta across tracks (rank k gets value+delta·step)

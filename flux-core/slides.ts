@@ -34,6 +34,7 @@ import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
+import { alignTrackEdges, alignTargetMs, inheritTrack, type AlignEdge } from "../src/lib/slide/alignTracks";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel, mutateFigModel } from "./model";
 import { syncFigureAssets } from "./figures";
@@ -834,6 +835,48 @@ export async function setTrackVerb(root: string, deckId: string, slideId: string
 
 export function renderTrackTiming(result: Awaited<ReturnType<typeof setTrackVerb>>): string {
   return `${result.track.id}: ${result.track.preset ?? "fade"}, start ${result.start} ms${result.anchored ? " (anchored)" : ""}, duration ${result.duration} ms`;
+}
+
+/** The beat a timeline verb acts on: an explicit id or 0-based index, else the
+ *  beat holding the first named track. Plus the manifests its part tracks need. */
+async function timelineBeat(root: string, deck: Deck, slideId: string, beat: string | undefined, firstTrackId: string) {
+  const slide = mustSlide(deck, slideId);
+  const bi = beat === undefined ? slide.beats.findIndex(b => b.tracks.some(t => t.id === firstTrackId))
+    : /^\d+$/.test(beat) ? Number(beat) : slide.beats.findIndex(b => b.id === beat);
+  if (bi < 0 || !slide.beats[bi]) throw new ValidationError(beat === undefined ? `Track not found on this slide: ${firstTrackId}` : `Step not found on this slide: ${beat}`);
+  const context = await slideCompileOptions(root, deck, slideId);
+  const compiled = compileSlide(slide, deck.stage, context);
+  const manifestFor = (target: string) => {
+    const el = compiled.preState(target, bi);
+    return el?.type === "plot" ? context.plotManifest(el.assetId) : el?.type === "model3d" ? context.modelManifest(el.assetId) : undefined;
+  };
+  return { beat: slide.beats[bi], manifestFor };
+}
+
+/** align-tracks: land the tracks' resolved start or end edge on a time (ms) or
+ *  on another track's edge — the animator's Alt+A / Alt+D (one pure op,
+ *  alignTracks.ts alignTrackEdges). `resize` keeps the opposite edge. */
+export async function alignTracksVerb(root: string, deckId: string, slideId: string, trackIds: string[], edge: AlignEdge, to: string | number,
+  opts: { beat?: string; resize?: boolean } = {}) {
+  return mutateDeck(root, deckId, "align_tracks", async deck => {
+    const { beat, manifestFor } = await timelineBeat(root, deck, slideId, opts.beat, trackIds[0]);
+    const toMs = alignTargetMs(deck, slideId, beat.id, to, edge, manifestFor);
+    if (toMs == null) throw new ValidationError(`Align target not found in this step: ${to}`);
+    const result = alignTrackEdges(deck, slideId, beat.id, trackIds, edge, toMs, { mode: opts.resize ? "resize" : "move", manifestFor });
+    if (!result.changed.length && result.refused.length) throw new ValidationError([...new Set(result.refused.map(r => r.reason))].join("; "));
+    return { beatId: beat.id, edge, toMs, mode: opts.resize ? "resize" as const : "move" as const, ...result };
+  });
+}
+
+/** inherit-track: the targets take the source effect's exact animation
+ *  parameters — the animator's Ctrl+Alt-drag Inherit (alignTracks.ts inheritTrack). */
+export async function inheritTrackVerb(root: string, deckId: string, slideId: string, from: string, to: string[], opts: { beat?: string; includeStart?: boolean } = {}) {
+  return mutateDeck(root, deckId, "inherit_track", async deck => {
+    const { beat, manifestFor } = await timelineBeat(root, deck, slideId, opts.beat, from);
+    const result = inheritTrack(deck, slideId, from, to, { includeStart: !!opts.includeStart, beatId: beat.id, manifestFor });
+    if (!result.inherited.length && result.refused.length) throw new ValidationError([...new Set(result.refused.map(r => r.reason))].join("; "));
+    return { beatId: beat.id, from, ...result };
+  });
 }
 
 /** cascade-tracks: apply a stepped delta across tracks' timing — the track at

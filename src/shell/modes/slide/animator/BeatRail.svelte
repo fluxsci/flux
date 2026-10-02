@@ -3,7 +3,8 @@
 
   import { getContext, onDestroy, tick } from "svelte";
   import { deckOverlay, activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
-  import { selection, partSelection } from "../../../../lib/store";
+  import { selection, partSelection, editGen } from "../../../../lib/store";
+  import { alignCandidates, alignCycleStep, alignTrackEdges, trackEdges, type AlignCandidate, type AlignEdge, type AlignMode } from "../../../../lib/slide/alignTracks";
   import { trackDuration } from "../../../../lib/slide/compile";
   import { resolveBeat, type ManifestFor } from "../../../../lib/slide/resolve";
   import { pushToast } from "../../../../lib/toast";
@@ -119,6 +120,8 @@
     if(!$selTrackIds.includes(t.id))chooseTrack(t);
     menu={x:e.clientX,y:e.clientY,items:[
       {label:"Animate like…",action:animateLike},
+      {label:"Align starts",hint:"Alt+A · Alt+Shift+A resizes",action:()=>alignSelection("start")},
+      {label:"Align ends",hint:"Alt+D · Alt+Shift+D resizes",action:()=>alignSelection("end")},
       {label:"Copy timing",action:copySelectedTiming,disabled:familyOf(t)==="media"},
       {label:"Paste timing",action:pasteSelectedTiming,disabled:!canPasteTiming()||familyOf(t)==="media"},
       {label:"Duplicate effects",action:duplicateSelectedTracks},{label:"Enable / disable",action:toggleSelectedDisabled},
@@ -133,6 +136,63 @@
       {label:"Duplicate step",action:()=>commitDeckLive(d=>duplicateBeat(d,slide.id,b.id))},
       {label:"Insert before",action:()=>insert(i)},{label:"Insert after",action:()=>insert(i+1)},
       {label:"Delete step",danger:true,action:()=>remove(b)}]};
+  }
+  // --- Align starts / ends (Alt+A / Alt+D; Shift = resize) -------------------
+  // Repeated presses walk alignTracks.ts alignCandidates (the selection's own
+  // extreme, then the lanes above, nearest first) and return to the origin
+  // after the last one. Each press re-applies from the ORIGIN bytes, so a cycle
+  // never accumulates clamping, and the presses coalesce into one undo entry
+  // (a full cycle back to the origin is an identity edit and leaves none).
+  // The cycle resets on another edit, a selection change, or 3 s idle.
+  type AlignCycle = { sig:string; edge:AlignEdge; mode:AlignMode; candidates:AlignCandidate[]; index:number; origin:Map<string,Track>; originMs:number|null; gen:number; at:number };
+  let alignCycle:AlignCycle|null=null;
+  let alignFlash=$state<{ms:number|null;text:string;n:number;fading:boolean}|null>(null);
+  let flashTimer:ReturnType<typeof setTimeout>|undefined;
+  function flashAlign(ms:number|null,text:string){
+    clearTimeout(flashTimer);
+    const n=(alignFlash?.n??0)+1;
+    alignFlash={ms,text,n,fading:false};
+    flashTimer=setTimeout(()=>{if(alignFlash?.n!==n)return;alignFlash={...alignFlash,fading:true};flashTimer=setTimeout(()=>{if(alignFlash?.n===n)alignFlash=null;},90);},600);
+  }
+  /** Lane order as drawn (group members sit at their group's row). */
+  function laneOrder():Track[] {
+    const byId=new Map(resolved.tracks.flatMap(t=>t.id?[[t.id,t] as const]:[]));
+    const out:Track[]=[],seen=new Set<string>();
+    for(const row of rows)for(const t of "group"in row?row.tracks:[row.track])
+      if(t.id&&!seen.has(t.id)&&byId.has(t.id)){seen.add(t.id);out.push(byId.get(t.id)!);}
+    return out;
+  }
+  export function alignSelection(edge:AlignEdge, mode:AlignMode="move") {
+    if(!beat||$activeBeat===0)return;
+    const lanes=laneOrder(), ids=lanes.filter(t=>t.id&&$selTrackIds.includes(t.id)).map(t=>t.id!);
+    if(!ids.length){pushToast("info","Select effects in this step to align them.");return;}
+    const sig=[slide.id,beat.id,edge,mode,...ids].join("|"), now=performance.now();
+    let c=alignCycle;
+    if(!c||c.sig!==sig||c.gen!==editGen.n||now-c.at>3000) {
+      const candidates=alignCandidates(lanes,ids,edge,manifestFor);
+      if(!candidates.length){alignCycle=null;pushToast("info",`Nothing above to align ${edge==="start"?"starts":"ends"} to.`);return;}
+      const edges=lanes.filter(t=>ids.includes(t.id!)).map(t=>trackEdges(t,manifestFor)[edge]);
+      sealHistory();
+      c={sig,edge,mode,candidates,index:-1,origin:new Map(beat.tracks.filter(t=>t.id&&ids.includes(t.id)).map(t=>[t.id!,structuredClone(t)])),
+        originMs:edges.every(ms=>Math.abs(ms-edges[0])<=.5)?edges[0]:null,gen:-1,at:now};
+    }
+    c.index=alignCycleStep(c.index,c.candidates.length);
+    const target=c.index>=0?c.candidates[c.index]:null, cycle=c;
+    let result:ReturnType<typeof alignTrackEdges>|null=null;
+    commitDeckLive(d=>{
+      const b=slideById(d,slide.id)?.beats.find(b=>b.id===beat.id); if(!b)return;
+      // Back to the origin bytes first; every press is computed from them.
+      for(const t of b.tracks){const o=t.id?cycle.origin.get(t.id):undefined;if(!o)continue;for(const k of Object.keys(t))delete (t as unknown as Record<string,unknown>)[k];Object.assign(t,structuredClone(o));}
+      if(target)result=alignTrackEdges(d,slide.id,beat.id,ids,edge,target.ms,{mode,manifestFor});
+    },{coalesce:`align:${sig}`});
+    c.gen=editGen.n;c.at=performance.now();alignCycle=c;
+    const r=result as ReturnType<typeof alignTrackEdges>|null;
+    if(target){
+      const src=beat.tracks.find(t=>t.id===target.trackId);
+      flashAlign(target.ms,`→ ‹${src?label(src):"selection"}› ${edge} · ${(target.ms/1000).toFixed(2)} s${mode==="resize"?" · resize":""}`);
+    } else flashAlign(c.originMs,`↺ original ${edge==="start"?"starts":"ends"}`);
+    if(r?.detached.length)pushToast("info",`Detached from ‹${[...new Set(r.detached.map(x=>label(beat.tracks.find(t=>t.id===x.from)??beat.tracks[0])))].join(", ")}›`);
+    if(r?.refused.length)pushToast("error",[...new Set(r.refused.map(x=>x.reason))].join("; "));
   }
   type Magnet={ms:number;trackId:string;edge:"start"|"end"};
   type Drag={x:number;y:number;dx:number;kind:"start"|"duration";orig:{id:string;start:number;duration:number}[];primary:string;over:number|null;row:number|null;copy:boolean;moving:boolean;magnets:Magnet[];link:boolean;anchor:Track["anchor"]|null;scale:number};
@@ -355,7 +415,7 @@
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if(e.key==="Escape"&&drag){e.preventDefault();cancel();}
   }
-  onDestroy(()=>{cancelMarquee();cancel();stopScrub();hoverTrackId.set(null);});
+  onDestroy(()=>{cancelMarquee();cancel();stopScrub();hoverTrackId.set(null);clearTimeout(flashTimer);});
   $effect(()=>{const context=slide.id+":"+beat.id+":"+scale+":"+selectedOnly;void context;cancelMarquee();});
   $effect(()=>{const i=$activeBeat;void tick().then(()=>document.querySelector(`[data-step-index="${i}"]`)?.scrollIntoView({block:"nearest",inline:"nearest"}));});
 </script>
@@ -395,6 +455,7 @@
         <div class="ruler" onpointerdown={scrub} title="Drag to inspect any frame">
           {#each tickLabels as t}<span class="tick" style={`left:${t*scale}px`}>{fmt(t)}</span>{/each}
           {#if dragGuide?.snap != null}<span class="snap-mark" style={`left:${dragGuide.snap*scale}px`}></span>{/if}
+          {#if alignFlash}{@const x=(alignFlash.ms??0)*scale}<span class="align-label" class:fading={alignFlash.fading} class:flip={x>timeWidth-190} style={`left:${x}px`} aria-live="polite">{alignFlash.text}</span>{/if}
           <span class="ruler-head" style={`transform:translateX(${time*scale}px)`}></span>
         </div>
       </div>
@@ -442,8 +503,9 @@
       <!-- One compositor line spans every lane; playback must not rewrite a
            layout property in every track on every frame. -->
       <span class="playhead" style={`transform:translateX(${time*scale}px)`}></span>
-      {#if dragGuide || selGuide}
+      {#if dragGuide || selGuide || alignFlash?.ms != null}
         <div class="guide-layer" aria-hidden="true">
+          {#if alignFlash?.ms != null}<span class="guide snap align-flash" class:fading={alignFlash.fading} style={`left:${alignFlash.ms*scale}px`}></span>{/if}
           {#if dragGuide}
             <span class="guide" style={`left:${dragGuide.edge*scale}px`}></span>
             {#if dragGuide.snap != null}<span class="guide snap" class:linked={dragGuide.linked} style={`left:${dragGuide.snap*scale}px`}></span>{/if}
@@ -546,6 +608,18 @@
   .guide { border-left: 1px dashed var(--c-accent); }
   .guide.linked { border-left-style: solid; background: var(--c-accent); }
   .guide.sel { background: color-mix(in oklab, var(--c-accent) 45%, transparent); }
+  /* the align flash: the lit-snap line (one style with a snapped drag) + a ruler label;
+     it appears at once and fades out in 90 ms, nothing at rest */
+  .guide.align-flash { border-left-style: solid; background: var(--c-accent); }
+  .align-label {
+    position: absolute; top: 3px; z-index: 2; height: 18px; padding: 0 6px; margin-left: 4px; white-space: nowrap; pointer-events: none;
+    font: 10px/18px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-hi);
+    background: var(--c-surface); border: 1px solid var(--c-accent); border-radius: var(--r-ui);
+  }
+  .align-label.flip { transform: translateX(-100%); margin-left: -4px; }
+  .align-flash, .align-label { transition: opacity 90ms linear; }
+  .align-flash.fading, .align-label.fading { opacity: 0; }
+  @media (prefers-reduced-motion: reduce) { .align-flash, .align-label { transition: none; } }
   .lane-row { height: var(--row); border-bottom: 1px solid var(--c-line); }
   .lane-row.selected { background: var(--c-accent-tint); }
   .lane-row.disabled { opacity: .5; }

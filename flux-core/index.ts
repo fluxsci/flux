@@ -167,6 +167,8 @@ export {
   animStyleVerb,
   animateLikeVerb,
   setTrackVerb,
+  alignTracksVerb,
+  inheritTrackVerb,
   renderTrackTiming,
   compileDeckSlide,
   type DeckSummary,
@@ -188,6 +190,7 @@ export { plotViewPatch } from "../src/lib/plot/viewControls";
 export type { PlotViewFields } from "../src/lib/plot/viewControls";
 export { setPlotView } from "../src/lib/ops";
 export { resolveTrack, resolveBeat, resolveStart } from "../src/lib/slide/resolve";
+export { alignCandidates, alignTrackEdges, alignTargetMs, inheritTrack, trackEdges, type AlignCandidate, type AlignEdge, type AlignMode, type AlignResult, type InheritResult } from "../src/lib/slide/alignTracks";
 
 export { beatDelayMs } from "../src/lib/slide/timing";
 export { isHandoff } from "../src/lib/slide/targets";

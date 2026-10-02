@@ -96,3 +96,115 @@ export async function verifyTimelineGrid(page, ok) {
     await paint(page);
   }
 }
+
+const timing = page => page.evaluate(() => {
+  const f = window.__flux, s = f.slide.currentDeck().slides.find(s => s.id === f.get(f.fig.activeFigureId));
+  return Object.fromEntries(s.beats[1].tracks.map(t => [t.id, { start: Math.round((t.start ?? 0) * 100) / 100, duration: Math.round(t.duration * 100) / 100, preset: t.preset, curve: t.curve, anchor: t.anchor }]));
+});
+const ELL = [0, 1, 2, 3].map(i => `ff-t-ell-${i}`);
+const ends = t => ELL.map(id => Math.round((t[id].start + t[id].duration) * 100) / 100);
+const starts = t => ELL.map(id => t[id].start);
+const all = (xs, v) => xs.every(x => Math.abs(x - v) < .01);
+async function chord(page, code, { shift = false } = {}) {
+  await page.keyboard.down("Alt"); if (shift) await page.keyboard.down("Shift");
+  await page.keyboard.press(code);
+  if (shift) await page.keyboard.up("Shift"); await page.keyboard.up("Alt");
+  await paint(page);
+}
+async function undo(page) { await page.keyboard.down("Control"); await page.keyboard.press("KeyZ"); await page.keyboard.up("Control"); await paint(page); }
+/** Select the four ellipse lanes the way a user does: click, then Shift-click. */
+async function selectEllipses(page) {
+  await page.click(`.lane-row[data-track-id="${ELL[0]}"] .track-label`);
+  await page.keyboard.down("Shift");
+  for (const id of ELL.slice(1)) await page.click(`.lane-row[data-track-id="${id}"] .track-label`);
+  await page.keyboard.up("Shift");
+  await paint(page);
+  return page.evaluate(() => window.__flux.get(window.__flux.slide.selTrackIds));
+}
+
+/** 3.2 — Alt+A / Alt+D walk the candidate law, flash the reference line, coalesce into one Undo. */
+export async function verifyAlign(page, ok) {
+  mkdirSync(SHOTS, { recursive: true });
+  for (const dismiss of await page.$$('.toasts button.t-x')) await dismiss.click();
+  await seedFeatureFig(page);
+  await waitFor(page, () => document.querySelectorAll(".beatrail .lane-row[data-track-id]").length === 6, null, { timeout: 5000, label: "FeatureFig lanes" });
+  const picked = await selectEllipses(page);
+  ok(picked.length === 4 && picked.every(id => id.startsWith("ff-t-ell-")), "click + Shift-click selects the four ellipse lanes", JSON.stringify(picked));
+  const before = await timing(page);
+  await chord(page, "KeyD");
+  let t = await timing(page);
+  ok(all(ends(t), 1000) && all(starts(t), 700) && ELL.every(id => t[id].duration === 300), "Alt+D aligns the ends to path 1's end (starts 700, durations 300)", JSON.stringify(ELL.map(id => t[id])));
+  const flash = await page.evaluate(() => ({ line: !!document.querySelector(".beatrail .guide-layer .guide.align-flash"), label: document.querySelector(".beatrail .ruler .align-label")?.textContent ?? "" }));
+  ok(flash.line && /‹ff-path› end · 1\.00 s/.test(flash.label), "…the reference line lights with a ruler label naming it", JSON.stringify(flash));
+  await page.screenshot({ path: `${SHOTS}/align-end-1.png` });
+  await chord(page, "KeyD");
+  t = await timing(page);
+  ok(all(ends(t), 1952.69), "Alt+D again aligns them to rect 2's end (1.95 s)", JSON.stringify(ends(t)));
+  await page.screenshot({ path: `${SHOTS}/align-end-2.png` });
+  await chord(page, "KeyD");
+  t = await timing(page);
+  ok(all(ends(t), 300) && all(starts(t), 0), "a third Alt+D returns to the original ends (a full cycle)", JSON.stringify(ends(t)));
+  await chord(page, "KeyD");
+  ok(all(ends(await timing(page)), 1000), "…and the cycle starts over");
+  await chord(page, "KeyD");
+  await undo(page);
+  t = await timing(page);
+  ok(JSON.stringify(t) === JSON.stringify(before), "one Undo restores the original timing: consecutive presses coalesce into one entry", JSON.stringify(starts(t)));
+  await chord(page, "KeyA");
+  t = await timing(page);
+  ok(all(starts(t), 1000) && ELL.every(id => t[id].duration === 300), "Alt+A (starts already at path 1's 0) aligns the starts to rect 2's start", JSON.stringify(starts(t)));
+  await undo(page);
+  await chord(page, "KeyD", { shift: true });
+  t = await timing(page);
+  ok(all(starts(t), 0) && ELL.every(id => t[id].duration === 1000), "Alt+Shift+D resizes: starts stay, the ends land on 1.00 s", JSON.stringify(ELL.map(id => t[id])));
+  await undo(page);
+  ok(JSON.stringify(await timing(page)) === JSON.stringify(before), "…one Undo restores it");
+  await waitFor(page, () => !document.querySelector(".beatrail .align-flash, .beatrail .align-label"), null, { timeout: 3000, label: "flash fades" });
+  ok(true, "the flash fades: nothing lit at rest");
+  // Two tracks: within the selection first (the owner's second example).
+  await page.click('.lane-row[data-track-id="ff-t-path"] .track-label');
+  await page.keyboard.down("Shift"); await page.click('.lane-row[data-track-id="ff-t-rect"] .track-label'); await page.keyboard.up("Shift");
+  await chord(page, "KeyA");
+  t = await timing(page);
+  ok(t["ff-t-rect"].start === 0 && t["ff-t-path"].start === 0, "path + rect selected: Alt+A aligns rect 2's start to path 1's", JSON.stringify([t["ff-t-path"], t["ff-t-rect"]]));
+  await undo(page);
+  await chord(page, "KeyD");
+  t = await timing(page);
+  ok(Math.abs(t["ff-t-path"].start + t["ff-t-path"].duration - 1952.69) < .01 && t["ff-t-path"].duration === 1000, "…and Alt+D aligns path 1's end to rect 2's end", JSON.stringify(t["ff-t-path"]));
+  await undo(page);
+  // Nothing to align to: a toast, no edit.
+  await page.click('.lane-row[data-track-id="ff-t-path"] .track-label');
+  const solo = await timing(page);
+  await chord(page, "KeyD");
+  ok(JSON.stringify(await timing(page)) === JSON.stringify(solo) && await page.evaluate(() => /Nothing above/.test(document.querySelector(".toasts")?.textContent ?? "")), "the top lane alone: an info toast and no edit");
+  // The X-ray owns Alt+A while open.
+  await selectEllipses(page);
+  await page.evaluate(() => window.__flux.fig.xrayOpen.set(true));
+  await paint(page);
+  // Opening/closing the X-ray re-syncs the canvas selection; pin the tracks again.
+  const pin = () => page.evaluate(ids => { window.__flux.slide.selTrackIds.set(ids); document.querySelector(".animator")?.focus(); }, ELL);
+  await pin();
+  const xrayed = await page.evaluate(() => ({ sel: window.__flux.get(window.__flux.slide.selTrackIds).length, xray: window.__flux.get(window.__flux.fig.xrayOpen) }));
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyA", key: "a", altKey: true, bubbles: true })));
+  await paint(page);
+  ok(xrayed.sel === 4 && xrayed.xray && JSON.stringify(await timing(page)) === JSON.stringify(before), "with the X-ray open, Alt+A is the X-ray's (no timeline edit)", JSON.stringify(xrayed));
+  await page.evaluate(() => window.__flux.fig.xrayOpen.set(false));
+  await paint(page);
+  await pin();
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyA", key: "a", altKey: true, bubbles: true })));
+  await paint(page);
+  const dbg = await page.evaluate(() => ({ sel: window.__flux.get(window.__flux.slide.selTrackIds), active: document.activeElement?.className, xray: window.__flux.get(window.__flux.fig.xrayOpen), toasts: document.querySelector(".toasts")?.textContent }));
+  ok(all(starts(await timing(page)), 1000), "control: the same window-dispatched Alt+A with the X-ray closed aligns (the dock owns it)", JSON.stringify(dbg));
+  await undo(page);
+  // The bar menu offers both.
+  await selectEllipses(page);
+  const bar = await page.$(`.lane-row[data-track-id="${ELL[1]}"] .trk`), bb = await bar.boundingBox();
+  await page.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2, { button: "right" });
+  await waitFor(page, () => !!document.querySelector(".menu[role=menu]"), null, { timeout: 3000, label: "bar menu" });
+  const items = await page.evaluate(() => [...document.querySelectorAll(".menu[role=menu] button")].map(b => b.textContent));
+  ok(items.some(i => /^Align starts.*Alt\+A/.test(i)) && items.some(i => /^Align ends.*Alt\+D/.test(i)), "the bar menu offers Align starts / Align ends with their chords", JSON.stringify(items));
+  await page.evaluate(() => [...document.querySelectorAll(".menu[role=menu] button")].find(b => /^Align ends/.test(b.textContent))?.click());
+  await paint(page);
+  ok(all(ends(await timing(page)), 1000), "the menu's Align ends applies the same first candidate");
+  await undo(page);
+}

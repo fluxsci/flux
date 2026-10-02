@@ -2488,6 +2488,21 @@
       ]
     },
     {
+      "$why": "2026-10-02 W4: align-tracks / inherit-track pure core (GUI Alt+A/D and Ctrl+Alt-drag, CLI/MCP twins); keeps the broader slide rule's groups.",
+      "glob": "src/lib/slide/alignTracks.ts",
+      "run": [
+        "verify-slide-timeline.ts",
+        "verify-slide-resolve.ts",
+        "verify-registry-parity.ts",
+        "verify-slide-animator-gui.mjs",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
       "glob": "{src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
       "run": [
         "group:figures-slides-overhaul",

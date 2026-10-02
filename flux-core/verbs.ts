@@ -3099,6 +3099,45 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "align_tracks", scope: "project", cli: "align-tracks", cliRoot: "flags",
+    summary: "Align tracks' resolved start or end edge (end includes the stagger tail) to a time in ms or to another track's edge (to = trackId[:start|end], default the same edge) — the Animator's Alt+A / Alt+D. Default moves each track and keeps its duration; resize keeps the opposite edge. Starts clamp at 0, durations at 1 ms; a moved start detaches a timing anchor and overrides a linked style's start. beatId is a step id or 0-based index (default: the first track's step).",
+    params: {
+      deckId: z.string().min(1), slideId: z.string().min(1), trackIds: z.array(z.string().min(1)).min(1),
+      edge: z.enum(["start", "end"]), to: z.union([z.number().nonnegative(), z.string().min(1)]),
+      beatId: z.string().min(1).optional(), resize: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "tracks", into: "trackIds", as: "csv", required: true }, { kind: "flag", at: "edge", into: "edge", required: true },
+      { kind: "flag", at: "to", into: "to", required: true }, { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "resize", into: "resize", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.alignTracksVerb(ctx.root, s(a.deckId), s(a.slideId), sArr(a.trackIds), a.edge as "start" | "end", a.to as string | number,
+      { beat: a.beatId as string | undefined, resize: !!a.resize }),
+    render: {
+      human: r => ({ out: JSON.stringify(r) }),
+      mcp: r => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "inherit_track", scope: "project", cli: "inherit-track", cliRoot: "flags",
+    summary: "Give target tracks the source track's exact animation parameters — the Animator's Ctrl+Alt-drag Inherit. A linked source links the targets to its style (plus the source's own overrides); otherwise its resolved duration, timing curve and stagger are copied, and within one family and phase also its preset, params and arc. Bindings, endpoints, anchors, groups and enabled state never travel; start is copied only with includeStart. Video commands and animations refuse each other.",
+    params: {
+      deckId: z.string().min(1), slideId: z.string().min(1), from: z.string().min(1), to: z.array(z.string().min(1)).min(1),
+      beatId: z.string().min(1).optional(), includeStart: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "from", into: "from", required: true }, { kind: "flag", at: "to", into: "to", as: "csv", required: true },
+      { kind: "flag", at: "beat", into: "beatId" }, { kind: "flag", at: "include-start", into: "includeStart", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.inheritTrackVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.from), sArr(a.to), { beat: a.beatId as string | undefined, includeStart: !!a.includeStart }),
+    render: {
+      human: r => ({ out: JSON.stringify(r) }),
+      mcp: r => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_plot_view", scope: "project", cli: "set-plot-view", cliRoot: "flags",
     notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
     summary: "Set a plot's data view in data units. target is a figureId or deckId/slideId. A slide --beat edits that step's Change endpoint; without it edit Design. Omitted fields are preserved, --reset restores generator defaults. Lines, points, bars, cells, hexagons and existing guides re-project; ticks are regenerated for the new domain; reference lines stay put. A twin value axis (fluxplot axes[].y2 / .x2 — ax.twinx(), a secondary axis) has its own --y2-min/--y2-max/--y2-scale (--x2-…).",

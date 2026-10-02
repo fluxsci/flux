@@ -411,6 +411,92 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   check(timeGrid(0, .5).majors.length === 1 && timeGrid(0, .5).minors.length === 0, "an empty extent draws only the zero line");
 }
 
+// Align starts / ends (Alt+A / Alt+D): the candidate law and the op (owner, 2026-10-02,
+// FeatureFig 1: path drawOn 0–1000, rect fadeRise 1000–1952.69, four ellipses popIn 0–300).
+const { alignCandidates, alignCycleStep, alignTrackEdges, alignTargetMs, trackEdges, inheritTrack } = await import("../src/lib/slide/alignTracks");
+const { resolveBeat } = await import("../src/lib/slide/resolve");
+const RECT_END = 1000 + 952.6867379224138;
+function featureFig() {
+  const deck = createDeck({ withTitleSlide: false, stage });
+  const ell = [0, 1, 2, 3].map(i => `ell${i}`);
+  deck.slides = [{ id: "ff", elements: [], beats: [{ id: "base", tracks: [] }, { id: "b", tracks: [
+    { id: "path", target: "p", preset: "drawOn", duration: 1000, start: 0 },
+    { id: "rect", target: "r", preset: "fadeRise", duration: 952.6867379224138, start: 1000, curve: { kind: "spring", bounce: 0 } },
+    ...ell.map(id => ({ id, target: `${id}-el`, preset: "popIn" as const, duration: 300, start: 0 })),
+  ] }] }];
+  return { deck, ell, beat: () => deck.slides[0].beats[1], lanes: () => resolveBeat(deck.slides[0].beats[1], deck).tracks };
+}
+const ms = (cs: { ms: number }[]) => cs.map(c => Math.round(c.ms * 100) / 100);
+const timing = (deck: ReturnType<typeof featureFig>["deck"], ids: string[]) => deck.slides[0].beats[1].tracks.filter(t => ids.includes(t.id!)).map(t => [t.start, t.duration]);
+{
+  const { deck, ell, lanes } = featureFig();
+  check(JSON.stringify(ms(alignCandidates(lanes(), ell, "end"))) === JSON.stringify([1000, 1952.69]), "Alt+D on the four ellipses visits path 1's end, then rect 2's end (nearest first)");
+  check(alignCandidates(lanes(), ell, "end").map(c => c.trackId).join() === "path,rect" && alignCandidates(lanes(), ell, "end").every(c => c.from === "above"), "…each candidate names the lane above it came from");
+  check(JSON.stringify(ms(alignCandidates(lanes(), ell, "start"))) === JSON.stringify([1000]), "Alt+A with the starts already at path 1's 0 goes to rect 2's start (the equal edge is dropped)");
+  const pair = alignCandidates(lanes(), ["path", "rect"], "start");
+  check(pair.length === 1 && pair[0].ms === 0 && pair[0].from === "selection" && pair[0].trackId === "path", "two selected tracks: Alt+A aligns the second's start to the first's (the selection's earliest start)");
+  const pairEnd = alignCandidates(lanes(), ["path", "rect"], "end");
+  check(pairEnd.length === 1 && pairEnd[0].ms === RECT_END && pairEnd[0].trackId === "rect", "…and Alt+D aligns the first's end to the second's (the selection's latest end)");
+  check(alignCandidates(lanes(), ["path"], "end").length === 0 && alignCandidates(lanes(), ["path"], "start").length === 0, "nothing above and nothing within: no candidates (the dock toasts)");
+  check(alignCandidates(lanes(), [], "end").length === 0, "an empty selection has no candidates");
+  // the press cycle: every candidate, then the origin, then round again
+  const n = alignCandidates(lanes(), ell, "end").length, walk: number[] = [];
+  for (let i = -1, k = 0; k < 6; k++) walk.push(i = alignCycleStep(i, n));
+  check(walk.join() === "0,1,-1,0,1,-1", `repeated presses wrap: candidate, candidate, origin, … (${walk.join()})`);
+  check(alignCycleStep(-1, 0) === -1, "a cycle with no candidates stays at the origin");
+  // dedupe, ties, disabled lanes
+  const lanes2 = [
+    { id: "u1", target: "a", preset: "fade" as const, start: 0, duration: 500 }, { id: "u2", target: "b", preset: "fade" as const, start: 100, duration: 400 },
+    { id: "off", target: "c", preset: "fade" as const, start: 0, duration: 50, disabled: true }, { id: "u3", target: "d", preset: "fade" as const, start: 0, duration: 150 },
+    { id: "me", target: "e", preset: "fade" as const, start: 0, duration: 300 },
+  ];
+  const dedup = alignCandidates(lanes2, ["me"], "end");
+  check(dedup.map(c => `${c.trackId}@${c.ms}`).join() === "u3@150,u1@500", `equal times dedupe to the upper lane and disabled lanes do not count (${dedup.map(c => `${c.trackId}@${c.ms}`).join()})`);
+  const tie = alignCandidates([{ id: "t1", target: "a", preset: "fade" as const, start: 0, duration: 500 }, { id: "t2", target: "b", preset: "fade" as const, start: 0, duration: 100 }, { id: "me", target: "e", preset: "fade" as const, start: 0, duration: 300 }], ["me"], "end");
+  check(tie.map(c => c.trackId).join() === "t1,t2", "equal distances keep lane order (the upper lane first)");
+  check(trackEdges({ id: "x", target: "p", parts: ["a", "b", "c"], preset: "fade", duration: 100, start: 10, stagger: { perMs: 50 } }).end === 210, "an edge's end includes the stagger tail (as anchors and drag magnets do)");
+  check(alignTargetMs(deck, "ff", "b", "rect", "end") === RECT_END && alignTargetMs(deck, "ff", "b", "rect:start", "end") === 1000 && alignTargetMs(deck, "ff", "b", "750", "end") === 750 && alignTargetMs(deck, "ff", "b", "nope", "end") === null, "align targets: a track's edge (default the aligned edge), an explicit edge, a number, or nothing");
+}
+{
+  const f = featureFig();
+  let r = alignTrackEdges(f.deck, "ff", "b", f.ell, "end", 1000);
+  check(r.changed.length === 4 && JSON.stringify(timing(f.deck, f.ell)) === JSON.stringify(f.ell.map(() => [700, 300])), "move-align ends to 1000: starts 700, durations kept at 300");
+  r = alignTrackEdges(f.deck, "ff", "b", f.ell, "end", 1000);
+  check(r.changed.length === 0 && r.refused.length === 0, "an already-aligned selection is a no-op (nothing reported changed)");
+  const g = featureFig();
+  alignTrackEdges(g.deck, "ff", "b", g.ell, "end", 1000, { mode: "resize" });
+  check(JSON.stringify(timing(g.deck, g.ell)) === JSON.stringify(g.ell.map(() => [0, 1000])), "resize-align ends to 1000 keeps the starts and lengthens to 1000 ms");
+  alignTrackEdges(g.deck, "ff", "b", g.ell, "start", 400, { mode: "resize" });
+  check(JSON.stringify(timing(g.deck, g.ell)) === JSON.stringify(g.ell.map(() => [400, 600])), "resize-align starts to 400 keeps the ends (shortens from the front)");
+  alignTrackEdges(g.deck, "ff", "b", g.ell, "start", 5000, { mode: "resize" });
+  check(JSON.stringify(timing(g.deck, g.ell)) === JSON.stringify(g.ell.map(() => [999, 1])), "a front resize past the end clamps the duration at 1 ms");
+  const c = featureFig();
+  alignTrackEdges(c.deck, "ff", "b", c.ell, "end", 100);
+  check(JSON.stringify(timing(c.deck, c.ell)) === JSON.stringify(c.ell.map(() => [0, 300])), "a move whose start would go negative clamps at 0");
+  alignTrackEdges(c.deck, "ff", "b", c.ell, "end", 0, { mode: "resize" });
+  check(JSON.stringify(timing(c.deck, c.ell)) === JSON.stringify(c.ell.map(() => [0, 1])), "an end resize to before the start clamps the duration at 1 ms");
+  check(alignTrackEdges(c.deck, "ff", "b", ["ell0"], "end", -5).refused.length === 1 && alignTrackEdges(c.deck, "ff", "nope", ["ell0"], "end", 5).refused[0].reason === "Step not found on this slide", "bad times and steps refuse without edits");
+}
+{
+  // Anchored followers and linked styles behave exactly like a drag.
+  const f = featureFig();
+  f.deck.animStyles = [{ id: "pop", name: "Pop", family: "appearance", track: { preset: "popIn", duration: 300, start: 50 } }];
+  const b = f.beat();
+  Object.assign(b.tracks[2], { anchor: { trackId: "path", edge: "end", offsetMs: 0 } });
+  delete b.tracks[3].start; delete b.tracks[3].duration; b.tracks[3].styleId = "pop";
+  const r = alignTrackEdges(f.deck, "ff", "b", ["ell0"], "end", RECT_END);
+  check(!b.tracks[2].anchor && Math.abs(b.tracks[2].start! - (RECT_END - 300)) < 1e-9 && r.detached.length === 1 && r.detached[0].from === "path", "a moved anchored follower detaches (anchor:null) and reports its leader for the toast");
+  Object.assign(b.tracks[2], { anchor: { trackId: "path", edge: "end", offsetMs: 0 } });
+  const kept = alignTrackEdges(f.deck, "ff", "b", ["ell0"], "end", 1500, { mode: "resize" });
+  check(b.tracks[2].anchor?.trackId === "path" && b.tracks[2].duration === 500 && kept.detached.length === 0, "an end resize keeps the anchor (its start did not move)");
+  alignTrackEdges(f.deck, "ff", "b", ["ell1"], "start", 1000);
+  check(b.tracks[3].styleId === "pop" && b.tracks[3].start === 1000 && b.tracks[3].duration === undefined, "a linked track gets an own start (an override, like a drag) and keeps its style link");
+  // video commands: placed by move, refused by resize
+  f.deck.slides[0].beats[1].tracks.push({ id: "vid", target: "v", preset: "videoStart", start: 0 });
+  check(alignTrackEdges(f.deck, "ff", "b", ["vid"], "start", 700).changed[0] === "vid" && b.tracks.at(-1)!.start === 700, "a video command moves to the aligned time");
+  check(alignTrackEdges(f.deck, "ff", "b", ["vid"], "end", 900, { mode: "resize" }).refused[0]?.reason === "Video commands have no duration to resize", "a video command refuses a resize with a reason");
+}
+
 console.log(`\nSLIDE TIMELINE: PASS (${h.checks} assertions)`);
 
 await h.done();
