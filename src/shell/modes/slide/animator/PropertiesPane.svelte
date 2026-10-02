@@ -455,6 +455,7 @@
   });
   const modelContentPair = $derived.by(()=>{
     if(!curTrack)return null;const a=transformPreState(slide,curTrack.target,curBeatIndex);
+    if(handoff?.ref.members)return null; // a set never pairs one model with another
     const b=handoff?transformPreState(slide,handoff.ref.element,curBeatIndex):a?transformEndState(a,curTrack):undefined;
     return a?.type==="model3d"&&(handoff||curTrack.to?.assetId)?modelPair(a,b??undefined,{modelAsset:id=>$project.assets.find(asset=>asset.id===id)}):null;
   });
@@ -585,6 +586,10 @@
       <div class="dest" aria-label="Transform destination">
         <div class="dl">Destination</div>
         <div class="dv">{destinationLabel}{#if modelContentPair} <span data-model-content-badge title={modelPairIssue(modelContentPair)??"Same mesh structure — the shape morphs smoothly."}>·&nbsp;{modelContentPair.ok?"Vertex morph":"Crossfade"}</span>{/if}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
+        {#if handoff?.ref.members}
+          <!-- a destination SET: one chip per member, named as its own lane would be -->
+          <div class="dmembers" aria-label="Destination members">{#each handoff.ref.members as member, i (i)}<span class="dmember">{refLabel(member, slide, manifestFor, new Map(), 2)}</span>{/each}</div>
+        {/if}
         {#if handoff}
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
@@ -921,6 +926,12 @@
   .dest .dv { font-size: 12px; color: var(--c-tx); line-height: 1.4; }
   .dest .warn { color: var(--c-warning); }
   .dacts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .dmembers { display: flex; flex-wrap: wrap; gap: 4px; }
+  .dmember {
+    display: inline-flex; align-items: center; height: 18px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font: 11px var(--font-mono); color: var(--c-tx-2);
+    border: 1px solid var(--c-line); border-radius: var(--r-ui); padding: 0 5px;
+  }
   .dchip {
     display: inline-flex; align-items: center; gap: 2px; height: 18px;
     font: 11px var(--font-mono); color: var(--c-tx-2);

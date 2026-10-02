@@ -78,7 +78,7 @@
   const sourceGroup = $derived(!$partSelections.length && sel.length > 1 && !!slide?.elements.some(el => sel.includes(el.id) && el.groupId));
   const appearItems = $derived<MenuItem[]>([
     {label: "Appear", hint: "Add an entrance · Cmd/Ctrl+Shift+A", disabled: !sel.length, action: () => onAction?.("appear")},
-    {label: "Appear from…", hint: "Pick the object this selection comes from", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
+    {label: "Appear from…", hint: sel.length > 1 ? "Pick the object these objects appear from (one hand-off into all of them)" : "Pick the object this selection comes from", disabled: !sel.length || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
   ]);
   const transformItems = $derived<MenuItem[]>([
     { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+T", disabled: !sel.length, action: () => onAction?.("change") },

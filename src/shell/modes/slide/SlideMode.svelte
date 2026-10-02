@@ -39,7 +39,8 @@
     editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
-  import { hasPartBinding, isWholeElementRef, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES } from "../../../lib/slide/targets";
+  import { hasPartBinding, isWholeElementRef, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES, composeDestination, refMembers, refElementIds } from "../../../lib/slide/targets";
+  import { membersDeep } from "../../../lib/groups";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../lib/slide/autobuild";
   import { buildPartTree } from "../../../lib/plot/tree";
   import { isExitPreset } from "../../../lib/slide/presetCatalog";
@@ -86,6 +87,7 @@
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
   import type { Deck, TransitionKind, TargetRef, PairPolicy } from "../../../lib/slide/types";
+  import type { Figure } from "../../../lib/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
@@ -1056,10 +1058,23 @@
     if (!s) return ref.element;
     return sharedRefLabel(ref, s, id => { const el = s.elements.find(e => e.id === id); return el?.type === "plot" ? get(plotManifests)[el.assetId] : undefined; }, plotTags);
   }
-  function oneRef(refs: TargetRef[]): TargetRef | null {
-    if (refs.length === 1) return refs[0];
-    pushToast("info", "Pick parts of one object, or one object", {detail: refs.length && refs.every(r => !r.parts?.length && !r.group) ? "Group these objects first, then pick the group in X-ray." : undefined});
-    return null;
+  /** Several picks name ONE destination: a set of the objects and plot parts
+   *  picked (group picks expand to their objects). One pick stays itself. */
+  function composeDest(refs: TargetRef[]): TargetRef | null {
+    const s = activeSlide;
+    try {
+      return composeDestination(refs, groupId => s ? membersDeep(s as unknown as Figure, groupId).map(e => e.id) : []);
+    } catch (error) { pushToast("info", "Couldn't use that set", {detail: errMsg(error)}); return null; }
+  }
+  /** Whether a canvas pick is (part of) the side that is already fixed. */
+  function inFixedSide(ref: TargetRef, fixed: TargetRef): boolean {
+    return sameRef(ref, fixed) || refMembers(fixed).some(m => sameRef(m, ref));
+  }
+  /** Restore the canvas selection to a ref (a set selects every member). */
+  function selectRef(ref: TargetRef) {
+    const members = refMembers(ref);
+    selection.set(new Set(refElementIds(ref)));
+    setPartSelections(members.flatMap(m => (m.parts ?? []).map(partId => ({elementId: m.element, partId}))));
   }
   function animateFromXray(req: XrayAnimateRequest) {
     stopPreview();
@@ -1140,13 +1155,16 @@
   function startBecome(armedFrom: "become" | "appear-from" = "become", refs = selectedRefs()) {
     const s = activeSlide, sid = $activeFigureId;
     if (!s || !sid) return;
-    if (refs.length !== 1) { pushToast("info", "Select one object or its parts to become something"); return; }
-    const source = refs[0], el = s.elements.find(e => e.id === source.element);
+    // Appear from… may start from several destinations: they land as one set.
+    if (!refs.length || refs.length > 1 && armedFrom === "become") { pushToast("info", "Select one object or its parts to become something"); return; }
+    const source = armedFrom === "appear-from" ? composeDest(refs) : refs[0];
+    if (!source) return;
+    const el = s.elements.find(e => e.id === source.element);
     if (!el) return;
     if (source.group && armedFrom === "become") { pushToast("info", "Choose an object or plot parts as the Become source, rather than a group."); return; }
-    if (el.type === "video") { pushToast("info", "Video clips cannot take part in a Become", {detail: "Use Change for a clip's geometry, or Duplicate it."}); return; }
+    if (refElementIds(source).some(id => s.elements.find(e => e.id === id)?.type === "video")) { pushToast("info", "Video clips cannot take part in a Become", {detail: "Use Change for a clip's geometry, or Duplicate it."}); return; }
     let bi = $activeBeat > 0 ? $activeBeat : Math.max(1, s.beats.length - 1);
-    const birth = ghostBirth(s, source.element);
+    const birth = refElementIds(source).map(id => ghostBirth(s, id)).reduce<ReturnType<typeof ghostBirth>>((late, b) => b && (!late || b.beatIndex > late.beatIndex) ? b : late, null);
     if (birth && birth.beatIndex > bi) { pushToast("info", "Choose the ghost's birth step or a later one"); return; }
     if (s.beats.length <= 1) commitDeckLive(d => { slideOps.addBeat(d, sid, {label: "Beat 1", advance: "click"}); });
     bi = Math.min(bi, (composedSlide(sid)?.beats.length ?? 2) - 1);
@@ -1166,7 +1184,13 @@
   }
   function confirmPick(pick: TargetPick, picks = pick.picks) {
     if (!picks.length) return;
-    const ref = oneRef(picks);
+    if (pick.kind === "appearFrom") {
+      // The picks are SOURCES here: a Become has one source object or part set.
+      if (picks.length > 1) { pushToast("info", "Pick one object, or parts of one object, to appear from"); return; }
+      performBecome(pick, picks[0]);
+      return;
+    }
+    const ref = composeDest(picks);
     if (ref) performBecome(pick, ref);
   }
   function performBecome(pick: TargetPick, ref: TargetRef) {
@@ -1202,8 +1226,7 @@
         }}} : {})});
       }
     } catch (error) {
-      selection.set(new Set([pick.source.element]));
-      setPartSelections((pick.source.parts ?? []).map(partId => ({elementId: pick.source.element, partId})));
+      selectRef(pick.source);
       lastPickSelection = JSON.stringify(selectedRefs());
       pickState = pick;
       pushToast("error", "Couldn't become that object", { detail: errMsg(error) });
@@ -1219,7 +1242,7 @@
       if (tool !== "select" || signature === lastPickSelection) return;
       lastPickSelection = signature;
       if (inXray) return;
-      const candidates = refs.filter(ref => !sameRef(ref, pick.source));
+      const candidates = refs.filter(ref => !inFixedSide(ref, pick.source));
       if (!candidates.length) return;
       if (pickShift) {
         const targets = [...pick.picks, ...candidates].flatMap<XrayAnimateTarget>(ref => ref.parts?.length ? ref.parts.map(partId => ({elementId: ref.element, partId})) : [{elementId: ref.element, groupId: ref.group}]);
