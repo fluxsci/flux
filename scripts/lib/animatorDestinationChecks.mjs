@@ -136,8 +136,10 @@ export async function verifyDestinations(page,ok) {
       add('overlap-landing','issue-overlap-b',{element:'issue-plot',parts:['box.2']});
       add('unborn-landing','issue-unborn',{element:ghost.elementIds[0]});
       const textA=f.slideOps.addSlideText(d,sid,{text:'From',x:40,y:160,width:100,height:35});
-      const textB=f.slideOps.addSlideText(d,sid,{text:'To',x:220,y:160,width:100,height:35});
-      add('no-outline',textA,{element:textB});
+      // Text ↔ text now plays the glyph-matched text morph (oct2 W3), so the
+      // no-outline pair is text ↔ image: neither side has a drawable outline.
+      s.elements.push({id:'issue-image',type:'image',assetId:'issue-missing-asset',x:220,y:160,width:100,height:35,rotation:0});
+      add('no-outline',textA,{element:'issue-image'});
     });f.slide.selectSlide(sid);f.slide.activeBeat.set(1);
     const d=f.slide.currentDeck(),s=d.slides.find(s=>s.id===sid);
     return compileSlide(s,d.stage,{plotManifest:id=>f.get(f.plot.plotManifests)[id]}).issues.filter(i=>['missing-parts','overlap-landing','unborn-landing','no-outline'].includes(i.trackId));

@@ -215,7 +215,12 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const elementOf = (id: string) => preFrame.elements.find(e => e.id === id);
           const whole = !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null;
           const modelFlight = [...handoff.source, ...handoff.destination].some(t => t.partIds === null && elementOf(t.elementId)?.type === "model3d");
-          const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
+          // Two whole, upright text objects: the glyph-matched text morph.
+          const textA = !hasPartBinding(track) && whole ? elementOf(track.target) : undefined, textB = whole ? elementOf(handoff.destination[0].elementId) : undefined;
+          const upright = (el: typeof textA) => !!el && !el.rotation && !el.flipX && !el.flipY;
+          const text = textA?.type === "text" && textB?.type === "text" && upright(textA) && upright(textB)
+            ? { a: textA, b: textB, render: { ...opts, ghostPartFactors: opts.ghostPartFactors } as SlideRenderCtx, durationMs: ct.duration } : undefined;
+          const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec, text,
             plan: () => planHandoff(track, preFrame, geometry),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
@@ -254,7 +259,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           model3d: opts.model3d, modelAsset: opts.modelAsset, modelManifest: opts.modelManifest,
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
-          ghostPartFactors: opts.ghostPartFactors,
+          ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         specs.push({

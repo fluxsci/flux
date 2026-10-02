@@ -42,6 +42,8 @@ import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
+import { createTextMorph, layoutForMorph, type TextMorph } from "./textMorph";
+import type { TextElement } from "../../types";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
@@ -56,6 +58,19 @@ export interface TransformCtx extends SlideRenderCtx {
   /** Wrapper props an overlapping same-beat appearance owns (conflict rule —
    *  the transform drops them; the appearance wins for the overlap). */
   skipProps?: ReadonlySet<string>;
+  /** The track's duration (the text morph's stagger is bounded in real time). */
+  durationMs?: number;
+}
+
+/** The wrapper's local CSS frame in stage px for a frame of state `el`: where its
+ *  (0,0) sits and how many stage px one local px spans. Composite frames keep the
+ *  frozen base box and scale it onto the exact box; a frame whose transform an
+ *  appearance owns rests in the rounded box unscaled (render.ts placement law). */
+function wrapperFrame(el: FigElement, base: { x: number; y: number; w: number; h: number }, composite: boolean) {
+  const bb = elementBBox({ ...el, rotation: 0 });
+  if (composite) return { bb, ox: bb.x, oy: bb.y, sx: Math.max(bb.w, 1) / Math.max(base.w, 1), sy: Math.max(bb.h, 1) / Math.max(base.h, 1), w: Math.max(base.w, 1), h: Math.max(base.h, 1) };
+  const lb = layoutBoxOf(bb);
+  return { bb, ox: lb.x, oy: lb.y, sx: 1, sy: 1, w: lb.w, h: lb.h };
 }
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
@@ -311,6 +326,57 @@ export function createTransform(
     }
   }
 
+  // --- the glyph-matched text morph (a text rewrite; textMatch.ts) ---------
+  // A = the ORIGINAL nodes (moved), shown at raw ≤ 0; M = the span layer
+  // (player/textMorph.ts), counter-scaled so its local px are stage px whatever
+  // the wrapper's composite scale; B = the end markup through the ONE
+  // serializer, shown at raw ≥ 1 and the root later tracks bind to. Unmappable
+  // texts (and a host that cannot measure) crossfade A and B at their natural
+  // size — the text never stretches with a changing box.
+  let textLayers: { A: HTMLElement; M: HTMLElement; B: HTMLElement; morph: TextMorph; preBox: { w: number; h: number }; endBox: { w: number; h: number } } | null = null;
+  if (plan.mode === "textMorph") {
+    const mk = (): HTMLElement => {
+      const d = document.createElement("div");
+      d.style.cssText = "position:absolute;inset:0;transform-origin:0 0;";
+      return d;
+    };
+    const A = mk(), M = mk(), B = mk();
+    M.className = "sl-text-morph";
+    M.style.pointerEvents = "none";
+    while (contentHost.firstChild) A.appendChild(contentHost.firstChild);
+    fillContent(B, layoutForMorph(end as TextElement), ctx);
+    contentHost.append(A, M, B);
+    const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
+    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600 }),
+      preBox: { w: Math.max(pb.w, 1), h: Math.max(pb.h, 1) }, endBox: { w: Math.max(eb.w, 1), h: Math.max(eb.h, 1) } };
+  }
+  function writeTextMorph(el: FigElement, u: number, raw: number): void {
+    const L = textLayers!, t = clamp01(u);
+    const style = (n: HTMLElement, props: Record<string, string>) => { for (const [k, v] of Object.entries(props)) if ((n.style as unknown as Record<string, string>)[k] !== v) (n.style as unknown as Record<string, string>)[k] = v; };
+    if (raw <= 0 || raw >= 1) {
+      L.morph.hide();
+      style(L.A, { visibility: raw <= 0 ? "" : "hidden", opacity: "", transform: "" });
+      style(L.B, { visibility: raw >= 1 ? "" : "hidden", opacity: "", transform: "" });
+      style(L.M, { visibility: "hidden", transform: "" });
+      return;
+    }
+    const f = wrapperFrame(el, baseBox, !boxOpts.skipTransform);
+    const n = (v: number) => Math.round(v * 1e6) / 1e6;
+    if (L.morph.ensure()) {
+      style(L.A, { visibility: "hidden", opacity: "", transform: "" });
+      style(L.B, { visibility: "hidden", opacity: "", transform: "" });
+      style(L.M, { visibility: "", transform: f.sx === 1 && f.sy === 1 ? "" : `scale(${n(1 / f.sx)}, ${n(1 / f.sy)})` });
+      L.morph.frame(u, raw, { x: f.bb.x - f.ox, y: f.bb.y - f.oy });
+      return;
+    }
+    // Fallback: both endpoint renders at their own natural size, anchored to the
+    // moving box's top-left, cross-lerped.
+    const natural = (box: { w: number; h: number }) => `scale(${n(box.w / (f.w * f.sx))}, ${n(box.h / (f.h * f.sy))})`;
+    style(L.M, { visibility: "hidden" });
+    style(L.A, { visibility: "", opacity: String(1 - t), transform: natural(L.preBox) });
+    style(L.B, { visibility: "", opacity: String(t), transform: natural(L.endBox) });
+  }
+
   function seek(u: number, raw = clamp01(u)): void {
     const t = clamp01(u);
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw);
@@ -318,7 +384,9 @@ export function createTransform(
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
-    if (content.type === "text" && content.needsLayout) applyTextLayout(content);
+    // The text morph draws measured endpoints instead: its box simply lerps
+    // (re-hugging a stepped text per frame made the box jump at t = 0.5).
+    if (content.type === "text" && content.needsLayout && !textLayers) applyTextLayout(content);
     if (raw > 0 && raw < 1 && !boxOpts.skipTransform) {
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
       if (glide) promoteMovingWrapper(wrap);
@@ -342,6 +410,8 @@ export function createTransform(
       showMorphLayer(raw);
       return;
     }
+
+    if (textLayers) { writeTextMorph(el, u, raw); return; }
 
     if (plan.mode === "crossfade") {
       ensureLayers();
@@ -413,6 +483,14 @@ export function createTransform(
   // Build in story order, before later tracks resolve their targets. A B-only
   // semantic part after A→B must bind B's nodes even on the first random seek.
   if (plan.mode === "crossfade") { ensureLayers(); layerB!.style.opacity = "0"; }
+  if (textLayers) {
+    writeTextMorph(pre, 0, 0);
+    // Measure while the browser is idle so the first mid-flight frame finds the
+    // spans built; a seek that arrives first builds them on the spot.
+    const L = textLayers;
+    warmWhenIdle(() => { if (wrap.isConnected) L.morph.ensure(); });
+    return { seek, targetRoot: L.B, dispose: () => L.morph.dispose() } as MorphController;
+  }
   if (morphPlan) {
     showMorphLayer(0);
     // The node correspondence is deferred (outline.planElementMorph) so opening

@@ -12,8 +12,9 @@
 // timing/easing): numerics lerp, colors blend in OKLab, path geometry
 // resamples by arc length, text with a single differing number digit-tweens,
 // everything non-interpolable steps at t = 0.5 (predictable, never garbage).
-// Content the DRIVER should crossfade instead (text rewrites, closed≠open
-// paths, incompatible plots) is reported by contentPlan().
+// Content the DRIVER renders another way (text rewrites → the glyph-matched
+// text morph, closed≠open paths → the outline morph, incompatible plots → a
+// crossfade) is reported by contentPlan().
 // ---------------------------------------------------------------------------
 
 import { isHandoff } from "./targets";
@@ -307,13 +308,15 @@ export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: nu
 
 // --- the content plan (what the driver renders) -------------------------------
 
-export type ContentMode = "tween" | "crossfade" | "morph" | "model-live";
+export type ContentMode = "tween" | "crossfade" | "morph" | "model-live" | "textMorph";
 
 export interface ContentPlan {
   /** How the CONTENT layer animates ("tween": one re-rendered layer;
    *  "crossfade": two stacked layers, opacity cross-lerped — geometry still
    *  moves via the lerped box; "morph": one live outline path between two
-   *  drawn kinds — see outline.ts). */
+   *  drawn kinds — see outline.ts; "textMorph": a text rewrite whose shared
+   *  words glide while the rest fades, staggered — see textMatch.ts and
+   *  player/textMorph.ts). */
   mode: ContentMode;
   /** Text digit-tween sampler when the text change is a pure numeric diff. */
   textTween?: (t: number) => string;
@@ -340,9 +343,12 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
   let mode: ContentMode = "tween";
   let textTween: ((t: number) => string) | undefined;
   if (pre.type === "text" && end.type === "text" && pre.text !== end.text) {
+    // A pure digit change keeps the in-place count-up (one layer, no spans);
+    // every other rewrite is the glyph-matched morph — even a rewrite sharing
+    // nothing plays as the staggered word fade, never the flat crossfade.
     const sampler = numericTextTween(pre.text, end.text);
     if (sampler) textTween = sampler;
-    else mode = "crossfade";
+    else mode = "textMorph";
   }
   // Across kinds: drawn kinds morph through one outline (a path whose
   // closedness changes is the same topology change); everything else

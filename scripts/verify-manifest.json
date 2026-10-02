@@ -377,7 +377,9 @@
       "verify-model3d-embed.ts",
       "verify-slide-model3d-parts.ts",
       "verify-slide-model3d-parts-browser.ts",
-      "verify-slide-model3d-scale.ts"
+      "verify-slide-model3d-scale.ts",
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -870,7 +872,9 @@
       "verify-slide-handoff-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
-      "verify-slide-stagger.ts"
+      "verify-slide-stagger.ts",
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -1214,6 +1218,13 @@
       "verify-slide-model3d-scale.ts",
       "verify-scale-slide.mjs",
       "verify-slide-model3d-scale-electron.cjs"
+    ],
+    "text-morph": [
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts",
+      "verify-slide-tween.ts",
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-export-transform.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1455,6 +1466,25 @@
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
         "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "$why": "2026-10-02 glyph-matched text morph (oct2 W3): textMatch.ts is the pure matcher/plan/timeline core, player/textMorph.ts its browser driver inside the transform driver and the hand-off player; keep the broader slide-player regression groups (pathMap is first-match).",
+      "glob": "{src/lib/slide/textMatch.ts,src/lib/slide/player/textMorph.ts}",
+      "run": [
+        "group:text-morph",
+        "verify-transform-gui.mjs",
+        "verify-slide-become-gui.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
@@ -9539,6 +9569,42 @@
       "coverage": "behavior"
     },
     "verify-plot-value-morph.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-text-match.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-text-morph-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fig-source-cache.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-resize-preview.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

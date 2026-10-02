@@ -13,7 +13,7 @@ import { staggerKey, manifestCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
-import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, type ResolvedTarget } from "./targets";
+import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, isWholeElementRef, type ResolvedTarget } from "./targets";
 import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
@@ -345,6 +345,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       if (reason) issues.push({ trackId: ct.track.id, target: ct.track.target, reason });
       continue;
     }
+    // Two whole text objects play the glyph-matched text morph, not a box fade.
+    if (sourceEl?.type === "text" && destinationEl?.type === "text" && isWholeElementRef(trackRef(ct.track)) && isWholeElementRef(ref)) continue;
     const a = targetOutlines(trackRef(ct.track), frame, ctx), b = targetOutlines(ref, frame, ctx);
     if (a.length && b.length && a.every(o => o.paint.text || o.paint.raster) && b.every(o => o.paint.text || o.paint.raster))
       issues.push({ trackId: ct.track.id, target: ct.track.target, reason: "Neither side of this Become has an outline; it crossfades" });

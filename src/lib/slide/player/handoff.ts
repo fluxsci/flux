@@ -7,6 +7,9 @@ import type { MorphController } from "../../plot/project";
 import { prefixIds } from "../../plot/parse";
 import { pathD, pathRender } from "../../path";
 import { warmWhenIdle } from "./transform";
+import { createTextMorph, type TextMorph } from "./textMorph";
+import type { TextElement } from "../../types";
+import type { SlideRenderCtx } from "./render";
 
 const NS = "http://www.w3.org/2000/svg";
 const clamp01 = (u: number) => Math.max(0, Math.min(1, u));
@@ -59,6 +62,10 @@ export interface HandoffOptions {
   spec: BecomeSpec;
   ctx: HandoffCtx;
   media?: HandoffMedia;
+  /** Two whole, unrotated text elements: the glyph-matched text morph flies
+   *  their words on a stage-level HTML layer beside the flight SVG instead of
+   *  the box crossfade (which stays the fallback when the texts cannot be mapped). */
+  text?: { a: TextElement; b: TextElement; render: SlideRenderCtx; durationMs: number };
 }
 export interface HandoffController extends MorphController {
   /** A later Appear releases the source's exit without affecting its target. */
@@ -95,6 +102,20 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   let lastPhase = -1;
   const out: SampledPath[] = [], paths: PathDrawing[] = [], crosses: Crossfade[] = [], glyphs: Glyph[] = [];
   const clips = new Map<string, string>();
+  // The text-morph layer: camera-local, stage px, BEFORE the flight svg so the
+  // flight stays the camera's last child.
+  let textLayer: HTMLElement | null = null, textMorph: TextMorph | null = null;
+  if (opts.text) {
+    textLayer = document.createElement("div");
+    textLayer.className = "sl-flight-text";
+    textLayer.dataset.handoff = id;
+    textLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:visible;visibility:hidden;";
+    flight.parentNode?.insertBefore(textLayer, flight);
+    textMorph = createTextMorph(opts.text.a, opts.text.b, { layer: textLayer, ctx: opts.text.render, durationMs: opts.text.durationMs });
+  }
+  /** True while the text morph owns this flight (it never falls back mid-way:
+   *  the box crossfade below takes over only if the texts cannot be mapped). */
+  const textOwns = () => !!textMorph && !textMorph.failed() && textMorph.ensure();
 
   function container(pair: CorrespondencePair): SVGElement {
     const owner = pair.b?.owner ?? pair.a!.owner, crop = ctx.crop?.(owner);
@@ -279,9 +300,15 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       for (const entry of destinations) { entry.claim.active = phase !== 0; entry.claim.hidden = phase !== 2; }
       for (const entry of claims) paintVisibility(entry.node, entry.state);
       set(layer, "visibility", phase === 1 ? "visible" : "hidden");
+      if (textLayer) textLayer.style.visibility = phase === 1 ? "" : "hidden";
       lastPhase = phase;
     }
-    if (phase !== 1) return;
+    if (phase !== 1) { textMorph?.hide(); return; }
+    if (textMorph && textOwns()) {
+      const a = opts.text!.a, b = opts.text!.b;
+      textMorph.frame(u, raw, { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) });
+      return;
+    }
     ensure();
     if (custom) { custom.seek(t, raw); return; }
     if (paths.length) {
@@ -311,7 +338,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     }
   }
 
-  warmWhenIdle(() => { if (!disposed && flight.isConnected) ensure(); });
+  warmWhenIdle(() => { if (!disposed && flight.isConnected) { if (!(textMorph && textOwns())) ensure(); } });
   return { seek, targetRoot: ctx.targetRoot,
     isReady: () => readyState,
     ready() { ensure(); return preparation ??= Promise.resolve(opts.media?.ready()).finally(() => { readyState = true; }); },
@@ -322,6 +349,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     dispose() {
       if (disposed) return;
       disposed = true; custom?.dispose(); opts.media?.dispose(); layer.remove();
+      textMorph?.dispose(); textLayer?.remove();
       for (const entry of claims) {
         entry.state.claims.delete(entry.claim); paintVisibility(entry.node, entry.state);
         if (!entry.state.claims.size) visibility.delete(entry.node);

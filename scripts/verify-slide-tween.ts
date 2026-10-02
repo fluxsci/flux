@@ -109,7 +109,9 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
   const c = numericTextTween("n = 1,000", "n = 2,000")!;
   assert(c(0.5) === "n = 1,500", "thousands separators inferred");
   assert(numericTextTween("hello", "world") === null, "a rewrite is not tweenable");
-  assert(contentPlan(text({ text: "hello" }), text({ text: "world" })).mode === "crossfade", "contentPlan crossfades text rewrites");
+  // Superseded 2026-10-02 (oct2 W3): a rewrite plays the glyph-matched text
+  // morph (shared words glide, the rest fades staggered), never the flat crossfade.
+  assert(contentPlan(text({ text: "hello" }), text({ text: "world" })).mode === "textMorph", "contentPlan sends text rewrites to the text morph");
   assert(contentPlan(text({ text: "n = 1" }), text({ text: "n = 9" })).mode === "tween", "…but digit-tweens numeric diffs");
   const m = lerpElement(text({ text: "n = 100" }), text({ text: "n = 200" }), 0.5) as TextElement;
   assert(m.text === "n = 150", "lerpElement digit-tweens text in place");
@@ -320,7 +322,11 @@ function build(slide: Slide) {
   assert(wrap.style.opacity === "0.25" && (wrap.querySelector(".sl-effects") as HTMLElement)?.style.opacity === "1", "…appearance composes on its own layer and preserves the transformed opacity");
 }
 
-// crossfade: a text rewrite builds two stacked layers mid-flight
+// A text rewrite plays the text morph (A original · M spans · B end). This DOM
+// cannot measure glyphs, so it exercises the morph's FALLBACK: A and B cross-
+// lerp at their natural size while the box moves (superseded 2026-10-02, oct2
+// W3 — was two stacked crossfade layers; the real morph is pinned in Chrome by
+// verify-text-morph-browser.ts).
 {
   const slide: Slide = {
     id: "s4",
@@ -334,9 +340,10 @@ function build(slide: Slide) {
   const wrap = rendered.elements.get("t1")!;
   const ctrl = specs.find((s) => (s as { morph?: unknown }).morph) as unknown as { morph: { seek(t: number): void } };
   ctrl.morph.seek(0.5);
-  assert(wrap.children.length === 2, "non-tweenable content crossfades via two stacked layers");
-  const [la, lb] = Array.from(wrap.children) as HTMLElement[];
-  assert(near(Number(la.style.opacity), 0.5) && near(Number(lb.style.opacity), 0.5), "…opacity cross-lerped");
+  assert(wrap.children.length === 3 && (wrap.children[1] as HTMLElement).className === "sl-text-morph", "a text rewrite builds the A / span / B layers");
+  const [la, lm, lb] = Array.from(wrap.children) as HTMLElement[];
+  assert(lm.style.visibility === "hidden", "…an unmeasurable host shows no spans");
+  assert(near(Number(la.style.opacity), 0.5) && near(Number(lb.style.opacity), 0.5), "…and the fallback cross-lerps A and B");
   // mid-flight the box rides the COMPOSITE transform (layout frozen at the t1
   // box — the glide fix); effective x = frozen left + translate-x
   const midTx = /translate\(([-0-9.]+)px/.exec(wrap.style.transform || "")?.[1];
