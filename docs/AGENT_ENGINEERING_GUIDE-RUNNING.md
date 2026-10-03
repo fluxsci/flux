@@ -2265,7 +2265,7 @@ is the reason the Windows job exists; read §9's Windows entries before touching
 Every script named in a tier needs an `execution` contract in the manifest. One missing
 contract aborts `--tier pure` before anything runs ("Missing/invalid execution contract"). This
 happened on `slides-oct2` @ 2541dc58 for `verify-fig-source-cache.ts` and
-`verify-resize-preview.ts`, fixed on `oct2/text-morph`. Add the contract with the tier entry.
+`verify-resize-preview.ts`, fixed on `slides-oct2` by `ab285a7e`. Add the contract with the tier entry.
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
 why); child processes are owned by `TestProcessScope` (`scripts/lib/testProcess.mjs`). Node 22 is
@@ -9240,7 +9240,7 @@ evidence. Frames are in `notes/slides_oct2/reports/W3/`.
   `applyTextLayout`, area slicing, one font loader per host, bundled families stop resolution)
   and the bridge's plot-text vs text-element distinction. Promoted to §9: "painted" means
   visible and opaque in gates; opentype.js resolves to two builds. Promoted to §7: a missing
-  execution contract aborts `--tier pure` (two were missing on the base and are fixed here).
+  execution contract aborts `--tier pure` (two were missing on the base; fixed on slides-oct2).
 - Measure the browser's own glyph positions and never compute them. Spans cloned per substring
   land within 0.05 stage px of the real text. Positions recomputed from font metrics would
   disagree with browser shaping at the flip.
