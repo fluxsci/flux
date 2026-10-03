@@ -650,7 +650,15 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   mount.style.width = `${stage.width}px`; mount.style.height = `${stage.height}px`;
   const cameraLayer = document.createElement("div");
   cameraLayer.className = "sl-camera";
-  cameraLayer.style.cssText = "position:absolute;inset:0;transform-origin:0 0;";
+  // The camera is a compositor layer at ALL times (`will-change`), not only while
+  // something flies: when a flight promoted one wrapper mid-slide, Chrome squashed
+  // every later sibling it overlapped into composited layers, and text there flipped
+  // from LCD to grayscale anti-aliasing on the first frame and back on the last — a
+  // whole-slide text shimmer at the start and end of every transform (the owner's
+  // "flicker as it settles", 2026-10-03; the paragraph beside a 13 px word morph
+  // changed ~1,100 px² at both ends, 1.8 / 0 with the layer). Text on the stage now
+  // renders the way it already did mid-flight, and nothing changes at the ends.
+  cameraLayer.style.cssText = "position:absolute;inset:0;transform-origin:0 0;will-change:transform;";
   mount.appendChild(cameraLayer);
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set(), frame: new Set() };
   let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0;
