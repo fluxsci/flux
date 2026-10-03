@@ -61,8 +61,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 It downloads the latest release, verifies its checksum, installs Flux (into `/Applications`
 on macOS; with `apt` on Linux), puts the `flux` command on your PATH and opens the app. On
 first launch a short **setup window** offers the optional extras, each one button with no
-admin rights: Quarto and TinyTeX for manuscript export, the `flux` command, and connecting
-Claude Code or Codex. Flux updates itself the same way (**Update now** on macOS).
+admin rights: Quarto (Word export and `flux compile`) and TinyTeX, the `flux` command, and
+connecting Claude Code or Codex. Flux updates itself the same way (**Update now** on macOS).
 
 For plots, add **[fluxplot](https://github.com/fluxsci/fluxplot)** to your analysis
 environment (`uv add fluxplot` or `pip install fluxplot`). From the Home screen, create a

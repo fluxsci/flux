@@ -46,21 +46,21 @@ installer's PATH line is the one under `# Added by Flux` in your shell startup f
 
 # First launch: the setup window
 
-The first time Flux opens, a short **setup window** lists the optional extras. Each row
-checks what is already on the machine and offers one button for what's missing; nothing
-needs admin rights or a terminal. Reopen it any time from **Settings → Set up Flux…** or
-**Ctrl+K → Set up Flux**.
+The first time Flux opens, a short **Set up Flux** window lists the optional extras. Each
+row checks what is already on the machine and offers one button for what's missing; nothing
+needs admin rights or a terminal. Reopen it any time from **Settings → General → Setup** or
+the command palette (**Ctrl+K → Set up Flux…**).
 
 | Row | What it gives you | What the button does |
 |---|---|---|
 | **`flux` in the terminal** | the `flux` command for you and your AI agents | installs the launcher and puts `~/.local/bin` on your PATH (the installer usually did this already) |
-| **Paper export** | compiling manuscripts to HTML, Word and PDF | installs [Quarto](https://quarto.org) into `~/FluxConfig` (skipped if Quarto is already installed) |
-| **PDF** | PDF output | installs TinyTeX through Quarto, in your home folder |
+| **Word export · Quarto** | Word export and `flux compile` | installs [Quarto](https://quarto.org) into `~/FluxConfig` (a Quarto you already have always wins) |
+| **PDF through Quarto · TinyTeX** | PDFs built by Quarto (`flux compile --to pdf`, journal styles) | installs TinyTeX through Quarto, in your home folder |
 | **Plots** | semantic, restylable plots | nothing to install in Flux: add **fluxplot** to your analysis environment (below) |
 | **AI agents** | Claude Code or Codex working inside your projects | detects them, links to their installers, and connects them to Flux |
 
-Everything else Flux needs (its video encoder, the local writing-correction model, the
-offline help) ships inside the app.
+Everything else ships inside the app, including Flux's own PDF export, its video encoder,
+the local writing-correction model and the offline help.
 
 # The companions in detail
 
@@ -82,13 +82,15 @@ Why it matters: fluxplot emits *semantic* SVGs. Every series, point, and axis la
 a stable id, which is what makes Flux figures restylable per part, regenerable without losing
 hand-tuning, and morphable in slides. Without it, plots import as plain images.
 
-## Quarto + TinyTeX (Paper export)
+## Quarto + TinyTeX (Word export and `flux compile`)
 
-The setup window installs both. If you prefer to manage them yourself, install Quarto from
-[quarto.org](https://quarto.org) (or `brew install --cask quarto`); Flux uses a Quarto on
-your `PATH` before its own copy. Quarto compiles manuscripts to HTML, Word and PDF and
-bundles its own pandoc. **PDF output additionally needs TeX**: `quarto install tinytex`.
-Without it, PDF export fails while HTML and Word still work.
+Flux's own PDF export needs neither. Quarto powers Word export and `flux compile` (HTML,
+Word, PDF; it bundles its own pandoc), and Quarto's PDF builds additionally need TeX. The
+setup window installs both. If you prefer to manage them yourself, install Quarto from
+[quarto.org](https://quarto.org) (or `brew install --cask quarto`); Flux always uses a Quarto
+you installed (on your `PATH` or in its usual install folder) before its own copy, and
+`quarto install tinytex` adds TeX. Without TeX, `flux compile --to pdf` fails while HTML and
+Word still work.
 
 **TinyTeX is not added to your PATH.** It installs into `~/Library/TinyTeX` (macOS) or
 `~/.TinyTeX` (Linux). Flux and Quarto find it anyway, but TeX's own commands (`tlmgr`,
@@ -197,7 +199,7 @@ uv run python -c "import fluxplot"       # inside an analysis project
 | Symptom | Cause → fix |
 |---|---|
 | `flux: command not found` | Open a new terminal (the PATH line applies to new shells). Still missing → **Set up Flux… → `flux` in the terminal** |
-| `compile --to pdf` fails; html works | No TeX → **Set up Flux… → PDF**, or `quarto install tinytex` |
+| `compile --to pdf` fails; html works | No TeX → **Set up Flux… → PDF through Quarto**, or `quarto install tinytex` |
 | Journal PDF fails with `File 'lineno.sty' not found` (or `setspace.sty`) | Minimal TeX install → the journal-PDF table above |
 | Journal PDF fails mentioning `rsvg-convert` | SVG figures cannot be placed → install `librsvg2-bin` / `librsvg` |
 | Journal PDF fails with `luaotfload` or `not loadable: Metric` | lualatex present but its fonts are not → `texlive-luatex` + `texlive-fonts-recommended`, or use TinyTeX |
