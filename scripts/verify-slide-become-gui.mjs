@@ -41,7 +41,7 @@ try{
   const legacyConsume=await page.evaluate(()=>{const f=window.__flux,d=structuredClone(f.slide.currentDeck()),sid=f.get(f.fig.activeFigureId),s=f.slideOps.slideById(d,sid);f.slideOps.becomeTransform(d,sid,s.beats[1].id,'src-line','tgt-ellipse');return s;});
   const blob=await center('tgt-ellipse');await page.mouse.click(blob.x,blob.y);await paint();
   check(!!await page.$('.become-bar')&&!(await read()).slide.beats[1].tracks.length,'a click picks the ellipse without confirming');
-  await page.keyboard.press('b');await paint();await paint();
+  await page.keyboard.press('Space');await paint();await paint();
   state=await read();
   const track=state.slide.beats[1].tracks.find(t=>t.target==='src-line');
   legacyConsume.beats[1].tracks[0].id=track.id;
@@ -69,7 +69,7 @@ try{
   const stage=await page.$eval('.canvas-wrap',e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height};});
   await page.mouse.move(stage.x+stage.w*0.55,stage.y+stage.h*0.6);await page.mouse.down();await page.mouse.move(stage.x+stage.w*0.7,stage.y+stage.h*0.8,{steps:6});await page.mouse.up();await paint();await paint();
   check(!!await page.$('.become-bar')&&!(await read()).slide.beats[1].tracks.some(t=>t.target==='other')&&await page.$$eval('[data-pick-unit]',e=>e.length===1),'drawing while armed adds the rect to the pick (Add mode) instead of confirming');
-  await page.keyboard.press('Enter');await paint();await page.keyboard.press('b');await paint();await paint();
+  await page.keyboard.press('Enter');await paint();await page.keyboard.press('Space');await paint();await paint();
   state=await read();
   const drawn=state.slide.beats[1].tracks.find(t=>t.target==='other');
   check(!!drawn&&!('type' in drawn.to.state)&&drawn.to.state.width>100&&drawn.to.state.fill!=='#879a39'&&state.slide.elements.length===2&&!(await page.$('.become-bar')),'Enter then b makes "Other" become the drawn rect (same kind → an ordinary patch); the drawn rect is consumed');
@@ -189,8 +189,8 @@ try{
   check(!handoff(await read()),'X-ray row picking never prematurely confirms the canvas pick');
   await page.keyboard.press('m');await paint();
   check(await page.$eval('.xray .am-ttl',e=>e.textContent.includes('Path 1')),'the destination menu names the waiting source');
-  await page.keyboard.press('b');await paint();
-  check(JSON.stringify((await read()).slide)===pairBytes,'X-ray b writes exactly the two-spine canvas hand-off bytes');
+  await page.keyboard.press('Space');await paint();
+  check(JSON.stringify((await read()).slide)===pairBytes,'X-ray Space writes exactly the two-spine canvas hand-off bytes');
   await seed();await page.evaluate(()=>window.__flux.fig.selectOnly('bh-plot'));await openPlotXray();await pickRows();
   await page.keyboard.press('Escape');await paint();
   await page.click('[aria-label="Appear options"]');await clickText('.menu button[role="menuitem"]','Appear from…');

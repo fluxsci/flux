@@ -605,7 +605,7 @@
     { kind: "change", label: "Change", key: "4", hint: "transform — edit the object after this step" },
     { kind: "appear-from", label: "Appear from…", key: "5", hint: "Pick the object these rows come from" },
     { kind: "animate-like", label: "Animate like…", key: "6", hint: "Pick another object's effect in this step" },
-    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows"}] : []),
+    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows (Space or b)"}] : []),
   ] as AnimateOption[];
   /** A waiting Become pick follows the rows live (animateHook `xrayPickSink`). */
   function publishPick(picked: XRow[]) {
@@ -682,7 +682,8 @@
     const k = e.key;
     const lk = k.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
-    if (lk === "b" && !mod && !e.altKey && $xrayBecomeSource && canAnimate) {
+    // Space confirms the waiting pick, as in the canvas picker (b still does).
+    if ((lk === "b" || e.code === "Space") && !mod && !e.altKey && !e.shiftKey && $xrayBecomeSource && canAnimate) {
       e.preventDefault(); e.stopImmediatePropagation(); animate("become-destination"); return;
     }
     if (animMenu) {

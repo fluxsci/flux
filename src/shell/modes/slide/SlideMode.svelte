@@ -101,7 +101,7 @@
   import { pointerDrag } from "../../../lib/ui/pointerDrag";
   import { initializeEditor } from "../../editorHandoff";
   import { deckRevision, figRevision, bumpFigRevision } from "../../scholar/revisions";
-  import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
+  import { handleKey, handleEditorPaste, openCascade } from "../../../lib/keyboard";
   import Toolbar from "../../../lib/Toolbar.svelte";
   import ColorField from "../../../lib/ColorField.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
@@ -1334,7 +1334,7 @@
       inspectorTab = "animation";
     } catch (error) { pushToast("error", "Couldn't create ghosts", {detail: errMsg(error)}); }
   }
-  /** Ctrl+Shift+T: no transform on the selection → create one per selected
+  /** Ctrl+Shift+C (Change): no transform on the selection → create one per selected
    *  element in the active beat (grouped when several) and check out t2
    *  immediately (the mockup's flow: add, then sculpt). A transform already
    *  selected → toggle the t1 ↔ t2 checkout. */
@@ -1399,8 +1399,12 @@
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
     if (inAnimation) {
       const mod=e.metaKey||e.ctrlKey;
-      if(mod&&e.shiftKey&&["a","d","t","e"].includes(e.key.toLowerCase())&&!typing) {
-        e.preventDefault();const k=e.key.toLowerCase();animationAction(k==="a"?"appear":k==="d"?"disappear":k==="e"?"become":"change");
+      if(!typing) {
+        const k=e.key.toLowerCase();
+        // Owner chords (2026-10-03): ⌃⇧A appear · ⌃⇧D disappear · ⌃⇧C change · ⌃⌥G ghost · ⌃⌥A appear from · b become.
+        if(mod&&e.shiftKey&&!e.altKey&&["a","d","c","e"].includes(k)) { e.preventDefault();animationAction(k==="a"?"appear":k==="d"?"disappear":k==="c"?"change":"become"); }
+        else if(mod&&e.altKey&&!e.shiftKey&&(k==="g"||k==="a")) { e.preventDefault();animationAction(k==="g"?"ghost":"appear-from"); }
+        else if(!mod&&!e.altKey&&!e.shiftKey&&e.code==="KeyB"&&!picker.mode) { e.preventDefault();animationAction("become"); }
       }
       return;
     }
@@ -1427,11 +1431,21 @@
         const k = e.key.toLowerCase();
         if (k === "a") { e.preventDefault(); addAppearance(false); return; }
         if (k === "d") { e.preventDefault(); addAppearance(true); return; }
-        if (k === "t") { e.preventDefault(); cancelBecome(); addOrToggleTransform(); return; }
+        // Change is ⌃⇧C (owner, 2026-10-03); ⌃⇧E stays as Become's chord alias beside the plain `b`.
+        if (k === "c") { e.preventDefault(); cancelBecome(); addOrToggleTransform(); return; }
         if (k === "e") { e.preventDefault(); animationAction("become"); return; }
-        // ⌃⇧C with ≥2 tracks selected = TRACK cascade; with fewer it falls
-        // through to the figure keymap, which opens the ELEMENT cascade.
-        if (k === "c" && get(selTrackIds).length >= 2) { e.preventDefault(); openTrackCascade(); return; }
+      }
+      // ⌃⌥G ghost · ⌃⌥A appear from · ⌃⌥C cascade (≥2 tracks = the TRACK cascade,
+      // else the ELEMENT cascade — Change took ⌃⇧C in Slide mode).
+      if (mod && e.altKey && !e.shiftKey && animatorOpen) {
+        const k = e.key.toLowerCase();
+        if (k === "g") { e.preventDefault(); animationAction("ghost"); return; }
+        if (k === "a") { e.preventDefault(); animationAction("appear-from"); return; }
+        if (k === "c") { e.preventDefault(); if (get(selTrackIds).length >= 2) openTrackCascade(); else openCascade(); return; }
+      }
+      // `b` arms Become for the selection (owner, 2026-10-03); the animator opens if needed.
+      if (!mod && !e.altKey && !e.shiftKey && e.code === "KeyB" && !picker.mode && $selection.size > 0) {
+        e.preventDefault(); if (!animatorOpen) toggleAnimator(); animationAction("become"); return;
       }
       // Esc: an in-flight canvas gesture aborts first (FIG-12); then an
       // active endpoint checkout exits (restoring the base state); then the

@@ -248,6 +248,12 @@
     w.addEventListener("pointerleave", onLeave);
     window.addEventListener("keydown", onKeyState, true);
     window.addEventListener("keyup", onKeyState, true);
+    // A pick confirmed BY Space (the canvas picker, or the X-ray) disarms this
+    // overlay before the key comes back up: the keyup never arrives here, and a
+    // stale "held" flag would hand the next pick's clicks to the canvas
+    // (2026-10-03: Alt+click then selected the group's members, Animate like…
+    // ignored its click). Every arming starts with the key up.
+    spaceHeld = false;
     return () => {
       w.removeEventListener("pointerdown", onDown, opts);
       w.removeEventListener("pointermove", onMove, opts);
@@ -258,7 +264,7 @@
       w.removeEventListener("pointerleave", onLeave);
       window.removeEventListener("keydown", onKeyState, true);
       window.removeEventListener("keyup", onKeyState, true);
-      press = null; pendingClick = null; lastTarget = null;
+      press = null; pendingClick = null; lastTarget = null; spaceHeld = false;
     };
   });
   function onLeave() { if (!press && picker.hover) { picker.hover = null; hoverRect = null; } lastTarget = null; }

@@ -69,9 +69,9 @@ try {
     });
   const chord = async () => {
     await page.keyboard.down("Control");
-    await page.keyboard.down("Shift");
+    await page.keyboard.down("Alt");
     await page.keyboard.press("KeyC");
-    await page.keyboard.up("Shift");
+    await page.keyboard.up("Alt");
     await page.keyboard.up("Control");
   };
   const setNum = (sel, v) =>

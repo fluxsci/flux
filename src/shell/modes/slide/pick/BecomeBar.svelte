@@ -86,7 +86,7 @@
     {:else}
       <span class="pb-add"><button class="become-btn" aria-haspopup="menu" aria-expanded={!!addMenu} onclick={openAdd} title="Draw or insert something for it to become; it joins the pick">Add ▾</button>
         {#if addMenu}<TimelineMenu x={addMenu.x} y={addMenu.y} items={addItems} onClose={() => (addMenu = null)} />{/if}</span>
-      <button class="become-btn pb-go" disabled={!units.length} onclick={() => picker.confirm()} title="Confirm the pick (b or Enter)">{target.kind === "appearFrom" ? "Appear from" : "Become"} <kbd>b</kbd></button>
+      <button class="become-btn pb-go" disabled={!units.length} onclick={() => picker.confirm()} title="Confirm the pick (Space or Enter)">{target.kind === "appearFrom" ? "Appear from" : "Become"} <kbd>␣</kbd></button>
     {/if}
     <button class="become-btn" onclick={() => picker.cancel()} title="Leave without a transform (Escape)">Cancel <kbd>Esc</kbd></button>
   </span>

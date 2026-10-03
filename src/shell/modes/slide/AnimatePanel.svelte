@@ -78,11 +78,11 @@
   const sourceGroup = $derived(!$partSelections.length && sel.length > 1 && !!slide?.elements.some(el => sel.includes(el.id) && el.groupId));
   const appearItems = $derived<MenuItem[]>([
     {label: "Appear", hint: "Add an entrance · Cmd/Ctrl+Shift+A", disabled: !sel.length, action: () => onAction?.("appear")},
-    {label: "Appear from…", hint: sel.length > 1 ? "Pick the object these objects appear from (one hand-off into all of them)" : "Pick the object this selection comes from", disabled: !sel.length || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
+    {label: "Appear from…", hint: sel.length > 1 ? "Pick the object these objects appear from (one hand-off into all of them) · Cmd/Ctrl+Alt+A" : "Pick the object this selection comes from · Cmd/Ctrl+Alt+A", disabled: !sel.length || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
   ]);
   const transformItems = $derived<MenuItem[]>([
-    { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+T", disabled: !sel.length, action: () => onAction?.("change") },
-    { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
+    { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+C", disabled: !sel.length, action: () => onAction?.("change") },
+    { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently · Cmd/Ctrl+Alt+G", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
     { label: "Become", hint: sourceGroup ? "Choose an object or plot parts as the Become source, rather than a group." : selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0 || sourceGroup, action: () => onAction?.("become") },
   ]);
   // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
@@ -135,7 +135,8 @@
     if (mod && !e.shiftKey && e.code === "KeyS") { e.preventDefault(); onSave?.(); return; }
     if (e.code === "Space") { e.preventDefault(); playing ? onPause?.() : previewing ? onResume?.() : onPreview?.($activeBeat); return; }
     if (mod && (e.key === "d" || e.key === "D") && !e.shiftKey) { e.preventDefault(); duplicateSelectedTracks(); return; }
-    if (mod && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); railRef?.cascadeSelection(); return; }
+    // Cascade moved to ⌃⌥C (⌃⇧C is Change, owner 2026-10-03); the alt chord never reaches the field-focus keys below.
+    if (mod && e.altKey && !e.shiftKey && e.code === "KeyC") { e.preventDefault(); railRef?.cascadeSelection(); return; }
     if (mod && (e.key === "g" || e.key === "G")) {
       e.preventDefault();
       if (e.shiftKey) railRef?.ungroupSelection();
@@ -375,7 +376,7 @@
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
       {/if}
       <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
-      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change · +E become. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Alt+A / Alt+D align starts / ends (repeat to cycle, +Shift resizes), Ctrl/Cmd+Alt-drag a bar onto another lane inherits its animation, Space plays/pauses.">Keyboard ⌨</span>
+      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +C change · b become · Cmd/Ctrl+Alt+G ghost · Cmd/Ctrl+Alt+A appear from · Cmd/Ctrl+Alt+C cascade. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Alt+A / Alt+D align starts / ends (repeat to cycle, +Shift resizes), Ctrl/Cmd+Alt-drag a bar onto another lane inherits its animation, Space plays/pauses.">Keyboard ⌨</span>
     </div>
 
     <div class="dock-body">

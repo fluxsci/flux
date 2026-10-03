@@ -149,8 +149,8 @@ try {
   await page.keyboard.press("a"); await paint();
   h.eq((await units()).length, pointIds.length, "a widens the pick to its siblings (every point of the series)");
   h.eq(await page.$$eval("[data-pick-badge]", (e) => e.length), 0, "order badges switch off for a dense set (> 20 picks)");
-  h.section("b confirms; one Undo");
-  await page.keyboard.press("b"); await paint();
+  h.section("Space confirms; one Undo");
+  await page.keyboard.press("Space"); await paint();
   let handoff = (await tracks()).find((t) => t.to?.become);
   h.ok(handoff?.target === "pk-src" && handoff.to.become.ref.element === "pk-plot" && handoff.to.become.ref.parts.length === pointIds.length && handoff.to.become.mode === "handoff", "b commits ONE hand-off into all sixty points");
   h.ok(!(await page.$("[data-pick-layer]")) && await page.evaluate(() => [...document.querySelectorAll(".toast")].some((t) => t.textContent.includes("hands off to"))), "the mode ends with the hand-off toast");
@@ -178,7 +178,7 @@ try {
   h.ok(!(await tracks()).some((t) => t.target === "pk-src" && t.preset === "transform"), "drawing no longer confirms by itself");
   await page.keyboard.press("Enter"); await paint();
   h.ok(await layer() === "pick" && (await units()).includes(`e:${drawnId}`), "Enter returns to picking with the drawn rect picked");
-  await page.keyboard.press("b"); await paint();
+  await page.keyboard.press("Space"); await paint();
   st = await slideState();
   const drawnBecome = st.slide.beats[1].tracks.find((t) => t.target === "pk-src" && t.preset === "transform");
   h.ok(!!drawnBecome && !st.slide.elements.some((e) => e.id === drawnId), "b makes the source become the drawn rect (consumed, as a loose rect always is)");
@@ -193,7 +193,7 @@ try {
   const drawn2 = (await slideState()).slide.elements.map((e) => e.id).find((id) => !before2.includes(id));
   await page.keyboard.press("Escape"); await paint();
   h.ok(await layer() === "pick" && (await units()).length === 2, "Escape leaves Add mode first, keeping both picks");
-  await page.keyboard.press("b"); await paint();
+  await page.keyboard.press("Space"); await paint();
   const setTrack = (await tracks()).find((t) => t.target === "pk-src" && t.to?.become);
   if (setsSupported) h.ok(setTrack?.to.become.ref.members?.some((m) => m.element === drawn2) && setTrack.to.become.ref.members.some((m) => m.element === "pk-plot"), "b commits the mixed set (drawn ellipse + point) as one set destination");
   else h.ok(!setTrack && await layer() === "pick" && await page.evaluate(() => [...document.querySelectorAll(".toast")].some((t) => t.textContent.includes("Pick parts of one object, or one object"))), "without destination sets a mixed pick is refused clearly and the mode stays armed");
@@ -222,7 +222,7 @@ try {
   await page.mouse.move(pc.x, pc.y);
   await page.keyboard.down("Alt"); await page.keyboard.press("KeyR"); await page.keyboard.up("Alt");
   await waitFor(page, () => document.activeElement?.classList.contains("xray"), null, { label: "X-ray focus again" });
-  await page.keyboard.press("b"); await paint();
+  await page.keyboard.press("Space"); await paint();
   handoff = (await tracks()).find((t) => t.to?.become);
   h.ok(JSON.stringify(handoff?.to.become.ref) === JSON.stringify({ element: "pk-plot", parts: [pointIds[0], "axis.x.spine"] }), "b in the X-ray confirms the whole pick (canvas point + row)");
   await undo();

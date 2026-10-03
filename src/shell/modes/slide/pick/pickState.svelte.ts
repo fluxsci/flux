@@ -326,13 +326,15 @@ export class BecomePicker {
     if (this.like) return false;
     const t = this.target!;
     if (inXray || get(importerOpen) || get(presetPicker)) return false; // the X-ray owns b / Enter / a
+    // Space (owner, 2026-10-03) or Enter confirms the pick; while adding, they
+    // return to picking first (Space) or confirm outright (Enter). `b` now ARMS
+    // Become outside the picker, so it is not a confirm key here.
     if (e.key === "Enter" && plain && !e.shiftKey) {
       if (t.sub === "add") this.exitAdd(); else this.confirm();
       return true;
     }
-    if (e.code === "KeyB" && plain && !e.shiftKey) {
-      if (t.sub === "add") this.exitAdd();
-      this.confirm();
+    if (e.code === "Space" && plain && !e.shiftKey) {
+      if (t.sub === "add") this.exitAdd(); else this.confirm();
       return true;
     }
     if (t.sub !== "pick") return false;

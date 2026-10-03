@@ -186,9 +186,12 @@ Everything in the Figure table works on the stage. Additionally:
 | **Ctrl+B** (nothing text-like selected) | Hide/show the filmstrip |
 | **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
 | **Ctrl+Shift+D** | Add disappearance *(animator open)* |
-| **Ctrl+Shift+T** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
-| **Ctrl+Shift+E** | Transform ▸ Become: pick the object the selection turns into *(animator open)* |
-| **Ctrl+Shift+C** | Cascade across selected tracks (falls back to element cascade) |
+| **Ctrl+Shift+C** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
+| **B** | Transform ▸ Become: pick the object the selection turns into (opens the animator if needed) |
+| **Ctrl+Alt+G** | Transform ▸ Ghost…: copies that transform independently *(animator open)* |
+| **Ctrl+Alt+A** | Appear from…: pick the object the selection appears from *(animator open)* |
+| **Ctrl+Alt+C** | Cascade across selected tracks (falls back to element cascade) |
+| **Space** / **Enter** *(Become pick)* | Confirm the pick (**Enter** first leaves Add mode) |
 | **M** *(in the X-ray)* | Animate the picked rows: **1** Appear, **2** Emphasize, **3** Disappear, **4** Change, **5** Appear from…, **6** Animate like… |
 | **click** *(Become pick)* | Pick or unpick the part or object under the pointer (no modifier needed; Shift / Ctrl+click do the same) |
 | **Alt+click** *(Become pick)* | Pick the whole plot or group instead of the part |

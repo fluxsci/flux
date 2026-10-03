@@ -59,9 +59,9 @@ plot parts. Selecting an object identifies its effects in the current step.
 To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plot part), then use:
 
 - **Appear** / **Ctrl+Shift+A** — add an entrance.
-- **Transform ▾** — one action, three ways: **Change** (**Ctrl+Shift+T**) shapes a new state of the
-  object at this step; **Ghost…** creates copies that transform independently; **Become**
-  (**Ctrl+Shift+E**) turns the object into another one. See [Transforms](#transforms).
+- **Transform ▾** — one action, three ways: **Change** (**Ctrl+Shift+C**) shapes a new state of the
+  object at this step; **Ghost…** (**Ctrl+Alt+G**) creates copies that transform independently;
+  **Become** (**B**) turns the object into another one. See [Transforms](#transforms).
 - **Emphasize** — add a highlight.
 - **Disappear** / **Ctrl+Shift+D** — add an exit.
 
@@ -323,7 +323,7 @@ timing and easing controls, and the same rules: one transform per complete sourc
 ### Change
 
 A **Change** tweens an object into a different version of itself. Choose **Transform ▸ Change**
-(or **Ctrl+Shift+T**) and its **After** state appears on the canvas. Use the ordinary editor tools
+(or **Ctrl+Shift+C**) and its **After** state appears on the canvas. Use the ordinary editor tools
 to shape it; the animator records a sparse property change. **Before** selects the immediately
 previous step (or Design for the first change), while **After** selects this step. The destination
 above the stage always identifies where subsequent edits will go. Chained changes compose across
@@ -374,7 +374,7 @@ ghost's creation lane removes that copy and its later effects; Undo restores the
 
 ### Become
 
-**Transform ▸ Become** (or **Ctrl+Shift+E** with the Animator open) makes an object
+**Transform ▸ Become** (or just **B** with something selected) makes an object
 become another object or part of a plot. Select the source first. To start from plot parts,
 **Ctrl+click** a part or pick several rows in the **X-ray** before arming Become.
 
@@ -397,7 +397,7 @@ picking: every click on the canvas is a pick.
   its siblings: the other members of its group, then the same part of every series, then the
   rest of its series. **Backspace** drops the last pick.
 - **Double-click** picks something and confirms at once, the quick path for a single object.
-- **B**, **Enter** or the **Become** button confirms. **Escape** or **Cancel** leaves the picker
+- **Space**, **Enter** or the **Become** button confirms. **Escape** or **Cancel** leaves the picker
   without creating a transform and puts the source selection back. Changing slides or steps also
   cancels.
 - **Add mode** lets the source become something that does not exist yet. Press a drawing tool
@@ -408,8 +408,8 @@ picking: every click on the canvas is a pick.
   and a second **Escape** cancels.
 - **X-ray**: hover a plot and press **Alt+R**. Rows you select join the pick and rows you clear
   leave it, live on the canvas; points picked on the canvas stay picked. Axis rows include their
-  spine, ticks and labels; expand them to choose only the spine. **B** in the X-ray confirms the
-  whole pick, and closing the X-ray keeps it.
+  spine, ticks and labels; expand them to choose only the spine. **Space** (or **B**) in the X-ray
+  confirms the whole pick, and closing the X-ray keeps it.
 
 - **Several things at once.** Pick several things and the source becomes **all of them**: three
   loose ellipses, parts of two different plots, or a mix of shapes and plot parts. Your layers stay
@@ -432,7 +432,7 @@ off: **Consume** and **↔ Swap direction** need a single destination.
 To work from the other end, select the destination object or plot parts (or several objects,
 which then appear together from one source) and choose **Appear ▾ → Appear from…**. The main
 **Appear** button still adds a normal entrance. The same picker opens and the bar names what
-**appears from…**; pick its source and confirm with **B** or **Enter**, or double-click it. Pick
+**appears from…**; pick its source and confirm with **Space** or **Enter**, or double-click it. Pick
 **several** sources and they **merge**: each hands off into the destination in the same step, early
 pieces hold in place, and the destination appears when the last one lands (one Undo removes them all).
 In the X-ray, **m**, then **5** (**Appear from…**) starts this same flow from the picked
@@ -610,7 +610,7 @@ plot has several; omitted fields are preserved and `--reset` restores the genera
 
 ## Cascading tracks
 
-Select several tracks and press **Ctrl+Shift+C**: the same [cascade](figure.qmd#cascade)
+Select several tracks and press **Ctrl+Alt+C**: the same [cascade](figure.qmd#cascade)
 popover, over animation — stagger **start**, **duration**, **per-item or total stagger**, **Arc**, or easing
 **influence** or **Spring bounce** in even steps across the selection. Spring bounce skips
 non-spring effects, which do not consume a step. Five drawOns starting 120 ms apart is one
