@@ -133,7 +133,8 @@ export async function verifyDestinations(page,ok) {
       const add=(id,target,ref)=>f.slideOps.setAnimation(d,sid,b.id,{id,target,preset:'transform',to:{state:{},become:{mode:'handoff',ref}}});
       add('missing-parts','issue-missing',{element:'issue-plot',parts:['absent.part']});
       add('first-landing','issue-overlap-a',{element:'issue-plot',parts:['box.2']});
-      add('overlap-landing','issue-overlap-b',{element:'issue-plot',parts:['box.2']});
+      // An IDENTICAL ref now merges (Oct-2 W1); a whole plot over a landed box still overlaps.
+      add('overlap-landing','issue-overlap-b',{element:'issue-plot'});
       add('unborn-landing','issue-unborn',{element:ghost.elementIds[0]});
       const textA=f.slideOps.addSlideText(d,sid,{text:'From',x:40,y:160,width:100,height:35});
       const textB=f.slideOps.addSlideText(d,sid,{text:'To',x:220,y:160,width:100,height:35});
