@@ -383,7 +383,8 @@
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
       "verify-become-picker.ts",
-      "verify-manifest-contracts.ts"
+      "verify-manifest-contracts.ts",
+      "verify-install-script.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -2065,6 +2066,13 @@
       "run": [
         "tier:pure",
         "verify-w13-cli.mjs"
+      ]
+    },
+    {
+      "glob": "{install.sh,scripts/lib/releasePolicy.mjs}",
+      "run": [
+        "verify-install-script.ts",
+        "verify-release-policy.mjs"
       ]
     },
     {
@@ -9767,6 +9775,15 @@
       "coverage": "behavior"
     },
     "verify-manifest-contracts.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-install-script.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
