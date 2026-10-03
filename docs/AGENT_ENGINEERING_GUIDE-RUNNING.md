@@ -9525,7 +9525,13 @@ and X-ray); plain `b` arms Become; Change ⌃⇧C, Ghost ⌃⌥G, Appear from �
 (6) Paper's bottom panel (vim status bar) now clips to the pane's rounded corners. (7) Later the
 same day the owner asked for the fill behaviour as a per-transform option: `BecomeSpec.method`
 — shatter (default) · dissolve · collapse · drain — through ops/CLI/schema/inspector, with the
-three non-shatter methods driven by the sampler on one fill-only interior ring.
+three non-shatter methods driven by the sampler on one fill-only interior ring. Dissolve then
+moved to REAL time (`DISSOLVE_MS` = 220 ms via `sampleCorrespondence(…, timing)` from the hand-off
+driver; the eased-progress window stays the fallback): a fade reads right only when quick, however
+long the flight. (8) Plot gallery Folders sidebar: a folder row's click shows the folder and no
+longer unfolds it — the › chevron (22 px hit, accent on hover) does; Settings → Plot gallery →
+"Clicking a gallery folder expands/collapses it" (`galleryFolderClickExpands`, default off) restores
+the old click.
 **Learnings:**
 - Measure boundaries at 2 ms steps (`scripts/perf/slide-twitch-probe.mts`, `slide-twitch-sweep.mts`):
   a start twitch or end snap is a paint spike at raw 0→0+ or 1−→1 with nothing beside it. The
