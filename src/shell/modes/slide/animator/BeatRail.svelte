@@ -731,9 +731,8 @@
   .guide { border-left: 1px dashed var(--c-accent); }
   .guide.linked { border-left-style: solid; background: var(--c-accent); }
   .guide.sel { background: color-mix(in oklab, var(--c-accent) 45%, transparent); }
-  /* the align flash: the lit-snap line (one style with a snapped drag) + a ruler label;
-     it appears at once and fades out in 90 ms, nothing at rest */
-  .guide.align-flash { border-left-style: solid; background: var(--c-accent); }
+  /* the align flash IS the lit-snap line of a snapped drag (.guide.snap, one style) plus a
+     ruler label; it appears at once and fades out in 90 ms, nothing at rest */
   .align-label {
     position: absolute; top: 3px; z-index: 2; height: 18px; padding: 0 6px; margin-left: 4px; white-space: nowrap; pointer-events: none;
     font: 10px/18px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-hi);
