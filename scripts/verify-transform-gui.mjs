@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Animation rework §4.4/§8 — the ENDPOINT CHECKOUT in the real GUI:
-//   • Ctrl+Shift+T (animator open) creates the transform track in a build
+//   • Ctrl+Shift+C (Change; it was ⌃⇧T until 2026-10-03), animator open, creates the transform track in a build
 //     beat and checks out t2 immediately (the add-then-sculpt flow);
 //   • an ordinary canvas/store commit while checked out mirrors a sparse
 //     diff into the track's to.state — and the canvas SHOWS the t2 state;
@@ -39,7 +39,7 @@ try {
   // --- chord inert with the animator CLOSED ------------------------------------
   await page.keyboard.down("Control");
   await page.keyboard.down("Shift");
-  await page.keyboard.press("KeyT");
+  await page.keyboard.press("KeyC");
   await page.keyboard.up("Shift");
   await page.keyboard.up("Control");
   await sleep(150);
@@ -50,7 +50,7 @@ try {
     const s = o.slides.find((x) => x.id === sid);
     return { beats: s.beats.length, checkout: !!f.get(f.slide.endpointEdit) };
   });
-  ok(closedState.beats === 1 && !closedState.checkout, "Ctrl+Shift+T is INERT while the animator is closed");
+  ok(closedState.beats === 1 && !closedState.checkout, "Ctrl+Shift+C (Change) is INERT while the animator is closed");
 
   // Ctrl+Shift+A must NOT select-all (the !shiftKey guard)
   await page.keyboard.down("Control");
@@ -70,7 +70,7 @@ try {
   await page.evaluate(() => window.__flux.fig.selectOnly("tr-rect"));
   await page.keyboard.down("Control");
   await page.keyboard.down("Shift");
-  await page.keyboard.press("KeyT");
+  await page.keyboard.press("KeyC");
   await page.keyboard.up("Shift");
   await page.keyboard.up("Control");
   await sleep(250);
@@ -85,7 +85,7 @@ try {
     return { beats: s.beats.length, tracks, checkout: ee, sel: f.get(f.slide.selTrackIds) };
   });
   const trTrack = created.tracks.find((t) => t.preset === "transform" && t.target === "tr-rect");
-  ok(!!trTrack && created.beats === 2 && trTrack.bi === 1, "Ctrl+Shift+T created the transform track in a build beat (beat 1 auto-created)");
+  ok(!!trTrack && created.beats === 2 && trTrack.bi === 1, "Ctrl+Shift+C (Change) created the transform track in a build beat (beat 1 auto-created)");
   ok(created.checkout?.end === "t2" && created.checkout.entries.some((e) => e.trackId === trTrack?.id), "…and entered the t2 checkout immediately");
   ok(created.sel.includes(trTrack?.id), "…with the new track selected");
 

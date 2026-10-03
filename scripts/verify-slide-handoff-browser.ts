@@ -371,7 +371,8 @@ try {
     };` }, bundle: true, platform: "browser", format: "iife", write: false, plugins: [{ name: "observe-handoff-inputs", setup(build) {
       build.onLoad({ filter: /player[\\/]handoff\.ts$/ }, async ({ path: file }) => {
         let source = await fs.readFile(file, "utf8");
-        for (const [marker, channel] of [["sampleCorrespondence(sampled!, t, out);", "pairs"], ["for (const glyph of glyphs) {", "glyphs"]]) {
+        // Match the call's head only: its trailing options (raw progress, duration) are free to grow.
+        for (const [marker, channel] of [["sampleCorrespondence(sampled!, t, out", "pairs"], ["for (const glyph of glyphs) {", "glyphs"]]) {
           if (!source.includes(marker)) throw new Error(`Missing hand-off observation boundary: ${marker}`);
           source = source.replace(marker, `(globalThis as any).channelInputs?.${channel}.push(t); ${marker}`);
         }
