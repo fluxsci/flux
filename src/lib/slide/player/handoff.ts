@@ -366,12 +366,18 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     for (const cross of crosses) {
       const a = cross.aBox, b = cross.bBox;
       const x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t), w = lerp(a.w, b.w, t), h = lerp(a.h, b.h, t);
+      // A text clone scales UNIFORMLY (by height): glyphs never stretch with a
+      // box whose aspect changes; rasters and shapes still fill the lerped box.
+      const fit = (c: HandoffClone, text: boolean | undefined) => {
+        const sy = h / (c.box.h || 1);
+        return `translate(${x} ${y}) scale(${text ? sy : w / (c.box.w || 1)} ${sy})`;
+      };
       if (cross.a) {
-        set(cross.a.node, "transform", `translate(${x} ${y}) scale(${w / (cross.a.box.w || 1)} ${h / (cross.a.box.h || 1)})`);
+        set(cross.a.node, "transform", fit(cross.a, cross.pair.a?.paint.text));
         set(cross.a.node, "opacity", String((cross.pair.b ? 1 - t : clamp01(1 - t / .4)) * cross.a.opacity));
       }
       if (cross.b) {
-        set(cross.b.node, "transform", `translate(${x} ${y}) scale(${w / (cross.b.box.w || 1)} ${h / (cross.b.box.h || 1)})`);
+        set(cross.b.node, "transform", fit(cross.b, cross.pair.b?.paint.text));
         set(cross.b.node, "opacity", String((cross.pair.a ? t : clamp01((t - .6) / .4)) * cross.b.opacity));
       }
     }

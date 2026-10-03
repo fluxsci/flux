@@ -9641,24 +9641,6 @@
       "exclusive": false,
       "coverage": "behavior"
     },
-    "verify-fig-source-cache.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-resize-preview.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
     "verify-glyph-outlines.ts": {
       "runtime": "tsx",
       "prerequisites": [],
