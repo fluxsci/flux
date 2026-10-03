@@ -21,7 +21,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
-const { pickRelease } = require("./updateCheck.cjs");
+const { pickRelease, installLine, updateSpawn } = require("./updateCheck.cjs");
+const managedTools = require("./managedTools.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
 const { recordProjectOpened } = require("./projectsRegistry.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
@@ -1124,10 +1125,31 @@ ipcMain.handle("update:check", async () => {
     });
     if (!res.ok) return null;
     // pickRelease (updateCheck.cjs) owns the parse + newer-than-current decision.
-    return pickRelease(await res.json(), app.getVersion(), RELEASES_PAGE);
+    const offer = pickRelease(await res.json(), app.getVersion(), RELEASES_PAGE);
+    // macOS updates in place ("Update now" → update:install); Linux shows the line to paste,
+    // because apt asks for a password in a terminal.
+    return offer && { ...offer, canInstall: process.platform === "darwin", installLine: installLine({ update: true }) };
   } catch {
     return null; // offline / rate-limited / malformed — silently skip
   }
+});
+
+// "Update now" (macOS): run the install script detached — it waits for this process to exit,
+// replaces /Applications/Flux.app and reopens it — then quit. Output goes to
+// <FluxConfig>/logs/update.log so a failed update can be read afterwards.
+ipcMain.handle("update:install", async () => {
+  if (!app.isPackaged || process.platform !== "darwin") return { ok: false, error: "Updating in place is available in the installed macOS app; run the install line instead." };
+  const logDir = path.join(fluxPaths.resolveFluxConfigPathSync(), "logs");
+  fs.mkdirSync(logDir, { recursive: true });
+  const log = fs.openSync(path.join(logDir, "update.log"), "a");
+  try {
+    fs.writeSync(log, `\n--- ${new Date().toISOString()} update from ${app.getVersion()} ---\n`);
+    const { command, args } = updateSpawn({ pid: process.pid });
+    const child = spawn(command, args, { detached: true, stdio: ["ignore", log, log] });
+    child.unref();
+  } finally { fs.closeSync(log); }
+  setTimeout(() => app.quit(), 250);
+  return { ok: true };
 });
 
 // ---------------------------------------------------------------------------
@@ -1451,6 +1473,14 @@ const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, ge
 model3dCore.registerHandlers(ipcMain);
 // Letter outlines for text ↔ shape Becomes: system font bytes for a CSS request.
 require("./ipc/fonts.cjs").createFontsFamily({ configDir: () => fluxPaths.userDataDir() }).registerHandlers(ipcMain);
+const setupFamily = require("./ipc/setup.cjs").createSetupFamily({
+  isPackaged: () => app.isPackaged,
+  readPrefs,
+  fluxConfigPath: () => fluxPaths.resolveFluxConfigPathSync(),
+  installLaunchers: (events, options) => fluxPaths.installLaunchers(events, options),
+});
+setupFamily.registerHandlers(ipcMain);
+app.on("will-quit", () => setupFamily.dispose());
 
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
 // Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`
@@ -1532,17 +1562,20 @@ ipcMain.handle("shell:openExternal", (_e, url) => {
   if (/^https?:\/\//i.test(url) || /^mailto:/i.test(url)) shell.openExternal(url);
 });
 
-// Optional Quarto compile (publication-grade output). Detected, never required.
+// Optional Quarto compile (publication-grade output). Detected, never required. The user's
+// quarto wins, else the copy "Set up Flux…" installed (managedTools.cjs owns the order).
 ipcMain.handle("quarto:available", async () => {
   return new Promise((resolve) => {
     try {
-      const q = resolveSpawn("quarto", ["--version"]);
+      const resolved = managedTools.resolveQuartoSync();
+      if (!resolved.command) { resolve({ installed: false }); return; }
+      const q = resolveSpawn(resolved.command, ["--version"]);
       const p = spawn(q.command, q.args, { windowsVerbatimArguments: q.windowsVerbatimArguments });
       let out = "";
       p.stdout.on("data", (d) => (out += d));
       p.on("error", () => resolve({ installed: false }));
       p.on("close", (code) =>
-        resolve(code === 0 ? { installed: true, version: out.trim() } : { installed: false }),
+        resolve(code === 0 ? { installed: true, version: out.trim(), origin: resolved.origin } : { installed: false }),
       );
     } catch {
       resolve({ installed: false });
@@ -1664,7 +1697,7 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
   };
   return new Promise((resolve) => {
     try {
-      const q = resolveSpawn("quarto", [
+      const q = resolveSpawn(managedTools.quartoCommandSync(), [
         "render",
         path.basename(docAbs),
         "--to",

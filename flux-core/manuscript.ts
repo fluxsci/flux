@@ -7,6 +7,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runProcess } from "../electron/processRunner.cjs";
+import { quartoCommandSync } from "../electron/managedTools.cjs";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity, type CslRecord } from "../src/lib/references/zoteroFields.js";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
@@ -163,7 +164,8 @@ export async function insertSlideEmbed(root: string, deck: string, slide: string
   return { path: rel, id: ref.id, deck, slide, markdown };
 }
 
-/** compile the manuscript via Quarto (pdf|html|docx). Requires `quarto` on PATH. */
+/** compile the manuscript via Quarto (pdf|html|docx). Uses the user's quarto, else the copy
+ *  Flux installed (Set up Flux…); managedTools.cjs owns the resolution. */
 
 /** Shipped journal assets (CSL styles, Word reference docs). Resolved from this
  *  module's own location so a source checkout and the packaged CLI bundle both
@@ -382,7 +384,7 @@ async function compileOwned(root: string, to: string, opts: { doc?: string; styl
     useProfile = true;
   }
 
-    const rendered = await runProcess({ executable: "quarto", argv: ["render", path.basename(docAbs), "--to", to, "--output", temporaryName, ...(to === "html" && scanSlideEmbeds(expanded).length ? ["--embed-resources"] : []), ...(useProfile ? ["--profile", profileName] : [])], cwd: path.dirname(docAbs) }, { timeoutMs: 30 * 60 * 1000, maxOutputBytes: 4 * 1024 * 1024 });
+    const rendered = await runProcess({ executable: quartoCommandSync(), argv: ["render", path.basename(docAbs), "--to", to, "--output", temporaryName, ...(to === "html" && scanSlideEmbeds(expanded).length ? ["--embed-resources"] : []), ...(useProfile ? ["--profile", profileName] : [])], cwd: path.dirname(docAbs) }, { timeoutMs: 30 * 60 * 1000, maxOutputBytes: 4 * 1024 * 1024 });
     code = rendered.status === "exited" ? rendered.code : -1;
     log = rendered.stdout + rendered.stderr + (rendered.status === "exited" ? "" : `\nQuarto ${rendered.status}${rendered.signal ? ` (${rendered.signal})` : ""}`);
     if (rendered.truncated.stdout || rendered.truncated.stderr) log += "\n(Quarto log exceeded the retained output limit.)";

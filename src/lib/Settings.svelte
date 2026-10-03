@@ -368,6 +368,12 @@
         <div class="content">
           <!-- ---------------------------------------------------------- General -->
           <div class="pane" role="tabpanel" id="settings-pane-general" aria-labelledby="settings-tab-general" hidden={tab !== "general"}>
+            <h3>Setup</h3>
+            <p class="hint">The terminal command, Word export (Quarto), PDF through Quarto, fluxplot and AI agents.</p>
+            <div class="libbtns">
+              <button class="ghost" data-open-setup onclick={() => { settingsOpen.set(false); void import("../shell/setup/setupState").then((m) => m.openSetup()); }}>Set up Flux…</button>
+            </div>
+
             <h3>FluxConfig folder</h3>
             <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
             <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), and the agent Context folders.</p>

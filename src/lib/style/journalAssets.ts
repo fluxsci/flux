@@ -57,6 +57,10 @@ export function journalAssetPlan(style: ResolvedJournalStyle): JournalAsset[] {
  * command away, so saying which one beats printing the trace.
  */
 export function diagnoseQuartoFailure(log: string): string | null {
+  // No quarto at all: spawn failed before Quarto could print anything.
+  if (/spawn \S*quarto(\.exe)? ENOENT/i.test(log)) {
+    return "Quarto is not installed. In Flux open Settings → Set up Flux… → Install Quarto (no admin rights needed), or install it from quarto.org.";
+  }
   if (/rsvg[-_ ]?convert/i.test(log)) {
     return (
       "Quarto needs `rsvg-convert` to place SVG figures in a PDF. " +
@@ -88,7 +92,7 @@ export function diagnoseQuartoFailure(log: string): string | null {
     );
   }
   if (/pdf-engine.*not found|xelatex.*not found|lualatex.*not found/i.test(log)) {
-    return "No LaTeX engine found. Install TinyTeX (`quarto install tinytex`) for PDF output.";
+    return "No LaTeX engine found. In Flux open Settings → Set up Flux… → Add PDF support, or run `quarto install tinytex`.";
   }
   return null;
 }
