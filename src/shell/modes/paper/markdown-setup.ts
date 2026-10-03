@@ -32,6 +32,12 @@ import { paperHistoryKeymap } from "./historyKeys";
 // dresses the panel in the manuscript surface's tokens so it doesn't look like a raw browser box.
 const searchPanelTheme = EditorView.theme({
   ".cm-panels": { background: "var(--c-surface)", color: "var(--c-tx)", borderColor: "var(--c-line-strong)" },
+  // The pane (.editor-col) is a rounded card (--r-3, 1.5px border); a bottom or
+  // top panel (the vim status bar, the search panel) spans the full inner width
+  // and painted SQUARE corners over the card's rounded ones (owner, 2026-10-03).
+  // Round the panel's outer corners to the card's inner radius and clip.
+  ".cm-panels.cm-panels-bottom": { borderRadius: "0 0 calc(var(--r-3) - 1.5px) calc(var(--r-3) - 1.5px)", overflow: "hidden" },
+  ".cm-panels.cm-panels-top": { borderRadius: "calc(var(--r-3) - 1.5px) calc(var(--r-3) - 1.5px) 0 0", overflow: "hidden" },
   ".cm-panel.cm-search": { padding: "6px 8px", fontFamily: "system-ui, sans-serif", fontSize: "var(--ts-sm)" },
   ".cm-panel.cm-search input, .cm-panel.cm-search button, .cm-panel.cm-search label": { fontSize: "var(--ts-sm)" },
   ".cm-panel.cm-search input": {
