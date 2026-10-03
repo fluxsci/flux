@@ -9612,3 +9612,34 @@ fix reverted fails with `'2'` vs `'0'`). Local: pure 382/382, ui reds above gree
 - Mutation-test a reworked budget or contract both ways: plant the regression it exists for, and
   confirm the fixed code passes.
 - Two-core `taskset` pinning plus busy loops reproduces the hosted runner's timing reds locally.
+
+### 2026-10-03 (night) — "Set up Flux…": managed Quarto, TinyTeX, the first-launch window, Update now (Claude Opus 5.5, onboarding worktree)
+
+**Work:** Flux is installed only by the curl line (owner, 2026-10-03), so the app now gets its optional
+companions itself, with no terminal and no admin rights. `electron/managedTools.cjs` (shared by main and
+flux-core) is the ONE quarto resolver for every spawn site: `quarto:available`/`quarto:render`,
+`flux compile` (manuscript.ts) and flux-connect's machine facts. The order is `FLUX_QUARTO`, then PATH,
+then the common install folders, then the Flux-managed copy at `<FluxConfig>/tools/quarto/<version>`.
+It also holds the no-admin installer (pinned Quarto 1.7.32 tarballs, sha256 from Quarto's own
+checksums file, tar into a scratch dir, published with one rename; cancel or failure leaves nothing),
+TeX detection, `quarto install tinytex --no-prompt`, and the shell-profile PATH line shared verbatim
+with install.sh. `electron/ipc/setup.cjs` is the IPC family. `src/shell/setup/` holds the window
+(terminal · Quarto · TinyTeX · fluxplot · agents rows). It opens by itself on a packaged app's first
+launch (`prefs.onboardingCompleted`; `FLUX_SHOW_ONBOARDING=1` previews it from source). It reopens from
+Settings → General → Setup and the palette's "Set up Flux…". Word export's dead end now offers
+"Install Quarto…" and unblocks live. The update toast is "Update now" on macOS: `update:install` runs
+`updateCheck.updateSpawn` (install script `--update --wait-pid <pid> --relaunch`, logged to
+`<FluxConfig>/logs/update.log`) and quits. Linux gets "Copy update command".
+Gates: `verify-managed-tools.ts` (pure, 54) and `verify-setup-flux-gui.mjs` (ui, 22). The real Linux
+tarball installs through the same installer in ~2 s and `--version` reads 1.7.32.
+**Learnings:**
+- A packaged macOS app launched from Finder has launchd's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`).
+  Every bare-name spawn (`resolveSpawn("quarto")`) silently missed a Homebrew or `.pkg` Quarto. Resolve
+  external tools through PATH plus the common install folders (managedTools.commonToolDirs).
+- Quarto's tarballs differ by platform: macOS is flat (`./bin/quarto`, Apple-signed, xattrs in the
+  tar), Linux nests `quarto-<v>/`. Normalize after extraction, never by stripping components blindly.
+- GUI PDF export is Flux's in-app renderer. Only Word export and Quarto PDF builds (`flux compile`,
+  agents) need Quarto, and only the latter need TeX. The window says so instead of pushing TinyTeX on
+  everyone.
+- The browser fixture has no `onAppError`, so anything hung off Shell's `attach()` never runs there.
+  Give a startup check its own bridge retry if a gate must see it.
