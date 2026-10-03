@@ -496,7 +496,7 @@ use **Consume**, which replaces the source and removes the destination; `--mode`
 either completion for whole objects. `appear-from` authors the same hand-off from the
 destination's side. `--pair` chooses how outlines match, `--reveal` chooses flip or draw, and
 `--method` chooses shatter, dissolve, collapse or drain for a filled shape's interior.
-See the [slide command reference](../../resources/flux-context/SLIDES.md) for syntax.
+See the [slide command reference](https://github.com/fluxsci/flux/blob/main/resources/flux-context/SLIDES.md) for syntax.
 
 **Alt+G** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
 Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a

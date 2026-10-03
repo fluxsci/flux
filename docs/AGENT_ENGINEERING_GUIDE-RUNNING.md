@@ -3728,12 +3728,22 @@ outside this PNG packaging change.
   `scripts/oneoff/migrate-2026-09-flux-connect.mjs` is a historical migration record,
   not app startup code; it may be removed once every intended machine has run it.
 
-- **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
-  notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`
-  (local, ignored). It targets bundled tools, explicit Mac first-launch approval, and an
-  early Sparkle/Flux-owned-signature update prototype. That route is not yet qualified;
-  do not claim seamless Mac updates from installer-build success or restore Apple
-  membership as a release prerequisite. Extend the accepted fortification release gates.
+- **Distribution policy (owner decisions, 2026-09-21 and 2026-10-03).** No Apple Developer ID.
+  The ONE supported install and update path is `curl -fsSL https://fluxsci.github.io/install.sh
+  | bash` (`install.sh` at the repo root; the website serves a bootstrap that runs the copy
+  attached to the latest release). It verifies `SHA256SUMS`, installs `Flux-mac-<arch>.zip`
+  into `/Applications` (curl downloads carry no quarantine flag, so no Gatekeeper detour;
+  ad-hoc signing is still required on Apple Silicon) or `Flux-linux-amd64.deb` with apt, and
+  puts `~/.local/bin` on PATH with one marked line. Updates re-run the same script (macOS
+  **Update now**; Linux shows the line). No DMG, AppImage, electron-updater, Sparkle, bundled
+  Python or bundled Quarto: fluxplot lives in the user's analysis environment, and Quarto and
+  TinyTeX are one-button, no-admin installs in the first-launch setup window. `release.yml`
+  (tag `vX.Y.Z` = package.json) waits for a green `ci.yml` on the commit, builds the three
+  targets, runs `verify-packaged-app.mjs` on each and creates a DRAFT release; publishing it by
+  hand ships it. `scripts/release-check.mjs` stays as a local deep-qualification tool. The
+  09-21 plan in `notes/packaging_distribution_integration-plan.md` is superseded where it
+  differs. A self-signed certificate (stable identity, so macOS privacy grants survive updates)
+  is the open follow-up.
 
 - **Physical-display flicker remains a separate validation surface.** The
   original September 16 report attributed remaining flicker to Wayland/NVIDIA,

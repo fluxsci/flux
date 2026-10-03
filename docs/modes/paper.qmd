@@ -397,7 +397,7 @@ pursues your typing with a lively, immediate feel) or *smooth* (a fixed soft gli
 | Symptom | Cause → fix |
 |---|---|
 | A citation chip shows your typed text, dimmed | The key isn't in the project bib or library → check the spelling, or add the paper to the [Library](library.qmd) first |
-| Word export is disabled | Quarto isn't installed → [install it](../installation.qmd), restart Flux |
+| Word export is disabled | Quarto isn't installed → **Settings → Set up Flux… → Paper export** ([Installation](../installation.qmd)) |
 | A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd) |
 | Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in **Figure-Meta** (**Alt+M**) |

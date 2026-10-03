@@ -52,63 +52,42 @@ Flux also imports ordinary SVGs and raster images. See
 
 ## Installation
 
-### Run from source
+Paste this into a terminal (macOS on Apple Silicon or Intel, or Debian/Ubuntu Linux):
 
-Install **Git** and **Node.js 22 (22.15 or newer)**. The repository's `.nvmrc`
-selects Node 22; if you use nvm, run `nvm install` and `nvm use` after cloning.
-On macOS, install Xcode Command Line Tools once with `xcode-select --install`.
+```sh
+curl -fsSL https://fluxsci.github.io/install.sh | bash
+```
+
+It downloads the latest release, verifies its checksum, installs Flux (into `/Applications`
+on macOS; with `apt` on Linux), puts the `flux` command on your PATH and opens the app. On
+first launch a short **setup window** offers the optional extras, each one button with no
+admin rights: Quarto and TinyTeX for manuscript export, the `flux` command, and connecting
+Claude Code or Codex. Flux updates itself the same way (**Update now** on macOS).
+
+For plots, add **[fluxplot](https://github.com/fluxsci/fluxplot)** to your analysis
+environment (`uv add fluxplot` or `pip install fluxplot`). From the Home screen, create a
+project or open the [example project from the website](https://fluxsci.github.io/#example-project);
+the [getting-started walkthrough](docs/getting-started.qmd) goes from reading a paper to
+exporting a manuscript. The **[installation guide](docs/installation.qmd)** covers updating,
+uninstalling, the companions and troubleshooting.
+
+### Run from source (contributors)
+
+Install **Git** and **Node.js 22 (22.15 or newer)**; the repository's `.nvmrc` selects it
+for nvm. On macOS, install Xcode Command Line Tools once with `xcode-select --install`.
 
 ```sh
 git clone https://github.com/fluxsci/flux.git
 cd flux
 npm ci
+node node_modules/electron/install.js   # Electron 43 no longer downloads itself at install
 npm run fetch:video-encoder
 npm run electron:dev
 ```
 
-This opens the desktop app with live reload. Keep the terminal running while you
-use it; press **Ctrl+C** to stop. The encoder download enables video import and MP4
-export in a source checkout. Use the Electron window for the full desktop experience.
-
-From the Home screen, create a project or open the
-[example project from the website](https://fluxsci.github.io/#example-project).
-The [getting-started walkthrough](docs/getting-started.qmd) takes you through a
-first project, from reading a paper to exporting a manuscript.
-
-### Add tools for your workflow
-
-| Capability | Additional setup |
-| --- | --- |
-| Export manuscripts to HTML or Word | Install **Quarto**. |
-| Export manuscripts to PDF | Install Quarto and a TeX distribution, such as **TinyTeX** (`quarto install tinytex`); see the install guide for SVG support and journal-style packages. |
-| Generate semantic plots with Python | Set up **[fluxplot](https://github.com/fluxsci/fluxplot)** in your analysis environment. |
-| Work with an assistant in Flux | Install and sign in to Claude Code or Codex, then use **AI status → Connect**; see [Working with AI agents](docs/agents/connect.qmd). |
-
-The **[full installation guide](docs/installation.qmd)** covers platform setup,
-companion tools, and troubleshooting. There is also an
-[agent-assisted macOS setup runbook](docs/for_agents/claude-install-flux-mac.md).
-
-### Build a standalone app
-
-Install Quarto, then run the command for your platform from the source checkout.
-The build includes the existing user guide for offline access. Output goes into `release/`.
-
-```sh
-# macOS: DMG and ZIP for Apple Silicon and Intel
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac
-
-# Linux: AppImage and Debian package
-npm run dist:linux
-```
-
-For an unpacked app, use `npm run pack`. Windows installers are not currently
-provided. Check [GitHub Releases](https://github.com/fluxsci/flux/releases) for
-published builds as they become available.
-
-Maintainers: [qualification procedure](docs/RELEASE_QUALIFICATION.md) and
-[V0.2.0 implementation evidence](docs/V020_IMPLEMENTATION_PROGRESS.md) describe
-the required checks and remaining platform qualifications. Building a package
-does not publish or certify a release.
+This opens the desktop app with live reload; **Ctrl+C** stops it. Releases are built by CI
+from a version tag (`.github/workflows/release.yml`); `npm run pack` makes an unpacked app
+locally.
 
 ## Scripts and agents
 
