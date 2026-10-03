@@ -2749,6 +2749,31 @@ days (probe geometry like `width` instead).
   actual tools before launching an isolated attempt. CI provisions Quarto for both the
   bundle and Paper UI jobs, and TeX for the PDF bundle gate. Keep artifact assertions on
   capable machines; never exit successfully merely because an export tool is unavailable.
+- **Electron 43's npm package has no install hook** (2026-10-03). `npm ci` leaves
+  `node_modules/electron/dist` empty and the first `require("electron")` downloads the binary
+  ("Downloading Electron binary..." in the middle of the hermetic pure tier). Every workflow
+  fetches it explicitly after `npm ci` (`node node_modules/electron/install.js`). A fresh
+  developer checkout gets the same lazy download on first launch.
+- **Ubuntu 24.04 runners refuse Electron's sandbox** (2026-10-03). AppArmor's
+  `kernel.apparmor_restrict_unprivileged_userns=1` plus an npm-installed (non-setuid)
+  `chrome-sandbox` kill Electron on a signal: the 3D poster worker reported only "exited null".
+  The CI and release jobs `sysctl` it to 0 (developer desktops already allow it).
+  `FLUX_ELECTRON_NO_SANDBOX` does NOT help here: it reaches launches that go through
+  `testProcess.mjs`, not the poster worker that product code spawns. The worker's error now names
+  the signal and Electron's last stderr line, because callers keep only the first line.
+- **The glyph-outline gates need msttcorefonts** (`verify-glyph-outlines`,
+  `verify-text-morph-browser`, `verify-slide-export-transform`; 2026-10-03). They read the
+  reference workstation's Arial/Georgia files; without them, letter flights fall back to
+  glyph boxes (6 paths instead of 7 for "Optics"). The Linux CI/release jobs install
+  `ttf-mscorefonts-installer` (EULA preseeded) and fail the step if the download did.
+  `verify-glyph-outlines` hardcodes the Debian paths, so it is still red on macOS/Windows.
+- **Pure-tier timing budgets are relative to an in-process control** (2026-10-03). The
+  shared 4-vCPU runner at `--jobs 4` measured 107 ms for a 25 ms plan and 8 ms p95 for
+  0.9 ms. `verify-correspondence` bounds a cache-miss plan at 8 × its unavoidable
+  key + clone (best of five each, mutation-tested: outline planning restored = 15×), and
+  proves a hit by object identity. `verify-target-geometry` keeps the B1 spec's 5 ms,
+  scaled by the cold-query median over its 2.2 ms reference. Don't interleave warm and cold
+  samples: parsing fresh roots between warm samples doubled the warm p95 through GC.
 - **In HTML fullscreen, native Chromium spends Escape on leaving fullscreen and never
   delivers the key** (Electron `sendInputEvent`, a real keyboard). Present therefore closes
   on a `fullscreenchange` it did not request (its own F toggle and teardown set a flag),
@@ -9546,3 +9571,42 @@ the old click.
   first frame re-ticks its axes (55 px² at the axis corners); a spine hand-off's landing differs
   from the plot's own spines by ~50 px² along the axes; a 300 ms count text ("epoch 0→4") moves
   ~22 px² on its first frame.
+
+### 2026-10-03 (evening) — CI red on four pushes: seven pure reds, two GUI regressions (Claude Opus 5.5, `main`)
+
+**Work:** CI had failed on every push since 09-29. The blocking `test` job's pure tier had 7 reds
+(375/382). One was a STALE GATE: `9fa6dc4f` gave `sampleCorrespondence` a timing argument, and
+`verify-slide-handoff-browser` matched the old call text to inject its probe; it now matches the call
+head. Six were the runner, not the product (see the four new §9 CI bullets): Electron 43 never
+installed by `npm ci` and its sandbox refused by Ubuntu 24.04 AppArmor (`verify-model3d-headless`);
+no msttcorefonts (`verify-glyph-outlines`, `verify-text-morph-browser`,
+`verify-slide-export-transform`); and two absolute wall-clock budgets (`verify-correspondence`,
+`verify-target-geometry`), now relative to in-process controls. `ci.yml` (test, test-windows) and
+`release.yml` fetch Electron, Linux lifts the userns restriction and installs msttcorefonts. The
+poster worker's error now names the signal and Electron's last stderr line. In the observing
+`ui-gate`, two reds reproduced locally and were real. `verify-transform-gui` still pressed ⌃⇧T after
+Change moved to ⌃⇧C (`e5b336e7`). `verify-v020-controls-gui` mounted `ColorScaleControls` with the
+props the 09-30 rewrite (`7659d619`) removed. Updating its probe exposed a PRODUCT regression: the
+Inspector reuses one editor across selections, and legacy (pre-0.3.1) drafts were seeded once per
+control key. Plot A's unsent range therefore showed on plot B, and Apply to source would have written
+it there. Drafts now reseed when the element or its generated values change (mutation-checked: the
+fix reverted fails with `'2'` vs `'0'`). Local: pure 382/382, ui reds above green.
+**Open / resolved:**
+- **Bundle tier (resolved):** `verify-w13-cli`'s 8 MB core-bundle budget was exceeded (8.7 MB: 6.6
+  on 09-27 → 8.0 on 09-30 from `src/lib` 3D/animation code → 8.7 on 10-02 from `opentype.js`,
+  582 KB). CI never showed it because the pure tier failed first. The owner raised it to 10 MB, with
+  the composition recorded in the gate. Check the bundle size on every CI run, not just the pass/fail.
+- **ui-gate:** `verify-v020-morph-startup` (first seek 130 ms > 100 on CI), `verify-model3d-gui`
+  (Ctrl-wheel proxy, resize reframe) and `verify-model3d-snapshot-quiet` (hover takes a second
+  snapshot) pass locally and fail when pinned to two loaded cores. Not yet diagnosed as gate timing
+  or a real slow-machine race.
+- **test-windows:** about 24 reds, mostly long-standing (connect, inbox-wait, chord census on `\`
+  paths, model3d ownership), plus `verify-glyph-outlines`' Linux font paths.
+**Learnings:**
+- Read the evidence artifact before theorising. `gh run download <id> -n pure-verify-summary` holds
+  per-attempt stdout/stderr, but a worker error reduced to its first line hides the cause.
+- A gate that injects a probe by matching source text breaks on any harmless signature change;
+  match the smallest stable prefix.
+- Mutation-test a reworked budget or contract both ways: plant the regression it exists for, and
+  confirm the fixed code passes.
+- Two-core `taskset` pinning plus busy loops reproduces the hosted runner's timing reds locally.
