@@ -2242,7 +2242,11 @@ distinction.
 Run the hermetic runner from the repository root; never invoke a verify `.ts` directly.
 
 The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A new verify script
-that isn't in the manifest doesn't exist.** Tiers:
+that isn't in the manifest doesn't exist.** Every tier or group member also
+needs an `execution` contract; the runner refuses to PLAN a whole tier when one member lacks it
+("Missing/invalid execution contract: …" before any gate runs — this aborted `--tier pure` for every
+worker on 2026-10-02 after two 09-30 gates landed without one). `verify-manifest-contracts.ts` (pure)
+turns that into an ordinary red check using the runner's own validator. Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
   pure --jobs 4` (must stay green at all times; current membership is in the manifest).
@@ -2298,6 +2302,13 @@ that isn't in the manifest doesn't exist.** Tiers:
   children stopped: confirm the final summary before starting another cohort.
   An exact-path entry must retain the regression groups of the broader entry it supersedes:
   pathMap uses the first matching entry, not the union of all matching entries.
+  The manifest round-trips through `JSON.stringify(m, null, 2)` byte-identically, so a three-way
+  STRUCTURAL merge (parse base/ours/theirs; union tiers/groups/execution; insert theirs-new pathMap
+  rules after their predecessor) is the safe way to merge it — never re-sort `execution` (the block is
+  not alphabetical; a sort is a 3,500-line diff). Never run gates against a worktree whose dev server
+  is serving a merge in progress: conflict markers break "entered Slide mode" in every UI gate and
+  the reds are artifacts. `pkill -f <pattern>` matches the shell running it (like `pgrep -f`): kill by
+  the port owner (`ss -ltnp`) instead.
   Merging two branches' manifests: resolve `verify-manifest.json` structurally (three-way,
   keyed by script name and `glob`) and keep each side's new pathMap rules anchored to their
   shared neighbours; appending one side's rules after the other's lets a broad rule shadow a
@@ -9446,3 +9457,24 @@ promoted to §9.
   the slide-scoped ops refuse "not found" on the second — seed fresh ids or replace the slide.
 - A fresh worktree lacks the gitignored `dist/flux-model3d-*` runtime, so
   `verify-model3d-headless` fails "3D renderer is missing" until `npm run build:model3d`.
+
+### 2026-10-02/03 — Slides Oct-2 batch: orchestration of five parallel Opus workers (Claude Fable 5.1, `slides-oct2`)
+**Work:** Owner's batch (Deck 3 slides 2–4, FeatureFig 1, three inbox notes): Become into any picked
+set + merge + fill underlay (W1), the Become picker mode (W2), glyph-matched text morphs and letter
+outlines from system fonts (W3), timeline grid/align/inherit (W4), the Paper slide chip (W5). Each
+worker built in its own worktree on its own dev port with a written guide; reviewed each report, diff
+and screenshots, merged in the order W5 → W2 → W3 → W1 → W4 (W2 feature-detected W1's
+`normalizeRef`; the W1 merge re-wired W2's picker to the shared `composeDestination` and a new
+`commitMerge` hook), regenerated validators/context bundle/MCP golden, then drove the real Electron app
+on a copy of the owner's project through every scenario. Final tree: check 0/0, pure 381/381 (+ the new
+manifest-contracts gate), the slide/paper/verb cohort 48/48; ui tier and native smoke recorded in
+`notes/slides_oct2/ORCHESTRATION.md` and `HANDOFF.md`.
+**Learnings:**
+- Promoted to §7: the planning abort on a missing execution contract and its gate.
+- Promoted to §9: structural manifest merges (never re-sort `execution`), never gate a worktree mid-merge,
+  `pkill -f` self-match.
+- Parallel workers that must share a seam (here `TargetRef.members`) should agree on ONE exported name
+  and feature-detect it; the integrator then swaps the detect for the import in the merge commit.
+- A worker's own frames found the gold-standard regression (a filled ring going hollow on frame 1) that
+  no gate measured: look at mid-flight frames of the OWNER's deck, not only fixtures.
+

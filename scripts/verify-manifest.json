@@ -382,7 +382,8 @@
       "verify-text-match.ts",
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
-      "verify-become-picker.ts"
+      "verify-become-picker.ts",
+      "verify-manifest-contracts.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -9756,6 +9757,15 @@
       "coverage": "behavior"
     },
     "verify-glyph-outlines.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-manifest-contracts.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
