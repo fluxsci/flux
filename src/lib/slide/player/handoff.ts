@@ -72,6 +72,8 @@ export interface HandoffOptions {
   /** Insert this flight's layer before that one (a merge's last lander, whose
    *  destination leftovers must lie beneath every co-lander's pieces). */
   beneath?: Element | null;
+  /** The track's duration: time-based interiors (a dissolve) run in real ms. */
+  durationMs?: number;
 }
 export interface HandoffController extends MorphController {
   /** The flight layer this controller draws into (one `g.sl-handoff`). */
@@ -359,7 +361,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       set(f.clone.node, "transform", `translate(${f.clone.box.x} ${f.clone.box.y})`); set(f.clone.node, "opacity", String(w * f.clone.opacity));
     }
     if (paths.length) {
-      sampleCorrespondence(sampled!, t, out);
+      sampleCorrespondence(sampled!, t, out, { raw, durationMs: opts.durationMs ?? 600 });
       let i = 0;
       for (const drawing of paths) {
         while (sampled!.pairs[i] !== drawing.pair) i++;

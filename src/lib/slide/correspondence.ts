@@ -36,8 +36,15 @@ export interface InteriorSpec {
   lo: number;
   hi: number;
 }
-/** How much of the flight (eased progress) the interior takes to leave or arrive. */
+/** How much of the flight (eased progress) the interior takes to leave or arrive —
+ *  collapse and drain are MOTION, so they scale with the flight. */
 export const INTERIOR_WINDOW: Record<InteriorSpec["method"], number> = { dissolve: 0.3, collapse: 0.45, drain: 0.45 };
+/** Dissolve is a FADE and reads right only when quick: given the flight's timing
+ *  it runs over this many real ms however long the transform is (owner, 2026-10-03);
+ *  `INTERIOR_WINDOW.dissolve` is the fallback when a caller has no timing. */
+export const DISSOLVE_MS = 220;
+/** The flight's real timing, so time-based interiors (dissolve) can ignore its length. */
+export interface SampleTiming { raw: number; durationMs: number }
 export interface CorrespondencePlan {
   pairs: CorrespondencePair[];
   policy: Exclude<PairPolicy, "auto">;
@@ -552,7 +559,7 @@ function clipBeyond(poly: { x: number; y: number }[], centre: { x: number; y: nu
 /** prepare() must run before sampling. Endpoint nodes are the exact authored
  *  chains (the aligned intermediate may have additional corner-preserving
  *  splits). Reuse out to retain every path, node, handle and dash buffer. */
-export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: SampledPath[] = []): SampledPath[] {
+export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: SampledPath[] = [], timing?: SampleTiming): SampledPath[] {
   t = clamp(t);
   for (let i = 0; i < plan.pairs.length; i++) {
     const pair = plan.pairs[i], { a, b } = pair;
@@ -578,8 +585,13 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       // much of it is PRESENT runs 1 → 0 over the first window of the flight
       // leaving, 0 → 1 over the last window arriving, eased so it starts and
       // ends without a step. Its paint is the ring's own fill; nothing lerps.
-      const spec = pair.interior, W = INTERIOR_WINDOW[spec.method];
-      const present = smooth(a ? 1 - clamp(t / W) : clamp((t - (1 - W)) / W));
+      const spec = pair.interior;
+      // dissolve runs on REAL time when the caller has it (DISSOLVE_MS, clamped to the
+      // flight); collapse and drain run on eased progress like the pieces they leave with
+      const timed = spec.method === "dissolve" && timing && timing.durationMs > 0;
+      const W = timed ? Math.min(1, Math.max(0.02, DISSOLVE_MS / timing.durationMs)) : INTERIOR_WINDOW[spec.method];
+      const u = timed ? clamp(timing.raw) : t;
+      const present = smooth(a ? 1 - clamp(u / W) : clamp((u - (1 - W)) / W));
       const base = a ? buf.a : buf.b;
       path.closed = true;
       if (spec.method === "dissolve") { path.nodes = base; path.opacity = present; }

@@ -111,6 +111,18 @@ const keptOut: ReturnType<typeof sampleCorrespondence> = [];
 const firstNodes = sampleCorrespondence(kept, 0.2, keptOut)[0].nodes, firstNode = firstNodes[0];
 h.ok(sampleCorrespondence(kept, 0.25, keptOut)[0].nodes === firstNodes && keptOut[0].nodes[0] === firstNode, "drain reuses its clipped node buffer (array and nodes) across frames");
 h.eq(planCorrespondence([filledRing], three, { pair: "tile", method: "shatter" }).pairs.length, 6, "shatter stays the default geometry (three arcs + three wedges)");
+h.section("dissolve runs on real time when the flight's timing is known");
+{
+  const p = planCorrespondence([filledRing], three, { pair: "tile", method: "dissolve" }); p.prepare();
+  const op = (raw: number, durationMs: number) => sampleCorrespondence(p, raw, [], { raw, durationMs })[0].opacity;
+  h.ok(op(0, 2000) === 1 && op(0.055, 2000) > 0.4 && op(0.055, 2000) < 0.6 && op(0.11, 2000) === 0 && op(0.3, 2000) === 0, "a 2 s flight dissolves its interior in 220 ms (gone by raw .11), not over 30 % of the motion");
+  h.ok(op(0.1, 300) > 0.5 && op(0.74, 300) === 0, "a 300 ms flight dissolves over its first 220 ms");
+  h.ok(op(0.5, 100) > 0 && op(1, 100) === 0, "a flight shorter than 220 ms dissolves over its whole length");
+  const m = planCorrespondence(three, [filledRing], { pair: "tile", method: "dissolve" }); m.prepare();
+  const opm = (raw: number) => sampleCorrespondence(m, raw, [], { raw, durationMs: 2000 })[0].opacity;
+  h.ok(opm(0.8) === 0 && opm(0.89) === 0 && opm(0.945) > 0.4 && opm(0.945) < 0.6 && opm(1) === 1, "merging, the interior resolves over the LAST 220 ms");
+  h.ok(sampleCorrespondence(p, 0.15)[0].opacity === 0.5, "without timing the eased-progress window (30 %) still applies");
+}
 h.eq(ringTile.pairs.length, 2, "an UNFILLED ring tiles with no fill pieces");
 h.eq(planCorrespondence([outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], true)], three, { pair: "tile" }).pairs.length, 3, "an UNFILLED ring into three partners: three arcs, nothing beneath");
 h.section("seam overlap helpers");
