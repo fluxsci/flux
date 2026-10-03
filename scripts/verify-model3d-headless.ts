@@ -196,6 +196,134 @@ try {
   const nestedResolved = await cache.resolveModelPosters(root, [{ ...figure, elements: [nestedElement] }], [nested], { policy: 'collect' });
   h.eq(nestedResolved.manifests.nested, manifest, 'nested GLB: the poster path reads its canonical sidecar');
   h.eq(nestedResolved.requests[0]?.key, staticModelRequest(nestedElement, nested, manifest, 'figure').key, 'nested GLB: CLI/Connect poster keys match the app composition');
+  // A slide step's part visibility is a poster input: it joins the key and the
+  // Node render spec, and a still whose part state cannot be rendered never
+  // borrows another state's poster.
+  {
+    const hiddenField = () => ({ 'height.field': { opacity: 0, visible: false } });
+    const specs: unknown[] = [], capture: typeof renderBatch = async (requests, options) => { specs.push(...requests.map(r => r.spec.partOpacity)); return renderBatch(requests, options); };
+    const stepped = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', renderBatch: capture, partStates: hiddenField });
+    const design = staticModelRequest(element, asset, manifest, 'figure');
+    h.ok(stepped.requests[0].key !== design.key && stepped.requests[0].key === staticModelRequest(element, asset, manifest, 'figure', { 'height.field': 0 }).key, 'a hidden-at-step part gives the poster a distinct key');
+    h.eq(specs, [{ 'height.field': 0 }], 'the Node render spec carries the part factor');
+    const refuse: typeof renderBatch = async () => { throw Error('worker unavailable'); };
+    const fallback = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', surface: { kind: 'raster', dpi: 150 }, renderBatch: refuse, partStates: () => ({ 'height.field': { opacity: .5, visible: true } }) });
+    h.ok(!Object.keys(fallback.urls).length && !fallback.warnings.some(w => w.includes('using the stored poster')), 'an unrenderable part state never falls back to a poster of another part state');
+  }
+  // End to end through the CLI deck gather and the actual headless worker: a
+  // mesh part that appears at step 1 is absent from the step-0 still.
+  {
+    const { createDeck, addSlide, addBeat } = await import('../src/lib/slide/ops');
+    const { payloadModelContext } = await import('../src/lib/slide/export/model3dPayloadHost');
+    const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+    const partBytes = await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.glb'), partManifest: Scene3dManifest = JSON.parse(await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.fluxplot.json', 'utf8'));
+    const partAsset: Model3dAsset = { id: 'parts', name: 'Parts', kind: 'glb', path: 'assets/parts.glb', naturalWidth: 336, naturalHeight: 252, bytes: partBytes.length, sha256: createHash('sha256').update(partBytes).digest('hex'), model: inspectGlb(partBytes) };
+    const deck = createDeck({ withTitleSlide: false }); deck.id = 'parts-deck'; deck.assets = [partAsset];
+    const slide = addSlide(deck);
+    slide.elements.push({ ...makeModel3dElement(partAsset, { id: 'part-view', manifest: partManifest }), x: 40, y: 30, width: 336, height: 252, orbitAzimuth: 0, orbitElevation: 0, modelLighting: 'unlit' });
+    addBeat(deck, slide.id)!.tracks.push({ id: 'left-in', target: 'part-view', part: 'cortex.left', preset: 'fade', duration: 400 });
+    const assetsDir = path.join(root, 'slides', deck.id, 'assets'); await fs.mkdir(assetsDir, { recursive: true });
+    await fs.writeFile(path.join(assetsDir, 'parts.glb'), partBytes); await fs.writeFile(path.join(assetsDir, 'parts.fluxplot.json'), JSON.stringify(partManifest));
+    await core.saveDeck(root, deck);
+    const saved = (await core.loadDeck(root, deck.id)).slides[0].elements[0] as typeof element;
+    const gathered = await core.gatherDeckPayload(root, deck.id, undefined, { refreshSources: false });
+    const hiddenRef = staticModelRequest(saved, partAsset, partManifest, 'slide', { 'cortex.left': 0 }).ref, designRef = staticModelRequest(saved, partAsset, partManifest, 'slide').ref;
+    const stepZero = gathered.payload.assets?.[hiddenRef], stepOne = gathered.payload.assets?.[designRef];
+    h.ok(hiddenRef !== designRef && !!stepZero?.startsWith('data:image/png;') && !!stepOne?.startsWith('data:image/png;'), `the CLI deck gather renders a step-0 still (hidden part) and a step-1 still under distinct keys (${gathered.warnings.join('; ') || 'no warnings'})`);
+    const decode = async (url: string) => { const image = await loadImage(Buffer.from(url.split(',')[1], 'base64')), c = createCanvas(image.width, image.height), g = c.getContext('2d'); g.drawImage(image, 0, 0); return { w: image.width, h: image.height, data: g.getImageData(0, 0, image.width, image.height).data }; };
+    const coverage = (p: Awaited<ReturnType<typeof decode>>, from: number, to: number) => { let n = 0; for (let y = 0; y < p.h; y++) for (let x = Math.floor(p.w * from); x < Math.floor(p.w * to); x++) if (p.data[(y * p.w + x) * 4 + 3] > 10) n++; return n; };
+    const [zero, one] = [await decode(stepZero!), await decode(stepOne!)];
+    h.ok(coverage(one, 0, .45) > 500 && coverage(zero, 0, .45) < coverage(one, 0, .45) * .02 && Math.abs(coverage(zero, .55, 1) - coverage(one, .55, 1)) < coverage(one, .55, 1) * .02,
+      `the hidden left mesh part is absent from the actual headless step-0 still (left ${coverage(zero, 0, .45)} vs ${coverage(one, 0, .45)} px; right ${coverage(zero, .55, 1)} vs ${coverage(one, .55, 1)})`);
+    const authored = await cache.resolveModelPosters(root, [{ ...figure, elements: [{ ...saved, overrides: { 'cortex.left': { hidden: true } } }] }], [{ ...partAsset, path: `slides/${deck.id}/assets/parts.glb` }], { policy: 'image', surface: 'slide', assetPrefix: '', manifests: { parts: partManifest } });
+    const reference = await decode(Object.values(authored.urls)[0]!);
+    let max = 0; for (let i = 0; i < reference.data.length; i++) max = Math.max(max, Math.abs(reference.data[i] - zero.data[i]));
+    h.ok(reference.w === zero.w && max <= 2, `the step-0 still matches an actual render with that part hidden (max channel difference ${max})`);
+    const offline = payloadModelContext(gathered.payload);
+    h.ok(offline.modelPoster(saved, { 'cortex.left': 0 }) === stepZero && offline.modelPoster(saved) === stepOne, 'offline-HTML pre-ready posters find the still of the step\'s part state');
+  }
+  // render-model-posters --deck renders every build step's still into the
+  // project cache, so a read-only gather (Connect's deck sheet, CLI Paper) finds
+  // each step's own picture; --prune keeps those step stills live.
+  {
+    const { createDeck, addSlide, addBeat } = await import('../src/lib/slide/ops');
+    const { gatherSlidePayload } = await import('../src/lib/slide/payload');
+    const { renderSlidePosterSvg } = await import('../src/lib/slide/embedRender');
+    const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+    const partBytes = await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.glb'), partManifest: Scene3dManifest = JSON.parse(await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.fluxplot.json', 'utf8'));
+    const stepAsset: Model3dAsset = { id: 'steps', name: 'Steps', kind: 'glb', path: 'assets/steps.glb', naturalWidth: 336, naturalHeight: 252, bytes: partBytes.length, sha256: createHash('sha256').update(partBytes).digest('hex'), model: inspectGlb(partBytes) };
+    const deck = createDeck({ withTitleSlide: false }); deck.id = 'steps-deck'; deck.assets = [stepAsset];
+    const slide = addSlide(deck);
+    slide.elements.push({ ...makeModel3dElement(stepAsset, { id: 'step-view', manifest: partManifest }), x: 60, y: 40, width: 320, height: 240, orbitAzimuth: 0, orbitElevation: 0, modelLighting: 'unlit' });
+    addBeat(deck, slide.id)!.tracks.push({ id: 'left-in', target: 'step-view', part: 'cortex.left', preset: 'fade', duration: 400 });
+    const assetsDir = path.join(root, 'slides', deck.id, 'assets'); await fs.mkdir(assetsDir, { recursive: true });
+    await fs.writeFile(path.join(assetsDir, 'steps.glb'), partBytes); await fs.writeFile(path.join(assetsDir, 'steps.fluxplot.json'), JSON.stringify(partManifest));
+    await core.saveDeck(root, deck);
+    // Exactly Connect's deck-sheet read: the saved JSON and cache-only IO.
+    const connectRead = async () => gatherSlidePayload(root, JSON.parse(await fs.readFile(path.join(root, 'slides', deck.id, 'deck.json'), 'utf8')), slide.id, { readText: (p: string) => fs.readFile(p, 'utf8'), readFile: (p: string) => fs.readFile(p), modelData: 'omit' });
+    const unavailable = (warnings: string[]) => warnings.filter(w => w.includes('poster unavailable'));
+    const signatureBefore = await cache.projectModelPosterSignature(root);
+    const cold = await connectRead();
+    h.ok(unavailable(cold.warnings).length > 0 && renderSlidePosterSvg(cold.payload, 0).includes('data-model3d-placeholder'), 'before an explicit render, a read-only deck read shows a placeholder for the uncached step still');
+    const projectBefore = await tree(path.join(root, 'fig/renders/model3d'));
+    await connectRead(); h.eq(await tree(path.join(root, 'fig/renders/model3d')), projectBefore, 'the read-only deck read writes no poster');
+    const rendered = await core.renderModelPosters(root, { deckId: deck.id });
+    const saved = (await core.loadDeck(root, deck.id)).slides[0].elements[0] as typeof element;
+    const hiddenKey = staticModelRequest(saved, stepAsset, partManifest, 'slide', { 'cortex.left': 0 }).key, designKey = staticModelRequest(saved, stepAsset, partManifest, 'slide').key;
+    h.eq(rendered.posters.filter(p => p.elementId === 'step-view').map(p => [p.key, p.ready]).sort(), [[designKey, true], [hiddenKey, true]].sort(), 'render-model-posters --deck renders the Design still and the step-0 still with its hidden part, each once');
+    const warm = await connectRead();
+    h.eq(unavailable(warm.warnings), [], 'after render-model-posters --deck, the read-only deck read finds every step still (no placeholder warning)');
+    const [stepZero, stepOne] = [renderSlidePosterSvg(warm.payload, 0), renderSlidePosterSvg(warm.payload, 1)];
+    h.ok([stepZero, stepOne].every(svg => svg.includes('data-model3d-poster') && !svg.includes('data-model3d-placeholder')), 'both steps of the part fade render their own mesh still in the read-only poster SVG');
+    const url = warm.payload.assets?.[staticModelRequest(saved, stepAsset, partManifest, 'slide', { 'cortex.left': 0 }).ref];
+    const image = await loadImage(Buffer.from(url!.split(',')[1], 'base64')), c = createCanvas(image.width, image.height), g = c.getContext('2d'); g.drawImage(image, 0, 0);
+    const data = g.getImageData(0, 0, image.width, image.height).data; let left = 0, right = 0;
+    for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) if (data[(y * image.width + x) * 4 + 3] > 10) { if (x < image.width * .45) left++; else if (x > image.width * .55) right++; }
+    h.ok(left < 50 && right > 500, `the pre-rendered step-0 still has no pixels of the part that appears at step 1 (left ${left}, right ${right})`);
+    h.ok(await cache.projectModelPosterSignature(root) !== signatureBefore, 'the Connect deck-sheet poster signature changes when step stills are rendered');
+    // --prune: every file is old; the step stills are live, an unreferenced one is not.
+    const dir = path.join(root, 'fig/renders/model3d'), stale = 'm3d-00000000000abc.png', old = new Date(Date.now() - 30 * 86400_000);
+    await fs.writeFile(path.join(dir, stale), await fs.readFile(path.join(dir, `${hiddenKey}.png`)));
+    for (const name of await fs.readdir(dir)) await fs.utimes(path.join(dir, name), old, old);
+    const pruned = await core.renderModelPosters(root, { deckId: deck.id, prune: true });
+    h.ok(pruned.removed.includes(stale) && !pruned.removed.includes(`${hiddenKey}.png`) && !pruned.removed.includes(`${designKey}.png`) && await fs.stat(path.join(dir, `${hiddenKey}.png`)).then(() => true, () => false), `--prune keeps the deck's step stills live and removes an unreferenced one (${pruned.warnings.filter(w => w.includes('pruned')).join('; ') || 'removed ' + pruned.removed.length})`);
+  }
+  // The app's idle prune and render-model-posters --prune share one live set:
+  // Figure views plus every deck's Design and build-step stills.
+  {
+    const { liveModelPosterSet } = await import('../flux-core/model3d');
+    const { appLiveModelPosterKeys } = await import('../src/lib/model3d/livePosterKeys');
+    const { createDeck, addSlide, addBeat } = await import('../src/lib/slide/ops');
+    const root2 = path.join(scratch, 'live-project'); await core.scaffold(root2, { title: 'Live posters' });
+    const visible = { ...element, id: 'fig-visible', orbitAzimuth: 11 }, hidden = { ...element, id: 'fig-hidden', orbitAzimuth: 12, hidden: true };
+    const liveModel: Project = { version: 2, name: 'Live', canvases: [{ id: 'canvas', name: 'Canvas' }], figures: [{ ...figure, elements: [visible, hidden] }], assets: [asset], palette: [] };
+    const plan = planFigSave(liveModel, null); for (const entry of [...plan.canvases, ...plan.captions, plan.index]) { const file = path.join(root2, entry.path); await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, entry.text); }
+    await fs.mkdir(path.join(root2, 'fig/assets'), { recursive: true }); await fs.writeFile(path.join(root2, 'fig', asset.path), bytes); await fs.writeFile(path.join(root2, 'fig/assets/model.fluxplot.json'), JSON.stringify(manifest));
+    const partBytes = await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.glb'), partManifest: Scene3dManifest = JSON.parse(await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.fluxplot.json', 'utf8'));
+    const deckAsset: Model3dAsset = { id: 'fade', name: 'Fade', kind: 'glb', path: 'assets/fade.glb', naturalWidth: 336, naturalHeight: 252, bytes: partBytes.length, sha256: createHash('sha256').update(partBytes).digest('hex'), model: inspectGlb(partBytes) };
+    const deck = createDeck({ withTitleSlide: false }); deck.id = 'live-deck'; deck.assets = [deckAsset];
+    const slide = addSlide(deck);
+    slide.elements.push({ ...makeModel3dElement(deckAsset, { id: 'deck-view', manifest: partManifest }), x: 40, y: 30, width: 320, height: 240 });
+    addBeat(deck, slide.id)!.tracks.push({ id: 'left-in', target: 'deck-view', part: 'cortex.left', preset: 'fade', duration: 400 });
+    addBeat(deck, slide.id)!.tracks.push({ id: 'grow', target: 'deck-view', preset: 'transform', duration: 400, to: { state: { width: 400, height: 300 } } });
+    const deckDir = path.join(root2, 'slides', deck.id, 'assets'); await fs.mkdir(deckDir, { recursive: true });
+    await fs.writeFile(path.join(deckDir, 'fade.glb'), partBytes); await fs.writeFile(path.join(deckDir, 'fade.fluxplot.json'), JSON.stringify(partManifest));
+    await core.saveDeck(root2, deck);
+    const nodeIO = { exists: (rel: string) => fs.stat(path.join(root2, rel)).then(() => true, () => false), readText: (rel: string) => fs.readFile(path.join(root2, rel), 'utf8') };
+    const figureProject = (await core.loadFigModel(root2)).project, figureManifests = (await cache.resolveModelPosters(root2, figureProject.figures, figureProject.assets, { policy: 'collect' })).manifests;
+    const cli = await liveModelPosterSet(root2), app = await appLiveModelPosterKeys(figureProject, figureManifests, nodeIO);
+    h.eq(cli.unreadable, [], 'flux-core reads every live document');
+    h.eq([...app ?? []].sort(), [...cli.live].sort(), `the app's prune live set equals render-model-posters --prune's (${cli.live.size} keys)`);
+    const saved = (await core.loadDeck(root2, deck.id)).slides[0].elements[0] as typeof element;
+    const expected = [staticModelRequest(visible, asset, manifest, 'figure').key, staticModelRequest(saved, deckAsset, partManifest, 'slide').key,
+      staticModelRequest(saved, deckAsset, partManifest, 'slide', { 'cortex.left': 0 }).key, staticModelRequest({ ...saved, width: 400, height: 300 }, deckAsset, partManifest, 'slide').key];
+    h.ok(expected.every(key => cli.live.has(key)) && cli.live.size === expected.length && !cli.live.has(staticModelRequest(hidden, asset, manifest, 'figure').key), 'the live set is the Figure view, the deck Design still, the step-0 part-fade still and the resized step-2 still; a hidden Figure placement is not live');
+    const manifestPath = path.join(root2, 'project.json'), registry = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    registry.slides.push({ id: 'broken-deck', path: 'slides/broken-deck/deck.json' }); await fs.writeFile(manifestPath, JSON.stringify(registry));
+    await fs.mkdir(path.join(root2, 'slides/broken-deck'), { recursive: true }); await fs.writeFile(path.join(root2, 'slides/broken-deck/deck.json'), '{not json');
+    const brokenCli = await liveModelPosterSet(root2), brokenApp = await appLiveModelPosterKeys(figureProject, figureManifests, nodeIO);
+    h.ok(brokenCli.unreadable.length > 0 && brokenApp === null, 'an unreadable registered deck stops both prunes (unknown live stills)');
+  }
   const aborted = new AbortController(); aborted.abort(); await assert.rejects(cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', signal: aborted.signal, renderBatch })); h.ok(true, 'canceled native resolve stops before work');
   await fs.mkdir('test-results/model3d/headless', { recursive: true }); await fs.writeFile('test-results/model3d/headless/figure.svg', svg);
 } finally { await fs.rm(scratch, { recursive: true, force: true }); }

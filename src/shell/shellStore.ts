@@ -104,7 +104,12 @@ async function focusedOtherWindow(root: string): Promise<boolean> {
 }
 
 function enterLoaded(loaded: LoadedProject) {
-  stopProjectWatch();
+  // Promote the root in main BEFORE currentProject fires: its subscribers read
+  // project files at once (annotations → .meta/feedback.ndjson), and a bare
+  // stopProjectWatch() here sent watchRoot(null) first, dropping the pending
+  // root so those reads were refused ("refused path outside project/app roots").
+  // F1: live-reload agent/script edits.
+  startProjectWatch(loaded.root);
   projectModel.set(loaded);
   currentProject.set({ name: loaded.manifest.title, path: loaded.root });
   pushRecent({
@@ -115,7 +120,6 @@ function enterLoaded(loaded: LoadedProject) {
   projectError.set(null);
   resetPanes("paper");
   view.set("workspace");
-  startProjectWatch(loaded.root); // F1: live-reload agent/script edits
   // Pre-Context projects gain Context/ on first open
   // (additive, existence-guarded, best-effort — see contextHeal.ts).
   void ensureProjectContext(loaded);

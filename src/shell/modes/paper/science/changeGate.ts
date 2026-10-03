@@ -83,4 +83,4 @@ export function touchesMe(tr: Transaction, value: RangeSet<RangeValue>, spec: Ga
 // `tableFold` counts full re-derives of the collapsed-source field (a document
 // scan). It is the one field that also updates on SELECTION changes, so its
 // counter is what proves caret motion never pays for a scan.
-export const paperPerf = { embeds: 0, tables: 0, math: 0, citeScans: 0, tableFold: 0 };
+export const paperPerf = { embeds: 0, tables: 0, math: 0, citeScans: 0, tableFold: 0, slideChips: 0 };

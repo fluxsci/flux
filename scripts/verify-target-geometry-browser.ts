@@ -80,7 +80,10 @@ try {
           const node=document.getElementById(partDomId(el.id,id)), box=node.getBBox(), m=node.getScreenCTM();
           const live={x:m.a*box.x+m.e-origin.x,y:m.d*box.y+m.f-origin.y,w:m.a*box.width,h:m.d*box.height};
           const outline=targetOutlines({element:el.id,parts:[id]},frame,ctx);
-          results.push({label:"view:"+!!view+":"+id,live,predicted:outline[0]?.bbox,count:outline.length});
+          // a viewed x axis is re-ticked at rest (F4): its generated tick hides in the DOM and the model
+          const reticked = !!view && id === "axis.x.tick.1";
+          results.push({label:"view:"+!!view+":"+id,live,predicted:outline[0]?.bbox,count:outline.length,
+            ...(reticked ? { hidden: getComputedStyle(node).display === "none", predictedOpacity: outline[0]?.paint.opacity, clones: document.querySelectorAll('[data-projection-tick][id*="axis.x.tick."]').length } : {})});
         }
       }
       return results;
@@ -95,9 +98,14 @@ try {
   launched.page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await launched.page.goto(pathToFileURL(path.join(tmp, "index.html")).href);
   type Stroke = { live: number; predicted?: number; liveDash: number[] | null; predictedDash: number[] | null };
-  const results = await launched.page.evaluate((f) => (globalThis as any).probe(f), fixtures) as { label: string; count: number; live: Record<string,number>; predicted?: Record<string,number>; stroke?: Stroke }[];
+  const results = await launched.page.evaluate((f) => (globalThis as any).probe(f), fixtures) as { label: string; count: number; live: Record<string,number>; predicted?: Record<string,number>; stroke?: Stroke; hidden?: boolean; predictedOpacity?: number; clones?: number }[];
   h.eq(results.length, 42, "all four plot roles, the scatter point and a dashed line measured across sizes/crop/overrides");
   for (const r of results) {
+    if (r.hidden !== undefined) {
+      // the re-ticked axis: the generated tick is hidden live and in the model; clones stand in for it
+      h.ok(r.hidden && r.predictedOpacity === 0 && r.count === 1 && (r.clones ?? 0) >= 2, `${r.label}: a re-ticked axis hides its generated tick in the DOM (display ${r.hidden ? "none" : "shown"}) and the model (opacity ${r.predictedOpacity}); ${r.clones} regenerated ticks stand in`);
+      continue;
+    }
     const error = r.predicted ? Math.max(...Object.keys(r.live).map(k => Math.abs(r.live[k]-r.predicted![k]))) : Infinity;
     h.ok(r.count === 1 && error < .5, `${r.label}: getBBox × screen CTM agrees within 0.5 stage px (max ${error.toFixed(6)})`);
   }

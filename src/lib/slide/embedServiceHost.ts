@@ -6,7 +6,10 @@ import { fileBridge } from '../project/types';
 import type { Model3dHost } from '../model3d/host';
 import type { SlideSnapshot } from './embedRepository';
 
-export function createEmbedServiceHost(snapshot: SlideSnapshot): Model3dHost | undefined {
+/** The worker backend for one repository snapshot's model files: live Paper
+ * widgets wrap it in a service host, the preview's model bridge serves it to
+ * the sandboxed preview document. */
+export function createEmbedServiceBackend(snapshot: SlideSnapshot): { backend: ServiceHostBackend; dispose(): void } | undefined {
   const captured = snapshot.modelSource;
   if (!captured) return undefined;
   let disposed = false;
@@ -39,6 +42,12 @@ export function createEmbedServiceHost(snapshot: SlideSnapshot): Model3dHost | u
         ...(morph ? { morph } : {}), ...(crossfade ? { crossfade } : {}) }, options);
     },
   };
-  const host = createServiceHost(backend, id => snapshot.payload.modelManifests?.[id]);
-  return { ...host, dispose() { if (disposed) return; disposed = true; host.dispose(); releaseModelSource(source); } };
+  return { backend, dispose() { if (disposed) return; disposed = true; for (const hold of holds.values()) hold.release(); holds.clear(); releaseModelSource(source); } };
+}
+
+export function createEmbedServiceHost(snapshot: SlideSnapshot): Model3dHost | undefined {
+  const served = createEmbedServiceBackend(snapshot);
+  if (!served) return undefined;
+  const host = createServiceHost(served.backend, id => snapshot.payload.modelManifests?.[id]);
+  return { ...host, dispose() { host.dispose(); served.dispose(); } };
 }

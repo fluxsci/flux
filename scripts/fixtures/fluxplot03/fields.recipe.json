@@ -8,20 +8,28 @@
   },
   "params": {
     "__fluxplot__": {
-      "panel.contours.energy": {
-        "cmap": "plasma",
-        "vmax": 8.0,
+      "correlation": {
+        "cmap": "viridis",
+        "extend": "neither",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 1.0,
         "vmin": 0.0
       },
-      "panel.matrix.correlation": {
-        "cmap": "viridis",
-        "vmax": 1.0,
+      "energy": {
+        "cmap": "plasma",
+        "extend": "neither",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 8.0,
         "vmin": 0.0
       }
     }
   },
   "plot": "fields",
-  "schemaVersion": "0.3.0",
+  "schemaVersion": "0.3.2",
   "script": null,
   "spec": "fluxplot/recipe"
 }

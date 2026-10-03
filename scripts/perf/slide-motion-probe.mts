@@ -6,6 +6,10 @@
 //   MODE=camera             — a camera pan moves the stage under both
 //   MODE=rise               — fadeRise lifts both in (opacity + translateY)
 //   MODE=move               — the legacy `move` emphasis preset
+//   MODE=textmorph          — a text REWRITE that also moves ("Mycelial growth" →
+//                             "growth"): measured after the exit wave (FROM=700),
+//                             only the gliding word paints — the span layer's glide
+//   FROM=<ms>               — first step (default 500; 31 steps of 1 ms)
 //   GAP=300                 — idle between steps (fresh flight layer per step)
 //   node --import tsx scripts/perf/slide-motion-probe.mts
 import * as fs from "node:fs/promises";
@@ -36,6 +40,9 @@ if (MODE === "transform") {
 } else if (MODE === "rise") {
   setAnimation(deck, slide.id, b1.id, { id: "rt", target: "t", preset: "fadeRise", duration: 1000, easing: "linear" });
   setAnimation(deck, slide.id, b1.id, { id: "rr", target: "r", preset: "fadeRise", duration: 1000, easing: "linear" });
+} else if (MODE === "textmorph") {
+  setTransform(deck, slide.id, b1.id, "t", { state: { x: 400, y: 120, text: "growth" }, duration: 1000, easing: "linear" });
+  setTransform(deck, slide.id, b1.id, "r", { state: { x: 400, y: 260 }, duration: 1000, easing: "linear" });
 } else if (MODE === "move") {
   setAnimation(deck, slide.id, b1.id, { id: "mt", target: "t", preset: "move", duration: 1000, easing: "linear", to: { x: 300, y: 60 } });
   setAnimation(deck, slide.id, b1.id, { id: "mr", target: "r", preset: "move", duration: 1000, easing: "linear", to: { x: 300, y: 60 } });
@@ -76,13 +83,14 @@ try {
   const shots: Buffer[] = [];
   // KEEPALIVE=1 with GAP: re-seek the same frame during the gap so the flight
   // layer persists (what holdFlightLayers gives frame-by-frame capture)
-  for (let ms = 500; ms <= 530; ms++) {
+  const FROM = Number(process.env.FROM ?? (MODE === "textmorph" ? 700 : 500));
+  for (let ms = FROM; ms <= FROM + 30; ms++) {
     shots.push(await capture(ms));
     if (GAP && process.env.KEEPALIVE === "1") for (let waited = 0; waited < GAP; waited += 150) { await new Promise((r) => setTimeout(r, 150)); await page.evaluate((t) => (window as unknown as { fluxDeck: { seek: (s: number, b: number, ms: number) => void } }).fluxDeck.seek(0, 1, t), ms); }
     else if (GAP) await new Promise((r) => setTimeout(r, GAP));
   }
   console.log(`MODE=${MODE} capture: ${((performance.now() - t0) / shots.length).toFixed(0)} ms per step`);
-  const promoted = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".sl-camera, .sl-el, .sl-effects")].filter((e) => e.style.willChange).map((e) => e.className).join(","));
+  const promoted = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".sl-camera, .sl-el, .sl-effects, .sl-tm-span")].filter((e) => e.style.willChange).map((e) => e.className).join(","));
   console.log(`promoted mid-flight: ${promoted || "nothing"}`);
   for (const [label, chan] of [["text", "r"], ["rect", "g"]] as const) {
     const xs: number[] = [], ys: number[] = [], ms: number[] = [];

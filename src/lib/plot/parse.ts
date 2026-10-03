@@ -56,25 +56,50 @@ export function prefixIds(root: Element, elementId: string): void {
     map.set(old, neu);
     el.setAttribute("id", neu);
   }
-  const URL_ATTRS = ["clip-path", "mask", "filter", "fill", "stroke", "marker-start", "marker-mid", "marker-end"];
-  const rewriteUrls = (s: string) => rewriteLocalUrls(s, map);
+  const URL_ATTRS = new Set(["clip-path", "mask", "filter", "fill", "stroke", "marker-start", "marker-mid", "marker-end"]);
+  // The common matplotlib reference `url(#p1a2b3c)` round-trips through css-tree
+  // unchanged apart from the id, so rewrite it directly; anything else (quotes,
+  // escapes, fallbacks, whitespace) still takes the css-tree path. ~3k clip-path
+  // values per hexmatrix mount made css-tree ~15 ms of a 110 ms mount (2026-09-30).
+  const styleMemo = new Map<string, string>();
+  const PLAIN_URL = /^url\(#([A-Za-z0-9_-]+)\)$/;
+  const rewriteUrls = (s: string) => {
+    const m = PLAIN_URL.exec(s);
+    if (m) { const neu = map.get(m[1]) ?? m[1]; if (/^[A-Za-z0-9_-]+$/.test(neu)) return `url(#${neu})`; }
+    return rewriteLocalUrls(s, map);
+  };
   for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
-    for (const attr of URL_ATTRS) {
-      const v = el.getAttribute(attr);
-      if (v) el.setAttribute(attr, rewriteUrls(v));
-    }
-    // FIG-11: an inline `style="fill:url(#…)"` binds a gradient/clip/mask too — the
-    // attribute pass above misses it, so two placements of the same plot would resolve
-    // the SAME (unprefixed) id and collide (wrong fill/clip on one of them).
-    const style = el.getAttribute("style");
-    if (style) el.setAttribute("style", rewriteCssReferences(`x{${style}}`, map).replace(/^x\{|\}$/g, ""));
-    // plain href (SVG2) and namespaced xlink:href (matplotlib <use>)
+    // One pass over the attributes (was: 8 getAttribute probes + a second pass per
+    // element). The branches touch disjoint attribute names, so the order of the
+    // old passes (url attributes, then style, then href/aria) is preserved.
     for (const attr of Array.from(el.attributes)) {
-      if (attr.localName === "href" || attr.name.split(":").at(-1) === "href") {
-        const value = attr.value.trim();
-        if (value.startsWith("#")) el.setAttribute(attr.name, "#"+(map.get(value.slice(1)) ?? value.slice(1)));
+      const name = attr.name;
+      if (URL_ATTRS.has(name)) {
+        const v = attr.value;
+        if (v) el.setAttribute(name, rewriteUrls(v));
+        continue;
       }
-      if (["aria-labelledby", "aria-describedby"].includes(attr.name)) el.setAttribute(attr.name,attr.value.split(/\s+/).map(id=>map.get(id)??id).join(" "));
+      // FIG-11: an inline `style="fill:url(#…)"` binds a gradient/clip/mask too — the
+      // attribute pass above misses it, so two placements of the same plot would resolve
+      // the SAME (unprefixed) id and collide (wrong fill/clip on one of them).
+      if (name === "style") {
+        const v = attr.value;
+        if (v) {
+          // Memoized per call (same map → same output): a hexmatrix has ~3k style
+          // attributes but only ~300 distinct strings.
+          let out = styleMemo.get(v);
+          if (out === undefined) { out = rewriteCssReferences(`x{${v}}`, map).replace(/^x\{|\}$/g, ""); styleMemo.set(v, out); }
+          el.setAttribute("style", out);
+        }
+        continue;
+      }
+      // plain href (SVG2) and namespaced xlink:href (matplotlib <use>); a localName
+      // of "href" implies a qualified name ending in "href", so the cheap test gates it.
+      if (name.endsWith("href") && (attr.localName === "href" || name.split(":").at(-1) === "href")) {
+        const value = attr.value.trim();
+        if (value.startsWith("#")) el.setAttribute(name, "#"+(map.get(value.slice(1)) ?? value.slice(1)));
+      }
+      if (name === "aria-labelledby" || name === "aria-describedby") el.setAttribute(name,attr.value.split(/\s+/).map(id=>map.get(id)??id).join(" "));
     }
 
   }
@@ -581,11 +606,14 @@ export function buildPartIndex(m: FluxPlotManifest | undefined): Record<string, 
       const k = n.id ?? n.ref;
       if (k && !idx[k]) {
         const role = n.role === "group" ? (n.groupRole ?? "group") : (n.role ?? inferRole(k));
-        idx[k] = { id: k, role, label: labelForPart(n) };
+        idx[k] = { id: k, role, label: labelForPart(n), ...(n.kind ? { kind: n.kind } : {}) };
       }
       for (const member of n.members ?? []) {
         if (!idx[member]) {
-          idx[member] = { id: member, role: inferRole(member), label: labelForPart({ id: member }) };
+          // a member leaf has no node of its own: the group's memberRole names its role
+          // (fluxplot ≥ 0.3.1, plan F2), the id grammar is the fallback; it shares the group's kind
+          const role = n.memberRole ?? inferRole(member);
+          idx[member] = { id: member, role, label: labelForPart({ id: member, role }), ...(n.kind ? { kind: n.kind } : {}) };
         }
       }
       for (const c of n.children ?? []) walk(c);
@@ -601,7 +629,7 @@ export function buildPartIndex(m: FluxPlotManifest | undefined): Record<string, 
     const bars = s.svg?.bars;
     if (Array.isArray(bars)) bars.forEach((b, i) => (idx[b] = { id: b, role: "bar", series: s.id, index: i }));
   }
-  for (const o of m.overlays ?? []) idx[o.svgId] = { id: o.svgId, role: o.role, label: o.label };
+  for (const o of m.overlays ?? []) idx[o.svgId] = { id: o.svgId, role: o.role, label: o.label, ...(o.kind ? { kind: o.kind } : {}) };
   for (const g of m.guides ?? []) if (g.svgId) idx[g.svgId] = { id: g.svgId, role: g.role };
   return idx;
 }

@@ -9,7 +9,7 @@ import { parseScene3d } from "../src/lib/model3d/scene3d";
 // `validate` VERB below (WS-6.2 extraction) shares the module.
 export * from "../src/lib/project/validate";
 
-import { plotContractErrors, validateIncomingPlot } from "../src/lib/plot/contract";
+import { modernPlot, plotContractErrors, validateIncomingPlot } from "../src/lib/plot/contract";
 import { textLayoutWarnings } from "./render";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -49,6 +49,19 @@ export interface ValidateResult {
   warnings?: string[];
 }
 
+/** Schema errors for one plot manifest: fluxplot's vendored schema for its 0.3+ output, the
+ *  loose legacy schema for older manifests and the hand-authored `specVersion` fixtures.
+ *  Neither version key at all is its own, named error. */
+function manifestSchemaErrors(ajv: Ajv, data: unknown, rel: string): string[] {
+  const errors: string[] = [];
+  const m = (data ?? {}) as { schemaVersion?: unknown; specVersion?: unknown };
+  if (m.schemaVersion == null && m.specVersion == null) errors.push(`${rel}: missing schemaVersion (or legacy specVersion)`);
+  const modern = typeof m.schemaVersion === "string" && modernPlot({ schemaVersion: m.schemaVersion });
+  const v = ajv.compile(modern ? SCHEMAS.manifest : SCHEMAS.manifestLegacy);
+  if (!v(data)) for (const e of v.errors ?? []) errors.push(`${rel}: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);
+  return errors;
+}
+
 /** Validate the whole project (or one file) against the bundled JSON Schemas. */
 export async function validate(root: string, file?: string): Promise<ValidateResult> {
   const ajv = new Ajv({ allErrors: true, strict: false });
@@ -57,6 +70,7 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
   const check = (key: keyof typeof SCHEMAS, rel: string, data: unknown) => {
     checked++;
     if (key === "scene3d") { const parsed = parseScene3d(data); if ("issue" in parsed) errors.push(`${rel}: ${parsed.issue}`); return; }
+    if (key === "manifest") { errors.push(...manifestSchemaErrors(ajv, data, rel)); return; }
     const v = ajv.compile(SCHEMAS[key]);
     if (!v(data)) for (const e of v.errors ?? []) errors.push(`${rel}: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);
   };
@@ -162,9 +176,7 @@ export async function validatePlot(svgPath: string): Promise<ValidateResult & { 
   const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as FluxPlotManifest;
   errors.push(...plotContractErrors(svg, manifest));
   try { await validateIncomingPlot(svg, JSON.stringify(manifest)); } catch (error) { errors.push(String((error as Error).message)); }
-  const ajv = new Ajv({ allErrors: true, strict: false });
-  const v = ajv.compile(SCHEMAS.manifest);
-  if (!v(manifest)) for (const e of v.errors ?? []) errors.push(`manifest: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);
+  errors.push(...manifestSchemaErrors(new Ajv({ allErrors: true, strict: false }), manifest, "manifest"));
 
   const indexed = Object.keys(buildPartIndex(manifest));
   const domExpected = [...new Set(indexed.flatMap((id) => resolveTargets(manifest, id)))];

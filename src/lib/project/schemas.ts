@@ -1,4 +1,5 @@
 import scene3dSchema from "../model3d/scene3d.schema.json";
+import fluxplotManifestSchema from "../plot/schemas/manifest.schema.json";
 
 // Versioned JSON Schemas (draft-07) for the Flux project file types. These are
 // the machine contract an agent validates its writes against (AI_agent_considerations
@@ -10,6 +11,7 @@ import scene3dSchema from "../model3d/scene3d.schema.json";
 // exactly what catches an agent's malformed write.
 
 import { EASING_TOKENS } from "../slide/curves";
+import { PAIR_POLICY_IDS, TRANSFORM_METHOD_IDS } from "../slide/targets";
 
 const draft = "http://json-schema.org/draft-07/schema#";
 
@@ -43,10 +45,41 @@ const TIMING_CURVE_PROPS = {
   influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
   curve: CURVE,
 };
+/** 0.6: a Become (`to.become`). `ref` names the destination: an element,
+ *  plot/model parts, a selector, a figure group, or (Oct-2) an ad-hoc SET of
+ *  element/part refs — one level, never a group or another set. Mode, pair and
+ *  reveal are closed vocabularies (pair = slide/targets.ts PAIR_POLICIES ids). */
+const REF_FIELDS = {
+  element: { type: "string", pattern: "[\\s\\S]" },
+  parts: { type: "array", items: { type: "string" } },
+  selector: { type: "object" },
+} as const;
+const BECOME_MEMBER = {
+  type: "object",
+  required: ["element"],
+  properties: REF_FIELDS,
+  not: { anyOf: [{ required: ["members"] }, { required: ["group"] }] },
+} as const;
+const BECOME = {
+  type: "object",
+  required: ["ref", "mode"],
+  properties: {
+    ref: {
+      type: "object",
+      required: ["element"],
+      properties: { ...REF_FIELDS, group: { type: "string" }, members: { type: "array", minItems: 1, items: BECOME_MEMBER } },
+    },
+    mode: { enum: ["consume", "handoff"] },
+    pair: { enum: [...PAIR_POLICY_IDS] },
+    reveal: { enum: ["flip", "draw"] },
+    method: { enum: [...TRANSFORM_METHOD_IDS] },
+  },
+} as const;
 const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
 const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: ["totalMs"] }], properties: {
   perMs: { type: "number", minimum: 0 }, totalMs: { type: "number", minimum: 0 },
-  by: { enum: ["index", "x", "y"] }, from: { enum: ["start", "end", "center", "edges", "random"] },
+  by: { anyOf: [{ enum: ["index", "x", "y", "data"] }, { type: "object", required: ["key"], properties: { key: { enum: ["value", "count", "index"] } } }] },
+  from: { enum: ["start", "end", "center", "edges", "random"] },
   seed: { type: "integer", minimum: 0, maximum: 4294967295 }, curve: STAGGER_CURVE,
 } };
 const ARC = { type: "number", minimum: -1, maximum: 1 };
@@ -87,6 +120,19 @@ const GEO_PROPS = {
   fillMap: GRADIENT,
   strokeMap: GRADIENT,
 };
+const COLOR_SCALE_VIEW = {
+  type: "object",
+  properties: {
+    cmap: { anyOf: [{ type: "string" }, { type: "object", required: ["lut"], properties: {
+      lut: { type: "array", items: { type: "string" }, minItems: 1 }, under: { type: "string" }, over: { type: "string" }, bad: { type: "string" }, name: { type: "string" } } }] },
+    reversed: { type: "boolean" },
+    norm: { type: "object", properties: {
+      kind: { enum: ["linear", "log", "symlog", "power", "twoslope", "centered"] },
+      vmin: { type: "number" }, vmax: { type: "number" }, vcenter: { type: "number" }, gamma: { type: "number" },
+      linthresh: { type: "number" }, linscale: { type: "number" } } },
+    extend: { enum: ["neither", "min", "max", "both"] },
+  },
+};
 const elementBranch = (type: string, extraReq: string[], extraProps: Record<string, unknown>) => ({
   type: "object",
   required: [...GEO_REQ, ...extraReq],
@@ -103,10 +149,14 @@ const ELEMENT_DEF = {
       source: { type: "object" },
       manifestRef: { type: "object" },
       // animation v2: the data view (axis domain/scale crop), per axis
-      view: { type: "object", properties: Object.fromEntries(["x", "y"].map((axis) => [axis, {
+      view: { type: "object", properties: Object.fromEntries(["x", "y", "y2", "x2"].map((axis) => [axis, {
         type: "object",
         properties: { domain: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }, scale: { enum: ["linear", "log"] } },
       }])) },
+      // colour-system plan A7: live colour-scale edits keyed by the manifest's colorScales[].id
+      colorScale: { type: "object", additionalProperties: COLOR_SCALE_VIEW },
+      // colour-system plan B1: the scaffold ink follows the deck theme (absent = on for slides)
+      followTheme: { type: "boolean" },
     }),
     elementBranch("text", ["text"], {
       text: { type: "string" },
@@ -135,12 +185,16 @@ const ELEMENT_DEF = {
       strokeWidth: { type: "number" },
       cornerRadius: { type: "number" },
       dash: NUMBER_ARRAY,
+      fillOpacity: { type: "number", minimum: 0, maximum: 1 },
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
     }),
     elementBranch("ellipse", [], {
       fill: { type: "string" },
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
       dash: NUMBER_ARRAY,
+      fillOpacity: { type: "number", minimum: 0, maximum: 1 },
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
     }),
     elementBranch("line", ["x1", "y1", "x2", "y2"], {
       x1: { type: "number" },
@@ -152,6 +206,7 @@ const ELEMENT_DEF = {
       arrowStart: {}, // legacy-tolerant
       arrowEnd: {},
       dash: NUMBER_ARRAY,
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
     }),
     elementBranch("path", ["d"], {
       d: { type: "string" },
@@ -161,6 +216,8 @@ const ELEMENT_DEF = {
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
       dash: NUMBER_ARRAY,
+      fillOpacity: { type: "number", minimum: 0, maximum: 1 },
+      strokeOpacity: { type: "number", minimum: 0, maximum: 1 },
       arrowStart: { type: "boolean" },
       arrowEnd: { type: "boolean" },
       arrowStyle: { type: "string" },
@@ -409,10 +466,15 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  manifest: {
+  // fluxplot's OWN manifest schema, vendored by scripts/sync-fluxplot-schemas.mjs (F3): one
+  // contract for both repos. Pre-0.3 manifests and hand-authored fixtures keyed by `specVersion`
+  // validate against `manifestLegacy` below (see flux-core/validate.ts).
+  manifest: fluxplotManifestSchema as Record<string, unknown>,
+
+  manifestLegacy: {
     $schema: draft,
-    $id: "flux/fluxplot-manifest.schema.json",
-    title: "FluxPlot semantic-SVG manifest (*.fluxplot.json)",
+    $id: "flux/fluxplot-manifest-legacy.schema.json",
+    title: "FluxPlot semantic-SVG manifest (*.fluxplot.json), pre-0.3 / legacy fixtures",
     type: "object",
     // The FluxPlot library emits `schemaVersion` (+ spec:"fluxplot/manifest");
     // older hand-authored fixtures use `specVersion`. Accept either version key so
@@ -588,7 +650,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         stagger: STAGGER,
                         arc: ARC,
                         // 0.3.0: `to.state` carries a transform's sparse patch
-                        to: { type: "object", properties: { path: { enum: ["pole", "fly"] } } },
+                        to: { type: "object", properties: { path: { enum: ["pole", "fly"] }, become: BECOME } },
                         keyframes: { type: "array" },
                         groupId: { type: "string" }, // 0.3.0: TrackGroup ref
                         styleId: { type: "string" }, // 0.6: deck AnimStyle ref
@@ -667,6 +729,7 @@ export const SCHEMA_FILENAMES: Record<keyof typeof SCHEMAS, string> = {
   figIndex: "fig-index.schema.json",
   canvas: "canvas.schema.json",
   manifest: "fluxplot-manifest.schema.json",
+  manifestLegacy: "fluxplot-manifest-legacy.schema.json",
   scene3d: "scene3d.schema.json",
   recipe: "recipe.schema.json",
   deck: "deck.schema.json",

@@ -8,15 +8,19 @@
 // attributes in place (no re-clone per committed drag).
 
 import { applyPlotView, preparePlotView } from "./projectDom";
+import { applyPlotColorScale } from "./colorScaleDom";
+import { applyPlotTheme, plotFollowsTheme } from "./themeDom";
+import type { DeckTheme } from "../slide/types";
+import { ensureColormapLuts, colormapLutsLoaded } from "../color/colormapLuts";
 import { get } from "svelte/store";
 import type { SemanticPlotElement, CropRect, PartOverride, PlotView } from "../types";
-import { plotDom, plotManifests, sigCalls } from "./store";
+import { plotGen, plotDom, plotManifests, sigCalls } from "./store";
 import { applyOverrides, prefixIds } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
 
 // Content signature: anything that requires a fresh clone + override/compensate
 // pass. x/y are deliberately EXCLUDED (fast-path below).
-function signature(e: SemanticPlotElement, gen: number): string {
+function signature(e: SemanticPlotElement, gen: number, theme: DeckTheme | null): string {
   sigCalls.n++; // dev counter — verify-scale-figure asserts 0 on unrelated commits
   return [
     e.assetId,
@@ -25,10 +29,16 @@ function signature(e: SemanticPlotElement, gen: number): string {
     gen,
     JSON.stringify(e.overrides ?? {}),
     JSON.stringify(e.crop ?? null),
+    JSON.stringify(e.colorScale ?? null),
     JSON.stringify(e.view ?? null),
     e.contentScale ?? 1,
+    // the deck theme the scaffold ink follows (Slide mode; Figure passes none)
+    themeKey(e, theme),
   ].join("|");
 }
+
+const themeKey = (e: SemanticPlotElement, theme: DeckTheme | null): string =>
+  theme && plotFollowsTheme(e, "slide") ? `${theme.text}/${theme.textMuted}/${theme.background}` : "";
 
 // WS-1 Fix 1: the fields whose CHANGE forces a re-clone, snapshotted by value/
 // reference after each update. ops.setPartOverride/setCrop are copy-on-write
@@ -46,9 +56,11 @@ interface SigSnapshot {
   overrides: Record<string, PartOverride> | undefined;
   crop: CropRect | undefined;
   view: PlotView | undefined;
+  colorScale: SemanticPlotElement["colorScale"];
   contentScale: number;
+  theme: string;
 }
-const snap = (e: SemanticPlotElement, gen: number): SigSnapshot => ({
+const snap = (e: SemanticPlotElement, gen: number, theme: DeckTheme | null): SigSnapshot => ({
   assetId: e.assetId,
   width: e.width,
   height: e.height,
@@ -56,9 +68,11 @@ const snap = (e: SemanticPlotElement, gen: number): SigSnapshot => ({
   overrides: e.overrides,
   crop: e.crop,
   view: e.view,
+  colorScale: e.colorScale,
   contentScale: e.contentScale ?? 1,
+  theme: themeKey(e, theme),
 });
-const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number): boolean =>
+const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number, theme: DeckTheme | null): boolean =>
   a.assetId === e.assetId &&
   a.width === e.width &&
   a.height === e.height &&
@@ -66,14 +80,18 @@ const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number): boolean 
   a.overrides === e.overrides &&
   a.crop === e.crop &&
   a.view === e.view &&
-  a.contentScale === (e.contentScale ?? 1);
+  a.colorScale === e.colorScale && // ops.setPlotColorScale is copy-on-write like setPlotView
+  a.contentScale === (e.contentScale ?? 1) &&
+  a.theme === themeKey(e, theme);
 
-export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement; gen?: number }) {
+export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement; gen?: number; theme?: DeckTheme | null }) {
   let element = params.element;
   let gen = params.gen ?? 0;
+  let theme: DeckTheme | null = params.theme ?? null;
   let sig = "";
-  let last: SigSnapshot = snap(element, gen);
+  let last: SigSnapshot = snap(element, gen, theme);
   let inst: SVGSVGElement | null = null;
+  let colorMapsRequested = false;
 
   function place() {
     if (!inst) return;
@@ -102,6 +120,16 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     }
     const manifest = get(plotManifests)[element.assetId];
     preparePlotView(inst, manifest, element.view, element.id);
+    // the deck theme's ink (Slide mode) and live colour scales BEFORE overrides, so an explicit
+    // per-part paint still wins
+    applyPlotTheme(inst, manifest, theme && plotFollowsTheme(element, "slide") ? theme : null);
+    const scales = applyPlotColorScale(inst, manifest, element.colorScale, element.id);
+    if (scales.unresolved.length && !colorMapsRequested) {
+      // a named map whose table is not loaded yet: paint as generated now, re-render once it is
+      colorMapsRequested = true;
+      const assetId = element.assetId;
+      void ensureColormapLuts().then(() => { if (colormapLutsLoaded()) plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 })); });
+    }
     applyOverrides(inst, element.overrides, element.id, manifest);
     applyPlotView(inst, manifest, element.view, element.id);
     compensatePtTrue(inst, {
@@ -114,21 +142,22 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     host.appendChild(inst);
   }
 
-  sig = signature(element, gen);
+  sig = signature(element, gen, theme);
   render();
 
   return {
-    update(next: { element: SemanticPlotElement; gen?: number }) {
+    update(next: { element: SemanticPlotElement; gen?: number; theme?: DeckTheme | null }) {
       element = next.element;
       gen = next.gen ?? 0;
+      theme = next.theme ?? null;
       // Fast path (WS-1 Fix 1): snapshot equality ⇒ content unchanged ⇒ no
       // JSON.stringify. Store notifies for unrelated commits cost O(1) here.
-      if (sameSnap(last, element, gen)) {
+      if (sameSnap(last, element, gen, theme)) {
         place(); // x/y-only change: move the viewport, keep the clone
         return;
       }
-      last = snap(element, gen);
-      const ns = signature(element, gen);
+      last = snap(element, gen, theme);
+      const ns = signature(element, gen, theme);
       if (ns === sig) {
         place(); // same content by value (e.g. undo round-trip): keep the clone
         return;

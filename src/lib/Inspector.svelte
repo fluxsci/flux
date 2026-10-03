@@ -36,6 +36,7 @@
   } from "./textStyles";
   import { plotManifests, plotHasContentScaleTargets } from "./plot/store";
   import { semanticPartIndex } from "./plot/partStyle";
+  import { seriesColorIssue, seriesPartIds } from "./plot/seriesColor";
   import { scene3dManifests } from "./model3d/store";
   import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
   import { partBreadcrumb } from "./plot/partStyle";
@@ -202,6 +203,24 @@
     const idx = semanticPartIndex(plotEl.type === "model3d" ? $scene3dManifests[plotEl.assetId] : $plotManifests[plotEl.assetId]);
     return idx[ps.partId] ?? { id: ps.partId, role: "part" };
   })();
+  // plan B2: the series the picked part draws, when one colour can paint it whole
+  $: seriesColorTarget = (() => {
+    if (!plotEl || plotEl.type !== "plot" || !partInfo?.series || partCount > 1) return null;
+    const manifest = $plotManifests[plotEl.assetId];
+    if (!manifest || seriesColorIssue(manifest, partInfo.series)) return null;
+    const ids = seriesPartIds(manifest, partInfo.series);
+    const ov = plotEl.overrides ?? {};
+    const overridden = ids.map((id) => ov[id]).find((o) => typeof o?.stroke === "string" || typeof o?.fill === "string");
+    const generated = manifest.series?.find((x) => x.id === partInfo!.series)?.color?.hex;
+    const hex = (typeof overridden?.stroke === "string" ? overridden.stroke : typeof overridden?.fill === "string" ? overridden.fill : generated) ?? "#000000";
+    return { elementId: plotEl.id, seriesId: partInfo.series, manifest, hex: /^#[0-9a-fA-F]{6}/.test(hex) ? hex.slice(0, 7).toLowerCase() : "#000000", overridden: !!overridden };
+  })();
+  function setSeriesColor(hex: string | null) {
+    const t = seriesColorTarget;
+    if (!t) return;
+    try { commit((p) => { ops.setSeriesColor(p, t.elementId, t.manifest, t.seriesId, hex); }); }
+    catch (e) { pushToast("error", "Series colour not applied", { detail: errMsg(e) }); }
+  }
   // Display label: the extended part index's human label, a composed
   // role · series · #index for data entries, the raw id last.
   $: partLabel = partInfo
@@ -483,6 +502,12 @@
       if (el.type === "plot") delete el.contentScale;
     });
   }
+  // plan B1: a slide plot's scaffold ink follows the deck theme unless told not to
+  function setFollowTheme(on: boolean) {
+    const id = single?.id;
+    if (!id) return;
+    commit((p) => ops.setPlotFollowTheme(p, id, on ? null : false));
+  }
   const arrowOf = (e: Element | undefined) => (e && (e.type === "line" || (e.type === "path" && !e.closed)) ? (e as Element & { arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: "filled" | "vee"; arrowSize?: number }) : null);
   function setArrow(patch: Partial<{ arrowStart: boolean; arrowEnd: boolean; arrowStyle: "filled" | "vee"; arrowSize: number }>) {
     const ids = editableIds();
@@ -506,6 +531,19 @@
           <p class="note">data: x = {partInfo.x}, y = {partInfo.y}</p>
         {/if}
         {#if partFields.some(f => f.hint)}<p class="note">{partFields.find(f => f.hint)?.hint}</p>{/if}
+        {#if seriesColorTarget}
+          <!-- plan B2: one colour for the whole series (line, points, bars, error bars, legend swatch) -->
+          <div class="pfields series-colour" data-series-colour={seriesColorTarget.seriesId}>
+            <div class="pf">
+              <span class="pk"></span>
+              <span class="pl" title="Every part of series ‹{seriesColorTarget.seriesId}› and its legend swatch take this colour; the edit survives regeneration">Series colour</span>
+              <span class="pc series-colour-field">
+                <ColorField value={seriesColorTarget.hex} fallback="#000000" label="Series colour" onchange={(hex) => setSeriesColor(hex)} />
+                {#if seriesColorTarget.overridden}<button class="tgl" title="Back to the generated colours" on:click={() => setSeriesColor(null)}>reset</button>{/if}
+              </span>
+            </div>
+          </div>
+        {/if}
         <div class="pfields">
           {#each partFields as f (f.key)}
             {@const range = fieldRange(f)}
@@ -606,6 +644,18 @@
           {#await import("./plot/AxisView.svelte") then module}
             <svelte:component this={module.default} elementId={single.id} />
           {/await}
+          {#if $plotManifests[single.assetId]?.colorScales?.length || $plotManifests[single.assetId]?.series?.some((s) => s.field?.controlKey)}
+            {#await import("./plot/ColorScaleControls.svelte") then module}
+              <svelte:component this={module.default} elementId={single.id} />
+            {/await}
+          {/if}
+          {#if slideMode && $plotManifests[single.assetId]?.style}
+            <!-- plan B1: fluxplot tags the scaffold ink; on a slide it follows the deck theme -->
+            <label class="row follow-theme" title="Paint the plot's axes, ticks, labels and gridlines in the deck theme's ink (data colours are never changed)">
+              <input type="checkbox" data-follow-theme checked={single.followTheme ?? true} on:change={(e) => setFollowTheme(e.currentTarget.checked)} />
+              <span>Follow deck theme</span>
+            </label>
+          {/if}
           <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
                text/strokes pt-true; content scale multiplies glyphs + strokes. -->
           {#if contentScalable(single.assetId, $plotManifests)}
@@ -935,6 +985,17 @@
             on:commit={(e) => { const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }}
             on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { cornerRadius: e.detail })); }} />
         {/if}
+      </div>
+      <!-- Per-channel alpha, independent of the element opacity (which multiplies both). -->
+      <div class="row">
+        {#if single.type !== "line"}
+          <NumberField label="Fill α" value={single.fillOpacity ?? 1} min={0} max={1} step={0.05}
+            on:commit={(e) => { const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { fillOpacity: e.detail })); }}
+            on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { fillOpacity: e.detail })); }} />
+        {/if}
+        <NumberField label="Stroke α" value={single.strokeOpacity ?? 1} min={0} max={1} step={0.05}
+          on:commit={(e) => { const ids = editableIds(); commit((p) => ops.setElementStyle(p, ids, { strokeOpacity: e.detail })); }}
+          on:scrub={(e) => { const ids = editableIds(); mutate((p) => ops.setElementStyle(p, ids, { strokeOpacity: e.detail })); }} />
       </div>
       {#if single.type === "line" || (single.type === "path" && !single.closed)}
         <div class="row">

@@ -287,7 +287,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
       fsReadGuard(p, e.sender.id);
       try {
         const st = await fs.promises.stat(p);
-        return { atimeMs: st.atimeMs, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, size: st.size };
+        return { atimeMs: st.atimeMs, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, size: st.size, ino: st.ino };
       } catch {
         return null; // absent (or blocked) — callers treat null as "no cacheable identity"
       }

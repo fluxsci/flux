@@ -55,6 +55,10 @@ async function computeRuntime(entry = runtimeEntry, globalName: string | undefin
     platform: "browser",
     target: embed ? "es2022" : "es2020",
     define: { 'import.meta.env.DEV': 'false' },
+    // The lazily imported colormap tables (~300 KB) stay out of every exported deck: saved
+    // documents carry a colormap's table on the element, so the runtime never loads them
+    // (colour-system plan A7.2; ensureColormapLuts tolerates the missing chunk).
+    external: ["*/colormapLuts.gen"],
     minify: true,
     write: false,
     legalComments: "none",

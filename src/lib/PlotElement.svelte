@@ -6,6 +6,7 @@
   import { assetDisplaySize } from "./ops";
   import { hasPlotDom, plotGen, requestPlotDom, retainPlot, releasePlot } from "./plot/store";
   import { mountPlot } from "./plot/mount";
+  import { plotTheme } from "./plot/themeDom";
 
   export let element: SemanticPlotElement;
   $: e = element;
@@ -23,10 +24,6 @@
   // plot is never worse than a plain imported SVG (spec P4), and the raster
   // IS the lazy-load's loading state.
   $: inline = (void gen, hasPlotDom(e.assetId));
-
-  // Crop honored on the <image> fallback too (P5): nested-svg viewport, same
-  // window semantics as the inline mount's viewBox sub-rect.
-  $: imgDisp = !inline && e.crop ? assetDisplaySize($project, e.assetId) : null;
 
   // Lazy residency (plan §5.5): a mounted plot without a cached DOM asks the
   // parse queue for one (bytes are already resident in assetData). Idempotent
@@ -56,8 +53,13 @@
 <rect class="plot-hit-area" x={e.x} y={e.y} width={e.width} height={e.height} fill="transparent" />
 
 {#if inline}
-  <g use:mountPlot={{ element: e, gen }}></g>
+  <g use:mountPlot={{ element: e, gen, theme: $plotTheme }}></g>
 {:else if $assetData[e.assetId]}
+  <!-- Crop honored on the <image> fallback too (P5): nested-svg viewport, same
+       window semantics as the inline mount's viewBox sub-rect. Read `$project`
+       only here: a `$:` dependency would re-run every mounted plot's reactive
+       statements on each project edit (see Element.svelte). -->
+  {@const imgDisp = e.crop ? assetDisplaySize($project, e.assetId) : null}
   {#if e.crop && imgDisp}
     <svg
       x={e.x}

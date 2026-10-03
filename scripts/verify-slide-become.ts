@@ -263,6 +263,16 @@ const swapOptions = { plotManifest: () => manifest, plotRoot: () => plotRoot };
   ok(JSON.stringify(how(swapped)) === JSON.stringify(how(original)) && swapped.to?.become?.pair === "order" && swapped.to.become.reveal === "draw", "swap preserves style, explicit curve, anchor, group, pairing and reveal without materializing inherited fields");
   ok(deck.slides[0].beats[1].tracks.find(t => t.id === "follower")?.anchor?.trackId === id && JSON.stringify(deck.slides[0].beats[1].groups) === JSON.stringify(beat.groups), "swap rebinds followers and retains track groups");
   ok(validateDeckFile(deck).length === 0 && compiledFor(deck).handoffs.length === 1, "swapped deck validates and compiles through the real shared compiler");
+  // Transform method (owner, 2026-10-03): written only when set, survives a swap, validates.
+  ok(!("method" in (original.to!.become as object)), "an unset transform method writes no key (existing specs keep their bytes)");
+  {
+    const { deck: d2, slideId: s2, beats: b2 } = deckWith([line("src"), plot(), rect("box")]);
+    const r2 = ops.becomeTransform(d2, s2, b2[1], "src", spines, { compiled: compiledFor(d2), method: "drain" })!;
+    const t2 = d2.slides[0].beats[1].tracks.find(t => t.id === r2.trackId)!;
+    ok(t2.to?.become?.method === "drain" && validateDeckFile(d2).length === 0, "method drain is written on the spec and validates");
+    const id2 = ops.swapBecome(d2, s2, r2.trackId, swapOptions);
+    ok(d2.slides[0].beats[1].tracks.find(t => t.id === id2)?.to?.become?.method === "drain", "swap preserves the transform method");
+  }
   const store = await import("../src/lib/slide/store"), fig = await import("../src/lib/store");
   const { setStoreTenant } = await import("../src/lib/tenancy");
   setStoreTenant("slide"); const unregister = fig.registerHistoryCompanion(store.overlayHistoryCompanion());
@@ -283,6 +293,168 @@ const swapOptions = { plotManifest: () => manifest, plotRoot: () => plotRoot };
     assert.throws(() => ops.swapBecome(candidate, slideId, t.id!, variant === "outline" ? { ...swapOptions, plotRoot: () => preparePlot('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"/>', manifest).root } : swapOptions), /Groups cannot|creates a ghost|already has a transform|no outline|Choose a hand-off/);
     ok(JSON.stringify(candidate) === bytes, `${variant}: refused swap is atomic`);
   }
+}
+
+console.log("── destination SETS (Oct-2: TargetRef.members) ──");
+{
+  const { normalizeRef, composeDestination, targetKey, isWholeElementRef, resolveTargetLeaves, setLabel, sameRef } = await import("../src/lib/slide/targets");
+  const { planHandoff } = await import("../src/lib/slide/handoffPlan");
+  const { remapBecomeTarget } = await import("../src/lib/slide/handoffTargets");
+  const scatterManifest = JSON.parse(await fs.readFile("scripts/fixtures/plots/mpl_scatter_FLUXPLOT.fluxplot.json", "utf8"));
+  const scatterRoot = preparePlot(await fs.readFile("scripts/fixtures/plots/mpl_scatter_FLUXPLOT.svg", "utf8"), scatterManifest).root;
+  const manifests = (id: string) => id === "scatter" ? scatterManifest : id === "boxplot" ? manifest : undefined;
+  const roots = (id: string) => id === "scatter" ? scatterRoot : id === "boxplot" ? plotRoot : undefined;
+  const scatter: SemanticPlotElement = { type: "plot", id: "scatter", assetId: "scatter", x: 20, y: 200, width: 200, height: 140, rotation: 0 };
+  const dots = [ellipse("e1", { x: 458, y: 71, width: 21, height: 21 }), ellipse("e2", { x: 458, y: 124, width: 21, height: 21 }), ellipse("e3", { x: 458, y: 176, width: 21, height: 21 })];
+  const three: TargetRef = { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] };
+  const setCompile = (deck: Deck) => compileSlide(deck.slides[0], deck.stage, { plotManifest: manifests, plotRoot: roots });
+
+  // normalizeRef / targetKey / composeDestination: the canonical form.
+  const messy: TargetRef = { element: "zzz", members: [{ element: "plot", parts: ["peaches.box"] }, { element: "e1" }, { element: "plot", parts: ["oranges.box", "peaches.box"] }, { element: "e1" }] };
+  const norm = normalizeRef(messy);
+  ok(JSON.stringify(norm) === JSON.stringify({ element: "plot", members: [{ element: "plot", parts: ["peaches.box", "oranges.box"] }, { element: "e1" }] }), "normalizeRef dedupes members, merges one element's parts (unioned) and sets element = members[0].element");
+  ok(JSON.stringify(normalizeRef({ element: "x", members: [{ element: "plot", parts: ["peaches.box"] }, { element: "plot" }] })) === JSON.stringify({ element: "plot" }), "a whole member absorbs that element's part members, and a 1-member set collapses to the member");
+  ok(JSON.stringify(normalizeRef({ element: "e2", members: [{ element: "e2" }] })) === JSON.stringify({ element: "e2" }) && normalizeRef(spines) === spines, "a 1-member set IS its member; a non-set ref passes through untouched");
+  assert.throws(() => normalizeRef({ element: "e1", members: [] }), /at least one/); checks++;
+  assert.throws(() => normalizeRef({ element: "e1", members: [{ element: "e1", members: [{ element: "e2" }] }, { element: "e2" }] }), /another set/); checks++;
+  assert.throws(() => normalizeRef({ element: "e1", members: [{ element: "e1", group: "g" }, { element: "e2" }] }), /not groups/); checks++;
+  ok(true, "normalizeRef refuses an empty set, a nested set and a group member with user-facing reasons");
+  const reordered: TargetRef = { element: "e3", members: [{ element: "e3" }, { element: "e1" }, { element: "e2" }] };
+  ok(targetKey(three) === targetKey(reordered) && sameRef(three, reordered) && targetKey(three).startsWith("set:") && targetKey(three) !== targetKey({ element: "e1" }), "targetKey is canonical over member order and distinct from any member's key");
+  ok(targetKey({ element: "e1", members: [{ element: "e1" }, { element: "e1" }] }) === targetKey({ element: "e1" }) && !isWholeElementRef(three), "a set that dedupes to one member keys as that member; a set is never a whole-element ref");
+  ok(composeDestination([{ element: "e1" }]) !== null && JSON.stringify(composeDestination([{ element: "plot", group: "g" }])) === JSON.stringify({ element: "plot", group: "g" }), "one pick (a group pick included) composes to itself");
+  ok(JSON.stringify(composeDestination([{ element: "e1" }, { element: "plot", group: "g" }], () => ["e2", "e3"])) === JSON.stringify(three), "several picks compose ONE set; a group pick among them expands to its objects");
+
+  // Resolution: every member against ITS OWN element's manifest.
+  const mixed = deckWith([rect("src"), plot(), scatter, ...dots]);
+  const mixedRef: TargetRef = { element: "plot", members: [{ element: "plot", parts: ["peaches.box"] }, { element: "scatter", parts: ["samples.points"] }, { element: "e1" }] };
+  const leaves = resolveTargetLeaves(mixedRef, mixed.deck.slides[0], manifests);
+  ok(leaves.length === 3 && JSON.stringify(leaves[0]) === JSON.stringify({ elementId: "plot", partIds: ["peaches.box"] }) && leaves[1].elementId === "scatter" && leaves[1].partIds!.length === 60 && leaves[2].partIds === null, "resolveTargetLeaves: a box of one plot, the 60 points of ANOTHER plot (its own manifest's group) and a loose ellipse");
+  const viaCompiler = setCompile(mixed.deck).resolveTarget(mixedRef, 1);
+  ok(JSON.stringify(viaCompiler) === JSON.stringify(leaves), "the compiler's manifest-validating resolver gives each member its own element's part index");
+  const outlines = (await import("../src/lib/slide/targetGeometry")).targetOutlines(mixedRef, setCompile(mixed.deck).sample(0), { manifest: manifests, plotRoot: roots, groups: undefined });
+  const owners = new Set(outlines.map(o => o.owner.elementId));
+  ok(owners.has("plot") && owners.has("scatter") && owners.has("e1") && outlines.filter(o => o.owner.elementId === "scatter").every(o => o.bbox.x >= 20 - 1 && o.bbox.x <= 220 + 1 && o.bbox.y >= 200 - 1 && o.bbox.y <= 340 + 1), "targetOutlines places each member in its own plot's stage frame (the scatter points land inside the scatter's box)");
+  ok(setLabel(mixedRef.members!, mixed.deck.slides[0].elements, id => manifests(mixed.deck.slides[0].elements.find(e => e.id === id && e.type === "plot") ? (mixed.deck.slides[0].elements.find(e => e.id === id) as SemanticPlotElement).assetId : "")) === "60 points + 1 part + 1 ellipse", "a mixed set is labelled by counts, largest first (\"60 points + 1 part + 1 ellipse\")");
+  ok(setLabel(three.members!, mixed.deck.slides[0].elements) === "3 ellipses" && setLabel([{ element: "e1" }, { element: "src" }, { element: "e2" }], mixed.deck.slides[0].elements) === "2 ellipses + 1 rect", "loose sets read \"3 ellipses\" and \"2 ellipses + 1 rect\"");
+
+  // The op: one source, one hand-off into the whole set.
+  const { deck, slideId, beats } = deckWith([rect("src", { x: 161, y: 111, width: 135, height: 45, fill: "#d95f02" }), ...dots, line("other")]);
+  const result = ops.becomeTransform(deck, slideId, beats[1], "src", reordered, { compiled: setCompile(deck) })!;
+  const track = deck.slides[0].beats[1].tracks.find(t => t.id === result.trackId)!;
+  ok(JSON.stringify(track.to) === JSON.stringify({ become: { ref: { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] }, mode: "handoff", pair: "auto", reveal: "flip" }, state: {} }) && deck.slides[0].elements.length === 5, "rect → three loose ellipses (picked e3, e1, e2) writes ONE hand-off with members in the slide's object order; nothing is consumed");
+  ok(validateDeckFile(structuredClone(deck)).length === 0, "the set record validates against the real deck schema");
+  const compiled = setCompile(deck);
+  const inventory = compiled.handoffs.find(h => h.trackId === track.id)!;
+  ok(!!inventory && JSON.stringify(inventory.destination.map(d => d.elementId).sort()) === '["e1","e2","e3"]' && inventory.destination.every(d => d.partIds === null) && !compiled.issues.length, "compile publishes every member leaf in the hand-off inventory, without issues");
+  const visible = (frame: ReturnType<typeof compiled.sample>, id: string) => frame.presentation.elementStates[id]?.visible ?? true;
+  const at0 = compiled.sample(1, 0), mid = compiled.sample(1, 300), end = compiled.sample(1);
+  ok(visible(at0, "src") && ["e1", "e2", "e3"].every(id => !visible(at0, id)) && ["e1", "e2", "e3"].every(id => !visible(compiled.sample(0), id)), "before the flight the rect shows and every ellipse is hidden (Design included)");
+  ok(!visible(mid, "src") && ["e1", "e2", "e3"].every(id => !visible(mid, id)), "mid-flight both sides hide for the flight layer");
+  ok(!visible(end, "src") && ["e1", "e2", "e3"].every(id => visible(end, id)), "after landing the three ellipses show and the rect stays hidden");
+  const plan = planHandoff(track, compiled.sample(1, 0), { manifest: manifests, plotRoot: roots, groups: undefined });
+  plan.prepare();
+  // shatter (the default method): three arcs fly, and the filled rect's interior rides as
+  // three fill-only wedges (role slice) paired with fill-only copies of the ellipses
+  const flying = plan.pairs.filter(p => p.a && p.b && p.a.owner.role !== "slice"), wedges = plan.pairs.filter(p => p.a?.owner.role === "slice");
+  ok(plan.policy === "tile" && flying.length === 3 && flying.every(p => !p.a!.closed && p.b!.closed) && new Set(flying.map(p => p.b!.owner.elementId)).size === 3, "pair auto resolves to tile: the rect's ring splits by arc length into three pieces, one per ellipse");
+  ok(wedges.length === 3 && wedges.every(p => p.a!.closed && p.b!.closed && p.b!.paint.stroke === "none") && new Set(wedges.map(p => p.b!.owner.elementId)).size === 3, "shatter: the rect's interior rides as three fill wedges, one per ellipse");
+  // Oct-3: the interior rides as wedges (role slice) paired with fill-only copies of the
+  // ellipses, drawn first; a paired wedge never fades as a leftover. (The Oct-2 travelling
+  // underlay is gone.)
+  const wedge = plan.pairs[0];
+  ok(plan.pairs.length === 6 && wedge.a!.owner.role === "slice" && wedge.a!.closed && wedge.a!.paint.fill === "#d95f02" && wedge.a!.paint.stroke === "none" && wedge.b!.paint.stroke === "none" && wedge.b!.closed, "the filled rect's interior rides as fill-only wedges, drawn first (beneath the arcs), each paired with a fill-only copy of its ellipse");
+  const { sampleCorrespondence } = await import("../src/lib/slide/correspondence");
+  const first = sampleCorrespondence(plan, 0)[0].opacity, half = sampleCorrespondence(plan, .5)[0].opacity, landedOpacity = sampleCorrespondence(plan, 1)[0].opacity;
+  ok(first === 1 && half === 1 && landedOpacity === 1, "a wedge never fades: the interior is part of the transform from the first frame to the last");
+  const last = sampleCorrespondence(plan, 1).filter((_, i) => plan.pairs[i].a?.owner.role !== "slice");
+  ok(last.length === 3 && last.every(p => { const b = flying.find(q => q.b!.owner.elementId === p.owner.b!.elementId)!.b!; return p.nodes.length === b.nodes.length && p.nodes.every((n, i) => Math.abs(n.x - b.nodes[i].x) < 1e-9 && Math.abs(n.y - b.nodes[i].y) < 1e-9); }), "the last flight frame IS each ellipse's own outline (the flip is pixel-invisible)");
+  const lengths = flying.map(p => p.a!.nodes.length);
+  ok(lengths.every(n => n >= 2), "every piece of the split rect is a real chain");
+
+  // Refusals: a set is a destination only, never a source, and never holds the source.
+  const refuseSet = (source: TargetRef | string, dest: TargetRef | string, pattern: RegExp, options: ops.BecomeOptions = {}) => {
+    const before = JSON.stringify(deck);
+    assert.throws(() => ops.becomeTransform(deck, slideId, beats[2], source, dest, { compiled: setCompile(deck), ...options }), pattern);
+    ok(JSON.stringify(deck) === before, `set refusal is atomic: ${pattern}`);
+  };
+  refuseSet(three, "other", /rather than a set of objects/);
+  assert.throws(() => ops.appearFrom(deck, slideId, beats[2], { element: "other" }, three, { compiled: setCompile(deck) }), /rather than a set of objects/); checks++;
+  refuseSet("e1", three, /includes the source/);
+  refuseSet("other", three, /Consume needs one whole destination/, { mode: "consume" });
+  refuseSet("other", { element: "e1", members: [{ element: "e1" }, { element: "gone" }] }, /destination objects is missing/);
+  refuseSet("other", { element: "e1", members: [{ element: "e1" }, { element: "e2", group: "g" }] }, /not groups/);
+  refuseSet("other", { element: "e3", members: [{ element: "e3" }, { element: "other2" }] }, /missing/);
+  // Overlap law over resolved leaves: a second set sharing a member is refused.
+  ops.addElement(deck, slideId, rect("other2", { x: 300, y: 300 }));
+  ops.becomeTransform(deck, slideId, beats[1], "other", { element: "other2" }, { mode: "handoff", compiled: setCompile(deck) });
+  const overlapBefore = JSON.stringify(deck);
+  assert.throws(() => ops.becomeTransform(deck, slideId, beats[1], "other2", { element: "e2", members: [{ element: "e2" }, { element: "src" }] }, { compiled: setCompile(deck) }), /already lands/); checks++;
+  ok(JSON.stringify(deck) === overlapBefore, "a second hand-off whose set shares a landed member is refused (the overlap law runs over resolved leaves)");
+  const forced = structuredClone(deck);
+  forced.slides[0].beats[1].tracks.push({ id: "forced", target: "other2", preset: "transform", duration: 600, to: { become: { ref: { element: "e2", members: [{ element: "e2" }, { element: "line-x" }] }, mode: "handoff" }, state: {} } });
+  ok(setCompile(forced).issues.some(i => i.trackId === "forced" && /already lands/.test(i.reason)), "the compiler diagnoses two hand-offs sharing a set member as overlapping");
+  ok(typeof ops.swapBecome(structuredClone(deck), slideId, deck.slides[0].beats[1].tracks.find(t => t.target === "other")!.id!, swapOptions) === "string", "an ordinary hand-off beside a set still swaps");
+  assert.throws(() => ops.swapBecome(structuredClone(deck), slideId, track.id!, { ...swapOptions, plotManifest: manifests, plotRoot: roots }), /A set destination cannot be reversed/); checks++;
+  ok(true, "Swap direction refuses a set destination with its reason");
+
+  // Dangling member: deleting one ellipse keeps the hand-off landing on the rest, diagnosed.
+  const pruned = structuredClone(deck);
+  pruned.slides[0].elements = pruned.slides[0].elements.filter(e => e.id !== "e2");
+  const prunedCompiled = setCompile(pruned);
+  ok(prunedCompiled.handoffs.find(h => h.trackId === track.id)?.destination.length === 2 && prunedCompiled.issues.some(i => i.trackId === track.id && /One destination object is missing/.test(i.reason)), "a deleted set member leaves a diagnosed hand-off that still lands on the remaining members");
+
+  // Copies remap every member (duplicate slide, snapshot insert, embed namespace).
+  const dupId = ops.duplicateSlide(deck, slideId)!;
+  const dup = deck.slides.find(s => s.id === dupId)!;
+  const dupRef = dup.beats[1].tracks.find(t => t.to?.become?.ref.members)!.to!.become!.ref;
+  ok(dupRef.members!.every(m => dup.elements.some(e => e.id === m.element) && !["e1", "e2", "e3"].includes(m.element)) && dupRef.element === dupRef.members![0].element, "duplicateSlide remaps every set member (and the representative element) to the copy's objects");
+  const { namespaceEmbedDeck } = await import("../src/lib/slide/embedRender");
+  const embedded = namespaceEmbedDeck(deck, "emb").slides[0].beats[1].tracks.find(t => t.to?.become?.ref.members)!.to!.become!.ref;
+  ok(embedded.members!.every(m => m.element.startsWith("emb-")), "embed namespacing remaps every set member");
+  const remapped = structuredClone(track);
+  remapBecomeTarget(remapped, new Map([["e1", "x1"], ["e3", "x3"]]));
+  ok(remapped.to!.become!.ref.element === "x1", "the representative element follows its member");
+  ok(JSON.stringify(remapped.to!.become!.ref) === JSON.stringify({ element: "x1", members: [{ element: "x1" }, { element: "e2" }, { element: "x3" }] }), "remapBecomeTarget maps each member's element and nothing else");
+}
+
+console.log("── MERGE: many sources → one destination (Oct-2 stretch) ──");
+{
+  const { planHandoff } = await import("../src/lib/slide/handoffPlan");
+  const { sampleCorrespondence } = await import("../src/lib/slide/correspondence");
+  const dots = [ellipse("e1", { x: 458, y: 71, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 }), ellipse("e2", { x: 458, y: 124, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 }), ellipse("e3", { x: 458, y: 176, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 })];
+  const { deck, slideId, beats } = deckWith([rect("dest", { x: 161, y: 111, width: 135, height: 45, fill: "#d95f02", cornerRadius: 0 }), ...dots, rect("other", { x: 20, y: 300 })]);
+  const before = structuredClone(deck);
+  const ids = ["e1", "e2", "e3"].map((id, i) => ops.appearFrom(deck, slideId, beats[1], { element: "dest" }, id, { compiled: compileSlide(deck.slides[0]), start: i * 100 })!.trackId);
+  const tracks = deck.slides[0].beats[1].tracks;
+  ok(ids.length === 3 && new Set(ids).size === 3 && tracks.every(t => t.to?.become?.mode === "handoff" && t.to.become.ref.element === "dest" && !t.to.become.ref.members) && deck.slides[0].elements.length === 5, "Appear from… ×3 writes three hand-offs into the SAME rect; the old 'already lands' refusal no longer applies to an identical destination");
+  ok(validateDeckFile(structuredClone(deck)).length === 0, "the merge validates against the real deck schema");
+  const compiled = compileSlide(deck.slides[0]);
+  ok(compiled.handoffs.length === 3 && compiled.handoffs.every(h => JSON.stringify(h.merge) === JSON.stringify({ trackIds: ids, landAt: 800 })) && !compiled.issues.length, "compile groups the three as one merge in story order, landing at the group's latest end (800 ms)");
+  const vis = (frame: ReturnType<typeof compiled.sample>, id: string) => frame.presentation.elementStates[id]?.visible ?? true;
+  const at = (t: number) => compiled.sample(1, t);
+  ok(!vis(compiled.sample(0), "dest") && !vis(at(0), "dest") && ["e1", "e2", "e3"].every(id => vis(at(0), id)), "before the merge: three ellipses show, the rect waits hidden (Design included)");
+  ok(!vis(at(150), "e1") && !vis(at(150), "e2") && vis(at(150), "e3") && !vis(at(150), "dest"), "each source hides as its own flight starts (staggered starts)");
+  ok(!vis(at(650), "dest") && !vis(at(799), "dest"), "the rect stays hidden after the FIRST landing (600 ms) until the LAST (800 ms)");
+  ok(vis(at(800), "dest") && ["e1", "e2", "e3"].every(id => !vis(at(800), id)) && vis(compiled.sample(1), "dest"), "at the last landing the rect reveals and every ellipse stays hidden");
+  ok(!vis(at(0), "dest") && vis(at(0), "e1"), "reverse seek restores the sources and hides the rect again");
+  // Each lander keeps its own share of ONE shared tiling of the rect.
+  const frame = compiled.sample(1, 0), ctx = { manifest: () => undefined, plotRoot: () => undefined, groups: undefined };
+  const plans = tracks.map(t => planHandoff(t, frame, ctx, tracks));
+  plans.forEach(p => p.prepare());
+  const flying = plans.map(p => p.pairs.filter(q => q.a && q.b && q.b!.owner.role !== "slice"));
+  ok(flying.every((f, i) => f.length === 1 && f[0].a!.owner.elementId === ["e1", "e2", "e3"][i] && f[0].b!.owner.elementId === "dest" && !f[0].b!.closed), "each lander flies its own ellipse into its own piece of the rect");
+  const perimeter = 2 * (135 + 45), lengthOf = (nodes: { x: number; y: number }[]) => nodes.slice(1).reduce((sum, n, i) => sum + Math.hypot(n.x - nodes[i].x, n.y - nodes[i].y), 0);
+  ok(Math.abs(flying.reduce((sum, f) => sum + lengthOf(f[0].b!.nodes), 0) - perimeter) < 1e-6, "the three pieces tile the rect's whole perimeter exactly once (the time-reverse of the set split)");
+  ok(plans.every(p => p.pairs.length === 2 && p.pairs.filter(q => q.b?.owner.role === "slice" && q.b!.closed && q.b!.paint.stroke === "none" && q.a && q.a.paint.stroke === "none").length === 1) && plans.every(p => p.pairs.every(q => q.a)), "every lander also carries its own wedge of the rect's interior (a fill-only copy of its ellipse pours into it); nothing is left to the last lander alone");
+  const landed = plans.map(p => sampleCorrespondence(p, 1).filter((_, i) => p.pairs[i].b?.owner.role !== "slice")[0]);
+  ok(landed.every((path, i) => path.nodes.length === flying[i][0].b!.nodes.length && path.nodes.every((n, j) => Math.abs(n.x - flying[i][0].b!.nodes[j].x) < 1e-9 && Math.abs(n.y - flying[i][0].b!.nodes[j].y) < 1e-9)), "every lander's last frame is exactly its piece of the rect's own outline");
+  // The overlap law still refuses a PARTIAL overlap of the merged destination.
+  const mergedBytes = JSON.stringify(deck);
+  assert.throws(() => ops.becomeTransform(deck, slideId, beats[1], "other", { element: "dest", members: [{ element: "dest" }, { element: "e1" }] }, { compiled: compileSlide(deck.slides[0]) }), /already lands|includes the source/); checks++;
+  ok(JSON.stringify(deck) === mergedBytes, "a different ref that overlaps the merged destination is still refused, atomically");
+  ops.removeTracks(deck, slideId, ids);
+  ok(JSON.stringify(deck.slides[0].beats) === JSON.stringify(before.slides[0].beats), "removing the three lanes restores the slide's steps");
 }
 
 console.log("── legacy morph normalizes ──");
@@ -423,6 +595,41 @@ try {
   ok(missingSwap.status !== 0 && /Choose a hand-off/.test(missingSwap.stderr) && await fs.readFile(swapPath, "utf8") === swapBytes, "real CLI swap refusal reports the reason and leaves persisted bytes untouched");
   const forced = run("become", live.deck.id, live.slideId, live.beats[2], "box", "--target", "plot", "--mode", "consume");
   ok(forced.status === 0 && !(await loadDeck(root, live.deck.id)).slides[0].elements.some(e => e.id === "plot"), "real --mode consume retains the whole-plot consume route");
+  // Oct-2 destination sets through the REAL CLI: --to (repeatable), --members, appear-from --members.
+  {
+    const dots = ["e1", "e2", "e3"].map((id, i) => ellipse(id, { x: 458, y: 71 + 53 * i, width: 21, height: 21 }));
+    const sets = deckWith([rect("src"), ...dots, rect("spare")]);
+    sets.deck.id = "set-become";
+    await saveDeck(root, sets.deck);
+    const setPath = path.join(root, "slides", sets.deck.id, "deck.json"), originalBytes = await fs.readFile(setPath, "utf8");
+    const expected = structuredClone(await loadDeck(root, sets.deck.id));
+    const want = ops.becomeTransform(expected, sets.slideId, sets.beats[1], "src", { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] })!;
+    const viaTo = run("become", sets.deck.id, sets.slideId, sets.beats[1], "src", "--to", "e1", "--to", "e2", "--to", "e3");
+    ok(viaTo.status === 0 && /src hands off to 3 ellipses/.test(viaTo.stderr), `real CLI become --to ×3 succeeds and names the set: ${viaTo.stderr.trim()}`);
+    const toDeck = await loadDeck(root, sets.deck.id), toTrack = toDeck.slides[0].beats[1].tracks[0];
+    expected.slides[0].beats[1].tracks.find(t => t.id === want.trackId)!.id = toTrack.id; expected.modified = toDeck.modified;
+    ok(JSON.stringify(toDeck) === JSON.stringify(expected) && toTrack.to?.become?.ref.members?.length === 3, "CLI --to writes exactly the pure op's set record (GUI/CLI byte parity)");
+    const toBytes = await fs.readFile(setPath, "utf8");
+    // The same set through --members and from the destination side.
+    await fs.writeFile(setPath, originalBytes);
+    const viaMembers = run("become", sets.deck.id, sets.slideId, sets.beats[1], "src", "--members", JSON.stringify([{ element: "e1" }, { element: "e2" }, { element: "e3" }]));
+    const membersDeck = await loadDeck(root, sets.deck.id);
+    ok(viaMembers.status === 0 && JSON.stringify(membersDeck.slides[0].beats[1].tracks[0].to) === JSON.stringify(toTrack.to), "become --members writes the same destination set as --to");
+    await fs.writeFile(setPath, originalBytes);
+    const twin = run("appear-from", sets.deck.id, sets.slideId, sets.beats[1], "--members", JSON.stringify([{ element: "e3" }, { element: "e1" }, { element: "e2" }]), "--from", "src");
+    const twinDeck = await loadDeck(root, sets.deck.id);
+    ok(twin.status === 0 && /3 ellipses appear from src/.test(twin.stderr) && JSON.stringify(twinDeck.slides[0].beats[1].tracks[0].to.become.ref.members.map((m: TargetRef) => m.element).sort()) === '["e1","e2","e3"]', `appear-from --members authors the set from the destination side: ${twin.stderr.trim()}`);
+    await fs.writeFile(setPath, toBytes);
+    for (const [label, args, pattern] of [
+      ["--to with --target", ["--to", "e1", "--target", "e2"], /exactly one of --target/],
+      ["--part with --to", ["--to", "e1", "--to", "e2", "--part", "x"], /each set member its own parts/],
+      ["a set holding the source", ["--to", "spare", "--to", "e1"], /includes the source/],
+      ["consume of a set", ["--to", "e1", "--to", "e2", "--mode", "consume"], /Consume needs one whole destination/],
+    ] as const) {
+      const refused = run("become", sets.deck.id, sets.slideId, sets.beats[2], "spare", ...args);
+      ok(refused.status !== 0 && pattern.test(refused.stderr) && await fs.readFile(setPath, "utf8") === toBytes, `real CLI refuses ${label} with its reason and writes nothing`);
+    }
+  }
   const { appearFromTransform, becomeTransform, handoffTargetsOverlap, swapBecome } = await import("../flux-core/index");
   ok(appearFromTransform === ops.appearFrom && becomeTransform === ops.becomeTransform && swapBecome === ops.swapBecome && typeof handoffTargetsOverlap === "function", "flux-core exposes the same pure authoring functions and resolver helpers");
   console.log(`##VERIFY## ${JSON.stringify({ script: "verify-slide-become", ok: true, checks })}`);

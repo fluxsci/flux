@@ -34,12 +34,20 @@ import { applyOverrides, partDomId } from "../../plot/parse";
 import { compensatePtTrue, restorePtTrue, compilePtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
-import { elementBBox, dashAttr } from "../../geometry";
-import { pathRender } from "../../path";
-import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan } from "../tween";
+import { elementBBox, dashAttr, channelOpacity } from "../../geometry";
+import { pathRender, pathD } from "../../path";
+import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
+import { applyPlotColorScale } from "../../plot/colorScaleDom";
+import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
+import { createTextMorph, layoutForMorph, type TextMorph } from "./textMorph";
+import type { GlyphProvider } from "./glyphProvider";
+import { elementStageOutlines } from "../targetGeometry";
+import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type SampledPath } from "../correspondence";
+import { hasOutline } from "../outline";
+import type { TextElement } from "../../types";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
@@ -54,6 +62,22 @@ export interface TransformCtx extends SlideRenderCtx {
   /** Wrapper props an overlapping same-beat appearance owns (conflict rule —
    *  the transform drops them; the appearance wins for the overlap). */
   skipProps?: ReadonlySet<string>;
+  /** The track's duration (the text morph's stagger is bounded in real time). */
+  durationMs?: number;
+  /** Letter outlines (player/glyphProvider.ts): a text ↔ drawn-shape retype
+   *  pours the shape into the letters instead of crossfading. */
+  glyphs?: GlyphProvider;
+}
+
+/** The wrapper's local CSS frame in stage px for a frame of state `el`: where its
+ *  (0,0) sits and how many stage px one local px spans. Composite frames keep the
+ *  frozen base box and scale it onto the exact box; a frame whose transform an
+ *  appearance owns rests in the rounded box unscaled (render.ts placement law). */
+function wrapperFrame(el: FigElement, base: { x: number; y: number; w: number; h: number }, composite: boolean) {
+  const bb = elementBBox({ ...el, rotation: 0 });
+  if (composite) return { bb, ox: bb.x, oy: bb.y, sx: Math.max(bb.w, 1) / Math.max(base.w, 1), sy: Math.max(bb.h, 1) / Math.max(base.h, 1), w: Math.max(base.w, 1), h: Math.max(base.h, 1) };
+  const lb = layoutBoxOf(bb);
+  return { bb, ox: lb.x, oy: lb.y, sx: 1, sy: 1, w: lb.w, h: lb.h };
 }
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
@@ -276,6 +300,8 @@ export function createTransform(
     set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
     const dash = dashAttr(el);
     if (dash) set(L.body, "stroke-dasharray", dash); else L.body.removeAttribute("stroke-dasharray");
+    for (const [name, v] of [["fill-opacity", channelOpacity(el.fillOpacity)], ["stroke-opacity", channelOpacity(el.strokeOpacity)]] as const)
+      if (v != null) set(L.body, name, String(v)); else L.body.removeAttribute(name);
     for (let i = 0; i < L.fixed.length; i++) {
       const h = morphPlan!.fixedHeads[i], node = L.fixed[i];
       const w = Math.max(el.width, 1e-6), hh = Math.max(el.height, 1e-6);
@@ -307,6 +333,139 @@ export function createTransform(
     }
   }
 
+  // --- the glyph-matched text morph (a text rewrite; textMatch.ts) ---------
+  // A = the ORIGINAL nodes (moved), shown at raw ≤ 0; M = the span layer
+  // (player/textMorph.ts), counter-scaled so its local px are stage px whatever
+  // the wrapper's composite scale; B = the end markup through the ONE
+  // serializer, shown at raw ≥ 1 and the root later tracks bind to. Unmappable
+  // texts (and a host that cannot measure) crossfade A and B at their natural
+  // size — the text never stretches with a changing box.
+  let textLayers: { A: HTMLElement; M: HTMLElement; B: HTMLElement; morph: TextMorph; preBox: { w: number; h: number }; endBox: { w: number; h: number } } | null = null;
+  if (plan.mode === "textMorph") {
+    const mk = (): HTMLElement => {
+      const d = document.createElement("div");
+      d.style.cssText = "position:absolute;inset:0;transform-origin:0 0;";
+      return d;
+    };
+    const A = mk(), M = mk(), B = mk();
+    M.className = "sl-text-morph";
+    M.style.pointerEvents = "none";
+    while (contentHost.firstChild) A.appendChild(contentHost.firstChild);
+    fillContent(B, layoutForMorph(end as TextElement), ctx);
+    contentHost.append(A, M, B);
+    const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
+    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600 }),
+      preBox: { w: Math.max(pb.w, 1), h: Math.max(pb.h, 1) }, endBox: { w: Math.max(eb.w, 1), h: Math.max(eb.h, 1) } };
+  }
+  function writeTextMorph(el: FigElement, u: number, raw: number): void {
+    const L = textLayers!, t = clamp01(u);
+    const style = (n: HTMLElement, props: Record<string, string>) => { for (const [k, v] of Object.entries(props)) if ((n.style as unknown as Record<string, string>)[k] !== v) (n.style as unknown as Record<string, string>)[k] = v; };
+    if (raw <= 0 || raw >= 1) {
+      L.morph.hide();
+      style(L.A, { visibility: raw <= 0 ? "" : "hidden", opacity: "", transform: "" });
+      style(L.B, { visibility: raw >= 1 ? "" : "hidden", opacity: "", transform: "" });
+      style(L.M, { visibility: "hidden", transform: "" });
+      return;
+    }
+    const f = wrapperFrame(el, baseBox, !boxOpts.skipTransform);
+    const n = (v: number) => Math.round(v * 1e6) / 1e6;
+    if (L.morph.ensure()) {
+      style(L.A, { visibility: "hidden", opacity: "", transform: "" });
+      style(L.B, { visibility: "hidden", opacity: "", transform: "" });
+      style(L.M, { visibility: "", transform: f.sx === 1 && f.sy === 1 ? "" : `scale(${n(1 / f.sx)}, ${n(1 / f.sy)})` });
+      L.morph.frame(u, raw, { x: f.bb.x - f.ox, y: f.bb.y - f.oy });
+      return;
+    }
+    // Fallback: both endpoint renders at their own natural size, anchored to the
+    // moving box's top-left, cross-lerped.
+    const natural = (box: { w: number; h: number }) => `scale(${n(box.w / (f.w * f.sx))}, ${n(box.h / (f.h * f.sy))})`;
+    style(L.M, { visibility: "hidden" });
+    style(L.A, { visibility: "", opacity: String(1 - t), transform: natural(L.preBox) });
+    style(L.B, { visibility: "", opacity: String(t), transform: natural(L.endBox) });
+  }
+
+  // --- text ↔ drawn shape in ONE element (a Consume / retype) ----------------
+  // The shape pours into the letters (or the letters fuse into the shape)
+  // through the same N↔M correspondence a hand-off flies: A = original nodes,
+  // M = one retained <path> per pair in stage coordinates, B = the end markup.
+  // The shape side is held over its 15 % end of the flight (it covers the slice
+  // seams); glyph BOXES crossfade with the live text there instead.
+  const glyphSide = ctx.glyphs && pre.type !== end.type && (pre.type === "text" && hasOutline(end) ? "a" : end.type === "text" && hasOutline(pre) ? "b" : null);
+  let glyphLayers: { A: HTMLElement; M: HTMLElement; B: HTMLElement; svg: SVGSVGElement; paths: SVGPathElement[]; plan: CorrespondencePlan | null; out: SampledPath[]; rev: number; failed: boolean; boxes: boolean } | null = null;
+  if (glyphSide) {
+    const mk = (): HTMLElement => { const d = document.createElement("div"); d.style.cssText = "position:absolute;inset:0;transform-origin:0 0;"; return d; };
+    const A = mk(), M = mk(), B = mk();
+    M.className = "sl-glyph-morph"; M.style.pointerEvents = "none";
+    while (contentHost.firstChild) A.appendChild(contentHost.firstChild);
+    fillContent(B, end.type === "text" ? layoutForMorph(end) : end, ctx);
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%"); svg.setAttribute("preserveAspectRatio", "none");
+    svg.style.cssText = "overflow:visible;display:block;";
+    M.appendChild(svg);
+    contentHost.append(A, M, B);
+    glyphLayers = { A, M, B, svg, paths: [], plan: null, out: [], rev: -1, failed: false, boxes: false };
+  }
+  const upright = (el: FigElement): FigElement => { const n = { ...el, rotation: 0 } as FigElement; delete n.flipX; delete n.flipY; return n; };
+  /** Plan the pairs (unrotated stage frame; the wrapper rotates). */
+  function glyphPlan(): CorrespondencePlan | null {
+    const L = glyphLayers!;
+    if (L.plan && L.rev === ctx.glyphs!.revision()) return L.plan;
+    const textEl = upright(glyphSide === "a" ? pre : end) as TextElement, shape = upright(glyphSide === "a" ? end : pre);
+    const letters = ctx.glyphs!.outlines(textEl);
+    if (!letters?.length) { L.failed = true; return null; }
+    const shapeOutlines = elementStageOutlines(shape);
+    if (!shapeOutlines.length) { L.failed = true; return null; }
+    const plan = glyphSide === "a" ? planCorrespondence(letters, shapeOutlines) : planCorrespondence(shapeOutlines, letters);
+    plan.prepare();
+    L.plan = plan; L.rev = ctx.glyphs!.revision(); L.out = []; L.failed = false;
+    L.boxes = letters.some((o) => o.owner.role === "glyph-box");
+    for (const p of L.paths) p.remove();
+    L.paths = plan.pairs.map(() => { const n = document.createElementNS(SVG_NS, "path"); n.setAttribute("stroke-linejoin", "round"); L.svg.appendChild(n); return n; });
+    return plan;
+  }
+  function writeGlyphMorph(el: FigElement, u: number, raw: number): void {
+    const L = glyphLayers!, t = clamp01(u);
+    const style = (n: HTMLElement, props: Record<string, string>) => { for (const [k, v] of Object.entries(props)) if ((n.style as unknown as Record<string, string>)[k] !== v) (n.style as unknown as Record<string, string>)[k] = v; };
+    if (raw <= 0 || raw >= 1) {
+      style(L.A, { visibility: raw <= 0 ? "" : "hidden", opacity: "", transform: "" });
+      style(L.B, { visibility: raw >= 1 ? "" : "hidden", opacity: "", transform: "" });
+      style(L.M, { visibility: "hidden" });
+      return;
+    }
+    const f = wrapperFrame(el, baseBox, !boxOpts.skipTransform);
+    const n = (v: number) => Math.round(v * 1e6) / 1e6;
+    const plan = L.failed ? null : glyphPlan();
+    // A layer PINNED at its own stage box (its content does not ride the box).
+    const pin = (layer: HTMLElement, box: { x: number; y: number; w: number; h: number }, opacity: number) =>
+      style(layer, { visibility: opacity > 0 ? "" : "hidden", opacity: String(opacity),
+        transform: `translate(${n((box.x - f.ox) / f.sx)}px, ${n((box.y - f.oy) / f.sy)}px) scale(${n(Math.max(box.w, 1) / (f.w * f.sx))}, ${n(Math.max(box.h, 1) / (f.h * f.sy))})` });
+    const preBox = elementBBox(upright(pre)), endBox = elementBBox(upright(end));
+    if (!plan) {
+      // No geometry (unmeasurable host): the classic crossfade, pinned in place.
+      style(L.M, { visibility: "hidden" });
+      pin(L.A, preBox, 1 - t); pin(L.B, endBox, t);
+      return;
+    }
+    // Ends held on RAW progress: the source over its first 15 %, the
+    // destination over its last 15 % — for the shape side (slice seams) always,
+    // for the text side only when its letters are boxes.
+    const leaving = clamp01(1 - raw / 0.15), landing = clamp01((raw - 0.85) / 0.15);
+    const shapeIsSource = glyphSide === "b";
+    const aHold = shapeIsSource || L.boxes ? leaving : 0, bHold = !shapeIsSource || L.boxes ? landing : 0;
+    const textFade = L.boxes ? (glyphSide === "a" ? leaving : landing) : 0;
+    pin(L.A, preBox, aHold); pin(L.B, endBox, bHold);
+    style(L.M, { visibility: "" });
+    L.svg.setAttribute("viewBox", `${n(f.ox)} ${n(f.oy)} ${n(f.w * f.sx)} ${n(f.h * f.sy)}`);
+    sampleCorrespondence(plan, t, L.out);
+    for (let i = 0; i < L.paths.length; i++) {
+      const node = L.paths[i], sample = L.out[i], p = sample.paint;
+      const set = (name: string, value: string) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
+      set("d", pathD(sample.nodes, sample.closed));
+      set("fill", p.fill); set("stroke", p.stroke); set("stroke-width", String(p.strokeWidth)); set("stroke-linecap", p.cap);
+      set("opacity", String(sample.opacity * (p.opacity ?? 1) * (1 - textFade)));
+    }
+  }
+
   function seek(u: number, raw = clamp01(u)): void {
     const t = clamp01(u);
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw);
@@ -314,7 +473,9 @@ export function createTransform(
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
-    if (content.type === "text" && content.needsLayout) applyTextLayout(content);
+    // The text morph draws measured endpoints instead: its box simply lerps
+    // (re-hugging a stepped text per frame made the box jump at t = 0.5).
+    if (content.type === "text" && content.needsLayout && !textLayers && !glyphLayers) applyTextLayout(content);
     if (raw > 0 && raw < 1 && !boxOpts.skipTransform) {
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
       if (glide) promoteMovingWrapper(wrap);
@@ -339,7 +500,10 @@ export function createTransform(
       return;
     }
 
-    if (plan.mode === "crossfade") {
+    if (textLayers) { writeTextMorph(el, u, raw); return; }
+    if (glyphLayers) { writeGlyphMorph(el, u, raw); return; }
+
+    if (plan.mode === "crossfade" && !glyphLayers) {
       ensureLayers();
       // A model that no longer owns the discrete kind keeps only its encoded
       // snapshot during the remaining visual fade, never a live backing canvas.
@@ -377,10 +541,16 @@ export function createTransform(
             inst.style.overflow = "visible";
           }
         }
-        applyOverrides(inst, p.overrides, p.id, (ctx.plotManifest ? ctx.plotManifest(p.assetId) : get(plotManifests)[p.assetId]));
+        const frameManifest = ctx.plotManifest ? ctx.plotManifest(p.assetId) : get(plotManifests)[p.assetId];
+        // this frame's live colour scales (completed from the manifest so an absent end glides),
+        // before overrides so explicit paints win
+        applyPlotTheme(inst, frameManifest, plotFollowsTheme(p, "slide") ? ctx.theme : null);
+        const frameColorScale = tweenColorScales(frameManifest, (pre as SemanticPlotElement).colorScale, (end as SemanticPlotElement).colorScale, t, raw) ?? p.colorScale;
+        applyPlotColorScale(inst, frameManifest, frameColorScale, p.id);
+        applyOverrides(inst, p.overrides, p.id, frameManifest);
         ghostOpacity?.(p);
         if (projectionOptions) {
-          projectionOptions.t = t; projectionOptions.raw = raw;
+          projectionOptions.t = t; projectionOptions.raw = raw; projectionOptions.colorScale = frameColorScale;
           applyPlotView(inst, manifestA, (end as SemanticPlotElement).view, p.id, projectionOptions);
         } else applyPlotView(inst, manifestA, p.view, p.id);
         if (intrinsic) {
@@ -402,7 +572,23 @@ export function createTransform(
 
   // Build in story order, before later tracks resolve their targets. A B-only
   // semantic part after A→B must bind B's nodes even on the first random seek.
-  if (plan.mode === "crossfade") { ensureLayers(); layerB!.style.opacity = "0"; }
+  if (plan.mode === "crossfade" && !glyphLayers) { ensureLayers(); layerB!.style.opacity = "0"; }
+  if (glyphLayers) {
+    writeGlyphMorph(pre, 0, 0);
+    const L = glyphLayers;
+    // Warm only an UNPLANNED morph: a replan (a font that arrived) belongs to the
+    // next frame, which draws it — rebuilt off-frame, the paths would sit blank.
+    warmWhenIdle(() => { if (wrap.isConnected && !L.failed && !L.plan) glyphPlan(); });
+    return { seek, targetRoot: L.B } as MorphController;
+  }
+  if (textLayers) {
+    writeTextMorph(pre, 0, 0);
+    // Measure while the browser is idle so the first mid-flight frame finds the
+    // spans built; a seek that arrives first builds them on the spot.
+    const L = textLayers;
+    warmWhenIdle(() => { if (wrap.isConnected) L.morph.ensure(); });
+    return { seek, targetRoot: L.B, dispose: () => L.morph.dispose() } as MorphController;
+  }
   if (morphPlan) {
     showMorphLayer(0);
     // The node correspondence is deferred (outline.planElementMorph) so opening

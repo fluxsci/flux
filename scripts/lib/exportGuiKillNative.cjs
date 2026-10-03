@@ -83,7 +83,10 @@ async function main(){
   fs.writeFileSync(path.join(root,'references/library.bib'),'@article{snapshot2020, title={NEW BIBLIOGRAPHY MUST NOT EXPORT}, author={Researcher, Ada}, year={2020}, journal={Scientific Record}}\n');
   releaseSnapshot();await wait(()=>fs.existsSync(path.join(root,'render-ready')),'actual Quarto filter is awaiting release');
   await js(`(()=>{const e=document.querySelector('.cm-content');e.focus();window.__typedPaint=[];e.addEventListener('keydown',ev=>{if(ev.key.length===1){const t=ev.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>window.__typedPaint.push({trusted:ev.isTrusted,ms:performance.now()-t})));}});})()`);
-  win.webContents.sendInputEvent({type:'keyDown',keyCode:'End',modifiers:['control']});win.webContents.sendInputEvent({type:'keyUp',keyCode:'End',modifiers:['control']});
+  // CodeMirror's document-end chord is Command+Down on macOS, Control+End elsewhere.
+  const documentEnd=process.platform==='darwin'?{keyCode:'Down',modifiers:['meta']}:{keyCode:'End',modifiers:['control']};
+  win.webContents.sendInputEvent({type:'keyDown',...documentEnd});win.webContents.sendInputEvent({type:'keyUp',...documentEnd});
+  await wait(()=>js(`(()=>{const e=document.querySelector('.cm-content'),s=getSelection();if(!s?.isCollapsed||!e.contains(s.anchorNode))return false;const r=document.createRange();r.selectNodeContents(e);r.setStart(s.anchorNode,s.anchorOffset);return r.toString()==='';})()`),'native document-end chord reaches the end before typing');
   for(const key of typed){win.webContents.sendInputEvent({type:'keyDown',keyCode:key});win.webContents.sendInputEvent({type:'char',keyCode:key});win.webContents.sendInputEvent({type:'keyUp',keyCode:key});}
   await wait(()=>js(`document.querySelector('.cm-content').textContent.includes(${JSON.stringify(typed.trim())})`),'real typing while Quarto held');
   await wait(()=>js(`window.__typedPaint.length===${typed.length}`),'trusted input frame evidence');

@@ -8,7 +8,7 @@ import { harness } from "./lib/harness.mjs";
 import * as ops from "../src/lib/slide/ops";
 import { resolveTrack, resolveBeat, resolveStart, slideAnimStyles } from "../src/lib/slide/resolve";
 import { compileSlide } from "../src/lib/slide/compile";
-import { trackEndMs, beatEndMs } from "../src/shell/modes/slide/animator/shared";
+import { trackEndMs, beatEndMs, snapMs, gridLineAt, minorTicks, minorTickStep } from "../src/shell/modes/slide/animator/shared";
 import { videoEventsForPlan } from "../src/lib/slide/mediaTimeline";
 import { staggerSpan } from "../src/lib/slide/stagger";
 import { resolveEasing } from "../src/lib/slide/easing";
@@ -21,6 +21,19 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 import * as core from "../flux-core/index";
 
 const h = harness("verify-slide-resolve");
+
+// Timeline snapping targets exactly the grid the Animator draws (owner, 2026-09-30:
+// a 0.37s clip could never reach the minor line at 0.375s between two 0.25s ticks).
+{
+  const pxPerMs = .4, tick = 250, step = minorTickStep(tick, pxPerMs);
+  h.ok(minorTicks(1000, tick, pxPerMs).includes(375), "a minor line is drawn at 375ms when zoomed in");
+  h.eq(snapMs(370, [], pxPerMs, true, step), 375, "a start drag near a drawn minor line snaps onto it");
+  h.eq(snapMs(271, [], pxPerMs, true, step, 100), 275, "a duration drag snaps its END edge (start 100 + 275 = 375) onto the drawn line");
+  h.eq(snapMs(377, [380], pxPerMs, true, step), 375, "the nearest candidate wins between a grid line and a magnet");
+  h.eq(snapMs(372, [], pxPerMs, false, step), 372, "Alt drags stay unsnapped");
+  h.eq(snapMs(310, [], .05, true, minorTickStep(1000, .05)), 300, "zoomed out, the 50ms round-number grid still catches drags between drawn lines");
+  h.eq(gridLineAt(375, step), 375, "the drag guide recognises a drawn minor line");
+}
 let presetDeck: ReturnType<typeof ops.createDeck> | undefined;
 const deck = ops.createDeck({ id: "styles", withTitleSlide: false });
 const slide = ops.addSlide(deck, { id: "s" });
@@ -361,5 +374,54 @@ try {
   h.eq(moved?.arc, -.5, "CLI persists arc through the shared transform op");
   const arcBytes = await fs.readFile(file, "utf8");
   h.ok(run("set-transform", "cli", "s", "b", target, "--arc", "2").status !== 0 && await fs.readFile(file, "utf8") === arcBytes, "invalid arc refuses without a write");
+
+  // align-tracks / inherit-track: the REAL CLI writes exactly the bytes the GUI's
+  // pure op writes (alignTracks.ts), over styled and anchored tracks.
+  const ffDeck = () => {
+    const d = ops.createDeck({ id: "ff", withTitleSlide: false });
+    const s = ops.addSlide(d, { id: "s" });
+    for (const id of ["p", "r", "e0", "e1", "e2", "e3"]) s.elements.push({ type: "rect", id, x: 0, y: 0, width: 10, height: 10, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+    const b = ops.addBeat(d, "s", { id: "b" })!;
+    d.animStyles = [{ id: "rise", name: "Rise", family: "appearance", track: { preset: "fadeRise", duration: 640, curve: { kind: "spring", bounce: .2 } } }];
+    b.tracks = [
+      { id: "path", target: "p", preset: "drawOn", duration: 1000, start: 0 },
+      { id: "rect", target: "r", preset: "fadeRise", duration: 952.6867379224138, start: 1000, curve: { kind: "spring", bounce: 0 } },
+      { id: "e0", target: "e0", preset: "popIn", duration: 300, start: 0, anchor: { trackId: "path", edge: "start", offsetMs: 0 } },
+      { id: "e1", target: "e1", preset: "popIn", styleId: "rise", start: 0 },
+      { id: "e2", target: "e2", preset: "popIn", duration: 300, start: 0 },
+      { id: "e3", target: "e3", preset: "popIn", duration: 300, start: 0, groupId: "g" },
+    ];
+    b.groups = [{ id: "g", label: "Group" }];
+    return d;
+  };
+  const tracksOnDisk = async () => JSON.stringify((await core.loadDeck(root, "ff")).slides[0].beats[1].tracks);
+  const { alignTrackEdges, inheritTrack } = await import("../src/lib/slide/alignTracks");
+  const ell = ["e0", "e1", "e2", "e3"];
+  for (const [label, args, op] of [
+    ["align ends to a track edge", ["--edge", "end", "--to", "rect"], (d: ReturnType<typeof ffDeck>) => alignTrackEdges(d, "s", "b", ell, "end", 1000 + 952.6867379224138)],
+    ["resize starts to a time", ["--edge", "start", "--to", "250", "--resize"], (d: ReturnType<typeof ffDeck>) => alignTrackEdges(d, "s", "b", ell, "start", 250, { mode: "resize" })],
+  ] as const) {
+    await core.saveDeck(root, ffDeck());
+    const cli = run("align-tracks", "ff", "s", "--tracks", ell.join(","), ...args);
+    h.eq(cli.status, 0, `REAL CLI align-tracks (${label}): ${cli.stderr}`);
+    const mem = ffDeck(); op(mem);
+    h.eq(await tracksOnDisk(), JSON.stringify(mem.slides[0].beats[1].tracks), `align-tracks (${label}) writes the GUI op's exact track bytes`);
+  }
+  await core.saveDeck(root, ffDeck());
+  const alignedJson = JSON.parse(run("align-tracks", "ff", "s", "--tracks", "e0", "--edge", "end", "--to", "path").stdout);
+  h.eq([alignedJson.toMs, alignedJson.detached], [1000, [{ trackId: "e0", from: "path" }]], "align-tracks reports the target time and the detached anchor");
+  const before = await fs.readFile(path.join(root, "slides/ff/deck.json"), "utf8");
+  h.ok(run("align-tracks", "ff", "s", "--tracks", "e0", "--edge", "end", "--to", "nope").status !== 0 && await fs.readFile(path.join(root, "slides/ff/deck.json"), "utf8") === before, "an unknown align target refuses without a write");
+  for (const [label, from, extra] of [["copy", "rect", []], ["linked source", "e1", []], ["copy with start", "rect", ["--include-start"]]] as const) {
+    await core.saveDeck(root, ffDeck());
+    const targets = ell.filter(id => id !== from);
+    const cli = run("inherit-track", "ff", "s", "--from", from, "--to", targets.join(","), ...extra);
+    h.eq(cli.status, 0, `REAL CLI inherit-track (${label}): ${cli.stderr}`);
+    const mem = ffDeck(); inheritTrack(mem, "s", from, targets, { includeStart: extra.length > 0 });
+    h.eq(await tracksOnDisk(), JSON.stringify(mem.slides[0].beats[1].tracks), `inherit-track (${label}) writes the GUI op's exact track bytes`);
+    h.eq(validateDeckFile(await core.loadDeck(root, "ff")).length, 0, `inherit-track (${label}) saves a valid deck`);
+  }
+  const self = run("inherit-track", "ff", "s", "--from", "rect", "--to", "rect");
+  h.ok(self.status !== 0 && /cannot inherit from itself/.test(self.stderr), "inherit-track refuses a self-inherit with its reason");
 } finally { await fs.rm(root, { recursive: true, force: true }); }
 await h.done();

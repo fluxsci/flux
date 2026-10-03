@@ -39,7 +39,8 @@
     editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
-  import { hasPartBinding, isWholeElementRef, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES } from "../../../lib/slide/targets";
+  import { hasPartBinding, isWholeElementRef, sameRef, trackRef, composeDestination, refElementIds } from "../../../lib/slide/targets";
+  import { membersDeep } from "../../../lib/groups";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../lib/slide/autobuild";
   import { buildPartTree } from "../../../lib/plot/tree";
   import { isExitPreset } from "../../../lib/slide/presetCatalog";
@@ -55,7 +56,6 @@
     partSelections,
     setPartSelections,
     hoverId,
-    xrayRoot,
     xrayOpen,
     viewport,
     project,
@@ -65,7 +65,6 @@
     gestureCancelHook, importerOpen,
     cascadeState,
     undo, redo,
-    activeTool,
   } from "../../../lib/store";
   import {
     listProjectDecks,
@@ -85,7 +84,8 @@
   import { slideDefaultBackground } from "../../../lib/slide/deckProject";
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
-  import type { Deck, TransitionKind, TargetRef, PairPolicy } from "../../../lib/slide/types";
+  import type { Deck, TransitionKind, TargetRef } from "../../../lib/slide/types";
+  import type { Figure } from "../../../lib/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
@@ -101,10 +101,11 @@
   import { pointerDrag } from "../../../lib/ui/pointerDrag";
   import { initializeEditor } from "../../editorHandoff";
   import { deckRevision, figRevision, bumpFigRevision } from "../../scholar/revisions";
-  import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
+  import { handleKey, handleEditorPaste, openCascade } from "../../../lib/keyboard";
   import Toolbar from "../../../lib/Toolbar.svelte";
   import ColorField from "../../../lib/ColorField.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
+  import { plotTheme } from "../../../lib/plot/themeDom";
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
@@ -115,6 +116,7 @@
   import { readIncomingPlot, importPlotsFromPaths, type Incoming } from "../../../lib/io";
   import { readIncomingVideo, discardIncomingVideo } from "../../../lib/slide/importVideo";
   import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
+  import { glyphFontsRevision, textGlyphStatus } from "../../../lib/slide/player/glyphProvider";
   import { warmSlideMorphs, transformPreState } from "../../../lib/slide/tween";
   import { staggerSpan } from "../../../lib/slide/stagger";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
@@ -123,7 +125,12 @@
   import GhostCopyControls from "./animator/GhostCopyControls.svelte";
   import GhostTransformDialog from "./GhostTransformDialog.svelte";
   import { ghostBirth } from "./animator/ghostEditing";
-  import { refLabel as sharedRefLabel } from "./animator/shared";
+  import { refLabel as sharedRefLabel, trackKindLabel } from "./animator/shared";
+  import { BecomePicker, type TargetPick, type LikePick } from "./pick/pickState.svelte";
+  import BecomeBar from "./pick/BecomeBar.svelte";
+  import PickOverlay from "./pick/PickOverlay.svelte";
+  import { targetsToUnits, type PickUnit } from "./pick/pickModel";
+  import { describeUnit } from "./pick/pickLabels";
   import { hoverTrackId } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
   import SlidePresetMenu from "./SlidePresetMenu.svelte";
@@ -165,14 +172,25 @@
   let inspectorTab = $state<"object"|"animation"|"slide"|"deck">("object");
   let ghostHidden = $state(true);
   let ghostDialog = $state<{sourceId: string; beatIndex: number; original: "stay" | "disappear" | "transform"} | null>(null);
-  type TargetPick = { kind: "become" | "appearFrom"; slideId: string; source: TargetRef; beatIndex: number; picks: TargetRef[]; pair: PairPolicy; armedFrom: "become" | "appear-from" };
-  type LikePick = { kind: "animateLike"; slideId: string; trackIds: string[]; beatIndex: number };
-  let pickState = $state.raw<TargetPick | LikePick | null>(null);
-  $effect(() => { modelOrbitBlocked.set(active && pickState ? (pickState.kind === "become" ? "Become" : pickState.kind === "appearFrom" ? "Appear from" : "Animate like") : false); return () => modelOrbitBlocked.set(false); });
-  const becomePick = $derived(pickState?.kind === "become" || pickState?.kind === "appearFrom" ? pickState : null);
-  const likePick = $derived(pickState?.kind === "animateLike" ? pickState : null);
-  let pickShift = false;
-  let lastPickSelection = "";
+  // The Become picker (pick/): ONE temporary mode for Become, Appear from…
+  // and Animate like…; this file only arms it and commits what it returns.
+  const picker = new BecomePicker({
+    active: () => active && focused,
+    fig: () => get(project).figures.find(f => f.id === get(activeFigureId)) ?? null,
+    refLabel: ref => refLabel(ref),
+    commitTarget: (pick, ref) => performBecome(pick, ref),
+    commitMerge: (pick, sources) => performMerge(pick, sources),
+    commitLike: (pick, elementId) => performLike(pick, elementId),
+    likeEffect: (pick, elementId) => {
+      const t = activeSlide?.beats[pick.beatIndex]?.tracks.find(tr => tr.target === elementId && tr.styleId) ?? activeSlide?.beats[pick.beatIndex]?.tracks.find(tr => tr.target === elementId);
+      return t ? trackKindLabel(t, overlay ?? {}) : null;
+    },
+    morphImport: () => !!morphFor,
+  });
+  picker.install();
+  const becomePick = $derived(picker.target);
+  const likePick = $derived(picker.like);
+  $effect(() => { const m = picker.mode; modelOrbitBlocked.set(active && m ? (m.kind === "become" ? "Become" : m.kind === "appearFrom" ? "Appear from" : "Animate like") : false); return () => modelOrbitBlocked.set(false); });
   let openingRequest = $state(0);
   let consumingOpenRequest = $state(false);
   $effect(() => {
@@ -202,6 +220,8 @@
   const overlay = $derived($deckOverlay);
   const stage = $derived(overlay?.stage ?? slideOps.DEFAULT_STAGE);
   const theme = $derived(resolveTheme(overlay?.theme));
+  // the shared Canvas paints a plot's scaffold in the deck's ink while Slide mode edits (plan B1)
+  $effect(() => { plotTheme.set(theme); return () => plotTheme.set(null); });
   const slideIds = $derived(overlay?.slides.map((s) => s.id) ?? []);
   const activeSlide = $derived.by(() => {
     void $project; // composedSlide reads the project non-reactively
@@ -242,10 +262,11 @@
     const t = activeSlide?.beats.flatMap(b => b.tracks).find(t => t.id === id);
     const selected = $selection.size === 1 ? [...$selection][0] : undefined;
     const ghostDrag = selected && (ghostBirth(activeSlide, selected) || activeSlide?.beats[$activeBeat]?.tracks.some(track => track.ghostFrom === selected));
-    const highlight = becomePick && activeSlide
-      ? becomePick.picks.flatMap(ref => resolveTargetLeaves(ref, activeSlide, id => $plotManifests[id])).map(ref => ({elementId: ref.elementId, ...(ref.partIds ? {partIds: ref.partIds} : {})}))
+    // While a pick is armed its outlines are the picker's (PickOverlay); the
+    // canvas suppresses its own hover chrome under `picking`.
+    const highlight = picker.mode ? null
       : t && !t.target.startsWith("@") ? { elementId: t.target, ...(activeSlide && hasPartBinding(t) ? {partIds: semanticTargets(t, activeSlide, {plotManifest: id => $plotManifests[id]})} : {}) } : null;
-    return { ...$slideCanvasPresentation, stage, ...(!pickState && ghostDrag ? {preferredDragTargetId: selected} : {}), highlight, picking: !!becomePick, ghostHidden };
+    return { ...$slideCanvasPresentation, stage, ...(!picker.mode && ghostDrag ? {preferredDragTargetId: selected} : {}), highlight, picking: picker.picking, ghostHidden };
   });
   $effect(() => {
     const view = canvasPresentation;
@@ -671,7 +692,9 @@
 
   // The asset lookup lets model pairs be evaluated; without it every model
   // Change content/hand-off reads as "topology unavailable" (a warning the author can never clear).
-  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id)}).issues : []);
+  // glyphStatus: a text ↔ shape Become whose font has no readable outlines lands
+  // as boxes; the revision re-derives once a font settles (oct2 W3).
+  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));
@@ -805,7 +828,7 @@
         if(!d.assets.some(a=>a.id===prepared.asset.id))d.assets.push(prepared.asset);
         prepared.install?.();installed=true;addedId=t.id;selectedBeat=s.beats.indexOf(beat);
       });
-      pickState=null;
+      picker.finish();
       if(addedId){activeBeat.set(selectedBeat);selTrackIds.set([addedId]);enterEndpointEdit([addedId],"t2");inspectorTab="animation";}
     } finally { unsubscribe();if(incoming&&!installed)await incoming.discard?.(); }
   }
@@ -1053,16 +1076,25 @@
     if (!s) return ref.element;
     return sharedRefLabel(ref, s, id => { const el = s.elements.find(e => e.id === id); return el?.type === "plot" ? get(plotManifests)[el.assetId] : undefined; }, plotTags);
   }
-  function oneRef(refs: TargetRef[]): TargetRef | null {
-    if (refs.length === 1) return refs[0];
-    pushToast("info", "Pick parts of one object, or one object", {detail: refs.length && refs.every(r => !r.parts?.length && !r.group) ? "Group these objects first, then pick the group in X-ray." : undefined});
-    return null;
+  /** Chip words for a picked unit ("6 points · W1", "2 ellipses"). */
+  function describePick(u: PickUnit) {
+    const s = activeSlide;
+    return describeUnit(u, { slide: s ?? { elements: [] }, refLabel, manifestFor: id => { const el = s?.elements.find(e => e.id === id); return el?.type === "plot" ? get(plotManifests)[el.assetId] : undefined; } });
+  }
+  /** Several picks name ONE destination: a set of the objects and plot parts
+   *  picked (group picks expand to their objects). One pick stays itself. */
+  function composeDest(refs: TargetRef[]): TargetRef | null {
+    const s = activeSlide;
+    try {
+      return composeDestination(refs, groupId => s ? membersDeep(s as unknown as Figure, groupId).map(e => e.id) : []);
+    } catch (error) { pushToast("info", "Couldn't use that set", {detail: errMsg(error)}); return null; }
   }
   function animateFromXray(req: XrayAnimateRequest) {
     stopPreview();
     if (!animatorOpen) toggleAnimator();
     if (req.kind === "become-destination") {
-      if (becomePick?.kind === "become") confirmPick(becomePick, refsForTargets(req.targets));
+      // The rows already follow the pick live (xrayPickSink); `b` confirms the whole set.
+      if (becomePick?.kind === "become") { picker.add(targetsToUnits(req.targets)); picker.confirm(); }
       return;
     }
     if (req.kind === "appear-from") { startBecome("appear-from", refsForTargets(req.targets)); return; }
@@ -1093,42 +1125,28 @@
       parts.length ? parts.some(p => p.elementId === t.target && (t.part === p.partId || t.parts?.includes(p.partId))) : selected.has(t.target));
     if (!tracks.length) { pushToast("info", "Select effects in this step to animate like another object."); return; }
     stopPreview(); cancelBecome();
-    pickState = { kind: "animateLike", slideId: s.id, beatIndex, trackIds: tracks.flatMap(t => t.id ? [t.id] : []) };
-    selection.set(new Set()); partSelection.set(null);
+    picker.armLike({ slideId: s.id, beatIndex, trackIds: tracks.flatMap(t => t.id ? [t.id] : []) });
     inspectorTab = "animation";
   }
   function performLike(pick: LikePick, target: string) {
     const s = activeSlide, beat = s?.beats[pick.beatIndex]; if (!s || !beat) return;
     const source = beat.tracks.find(t => t.target === target && t.styleId) ?? beat.tracks.find(t => t.target === target);
-    if (!source?.id) { pushToast("info", "That object has no effect in this step."); selection.set(new Set()); return; }
-    pickState = null;
+    if (!source?.id) { pushToast("info", "That object has no effect in this step."); return; }
+    picker.finish();
     const result = commitDeckLive(d => slideOps.animateLike(d, s.id, source.id!, pick.trackIds));
     if (result?.refused.length) pushToast("error", [...new Set(result.refused.map(r => r.reason))].join("; "));
     selTrackIds.set(pick.trackIds);
     selection.set(new Set(beat.tracks.filter(t => t.id && pick.trackIds.includes(t.id)).map(t => t.target)));
   }
-  // Capture modifiers before Canvas publishes its selection. The effect below
-  // consumes the final element/part pick together, after that event completes.
-  function pickPointer(e: PointerEvent) { pickShift = e.shiftKey; }
-  function pickKeyUp(e: KeyboardEvent) { if (e.key === "Shift") pickShift = false; }
+  // The picker's keys run in the capture phase, before the figure keymap;
+  // typing, menus and shell modals keep theirs.
   function pickKey(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e) || !focused || presentOpen) return;
     const target = e.target instanceof Element ? e.target : null;
-    if (target?.closest("input,textarea,select,[contenteditable=true]")) return;
-    if (e.key === "Shift") pickShift = true;
-    if (e.key === "Escape" && pickState) {
-      e.preventDefault(); e.stopImmediatePropagation();
-      if (!gestureCancelHook.fn?.()) { xrayOpen.set(false); cancelBecome(); }
-    } else if (becomePick && !get(xrayOpen) && e.key === "Enter") {
-      e.preventDefault(); e.stopImmediatePropagation(); confirmPick(becomePick);
-    } else if (becomePick && !get(xrayOpen) && e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyR") {
-      e.preventDefault(); e.stopImmediatePropagation();
-      const ids = [get(hoverId), ...get(selection), ...becomePick.picks.map(r => r.element)];
-      const plot = ids.map(id => activeSlide?.elements.find(el => el.id === id && el.type === "plot")).find(Boolean);
-      if (plot && activeSlide) {
-        xrayRoot.set({kind: "element", figId: activeSlide.id, elementId: plot.id}); xrayOpen.set(true);
-      } else pushToast("info", "Hover a plot, then press Alt+R to pick its parts.");
-    } else if (e.key === "6" && !e.ctrlKey && !e.metaKey && !e.altKey && get(xrayOpen) && target?.closest(".xray")) {
+    if (target?.closest("input,textarea,select,[contenteditable=true],[role=menu]")) return;
+    if (picker.mode && e.key === "Escape" && gestureCancelHook.fn?.()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    if (picker.onKey(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    if (e.key === "6" && !e.ctrlKey && !e.metaKey && !e.altKey && get(xrayOpen) && target?.closest(".xray")) {
       e.preventDefault(); e.stopImmediatePropagation(); startLike(true); xrayOpen.set(false);
     }
   }
@@ -1137,22 +1155,24 @@
   function startBecome(armedFrom: "become" | "appear-from" = "become", refs = selectedRefs()) {
     const s = activeSlide, sid = $activeFigureId;
     if (!s || !sid) return;
-    if (refs.length !== 1) { pushToast("info", "Select one object or its parts to become something"); return; }
-    const source = refs[0], el = s.elements.find(e => e.id === source.element);
+    // Appear from… may start from several destinations: they land as one set.
+    if (!refs.length || refs.length > 1 && armedFrom === "become") { pushToast("info", "Select one object or its parts to become something"); return; }
+    const source = armedFrom === "appear-from" ? composeDest(refs) : refs[0];
+    if (!source) return;
+    const el = s.elements.find(e => e.id === source.element);
     if (!el) return;
     if (source.group && armedFrom === "become") { pushToast("info", "Choose an object or plot parts as the Become source, rather than a group."); return; }
-    if (el.type === "video") { pushToast("info", "Video clips cannot take part in a Become", {detail: "Use Change for a clip's geometry, or Duplicate it."}); return; }
+    if (refElementIds(source).some(id => s.elements.find(e => e.id === id)?.type === "video")) { pushToast("info", "Video clips cannot take part in a Become", {detail: "Use Change for a clip's geometry, or Duplicate it."}); return; }
     let bi = $activeBeat > 0 ? $activeBeat : Math.max(1, s.beats.length - 1);
-    const birth = ghostBirth(s, source.element);
+    const birth = refElementIds(source).map(id => ghostBirth(s, id)).reduce<ReturnType<typeof ghostBirth>>((late, b) => b && (!late || b.beatIndex > late.beatIndex) ? b : late, null);
     if (birth && birth.beatIndex > bi) { pushToast("info", "Choose the ghost's birth step or a later one"); return; }
     if (s.beats.length <= 1) commitDeckLive(d => { slideOps.addBeat(d, sid, {label: "Beat 1", advance: "click"}); });
     bi = Math.min(bi, (composedSlide(sid)?.beats.length ?? 2) - 1);
     activeBeat.set(bi); editAfterBeat(bi);
-    lastPickSelection = JSON.stringify(selectedRefs());
-    pickState = {kind: armedFrom === "become" ? "become" : "appearFrom", source, slideId: sid, beatIndex: bi, picks: [], pair: "auto", armedFrom};
+    picker.armTarget({kind: armedFrom === "become" ? "become" : "appearFrom", source, slideId: sid, beatIndex: bi, armedFrom});
     inspectorTab = "animation";
   }
-  function cancelBecome() { pickState = null; }
+  function cancelBecome() { picker.cancel(); }
   function retargetBecome(targetId: string, beatIndex: number) {
     stopPreview();
     const track = activeSlide?.beats[beatIndex]?.tracks.find(t => t.target === targetId && t.id && $selTrackIds.includes(t.id));
@@ -1161,17 +1181,35 @@
     setPartSelections((source.parts ?? []).map(partId => ({elementId: targetId, partId})));
     activeBeat.set(beatIndex); startBecome("become", [source]);
   }
-  function confirmPick(pick: TargetPick, picks = pick.picks) {
-    if (!picks.length) return;
-    const ref = oneRef(picks);
-    if (ref) performBecome(pick, ref);
+  /** Many → one: one hand-off per picked source into the armed destination,
+   *  written in ONE transaction (one Undo), all with the same new-track timing. */
+  function performMerge(pick: TargetPick, sources: TargetRef[]) {
+    const s = activeSlide;
+    if (!s || s.id !== pick.slideId) return;
+    const dest = pick.source;
+    picker.finish();
+    try {
+      const options = { animStyles: overlay?.animStyles, modelManifest: (id: string) => get(scene3dManifests)[id], plotManifest: (id: string) => get(plotManifests)[id], modelAsset: (id: string) => get(project).assets.find(a => a.id === id) };
+      const trackIds = commitDeckLive(d => {
+        const slide = slideOps.slideById(d, s.id), beat = slide?.beats[pick.beatIndex];
+        if (!slide || !beat) throw new Error("The step no longer exists.");
+        return sources.map(source => slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, compiled: compileSlide(slide, stage, options), modelAsset: options.modelAsset})!.trackId);
+      });
+      if (!trackIds?.length) return;
+      activeBeat.set(pick.beatIndex); selTrackIds.set(trackIds);
+      enterEndpointEdit(trackIds, "t2"); inspectorTab = "animation";
+      pushToast("success", `‹${refLabel({element: sources[0].element, members: sources})}› merge into ‹${refLabel(dest)}›`, {ttl: 3500});
+    } catch (error) {
+      picker.resume(pick);
+      pushToast("error", "Couldn't merge those objects", { detail: errMsg(error) });
+    }
   }
   function performBecome(pick: TargetPick, ref: TargetRef) {
     const s = activeSlide;
     if (!s || s.id !== pick.slideId) return;
     const source = pick.kind === "appearFrom" ? ref : pick.source;
     const dest = pick.kind === "appearFrom" ? pick.source : ref;
-    pickState = null;
+    picker.finish();
     try {
       const compiled = compileSlide(s, stage, { animStyles: overlay?.animStyles, modelManifest: id => get(scene3dManifests)[id], plotManifest: id => get(plotManifests)[id], modelAsset: id => get(project).assets.find(a=>a.id===id) });
       const result = commitDeckLive(d => {
@@ -1199,36 +1237,20 @@
         }}} : {})});
       }
     } catch (error) {
-      selection.set(new Set([pick.source.element]));
-      setPartSelections((pick.source.parts ?? []).map(partId => ({elementId: pick.source.element, partId})));
-      lastPickSelection = JSON.stringify(selectedRefs());
-      pickState = pick;
+      picker.resume(pick);
       pushToast("error", "Couldn't become that object", { detail: errMsg(error) });
     }
   }
+  // Changing slides or steps cancels a pick (as it always has).
   $effect(() => {
-    const pick = pickState, ids = [...$selection], parts = $partSelections, tool = $activeTool, sid = $activeFigureId, bi = $activeBeat, inXray = $xrayOpen;
-    if (!pick) return;
-    if (sid !== pick.slideId || bi !== pick.beatIndex) { cancelBecome(); return; }
-    untrack(() => {
-      if (pick.kind === "animateLike") { if (!inXray && tool === "select" && ids.length === 1) performLike(pick, ids[0]); return; }
-      const refs = selectedRefs(ids, parts), signature = JSON.stringify(refs);
-      if (tool !== "select" || signature === lastPickSelection) return;
-      lastPickSelection = signature;
-      if (inXray) return;
-      const candidates = refs.filter(ref => !sameRef(ref, pick.source));
-      if (!candidates.length) return;
-      if (pickShift) {
-        const targets = [...pick.picks, ...candidates].flatMap<XrayAnimateTarget>(ref => ref.parts?.length ? ref.parts.map(partId => ({elementId: ref.element, partId})) : [{elementId: ref.element, groupId: ref.group}]);
-        pickState = {...pick, picks: refsForTargets(targets)};
-      } else confirmPick(pick, candidates);
-    });
+    const pick = picker.mode, sid = $activeFigureId, bi = $activeBeat;
+    if (pick && (sid !== pick.slideId || bi !== pick.beatIndex)) untrack(() => picker.cancel());
   });
   $effect(() => { xrayBecomeSource.set(active && becomePick?.kind === "become" ? refLabel(becomePick.source) : null); });
   const becomeSourceHasContent = $derived(becomePick?.kind === "become" && !becomePick.source.parts?.length && activeSlide?.elements.some(e=>e.id===becomePick.source.element&&(e.type==="plot"||e.type==="model3d")));
   const modelPickFeedback = $derived.by(()=>{
     if(!becomePick||!activeSlide)return null;
-    const candidate=becomePick.picks.at(-1)?.element??$hoverId;
+    const candidate=becomePick.units.at(-1)?.element??picker.hover?.unit.element??$hoverId;
     if(!candidate||candidate===becomePick.source.element)return null;
     const a=transformPreState(activeSlide,becomePick.kind==="appearFrom"?candidate:becomePick.source.element,becomePick.beatIndex);
     const b=transformPreState(activeSlide,becomePick.kind==="appearFrom"?becomePick.source.element:candidate,becomePick.beatIndex);
@@ -1312,7 +1334,7 @@
       inspectorTab = "animation";
     } catch (error) { pushToast("error", "Couldn't create ghosts", {detail: errMsg(error)}); }
   }
-  /** Ctrl+Shift+T: no transform on the selection → create one per selected
+  /** Ctrl+Shift+C (Change): no transform on the selection → create one per selected
    *  element in the active beat (grouped when several) and check out t2
    *  immediately (the mockup's flow: add, then sculpt). A transform already
    *  selected → toggle the t1 ↔ t2 checkout. */
@@ -1377,8 +1399,12 @@
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
     if (inAnimation) {
       const mod=e.metaKey||e.ctrlKey;
-      if(mod&&e.shiftKey&&["a","d","t","e"].includes(e.key.toLowerCase())&&!typing) {
-        e.preventDefault();const k=e.key.toLowerCase();animationAction(k==="a"?"appear":k==="d"?"disappear":k==="e"?"become":"change");
+      if(!typing) {
+        const k=e.key.toLowerCase();
+        // Owner chords (2026-10-03): ⌃⇧A appear · ⌃⇧D disappear · ⌃⇧C change · ⌃⌥G ghost · ⌃⌥A appear from · b become.
+        if(mod&&e.shiftKey&&!e.altKey&&["a","d","c","e"].includes(k)) { e.preventDefault();animationAction(k==="a"?"appear":k==="d"?"disappear":k==="c"?"change":"become"); }
+        else if(mod&&e.altKey&&!e.shiftKey&&(k==="g"||k==="a")) { e.preventDefault();animationAction(k==="g"?"ghost":"appear-from"); }
+        else if(!mod&&!e.altKey&&!e.shiftKey&&e.code==="KeyB"&&!picker.mode) { e.preventDefault();animationAction("become"); }
       }
       return;
     }
@@ -1405,16 +1431,26 @@
         const k = e.key.toLowerCase();
         if (k === "a") { e.preventDefault(); addAppearance(false); return; }
         if (k === "d") { e.preventDefault(); addAppearance(true); return; }
-        if (k === "t") { e.preventDefault(); cancelBecome(); addOrToggleTransform(); return; }
+        // Change is ⌃⇧C (owner, 2026-10-03); ⌃⇧E stays as Become's chord alias beside the plain `b`.
+        if (k === "c") { e.preventDefault(); cancelBecome(); addOrToggleTransform(); return; }
         if (k === "e") { e.preventDefault(); animationAction("become"); return; }
-        // ⌃⇧C with ≥2 tracks selected = TRACK cascade; with fewer it falls
-        // through to the figure keymap, which opens the ELEMENT cascade.
-        if (k === "c" && get(selTrackIds).length >= 2) { e.preventDefault(); openTrackCascade(); return; }
+      }
+      // ⌃⌥G ghost · ⌃⌥A appear from · ⌃⌥C cascade (≥2 tracks = the TRACK cascade,
+      // else the ELEMENT cascade — Change took ⌃⇧C in Slide mode).
+      if (mod && e.altKey && !e.shiftKey && animatorOpen) {
+        const k = e.key.toLowerCase();
+        if (k === "g") { e.preventDefault(); animationAction("ghost"); return; }
+        if (k === "a") { e.preventDefault(); animationAction("appear-from"); return; }
+        if (k === "c") { e.preventDefault(); if (get(selTrackIds).length >= 2) openTrackCascade(); else openCascade(); return; }
+      }
+      // `b` arms Become for the selection (owner, 2026-10-03); the animator opens if needed.
+      if (!mod && !e.altKey && !e.shiftKey && e.code === "KeyB" && !picker.mode && $selection.size > 0) {
+        e.preventDefault(); if (!animatorOpen) toggleAnimator(); animationAction("become"); return;
       }
       // Esc: an in-flight canvas gesture aborts first (FIG-12); then an
       // active endpoint checkout exits (restoring the base state); then the
       // figure keymap's normal Esc ladder.
-      if (e.key === "Escape" && becomePick) {
+      if (e.key === "Escape" && picker.mode) {
         if (gestureCancelHook.fn?.()) { e.preventDefault(); return; }
         e.preventDefault();
         cancelBecome();
@@ -1455,9 +1491,7 @@
     if (!focused || !ready) return;
     window.addEventListener("keydown", onKey);
     window.addEventListener("keydown", pickKey, true);
-    window.addEventListener("keyup", pickKeyUp, true);
-    window.addEventListener("pointerdown", pickPointer, true);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keydown", pickKey, true); window.removeEventListener("keyup", pickKeyUp, true); window.removeEventListener("pointerdown", pickPointer, true); };
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keydown", pickKey, true); };
   });
 
   // Paste onto the active slide — the shared figure/slide arbitration
@@ -1671,24 +1705,14 @@
     <!-- stage: the SHARED figure canvas in frame mode -->
     <main class="stage-col">
       <div class="edit-statebar">
+        {#if !picker.mode}
         <div class="edit-switch" aria-label="Canvas edit destination">
           <button class:chosen={$editDestination.kind === "design"} onclick={()=>{stopPreview();setEditDestination({kind:"design"});}} title="Edit original object properties, before animation">Design</button>
           <button class:chosen={$editDestination.kind === "after" && $editDestination.beatId===activeSlide?.beats[$activeBeat]?.id} disabled={$activeBeat===0} onclick={()=>{stopPreview();editAfterBeat();}} title="Create or update changes only at the selected step">Edit after step {$activeBeat || "…"}</button>
         </div>
-        {#if likePick}
-          <span class="become-bar" role="status" aria-label="Animate like pick"><strong>Animate like…</strong><span class="become-msg">Pick an object’s effect in this step for {likePick.trackIds.length} selected effects.</span><button class="become-btn" onclick={cancelBecome}>Cancel</button></span>
-        {:else if becomePick && activeSlide}
-          <span class="become-bar" role="status" aria-label="Become pick">
-            <span class="become-msg" title={`${refLabel(becomePick.source)} ${becomePick.kind === "appearFrom" ? "appears from… click the object it comes from" : "becomes… click an object · Ctrl+click a part · Shift+click adds · Alt+R opens X-ray"}`}><strong>{refLabel(becomePick.source)}</strong> {becomePick.kind === "appearFrom" ? "appears from… click the object it comes from" : "becomes… click an object · Ctrl+click a part"}</span>
-            {#if modelPickFeedback}<span class="morph-badge" data-model-morph-badge title={modelPickFeedback.reason??"Same mesh structure — the shape morphs smoothly."}>{modelPickFeedback.label}</span>{/if}
-            {#if becomePick.picks.length}<span class="pick-count">{becomePick.picks.reduce((n, ref) => n + (ref.parts?.length || 1), 0)} picked</span>{/if}
-            <label class="pair-label">Pair <select aria-label="Become pairing" value={becomePick.pair} onchange={e => { if (becomePick) pickState = {...becomePick, pair: e.currentTarget.value as PairPolicy}; }}>
-              {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
-            </select></label>
-            {#if becomeSourceHasContent}<button class="become-btn" onclick={() => chooseMorph(becomePick!.source.element)} title="Keep the frame; choose the next content from the gallery">From gallery…</button>{/if}
-            <button class="become-btn" disabled={!becomePick.picks.length} onclick={() => becomePick && confirmPick(becomePick)} title="Enter">{becomePick.kind === "appearFrom" ? "Appear from" : "Become"}</button>
-            <button class="become-btn" onclick={cancelBecome} title="Escape">Cancel</button>
-          </span>
+        {/if}
+        {#if picker.mode && activeSlide}
+          <BecomeBar {picker} sourceLabel={becomePick ? refLabel(becomePick.source) : ""} stepLabel={becomePick ? `step ${becomePick.beatIndex}` : ""} describe={describePick} sourceHasContent={becomeSourceHasContent} modelFeedback={modelPickFeedback} onGallery={() => becomePick && chooseMorph(becomePick.source.element)} />
         {:else}
           <span class="edit-label">{previewing ? `Inspecting step ${$activeBeat} · ${(previewTime/1000).toFixed(2)}s` : editLabel}</span>
         {/if}
@@ -1699,6 +1723,7 @@
       <div class="canvas-wrap" bind:this={canvasWrapEl}>
         {#if ready && overlay}
           <Canvas frame paneActive={active} presentation={canvasPresentation} />
+          <PickOverlay {picker} wrap={canvasWrapEl} slideId={$activeFigureId} presentation={canvasPresentation} refLabel={refLabel} describe={describePick} />
           <ArrangeHud />
           <CascadePopover tracks={trackCascadeAdapter} />
           {#if previewing}
@@ -1876,17 +1901,6 @@
   .edit-label { color:var(--c-tx-muted);font:11px var(--font-mono);flex:1; }
   .ghost-toggle { display:flex;align-items:center;gap:5px;white-space:nowrap;color:var(--c-tx-2); }
   .ghost-toggle input { accent-color:var(--c-accent);margin:0; }
-  .become-bar { display:flex;align-items:center;gap:8px;min-width:0;flex:1;height:24px;padding:0 8px;border:1px solid color-mix(in oklab, #66800b 60%, transparent);border-radius:var(--r-ui);background:color-mix(in oklab, #66800b 12%, transparent);color:var(--c-tx);font-size:12px; }
-  .become-bar strong { color:#a3b955;font:600 10.5px var(--font-mono);letter-spacing:.08em;text-transform:uppercase; }
-  .become-msg { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--c-tx-2); }
-  .become-btn { font:11px var(--font-ui);color:var(--c-tx);background:transparent;border:1px solid var(--c-line-strong);border-radius:var(--r-ui);height:20px;padding:0 8px;cursor: var(--cursor-cross-hover); }
-  .pair-label { display:flex;align-items:center;gap:4px;white-space:nowrap; }
-  .pair-label select { font:11px var(--font-mono);height:20px;border:1px solid var(--c-line-strong);border-radius:var(--r-ui);background:var(--c-bg-raised);color:var(--c-tx); }
-  .pick-count { font:10px var(--font-mono);white-space:nowrap; }
-  /* the morph route is a status pill, not a count */
-  .morph-badge { font:11px var(--font-ui);white-space:nowrap;padding:0 6px;line-height:16px;border:1px solid var(--c-line-strong);border-radius:9px;color:var(--c-tx); }
-  .become-btn:disabled { opacity:.4; }
-  .become-btn:hover { border-color:#879a39;color:var(--c-tx-hi); }
   /* The right rail's tab strip: flat, on the raised surface, chosen tab underlined. */
   .inspector-tabs { display:flex;gap:0;padding:0 6px;height:30px;align-items:stretch;position:sticky;top:0;background:var(--c-bg-raised);border-bottom:1px solid var(--c-line);z-index:5; }
   .inspector-tabs button { flex:1;border:0;border-radius:0;height:auto;padding:0 4px;color:var(--c-tx-muted);background:transparent; }

@@ -14,7 +14,10 @@
   // on that row's node "as if x-rayed alone" (breadcrumb + Backspace pop the
   // root stack). Eye / 'x' dispatch per row kind: part → id-keyed override,
   // element → hidden flag, group → GroupDef eye, common → every plot's override.
-  // In Slide mode, 'a' animates the pick (Appear / Emphasize / Disappear /
+  // 'a' widens the pick to its siblings (counterpart parts first), Alt+A picks
+  // every search result, a press-and-sweep over rows picks a range (Ctrl/⌘ at
+  // the press adds to the pick), and F — like Enter — shows properties.
+  // In Slide mode, 'm' animates the pick (Appear / Emphasize / Disappear /
   // Change) straight onto the timeline. Regenerate stays, gated on a
   // recipe-backed plot root. Always dark — an x-ray screen by nature — but flat:
   // no scanlines, no glow, no boot flicker; it opens beside the selection.
@@ -46,7 +49,8 @@
   import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
-  import { buildXrayTree, partRowId, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
+  import { partReadout, readoutText } from "./plot/readout";
+  import { buildXrayTree, partRowId, commonPartRows, targetLabel, rowParents, widenToSiblings, type XRow, type XrayTarget } from "./xray/buildXrayTree";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
@@ -54,7 +58,7 @@
   import { focusAxisView } from "./plot/axisViewState";
   import { fluxFigMenuOpen } from "./settings";
   import { anchorPanel, reclampPanel, unionRects, type Rect } from "./ui/anchor";
-  import { xrayAnimate, xrayBecomeSource, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
+  import { xrayAnimate, xrayBecomeSource, xrayPickSink, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
   import type { FluxPlotManifest } from "./plot/types";
 
   // --- the pinned root + its tree -----------------------------------------
@@ -178,6 +182,19 @@
   let mode: "tree" | "search" = "tree";
   let animMenu = false;
   let panelEl: HTMLDivElement;
+  // plan F6: the hovered row's data readout (a point's x/y, a bar's height, a hexagon's count …)
+  let rowReadout: { id: string; text: string } | null = null;
+  function readoutForRow(n: XRow): { id: string; text: string } | null {
+    if (n.kind !== "part" || !n.partId) return null;
+    const el = n.elementId ? findEl(n.elementId) : rootPlot;
+    if (!el || el.type !== "plot") return null;
+    const text = readoutText(partReadout($plotManifests[el.assetId], n.partId));
+    return text ? { id: n.id, text } : null;
+  }
+  function findEl(id: string) {
+    for (const f of get(project).figures) for (const e of f.elements) if (e.id === id) return e;
+    return undefined;
+  }
   let searchEl: HTMLInputElement;
 
   async function revealPrimary() {
@@ -365,6 +382,7 @@
    *  that names one) become the plural part selection; whole objects and
    *  group members become the element selection. */
   function applySelection(picked: XRow[]) {
+    publishPick(picked);
     const exclusions = get(editorSelectionExclusions);
     const parts: { elementId: string; partId: string }[] = [];
     const elements = new Set<string>();
@@ -420,6 +438,55 @@
     selectedIds = new Set(ids);
     if (!selectedId && ids.length) selectedId = ids[0];
     applySelection(rows.map((r) => r.node).filter((n) => n.kind !== "set"));
+  }
+
+  /** 'a' — widen the pick to its siblings (`xray/buildXrayTree.ts widenToSiblings`, the
+   *  ONE rule the Slide Become picker shares): first the same part under each sibling
+   *  of its parent, then — when that adds nothing — every row under the same parent. */
+  function pickSiblings() {
+    const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
+    const parent = rowParents(tree);
+    const next = widenToSiblings(tree, picked, parent);
+    if (!next) return;
+    for (const id of next) revealAncestors(id, parent);
+    selectedIds = next;
+    selectedId ??= picked[0].id;
+    applySelection([...next].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r));
+  }
+  function revealAncestors(id: string, parent: Map<string, XRow>) {
+    for (let p = parent.get(id); p; p = parent.get(p.id)) expanded.add(p.id);
+    expanded = expanded;
+  }
+
+  // --- drag-select: press on a row and sweep; Ctrl/⌘ at the press adds to the pick --------
+  let sweep: { startId: string; base: Set<string>; moved: boolean } | null = null;
+  let sweepClickGuard = false;
+  function onRowPointerDown(e: PointerEvent, n: XRow) {
+    if (e.button !== 0 || e.shiftKey || (e.target as HTMLElement).closest("button")) return;
+    sweep = { startId: n.id, base: e.ctrlKey || e.metaKey ? new Set(selectedIds) : new Set(), moved: false };
+  }
+  function onRowPointerEnter(e: PointerEvent, n: XRow) {
+    if (!sweep || !(e.buttons & 1)) return;
+    // Chrome delivers a boundary event late when rows re-render under a still
+    // pointer (a search filter): entering the pressed row itself is not a sweep.
+    if (!sweep.moved && n.id === sweep.startId) return;
+    const ids = rows.map((r) => r.node.id);
+    const a = ids.indexOf(sweep.startId), b = ids.indexOf(n.id);
+    if (a < 0 || b < 0) return;
+    sweep.moved = true;
+    const next = new Set(sweep.base);
+    for (const id of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) if (!id.startsWith("set:")) next.add(id);
+    selectedIds = next;
+    selectedId = n.id;
+    anchorId = sweep.startId;
+    applySelection([...next].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r));
+  }
+  function onSweepEnd() {
+    // The click that ends a sweep must not re-pick one row. It fires in this same
+    // task only when the press and release share a row; otherwise it lands on
+    // the tree, so the guard never outlives this task.
+    if (sweep?.moved) { sweepClickGuard = true; setTimeout(() => (sweepClickGuard = false)); }
+    sweep = null;
   }
 
   // --- Show Properties: the pick → property menu ON TOP --------------------------------
@@ -538,10 +605,18 @@
     { kind: "change", label: "Change", key: "4", hint: "transform — edit the object after this step" },
     { kind: "appear-from", label: "Appear from…", key: "5", hint: "Pick the object these rows come from" },
     { kind: "animate-like", label: "Animate like…", key: "6", hint: "Pick another object's effect in this step" },
-    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows"}] : []),
+    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows (Space or b)"}] : []),
   ] as AnimateOption[];
-  function animateTargets(kind?: XrayAnimateKind): XrayAnimateTarget[] {
-    const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
+  /** A waiting Become pick follows the rows live (animateHook `xrayPickSink`). */
+  function publishPick(picked: XRow[]) {
+    const sink = get(xrayPickSink);
+    if (!sink || !get(xrayBecomeSource) || !root) return;
+    const fig = get(project).figures.find((f) => f.id === root.figId);
+    const ids = root.kind === "element" ? [root.elementId] : root.kind === "elements" ? root.elementIds : fig ? membersDeep(fig, root.groupId).map((e) => e.id) : [];
+    sink({ rootElementIds: ids, targets: animateTargets("become-destination", picked) });
+  }
+  function animateTargets(kind?: XrayAnimateKind, rows?: XRow[]): XrayAnimateTarget[] {
+    const picked = rows ?? (pickedRows.length ? pickedRows : selRow ? [selRow] : []);
     const exclusions = get(editorSelectionExclusions);
     const out: XrayAnimateTarget[] = [];
     const fig = root ? get(project).figures.find((f) => f.id === root.figId) : null;
@@ -587,6 +662,7 @@
   }
 
   function onRowClick(e: MouseEvent, n: XRow) {
+    if (sweepClickGuard) { sweepClickGuard = false; return; }
     if (e.detail > 1) return; // the dblclick handler re-roots
     pick(n, e);
   }
@@ -606,13 +682,14 @@
     const k = e.key;
     const lk = k.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
-    if (lk === "b" && !mod && !e.altKey && $xrayBecomeSource && canAnimate) {
+    // Space confirms the waiting pick, as in the canvas picker (b still does).
+    if ((lk === "b" || e.code === "Space") && !mod && !e.altKey && !e.shiftKey && $xrayBecomeSource && canAnimate) {
       e.preventDefault(); e.stopImmediatePropagation(); animate("become-destination"); return;
     }
     if (animMenu) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (k === "Escape" || lk === "a") { animMenu = false; return; }
+      if (k === "Escape" || lk === "m") { animMenu = false; return; }
       const opt = animOptions.find((o) => o.key === k);
       if (opt) animate(opt.kind);
       return;
@@ -629,16 +706,31 @@
       enterSearch();
       return;
     }
-    if (mod && lk === "a") {
+    // Ctrl/⌘+A picks every row; Alt+A picks every search result (the rows
+    // shown, which after a search ARE the results — same pick, search-first name).
+    if ((mod && lk === "a") || (e.altKey && e.code === "KeyA")) {
       e.preventDefault();
       e.stopImmediatePropagation();
       pickAll();
       return;
     }
-    if (lk === "a" && canAnimate) {
+    if (lk === "a" && !mod && !e.altKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      pickSiblings();
+      return;
+    }
+    if (lk === "m" && !mod && !e.altKey && canAnimate) {
       e.preventDefault();
       e.stopImmediatePropagation();
       if (pickedRows.length || selRow) animMenu = true;
+      return;
+    }
+    // F opens the property menu for the pick, exactly like Enter (the F-menu's own key).
+    if (lk === "f" && !mod && !e.altKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      showProperties();
       return;
     }
     if (lk === "v" && axisFor(selRow)) { e.preventDefault(); e.stopImmediatePropagation(); showAxisView(selRow); return; }
@@ -676,6 +768,10 @@
       e.preventDefault();
       search = "";
       backToTree();
+    } else if (e.altKey && e.code === "KeyA" && rows.length) {
+      e.preventDefault();
+      pickAll();
+      backToTree();
     } else if (e.key === "Enter" && rows[0]) {
       e.preventDefault();
       pick(rows[selectedId ? Math.max(0, rows.findIndex((r) => r.node.id === selectedId)) : 0]?.node ?? rows[0].node);
@@ -690,7 +786,7 @@
   const eyeGlyph = (n: XRow) => (n.kind === "common" && n.hiddenCount && n.hiddenCount < (n.elementIds?.length ?? 0) ? "◐" : n.hidden ? "○" : "◉");
 </script>
 
-<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} />
+<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:pointerup={onSweepEnd} on:pointercancel={onSweepEnd} />
 
 {#if $xrayOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -747,8 +843,7 @@
 
           <div class="tree">
             {#if rootPlot && recipePath}
-              <ColorScaleControls assetId={rootPlot.assetId} manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
-                on:regenerate={(event) => regenerate(event.detail)} />
+              <ColorScaleControls elementId={rootPlot.id} />
             {/if}
             {#if rootModel}<div class="model-controls"><Model3dSemantics element={rootModel}/></div>{/if}
             {#each rows as r, ri (r.node.id)}
@@ -765,6 +860,10 @@
                 data-kind={r.node.kind}
                 data-rid={r.node.id}
                 style={`padding-left:${6 + r.depth * 14}px`}
+                title={rowReadout?.id === r.node.id ? rowReadout.text : undefined}
+                on:mouseenter={() => (rowReadout = readoutForRow(r.node))}
+                on:pointerdown={(e) => onRowPointerDown(e, r.node)}
+                on:pointerenter={(e) => onRowPointerEnter(e, r.node)}
                 on:click={(e) => onRowClick(e, r.node)}
                 on:dblclick={() => onRowDblClick(r.node)}
               >
@@ -805,11 +904,11 @@
             {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become <span class="hk">b</span></button>{/if}
             <span class="pickinfo">{selectedIds.size > 1 ? `${selectedIds.size} picked` : ""}</span>
             {#if axisFor(selRow)}<button class="showprops" on:click={() => showAxisView(selRow)}><b class="hk">v</b> Axis view…</button>{/if}
-            <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (a)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
-              Animate selected <span class="hk">a</span>
+            <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (m)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
+              Animate selected <span class="hk">m</span>
             </button>
             <button class="showprops" disabled={!(pickedRows.length || selRow) || (pickedRows.length ? pickedRows : selRow ? [selRow] : []).every((n) => rowBlocked(n, $editorSelectionExclusions))} on:click={showProperties}>
-              Show Properties <span class="hk">↵</span>
+              Show Properties <span class="hk">↵</span><span class="hk">f</span>
             </button>
           </div>
         {/if}
@@ -817,6 +916,9 @@
         <div class="foot">
           <span><b class="hk">↑↓</b> navigate</span>
           <span><b class="hk">⇧/⌃ click</b> multi</span>
+          <span><b class="hk">drag</b> sweep</span>
+          <span><b class="hk">a</b> siblings</span>
+          <span><b class="hk">alt+a</b> all results</span>
           <span><b class="hk">x</b> hide</span>
           <span><b class="hk">dbl-click</b> re-root</span>
           <span><b class="hk">⌫</b> back</span>
@@ -830,6 +932,9 @@
 
 <style>
   .model-controls { padding: 0 0 8px; }
+  /* A palette being chosen gets the room to show two columns of maps (owner
+     inbox 2026-09-30); the ResizeObserver re-clamps the panel on screen. */
+  .xray:has(:global(.cmappick)) { width: min(640px, calc(100vw - 16px)); }
   /* Radiograph, flat: a near-black tube field with phosphor accents and mono
      type — always dark by nature (the --xr-* ramp, never the theme-scoped
      --c-* ramp). No gradients, glow, scanlines or entrance theatrics: it is a
@@ -841,7 +946,7 @@
     pointer-events: auto;
     position: absolute;
     visibility: hidden;
-    width: 460px;
+    width: min(460px, calc(100vw - 16px));
     max-height: min(74vh, calc(100vh - 16px));
     display: flex;
     flex-direction: column;
@@ -884,6 +989,9 @@
   .search-in { flex: 1; background: none; border: none; outline: none; color: var(--xr-tx); font: 12px var(--font-mono); padding: 0; }
   .search-in::placeholder { color: var(--xr-tx-dim); }
   .tree { overflow-y: auto; padding: 4px 6px 6px; min-height: 0; flex: 1 1 auto; }
+  /* Only the tree yields height: the header, source line, search row, actions
+     and footer keep theirs however tall the colour-scale block grows. */
+  .xhead, .srcline, .search-row, .actions, .foot { flex-shrink: 0; }
   .section { display: flex; align-items: baseline; gap: 8px; padding: 8px 6px 3px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; }
   .scount { text-transform: none; letter-spacing: 0; }
   .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; scroll-margin-block: 4px; border-radius: var(--r-0); cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none; }

@@ -7,6 +7,7 @@ import { inspectGlb } from '../src/lib/model3d/glbCore.mjs';
 import { launch, gotoApp, clickMode, waitFor, APP_URL, realErrors, sleep } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
 const h = harness('verify-model3d-embed-gui');
+let previewReceipt = null;
 const out = path.resolve('test-results/model3d/embeds'); await fs.mkdir(out, { recursive: true });
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-model3d-quarto-'));
 const bytes = await fs.readFile('scripts/fixtures/model3d/fluxplot/named-parts.glb');
@@ -151,6 +152,49 @@ try {
   await page.evaluate(() => { const v=window.__fluxView;v.dispatch({changes:{from:0,to:v.state.doc.length,insert:'# Finished\n'}}); });
   await waitFor(page, () => !document.querySelector('.paper canvas[data-slide-model3d]') && window.__fluxModel3d.stats().retained === 0, null, { timeout: 10000 });
 
+  h.section('live preview draws models through the shared worker');
+  // The preview's srcdoc carries metadata only; its players ask the parent's
+  // worker for frames (previewModelBridge), so an edit re-parses no GLB and a
+  // deleted file is noticed at the next invalidation.
+  await page.evaluate(() => { const v = window.__fluxView, line = id => `![](../slides/model-embeds/renders/${id}-step-0.svg){#preview-${id} .flux-slide deck="model-embeds" slide="${id}" width=50%}`; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: `# Preview\n\n${line('front')}\n\n${line('side')}\n\nEnd.\n` } }); v.focus(); });
+  await page.keyboard.down('Control'); await page.keyboard.down('Shift'); await page.keyboard.press('KeyE'); await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+  const previewFrame = async () => { for (let i = 0; i < 200; i++) { const f = page.frames().find(f => f.parentFrame() && f.url() === 'about:srcdoc'); if (f) return f; await sleep(25); } throw new Error('preview iframe missing'); };
+  const drawn = f => f.waitForFunction(() => { const cs = [...document.querySelectorAll('[data-model3d-host="bridge"] canvas[data-slide-model3d]')]; return cs.length === 2 && cs.every(c => c.width > 0 && c.style.display === 'block'); }, { timeout: 20000 });
+  let frame = await previewFrame(); await drawn(frame);
+  const previewed = await frame.evaluate(() => { const data = JSON.parse(document.getElementById('flux-slide-data').textContent); return { bridge: data.modelBridge === true, models: Object.keys(data.models ?? {}).length, runtime: typeof globalThis.FluxModel3dRuntime, gl: window.__embedMainGL ?? null, size: document.documentElement.outerHTML.length, pixels: [...document.querySelectorAll('canvas[data-slide-model3d]')].map(c => c.toDataURL()) }; });
+  const worker = await page.evaluate(() => window.__fluxModel3d.stats());
+  h.ok(previewed.bridge && previewed.models === 0 && previewed.runtime === 'undefined', 'the preview document carries no GLB table and no model runtime');
+  h.ok((previewed.gl === null || previewed.gl.length === 0) && worker.contexts === 1 && worker.retained === 1, 'the preview draws through the one shared worker context and geometry (no WebGL in the preview)');
+  h.ok(previewed.pixels[0] !== previewed.pixels[1] && !(await frame.content()).includes(Buffer.from(fixture.bytes.slice(0, 3072)).toString('base64')), 'two bridged views show distinct authored frames; no GLB bytes in the preview');
+  await page.screenshot({ path: path.join(out, 'preview-bridge.png') });
+  await frame.click('[aria-label="Next animation step"]');
+  await frame.waitForFunction(before => document.querySelector('canvas[data-slide-model3d]').toDataURL() !== before, { timeout: 5000 }, previewed.pixels[0]);
+  h.ok(true, 'the bridged preview animates actual model pixels');
+  const loadsBefore = worker.loads, htmlBefore = await page.$eval('iframe[title="Manuscript preview"]', f => f.srcdoc);
+  await page.evaluate(() => { const v = window.__fluxView; v.dispatch({ changes: { from: v.state.doc.length, insert: 'Edited.\n' } }); });
+  await waitFor(page, before => document.querySelector('iframe[title="Manuscript preview"]').srcdoc !== before, htmlBefore, { timeout: 5000 });
+  frame = await previewFrame(); await drawn(frame);
+  h.eq((await page.evaluate(() => window.__fluxModel3d.stats())).loads, loadsBefore, 'an edit re-renders the preview without reloading geometry');
+  previewReceipt = { documentBytes: previewed.size, srcdocBytes: htmlBefore.length };
+  await page.evaluate(async () => { const root = window.__embedRoot, file = `${root}/slides/model-embeds/assets/embed-neuron.glb`; window.__embedRemoved = { file, bytes: await window.fig.readFile(file) }; await window.fig.remove(file); (await import('/src/shell/scholar/revisions.ts')).bumpSlideEmbeds(); });
+  await waitFor(page, before => document.querySelector('iframe[title="Manuscript preview"]').srcdoc !== before, htmlBefore, { timeout: 5000 });
+  frame = await previewFrame();
+  await frame.waitForFunction(() => [...document.querySelectorAll('.flux-slide-status')].some(s => /3D model rendered as a still/.test(s.textContent) && /missing/i.test(s.textContent)), { timeout: 20000 });
+  h.ok(true, 'a GLB deleted after the preview first drew it is refused at the next invalidation (the preview shows its still and says why)');
+  await page.screenshot({ path: path.join(out, 'preview-missing.png') });
+  const htmlMissing = await page.$eval('iframe[title="Manuscript preview"]', f => f.srcdoc);
+  await page.evaluate(async () => { const { file, bytes } = window.__embedRemoved; await window.fig.writeFile(file, new Uint8Array(bytes)); (await import('/src/shell/scholar/revisions.ts')).bumpSlideEmbeds(); });
+  await waitFor(page, before => document.querySelector('iframe[title="Manuscript preview"]').srcdoc !== before, htmlMissing, { timeout: 5000 });
+  frame = await previewFrame(); await drawn(frame);
+  h.ok(true, 'restoring the file draws the model again');
+  // The Next click focused the preview document; the preview toggle is a window chord.
+  await page.evaluate(() => { document.activeElement?.blur(); });
+  await page.keyboard.down('Control'); await page.keyboard.down('Shift'); await page.keyboard.press('KeyE'); await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+  await waitFor(page, () => !document.querySelector('iframe[title="Manuscript preview"]'), null, { timeout: 10000 });
+  await page.evaluate(() => { const v=window.__fluxView;v.dispatch({changes:{from:0,to:v.state.doc.length,insert:'# Finished\n'}}); });
+  await waitFor(page, () => !document.querySelector('.paper canvas[data-slide-model3d]') && window.__fluxModel3d.stats().retained === 0, null, { timeout: 10000 });
+  h.ok(true, 'closing the preview releases its worker holds');
+
   h.eq(realErrors(page), [], 'Paper widget lifecycle has no console/module errors');
   // A live 3D widget that cannot start (here: its lazy 3D module fails to load)
   // keeps the still and says so in a visible status line, not just a tooltip.
@@ -166,6 +210,6 @@ try {
   h.ok(unavailable.text === '3D preview unavailable — showing a still' && unavailable.visible && unavailable.still, 'failed live 3D embed keeps its still and says so visibly');
   h.ok(unavailable.title.length > 0, 'the failure reason is the status line tooltip');
   await failing.screenshot({ path: path.join(out, 'paper-unavailable.png') }); await failing.close();
-  await fs.writeFile(path.join(out, 'receipt.json'), JSON.stringify({ typing, p95, initialStats: initial.stats }, null, 2));
+  await fs.writeFile(path.join(out, 'receipt.json'), JSON.stringify({ typing, p95, initialStats: initial.stats, preview: previewReceipt }, null, 2));
 } catch (error) { h.fail(String(error)); console.error(error); await page.screenshot({ path: path.join(out, 'failure.png') }); }
 await h.done(async () => { await browser.close(); await fs.rm(scratch, { recursive: true, force: true }); });

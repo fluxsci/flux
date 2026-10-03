@@ -14,7 +14,7 @@ import { resolveTargets } from "../plot/tree";
 import { svgIntrinsicPx, cropViewBoxValue, ptTrueFactors } from "../plot/compensate";
 import { parseStyleAttr, readPaint } from "../plot/paint";
 import { IDENTITY, compose, parseTransform, applyToNodes, applyToPoint, type SvgMatrix } from "../plot/svgMatrix";
-import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit } from "../plot/project";
+import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit, retickable } from "../plot/project";
 
 export interface GeometryCtx {
   manifest(assetId: string): FluxPlotManifest | undefined;
@@ -22,6 +22,11 @@ export interface GeometryCtx {
   plotRoot(assetId: string): Element | undefined;
   /** SlideFrame has no registry; callers pass the owning slide's group defs. */
   groups?: Record<string, GroupDef>;
+  /** Letter outlines for a text element (oct2 W3): unrotated stage-px rings, one
+   *  per connected letter part (player/glyphProvider.ts measures and places them;
+   *  boxes stand in for letters with no font outline). When it yields outlines a
+   *  text is no longer a box-only crossfade target. Sync and cache-backed. */
+  glyphs?: (el: Extract<SceneElement, { type: "text" }>) => StageOutline[] | null;
 }
 
 const translate = (x: number, y: number): SvgMatrix => [1, 0, 0, 1, x, y];
@@ -49,8 +54,15 @@ function stage(outline: Outline, matrix: SvgMatrix, owner: OutlineOwner, paint: 
   return { nodes, closed: outline.closed, bbox: nodesExtent(nodes, outline.closed), owner, paint };
 }
 
-export function elementStageOutlines(el: SceneElement): StageOutline[] {
+export function elementStageOutlines(el: SceneElement, ctx?: Pick<GeometryCtx, "glyphs">): StageOutline[] {
   const b = elementBBox(el), outline = elementOutline(el);
+  if (el.type === "text" && ctx?.glyphs) {
+    const letters = ctx.glyphs(el);
+    if (letters?.length) {
+      const m = placement(el, true);
+      return letters.map((o) => { const nodes = applyToNodes(o.nodes, m); return { ...o, nodes, bbox: nodesExtent(nodes, true) }; });
+    }
+  }
   if (outline) return [stage(outline, compose(placement(el, false), translate(b.x, b.y)),
     { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1 })];
   if (el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d") return [];
@@ -205,14 +217,20 @@ function projectedGeometry(plot: SemanticPlotElement, root: Element, manifest: F
     const raw = viewFits(manifest, undefined, axes.panelId), fits = viewFits(manifest, plot.view, axes.panelId);
     if (!raw || !fits) continue;
     const fit = fits[guide.axis], original = raw[guide.axis];
+    const record = (axes as unknown as Record<string, { domain: number[] } | undefined>)[guide.axis];
+    if (!fit || !original || !record) continue; // a twin axis the panel cannot project
     if (fit.m === original.m && fit.c === original.c && fit.log === original.log) continue;
+    // at rest the DOM writer re-ticks this axis (F4): the generated ticks, labels and gridlines
+    // are hidden and clones stand at the new positions — the model hides them too, so no flight
+    // ever carries a hidden tick
+    if (retickable(manifest, plot.view, axes.panelId, guide.axis)) { opacities.set(node, 0); continue; }
     const pixel = projectWith(fit, guide.value), origin = projectWith(original, guide.value);
-    const ends = axes[guide.axis].domain.map(v => projectWith(original, v));
+    const ends = record.domain.map(v => projectWith(original, v));
     const lo = Math.min(...ends), hi = Math.max(...ends);
     const fade = Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
     opacities.set(node, fade);
     const delta = Number.isFinite(pixel) ? pixel - origin : 0;
-    offsets.set(node, translate(guide.axis === "x" ? delta : 0, guide.axis === "y" ? delta : 0));
+    offsets.set(node, translate(guide.axis.startsWith("x") ? delta : 0, guide.axis.startsWith("y") ? delta : 0));
   }
   return { outlines, offsets, opacities };
 }
@@ -320,7 +338,7 @@ export function targetOutlines(ref: TargetRef, frame: SlideFrame, ctx: GeometryC
   const out: StageOutline[] = [];
   for (const leaf of resolveTargetLeaves(ref, { elements: frame.elements, groups: ctx.groups }, ctx.manifest)) {
     const el = elements.get(leaf.elementId)!;
-    if (el.type !== "plot") { out.push(...elementStageOutlines(el)); continue; }
+    if (el.type !== "plot") { out.push(...elementStageOutlines(el, ctx)); continue; }
     const root = ctx.plotRoot(el.assetId);
     if (!root) { out.push(...elementStageOutlines(el)); continue; }
     const manifest = ctx.manifest(el.assetId);

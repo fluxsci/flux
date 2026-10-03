@@ -12,17 +12,22 @@
 // timing/easing): numerics lerp, colors blend in OKLab, path geometry
 // resamples by arc length, text with a single differing number digit-tweens,
 // everything non-interpolable steps at t = 0.5 (predictable, never garbage).
-// Content the DRIVER should crossfade instead (text rewrites, closed≠open
-// paths, incompatible plots) is reported by contentPlan().
+// Content the DRIVER renders another way (text rewrites → the glyph-matched
+// text morph, closed≠open paths → the outline morph, incompatible plots → a
+// crossfade) is reported by contentPlan().
 // ---------------------------------------------------------------------------
 
 import { isHandoff } from "./targets";
-import type { Element, SemanticPlotElement, PartOverride, PlotView, VectorNode } from "../types";
+import type { ColorScaleView, ColorScaleTable, Element, SemanticPlotElement, PartOverride, PlotView, VectorNode } from "../types";
+import { effectiveScale } from "../plot/colorscale";
+import { colormapLut } from "../color/colormapLuts";
+import type { FluxPlotManifest } from "../plot/types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
 import { elementBBox } from "../geometry";
 import { pathD, pathToNodes, resampleNodes } from "../path";
+import { parameterize, boundaryParams, splitOutline } from "./outline";
 import { outlineMorphable, planElementMorph, sampleElementMorph } from "./outline";
 import { compileSlide } from "./compile";
 import { planHandoff } from "./handoffPlan";
@@ -251,16 +256,30 @@ function lerpHandle(
   return { dx: lerp(ax, bx, t), dy: lerp(ay, by, t) };
 }
 
-/** Tween two node lists (same closedness). Unequal counts arc-length-resample
- *  BOTH to the larger count (geometry-preserving), then lerp positions +
- *  handles; node type follows the END side's classification intent (corner —
- *  types are editing metadata, not render state). */
+/** Tween two node lists (same closedness). Unequal counts split BOTH chains at
+ *  the union of their normalized arc-length node stations (de Casteljau cuts:
+ *  every original corner and curve survives on its own side), so the frame at
+ *  t = 0 is exactly the pre chain and the frame at t = 1 exactly the end chain
+ *  — resampling both to N equal-arc-length stations instead moved every corner
+ *  off its place, and the real render then "twitched" in at either end
+ *  (2026-10-03). Then lerp positions + handles; node type follows the END
+ *  side's classification intent (types are editing metadata, not render state). */
 export function lerpNodes(a: VectorNode[], b: VectorNode[], closed: boolean, t: number): VectorNode[] {
   let na = a, nb = b;
   if (a.length !== b.length) {
-    const n = Math.max(a.length, b.length, closed ? 3 : 2);
-    na = resampleNodes(a, closed, n);
-    nb = resampleNodes(b, closed, n);
+    const pa = parameterize(a, closed), pb = parameterize(b, closed);
+    if (pa.total > 1e-9 && pb.total > 1e-9) {
+      const stations = [...boundaryParams(pa, closed), ...boundaryParams(pb, closed)];
+      na = splitOutline({ nodes: a, closed }, stations);
+      nb = splitOutline({ nodes: b, closed }, stations);
+    }
+    if (na.length !== nb.length) {
+      // degenerate (zero-length chain, or two stations of one side within the
+      // splitter's tolerance): the classic equal-station resample
+      const n = Math.max(a.length, b.length, closed ? 3 : 2);
+      na = resampleNodes(a, closed, n);
+      nb = resampleNodes(b, closed, n);
+    }
   }
   const len = Math.min(na.length, nb.length);
   const out: VectorNode[] = [];
@@ -304,13 +323,15 @@ export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: nu
 
 // --- the content plan (what the driver renders) -------------------------------
 
-export type ContentMode = "tween" | "crossfade" | "morph" | "model-live";
+export type ContentMode = "tween" | "crossfade" | "morph" | "model-live" | "textMorph";
 
 export interface ContentPlan {
   /** How the CONTENT layer animates ("tween": one re-rendered layer;
    *  "crossfade": two stacked layers, opacity cross-lerped — geometry still
    *  moves via the lerped box; "morph": one live outline path between two
-   *  drawn kinds — see outline.ts). */
+   *  drawn kinds — see outline.ts; "textMorph": a text rewrite whose shared
+   *  words glide while the rest fades, staggered — see textMatch.ts and
+   *  player/textMorph.ts). */
   mode: ContentMode;
   /** Text digit-tween sampler when the text change is a pure numeric diff. */
   textTween?: (t: number) => string;
@@ -337,9 +358,12 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
   let mode: ContentMode = "tween";
   let textTween: ((t: number) => string) | undefined;
   if (pre.type === "text" && end.type === "text" && pre.text !== end.text) {
+    // A pure digit change keeps the in-place count-up (one layer, no spans);
+    // every other rewrite is the glyph-matched morph — even a rewrite sharing
+    // nothing plays as the staggered word fade, never the flat crossfade.
     const sampler = numericTextTween(pre.text, end.text);
     if (sampler) textTween = sampler;
-    else mode = "crossfade";
+    else mode = "textMorph";
   }
   // Across kinds: drawn kinds morph through one outline (a path whose
   // closedness changes is the same topology change); everything else
@@ -404,8 +428,8 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t): Ele
     // one-sided props: numerics default sensibly, everything else steps
     if (k === "rotation") {
       out[k] = lerpRot(Number(va ?? 0), Number(vb ?? 0), t);
-    } else if (k === "opacity") {
-      out[k] = lerp(Number(va ?? 1), Number(vb ?? 1), t);
+    } else if (k === "opacity" || k === "fillOpacity" || k === "strokeOpacity") {
+      out[k] = lerp(Number(va ?? 1), Number(vb ?? 1), t); // absent = opaque on every channel
     } else if (k === "orbitZoom") {
       out[k] = Math.exp(lerp(Math.log(Number(va ?? 1)), Math.log(Number(vb ?? 1)), t));
     } else if (k === "fields") {
@@ -439,6 +463,9 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t): Ele
     } else if (k === "view") {
       const view = lerpView(va as PlotView | undefined, vb as PlotView | undefined, t, raw);
       if (view) out[k] = view; else delete out[k];
+    } else if (k === "colorScale") {
+      const scales = lerpColorScales(va as Record<string, ColorScaleView> | undefined, vb as Record<string, ColorScaleView> | undefined, t, raw);
+      if (scales) out[k] = scales; else delete out[k];
     } else if (k === "overrides") {
       out[k] = lerpOverrides(va as Record<string, PartOverride> | undefined, vb as Record<string, PartOverride> | undefined, t, raw);
       if (!Object.keys(out[k] as object).length) delete out[k];
@@ -537,6 +564,82 @@ export function lerpView(a: PlotView | undefined, b: PlotView | undefined, t: nu
     if (domain || scale) out[key] = { ...(domain ? { domain: [...domain] } : {}), ...(scale ? { scale } : {}) };
   }
   return out.x || out.y ? out : undefined;
+}
+
+/** Live colour scales tween per scale id: limits and the norm's numbers interpolate (in log
+ *  space when both ends are log norms), a colormap given as a table blends per entry in
+ *  OKLab (both resampled to 256), a norm kind / reversed / extend / a named colormap step at
+ *  raw 0.5 (colour-system plan A7.7). Absent ends mean "as generated" and step. */
+export function lerpColorScales(a: Record<string, ColorScaleView> | undefined, b: Record<string, ColorScaleView> | undefined, t: number, raw = t): Record<string, ColorScaleView> | undefined {
+  if (a === b) return a ? structuredClone(a) : undefined;
+  if (raw <= 0) return a ? structuredClone(a) : undefined;
+  if (raw >= 1) return b ? structuredClone(b) : undefined;
+  const out: Record<string, ColorScaleView> = {};
+  for (const id of new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})])) {
+    const va = a?.[id], vb = b?.[id];
+    if (!va || !vb) { const s = step(va, vb, raw); if (s) out[id] = structuredClone(s); continue; }
+    const view: ColorScaleView = {};
+    const ka = va.norm?.kind, kb = vb.norm?.kind;
+    const kind = step(ka, kb, raw);
+    const logBoth = ka === "log" && kb === "log";
+    const norm: NonNullable<ColorScaleView["norm"]> = {};
+    if (kind) norm.kind = kind;
+    for (const key of ["vmin", "vmax", "vcenter", "gamma", "linthresh", "linscale"] as const) {
+      const na = va.norm?.[key], nb = vb.norm?.[key];
+      if (typeof na === "number" && typeof nb === "number") norm[key] = logBoth && na > 0 && nb > 0 && (key === "vmin" || key === "vmax") ? Math.exp(lerp(Math.log(na), Math.log(nb), t)) : lerp(na, nb, t);
+      else { const s = step(na, nb, raw); if (s !== undefined) norm[key] = s; }
+    }
+    if (Object.keys(norm).length) view.norm = norm;
+    const ca = va.cmap, cb = vb.cmap;
+    if (ca && cb && typeof ca === "object" && typeof cb === "object") {
+      if (sameTable(ca, cb)) { view.cmap = structuredClone(ca); }
+      else {
+      const la = resampleLut(ca.lut, 256), lb = resampleLut(cb.lut, 256);
+      view.cmap = { lut: la.map((c, i) => lerpColor(c, lb[i], t, undefined, raw)),
+        ...(ca.under && cb.under ? { under: lerpColor(ca.under, cb.under, t, undefined, raw) } : {}),
+        ...(ca.over && cb.over ? { over: lerpColor(ca.over, cb.over, t, undefined, raw) } : {}),
+        ...(ca.bad && cb.bad ? { bad: lerpColor(ca.bad, cb.bad, t, undefined, raw) } : {}) };
+      }
+    } else { const s = step(ca, cb, raw); if (s) view.cmap = structuredClone(s); }
+    const rev = step(va.reversed, vb.reversed, raw); if (rev) view.reversed = true;
+    const ext = step(va.extend, vb.extend, raw); if (ext) view.extend = ext;
+    if (Object.keys(view).length) out[id] = view;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+const sameTable = (a: ColorScaleTable, b: ColorScaleTable): boolean =>
+  a.lut.length === b.lut.length && a.under === b.under && a.over === b.over && a.bad === b.bad && a.lut.every((c, i) => c === b.lut[i]);
+
+/** The frame's colour scales for a plot whose Change edits them, completed from the manifest so
+ *  an absent end ("as generated") GLIDES instead of stepping: every scale either end names gets a
+ *  full view at both ends (its effective table, kind, limits and parameters, extend), and the
+ *  per-field tween above interpolates between them. The player's transform host calls this with
+ *  the frame's manifest; lerpState (no manifest) keeps the sparse step for other consumers. */
+export function tweenColorScales(manifest: FluxPlotManifest | undefined, a: Record<string, ColorScaleView> | undefined, b: Record<string, ColorScaleView> | undefined, t: number, raw = t): Record<string, ColorScaleView> | undefined {
+  if (a === b) return a;
+  if (!manifest?.colorScales?.length) return lerpColorScales(a, b, t, raw);
+  const ids = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
+  const complete = (side: Record<string, ColorScaleView> | undefined): Record<string, ColorScaleView> => {
+    const out: Record<string, ColorScaleView> = {};
+    for (const id of ids) {
+      const scale = manifest.colorScales!.find((s) => s.id === id);
+      const own = side?.[id];
+      if (!scale) { if (own) out[id] = own; continue; }
+      const eff = effectiveScale(scale, own, colormapLut);
+      if (eff.issues.length || eff.unresolved) { if (own) out[id] = own; continue; }
+      const norm: NonNullable<ColorScaleView["norm"]> = { kind: eff.norm.kind as NonNullable<ColorScaleView["norm"]>["kind"] };
+      for (const k of ["vmin", "vmax", "vcenter", "gamma", "linthresh", "linscale"] as const) if (eff.norm[k] != null) norm[k] = eff.norm[k] as number;
+      out[id] = { cmap: { lut: [...eff.colormap.lut], under: eff.colormap.under, over: eff.colormap.over, bad: eff.colormap.bad, name: eff.colormap.name }, norm, extend: eff.norm.extend };
+    }
+    return out;
+  };
+  return lerpColorScales(complete(a), complete(b), t, raw);
+}
+
+function resampleLut(lut: string[], n: number): string[] {
+  if (lut.length === n) return lut;
+  return Array.from({ length: n }, (_, i) => lut[Math.min(lut.length - 1, Math.trunc((i / n) * lut.length))]);
 }
 
 function lerpOverrides(

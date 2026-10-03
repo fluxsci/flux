@@ -5,12 +5,16 @@ import type { Scene3dManifest } from "../model3d/types";
 import { buildScene3dPartIndex } from '../model3d/parts';
 import { buildPartIndex } from "../plot/parse";
 import type { Slide, TargetRef, Track } from "./types";
-import { resolveTargetLeaves, type ResolvedTarget } from "./targets";
+import { resolveTargetLeaves, mergeResolved, type ResolvedTarget } from "./targets";
 import { transformPreState } from "./tween";
 
 export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: string) => FluxPlotManifest | undefined, modelManifestFor?: (assetId: string) => Scene3dManifest | undefined) {
   const indexes = new Map<FluxPlotManifest | Scene3dManifest, Set<string>>();
-  return (ref: TargetRef, beat: number): ResolvedTarget[] => {
+  const resolve = (ref: TargetRef, beat: number): ResolvedTarget[] => {
+    // A destination set resolves member by member, each with ITS OWN
+    // element's effective manifest at this beat (two plots' parts + a shape).
+    // Malformed members (a nested set or group) resolve to nothing, never throw.
+    if (ref.members) return mergeResolved(ref.members.filter(m => m?.element && !m.members && !m.group).map(member => resolve(member, beat)));
     const el = transformPreState(slide, ref.element, beat);
     const plot = el?.type === 'plot' ? manifestFor(el.assetId) : undefined;
     const model = el?.type === 'model3d' ? modelManifestFor?.(el.assetId) : undefined;
@@ -26,6 +30,7 @@ export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: strin
       return partIds.length ? [{ ...target, partIds }] : [];
     });
   };
+  return resolve;
 }
 
 /** A whole-element landing includes all of that element's part leaves. */
@@ -40,4 +45,6 @@ export function remapBecomeTarget(track: Track, elements: ReadonlyMap<string, st
   if (!ref) return;
   ref.element = elements.get(ref.element) ?? ref.element;
   if (ref.group) ref.group = groups?.get(ref.group) ?? ref.group;
+  // A set remaps every member's element (and nothing else).
+  for (const member of ref.members ?? []) member.element = elements.get(member.element) ?? member.element;
 }

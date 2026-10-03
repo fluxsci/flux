@@ -8,9 +8,10 @@
 import { z } from "zod";
 import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog";
 import type { PlotViewFields } from "../src/lib/plot/viewControls";
+import type { ColorScaleVerbFields } from "./slides";
 import { EASING_TOKENS, CURVE_CATALOG, parseCurve } from "../src/lib/slide/curves";
-import type { EasingToken, PairPolicy, Track, PresetName } from "../src/lib/slide/types";
-import { PAIR_POLICY_IDS } from "../src/lib/slide/targets";
+import type { EasingToken, PairPolicy, TransformMethod, Track, PresetName, TargetRef } from "../src/lib/slide/types";
+import { PAIR_POLICY_IDS, TRANSFORM_METHOD_IDS } from "../src/lib/slide/targets";
 import type { VerbDef, CliArgSpec } from "./registry";
 import { INBOX_VERBS } from "./inboxVerbs";
 import { MODEL3D_VERBS } from './model3dVerbs';
@@ -26,7 +27,8 @@ import { ELEMENT_CASCADE_PROPS, TRACK_CASCADE_PROPS, type CascadeSpec, type Trac
 
 const staggerSchema = z.object({
   perMs: z.number().nonnegative().optional(), totalMs: z.number().nonnegative().optional(),
-  by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+  by: z.union([z.enum(["index", "x", "y", "data"]), z.object({ key: z.enum(["value", "count", "index"]) }).strict()]).optional(),
+  from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
   seed: z.number().int().min(0).max(0xffffffff).optional(),
   curve: z.union([
     z.enum(EASING_TOKENS),
@@ -60,6 +62,11 @@ const s = (v: unknown): string => v as string;
 const modelMorphSummary = (value: unknown): string => {
   const result = value as { morph?: boolean; reason?: string };
   return typeof result.morph === 'boolean' ? `; morph:${result.morph}${result.reason ? ` (${result.reason})` : ''}` : '';
+};
+/** "becomes ‹target›", or for a set result "hands off to 3 ellipses". */
+const becomeDestination = (value: unknown, a: Record<string, unknown>): string => {
+  const set = (value as { destination?: string }).destination;
+  return set ? `hands off to ${set}` : `becomes ${a.target ?? a.asset}`;
 };
 const sArr = (v: unknown): string[] => v as string[];
 const n = (v: unknown): number => v as number;
@@ -111,6 +118,8 @@ const STYLE_KEYS = [
   "locked",
   "name",
   "dash",
+  "fillOpacity",
+  "strokeOpacity",
   "arrowStart",
   "arrowEnd",
   "arrowStyle",
@@ -365,7 +374,7 @@ export const VERBS: VerbDef[] = [
     cli: "set-style",
     cliRoot: "flags",
     summary:
-      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize (canvas px = pt × 4/3), text props (fontFamily/fontWeight/fontStyle/underline/lineHeight/sizing) and the arrangement of the text inside its box (align left|center|right|justify, valign top|middle|bottom — visible while the box is taller than the text, letterSpacing and paragraphSpacing in canvas px), stroke dash (--dash 6,4 in canvas px; --solid clears), arrowheads for lines AND open paths (--arrow-start/--arrow-end/--no-arrow-*, --arrow-style filled|vee, --arrow-size ×width), plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
+      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize (canvas px = pt × 4/3), text props (fontFamily/fontWeight/fontStyle/underline/lineHeight/sizing) and the arrangement of the text inside its box (align left|center|right|justify, valign top|middle|bottom — visible while the box is taller than the text, letterSpacing and paragraphSpacing in canvas px), stroke dash (--dash 6,4 in canvas px; --solid clears), per-channel alpha (--fill-opacity / --stroke-opacity 0–1, independent of opacity, which multiplies both), arrowheads for lines AND open paths (--arrow-start/--arrow-end/--no-arrow-*, --arrow-style filled|vee, --arrow-size ×width), plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
     params: {
       ids: z.array(z.string()),
       fill: z.string().optional(),
@@ -388,6 +397,8 @@ export const VERBS: VerbDef[] = [
       locked: z.boolean().optional(),
       name: z.string().optional(),
       dash: z.array(z.number()).optional(),
+      fillOpacity: z.number().min(0).max(1).optional(),
+      strokeOpacity: z.number().min(0).max(1).optional(),
       arrowStart: z.boolean().optional(),
       arrowEnd: z.boolean().optional(),
       arrowStyle: z.enum(["filled", "vee"]).optional(),
@@ -402,6 +413,8 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "opacity", into: "opacity", as: "number" },
       { kind: "flag", at: "dash", into: "dash", as: "csvNum" },
       { kind: "flag", at: "solid", into: "dash", const: [] },
+      { kind: "flag", at: "fill-opacity", into: "fillOpacity", as: "number" },
+      { kind: "flag", at: "stroke-opacity", into: "strokeOpacity", as: "number" },
       { kind: "flag", at: "arrow-start", into: "arrowStart", const: true },
       { kind: "flag", at: "no-arrow-start", into: "arrowStart", const: false },
       { kind: "flag", at: "arrow-end", into: "arrowEnd", const: true },
@@ -2487,10 +2500,10 @@ export const VERBS: VerbDef[] = [
     cli: "rerun-plot",
     cliRoot: "flags",
     summary:
-      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots.",
+      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans, or JSON objects such as the __fluxplot__ colour controls — see set_plot_color_scale --regenerate for the guided form). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots.",
     params: {
       recipePath: z.string(),
-      params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+      params: z.record(z.unknown()).optional(),
       only: z.union([z.boolean(), z.string()]).optional(),
     },
     cliArgs: [
@@ -2502,7 +2515,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flagRest", into: "params" },
     ],
     handler: (_ctx, a) =>
-      core.runRecipe(s(a.recipePath), (a.params ?? {}) as Record<string, string | boolean>, {
+      core.runRecipe(s(a.recipePath), (a.params ?? {}) as Record<string, unknown>, {
         only: a.only === true ? true : typeof a.only === "string" ? a.only : undefined,
       }),
     render: {
@@ -3030,11 +3043,12 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
-    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash).",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index.",
     params: {
       deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
       staggerEach: z.number().nonnegative().optional(), staggerTotal: z.number().nonnegative().optional(),
       staggerCurve: z.string().optional(), staggerFrom: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+      staggerBy: z.enum(["index", "x", "y", "data", "value", "count", "data-index"]).optional(),
       seed: z.number().int().min(0).max(0xffffffff).optional(),
       styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
       start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
@@ -3046,6 +3060,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "stagger-total", into: "staggerTotal", as: "number" },
       { kind: "flag", at: "stagger-curve", into: "staggerCurve" },
       { kind: "flag", at: "stagger-from", into: "staggerFrom" },
+      { kind: "flag", at: "stagger-by", into: "staggerBy" },
       { kind: "flag", at: "seed", into: "seed", as: "number" },
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
       { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
@@ -3056,11 +3071,16 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => {
       if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
       const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration"]), ...timingCurveArgs(a) };
-      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "seed"].some(k => a[k] !== undefined)) {
+      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "staggerBy", "seed"].some(k => a[k] !== undefined)) {
         const stagger: NonNullable<typeof patch.stagger> = {};
         if (a.staggerEach !== undefined) stagger.perMs = n(a.staggerEach);
         if (a.staggerTotal !== undefined) stagger.totalMs = n(a.staggerTotal);
         if (a.staggerFrom !== undefined) stagger.from = a.staggerFrom as typeof stagger.from;
+        if (a.staggerBy !== undefined) {
+          // the CLI spelling: value / count / data-index name the data keys, the rest are the axes
+          const by = s(a.staggerBy);
+          stagger.by = by === "value" ? { key: "value" } : by === "count" ? { key: "count" } : by === "data-index" ? { key: "index" } : by as "index" | "x" | "y" | "data";
+        }
         if (a.seed !== undefined) stagger.seed = n(a.seed);
         if (a.staggerCurve !== undefined) {
           const curve = parseCurve(s(a.staggerCurve));
@@ -3084,14 +3104,56 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "align_tracks", scope: "project", cli: "align-tracks", cliRoot: "flags",
+    summary: "Align tracks' resolved start or end edge (end includes the stagger tail) to a time in ms or to another track's edge (to = trackId[:start|end], default the same edge) — the Animator's Alt+A / Alt+D. Default moves each track and keeps its duration; resize keeps the opposite edge. Starts clamp at 0, durations at 1 ms; a moved start detaches a timing anchor and overrides a linked style's start. beatId is a step id or 0-based index (default: the first track's step).",
+    params: {
+      deckId: z.string().min(1), slideId: z.string().min(1), trackIds: z.array(z.string().min(1)).min(1),
+      edge: z.enum(["start", "end"]), to: z.union([z.number().nonnegative(), z.string().min(1)]),
+      beatId: z.string().min(1).optional(), resize: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "tracks", into: "trackIds", as: "csv", required: true }, { kind: "flag", at: "edge", into: "edge", required: true },
+      { kind: "flag", at: "to", into: "to", required: true }, { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "resize", into: "resize", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.alignTracksVerb(ctx.root, s(a.deckId), s(a.slideId), sArr(a.trackIds), a.edge as "start" | "end", a.to as string | number,
+      { beat: a.beatId as string | undefined, resize: !!a.resize }),
+    render: {
+      human: r => ({ out: JSON.stringify(r) }),
+      mcp: r => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "inherit_track", scope: "project", cli: "inherit-track", cliRoot: "flags",
+    summary: "Give target tracks the source track's exact animation parameters — the Animator's Ctrl+Alt-drag Inherit. A linked source links the targets to its style (plus the source's own overrides); otherwise its resolved duration, timing curve and stagger are copied, and within one family and phase also its preset, params and arc. Bindings, endpoints, anchors, groups and enabled state never travel; start is copied only with includeStart. Video commands and animations refuse each other.",
+    params: {
+      deckId: z.string().min(1), slideId: z.string().min(1), from: z.string().min(1), to: z.array(z.string().min(1)).min(1),
+      beatId: z.string().min(1).optional(), includeStart: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "from", into: "from", required: true }, { kind: "flag", at: "to", into: "to", as: "csv", required: true },
+      { kind: "flag", at: "beat", into: "beatId" }, { kind: "flag", at: "include-start", into: "includeStart", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.inheritTrackVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.from), sArr(a.to), { beat: a.beatId as string | undefined, includeStart: !!a.includeStart }),
+    render: {
+      human: r => ({ out: JSON.stringify(r) }),
+      mcp: r => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_plot_view", scope: "project", cli: "set-plot-view", cliRoot: "flags",
     notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
-    summary: "Set a plot's data view in data units. target is a figureId or deckId/slideId. A slide --beat edits that step's Change endpoint; without it edit Design. Omitted fields are preserved, --reset restores generator defaults. Lines, points and existing guides re-project; filled marks and reference lines stay put; no new ticks are generated.",
+    summary: "Set a plot's data view in data units. target is a figureId or deckId/slideId. A slide --beat edits that step's Change endpoint; without it edit Design. Omitted fields are preserved, --reset restores generator defaults. Lines, points, bars, cells, hexagons and existing guides re-project; ticks are regenerated for the new domain; reference lines stay put. A twin value axis (fluxplot axes[].y2 / .x2 — ax.twinx(), a secondary axis) has its own --y2-min/--y2-max/--y2-scale (--x2-…).",
     params: {
       target: z.string(), elementId: z.string(), beatId: z.string().optional(),
       xMin: z.number().finite().optional(), xMax: z.number().finite().optional(),
       yMin: z.number().finite().optional(), yMax: z.number().finite().optional(),
-      xScale: z.enum(["linear", "log"]).optional(), yScale: z.enum(["linear", "log"]).optional(), reset: z.boolean().optional(),
+      xScale: z.enum(["linear", "log"]).optional(), yScale: z.enum(["linear", "log"]).optional(),
+      y2Min: z.number().finite().optional(), y2Max: z.number().finite().optional(), y2Scale: z.enum(["linear", "log"]).optional(),
+      x2Min: z.number().finite().optional(), x2Max: z.number().finite().optional(), x2Scale: z.enum(["linear", "log"]).optional(),
+      reset: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "target", required: true },
@@ -3103,6 +3165,12 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "y-max", into: "yMax", as: "number" },
       { kind: "flag", at: "x-scale", into: "xScale" },
       { kind: "flag", at: "y-scale", into: "yScale" },
+      { kind: "flag", at: "y2-min", into: "y2Min", as: "number" },
+      { kind: "flag", at: "y2-max", into: "y2Max", as: "number" },
+      { kind: "flag", at: "y2-scale", into: "y2Scale" },
+      { kind: "flag", at: "x2-min", into: "x2Min", as: "number" },
+      { kind: "flag", at: "x2-max", into: "x2Max", as: "number" },
+      { kind: "flag", at: "x2-scale", into: "x2Scale" },
       { kind: "flag", at: "reset", into: "reset", as: "boolean" },
     ],
     handler: (ctx, a) => {
@@ -3115,12 +3183,112 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "set_plot_color_scale", scope: "project", cli: "set-plot-color-scale", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Recolour a plot's colour scale LIVE, in data units, without touching the source: colormap (any map fluxplot ships, e.g. viridis, crameri.batlow, cmr.ember, or *_r), reversed, norm kind (within the scale's editable.normKinds), vmin/vmax, center (twoslope/centered), gamma (power), linthresh/linscale (symlog), extend. target is a figureId or deckId/slideId; --scale names the scale when the plot has several; a slide --beat writes that step's Change endpoint (the colours tween), without it edit Design. Omitted fields are preserved, null restores one field's generated value, --reset restores the whole scale. --regenerate (figure targets) also writes the complete v2 __fluxplot__ control into the recipe, re-runs it, refreshes the figure's copies and clears the live override. Raster scales (images, contourf) accept only --regenerate edits. get_plot_color_scales lists what a plot has.",
+    params: {
+      target: z.string(), elementId: z.string(), scaleId: z.string().optional(), beatId: z.string().optional(),
+      cmap: z.string().nullable().optional(), reversed: z.boolean().nullable().optional(),
+      norm: z.enum(["linear", "log", "symlog", "power", "twoslope", "centered"]).nullable().optional(),
+      vmin: z.number().finite().nullable().optional(), vmax: z.number().finite().nullable().optional(), vcenter: z.number().finite().nullable().optional(),
+      gamma: z.number().finite().nullable().optional(), linthresh: z.number().finite().nullable().optional(), linscale: z.number().finite().nullable().optional(),
+      extend: z.enum(["neither", "min", "max", "both"]).nullable().optional(),
+      reset: z.boolean().optional(), regenerate: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "flag", at: "scale", into: "scaleId" },
+      { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "cmap", into: "cmap" },
+      { kind: "flag", at: "reversed", into: "reversed", as: "boolean" },
+      { kind: "flag", at: "norm", into: "norm" },
+      { kind: "flag", at: "vmin", into: "vmin", as: "number" },
+      { kind: "flag", at: "vmax", into: "vmax", as: "number" },
+      { kind: "flag", at: "center", into: "vcenter", as: "number" },
+      { kind: "flag", at: "gamma", into: "gamma", as: "number" },
+      { kind: "flag", at: "linthresh", into: "linthresh", as: "number" },
+      { kind: "flag", at: "linscale", into: "linscale", as: "number" },
+      { kind: "flag", at: "extend", into: "extend" },
+      { kind: "flag", at: "reset", into: "reset", as: "boolean" },
+      { kind: "flag", at: "regenerate", into: "regenerate", as: "boolean" },
+    ],
+    handler: (ctx, a) => {
+      const { target, elementId, ...fields } = a;
+      return core.setPlotColorScaleVerb(ctx.root, s(target), s(elementId), fields as ColorScaleVerbFields);
+    },
+    render: {
+      human: (r) => ({ out: JSON.stringify(r) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "get_plot_color_scales", readOnly: true, scope: "project", cli: "get-plot-color-scales", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "List a plot's colour scales (fluxplot ≥ 0.3.1): id, label, recolor mode (live or raster), what is editable, the norm kinds it may switch to, the generated colormap and norm, the live view held by the target (a figure, a deck's Design, or a --beat's resolved state) and the effective norm with any issues.",
+    params: { target: z.string(), elementId: z.string(), beatId: z.string().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "flag", at: "beat", into: "beatId" },
+    ],
+    handler: (ctx, a) => core.getPlotColorScales(ctx.root, s(a.target), s(a.elementId), a.beatId as string | undefined),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "get_plot_data", readOnly: true, scope: "project", cli: "get-plot-data", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Read a plot's DATA from its fluxplot manifest instead of squinting at a PNG: every series with exact nullable x/y, per-point ids and its colour; fluxplot's payloads (hexmatrix bins with count/value/x/y per hexagon, glowbar and fluxbox statistics, histogram distributions, heatmap/contour field values and levels, image channels, bands, bars); the colour scales (tables only with --fields lut); axis domains and scales; overlays (a significance bracket with the test, p and effect size behind it). --series narrows to one series; --fields to sections (series,colorScales,axes,overlays,guides,style). Arrays longer than --limit (default 1000, max 10000) are windowed from --offset and every cut is listed in `pages` with its true length: page through big data instead of pulling it whole.",
+    params: { target: z.string(), elementId: z.string().optional(), seriesId: z.string().optional(), fields: z.union([z.string(), z.array(z.string())]).optional(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(10000).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId" },
+      { kind: "flag", at: "series", into: "seriesId" },
+      { kind: "flag", at: "fields", into: "fields" },
+      { kind: "flag", at: "offset", into: "offset", as: "number" },
+      { kind: "flag", at: "limit", into: "limit", as: "number" },
+    ],
+    handler: (ctx, a) => {
+      const fields = typeof a.fields === "string" ? a.fields.split(",") : Array.isArray(a.fields) ? (a.fields as string[]) : undefined;
+      return core.getPlotData(ctx.root, s(a.target), a.elementId as string | undefined, { seriesId: a.seriesId as string | undefined, fields, offset: a.offset as number | undefined, limit: a.limit as number | undefined });
+    },
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "set_series_color", scope: "project", cli: "set-series-color", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Give a whole plot series one colour: its line (stroke), points (face + edge), bars / band (fill), error bars, and its legend swatch — one override per part, all surviving regeneration (restyle_part colours ONE part; this colours the series and keeps the key honest). target is a figureId (elementId optional when it has one plot) or deckId/slideId (the slide's Design). color is #rrggbb; --clear (or color null) restores the generated colours. A colour-mapped series (a heatmap, hexmatrix, scatter c=) is refused: edit its colour scale with set_plot_color_scale.",
+    params: { target: z.string(), elementId: z.string().optional(), seriesId: z.string(), color: z.string().nullable().optional(), clear: z.boolean().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "seriesId", required: true },
+      { kind: "pos", at: 2, into: "color" },
+      { kind: "flag", at: "element", into: "elementId" },
+      { kind: "flag", at: "clear", into: "clear", as: "boolean" },
+    ],
+    handler: (ctx, a) => {
+      const colour = a.clear ? null : a.color == null ? null : s(a.color);
+      if (!a.clear && a.color == null) throw new ValidationError("Pass a colour (#rrggbb) or --clear.");
+      return core.setSeriesColorVerb(ctx.root, s(a.target), a.elementId as string | undefined, s(a.seriesId), colour);
+    },
+    render: {
+      human: (r) => ({ err: `✓ ${(r as { seriesId: string }).seriesId}: ${(r as { color: string | null }).color ?? "generated colours"} on ${(r as { parts: unknown[] }).parts.length} part(s) of ${(r as { elementId: string }).elementId}` }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_transform",
     scope: "project",
     cli: "set-transform",
     cliRoot: "flags",
     summary:
-      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade. For 3D models, compatible topology morphs and incompatible topology crossfades; known original model source receipts persist and bare targets clear old provenance. Explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
+      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade. For 3D models, compatible topology morphs and incompatible topology crossfades; known original model source receipts persist and bare targets clear old provenance. Explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales; `state.colorScale` ({scaleId: {cmap, reversed, norm:{kind, vmin, vmax, …}, extend}}) recolours a plot's colour scale in data units (set_plot_color_scale --beat is the guided form). Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3453,19 +3621,22 @@ export const VERBS: VerbDef[] = [
     cli: "become",
     cliRoot: "flags",
     summary:
-      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images, models and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot or model source, asset replaces content in the same frame. Plots without shared tweenable data require force. Model topology determines morph:true or a valid crossfade with morph:false and reason; shape states are simpler for one mesh with named shapes.",
+      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images, models and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. A destination SET (several objects and/or plot parts, from any plots) is to (repeatable element ids) or members ([{element, parts?}]); a set always hands off and the source splits across its members. Pair controls correspondence; reveal chooses flip or draw. For a whole plot or model source, asset replaces content in the same frame. Plots without shared tweenable data require force. Model topology determines morph:true or a valid crossfade with morph:false and reason; shape states are simpler for one mesh with named shapes.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
       beatId: z.string(),
       sourceId: z.string(),
       target: z.string().optional(),
+      to: z.array(z.string().min(1)).min(1).optional(),
+      members: z.array(z.object({ element: z.string().min(1), parts: z.array(z.string().min(1)).min(1).optional() }).strict()).min(1).optional(),
       asset: z.string().optional(),
       part: z.array(z.string().min(1)).min(1).optional(),
       sourcePart: z.array(z.string().min(1)).min(1).optional(),
       mode: z.enum(["consume", "handoff"]).optional(),
       pair: z.enum(PAIR_POLICY_IDS).optional(),
       reveal: z.enum(["flip", "draw"]).optional(),
+      method: z.enum(TRANSFORM_METHOD_IDS).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
@@ -3477,12 +3648,15 @@ export const VERBS: VerbDef[] = [
       { kind: "pos", at: 2, into: "beatId", required: true },
       { kind: "pos", at: 3, into: "sourceId", required: true },
       { kind: "flag", at: "target", into: "target" },
+      { kind: "flag", at: "to", into: "to", repeat: true },
+      { kind: "flag", at: "members", into: "members", as: "json" },
       { kind: "flag", at: "asset", into: "asset" },
       { kind: "flag", at: "part", into: "part", as: "csv" },
       { kind: "flag", at: "source-part", into: "sourcePart", as: "csv" },
       { kind: "flag", at: "mode", into: "mode" },
       { kind: "flag", at: "pair", into: "pair" },
       { kind: "flag", at: "reveal", into: "reveal" },
+      { kind: "flag", at: "method", into: "method" },
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
@@ -3491,12 +3665,14 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) =>
       core.become(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.sourceId), {
         ...(a.target != null ? { targetId: s(a.target) } : {}),
+        ...(a.to != null || a.members != null ? { members: [...((a.to as string[] | undefined) ?? []).map(element => ({ element })), ...((a.members as TargetRef[] | undefined) ?? [])] } : {}),
         ...(a.asset != null ? { assetId: s(a.asset) } : {}),
         ...(a.part != null ? { parts: a.part as string[] } : {}),
         ...(a.sourcePart != null ? { sourceParts: a.sourcePart as string[] } : {}),
         ...(a.mode != null ? { mode: a.mode as "consume" | "handoff" } : {}),
         ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
         ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
+        ...(a.method != null ? { method: a.method as TransformMethod } : {}),
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
         ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
@@ -3505,9 +3681,9 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (r, a) => ({
         out: (r as { trackId: string }).trackId,
-        err: `✓ ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})${modelMorphSummary(r)}`,
+        err: `✓ ${a.sourceId} ${becomeDestination(r, a)} (beat ${a.beatId})${modelMorphSummary(r)}`,
       }),
-      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})${modelMorphSummary(r)}`),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.sourceId} ${becomeDestination(r, a)} (beat ${a.beatId})${modelMorphSummary(r)}`),
     },
   },
   {
@@ -3533,17 +3709,19 @@ export const VERBS: VerbDef[] = [
     scope: "project",
     cli: "appear-from",
     cliRoot: "flags",
-    summary: "Reveal a destination object or plot parts by a hand-off from another object or part set. Writes exactly the same source-owned transform as Become with mode handoff; neither object is consumed. part names destination leaves, sourcePart names source leaves; pair chooses correspondence and reveal chooses flip or draw.",
+    summary: "Reveal a destination object or plot parts by a hand-off from another object or part set. Writes exactly the same source-owned transform as Become with mode handoff; neither object is consumed. part names destination leaves, sourcePart names source leaves; pair chooses correspondence and reveal chooses flip or draw. members ([{element, parts?}]) instead of dest reveals a SET of objects and plot parts from the one source.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
       beatId: z.string(),
-      dest: z.string(),
+      dest: z.string().optional(),
+      members: z.array(z.object({ element: z.string().min(1), parts: z.array(z.string().min(1)).min(1).optional() }).strict()).min(1).optional(),
       from: z.string(),
       part: z.array(z.string().min(1)).min(1).optional(),
       sourcePart: z.array(z.string().min(1)).min(1).optional(),
       pair: z.enum(PAIR_POLICY_IDS).optional(),
       reveal: z.enum(["flip", "draw"]).optional(),
+      method: z.enum(TRANSFORM_METHOD_IDS).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
@@ -3553,27 +3731,31 @@ export const VERBS: VerbDef[] = [
       { kind: "pos", at: 1, into: "slideId", required: true },
       { kind: "pos", at: 2, into: "beatId", required: true },
       { kind: "flag", at: "dest", into: "dest" },
+      { kind: "flag", at: "members", into: "members", as: "json" },
       { kind: "flag", at: "from", into: "from" },
       { kind: "flag", at: "part", into: "part", as: "csv" },
       { kind: "flag", at: "source-part", into: "sourcePart", as: "csv" },
       { kind: "flag", at: "pair", into: "pair" },
       { kind: "flag", at: "reveal", into: "reveal" },
+      { kind: "flag", at: "method", into: "method" },
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
     ],
-    handler: (ctx, a) => core.appearFrom(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.dest), s(a.from), {
+    handler: (ctx, a) => core.appearFrom(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), a.dest != null ? s(a.dest) : undefined, s(a.from), {
+      ...(a.members != null ? { members: a.members as TargetRef[] } : {}),
       ...(a.part != null ? { parts: a.part as string[] } : {}),
       ...(a.sourcePart != null ? { sourceParts: a.sourcePart as string[] } : {}),
       ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
       ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
+      ...(a.method != null ? { method: a.method as TransformMethod } : {}),
       ...(a.start != null ? { start: a.start as number } : {}),
       ...(a.duration != null ? { duration: a.duration as number } : {}),
       ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
     }),
     render: {
-      human: (r, a) => ({ out: (r as { trackId: string }).trackId, err: `✓ ${a.dest} appears from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}` }),
-      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.dest} appears from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}`),
+      human: (r, a) => ({ out: (r as { trackId: string }).trackId, err: `✓ ${(r as { destination?: string }).destination ?? a.dest} appear${(r as { destination?: string }).destination ? "" : "s"} from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}` }),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${(r as { destination?: string }).destination ?? a.dest} appear${(r as { destination?: string }).destination ? "" : "s"} from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}`),
     },
   },
   {

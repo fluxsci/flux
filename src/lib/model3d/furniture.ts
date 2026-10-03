@@ -8,6 +8,7 @@ import { resolvedColormap } from './colormap';
 import { niceTicks,tickLabel,colorbarTicks } from './ticks';
 import { transformPoint } from './glbCore.mjs';
 import { axesBoxLimits } from './framing';
+import { textWidth } from './textMetrics';
 import { partDomId } from '../plot/parse';
 export interface FurnitureNode {tag:'g'|'text'|'line'|'path'|'rect'|'defs'|'linearGradient'|'stop';key:string;partId?:string;attrs:Record<string,string|number>;text?:string;children?:FurnitureNode[]}
 export interface FurnitureSvg {under:string;over:string;underNodes:FurnitureNode[];overNodes:FurnitureNode[]}
@@ -16,6 +17,17 @@ const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;
 const num=(n:number)=>String(Number(n.toFixed(6))||0);
 const sourceFont=(font:string)=>font.includes(',')||/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace)$/i.test(font)?font:`${font}, sans-serif`;
 export function serializeFurniture(nodes:readonly FurnitureNode[]):string{return nodes.map(n=>`<${n.tag}${Object.entries(n.attrs).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>` ${k}="${esc(typeof v==='number'?num(v):v)}"`).join('')}>${n.text!=null?esc(n.text):''}${n.children?serializeFurniture(n.children):''}</${n.tag}>`).join('');}
+
+/** Do any two of one axis's tick labels collide? Labels share an anchor and a
+ * font size; each is a box of its deterministic width (textMetrics) by one font
+ * size, vertically centred on its label point. Side by side they must sit at
+ * least a word space apart, or "-1" "0" "1" reads as one token. A pure function
+ * of the pose (no hysteresis); fluxplot's still (`_tick_labels_collide`) mirrors it. */
+export function tickLabelsCollide(labels:readonly {x:number;y:number;width:number}[],fontSize:number,anchor:'start'|'middle'|'end'):boolean {
+ const space=textWidth(' ',fontSize);
+ const boxes=labels.map(({x,y,width})=>{const x0=anchor==='end'?x-width:anchor==='start'?x:x-width/2;return {x0:x0-space/2,x1:x0+width+space/2,y0:y-fontSize/2,y1:y+fontSize/2};});
+ return boxes.some((a,i)=>boxes.some((b,j)=>j>i&&a.x0<b.x1&&b.x0<a.x1&&a.y0<b.y1&&b.y0<a.y1));
+}
 
 /** Attribute-node descriptions support all live hosts; the serializer is shared by static engines. */
 export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3dElement,pose:OrbitPose,layout:FurnitureLayout):Pick<FurnitureSvg, "underNodes"|"overNodes"> {
@@ -65,14 +77,20 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
    if(ox*(mid.x-origin.x)+oy*(mid.y-origin.y)<0){ox=-ox;oy=-oy;}
    labelledEdges.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y});
    line(under,`axes.${label}.axis`,`axis-${label}`,a,b);
-   const ticks=axes[axis]?.ticks??niceTicks(limits[axis][0],limits[axis][1]);
-   ticks.forEach((value,ti)=>{if(value<limits[axis][0]||value>limits[axis][1])return;const p=[...edge.a] as Vec3;p[axis]=value;const at=screen(p);if(!projected(at))return;
-    line(under,`axes.${label}.ticks`,`tick-${label}-${ti}`,at,{x:at.x+ox*4,y:at.y+oy*4});text(under,`axes.${label}.ticks`,`tick-label-${label}-${ti}`,at.x+ox*(fs*.9+4),at.y+oy*(fs*.9+4)+fs*.3,axes[axis]?.tickLabels?.[ti]??tickLabel(value),{'text-anchor':ox<-.5?'end':ox>.5?'start':'middle'});
+   const ticks=axes[axis]?.ticks??niceTicks(limits[axis][0],limits[axis][1]),anchor=ox<-.5?'end':ox>.5?'start':'middle';
+   const drawn=ticks.flatMap((value,ti)=>{if(value<limits[axis][0]||value>limits[axis][1])return[];const p=[...edge.a] as Vec3;p[axis]=value;const at=screen(p);return projected(at)?[{value,ti,at,text:axes[axis]?.tickLabels?.[ti]??tickLabel(value)}]:[];});
+   // Seen nearly end-on, an axis projects to a stub too short for its labels.
+   // Hide them (and a title longer than the stub) instead of stacking them.
+   const tickSize=override(`axes.${label}.ticks`).fontSize??fs,titleText=parts[`axes.${label}.label`]?.text??axes[axis]?.label??label;
+   const crowded=tickLabelsCollide(drawn.map(t=>({x:t.at.x+ox*(fs*.9+4),y:t.at.y+oy*(fs*.9+4),width:textWidth(t.text,tickSize)})),tickSize,anchor);
+   const titleHidden=crowded&&textWidth(titleText,override(`axes.${label}.label`).fontSize??fs)>length;
+   for(const {value,ti,at,text:tickText} of drawn){
+    line(under,`axes.${label}.ticks`,`tick-${label}-${ti}`,at,{x:at.x+ox*4,y:at.y+oy*4});if(!crowded)text(under,`axes.${label}.ticks`,`tick-label-${label}-${ti}`,at.x+ox*(fs*.9+4),at.y+oy*(fs*.9+4)+fs*.3,tickText,{'text-anchor':anchor});
     if(manifest.axes?.grid!==false)for(const plane of other){const across=other.find(i=>i!==plane)!,p1=[...center] as Vec3,p2=[...center] as Vec3;p1[axis]=p2[axis]=value;p1[plane]=p2[plane]=limits[plane][back[plane]];p1[across]=limits[across][0];p2[across]=limits[across][1];line(under,`axes.${label}.grid`,`grid-${label}-${ti}-${plane}`,screen(p1),screen(p2),{stroke:muted,'stroke-opacity':.3});}
-   });
+   }
    const titleX=mid.x+ox*(fs*3.4),titleY=mid.y+oy*(fs*3.4),angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
    const uprightAngle=angle>90?angle-180:angle< -90?angle+180:angle;
-   text(under,`axes.${label}.label`,`axis-label-${label}`,titleX,titleY+fs*.3,parts[`axes.${label}.label`]?.text??axes[axis]?.label??label,{transform:`rotate(${num(uprightAngle)} ${num(titleX)} ${num(titleY)})`});
+   if(!titleHidden)text(under,`axes.${label}.label`,`axis-label-${label}`,titleX,titleY+fs*.3,titleText,{transform:`rotate(${num(uprightAngle)} ${num(titleX)} ${num(titleY)})`});
   }
  }else if(manifest.axes?.kind==='triad'){
   const origin={x:layout.viewport.x+30,y:layout.viewport.y+layout.viewport.height-30},labels=['x','y','z'];

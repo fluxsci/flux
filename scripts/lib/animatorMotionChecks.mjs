@@ -139,9 +139,10 @@ export async function verifyMotion(page, ok) {
   const openCascade = async () => {
     await page.evaluate(ids => { document.activeElement?.blur(); window.__flux.slide.selTrackIds.set(ids); }, [ids.wave, ids.move]);
     await paint(page);
-    await page.keyboard.down('Control'); await page.keyboard.down('Shift');
+    // track cascade = Ctrl+Alt+C (Ctrl+Shift+C is Change since 2026-10-03)
+    await page.keyboard.down('Control'); await page.keyboard.down('Alt');
     await page.keyboard.press('KeyC');
-    await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+    await page.keyboard.up('Alt'); await page.keyboard.up('Control');
     await waitFor(page, () => !!document.querySelector('.cascade-pop'), null, { label: 'M6 mixed track cascade' });
   };
   const delta = async value => {

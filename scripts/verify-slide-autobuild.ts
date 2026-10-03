@@ -13,6 +13,9 @@ import { resolveBeat, resolveStart } from "../src/lib/slide/resolve";
 import { targetPartIds } from "../src/lib/slide/targets";
 import { compileSlide } from "../src/lib/slide/compile";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
+import { buildPartIndex } from "../src/lib/plot/parse";
+import { partKind } from "../src/lib/plot/partStyle";
+import { buildPartTree, type XrayNode } from "../src/lib/plot/tree";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -152,4 +155,49 @@ autoAnimateExcept(handoffDeck, hs.id, hp, manifest, exclude);
 const authored = hs.beats.find(b => b.id === priorPhase.id)!.tracks.find(t => t.id === "authored-anchor")!;
 assert(!authored.anchor && authored.start === authoredStart, "rebuilding keeps an authored effect in its old beat and preserves its anchored start");
 assert(new Set(hs.beats.map(b => b.id)).size === hs.beats.length, "retained authored phase beats never collide with new generated beat ids");
+// --- F1: fluxplot 0.3.1's closed preset vocabulary, on the shared presets fixture ---
+// bars grow from their baseline, annotations and brackets rise after their authored
+// delay, hexagons stagger at their authored pace, the colour key builds with the axes,
+// and a bar series listed by its members in build.order resolves to its group.
+const PM = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "fluxplot03", "presets.fluxplot.json");
+const pm = JSON.parse(await fs.readFile(PM, "utf8")) as FluxPlotManifest;
+assert(pm.build?.presets?.bar?.animation === "grow-from-baseline" && pm.build.presets.annotation?.delayMs === 150, "presets fixture carries the 0.3.1 hints");
+const pBeats = autoAnimatePlot(pm, "p");
+const pTracks = pBeats.flatMap((b) => b.tracks);
+const bars = pTracks.find((t) => t.part === "panel.counts.counts.bars");
+assert(bars?.preset === "growBaseline" && !bars.stagger, "F1: bars grow from their baseline (grow-from-baseline → growBaseline), resolved from their member ids");
+assert(pBeats.find((b) => b.tracks.includes(bars!))?.label === "Data", "F1: bars build in the Data phase");
+const ann = pTracks.find((t) => t.part === "panel.counts.annotation.peak");
+assert(ann?.preset === "fadeRise" && ann.start === 150, "F1: an annotation rises in after its authored 150 ms delay");
+const bracket = pTracks.find((t) => t.part === "panel.counts.significance-bracket.0");
+assert(bracket?.preset === "fadeRise" && bracket.start === 200 && pBeats.find((b) => b.tracks.includes(bracket!))?.label === "Legend & annotations", "F1: a bracket rises in with the legend, 200 ms late");
+const hexes = pTracks.find((t) => t.part === "panel.density.cloud.hexes");
+assert(hexes?.preset === "stagger" && hexes.stagger?.perMs === 4 && hexes.params?.child === "fade", "F1: hexagons stagger in at the authored 4 ms per hexagon");
+const key = pBeats[0].tracks.filter((t) => t.part.startsWith("panel.density.colorbar.color"));
+assert(key.length >= 2 && key.every((t) => t.preset === "fade" || t.preset === "drawOn"), "F1: the colour key builds with the axes (its label and tick labels fade, ticks draw on)");
+assert(!pTracks.some((t) => /colorbar\.color\.(label|tick-labels)$/.test(t.part) && t.preset !== "fade"), "F1: colour-key text never draws on");
+const stagBars: FluxPlotManifest = structuredClone(pm);
+stagBars.build!.presets!.bar = { animation: "stagger-in", staggerMs: 30 };
+const sb = autoAnimatePlot(stagBars, "p").flatMap((b) => b.tracks).find((t) => t.part === "panel.counts.counts.bars");
+assert(sb?.preset === "stagger" && sb.stagger?.perMs === 30, "F1: bars stagger only when the plot says stagger-in");
+
+// --- F2 (Flux half): roles and kinds come from the manifest — memberRole for member leaves,
+// kind for every node; one role → kind table is the fallback; unknown text roles narrate late.
+const pIndex = buildPartIndex(pm);
+assert(pIndex["panel.density.cloud.hex.1.2"]?.role === "x-hex" && pIndex["panel.density.cloud.hex.1.2"].kind === "shape", "F2: a member leaf takes its group's memberRole and kind (hexagons are x-hex shapes)");
+assert(pIndex["panel.density.colorbar.color.tick-label.1"]?.role === "tick-label" && pIndex["panel.density.colorbar.color.tick-label.1"].kind === "text", "F2: colour-key tick labels are text by the manifest's kind");
+assert(pIndex["panel.counts.annotation.peak"]?.kind === "text" && pIndex["panel.counts.significance-bracket.0"]?.kind === "line", "F2: parts-tree nodes carry the manifest kind");
+assert(partKind(pm, "panel.density.cloud.hex.1.2") === "shape" && partKind(pm, "panel.counts.annotation.peak") === "text" && partKind(pm, "panel.density.colorbar.color.ticks") === "line", "F2: partKind reads the manifest kind before any role table or DOM");
+const noKind: FluxPlotManifest = structuredClone(pm);
+(function strip(n: { kind?: string; children?: unknown[] }) { delete n.kind; for (const c of (n.children ?? []) as { kind?: string; children?: unknown[] }[]) strip(c); })(noKind.parts as { kind?: string; children?: unknown[] });
+assert(partKind(noKind, "panel.counts.annotation.peak") === "text" && partKind(noKind, "panel.density.colorbar.color.outline") === "line" && partKind(noKind, "panel.density.cloud.hexes") === "shape", "F2: without a manifest kind the one role → kind table decides");
+assert(pBeats.find((b) => b.tracks.includes(ann!))?.label === "Legend & annotations", "F2: an annotation (text) builds in the annotations phase");
+const pTree = buildPartTree(pm)!;
+const findNode = (n: XrayNode, id: string): XrayNode | undefined => n.id === id ? n : n.children.map((c) => findNode(c, id)).find(Boolean);
+assert(findNode(pTree, "panel.density.cloud.hexes")?.kind === "shape" && findNode(pTree, "panel.density.colorbar.color.tick-labels")?.kind === "text" && findNode(pTree, "panel.counts.axis.x")?.kind === "container", "F2: X-ray nodes carry their kind");
+const textish: FluxPlotManifest = structuredClone(pm);
+(function retag(n: { id?: string; ref?: string; role?: string; kind?: string; children?: unknown[] }) { if ((n.id ?? n.ref) === "panel.counts.significance-bracket.0") { n.role = "x-caption"; n.kind = "text"; } for (const c of (n.children ?? []) as { id?: string; ref?: string; role?: string; kind?: string; children?: unknown[] }[]) retag(c); })(textish.parts as { id?: string; children?: unknown[] });
+const capBeats = autoAnimatePlot(textish, "p"), cap = capBeats.flatMap((b) => b.tracks).find((t) => t.part === "panel.counts.significance-bracket.0");
+assert(cap?.preset === "fade" && capBeats.find((b) => b.tracks.includes(cap!))?.label === "Legend & annotations", "F2: an unknown role of kind text fades in with the annotations, never draws on");
+
 console.log("\nALL AUTOBUILD (anim 1.4) TESTS PASSED");

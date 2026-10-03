@@ -7,7 +7,7 @@ import type { FluxPlotManifest, PartNode } from "../../../../lib/plot/types";
 import { buildModel3dTree } from "../../../../lib/model3d/tree";
 import { labelForPart } from "../../../../lib/plot/tree";
 import { elementLabel } from "../../../../lib/xray/buildXrayTree";
-import { isHandoff, trackRef, targetPartIds, isScene3dManifest } from "../../../../lib/slide/targets";
+import { isHandoff, trackRef, targetPartIds, isScene3dManifest, setLabel } from "../../../../lib/slide/targets";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
 import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
@@ -51,6 +51,7 @@ export const EL_GLYPH: Record<string, string> = {
 /** A compact label for a track chip (prefixed with a P-tag when the slide has
  *  several plots so identical part names stay distinguishable). */
 export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: ManifestFor = () => undefined, plotTags = new Map<string, string>(), maxParts = 1): string {
+  if (ref.members) return setLabel(ref.members, slide?.elements ?? [], id => manifestFor(id));
   const el = slide?.elements.find(e => e.id === ref.element);
   if (ref.group) return slide?.groups?.[ref.group]?.name || "Group";
   if (!el || !slide) return "missing";
@@ -121,6 +122,11 @@ export function autoPxPerMs(maxEndMs: number): number {
   return Math.max(0.04, Math.min(0.35, 260 / Math.max(1, maxEndMs)));
 }
 
+/** The ruler's major tick step for a zoom (px per ms): ticks stay ≥ ~60px apart. */
+export function tickStepFor(pxPerMs: number): number {
+  return pxPerMs > .3 ? 250 : pxPerMs > .12 ? 500 : pxPerMs > .05 ? 1000 : 2000;
+}
+
 /** The minor grid step between two ruler ticks: half a tick, a quarter once
  *  the timeline is zoomed in past .3 px/ms (a 250ms tick then subdivides to
  *  62.5ms lines that still sit ≥18px apart). */
@@ -128,29 +134,79 @@ export function minorTickStep(tickStep: number, pxPerMs: number): number {
   return tickStep / (pxPerMs > 0.3 ? 4 : 2);
 }
 
-/** The minor grid lines of a beat: every subdivision of the ruler ticks that
- *  is NOT itself a tick (the timeline draws ticks as major lines). */
-export function minorTicks(durationMs: number, tickStep: number, pxPerMs: number): number[] {
-  const step = minorTickStep(tickStep, pxPerMs);
+/** The minor grid lines over a drawn time extent: every subdivision of the
+ *  ruler ticks in [0, extentMs] that is NOT itself a tick (the timeline draws
+ *  ticks as major lines). `extentMs` is the DRAWN range (the whole visible
+ *  time axis), not the beat's duration. */
+export function minorTicks(extentMs: number, tickStep: number, pxPerMs: number, step = minorTickStep(tickStep, pxPerMs)): number[] {
   const per = Math.round(tickStep / step);
   const out: number[] = [];
-  for (let i = 1; i * step <= durationMs; i++) if (i % per) out.push(i * step);
+  for (let i = 1; i * step <= extentMs; i++) if (per > 1 && i % per) out.push(i * step);
   return out;
 }
 
-/** Snap a ms value: magnet-snap to other tracks' boundaries + the nearest 50ms
- *  grid line within an 8-screen-px threshold; otherwise quantize to 10ms so
- *  drags land on round numbers. Alt disables via `enabled:false`. */
-export function snapMs(ms: number, magnets: number[], pxPerMs: number, enabled: boolean): number {
+/** At most this many grid lines (majors + minors) are mounted at once. */
+export const GRID_LINE_CAP = 400;
+
+export interface TimeGrid {
+  /** Ruler tick spacing (major lines and labels). */
+  tickStep: number;
+  /** The drawn minor spacing — also the drag SNAP grid (2026-09-30: a snap grid
+   *  must be the grid that is drawn). Equal to `tickStep` when minors are off. */
+  minorStep: number;
+  majors: number[];
+  minors: number[];
+}
+
+/** The animator's time grid over the whole DRAWN extent (owner, 2026-10-02:
+ *  the grid fills the visible time axis even after the last bar ends; scrub and
+ *  snapping keep their own ranges). Node budget: a 60s beat zoomed to 1px/ms
+ *  would mount ~1,200 lines, so when `extentMs / minorStep + 1` exceeds
+ *  `GRID_LINE_CAP` the MINOR step doubles (62.5 → 125 → 250 ms …) until it
+ *  meets the tick step, then the tick step doubles too. Steps stay powers of
+ *  two of the zoom's natural step, so every coarser line is also a line of the
+ *  finer grid, and the coarsened minor step is what drags snap to. At fit zoom
+ *  the cap never binds (lines sit ≥15px apart, ~W/15 lines). */
+export function timeGrid(extentMs: number, pxPerMs: number, cap = GRID_LINE_CAP): TimeGrid {
+  const extent = Math.max(0, extentMs);
+  let tickStep = tickStepFor(pxPerMs), minorStep = minorTickStep(tickStep, pxPerMs);
+  while (Math.floor(extent / minorStep) + 1 > cap) {
+    if (minorStep < tickStep) minorStep *= 2;
+    else { tickStep *= 2; minorStep = tickStep; }
+  }
+  const majors = Array.from({ length: Math.floor(extent / tickStep) + 1 }, (_, i) => i * tickStep);
+  return { tickStep, minorStep, majors, minors: minorTicks(extent, tickStep, pxPerMs, minorStep) };
+}
+
+/** Snap a ms value within an 8-screen-px threshold, nearest first, to other
+ *  tracks' boundaries (magnets) or a DRAWN grid line (`gridStepMs`: the
+ *  timeline's minor step, so every major and minor line it paints is a snap
+ *  target). Failing those, the 50ms round-number grid (same threshold), then
+ *  10ms quantization. `originMs` places the value on the beat's time axis: a
+ *  duration drag passes the track's start, so the END edge (not the duration)
+ *  lands on the line. Alt disables via `enabled:false`. */
+export function snapMs(ms: number, magnets: number[], pxPerMs: number, enabled: boolean, gridStepMs = 50, originMs = 0): number {
   if (!enabled) return Math.max(0, Math.round(ms));
   const thresholdMs = 8 / pxPerMs;
-  const grid = Math.round(ms / 50) * 50;
-  let best = grid;
-  let bestD = Math.abs(ms - grid);
+  const onGrid = (step: number) => Math.round((ms + originMs) / step) * step - originMs;
+  let best = onGrid(gridStepMs);
+  let bestD = Math.abs(ms - best);
   for (const m of magnets) {
     const d = Math.abs(ms - m);
     if (d < bestD) { best = m; bestD = d; }
   }
   if (bestD <= thresholdMs) return Math.max(0, best);
+  const round = onGrid(50);
+  if (Math.abs(ms - round) <= thresholdMs) return Math.max(0, round);
   return Math.max(0, Math.round(ms / 10) * 10);
+}
+
+/** True when `ms` sits on a snap grid line (a drawn line of `gridStepMs`, or the
+ *  50ms round-number grid) — the drag guide lights the line it snapped to. */
+export function gridLineAt(ms: number, gridStepMs: number): number | null {
+  for (const step of [gridStepMs, 50]) {
+    const g = Math.round(ms / step) * step;
+    if (Math.abs(g - ms) <= .5) return g;
+  }
+  return null;
 }

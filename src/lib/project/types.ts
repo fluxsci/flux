@@ -175,6 +175,9 @@ export interface FileBridge {
   discardModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
   model3dSourceFingerprint?(request: import("../model3d/source").ModelSourceFingerprintRequest): Promise<import("../model3d/source").ModelSourceFingerprint>;
   model3dAvailability?(): Promise<{ disabled: boolean }>;
+  /** System font bytes for a CSS font request (text ↔ shape letter outlines);
+   *  null bytes when no readable font file backs it. */
+  fontLookup?(request: { family: string; weight?: number; style?: string }): Promise<{ key: string; bytes: Uint8Array | null; format: string | null }>;
   runnerCapabilities?(): Promise<RunnerCapability[]>;
   runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
   runnerSend?(options: { runId: string; text: string; images?: RunnerImage[] }): Promise<void>;
@@ -210,7 +213,7 @@ export interface FileBridge {
   exists(p: string): Promise<boolean>;
   // File identity (mtime+size) for cache keying (the enrich parse cache); null when
   // absent. Optional: older bridges / the web demo may not provide it.
-  stat?(p: string): Promise<{ atimeMs?: number; mtimeMs: number; ctimeMs?: number; size: number } | null>;
+  stat?(p: string): Promise<{ atimeMs?: number; mtimeMs: number; ctimeMs?: number; size: number; ino?: number } | null>;
   setTimes?(p: string, times: { atimeMs: number; mtimeMs: number }): Promise<void>;
   // List a directory's entries (files + subdirs). Optional: older bridges / the
   // web demo may not provide it. Used by the Plot Importer to browse plots/.

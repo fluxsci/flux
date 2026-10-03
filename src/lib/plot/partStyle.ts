@@ -7,10 +7,10 @@
 // Inspector and the X-Ray never disagree. Everything here is read-only and
 // linkedom-safe (getComputedStyle is a guarded, browser-only last resort).
 
-import type { FluxPlotManifest, PartNode } from "./types";
+import type { FluxPlotManifest, PartNode, PartInfo } from "./types";
 import type { SemanticPlotElement, PartOverride } from "../types";
 import { drawablesUnder, buildPartIndex, partDomId, partIdFromDom } from "./parse";
-import { inferRole, labelForPart } from "./tree";
+import { inferRole, labelForPart, KIND_BY_ROLE, KNOWN_KINDS, kindForRole, type PartKind } from "./tree";
 import { parseStyleAttr } from "./paint";
 import { plotDom } from "./store";
 
@@ -19,35 +19,24 @@ import { isScene3d, buildScene3dPartIndex, resolveScene3dPartStyle, scene3dPartL
 export type SemanticElement = SemanticPlotElement | Model3dElement;
 export type SemanticManifest = FluxPlotManifest | Scene3dManifest;
 export function semanticPartIndex(manifest?: SemanticManifest) { return isScene3d(manifest) ? buildScene3dPartIndex(manifest) : buildPartIndex(manifest); }
-export type PartKind = "text" | "line" | "shape" | "container";
+export type { PartKind };
 
 // ---------------------------------------------------------------------------
 // Role sets (moved here from PlotXray.svelte — the single source of truth).
 // TEXT additionally covers subtitle/label/annotation (unambiguously text; the
 // X-Ray previously fell back to "shape" editors for them).
 // ---------------------------------------------------------------------------
-export const TEXT_ROLES = new Set([
-  "axis-title",
-  "title",
-  "subtitle",
-  "tick-label",
-  "legend-label",
-  "label",
-  "annotation",
-]);
-export const LINEY_ROLES = new Set(["line", "reference-line", "gridline", "spine", "errorbar", "tick", "axis"]);
-export const CONTAINER_ROLES = new Set(["series", "plot-area", "figure", "legend", "legend-entry", "axis-group", "axes-group", "field-group"]);
+// The three role sets are views of tree.KIND_BY_ROLE (the single source of truth since plan F2;
+// kept for importers). A manifest node's own `kind` outranks all of them.
+const rolesOfKind = (kind: PartKind) => new Set(Object.keys(KIND_BY_ROLE).filter((r) => KIND_BY_ROLE[r] === kind));
+export const TEXT_ROLES = rolesOfKind("text");
+export const LINEY_ROLES = rolesOfKind("line");
+export const CONTAINER_ROLES = rolesOfKind("container");
 
-/** Kind from a role name alone (the X-Ray's original precedence: text →
- *  container → line → shape). For DOM-aware inference use partKind. */
+/** Kind from a role name alone (the one role → kind table). For DOM-aware inference use partKind. */
 export function partKindFromRole(role: string): PartKind {
-  if (TEXT_ROLES.has(role)) return "text";
-  if (CONTAINER_ROLES.has(role)) return "container";
-  if (LINEY_ROLES.has(role)) return "line";
-  return "shape";
+  return kindForRole(role);
 }
-
-const KNOWN_KINDS = new Set<string>(["text", "line", "shape", "container"]);
 
 // Whole-plot scaffolding: clicking these must keep dragging the WHOLE plot
 // (the plot would otherwise be un-draggable by its own background / frame).
@@ -95,12 +84,13 @@ function declaredFillOf(d: Element): string | null {
 /**
  * Infer a part's kind: text | line | shape | container.
  *
- * Precedence:
- *  1. an authored `data-kind` attribute on the part's DOM node — fluxplot will
- *     start emitting these (Phase 10); authoritative when present;
- *  2. the manifest role (group nodes map through their groupRole:
- *     tick-labels → text, gridlines → line, …) via the role sets above;
- *  3. the tag of the first drawable under the node (path splits on declared
+ * Precedence (plan F2):
+ *  1. an authored `data-kind` attribute on the part's DOM node — authoritative when present;
+ *  2. the manifest's own `kind` for the part (every fluxplot ≥ 0.3.1 parts-tree node; a member
+ *     leaf inherits its group's);
+ *  3. the role — the manifest's, else the DOM's `data-role`, else the id grammar — through the
+ *     one role → kind table (tree.KIND_BY_ROLE);
+ *  4. the tag of the first drawable under the node (path splits on declared
  *     fill:none → line, else shape); a drawable-less <g> is a container.
  */
 export function partKind(
@@ -111,12 +101,12 @@ export function partKind(
   const dk = node?.getAttribute?.("data-kind");
   if (dk && KNOWN_KINDS.has(dk)) return dk as PartKind;
 
-  const info = semanticPartIndex(manifest)[partId];
+  const info = semanticPartIndex(manifest)[partId] as (PartInfo & { kind?: string }) | undefined;
   if (isScene3d(manifest) && ["colorbar", "scalebar", "legend"].includes(info?.role ?? "")) return "text";
-  const role = info?.role ?? inferRole(partId);
-  if (TEXT_ROLES.has(role)) return "text";
-  if (CONTAINER_ROLES.has(role)) return "container";
-  if (LINEY_ROLES.has(role)) return "line";
+  if (info?.kind && KNOWN_KINDS.has(info.kind)) return info.kind as PartKind;
+  const role = info?.role ?? node?.getAttribute?.("data-role") ?? inferRole(partId);
+  const byRole = KIND_BY_ROLE[role];
+  if (byRole) return byRole;
 
   if (node) {
     const d = drawablesUnder(node)[0];

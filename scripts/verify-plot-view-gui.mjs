@@ -78,6 +78,32 @@ try {
   await waitFor(page, s=>!!document.querySelector(s), menuInput);
   await typeMax('5',menuInput); await page.keyboard.press('Enter');
   h.eq((await model()).view?.x?.domain?.[1],5,'F-menu edits through the same control');
+  // Owner inbox 2026-09-30: armed from the menu, the wheel adjusts the focused
+  // limit wherever the mouse is; Space accepts min → max, then accepts like Enter.
+  await waitFor(page,()=>!document.querySelector('.fluxFigMenu [data-axis-view-row]'));
+  h.ok(!!(await page.$('.fluxFigMenu.placed')),'Enter in the menu axis view accepts and returns to the menu');
+  await page.keyboard.press('v');
+  const menuMin='.fluxFigMenu [data-axis-view-row="x"] .nf:nth-of-type(1) input';
+  await waitFor(page,s=>document.activeElement===document.querySelector(s),menuMin);
+  const far=await page.evaluate(()=>{const r=document.querySelector('.canvas-host').getBoundingClientRect();return {x:r.right-40,y:r.bottom-40};});
+  await page.mouse.move(far.x,far.y);
+  const zoomBefore=await page.evaluate(()=>window.__flux.get(window.__flux.fig.viewport).zoom);
+  const minBefore=(await model()).view?.x?.domain?.[0];
+  await page.mouse.wheel({deltaY:-100});
+  await waitFor(page,m=>window.__flux.get(window.__flux.fig.project).figures.flatMap(f=>f.elements).find(e=>e.id==='view-plot').view?.x?.domain?.[0]!==m,minBefore);
+  h.ok((await model()).view.x.domain[0]>minBefore,'the wheel over the canvas raises the focused x min');
+  h.eq(await page.evaluate(()=>window.__flux.get(window.__flux.fig.viewport).zoom),zoomBefore,'…and the canvas does not zoom');
+  await page.keyboard.press('Space');
+  const menuMax='.fluxFigMenu [data-axis-view-row="x"] .nf:nth-of-type(2) input';
+  await waitFor(page,s=>document.activeElement===document.querySelector(s),menuMax);
+  h.ok(true,'Space accepts the min and moves to max');
+  const maxBefore=(await model()).view.x.domain[1];
+  await page.mouse.wheel({deltaY:100});
+  await waitFor(page,m=>window.__flux.get(window.__flux.fig.project).figures.flatMap(f=>f.elements).find(e=>e.id==='view-plot').view?.x?.domain?.[1]!==m,maxBefore);
+  h.ok((await model()).view.x.domain[1]<maxBefore,'the wheel then adjusts max, still from anywhere');
+  await page.keyboard.press('Space');
+  await waitFor(page,()=>!document.querySelector('.fluxFigMenu [data-axis-view-row]'));
+  h.ok(!!(await page.$('.fluxFigMenu.placed')),'Space on max accepts it like Enter: back to the menu');
   mkdirSync('test-results/plot-view',{recursive:true});
   await page.screenshot({path:'test-results/plot-view/figure-menu.png'});
   await page.evaluate(()=>document.activeElement?.blur()); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');

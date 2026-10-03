@@ -34,13 +34,16 @@
   export let optional = false;
   export let empty = false;
   export let live = false;
+  /** Opt-in keyboard flow (the property menu's armed axis view): Space accepts
+   *  the value and emits `advance`; Enter accepts it and emits `done`. */
+  export let advanceOnSpace = false;
   let focused = false;
   let draft = "";
   let cancelled = false;
   const session = editSession();
   let scrubBaseline = value;
 
-  const dispatch = createEventDispatcher<{ commit: number; scrub: number; scrubStart: void; preview: number | undefined }>();
+  const dispatch = createEventDispatcher<{ commit: number; scrub: number; scrubStart: void; preview: number | undefined; advance: void; done: void }>();
   let inputEl: HTMLInputElement;
 
   // Axis/data values may be much smaller than a layout pixel. Preserve their
@@ -82,6 +85,12 @@
     if (e.key === "Enter") {
       e.preventDefault();
       inputEl.blur(); // triggers change
+      if (advanceOnSpace) { e.stopPropagation(); dispatch("done"); }
+    } else if (e.key === " " && advanceOnSpace) {
+      e.preventDefault();
+      e.stopPropagation();
+      inputEl.blur(); // accepts (live edits are already applied; blur closes their undo entry)
+      dispatch("advance");
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -121,6 +130,12 @@
     if (disabled) return;
     e.preventDefault();
     e.stopPropagation();
+    wheelBy(e);
+  }
+  /** Step by one wheel event wherever it happened (the armed axis view forwards
+   *  the wheel from anywhere on screen to its focused limit). */
+  export function wheelBy(e: WheelEvent) {
+    if (disabled) return;
     const steps = wheel.steps({ deltaY: wheelDelta(e), deltaMode: e.deltaMode, time: performance.now() });
     if (!steps) return;
     const mult = wheelMultiplier(e);

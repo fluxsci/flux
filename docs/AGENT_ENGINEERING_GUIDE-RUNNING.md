@@ -159,14 +159,18 @@ The established shared cores — extend these, don't duplicate them:
 | Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
-| Semantic targets, hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
+| Semantic targets (incl. destination SETS: `normalizeRef`, `composeDestination`, `setLabel`), hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | Stage-space geometry for element, plot-part and group targets | `src/lib/slide/targetGeometry.ts` | `verify-target-geometry.ts` (pure/core parity), `verify-target-geometry-browser.ts` (live CTM) |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
+| Text-rewrite matching, morph plan and timeline (the glyph-matched text morph) | `src/lib/slide/textMatch.ts` (pure; `player/textMorph.ts` is its browser driver) | `verify-text-match.ts` (passes, policy, caps, timeline), `verify-text-morph-browser.ts` (exported player), `verify-transform-gui.mjs` (presented Change) |
+| Letter outlines for text ↔ shape (placement, counters, glyph boxes; which texts fly as letters) | `src/lib/text/glyphOutlines.ts` + `slide/glyphTexts.ts` (pure); `text/glyphFont.ts` parses font bytes (opentype.js, never in the export runtime) | `verify-glyph-outlines.ts` (incl. GUI-bridge vs Node vs flux-core bake bytes), `verify-text-morph-browser.ts` |
+| Font request identity and system font files (Electron main `fonts:lookup` + flux-core bake) | `src/lib/text/fontRequest.mjs` (plain ESM, also the renderer's key) + `fontFiles.mjs` (Node) | `verify-glyph-outlines.ts`, `verify-ipc-contract.ts` |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
+| Timeline align and Inherit (candidate law, edge alignment, exact-HOW inheritance) | `src/lib/slide/alignTracks.ts` | `verify-slide-timeline.ts` (law + ops field by field), `verify-slide-resolve.ts` (REAL CLI `align-tracks` / `inherit-track` write the GUI op's bytes), `verify-slide-animator-gui.mjs` via `scripts/lib/animatorAlignChecks.mjs` (real keys and Ctrl+Alt drags) |
 | Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts`, `verify-slide-easing.ts` (legacy snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists; `animator/CurveField.svelte` is the UI consumer, covered by `verify-slide-animator-gui.mjs`, authoring/cascade GUI and both surface gates |
 | Stagger distribution and box arcs | `src/lib/slide/stagger.ts`, `tween.ts` (`arcBox`), `ops.ts` | `verify-slide-stagger.ts` (Total/order/real player parity), `verify-slide-tween.ts`, `verify-slide-player.ts` (painted content and box frames), `verify-slide-timeline.ts`, `verify-slide-animator-gui.mjs` (Each/Total, seed/Undo, Arc/scrub) |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
@@ -377,6 +381,187 @@ Persistence invariants (all machine-checked — do not weaken):
   Reserved `__fluxplot__` controls travel only in FLUX_PARAMS, and successful reruns retain the
   freshly emitted provenance sidecar. Gates: `verify-fluxplot03.ts`,
   `verify-fluxplot-recipe-ipc.ts`, `verify-fluxplot03-gui.mjs`, plus source-sync and slide gates.
+  **0.3.1 (additive, 2026-09-29):** every parts-tree leaf carries `role`, every group and
+  field component `memberRole` (cell / contour-level / x-hex / point), series and legend-entry
+  nodes a `label`; `build.presets[role].animation` is fluxplot's CLOSED vocabulary (draw-on ·
+  fade-in · stagger-in · grow-from-baseline · fade-rise · write-on · pop-in, enumerated in its
+  schema) with `delayMs` and `staggerBy` hints, and legend / colorbar / title presets are now
+  actually emitted. `slide/autobuild.ts` maps the whole vocabulary (bars grow from their
+  baseline unless the plot says stagger-in; text may fade or rise, never draw on), applies
+  `delayMs` as the track start, builds the colour key with the axes, and resolves a
+  `build.order` entry that is only a group MEMBER (fluxplot lists `counts.bar.0`, the tree
+  groups `counts.bars`) to its owning group — which is how bars ever got a build step. The
+  colour-control key in `recipe.params.__fluxplot__` is now the SERIES root (`rates`), not the
+  axes' position (`axes.1.rates`); fluxplot still honours the legacy key. Fixtures:
+  `scripts/fixtures/fluxplot03/` is a byte copy of fluxplot's `tests/fixtures/polish/`
+  (regenerate there with `uv run python tests/generate_polish_fixtures.py`, then copy);
+  `presets.*` is the build-hint fixture `verify-slide-autobuild.ts` pins. Prefer the manifest's
+  `role` / `memberRole` over `tree.inferRole` for new code; the regex stays for pre-0.3.1
+  manifests.
+  **The schema is vendored, and the types derive from it (F3, 2026-09-30):**
+  `src/lib/plot/schemas/{manifest,recipe}.schema.json` are byte copies of fluxplot's schemas
+  (`scripts/sync-fluxplot-schemas.mjs [--fluxplot <path>]`; `SOURCE.json` records the fluxplot
+  commit), `src/lib/plot/types.gen.ts` is json-schema-to-typescript over them (dev dependency;
+  `--types-only` regenerates), and `plot/types.ts` DERIVES the app types from `types.gen.ts`,
+  narrowing only `spec` (derived manifests), `series.svg` / `points` and the optional
+  `parts` / `build`. Never add a manifest field by hand: change fluxplot's schema, re-sync.
+  `SCHEMAS.manifest` (flux-core `validate` / `validate_plot`) IS the vendored schema for 0.3+
+  manifests; `SCHEMAS.manifestLegacy` keeps the loose reader for pre-0.3 and hand-authored
+  `specVersion` fixtures, and a manifest with neither version key is named as such.
+  `contract.plotTooNew` refuses a manifest whose major exceeds `SUPPORTED_MANIFEST_MAJOR` (0)
+  with a "made by a newer fluxplot" message before any other check. Gate:
+  `verify-fluxplot-schema.ts` (pure): types current, every fluxplot03 fixture validates, a
+  preset name outside the vocabulary and a 1.x manifest are refused. fluxplot's side is
+  `tests/test_schema_complete.py`, which proves its schema declares every emitted key
+  (strict copy), so a re-sync never brings undeclared fields.
+  **colorScales (fluxplot 0.3.1 / plan M2):** every colour-mapped mark's exact law —
+  `colormap.lut` (the full matplotlib table as `#rrggbbaa`, plus under/over/bad), `norm`
+  ({kind, vmin, vmax, clip, extend, vcenter?, gamma?, linthresh?, linscale?, base?,
+  boundaries?}), `mappables` (svg groups it colours), `colorbars`, `recolor` (live | raster |
+  regenerate) and `editable`. Each coloured element carries `data-value` (or `data-missing`),
+  its group `data-color-scale` + `data-paint` (fill | stroke | fill stroke); contour bands add
+  `data-level-low/high`. Colour keys are ONE `<rect>` filled by a hard-stepped
+  `<linearGradient id="<solids>.gradient">` (two stops per LUT entry, user-space along the
+  key's axis) with `anchors` (vmin / vcenter / vmax ↔ svg), `axisLength`, `tickLocator`,
+  `tickFormatter`, `extendParts`. The lookup rule a consumer must reproduce is
+  `lut[trunc(x·N)]`, `x == 1` → last, `x < 0` → under, `x·N ≥ N` → over, NaN → bad (boundary
+  norms yield an index directly); `scripts/fixtures/colorscale_vectors.json` (to be copied from
+  fluxplot with M3) carries the parity vectors. matplotlib omits a BLACK fill from an element's
+  `style` (it is the SVG default) — read an absent fill as `#000000`. Recipe colour controls
+  are v2: `{cmap: name | {lut, under, over, bad}, reversed, vmin, vmax, norm: {kind, …},
+  extend}`, written back completely on every save; the old flat `{cmap, vmin, vmax}` stays
+  valid. One scale may colour mappables in several panels (fluxplot A4 shared scales) — never
+  assume one panel per scale; address groups by `data-color-scale`, keys by `colorbars[]`.
+  **Flux's half (plan M3, 2026-09-30):** `plot/colorscale.ts` is the pure law (`normalize`,
+  `lookup`, `effectiveScale`; `verify-colorscale-parity` proves it hex-for-hex against
+  `scripts/fixtures/colorscale_vectors.json`, 1998 vectors). The element state is
+  `SemanticPlotElement.colorScale: {<scaleId>: ColorScaleView}` — `cmap` (a name or a
+  `{lut, under, over, bad, name}` table), `reversed`, `norm {kind, vmin, vmax, vcenter, gamma,
+  linthresh, linscale}`, `extend` — written ONLY through `ops.setPlotColorScale` (copy-on-write
+  like `setPlotView`; a value equal to the generated scale becomes absence, an empty scale
+  disappears) after `plot/colorScaleControls.colorScalePatch` validated it (kinds within
+  `editable.normKinds`, limits only when `editable.limits`, the norm's own rules). **A named
+  colormap is resolved to its table at write time** by the picker and the verbs
+  (`color/colormapLuts.ts` loads the generated 300 KB `colormapLuts.gen.ts` lazily; the eager
+  bundle never carries it and `exportDeck` marks it external), so a saved document never depends
+  on the table; a bare name still paints once the table loads (`mount.ts` re-renders via
+  `plotGen`). `controlFromView` turns a view into the complete v2 recipe control for "Apply to
+  source" (`plot/regenerate.ts` in the GUI, `setPlotColorScaleVerb --regenerate` headless: write
+  the control, `runRecipe`, `syncFigureAssets`, clear the override). Verbs:
+  `set_plot_color_scale` / `get_plot_color_scales` (figure, deck Design, `--beat` Change).
+  Roles and kinds (plan F2): `buildPartIndex` gives member leaves their group's `memberRole` and
+  every part the manifest's `kind`; `tree.KIND_BY_ROLE` is the ONE role → kind fallback that
+  `partStyle.partKind` (after `data-kind` and the manifest kind, before the DOM tag, with the
+  DOM's `data-role` as the second role source) and `autobuild.presetForRole` (text never draws
+  on, lines self-draw, unknown text roles narrate with the annotations) both use.
+  **The wider colour system (plan M4 / M5 Flux halves, 2026-09-30):**
+  - *Themes (B1).* fluxplot ≥ 0.3.1 tags every scaffold node with `data-ink-fill` /
+    `data-ink-stroke` = ink | label | tick | axis | grid | plot | paper and records the generated
+    values in `manifest.style.tokens`. `plot/themeDom.applyPlotTheme(root, manifest, deckTheme)`
+    maps them onto the deck (ink/label/tick → text, axis → textMuted, grid → 15 % text into bg,
+    plot/paper → `none`), writes concrete hex on the tagged drawables (never `var()`: exports
+    and the deck runtime paint from the bytes), records pristine paint per node and restores on a
+    null theme — the same discipline as colorScaleDom. Every plot host calls it BEFORE
+    `applyPlotColorScale` and `applyOverrides`. When: `plotFollowsTheme(el, host)` =
+    `el.followTheme ?? host === "slide"` — on by default on slides, off in Figure / Paper (no deck
+    theme there); `ops.setPlotFollowTheme(p, id, bool | null)` writes / clears the flag (null =
+    host default, so untouched files stay byte-identical). Slide mode publishes its resolved theme
+    through the `plotTheme` store for the shared Canvas (`PlotElement` passes it into `mountPlot`,
+    which folds it into `signature` / `snap`); Present / export / transform use `ctx.theme`, which
+    some gates pass UNRESOLVED (the theme ID string) — `themeIsResolved` guards, painting nothing.
+    Gate `verify-plot-theme`.
+  - *Series colour (B2) and the legend coupling (F6).* `plot/seriesColor` names every part a
+    series is drawn by (`svg.*`, `components[].svgId` + `members`, `points[].svgId`) plus its
+    legend swatches (`guides[legend].entries[].series → swatch`), each with the paint it takes
+    (`paintForRole`: point / swatch / x-hexbin → both, kind line → stroke, kind shape → fill, text
+    → none); `ops.setSeriesColor` writes one override per part (null clears exactly those keys)
+    and refuses a colour-mapped series (`color.scale` / `hex: "varies"` / `field.colorScale`).
+    `ops.setPartOverride(…, manifest?)` mirrors a fill / stroke colour onto the swatches ONLY
+    when the part is the series' whole drawing (`seriesPrimaryOf`: a string-valued `svg.*` id);
+    one bar or one point is a highlight and leaves the key alone. The GUI resolves the manifest
+    through the `plotManifests` store, flux-core passes it. Verb `set_series_color` (figure or
+    deck Design; elementId optional with one plot), Inspector **Series colour** (`ColorField`,
+    never a native colour input). Gate `verify-series-color`.
+  - *View as (B3).* `color/cvd.ts`: fluxplot's Machado 2009 severity-1.0 matrices (pinned by
+    `scripts/fixtures/cvd_machado.json`, copied from `colorcheck._MACHADO[kind][10]`) and
+    Rec. 709 greyscale as `feColorMatrix type="matrix"` filters (4×5: each colour row + zero
+    alpha weight + zero offset, identity alpha row) declared `color-interpolation-filters=
+    "linearRGB"` — the space the matrices are fitted in and the SVG default. `ViewAsToggle`
+    (shared Toolbar) sets the session store; `Canvas.svelte` puts `url(#flux-view-as-<kind>)` on
+    the scene svg. A way of looking: no document change, nothing persisted. Gate
+    `verify-cvd-filter`.
+  - *Reading data (F5).* `plot/plotData.plotData(manifest, {seriesId, fields, offset, limit})`
+    is the `get_plot_data` verb's reader: series without renderer bookkeeping (`svg`,
+    `components`, `capabilities` dropped), colour scales without their LUT unless `fields`
+    includes `lut`, axes without pixel anchors, overlays whole, guides without parts, the style
+    block. `paginate` windows ONLY arrays longer than `limit` (default 1000, max 10000) from
+    `offset` and lists every cut in `pages` with its true length; short arrays pass whole even at
+    an offset. Gate `verify-plot-data`.
+  - *Readouts (F6).* `plot/readout.partReadout(manifest, partId, attrs)` is the ONE text builder
+    for the canvas deep-hover box (`Canvas.partHoverBox` adds `text`, drawn beside the rect) and
+    the X-ray row tooltips: roles come from the part index, the node's `data-role`, else the id
+    grammar (`.cell.r.c`, `.hex.r.c`, `.level.n`); members without an index entry find their
+    series by id prefix; scaffold returns null. Gate `verify-plot-readout`.
+  **fluxplot 0.3.2 and the M6 Flux halves (C4, C7, B6, F4, F7 — 2026-09-30):**
+  - *idAliases (C7).* fluxplot 0.3.2 renamed spines (`axis.x.spine` → `axis.x.spine.bottom`,
+    the collision-repaired `axis.x.spine-2` → `.top`), moved the figure background to figure
+    scope (`figure.background`) and regularised some series slugs; `manifest.idAliases` maps
+    each old id — or an old series ROOT, which stands for every id under it — to the new one,
+    panel-prefixed on both sides. `tree.aliasPartId` resolves (exact, then the longest old
+    prefix followed by a dot; an id that already is a current target passes through) and
+    `resolveTargets` — the hub for overrides, slide part targets and X-ray leaves — applies it,
+    so nothing saved against a pre-0.3.2 plot is lost. Gate `verify-id-aliases`.
+  - *Twin axes (C4).* `axes[].y2` / `.x2` (twinx / twiny; a `fp.secondary_axis` too, but on a
+    functional scale with no anchors it is `supported: false` and never viewable — it follows its
+    parent) and `series[].axis: "y2"`. `PlotView` has `y2` / `x2`; `viewFits` returns their fits
+    when usable and `seriesFits(fits, series.axis)` picks the pair a series projects through
+    (live views onto the panel's Fit objects, so blending the panel fits blends them); the
+    twin's ticks are guides of their own axis key (`guideData` matches `axis.(x|y|x2|y2)`);
+    `plotViewPatch` / `setPlotView` / `set_plot_view` take `y2Min`… and refuse a key the plot
+    lacks; `viewControls.plotAxisKeys` lists the viewable keys for the Inspector. Gate
+    `verify-plot-view-twin`.
+  - *The opacity channel (B6).* `colorScales[].alpha = {source, range, norm{kind, vmin, vmax}}`
+    with `data-alpha-value` per element; `colorscale.alphaFor` is fluxplot's law (a missing
+    value takes the low alpha) and `colorScaleDom` writes fill-/stroke-opacity from it through
+    every recolour (an element without a value under such a scale KEEPS its own opacity —
+    `writePaint`'s `"keep"`), serialising opacities like matplotlib (`shortFloat`: `%f` with
+    trailing zeros stripped). Plain linear key labels follow ScalarFormatter (`ticks.scalarLabels`:
+    uniform decimals, unicode minus) — the alpha fixture's `−1.0 … 1.0` key exposed the gap.
+    The editor shows the channel read-only. Fixture `hexmatrix-alpha`; the DOM gate checks
+    opacities hex-for-hex against the regenerated twin.
+  - *Re-projection of filled marks and re-ticking (F4).* `project.filledLeaves(series)` names the
+    polygons a view may move (bars, cells, hexagons, contour bands, box / violin parts — never a
+    listed layer's own group, never an image); `projectDom` parses each `M/L/Z` path once into
+    DATA units through the generated fits (`polygonInData`) and re-projects vertex by vertex every
+    frame (`writePolygons`), so a bar lands on center ± width/2 and baseline + length, a cell or
+    hexagon on its recorded `data-x0/x1/y0/y1`. At rest with a static view (`applyPlotView`
+    without `opts`), an axis whose fit changed is re-ticked (`retick`): the generated ticks,
+    labels and gridlines hide (pristine-recorded `display`), clones of the first visible
+    template sit at `ticksFor` positions with `scalarLabels` / `formatTick` text, inserted in
+    tick order and marked `data-projection-tick`; `restoreProjection` removes them. Only `auto` /
+    `multiple` / `log` locators with `plain` / `log` formatters are re-ticked; category / date /
+    fixed / sci keep the moving, fading ticks (a tween always does). `plotViewIssues` names only
+    images and rasterized layers as unchanged. Gate `verify-plot-view-filled`.
+  - *Value morphs, data-order stagger, per-panel build (F7).* `stagger.by` ∈ `"index" | "x" |
+    "y" | "data" | {key: "value" | "count" | "index"}` (`slide/staggerData`: the compiler ranks
+    from the manifest — hexagon values / counts, cell values, bar heights, point colour values —
+    the player from the node's `data-*`, both alike; `set_track --stagger-by value|count|
+    data-index`, the Animator's order menu). A Become / Change between two plot versions tweens
+    keyed filled marks member by member (`projectDom` with `opts.series`: A's leaf ↔ B's by
+    `data-key`, else by id; geometry in data units when vertex counts match; the colour value
+    lerped and painted through the colour law with this frame's view — the transform host passes
+    `projectionOptions.colorScale`), gated by `capabilities.valueMorph` on both versions
+    (`project.keyedMorphable`; `hasTweenableSeries` counts it, so a bar chart pair is a Become
+    candidate). `autoAnimatePlot(manifest, elId, { perPanel })` builds one four-phase sequence
+    per panel (manifest order, an inset right after its host; figure titles lead, figure legend
+    entries close), beat ids `auto-<group>-<phase>`, `autoPhase = group·4 + phase`; the Animate
+    panel offers "panel by panel" for multi-panel plots. Fixtures `features.*` / `features-b.*`
+    (`scripts/fixtures/fluxplot03/make_features.py`, run from a fluxplot checkout: one figure
+    exercising every 0.3.2 payload, and a second draw of it). Gate `verify-plot-value-morph`.
+  - *Verb gates and the stale dist:* a gate that connects to `flux-mcp.ts` must pass
+    `FLUX_MCP_TOOLSET: 'full'` in the child's env (the `--toolset` argv is ignored by
+    `flux-mcp.ts`); `tsxRun` always runs the source, but `resolveOwnCliCommandsSync` prefers
+    `dist/flux-cli.mjs` — `npm run build:cli` after adding a verb, before judging a red twin.
 - **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` on `spec` before the
   2D reader: `fluxplot/scene3d` has its own schema and byte-identical generator fixtures in
   `scripts/fixtures/model3d/fluxplot/`. Invalid or unknown metadata degrades to a plain mesh
@@ -874,7 +1059,9 @@ Persistence invariants (all machine-checked — do not weaken):
   floor 0.55) — its inline scripts are CSP-hashed (PAGINATOR/LIVE_SCROLL/TBLFIT, w12 gate).
   **The pipe source COLLAPSES to one "Table N" pill off-caret** (2026-08-10, owner: a long
   table's markdown drowned the prose you were reading) — `science/tableFold.ts`, the embed-chip
-  rule generalized to a multi-line construct. CodeMirror only accepts a line-break-spanning
+  rule generalized to a multi-line construct (the slide-embed chip, §4 "Inline slides in Paper",
+  is the same rule again; a source-line chip's double-click goes through
+  `science/chipActivation.ts` because a chip-level `dblclick` never fires, §9). CodeMirror only accepts a line-break-spanning
   replace from a StateField, so this is the one paper field whose decorations depend on the
   SELECTION as well as the document; the rules that make that safe are: the rendered block
   widget below is a SEPARATE, doc-pure field (never rebuilt, never swapped — what burned the
@@ -942,6 +1129,22 @@ Persistence invariants (all machine-checked — do not weaken):
   coordinates so scrolling preserves the anchor. Preview selection stays local until release
   to keep Selected objects filtering stable; cancellation writes no selection/history. Edge
   scrolling runs only during a gesture. `verify-slide-marquee-gui.mjs` gates this contract.
+  The ruler and grid are built by `animator/shared.ts timeGrid` over the DRAWN extent
+  (`timeWidth / scale`), not the beat, so they fill the dock at every zoom; scrub stays clamped
+  to the beat, labels past its end keep text room (an absolute label past the edge would widen
+  the scroller), and a 400-line budget doubles the minor step, then the tick, on long zoomed-in
+  extents — the coarsened minor step is the snap grid, so drawn = snap still holds.
+  **Align and Inherit (2026-10-02)** live in the pure `slide/alignTracks.ts`, shared with
+  `align-tracks` / `inherit-track`. Edges are resolved and an end includes the stagger tail
+  (`trackEdges`, the anchor/magnet end). `alignCandidates` is the press law: the selection's own
+  extreme when its edges differ, then enabled lanes above the topmost selected one, deduplicated
+  and nearest first; `alignCycleStep` returns to the origin after the last. The dock re-applies
+  every press from the cycle's ORIGIN bytes under one `commitDeckLive` coalesce key: presses
+  never accumulate clamping, a cycle is one Undo, and a full cycle is an identity edit with no
+  entry. `alignTrackEdges` moves through `setTrack` (a moved start detaches an anchor and writes
+  an own start over a style, as a drag does). `inheritTrack` links to a linked source's style
+  plus the source's own overrides, else copies the resolved HOW; preset/params/arc travel only
+  within one family AND phase. Ctrl/⌘+Alt on a bar branches before Follow timing and copy.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
   Preset facts live in the pure `slide/presetCatalog.ts`; compiler, player metadata,
@@ -1070,7 +1273,9 @@ Persistence invariants (all machine-checked — do not weaken):
   keyframed appearances, independent of story order; content paint must not erase an entrance.
   Only ID-less plots retain the whole-content fallback. Union
   vertex indices preserve missing-data gaps; unmatched markers and line edges fade.
-  Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu;
+  Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu (armed
+  there with `armed` + `onDone`: a window-capture wheel steps the FOCUSED limit from anywhere
+  via `NumberField.wheelBy`, and `advanceOnSpace` makes Space accept min → max → done, Enter done);
   `plot/viewControls.ts` normalizes data-unit fields for both GUI and `set-plot-view`.
   Nullable live NumberFields own an editSession, with preview, one undo and Escape rollback.
   X-ray axis-row `v` focuses the corresponding Inspector row. The verb writes through
@@ -1098,8 +1303,32 @@ Persistence invariants (all machine-checked — do not weaken):
   effective step manifests, never sampled appearance. When retaining an existing source's
   timing, birth admission must compare its resolved start (styles/anchors included), not the
   raw track's start. Read `compiled.resolvedSlide` so disabled tracks being re-enabled keep
-  their effective timing too. Copy/preset/embed remaps retain element
-  and group destination identity; deleted destinations remain dangling and diagnosed. PPTX
+  their effective timing too. **Destination SETS (Oct-2):** `TargetRef.members` is one level
+  of element/part refs (never a group or a set) and only ever a Become DESTINATION — always
+  hand-off, refused as a source, by Consume and by Swap. `normalizeRef` (dedupe, merge one
+  element's parts, collapse a 1-member set, `element = members[0].element`) is the one
+  canonicalizer and `becomeTransform` stores members in slide order, so every route writes the
+  same bytes; every reader resolves through `resolveTargetLeaves` / the compiler's resolver,
+  member by member against ITS OWN element's manifest (never read `ref.element`'s manifest for
+  a whole ref). Labels come from the pure `setLabel` ("3 ellipses"). **Merge** is the reverse:
+  hand-offs of one step with an identical destination ref co-land (compile `merge =
+  {trackIds, landAt}`; the destination reveals at the last landing; each lander plans ONE
+  shared correspondence and keeps its own pairs; earlier landers hold via a hold curve; the
+  last lander's layer goes beneath the group). A filled ring tiling into three or more
+  partners keeps its interior as one fill-only TRIANGLE per arc (chord-polygon centroid → the
+  arc's ends, role `slice`, paired with a fill-only copy of the arc's own partner, drawn beneath
+  the arcs): the fill pours into each partner with its piece and fades where the partner has no
+  fill — never a separate blob that floats off (the 2026-10-02 travelling underlay read exactly
+  so and was removed). That is the `shatter` **transform method** (`BecomeSpec.method`,
+  `targets.TRANSFORM_METHODS`, default); the owner's alternatives keep the arcs stroke-only
+  and give the interior ONE fill-only ring the sampler drives (`CorrespondencePair.interior`,
+  `INTERIOR_WINDOW`): `dissolve` fades it in place over the first 30 % of eased progress,
+  `collapse` shrinks it into the centre over 45 %, `drain` clips it behind a straight front
+  sweeping toward the partners over 45 % (merging runs each in reverse over the last window).
+  One catalogue feeds the inspector's Method ▾, `--method`, and the deck schema; unset specs
+  keep their bytes. `mergeChains` fuses touching chains only under one paint: a boxplot's
+  7-px half-alpha box stroke stays its own flight beside its whiskers. Copy/preset/embed
+  remaps retain element, group and every set member's destination identity; deleted destinations remain dangling and diagnosed. PPTX
   phase ownership includes destinations so a later landing cannot leak into an earlier phase.
   The retype law: `applyState` with
   `state.type` keeps only BASE_PROPS and completes the new kind's required props
@@ -1148,7 +1377,13 @@ Persistence invariants (all machine-checked — do not weaken):
   that flight (`promoteMovingWrapper`/`settleWrapper`, `will-change: transform`; the
   transform driver via `pureMove`, keyframed specs via `transformFlight` — camera pans,
   `move`, fadeRise's lift) and is demoted at either endpoint or after 250 ms parked; a flight
-  that scales or rotates paints in place every frame. Promoted, the browser rasterizes once
+  that scales or rotates paints in place every frame. The player's CAMERA (`.sl-camera`) is a
+  compositor layer at all times (`will-change: transform`, 2026-10-03): a wrapper promoted
+  mid-slide made Chromium squash every later sibling it overlapped into composited layers, and
+  text there flipped LCD → grayscale anti-aliasing on the first frame and back on the last — a
+  whole-slide text shimmer at both ends of every transform (≈1,100 px² of change beside a 13 px
+  word morph; 1.8 / 0 with the layer). Stage text therefore always renders as it did mid-flight.
+  Promoted, the browser rasterizes once
   and moves the raster at float precision — the only way moving TEXT glides (in-place glyphs
   snap their baseline to device pixels) and heavy plots move without repainting; demoted at
   rest, everything is crisp. Two measured refinements: a gliding node is ARMED at rest with a
@@ -1184,16 +1419,46 @@ Persistence invariants (all machine-checked — do not weaken):
   bridge reproduces today's Become exactly. Part `paint.strokeWidth`/`dash` are STAGE px:
   declared × `fs` × sqrt(sx·sy) (the outer viewBox→box scale), i.e. declared × contentScale
   × px-per-user-unit at any box size (4/3 for a matplotlib pt viewBox), pinned against the
-  live computed stroke × screen-CTM scale. Text is a box-only crossfade target: explicit
-  SVG bounds/textLength are used when present; otherwise its anchor is retained without
+  live computed stroke × screen-CTM scale. Text INSIDE A PLOT is a box-only crossfade target:
+  explicit SVG bounds/textLength are used when present; otherwise its anchor is retained without
   guessing glyph metrics. The hand-off clone renderer measures text once with live
-  `getBBox()`. Plot `view` data uses the shared projection kernel before stage mapping;
+  `getBBox()`. A text ELEMENT becomes letter outlines when `GeometryCtx.glyphs` is supplied
+  (the text-morph paragraph below). Plot `view` data uses the shared projection kernel before stage mapping;
   spines remain fixed while guides follow the DOM writer's data coordinates/fading.
   `plotStageMapping` factors that same viewBox/crop/flip/placement mapping for axis
   fits used by data pairing. A rotated plot cannot supply a stage-axis-aligned fit:
   correspondence falls back to spatial/tile pairing, preserving visible geometry.
   Gates: `verify-target-geometry` (linkedom plus core parity) and
   `verify-target-geometry-browser` (real renderSlide/Chrome CTM, pure tier).
+- **Text animates by content, not by fading** (oct2 W3, 2026-10-02). A text rewrite (Change, a
+  text Consume, a hand-off between two whole upright texts) is `contentPlan` mode `textMorph`.
+  Only a pure digit change keeps the in-place count-up. `slide/textMatch.ts` (pure) matches
+  words in five passes: exact LCS, folded LCS in gaps, reorders by content, digit count-ups,
+  then character blocks between close leftover words (policy and caps are pinned constants).
+  It cuts runs at visual lines and style segments, glues a fading suffix to its stem's glide
+  (`with`), and owns the windows (`textMorphTimeline`). `player/textMorph.ts` measures both
+  endpoints by rendering them once through the serializer, using `getStartPositionOfChar` /
+  `getExtentOfChar` mapped through SVG white-space collapsing. It never guesses metrics. Each
+  span is a `<svg><text>` clone on a pre-armed, promoted, capped layer, so glyph baselines move
+  sub-pixel. Endpoints show the A / B layers. Rules learned:
+  (1) inside the Change wrapper the span layer is COUNTER-SCALED by the wrapper's composite
+  scale, so it is in stage px (otherwise text stretches with a changing box, the old crossfade's
+  visible artifact); (2) a text morph or glyph morph must NOT run `applyTextLayout` on the
+  per-frame content. Re-hugging the stepped text made the box jump at 0.5 and squashed the B
+  layer at rest. The endpoint render instead uses `layoutForMorph`, which wraps but keeps the
+  authored box. Text ↔ drawn shape flies LETTER OUTLINES: `GeometryCtx.glyphs` (player
+  `glyphProvider.ts`), placed at measured baselines, counters keyholed (`text/glyphOutlines.ts`).
+  A filled shape splits by AREA into reading-order strips (`correspondence.sliceIntoLetters`);
+  cutting its outline into open pieces dropped the fill at t = 0+. The live shape is held over
+  the seams for 15 % of raw progress. Fonts come from ONE registered loader per host:
+  `registerGlyphFonts` (GUI: `fonts:lookup` → `text/fontFiles.mjs`; export/embed:
+  `payload.glyphs`, baked by `gatherPayload` for exactly the morphing characters). The resolver
+  walks the CSS stack like the browser. It STOPS at app-served families (`BUNDLED_FAMILIES`:
+  Gelasio is variable WOFF2 → boxes), because the browser paints those and never falls through
+  to the system serif. No readable outline → rounded glyph boxes that crossfade into the text,
+  diagnosed through `CompileOptions.glyphStatus`. Measured: glide Δx sd 0.015 stage px/ms (a
+  plain move is 0.017); landing ≤ 0.12 stage px (Skia's ¼-device-px glyph quantum, the same
+  class as a plain text move); cold first seek ≤ 35 ms. Gates: `group:text-morph`.
 - **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
   **Highlights** (Alt+A). CLI `highlights` / `add-highlight` and MCP `list_highlights`,
   `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
@@ -1385,22 +1650,61 @@ Persistence invariants (all machine-checked — do not weaken):
     `applyPartStyle`, hide (`x`), nudge, B/I/U, the menu, the Inspector, Animate — fans out
     over the list in ONE commit.
   - **X-ray (`Xray.svelte` + `xray/buildXrayTree.ts`).** Rows multi-select (click, Ctrl/⌘,
-    Shift-range, Ctrl+A, Shift+↑/↓); double-click or Ctrl+Enter re-roots; `x` hides the whole
-    pick (any shown → hide all); `r`, Escape or the Alt+R chord close. Several selected plots
+    Shift-range, Ctrl+A, Alt+A = every search result, Shift+↑/↓, and a press-and-sweep over
+    rows — Ctrl/⌘ at the press adds; the click ending a sweep is swallowed for one task only);
+    `a` widens the pick to its siblings (first the same role+label under each sibling of the
+    parent — X axis › Tick marks → Y axis › Tick marks — then, when that adds nothing, every
+    child of the parent); `f`, like Enter, shows properties; double-click or Ctrl+Enter
+    re-roots; `x` hides the whole pick (any shown → hide all); `r`, Escape or the Alt+R chord
+    close. While a colour scale's palette list is open the panel widens to 640 px (CSS
+    `:has(.cmappick)`; the ResizeObserver re-clamps it) and only `.tree` yields height. Several selected plots
     open ONE x-ray rooted at `{kind:"elements"}`: `commonPartRows` lists parts whose id AND
     role agree across every plot (`common:<partId>` rows fan out to all of them), then each
     plot's tree. Slide registers `xrayAnimate` (`xray/animateHook.ts`) so **Animate selected**
-    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change · 5 Appear from · 6 Animate like) routes ordinary appearance picks through the
+    (`m` since 2026-09-30, when `a` became select-siblings; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change · 5 Appear from · 6 Animate like) routes ordinary appearance picks through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
     Reopening follows the full plot selection even when a primary drilled part exists.
+    **The Become picker (2026-10-02, `src/shell/modes/slide/pick/`) owns Become, Appear from
+    and Animate like** — one temporary mode: `pickState.svelte.ts` (the `BecomePicker` state
+    machine: `pick` / `add` sub-states, keys, X-ray sink, Add-mode id diff), `pickModel.ts`
+    (pure: ordered units, toggle/conflict law, units → refs, `composeDestination`, chips, the
+    fully-inside marquee law with data preference, `widenParts`; `verify-become-picker.ts`),
+    `stageHit.ts` (DOM: hit node → unit through `resolvePartId`/`isScaffoldPart`, rects scoped
+    to the element's wrapper, stage coords), `PickOverlay.svelte`, `BecomeBar.svelte`. While
+    picking the overlay claims canvas presses in the CAPTURE phase on `.canvas-wrap` (rulers,
+    guides, Space/middle pans, the wheel and non-Select tools pass); Canvas's `picking` now only
+    suppresses its own hover box, deep-part hover and caliper. The hover unit is the finest
+    meaningful one (a plot's semantic leaf — scaffold means the whole plot — or a group member);
+    the bar names it with `refLabel`. Outlines live in stage coordinates under ONE transformed
+    group (a pan rewrites one attribute) and the frame comes from `presentationViewport` math,
+    not a DOM read per frame. The mode accent (`--c-pick` ring + 22 px halo + 6 % backdrop dim
+    on `.pick-frame`, one ≤ 220 ms entry, then rest) is the ONE scoped exception to the no-glow
+    rule, pinned by `verify-become-picker-gui.mjs`. The editor selection is cleared while
+    picking and restored on cancel; other selection routes (Layers, Ctrl+A) add to the pick.
+    Double-click reads the platform click count (`click.detail`), never a timer. Drawing,
+    Ctrl+P and Alt+G enter Add mode: every element created meanwhile joins the pick (one unit
+    per element) — drawing no longer confirms. X-ray parity: `xrayPickSink` receives every
+    user-driven row pick (`applySelection`); the picker replaces only the units the X-ray can
+    show (its seeded rows and its own picks — series members have no rows), and Space (or `b`)
+    in the X-ray confirms the whole pick; on the canvas Space or Enter confirms (owner,
+    2026-10-03 — `b` ARMS Become there now, so it is not a confirm key). The `a` rule is ONE function, `xray/buildXrayTree.ts widenToSiblings`,
+    generic over X-ray rows and plot part-tree nodes. Several separate objects compose W1's
+    `TargetRef.members` set through `normalizeRef` when it exists, else the pick refuses with a
+    toast (never a ref an older `becomeTransform` would read as "the whole first object").
+    While Become is armed, `xrayBecomeSource` names the waiting source. Escape (Add mode / the
+    X-ray first) or slide/step changes cancel. The pick commits one ref through `becomeTransform`
+    or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
+
     Slide's one `pickState` owns Become, Appear from and Animate like. While Become is
-    armed, `xrayBecomeSource` names the waiting source and `b` confirms the picked destination
-    rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
+    armed, `xrayBecomeSource` names the waiting source and Space or `b` confirms the picked
+    destination rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
     Canvas's view-only `picking` allows Shift+Ctrl/Meta part picks without starting a drag;
     `EditorCanvasPresentation.highlight` accepts a list so every accumulated part stays lit.
     Escape or slide/step changes cancel. The pick commits one ref through `becomeTransform`
-    or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
+    or its `appearFrom` twin (several destination picks compose ONE set via
+    `composeDestination`, group picks expanded; several Appear from… SOURCE picks write one
+    hand-off each — a merge — in one `commitDeckLive`), then selects the track's After endpoint. Design retains the
     compiler's future hand-off destination visibility while ordinary appearances stay editable.
     Inspector retargeting starts from `trackRef`, preserving the source's part/selector binding.
     Auto-animate the rest (post-pick toast and Destination row) calls the ONE
@@ -1549,17 +1853,30 @@ Persistence invariants (all machine-checked — do not weaken):
     at exactly 16×.
   - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
     After 1.5 s of quiet and an idle slot, eligible mounted scenes (≤20k nodes) are
-    serialized in world units and rasterized once to PNG. Caps are 4096 px / 3 MP
-    INCLUDING device scale. The fully invisible resting image becomes visible only
+    serialized in world units and drawn once into a 2D canvas that IS the proxy
+    bitmap (2026-09-30: `canvas.toBlob` → PNG blocked the main thread 24–81 ms on a
+    synchronous GPU flush/readback; the hosted canvas is rasterized by the GPU
+    process). Caps are 4096 px / 3 MP INCLUDING device scale for the sharp region
+    (view ± ½ host); a coarse whole-mounted-scene canvas (≤1 MP) from the SAME
+    parse sits behind it, so a zoom-out from deep zoom stays covered. A lost
+    canvas context drops the snapshot. The serializer must emit XML: `innerHTML`
+    writes U+00A0 as `&nbsp;`, which made every snapshot of a matplotlib scene
+    fail to decode (no proxy at all, silently) until 2026-09-30. A re-cull
+    during a proxied burst does not end the proxy by itself; a changed mounted
+    set changes the scene key, and the key check ends it in the same flush. The fully invisible resting image becomes visible only
     while its scene key and world coverage are valid. It shares `.scene-clip` with
     the live SVG, including Slide camera clipping. The key includes model/plot
     revisions, mounted set, presentation, grid and editing chrome. Check coverage
     throughout the gesture; edits or escaping its bounds restore the live scene
     immediately. Above the density cap, during capture, or without a current image,
     use live rendering. Cancel queued/async captures on changes, pane hide and teardown.
-    Ordinary canvas pointer activity also restarts the snapshot quiet interval: hover
-    is interaction, even without a gesture. Defer pending work only; keep an existing
-    valid bitmap and do not promote the live scene for hover.
+    Pointer motion without a gesture does NOT restart or cancel the snapshot
+    (2026-09-30; it used to, and every "move the mouse, then zoom" ran live):
+    only content changes and gestures do. The quiet is 1.5 s after a content
+    change, 300 ms when the change lands as a pointer/wheel gesture cools (drag →
+    zoom is the common flow; keyboard nudges keep 1.5 s — a 300 ms quiet for them
+    put a ~70 ms snapshot after every nudge). The idle callback has a 300 ms timeout
+    after the quiet (real displays postpone idle callbacks on frameless windows).
     Quality refresh compares zoom with the CAPTURE zoom, not the pixel-capped raster
     scale (the latter caused endless idle captures at high DPI). At settle, demote
     the live layer before its repaint and restore sharp content. Copy inherited
@@ -1679,11 +1996,37 @@ Persistence invariants (all machine-checked — do not weaken):
     ColorBrewer / Paul Tol / Project; Shift+Tab cycles, `settings.paletteCollection` opens
     first) and Tab switches its left column to `ColormapPicker` (collections × types, preview
     bars; in "color" mode a hover along the chosen bar previews the colour at that position
-    and a click commits it); `ColorScaleControls` (X-ray Color scales) shows the current map
-    as a bar and opens the picker in "map" mode, filling the palette field with the
-    qualified name; a plot with colour-scaled fields gets a `c colour scale… (X-ray)` action
-    in its menu. Gates: `verify-color-collections.ts` (pure, the bundle + helpers), the
-    collections leg of `verify-fmenu-surface`, the picker leg of `verify-fluxplot03-gui`.
+    and a click commits it); `ColorScaleControls` (Inspector, X-ray, and the F-menu's `colour
+    scale` field — which opens the menu's `"wide"` mode: the editor owns the body, the panel
+    widens to 780 px clamped to the window, `layout="wide"` puts the controls beside an
+    always-open palette list, Esc returns) edits a fluxplot ≥ 0.3.1 plot's colour scales LIVE through
+    `ops.setPlotColorScale` with AxisView's edit-session UX (preview while typing, one undo,
+    Escape cancels) — the picker in "map" mode writes the picked map as its table — and its
+    "Apply to source" writes the complete v2 control and regenerates through
+    `plot/regenerate.ts`; a manifest without `colorScales` keeps the regenerate-only
+    palette/range fields. Its `<details>` BINDS its open state: Svelte 5 re-applies a plain
+    `open={…}` on every model update, which closed the block under a typing user and dropped
+    focus. Gates: `verify-color-collections.ts` (pure, the bundle + helpers), the collections
+    leg of `verify-fmenu-surface`, `verify-colorscale-gui` and the picker leg of
+    `verify-fluxplot03-gui`.
+  - **Live colour scales (plan A7):** `plot/colorScaleDom.applyPlotColorScale(root, manifest,
+    colorScale, elId)` is the ONE DOM writer; every plot host (mount, inlineMarkup, export,
+    slide render, slide transform) calls it BEFORE `applyOverrides` so an explicit per-part paint
+    still wins, and it is idempotent at any frame. It caches per-root bindings in WeakMaps
+    (typed arrays of values, the last colour slot per node) and writes only paints whose slot
+    changed — 6000 elements take ~7 ms per limit change even in linkedom (`verify-colorscale-dom`
+    holds the 100 ms budget) — serialising like matplotlib (transparent → `none`, translucent →
+    `*-opacity`, absent fill = black). It redraws each key's gradient (two stops per LUT entry)
+    and re-places its major AND minor ticks and labels through the guide's `anchors`, with
+    fluxplot's own tick scheme (`plot/ticks.ts`: decades plus 3×10ᵏ under three decades, minors
+    2–9, plain labels), and restores pristine bytes for an absent or identity view. An
+    unresolved colormap name keeps the generated paint and is reported (`unresolved`) for a
+    re-apply. `mount.ts` must list `colorScale` in its re-render signature (`snap`/`sameSnap`/
+    `signature`) — it did not at first, and the canvas stayed put while export recoloured.
+    Slides: `tween.lerpColorScales` interpolates views (log limits in log space, tables per entry
+    in OKLab, kinds / names / extend step at raw 0.5) and the transform host completes absent
+    ends from the manifest (`tweenColorScales`) so "as generated" → edited glides instead of
+    stepping.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -1750,10 +2093,10 @@ occurrence namespace. Every beat requires an explicit advance; mid-flight Next s
 current beat. Do not change Present's default auto/with-prev behavior. Editor widgets retain
 transient beat IDs through prose edits, width changes and viewport disposal; full document
 loads reset them. `embedDocumentRuntime.ts` supplies the compact, isolated HTML host.
-`embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
+The live preview's srcdoc serves 3D models by reference: `previewModelClient.ts` (in the document) asks `previewModelBridge.ts` (in PreviewPane) for worker frames, so no preview render carries GLB bytes or the model runtime; exports inline fresh bytes. `embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
 PDF/Word use step 0; the print window requires no script. Posters embed their fonts.
 
-Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this). Its
+Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this); a gate that reaches `deckPdf.ts` or `embedAssets.ts` runs it first itself, because a fresh checkout has no `.generated/`. Its
 runtime bytes and exact CSP hash are generated together; Vite and Electron consume that
 hash without adding unsafe script sources. Browser assets keep the optional model IIFE
 separate. CLI/MCP resolve `embedAssets.ts` to the Node adapter, reading the prebuilt
@@ -1767,6 +2110,28 @@ autosave awaits it before taking its snapshot/baseline. Typing remains live, and
 buffer saves after restoration without a false divergence conflict. Flush included live buffers
 before acquiring the lease and release it in `finally`.
 
+**The source line folds to a chip** (2026-10-02, owner): off-caret, an embed's raw
+`![](…){.flux-slide …}` line reads `▷ <deck title> · <slide name>` (`flux-embedchip slide`,
+the figure chip's CSS family). That is the player footer's exact text (`embedPlayer.ts`;
+"Deck 3 · Slide 4" are default names), with `Slide <position>` for an unnamed slide; the
+position rides the tooltip. The fold is a
+ViewPlugin inside `slideEmbeds()` that reads the block field's entries, so it folds exactly
+the lines that carry a player; chips.ts skips `.flux-slide` lines. Same rules as the figure
+chip: inline atomic replace from indent to line end, revealed when a selection touches the
+line, the block field never rebuilt for the selection. The feel contract also holds:
+reveal changes no height, and every line costs one vertical keypress. A full source runs
+about 180 characters and would wrap, so a REVEALED line elides its long values (caption,
+path, anchor id, deck and slide ids: `slideSourceSpans`) to `…` until a selection touches
+each one. That gives `![](…){#… .flux-slide deck="…" slide="…" width=50%}`, one row, and
+every character stays real, editable source. Labels resolve synchronously from
+`science/slideChipCatalog.ts` (one per editor: a deck is read on first sight and re-read on
+repository invalidation, the old entry answering until the new read settles, so there is no
+per-keystroke IO and no fallback flash; `Slide <short id>` while pending, dimmed
+`unresolved` when the deck or slide is missing). A prose keystroke costs zero chip builds,
+even when the block field re-scans (entries compared by span + source, else mapped);
+`paperPerf.slideChips` counts builds. The player is mounted in a `display:flow-root` host,
+because CodeMirror measures a block widget's border box and the shared stylesheet's
+`margin:16px auto` would otherwise desync the height map (§9).
 The `inline-slides` group covers core, editor, lifecycle and scale. Build-dependent
 `verify-slide-embed-export.mjs` renders actual Quarto HTML/PDF/Word and opens HTML offline;
 `verify-slide-embed-electron.cjs` checks the built app, native input, watchers and PDF IPC in
@@ -1852,7 +2217,12 @@ library first-keystroke 177ms (the 150ms debounce above). Figure was remeasured 
 the production harness gates actual key-to-paint at 31.9ms p95 for 1,600 mounted objects and
 34.8ms in the 5,000-object fixture (3,760 visible elements mounted, 47 Layers rows). Transient
 Figure drag measured 5.4ms p95 in the dev scale gate; dev commit tracing remains distinct from
-production latency. Figure and Paper were remeasured 2026-09-16 on the neural-populations
+production latency. By 2026-09-29 the native gate had regressed to 85.6 / 118.1ms p95
+(1,600 / 5,000; red on origin/main too): every edit re-rendered all 3,760 mounted elements
+and re-ran their project-store `$:` dependencies (the two Svelte-legacy traps in §9). With
+`ElementSlot` and branch-local store reads it reads 38.6 / 47.5ms p95 (1440×1000 window at
+DPR 2 on the 6144×3456 + 5120×2880 desktop; the gate sizes its own window, so the huge
+displays were not the cause). Figure and Paper were remeasured 2026-09-16 on the neural-populations
 example (21 plots, 14.8k mounted plot nodes, production bundle, `scripts/perf/input-probe.cjs`,
 Paper visited first then Figure): trackpad pan 50–110 ms of main-thread time per 1.6 s burst
 with zero long tasks (was 630 ms and 47% busy), hover sweep 55 ms (was 510), twelve rapid
@@ -1863,6 +2233,18 @@ with the live scene frozen (was 780–930 ms at 33 ms; the settle fold is one 55
 phase with zero long tasks (scrolling was 60–130 ms tasks). Slide mode measures the same as
 Figure. The native Electron key-to-paint gate stays the production oracle for edits. Reader open / project open / whole-doc find are 1s-class navigations and
 within budget. Update these measurements when the corresponding workflow is changed.
+Remeasured 2026-09-30 on the owner's `responsivity_testing` canvas (6 plots incl. a 3,143-node
+hexmatrix, production bundle, headless 1600×1000, `scripts/perf/input-probe.cjs --target=… --phases=
+dragHeavy,altDupDrag,idleAfterDup,resizeHeavy,idle,panSmall,zoomFast`, three-repeat medians —
+record in `notes/perf_figure_responsiveness_2026-09-30/README.md`): drag 262–303 ms of task per 2 s
+at 16.8 ms p95 (was 317–351); Alt+Shift duplicate-drag 367–391 ms with one ~75 ms mount task (was
+1588–1619 with 217–283 ms stalls); the 3 s after any edit ~50–95 ms (was 870–1190); corner-handle
+resize of the hexmatrix ~500 ms with one ~85 ms release render at 16.7 ms p95 (was 1871 at 200 ms
+p95, ~7 fps); pan 55–80 ms; a ctrl-wheel zoom burst after a ≥ 1.5 s pause 93–116 ms with 8–9 ms of
+layout on the zoom proxy (was 303–374 with 113–133 ms of live SVG relayout; the proxy had never
+decoded on this project). The remaining hitch class is a synchronous 3k-node plot mount (~60–85 ms:
+the duplicate's copy, the resize/crop release render, a cull re-mount inside a wheel event), plus the
+~75 ms proxy re-capture 1.5 s after an edit and the live zoom that a burst inside that window still gets.
 
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
@@ -1882,7 +2264,11 @@ distinction.
 Run the hermetic runner from the repository root; never invoke a verify `.ts` directly.
 
 The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A new verify script
-that isn't in the manifest doesn't exist.** Tiers:
+that isn't in the manifest doesn't exist.** Every tier or group member also
+needs an `execution` contract; the runner refuses to PLAN a whole tier when one member lacks it
+("Missing/invalid execution contract: …" before any gate runs — this aborted `--tier pure` for every
+worker on 2026-10-02 after two 09-30 gates landed without one). `verify-manifest-contracts.ts` (pure)
+turns that into an ordinary red check using the runner's own validator. Tiers:
 
 - **pure** — hermetic Node/tsx, the `npm test` gate. Run: `node scripts/run-verifies.mjs --tier
   pure --jobs 4` (must stay green at all times; current membership is in the manifest).
@@ -1938,6 +2324,13 @@ that isn't in the manifest doesn't exist.** Tiers:
   children stopped: confirm the final summary before starting another cohort.
   An exact-path entry must retain the regression groups of the broader entry it supersedes:
   pathMap uses the first matching entry, not the union of all matching entries.
+  The manifest round-trips through `JSON.stringify(m, null, 2)` byte-identically, so a three-way
+  STRUCTURAL merge (parse base/ours/theirs; union tiers/groups/execution; insert theirs-new pathMap
+  rules after their predecessor) is the safe way to merge it — never re-sort `execution` (the block is
+  not alphabetical; a sort is a 3,500-line diff). Never run gates against a worktree whose dev server
+  is serving a merge in progress: conflict markers break "entered Slide mode" in every UI gate and
+  the reds are artifacts. `pkill -f <pattern>` matches the shell running it (like `pgrep -f`): kill by
+  the port owner (`ss -ltnp`) instead.
   Merging two branches' manifests: resolve `verify-manifest.json` structurally (three-way,
   keyed by script name and `glob`) and keep each side's new pathMap rules anchored to their
   shared neighbours; appending one side's rules after the other's lets a broad rule shadow a
@@ -1987,6 +2380,10 @@ headless path again on `windows-latest` as `test-windows` — both of the latter
 (`continue-on-error`, promotion rule in §10). A gate that is green on Linux and red on Windows
 is the reason the Windows job exists; read §9's Windows entries before touching the gate.
 
+Every script named in a tier needs an `execution` contract in the manifest. One missing
+contract aborts `--tier pure` before anything runs ("Missing/invalid execution contract"). This
+happened on `slides-oct2` @ 2541dc58 for `verify-fig-source-cache.ts` and
+`verify-resize-preview.ts`, fixed on `slides-oct2` by `ab285a7e`. Add the contract with the tier entry.
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
 why); child processes are owned by `TestProcessScope` (`scripts/lib/testProcess.mjs`). Node 22 is
@@ -2232,6 +2629,22 @@ Run it through the hermetic runner; never validate a migration on real projects.
   mutation that would accidentally trigger recomputation. F03 is fixed and gated by
   `verify-figure-editing-gui.mjs`.
 
+- **A project root must be promoted in main BEFORE `currentProject` changes.** Its subscribers
+  read project files at once (the annotation store reads `.meta/feedback.ndjson`). `enterLoaded`
+  used to open with a bare `stopProjectWatch()`, whose `watchRoot(null)` cleared the pending
+  root, so every re-open of a project with a feedback ledger toasted "refused path outside
+  project/app roots" (2026-09-30). `startProjectWatch(root)` now runs first. Reproduce guard
+  refusals only with a project OUTSIDE `app.getPath("temp")` and userData: both are always
+  allowed, so a `/tmp` fixture can never fail (the probe that "could not reproduce" did exactly
+  that). `~/.config/flux/diagnostics/events.json` timestamps PATH_DENIED refusals.
+- **Chrome delivers a boundary event late when DOM re-renders under a still pointer.** After a
+  search filter swaps the rows, the `pointerenter` for the row under the cursor arrives with
+  the NEXT pointer event — the press — carrying `buttons=1`. A sweep-select that trusts any
+  entered-with-button event mistakes a plain click for a sweep and swallows it; the X-ray only
+  counts entering a DIFFERENT row than the pressed one.
+- **A click that ends on another element fires on their common ancestor, not either row.**
+  A "swallow the click that ends a sweep" flag therefore may never be consumed; clear it at the
+  end of the task (`setTimeout`) rather than waiting for the click.
 - **Keep-alive modes can share accessible labels.** Scope browser controls to the editor
   under test and check `elementFromPoint` before pointer gestures. An unscoped sidebar
   selector in `verify-figure-controls-gui.mjs` found Paper's hidden handle and dragged the
@@ -2264,6 +2677,18 @@ Run it through the hermetic runner; never validate a migration on real projects.
   per frame under pan.
 - A `<details>` inside a control that rerenders mid-gesture must bind its `open` state, or
   the rerender collapses it under the pointer (the 3D Shape sequence block did).
+- **Per-element render cost is O(mounted) unless something gates it.** A legacy `{#each}` item
+  holding an object is "changed" every time its list is recomputed (`safe_not_equal` treats any
+  object as unequal, even itself), and the in-place model makes every figure-scoped edit
+  recompute its figure's list — so each keystroke re-rendered every mounted element.
+  `ElementSlot.svelte` (runes) is the scene's render boundary: it passes an element on only when
+  its identity or JSON content changed; `perfCounters.elementRenders` + `verify-scale-figure`
+  pin one render per one-element nudge. Keep new per-element rendering behind it.
+- **A store read in a per-element `$:` subscribes every instance.** `$: x = cond ? f($project) : null`
+  lists `$project` as a dependency even when `cond` is false, and `legacy_pre_effect_reset`
+  re-runs every `$:` dependency of the component when any of them changes: 3,760 elements ×
+  4 statements per project edit. Read the store inside the branch that needs it
+  (`{@const imgDisp = … $project …}` in Element/PlotElement).
 
 **Derived model fields (figure families):** since 2026-08-04 a figure's `name` is DERIVED from
 family identity — every load runs `applyFamilyNumbers`, which rewrites `name` from
@@ -2327,6 +2752,40 @@ days (probe geometry like `width` instead).
   actual tools before launching an isolated attempt. CI provisions Quarto for both the
   bundle and Paper UI jobs, and TeX for the PDF bundle gate. Keep artifact assertions on
   capable machines; never exit successfully merely because an export tool is unavailable.
+- **Electron 43's npm package has no install hook** (2026-10-03). `npm ci` leaves
+  `node_modules/electron/dist` empty and the first `require("electron")` downloads the binary
+  ("Downloading Electron binary..." in the middle of the hermetic pure tier). Every workflow
+  fetches it explicitly after `npm ci` (`node node_modules/electron/install.js`). A fresh
+  developer checkout gets the same lazy download on first launch.
+- **Ubuntu 24.04 runners refuse Electron's sandbox** (2026-10-03). AppArmor's
+  `kernel.apparmor_restrict_unprivileged_userns=1` plus an npm-installed (non-setuid)
+  `chrome-sandbox` kill Electron on a signal: the 3D poster worker reported only "exited null".
+  The CI and release jobs `sysctl` it to 0 (developer desktops already allow it).
+  `FLUX_ELECTRON_NO_SANDBOX` does NOT help here: it reaches launches that go through
+  `testProcess.mjs`, not the poster worker that product code spawns. The worker's error now names
+  the signal and Electron's last stderr line, because callers keep only the first line.
+- **The glyph-outline gates need msttcorefonts** (`verify-glyph-outlines`,
+  `verify-text-morph-browser`, `verify-slide-export-transform`; 2026-10-03). They read the
+  reference workstation's Arial/Georgia files; without them, letter flights fall back to
+  glyph boxes (6 paths instead of 7 for "Optics"). The Linux CI/release jobs install
+  `ttf-mscorefonts-installer` and fail the step if the download did. The EULA question is
+  `msttcorefonts/accepted-mscorefonts-eula`; the widely copied `accept-…` key preseeds nothing,
+  and the package then skips the download with only "user did not accept" in the log.
+  `verify-glyph-outlines` hardcodes the Debian paths, so it is still red on macOS/Windows.
+- **Pure-tier timing budgets are relative to an in-process control** (2026-10-03). The
+  shared 4-vCPU runner at `--jobs 4` measured 107 ms for a 25 ms plan and 8 ms p95 for
+  0.9 ms. `verify-correspondence` bounds a cache-miss plan at 8 × its unavoidable
+  key + clone (best of five each, mutation-tested: outline planning restored = 15×), and
+  proves a hit by object identity. `verify-target-geometry` keeps the B1 spec's 5 ms,
+  scaled by the cold-query median over its 2.2 ms reference. Don't interleave warm and cold
+  samples: parsing fresh roots between warm samples doubled the warm p95 through GC.
+- **In HTML fullscreen, native Chromium spends Escape on leaving fullscreen and never
+  delivers the key** (Electron `sendInputEvent`, a real keyboard). Present therefore closes
+  on a `fullscreenchange` it did not request (its own F toggle and teardown set a flag),
+  unless a shell modal owns the keyboard. Puppeteer's CDP Escape in headless Chrome IS
+  delivered and leaves fullscreen alone, so browser gates simulate the native exit with
+  `document.exitFullscreen()` (`verify-slide-present-gui`); only the native slide-scale
+  gate presses the real key (2026-09-29).
 - **A dismissed toast is still in the DOM for its fade** (`Toasts.svelte`,
   `transition:fade` of `DUR.quick` = 200 ms). "Gone after one paint" fails every time;
   wait for the node to leave with a timeout well under the 3.5 s info expiry, so the check
@@ -2366,6 +2825,11 @@ days (probe geometry like `width` instead).
   (`process.platform === "darwin" ? "Meta" : "Control"`); the same applies to the several
   ui gates that press `Control` for Ctrl+Z etc. — those work only because keyboard.ts reads
   `metaKey || ctrlKey`.
+- **Mac keyboard gates must use native editing semantics.** CodeMirror's document-end
+  chord is Command+Down on macOS (Control+End elsewhere). Headless Chromium CDP may send
+  Command+A without selecting input/textarea text; pass Puppeteer's
+  `{ commands: ['selectAll'] }` with the keypress on Darwin. Keep real typing and saved-byte
+  assertions, and verify the caret reached document end before export-recovery input.
 - **`spawn("npm", …)` needs `shell: true` on Windows** — there is no bare `npm` executable,
   only `npm.cmd`, so an unshelled spawn dies with `ENOENT` (measured: unshelled ENOENT,
   `shell: true` exit 0). `run-verifies.mjs` hit exactly this starting its own dev server: the
@@ -2686,6 +3150,18 @@ dependency. This work does not qualify either macOS artifact; run the packaged s
 on each target architecture before release. PDF snip/text native dependencies remain
 outside this PNG packaging change.
 
+**Generated validators and browser probes (Oct-2):**
+
+- **A JSON-schema `minLength` crashes every generated validator.** Ajv standalone emits
+  `require("ajv/dist/runtime/ucs2length")` for it, and `validators.gen.js` is an ES module, so
+  every importer dies with "require is not defined in ES module scope" (it looks like a broken
+  gate run, not a schema edit). Express "non-empty string" as `pattern: "[\\s\\S]"` (as
+  `ghostFrom` does) and grep the regenerated file for `require(` before committing.
+- **`page.evaluate` of a callback with named inner functions fails under tsx** with
+  "__name is not defined": tsx keeps function names through an injected `__name` helper the
+  page lacks. Define it on the page once (`page.evaluate("globalThis.__name = (fn) => fn")`)
+  or avoid named inner `const f = () => …` in evaluated callbacks.
+
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 
 - **T7 retired: camera poses and transform strings must share one geometric path.**
@@ -2802,7 +3278,11 @@ outside this PNG packaging change.
   corollaries: (1) a promoted layer that SCALES is a resampled raster (soft while growing,
   then a sharpen pop on settle) — scaling/rotating flights stay un-promoted and paint in
   place; (2) nothing may REST promoted (a fractional offset stays slightly soft and text loses
-  LCD AA) — endpoints demote synchronously and a parked scrub cools after 250 ms. The cool-down
+  LCD AA) — endpoints demote synchronously and a parked scrub cools after 250 ms; the flip
+  side (2026-10-03): a promotion ALSO drags every overlapping later sibling onto a composited
+  layer (Chromium's overlap squashing), so unrelated text on the slide lost LCD AA for exactly
+  the flight and snapped back at rest — hence the camera is one permanent layer (§4) and text
+  AA never changes. The cool-down
   is a single `setTimeout`, never a frame callback: playback owns the ONE animation clock
   (`verify-slide-timeline` counts scheduled frames). (3) Chromium's "raster translation": a
   layer it does not consider animating is rastered with its fractional offset baked in — at
@@ -2869,6 +3349,25 @@ outside this PNG packaging change.
   nothing on the element; `<svelte:window on:keydown>` handlers fire in mount order
   (FluxFigMenu before Xray in FigureMode), so a handler that `stopImmediatePropagation()`s
   must guard on its own open state (`$fluxFigMenuOpen`).
+- **"Painted" in a gate means visible AND opaque** (2026-10-02). Several slide gates counted
+  a `<text>` as painted unless an ancestor had `opacity: 0`, the old crossfade's only hiding
+  mechanism. Layered drivers (the outline morph, the text morph, the glyph morph) hide idle
+  layers with `visibility: hidden`, so those gates read future text as painted. Check computed
+  `visibility` too, and when an SVG group carries the `visibility` attribute, check the children's
+  computed visibility. Do not trust their opacity attributes.
+- **opentype.js resolves to two different builds**: bundlers (Vite, esbuild) take its ESM
+  `module` (named exports only), Node/tsx take its UMD `main` (a CommonJS namespace, so named
+  imports fail with "does not provide an export named 'parse'"). Import the namespace and fall
+  back to `.default` (`text/glyphFont.ts`). Keep the parser out of `export/runtime.ts`'s import
+  graph: exported decks read baked records (`verify-text-morph-browser` greps the HTML).
+
+- **A "surface X owns this key" check needs a positive control.** Toggling the X-ray re-syncs
+  the canvas selection, which clears the animator's track selection, so an Alt+A-while-X-ray
+  check passed with nothing selected. Re-select after the toggle and repeat the same dispatch
+  with the surface closed (`animatorAlignChecks.mjs`). Likewise `findTrack` is deck-wide by id:
+  seeding the same track ids onto a second slide makes slide-scoped ops refuse "not found".
+- **A fresh worktree has no `dist/flux-model3d-*` runtime** (gitignored), so
+  `verify-model3d-headless` fails "3D renderer is missing" until `npm run build:model3d`.
 - **Editing sources while the ui tier runs** produces `PAGEERR <Identifier> is not defined`
   in whichever gate is mid-flight (a half-swapped module). Freeze sources, then rerun the
   failed gate alone before believing it.
@@ -2903,6 +3402,16 @@ outside this PNG packaging change.
   `Layerize`). A paused Web Animation driven by `setKeyframes`/`currentTime`, or a native
   scroll offset, layerizes ONCE per gesture. `interact/compositorDrive.ts` is the shared
   answer; `scripts/perf/layerize-lab.mjs` reproduces both behaviours standalone.
+  Element MOVES obey it too (2026-09-30): `interact/sceneTransforms.ts` drives the dragged
+  `<g class=el>` through the drive, and the selection chrome (box, handles, rotate stem) is
+  drawn at the gesture-start box inside `.sel-chrome` and rides ONE rigid translate — changing
+  overlay geometry per move re-layerizes exactly like an inline transform write (75 of 75
+  frames before, 12–23 after; `verify-f5-drag` asserts both animations mid-drag and nothing
+  animated or styled at rest). Keep the dragged element PROMOTED for the gesture: a 2D,
+  non-composited move repaints the subtree into the scene layer and re-rasters its tiles every
+  frame (~10× GPU raster). Promotion drags Overlap layers along (19 at fit, 33 at 8.7× on a
+  6-plot canvas) — stable within a gesture under the drive. Find what re-layerizes with
+  `input-probe.cjs --trace` + CSS-scenario combos (`a+b`) and `--layers` for the layer list.
 - **Paint chunks are the unit of layerization cost, and clip-paths make chunks.** matplotlib
   puts the same `clip-path` on nearly every element; each is a chunk; a 21-plot figure is
   thousands of chunks, so every overlay repaint (hover outline, selection box) paid ~10 ms of
@@ -2926,6 +3435,22 @@ outside this PNG packaging change.
   embed on every figure edit, inside the autosave's reply (170 ms). Figures in Paper are
   `<img>`s fed by the idle render queue; widget constructors compute nothing heavier than the
   model box.
+- **A source-line chip never receives its own double-click.** The first click puts the caret
+  on the line, the reveal removes the chip's DOM, and Chrome sends the second mousedown and
+  the `dblclick` to the raw text instead. The figure chip's "double-click to open in Figure"
+  was dead for real users from the start; synthetic `dispatchEvent(new MouseEvent("dblclick"))`
+  tests passed. `chipActivation.ts` arms the action on the first press. One editor
+  mousedown handler fires it on the `detail === 2` press on the same line and document, and
+  swallows that press so CodeMirror selects no word. Gate with real input: down/up, then
+  down/up with `clickCount: 2`, after `scrollIntoView`, and assert `elementFromPoint` hit the
+  chip. Without that check a click on an off-screen chip "passes" a must-stay-put assertion.
+- **A block widget's vertical margins are invisible to CodeMirror's height map.** CodeMirror
+  measures the widget's border box, so `.flux-slide-embed { margin: 16px auto }` put the map
+  32 px behind the DOM per embedded slide. ArrowDown then skipped lines below a slide, since
+  vertical motion mixes the map with DOM coordinates. Tell:
+  `coordsAtPos(l.from).top − documentTop − lineBlockAt(l.from).top` grows by the margin sum
+  after each widget. Use padding, or a `display:flow-root` host that contains the margins.
+  The host is the fix when the stylesheet is shared with an export.
 - **Blink relayouts SVG text whenever an ancestor scale changes.** Each residual zoom tick
   restyles/relayouts every `<text>` (≈300 per tick here) and repaints the scene — ~20 ms per
   tick over 21 plots, independent of the compositor drive; `text-rendering:
@@ -3144,9 +3669,12 @@ outside this PNG packaging change.
 | T29 | Furniture drifts from the WebGL projection | one `orbit.project`; ≤0.5 px marker agreement in `verify-model3d-render-browser.ts` |
 | T30 | Text measured at render time makes engines disagree | anchor-only layout; `verify-model3d-furniture.ts` asserts no DOM or text measurement, `verify-model3d-headless.ts` Paper/Node byte parity |
 | T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
+| T36 | A flight whose last frame is not the destination's own render pops at the handover; a 3D mesh-part destination has no DOM outline to fly to at all | model morphs land on B's own render (`verify-slide-model3d-morph-browser.ts`). A Become into mesh parts is a compiled `crossfade` hand-off: no flight layer, clone or snapshot; `compile.sample` fades the part through its per-part opacity while the player fades the source's DOM on the same clamped curve, and raw = 1 is the landing (`verify-slide-model3d-morph.ts`, `verify-slide-model3d-parts-browser.ts`) |
 | T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
 | — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
-| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); only the GUI save refuses until the file is restored or the element deleted (`figbridge.ts`); `verify-model3d-verbs.ts`. The deck save judges only GLBs the slides still reference (`slideAssetIds`): asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
+| — | Box-axis tick labels pile up when the view looks almost straight down an axis (a ~15 px stub carrying "-1 0 1") | `furniture.ts` `tickLabelsCollide`: when any two of an axis's tick-label boxes (textMetrics width, one font size tall, a word space apart) overlap, its labels hide, and its title if longer than the stub; line, ticks and grid stay. A pure function of the pose, no hysteresis; fluxplot `_tick_labels_collide` mirrors it; `verify-model3d-furniture.ts` near-cardinal sweeps, `tests/test_scene3d_static.py` |
+| — | A slide still depends on its step's mesh-part visibility, not only on the element: without it the Node poster worker, offline-HTML pre-ready posters and CLI PDF/PPTX pictured a part hidden at that step | payload gathering keys each step's still with `partOpacity`; `model3dSvgContext(…, partStatesOf)` (mesh factors in the key, the same states on furniture groups), `resolveModelPosters({ partStates })` and the render spec carry it; a still of one part state never falls back to another state's poster. Cache-only readers (Connect sheets, CLI Paper renders) need that step's own still: the app persists it when it renders one, and `render_model_posters --deck` renders every step still through the shared `slideModelStills` enumeration; `--prune` and the app's idle prune share one live set (`livePosterKeys.ts`: Figure views plus every deck's Design and step stills; the app computes it only when an entry is past the age rule); Connect keys model deck sheets on `projectModelPosterSignature`; `verify-model3d-headless.ts` (actual worker pixels, render → read-only gather, prune), `verify-model3d-slide-export.ts` |
+| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); `verify-model3d-verbs.ts`. The GUI Figure load never locks on one either (a placed one gets its placeholder and a toast); `figbridge.ts` `judgeMissingModels` refuses Save only while a current element places the GLB or a saved deck uses it (`readDeckAssetUses`), and drops an unused missing one from the SAVED index only; `verify-model3d-persistence.ts`, `verify-model3d-gui.mjs`. The deck save judges only GLBs the slides still reference (`slideAssetIds`). Both rules exist because asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
 
 - Names that come from user files (GLB nodes, shape targets) can be `constructor` or
   `__proto__`: keep them in own-key/null-prototype maps and escape them reversibly before Zod
@@ -3157,6 +3685,30 @@ outside this PNG packaging change.
 - A destination preflight does not hold across later awaits. Generators that create a tree
   (`scripts/create-model3d-demo.ts`) build in an owned staging directory and publish the
   finished tree atomically after a final check.
+
+- **A hidden pane's subscriptions are still live (2026-09-30).** The kept-alive Paper mode subscribes to
+  `figRevision` and re-read EVERY fig asset and `.fluxplot.json` manifest of the whole project after every
+  figures autosave (245–418 MB over IPC per save on a 7-element canvas, mostly twice because the fig watcher
+  re-bumps on Flux's own write) — ~1 s of renderer main thread per edit that no JS profile showed
+  (`Receive mojo reply` on ElectronApiIPC). `readFigSource` now caches per path behind a fresh `fs:stat`
+  (mtime+ctime+size+inode; gate `verify-fig-source-cache`). Rule: a mode that stays mounted while hidden must
+  not do work proportional to the project on another mode's edits; check every `figRevision` subscriber
+  (SlideMode `refreshDeckSources`, InboxPanel `loadFigures`) before adding one.
+- **A plot's box is in its mount signature (2026-09-30).** `mountPlot` re-clones the whole plot (importNode +
+  prefixIds + overrides + view + pt-true) when width/height change, so any preview that hands a plot a fresh
+  box per pointermove runs at ~7 fps on a 3k-node plot. Gesture previews for plots must be transient
+  transforms on the live `.el` (move, rotate, and now resize via `interact/resizePreview.ts`) with ONE render
+  at release; `verify-resize-preview` pins the transform math.
+- **HTML serialization is not XML (2026-09-30).** `innerHTML` writes U+00A0 as `&nbsp;`, which is undefined in
+  XML: an SVG `<img>` built from it fails `decode()` silently and the zoom proxy never existed on any scene
+  with a no-break space in a label. Serialize scene copies with `XMLSerializer` (or escape to `&#160;`) and
+  surface a decode failure in the dev counters, never swallow it.
+- **Probe hygiene (2026-09-30):** an editing phase leaves ~1 s of deferred work (autosave, hidden-pane
+  reloads, proxy retake) that lands in the NEXT phase — put `idle` after every edit and never read a pan/zoom
+  number from a phase that follows an edit; multi-scenario runs are confounded the same way (one scenario per
+  process); a real-display Electron launched from a sandboxed agent shell can silently fall back to software
+  compositing (check `gpu_compositing` in runtime.json); on an idle X11-maximized window
+  `requestIdleCallback` never fires (a snapshot scheduled through it waits for the next gesture).
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -3290,6 +3842,21 @@ outside this PNG packaging change.
   refuses to evict a figure whose autosave failed, and the in-memory bridge cannot persist
   `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
   (`verify-xray-multi-gui.mjs`) instead of switching modes.
+
+- **`verify-v020-controls-gui.mjs` is red on main @ 2541dc58** (2026-10-02): its self-contained
+  probe fails at `page.click("summary")` — the `ControlsProbe.svelte` fixture no longer renders a
+  `<details>`; it fails identically on an untouched checkout, so it is not a product regression of the
+  Oct-2 slides batch. Repair the fixture (or the control it probes) rather than skipping the gate.
+- **Plot mount cost (2026-09-30, deferred):** mounting a 3k-node plot is ~60–85 ms of synchronous JS
+  (prefixIds ~21 ms, the projection bind ~17 ms, importNode ~6 ms after the 2026-09-30 diet) and runs inside
+  input events: the duplicate's copy on the first alt-drag move, the resize/crop release render, a cull
+  re-mount inside a wheel tick. Levers, not built: a prefixed-clone cache per asset, the mount sliced off the
+  input event, cheaper prefixIds. Also deferred: Paper loading only the assets the manuscript embeds (the
+  100× fix for the hidden-pane reload), the fig watcher's double `figRevision` bump on our own write, and
+  ANGLE-Vulkan (`--use-angle=vulkan --enable-features=Vulkan`, −32–42 % GPU raster on Wayland/NVIDIA) as an
+  opt-in, and the zoom-proxy capture policy (a capture must not start while a button is down / should wait
+  for a short pointer-still moment, or become incremental — ~7 ms of parse per 1k nodes today). Display facts for this desktop: two Dell 4K panels at 60 Hz that support 120 Hz; native Wayland is
+  the right default (X11 renders 2.56× the pixels through Mutter's downsample).
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -8687,3 +9254,421 @@ gates recorded on September27 fail (Vim toggle, native GUI export recovery, meta
 metadata refinements). Evidence: `test-results/runs/2026-09-29T21-25-11-623Z-87161`.
 The upstream dependency lock reports three npm advisories (ip-address and markdown-it
 moderate; undici high); no dependency versions or gate thresholds changed during sync.
+
+### 2026-09-29 — Figure missing-GLB save, bridged preview models, fresh-checkout gates (Claude Opus 5.5, `fu-figure`)
+**Work:** Deleting a placed model whose GLB is missing now unblocks the Figure save (the saved index drops a registration nothing uses; the store keeps it for Undo); the live Paper preview draws 3D models through the shared worker over a postMessage bridge instead of inlining GLB bytes; two deck-PDF gates generate their embed assets. Pure 360/360, model3d-ui, paper-gate (incl. its Electron member), inline-slides and the affected slide/figure browser gates pass on :1491.
+**Learnings:**
+- A srcdoc that serves content by reference must change when the reference's owner changes: the preview's bytes are identical after a repository invalidation, so without `modelRevision` Svelte never reloads the iframe and a deleted GLB keeps its last frames.
+- Keyboard chords owned by the window stop reaching it once a real click focuses a preview iframe; blur it before pressing (`verify-model3d-embed-gui`).
+- Gates reaching `deckPdf.ts`/`embedAssets.ts` generate `.generated/` themselves (promoted to §4 Inline slides).
+
+### 2026-09-29 — Near-cardinal axis labels + Figure key-to-paint regression (Claude Opus 5.5, `fu-furniture`)
+**Work:** Box axes seen almost end-on now hide colliding tick labels (and an over-long title)
+in Flux and the fluxplot still, one rule on both sides (72/72 swept views agree); goldens
+unchanged, since they hold only exact cardinal views. The native Figure polish gate (red since
+before origin/main ffb511b8) passes again: 85.6 / 118.1 → 38.6 / 47.5 ms p95.
+**Learnings:**
+- Promoted to §9 (Svelte 5 legacy): legacy each items holding objects always re-render, and a
+  store in a per-element `$:` subscribes every instance; ElementSlot is the scene's render gate.
+- A CPU profile symbolicated through the hidden production sourcemaps (`dist/assets/*.map`)
+  pointed straight at Svelte's flush; the Chrome trace alone only showed `FunctionCall`.
+- The native probe's p95 over 18 samples is the maximum, i.e. the first keystroke, which
+  also pays the undo snapshot.
+
+### 2026-09-29 — 3D slide follow-ups: mesh-part crossfade, per-step stills, one-Escape Present (Claude Opus 5.5, `fu-slides`)
+**Work:** A Become into a 3D mesh part now crossfades in place; CLI, offline-HTML, PDF and
+PPTX model stills key and render each step's mesh-part visibility through the Node worker;
+one Escape leaves fullscreen Present; `render-model-posters --deck` renders and `--prune`
+keeps every step still (as does the app's idle prune), and Connect's model deck sheets follow the project poster cache.
+The native slide-scale gate twice missed only the
+morph-plus-eight-ghosts p95 (33 ms, machine shared with other agents' gates) before its
+Escape step; a deleted diagnostic copy of that harness then measured 16.8 ms for both
+segments and closed fullscreen Present with one Escape.
+**Learnings:**
+- Native fullscreen Escape never reaches the page (promoted to §9 CI browsers); a mesh
+  part owns no DOM outline, so a Become into it crossfades (promoted to the §9 T36 row).
+- A dev server that has hot-reloaded many modules failed `verify-model3d-source-gui`'s
+  idle watcher step; a restarted server passed. Restart it before judging such a failure.
+- Under heavy load `verify-fluxconfig` can fail: two concurrent `installLaunchers` in one
+  process share the `flux.tmp-<pid>` name and one rename hits ENOENT. Not fixed here.
+
+### 2026-09-30 — fluxplot 0.3.1 build-preset vocabulary and leaf roles (Claude Fable 5.1, `main`)
+**Work:** Consumed fluxplot 0.3.1 (colour-system plan M1): `autobuild.ts` maps the closed
+animation vocabulary (`grow-from-baseline` → growBaseline, `fade-rise` → fadeRise), honours
+`delayMs` as the track start and `staggerBy` where the player can, builds the colour key with the
+axes, lets bars grow unless the plot says stagger-in and text rise, and resolves a `build.order`
+member id to its owning group (bars never had a build step before). Types gained `memberRole`,
+`delayMs` / `staggerBy` and the `hexbin` / `scatter` field kinds. Shared fixtures regenerated
+from fluxplot (`scripts/fixtures/fluxplot03/`, new `presets.*`). check 0/0, check:headless clean,
+pure 360/360 (the guide edit landed during the cohort).
+**Learnings:**
+- Promoted to §3: the 0.3.1 additive fields, the fixture regeneration recipe, and the
+  member-id → group resolution.
+- `presetForRole` used to force every text role to `fade` BEFORE reading the authored
+  animation, so no manifest hint could ever make an annotation rise; refuse the impossible
+  (draw-on / scale on text), not the whole hint.
+
+### 2026-09-30 — Vendored fluxplot schema, generated plot types, version ceiling (Claude Fable 5.1, `main`)
+**Work:** Colour-system plan F3 (Flux half): `scripts/sync-fluxplot-schemas.mjs` vendors
+fluxplot's manifest + recipe schemas into `src/lib/plot/schemas/` with the source commit and
+generates `types.gen.ts` (json-schema-to-typescript, new dev dependency); `plot/types.ts` now
+derives from it; flux-core validates 0.3+ manifests with the vendored schema (legacy reader
+kept for pre-0.3 / `specVersion` fixtures); `plotTooNew` refuses a >0.x manifest with a clear
+message. Shared fixtures regenerated with `colorScales`. Gate `verify-fluxplot-schema.ts`.
+check 0/0, check:headless clean, pure 360/361 with the one red being `verify-slide-headless-e2e`'s
+inline fixture declaring `schemaVersion: "1"` (a version fluxplot never emitted); corrected to a
+real `0.3.0` shape and green again.
+**Learnings:**
+- Promoted to §3: the vendoring recipe, the derive-don't-hand-write rule for plot types, the
+  legacy/modern schema split, and the colorScales contract summary (incl. the black-fill
+  omission a DOM recolour must handle).
+- A structural `assert.equal` between two parsed copies of the same JSON is an identity
+  check and fails; `deepEqual` for data (the first cut of the new gate).
+
+### 2026-09-30 — Live colour scales (colour-system plan M3: A7.1–A7.8, F2 Flux half) (Claude Fable 5.1, `main`)
+**Work:** Flux paints a fluxplot ≥ 0.3.1 plot's colour scales itself: the pure law
+(`plot/colorscale.ts`, 1998 parity vectors hex-for-hex), the element state `colorScale` +
+`ops.setPlotColorScale`, the one DOM writer (`plot/colorScaleDom.ts`: every data-value element,
+the key's gradient, major/minor ticks and labels; pristine restore; typed-array bindings) in all
+five plot hosts, the editor (`ColorScaleControls.svelte` in Inspector / F-menu / X-ray with Apply
+to source through `plot/regenerate.ts`), the verbs `set_plot_color_scale` /
+`get_plot_color_scales` (figure, Design, `--beat`, `--regenerate`), slide tweens
+(`lerpColorScales` + manifest-completed `tweenColorScales`), lazy full LUT tables
+(`color/colormapLuts*.ts`, external to the deck runtime), and F2's manifest kinds / memberRole
+through `buildPartIndex`, `partKind` and autobuild. Gates: `verify-colorscale-{parity,dom,verb}`
+(pure) and `verify-colorscale-gui` (ui); fixtures under `scripts/fixtures/colorscale/`
+(regenerable from fluxplot by `make_fixtures.py`, with a hermetic stub recipe for the
+regenerate leg). Colour tables regenerated from fluxplot HEAD (its new Flexoki colormap
+collection leads the picker; `verify-color-collections` and `verify-fmenu-surface` updated).
+check 0/0, check:headless clean, pure tier green after three fixes (a stale `dist/flux-cli.mjs`,
+the regenerated flux-context bundle, the five-collection expectation), ui: colorscale-gui,
+fluxplot03-gui, plot-view-gui, fmenu-surface green.
+**Learnings:**
+- Promoted to §3/§4: the colorScale state and write-time table rule, the DOM writer's
+  contract and budget, the tick scheme, the tween completion, `mount.ts`'s re-render
+  signature, the Svelte 5 `<details open>` trap, the F2 role/kind precedence.
+- A pure-tier gate that launches the CLI through `resolveOwnCliCommandsSync` runs
+  `dist/flux-cli.mjs` when one exists — a stale build fails `verify-inbox` against fresh
+  source with a baffling "MCP differs" diff; `npm run build:cli` first.
+- `gen-color-collections --check` is round-tripped from the 32-stop bundle by its gate, so any
+  output that needs fluxplot's full data (the LUT module) must skip that mode explicitly.
+- matplotlib writes a fully transparent paint as `none`; a live writer must serialise the same
+  way or byte parity with a regenerated plot fails on the `bad` colour.
+
+### 2026-09-30 — Colour system, Flux halves of M4 and M5 (B1, B2, B3, F5, F6) (Claude Fable 5.1, `main`)
+**Work:** Re-synced fluxplot's schema (22401c6: style, quality, series colour / image / band,
+overlay stats, notebook recipes) and the fluxplot03 fixtures. Slide plots follow the deck theme
+(`plot/themeDom`, `followTheme`, Inspector toggle, every plot host); one colour for a whole
+series (`plot/seriesColor`, `ops.setSeriesColor`, `set_series_color`, Inspector **Series
+colour**) with `restyle` of a series' whole line / points repainting its legend swatch; **View
+as** (`color/cvd.ts`, `ViewAsToggle`) over the canvas; `get_plot_data` (`plot/plotData`,
+windowed arrays); hover readouts (`plot/readout`) on the canvas deep-hover box and X-ray rows.
+Five pure gates (`verify-plot-theme`, `verify-series-color`, `verify-cvd-filter`,
+`verify-plot-data`, `verify-plot-readout`), two verbs in the golden, user docs (figure, slide,
+semantic-plots, cli). check 0/0, check:headless clean, pure tier green (see the commit).
+**Learnings:**
+- Promoted to §3: the whole colour-system block above (themes, series colour + legend coupling,
+  View as, reading data, readouts) and the two verb-gate traps (`FLUX_MCP_TOOLSET` env, stale
+  `dist/flux-cli.mjs`).
+- linkedom re-serialises a touched `style` attribute without spaces: a byte snapshot of style
+  strings fails after any `style.setProperty`; compare normalised declarations or parsed paints.
+- `feColorMatrix` rows are 5 wide (R G B A offset): a 3×3 padded with one zero yields 17
+  numbers and a silently ignored filter — the gate counts 20.
+- matplotlib leaves a tick path's fill undeclared (default black) and fluxplot therefore tags it
+  `data-ink-fill="tick"`; a theme writer may paint it (zero-area path, harmless) but must skip
+  drawables whose paint is declared `none`.
+- Not every slide host resolves the theme: `verify-slide-handoff-browser` hands `renderSlide` the
+  deck's theme ID string as `ctx.theme`. Anything reading theme colours in the render path must
+  accept an unresolved theme (`themeIsResolved`) and paint nothing rather than throw.
+
+### 2026-09-30 — fluxplot 0.3.2 consumed; M6 Flux halves (C4, C7, B6, F4, F7) (Claude Fable 5.1, `main`)
+**Work:** Vendored schema re-synced from fluxplot 1bc6f6a (spec 0.3.2) with the fluxplot03
+fixtures regenerated and a new `features.*` / `features-b.*` pair drawn from one figure that
+exercises every 0.3.2 payload; `get_plot_data` and the readouts cover fits, densities, steps,
+stems, twin axes, images, the figure block and the opacity channel. Saved part ids resolve
+through `idAliases` (`tree.aliasPartId` inside `resolveTargets`). Twin value axes are their own
+view keys (`PlotView.y2/x2`, `seriesFits`, Inspector rows, `set_plot_view --y2-*`). Live colour
+scales carry the opacity channel (`alphaFor`, fill-/stroke-opacity through every recolour, hex-
+for-hex against the regenerated `hexmatrix-alpha` twin) and plain keys label like
+ScalarFormatter. The axis view re-projects filled marks vertex by vertex and re-ticks the viewed
+axis at rest. Stagger orders by data value / count / index; two keyed plot versions Become each
+other member by member; the auto-build can go panel by panel. Gates: `verify-id-aliases`,
+`verify-plot-view-twin`, `verify-plot-view-filled`, `verify-plot-value-morph` (pure), the
+colorscale DOM gate extended, `verify-plot-view` / `verify-fluxplot03` re-pinned to the new
+behaviour. check 0/0, check:headless clean, pure tier green (see the report in the commit
+range). UI-tier gates not run (no display in this session).
+**Learnings:**
+- Promoted to §3: the 0.3.2 block above (aliases, twins, opacity channel, filled-mark
+  re-projection and re-ticking, value morphs / data stagger / per-panel build).
+- A view applies to EVERY panel of a plot: measure "before" geometry on a restored root, or the
+  other panels' shapes are already re-projected by the view under test.
+- matplotlib's ScalarFormatter gives every tick of a set the same number of decimals and a
+  unicode minus (`_set_format`); a live key that prints `-1` beside a regenerated `−1.0` fails
+  byte parity even when every colour matches.
+- An alias table with leaf targets must not re-alias a current id through its own old prefix
+  (`axis.x.spine.bottom` ↛ `axis.x.spine.bottom.bottom`): check the targets before the prefixes.
+- `insertBefore(clone, template.nextSibling)` in a loop reverses the order; keep a cursor.
+- Known generator gap (fluxplot 1bc6f6a): a figure-legend entry standing for a BAR container has
+  no `series` (bar marks carry member ids, no group id, and `figure_scope` skips them); Flux
+  tolerates the null and the plot-data gate documents it.
+
+### 2026-09-30 — Annotations open race + owner inbox batch: F-menu/X-ray geometry, channel alpha, axis-view keys, timeline snap (Claude Opus 5.5, `main`)
+**Work:** Fixed the project-open race that refused `.meta/feedback.ndjson`. Worked the owner's
+nine inbox items: the F-menu's colour scale opens a wide view (controls beside an always-open
+palette list; panel widens, clamped to the window) and wide palette lists flow into two columns;
+the X-ray widens while picking a palette and keeps its header rows; X-ray `f` = properties,
+`a` = siblings, Alt+A = all results, press-and-sweep multi-select, Animate moved to `m`; the
+armed axis view takes the wheel from anywhere with Space min → max → done; `fillOpacity` /
+`strokeOpacity` across op, schema, both renderers, tween, PPTX, bridge, CLI, F-menu (b/t),
+picker slider and Inspector; the animator's button styles (lost to a `.b, .per-panel` slip in
+3d7717eb) restored; timeline drags snap to the drawn minor grid and resizes snap their end edge.
+**Learnings:**
+- Promoted to §9: root promotion before `currentProject`, `/tmp` fixtures never trip fsGuard,
+  Chrome's late boundary events, and click-on-common-ancestor for sweep guards.
+- A snap grid must be the grid that is DRAWN; an invisible fixed grid (50 ms) under a drawn one
+  (62.5 ms) makes visible lines unreachable. Snap duration drags in absolute time (origin = start).
+- A "no undo entry" result can be correct: re-picking the value the source already has is an
+  identity edit that `finishGesture` rolls back — check the baseline before blaming history.
+
+### 2026-09-30 — Figure responsiveness team: drag / duplicate / resize / zoom lag on a 7-element canvas (Claude Fable 5.1 lead + six Claude Opus 5.5 teammates, `perf/*` → `perf/integrate-2026-09-30`)
+**Work:** Owner: lag while dragging, Alt+Shift-duplicating and quick-zooming in Figure, worst zoomed in,
+on a canvas of six plots. Built a trimmed fixture of the owner's project, extended the input probe
+(`--target`, `--zoomSteps`, `dragHeavy`, `altDupDrag`, `idleAfterDup`, `resizeHeavy`), took a
+three-repeat baseline, then ran six angles in parallel worktrees, each verified by the lead with the same
+battery (record: `notes/perf_figure_responsiveness_2026-09-30/`). Four mechanisms, all fixed on the
+integration branch: (1) the hidden Paper pane re-read every asset and manifest of the project (245–418 MB
+of IPC) after every figures autosave — a stat-validated read cache in `figbridge.ts`; (2) the resize preview
+re-mounted the whole plot per pointermove — plots now ride a transient transform and render once at
+release (`interact/resizePreview.ts`); (3) every drag frame re-layerized (bare transform writes on `.el`
+plus selection-chrome geometry rewrites) — the compositor drive for elements and a rigid chrome translate;
+(4) the zoom proxy never decoded (`innerHTML` → `&nbsp;`), was discarded by any re-cull, lost coverage
+past ~2× on zoom-out, paid a 24–81 ms synchronous `toBlob` readback, and its `requestIdleCallback` starved
+on real displays — fixed in `zoomProxy.ts`/Canvas (XML-safe serialization, cull no longer aborts, a coarse
+≤ 1 MP whole-scene backing, the canvas is the bitmap, a 300 ms idle timeout; pointer motion no longer postpones the
+capture and a pointer/wheel gesture re-arms it after 300 ms while keyboard/agent edits keep the 1.5 s
+window). Still live: a zoom within ~0.6 s of releasing a drag or within 1.5 s of opening a figure; and in a
+fast drag rhythm the ~80 ms capture can land on the next press — the documented follow-up (§10).
+Ruled out with numbers: the JS side of a drag (0.5 ms per event, Chromium coalesces to one move per frame)
+and the display/GPU configuration (no main-thread tax; Wayland already best). Numbers in §6; the plot-mount
+cost is the deferred next lever (§10). Gates: new `verify-fig-source-cache`, `verify-resize-preview`,
+strengthened `verify-f5-drag` and `verify-crop`; touched pure + UI gates green; check 0/0.
+**Learnings:**
+- Promoted to §9: hidden panes' subscriptions, the plot box in the mount signature, HTML-vs-XML
+  serialization, and the probe-hygiene set (post-edit tails, one scenario per process, sandboxed
+  software compositing, `requestIdleCallback` on X11-maximized).
+- A `taskMs` far above `scriptMs` with no long JS is IPC deserialization or Blink lifecycle — read the
+  trace's self time and, for IPC, count `ipcMain.handle` replies per phase (the probes on `perf/save-clone`
+  and `perf/gpu-env` both grew a ledger for this).
+- Two teammates found the same root cause from opposite ends (an IPC ledger vs. a DOM-fingerprint of the
+  runs where Paper happened not to mount) — the cheapest confirmation of a mechanism is a second,
+  independent route to it.
+- `pgrep -f <pattern>` matches the shell that runs it; a `while pgrep` wait loop never ends.
+
+### 2026-10-02 — Paper: slide-embed source line folds to a "Deck 3 · Slide 4" chip (Claude Opus 5.5, `oct2/paper-embed-chip`)
+**Work:** An embedded slide's raw `![](…){.flux-slide …}` line now folds to `▷ <deck title> · <slide name>` (the
+player footer's text) the way a figure embed folds to its name chip. Its revealed form elides long values until the
+caret reaches them, so it keeps the figure chip's contract: zero height change, one keypress per line. It comes from a fold ViewPlugin in `slideEmbeds()` over the block field's
+entries, plus a synchronous per-editor label catalog fed by repository deck reads. Driving it in the app surfaced
+two older bugs, both fixed. The figure chip's double-click never opened Figure for a real user. Every embedded
+slide also desynced the height map by 32 px, so ArrowDown skipped lines under it. Gates: new
+`verify-slide-embed-chip.ts` (pure) and `.mjs` (ui), plus a real-double-click check in `verify-embed-chip.mjs`.
+All were red on base and are green now. `paper-gate` grows to 72.
+**Learnings:**
+- Promoted to §9: source-line chips never receive their own double-click, and block-widget margins are invisible
+  to the height map. The §4 inline-slides body records the chip's design.
+- A gate's "nothing happened" assertion after a click must first prove the click hit its target
+  (`elementFromPoint`). An earlier walk had scrolled the chip off-screen, and the unresolved-chip check passed on
+  a click into the page background.
+
+### 2026-10-02 — The Become picker: a distinct, temporary pick mode (Claude Opus 5.5, `oct2/become-ui`)
+**Work:** Owner ask (Deck 3 slide 3): once Become is chosen, enter a polished mode — a green
+glow on the slide, multi-select by default, a cool hover outline with context outside the slide,
+marquee, Confirm/`b`, an Add mode for drawing or inserting destinations, distinct pick outlines,
+click-to-unpick, X-ray parity. Built `src/shell/modes/slide/pick/` (state machine, pure model,
+DOM hit/rects, overlay, bar) and wired Become, Appear from…, Animate like… and the Inspector's
+retarget through it; SlideMode lost its inline pick code. Gates: new `verify-become-picker.ts`
+(pure, 35) and `verify-become-picker-gui.mjs` (ui, 52); `verify-slide-become-gui.mjs` updated
+for the superseded first-click-confirms and draw-consumes contracts.
+**Learnings:**
+- Promoted to §4: the picker's architecture, the capture-phase press ownership, the scoped
+  glow exception, X-ray ownership of only the rows it can show, the shared `a` rule.
+- A double-click must read `click.detail`; a home-made 400 ms timer turned two quick toggles
+  (pick, unpick) into a confirm. `preventDefault` on `pointerdown` suppresses the compat mouse
+  events but not `click`, so the click still carries the platform's count.
+- Plot part trees hold group MEMBERS only in `targets`, not as nodes or X-ray rows: anything
+  that maps a leaf back to "its row" must take the DEEPEST node holding it (a series and its
+  points group can both hold exactly one leaf), and a sink fed by X-ray rows must not delete
+  leaf picks the tree cannot show.
+- `git diff slides-oct2` maps a worker's changes against the integration branch TIP, which can
+  move (the orchestrator's manifest fix ab285a7e) — cherry-pick such a base fix rather than
+  debug a runner that refuses before running anything.
+
+
+
+### 2026-10-02 — Text animation by content: the glyph-matched text morph and letter outlines (Claude Opus 5.5, `oct2/text-morph`)
+**Work:** Owner ask (Deck 3 slide 4): text Becomes and Changes looked like "sloppy/basic fades".
+Text rewrites now play a Magic-Move-style morph. Shared words glide, including reorders, case
+changes and grown stems ("quick" → "quickly"); the rest fades as reading-order letter waves.
+This covers Change, Consume and text ↔ text hand-offs. Text ↔ shape Becomes fly real letter
+outlines: system fonts over a new `fonts:lookup` IPC, or baked into exports. A filled shape
+splits by area into one strip per letter, and fonts without readable outlines fall back to
+glyph boxes. New gates `verify-text-match`, `verify-glyph-outlines` and
+`verify-text-morph-browser`; six existing gates pinned the old crossfade and were updated with
+evidence. Frames are in `notes/slides_oct2/reports/W3/`.
+**Learnings:**
+- Promoted to §4: the text-morph paragraph (counter-scaled span frame, no per-frame
+  `applyTextLayout`, area slicing, one font loader per host, bundled families stop resolution)
+  and the bridge's plot-text vs text-element distinction. Promoted to §9: "painted" means
+  visible and opaque in gates; opentype.js resolves to two builds. Promoted to §7: a missing
+  execution contract aborts `--tier pure` (two were missing on the base; fixed on slides-oct2).
+- Measure the browser's own glyph positions and never compute them. Spans cloned per substring
+  land within 0.05 stage px of the real text. Positions recomputed from font metrics would
+  disagree with browser shaping at the flip.
+
+### 2026-10-02 — Become into ANY set of things, and many into one (Claude Opus 5.5, `oct2/become-sets`)
+**Work:** Owner ask (Deck 3 slide 2): a rect should become three ellipses the way slide 1's
+rect becomes a plot's points, without grouping anything. Added `TargetRef.members` (an ad-hoc
+destination set) through targets/compile/player/op/schema/CLI(`--to`, `--members`)/GUI
+(several picks compose one set; the "Group these objects first" toast is gone), plus the
+stretch MERGE (several sources → one destination, revealed at the last landing). Watching
+mid-flight frames of the owner's real deck exposed a pre-existing pop in slide 1 too: a filled
+ring tiled into arcs lost its interior on frame 1 — fixed with a travelling fill underlay.
+New `scripts/perf/slide-handoff-strip-probe.mts` films one hand-off of a real project.
+**Learnings:**
+- Promoted to §4 (sets, merge, underlay, pick composition) and §9 (Ajv `minLength` → ESM
+  `require`; tsx `__name` in `page.evaluate`).
+- Look at frames, not just gates: every assertion passed while frame 1 of both the old and the
+  new hand-off visibly dropped the fill. A film strip of the owner's own deck found it in seconds.
+- `slides-oct2` @ 2541dc58 cannot run `--tier pure` as a whole: `verify-fig-source-cache.ts`
+  and `verify-resize-preview.ts` have no `execution` contract (reported; not fixed on this
+  branch). `verify-model3d-headless.ts` needs the gitignored `dist/flux-model3d-runtime.js`
+  (`node scripts/gen-model3d-viewer.mjs`) in a fresh worktree.
+
+
+### 2026-10-02 — Animator timeline: full-width grid, Alt+A / Alt+D align, Ctrl+Alt-drag Inherit (Claude Opus 5.5, `oct2/timeline`)
+**Work:** Owner inbox, Deck 3. The ruler and grid now fill the whole visible time axis
+(`shared.ts timeGrid`, a 400-line budget); Alt+A / Alt+D align starts / ends through a pure
+candidate law with a full cycle back to the origin, one Undo per cycle, a lit line and a ruler
+label; Ctrl+Alt-dragging the selection onto another lane inherits that effect's exact
+animation (dashed guide, lane highlight, Shift copies the start, a bar-menu twin). One pure
+module (`slide/alignTracks.ts`) backs the GUI and the new `align-tracks` / `inherit-track`
+verbs. Body §2 table row and §4 animator paragraph added; the two gate traps below are
+promoted to §9.
+**Learnings:**
+- Re-apply a press cycle from the ORIGIN bytes under one coalesce key rather than stepping
+  from the last result: clamps never accumulate, the cycle is one Undo, and returning to the
+  origin is an identity edit that leaves no entry at all.
+- Toggling the X-ray re-syncs the canvas selection and so clears the timeline's track
+  selection; a "the X-ray wins" key check passes vacuously unless the gate re-selects after
+  the toggle and runs a positive control with the X-ray closed.
+- `findTrack` is deck-wide by id. A gate that seeds the same track ids onto a second slide makes
+  the slide-scoped ops refuse "not found" on the second — seed fresh ids or replace the slide.
+- A fresh worktree lacks the gitignored `dist/flux-model3d-*` runtime, so
+  `verify-model3d-headless` fails "3D renderer is missing" until `npm run build:model3d`.
+
+### 2026-10-02/03 — Slides Oct-2 batch: orchestration of five parallel Opus workers (Claude Fable 5.1, `slides-oct2`)
+**Work:** Owner's batch (Deck 3 slides 2–4, FeatureFig 1, three inbox notes): Become into any picked
+set + merge + fill underlay (W1), the Become picker mode (W2), glyph-matched text morphs and letter
+outlines from system fonts (W3), timeline grid/align/inherit (W4), the Paper slide chip (W5). Each
+worker built in its own worktree on its own dev port with a written guide; reviewed each report, diff
+and screenshots, merged in the order W5 → W2 → W3 → W1 → W4 (W2 feature-detected W1's
+`normalizeRef`; the W1 merge re-wired W2's picker to the shared `composeDestination` and a new
+`commitMerge` hook), regenerated validators/context bundle/MCP golden, then drove the real Electron app
+on a copy of the owner's project through every scenario. Final tree: check 0/0, pure 381/381 (+ the new
+manifest-contracts gate), the slide/paper/verb cohort 48/48; ui tier and native smoke recorded in
+`notes/slides_oct2/ORCHESTRATION.md` and `HANDOFF.md`.
+**Learnings:**
+- Promoted to §7: the planning abort on a missing execution contract and its gate.
+- Promoted to §9: structural manifest merges (never re-sort `execution`), never gate a worktree mid-merge,
+  `pkill -f` self-match.
+- Parallel workers that must share a seam (here `TargetRef.members`) should agree on ONE exported name
+  and feature-detect it; the integrator then swaps the detect for the import in the merge commit.
+- A worker's own frames found the gold-standard regression (a filled ring going hollow on frame 1) that
+  no gate measured: look at mid-flight frames of the OWNER's deck, not only fixtures.
+
+### 2026-10-03 — Slides Oct-2 follow-ups: the owner's four notes + a smoothness pass (Claude Fable 5.1, `slides-oct2`)
+**Work:** (1) The fill underlay from the Oct-2 batch was judged worse than the hollow ring it
+replaced ("a blob that floats a bit and fades"); removed. A filled ring tiling into ≥3 partners now
+keeps its interior as fill-only TRIANGLES (chord-polygon centroid → each arc's ends, role `slice`,
+paired with a fill-only copy of the arc's own partner, drawn beneath, opaque fills overlapping by
+0.5 stage px so no anti-aliased seam shows); two partners need none. (2) The owner's "box flashes in"
+was `mergeChains` fusing the boxplot's 7-px half-alpha box stroke into its 1-px whiskers (touching
+endpoints) — the merged chain took the whiskers' paint and the box only appeared at landing; chains
+now fuse only under one paint. (3) The path→path "twitch then snap" was `lerpNodes`: unequal node
+counts were resampled to N equal-arc-length stations on BOTH sides, moving every corner off its
+place, so frame 1 ≠ the pre render and the last frame ≠ the end render (Δ 205 / 1,044 px²); both
+chains are now split at the union of their node stations (de Casteljau, each side exact) — Δ 1.4 /
+26 (the residue is anti-aliasing of the composite frame vs rest). (4) A sweep probe over all three
+demo decks found a whole-slide text shimmer at the start and end of every transform: the promoted
+flight wrapper squashed later siblings into composited layers and their text flipped LCD ↔ grayscale
+AA. The camera is now a permanent compositor layer (1,106 → 1.8 px²). (5) Space confirms picks (canvas
+and X-ray); plain `b` arms Become; Change ⌃⇧C, Ghost ⌃⌥G, Appear from ⌃⌥A, track cascade ⌃⌥C.
+(6) Paper's bottom panel (vim status bar) now clips to the pane's rounded corners. (7) Later the
+same day the owner asked for the fill behaviour as a per-transform option: `BecomeSpec.method`
+— shatter (default) · dissolve · collapse · drain — through ops/CLI/schema/inspector, with the
+three non-shatter methods driven by the sampler on one fill-only interior ring. Dissolve then
+moved to REAL time (`DISSOLVE_MS` = 220 ms via `sampleCorrespondence(…, timing)` from the hand-off
+driver; the eased-progress window stays the fallback): a fade reads right only when quick, however
+long the flight. (8) Plot gallery Folders sidebar: a folder row's click shows the folder and no
+longer unfolds it — the › chevron (22 px hit, accent on hover) does; Settings → Plot gallery →
+"Clicking a gallery folder expands/collapses it" (`galleryFolderClickExpands`, default off) restores
+the old click.
+**Learnings:**
+- Measure boundaries at 2 ms steps (`scripts/perf/slide-twitch-probe.mts`, `slide-twitch-sweep.mts`):
+  a start twitch or end snap is a paint spike at raw 0→0+ or 1−→1 with nothing beside it. The
+  sweep found the AA shimmer that no gate measures; frames + a pixel-diff locator told WHERE.
+- Chromium overlap squashing: promoting one layer changes the raster of everything painted after
+  it. Layer hygiene must consider the siblings, not only the flight (guide §4/§9 updated).
+- A flag kept across a disarm (`PickOverlay.spaceHeld`): confirming WITH Space tore the overlay down
+  before Space's keyup arrived, and the stale flag handed the next pick's clicks to the canvas
+  (Alt+click selected the group's members; Animate like… ignored its click). Reset on arm/disarm.
+- `grep` treats several `src/lib/slide/*.ts` files as binary (non-ASCII in comments): `grep -a`.
+- Residual boundary deltas worth a later look (Deck 2 of the demo project): a plot view change's
+  first frame re-ticks its axes (55 px² at the axis corners); a spine hand-off's landing differs
+  from the plot's own spines by ~50 px² along the axes; a 300 ms count text ("epoch 0→4") moves
+  ~22 px² on its first frame.
+
+### 2026-10-03 (evening) — CI red on four pushes: seven pure reds, two GUI regressions (Claude Opus 5.5, `main`)
+
+**Work:** CI had failed on every push since 09-29. The blocking `test` job's pure tier had 7 reds
+(375/382). One was a STALE GATE: `9fa6dc4f` gave `sampleCorrespondence` a timing argument, and
+`verify-slide-handoff-browser` matched the old call text to inject its probe; it now matches the call
+head. Six were the runner, not the product (see the four new §9 CI bullets): Electron 43 never
+installed by `npm ci` and its sandbox refused by Ubuntu 24.04 AppArmor (`verify-model3d-headless`);
+no msttcorefonts (`verify-glyph-outlines`, `verify-text-morph-browser`,
+`verify-slide-export-transform`); and two absolute wall-clock budgets (`verify-correspondence`,
+`verify-target-geometry`), now relative to in-process controls. `ci.yml` (test, test-windows) and
+`release.yml` fetch Electron, Linux lifts the userns restriction and installs msttcorefonts. The
+poster worker's error now names the signal and Electron's last stderr line. In the observing
+`ui-gate`, two reds reproduced locally and were real. `verify-transform-gui` still pressed ⌃⇧T after
+Change moved to ⌃⇧C (`e5b336e7`). `verify-v020-controls-gui` mounted `ColorScaleControls` with the
+props the 09-30 rewrite (`7659d619`) removed. Updating its probe exposed a PRODUCT regression: the
+Inspector reuses one editor across selections, and legacy (pre-0.3.1) drafts were seeded once per
+control key. Plot A's unsent range therefore showed on plot B, and Apply to source would have written
+it there. Drafts now reseed when the element or its generated values change (mutation-checked: the
+fix reverted fails with `'2'` vs `'0'`). Local: pure 382/382, ui reds above green.
+**Open / resolved:**
+- **Bundle tier (resolved):** `verify-w13-cli`'s 8 MB core-bundle budget was exceeded (8.7 MB: 6.6
+  on 09-27 → 8.0 on 09-30 from `src/lib` 3D/animation code → 8.7 on 10-02 from `opentype.js`,
+  582 KB). CI never showed it because the pure tier failed first. The owner raised it to 10 MB, with
+  the composition recorded in the gate. Check the bundle size on every CI run, not just the pass/fail.
+- **ui-gate:** `verify-v020-morph-startup` (first seek 130 ms > 100 on CI), `verify-model3d-gui`
+  (Ctrl-wheel proxy, resize reframe) and `verify-model3d-snapshot-quiet` (hover takes a second
+  snapshot) pass locally and fail when pinned to two loaded cores. Not yet diagnosed as gate timing
+  or a real slow-machine race.
+- **test-windows:** about 24 reds, mostly long-standing (connect, inbox-wait, chord census on `\`
+  paths, model3d ownership), plus `verify-glyph-outlines`' Linux font paths.
+**Learnings:**
+- Read the evidence artifact before theorising. `gh run download <id> -n pure-verify-summary` holds
+  per-attempt stdout/stderr, but a worker error reduced to its first line hides the cause.
+- A gate that injects a probe by matching source text breaks on any harmless signature change;
+  match the smallest stable prefix.
+- Mutation-test a reworked budget or contract both ways: plant the regression it exists for, and
+  confirm the fixed code passes.
+- Two-core `taskset` pinning plus busy loops reproduces the hosted runner's timing reds locally.
+
+
+### 2026-10-03 18:18 CDT — Refresh the Mac from origin (Codex, main)
+**Work:** Merged 132 upstream commits through `6b34ba32`, retaining the Mac fixes and both session logs; refreshed locked dependencies, Electron, native runtimes, and production assets. Build, renderer check (0 errors/warnings), and headless check pass. Fixed four Mac keyboard harness failures and the slide-chip test's disk-read race without changing assertions or budgets; promoted the keyboard lesson to §9. Final Paper/startup cohort: 71/73 (`test-results/runs/2026-10-03T23-11-52-933Z-7354`), followed by the repaired slide-chip gate passing (`2026-10-03T23-18-40-436Z-9392`). Remaining: eager Home JS 872.5 KB exceeds 800 KB; morph preview failed once at 185.5 ms but passed the final cohort, so retain both receipts. Final cold typing was 4.6–8.5 ms. No experimental product-loading changes retained; npm reports 13 advisories (2 moderate, 11 high) in the upstream lock, with no version changes during sync.
+**Learnings:**
+- Await the repository's shared read promise before asserting asynchronous catalog labels; two timer ticks do not establish filesystem completion.

@@ -219,7 +219,8 @@ export interface TrackSelector {
 }
 
 /** ONE way to name a thing that animates (0.6): an element, a set of a plot's
- *  parts, a role/series filter over a plot, or a figure group. `Track.target`
+ *  parts, a role/series filter over a plot, a figure group, or (destinations
+ *  only) an ad-hoc set of those element/part refs. `Track.target`
  *  + `part`/`parts`/`selector` remain the on-disk binding of a track's OWN
  *  target (`trackRef` derives the ref); `to.become.ref` names a Become's
  *  destination in this form. `targetKey(ref)` is the identity the family law
@@ -233,12 +234,24 @@ export interface TargetRef {
   selector?: TrackSelector;
   /** A figure group (groups registry id): the union of its member elements. */
   group?: Id;
+  /** An ad-hoc SET of targets picked together (0.6, Oct-2): each member is a
+   *  plain element ref or a plot/model part-set ref of ONE element — never a
+   *  group, never itself a set (one level). A set resolves to the union of its
+   *  members; `targetKey` is the sorted member keys; `element` is
+   *  `members[0].element` (the convention that keeps every `ref.element` reader
+   *  valid). Only a Become DESTINATION may be a set: the pick writes one when
+   *  several things are picked, and `normalizeRef` collapses a 1-member set to
+   *  the member. See slide/targets.ts. */
+  members?: TargetRef[];
 }
 
 /** How the planner pairs source and destination outlines of a Become
  *  (slide/correspondence.ts). "auto" chooses from the data the manifests carry. */
 /* The ids of slide/targets.ts PAIR_POLICIES (the one list; menu labels live there). */
 export type PairPolicy = (typeof import("./targets").PAIR_POLICIES)[number]["id"];
+/** How a filled shape's INTERIOR travels when it splits into several pieces or several
+ *  pieces merge into it (targets.TRANSFORM_METHODS; default "shatter"). */
+export type TransformMethod = (typeof import("./targets").TRANSFORM_METHODS)[number]["id"];
 
 /** Where a Become goes (0.6). `consume` is the original semantics (the
  *  destination element is deleted and its state becomes the source's `to.state`;
@@ -254,6 +267,11 @@ export interface BecomeSpec {
    *  `flip` (default) shows it at once; `draw` runs a drawOn of its stroked
    *  geometry from t = 1. */
   reveal?: "flip" | "draw";
+  /** Hand-off only: the interior of a filled shape that tiles into pieces (or that
+   *  pieces merge into) — `shatter` (default) splits it into wedges that fly with
+   *  the pieces; `dissolve` fades it in place; `collapse` shrinks it to the centre;
+   *  `drain` empties it toward where the pieces are going. */
+  method?: TransformMethod;
 }
 
 /** Spread target starts by Each delay or Total span, with optional distribution/order. */
@@ -266,9 +284,12 @@ export interface Stagger {
   seed?: number;
   /** Ordering key for the stagger ramp. "index" = target array order; "x"/"y" =
    *  each target's spatial coordinate (data-x/data-y, falling back to the
-   *  rendered x/y), so points fire left→right ("x") or low→high ("y").
+   *  rendered x/y), so points fire left→right ("x") or low→high ("y"); "data" (or
+   *  `{ key: "value" }`) = each target's data value (data-value: a hexagon's mean, a
+   *  cell's value, a bar's height), `{ key: "count" }` = observations per hexagon
+   *  (data-count), `{ key: "index" }` = the generator's index (data-index).
    *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.) */
-  by?: "index" | "x" | "y";
+  by?: "index" | "x" | "y" | "data" | { key: "value" | "count" | "index" };
   from?: "start" | "end" | "center" | "edges" | "random";
 }
 

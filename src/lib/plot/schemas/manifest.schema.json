@@ -1,0 +1,2479 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://flux.dev/schemas/fluxplot-manifest-0.3.2.json",
+  "title": "FluxPlot manifest",
+  "type": "object",
+  "required": [
+    "spec",
+    "schemaVersion",
+    "plotType",
+    "svg",
+    "size",
+    "axes",
+    "series",
+    "parts",
+    "build"
+  ],
+  "properties": {
+    "spec": {
+      "const": "fluxplot/manifest"
+    },
+    "schemaVersion": {
+      "type": "string"
+    },
+    "generator": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "matplotlib": {
+          "type": "string"
+        }
+      }
+    },
+    "plotType": {
+      "type": "string"
+    },
+    "svg": {
+      "type": "string"
+    },
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "svgSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "size": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "unit"
+      ]
+    },
+    "axes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "svgId": {
+            "type": "string"
+          },
+          "panelId": {
+            "type": "string"
+          },
+          "projection": {
+            "type": "string"
+          },
+          "x": {
+            "$ref": "#/definitions/axis"
+          },
+          "y": {
+            "$ref": "#/definitions/axis"
+          },
+          "pixelBox": {
+            "type": "object",
+            "properties": {
+              "x0": {
+                "type": "number"
+              },
+              "y0": {
+                "type": "number"
+              },
+              "x1": {
+                "type": "number"
+              },
+              "y1": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x0",
+              "y0",
+              "x1",
+              "y1"
+            ]
+          },
+          "x2": {
+            "$ref": "#/definitions/axis",
+            "description": "A twiny's value axis (shares y with the panel)."
+          },
+          "y2": {
+            "$ref": "#/definitions/axis",
+            "description": "A twinx's value axis (shares x with the panel)."
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ]
+      }
+    },
+    "series": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/series"
+      }
+    },
+    "guides": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/guide"
+      }
+    },
+    "overlays": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/overlay"
+      }
+    },
+    "parts": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/partNode"
+        }
+      ],
+      "required": [
+        "id",
+        "role"
+      ]
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "presets": {
+          "type": "object",
+          "description": "Per-role build-animation hints, keyed by role (a consumer may override everything).",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "animation": {
+                "enum": [
+                  "draw-on",
+                  "fade-in",
+                  "stagger-in",
+                  "grow-from-baseline",
+                  "fade-rise",
+                  "write-on",
+                  "pop-in"
+                ]
+              },
+              "durationMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "delayMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "staggerMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "staggerBy": {
+                "enum": [
+                  "x",
+                  "y",
+                  "index",
+                  "value",
+                  "count",
+                  "category"
+                ]
+              }
+            },
+            "required": [
+              "animation"
+            ]
+          }
+        }
+      },
+      "required": [
+        "order"
+      ]
+    },
+    "panels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "svgId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "insetOf": {
+            "type": "string",
+            "description": "The panel this panel is an inset of (ax.inset_axes)."
+          }
+        },
+        "required": [
+          "id",
+          "svgId"
+        ]
+      }
+    },
+    "colorScales": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/colorScale"
+      },
+      "description": "Portable colour scales, one per colour-control key; see definitions/colorScale."
+    },
+    "style": {
+      "type": "object",
+      "required": [
+        "theme",
+        "tokens"
+      ],
+      "description": "The theme in force at save: its name (null once the rcParams were changed by hand) and the scaffold colours by token (ink, label, tick, axis, grid, plot, paper), which data-ink-fill / data-ink-stroke on scaffold elements refer to.",
+      "properties": {
+        "theme": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokens": {
+          "type": "object",
+          "required": [
+            "ink",
+            "label",
+            "tick",
+            "axis",
+            "grid",
+            "plot",
+            "paper"
+          ],
+          "properties": {
+            "ink": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$"
+            },
+            "label": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$"
+            },
+            "tick": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$"
+            },
+            "axis": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$"
+            },
+            "grid": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$"
+            },
+            "plot": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$"
+            },
+            "paper": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$"
+            }
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "description": "Lint findings recorded at save (fp.save(lint=...)): quality.color lists colorcheck findings.",
+      "properties": {
+        "color": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "a",
+              "value",
+              "threshold",
+              "message"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "cvd-confusable",
+                  "greyscale-confusable",
+                  "low-contrast-mark",
+                  "low-contrast-text",
+                  "non-uniform",
+                  "non-monotone"
+                ]
+              },
+              "a": {
+                "type": "string"
+              },
+              "b": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "value": {
+                "type": "number"
+              },
+              "threshold": {
+                "type": "number"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "idAliases": {
+      "type": "object",
+      "description": "Ids an older fluxplot gave the same parts: old id (or old id prefix, for a series root) → current id. Resolve saved overrides through it; kept for one minor version after a rename.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "figure": {
+      "type": "object",
+      "description": "Figure-scope parts (unprefixed ids): the suptitle, sup-labels, figure legends, fig.text annotations and the figure's own extra artists.",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "xlabel": {
+          "type": "string"
+        },
+        "ylabel": {
+          "type": "string"
+        },
+        "legends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "extras": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "background": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "axis": {
+      "type": "object",
+      "properties": {
+        "scale": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "base": {
+          "type": "number"
+        },
+        "domain": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "number"
+              },
+              "svg": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "data",
+              "svg"
+            ]
+          },
+          "minItems": 0
+        },
+        "supported": {
+          "type": "boolean"
+        },
+        "ticks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "label"
+            ]
+          }
+        },
+        "units": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "epoch": {
+              "type": "string"
+            },
+            "unit": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        "tickLocator": {
+          "type": "string"
+        },
+        "tickFormatter": {
+          "type": "string"
+        },
+        "secondary": {
+          "type": "object",
+          "description": "A secondary axis: samples of the parent → secondary transform.",
+          "required": [
+            "of",
+            "samples"
+          ],
+          "properties": {
+            "of": {
+              "type": "string",
+              "enum": [
+                "x",
+                "y"
+              ]
+            },
+            "samples": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "scale",
+        "domain",
+        "anchors"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "supported": {
+                "const": true
+              }
+            },
+            "required": [
+              "supported"
+            ]
+          },
+          "then": {
+            "properties": {
+              "scale": {
+                "enum": [
+                  "linear",
+                  "log"
+                ]
+              },
+              "anchors": {
+                "minItems": 2
+              }
+            }
+          }
+        }
+      ]
+    },
+    "normalization": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "vmin": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vmax": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "clip": {
+          "type": "boolean"
+        },
+        "vcenter": {
+          "type": "number"
+        },
+        "halfrange": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gamma": {
+          "type": "number"
+        },
+        "linthresh": {
+          "type": "number"
+        },
+        "linscale": {
+          "type": "number"
+        },
+        "base": {
+          "type": "number"
+        },
+        "boundaries": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "vmin",
+        "vmax",
+        "clip"
+      ],
+      "description": "A matplotlib norm by class name (alias of colorScales[].norm, whose kind is portable)."
+    },
+    "field": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "heatmap",
+            "contour",
+            "contourf",
+            "hexbin",
+            "scatter"
+          ]
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "controlKey": {
+          "type": "string"
+        },
+        "colorScale": {
+          "type": "string"
+        },
+        "includeValues": {
+          "type": "boolean"
+        },
+        "normalization": {
+          "$ref": "#/definitions/normalization"
+        },
+        "cmap": {
+          "type": "string"
+        },
+        "cmapSpec": {
+          "type": [
+            "string",
+            "object"
+          ],
+          "description": "How the recipe names the map: a resolvable name, or the portable {lut, under, over, bad} table."
+        },
+        "extend": {
+          "enum": [
+            "neither",
+            "min",
+            "max",
+            "both"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missingColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "underColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "overColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "maskedIndices": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "levels": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "extent": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "origin": {
+          "type": "string"
+        },
+        "grid": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "array"
+            },
+            "y": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "controlKey",
+        "normalization",
+        "cmap"
+      ],
+      "description": "A colour-mapped mark's source-data colour contract (the portable law is colorScales[field.colorScale])."
+    },
+    "distribution": {
+      "type": "object",
+      "properties": {
+        "binEdges": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "counts": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "normalization": {
+          "type": "string"
+        },
+        "weighted": {
+          "type": "boolean"
+        },
+        "cumulative": {
+          "type": [
+            "boolean",
+            "number"
+          ]
+        },
+        "orientation": {
+          "type": "string"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "signatureStats": {
+      "type": "object",
+      "properties": {
+        "part": {
+          "type": "string"
+        },
+        "category": {},
+        "units": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unit": {},
+        "categories": {
+          "type": "array"
+        },
+        "colors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "groupColor": {
+          "type": "string"
+        },
+        "n": {
+          "type": "integer"
+        },
+        "mean": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sem": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "q1": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "q3": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "interval": {
+          "type": "string"
+        },
+        "low": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "high": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "center": {
+          "type": "string"
+        },
+        "centerValue": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "x": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "iqr": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "whis": {},
+        "whiskerLow": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "whiskerHigh": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "outliers": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "palette": {
+          "type": [
+            "string",
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "part"
+      ],
+      "description": "fp.glowbar / fp.fluxbox payload: part=summary carries the statistics drawn for a category; part=unit a unit's identity."
+    },
+    "hexmatrix": {
+      "type": "object",
+      "properties": {
+        "orientation": {
+          "enum": [
+            "pointy",
+            "flat"
+          ]
+        },
+        "hexRadius": {
+          "type": "number"
+        },
+        "aspect": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "scale": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "string"
+            },
+            "y": {
+              "type": "string"
+            }
+          }
+        },
+        "gridsize": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "binwidth": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "valueLabel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nBins": {
+          "type": "integer"
+        },
+        "mode": {
+          "enum": [
+            "points",
+            "matrix"
+          ]
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "origin": {
+          "type": "string"
+        },
+        "n": {
+          "type": "integer"
+        },
+        "dropped": {
+          "type": "integer"
+        },
+        "stat": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reduce": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "weighted": {
+          "type": "boolean"
+        },
+        "mincnt": {
+          "type": "integer"
+        },
+        "sparse": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "extent": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "hexArea": {
+          "type": "number"
+        },
+        "boxAspect": {
+          "type": "number"
+        },
+        "bins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "row": {
+                "type": "integer"
+              },
+              "col": {
+                "type": "integer"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "count": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "svgId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "row",
+              "col",
+              "x",
+              "y",
+              "value"
+            ]
+          }
+        }
+      },
+      "required": [
+        "orientation",
+        "hexRadius",
+        "nBins",
+        "bins"
+      ],
+      "description": "fp.hexmatrix payload: the lattice, the statistic and every hexagon drawn."
+    },
+    "surfacePart": {
+      "type": "object",
+      "properties": {
+        "part": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "color": {},
+        "vmin": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vmax": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "cmap": {
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "editable": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hemispheres": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missingColor": {},
+        "missingRule": {
+          "type": "object"
+        },
+        "rendering": {
+          "type": "object"
+        },
+        "percentile": {
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      }
+    },
+    "surface": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "label",
+            "continuous"
+          ]
+        },
+        "cmap": {
+          "type": "string"
+        },
+        "vmin": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "vmax": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "percentile": {
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "palette": {
+          "type": "object"
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hemispheres": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "panes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missingColor": {},
+        "rendering": {
+          "type": "object",
+          "properties": {
+            "projection": {
+              "type": "string"
+            },
+            "occlusion": {
+              "type": "string"
+            },
+            "crossPartDepth": {
+              "type": "string"
+            },
+            "missingLayer": {
+              "type": "string"
+            }
+          }
+        },
+        "missingRule": {
+          "type": "object",
+          "properties": {
+            "below": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "zeroIsData": {
+              "type": "boolean"
+            }
+          }
+        },
+        "nVertices": {
+          "type": "integer"
+        },
+        "nMissing": {
+          "type": "integer"
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/surfacePart"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "parts"
+      ],
+      "description": "fp.surface payload: the complete value→colour contract of a surface (brain) map and every part."
+    },
+    "series": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "svg": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "y": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "xLabels": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "yLabels": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "xIso": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "yIso": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "description": "The series' numbers as plotted; xLabels / yLabels name the category behind each on a categorical axis, xIso / yIso the ISO-8601 instant on a date axis."
+        },
+        "label": {
+          "type": "string"
+        },
+        "panelId": {
+          "type": "string"
+        },
+        "rasterized": {
+          "type": "boolean"
+        },
+        "capture": {
+          "type": "object",
+          "properties": {
+            "identity": {
+              "type": "string"
+            },
+            "data": {
+              "type": "string"
+            }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "dataMorph": {
+              "type": "boolean"
+            },
+            "valueMorph": {
+              "type": "boolean",
+              "description": "Members carry stable keys (data-key): two versions can be tweened member by member."
+            }
+          },
+          "required": [
+            "dataMorph"
+          ]
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string"
+              },
+              "svgId": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "memberRole": {
+                "type": "string"
+              },
+              "groupId": {
+                "type": "string",
+                "description": "Manifest-only id of this series' member group when svgId is a collection shared with other series (seaborn hue splits)."
+              }
+            },
+            "required": [
+              "role",
+              "svgId"
+            ]
+          }
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer"
+              },
+              "svgId": {
+                "type": "string"
+              },
+              "x": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "y": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "index",
+              "svgId"
+            ]
+          }
+        },
+        "color": {
+          "type": "object",
+          "description": "The series' colour: hex = its primary paint (or 'varies' for a colour-mapped collection), alpha, token = the exact palette token naming it, palette = its position in the active cycle, scale = the colorScales[] id colouring it.",
+          "properties": {
+            "scale": {
+              "type": "string"
+            },
+            "hex": {
+              "type": "string"
+            },
+            "alpha": {
+              "type": "number"
+            },
+            "token": {
+              "type": "string"
+            },
+            "palette": {
+              "type": "object",
+              "required": [
+                "name",
+                "index"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "bar": {
+          "type": "object",
+          "properties": {
+            "orientation": {
+              "type": "string"
+            },
+            "baseline": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "length": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "center": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "width": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "keys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Stable per-bar keys (the category label under each bar); also data-key on the bar element."
+            }
+          }
+        },
+        "band": {
+          "type": "object",
+          "properties": {
+            "paths": {
+              "type": "array"
+            },
+            "x": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "lo": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "hi": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "what": {
+              "type": "string"
+            },
+            "y1": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "y2": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "description": "An area's inputs: fp.band records {x, lo, hi, what}, fp.area {x, y1, y2}; a promoted fill_between only its polygon paths."
+        },
+        "uncertainty": {
+          "type": "object",
+          "properties": {
+            "xerr": {
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "yerr": {
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "errShape": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "scalar",
+                "symmetric",
+                "asymmetric",
+                null
+              ]
+            }
+          },
+          "description": "An errorbar's errors broadcast to the N points: xerr / yerr are N values, or [lower, upper] (each N) when errShape is asymmetric."
+        },
+        "distribution": {
+          "$ref": "#/definitions/distribution"
+        },
+        "field": {
+          "$ref": "#/definitions/field"
+        },
+        "glowbar": {
+          "$ref": "#/definitions/signatureStats"
+        },
+        "fluxbox": {
+          "$ref": "#/definitions/signatureStats"
+        },
+        "hexmatrix": {
+          "$ref": "#/definitions/hexmatrix"
+        },
+        "surface": {
+          "$ref": "#/definitions/surface"
+        },
+        "image": {
+          "type": "object",
+          "description": "An fp.image: its channels (each a colorScales[] entry, <series>.<channel>), LUTs, display ranges, pixel size and extent.",
+          "properties": {
+            "shape": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "lut": {
+                    "type": [
+                      "string",
+                      "object"
+                    ]
+                  },
+                  "displayRange": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "scale": {
+                    "type": "string"
+                  },
+                  "controlKey": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "scale",
+                  "displayRange"
+                ]
+              }
+            },
+            "composite": {
+              "type": "string",
+              "enum": [
+                "add",
+                "max"
+              ]
+            },
+            "origin": {
+              "type": "string",
+              "enum": [
+                "upper",
+                "lower"
+              ]
+            },
+            "extent": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "units": {
+              "type": "string"
+            },
+            "pixelSize": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "required": [
+            "shape",
+            "channels"
+          ]
+        },
+        "axis": {
+          "type": "string",
+          "enum": [
+            "x2",
+            "y2"
+          ],
+          "description": "Present when the series is drawn against a twin's value axis (axes[].y2 / .x2)."
+        },
+        "step": {
+          "type": "object",
+          "properties": {
+            "where": {
+              "type": "string",
+              "enum": [
+                "pre",
+                "post",
+                "mid"
+              ]
+            },
+            "drawstyle": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "where"
+          ]
+        },
+        "stem": {
+          "type": "object",
+          "properties": {
+            "baseline": {
+              "type": "number"
+            },
+            "orientation": {
+              "type": "string"
+            }
+          }
+        },
+        "regression": {
+          "type": "object",
+          "description": "fp.regression: the fit as drawn.",
+          "required": [
+            "kind",
+            "n",
+            "ci"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "linear",
+                "poly",
+                "lowess"
+              ]
+            },
+            "degree": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "coefficients": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number"
+              }
+            },
+            "r2": {
+              "type": "number"
+            },
+            "p": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "n": {
+              "type": "integer"
+            },
+            "ci": {
+              "type": "number"
+            },
+            "dof": {
+              "type": "integer"
+            },
+            "frac": {
+              "type": "number"
+            },
+            "bootstrap": {
+              "type": "integer"
+            },
+            "grid": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "fit": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "kde": {
+          "type": "object",
+          "description": "fp.kde: the density as drawn.",
+          "required": [
+            "grid",
+            "density",
+            "bandwidth",
+            "n"
+          ],
+          "properties": {
+            "grid": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "density": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "bandwidth": {
+              "type": "number"
+            },
+            "method": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "n": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "svg"
+      ]
+    },
+    "legendEntry": {
+      "type": "object",
+      "properties": {
+        "series": {
+          "type": "string"
+        },
+        "part": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "swatch": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "guidePart": {
+      "type": "object",
+      "properties": {
+        "svgId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "svgId",
+        "role"
+      ]
+    },
+    "guide": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "svgId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "axis": {
+          "type": "string"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/legendEntry"
+          }
+        },
+        "orientation": {
+          "enum": [
+            "vertical",
+            "horizontal"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "ticks": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "normalization": {
+          "$ref": "#/definitions/normalization"
+        },
+        "cmap": {
+          "type": "string"
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/guidePart"
+          }
+        },
+        "mappable": {
+          "type": "string"
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "svg": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "value",
+              "svg"
+            ]
+          }
+        },
+        "axisLength": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tickLocator": {
+          "enum": [
+            "auto",
+            "log",
+            "fixed"
+          ]
+        },
+        "tickFormatter": {
+          "enum": [
+            "plain",
+            "sci",
+            "log",
+            "percent",
+            "custom"
+          ]
+        },
+        "extend": {
+          "enum": [
+            "neither",
+            "min",
+            "max",
+            "both"
+          ]
+        },
+        "extendParts": {
+          "type": "object",
+          "properties": {
+            "min": {
+              "type": "string"
+            },
+            "max": {
+              "type": "string"
+            }
+          }
+        },
+        "colorScale": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "role"
+      ]
+    },
+    "overlay": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "svgId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "between": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "p": {
+          "type": "number"
+        },
+        "text": {
+          "type": "string"
+        },
+        "rasterized": {
+          "type": "boolean"
+        },
+        "stats": {
+          "type": "object",
+          "description": "The test behind a significance bracket (fp.brackets): the fp.stats row it was drawn from.",
+          "properties": {
+            "test": {
+              "type": "string"
+            },
+            "statistic": {
+              "type": "number"
+            },
+            "p": {
+              "type": "number"
+            },
+            "pCorrected": {
+              "type": "number"
+            },
+            "correction": {
+              "type": "string"
+            },
+            "effectSizeMethod": {
+              "type": "string"
+            },
+            "effectSize": {
+              "type": "number"
+            },
+            "ciLow": {
+              "type": "number"
+            },
+            "ciHigh": {
+              "type": "number"
+            },
+            "n": {
+              "type": [
+                "array",
+                "integer"
+              ],
+              "items": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "dof": {
+              "type": "number"
+            },
+            "alternative": {
+              "type": "string"
+            }
+          }
+        },
+        "length": {
+          "type": "number",
+          "description": "A scale bar's length in data units."
+        },
+        "units": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "svgId",
+        "role"
+      ]
+    },
+    "partNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "axis": {
+          "type": "string"
+        },
+        "groupRole": {
+          "type": "string"
+        },
+        "memberRole": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/partNode"
+          }
+        }
+      },
+      "description": "A parts-tree node: a leaf (ref + role), a group (id, members, groupRole / memberRole) or a container (id, children)."
+    },
+    "colorScale": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "continuous",
+            "binned",
+            "categorical"
+          ]
+        },
+        "colormap": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "N": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "lut": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^#[0-9a-f]{8}$"
+              },
+              "minItems": 1
+            },
+            "under": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{8}$"
+            },
+            "over": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{8}$"
+            },
+            "bad": {
+              "type": "string",
+              "pattern": "^#[0-9a-f]{8}$"
+            },
+            "discrete": {
+              "type": "boolean"
+            },
+            "approximate": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "source",
+            "N",
+            "lut",
+            "under",
+            "over",
+            "bad",
+            "discrete"
+          ]
+        },
+        "norm": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "linear",
+                "log",
+                "symlog",
+                "power",
+                "twoslope",
+                "centered",
+                "boundary",
+                "none",
+                "custom"
+              ]
+            },
+            "vmin": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "vmax": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "clip": {
+              "type": "boolean"
+            },
+            "extend": {
+              "enum": [
+                "neither",
+                "min",
+                "max",
+                "both"
+              ]
+            },
+            "vcenter": {
+              "type": "number"
+            },
+            "halfrange": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "gamma": {
+              "type": "number"
+            },
+            "linthresh": {
+              "type": "number"
+            },
+            "linscale": {
+              "type": "number"
+            },
+            "base": {
+              "type": "number"
+            },
+            "boundaries": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "ncolors": {
+              "type": "integer"
+            },
+            "className": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "vmin",
+            "vmax",
+            "clip",
+            "extend"
+          ]
+        },
+        "mappables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "colorbars": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recolor": {
+          "enum": [
+            "live",
+            "raster",
+            "regenerate"
+          ]
+        },
+        "valueRaster": {
+          "type": "string"
+        },
+        "editable": {
+          "type": "object",
+          "properties": {
+            "cmap": {
+              "type": "boolean"
+            },
+            "limits": {
+              "type": "boolean"
+            },
+            "normKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "center": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "cmap",
+            "limits",
+            "normKinds",
+            "center"
+          ]
+        },
+        "alpha": {
+          "type": "object",
+          "description": "A second, opacity channel (alpha_by): each element's fill-opacity runs over range with its data-alpha-value under norm.",
+          "required": [
+            "source",
+            "range",
+            "norm"
+          ],
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "range": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "norm": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "log"
+                  ]
+                },
+                "vmin": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "vmax": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "colormap",
+        "norm",
+        "mappables",
+        "colorbars",
+        "recolor",
+        "editable"
+      ],
+      "description": "A portable colour scale (colorscale.py): the exact lookup table and norm of every colour-mapped mark, the svg groups it colours and the colour keys drawing it. The id equals the recipe's colour-control key."
+    }
+  }
+}

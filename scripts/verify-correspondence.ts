@@ -1,7 +1,7 @@
 // Animation v2 B2/B3: real public planner + sampler, hand-written stage fixtures.
 import { readFileSync } from "node:fs";
 import { harness } from "./lib/harness.mjs";
-import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD } from "../src/lib/slide/correspondence";
+import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, opaque, expandPolygon } from "../src/lib/slide/correspondence";
 import { planCorrespondence as corePlan, sampleCorrespondence as coreSample } from "../flux-core/index";
 import { planOutlines, parameterize, pointAt, sampleNodes } from "../src/lib/slide/outline";
 import { nodesExtent } from "../src/lib/path";
@@ -52,6 +52,93 @@ for (const reverse of [false, true]) {
 const ringTile = planCorrespondence([outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], true)], disjoint, { pair: "tile" });
 h.ok(near(ringTile.pairs.reduce((sum, p) => sum + len(p.a!), 0), 160, 1e-6), "ring tiles cover the full perimeter");
 h.ok(ringTile.pairs.every((p) => !p.a!.closed), "ring tiles are open arcs");
+// Oct-3: a FILLED ring keeps its interior while it splits among three or more
+// partners — its open arcs fill only their chord segments, so the polygon
+// between the chords rides along as one fill-only triangle per piece (centroid
+// → the piece's ends), paired with the piece's own partner as a fill-only copy.
+// Two partners need none (two chord-closed arcs already tile the shape).
+const filledRing = outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], true);
+filledRing.paint = { ...filledRing.paint, fill: "#d95f02", stroke: "#100f0f", strokeWidth: 2 };
+const three = [...disjoint, outline("third", [[100, 140], [130, 140]])];
+for (const reverse of [false, true]) {
+  const two = planCorrespondence(reverse ? disjoint : [filledRing], reverse ? [filledRing] : disjoint, { pair: "tile" });
+  h.ok(two.pairs.length === 2 && two.pairs.every((q) => !(reverse ? q.b : q.a)!.closed), `filled ring ${reverse ? "merge" : "split"} into TWO partners: just the two chord-closed arcs`);
+  const p = planCorrespondence(reverse ? three : [filledRing], reverse ? [filledRing] : three, { pair: "tile" });
+  const fills = p.pairs.filter((q) => (reverse ? q.b : q.a)!.owner.role === "slice"), arcs = p.pairs.filter((q) => (reverse ? q.b : q.a)!.owner.role !== "slice");
+  h.ok(p.pairs.length === 6 && fills.length === 3 && p.pairs.slice(0, 3).every((q) => fills.includes(q)), `filled ring ${reverse ? "merge" : "split"} into THREE: three fill triangles ride beneath the three arcs`);
+  h.ok(near(arcs.reduce((sum, q) => sum + len(reverse ? q.b! : q.a!), 0), 160, 1e-6) && arcs.every((q) => !(reverse ? q.b : q.a)!.closed), `filled ring ${reverse ? "merge" : "split"}: the arcs still tile the whole perimeter`);
+  const tris = fills.map((q) => (reverse ? q.b : q.a)!);
+  h.ok(tris.every((t) => t.closed && t.nodes.length === 3 && t.paint.fill === "#d95f02" && t.paint.stroke === "none" && t.paint.strokeWidth === 0), `filled ring ${reverse ? "merge" : "split"}: triangles are closed, fill-only, the ring's fill`);
+  const area = (pts: VectorNode[]) => Math.abs(pts.reduce((sum, a, i) => { const b = pts[(i + 1) % pts.length]; return sum + a.x * b.y - b.x * a.y; }, 0)) / 2;
+  const chord = area(arcs.map((q) => (reverse ? q.b : q.a)!.nodes[0]));
+  const covered = tris.reduce((sum, t) => sum + area(t.nodes), 0);
+  h.ok(chord > 1 && covered > chord && covered < chord * 1.25, `filled ring ${reverse ? "merge" : "split"}: the OPAQUE triangles tile the chord polygon with a hair of overlap (${covered.toFixed(1)} over ${chord.toFixed(1)})`);
+  const glassy = { ...filledRing, paint: { ...filledRing.paint, fill: "#d95f0280" } };
+  const g = planCorrespondence(reverse ? three : [glassy], reverse ? [glassy] : three, { pair: "tile" });
+  const gtris = g.pairs.slice(0, 3).map((q) => (reverse ? q.b : q.a)!);
+  h.ok(near(gtris.reduce((sum, t) => sum + area(t.nodes), 0), chord, 1e-6) && gtris.every((t) => t.nodes.length === 3), `filled ring ${reverse ? "merge" : "split"}: a TRANSLUCENT fill's triangles tile the chord polygon exactly (an overlap would double-paint)`);
+  h.ok(fills.every((q, i) => { const partner = reverse ? q.a! : q.b!, own = reverse ? arcs[i].a! : arcs[i].b!; return partner.owner.elementId === own.owner.elementId && partner.paint.stroke === "none" && partner.paint.strokeWidth === 0 && partner.paint.fill === "none"; }), `filled ring ${reverse ? "merge" : "split"}: each triangle pairs with a fill-only copy of its arc's own partner`);
+  p.prepare();
+  const sampled = sampleCorrespondence(p, 0.5);
+  h.ok(sampled.slice(0, 3).every((q) => q.opacity === 1 && /^#d95f02[0-9a-f]{2}$/i.test(q.paint.fill) && parseInt(q.paint.fill.slice(7), 16) < 160 && parseInt(q.paint.fill.slice(7), 16) > 96), `filled ring ${reverse ? "merge" : "split"}: a triangle never fades as a leftover — its fill pours into the stroke partner, alpha halfway at t = .5 (${sampled[0].paint.fill})`);
+  h.ok(sampleCorrespondence(p, 0).slice(0, 3).every((q) => q.paint.fill === (reverse ? "none" : "#d95f02")) && sampleCorrespondence(p, 1).slice(0, 3).every((q) => q.paint.fill === (reverse ? "#d95f02" : "none")), `filled ring ${reverse ? "merge" : "split"}: the triangles are exactly the ring's fill at its own end and nothing at the other`);
+}
+h.section("transform methods: dissolve · collapse · drain (the interior as ONE fill-only ring)");
+for (const method of ["dissolve", "collapse", "drain"] as const) {
+  for (const reverse of [false, true]) {
+    const p = planCorrespondence(reverse ? three : [filledRing], reverse ? [filledRing] : three, { pair: "tile", method });
+    const arcs = p.pairs.filter((q) => !q.interior), ring = p.pairs.find((q) => q.interior)!;
+    const side = reverse ? ring.b! : ring.a!, other = reverse ? ring.a : ring.b;
+    h.ok(p.pairs.length === 4 && p.pairs[0] === ring && other === null && side.closed && side.paint.fill === "#d95f02" && side.paint.stroke === "none" && ring.interior!.method === method, `${method} ${reverse ? "merge" : "split"}: one fill-only interior ring rides beneath three stroke-only arcs`);
+    h.ok(arcs.every((q) => (reverse ? q.b : q.a)!.paint.fill === "none" && (reverse ? q.b : q.a)!.paint.stroke === "#100f0f") && near(arcs.reduce((sum, q) => sum + len(reverse ? q.b! : q.a!), 0), 160, 1e-6), `${method} ${reverse ? "merge" : "split"}: the arcs carry the stroke only and still tile the perimeter`);
+    p.prepare();
+    const at = (t: number) => sampleCorrespondence(p, t)[0];
+    const W = { dissolve: 0.3, collapse: 0.45, drain: 0.45 }[method];
+    const full = reverse ? 1 : 0, gone = reverse ? 0 : 1;
+    const area = (pts: VectorNode[]) => Math.abs(pts.reduce((sum, a, i) => { const b = pts[(i + 1) % pts.length]; return sum + a.x * b.y - b.x * a.y; }, 0)) / 2;
+    const s0 = at(full), s1 = at(gone), mid = at(reverse ? 1 - W / 2 : W / 2);
+    h.ok(s0.opacity === 1 && near(area(s0.nodes), 1600, method === "drain" ? 40 : 1e-6) && s0.paint.fill === "#d95f02" && s0.paint.stroke === "none", `${method} ${reverse ? "merge" : "split"}: at its own end the interior is the whole ring's fill (area ${area(s0.nodes).toFixed(0)})`);
+    h.ok(s1.opacity === 0 || area(s1.nodes) < 1e-6, `${method} ${reverse ? "merge" : "split"}: at the other end nothing of it remains`);
+    if (method === "dissolve") h.ok(near(mid.opacity, 0.5, 1e-9) && near(area(mid.nodes), 1600, 1e-6), `dissolve ${reverse ? "merge" : "split"}: halfway through its window the whole ring is at half opacity`);
+    if (method === "collapse") h.ok(mid.opacity === 1 && near(area(mid.nodes), 400, 1e-6) && near(mid.nodes.reduce((sx, n) => sx + n.x, 0) / 4, 40, 1e-9), `collapse ${reverse ? "merge" : "split"}: halfway the ring is half its size about its centre`);
+    if (method === "drain") { const a2 = area(mid.nodes); h.ok(mid.opacity === 1 && a2 > 600 && a2 < 1000 && mid.nodes.every((n) => n.x >= 20 - 1e-6 && n.x <= 60 + 1e-6 && n.y >= 20 - 1e-6 && n.y <= 60 + 1e-6), `drain ${reverse ? "merge" : "split"}: halfway about half the ring remains, inside the ring, behind a straight front (area ${a2.toFixed(0)})`); }
+    const beyond = at(reverse ? 1 - W - 0.1 : W + 0.1);
+    h.ok(beyond.opacity === 0 || area(beyond.nodes) < 1e-6, `${method} ${reverse ? "merge" : "split"}: outside its window the interior is gone while the arcs still fly`);
+  }
+}
+const kept = planCorrespondence([filledRing], three, { pair: "tile", method: "drain" }); kept.prepare();
+const keptOut: ReturnType<typeof sampleCorrespondence> = [];
+const firstNodes = sampleCorrespondence(kept, 0.2, keptOut)[0].nodes, firstNode = firstNodes[0];
+h.ok(sampleCorrespondence(kept, 0.25, keptOut)[0].nodes === firstNodes && keptOut[0].nodes[0] === firstNode, "drain reuses its clipped node buffer (array and nodes) across frames");
+h.eq(planCorrespondence([filledRing], three, { pair: "tile", method: "shatter" }).pairs.length, 6, "shatter stays the default geometry (three arcs + three wedges)");
+h.section("dissolve runs on real time when the flight's timing is known");
+{
+  const p = planCorrespondence([filledRing], three, { pair: "tile", method: "dissolve" }); p.prepare();
+  const op = (raw: number, durationMs: number) => sampleCorrespondence(p, raw, [], { raw, durationMs })[0].opacity;
+  h.ok(op(0, 2000) === 1 && op(0.055, 2000) > 0.4 && op(0.055, 2000) < 0.6 && op(0.11, 2000) === 0 && op(0.3, 2000) === 0, "a 2 s flight dissolves its interior in 220 ms (gone by raw .11), not over 30 % of the motion");
+  h.ok(op(0.1, 300) > 0.5 && op(0.74, 300) === 0, "a 300 ms flight dissolves over its first 220 ms");
+  h.ok(op(0.5, 100) > 0 && op(1, 100) === 0, "a flight shorter than 220 ms dissolves over its whole length");
+  const m = planCorrespondence(three, [filledRing], { pair: "tile", method: "dissolve" }); m.prepare();
+  const opm = (raw: number) => sampleCorrespondence(m, raw, [], { raw, durationMs: 2000 })[0].opacity;
+  h.ok(opm(0.8) === 0 && opm(0.89) === 0 && opm(0.945) > 0.4 && opm(0.945) < 0.6 && opm(1) === 1, "merging, the interior resolves over the LAST 220 ms");
+  h.ok(sampleCorrespondence(p, 0.15)[0].opacity === 0.5, "without timing the eased-progress window (30 %) still applies");
+}
+h.eq(ringTile.pairs.length, 2, "an UNFILLED ring tiles with no fill pieces");
+h.eq(planCorrespondence([outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], true)], three, { pair: "tile" }).pairs.length, 3, "an UNFILLED ring into three partners: three arcs, nothing beneath");
+h.section("seam overlap helpers");
+h.ok(opaque({ ...paint, fill: "#d95f02" }) && opaque({ ...paint, fill: "#d95f02ff" }) && opaque({ ...paint, fill: "rgb(1, 2, 3)" }) && opaque({ ...paint, fill: "red" }), "opaque: hex, 8-digit ff, rgb(), named");
+h.ok(!opaque({ ...paint, fill: "#d95f0280" }) && !opaque({ ...paint, fill: "rgba(1,2,3,.5)" }) && !opaque({ ...paint, fill: "oklch(60% .1 20 / 50%)" }) && !opaque({ ...paint, fill: "none" }) && !opaque({ ...paint, fill: "#d95f02", opacity: .8 }), "translucent: alpha hex, rgba, slash alpha, none, outline alpha");
+const sq = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+const grown = expandPolygon(sq, 0.5);
+h.ok(grown.every((p, i) => near(Math.abs(p.x - sq[i].x), 0.5, 1e-9) && near(Math.abs(p.y - sq[i].y), 0.5, 1e-9)) && grown[0].x < 0 && grown[2].x > 10, "a square grows outward by d on every side");
+const rev = expandPolygon(sq.slice().reverse(), 0.5);
+h.ok(near(rev[0].x, -0.5, 1e-9) && near(rev[0].y, 10.5, 1e-9) && near(rev[2].x, 10.5, 1e-9) && near(rev[2].y, -0.5, 1e-9), "winding does not change the outward direction");
+const needle = expandPolygon([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 0.01 }], 0.5);
+h.ok(needle.every((p) => Math.hypot(p.x - (p.x < 50 ? 0 : 100), p.y) < 2), "a needle's mitres are capped");
+h.section("differently painted touching chains never fuse");
+const whisker = outline("plot", [[40, 30], [40, 50]], false, { partId: "before.whiskers" }), box = outline("plot", [[40, 50], [40, 70]], false, { partId: "before.box" }, { strokeWidth: 7, stroke: "#225da880" });
+h.eq(mergeChains([whisker, box]).length, 2, "a 7-px half-alpha box stroke stays its own chain beside the 2-px whisker it touches");
+h.eq(mergeChains([whisker, outline("plot", [[40, 50], [40, 70]], false, { partId: "before.whiskers" })]).length, 1, "same-paint touching chains still fuse");
 
 h.section("data stations and complete union");
 const sine = outline("sine", Array.from({ length: 49 }, (_, i) => [30 + i * 4, 60 + 24 * Math.sin(i / 48 * Math.PI * 2)]), false, { data: { x: 0 }, role: "line" });
@@ -208,18 +295,23 @@ const opts = { pair: "data" as const, data: { destAxisFit: fit } };
 const coldStart = performance.now();
 const warm = planCorrespondence(dense, [sine], opts); warm.prepare();
 console.log(`cold plan + prepare: ${(performance.now() - coldStart).toFixed(2)} ms`);
-// A cache MISS with warm code: shift every ring by a sub-pixel so the batch key differs.
-const dense2 = dense.map((o) => ({ ...o, nodes: o.nodes.map((n) => ({ ...n, x: n.x + 0.001 })), bbox: { ...o.bbox, x: o.bbox.x + 0.001 } }));
-const start = performance.now();
-const large = planCorrespondence(dense2, [sine], opts); large.prepare();
-const ms = performance.now() - start;
-// Warm-hook work (never a frame): what remains is the exact batch key (~3 ms), the protective
-// input clone (~7 ms) and the data pairing itself; 40 ms leaves headroom for a loaded machine.
-h.ok(ms <= 40, `(f) 1,200-ring plan including prepare, warm code but a cache MISS: ${ms.toFixed(2)} ms ≤ 40 ms (glyph pairs plan no outline correspondence)`);
+// Wall-clock budgets are not portable (guide §9): the shared CI runner plans 2–4× slower than a
+// workstation. So the budget is relative to the work a miss cannot avoid, measured here, on this
+// machine: the exact batch key (JSON.stringify) plus the protective input clone. Best of five on
+// both sides — contention only ever adds time. Each run shifts every ring by a further sub-pixel,
+// so every plan is a cache MISS with warm code.
+const misses = Array.from({ length: 5 }, (_, k) => dense.map((o) => ({ ...o, nodes: o.nodes.map((n) => ({ ...n, x: n.x + 0.001 * (k + 1) })), bbox: { ...o.bbox, x: o.bbox.x + 0.001 * (k + 1) } })));
+const bestOf = (run: (i: number) => void) => { let best = Infinity; for (let i = 0; i < misses.length; i++) { const t = performance.now(); run(i); best = Math.min(best, performance.now() - t); } return best; };
+const unavoidable = bestOf((i) => { JSON.stringify([misses[i], [sine], opts.pair, opts.data, "shatter"]); structuredClone(misses[i]); structuredClone([sine]); });
+let large!: ReturnType<typeof planCorrespondence>;
+const ms = bestOf((i) => { large = planCorrespondence(misses[i], [sine], opts); large.prepare(); });
+// What remains on top is the data pairing itself: today ≈ 3.5×. Planning the 1,200 outline
+// correspondences a glyph flight never samples measured ≈ 15×. (The old fixed 40 ms was ≈ 9.5×
+// on the workstation, so 8× is stricter there and portable everywhere.)
+h.ok(ms <= 8 * unavoidable, `(f) 1,200-ring plan including prepare, warm code but a cache MISS: ${ms.toFixed(2)} ms ≤ 8 × the key + clone it cannot avoid (${unavoidable.toFixed(2)} ms) — glyph pairs plan no outline correspondence`);
 h.ok(large.pairs.every((p) => !p.plan), "(f) glyph pairs carry landings only — no per-pair outline plan to prepare");
-const hitStart = performance.now();
-planCorrespondence(dense2, [sine], opts).prepare();
-h.ok(performance.now() - hitStart <= 5, "(f) a repeated plan is a cache hit");
+const hitMs = bestOf(() => planCorrespondence(misses[misses.length - 1], [sine], opts).prepare());
+h.ok(planCorrespondence(misses[misses.length - 1], [sine], opts) === large && hitMs <= unavoidable, `(f) a repeated plan is a cache hit: the same plan object, for less than a miss's key + clone (${hitMs.toFixed(2)} ≤ ${unavoidable.toFixed(2)} ms)`);
 h.eq(large.driver, "glyph", "(f) large small-ring set selects glyph flights");
 h.ok(large.pairs.length === 1200 && large.pairs.every((p) => p.landing && p.landing.x >= sine.bbox.x && p.landing.x <= sine.bbox.x + sine.bbox.w && near(p.landing.scale, 0.5)), "(f) every marker has an on-curve landing and stroke-to-marker scale");
 h.ok(large.pairs.every((p) => {

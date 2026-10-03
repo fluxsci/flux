@@ -17,6 +17,8 @@ import { reducePresentKey, hudModel, panelModel, clockText, NEXT_W, type Present
 import { resolveTheme } from "../theme";
 import type { Deck } from "../types";
 import type { FluxPlotManifest } from "../../plot/types";
+import { registerGlyphFonts, bakedGlyphLoader } from "../player/glyphProvider";
+import type { BakedGlyphFont } from "../../text/glyphOutlines";
 
 export interface ExportPayload {
   deck: Deck;
@@ -34,11 +36,17 @@ export interface ExportPayload {
   modelPosters?: Record<string, string>;
   /** assetId → intrinsic display size (crop rendering of raster elements). */
   assetSizes?: Record<string, { width: number; height: number }>;
+  /** Font request key (text/fontRequest.mjs) → the baked glyph records of exactly
+   *  the characters that take part in a text ↔ shape Become: the offline file
+   *  cannot read system fonts, so letters fly from these. */
+  glyphs?: Record<string, BakedGlyphFont>;
 }
 
 export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   const { deck } = payload;
   for (const [id, p] of Object.entries(payload.plots ?? {})) cachePlot(id, p.svg, p.manifest);
+  // Letters fly from the baked records; a font that was not baked lands as boxes.
+  registerGlyphFonts(bakedGlyphLoader(payload.glyphs ?? {}));
   const theme = resolveTheme(deck.theme);
 
   mount.innerHTML = "";

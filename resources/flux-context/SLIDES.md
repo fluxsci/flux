@@ -56,7 +56,10 @@ flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 
 flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
-     [--x-scale linear|log --y-scale linear|log --reset] [--beat beatId]            # (set_plot_view) data view, or a Change at a deck beat
+     [--x-scale linear|log --y-scale linear|log --y2-min N --y2-max N --y2-scale linear|log --reset] [--beat beatId]  # (set_plot_view) data view (a twin axis by --y2-*/--x2-*), or a Change at a deck beat
+flux set-plot-color-scale <figureId|deckId/slideId> <elId> [--scale id --cmap crameri.batlow --reversed --norm log
+     --vmin N --vmax N --center N --gamma N --extend both --reset] [--beat beatId] [--regenerate]  # (set_plot_color_scale) live colour scale, or a Change
+flux get-plot-color-scales <figureId|deckId/slideId> <elId> [--beat beatId]                  # (get_plot_color_scales) scales, editability, live view
 
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state] [--curve 'spring(0.35)']
@@ -66,10 +69,16 @@ flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently
 flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become) BECOME
      [--part id,id --source-part id,id --mode consume|handoff]
-     [--pair auto|spatial|order|data|tile --reveal flip|draw --start ms --duration ms --easing e]
+     [--pair auto|spatial|order|data|tile --reveal flip|draw --method shatter|dissolve|collapse|drain]
+     [--start ms --duration ms --easing e]
 flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>             # (appear_from) same hand-off from the destination side
      [--part id,id --source-part id,id --pair auto|spatial|order|data|tile --reveal flip|draw]
-     [--start ms --duration ms --easing e]
+     [--method shatter|dissolve|collapse|drain --start ms --duration ms --easing e]
+flux become <deck> <slideId> <beatId> <sourceId> --to <elId> --to <elId> [--to …]  # a destination SET: one hand-off into several objects
+     [--members '[{"element":"plot1","parts":["s1.point.0"]},{"element":"ellipse2"}]']  # …or objects + parts of any plots; always a hand-off
+flux appear-from <deck> <slideId> <beatId> --members '<json>' --from <sourceId>       # the same set, authored from its destination side
+# MERGE many → one: run appear-from (or become --target) once per source with the SAME destination;
+# identical destinations co-land and the destination appears when the last flight lands.
 flux swap-become <deck> <slideId> <trackId>                                        # (swap_become) reverse a hand-off, keeping timing/style/followers
 flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]          # data-only: keep the frame, replace the plot content
      [--start ms --duration ms --easing e]                                         # shared series tween; with none, force authors it (series fade)
@@ -84,7 +93,10 @@ flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (anima
 flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
      [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
      [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
-     [--stagger-from start|end|center|edges|random] [--seed uint32]
+     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index] [--seed uint32]
+flux align-tracks <deck> <slideId> --tracks t1,t2 --edge start|end --to ms|t3[:start|end]
+     [--beat beatId|index] [--resize]                             # (align_tracks) Alt+A / Alt+D: land resolved edges on a time/edge
+flux inherit-track <deck> <slideId> --from t1 --to t2,t3 [--beat beatId|index] [--include-start] # (inherit_track) exact animation of t1
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -142,7 +154,8 @@ beat — chain across beats) authored three ways:
 
 - **Change** (`set-transform`): the object becomes a different version of itself — position,
   size, shape geometry, colors (blended in OKLab), opacity, dash, text (a pure numeric change
-  digit-tweens; a rewrite crossfades — moving all the while), plot part styles. Stores a
+  digit-tweens; a rewrite plays the TEXT MORPH — shared words glide to their new places,
+  the rest fades by reading order — moving all the while), plot part styles. Stores a
   **sparse patch** (`to.state`) against the track's pre-state; **chaining composes**: t1 of a
   later transform = the earlier one's end. Never hand-compose states; pass the patch and let
   the engine fold. `--to-asset` sets the plot content half (see Become).
@@ -154,7 +167,10 @@ beat — chain across beats) authored three ways:
   refs and part-set sources/destinations default to **hand-off**: both identities stay, the
   source hides after landing and the destination reveals. `--mode consume` keeps the old
   whole-plot consume route; consume refuses part sets. `--part` selects destination parts,
-  `--source-part` selects source parts. `--pair` chooses correspondence, `--reveal` flip/draw.
+  `--source-part` selects source parts. `--pair` chooses correspondence, `--reveal` flip/draw,
+  `--method` what a filled shape's interior does while it splits into pieces or pieces merge into it
+  (shatter = wedges fly with the pieces, the default; dissolve = fades in place; collapse = shrinks to
+  the centre; drain = empties toward the pieces).
   A destination cannot receive overlapping hand-offs in one step. Neither side may be video;
   ghost destinations must already be born. New tracks use 600 ms / smooth / start 0; replacing
   an existing transform keeps timing unless supplied. **Appear from…** (`appear-from`) writes
@@ -180,8 +196,27 @@ patches limits/scales; omitted fields inherit. A figure target writes the object
 `deck/slide` target with `--beat` writes `state.view` on that step's Change and preserves
 other state. Without `--beat`, it edits Design. `--reset` clears the view (at a step this
 writes `view:null`). The Inspector and F-menu expose the same controls. Log limits and data
-must be positive. Lines, points and existing guides project; filled/non-series marks stay
-put. Ticks fade in the outer 4%, including new limits; zoom-out does not invent ticks.
+must be positive. Lines, points, bars, heatmap cells, hexagons, contour bands and box / violin
+bodies project (fluxplot 0.3.2 records their data geometry); reference lines and rasters stay
+put. During a glide the existing ticks move and fade in the outer 4%; at rest the viewed axis is
+re-ticked for its new limits (categories / dates / fixed labels keep theirs). A twin value axis
+(`axes[].y2` / `.x2`) takes `--y2-min --y2-max --y2-scale` (`--x2-…`) and moves only the series
+drawn on it. Two versions of a keyed plot (bars by category, cells and hexagons by row.col —
+`capabilities.valueMorph`) Become each other member by member: heights tween, colour values pass
+through the colour law. `--stagger-by value|count|data-index` orders a ramp by each part's data
+(`data-value` / `data-count` / `data-index`; `x` / `y` by position, `index` by target order).
+
+**Colour scale** is the same kind of prop for colour-mapped plots (hexbin, heatmap, scatter
+`c=`, contour bands, colour-mapped bars/lines) saved by fluxplot ≥ 0.3.1: `set-plot-color-scale`
+patches the colormap, its direction, the norm kind (within what the scale allows), the limits
+and norm parameters, and `extend`; omitted fields inherit, `--reset` clears the scale. A figure
+target writes the object; a `deck/slide` target with `--beat` writes `state.colorScale` on that
+step's Change, so colours tween through data values (limits interpolate, log limits in log
+space, a changed colormap blends its tables); without `--beat` it edits Design. Every element
+carrying a `data-value` recolours together with the colorbar's gradient and ticks, in place, with
+no regeneration; raster scales (images, filled contours) report themselves and only regenerate.
+`--regenerate` on a figure target writes the complete v2 `__fluxplot__` control into the recipe
+and re-runs it, then clears the live override. `get-plot-color-scales` lists what a plot has.
 
 **Ghost transforms** create ordinary independent result Elements with a birth Change track
 (`ghostFrom` names the source; `target` names the result; `to.state` is its destination patch).
@@ -286,6 +321,16 @@ needed), refusing incompatible families per target. `--beat <beatId>` requires t
 and limits targets to that beat; omitted, it links across the slide. `anim-style` also accepts
 `--params` and `--influence` as JSON; media styles refuse stagger. Portable slide snapshots carry referenced
 styles; insertion merges by name and family.
+
+**Align** (`align-tracks`, GUI **Alt+A** / **Alt+D**): edges are resolved (styles, anchors); an end
+includes the stagger tail. Default moves each track (keeps duration); `--resize` keeps the
+opposite edge. Starts clamp at 0, durations at 1 ms; a moved start writes an own `start` and
+detaches an anchor; video commands move but refuse `--resize`.
+**Inherit** (`inherit-track`, GUI **Ctrl+Alt-drag** onto a lane): a linked source links the
+targets to its style plus its own overrides; otherwise the resolved duration, timing curve and
+stagger copy, and within one family and phase (entrance → entrance) also preset, params and arc.
+Bindings, `to`, `ghostFrom`, anchors, groups and enabled state never travel; `start` only with
+`--include-start`. Video commands and animations refuse each other.
 
 **Follow timing** (GUI **⛓ Follow timing…**): `anchor:{trackId,edge:"start"|"end",offsetMs?}` follows a same-step effect.
 End includes duration and the stagger tail. Cycles and missing targets produce compiler issues
@@ -404,4 +449,4 @@ The HTML export contains only referenced slides and their required assets, witho
 notes or local source paths. Deleting referenced slides fails unless `delete-slide --force`
 is explicit; inspect the listed documents before overriding.
 
-Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
+Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` (optionally `--slide <slide>`) to render the slides' Design stills and every build step's still, with that step's part visibility, into the project cache; Connect sheets and command-line Paper renders read only cached stills, and `--prune` keeps all of them. Timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.

@@ -8,6 +8,9 @@
 // Rest positions are deliberately FRACTIONAL: the old layout-box law snapped
 // them a whole stage px at t=1. The three flights never cross (a channel
 // measure under another element's colour is garbage).
+//   TEXT=morph — the text is REWRITTEN as it moves ("Mycelial growth" → "growth
+//   Mycelial"): the landing frame of the glyph-matched morph's span layer must
+//   equal the endpoint's own render (Δ 0 across t=999→1000)
 //   EASE=linear START=100.3 node --import tsx scripts/perf/slide-settle-probe.mts
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -28,7 +31,7 @@ addElement(deck, slide.id, { type: "text", id: "t", x: 100, y: 4, width: 200, he
 const b1 = addBeat(deck, slide.id, { id: "b1" })!;
 setTransform(deck, slide.id, b1.id, "r", { state: { x: 400.37, y: 60.61, width: 90, height: 55 }, duration: 1000, easing: ease });
 setTransform(deck, slide.id, b1.id, "e", { state: { x: 420.2, y: 240.4 }, duration: 1000, easing: ease });
-setTransform(deck, slide.id, b1.id, "t", { state: { x: 400.45, y: 8.35 }, duration: 1000, easing: ease });
+setTransform(deck, slide.id, b1.id, "t", { state: { x: 400.45, y: 8.35, ...(process.env.TEXT === "morph" ? { text: "growth Mycelial" } : {}) }, duration: 1000, easing: ease });
 const file = path.join(tmp, "settle.html"); await fs.writeFile(file, (await exportDeckHtml({ deck })).html);
 const { browser, page } = await launch({ width: 1440, height: 900 });
 try {

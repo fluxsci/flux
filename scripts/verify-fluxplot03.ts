@@ -21,7 +21,7 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 const dir = new URL("./fixtures/fluxplot03/", import.meta.url);
 const load = async (name: string) => ({ svg: await readFile(new URL(`${name}.svg`, dir), "utf8"),
   manifest: JSON.parse(await readFile(new URL(`${name}.fluxplot.json`, dir), "utf8")) as FluxPlotManifest });
-for (const name of ["panels-a", "panels-b", "fields"]) {
+for (const name of ["panels-a", "panels-b", "fields", "presets"]) {
   const { svg, manifest } = await load(name);
   // fileURLToPath, never `.pathname`: a Windows file URL's pathname is "/C:/…",
   // which is not a path the fs can open, and validatePlot then reported the
@@ -69,7 +69,11 @@ for (const series of A.manifest.series) {
   assert(seriesTweenable(series, other, seriesAxes(A.manifest, series), seriesAxes(nullDatum, other)), "a null datum removes a vertex, not the series' shared tweenable subset");
 }
 const field = await load("fields");
-assert(!hasTweenableSeries(field.manifest, field.manifest), "field changes use complete transitions");
+// fluxplot 0.3.2: cells and hexagons carry stable keys (capabilities.valueMorph), so a field's two
+// versions tween member by member (F7); a field without keyed members still uses a complete transition
+assert(hasTweenableSeries(field.manifest, field.manifest), "keyed field members (cells, hexagons) tween by key");
+const unkeyed = structuredClone(field.manifest); for (const s of unkeyed.series) if (s.capabilities) s.capabilities.valueMorph = false;
+assert(!hasTweenableSeries(unkeyed, unkeyed), "a field without keyed members uses a complete transition");
 assert.equal(field.manifest.guides!.filter((g) => g.role === "colorbar").length, 2);
 assert(plotContractErrors(A.svg.replace('id="figure"', 'id="axis.x"') + '<g id="axis.x"/>', A.manifest).some((e) => e.includes("Duplicate")));
 await assert.rejects(validateIncomingPlot(A.svg + "\n", JSON.stringify(A.manifest)), /checksum/);

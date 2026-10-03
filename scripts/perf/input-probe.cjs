@@ -14,11 +14,18 @@
 // firewall regression was isolated in one run). Optional Chrome trace per phase.
 //
 //   node scripts/perf/input-probe.cjs <projectDir> [--surface=figure|paper|both|slide|all]
-//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
+//        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,resizeHeavy,cropHeavy,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
+//        [--layers] mid-drag compositor layer snapshot (CDP LayerTree: count, top layers, owning node, compositing reasons,
+//        the dragged element's will-change + document.getAnimations()) into results.layers — STRUCTURE ONLY: the LayerTree
+//        agent inflates Paint/browser time, never time a --layers run. Scenarios combine with '+' (e.g. noOverlay+ovSel).
 //        [--qualify] preserve production background throttling and fail on unusable display/focus loss
 //        [--model3d-s8=model|image] qualified public-example fixture assertions
+//        [--target=<elementId>] drag/hover target element (default: first on-screen plot)
+//        [--zoomSteps=N] before the phases, N ctrl-wheel notches IN about the target (×e^0.18 each), settle 2.5 s (proxy warm)
+//        phases dragHeavy (N=--dragMoves moves every --dragMs ms, Lissajous + drift), altDupDrag (same with Alt+Shift held:
+//        duplicate-on-drag, axis-locked), idleAfterDup (3 s after the duplicate lands: autosave + proxy retake) — 2026-09-30
 //
 // The project is COPIED to a scratch dir (nothing of the user's is touched);
 // HOME/XDG are isolated (no single-instance clash with a running Flux); the
@@ -50,7 +57,7 @@ if (!process.versions.electron) {
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
-    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', '') };
+    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8'), PROBE_LAYERS: args.includes('--layers') ? '1' : '0' };
   delete env.VITE_DEV_SERVER_URL; delete env.ELECTRON_RUN_AS_NODE;
   const electronArgs = [__filename, project];
   if (process.platform === 'linux') electronArgs.push('--no-sandbox', `--ozone-platform=${ozone}`);
@@ -124,6 +131,18 @@ const doTrace = process.env.PROBE_TRACE === '1';
 const surface = process.env.PROBE_SURFACE || 'figure';
 const phaseFilter = (process.env.PROBE_PHASES || '').split(',').filter(Boolean);
 const wantPhase = (n) => !phaseFilter.length || phaseFilter.includes(n);
+// PROBE_IPC=1: per-phase ledger of every ipcMain handler (calls, handler ms, arg/result bytes) —
+// the renderer's "Receive mojo reply" self time names ElectronApiIPC but not the channel (2026-09-30).
+const ipcLedger = new Map();
+if (process.env.PROBE_IPC === '1') {
+  const { ipcMain } = require('electron');
+  const sz = (v) => { try { if (v == null) return 0; if (typeof v === 'string') return v.length; if (v.byteLength != null) return v.byteLength; const j = JSON.stringify(v); return j ? j.length : 0; } catch { return -1; } };
+  const rec = (ch, ms, a, r) => { const e = ipcLedger.get(ch) || { n: 0, ms: 0, maxMs: 0, argB: 0, resB: 0, maxResB: 0 }; e.n++; e.ms += ms; e.maxMs = Math.max(e.maxMs, ms); e.argB += a; e.resB += r; e.maxResB = Math.max(e.maxResB, r); ipcLedger.set(ch, e); };
+  const h0 = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (ch, fn) => h0(ch, async (ev, ...args) => { const t = performance.now(); let r; try { r = await fn(ev, ...args); return r; } finally { rec(ch, performance.now() - t, sz(args), sz(r)); if (process.env.PROBE_IPC_PATHS === '1' && typeof args[0] === 'string' && /^fs:read/.test(ch)) rec(ch + ' ' + args[0].replace(/^.*?\/(fig|slides|\.meta|plots)\//, '$1/'), performance.now() - t, 0, sz(r)); } });
+  const o0 = ipcMain.on.bind(ipcMain);
+  ipcMain.on = (ch, fn) => o0(ch, (ev, ...args) => { const t = performance.now(); try { return fn(ev, ...args); } finally { rec('on:' + ch, performance.now() - t, sz(args), sz(ev.returnValue)); } });
+}
 require(path.join(repo, 'electron/main.cjs'));
 
 let win;
@@ -157,18 +176,22 @@ const qualificationState=()=>({time:performance.now(),visible:document.visibilit
 for(const type of ['focus','blur','visibilitychange'])window.addEventListener(type,()=>{if(p.running)p.qualification.push({...qualificationState(),event:type})},true);
 window.addEventListener('pointermove',()=>{p.moves++},true);
 window.addEventListener('pointerdown',(e)=>{p.downs++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.downPaint.push(performance.now()-t0)))},true);
-window.addEventListener('wheel',()=>{p.wheels++},{capture:true,passive:true});
+window.addEventListener('wheel',(e)=>{p.wheels++;if(e.ctrlKey)requestAnimationFrame(()=>{p.zoomTicks++;if(document.querySelector('.zoom-proxy.live'))p.proxyTicks++})},{capture:true,passive:true});
 window.addEventListener('scroll',()=>{p.scrolls++},{capture:true,passive:true});
 window.addEventListener('keydown',(e)=>{p.keys++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.longtasks.push(Math.round(e.duration))}).observe({type:'longtask'})}catch{}
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.evts.push({n:e.name,d:Math.round(e.duration),proc:Math.round(e.processingEnd-e.processingStart)})}).observe({type:'event',durationThreshold:16})}catch{}
-p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
-p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice()};return {qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
+p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.zoomTicks=0;p.proxyTicks=0;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
+p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice()};return {zoomTicks:p.zoomTicks,proxyTicks:p.proxyTicks,qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
 return 'installed'})()`;
 
 // CSS scenarios — bisect knobs. `base` is the shipped app.
 const SCENARIOS = {
   base: '',
+  live: '', // zoom-path: window.__noZoomProxy — every zoom burst runs live
+  liveNoText: '.canvas-host .scene-svg text{display:none !important}',
+  liveGeomPrec: '.canvas-host .scene-svg text{text-rendering:geometricPrecision !important}',
+  noText: '.canvas-host .scene-svg text{display:none !important}',
   nocursor: '*,*::before,*::after{cursor:default !important}', // no hardware family anywhere
   syscross: '*,*::before,*::after{cursor:crosshair !important}', // platform crosshair, no image
   noring: '.click-ring{display:none !important}', // no click ring
@@ -181,18 +204,50 @@ const SCENARIOS = {
   sceneContain: '.canvas-host .scene{contain:layout style}', // diagnostic: containment on the panned wrapper
   hostOverflow: '.canvas-host{overflow:visible !important}', // diagnostic: host clip off
   geomPrec: '.canvas-host .scene-svg{text-rendering:geometricPrecision}', // SVG text laid out scale-independently (no relayout per zoom tick)
+  elNoWC: '.canvas-host .el{will-change:auto !important}', // drag-layer bisect: the dragged <g class=el> without will-change (translate3d still inline)
+  ovGuides: '.canvas-host .overlay-svg .guide{display:none !important}', // drag-layer overlay bisect: smart guides
+  ovMeasure: '.canvas-host .overlay-svg .measure,.canvas-host .overlay-svg .measure-label,.canvas-host .overlay-svg .measure-bg{display:none !important}', // distance readouts
+  ovSel: '.canvas-host .overlay-svg .sel-box,.canvas-host .overlay-svg .handle,.canvas-host .overlay-svg .rot-handle,.canvas-host .overlay-svg .hover-box,.canvas-host .overlay-svg .hover-trace{display:none !important}', // selection box + handles + hover
+  sceneNoWC: '.canvas-host .scene{will-change:auto !important}', // drag-layer bisect: the scene wrapper not promoted by will-change (its paused animation still is)
+  noInspector: 'aside.inspector{visibility:hidden !important}', // drag-layer paint bisect: live x/y readouts not painted
+  noHud: '.arrange-hud,.canvas-host .hud{visibility:hidden !important}', // drag-layer paint bisect
 };
+// --layers: mid-gesture compositor layer snapshot (CDP LayerTree) + the dragged element's animations/will-change.
+let layerLatest = null, layerOn = false; const layerMsgs = {};
+async function layerSnapshot(tag) {
+  const dbg = win.webContents.debugger;
+  if (!layerOn) { layerOn = true; dbg.on('message', (_e, m, p) => { layerMsgs[m] = (layerMsgs[m] || 0) + 1; if (m === 'LayerTree.layerTreeDidChange') { layerMsgs.keys = Object.keys(p || {}).join(','); if (p.layers) layerLatest = p.layers; } }); await dbg.sendCommand('DOM.enable').catch(() => {}); await dbg.sendCommand('LayerTree.enable'); await sleep(200); }
+  const t0 = Date.now(); await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))'); while (!layerLatest && Date.now() - t0 < 1500) await sleep(20);
+  const L = layerLatest || [];
+  const described = [];
+  for (const l of L.filter((l) => l.drawsContent).sort((a, b) => b.width * b.height - a.width * a.height).slice(0, 24)) {
+    let node = null; if (l.backendNodeId) { try { const d = await dbg.sendCommand('DOM.describeNode', { backendNodeId: l.backendNodeId }); node = `${d.node.nodeName}.${(d.node.attributes || []).reduce((acc, v, i, a) => (a[i - 1] === 'class' ? v : acc), '')}${(d.node.attributes || []).reduce((acc, v, i, a) => (a[i - 1] === 'data-editor-element-id' ? '#' + v : acc), '')}`; } catch { node = 'backend#' + l.backendNodeId; } }
+    described.push({ node, w: Math.round(l.width), h: Math.round(l.height), paints: l.paintCount, compositingReasons: undefined });
+  }
+  for (const d of described) { const l = L.find((x) => Math.round(x.width) === d.w && Math.round(x.height) === d.h && x.drawsContent); try { const r = await dbg.sendCommand('LayerTree.compositingReasons', { layerId: l.layerId }); d.compositingReasons = r.compositingReasonIds || r.compositingReasons; } catch {} }
+  const dom = await js(`(()=>{const g=[...document.querySelectorAll('.canvas-host g.el')].filter(g=>g.style.transform);return {movingEls:g.length,willChange:g.map(x=>getComputedStyle(x).willChange),anims:document.getAnimations().map(a=>((a.effect&&a.effect.target&&(a.effect.target.getAttribute('class')||a.effect.target.tagName))+'').slice(0,30)+':'+a.playState),sceneWC:getComputedStyle(document.querySelector('.canvas-host .scene')).willChange,dpr:devicePixelRatio,win:[innerWidth,innerHeight]}})()`);
+  const snap = { tag, msgs: { ...layerMsgs }, layers: L.length, drawing: L.filter((l) => l.drawsContent).length, top: described, dom };
+  log('layers', snap); (results.layers ??= []).push(snap);
+}
 async function setScenario(name) {
-  const css = SCENARIOS[name]; if (css === undefined) throw Error('unknown scenario ' + name);
+  const parts = name.split('+'); for (const p of parts) if (SCENARIOS[p] === undefined) throw Error('unknown scenario ' + p);
+  const css = parts.map((p) => SCENARIOS[p]).join('\n'); // `a+b` combines scenarios
+  await js(`window.__noZoomProxy=${/^live/.test(name)}`);
+  if (process.env.PROBE_SNAP_QUIET) await js(`window.__snapQuietMs=${+process.env.PROBE_SNAP_QUIET}`); // scratch-instrumented builds only
   await js(`(()=>{let s=document.getElementById('__probe_css');if(!s){s=document.createElement('style');s.id='__probe_css';document.head.appendChild(s)}s.textContent=${JSON.stringify(css)};return true})()`);
   await sleep(350);
 }
 async function measure(label, run, traceName) {
   await model3dProbe?.beforePhase(label);
   if (qualify) assertWindow(win, [await js("({visible:document.visibilityState,focused:document.hasFocus()})")]);
-  await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
+  { const f = await js('(()=>{const f=window.__snapFail;window.__snapFail=null;return f})()').catch(() => null); if (f && !fs.existsSync(path.join(out, 'snapfail.svg'))) { fs.writeFileSync(path.join(out, 'snapfail.svg'), f.svg); log('snapfail', { err: f.err, stage: f.stage, bytes: f.svg.length }); } }
+  const snapBefore = await js('(()=>{const L=window.__snapLog;window.__snapLog=null;return L?L.c:null})()').catch(() => null);
+  ipcLedger.clear(); await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
   if (traceName) await contentTracing.startRecording({ included_categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing', 'cc', 'input', 'ui', 'viz', 'gpu', 'toplevel', 'latencyInfo', 'benchmark', ...(process.env.PROBE_INVALIDATION === '1' ? ['disabled-by-default-devtools.timeline.invalidationTracking', 'disabled-by-default-blink.invalidation'] : [])], excluded_categories: ['*'] });
+  const prof = cdpOk && (process.env.PROBE_PROFILE || '').split(',').includes(label.split(':').pop());
+  if (prof) { await win.webContents.debugger.sendCommand('Profiler.enable'); await win.webContents.debugger.sendCommand('Profiler.setSamplingInterval', { interval: 100 }); await win.webContents.debugger.sendCommand('Profiler.start'); }
   await run();
+  if (prof) { const { profile } = await win.webContents.debugger.sendCommand('Profiler.stop'); fs.writeFileSync(path.join(out, `profile-${label.replace(/[^a-z0-9]+/gi, '-')}.cpuprofile`), JSON.stringify(profile)); }
   const wallMs = Date.now() - t0; const cpu = cpuSnapshot(); const m1 = await cdpMetrics();
   let trace = null; if (traceName) trace = await contentTracing.stopRecording(path.join(out, traceName + '.json'));
   const r = await js('window.__p.stop()');
@@ -204,8 +259,14 @@ async function measure(label, run, traceName) {
   await model3dProbe?.afterPhase(label, r);
   // compress the cursor sequence: kind:imageHash × count @ ms since phase start
   const seq = []; for (const c of cursorLog) { const k = c.type + (c.h ? ':' + c.h : ''); if (!seq.length || seq.at(-1).k !== k) seq.push({ k, n: 1, t: c.t }); else seq.at(-1).n++; }
-  const res = { label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
+  const snapEv = await js('window.__snapLog?.ev ?? null').catch(() => null);
+  const snap = await js('(()=>{const L=window.__snapLog;window.__snapLog=null;return L?L.c:null})()').catch(() => null);
+  const foldLog = await js('(()=>{const k=window.__foldLog;window.__foldLog=null;return k})()').catch(() => null);
+  const abortKeys = await js('(()=>{const k=window.__abortKeys;window.__abortKeys=null;return k})()').catch(() => null);
+  const res = { snapEv, foldLog, abortKeys, zoomTicks: r.zoomTicks, proxyTicks: r.proxyTicks, snapBefore, snap, label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
     cursorChanges: cursorLog.length, cursorSeq: seq.slice(0, 40).map((s) => `${s.k}x${s.n}@${s.t}`), slowEvents: r.evts.slice(0, 12), trace };
+  if (process.env.PROBE_DUMP_JS) { try { res.dump = await js(process.env.PROBE_DUMP_JS); } catch (e) { res.dump = String(e); } }
+  if (ipcLedger.size) { res.ipc = Object.fromEntries([...ipcLedger].sort((a, b) => b[1].ms - a[1].ms).map(([k, v]) => [k, { n: v.n, ms: +v.ms.toFixed(1), maxMs: +v.maxMs.toFixed(1), argKB: +(v.argB / 1024).toFixed(1), resKB: +(v.resB / 1024).toFixed(1), maxResKB: +(v.maxResB / 1024).toFixed(1) }])); }
   log('measure', res); return res;
 }
 
@@ -374,11 +435,33 @@ async function figurePhases(mode = 'figure') {
   let last = -1; for (let i = 0; i < 60; i++) { const n = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`); if (n === last) break; last = n; await sleep(400); } // lazy parse settles
   if (mode === 'figure') await model3dProbe?.prepareFigure();
   log('dom', await js(`({mode:'${mode}',elements:document.querySelectorAll('${modeRoot} [data-editor-element-id]').length,plotNodes:document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})`));
-  const geo = await js(`(()=>{const root=document.querySelector('${modeRoot}');const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
+  const scanGeo = () => js(`(()=>{const root=document.querySelector('${modeRoot}');const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
     const plots=[...root.querySelectorAll('[data-editor-element-id]')].filter(n=>window.__model3dS8 ? window.__model3dS8.ids.includes(n.dataset.editorElementId) : n.querySelector('svg')).map(n=>{const r=n.getBoundingClientRect();return {id:n.dataset.editorElementId,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>20&&p.h>20&&p.x>h.left+40&&p.x<h.right-40&&p.y>h.top+40&&p.y<h.bottom-40);
     let empty=null;for(let y=h.bottom-30;y>h.top+40&&!empty;y-=20){for(let x=h.right-30;x>h.left+40;x-=20){const el=document.elementFromPoint(x,y);if(el&&el.closest('.canvas-host')&&!el.closest('[data-editor-element-id],.figure-titlebar,.ruler,.overlay-svg')){empty={x,y};break}}}
     return {host:{l:Math.round(h.left),t:Math.round(h.top),r:Math.round(h.right),b:Math.round(h.bottom)},plots:plots.slice(0,4),nplots:plots.length,empty}})()`);
+  let geo = await scanGeo();
   log('geo', geo);
+  // --target: measure a NAMED element (the owner's laggy hexmatrix, say) instead of whichever plot is first.
+  const targetId = process.env.PROBE_TARGET || '';
+  const targetRect = () => js(`(()=>{const n=document.querySelector('${modeRoot} [data-editor-element-id="${targetId}"]');if(!n)return null;const r=n.getBoundingClientRect();return {id:'${targetId}',x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}})()`);
+  let target = null;
+  if (targetId) { target = await targetRect(); if (!target) throw Error('target element not mounted: ' + targetId); log('target', target); }
+  // --zoomSteps: zoom IN about the target (or host centre) BEFORE the phases, then settle long enough for the
+  // fold (180 ms) and the zoom-proxy snapshot (1.5 s quiet + idle). The owner's lag is worst zoomed in.
+  const zoomSteps = +(process.env.PROBE_ZOOM_STEPS || 0);
+  if (zoomSteps > 0) {
+    const zx = target ? target.x : Math.round((geo.host.l + geo.host.r) / 2), zy = target ? target.y : Math.round((geo.host.t + geo.host.b) / 2);
+    const bakedJs = `Number(/scale\\(([-\\d.e]+)/.exec(document.querySelector('${modeRoot} .scene-svg > g').getAttribute('transform'))[1])`;
+    const z0 = await js(bakedJs);
+    mouse({ type: 'mouseMove', x: zx, y: zy }); await sleep(200);
+    ctrlDown(); for (let i = 0; i < zoomSteps; i++) { wheel(zx, zy, 0, 120, ['control']); await sleep(30); } ctrlUp();
+    await wait(() => js(`${bakedJs} > ${z0} * 1.05`), 'prezoom folded'); await sleep(2500);
+    geo = await scanGeo(); if (target) target = await targetRect();
+    const z1 = await js(bakedJs);
+    const pre = { steps: zoomSteps, bakedBefore: z0, bakedAfter: z1, ratio: +(z1 / z0).toFixed(2), proxyWarm: await js(`!!document.querySelector('${modeRoot} .zoom-proxy')`), snapLog: await js('window.__snapLog?.ev?.slice(-40) ?? null').catch(() => null), target, empty: geo.empty, plotNodesOnScreen: await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`) };
+    log('prezoom', pre); results.prezoom = pre;
+    if (!geo.empty) geo.empty = { x: geo.host.r - 40, y: geo.host.b - 40 }; // zoomed content may cover every scanned spot; fall back to the corner
+  }
   log('selection', await js(`(()=>{const s=document.getSelection();const a=s&&s.anchorNode;return {ranges:s?s.rangeCount:0,anchor:a?(a.nodeName+(a.parentElement?'<'+a.parentElement.className.toString().slice(0,30):'')):null,inCanvas:!!(a&&document.querySelector('${modeRoot} .canvas-host')?.contains(a))}})()`));
   if (!geo.plots.length || !geo.empty) throw Error('need at least one on-screen plot and an empty canvas spot');
   const bg = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host');const c=getComputedStyle(h).backgroundColor.match(/[\\d.]+/g)||[240,240,240];return {win:{w:innerWidth,h:innerHeight},lum:0.114*+c[2]+0.587*+c[1]+0.299*+c[0]}})()`);
@@ -386,7 +469,7 @@ async function figurePhases(mode = 'figure') {
   log('frameRegion', region);
   { const b = win.getContentBounds(); const g = `${b.x + region.l},${b.y + region.t} ${region.r - region.l}x${region.b - region.t}`; log('screenRegion', { g, bgLum: region.bgLum, bounds: b }); }
   log('animations', await js("document.getAnimations().map(a=>({target:(a.effect&&a.effect.target&&(a.effect.target.className&&a.effect.target.className.baseVal||a.effect.target.className||a.effect.target.tagName)+'').toString().slice(0,40),props:Object.keys((a.effect&&a.effect.getKeyframes&&a.effect.getKeyframes()[0])||{}).filter(k=>!/offset|computedOffset|easing|composite/.test(k)),state:a.playState}))"));
-  const A = geo.plots[0], B = geo.plots[Math.min(1, geo.plots.length - 1)];
+  const A = target ?? geo.plots[0], B = geo.plots.find((p) => p.id !== A.id) ?? A;
   results[mode] = {};
   for (const sc of scenarios) {
     await setScenario(sc);
@@ -404,6 +487,69 @@ async function figurePhases(mode = 'figure') {
     // 5. press-drag plot A (real move gesture), then Ctrl+Z
     if (wantPhase('dragPlot')) R.dragPlot = await measure(`${mode}:${sc}:dragPlot`, async () => { mouse({ type: 'mouseMove', x: A.x, y: A.y }); await sleep(150); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(150); for (let i = 1; i <= 8; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i * 5, y: A.y + i * 3 }); await sleep(40); } await sleep(150); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + 40, y: A.y + 24 }); await sleep(300); }, tr('dragPlot'));
     if (wantPhase('dragPlot')) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] }); await sleep(250); }
+    // 5e. HEAVY drag (2026-09-30, the owner's "lag while dragging, worst zoomed in"): press on the target, --dragMoves
+    // moves every --dragMs ms along a Lissajous path plus a drift (ends at +60,+40 so the commit is a real edit), release.
+    const undo = async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] }); await sleep(400); };
+    const heavyPath = async (mods) => {
+      const N = +(process.env.PROBE_DRAG_MOVES || 150), dt = +(process.env.PROBE_DRAG_MS || 8), Rr = Math.min(120, Math.round((geo.host.r - geo.host.l) / 5));
+      const km = mods.length ? mods.map((m) => ({ type: 'keyDown', keyCode: m === 'alt' ? 'Alt' : m === 'shift' ? 'Shift' : 'Control' })) : [];
+      for (const k of km) win.webContents.sendInputEvent(k);
+      mouse({ type: 'mouseMove', x: A.x, y: A.y, modifiers: mods }); await sleep(150);
+      mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y, modifiers: mods }); await sleep(100);
+      let lx = A.x, ly = A.y;
+      for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; lx = Math.round(A.x + Rr * Math.sin(th) + (60 * i) / N); ly = Math.round(A.y + Rr * 0.6 * Math.sin(2 * th) + (40 * i) / N); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown', ...mods], x: lx, y: ly }); await sleep(dt); if (i === (N >> 1) && process.env.PROBE_LAYERS === '1') await layerSnapshot(`mid-drag${mods.length ? '-' + mods.join('+') : ''}`); }
+      await sleep(100); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly, modifiers: mods });
+      for (const k of km) win.webContents.sendInputEvent({ ...k, type: 'keyUp' });
+      await sleep(400);
+    };
+    if (wantPhase('dragHeavy')) { R.dragHeavy = await measure(`${mode}:${sc}:dragHeavy`, () => heavyPath([]), tr('dragHeavy')); await undo(); }
+    // 5f. the same drag with Alt+Shift held = duplicate-on-drag (performAltDup on the first move), axis-locked; then 3 idle
+    // seconds for whatever the duplicate triggers (figures autosave at 700 ms, zoom-proxy retake after 1.5 s quiet); then undo.
+    if (wantPhase('altDupDrag')) {
+      const before = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length`);
+      R.altDupDrag = await measure(`${mode}:${sc}:altDupDrag`, () => heavyPath(['alt', 'shift']), tr('altDupDrag'));
+      const after = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length`);
+      log('altDup', { elementsBefore: before, elementsAfter: after, duplicated: after > before });
+      if (wantPhase('idleAfterDup')) R.idleAfterDup = await measure(`${mode}:${sc}:idleAfterDup`, async () => { await sleep(3000); }, tr('idleAfterDup'));
+      await undo();
+    }
+    // 5g. HEAVY resize (2026-09-30, "adjusting sizes"): select the target, grab its bottom-right handle from the
+    // overlay DOM, --dragMoves moves every --dragMs ms (diagonal in-and-out plus a drift so the commit is real), release, undo.
+    // importNode counter (resize-preview, 2026-09-30): every plot mount/re-render is one deep importNode of the
+    // cached plot DOM, so the count per phase is "plot renders per gesture" without touching app source.
+    const countImports = () => js(`(()=>{if(!window.__imp){const o=document.importNode.bind(document);window.__imp={n:0,ms:0};document.importNode=(nd,d)=>{const t=performance.now();const r=o(nd,d);if(d){window.__imp.n++;window.__imp.ms+=performance.now()-t}return r}}window.__imp.n=0;window.__imp.ms=0})()`);
+    const readImports = async (label) => { const r = await js('({n:window.__imp.n,ms:Math.round(window.__imp.ms)})'); log('imports', { label, ...r }); return r; };
+    const resizeGesture = (name, modsDown) => async () => {
+      await click(A.x, A.y, 20); await sleep(350);
+      const hd = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();const hs=[...document.querySelectorAll('${modeRoot} .overlay-svg rect.handle')].map(r=>{const b=r.getBoundingClientRect();return {x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}}).filter(p=>p.x>h.left+12&&p.x<h.right-12&&p.y>h.top+12&&p.y<h.bottom-12);if(!hs.length)return null;return hs.sort((a,b)=>(b.x+b.y)-(a.x+a.y))[0]})()`);
+      if (!hd) throw Error(name + ': no selection handles after clicking the target');
+      log('resizeHandle', hd);
+      const modifiers = modsDown ? ['control'] : [];
+      await countImports();
+      R[name] = await measure(`${mode}:${sc}:${name}`, async () => {
+        const N = +(process.env.PROBE_DRAG_MOVES || 150), dt = +(process.env.PROBE_DRAG_MS || 8);
+        if (modsDown) win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Control' });
+        mouse({ type: 'mouseMove', x: hd.x, y: hd.y, modifiers }); await sleep(150);
+        mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: hd.x, y: hd.y, modifiers }); await sleep(100);
+        if (modsDown) win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Control' });
+        let lx = hd.x, ly = hd.y;
+        for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; const d = (modsDown ? -1 : 1) * (80 * Math.sin(th) + (50 * i) / N); lx = Math.round(hd.x + d); ly = Math.round(hd.y + d * 0.7); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: lx, y: ly }); await sleep(dt); }
+        await sleep(100);
+        // PROBE_RESIZE_CHECK=1: the live preview's geometry at the last move (the selection handles' box and the
+        // target's inner <svg> box) + a screenshot, then the same after release — the preview must land where the
+        // commit does. Diagnostic only (it perturbs the phase's timing).
+        const geomJs = `(()=>{const hs=[...document.querySelectorAll('${modeRoot} .overlay-svg rect.handle')].map(r=>{const b=r.getBoundingClientRect();return [b.x+b.width/2,b.y+b.height/2]});const n=document.querySelector('${modeRoot} [data-editor-element-id="${targetId}"] svg')||document.querySelector('${modeRoot} [data-editor-element-id="${targetId}"]');const b=n.getBoundingClientRect();const r=v=>Math.round(v*10)/10;return {handles:hs.length?{x0:r(Math.min(...hs.map(h=>h[0]))),y0:r(Math.min(...hs.map(h=>h[1]))),x1:r(Math.max(...hs.map(h=>h[0]))),y1:r(Math.max(...hs.map(h=>h[1])))}:null,target:{x0:r(b.x),y0:r(b.y),x1:r(b.right),y1:r(b.bottom)}}})()`;
+        const check = process.env.PROBE_RESIZE_CHECK === '1';
+        if (check) { log('geomLive', await js(geomJs)); fs.writeFileSync(path.join(out, `${name}-live.png`), (await win.webContents.capturePage()).toPNG()); }
+        mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly }); await sleep(400);
+        if (check) { await sleep(300); log('geomCommitted', await js(geomJs)); fs.writeFileSync(path.join(out, `${name}-committed.png`), (await win.webContents.capturePage()).toPNG()); }
+      }, tr(name));
+      R[name].imports = await readImports(name);
+      await undo();
+    };
+    if (wantPhase('resizeHeavy')) await resizeGesture('resizeHeavy', false)();
+    // 5h. crop gesture: Control held on the handle press (figure-v1 P5 crop; drag inward so the window shrinks).
+    if (wantPhase('cropHeavy')) await resizeGesture('cropHeavy', true)();
     // 5d. three idle seconds after an edit + undo: whatever lands here (autosave, journal, deferred work) is a hitch the user gets for free
     if (wantPhase('idle')) R.idle = await measure(`${mode}:${sc}:idle`, async () => { await sleep(3000); }, tr('idle'));
     await click(geo.empty.x, geo.empty.y, 10); await sleep(300);
@@ -422,6 +568,7 @@ async function figurePhases(mode = 'figure') {
     // Electron wheel signs are opposite DOM wheel signs: POSITIVE zooms IN.
     // The older phases mostly ran below fit zoom and never exercised a deep
     // baked raster followed by a rapid zoom-out, the owner's reported failure.
+    if (wantPhase('zoomDeep') && process.env.PROBE_PRE_REST) await sleep(+process.env.PROBE_PRE_REST); // zoom-path: let the zoom proxy land first
     if (wantPhase('zoomDeep')) R.zoomDeep = await measureFrames(`${mode}:${sc}:zoomDeep`, region, async () => {
       ctrlDown();
       // This burst used to lean on the wheel CEILING (16×) to land at exactly 16. The
@@ -448,6 +595,33 @@ async function figurePhases(mode = 'figure') {
     // 10. FAST pan and pan in bursts (cool-downs → demotion + re-cull between)
     if (wantPhase('panFast')) R.panFast = await measureFrames(`${mode}:${sc}:panFast`, region, async () => { for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, 80); await sleep(8); } for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, -80); await sleep(8); } await sleep(600); }, tr('panFast'));
     if (wantPhase('panBursts')) R.panBursts = await measureFrames(`${mode}:${sc}:panBursts`, region, async () => { for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60); await sleep(8); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60); await sleep(8); } await sleep(320); } await sleep(600); }, tr('panBursts'));
+    // 11. REALISTIC SEQUENCES (2026-09-30, zoom-path): the owner zooms right after moving things. Each phase is
+    // <action> → gap → one zoom burst (12 ticks in + 12 out, 16 ms apart, returns to the same zoom). The
+    // result's proxyTicks/zoomTicks is the fraction of zoom frames the raster proxy carried; snap.burst:* why.
+    const zb = async (n = 12) => { ctrlDown(); for (let i = 0; i < n; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < n; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); };
+    const shortDrag = async (moves = 30) => { mouse({ type: 'mouseMove', x: A.x, y: A.y }); await sleep(60); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(30); for (let i = 1; i <= moves; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i, y: A.y + Math.round(i / 2) }); await sleep(12); } mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + moves, y: A.y + Math.round(moves / 2) }); };
+    const backToCentre = async () => { mouse({ type: 'mouseMove', x: cx, y: cy }); };
+    const seqGap = +(process.env.PROBE_SEQ_GAP || 0);
+    if (wantPhase('ricTest')) { const rows = []; for (let k = 0; k < 4; k++) { await sleep(1500); rows.push(await js(`new Promise(r=>{const t=performance.now();const tm=setTimeout(()=>r({ric:null,vis:document.visibilityState,focus:document.hasFocus()}),4000);requestIdleCallback(()=>{clearTimeout(tm);r({ric:Math.round(performance.now()-t),vis:document.visibilityState,focus:document.hasFocus()})})})`)); } log('ricTest', rows); R.ricTest = rows; }
+    if (wantPhase('seqRestZoom')) { await sleep(3500); R.seqRestZoom = await measure(`${mode}:${sc}:seqRestZoom`, async () => { await zb(); await sleep(600); }, tr('seqRestZoom')); }
+    if (wantPhase('seqDragZoom')) { await sleep(2000); R.seqDragZoom = await measure(`${mode}:${sc}:seqDragZoom`, async () => { await shortDrag(); await backToCentre(); await sleep(seqGap || 500); await zb(); await sleep(600); }, tr('seqDragZoom')); await undo(); }
+    if (wantPhase('seqPanZoom')) { await sleep(2000); R.seqPanZoom = await measure(`${mode}:${sc}:seqPanZoom`, async () => { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 25); await sleep(8); } await sleep(seqGap || 300); await zb(); await sleep(600); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -25); await sleep(8); } await sleep(300); }, tr('seqPanZoom')); }
+    if (wantPhase('seqZoomZoom')) { await sleep(2000); R.seqZoomZoom = await measure(`${mode}:${sc}:seqZoomZoom`, async () => { await zb(); await sleep(seqGap || 300); await zb(); await sleep(600); }, tr('seqZoomZoom')); }
+    if (wantPhase('seqZoomDragZoom')) { await sleep(2000); R.seqZoomDragZoom = await measure(`${mode}:${sc}:seqZoomDragZoom`, async () => { await zb(); await sleep(300); await shortDrag(); await backToCentre(); await sleep(seqGap || 300); await zb(); await sleep(600); }, tr('seqZoomDragZoom')); await undo(); }
+    if (wantPhase('editIdle')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2500); R.editIdle = await measure(`${mode}:${sc}:editIdle`, async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(3500); }, tr('editIdle')); await undo(); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
+    // 13. nudge rhythm: ArrowRight every PROBE_NUDGE_MS (default 600) × 12 on the selected target — a snapshot that lands
+    // between two nudges shows up as a keyPaint (key → second rAF) outlier. Then undo them all.
+    if (wantPhase('nudgeRhythm')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2500); const nms = +(process.env.PROBE_NUDGE_MS || 600); R.nudgeRhythm = await measure(`${mode}:${sc}:nudgeRhythm`, async () => { for (let i = 0; i < 12; i++) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(nms); } await sleep(600); }, tr('nudgeRhythm')); for (let i = 0; i < 12; i++) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] }); await sleep(120); } await sleep(400); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
+    // 14. drag rhythm: 8 short drags of the target, PROBE_DRAG_GAP ms (default 400) apart — a post-gesture snapshot that
+    // lands on the next press shows up in downPaint. Then undo them all.
+    if (wantPhase('dragRhythm')) { await sleep(2000); const gap = +(process.env.PROBE_DRAG_GAP || 400); R.dragRhythm = await measure(`${mode}:${sc}:dragRhythm`, async () => { for (let k = 0; k < 8; k++) { await shortDrag(15); await sleep(gap); } await sleep(400); }, tr('dragRhythm')); for (let i = 0; i < 8; i++) { await undo(); } await backToCentre(); }
+    if (wantPhase('seqEditZoom')) { await sleep(500); await click(A.x, A.y, 10); await backToCentre(); await sleep(2000); R.seqEditZoom = await measure(`${mode}:${sc}:seqEditZoom`, async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' }); await sleep(seqGap || 500); await zb(); await sleep(600); }, tr('seqEditZoom')); await undo(); await click(geo.empty.x, geo.empty.y, 10); await backToCentre(); }
+    // 12. zoom, then press-drag the target right away (the pointerdown fold, contract §4): downPaint is the hitch.
+    // zoomDragNow presses 40 ms after the last tick (unfolded residual → foldZoomNow repaints in the pointerdown turn);
+    // zoomDragLate presses 400 ms after (the settle fold already ran) — the difference is the pointerdown fold.
+    const zoomThenDrag = async (gap) => { await zb(); await sleep(gap); mouse({ type: 'mouseMove', x: A.x, y: A.y }); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(30); for (let i = 1; i <= 20; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i * 2, y: A.y + i }); await sleep(12); } mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + 40, y: A.y + 20 }); await sleep(400); };
+    if (wantPhase('zoomDragNow')) { for (let k = 0; k < 3; k++) { await sleep(2000); R['zoomDragNow' + k] = await measure(`${mode}:${sc}:zoomDragNow${k}`, () => zoomThenDrag(40), tr('zoomDragNow' + k)); await undo(); await backToCentre(); } }
+    if (wantPhase('zoomDragLate')) { for (let k = 0; k < 3; k++) { await sleep(2000); R['zoomDragLate' + k] = await measure(`${mode}:${sc}:zoomDragLate${k}`, () => zoomThenDrag(400), tr('zoomDragLate' + k)); await undo(); await backToCentre(); } }
     // 8. ctrl-wheel zoom in then out (residual scale mid-burst, one fold at settle)
     if (wantPhase('zoom')) R.zoom = await measure(`${mode}:${sc}:zoom`, async () => { ctrlDown(); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(40); } await sleep(500); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(40); } ctrlUp(); await sleep(500); }, tr('zoom'));
   }

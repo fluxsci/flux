@@ -21,6 +21,7 @@
   import { settingsOpen, settings } from "./settings";
   import { openFigureMeta } from "./figure/metadataState";
   import { clampZoom } from "./interact/zoomLimits";
+  import ViewAsToggle from "./ViewAsToggle.svelte";
 
   // Slide-migration: the same toolbar serves both editors; only the mode title
   // differs (subtly accented in Slide mode — the sanctioned differentiator).
@@ -92,6 +93,7 @@
   {:else}
     <span class="path">{$projectDir ?? "unsaved"}</span>
   {/if}
+  <ViewAsToggle />
   <div class="group zoom">
     <button title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(clampZoom($viewport.zoom / 1.25))}>−</button>
     <span class="zoomval">{Math.round($viewport.zoom * 100)}%</span>

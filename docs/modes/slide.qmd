@@ -59,15 +59,20 @@ plot parts. Selecting an object identifies its effects in the current step.
 To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plot part), then use:
 
 - **Appear** / **Ctrl+Shift+A** — add an entrance.
-- **Transform ▾** — one action, three ways: **Change** (**Ctrl+Shift+T**) shapes a new state of the
-  object at this step; **Ghost…** creates copies that transform independently; **Become**
-  (**Ctrl+Shift+E**) turns the object into another one. See [Transforms](#transforms).
+- **Transform ▾** — one action, three ways: **Change** (**Ctrl+Shift+C**) shapes a new state of the
+  object at this step; **Ghost…** (**Ctrl+Alt+G**) creates copies that transform independently;
+  **Become** (**B**) turns the object into another one. See [Transforms](#transforms).
 - **Emphasize** — add a highlight.
 - **Disappear** / **Ctrl+Shift+D** — add an exit.
 
 Text rises in, shapes pop, and lines and paths draw on. Adding another appearance keeps the existing
 effects; successive effects on the same target start after its existing effects by default.
-**Auto-animate** builds a plot's entrance sequence from its semantic anatomy.
+**Auto-animate** builds a plot's entrance sequence from its semantic anatomy and the plot's own
+hints: axes and their colour key first, then gridlines, then the data (lines draw on, bars grow from
+their baseline, points and hexagons stagger in), and last the legend, annotations and brackets,
+each after the short delay the plot suggests. A multi-panel plot offers **panel by panel**: the
+same four phases for each panel in turn (an inset right after its host), with the figure's title
+first and its shared legend last.
 
 Drag a box from empty timing-grid space to select the effects it intersects. Hold **Shift**
 (or Ctrl/Cmd) to add to the selection. Crossing a collapsed group span selects its members.
@@ -79,14 +84,62 @@ reorder. Drag onto a step to move it; hold **Alt** to copy between steps. Shift 
 selects several lanes; **Ctrl/Cmd+A** selects this step's effects. **Ctrl/Cmd+G** groups the selection,
 **Ctrl/Cmd+Shift+G** ungroups it, and **Ctrl/Cmd+D** duplicates it. Groups can collapse without changing
 timing. Double-click a group name to rename it; drag its span to retime or move the whole group. Right-click a lane for these actions and moves to named steps. Ctrl/Cmd-wheel zooms timing;
-**fit ⟲** restores automatic scaling. Vertical grid lines run through every lane at the
-ruler's ticks; while you drag, a guide follows the edge you are moving and runs the full
-height of the ruler when it snaps to another effect's edge or to the 50 ms grid, and a single
+**fit ⟲** restores automatic scaling. The ruler and its vertical grid lines fill the whole
+visible time axis at every zoom, even past the step's last effect; while you drag, a guide follows the edge you are moving and runs the full
+height of the ruler when it snaps to another effect's edge or to a grid line — every major and
+minor line drawn is a snap target (the 50 ms round-number grid still catches drags between
+them), and a resize snaps the effect's *end* onto the line — and a single
 selected effect shows its start and end across all lanes so alignment reads at a glance.
+
+## Align starts and ends
+
+Select effects and press **Alt+A** to align their starts, or **Alt+D** to align their ends —
+the same keys align objects left and right on the canvas. Press again to step through the
+choices, nearest first: with several effects selected whose edges differ, the first press lines
+them up with the selection's own earliest start or latest end; after that each press moves them
+to the start or end of the next lane *above* the selection, and after the last one the
+effects return to where they were. A full-height line and a ruler label (**→ ‹rect 2› end ·
+1.95 s**) show what each press aligned to. With four effects under a 1 s draw-on and a
+0.95 s rise starting at 1 s, **Alt+D** ends them at 1.00 s, again at 1.95 s, and a third time
+restores them.
+
+Aligning moves each effect and keeps its duration. Add **Shift** (**Alt+Shift+A**,
+**Alt+Shift+D**) to resize instead: the opposite edge stays put. The presses of one cycle are a
+single **Undo**. A moved start detaches a [Follow timing](#follow-timing) link, as a drag does,
+and the toast names the former lane. **Align starts** and **Align ends** are also on a bar's
+right-click menu. `align-tracks` does the same from the CLI and MCP:
+
+```bash
+flux align-tracks talk slide1 --tracks e3,e4,e5 --edge end --to rect2      # rect2's end
+flux align-tracks talk slide1 --tracks e3,e4 --edge start --to 250 --resize  # starts at 250 ms
+```
+
+## Inherit an effect's animation
+
+To give several effects exactly the animation of another one, select them, hold **Ctrl+Alt**
+(**⌘+⌥** on macOS) and drag one of their bars onto the other effect's lane. The bars stay where
+they are; a dashed line runs from the selection to the pointer, the lane under it lights, and a
+label reads **Inherit from ‹rect 2›**. Release to apply; release anywhere else or press
+**Escape** to cancel. The effects keep their own start times unless you hold **Shift** as you
+release, which copies the start too. One **Undo** reverts the whole drop, and a toast names
+what was inherited (**4 effects inherit ‹rect 2› · 953 ms · spring**). **Inherit animation
+from…** on a bar's right-click menu does the same with one click on the source lane.
+
+Inherit copies the source's duration, easing or spring and stagger. Between two entrances (or two
+exits, or two transforms) the effect itself and its options come too — four pops become four
+rises. Across kinds only the timing travels, so an exit stays an exit. If the source uses an
+[animation style](#animation-styles), the effects link to that style instead and follow its
+later edits. What the effects animate, their transform endpoints, links, groups and on/off state
+never change. Video commands and animations do not share timing. `inherit-track` is the
+CLI and MCP twin:
+
+```bash
+flux inherit-track talk slide1 --from rect2 --to e3,e4,e5,e6 [--include-start]
+```
 
 The **X-ray** (**Alt+R**) animates too: select one plot — or several — press **Alt+R**, pick
 the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
-a multi-plot X-ray lists the parts every plot shares), then press **A** and choose
+a multi-plot X-ray lists the parts every plot shares), then press **M** and choose
 **Appear**, **Emphasize**, **Disappear** or **Change**. Appearance actions give each picked part
 its own effect on the current step, ready to retime. **Change** selects the whole owning objects;
 part-style edits are captured in each plot’s Change. Selecting the same part through
@@ -101,8 +154,9 @@ issue to inspect its track. The **Easing** field shows the timing curve and open
 **Library** holds reusable presets and multi-track templates.
 
 Keyboard commands belong to the focused surface. In the animation dock or inspector, **Delete**
-removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts, and
-**Alt+Shift+left/right** adjusts durations. On the canvas, Delete removes objects and arrows move
+removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts,
+**Alt+Shift+left/right** adjusts durations, and **Alt+A** / **Alt+D** align starts / ends.
+**Ctrl+Alt-drag** a bar onto another lane to inherit its animation. On the canvas, Delete removes objects and arrows move
 them. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset, **G** Stagger, and **E**
 opens Easing. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
 
@@ -176,7 +230,9 @@ edits. **Detach** keeps the current settings as independent values.
 
 ![A linked effect with a duration override and its use-style reset.](../images/animation-style-override.png)
 
-Right-click a timing bar and choose **Animate like…**, then pick an object on the canvas.
+Right-click a timing bar and choose **Animate like…**, then click an object on the canvas.
+The picker's outline and hover show which object you are on and name its effect in this step;
+one click commits.
 Its effect in this step supplies the style. If it has no style, Flux creates **Like ‹object
 label›** and links both effects. A multi-selection links in bulk; incompatible families are
 reported. In the X-ray, **6** arms the same pick for the selected objects or parts. **Esc** cancels.
@@ -238,6 +294,11 @@ tweens a number in a text element ("n = 1,247" counts up in place). Draw-on/off 
 **trim path** control (direction, anchor, single/both-ends/middle-out, partial windows), and
 wipes pick their direction.
 
+**by** orders the ramp: **order** (target order), **x →** or **y ↑** (data position), **value**
+(each part's own value — a hexagon's mean, a cell's value, a bar's height — low to high),
+**count** (observations per hexagon) or **data index** (the generator's index). The order comes
+from the plot's data, so a hexmatrix can fill from its emptiest hexagon to its fullest.
+
 Use **Stagger → Each** for the delay between ranks, or **Total** for the time between the
 first and last item starting. Switching modes preserves the current span. **From → Random**
 uses a repeatable order; edit **Seed** or click **↻** to reshuffle (one Undo restores it).
@@ -249,6 +310,7 @@ A single target has no stagger tail.
 ```bash
 flux set-track talk slide1 effect1 --stagger-total 800 --stagger-curve enter --stagger-from random --seed 42
 flux set-track talk slide1 effect1 --stagger-each 30
+flux set-track talk slide1 effect1 --stagger-each 30 --stagger-by count
 ```
 
 ## Transforms {#transforms}
@@ -261,12 +323,21 @@ timing and easing controls, and the same rules: one transform per complete sourc
 ### Change
 
 A **Change** tweens an object into a different version of itself. Choose **Transform ▸ Change**
-(or **Ctrl+Shift+T**) and its **After** state appears on the canvas. Use the ordinary editor tools
+(or **Ctrl+Shift+C**) and its **After** state appears on the canvas. Use the ordinary editor tools
 to shape it; the animator records a sparse property change. **Before** selects the immediately
 previous step (or Design for the first change), while **After** selects this step. The destination
 above the stage always identifies where subsequent edits will go. Chained changes compose across
 steps; colors blend perceptually and rewritten numbers digit-tween. Drop a captured property in the
 Animation inspector's **Δ** row to let it inherit from earlier steps.
+
+**Rewriting text** plays a *text morph*. Words the old and new text share glide from where
+they were to where they land, even when they change order, case or style; a word that grows
+into a longer one (*quick* → *quickly*, *Microscope* → *Microscopy*) glides and gains its new
+letters on the way. Everything else fades: old letters drift down and fade in reading
+order while the new ones rise in, so the line turns over left to right without ever going
+empty. Crossing words pass on slightly separated lanes, and a size, weight or colour change
+travels with each word. A rewrite of more than 200 characters moves line by line. A change
+of a single number still counts up in place.
 
 For a box move, the **Arc** slider bends the path to either side of the straight line.
 Zero keeps it straight; the endpoints stay fixed. The small path preview shows the bend.
@@ -303,25 +374,49 @@ ghost's creation lane removes that copy and its later effects; Undo restores the
 
 ### Become
 
-**Transform ▸ Become** (or **Ctrl+Shift+E** with the Animator open) makes an object
+**Transform ▸ Become** (or just **B** with something selected) makes an object
 become another object or part of a plot. Select the source first. To start from plot parts,
 **Ctrl+click** a part or pick several rows in the **X-ray** before arming Become.
 
-The bar names what is waiting and how to choose its destination:
+Choosing Become enters the **Become picker**, a temporary mode. The slide wears a soft green
+outline, the canvas around it dims slightly, the source gets a dashed green outline, and the bar
+above the canvas names what is waiting (**‹Rect› becomes…**). Nothing is moved or edited while
+picking: every click on the canvas is a pick.
 
-- Click a drawn object to use it immediately, or draw a new shape with the usual tools.
-- Click a plot to hand off to the whole plot. **Ctrl+click** picks just the part under the
-  pointer, such as a box or an axis spine.
-- Hold **Shift** while clicking to add picks without confirming. **Shift+Ctrl+click** adds
-  plot parts. Each picked part stays outlined; **Enter** or **Become** confirms the set.
-  A hand-off has one destination object: pick parts of one plot, or group several objects
-  first and pick their group in the X-ray.
-- Hover a plot and press **Alt+R** to open its X-ray while picking. Select rows, then press
-  **b** (**Become**), either in the tree or its **a** menu. Axis rows include their
-  spine, ticks and labels; expand them to choose only the spine. The menu names the source
-  that is waiting.
-- **Escape** or **Cancel** leaves the pick without creating a transform. Changing slides
-  also cancels it.
+- **Hover** outlines the finest thing under the pointer: a single point, bar, box, tick or
+  label of a plot, or one member of a group. The bar names it exactly as its timeline lane will,
+  with the point's data where it has one.
+- **Click** picks it. Picking is always multi-select: keep clicking to add more, and click a
+  picked thing again to remove it. Picks wear a solid green outline (a ring around round marks),
+  numbered in picking order when there are few of them; the bar lists them as chips
+  (**6 points · W1**, **2 ellipses**) that you can remove with ×.
+- **Drag** anywhere on the stage to draw a box: it picks everything **fully inside**. Data marks
+  win over ticks and labels; a whole object inside the box is picked whole. **Alt+drag**
+  removes what it encloses.
+- **Alt+click** picks the whole plot or group instead of the part. **A** widens the last pick to
+  its siblings: the other members of its group, then the same part of every series, then the
+  rest of its series. **Backspace** drops the last pick.
+- **Double-click** picks something and confirms at once, the quick path for a single object.
+- **Space**, **Enter** or the **Become** button confirms. **Escape** or **Cancel** leaves the picker
+  without creating a transform and puts the source selection back. Changing slides or steps also
+  cancels.
+- **Add mode** lets the source become something that does not exist yet. Press a drawing tool
+  key (**R** rect, **O** ellipse, **L** line, **P** pen, **T** text), **Ctrl+P** for a preset or
+  **Alt+G** for a gallery plot, or choose from **Add ▾** on the bar. The outline gains an inner
+  dashed line and the editor works as usual: everything you draw or insert joins the pick.
+  **Enter** or **Done** returns to picking with those objects picked; **Escape** also returns,
+  and a second **Escape** cancels.
+- **X-ray**: hover a plot and press **Alt+R**. Rows you select join the pick and rows you clear
+  leave it, live on the canvas; points picked on the canvas stay picked. Axis rows include their
+  spine, ticks and labels; expand them to choose only the spine. **Space** (or **B**) in the X-ray
+  confirms the whole pick, and closing the X-ray keeps it.
+
+- **Several things at once.** Pick several things and the source becomes **all of them**: three
+  loose ellipses, parts of two different plots, or a mix of shapes and plot parts. Your layers stay
+  as they are; there is no need to group anything first (**Alt+click** a grouped object to pick its
+  whole group). The source's outline splits into one piece per destination, and each piece lands
+  exactly on its own object. The lane and the Destination row name the set (**Rect → 3 ellipses**)
+  and list its members; a set cannot be swapped — author the reverse hand-offs from each object.
 
 A loose drawn destination between whole objects uses **Consume**: its appearance becomes the source's After state
 and the destination is removed. The source keeps its identity; one Undo restores both.
@@ -330,29 +425,54 @@ with the destination hidden before landing and the source hidden afterwards. For
 a drawn chevron can become a plot's X and Y axis spines, or a box on a plot can become a
 rectangle. The canvas lands in **Edit after step**, with the track selected in the
 **Animation** inspector. **Show hidden** lets you inspect hidden objects as faint ghosts.
-Video clips cannot take part; use Change to move or resize them. Groups can be destinations;
-choose one object or plot parts as the source.
+Video clips cannot take part; use Change to move or resize them. Groups and sets of several
+objects can be destinations; choose one object or plot parts as the source. A set always hands
+off: **Consume** and **↔ Swap direction** need a single destination.
 
-To work from the other end, select the destination object or plot parts and choose
-**Appear ▾ → Appear from…**. The main **Appear** button still adds a normal entrance.
-The bar now names what **appears from…**; click its source, or **Ctrl+click** source parts.
-In the X-ray, **a**, then **5** (**Appear from…**) starts this same flow from the picked
+To work from the other end, select the destination object or plot parts (or several objects,
+which then appear together from one source) and choose **Appear ▾ → Appear from…**. The main
+**Appear** button still adds a normal entrance. The same picker opens and the bar names what
+**appears from…**; pick its source and confirm with **Space** or **Enter**, or double-click it. Pick
+**several** sources and they **merge**: each hands off into the destination in the same step, early
+pieces hold in place, and the destination appears when the last one lands (one Undo removes them all).
+In the X-ray, **m**, then **5** (**Appear from…**) starts this same flow from the picked
 rows. Both routes create exactly the same hand-off.
+
+**Merge many into one.** With **Appear from…** armed on one object, **Shift+click** several
+sources and press **Enter**: each source gets its own hand-off into the same destination, in
+one Undo. The destination is shared out among them (the reverse of becoming a set), the
+pieces converge, and the destination appears when the last of them lands. A piece that
+arrives early waits in place. Each source keeps its own lane, so you can stagger them.
 
 **Pair** chooses how the outlines match: **auto**, **by position**, **by order**, **by data**,
 or **tile**. Connected strokes, such as two axis spines, form one path. Order follows point
 indices; tile divides one outline among its partners. By data lands points at their values
 on the destination axis. This supports **data ↔ summary**: points can become a distribution,
 or a summary can expand back into its points. Unmatched sources fade out; unmatched
-parts of the destination fade in. Text and images crossfade while their boxes move.
+parts of the destination fade in. Images crossfade while their boxes move.
+
+**Text and shapes.** When a shape becomes text, it splits into one piece per letter, in
+reading order, and each piece pours into its letter's outline. When text becomes a shape,
+the letters fuse into it. A text that becomes another text plays the text morph described
+under Change, whether by Consume or by hand-off. Letter outlines come from the font
+installed on your computer, and an exported presentation carries the outlines of the
+letters it needs. When no outline is readable, the letters land as rounded boxes and then
+fade into the text, and the Animation inspector reports it. This happens with the bundled
+Gelasio typeface or in a browser preview without the desktop app.
 
 After a hand-off to some of a plot's parts, when the plot has no appearance effects yet,
 the toast offers **Auto-animate the rest…**. It adds the plot's remaining build phases after
 the landing, excluding the leaves already revealed by the hand-off. A hand-off to the whole
 plot already reveals every part, so it offers no remainder.
 
-**Destination.** The Animation inspector names both sides of a hand-off. **Pair ▾** chooses
+**Destination.** The Animation inspector names both sides of a hand-off; for a set it reads,
+for example, “hands off to 3 ellipses” and lists each member below. **Pair ▾** chooses
 auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
+**Method ▾** chooses what a filled shape's interior does while its outline splits into several
+pieces (or several pieces merge into it): **shatter** splits it into wedges that fly with the
+pieces; **dissolve** fades it away in place as the outline leaves; **collapse** shrinks it into
+the shape's centre; **drain** empties it toward where the pieces are going (and fills from that
+side when pieces merge). Shatter is the default.
 **↔ Swap direction** reverses the hand-off, including plot parts, in one Undo. It keeps timing,
 styles and follower links. It refuses ghost births, group sources, missing outlines and a
 destination that already has a transform in this step. The command twin is `swap-become`.
@@ -369,11 +489,13 @@ IDs crossfades as a whole. A Become at a step with an existing Change replaces t
 same target's endpoint; a ghost can Become something at its birth step.
 
 From the command line or an agent, `become` can name destination parts with `--part` and
-source parts with `--source-part`. Plots, images and part sets use **hand-off** by default:
+source parts with `--source-part`. A destination set is `--to <id>` repeated, or
+`--members` with a JSON list of objects and their parts; `appear-from --members` is its twin. Plots, images and part sets use **hand-off** by default:
 the source hides after landing and the destination stays on the slide. Whole drawn objects
 use **Consume**, which replaces the source and removes the destination; `--mode` chooses
 either completion for whole objects. `appear-from` authors the same hand-off from the
-destination's side. `--pair` chooses how outlines match, and `--reveal` chooses flip or draw.
+destination's side. `--pair` chooses how outlines match, `--reveal` chooses flip or draw, and
+`--method` chooses shatter, dissolve, collapse or drain for a filled shape's interior.
 See the [slide command reference](../../resources/flux-context/SLIDES.md) for syntax.
 
 **Alt+G** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
@@ -403,11 +525,13 @@ zooms, pans or rescales the data inside the plot; the plot's position and size c
 the same time. A ghost can therefore float away while zooming into a smaller data range.
 A saved view also applies in Figure mode, Paper embeds and exports.
 
-Lines and points move through the new axis mapping. Existing ticks, gridlines and tick labels
-move with their data values and fade near the edges. A log view requires positive limits and
-positive data; an unsupported series keeps its original geometry and the animation reports why.
-Bars, boxes, violins and filled areas keep their original geometry in this version. Zooming out
-does not generate extra ticks; regenerate the plot to obtain a newly laid-out set of guides.
+Lines, points, bars, heatmap cells, hexagons, contour bands and box or violin bodies move
+through the new axis mapping. During the glide the existing ticks, gridlines and tick labels
+move with their data values and fade near the edges; at rest the viewed axis is re-ticked for its
+new limits (categories, dates and fixed labels keep their own ticks). A log view requires
+positive limits and positive data; an unsupported series keeps its original geometry and the
+animation reports why. Images and rasterized layers keep their geometry. A twin value axis
+(fluxplot 0.3.2 `y2` / `x2`) has its own limits in the view.
 
 A plot needs a manifest with series and calibrated axes. Unsupported axes stay disabled with
 a reason. Select a plot and use **Axis view** in the Object inspector, or **x view** / **y view** in
@@ -422,7 +546,11 @@ placeholders show the first panel's limits.
 
 Asset Becomes and Changes of a data view use the same projection, so one Change may combine
 new data, axis limits and movement. Shared semantic parts tween; removed parts fade out in
-the first 40% and added parts fade in during the last 40%. A local SVG structure change fades
+the first 40% and added parts fade in during the last 40%. Between two versions of a plot whose
+members carry stable keys (fluxplot 0.3.2: bars by category, heatmap cells and hexagons by row
+and column), each member tweens to its namesake — a bar grows or shrinks to its new height, a
+hexagon's colour passes through the colour scale's law at the intermediate value — so a bar
+chart or a hexmatrix with new data is a Become candidate even without lines or points. A local SVG structure change fades
 that part. An SVG without semantic IDs uses a whole-plot crossfade. Matching ignores positional
 ids (matplotlib's numbered `ytick_7`-style ids and Flux's stamped ones), so a tick keeps its
 identity when a regenerated plot renumbers them, and the last frame is the new plot exactly.
@@ -439,9 +567,56 @@ The figure form saves the view on the object. A deck/slide target without `--bea
 Design object; with `--beat`, it writes a Change's `state.view` at that step, preserving other
 changed properties and inheriting earlier limits. `--reset` restores the generated axes.
 
+### Plots follow the deck theme
+
+A plot saved by fluxplot 0.3.1 or later tags every piece of its scaffold — tick labels, titles,
+ticks, spines, gridlines, backgrounds — with the theme token it was drawn in. On a slide the
+plot **follows the deck theme** by default: its ink takes the theme's text colour, its axes the
+muted text, its gridlines a faint mix of text into the background, and its backgrounds turn
+transparent, so a plot saved on white reads on *Flux Dark* without a regeneration. Data colours
+never change. **Follow deck theme** in the Object inspector turns it off for one plot (a plot
+whose white ground is the point). Copies of the plot in Figure mode and Paper keep their generated
+ink: there is no deck theme to follow there.
+
+### Colour scale: recolouring in data units
+
+A colour-mapped plot saved by fluxplot 0.3.1 or later carries **Colour scales**, element state
+like the axis view: the palette, its direction, the norm kind, the limits and `extend`. A Change
+of a colour scale repaints every coloured element and the key's gradient and ticks through the
+data values, so one step can narrow a heatmap's range, switch a hexbin to a log scale or swap its
+colormap while the plot moves. Limits glide (log limits in log space), a new palette blends table
+by table, a changed norm kind switches at the midpoint. A saved scale also applies in Figure mode,
+Paper embeds and exports.
+
+Select the plot and edit **Colour scales** in the Object inspector. At **After step N** the edit
+becomes a Change on that step, with one undo per edit; scrubbing the Animator previews the glide.
+A scale drawn as one raster image cannot recolour live and reports itself.
+
+The CLI/MCP twin is **set-plot-color-scale** / **set_plot_color_scale**;
+**get-plot-color-scales** / **get_plot_color_scales** lists a plot's scales, what may change
+and the live view a figure, a Design or a step holds:
+
+```sh
+flux set-plot-color-scale figure1 plot1 --cmap crameri.batlow --vmax 20
+flux set-plot-color-scale talk/slide1 plot1 --norm log --vmin 1 --vmax 100 --beat beat2
+flux set-plot-color-scale talk/slide1 plot1 --reset --beat beat3
+flux set-plot-color-scale figure1 plot1 --scale rates --cmap magma --regenerate
+flux get-plot-color-scales talk/slide1 plot1 --beat beat2
+```
+
+**set-series-color** / **set_series_color** gives a whole series one colour on a slide's Design
+(`flux set-series-color talk/slide1 counts '#205ea6' --element plot1`), and **View as…** in the
+toolbar previews the stage as a colour-deficient audience sees it (see the Figure chapter).
+
+The figure form saves the scale on the object; `--regenerate` also writes the complete
+`__fluxplot__` control into the recipe, re-runs it, refreshes the figure and clears the live
+edit. A deck/slide target without `--beat` edits the Design object; with `--beat` it writes
+`state.colorScale` at that step, inheriting earlier edits. `--scale` names the scale when a
+plot has several; omitted fields are preserved and `--reset` restores the generated scale.
+
 ## Cascading tracks
 
-Select several tracks and press **Ctrl+Shift+C**: the same [cascade](figure.qmd#cascade)
+Select several tracks and press **Ctrl+Alt+C**: the same [cascade](figure.qmd#cascade)
 popover, over animation — stagger **start**, **duration**, **per-item or total stagger**, **Arc**, or easing
 **influence** or **Spring bounce** in even steps across the selection. Spring bounce skips
 non-spring effects, which do not consume a step. Five drawOns starting 120 ms apart is one
@@ -452,8 +627,8 @@ gesture, not arithmetic.
 **F5** presents from the start (**Shift+F5** from the current slide). Arrow keys and **Space**
 advance beats (**Shift+arrows** jump whole slides), a typed **number + Enter** jumps to a
 slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** toggles
-fullscreen, **R** resets the timer, **Escape** leaves. Click zones work too: left quarter
-back, elsewhere forward.
+fullscreen without leaving, **R** resets the timer, and one **Escape** leaves, even in
+fullscreen. Click zones work too: left quarter back, elsewhere forward.
 
 # 3D models
 
@@ -486,14 +661,19 @@ reason. A vertex morph needs the same mesh structure: matching mesh pieces, tria
 vertex order. Export both shapes together or use fluxplot's shared-topology workflow. A
 crossfade is a valid result, not an animation issue. Hand-off keeps both objects and reveals
 the destination at landing. A mesh part cannot start a Become (it has no outline to fly); use
-the whole model, or its labels and axes. Consume replaces the source's content and removes the
+the whole model, or its labels and axes. A Become **into** a mesh part crossfades in place:
+the source fades out while the part fades in over the effect's duration, so the part never
+pops in at landing. A model cannot become one of its own parts; use **Appear** on the part
+instead. Consume replaces the source's content and removes the
 destination in one undoable edit. To replace a model's mesh in the same frame, choose
 **Model from gallery…** in the Animation inspector (or **From gallery…** on the pick bar);
 **Keep own content** drops that choice.
 
 HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**,
-shown and placed where each build step leaves it; PowerPoint does not contain an editable 3D
-object. If a GLB is missing, Flux shows a placeholder and refuses to save an incomplete deck:
+shown and placed where each build step leaves it, with only the parts and labels that step
+shows (a part that appears later is absent from earlier pages); PowerPoint does not contain an
+editable 3D object. Command-line exports and a portable HTML deck's stills follow the same
+rule. If a GLB is missing, Flux shows a placeholder and refuses to save an incomplete deck:
 restore the named file or remove the model. A WebGL fallback is a still or placeholder with an
 issue, not a simulated animation.
 
@@ -625,5 +805,6 @@ not delete the source. HTML exports retain manual playback; PDF and Word show st
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
 | A plot Become fades a series instead of morphing its data | Continuous data motion requires shared series ids, supported data and matching axis scales. A series without a tweenable counterpart fades on its own (the Animation inspector lists it); only an SVG without semantic IDs crossfades as a whole. |
 | An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
+| A shape becomes text and the letters land as boxes ("No readable outlines for …") | The text's font has no outline Flux can read: Gelasio, the bundled theme font, ships only as a web font; a browser preview has no access to installed fonts → set the text in an installed font (Georgia, Arial, …) to see letter outlines; the boxes still land on each letter and fade into the text |
 | "Couldn't open that deck — its file may be missing or corrupt." appears while an agent edits the deck | An older Flux mistook a reload overtaken by the agent’s next edit for a bad file → update Flux; the deck on disk is intact, so reopening it shows the agent’s version |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

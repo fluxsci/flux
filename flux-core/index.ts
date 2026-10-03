@@ -98,7 +98,7 @@ export { listDissections, listDissectionsFor, listAllDissections } from "./disse
 export { exportSlideVideo } from "./slideVideo";
 export { addModel, modelInfo, setModelViewCommand, setModelFieldCommand, renderModelPosters } from './model3d';
 // animation v2 target vocabulary (pure; the family law's identity)
-export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef, PAIR_POLICIES, PAIR_POLICY_IDS } from "../src/lib/slide/targets";
+export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef, PAIR_POLICIES, PAIR_POLICY_IDS, normalizeRef, composeDestination, isSetRef, refMembers, refElementIds, mergeResolved, setLabel } from "../src/lib/slide/targets";
 export { PRESET_CATALOG, presetDef, defaultEasingFor, defaultTimingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
 export { resolveCurve, parseCurve, formatCurve, springFn, bezierFn, stepsFn, catalogMatch, springStats, CURVE_CATALOG, EASING_TOKENS, SPRING_SETTLE, type Curve, type ResolvedCurve, type CurveCatalogEntry } from "../src/lib/slide/curves";
 export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
@@ -151,6 +151,13 @@ export {
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
   setPlotViewVerb,
+  setPlotColorScaleVerb,
+  getPlotColorScales,
+  setSeriesColorVerb,
+  getPlotData,
+  type SeriesColorVerbResult,
+  type ColorScaleVerbFields,
+  type ColorScaleVerbResult,
   addGhostTransform,
   groupTracksVerb,
   ungroupTracksVerb,
@@ -160,12 +167,21 @@ export {
   animStyleVerb,
   animateLikeVerb,
   setTrackVerb,
+  alignTracksVerb,
+  inheritTrackVerb,
   renderTrackTiming,
   compileDeckSlide,
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";
 
+// Shared live colour-scale law and authoring (colour-system plan A7): the GUI's modules.
+export { normalize as colorScaleNormalize, lookup as colormapLookup, colorFor as colorScaleColorFor, effectiveScale, viewIsIdentity as colorScaleViewIsIdentity } from "../src/lib/plot/colorscale";
+export { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
+export { setPlotColorScale, setSeriesColor } from "../src/lib/ops";
+export { seriesColorPatch, seriesParts, seriesPartIds, legendSwatchesOf, seriesOf, seriesPrimaryOf, seriesColorIssue } from "../src/lib/plot/seriesColor";
+export { plotData, paginate as paginatePlotData, type PlotDataOptions, type PlotDataResult } from "../src/lib/plot/plotData";
+export { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
 // Shared plot projection and figure-model view mutation.
 export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, projectWith, blendFit, seriesAxes, seriesVertices, hasTweenableSeries, plotViewIssues } from "../src/lib/plot/project";
 export type { Fit, Fits, MorphPoint } from "../src/lib/plot/project";
@@ -174,6 +190,7 @@ export { plotViewPatch } from "../src/lib/plot/viewControls";
 export type { PlotViewFields } from "../src/lib/plot/viewControls";
 export { setPlotView } from "../src/lib/ops";
 export { resolveTrack, resolveBeat, resolveStart } from "../src/lib/slide/resolve";
+export { alignCandidates, alignTrackEdges, alignTargetMs, inheritTrack, trackEdges, type AlignCandidate, type AlignEdge, type AlignMode, type AlignResult, type InheritResult } from "../src/lib/slide/alignTracks";
 
 export { beatDelayMs } from "../src/lib/slide/timing";
 export { isHandoff } from "../src/lib/slide/targets";

@@ -98,9 +98,11 @@ export const fluxTheme = EditorView.theme(
          it; a revealed embed source line must read as plain mono, not a link. */
       textDecoration: "none !important",
     },
-    /* Collapsed embed line: a compact accent chip carrying the figure NAME —
-       the raw `![](path){#fig-x}` reveals only when the caret is on the line
-       (chips.ts). Later + more specific than the faint reset above so the
+    /* Collapsed embed line: a compact accent chip carrying the figure NAME
+       (`⌗ Growth`, chips.ts) or, with the `slide` modifier, the slide's deck
+       title + ordinal (`▷ Deck 3 · Slide 4`, slideEmbeds.ts) — the raw
+       `![](path){#…}` reveals only when the caret is on the line. One family:
+       both chips share these rules. Later + more specific than the faint reset above so the
        accent wins. display:inline + zero vertical padding/border: the chip
        must not change the 12px/1.65 source-line metrics (feel contract #3). */
     ".cm-flux-embedsrc .flux-embedchip": {
@@ -110,6 +112,16 @@ export const fluxTheme = EditorView.theme(
       borderRadius: "var(--r-1)",
       padding: "0 6px",
       cursor: "default",
+    },
+    /* A revealed slide-embed line elides its long values (caption, path,
+       ids) to `…` until the caret reaches each one (slideEmbeds.ts), so the
+       line stays one row. Inline, no vertical padding: metrics unchanged. */
+    ".cm-flux-embedsrc .flux-srcelide": {
+      display: "inline",
+      background: "color-mix(in srgb, var(--c-tx-faint) 14%, transparent)",
+      borderRadius: "var(--r-1)",
+      padding: "0 2px",
+      cursor: "text",
     },
     ".cm-flux-embedsrc .flux-embedchip.unresolved": {
       color: "var(--c-tx-faint) !important",

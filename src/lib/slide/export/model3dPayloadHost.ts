@@ -29,12 +29,13 @@ export function payloadModelContext(payload: ExportPayload) {
   return {
     modelAsset: (id: string) => payload.deck.assets.find((a): a is Model3dAsset => a.id === id && a.kind === 'glb'),
     modelManifest: (id: string) => payload.modelManifests?.[id],
-    modelPoster: (element: Model3dElement) => {
+    modelPoster: (element: Model3dElement, partOpacity?: Record<string, number>) => {
       const asset = payload.deck.assets.find((a): a is Model3dAsset => a.id === element.assetId && a.kind === 'glb');
       if (!asset) return undefined;
-      // The payload carries Design stills. Never relabel that image as a later
-      // orbit, shape or content endpoint when live rendering is unavailable.
-      try { return payload.assets?.[staticModelRequest(element, asset, payload.modelManifests?.[element.assetId], 'slide').ref]; }
+      // The payload carries each step's Design still with that step's mesh-part
+      // visibility. Never relabel an image as another orbit, shape, content or
+      // part state when live rendering is unavailable.
+      try { return payload.assets?.[staticModelRequest(element, asset, payload.modelManifests?.[element.assetId], 'slide', partOpacity).ref]; }
       catch { return undefined; }
     },
   };

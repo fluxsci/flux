@@ -1,5 +1,8 @@
 import { boundedModelFile } from "./model3dFile";
 import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
+import { lookupFont } from "../src/lib/text/fontFiles.mjs";
+import { userDataDir } from "./fluxlib";
+import { partStatesFromOpacity } from "../src/lib/model3d/appearance";
 import { projectSourceRelativePath } from "./projectSource";
 import { updateManifest } from "./manifest";
 // flux-core/slides.ts — the Flux Slide deck format as a Node library (CLI + MCP).
@@ -33,6 +36,8 @@ import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
+import { normalizeRef, setLabel } from "../src/lib/slide/targets";
+import { alignTrackEdges, alignTargetMs, inheritTrack, type AlignEdge } from "../src/lib/slide/alignTracks";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel, mutateFigModel } from "./model";
 import { syncFigureAssets } from "./figures";
@@ -57,11 +62,19 @@ import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 import type { Box, TextOpts } from "../src/lib/ops";
-import { setPlotView } from "../src/lib/ops";
+import { setPlotView, setPlotColorScale, setSeriesColor } from "../src/lib/ops";
+import { seriesParts } from "../src/lib/plot/seriesColor";
+import { plotData, type PlotDataOptions, type PlotDataResult } from "../src/lib/plot/plotData";
 import { plotViewPatch, type PlotViewFields } from "../src/lib/plot/viewControls";
+import { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
+import { plotColorScaleIssues } from "../src/lib/plot/colorScaleDom";
+import { effectiveScale } from "../src/lib/plot/colorscale";
+import { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
+import { runRecipe } from "./recipe";
+import type { ColorScaleView } from "../src/lib/types";
 import { plotViewIssues } from "../src/lib/plot/project";
 import type { Asset, Project, SemanticPlotElement } from "../src/lib/types";
-import type { Model3dElement } from "../src/lib/model3d/types";
+import type { Model3dElement, Scene3dManifest } from "../src/lib/model3d/types";
 
 // POSIX, not the platform: these are PROJECT-RELATIVE paths, and one of them
 // (the derived `svgPath`) is PERSISTED into deck.json. `path.join` on Windows
@@ -442,6 +455,222 @@ export async function setPlotViewVerb(root: string, target: string, elementId: s
   });
 }
 
+/** Fields of the `set_plot_color_scale` verb: one scale's edit plus where it lands. */
+export type ColorScaleVerbFields = ColorScaleFields & { beatId?: string; regenerate?: boolean };
+export interface ColorScaleVerbResult {
+  scaleId: string;
+  /** The edited scale's live view (null: it paints as generated). */
+  scale: ColorScaleView | null;
+  /** The element's whole colorScale record — what a beat's Change carries. */
+  colorScale: Record<string, ColorScaleView> | null;
+  issues: string[];
+  trackId?: string;
+  regenerated?: { recipe: string; control: Record<string, unknown>; refreshed: number };
+}
+
+/** The recipe a figure plot regenerates from: its authored path, else the plots/ convention. */
+async function plotRecipeFile(root: string, el: SemanticPlotElement): Promise<{ abs: string; rel: string }> {
+  const rels = [el.source?.recipePath, j("plots", `${el.assetId}.recipe.json`)].filter((r): r is string => !!r);
+  for (const rel of rels) {
+    const abs = safeJoin(root, rel);
+    try { await fs.access(abs); return { abs, rel }; } catch { /* next */ }
+  }
+  throw new ValidationError(`Plot ${el.id} has no recipe to regenerate (looked for ${rels.join(", ")}).`);
+}
+
+/** Shared figure/slide colour-scale authoring (colour-system plan A7.6): the CLI/MCP twin of
+ *  the Inspector's editor. A figure target edits the object, a deckId/slideId target edits
+ *  Design, `--beat` that step's Change endpoint. `regenerate` (figure targets) also writes the
+ *  complete v2 `__fluxplot__[scaleId]` control, re-runs the recipe, refreshes the figure's
+ *  copies and clears the live override — the source then paints what the view showed. */
+export async function setPlotColorScaleVerb(root: string, target: string, elementId: string, fields: ColorScaleVerbFields): Promise<ColorScaleVerbResult> {
+  const { beatId, regenerate, ...edit } = fields;
+  await ensureColormapLuts(); // named colormaps resolve to their tables at write time
+  const apply = async (project: Project, el: SemanticPlotElement, deckId?: string) => {
+    const manifest = await readPlotManifest(root, el, deckId);
+    let scaleId = "";
+    try {
+      const scale = pickScale(manifest, edit.scaleId);
+      scaleId = scale.id;
+      setPlotColorScale(project, el.id, scale.id, colorScalePatch(scale, el.colorScale?.[scale.id], edit, colormapLut), scale);
+    } catch (e) { throw new ValidationError(e instanceof Error ? e.message : String(e)); }
+    const result: ColorScaleVerbResult = {
+      scaleId, scale: el.colorScale?.[scaleId] ?? null, colorScale: el.colorScale ?? null,
+      issues: plotColorScaleIssues(manifest, el.colorScale, colormapLut),
+    };
+    return { result, el, manifest };
+  };
+  const parts = target.split("/");
+  if (parts.length === 1) {
+    if (beatId) throw new ValidationError("--beat requires a deckId/slideId target.");
+    const { result, el, manifest } = await mutateFigModel(root, "set_plot_color_scale", async ({ project }) => {
+      const figure = project.figures.find(f => f.id === target);
+      if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+      const el = figure.elements.find(e => e.id === elementId);
+      if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+      return apply(project, el);
+    });
+    if (!regenerate) return result;
+    // Apply to source: the recipe learns the complete control for this scale, the plot and its
+    // key regenerate from the data, the figure copies refresh, and the override is redundant.
+    const scale = pickScale(manifest, result.scaleId);
+    const control = controlFromView(scale, result.scale ?? undefined, colormapLut);
+    const recipe = await plotRecipeFile(root, el);
+    const stored = JSON.parse(await fs.readFile(recipe.abs, "utf8")) as { params?: Record<string, unknown> };
+    const controls = { ...((stored.params?.__fluxplot__ as Record<string, unknown> | undefined) ?? {}), [scale.id]: control };
+    const run = await runRecipe(recipe.abs, { __fluxplot__: controls });
+    if (run.code !== 0) throw new Error(`recipe exited ${run.code}; the live override stays in place\n${run.stderr.slice(-2000)}`);
+    const sync = await syncFigureAssets(root, target);
+    await mutateFigModel(root, "set_plot_color_scale", ({ project }) => { setPlotColorScale(project, elementId, scale.id, null); });
+    return { ...result, scale: null, colorScale: null, issues: [], regenerated: { recipe: recipe.rel, control, refreshed: sync.refreshed.length } };
+  }
+  if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+  if (regenerate) throw new ValidationError("--regenerate works on a figure target: a deck holds copies of the plot.");
+  const [deckId, slideId] = parts;
+  return mutateDeck(root, deckId, "set_plot_color_scale", async deck => {
+    const slide = mustSlide(deck, slideId);
+    let el = slide.elements.find(e => e.id === elementId);
+    if (beatId) {
+      const bi = slide.beats.findIndex(b => b.id === beatId);
+      if (bi < 1) throw new ValidationError("Choose an existing build step after Design.");
+      el = (await compileDeckSlide(root, deck, slideId)).sample(bi).elements.find(e => e.id === elementId);
+    }
+    if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+    const { result } = await apply({ figures: [{ elements: [el] }] } as Project, el, deckId);
+    if (!beatId) return result;
+    const track = slideOps.setTransform(deck, slideId, beatId, elementId, { state: { colorScale: result.colorScale } });
+    if (!track) throw new ValidationError(`Could not set a colour scale on ${elementId}.`);
+    return { ...result, trackId: track.id };
+  });
+}
+
+export interface SeriesColorVerbResult {
+  elementId: string;
+  seriesId: string;
+  /** The colour written (null: the series' generated colours are back). */
+  color: string | null;
+  /** Every part the colour reached, with the paint it took. */
+  parts: { partId: string; role: string; paint: "fill" | "stroke" | "both" }[];
+}
+
+/** One colour for a whole series (colour-system plan B2): the CLI/MCP twin of the Inspector's
+ *  "Series colour" field. A figure target edits the object (elementId may be omitted when the
+ *  figure has one plot), a deckId/slideId target edits the slide's Design. `color` null clears. */
+export async function setSeriesColorVerb(root: string, target: string, elementId: string | undefined, seriesId: string, color: string | null): Promise<SeriesColorVerbResult> {
+  if (color !== null && !/^#[0-9a-fA-F]{6}$/.test(color) && !/^#[0-9a-fA-F]{8}$/.test(color) && color !== "none") throw new ValidationError(`color must be a hex colour (#rrggbb), got ${color}`);
+  const hex = color === null ? null : color.toLowerCase();
+  const apply = async (project: Project, el: SemanticPlotElement, deckId?: string): Promise<SeriesColorVerbResult> => {
+    const manifest = await readPlotManifest(root, el, deckId);
+    if (!manifest) throw new ValidationError(`Plot ${el.id} has no manifest; a series colour needs one.`);
+    try { setSeriesColor(project, el.id, manifest, seriesId, hex); } catch (e) { throw new ValidationError(e instanceof Error ? e.message : String(e)); }
+    return { elementId: el.id, seriesId, color: hex, parts: seriesParts(manifest, seriesId) };
+  };
+  const parts = target.split("/");
+  if (parts.length === 1) {
+    return mutateFigModel(root, "set_series_color", async ({ project }) => {
+      const figure = project.figures.find(f => f.id === target);
+      if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+      let el = elementId ? figure.elements.find(e => e.id === elementId) : undefined;
+      if (!elementId) {
+        const plots = figure.elements.filter(e => e.type === "plot");
+        if (plots.length !== 1) throw new ValidationError(`Figure ${target} has ${plots.length} plots; pass elementId.`);
+        el = plots[0];
+      }
+      if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+      return apply(project, el);
+    });
+  }
+  if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+  const [deckId, slideId] = parts;
+  return mutateDeck(root, deckId, "set_series_color", async deck => {
+    const slide = mustSlide(deck, slideId);
+    const el = elementId ? slide.elements.find(e => e.id === elementId) : slide.elements.filter(e => e.type === "plot").length === 1 ? slide.elements.find(e => e.type === "plot") : undefined;
+    if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId ?? "(one plot expected)"} in ${target}`);
+    return apply({ figures: [{ elements: [el] }] } as Project, el, deckId);
+  });
+}
+
+/** A plot's data from its manifest (colour-system plan F5): series with exact values and per-point
+ *  ids, fluxplot's payloads (hexmatrix bins, glowbar / fluxbox statistics, distributions, field
+ *  values, image channels, bands), colour scales (tables on request), axis domains and scales,
+ *  overlays with their statistics. Long arrays are windowed by offset / limit and every cut is
+ *  reported. A figure target reads the figure's plot (elementId optional when it has one), a
+ *  deckId/slideId target the slide's copy. */
+export async function getPlotData(root: string, target: string, elementId: string | undefined, opts: PlotDataOptions = {}): Promise<PlotDataResult & { target: string; elementId: string }> {
+  const parts = target.split("/");
+  let el: SemanticPlotElement | undefined, deckId: string | undefined;
+  const pickPlot = (elements: { id: string; type: string }[]) => {
+    if (elementId) return elements.find(e => e.id === elementId);
+    const plots = elements.filter(e => e.type === "plot");
+    if (plots.length !== 1) throw new ValidationError(`${target} has ${plots.length} plots; pass elementId.`);
+    return plots[0];
+  };
+  if (parts.length === 1) {
+    const { project } = await loadFigModel(root);
+    const figure = project.figures.find(f => f.id === target);
+    if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+    const found = pickPlot(figure.elements);
+    if (found?.type === "plot") el = found as SemanticPlotElement;
+  } else {
+    if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+    const [id, slideId] = parts;
+    deckId = id;
+    const deck = await loadDeck(root, id);
+    const slide = mustSlide(deck, slideId);
+    const found = pickPlot(slide.elements);
+    if (found?.type === "plot") el = found as SemanticPlotElement;
+  }
+  if (!el) throw new ValidationError(`Plot not found: ${elementId ?? "(one plot expected)"} in ${target}`);
+  const manifest = await readPlotManifest(root, el, deckId);
+  if (!manifest) throw new ValidationError(`Plot ${el.id} has no manifest (a plain SVG has no data to read).`);
+  try { return { target, elementId: el.id, ...plotData(manifest, opts) }; }
+  catch (e) { throw new ValidationError(e instanceof Error ? e.message : String(e)); }
+}
+
+/** What an agent needs before editing a plot's colours: every scale with its generated
+ *  record, what may change, the live view where the target holds one, and how it paints. */
+export async function getPlotColorScales(root: string, target: string, elementId: string, beatId?: string) {
+  await ensureColormapLuts();
+  const parts = target.split("/");
+  let el: SemanticPlotElement | undefined, deckId: string | undefined;
+  if (parts.length === 1) {
+    if (beatId) throw new ValidationError("--beat requires a deckId/slideId target.");
+    const { project } = await loadFigModel(root);
+    const figure = project.figures.find(f => f.id === target);
+    if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+    const found = figure.elements.find(e => e.id === elementId);
+    if (found?.type === "plot") el = found;
+  } else {
+    if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+    const [id, slideId] = parts;
+    deckId = id;
+    const deck = await loadDeck(root, id);
+    const slide = mustSlide(deck, slideId);
+    let found = slide.elements.find(e => e.id === elementId);
+    if (beatId) {
+      const bi = slide.beats.findIndex(b => b.id === beatId);
+      if (bi < 1) throw new ValidationError("Choose an existing build step after Design.");
+      found = (await compileDeckSlide(root, deck, slideId)).sample(bi).elements.find(e => e.id === elementId);
+    }
+    if (found?.type === "plot") el = found;
+  }
+  if (!el) throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+  const manifest = await readPlotManifest(root, el, deckId);
+  const scales = (manifest?.colorScales ?? []).map(scale => {
+    const view = el!.colorScale?.[scale.id];
+    const eff = effectiveScale(scale, view, colormapLut);
+    const { lut: _lut, ...colormap } = scale.colormap;
+    return {
+      id: scale.id, label: scale.label ?? null, recolor: scale.recolor, editable: scale.editable ?? null, normKinds: normKindsFor(scale),
+      generated: { colormap: { ...colormap, N: scale.colormap.N }, norm: scale.norm, mappables: scale.mappables, colorbars: scale.colorbars },
+      view: view ?? null,
+      effective: { colormap: typeof view?.cmap === "string" ? view.cmap : view?.cmap?.name ?? (view?.cmap ? "table" : scale.colormap.name), reversed: !!view?.reversed, norm: eff.norm },
+      issues: eff.issues,
+    };
+  });
+  return { target, elementId, manifestVersion: manifest?.schemaVersion ?? null, scales };
+}
+
 /** set-transform: add or update THE transform track for a target on a beat
  *  (max one per target per beat — the family law). The ergonomic form: agents
  *  pass a sparse element-state patch instead of hand-building diffs. */
@@ -523,15 +752,15 @@ export async function ungroupTracksVerb(
 }
 
 /** Read manifests for timing without rendering or refreshing source assets. */
-async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
+async function slideCompileOptions(root: string, deck: Deck, slideId: string, knownModelManifests?: Record<string, Scene3dManifest | undefined>) {
   const slide = mustSlide(deck, slideId);
   const manifests = new Map<string, FluxPlotManifest | undefined>();
   const modelAssets = new Map((await externalDeckAssetMetadata(root, deck)).map(asset => [asset.id, asset]));
   for (const asset of deck.assets ?? []) modelAssets.set(asset.id, asset);
   // The saved-deck adapter owns source-receipt binding and canonical sidecar
   // paths, including assets referenced only by future Change endpoints.
-  const modelManifests = [...modelAssets.values()].some(asset => asset.kind === 'glb')
-    ? (await (await import('./model3dDeckCommands')).deckModelDocument(root, deck)).manifests : {};
+  const modelManifests = knownModelManifests ?? ([...modelAssets.values()].some(asset => asset.kind === 'glb')
+    ? (await (await import('./model3dDeckCommands')).deckModelDocument(root, deck)).manifests : {});
   const add = async (el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } }) => {
     if (!manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
   };
@@ -546,6 +775,15 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
     } });
   }
   return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id), modelManifest: (id: string) => modelManifests[id] };
+}
+
+/** A saved deck's per-slide compile options for poster enumeration
+ * (livePosterKeys.deckPosterFigures): what render-model-posters --deck renders
+ * and --prune keeps. `manifests` are the deck model document's. */
+export async function deckSlideCompileOptions(root: string, deck: Deck, manifests: Record<string, Scene3dManifest | undefined>, slideId?: string) {
+  const options = new Map<string, Awaited<ReturnType<typeof slideCompileOptions>>>();
+  for (const slide of deck.slides) if (!slideId || slide.id === slideId) options.set(slide.id, await slideCompileOptions(root, deck, slide.id, manifests));
+  return options;
 }
 
 export async function compileDeckSlide(root: string, deck: Deck, slideId: string) {
@@ -600,6 +838,48 @@ export async function setTrackVerb(root: string, deckId: string, slideId: string
 
 export function renderTrackTiming(result: Awaited<ReturnType<typeof setTrackVerb>>): string {
   return `${result.track.id}: ${result.track.preset ?? "fade"}, start ${result.start} ms${result.anchored ? " (anchored)" : ""}, duration ${result.duration} ms`;
+}
+
+/** The beat a timeline verb acts on: an explicit id or 0-based index, else the
+ *  beat holding the first named track. Plus the manifests its part tracks need. */
+async function timelineBeat(root: string, deck: Deck, slideId: string, beat: string | undefined, firstTrackId: string) {
+  const slide = mustSlide(deck, slideId);
+  const bi = beat === undefined ? slide.beats.findIndex(b => b.tracks.some(t => t.id === firstTrackId))
+    : /^\d+$/.test(beat) ? Number(beat) : slide.beats.findIndex(b => b.id === beat);
+  if (bi < 0 || !slide.beats[bi]) throw new ValidationError(beat === undefined ? `Track not found on this slide: ${firstTrackId}` : `Step not found on this slide: ${beat}`);
+  const context = await slideCompileOptions(root, deck, slideId);
+  const compiled = compileSlide(slide, deck.stage, context);
+  const manifestFor = (target: string) => {
+    const el = compiled.preState(target, bi);
+    return el?.type === "plot" ? context.plotManifest(el.assetId) : el?.type === "model3d" ? context.modelManifest(el.assetId) : undefined;
+  };
+  return { beat: slide.beats[bi], manifestFor };
+}
+
+/** align-tracks: land the tracks' resolved start or end edge on a time (ms) or
+ *  on another track's edge — the animator's Alt+A / Alt+D (one pure op,
+ *  alignTracks.ts alignTrackEdges). `resize` keeps the opposite edge. */
+export async function alignTracksVerb(root: string, deckId: string, slideId: string, trackIds: string[], edge: AlignEdge, to: string | number,
+  opts: { beat?: string; resize?: boolean } = {}) {
+  return mutateDeck(root, deckId, "align_tracks", async deck => {
+    const { beat, manifestFor } = await timelineBeat(root, deck, slideId, opts.beat, trackIds[0]);
+    const toMs = alignTargetMs(deck, slideId, beat.id, to, edge, manifestFor);
+    if (toMs == null) throw new ValidationError(`Align target not found in this step: ${to}`);
+    const result = alignTrackEdges(deck, slideId, beat.id, trackIds, edge, toMs, { mode: opts.resize ? "resize" : "move", manifestFor });
+    if (!result.changed.length && result.refused.length) throw new ValidationError([...new Set(result.refused.map(r => r.reason))].join("; "));
+    return { beatId: beat.id, edge, toMs, mode: opts.resize ? "resize" as const : "move" as const, ...result };
+  });
+}
+
+/** inherit-track: the targets take the source effect's exact animation
+ *  parameters — the animator's Ctrl+Alt-drag Inherit (alignTracks.ts inheritTrack). */
+export async function inheritTrackVerb(root: string, deckId: string, slideId: string, from: string, to: string[], opts: { beat?: string; includeStart?: boolean } = {}) {
+  return mutateDeck(root, deckId, "inherit_track", async deck => {
+    const { beat, manifestFor } = await timelineBeat(root, deck, slideId, opts.beat, from);
+    const result = inheritTrack(deck, slideId, from, to, { includeStart: !!opts.includeStart, beatId: beat.id, manifestFor });
+    if (!result.inherited.length && result.refused.length) throw new ValidationError([...new Set(result.refused.map(r => r.reason))].join("; "));
+    return { beatId: beat.id, from, ...result };
+  });
 }
 
 /** cascade-tracks: apply a stepped delta across tracks' timing — the track at
@@ -943,8 +1223,29 @@ export async function swapBecomeVerb(root: string, deckId: string, slideId: stri
 
 export type BecomeOptions = Omit<slideOps.BecomeOptions, "compiled" | "modelAsset"> & {
   targetId?: string; assetId?: string; parts?: string[]; sourceParts?: string[]; force?: boolean;
+  /** A destination SET (`--to a --to b`, or `--members '[{"element":…,"parts":[…]}]'`). */
+  members?: TargetRef[];
 };
 const partRef = (element: string, parts?: string[]): TargetRef => ({ element, ...(parts?.length ? { parts } : {}) });
+/** The destination a verb names: one element (+ parts), or a set of members. */
+function destinationRef(element: string | undefined, parts: string[] | undefined, members: TargetRef[] | undefined): TargetRef {
+  if (!members) return partRef(element!, parts);
+  if (parts?.length) throw new Error("--part names parts of one --target; give each set member its own parts in --members instead.");
+  if (!Array.isArray(members) || !members.length) throw new Error("--members needs at least one {\"element\": …} entry.");
+  return normalizeRef({ element: members[0]?.element, members });
+}
+/** Element id → its plot manifest (set labels count parts by role). */
+function elementManifest(slide: Slide, options: { plotManifest: (assetId: string) => FluxPlotManifest | undefined }) {
+  return (elementId: string) => {
+    const el = slide.elements.find(e => e.id === elementId);
+    return el?.type === "plot" ? options.plotManifest(el.assetId) : undefined;
+  };
+}
+/** What the human/MCP line calls the destination of a set result. */
+function setDescription(deck: Deck, slideId: string, ref: TargetRef | undefined, manifests: (elementId: string) => FluxPlotManifest | undefined): string | undefined {
+  if (!ref?.members) return undefined;
+  return setLabel(ref.members, mustSlide(deck, slideId).elements, manifests);
+}
 
 /** Headless twin of Become: a live destination (consume or hand-off), or
  * another plot asset's content in the existing source frame. */
@@ -956,17 +1257,18 @@ export async function become(
   sourceId: string,
   opts: BecomeOptions = {},
 ): Promise<slideOps.BecomeResult & { assetId?: string }> {
-  if (!!opts.targetId === !!opts.assetId) throw new Error("become needs exactly one of --target <elementId> or --asset <assetId>");
-  if (opts.assetId && (opts.parts || opts.sourceParts || opts.mode || opts.pair || opts.reveal)) throw new Error("Parts, mode, pair and reveal require --target, rather than --asset.");
+  if ([opts.targetId, opts.assetId, opts.members].filter(v => v != null).length !== 1) throw new Error("become needs exactly one of --target <elementId>, --to <elementId> (repeatable), --members <json> or --asset <assetId>");
+  if (opts.assetId && (opts.parts || opts.sourceParts || opts.mode || opts.pair || opts.reveal || opts.method)) throw new Error("Parts, mode, pair, reveal and method require --target, rather than --asset.");
   return mutateDeck(root, deckId, "become", async (deck) => {
     const slide = mustSlide(deck, slideId);
-    if (opts.targetId) {
+    if (opts.targetId || opts.members) {
       const options = await slideCompileOptions(root, deck, slideId);
-      const result = slideOps.becomeTransform(deck, slideId, beatId, partRef(sourceId, opts.sourceParts), partRef(opts.targetId, opts.parts), {
+      const result = slideOps.becomeTransform(deck, slideId, beatId, partRef(sourceId, opts.sourceParts), destinationRef(opts.targetId, opts.parts, opts.members), {
         ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
       });
       if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
-      return result;
+      const label = setDescription(deck, slideId, result.ref, elementManifest(slide, options));
+      return label ? { ...result, destination: label } : result;
     }
     const assetId = opts.assetId!;
     const found = slideOps.findElement(deck, sourceId);
@@ -1000,16 +1302,18 @@ export async function become(
 }
 
 /** Destination-side authoring; shares the same pure op and manifest resolution. */
-export async function appearFrom(root: string, deckId: string, slideId: string, beatId: string, destId: string, sourceId: string,
-  opts: Omit<BecomeOptions, "targetId" | "assetId" | "force" | "mode"> = {}): Promise<slideOps.BecomeResult> {
+export async function appearFrom(root: string, deckId: string, slideId: string, beatId: string, destId: string | undefined, sourceId: string,
+  opts: Omit<BecomeOptions, "targetId" | "assetId" | "force" | "mode"> = {}): Promise<slideOps.BecomeResult & { destination?: string }> {
+  if ((destId == null) === (opts.members == null)) throw new Error("appear-from needs exactly one of --dest <elementId> or --members <json>");
   return mutateDeck(root, deckId, "appear_from", async deck => {
     const slide = mustSlide(deck, slideId);
     const options = await slideCompileOptions(root, deck, slideId);
-    const result = slideOps.appearFrom(deck, slideId, beatId, partRef(destId, opts.parts), partRef(sourceId, opts.sourceParts), {
+    const result = slideOps.appearFrom(deck, slideId, beatId, destinationRef(destId, opts.parts, opts.members), partRef(sourceId, opts.sourceParts), {
       ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
     });
     if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
-    return result;
+    const label = setDescription(deck, slideId, result.ref, elementManifest(slide, options));
+    return label ? { ...result, destination: label } : result;
   });
 }
 
@@ -1068,10 +1372,13 @@ export async function gatherDeckPayload(
     deck.assets = deck.assets.filter(asset => used.has(asset.id));
   }
   const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), readModelFile: p => boundedModelFile(p, GLB_LIMITS.maxBytes, root), videoUrl: opts.videoUrl,
+    // Letters of text ↔ shape Becomes: the SAME resolver the app's fonts:lookup uses.
+    glyphFont: async style => (await lookupFont(style, { cacheFile: path.join(userDataDir(), "fonts-index.json") })).bytes,
     modelPoster: async (request, relative) => {
       const { resolveModelPosters } = await import("./model3dPosterCache");
       const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, background: "transparent", elements: [request.element] };
-      const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "", manifests: { [request.asset.id]: request.manifest } });
+      // The request names its step's mesh-part appearance; the render and key follow it.
+      const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "", manifests: { [request.asset.id]: request.manifest }, partStates: () => partStatesFromOpacity(request.partOpacity) });
       sourceWarnings.push(...rendered.warnings);
       const url = rendered.urls[request.ref]; if (!url) throw new Error("3D poster could not be rendered"); return url;
     } });

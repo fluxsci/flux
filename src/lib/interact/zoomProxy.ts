@@ -18,10 +18,24 @@ export interface WorldBox {
   bh: number;
 }
 
+/** A raster placed in world space: image-local (u, v) is world (bx + u·bw/w, by + v·bh/h). */
+export interface ProxyRaster {
+  /** The bitmap itself (a 2D canvas the SVG snapshot was drawn into once). */
+  canvas: HTMLCanvasElement;
+  bx: number;
+  by: number;
+  bw: number;
+  bh: number;
+  w: number;
+  h: number;
+}
+
 export interface ZoomSnapshot {
   /** Everything that changes what the mounted scene looks like (not the viewport). */
   sceneKey: string;
-  url: string;
+  /** Serial of this capture (exposed as data-snap; a retake changes it). */
+  gen: number;
+  canvas: HTMLCanvasElement;
   /** World box the image covers and the raster scale it was drawn at (image px per world unit). */
   bx: number;
   by: number;
@@ -32,6 +46,10 @@ export interface ZoomSnapshot {
   captureZoom: number;
   w: number;
   h: number;
+  /** The WHOLE mounted scene at a low raster scale, drawn behind the sharp
+   *  region. A zoom-out that leaves the sharp box (zoomed in, 2× out) is still
+   *  covered — and a zoom-out is exactly when a coarse raster is enough. */
+  coarse?: ProxyRaster | null;
 }
 
 // Canvas-owned classes inside the scene svg whose look comes from the component
@@ -81,6 +99,25 @@ export function snapshotCovers(snap: { bx: number; by: number; bw: number; bh: n
   return vx >= snap.bx - eps && vy >= snap.by - eps && vx1 <= snap.bx + snap.bw + eps && vy1 <= snap.by + snap.bh + eps;
 }
 
+/** The coarse backing raster's budget (CSS px², before device scale): the
+ *  whole mounted scene at the scale where it would fill ~1 MP. */
+export const SNAPSHOT_COARSE_PIXELS = 1_000_000;
+/** Image px per world unit for the coarse whole-scene raster, or null when the
+ *  sharp region already holds the whole scene at a comparable scale. */
+export function coarseScale(scene: WorldBox, sharp: WorldBox, sharpS: number, dpr = 1): number | null {
+  if (!(scene.bw > 0) || !(scene.bh > 0)) return null;
+  const covered = sharp.bx <= scene.bx + 0.5 && sharp.by <= scene.by + 0.5 &&
+    sharp.bx + sharp.bw >= scene.bx + scene.bw - 0.5 && sharp.by + sharp.bh >= scene.by + scene.bh - 0.5;
+  if (covered) return null; // the sharp image IS the whole scene
+  const S = Math.min(sharpS, SNAPSHOT_MAX_SIDE / (scene.bw * dpr), SNAPSHOT_MAX_SIDE / (scene.bh * dpr), Math.sqrt(SNAPSHOT_COARSE_PIXELS / (scene.bw * scene.bh)) / dpr);
+  return S > 0.005 ? S : null;
+}
+
+/** Does the viewport's scene part lie inside the sharp raster or, failing that, the coarse one? */
+export function proxyCovers(snap: ZoomSnapshot, scene: WorldBox, view: { panX: number; panY: number; zoom: number; hostW: number; hostH: number }): boolean {
+  return snapshotCovers(snap, scene, view) || (!!snap.coarse && snapshotCovers(snap.coarse, scene, view));
+}
+
 /** Pick the image px per world unit for a snapshot of `box`: the live baked zoom
  *  (so the proxy is pixel-true at the rest zoom), shrunk to the caps. */
 export function snapshotScale(box: WorldBox, renderZoom: number, dpr = 1): number | null {
@@ -122,15 +159,22 @@ export function serializeSceneSnapshot(sceneSvg: SVGSVGElement, box: WorldBox, S
     (root as SVGElement | null)?.style.setProperty(p, inherited.getPropertyValue(p));
   }
   const style = fontCss ? `<style>${fontCss}</style>` : "";
+  // innerHTML is the HTML fragment serializer even for SVG content: it writes
+  // U+00A0 as `&nbsp;`, an entity XML does not define, and the image decoder
+  // then rejects the WHOLE snapshot (every matplotlib label with a no-break
+  // space → no proxy, every zoom live; 2026-09-30). `&nbsp;` is the only
+  // non-XML entity that serializer emits (&amp; &lt; &gt; &quot; are XML's own),
+  // and a literal "&nbsp;" in text serializes as "&amp;nbsp;", so this is exact.
+  const body = clone.innerHTML.replace(/&nbsp;/g, "&#160;");
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" ` +
-    `viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${style}${clone.innerHTML}</svg>`;
+    `viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${style}${body}</svg>`;
   return { svg, w, h };
 }
 
 /** The proxy image's transform for the live viewport: image-local (u, v) is world
  *  (bx + u/S, by + v/S), and a world point lands on screen at pan + zoom·world. */
-export function proxyTransform(snap: ZoomSnapshot, panX: number, panY: number, zoom: number): string {
+export function proxyTransform(snap: ProxyRaster, panX: number, panY: number, zoom: number): string {
   // Raster dimensions are integral. Use both actual axes, not the requested
   // scale, or rounding introduces an aspect/position jump at the swap.
   return `translate3d(${panX + zoom * snap.bx}px, ${panY + zoom * snap.by}px, 0) scale(${zoom * snap.bw / snap.w}, ${zoom * snap.bh / snap.h})`;

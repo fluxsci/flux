@@ -15,7 +15,8 @@
 // renderer; headless callers register linkedom first (flux-core ensureDom()).
 
 import { applyPlotView, preparePlotView } from "./projectDom";
-import type { PlotView } from "../types";
+import { applyPlotColorScale } from "./colorScaleDom";
+import type { ColorScaleView, PlotView } from "../types";
 import { preparePlot, prefixIds, applyOverrides } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
 import type { FluxPlotManifest } from "./types";
@@ -29,6 +30,8 @@ export interface PlacedPlotFrame {
   crop?: { x: number; y: number; width: number; height: number };
   contentScale?: number;
   view?: PlotView;
+  /** Live colour-scale edits (colour-system plan A7), keyed by the manifest's colorScales[].id. */
+  colorScale?: Record<string, ColorScaleView>;
 }
 
 // XMLSerializer in the renderer; linkedom's toString headless (linkedom
@@ -106,6 +109,7 @@ export function buildPlotMarkup(
     rootEl.setAttribute("overflow", "hidden");
   }
   preparePlotView(rootEl, prepared.manifest, el.view, el.id);
+  applyPlotColorScale(rootEl as unknown as globalThis.Element, prepared.manifest, el.colorScale, el.id);
   applyOverrides(
     rootEl as unknown as globalThis.Element,
     overrides as Parameters<typeof applyOverrides>[1],

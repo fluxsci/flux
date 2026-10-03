@@ -13,10 +13,36 @@ import type { FluxPlotManifest, PartNode } from "./types";
 // manifest it belongs to, and is re-exported here for existing importers.
 export type { PartNode };
 
+/** A part's kind: what its editors and its reveal animation may assume about it. */
+export type PartKind = "text" | "line" | "shape" | "container";
+
+/** The ONE role → kind fallback (colour-system plan F2). A manifest node's own `kind` wins
+ *  wherever it exists (fluxplot ≥ 0.3.1 writes one on every parts-tree node and `memberRole`
+ *  on groups); this table answers for older manifests, id-inferred roles and role refs. Roles
+ *  it does not name are shapes unless the DOM says otherwise (partStyle.partKind). */
+export const KIND_BY_ROLE: Record<string, PartKind> = {
+  "axis-title": "text", title: "text", subtitle: "text", "tick-label": "text", "legend-label": "text", label: "text",
+  annotation: "text", "colorbar-label": "text", "colorbar-tick-label": "text",
+  line: "line", "reference-line": "line", gridline: "line", spine: "line", errorbar: "line", tick: "line", axis: "line",
+  "significance-bracket": "line", "colorbar-tick": "line", "colorbar-outline": "line",
+  series: "container", "plot-area": "container", figure: "container", legend: "container", "legend-entry": "container",
+  "axis-group": "container", "axes-group": "container", "field-group": "container",
+};
+export const KNOWN_KINDS = new Set<string>(["text", "line", "shape", "container"]);
+export function kindForRole(role: string): PartKind {
+  return KIND_BY_ROLE[role] ?? "shape";
+}
+/** A node's kind: the manifest's, else the role table's. */
+export function kindOfNode(node: { kind?: string | null } | undefined, role: string): PartKind {
+  return node?.kind && KNOWN_KINDS.has(node.kind) ? (node.kind as PartKind) : kindForRole(role);
+}
+
 // A node rendered in the X-Ray tree.
 export interface XrayNode {
   id: string; // the addressable key (override is stored under this)
   role: string;
+  /** text | line | shape | container — the manifest's kind, else the role table's. */
+  kind: PartKind;
   label: string;
   axis?: string;
   isGroup: boolean; // group or container (controls a subtree)
@@ -47,14 +73,35 @@ function indexTree(root: PartNode | undefined): Map<string, PartNode> {
   return m;
 }
 
-/** The concrete leaf ids an override key controls. Group/container → its leaves; leaf → itself. */
+/** The current id for a part id an OLDER fluxplot emitted (colour-system plan C7). fluxplot
+ *  0.3.2 renamed spines (`axis.x.spine` → `axis.x.spine.bottom`) and re-slugged some series
+ *  roots; `manifest.idAliases` maps each old id — or an old series root standing for every id
+ *  under it — to the new one, panel-prefixed on both sides. Exact match first, then the longest
+ *  prefix key followed by a dot; an id no alias covers is returned as is. The alias table is
+ *  read from the manifest each call (it is small) so a regenerated manifest is honoured. */
+export function aliasPartId(manifest: FluxPlotManifest | undefined, id: string): string {
+  const aliases = (manifest as { idAliases?: Record<string, string> } | undefined)?.idAliases;
+  if (!aliases || !id) return id;
+  const exact = aliases[id];
+  if (exact) return exact;
+  // an id that already IS (or sits under) a current alias target is current: a leaf alias's
+  // target (`axis.x.spine.bottom`) must not be re-aliased through its own old prefix
+  for (const target of Object.values(aliases)) if (id === target || id.startsWith(target + ".")) return id;
+  let best: string | null = null;
+  for (const key of Object.keys(aliases)) if (id.startsWith(key + ".") && (best === null || key.length > best.length)) best = key;
+  return best === null ? id : aliases[best] + id.slice(best.length);
+}
+
+/** The concrete leaf ids an override key controls. Group/container → its leaves; leaf → itself.
+ *  A key saved under an id an older fluxplot emitted is resolved through `idAliases` first. */
 export function resolveTargets(manifest: FluxPlotManifest | undefined, key_: string): string[] {
+  const aliased = aliasPartId(manifest, key_);
   const tree = manifest?.parts as PartNode | undefined;
-  if (!tree) return [key_];
-  const node = indexTree(tree).get(key_);
-  if (!node) return [key_]; // a literal leaf id not present in the tree
+  if (!tree) return [aliased];
+  const node = indexTree(tree).get(aliased);
+  if (!node) return [aliased]; // a literal leaf id not present in the tree
   if (node.role === "group" || (node.children && node.children.length)) return leavesUnder(node);
-  return [key_];
+  return [aliased];
 }
 
 // ---------------------------------------------------------------------------
@@ -198,9 +245,11 @@ export function buildPartTree(manifest: FluxPlotManifest | undefined): XrayNode 
     const role = n.role ?? inferRole(id);
     const childNodes = (n.children ?? []).map(toXray);
     const isGroup = role === "group" || childNodes.length > 0;
+    const shownRole = role === "group" ? n.groupRole ?? "group" : role;
     return {
       id,
-      role: role === "group" ? n.groupRole ?? "group" : role,
+      role: shownRole,
+      kind: kindOfNode(n, isGroup && role !== "group" ? "container" : shownRole),
       label: labelFor(n, role),
       axis: n.axis,
       isGroup,

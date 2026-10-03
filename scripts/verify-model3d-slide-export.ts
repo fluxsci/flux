@@ -14,6 +14,7 @@ import { exportDeckHtml, exportSlideVideoHtml } from '../src/lib/slide/export/ex
 import { makeModel3dElement } from '../src/lib/model3d/make';
 import { inspectGlb, writeGlb, GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import type { Model3dAsset } from '../src/lib/model3d/types';
 import type { Deck } from '../src/lib/slide/types';
 import { deckPdfDocument } from '../src/lib/slide/export/deckPdf';
@@ -24,6 +25,9 @@ import { parseHTML } from 'linkedom';
 import { Resvg } from '@resvg/resvg-js';
 import { payloadModelContext } from '../src/lib/slide/export/model3dPayloadHost';
 const h=harness('verify-model3d-slide-export');
+// Fresh checkouts have no build output: the PDF/embed paths read the build-owned
+// .generated assets, so run the same generator the npm hooks use (identical bytes are not rewritten).
+execFileSync(process.execPath,['scripts/gen-slide-embed-assets.mjs'],{stdio:'pipe'});
 const bytes=writeGlb({parts:[{name:'mesh',positions:[0,0,0,1,0,0,0,1,1],indices:[0,1,2]}]});
 const asset:Model3dAsset={id:'mesh',name:'Mesh',kind:'glb',path:'assets/mesh.glb',naturalWidth:200,naturalHeight:200,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length,model:inspectGlb(bytes)};
 const element=makeModel3dElement(asset,{id:'view'});
@@ -99,9 +103,27 @@ h.ok(pdf.warnings.includes('3D animation exported as a still')&&pdf.html.include
 const req=requests.find(r=>r.element.id==='R');const expected=model3dStaticSvg(req.element,id=>typed.payload.assets?.[id],staticModelContext(typed.payload));
 h.ok(typedSvg.includes(expected)&&typedPptxSvg.includes(expected),'SVG/PPTX share exact endpoint mesh and furniture composition');
 const partDeck=structuredClone(deck);partDeck.slides[0].beats=[{id:'base',tracks:[]},{id:'parts',tracks:[{id:'fade-meshes',target:'view',selector:{role:'mesh'},preset:'fadeOut',duration:500},{id:'fade-title',target:'view',part:'title',preset:'fadeOut',duration:500}]}];
-const partPayload=(await gatherPayload('/scratch',partDeck,{...io,modelData:'omit'})).payload;
+// Each step's still carries that step's part visibility (the Node poster
+// renderer takes part factors, and the key names them): a hidden part is absent
+// from PDF/PPTX/document stills and the offline pre-ready poster, while the
+// Design orbit/look stays. Mesh and furniture keep the same complete state.
+const { createCanvas } = await import('@napi-rs/canvas');
+const solid = (n: number) => { const c = createCanvas(2, 2), g = c.getContext('2d'); g.fillStyle = `rgb(${n * 40 % 256},90,160)`; g.fillRect(0, 0, 2, 2); return c.toDataURL('image/png'); };
+const stepRequests: any[] = [], stills = new Map<string, string>();
+const titled = JSON.stringify({ ...scene, layout: { title: 'top' } });
+const stepIO = { ...io, modelData: 'omit' as const, readText: async (p: string) => p.endsWith('.fluxplot.json') ? titled : io.readText(p),
+  modelPoster: async (request: any) => { stepRequests.push(request); const url = solid(stepRequests.length); stills.set(request.key, url); return url; } };
+const partPayload=(await gatherPayload('/scratch',partDeck,stepIO)).payload;
 h.eq(compileSlideFor(partPayload).cues[1].tracks[0].parts,['mesh'],'static compilation resolves model role leaves through accepted metadata');
-h.eq(renderSlidePosterSvg(partPayload,1),renderSlidePosterSvg(partPayload,0),'static Design still keeps mesh and furniture together despite sampled part fades');
+const designStep = stepRequests.find(r => !r.partOpacity), hiddenStep = stepRequests.find(r => r.partOpacity);
+h.ok(!!designStep && hiddenStep?.partOpacity?.mesh === 0 && hiddenStep.key !== designStep.key && stepRequests.length === 2, 'a mesh part hidden at a step gathers its own still, under a distinct key');
+const [stepZero, stepOne] = [renderSlidePosterSvg(partPayload,0), renderSlidePosterSvg(partPayload,1)];
+h.ok(stepZero.includes(stills.get(designStep.key)!) && stepOne.includes(stills.get(hiddenStep.key)!) && !stepOne.includes(stills.get(designStep.key)!), 'PDF/document SVG pictures each step with its own mesh still');
+h.ok(/<g data-part-id="title"[^>]*visibility="hidden"/.test(stepOne) && stepZero.includes('data-part-id="title"') && !stepZero.includes('visibility="hidden"'), 'furniture takes the same step state: the faded title is hidden at step 1 only');
+const offline = payloadModelContext(partPayload);
+h.eq([offline.modelPoster(element, { mesh: 0 }), offline.modelPoster(element)], [stills.get(hiddenStep.key), stills.get(designStep.key)], 'offline pre-ready posters name the step\'s mesh-part visibility');
+let partPptxSvg = ''; await deckPptxBytes('Parts', [{ payload: partPayload }], async svg => { partPptxSvg = svg; return new Resvg(svg).render().asPng(); }, undefined, 'final');
+h.ok(partPptxSvg.includes(stills.get(hiddenStep.key)!) && /<g data-part-id="title"[^>]*visibility="hidden"/.test(partPptxSvg), 'PowerPoint pictures the final step with its hidden mesh part and title');
 const altered={...element,orbitAzimuth:99,fill:'#ff0000',width:240,height:180,modelStates:{inflated:1}};
 const designStill=staticModelElement(altered,deck.slides[0]) as typeof element;
 h.eq([designStill.orbitAzimuth,designStill.fill,designStill.modelStates,designStill.width],[element.orbitAzimuth,element.fill,element.modelStates,240],'original model keeps Design mesh/furniture appearance with sampled placement');

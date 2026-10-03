@@ -20,6 +20,8 @@ import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "./grammar"
 import { findInlineMath } from "./mathGrammar";
 import { ensureKatex, katexReady } from "./katexLoader";
 import { EMBED_RE } from "./figureAttrs";
+import { parseSlideEmbed } from "../../../../lib/slide/embed";
+import { chipActivation } from "./chipActivation";
 
 /** Dispatched when figure/bib data changes, to force a chip rebuild. */
 export const refreshChips = StateEffect.define<null>();
@@ -133,6 +135,14 @@ function build(view: EditorView): DecorationSet {
       // line itself stays, so vertical nav still costs exactly one keypress,
       // and embeds.ts' block widget below is a separate, doc-pure concern).
       if (line.length && line.text.indexOf("![") >= 0) {
+        // A SLIDE-embed source line is slideEmbeds.ts' (its own fold plugin
+        // chips it from the same scan that places the player); nothing inside
+        // it chips separately here, or two replaces would overlap.
+        if (line.text.indexOf(".flux-slide") >= 0 && parseSlideEmbed(line.text)) {
+          if (line.to + 1 > to) break;
+          pos = line.to + 1;
+          continue;
+        }
         const em = EMBED_RE.exec(line.text);
         if (em) {
           if (!rangesTouch(state, line.from, line.to, 0)) {
@@ -173,7 +183,7 @@ function build(view: EditorView): DecorationSet {
   return Decoration.set(deco, true);
 }
 
-export const scienceChips = ViewPlugin.fromClass(
+const chipPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
     constructor(view: EditorView) {
@@ -195,3 +205,7 @@ export const scienceChips = ViewPlugin.fromClass(
       ),
   },
 );
+
+/** The chip plugin + the shared double-click activation its embed chip needs
+ *  (chipActivation.ts; CodeMirror dedupes it with slideEmbeds' copy). */
+export const scienceChips = [chipPlugin, chipActivation];

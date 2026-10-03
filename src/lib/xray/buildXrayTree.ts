@@ -320,3 +320,37 @@ export function buildXrayTree(
   const node = findGroupNode(buildRenderTree(fig), target.groupId);
   return node ? groupRow(fig, node, manifests, models, info) : null;
 }
+
+/** The minimal shape the sibling rule reads: X-ray rows and plot part-tree nodes both fit. */
+export interface SiblingNode { id: string; role: string; label: string; kind: string; children: readonly SiblingNode[] }
+
+/** The parent of every row id in a tree (common rows are top-level: no parent). */
+export function rowParents<T extends SiblingNode>(t: T | null): Map<string, T> {
+  const out = new Map<string, T>();
+  const walk = (n: T) => { for (const c of n.children as readonly T[]) { out.set(c.id, n); walk(c); } };
+  if (t) walk(t);
+  return out;
+}
+
+/** The `a` rule — widen a pick to its siblings, shared by the X-ray and the
+ *  Slide Become picker. First press: the SAME row (role + label + kind) under
+ *  each sibling of the parent (X axis › Tick marks → Y axis › Tick marks too),
+ *  so one key reaches the counterpart parts. When that adds nothing (already
+ *  there, or no counterparts), the press takes every row under the same parent
+ *  instead. Returns the widened id set (the pick included), or null when
+ *  nothing would be added. Pure: rows in, ids out. */
+export function widenToSiblings<T extends SiblingNode>(tree: T | null, picked: readonly T[], parents: Map<string, T> = rowParents(tree)): Set<string> | null {
+  if (!picked.length) return null;
+  const have = new Set(picked.map((n) => n.id));
+  const counterparts = new Set(have);
+  for (const n of picked) {
+    const p = parents.get(n.id), g = p && parents.get(p.id);
+    for (const aunt of g?.children ?? []) for (const c of aunt.children) if (c.role === n.role && c.label === n.label && c.kind === n.kind) counterparts.add(c.id);
+  }
+  let next = counterparts;
+  if (next.size === have.size) {
+    next = new Set(have);
+    for (const n of picked) for (const c of parents.get(n.id)?.children ?? []) next.add(c.id);
+  }
+  return next.size === have.size ? null : next;
+}

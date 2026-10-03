@@ -5,7 +5,10 @@ import { renderSlidePosterSvg } from "./embedRender";
 import { loadEmbedAssets } from './embedAssets';
 import type { Deck } from "./types";
 import type { Model3dAsset } from '../model3d/types';
-export interface EmbedModelSource { root: string; scope: string; assets: Model3dAsset[]; isCurrent(): boolean }
+/** `revision` names the repository generation that owns these file holds (no
+ *  path): a document that serves models by reference (the live preview) must
+ *  change when it does, so its host re-reads and re-checks the files. */
+export interface EmbedModelSource { root: string; scope: string; revision: string; assets: Model3dAsset[]; isCurrent(): boolean }
 export interface SlideSnapshot { payload: ExportPayload; poster: string; signature: string; warnings: string[]; modelSource?: EmbedModelSource }
 export interface SlideRepositoryIO extends SlidePayloadIO { prepareDeck?(id: string): Promise<string[]>; exists?(p: string): Promise<boolean>; writeText?(p: string, text: string): Promise<void>; mkdir?(p: string): Promise<void> }
 export interface EmbedDeckRow { id: string; title: string; count?: number; error?: string }
@@ -26,30 +29,6 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
     let p = decks.get(id);
     if (!p) { p = readEmbedDeck(root, id, io); decks.set(id, p); }
     return p;
-  }
-  // Portable snapshots the interactive Paper preview reuses between renders
-  // (it re-renders ~160 ms after every edit). Keyed by embed; valid while the
-  // metadata snapshot's content signature is unchanged: that signature covers
-  // the deck (every slide, and each GLB's prepared sha256) and all gathered
-  // image/plot bytes, and published GLB files are immutable. One base64 copy
-  // per prepared sha256 is shared across cached slides.
-  const portables = new Map<string, { signature: string; value: Promise<SlideSnapshot | null>; shas: string[] }>();
-  const modelText = new Map<string, string>();
-  function forgetPortable(key: string, entry?: { value: Promise<SlideSnapshot | null> }) {
-    if (entry && portables.get(key) !== entry) return;
-    portables.delete(key);
-    const live = new Set([...portables.values()].flatMap(e => e.shas));
-    for (const sha of modelText.keys()) if (!live.has(sha)) modelText.delete(sha);
-  }
-  function shareModelText(snapshot: SlideSnapshot): string[] {
-    const models = snapshot.payload.models ?? {}, shas: string[] = [];
-    for (const asset of snapshot.payload.deck.assets) {
-      if (asset.kind !== 'glb' || !Object.hasOwn(models, asset.id)) continue;
-      const sha = (asset as Model3dAsset).sha256.toLowerCase(), text = models[asset.id], prior = modelText.get(sha);
-      if (prior !== undefined && prior.length === text.length) models[asset.id] = prior; else modelText.set(sha, text);
-      shas.push(sha);
-    }
-    return shas;
   }
   const preparedDecks = new Map<string, Promise<Deck>>();
   function preparedDeck(id: string) {
@@ -82,7 +61,7 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
       // ownership from the saved registries, never from that scrubbed copy.
       const external = io.modelData === 'omit' && modelAssets.some(a => !d.assets.some(own => own.id === a.id))
         ? JSON.parse(await io.readText(underRoot(root, 'fig/index.json'))).assets as Model3dAsset[] : [];
-      const modelSource = io.modelData === 'omit' && modelAssets.length ? { root, scope: `paper-slides:${root}:${sourceId}:${stamp}`,
+      const modelSource = io.modelData === 'omit' && modelAssets.length ? { root, scope: `paper-slides:${root}:${sourceId}:${stamp}`, revision: `${sourceId}.${stamp}`,
         assets: modelAssets.map(a => {
           const owned = d.assets.find(own => own.id === a.id), saved = owned ?? external.find(own => own.id === a.id);
           if (!saved?.path || saved.kind !== 'glb') throw new Error(`Missing Paper model file metadata: ${a.id}`);
@@ -114,11 +93,10 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
     if (portable.warnings.some(w => /its element will show a placeholder|missing from the export|no parts tree/.test(w))) throw new Error(portable.warnings.join("\n"));
     return { ...portable, poster: base.poster, signature: JSON.stringify(portable) };
   }
-  /** `reusePortable` (the interactive preview only) serves an unchanged
-   * slide's portable snapshot without re-reading, re-hashing and re-encoding
-   * its GLBs. Exports never pass it: they gather and validate fresh bytes. */
-  async function materialize(ref: Pick<SlideEmbedRef, "deck" | "slide">, options: { portable?: boolean; reusePortable?: boolean } = {}): Promise<SlideSnapshot> {
-    let snapshot = await load(ref);
+  /** Portable snapshots always gather and validate fresh bytes: exports need
+   * them, and the live preview no longer asks (its models are bridged). */
+  async function materialize(ref: Pick<SlideEmbedRef, "deck" | "slide">, options: { portable?: boolean } = {}): Promise<SlideSnapshot> {
+    const snapshot = await load(ref);
     if (disposed) throw new Error("Slide repository closed");
     if (snapshot.warnings.some(w => /its element will show a placeholder|missing from the export|no parts tree/.test(w))) throw new Error(snapshot.warnings.join("\n"));
     if (io.writeText) {
@@ -127,24 +105,10 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
       if (prior !== snapshot.poster) { await io.mkdir?.(path.slice(0, path.lastIndexOf("/"))); await io.writeText(path, snapshot.poster); }
     }
     if (options.portable && (snapshot.modelSource || Object.values(snapshot.payload.videos ?? {}).some(url => !url.startsWith("data:video/")))) {
-      const key = embedKey(ref), stamp = generation;
-      let entry = options.reusePortable ? portables.get(key) : undefined;
-      if (entry && entry.signature !== snapshot.signature) { forgetPortable(key, entry); entry = undefined; }
-      if (!entry) {
-        const value = gatherPortable(ref, snapshot, stamp);
-        entry = { signature: snapshot.signature, value, shas: [] };
-        if (options.reusePortable) {
-          const own = entry;
-          portables.delete(key); portables.set(key, own);
-          if (portables.size > 32) forgetPortable(portables.keys().next().value!);
-          value.then(result => { if (result && !disposed && portables.get(key) === own) own.shas = shareModelText(result); else forgetPortable(key, own); },
-            () => forgetPortable(key, own));
-        }
-      } else { portables.delete(key); portables.set(key, entry); }
-      const portable = await entry.value;
+      const portable = await gatherPortable(ref, snapshot, generation);
       if (disposed) throw new Error("Slide repository closed");
       if (!portable) return materialize(ref, options);
-      snapshot = { ...portable, poster: snapshot.poster };
+      return { ...portable, poster: snapshot.poster };
     }
     return snapshot;
   }
@@ -155,7 +119,7 @@ export function createSlideRepository(root: string, io: SlideRepositoryIO) {
     },
     invalidate() { if (disposed) return; generation++; decks.clear(); preparedDecks.clear(); sourceWarnings.clear(); pending.clear(); for (const fn of listeners) fn(); },
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
-    dispose() { disposed = true; generation++; pending.clear(); decks.clear(); preparedDecks.clear(); snapshots.clear(); portables.clear(); modelText.clear(); listeners.clear(); },
+    dispose() { disposed = true; generation++; pending.clear(); decks.clear(); preparedDecks.clear(); snapshots.clear(); listeners.clear(); },
   };
 }
 export type SlideRepository = ReturnType<typeof createSlideRepository>;

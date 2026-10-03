@@ -311,6 +311,10 @@ export interface RectElement extends ElementBase {
   /** Colormap gradients (win over `fill` / `stroke` while set). */
   fillMap?: GradientFill | null;
   strokeMap?: GradientFill | null;
+  /** Per-channel alpha, 0–1, independent of the element's `opacity` (which
+   *  multiplies both). Absent = opaque, so files without it are unchanged. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   strokeWidth: number;
   cornerRadius: number;
   /** Dash pattern in canvas px (SVG stroke-dasharray values, e.g. [6, 4]).
@@ -325,6 +329,10 @@ export interface EllipseElement extends ElementBase {
   /** Colormap gradients (win over `fill` / `stroke` while set). */
   fillMap?: GradientFill | null;
   strokeMap?: GradientFill | null;
+  /** Per-channel alpha, 0–1, independent of the element's `opacity` (which
+   *  multiplies both). Absent = opaque, so files without it are unchanged. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   strokeWidth: number;
   dash?: number[];
 }
@@ -339,6 +347,8 @@ export interface LineElement extends ElementBase {
   stroke: string;
   /** Colormap gradient along the line's box (wins over `stroke` while set). */
   strokeMap?: GradientFill | null;
+  /** Stroke alpha, 0–1, independent of `opacity`; absent = opaque. */
+  strokeOpacity?: number;
   strokeWidth: number;
   arrowStart: boolean;
   arrowEnd: boolean;
@@ -377,6 +387,10 @@ export interface PathElement extends ElementBase {
   /** Colormap gradients (win over `fill` / `stroke` while set). */
   fillMap?: GradientFill | null;
   strokeMap?: GradientFill | null;
+  /** Per-channel alpha, 0–1, independent of the element's `opacity` (which
+   *  multiplies both). Absent = opaque, so files without it are unchanged. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   strokeWidth: number;
   closed: boolean;
   // When present, the AUTHORITATIVE editable geometry; `d` is derived from it.
@@ -430,7 +444,36 @@ export interface SemanticPlotElement extends ElementBase {
   // generated view (so untouched files stay byte-identical). An ordinary
   // element prop: a slide Change of it is the data-space transform.
   view?: PlotView;
+  // The plot's LIVE COLOUR SCALES (colour-system plan A7), keyed by the manifest's
+  // colorScales[].id: recolour / re-range a colour-mapped plot without Python, rendered
+  // by pure colour math (plot/colorscale.ts) over each element's data-value in every
+  // engine; absent = the generated colours (untouched files stay byte-identical). An
+  // ordinary element prop, so a slide Change of it animates the scale.
+  colorScale?: Record<string, ColorScaleView>;
+  // Whether the plot's scaffold ink follows the host's deck theme (colour-system plan B1):
+  // fluxplot tags every scaffold node with a theme token and plot/themeDom maps the tokens onto
+  // the deck's text / muted / background colours. Absent = on for slides, off in Paper / Figure.
+  followTheme?: boolean;
 }
+
+/** One live colour-scale edit. Every field is optional and means "as generated" when
+ *  absent. `cmap` is a colormap name (resolved to its full table through the lazily
+ *  loaded fluxplot definitions) or the table itself (what the picker and the verbs write,
+ *  so every engine paints from the element alone). Limits and the norm's parameters live
+ *  under `norm`, in data units. */
+export interface ColorScaleView {
+  cmap?: string | ColorScaleTable;
+  reversed?: boolean;
+  norm?: {
+    kind?: "linear" | "log" | "symlog" | "power" | "twoslope" | "centered";
+    vmin?: number; vmax?: number; vcenter?: number; gamma?: number;
+    linthresh?: number; linscale?: number;
+  };
+  extend?: "neither" | "min" | "max" | "both";
+}
+/** A colormap given outright: the lookup table (`#rrggbb[aa]`) plus optional under / over /
+ *  bad colours (defaults: the ends, transparent) and the name it came from. */
+export interface ColorScaleTable { lut: string[]; under?: string; over?: string; bad?: string; name?: string }
 
 /** One axis of a plot's data view. `domain` in data units (the manifest's
  *  axis domain when absent); `scale` overrides the generated axis scale. */
@@ -441,7 +484,13 @@ export interface PlotAxisView {
 export interface PlotView {
   x?: PlotAxisView;
   y?: PlotAxisView;
+  /** A twin's value axis (fluxplot `axes[].y2` / `.x2`: ax.twinx(), twiny(), a secondary axis). */
+  y2?: PlotAxisView;
+  x2?: PlotAxisView;
 }
+/** The view keys a plot may have: the panel's own axes and its twins'. */
+export type PlotAxisKey = "x" | "y" | "y2" | "x2";
+export const PLOT_AXIS_KEYS: readonly PlotAxisKey[] = ["x", "y", "y2", "x2"];
 
 // A style override for one semantic part. Open-ended; each key maps to a
 // presentation property applied to the matching inlined node(s).

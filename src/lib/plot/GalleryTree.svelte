@@ -3,6 +3,7 @@
   import { onDestroy, tick } from "svelte";
   import { fileBridge } from "../project/types";
   import { createGalleryTree, normalizeGalleryPath, type GalleryTreeFile, type GalleryTreeRow } from "./galleryTree";
+  import { settings } from "../settings";
 
   /** Absolute plots/ root. The tree never changes project/editor state. */
   export let root = "";
@@ -74,7 +75,9 @@
   }
   async function revealTarget(treeRoot: string, selected: string, directory: string) {
     const target = normalizeGalleryPath(selected || directory || treeRoot);
-    await tree.reveal(target, !selected);
+    // Navigating INTO a folder reveals its ancestry so its row is visible, but does
+    // not unfold the folder itself unless the click-expands setting is on.
+    await tree.reveal(target, !selected && clickExpands);
     await tick();
     if (target === externalPath) ensureVisible(target);
   }
@@ -84,9 +87,16 @@
     focusRow(row);
     if (row.expanded) tree.collapse(row.abs); else void tree.expand(row.abs);
   }
+  // A folder row's click SHOWS the folder; only the › arrow (or ArrowRight/Left)
+  // expands or collapses it — unless Settings → Plot gallery says the click does
+  // both (owner, 2026-10-03: top-level folders kept unfolding on a plain click).
+  $: clickExpands = $settings.galleryFolderClickExpands;
   function choose(row: GalleryTreeRow, preview = false) {
     focusRow(row);
-    if (row.kind === "dir") { void tree.expand(row.abs); onNavigate(row.abs); }
+    if (row.kind === "dir") {
+      if (clickExpands) { if (row.expanded) tree.collapse(row.abs); else void tree.expand(row.abs); }
+      onNavigate(row.abs);
+    }
     else if (preview && onPreviewFile) onPreviewFile(row);
     else onSelectFile(row);
   }
@@ -129,7 +139,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div id={rowId(row.abs)} class="tree-row" class:focused={focusedPath === row.abs} class:selected={normalizeGalleryPath(selectedPath || currentDirectory || root) === row.abs} role="treeitem" tabindex="-1" aria-level={row.depth + 1} aria-selected={focusedPath === row.abs} aria-expanded={row.kind === "dir" ? row.expanded : undefined} aria-busy={row.status === "loading" || undefined} data-path={row.abs} data-kind={row.kind} title={description(row)} style:top={`${(start + i) * ROW_HEIGHT}px`} style:padding-left={`${6 + row.depth * 14}px`} on:click={event => choose(row, event.ctrlKey || event.metaKey)}>
           {#if row.kind === "dir"}
-            <button class="tree-disclosure" tabindex="-1" aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`} on:click|stopPropagation={() => toggle(row)}>{row.expanded ? "▾" : "▸"}</button>
+            <button class="tree-disclosure" class:open={row.expanded} tabindex="-1" aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`} title={row.expanded ? "Collapse" : "Expand"} on:click|stopPropagation={() => toggle(row)} on:dblclick|stopPropagation><svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.2 1.8 L6.6 5 L3.2 8.2" /></svg></button>
           {:else}<span class="tree-disclosure" aria-hidden="true"></span>{/if}
           <span class="tree-icon" aria-hidden="true">{#if row.model3d}<Model3dIcon />{:else}{row.kind === "dir" ? "▰" : row.video ? "▷" : "▧"}{/if}</span>
           <span class="tree-name">{row.name}</span>
@@ -153,8 +163,11 @@
   .tree-viewport:focus .tree-row.focused { outline:1px solid var(--c-accent); outline-offset:-1px; }
   .tree-viewport:focus .tree-row.focused:not(.selected) { background:var(--c-surface-2); }
   .tree-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
-  .tree-disclosure { display:inline-flex; align-items:center; justify-content:center; width:14px; height:20px; flex-shrink:0; padding:0; background:none; border:0; border-radius:var(--r-ui); color:var(--c-tx-muted); font:inherit; cursor: var(--cursor-cross-hover); }
-  button.tree-disclosure:hover, .tree-retry:hover { background:var(--c-surface-2); color:var(--c-tx-hi); }
+  .tree-disclosure { display:inline-flex; align-items:center; justify-content:center; width:22px; height:24px; margin-left:1px; flex-shrink:0; padding:0; background:none; border:0; border-radius:var(--r-ui); color:var(--c-tx-muted); font:inherit; cursor: var(--cursor-cross-hover); }
+  .tree-disclosure .chev { width:11px; height:11px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; transition: transform 120ms ease; }
+  .tree-disclosure.open .chev { transform: rotate(90deg); }
+  button.tree-disclosure:hover { background:var(--c-accent-tint); color:var(--c-accent); }
+  .tree-retry:hover { background:var(--c-surface-2); color:var(--c-tx-hi); }
   .tree-icon { width:14px; flex-shrink:0; text-align:center; color:var(--c-tx-muted); font-size:11px; }
   .tree-status { margin-left:auto; color:var(--c-tx-muted); font:11px var(--font-mono); }
   .tree-retry { margin-left:auto; border:0; background:none; border-radius:var(--r-ui); color:var(--c-accent); padding:0 4px; font:inherit; cursor: var(--cursor-cross-hover); }

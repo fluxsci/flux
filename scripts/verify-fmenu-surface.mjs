@@ -209,7 +209,7 @@ try {
   ok(m.rect.fill.toLowerCase() === target.hex.toLowerCase(), `hovering a swatch previews it live (${m.rect.fill})`);
   const livePicker = await page.evaluate(() => ({ hex: document.querySelector(".cs .hex").value, opacity: Number(document.querySelector(".cs .erow input").value) }));
   ok(livePicker.hex.toLowerCase() === m.rect.fill.toLowerCase(), "the hex field follows the hovered colour");
-  ok(livePicker.opacity === m.rect.opacity, "the picker shows the selected object's actual opacity");
+  ok(livePicker.opacity === (m.rect.fillOpacity ?? 1), "the fill picker shows the fill's own opacity");
   await page.keyboard.press("Escape");
   await sleep(150);
   m = await model();
@@ -244,7 +244,8 @@ try {
     maps: document.querySelectorAll(".fluxFigMenu .cmp .cm").length,
     bars: [...document.querySelectorAll(".fluxFigMenu .cmp .cm .bar")].every((b) => /gradient/.test(b.getAttribute("style") || "")),
   }));
-  ok(cm.tabs.join("|") === "matplotlib|Crameri|Paul Tol|cmasher" && cm.on === "matplotlib", `Tab opens the colormap picker on the matplotlib collection (${cm.tabs.join("|")})`);
+  // fluxplot's Flexoki house maps lead the collections (2026-09-30, fluxplot B4); the picker still opens on matplotlib
+  ok(cm.tabs.join("|") === "Flexoki|matplotlib|Crameri|Paul Tol|cmasher" && cm.on === "matplotlib", `Tab opens the colormap picker on the matplotlib collection (${cm.tabs.join("|")})`);
   ok(cm.groups.join("|") === "sequential|diverging|cyclic|qualitative|misc" && cm.maps > 80 && cm.bars, `maps are grouped by type with a preview bar each (${cm.maps} maps)`);
   ok(await page.$$eval(".cmp .cm", (rows) => rows.every((r) => r.getBoundingClientRect().height === 22)), "long colormap collections retain readable 22px rows instead of compressing them");
   await page.keyboard.down("Shift"); await page.keyboard.press("Tab"); await page.keyboard.up("Shift");
@@ -313,6 +314,23 @@ try {
   await sleep(200);
   m = await model();
   ok(m.rect.fillMap === undefined && m.rect.fill.toLowerCase() === target.hex.toLowerCase(), `a swatch pick returns the rect to a solid colour (${JSON.stringify({ fill: m.rect.fill, fillMap: m.rect.fillMap })})`);
+  await page.keyboard.press("Escape");
+  await waitForGone(page, ".fluxFigMenu");
+
+  // --- 5c'. per-channel alpha (owner inbox 2026-09-30): b = fill opacity, t = stroke opacity --
+  await page.evaluate(() => { const F = window.__flux.fig; F.commit((p) => { const r = p.figures[0].elements.find((e) => e.id === "fm-rect"); delete r.fillOpacity; delete r.strokeOpacity; r.opacity = 1; }); F.selectOnly("fm-rect"); F.resetHistory(); });
+  await page.mouse.move(250, 260);
+  await page.keyboard.press("f");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu.placed"), null, { label: "menu (channel alpha)" });
+  const alphaRows = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll(".fluxFigMenu .field")].map((n) => [n.querySelector(".label")?.textContent, n.dataset.key])));
+  ok(alphaRows["fill opacity"] === "b" && alphaRows["stroke opacity"] === "t" && alphaRows["opacity"] === "a", `the rect offers fill opacity (b) and stroke opacity (t) beside opacity (a) (${alphaRows["fill opacity"]}/${alphaRows["stroke opacity"]})`);
+  await page.keyboard.press("b"); await page.keyboard.type("0.3"); await page.keyboard.press("Enter");
+  await page.keyboard.press("t"); await page.keyboard.type("0.6"); await page.keyboard.press("Enter");
+  await waitFor(page, () => window.__flux.fig.historyStats().past === 2, null, { label: "two channel edits" });
+  m = await model();
+  const alphaDom = await page.evaluate(() => { const n = document.querySelector('.canvas-host [data-editor-element-id="fm-rect"] rect'); return [n?.getAttribute("fill-opacity"), n?.getAttribute("stroke-opacity")]; });
+  ok(m.rect.fillOpacity === 0.3 && m.rect.strokeOpacity === 0.6 && m.rect.opacity === 1 && m.h.past === 2, "each channel edits independently of the element opacity, one undo each");
+  ok(alphaDom[0] === "0.3" && alphaDom[1] === "0.6", `the canvas paints both channel alphas (${alphaDom.join("/")})`);
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
 
@@ -390,12 +408,14 @@ try {
   await page.mouse.click(opacityPoint.x, opacityPoint.y);
   await waitFor(page, () => window.__flux.fig.historyStats().past === 2, null, { label: "opacity release commits" });
   m = await model();
-  const chosenOpacity = m.rect.opacity;
-  ok(!!(await page.$(".cs")) && chosenOpacity > 0.6, `releasing the opacity slider commits its displayed value and keeps the picker open (${chosenOpacity})`);
+  // Owner inbox 2026-09-30: the fill picker's slider is the FILL's alpha, not the
+  // element's (which stays at the 0.4 seeded above and still multiplies both).
+  const chosenOpacity = m.rect.fillOpacity;
+  ok(!!(await page.$(".cs")) && chosenOpacity > 0.6 && m.rect.opacity === 0.4, `releasing the fill-opacity slider commits the fill's alpha and keeps the picker open (${chosenOpacity}; element opacity ${m.rect.opacity})`);
   await page.keyboard.press("Escape");
   await waitForGone(page, ".cs");
   m = await model();
-  ok(m.rect.fill === chosenHue && m.rect.opacity === chosenOpacity && m.h.past === 2, "Escape works from the focused range and preserves completed range edits");
+  ok(m.rect.fill === chosenHue && m.rect.fillOpacity === chosenOpacity && m.h.past === 2, "Escape works from the focused range and preserves completed range edits");
   await waitFor(page, () => document.activeElement === document.querySelector(".fluxFigMenu"), null, { label: "menu focused after range Escape" });
   await page.keyboard.press("c");
   await waitFor(page, () => !!document.querySelector(".cs .grid"), null, { label: "picker after range edits" });
@@ -405,7 +425,7 @@ try {
   await page.mouse.click(8, 120);
   await waitForGone(page, ".fluxFigMenu");
   m = await model();
-  ok(m.rect.fill === chosenHue && m.rect.opacity === chosenOpacity && m.h.past === 2, "dismissing a later hover restores the explicitly chosen hue/opacity and preserves their two undo entries");
+  ok(m.rect.fill === chosenHue && m.rect.fillOpacity === chosenOpacity && m.h.past === 2, "dismissing a later hover restores the explicitly chosen hue/fill opacity and preserves their two undo entries");
 
   // --- 6. several drilled parts edit as one ------------------------------------------------
   await page.evaluate(() => {

@@ -23,6 +23,8 @@ import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
 import { modelHandoffMedia } from "./model3dHandoff";
 import { createHandoff, type HandoffController } from "./handoff";
+import { createGlyphProvider, glyphFontsRevision } from "./glyphProvider";
+import type { TextElement } from "../../types";
 import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
@@ -42,6 +44,7 @@ export { resolveEasing, resolveEasingFn } from "../easing";
 import { resolveCurve, type ResolvedCurve } from "../curves";
 import { compileSlide, type CompiledSlide, type AnimationIssue } from "../compile";
 import { staggerRanks, staggerDelay, staggerSeed } from "../stagger";
+import { staggerKey, manifestCoordinates, nodeCoordinate } from "../staggerData";
 import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
@@ -117,6 +120,8 @@ interface Spec {
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
   handoff?: HandoffController;
+  /** Asynchronous preparation play must wait for (letter-outline fonts). */
+  ready?: { isReady(): boolean; ready(): Promise<void> };
   trackId?: string;
   /** All expanded children share this compiled track, including id-less decks. */
   owner?: Track;
@@ -129,6 +134,11 @@ interface Spec {
 export { transformPreState } from "../tween";
 
 type HandoffRecord = CompiledSlide["handoffs"][number];
+/** A curve over a span k× longer than its own: the original curve runs in the
+ *  first 1/k of the span and stays at its endpoint afterwards (a merge hold). */
+function holdCurve(curve: ResolvedCurve, k: number): ResolvedCurve {
+  return { ...curve, key: `${curve.key}|hold:${k}`, fn: p => curve.fn(Math.min(1, p * k)), clamped: p => curve.clamped(Math.min(1, p * k)) };
+}
 const flightLayers = new WeakMap<Spec[], SVGSVGElement>();
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
@@ -145,14 +155,19 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   }
   const contentRoots = new Map<string, HTMLElement>();
   const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
-  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups };
+  // Letter outlines for text ↔ shape flights, measured inside this camera layer.
+  const glyphProvider = createGlyphProvider(cameraLayer, { ...opts, theme: opts.theme });
+  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups, glyphs: (el: TextElement) => glyphProvider.outlines(el) };
   const handoffs: HandoffRecord[] = compiled.handoffs;
+  const mergeLayers = new Map<string, SVGGElement>();
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent
   // position change or an authored rotation/translucency.
-  for (const cue of compiled.cues) for (const { track } of cue.tracks) {
-    if (track.disabled || hasPartBinding(track) || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"]) continue;
+  // A crossfading Become fades its whole source like an exit, on that layer too.
+  const crossfades = new Set(handoffs.filter(h => h.crossfade).map(h => `${h.beat}:${h.trackId}`));
+  compiled.cues.forEach((cue, bi) => { for (const { track } of cue.tracks) {
+    if (track.disabled || hasPartBinding(track) || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"] && !(isHandoff(track) && crossfades.has(`${bi}:${track.id ?? ""}`))) continue;
     const wrap = rendered.elements.get(track.target) as (HTMLElement & { __slideEffects?: HTMLElement }) | undefined;
     if (!wrap?.firstElementChild || wrap.__slideEffects) continue;
     const effects = document.createElement("div");
@@ -161,7 +176,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     while (wrap.firstChild) effects.appendChild(wrap.firstChild);
     wrap.appendChild(effects);
     wrap.__slideEffects = effects;
-  }
+  } });
   compiled.cues.forEach((cue, bi) => {
     for (const ct of cue.tracks) {
       const track = ct.track;
@@ -190,6 +205,19 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
               return node ? [node] : [];
             });
           });
+          if (handoff.crossfade) {
+            // Mesh parts own no DOM outline, so nothing flies: the source fades
+            // out in place while the destination fades in, furniture parts here
+            // and mesh parts through the model's per-part opacity, which
+            // compile.sample drives on this same curve (no pop at landing).
+            const fades: [TargetNode[], boolean][] = [[resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots), false], [nodesFor(handoff.destination) as TargetNode[], true]];
+            for (const [nodes, enter] of fades) for (const node of nodes) specs.push({
+              node, beatIndex: bi, keyframes: enter ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], enter,
+              delay: ct.start, duration: ct.duration, ease: ct.ease,
+              key: enter ? `handoff-in:${track.id ?? key}` : key, trackId: track.id, owner: track, preset: enter ? "fade" : "fadeOut",
+            });
+            continue;
+          }
           const sourceNodes = hasPartBinding(track) ? resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots) : [wrap];
           const destinationNodes = nodesFor(handoff.destination);
           if (!sourceNodes.length || !destinationNodes.length) continue;
@@ -199,11 +227,25 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const elementOf = (id: string) => preFrame.elements.find(e => e.id === id);
           const whole = !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null;
           const modelFlight = [...handoff.source, ...handoff.destination].some(t => t.partIds === null && elementOf(t.elementId)?.type === "model3d");
-          const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
-            plan: () => planHandoff(track, preFrame, geometry),
+          // Two whole, upright text objects: the glyph-matched text morph.
+          const textA = !hasPartBinding(track) && whole ? elementOf(track.target) : undefined, textB = whole ? elementOf(handoff.destination[0].elementId) : undefined;
+          const upright = (el: typeof textA) => !!el && !el.rotation && !el.flipX && !el.flipY;
+          const text = textA?.type === "text" && textB?.type === "text" && upright(textA) && upright(textB)
+            ? { a: textA, b: textB, render: { ...opts, ghostPartFactors: opts.ghostPartFactors } as SlideRenderCtx, durationMs: ct.duration } : undefined;
+          // One side a whole text, the other not: its letters fly as outlines.
+          const letterTexts = text ? [] : [...handoff.source, ...handoff.destination].filter(t => t.partIds === null).map(t => elementOf(t.elementId)).filter((el): el is TextElement => el?.type === "text");
+          const glyphs = letterTexts.length ? { ready: () => Promise.all(letterTexts.map(el => glyphProvider.ready(el))).then(() => {}), revision: () => glyphProvider.revision() } : undefined;
+          // MERGE: all landers plan from one frame (the group's first start)
+          // and share the destination's pieces out among their sources.
+          const group = handoff.merge ? handoff.merge.trackIds.map(id => cue.tracks.find(c => c.track.id === id)!).filter(Boolean) : [];
+          const planFrame = group.length > 1 ? compiled.sample(bi, Math.min(...group.map(c => c.start))) : preFrame;
+          const lastLander = group.length > 1 && group[group.length - 1].track.id === track.id;
+          const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration,
+            beneath: lastLander ? group.map(c => mergeLayers.get(c.track.id ?? "")).find(Boolean) : undefined,
+            plan: () => planHandoff(track, planFrame, geometry, group.length > 1 ? group.map(c => c.track) : undefined),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
-              order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
+              order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId), glyphs,
               node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),
               crop: owner => {
                 const el = preFrame.elements.find(e => e.id === owner.elementId);
@@ -214,16 +256,21 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // The surviving content belongs to the destination identity. Never
           // redirect later source tracks into that other element's DOM.
           if (driver.targetRoot && handoff.destination.length === 1) contentRoots.set(handoff.destination[0].elementId, driver.targetRoot);
+          if (group.length > 1 && track.id) mergeLayers.set(track.id, driver.layer);
+          // A merging lander that lands before the group's last holds its
+          // landed frame (eased progress pinned at 1) until `landAt`, where the
+          // whole group reveals the destination together on raw = 1.
+          const hold = handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration;
           specs.push({ node: sourceNodes[0] as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
-            delay: ct.start, duration: ct.duration,
-            ease: ct.ease,
+            delay: ct.start, duration: hold,
+            ease: hold > ct.duration ? holdCurve(ct.ease, hold / Math.max(1e-9, ct.duration)) : ct.ease,
             morph: driver, handoff: driver });
           if (handoff.spec.reveal === "draw") {
             const draw = { ...track, preset: "drawOn" as const, params: undefined };
             for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
               node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
               key: `handoff-draw:${track.id}`, prep: na.prep, preset: "drawOn", trackId: track.id, owner: track,
-              delay: ct.start + ct.duration, duration: DUR.gentle,
+              delay: ct.start + hold, duration: DUR.gentle,
               ease: resolveCurve(draw),
             });
           }
@@ -238,14 +285,18 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           model3d: opts.model3d, modelAsset: opts.modelAsset, modelManifest: opts.modelManifest,
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
-          ghostPartFactors: opts.ghostPartFactors,
+          ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration, glyphs: glyphProvider,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
+        // A text ↔ shape retype flies letter outlines: play waits for their fonts.
+        const retypeText = preEl.type !== endEl.type ? [preEl, endEl].find((el): el is TextElement => el.type === "text") : undefined;
+        let fontsReady = !retypeText;
+        const ready = retypeText ? { isReady: () => fontsReady, ready: () => glyphProvider.ready(retypeText).finally(() => { fontsReady = true; }) } : undefined;
         specs.push({
           node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
           delay: ct.start, duration: ct.duration,
           ease: ct.ease,
-          morph: driver,
+          morph: driver, ...(ready ? { ready } : {}),
         });
         continue;
       }
@@ -278,8 +329,12 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       } : ctx);
       const n = nodes.length;
       const from = track.stagger?.from ?? "start";
-      const by = track.stagger?.by;
-      const ranks = track.stagger ? staggerRanks(n, from, by === "x" || by === "y" ? nodes.map((node) => spatialCoord(node, by)) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined) : [];
+      const by = staggerKey(track.stagger?.by);
+      // the node's own fluxplot attributes first (data-x / data-value / data-count / data-index),
+      // the manifest for a node that lacks them, so player and compiler rank alike
+      const fallbackManifest = by && by !== "x" && by !== "y" ? manifestFor(track.target, slide, opts, bi) : undefined;
+      const fallback = fallbackManifest && "series" in fallbackManifest ? manifestCoordinates(fallbackManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), by!) : undefined;
+      const ranks = track.stagger ? staggerRanks(n, from, by ? nodes.map((node, i) => (by === "x" || by === "y" ? spatialCoord(node, by) : nodeCoordinate(node as unknown as Parameters<typeof nodeCoordinate>[0], by)) ?? fallback?.[i] ?? null) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined) : [];
       // Mesh targets have no DOM nodes. Furniture in the same binding keeps
       // its rank among ALL semantic leaves, exactly as the mesh sampler does.
       const modelParts = hasPartBinding(track) && transformPreState(slide, track.target, bi)?.type === 'model3d';
@@ -595,7 +650,15 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   mount.style.width = `${stage.width}px`; mount.style.height = `${stage.height}px`;
   const cameraLayer = document.createElement("div");
   cameraLayer.className = "sl-camera";
-  cameraLayer.style.cssText = "position:absolute;inset:0;transform-origin:0 0;";
+  // The camera is a compositor layer at ALL times (`will-change`), not only while
+  // something flies: when a flight promoted one wrapper mid-slide, Chrome squashed
+  // every later sibling it overlapped into composited layers, and text there flipped
+  // from LCD to grayscale anti-aliasing on the first frame and back on the last — a
+  // whole-slide text shimmer at the start and end of every transform (the owner's
+  // "flicker as it settles", 2026-10-03; the paragraph beside a 13 px word morph
+  // changed ~1,100 px² at both ends, 1.8 / 0 with the layer). Text on the stage now
+  // renders the way it already did mid-flight, and nothing changes at the ends.
+  cameraLayer.style.cssText = "position:absolute;inset:0;transform-origin:0 0;will-change:transform;";
   mount.appendChild(cameraLayer);
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set(), frame: new Set() };
   let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0;
@@ -628,7 +691,8 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
     const compiled = compileSlide(slide, stage, { ...opts, animStyles: deck.animStyles });
     const modelIds = new Set(compiled.resolvedSlide.elements.filter(el => el.type === 'model3d').map(el => el.id));
-    if (compiled.cues.some(cue => cue.tracks.some(ct => ct.parts.length && compiled.preState(ct.track.target, ct.beat)?.type === 'model3d')) || Object.keys(compiled.partFactors).some(id => modelIds.has(id))) modelAppearance = compiled;
+    if (compiled.cues.some(cue => cue.tracks.some(ct => ct.parts.length && compiled.preState(ct.track.target, ct.beat)?.type === 'model3d')) || Object.keys(compiled.partFactors).some(id => modelIds.has(id))
+      || compiled.handoffs.some(h => h.crossfade)) modelAppearance = compiled;
     const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
@@ -701,9 +765,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const session = generation;
     // Parsing/upload is completed before starting the authored clock. A later
     // navigation/cancel owns a new generation and cannot start this old cue.
-    if (models && !models.isReady() || specs.some(spec => spec.handoff && !spec.handoff.isReady())) {
+    if (models && !models.isReady() || specs.some(spec => spec.handoff && !spec.handoff.isReady() || spec.ready && !spec.ready.isReady())) {
       const resumeReady = () => { if (session === generation) begin(from, to, instant); };
-      void Promise.all([models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]).then(resumeReady, resumeReady);
+      void Promise.all([models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]).then(resumeReady, resumeReady);
       return;
     }
     bi = Math.max(0, Math.min(beats() - 1, to));
@@ -787,11 +851,15 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); unsubscribeFonts(); for (const set of Object.values(listeners)) set.clear(); }
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
+  // A letter font that lands while a scrub is parked mid-flight repaints that
+  // frame once (boxes → outlines); playing frames pick it up on their own.
+  let fontsSeen = -1;
+  const unsubscribeFonts = glyphFontsRevision.subscribe((rev) => { if (fontsSeen >= 0 && !playing && si >= 0 && specs.length) paint(); fontsSeen = rev; });
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */

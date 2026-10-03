@@ -1,0 +1,996 @@
+{
+  "artifact": {
+    "svgSha256": "5b1afc44c9ebed3da00c49639e62c11d47f6a66afa9f853b6015861b5a06db91"
+  },
+  "axes": [
+    {
+      "id": "plot-area",
+      "pixelBox": {
+        "x0": 16.36274,
+        "x1": 187.11427471874995,
+        "y0": 6.799068125000001,
+        "y1": 181.59976
+      },
+      "projection": "rectilinear",
+      "svgId": "plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 16.36274
+          },
+          {
+            "data": 8.0,
+            "svg": 187.11427471874995
+          }
+        ],
+        "domain": [
+          0.0,
+          8.0
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          },
+          {
+            "label": "6",
+            "value": 6.0
+          },
+          {
+            "label": "8",
+            "value": 8.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 181.59976
+          },
+          {
+            "data": 6.0,
+            "svg": 6.799068125000023
+          }
+        ],
+        "domain": [
+          0.0,
+          6.0
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "1",
+            "value": 1.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "3",
+            "value": 3.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          },
+          {
+            "label": "5",
+            "value": 5.0
+          },
+          {
+            "label": "6",
+            "value": 6.0
+          }
+        ]
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "axis.x",
+      "axis.y",
+      "colorbar.color",
+      "m.x-heatmap"
+    ],
+    "presets": {
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "cell": {
+        "animation": "fade-in",
+        "durationMs": 500
+      },
+      "colorbar": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "x-heatmap": {
+        "animation": "fade-in",
+        "durationMs": 500
+      }
+    }
+  },
+  "colorScales": [
+    {
+      "colorbars": [
+        "colorbar.color"
+      ],
+      "colormap": {
+        "N": 256,
+        "bad": "#00000000",
+        "discrete": false,
+        "lut": [
+          "#011959ff",
+          "#021b59ff",
+          "#031c5aff",
+          "#041e5aff",
+          "#051f5aff",
+          "#06215bff",
+          "#07225bff",
+          "#07245bff",
+          "#08255bff",
+          "#09275cff",
+          "#0a285cff",
+          "#0a2a5cff",
+          "#0b2b5cff",
+          "#0b2d5dff",
+          "#0c2e5dff",
+          "#0c2f5dff",
+          "#0d315dff",
+          "#0d325eff",
+          "#0d335eff",
+          "#0e355eff",
+          "#0e365eff",
+          "#0e375eff",
+          "#0f385fff",
+          "#0f395fff",
+          "#0f3b5fff",
+          "#0f3c5fff",
+          "#103d5fff",
+          "#103e5fff",
+          "#103f60ff",
+          "#104060ff",
+          "#114160ff",
+          "#114260ff",
+          "#114360ff",
+          "#114460ff",
+          "#124561ff",
+          "#124661ff",
+          "#124761ff",
+          "#124861ff",
+          "#134961ff",
+          "#134a61ff",
+          "#134b61ff",
+          "#144c62ff",
+          "#144d62ff",
+          "#144e62ff",
+          "#154f62ff",
+          "#154f62ff",
+          "#165062ff",
+          "#165162ff",
+          "#175262ff",
+          "#175362ff",
+          "#185462ff",
+          "#185562ff",
+          "#195662ff",
+          "#195762ff",
+          "#1a5762ff",
+          "#1b5862ff",
+          "#1b5962ff",
+          "#1c5a62ff",
+          "#1d5b62ff",
+          "#1e5c62ff",
+          "#1e5d62ff",
+          "#1f5d61ff",
+          "#205e61ff",
+          "#215f61ff",
+          "#226061ff",
+          "#236060ff",
+          "#246160ff",
+          "#256260ff",
+          "#26635fff",
+          "#27635fff",
+          "#28645fff",
+          "#2a655eff",
+          "#2b655eff",
+          "#2c665dff",
+          "#2d675dff",
+          "#2f675cff",
+          "#30685cff",
+          "#31695bff",
+          "#33695aff",
+          "#346a5aff",
+          "#356a59ff",
+          "#376b58ff",
+          "#386c58ff",
+          "#3a6c57ff",
+          "#3b6d56ff",
+          "#3c6d56ff",
+          "#3e6e55ff",
+          "#3f6e54ff",
+          "#416f53ff",
+          "#426f52ff",
+          "#447052ff",
+          "#457051ff",
+          "#477150ff",
+          "#48714fff",
+          "#4a724eff",
+          "#4c724dff",
+          "#4d734dff",
+          "#4f734cff",
+          "#50744bff",
+          "#52744aff",
+          "#537549ff",
+          "#557548ff",
+          "#577647ff",
+          "#587646ff",
+          "#5a7745ff",
+          "#5b7745ff",
+          "#5d7844ff",
+          "#5f7843ff",
+          "#607942ff",
+          "#627941ff",
+          "#637a40ff",
+          "#657a3fff",
+          "#677b3eff",
+          "#687b3eff",
+          "#6a7b3dff",
+          "#6c7c3cff",
+          "#6d7c3bff",
+          "#6f7d3aff",
+          "#717d39ff",
+          "#737e38ff",
+          "#747e38ff",
+          "#767f37ff",
+          "#787f36ff",
+          "#798035ff",
+          "#7b8034ff",
+          "#7d8134ff",
+          "#7f8133ff",
+          "#818232ff",
+          "#828231ff",
+          "#848331ff",
+          "#868330ff",
+          "#88842fff",
+          "#8a842fff",
+          "#8c852eff",
+          "#8e852eff",
+          "#8f862dff",
+          "#91862dff",
+          "#93872cff",
+          "#95872cff",
+          "#97882cff",
+          "#99882cff",
+          "#9b892bff",
+          "#9d892bff",
+          "#9f892bff",
+          "#a18a2bff",
+          "#a38a2cff",
+          "#a58b2cff",
+          "#a78b2cff",
+          "#a98c2cff",
+          "#ab8c2dff",
+          "#ad8c2dff",
+          "#af8d2eff",
+          "#b18d2fff",
+          "#b38e2fff",
+          "#b58e30ff",
+          "#b78e31ff",
+          "#b98f32ff",
+          "#bb8f33ff",
+          "#bd8f34ff",
+          "#be9035ff",
+          "#c09036ff",
+          "#c29037ff",
+          "#c49138ff",
+          "#c6913aff",
+          "#c8913bff",
+          "#ca923cff",
+          "#cb923eff",
+          "#cd923fff",
+          "#cf9340ff",
+          "#d19342ff",
+          "#d29343ff",
+          "#d49445ff",
+          "#d69446ff",
+          "#d89448ff",
+          "#d9954aff",
+          "#db954bff",
+          "#dd954dff",
+          "#de964fff",
+          "#e09651ff",
+          "#e19752ff",
+          "#e39754ff",
+          "#e49756ff",
+          "#e69858ff",
+          "#e7985aff",
+          "#e9995cff",
+          "#ea995eff",
+          "#eb9a60ff",
+          "#ed9a62ff",
+          "#ee9b64ff",
+          "#ef9b67ff",
+          "#f09c69ff",
+          "#f19d6bff",
+          "#f29d6dff",
+          "#f39e70ff",
+          "#f49f72ff",
+          "#f59f74ff",
+          "#f6a077ff",
+          "#f7a179ff",
+          "#f8a17bff",
+          "#f8a27eff",
+          "#f9a380ff",
+          "#f9a382ff",
+          "#faa485ff",
+          "#faa587ff",
+          "#fba689ff",
+          "#fba68cff",
+          "#fca78eff",
+          "#fca890ff",
+          "#fca993ff",
+          "#fca995ff",
+          "#fdaa97ff",
+          "#fdab9aff",
+          "#fdac9cff",
+          "#fdac9eff",
+          "#fdada0ff",
+          "#fdaea2ff",
+          "#fdafa5ff",
+          "#fdafa7ff",
+          "#fdb0a9ff",
+          "#fdb1abff",
+          "#fdb2adff",
+          "#fdb2afff",
+          "#fdb3b1ff",
+          "#fdb4b4ff",
+          "#fdb4b6ff",
+          "#fdb5b8ff",
+          "#fdb6baff",
+          "#fdb7bcff",
+          "#fdb7beff",
+          "#fdb8c0ff",
+          "#fdb9c2ff",
+          "#fdbac4ff",
+          "#fdbac7ff",
+          "#fdbbc9ff",
+          "#fdbccbff",
+          "#fdbccdff",
+          "#fcbdcfff",
+          "#fcbed1ff",
+          "#fcbfd3ff",
+          "#fcbfd6ff",
+          "#fcc0d8ff",
+          "#fcc1daff",
+          "#fcc2dcff",
+          "#fcc3dfff",
+          "#fcc3e1ff",
+          "#fcc4e3ff",
+          "#fcc5e5ff",
+          "#fbc6e8ff",
+          "#fbc6eaff",
+          "#fbc7ecff",
+          "#fbc8efff",
+          "#fbc9f1ff",
+          "#fbcaf3ff",
+          "#fbcaf6ff",
+          "#facbf8ff",
+          "#faccfaff"
+        ],
+        "name": "crameri.batlow",
+        "over": "#faccfaff",
+        "source": "crameri",
+        "under": "#011959ff"
+      },
+      "editable": {
+        "center": false,
+        "cmap": true,
+        "limits": true,
+        "normKinds": [
+          "linear",
+          "log",
+          "power",
+          "symlog"
+        ]
+      },
+      "id": "m",
+      "kind": "continuous",
+      "label": "Value",
+      "mappables": [
+        "m.x-heatmap"
+      ],
+      "norm": {
+        "clip": false,
+        "extend": "neither",
+        "kind": "linear",
+        "vmax": 40.0,
+        "vmin": 10.0
+      },
+      "recolor": "live"
+    }
+  ],
+  "figure": {
+    "background": "figure.background"
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.1.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "axis.x",
+      "role": "axis",
+      "svgId": "axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "axis.y",
+      "role": "axis",
+      "svgId": "axis.y"
+    },
+    {
+      "anchors": [
+        {
+          "svg": 181.59976,
+          "value": 10.0
+        },
+        {
+          "svg": 6.799068125000001,
+          "value": 40.0
+        }
+      ],
+      "axisLength": 174.800691875,
+      "cmap": "crameri.batlow",
+      "colorScale": "m",
+      "extend": "neither",
+      "id": "colorbar.color",
+      "label": "Value",
+      "mappable": "m.x-heatmap",
+      "normalization": {
+        "clip": false,
+        "kind": "Normalize",
+        "vmax": 40.0,
+        "vmin": 10.0
+      },
+      "orientation": "vertical",
+      "parts": [
+        {
+          "kind": "text",
+          "role": "colorbar-label",
+          "svgId": "colorbar.color.label"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-outline",
+          "svgId": "colorbar.color.outline"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.0"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.0"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.1"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.1"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.2"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.2"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.3"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.3"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.4"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.4"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.5"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.5"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.6"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.6"
+        },
+        {
+          "kind": "shape",
+          "role": "colorbar-solids",
+          "svgId": "colorbar.color.solids"
+        }
+      ],
+      "role": "colorbar",
+      "svgId": "colorbar.color",
+      "tickFormatter": "plain",
+      "tickLocator": "auto",
+      "ticks": [
+        10.0,
+        15.0,
+        20.0,
+        25.0,
+        30.0,
+        35.0,
+        40.0
+      ]
+    }
+  ],
+  "idAliases": {
+    "axis.x.spine": "axis.x.spine.bottom",
+    "axis.x.spine-2": "axis.x.spine.top",
+    "axis.y.spine": "axis.y.spine.left",
+    "axis.y.spine-2": "axis.y.spine.right"
+  },
+  "overlays": [],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "kind": "shape",
+            "ref": "axes.background",
+            "role": "background"
+          },
+          {
+            "axis": "x",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.bottom",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.top",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.x.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.x.tick.0",
+                  "axis.x.tick.1",
+                  "axis.x.tick.2",
+                  "axis.x.tick.3",
+                  "axis.x.tick.4"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.x.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.x.ticklabel.0",
+                  "axis.x.ticklabel.1",
+                  "axis.x.ticklabel.2",
+                  "axis.x.ticklabel.3",
+                  "axis.x.ticklabel.4"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "axis.x",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "axis": "y",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.left",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.right",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.y.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.y.tick.0",
+                  "axis.y.tick.1",
+                  "axis.y.tick.2",
+                  "axis.y.tick.3",
+                  "axis.y.tick.4",
+                  "axis.y.tick.5",
+                  "axis.y.tick.6"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.y.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.y.ticklabel.0",
+                  "axis.y.ticklabel.1",
+                  "axis.y.ticklabel.2",
+                  "axis.y.ticklabel.3",
+                  "axis.y.ticklabel.4",
+                  "axis.y.ticklabel.5",
+                  "axis.y.ticklabel.6"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "axis.y",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "children": [
+              {
+                "groupRole": "x-heatmap",
+                "id": "m.x-heatmap",
+                "kind": "shape",
+                "memberRole": "cell",
+                "members": [
+                  "m.x-heatmap.cell.0.0",
+                  "m.x-heatmap.cell.0.1",
+                  "m.x-heatmap.cell.0.2",
+                  "m.x-heatmap.cell.0.3",
+                  "m.x-heatmap.cell.0.4",
+                  "m.x-heatmap.cell.0.5",
+                  "m.x-heatmap.cell.0.6",
+                  "m.x-heatmap.cell.0.7",
+                  "m.x-heatmap.cell.1.0",
+                  "m.x-heatmap.cell.1.1",
+                  "m.x-heatmap.cell.1.2",
+                  "m.x-heatmap.cell.1.3",
+                  "m.x-heatmap.cell.1.4",
+                  "m.x-heatmap.cell.1.5",
+                  "m.x-heatmap.cell.1.6",
+                  "m.x-heatmap.cell.1.7",
+                  "m.x-heatmap.cell.2.0",
+                  "m.x-heatmap.cell.2.1",
+                  "m.x-heatmap.cell.2.2",
+                  "m.x-heatmap.cell.2.3",
+                  "m.x-heatmap.cell.2.4",
+                  "m.x-heatmap.cell.2.5",
+                  "m.x-heatmap.cell.2.6",
+                  "m.x-heatmap.cell.2.7",
+                  "m.x-heatmap.cell.3.0",
+                  "m.x-heatmap.cell.3.1",
+                  "m.x-heatmap.cell.3.2",
+                  "m.x-heatmap.cell.3.3",
+                  "m.x-heatmap.cell.3.4",
+                  "m.x-heatmap.cell.3.5",
+                  "m.x-heatmap.cell.3.6",
+                  "m.x-heatmap.cell.3.7",
+                  "m.x-heatmap.cell.4.0",
+                  "m.x-heatmap.cell.4.1",
+                  "m.x-heatmap.cell.4.2",
+                  "m.x-heatmap.cell.4.3",
+                  "m.x-heatmap.cell.4.4",
+                  "m.x-heatmap.cell.4.5",
+                  "m.x-heatmap.cell.4.6",
+                  "m.x-heatmap.cell.4.7",
+                  "m.x-heatmap.cell.5.0",
+                  "m.x-heatmap.cell.5.1",
+                  "m.x-heatmap.cell.5.2",
+                  "m.x-heatmap.cell.5.3",
+                  "m.x-heatmap.cell.5.4",
+                  "m.x-heatmap.cell.5.5",
+                  "m.x-heatmap.cell.5.6",
+                  "m.x-heatmap.cell.5.7"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "m",
+            "kind": "container",
+            "label": "m",
+            "role": "series"
+          }
+        ],
+        "id": "plot-area",
+        "kind": "container",
+        "role": "plot-area"
+      },
+      {
+        "children": [
+          {
+            "groupRole": "tick",
+            "id": "colorbar.color.ticks",
+            "kind": "line",
+            "memberRole": "tick",
+            "members": [
+              "colorbar.color.tick.0",
+              "colorbar.color.tick.1",
+              "colorbar.color.tick.2",
+              "colorbar.color.tick.3",
+              "colorbar.color.tick.4",
+              "colorbar.color.tick.5",
+              "colorbar.color.tick.6"
+            ],
+            "role": "group"
+          },
+          {
+            "groupRole": "tick-label",
+            "id": "colorbar.color.tick-labels",
+            "kind": "text",
+            "memberRole": "tick-label",
+            "members": [
+              "colorbar.color.tick-label.0",
+              "colorbar.color.tick-label.1",
+              "colorbar.color.tick-label.2",
+              "colorbar.color.tick-label.3",
+              "colorbar.color.tick-label.4",
+              "colorbar.color.tick-label.5",
+              "colorbar.color.tick-label.6"
+            ],
+            "role": "group"
+          },
+          {
+            "kind": "text",
+            "ref": "colorbar.color.label",
+            "role": "colorbar-label"
+          },
+          {
+            "kind": "line",
+            "ref": "colorbar.color.outline",
+            "role": "colorbar-outline"
+          },
+          {
+            "kind": "shape",
+            "ref": "colorbar.color.solids",
+            "role": "colorbar-solids"
+          }
+        ],
+        "id": "colorbar.color",
+        "kind": "container",
+        "role": "colorbar"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "heatmap",
+  "schemaVersion": "0.3.2",
+  "series": [
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": true
+      },
+      "color": {
+        "hex": "varies",
+        "scale": "m"
+      },
+      "components": [
+        {
+          "memberRole": "cell",
+          "members": [
+            "m.x-heatmap.cell.0.0",
+            "m.x-heatmap.cell.0.1",
+            "m.x-heatmap.cell.0.2",
+            "m.x-heatmap.cell.0.3",
+            "m.x-heatmap.cell.0.4",
+            "m.x-heatmap.cell.0.5",
+            "m.x-heatmap.cell.0.6",
+            "m.x-heatmap.cell.0.7",
+            "m.x-heatmap.cell.1.0",
+            "m.x-heatmap.cell.1.1",
+            "m.x-heatmap.cell.1.2",
+            "m.x-heatmap.cell.1.3",
+            "m.x-heatmap.cell.1.4",
+            "m.x-heatmap.cell.1.5",
+            "m.x-heatmap.cell.1.6",
+            "m.x-heatmap.cell.1.7",
+            "m.x-heatmap.cell.2.0",
+            "m.x-heatmap.cell.2.1",
+            "m.x-heatmap.cell.2.2",
+            "m.x-heatmap.cell.2.3",
+            "m.x-heatmap.cell.2.4",
+            "m.x-heatmap.cell.2.5",
+            "m.x-heatmap.cell.2.6",
+            "m.x-heatmap.cell.2.7",
+            "m.x-heatmap.cell.3.0",
+            "m.x-heatmap.cell.3.1",
+            "m.x-heatmap.cell.3.2",
+            "m.x-heatmap.cell.3.3",
+            "m.x-heatmap.cell.3.4",
+            "m.x-heatmap.cell.3.5",
+            "m.x-heatmap.cell.3.6",
+            "m.x-heatmap.cell.3.7",
+            "m.x-heatmap.cell.4.0",
+            "m.x-heatmap.cell.4.1",
+            "m.x-heatmap.cell.4.2",
+            "m.x-heatmap.cell.4.3",
+            "m.x-heatmap.cell.4.4",
+            "m.x-heatmap.cell.4.5",
+            "m.x-heatmap.cell.4.6",
+            "m.x-heatmap.cell.4.7",
+            "m.x-heatmap.cell.5.0",
+            "m.x-heatmap.cell.5.1",
+            "m.x-heatmap.cell.5.2",
+            "m.x-heatmap.cell.5.3",
+            "m.x-heatmap.cell.5.4",
+            "m.x-heatmap.cell.5.5",
+            "m.x-heatmap.cell.5.6",
+            "m.x-heatmap.cell.5.7"
+          ],
+          "role": "x-heatmap",
+          "svgId": "m.x-heatmap"
+        }
+      ],
+      "data": {},
+      "field": {
+        "cmap": "crameri.batlow",
+        "cmapSpec": "crameri.batlow",
+        "colorScale": "m",
+        "controlKey": "m",
+        "extend": "neither",
+        "grid": {
+          "x": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ],
+          "y": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "kind": "heatmap",
+        "maskedIndices": [
+          19
+        ],
+        "missingColor": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normalization": {
+          "clip": false,
+          "kind": "Normalize",
+          "vmax": 40.0,
+          "vmin": 10.0
+        },
+        "overColor": [
+          0.9803921568627451,
+          0.8,
+          0.9803921568627451,
+          1.0
+        ],
+        "shape": [
+          6,
+          8
+        ],
+        "underColor": [
+          0.00392156862745098,
+          0.09803921568627451,
+          0.34901960784313724,
+          1.0
+        ]
+      },
+      "id": "m",
+      "kind": "heatmap",
+      "name": "m",
+      "roles": [
+        "x-heatmap"
+      ],
+      "svg": {
+        "x-heatmap": "m.x-heatmap"
+      }
+    }
+  ],
+  "size": {
+    "height": 201.6,
+    "unit": "pt",
+    "width": 244.79999999999998
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": null,
+    "tokens": {
+      "axis": "#000000",
+      "grid": "#b0b0b0",
+      "ink": "#000000",
+      "label": "#000000",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#000000"
+    }
+  },
+  "svg": "heatmap-edited.svg"
+}

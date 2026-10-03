@@ -36,7 +36,18 @@ form; it is still one of Become's destinations, not a fourth transform way.
 ## 3. Model semantics
 
 Deck `0.6.0` retains the existing track binding (`target`, `part`/`parts`, `selector`) and
-adds a shared `TargetRef`: `{element, parts?, selector?, group?}`. `trackRef` derives it,
+adds a shared `TargetRef`: `{element, parts?, selector?, group?, members?}`. `members` (Oct-2)
+is an ad-hoc destination SET: one level of element or part-set refs of any objects/plots,
+never a group or a set; `normalizeRef` dedupes it, merges one element's parts, collapses a
+single member and sets `element = members[0].element`; Become stores members in slide order.
+A set is only ever a Become destination (always hand-off; never a source, Consume or Swap).
+**Merge** is the reverse: several hand-offs of one step whose destination refs are identical
+(`sameRef`) co-land instead of being refused as overlapping. `CompiledSlide.handoffs[].merge`
+= `{trackIds, landAt}`; the destination stays hidden until `landAt` (the group's latest end),
+each lander plans ONE shared correspondence of all sources (the destination tiles among
+them) and keeps its own pairs, earlier landers hold their landed frame, and the last
+lander's layer (with the destination's leftovers) lies beneath the others. Partial overlaps and
+crossfading mesh landings are still refused. `trackRef` derives it,
 `targetKey` gives its canonical identity, and `resolveTargetLeaves` expands parts and groups.
 The family law allows one transform per complete source ref per step. A whole-plot Change
 and a hand-off of one box can coexist; part styling Changes still use the whole plot's
@@ -156,6 +167,34 @@ its geometry; source/destination nodes have reversible visibility leases. Whole-
 pair the merged spines; remaining parts fade in. Crops discard outside outlines and clip the
 retained drawing. Text/raster pairs use box fades; text is measured once from live geometry.
 
+**Text rewrites (oct2 W3).** A text → text Change, a text Consume and a hand-off between two
+whole upright texts play the **glyph-matched text morph**. `slide/textMatch.ts` (pure) matches
+the strings: exact word LCS, case/accent-folded LCS inside gaps, reorders by content, digit
+count-ups, and character blocks between close leftover words (similarity ≥ 0.4, ≤ 60 chars,
+blocks ≥ 2). It cuts runs at visual lines and style segments and caps the plan (48 spans; more
+than 200 characters → line level). It also gives every span its window: glides span the whole
+morph; word fades end by 55 % / start at 40 %; letter waves (when the letters fit the cap) sweep
+25 % / 30 %. `player/textMorph.ts` renders both endpoints once through the serializer, reads
+every glyph position with `getStartPositionOfChar` / `getExtentOfChar`, and flies one
+`<svg><text>` clone per span on its own armed, promoted layer (demoted at rest). The Change driver
+hosts it as A / span layer / B, with the span layer counter-scaled so it is in stage px. Hand-offs
+fly it on a stage-level `div.sl-flight-text` placed before `svg.sl-flight`. Unmappable texts (a
+legacy whole-line justification stretch) crossfade A and B at their natural size.
+
+**Text ↔ shape.** `GeometryCtx.glyphs` (the player's `glyphProvider`) turns a text element into
+letter outlines. Each letter is a filled ring from its font (`text/glyphFont.ts`, opentype.js),
+placed at the browser's measured baseline start. Counters are keyholed into the outline, so each
+letter is one ring. A letter with no font outline is a rounded glyph box instead.
+`handoffPlan.ts` asks for letters only when the other side is drawn. A filled shape splitting into
+letters is cut into vertical strips in reading order (`sliceIntoLetters`), each a closed, filled,
+strokeless ring that morphs into its letter. The shape itself is held over the first (or, landing,
+the last) 15 % of raw progress to cover the seams. Glyph boxes crossfade with the live text over
+the same 15 %. A one-element retype (Consume/Change rect ↔ text) does the same inside
+`player/transform.ts`. Fonts come from one registered loader per host: the GUI uses `fonts:lookup`
+(Electron main → `text/fontFiles.mjs`); exported/embedded decks read `payload.glyphs`, which
+`gatherPayload` bakes for exactly the morphing characters. The compiler reports a missing font
+through `CompileOptions.glyphStatus`.
+
 For more than 64 small source rings, the glyph driver moves retained marker clones to
 prepared landing stations and fades them in the final 15% of raw progress. It writes SVG
 transform attributes, never per-marker CSS transforms. Unsliced destinations and merged
@@ -171,6 +210,9 @@ The channel law is:
 | Opacity, colour, trim, stroke, dash, CountUp, plot data/view | `clamped(raw)` | Remain bounded; data never overshoots. |
 | Hand-off correspondence/glyph landing and same-element outlines | `clamped(raw)` | Geometry sampling stays bounded; an outer box may overshoot. |
 | Visibility, endpoint settlement, discrete attributes/text and final glyph fade | raw progress | Eased crossings never finish/restart a flight or flip a discrete value repeatedly. |
+| Text-morph glide positions and scale | `fn(raw)` | May overshoot like a box (a spring overshoots the words); lanes use the clamped curve. |
+| Text-morph fades, colours, twin crossfades and count-up text | `clamped(raw)` | Opacity/colour never overshoot; windows from `textMorphTimeline`. |
+| Shape/glyph-box 15 % holds at a letter flight's ends | raw progress | A phase: the live shape or text covers seams or boxes. |
 
 Controllers receive `seek(u, raw)`. Static endpoints pass `(0,0)` or `(1,1)`.
 `overshootBox` and `arcBox` change only wrapper geometry; the content frame/viewBox stays
@@ -183,8 +225,8 @@ attributes, with no SVG serialization, parsing or geometry planning.
 
 - **Transform ▾** offers **Change**, **Ghost…** and **Become**. Become arms a source object
   or part set. Click a destination immediately, Ctrl/Cmd-click a plot part, or Shift-click
-  to accumulate picks. Enter/**Become** confirms one object, one plot's parts, or an X-ray
-  group. The bar names both sides and exposes Pair. Escape or a step/slide change cancels.
+  to accumulate picks. Enter/**Become** confirms one object, one plot's parts, an X-ray
+  group, or — when several things are picked — one destination SET of all of them. The bar names both sides and exposes Pair. Escape or a step/slide change cancels.
   X-ray **b** confirms picked rows; **a**, **5** starts **Appear from…** from the destination.
 - **Appear ▾ → Appear from…** writes the same record by picking the source. **Animate like…**
   picks another effect's linked style. Ordinary X-ray appearance picks fan out per part;
@@ -209,6 +251,11 @@ attributes, with no SVG serialization, parsing or geometry planning.
 - `verify-target-geometry.ts` / `verify-target-geometry-browser.ts`: pure/core parity and live CTM.
 - `verify-correspondence.ts`: merge/pair/tiling and 1↔1 parity, real prepared geometry.
 - `verify-slide-handoff-browser.ts`: exported player flight layer, glyph lifecycle and reverse seeks.
+- `verify-text-match.ts` (pure): tokenizer, matcher passes, closeness policy, plan caps, timeline.
+- `verify-glyph-outlines.ts` (pure): font resolution (fontconfig, scan index, collections,
+  bundled faces), parsing, keyholes, em scaling, glyph boxes, area slicing, `fonts:lookup`, bake parity.
+- `verify-text-morph-browser.ts` (pure tier, Chrome): the text morph and letter flights in the
+  exported player — glides, landings ≤ 0.5 px, reverse seeks, Consume, the box fallback.
 - `verify-plot-binding.ts`, `verify-plot-view.ts`: identity matching and projection.
 - `verify-slide-curves.ts`, `verify-slide-stagger.ts`, `verify-slide-camera.ts`: timing and motion.
 - `verify-slide-animator-gui.mjs`: real camera commands, curve/style/stagger controls and Undo.
@@ -254,7 +301,7 @@ never jank):
    layers across frames (`holdFlightLayers`), since a fresh layer bakes its first frame's
    offset and an encoder's worth of wall time between frames would otherwise mean a fresh
    layer per frame (`slide-video-frames-probe`: 400 ms between frames, text Δy per frame
-   1.017 ± 0.015 stage px — sub-pixel).
+   1.017 ± 0.015 stage px — sub-pixel). The player's camera (`.sl-camera`) is itself a permanent compositor layer (2026-10-03): otherwise a promoted flight made Chromium squash every overlapping later sibling onto composited layers, flipping their text anti-aliasing at the first and last frame of every transform.
 
 Frame pacing in the editor preview (`scripts/perf/slide-playback-profile.mjs`): 89 consecutive
 16.7 ms frames, zero drops, on the normal fixture before and after; the dense fixture (1,200-mark

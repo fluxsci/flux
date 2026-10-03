@@ -20,7 +20,7 @@ import type { Model3dElement } from './model3d/types';
 export { setModelField, setModelStates, setModelFrame, modelFrame, modelDefaultStates, modelStateWeight } from './model3d/semanticOps';
 export type { ModelFieldPatch } from './model3d/semanticOps';
 
-import type {
+import type { ColorScaleView,
   Project,
   Figure,
   Element,
@@ -39,7 +39,10 @@ import type {
   PlotView,
   GradientFill,
 } from "./types";
-import type { FluxPlotManifest } from "./plot/types";
+import type { FluxPlotColorScale, FluxPlotManifest } from "./plot/types";
+import { get as readStore } from "svelte/store";
+import { plotManifests } from "./plot/store";
+import { seriesColorPatch, seriesColorIssue, seriesPrimaryOf, legendSwatchesOf, swatchMirror } from "./plot/seriesColor";
 import { resizeFrame } from "./interact/frameResize";
 import { newId } from "./ids";
 import { ensureFigureReferenceKeys, mintFigureReferenceKey } from "./project/figureIdentity";
@@ -1437,6 +1440,10 @@ export interface ElementStylePatch {
   arrowSize?: number;
   /** Dash pattern in canvas px for the four stroked primitives; [] = solid. */
   dash?: number[];
+  /** Per-channel alpha 0–1 (fill: rect/ellipse/path; stroke: those + line).
+   *  1 removes the property — opaque is the absence. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
   /** Colormap gradients (2026-09-16): set one, or null to return to the solid
    *  colour. A solid `fill` / `stroke` / `color` patch also clears its map. */
   fillMap?: GradientFill | null;
@@ -1487,6 +1494,14 @@ export function detachOnManualEdit(p: Project, e: TextElement, keys: Iterable<st
       return;
     }
   }
+}
+
+// Sanitized channel-alpha write: clamp to 0–1; opaque deletes the property.
+function setChannelOpacity(e: { fillOpacity?: number; strokeOpacity?: number }, key: "fillOpacity" | "strokeOpacity", v: number): void {
+  if (!Number.isFinite(v)) return;
+  const c = Math.min(1, Math.max(0, v));
+  if (c >= 1) delete e[key];
+  else e[key] = c;
 }
 
 // Sanitized dash write: keep only finite non-negative values; empty → solid
@@ -1574,12 +1589,15 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
         if (patch.arrowStyle != null) e.arrowStyle = patch.arrowStyle;
         if (patch.arrowSize != null) e.arrowSize = Math.max(0.5, patch.arrowSize);
         if (patch.dash != null) setDash(e, patch.dash);
+        if (patch.strokeOpacity != null) setChannelOpacity(e, "strokeOpacity", patch.strokeOpacity);
       } else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
         if (patch.fill != null) e.fill = patch.fill;
         if (patch.stroke != null) e.stroke = patch.stroke;
         if (patch.strokeWidth != null) e.strokeWidth = patch.strokeWidth;
         if (e.type === "rect" && patch.cornerRadius != null) e.cornerRadius = patch.cornerRadius;
         if (patch.dash != null) setDash(e, patch.dash);
+        if (patch.fillOpacity != null) setChannelOpacity(e, "fillOpacity", patch.fillOpacity);
+        if (patch.strokeOpacity != null) setChannelOpacity(e, "strokeOpacity", patch.strokeOpacity);
         if (e.type === "path") {
           // Arrowheads on OPEN paths — the same flags as lines. Meaningless on
           // closed paths (renderer ignores them there), but stored regardless
@@ -1688,29 +1706,102 @@ export function setPlotView(p: Project, elementId: Id, patch: Partial<PlotView> 
     if (el.id !== elementId || el.type !== "plot") continue;
     if (patch === null) { delete el.view; continue; }
     const view: PlotView = structuredClone(el.view ?? {});
-    for (const key of ["x", "y"] as const) {
+    for (const key of ["x", "y", "y2", "x2"] as const) {
       if (!(key in patch)) continue;
       const value = patch[key];
       if (!value || !Object.keys(value).length) { delete view[key]; continue; }
       const axis = { ...view[key], ...value };
-      if (axis.domain === undefined || defaults && axis.domain[0] === defaults[key].domain[0] && axis.domain[1] === defaults[key].domain[1]) delete axis.domain;
+      const def = (defaults as unknown as Record<string, { domain: number[]; scale: string } | undefined> | undefined)?.[key];
+      if (axis.domain === undefined || def && axis.domain[0] === def.domain[0] && axis.domain[1] === def.domain[1]) delete axis.domain;
       else axis.domain = [...axis.domain];
-      if (axis.scale === undefined || axis.scale === defaults?.[key].scale) delete axis.scale;
+      if (axis.scale === undefined || axis.scale === def?.scale) delete axis.scale;
       if (axis.domain || axis.scale) view[key] = axis; else delete view[key];
     }
-    if (view.x || view.y) el.view = view; else delete el.view;
+    if (view.x || view.y || view.y2 || view.x2) el.view = view; else delete el.view;
+  }
+}
+
+/** Merge a live colour-scale edit for one of a plot's scales (manifest colorScales[].id).
+ *  Callers holding the manifest's record pass it so values equal to the generated ones
+ *  normalize to absence (an untouched file stays byte-identical); `null` resets the
+ *  scale. Mirrors setPlotView. */
+export function setPlotColorScale(p: Project, elementId: Id, scaleId: string, patch: Partial<ColorScaleView> | null, defaults?: FluxPlotColorScale): void {
+  for (const f of p.figures) for (const el of f.elements) {
+    if (el.id !== elementId || el.type !== "plot") continue;
+    const all: Record<string, ColorScaleView> = structuredClone(el.colorScale ?? {});
+    if (patch === null) delete all[scaleId];
+    else {
+      const view: ColorScaleView = { ...all[scaleId] };
+      if ("cmap" in patch) { if (patch.cmap == null) delete view.cmap; else view.cmap = patch.cmap; }
+      if ("reversed" in patch) { if (patch.reversed) view.reversed = true; else delete view.reversed; }
+      if ("extend" in patch) { if (patch.extend == null) delete view.extend; else view.extend = patch.extend; }
+      if (patch.norm) {
+        const norm = { ...view.norm } as Record<string, unknown>;
+        for (const [k, v] of Object.entries(patch.norm)) { if (v == null) delete norm[k]; else norm[k] = v; }
+        view.norm = norm as ColorScaleView["norm"];
+      }
+      if (defaults) {
+        // generator defaults normalize to absence
+        const d = defaults;
+        if (typeof view.cmap === "string" && view.cmap === d.colormap.name) delete view.cmap;
+        if (view.cmap && typeof view.cmap === "object" && view.cmap.lut.length === d.colormap.N
+            && view.cmap.lut.every((c, i) => { const l = c.toLowerCase(); return l === d.colormap.lut[i] || l === d.colormap.lut[i].slice(0, 7); })) delete view.cmap;
+        if (view.extend === d.norm.extend) delete view.extend;
+        if (view.norm) {
+          const n = view.norm as Record<string, unknown>, dn = d.norm as Record<string, unknown>;
+          if (n.kind === d.norm.kind) delete n.kind;
+          if (n.kind === undefined) for (const k of ["vmin", "vmax", "vcenter", "gamma", "linthresh", "linscale"]) if (n[k] !== undefined && n[k] === dn[k]) delete n[k];
+        }
+      }
+      if (view.norm && !Object.keys(view.norm).length) delete view.norm;
+      if (Object.keys(view).length) all[scaleId] = view; else delete all[scaleId];
+    }
+    if (Object.keys(all).length) el.colorScale = all; else delete el.colorScale;
   }
 }
 
 /** Write a per-part override onto a semantic plot, keyed by stable semantic id
  *  (e.g. "control.line"). Survives regeneration (ids are deterministic).
  *  Extracted from colors.ts `applyPartStyleTo`. */
-export function setPartOverride(p: Project, elementId: Id, partId: string, patch: PartOverride): void {
+/** Whether a plot's scaffold ink follows the deck theme (plan B1). `null` restores the host
+ *  default (on for slides, off in Paper / Figure), so an untouched element stays byte-identical. */
+export function setPlotFollowTheme(p: Project, elementId: Id, follow: boolean | null): void {
+  for (const f of p.figures) for (const el of f.elements) {
+    if (el.id !== elementId || el.type !== "plot") continue;
+    if (follow === null) delete el.followTheme; else el.followTheme = follow;
+  }
+}
+
+export function setPartOverride(p: Project, elementId: Id, partId: string, patch: PartOverride, manifest?: FluxPlotManifest): void {
   for (const f of p.figures)
     for (const e of f.elements) {
       if (e.id !== elementId || (e.type !== "plot" && e.type !== "model3d")) continue;
       mergePartOverride(e, partId, patch);
+      // plan F6: recolouring a series' whole line / points / area reaches its legend swatch too
+      // (the key stays honest); one bar or one point is a highlight and leaves the key alone
+      if (e.type !== "plot") continue;
+      const mirror = swatchMirror(patch);
+      if (!mirror) continue;
+      const m = manifest ?? readStore(plotManifests)[e.assetId];
+      const series = seriesPrimaryOf(m, partId);
+      if (!series) continue;
+      for (const swatch of legendSwatchesOf(m, series)) if (swatch !== partId) mergePartOverride(e, swatch, mirror);
     }
+}
+
+/** One colour for every part of a series and its legend swatch (plan B2): the line's stroke,
+ *  the markers' faces and edges, the bars' fills … as `plot/seriesColor` names them. `null`
+ *  clears exactly those keys. Returns the per-part patch written, or throws for an unknown or
+ *  colour-mapped series. */
+export function setSeriesColor(p: Project, elementId: Id, manifest: FluxPlotManifest | undefined, seriesId: string, color: string | null): Record<string, PartOverride> {
+  const issue = seriesColorIssue(manifest, seriesId);
+  if (issue) throw new Error(issue);
+  const patch = seriesColorPatch(manifest, seriesId, color);
+  for (const f of p.figures) for (const e of f.elements) {
+    if (e.id !== elementId || e.type !== "plot") continue;
+    for (const [partId, q] of Object.entries(patch)) mergePartOverride(e, partId, q);
+  }
+  return patch;
 }
 
 // ---------------------------------------------------------------------------

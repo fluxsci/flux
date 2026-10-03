@@ -36,9 +36,9 @@ await page.evaluate((id) => {
 await waitFor(page, () => document.querySelectorAll("[data-editor-element-id] svg *").length > 8000, null, { timeout: 90000, label: "dense plot DOM mounted" });
 
 // --- 1. a decoded snapshot at rest -------------------------------------------------------
-await waitFor(page, () => { const i = document.querySelector(".zoom-proxy"); return !!i && i.src.startsWith("blob:") && i.complete && i.naturalWidth > 0; }, null, { timeout: 20000, label: "snapshot" });
-const rest = await page.evaluate(() => { const i = document.querySelector(".zoom-proxy"); return { src: i.src, opacity: getComputedStyle(i).opacity, live: i.classList.contains("live"), w: i.naturalWidth, h: i.naturalHeight }; });
-ok(rest.src.startsWith("blob:") && !rest.live && Number(rest.opacity) < 0.05, `at rest a decoded snapshot exists (${rest.w}×${rest.h} image, opacity ${rest.opacity}, not live)`);
+await waitFor(page, () => { const i = document.querySelector(".zoom-proxy"); return !!i && !!i.dataset.snap && i.firstElementChild?.width > 0; }, null, { timeout: 20000, label: "snapshot" });
+const rest = await page.evaluate(() => { const i = document.querySelector(".zoom-proxy"); return { src: i.dataset.snap, opacity: getComputedStyle(i).opacity, live: i.classList.contains("live"), w: i.firstElementChild.width, h: i.firstElementChild.height }; });
+ok(!!rest.src && rest.w > 0 && !rest.live && Number(rest.opacity) < 0.05, `at rest a decoded snapshot exists (${rest.w}×${rest.h} image, opacity ${rest.opacity}, not live)`);
 
 // --- 2. the burst rides the proxy ---------------------------------------------------------
 const host = await page.$eval(".canvas-host", (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
@@ -100,14 +100,14 @@ await page.evaluate((id) => {
   F.viewport.set({ panX: 140 - fig.x * zoom, panY: 96 - fig.y * zoom, zoom });
 }, fx.figIds[0]);
 await sleep(700);
-await waitFor(page, () => { const i = document.querySelector(".zoom-proxy"); if (!i || !i.complete || !i.naturalWidth) return false; if (window.__zpSrc !== i.src) { window.__zpSrc = i.src; window.__zpSince = Date.now(); return false; } return Date.now() - window.__zpSince > 3000; }, null, { interval: 150, timeout: 30000, label: "snapshot settled" });
-const src1 = await page.$eval(".zoom-proxy", (i) => i.src);
+await waitFor(page, () => { const i = document.querySelector(".zoom-proxy"); if (!i || !(i.firstElementChild?.width > 0)) return false; if (window.__zpSrc !== i.dataset.snap) { window.__zpSrc = i.dataset.snap; window.__zpSince = Date.now(); return false; } return Date.now() - window.__zpSince > 3000; }, null, { interval: 150, timeout: 30000, label: "snapshot settled" });
+const src1 = await page.$eval(".zoom-proxy", (i) => i.dataset.snap);
 await page.evaluate(() => { const F = window.__flux; const v = F.get(F.fig.viewport); F.fig.viewport.set({ ...v, panX: v.panX - 120 }); });
 await sleep(2500);
-const srcAfterPan = await page.$eval(".zoom-proxy", (i) => i.src);
+const srcAfterPan = await page.$eval(".zoom-proxy", (i) => i.dataset.snap);
 await page.evaluate(() => { const F = window.__flux.fig; F.commit((p) => { const fig = p.figures[0]; fig.elements.push({ type: "rect", id: "zp-mark", x: 20, y: 20, width: 80, height: 60, rotation: 0, fill: "#d62728", stroke: "#000", strokeWidth: 1, cornerRadius: 0 }); }); });
-await waitFor(page, (s) => { const i = document.querySelector(".zoom-proxy"); return !!i && i.src !== s && i.complete && i.naturalWidth > 0; }, srcAfterPan, { timeout: 15000, label: "resnapshot" });
-const src2 = await page.$eval(".zoom-proxy", (i) => i.src);
+await waitFor(page, (s) => { const i = document.querySelector(".zoom-proxy"); return !!i && i.dataset.snap !== s && i.firstElementChild?.width > 0; }, srcAfterPan, { timeout: 15000, label: "resnapshot" });
+const src2 = await page.$eval(".zoom-proxy", (i) => i.dataset.snap);
 ok(srcAfterPan === src1 && src2 !== src1, `a pan keeps the world-space snapshot (${srcAfterPan === src1 ? "kept" : "CHANGED"}); an edit re-keys it and a fresh render lands at idle (${src2 !== src1 ? "renewed" : "NOT renewed"})`);
 
 const errs = await realErrors(page);

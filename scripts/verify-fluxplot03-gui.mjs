@@ -35,26 +35,37 @@ try {
   await page.waitForSelector('.color-scales summary');
   await page.click('.color-scales summary');
   // 2026-09-16: the palette field carries a preview bar and opens the colormap picker (every fluxplot collection)
-  await page.waitForSelector('.color-scales .cmapbtn');
+  await page.waitForSelector('.color-scales [data-color-scale-block="correlation"] .cmapbtn');
   assert.ok(await page.$eval('.color-scales .cmapbar', (b) => /gradient/.test(b.getAttribute('style') || '')), 'the current colormap previews as a gradient bar');
-  await page.click('.color-scales .cmapbtn');
+  await page.click('.color-scales [data-color-scale-block="correlation"] .cmapbtn');
   await page.waitForSelector('.color-scales .cmappick .cmp');
-  await page.evaluate(() => document.querySelector('.color-scales .cmp .tabs .tab:nth-child(2)').click()); // Crameri
+  await page.evaluate(() => [...document.querySelectorAll('.color-scales .cmp .tabs .tab')].find((t) => /crameri/i.test(t.textContent)).click()); // the Crameri collection, wherever fluxplot orders it
   await page.evaluate(() => document.querySelector('.color-scales .cmp .cm[data-map="batlow"]').click());
   await page.waitForFunction(() => !document.querySelector('.color-scales .cmappick'));
-  assert.equal(await page.$eval('.color-scales input[aria-label="matrix / correlation palette"]', (i) => i.value), 'crameri.batlow', 'picking a map fills the palette with its qualified name');
-  const input = await page.$('.color-scales input[aria-label="matrix / correlation maximum"]');
+  assert.equal(await page.$eval('.color-scales input[aria-label="correlation palette"]', (i) => i.value), 'crameri.batlow', 'picking a map fills the palette with its qualified name');
+  // 2026-09-30 (colour plan A7.5): a colour scale edits LIVE — the picked map is an element
+  // override that recolours the heatmap at once; Apply to source then writes the complete v2
+  // control for every scale into the recipe and clears the override.
+  const liveView = () => page.evaluate(() => window.__flux.get(window.__flux.fig.project).figures[0].elements.find((e) => e.id === 'field-plot').colorScale ?? null);
+  assert.equal((await liveView())?.correlation?.cmap?.name, 'crameri.batlow', 'picking a map is a live edit of the element (the table travels with the document)');
+  const input = await page.$('.color-scales [data-color-scale-limits="correlation"] .nf:nth-of-type(2) input');
   await input.focus(); await page.keyboard.press('Home'); await page.keyboard.down('Shift'); await page.keyboard.press('End'); await page.keyboard.up('Shift'); await page.keyboard.press('Backspace'); await input.type('0');
-  await page.click('.color-scales button[type=submit]');
   await page.waitForSelector('.color-scales [role=alert]');
-  assert.equal(await page.evaluate(() => window.__fieldCalls.length), 0, 'invalid range never starts regeneration');
-  await input.focus(); await page.keyboard.press('Home'); await page.keyboard.down('Shift'); await page.keyboard.press('End'); await page.keyboard.up('Shift'); await page.keyboard.press('Backspace'); await input.type('2');
+  assert.equal((await liveView())?.correlation?.norm?.vmax, undefined, 'a maximum at the minimum is refused live (the model keeps the last valid view)');
   await page.click('.color-scales button[type=submit]');
-  await page.waitForFunction(() => window.__fieldCalls.length === 1 && document.querySelector('.regen')?.textContent.includes('regenerated'));
+  assert.equal(await page.evaluate(() => window.__fieldCalls.length), 0, 'an invalid draft never starts regeneration');
+  await input.focus(); await page.keyboard.press('Home'); await page.keyboard.down('Shift'); await page.keyboard.press('End'); await page.keyboard.up('Shift'); await page.keyboard.press('Backspace'); await input.type('2');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.__flux.get(window.__flux.fig.project).figures[0].elements.find((e) => e.id === 'field-plot').colorScale?.correlation?.norm?.vmax === 2);
+  await page.click('.color-scales button[type=submit]');
+  await page.waitForFunction(() => window.__fieldCalls.length === 1 && document.querySelector('.color-scales .status')?.textContent.includes('regenerated'));
   const state = await page.evaluate(() => ({ call: window.__fieldCalls[0],
+    colorScale: window.__flux.get(window.__flux.fig.project).figures[0].elements.find((e) => e.id === 'field-plot').colorScale ?? null,
     overrides: window.__flux.get(window.__flux.fig.project).figures[0].elements.find((e) => e.id === 'field-plot').overrides,
     nodes: window.__flux.plot.plotDom.get('field-gate').querySelectorAll('*').length }));
-  assert.equal(state.call.params.__fluxplot__['panel.matrix.correlation'].vmax, 2);
+  assert.deepEqual(state.call.params.__fluxplot__.correlation, { cmap: 'crameri.batlow', vmin: 0, vmax: 2, norm: { kind: 'linear' }, extend: 'neither' }, 'Apply to source writes the complete v2 control keyed by the series root');
+  assert.deepEqual(state.call.params.__fluxplot__.energy, bundle.recipe.params.__fluxplot__.energy, 'an untouched scale restates its generated control');
+  assert.equal(state.colorScale, null, 'the live override clears once the source paints it');
   assert.equal(state.overrides['panel.matrix.correlation.x-heatmap'].opacity, .7);
   assert(state.nodes > 100 && state.nodes < 1000);
   const bounds = await page.evaluate(() => {

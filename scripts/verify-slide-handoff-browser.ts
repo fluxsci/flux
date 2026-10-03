@@ -70,11 +70,42 @@ try {
   addElement(deck, refused.id, pathEl("source")); addElement(deck, refused.id, plot("dest", "box"));
   addElement(deck, refused.id, { ...pathEl("refused-source"), y: 300 });
   const accepted = handoff(refused, "source", { element: "dest", parts: spines });
-  refused.beats[1].tracks.push({ ...structuredClone(accepted), id: "refused-flight", target: "refused-source", start: 1500 });
+  // An identical destination ref now MERGES (Oct-2); a partial overlap — one of
+  // the two landed spines — is still refused.
+  const refusedTrack = { ...structuredClone(accepted), id: "refused-flight", target: "refused-source", start: 1500 };
+  refusedTrack.to!.become!.ref = { element: "dest", parts: ["axis.x.spine"] };
+  refused.beats[1].tracks.push(refusedTrack);
   const refusedPlan = compileSlide(refused, deck.stage, { plotManifest: id => plots[id]?.manifest });
   h.ok(refusedPlan.issues.some(issue => issue.trackId === "refused-flight" && /already lands/.test(issue.reason)) && refusedPlan.handoffs.length === 1, "the compiler excludes a second overlapping landing even with a later start");
   const playerSource = await fs.readFile(new URL("../src/lib/slide/player/player.ts", import.meta.url), "utf8");
   h.ok(!/function handoffsFor\b|interface HandoffRecord\b/.test(playerSource) && /type HandoffRecord = CompiledSlide\["handoffs"\]\[number\]/.test(playerSource), "the player consumes the compiler's hand-off record type without a second detection path");
+
+  // Oct-2 destination SETS: the owner's Deck 3 slide 2 (rect → three loose
+  // ellipses), and a set mixing parts of TWO plots with a loose ellipse.
+  const dot = (id: string, y: number) => ({ id, type: "ellipse" as const, x: 458, y, width: 21, height: 21, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0 });
+  const setSlide = add("set-ellipses");
+  addElement(deck, setSlide.id, { id: "source", type: "rect", x: 161, y: 111, width: 135, height: 45, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+  for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, setSlide.id, dot(id, y));
+  handoff(setSlide, "source", { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] });
+  // A later Change on ONE member must bind to that member's own content.
+  const after = addBeat(deck, setSlide.id, { id: "set-after" })!;
+  setTransform(deck, setSlide.id, after.id, "e2", { state: { x: 560, fill: "#4169e1" }, duration: 400, easing: "linear" });
+  const mixedSlide = add("set-mixed");
+  addElement(deck, mixedSlide.id, pathEl("source"));
+  addElement(deck, mixedSlide.id, plot("dest", "box", 300, { width: 300, height: 180 }));
+  addElement(deck, mixedSlide.id, plot("dest2", "sine", 620, { y: 300, width: 300, height: 90 }));
+  addElement(deck, mixedSlide.id, dot("e1", 420));
+  handoff(mixedSlide, "source", { element: "dest", members: [{ element: "dest", parts: ["peaches.box"] }, { element: "dest2", parts: ["2hz.line"] }, { element: "e1" }] });
+  // MERGE: three ellipses → one rect, staggered starts 0 / 150 / 300 ms.
+  const mergeSlide = add("merge");
+  addElement(deck, mergeSlide.id, { id: "dest", type: "rect", x: 161, y: 111, width: 135, height: 45, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+  for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, mergeSlide.id, dot(id, y));
+  const mergeBeat = addBeat(deck, mergeSlide.id, { id: "merge-flight" })!;
+  ["e1", "e2", "e3"].forEach((id, i) => mergeBeat.tracks.push({ id: `m-${id}`, target: id, preset: "transform", start: 150 * i, duration: 600, easing: "linear", to: { become: { mode: "handoff", ref: { element: "dest" } }, state: {} } }));
+  const mergePlan = compileSlide(mergeSlide, deck.stage);
+  h.ok(mergePlan.handoffs.length === 3 && mergePlan.handoffs.every(x => x.merge?.landAt === 900 && x.merge.trackIds.length === 3) && !mergePlan.issues.length, "three hand-offs into one rect compile as one merge landing at 900 ms");
+  const setPlan = compileSlide(mixedSlide, deck.stage, { plotManifest: id => plots[id]?.manifest });
+  h.ok(setPlan.handoffs.length === 1 && setPlan.handoffs[0].destination.map(d => `${d.elementId}:${d.partIds?.join(",") ?? "*"}`).join(" ") === "dest:peaches.box dest2:2hz.line e1:*" && !setPlan.issues.length, "the compiler resolves each set member against its own plot's manifest");
 
   // In-memory curves until M3 enables their persisted schema.
   const springPaths = structuredClone(b), springGlyphs = structuredClone(d);
@@ -132,6 +163,10 @@ try {
   await seek(2, 500);
   const text = await page.evaluate(() => { const f = document.querySelector(".sl-flight")!; return { texts: f.querySelectorAll("text").length, paths: f.querySelectorAll(".sl-handoff-path").length, boxes: Array.from(f.querySelectorAll(".sl-handoff > g")).map(g => { const b=(g as SVGGraphicsElement).getBBox(); return [b.width,b.height]; }) }; });
   h.ok(text.texts >= 2 && text.paths === 0 && text.boxes.every(b => b[0] > 0 && b[1] > 0), `text uses two measured, non-zero crossfade clones (${JSON.stringify(text)})`);
+  // A text element ↔ a plot's text part has no drawn side, so it stays a box
+  // crossfade — but its clones scale uniformly: glyphs never stretch (oct2 W3).
+  const scales = await page.evaluate(() => Array.from(document.querySelectorAll(".sl-flight .sl-handoff > g")).map(g => { const m = (g as SVGGraphicsElement).transform.baseVal.consolidate()?.matrix; return m ? [m.a, m.d] : [1, 1]; }));
+  h.ok(scales.length >= 2 && scales.every(([sx, sy]) => Math.abs(sx - sy) < 1e-6), `text crossfade clones scale uniformly (${JSON.stringify(scales)})`);
   await seek(3, 250); const early = await inspect(); await seek(3, 750); const late = await inspect();
   h.ok(early.driver === "glyph" && early.glyphs.length === 100 && early.count === 0, "100 actual marker groups use the glyph driver with no pair paths");
   h.ok(late.glyphs.every((g, i) => g.x! > early.glyphs[i].x! && g.opacity === 1), "every marker moves toward its landing and stays opaque before raw .85");
@@ -197,6 +232,111 @@ try {
   state = await inspect();
   h.ok(state.count === 0 && state.visibleFlight === 0 && await page.$eval('[data-el-id="refused-source"]', el => getComputedStyle(el).visibility === "visible"), "the exported player creates NO visible flight paths for a compiler-refused overlapping landing");
   h.eq(await page.$$eval(".sl-handoff", nodes => nodes.length), 1, "only the compiler-accepted flight owns a controller layer");
+  // --- destination sets in the exported player ------------------------------
+  {
+    // tsx keeps function names via an injected __name helper the page lacks.
+    await page.evaluate("globalThis.__name = (fn) => fn");
+    const ellipses = ["e1", "e2", "e3"];
+    const setState = () => page.evaluate((ids: string[]) => {
+      const flight = document.querySelector(".sl-flight") as SVGSVGElement;
+      const paths = Array.from(flight.querySelectorAll<SVGPathElement>(".sl-handoff-path")).filter(el => getComputedStyle(el).visibility !== "hidden" && Number(getComputedStyle(el).opacity) > 0 && flight.getAttribute("visibility") !== "hidden" && el.closest(".sl-handoff")?.getAttribute("visibility") !== "hidden");
+      const toFlight = (node: SVGGraphicsElement) => flight.getScreenCTM()!.inverse().multiply(node.getScreenCTM()!);
+      const box = (node: SVGGraphicsElement) => { const b = node.getBBox(), m = toFlight(node); return { x: m.a * b.x + m.e, y: m.d * b.y + m.f, w: m.a * b.width, h: m.d * b.height }; };
+      const vis = (id: string) => getComputedStyle(document.querySelector(`[data-el-id="${id}"]`)!).visibility;
+      const shapes = ids.map(id => { const el = document.querySelector(`[data-el-id="${id}"]`)!.querySelector("ellipse,path,circle") as SVGGraphicsElement; return box(el); });
+      // Each visible flight piece sampled along its length, in flight (stage) px.
+      const pieces = paths.map(p => { const m = toFlight(p), len = p.getTotalLength(); return Array.from({ length: 24 }, (_, i) => { const q = p.getPointAtLength(len * i / 23); return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f }; }); });
+      return { count: paths.length, source: vis("source"), dest: ids.map(vis), shapes, pieces, union: paths.length ? (() => { const bs = paths.map(p => box(p)); const x = Math.min(...bs.map(b => b.x)), y = Math.min(...bs.map(b => b.y)); return { x, y, cx: (x + Math.max(...bs.map(b => b.x + b.w))) / 2, cy: (y + Math.max(...bs.map(b => b.y + b.h))) / 2 }; })() : null };
+    }, ellipses);
+    const S = 10;
+    await seek(S, 0); let st = await setState();
+    h.ok(st.source === "visible" && st.dest.every(v => v === "hidden") && st.count === 0, "set: at raw 0 the rect shows, the three ellipses are hidden and the flight layer is empty");
+    await seek(S, 250); const q1 = await setState();
+    await seek(S, 500); const q2 = await setState();
+    await seek(S, 750); const q3 = await setState();
+    h.ok([q1, q2, q3].every(q => q.source === "hidden" && q.dest.every(v => v === "hidden") && q.count >= 3), `set: mid-flight both sides hide and the flight draws ≥ 3 pieces (${[q1, q2, q3].map(q => q.count).join("/")})`);
+    const target = { cx: 468.5, cy: (71 + 197) / 2 };
+    const dist = (u: { cx: number; cy: number } | null) => u ? Math.hypot(u.cx - target.cx, u.cy - target.cy) : Infinity;
+    h.ok(dist(q1.union) > dist(q2.union) && dist(q2.union) > dist(q3.union), `set: the pieces' union converges on the ellipses (${[q1, q2, q3].map(q => dist(q.union).toFixed(1)).join(" → ")} px)`);
+    await seek(S, 999.999); st = await setState();
+    // The last flight frame is each destination's own outline (§4: a pixel-invisible flip).
+    const fits = st.pieces.map(points => {
+      const shape = st.shapes.reduce((best, b) => Math.hypot(b.x + b.w / 2 - points[0].x, b.y + b.h / 2 - points[0].y) < Math.hypot(best.x + best.w / 2 - points[0].x, best.y + best.h / 2 - points[0].y) ? b : best);
+      const rx = shape.w / 2, ry = shape.h / 2, cx = shape.x + rx, cy = shape.y + ry;
+      return { shape: st.shapes.indexOf(shape), error: Math.max(...points.map(p => Math.abs(Math.hypot((p.x - cx) / rx, (p.y - cy) / ry) - 1) * Math.min(rx, ry))) };
+    });
+    // 3 arcs + 3 fill triangles (Oct-3: a filled ring's interior rides as fill-only
+    // pieces paired with fill-only copies of the partners), all on the ellipses.
+    h.ok(st.count === 6 && new Set(fits.map(f => f.shape)).size === 3 && fits.every(f => f.error < 0.5), `set: at raw .999999 every piece — three arcs and three fill pieces — lies on its own ellipse's outline within 0.5 px (${fits.map(f => f.error.toFixed(3)).join(", ")})`);
+    await seek(S, 1000); st = await setState();
+    h.ok(st.source === "hidden" && st.dest.every(v => v === "visible") && st.count === 0, "set: at raw 1 the three ellipses show, the rect is hidden and the flight layer is empty");
+    await seek(S, 500); await seek(S, 0); st = await setState();
+    h.ok(st.source === "visible" && st.dest.every(v => v === "hidden") && st.count === 0, "set: reverse seek restores the rect and hides the ellipses again");
+    // Step 2: a Change on one landed member moves and recolours only that member.
+    const member = () => page.evaluate(() => ["e1", "e2", "e3"].map(id => { const w = document.querySelector(`[data-el-id="${id}"]`) as HTMLElement, shape = w.querySelector("ellipse,path,circle") as SVGGraphicsElement, r = shape.getBoundingClientRect(); return { x: r.x + r.width / 2, fill: getComputedStyle(shape).fill, vis: getComputedStyle(w).visibility }; }));
+    await seek(S, 1000); const landedMembers = await member();
+    await seek(S, 400, 2); const moved = await member();
+    h.ok(moved.every(m => m.vis === "visible") && moved[1].x > landedMembers[1].x + 20 && /65, 105, 225|4169e1/i.test(moved[1].fill) && Math.abs(moved[0].x - landedMembers[0].x) < 0.5 && Math.abs(moved[2].x - landedMembers[2].x) < 0.5 && moved[0].fill === landedMembers[0].fill,
+      `set: a later Change on one landed member moves and recolours only that member (${JSON.stringify(moved.map(m => Math.round(m.x)))})`);
+    await seek(S, 0, 2); await seek(S, 0, 1); const back = await member();
+    h.ok(back.every(m => m.vis === "hidden") && Math.abs(back[1].x - landedMembers[1].x) < 0.5, "set: seeking back before the landing hides every member again at its pre-Change place");
+    await seek(S, 500);
+    await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-set.png") });
+    // Parts of two plots + an ellipse.
+    const M = 11;
+    const mixed = () => page.evaluate(() => {
+      const flight = document.querySelector(".sl-flight")!;
+      const v = (sel: string) => { const n = document.querySelector(sel); return n ? getComputedStyle(n).visibility : "missing"; };
+      return { source: v('[data-el-id="source"]'), box: v('[id="dest__peaches.box"]'), line: v('[id="dest2__2hz.line"]'), dot: v('[data-el-id="e1"]'), other: v('[id="dest__oranges.box"]'),
+        count: flight.getAttribute("visibility") === "hidden" ? 0 : Array.from(flight.querySelectorAll(".sl-handoff-path")).filter(el => getComputedStyle(el).visibility !== "hidden" && Number(getComputedStyle(el).opacity) > 0).length };
+    });
+    await seek(M, 0); let m = await mixed();
+    h.ok(m.source === "visible" && m.box === "hidden" && m.line === "hidden" && m.dot === "hidden" && m.other === "visible", "mixed set: before the flight only the members hide (a box of one plot, a curve of another, an ellipse)");
+    await seek(M, 500); m = await mixed();
+    h.ok(m.source === "hidden" && m.count >= 3 && m.box === "hidden" && m.line === "hidden" && m.dot === "hidden", `mixed set: one source flies into all three members at once (${m.count} pieces)`);
+    await seek(M, 1000); m = await mixed();
+    h.ok(m.source === "hidden" && m.box === "visible" && m.line === "visible" && m.dot === "visible" && m.count === 0, "mixed set: landing reveals every member in its own plot and hides the source");
+    await seek(M, 0); m = await mixed();
+    h.ok(m.source === "visible" && m.box === "hidden" && m.line === "hidden" && m.dot === "hidden", "mixed set: reverse seek restores the source");
+  }
+  // --- merge in the exported player ------------------------------------------
+  {
+    const G = 12;
+    const merge = () => page.evaluate(() => {
+      const flight = document.querySelector(".sl-flight") as SVGSVGElement;
+      const layers = Array.from(flight.querySelectorAll(".sl-handoff")).filter(l => l.getAttribute("visibility") !== "hidden");
+      const paths = layers.flatMap(l => Array.from(l.querySelectorAll<SVGPathElement>(".sl-handoff-path"))).filter(p => Number(p.getAttribute("opacity") ?? 1) > 0);
+      const toFlight = (node: SVGGraphicsElement) => flight.getScreenCTM()!.inverse().multiply(node.getScreenCTM()!);
+      const pts = paths.map(p => { const m = toFlight(p), len = p.getTotalLength(); return Array.from({ length: 16 }, (_, i) => { const q = p.getPointAtLength(len * i / 15); return { x: m.a * q.x + m.e, y: m.d * q.y + m.f }; }); });
+      const vis = (id: string) => getComputedStyle(document.querySelector(`[data-el-id="${id}"]`)!).visibility;
+      return { layers: layers.length, paths: paths.length, pts, slice: paths.map(p => p.getAttribute("data-piece") === "slice"), dest: vis("dest"), dots: ["e1", "e2", "e3"].map(vis) };
+    });
+    await seek(G, 0); let m = await merge();
+    h.ok(m.dest === "hidden" && m.dots.every(v => v === "visible") && m.paths === 0, "merge: at zero the three ellipses show, the rect is hidden and nothing flies");
+    await seek(G, 400); m = await merge();
+    h.ok(m.layers === 3 && m.paths >= 3 && m.dots.every(v => v === "hidden") && m.dest === "hidden", `merge: mid-flight all three converge at once (${m.paths} pieces in ${m.layers} flights)`);
+    await seek(G, 750); m = await merge();
+    h.ok(m.layers === 3 && m.paths >= 3 && m.dest === "hidden", "merge: after the first two land (600, 750 ms) their pieces HOLD on the rect while the last still flies; the rect stays hidden");
+    h.ok(await page.evaluate(() => {
+      const layers = Array.from(document.querySelectorAll(".sl-flight > .sl-handoff")).filter(l => l.getAttribute("visibility") !== "hidden");
+      const ids = layers.map(l => Number((l.getAttribute("data-handoff") ?? "").replace(/\D/g, "")));
+      // every lander carries its own arc + its own fill triangle of the rect's interior; the
+      // last lander (created last, the highest id) is inserted BENEATH the others
+      return layers.length === 3 && layers.every(l => l.querySelectorAll(".sl-handoff-path").length === 2) && ids[0] === Math.max(...ids);
+    }), "merge: each lander's layer holds its arc and its fill triangle, and the last lander's layer lies BENEATH the other landers'");
+    await seek(G, 899.999); m = await merge();
+    const onRect = (p: { x: number; y: number }) => Math.min(Math.abs(p.x - 161), Math.abs(p.x - 296), Math.abs(p.y - 111), Math.abs(p.y - 156));
+    const inRect = (p: { x: number; y: number }) => p.x > 161 - 0.6 && p.x < 296 + 0.6 && p.y > 111 - 0.6 && p.y < 156 + 0.6;
+    const arcPts = m.pts.filter((_, i) => !m.slice[i]), fillPts = m.pts.filter((_, i) => m.slice[i]);
+    h.ok(arcPts.length === 3 && arcPts.every(points => points.every(p => onRect(p) < 0.5)), `merge: just before the reveal every arc piece lies on the rect's outline within 0.5 px (max ${Math.max(...arcPts.flat().map(onRect)).toFixed(3)})`);
+    h.ok(fillPts.length === 3 && fillPts.every(points => points.every(inRect)), "merge: just before the reveal the three fill triangles lie inside the rect (its interior arrives with the pieces, never pops)");
+    await seek(G, 900); m = await merge();
+    h.ok(m.dest === "visible" && m.dots.every(v => v === "hidden") && m.paths === 0, "merge: the rect reveals at the LAST landing and the flight layer empties");
+    await seek(G, 400); await seek(G, 0); m = await merge();
+    h.ok(m.dest === "hidden" && m.dots.every(v => v === "visible") && m.paths === 0, "merge: reverse seek restores the ellipses and hides the rect");
+    await seek(G, 450);
+    await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-merge.png") });
+  }
   await seek(5, 500);
 
   await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-colour.png") });
@@ -231,7 +371,8 @@ try {
     };` }, bundle: true, platform: "browser", format: "iife", write: false, plugins: [{ name: "observe-handoff-inputs", setup(build) {
       build.onLoad({ filter: /player[\\/]handoff\.ts$/ }, async ({ path: file }) => {
         let source = await fs.readFile(file, "utf8");
-        for (const [marker, channel] of [["sampleCorrespondence(sampled!, t, out);", "pairs"], ["for (const glyph of glyphs) {", "glyphs"]]) {
+        // Match the call's head only: its trailing options (raw progress, duration) are free to grow.
+        for (const [marker, channel] of [["sampleCorrespondence(sampled!, t, out", "pairs"], ["for (const glyph of glyphs) {", "glyphs"]]) {
           if (!source.includes(marker)) throw new Error(`Missing hand-off observation boundary: ${marker}`);
           source = source.replace(marker, `(globalThis as any).channelInputs?.${channel}.push(t); ${marker}`);
         }

@@ -36,6 +36,10 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      # Electron 43 has no install hook; fetch the binary before the hermetic pure
+      # tier needs it (the 3D poster worker), as ci.yml does.
+      - name: Fetch the Electron binary
+        run: node node_modules/electron/install.js
       - uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: '1.7.32'
@@ -45,6 +49,19 @@ jobs:
       - name: Native display and packaging libraries (Linux)
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb libvulkan1 libfuse2 libarchive-tools texlive-latex-extra texlive-fonts-recommended lmodern
+      # Same provisioning as ci.yml's test job (see the comments there): the 3D
+      # poster worker is spawned by product code, which FLUX_ELECTRON_NO_SANDBOX
+      # does not reach, and the glyph-outline gates read msttcorefonts faces.
+      - name: Electron sandbox and msttcorefonts (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
+          sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer
+          sudo fc-cache -f
+          for f in Arial Arial_Italic Georgia Georgia_Bold; do
+            test -f "/usr/share/fonts/truetype/msttcorefonts/$f.ttf" || { echo "::error::msttcorefonts download failed: $f.ttf missing"; exit 1; }
+          done
       - name: Provision PDF dependencies before offline checks (macOS)
         if: matrix.platform == 'darwin'
         run: tlmgr install lmodern koma-script bookmark tools booktabs caption float framed fvextra microtype upquote footnotehyper tcolorbox

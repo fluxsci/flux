@@ -115,9 +115,10 @@ const escOrderOk =
   tooltipOpen && !afterEsc1.tooltip && /INSERT/i.test(afterEsc1.panelText) && !/INSERT/i.test(afterEsc2);
 
 // --- palette toggle removes vim cleanly ----------------------------------------
-await page.keyboard.down("Control");
+const paletteMod = process.platform === "darwin" ? "Meta" : "Control";
+await page.keyboard.down(paletteMod);
 await page.keyboard.press("k");
-await page.keyboard.up("Control");
+await page.keyboard.up(paletteMod);
 await sleep(300);
 await page.keyboard.type("vim");
 await sleep(200);

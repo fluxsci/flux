@@ -168,7 +168,7 @@ function validateCommand(c: Command): void {
     const patch=object(value,'style/patch');
     for (const key of ['fontSize','lineHeight','width','height']) if (patch[key] != null && (typeof patch[key]!=='number'||Number(patch[key])<=0)) throw new Error(`${key} must be positive`);
     for (const key of ['strokeWidth','cornerRadius','arrowSize']) if (patch[key] != null && (typeof patch[key]!=='number'||Number(patch[key])<0)) throw new Error(`${key} must be nonnegative`);
-    if (patch.opacity!=null && (typeof patch.opacity!=='number'||patch.opacity<0||patch.opacity>1))throw new Error('opacity must be between 0 and 1');
+    for (const key of ['opacity','fillOpacity','strokeOpacity']) if (patch[key]!=null && (typeof patch[key]!=='number'||Number(patch[key])<0||Number(patch[key])>1))throw new Error(`${key} must be between 0 and 1`);
     for (const key of ['fontFamily','name','color','fill','stroke','background']) if(patch[key]!==null)scalar(patch,key,'string');
     for (const key of ['hidden','locked','underline','flipX','flipY','lockAspect','arrowStart','arrowEnd']) if(patch[key]!==null)scalar(patch,key,'boolean');
     for (const [key,values] of Object.entries({fontStyle:['normal','italic'],align:['left','center','right'],sizing:['auto','auto-h','fixed'],cap:['butt','round','square'],arrowStyle:['filled','vee']}))if(patch[key]!==null)enumeration(patch,key,values);

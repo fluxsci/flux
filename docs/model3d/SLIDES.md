@@ -2,9 +2,9 @@
 
 Deck assets retain GLB metadata. The live deck loader reads scene sidecars separately and never inserts GLB bytes into `assetData`. Figure-derived models stay referenced by ID; deck-to-Figure conversion uses verified native copies. Missing model files retain a placeholder on read and prevent a GUI save until restored or removed. Save judges only the models the slides still use (`slideAssetIds`): a deleted model's GLB entry stays in the editor for Undo, and once its file is gone the saved registry stops naming it.
 
-Portable payloads carry raw base64 GLBs in `models`, scene metadata in `modelManifests`, and Design-state poster references in `modelPosters`. Image assets contain only image data. Content-change target models are collected even when not directly placed. HTML and MP4 include the separate model runtime only when needed; its source hash participates in export-asset freshness and CSP generation.
+Portable payloads carry raw base64 GLBs in `models`, scene metadata in `modelManifests`, and step-0 still references in `modelPosters`; `assets` holds every step's still (Design appearance at that step's placement and mesh-part visibility, keyed with its `partOpacity`), which offline pre-ready posters look up by the same key. Image assets contain only image data. Content-change target models are collected even when not directly placed. HTML and MP4 include the separate model runtime only when needed; its source hash participates in export-asset freshness and CSP generation.
 
-PDF and PowerPoint use Design-state stills with furniture, shown and placed as each page's build step leaves the model (PowerPoint build pages included), and report that 3D animation is exported as a still whenever a slide carries a model. Static payload gathering sets `modelData: "omit"` and prepares posters through a native or service-worker adapter. Ordinary deck saves never persist poster or GLB data URLs.
+PDF and PowerPoint use Design-state stills with furniture, shown and placed as each page's build step leaves the model and with that step's mesh-part and furniture visibility (PowerPoint build pages included), and report that 3D animation is exported as a still whenever a slide carries a model. Static payload gathering sets `modelData: "omit"` and prepares posters through a native or service-worker adapter. Ordinary deck saves never persist poster or GLB data URLs.
 
 Slide presets are an explicit portable-byte boundary. Their GLBs are embedded when saving the preset and prepared through the native importer before insertion. A single deck mutation installs the resulting immutable asset metadata and slide; receipt adoption follows that mutation. Temporary preset bytes never become authoring asset data or save-journal entries.
 
@@ -12,15 +12,15 @@ Registered checks: `verify-model3d-deck-assets.ts` and `verify-model3d-slide-exp
 
 CLI/MCP project-owned media paths pass through `flux-core/projectSource.ts`: an already-resolved in-project absolute path becomes the same canonical relative path as direct input. Platform separators become `/` there (a win32 input arrives as `C:\proj\…`), and so do root-relative paths handed to `boundedModelFile`; only NUL is refused on the raw input. A symlinked `--root` also accepts the realpath spelling of the same file (directories only are resolved). Both lexical escapes and symlink escapes are refused before the native media importer runs.
 
-Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
+Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` (optionally `--slide <slide>`) to render the slides' Design stills and every build step's still, with that step's part visibility, into the project cache; Connect sheets and command-line Paper renders read only cached stills, and `--prune` keeps all of them. Timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
 
 Paper slide widgets use the document's shared worker service with immutable file metadata; they do not inline GLB bytes or create main-thread WebGL contexts. Visible occurrences have independent playback. Removing or scrolling away one occurrence releases its host without invalidating another occurrence's pending load. Repository invalidation retires the captured source generation.
 
-Portable Paper HTML and Quarto exports explicitly gather model bytes, deduplicate them across all included slides, and inject one conditional model runtime. The interactive Paper preview (which re-renders after every edit) reuses a slide's portable snapshot while its metadata snapshot signature (deck content, prepared GLB receipts, gathered image/plot bytes) is unchanged, holding one base64 copy per prepared GLB; exports always gather and validate fresh bytes. Two-dimensional documents carry no model runtime; their shared fonts/player asset file also excludes the separate model-runtime string. The same shared player keeps bitmap and vector furniture publication together. Static Word/PDF output continues to use the Design-state still.
+Portable Paper HTML and Quarto exports explicitly gather model bytes, deduplicate them across all included slides, and inject one conditional model runtime. The live Paper preview (a sandboxed document re-rendered after every edit) carries model metadata only and no model runtime: its players draw through the same document worker as the Paper widgets over a postMessage bridge (`previewModelBridge.ts` in the app, `previewModelClient.ts` in the document). The bridge answers only the owning iframe, only for the slides of the latest render and their model assets, bounds frame sizes, and takes manifests from its own repository snapshot. Worker holds survive an edit's re-render; a repository invalidation changes the document (`modelRevision`), so a deleted or replaced GLB is re-checked instead of shown from a cache. Exports always gather and validate fresh bytes. Two-dimensional documents carry no model runtime; their shared fonts/player asset file also excludes the separate model-runtime string. The same shared player keeps bitmap and vector furniture publication together. Static Word/PDF output continues to use the step-0 still.
 
 Packaged CLI/MCP Paper exports load the player and shared model runtime from `dist/slide-export-assets.json`. They do not need the source checkout, generated browser JSON, or esbuild at runtime. Rebuild Flux if an older sidecar lacks the Paper runtime.
 
-`group:model3d-embed` checks live metadata-only loading, source lifetimes, shared payloads/CSP, real Paper widget animation and typing, offscreen disposal, and actual Quarto HTML playback offline. Its screenshots and typing samples are under `test-results/model3d/embeds/`. Run `group:paper-gate` for the surrounding editor regressions. These browser checks do not qualify native GPU frame budgets.
+`group:model3d-embed` checks live metadata-only loading, source lifetimes, shared payloads/CSP, real Paper widget animation and typing, the bridged live preview (including a GLB deleted after it first drew), offscreen disposal, and actual Quarto HTML playback offline. Its screenshots and typing samples are under `test-results/model3d/embeds/`. Run `group:paper-gate` for the surrounding editor regressions. These browser checks do not qualify native GPU frame budgets.
 
 ## Ghost and content changes
 
@@ -38,7 +38,11 @@ picked models have corresponding topology. Otherwise they show **Crossfade**, wi
 the first mismatch and the `share_topology_with` repair in the explanation. Compilation
 raises an issue only when topology metadata is unavailable; an evaluated crossfade is a
 designed result. Mesh-part Become sources are refused, since WebGL leaves have no DOM to
-fly; furniture parts and whole models hand off, including within groups. A model
+fly; furniture parts and whole models hand off, including within groups. A Become into
+mesh parts has no outline to fly to, so it compiles as a `crossfade` hand-off: nothing
+flies, the source fades out in place while the parts fade in through the per-part opacity
+channel on the same curve (raw = 1 is the landing), and a model cannot become one of its
+own parts. A model
 destination defaults to a handoff: both document objects remain, while source and
 destination visibility transfer during playback. **Consume instead** is an explicit
 one-step Undo action which removes the destination and keeps its content on the
@@ -87,12 +91,20 @@ checking their saved SHA-256 receipt. A changed or oversized stored file refuses
 export; source paths and build provenance are removed from the portable copy.
 Native and Node readers enforce the size bound before allocating the file.
 Static SVG/PDF/PowerPoint writers use the same complete model state for mesh and
-furniture. An original model keeps its Design appearance (including its visible
-parts); an identity consumed from a shape into 3D uses that evaluated model
-endpoint and its matching still. Placement follows the selected build step.
+furniture. An original model keeps its Design orbit, look and shape; its placement
+and part visibility follow the selected build step, so a part hidden at that step is
+absent (the Node poster worker, the GUI poster service and the offline pre-ready poster
+all key and render the step's `partOpacity`). An identity consumed from a shape into 3D
+uses that evaluated model endpoint and its matching still. Cache-only readers (Connect
+sheets, CLI Paper renders) need the step's own still: the app persists it when it renders
+one, and `render-model-posters --deck` renders every step's still (`slideModelStills`,
+the enumeration payload gathering uses). `--prune` and the app's idle prune share one
+live set (`src/lib/model3d/livePosterKeys.ts`): Figure views plus every deck's Design
+and step stills; an unreadable deck stops both. Connect keys a model
+deck's sheet on the project poster cache's entries, so that render refreshes it.
 
 Slide scale checks use two distinct, compatible 250,000-triangle meshes and eight independently posed ghost copies. `verify-scale-slide.mjs` keeps the existing 2D budgets and adds real Present playback, changed-pixel checks, zero RAF/render calls during each measured rest window, shared pair/context counts and disposal. The observer records only application-owned RAF callbacks and actual mesh-canvas publication; it schedules no animation heartbeat.
 
-`verify-slide-model3d-scale-electron.cjs` runs the same scenario through the production Electron/preload path with a canonical scratch project and delivered native keys. It requires positive hardware renderer identity and enabled WebGL2, a nonzero display, uninterrupted visible focus, at least 80 actual published frames per measured beat and raw p95 frame gaps ≤17ms. The first complete bitmap/furniture callback must finish within 100ms of the delivered cue, and the last publication must cover the full authored duration. No rounding, warmup trimming or software fallback can satisfy that gate. Run it via the registered runner with scratch HOME/XDG, `FLUX_NO_MIGRATE=1`, `FLUX_PRIVATE_DISPLAY=1 DISPLAY=:0` and the X11 Electron option. `group:model3d-slide-scale` combines the pure oracle, browser and native checks.
+`verify-slide-model3d-scale-electron.cjs` runs the same scenario through the production Electron/preload path with a canonical scratch project and delivered native keys, ending with one delivered Escape that must leave the fullscreen Present and dispose the inline pool. It requires positive hardware renderer identity and enabled WebGL2, a nonzero display, uninterrupted visible focus, at least 80 actual published frames per measured beat and raw p95 frame gaps ≤17ms. The first complete bitmap/furniture callback must finish within 100ms of the delivered cue, and the last publication must cover the full authored duration. No rounding, warmup trimming or software fallback can satisfy that gate. Run it via the registered runner with scratch HOME/XDG, `FLUX_NO_MIGRATE=1`, `FLUX_PRIVATE_DISPLAY=1 DISPLAY=:0` and the X11 Electron option. `group:model3d-slide-scale` combines the pure oracle, browser and native checks.
 
 Evidence lives under `test-results/model3d/slides-scale/{browser,native}`. Browser SwiftShader results qualify behavior and retain raw timings; they do not establish the GPU frame budget. A zero-sized display is recorded as a capability blocker, never a passing skip.

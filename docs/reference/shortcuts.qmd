@@ -118,6 +118,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 |---|---|
 | **F** | Property menu, beside the selection (each row shows its own **left-hand** key; the key arms the row, then the **mouse wheel** — anywhere on screen — or **↑/↓** adjusts a number, an expanded choice takes **w/a/s/d**, **1–9** or the wheel, a colour opens the palette — hover previews, click applies; **Space**/**Enter** applies, **Escape** reverts; **s** searches) |
 | **v** / **b** in a plot’s F-menu | x view / y view (follow the displayed key if crop controls occupy **v**) |
+| *wheel*, **Space** in an F-menu axis view | the wheel adjusts the focused limit from anywhere; **Space** accepts min → max → done |
 | **v** on an X-ray axis row | Axis view… — focus that axis in the Inspector |
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
@@ -125,7 +126,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Alt+1** / **Alt+2** | In the Plot gallery: browse the project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
-| **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, **Ctrl+A** all, **x** hides the pick, **Enter** opens their properties, **double-click** re-roots |
+| **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **x** hides the pick, **Enter** or **F** opens their properties, **double-click** re-roots |
 | **Alt+M** / **Shift+Alt+M** | Figure-Meta / open it pinned (Figure and Paper) |
 | **Alt+L** | Mark selected text as a panel label |
 | **Alt+T** | Arrange mode — then **A** row/column, **G** grid, **D**/**F** rows, **Enter** apply |
@@ -185,21 +186,31 @@ Everything in the Figure table works on the stage. Additionally:
 | **Ctrl+B** (nothing text-like selected) | Hide/show the filmstrip |
 | **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
 | **Ctrl+Shift+D** | Add disappearance *(animator open)* |
-| **Ctrl+Shift+T** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
-| **Ctrl+Shift+E** | Transform ▸ Become: pick the object the selection turns into *(animator open)* |
-| **Ctrl+Shift+C** | Cascade across selected tracks (falls back to element cascade) |
-| **A** *(in the X-ray)* | Animate the picked rows: **1** Appear, **2** Emphasize, **3** Disappear, **4** Change, **5** Appear from…, **6** Animate like… |
-| **Ctrl+click** *(Become pick)* | Pick a plot part as the destination (or the source for Appear from…) |
-| **Shift+click** / **Shift+Ctrl+click** *(Become pick)* | Add objects / plot parts without confirming |
-| **Enter** *(Become pick)* | Confirm the accumulated destination (one object or parts of one plot) |
-| **Alt+R** *(Become pick)* | X-ray the hovered or selected plot to pick destination rows |
-| **B** *(X-ray while Become is armed)* | Become: confirm the picked rows |
-| **Escape** *(Become / Appear from… pick)* | Cancel without creating a transform |
+| **Ctrl+Shift+C** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
+| **B** | Transform ▸ Become: pick the object the selection turns into (opens the animator if needed) |
+| **Ctrl+Alt+G** | Transform ▸ Ghost…: copies that transform independently *(animator open)* |
+| **Ctrl+Alt+A** | Appear from…: pick the object the selection appears from *(animator open)* |
+| **Ctrl+Alt+C** | Cascade across selected tracks (falls back to element cascade) |
+| **Space** / **Enter** *(Become pick)* | Confirm the pick (**Enter** first leaves Add mode) |
+| **M** *(in the X-ray)* | Animate the picked rows: **1** Appear, **2** Emphasize, **3** Disappear, **4** Change, **5** Appear from…, **6** Animate like… |
+| **click** *(Become pick)* | Pick or unpick the part or object under the pointer (no modifier needed; Shift / Ctrl+click do the same) |
+| **Alt+click** *(Become pick)* | Pick the whole plot or group instead of the part |
+| **drag** *(Become pick)* | Marquee: pick everything fully inside (**Alt+drag** removes) |
+| **double-click** *(Become pick)* | Pick it and confirm at once |
+| **A** *(Become pick)* | Widen the last pick to its siblings |
+| **Backspace** *(Become pick)* | Drop the last pick |
+| **B** / **Enter** *(Become pick)* | Confirm the pick |
+| **R O L P T** *(Become pick)* · **Ctrl+P** · **Alt+G** | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
+| **Alt+R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live |
+| **B** *(X-ray while Become is armed)* | Become: confirm the whole pick |
+| **Escape** *(Become / Appear from… pick)* | Leave Add mode or close the X-ray first; then cancel without creating a transform |
 | **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |
 
 In the animator dock: **←/→** beats · **↑/↓** tracks · **Ctrl+D** duplicate tracks ·
 **Ctrl+G**/**Ctrl+Shift+G** group/ungroup tracks · **Alt+←/→** nudge start ·
-**Alt+Shift+←/→** trim duration · **[** / **]** move track to previous/next beat ·
+**Alt+Shift+←/→** trim duration · **Alt+A** / **Alt+D** align starts / ends (press again for
+the next lane above; **+Shift** resizes instead of moving) · **Ctrl+Alt-drag** a bar onto another
+lane to inherit that effect's animation (**+Shift** at release also copies its start) · **[** / **]** move track to previous/next beat ·
 **X** disable · **Delete**/**Backspace** remove · **Enter** jump to the properties fields ·
 **Space** play/pause · **Ctrl+A** select this step’s effects · **Escape** stop preview or clear
 the selection/endpoint edit. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset,

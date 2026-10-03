@@ -16,7 +16,7 @@
   import { get } from "svelte/store";
   import { onDestroy, untrack } from "svelte";
   import { deckOverlay, activeBeat, commitDeckLive, selTrackIds, exitEndpointEdit } from "../../../lib/slide/store";
-  import { selection, partSelection, partSelections } from "../../../lib/store";
+  import { selection, partSelection, partSelections, xrayOpen } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
   import { scene3dManifests } from "../../../lib/model3d/store";
@@ -44,7 +44,7 @@
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
   } = $props();
 
-  let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void } | null>(null);
+  let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void; alignSelection(edge: "start" | "end", mode?: "move" | "resize"): void } | null>(null);
   let libOpen = $state(false);
   // ONE class of action — Transform — three ways: Change · Ghost · Become.
   let appearMenu = $state<{ x: number; y: number } | null>(null);
@@ -72,14 +72,17 @@
     return el && el.type === "plot" ? el : null;
   });
   const selManifest = $derived(selPlot ? manifests[selPlot.assetId] : undefined);
+  /** Build panel by panel (colour-system plan F7): offered when the plot has several panels. */
+  let buildPerPanel = $state(false);
+  const selPanels = $derived(((selManifest as { panels?: unknown[] } | undefined)?.panels?.length ?? 0) > 1);
   const sourceGroup = $derived(!$partSelections.length && sel.length > 1 && !!slide?.elements.some(el => sel.includes(el.id) && el.groupId));
   const appearItems = $derived<MenuItem[]>([
     {label: "Appear", hint: "Add an entrance · Cmd/Ctrl+Shift+A", disabled: !sel.length, action: () => onAction?.("appear")},
-    {label: "Appear from…", hint: "Pick the object this selection comes from", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
+    {label: "Appear from…", hint: sel.length > 1 ? "Pick the object these objects appear from (one hand-off into all of them) · Cmd/Ctrl+Alt+A" : "Pick the object this selection comes from · Cmd/Ctrl+Alt+A", disabled: !sel.length || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
   ]);
   const transformItems = $derived<MenuItem[]>([
-    { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+T", disabled: !sel.length, action: () => onAction?.("change") },
-    { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
+    { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+C", disabled: !sel.length, action: () => onAction?.("change") },
+    { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently · Cmd/Ctrl+Alt+G", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
     { label: "Become", hint: sourceGroup ? "Choose an object or plot parts as the Become source, rather than a group." : selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0 || sourceGroup, action: () => onAction?.("become") },
   ]);
   // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
@@ -132,11 +135,20 @@
     if (mod && !e.shiftKey && e.code === "KeyS") { e.preventDefault(); onSave?.(); return; }
     if (e.code === "Space") { e.preventDefault(); playing ? onPause?.() : previewing ? onResume?.() : onPreview?.($activeBeat); return; }
     if (mod && (e.key === "d" || e.key === "D") && !e.shiftKey) { e.preventDefault(); duplicateSelectedTracks(); return; }
-    if (mod && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); railRef?.cascadeSelection(); return; }
+    // Cascade moved to ⌃⌥C (⌃⇧C is Change, owner 2026-10-03); the alt chord never reaches the field-focus keys below.
+    if (mod && e.altKey && !e.shiftKey && e.code === "KeyC") { e.preventDefault(); railRef?.cascadeSelection(); return; }
     if (mod && (e.key === "g" || e.key === "G")) {
       e.preventDefault();
       if (e.shiftKey) railRef?.ungroupSelection();
       else railRef?.groupSelection();
+      return;
+    }
+    // Align starts / ends (Alt+A / Alt+D, Shift = resize): physical keys, like the
+    // canvas's align chords. The X-ray (Alt+A = all results) wins while open.
+    if (e.altKey && !mod && (e.code === "KeyA" || e.code === "KeyD")) {
+      if (get(xrayOpen)) return;
+      e.preventDefault();
+      if (!e.repeat) railRef?.alignSelection(e.code === "KeyA" ? "start" : "end", e.shiftKey ? "resize" : "move");
       return;
     }
     if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
@@ -230,7 +242,7 @@
     // Held in an object so TS keeps the union type across the commitDeck closure.
     const hold: { fb: { beatIndex: number; trackId: string } | null } = { fb: null };
     commitDeckLive((d) => {
-      added = applyAutoAnimation(d, sid, plot.id, manifest);
+      added = applyAutoAnimation(d, sid, plot.id, manifest, { perPanel: buildPerPanel });
       // Pre-0.2.0 plots have no parts tree → applyAutoAnimation adds nothing.
       // Fall back to a whole-element fade so the button always animates something.
       if (!added) hold.fb = animateElement(d, sid, plot.id, {});
@@ -331,6 +343,11 @@
       {#if selPlot}
         <button class="magic" onclick={autoAnimate} disabled={!selManifest}
           title={selManifest ? "Build a beat sequence from this plot's own animation hints" : "This plot has no build manifest to auto-animate"}>✨ Auto-animate</button>
+        {#if selPanels}
+          <label class="per-panel" title="Reveal the figure panel by panel (each panel's axes, gridlines, data and legend in turn) instead of layer by layer across all panels">
+            <input type="checkbox" bind:checked={buildPerPanel} /> panel by panel
+          </label>
+        {/if}
       {/if}
 
       {#if sel.length === 1}
@@ -359,7 +376,7 @@
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
       {/if}
       <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
-      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change · +E become. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Space plays/pauses.">Keyboard ⌨</span>
+      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +C change · b become · Cmd/Ctrl+Alt+G ghost · Cmd/Ctrl+Alt+A appear from · Cmd/Ctrl+Alt+C cascade. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Alt+A / Alt+D align starts / ends (repeat to cycle, +Shift resizes), Ctrl/Cmd+Alt-drag a bar onto another lane inherits its animation, Space plays/pauses.">Keyboard ⌨</span>
     </div>
 
     <div class="dock-body">
@@ -410,6 +427,7 @@
     color: var(--c-tx-muted); margin-right: 4px;
   }
   .spacer { flex: 1; }
+  .per-panel { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font: 11px var(--font-ui); color: var(--c-tx-muted); }
   .b, .magic {
     height: 24px; padding: 3px 8px; font: 12px var(--font-ui); line-height: 1;
     color: var(--c-tx-2); background: transparent; border: 1px solid var(--c-line-strong);

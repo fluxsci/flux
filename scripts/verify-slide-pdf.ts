@@ -14,6 +14,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import { parseHTML } from "linkedom";
 import { harness } from "./lib/harness.mjs";
 import { createDeck } from "../src/lib/slide/ops";
@@ -21,6 +22,9 @@ import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import { deckPdfDocument, pdfStepsFor } from "../src/lib/slide/export/deckPdf";
 
 const h = harness("verify-slide-pdf");
+// Fresh checkouts have no build output: deckPdf reads the build-owned .generated
+// fonts, so run the same generator the npm hooks use (identical bytes are not rewritten).
+execFileSync(process.execPath, ["scripts/gen-slide-embed-assets.mjs"], { stdio: "pipe" });
 const { document, DOMParser, XMLSerializer } = parseHTML("<!doctype html><html><body></body></html>");
 Object.assign(globalThis, { document, DOMParser, XMLSerializer });
 

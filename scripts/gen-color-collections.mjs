@@ -98,9 +98,28 @@ export const COLORMAP_COLLECTIONS: ColormapCollection[] = COLORMAP_METADATA.map(
 
 export const PALETTE_COLLECTIONS: PaletteCollection[] = ${JSON.stringify(palettes)};
 `;
+// The FULL lookup tables (colour-system plan A7.2): fluxplot stores 256 samples per continuous
+// map = the exact table of an N=256 map, so a live colour-scale edit that names a map paints
+// with matplotlib's own entries. Packed as one string of 6 hex digits per entry (no quotes, no
+// commas) in its OWN module, imported lazily by color/colormapLuts.ts — never from the eager
+// bundle (verify-startup's budget) nor from the offline deck runtime.
+const luts = {};
+for (const c of cmaps.collections) for (const m of c.maps) luts[`${c.id}.${m.name}`] = m.colors.map((h) => h.slice(1)).join("");
+const lutModule = `${header}
+// Every map's full table (${cmaps.samples} entries per continuous map; a discrete map its exact
+// colours), packed as 6 hex digits per entry. Read through color/colormapLuts.ts (lazy import).
+export const COLORMAP_LUTS: Record<string, string> = ${JSON.stringify(luts)};
+`;
 const folder = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "color");
 const target = path.join(folder, "collections.gen.ts");
-for (const [file, text] of [[target,out],[path.join(folder,"colormaps.gen.ts"),pure]]) {
+// The LUT module needs fluxplot's full 256-sample tables; definitions carrying only preview
+// stops (verify-color-collections' round-trip scratch is built from the 32-stop bundle) can
+// neither reproduce nor replace it, so it is left alone with a note.
+const fullTables = Number(cmaps.samples) >= 256;
+const outputs = [[target,out],[path.join(folder,"colormaps.gen.ts"),pure]];
+if (fullTables) outputs.push([path.join(folder,"colormapLuts.gen.ts"),lutModule]);
+else console.log("colormapLuts.gen.ts untouched: these definitions carry preview stops, not full tables");
+for (const [file, text] of outputs) {
   if (process.argv.includes('--check')) { if (readFileSync(file,'utf8') !== text) throw new Error(`Stale generated colours: ${file}`); }
   else writeFileSync(file,text);
 }

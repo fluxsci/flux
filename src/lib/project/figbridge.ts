@@ -1,4 +1,5 @@
 import { collectModel3dSourceBindings } from '../model3d/sourceBinding';
+import { elementSourceAssetIds } from '../model3d/refs';
 import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from '../model3d/store';
 import { readScene3dSidecars, scene3dSidecarWrites } from '../model3d/persistence';
 import type { Scene3dManifest } from '../model3d/types';
@@ -61,7 +62,7 @@ import { ensureFigureReferenceKeys } from "./figureIdentity";
 import { reconcileCaptionFiles, captionConflictMessage, type CaptionBaseline } from "./captionReconcile";
 import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "./figureReferenceSync";
 import { applyTextLayout } from "../text";
-import { fileBridge, joinPath } from "./types";
+import { fileBridge, joinPath, type FileBridge } from "./types";
 import { ConflictError } from "../autosave";
 import { assertStoreTenant } from "../tenancy";
 import {
@@ -175,7 +176,11 @@ export async function loadFigInto(
     try {
       const assetPath = fig.projectAssetPath ? await fig.projectAssetPath(root, storedAssetPath(`${SUB}/${a.path}`)) : joinPath(root, SUB, a.path);
       if (a.kind === "glb") {
-        if (!await fig.exists(assetPath)) throw new Error(missingGlbMessage(proj.figures, a.id, `${SUB}/${a.path}`));
+        // A missing model FILE never makes the load partial: the index and every
+        // canvas were read, so saving cannot lose data. A placed one is the
+        // snapshot's non-blocking assetIssue (placeholder + toast below); the
+        // save judges what still uses it (judgeMissingModels).
+        if (!await fig.exists(assetPath)) continue;
         const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
         if (sidecars.issues?.length) modelIssues[a.id] = sidecars.issues;
         if (sidecars.manifest) primedModels[a.id] = sidecars.manifest;
@@ -225,6 +230,9 @@ export async function loadFigInto(
     figLoadFailure = snapshot.status === "complete" ? null : snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n");
     figLoad(proj, null, opts); loadedFigureRoot = root;
     if (Object.keys(modelIssues).length) pushToast("info", "Some 3D metadata could not be loaded", { detail: Object.values(modelIssues).flat().join("\n") });
+    if (snapshot.assetIssues.length) pushToast("error", snapshot.assetIssues.length === 1 ? "A 3D model file is missing" : "Some 3D model files are missing", {
+      detail: snapshot.assetIssues.map(issue => issue.message).join("\n") + "\nSaving waits until the file is restored or that 3D model is deleted.",
+    });
     if (figLoadFailure) pushToast("error", "Some figures could not be loaded", { detail: figLoadFailure + " Existing files will not be overwritten." });
   }, { root }));
   figureSaveQueue = adopt;
@@ -252,6 +260,28 @@ function missingGlbMessage(figures: readonly Figure[], assetId: string, file: st
     if (element.type === "model3d" && element.assetId === assetId) return `Missing GLB asset ${assetId}: ${missingModelFileMessage(file, element, figure)}`;
   }
   return `Missing GLB asset ${assetId}: ${file} is missing (no figure element places it); restore ${file}`;
+}
+
+/** Registered GLBs whose files are gone block the save only while something
+ * still uses them. Figure mode keeps an asset registered after its last element
+ * is deleted (Undo restores both), so judging the registry kept Save blocked
+ * forever. A placed model refuses (restore the file or delete the model); a
+ * model a saved deck still uses refuses (the deck resolves it by id); anything
+ * else leaves the SAVED index only — the store keeps it for Undo, which puts the
+ * element and its refusal back. Mirrors slideBridge's deck save. */
+async function judgeMissingModels(root: string, fig: NonNullable<ReturnType<typeof fileBridge>>, p: FigProject, missing: readonly { asset: Asset; rel: string }[]): Promise<void> {
+  for (const { asset, rel } of missing) for (const figure of p.figures) for (const element of figure.elements) {
+    if (elementSourceAssetIds(element).includes(asset.id)) throw new Error(`Cannot save: ${missingModelFileMessage(rel, element, figure)}`);
+  }
+  const decks = await (await import("./dependencies")).readDeckAssetUses(root, fig), dead = new Set<string>();
+  for (const { asset, rel } of missing) {
+    const uses = decks.byAsset[asset.id];
+    if (uses?.length) throw new Error(`Missing GLB asset ${asset.id}: ${rel} is missing and a saved deck still uses it (${[...new Set(uses.map(u => u.label))].join(", ")}); restore ${rel}, or delete that 3D model from the deck`);
+    // Incomplete inspection is never permission to drop a registration: an
+    // unreadable deck keeps it (the save still succeeds, nothing is lost).
+    if (decks.complete) dead.add(asset.id);
+  }
+  if (dead.size) p.assets = p.assets.filter(a => !dead.has(a.id));
 }
 
 // WS-5.3: last-written/loaded serialized text per canvas — the skip-unchanged
@@ -345,6 +375,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
   await fig.mkdir(joinPath(root, SUB, "captions"));
 
   const stagedAssets=new Map<string,GenerationWrite>();
+  const missingModels: { asset: Asset; rel: string }[] = [];
   // Asset bytes → fig/assets/<id>.<kind> (+ a semantic plot's sidecars next to it).
   // W8: only (re)write NEW (path-less) or CHANGED (dirty) assets — an unchanged
   // asset is already on disk, so a debounced save no longer rewrites MBs of bytes.
@@ -354,7 +385,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
       if (!a.path) throw new Error(`Cannot save GLB ${a.id}: native import has not completed`);
       const rel = storedAssetPath(`${SUB}/${a.path}`);
       const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
-      if (!await fig.exists(path)) throw new Error(`Cannot save: 3D model file ${rel} is missing. Put it back and save again, or remove its model with flux delete-element and reopen the project`);
+      if (!await fig.exists(path)) { missingModels.push({ asset: a, rel }); continue; }
       if (isAssetDirty(a.id)) for (const [path, text] of scene3dSidecarWrites(`${SUB}/assets`, a.id, { manifest: models[a.id], recipe: modelRecipes[a.id] })) stagedAssets.set(path, text);
       continue;
     }
@@ -385,6 +416,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
       stagedAssets.set(`${SUB}/assets/${a.id}.recipe.json`,null);
     }
   }
+  if (missingModels.length) await judgeMissingModels(root, fig, p, missingModels);
 
   // WS-5.6: the write set (canvases + captions + index) comes from the ONE
   // persistence core shared with flux-core; prev = the index we believe is on
@@ -497,6 +529,37 @@ export interface FigSource {
 let readCaptionRoot: string | null = null;
 let readCaptionBaselines = new Map<string, CaptionBaseline>();
 
+// Paper's read-only view re-reads fig/ after EVERY figures autosave (figRevision).
+// Asset bytes and .fluxplot.json sidecars dominate that read (a real project:
+// ~190 MB of text + 20 MB of svg/png per save, 0.8-1 s of renderer main thread
+// deserializing IPC replies, perf 2026-09-30) yet almost never change. Cache the
+// decoded value per absolute path, validated by a fresh stat on every read: any
+// write (atomic tmp+rename -> new inode; in-place -> mtime/ctime/size) re-reads.
+// No stat support (mem bridge) or a failed stat -> plain read, never a hit.
+type FigSourceFile = { key: string; value: Promise<unknown> };
+let figSourceCacheRoot: string | null = null;
+const figSourceCache = new Map<string, FigSourceFile>();
+async function readFigSourceFile<T>(fig: FileBridge, path: string, seen: Set<string>, read: () => Promise<T>): Promise<T> {
+  seen.add(path);
+  let key: string | null = null;
+  try {
+    const st = fig.stat ? await fig.stat(path) : null;
+    if (st) key = `${st.mtimeMs}:${st.ctimeMs ?? ""}:${st.size}:${st.ino ?? ""}`;
+  } catch { key = null; }
+  const hit = key === null ? undefined : figSourceCache.get(path);
+  // The entry holds the in-flight read too: overlapping loads (Paper's first
+  // load at open + the first save's re-read) share one read instead of two.
+  if (hit && hit.key === key) return hit.value as Promise<T>;
+  // A write between the stat and the read caches newer content under the older
+  // key; the next stat differs, so that only costs one extra read.
+  const value = read();
+  if (key === null) { figSourceCache.delete(path); return value; }
+  const entry: FigSourceFile = { key, value };
+  figSourceCache.set(path, entry);
+  value.catch(() => { if (figSourceCache.get(path) === entry) figSourceCache.delete(path); });
+  return value;
+}
+
 export async function readFigSource(root: string): Promise<FigSource> {
   if (readCaptionRoot !== root) { readCaptionRoot = root; readCaptionBaselines.clear(); }
   const empty: FigSource = {
@@ -565,6 +628,8 @@ export async function readFigSource(root: string): Promise<FigSource> {
   }
   if (captionState.conflicts.length) console.warn(captionConflictMessage(captionState.conflicts));
 
+  if (figSourceCacheRoot !== root) { figSourceCacheRoot = root; figSourceCache.clear(); }
+  const seenFiles = new Set<string>();
   const assetData: Record<string, string> = {};
   const assetManifests: Record<string, FluxPlotManifest> = {};
   const model3dManifests: Record<string, Scene3dManifest> = {};
@@ -583,9 +648,12 @@ export async function readFigSource(root: string): Promise<FigSource> {
         if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;
         continue;
       }
-      const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
-      assetData[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
-      if (a.kind === "png") captureSnipMeta(a.id, bytes);
+      const decoded = await readFigSourceFile(fig, joinPath(root, SUB, a.path), seenFiles, async () => {
+        const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path!)));
+        return { url: bytesToDataUrl(bytes, mimeFor(a.kind)), bytes: a.kind === "png" ? bytes : null };
+      });
+      assetData[a.id] = decoded.url;
+      if (decoded.bytes) captureSnipMeta(a.id, decoded.bytes);
     } catch (error) {
       if (a.kind === "glb") issues.push({ assetId: a.id, message: String(error) });
       /* Missing images retain the existing read-only behavior. */
@@ -596,12 +664,14 @@ export async function readFigSource(root: string): Promise<FigSource> {
       try {
         const mpath = joinPath(root, SUB, `assets/${a.id}.fluxplot.json`);
         if (await fig.exists(mpath))
-          assetManifests[a.id] = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
+          assetManifests[a.id] = await readFigSourceFile(fig, mpath, seenFiles, async () => JSON.parse(await fig.readText(mpath)) as FluxPlotManifest);
       } catch {
         /* unreadable sidecar — leaf-id overrides still apply */
       }
     }
   }
+
+  for (const path of figSourceCache.keys()) if (!seenFiles.has(path)) figSourceCache.delete(path);
 
   // Prefer the per-figure caption file (F7 single-source); fall back to the
   // cached index caption for older projects without caption files.

@@ -27,7 +27,7 @@
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
-  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES } from "../../../../lib/slide/targets";
+  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../../lib/slide/autobuild";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
@@ -165,7 +165,7 @@
     if (!curTrack || curFamily !== "transform") return "";
     const st = (curTrack.to?.state ?? {}) as Record<string, unknown>;
     const kind = typeof st.type === "string" ? st.type : null;
-    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}`;
+    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}${handoff.method && handoff.method !== "shatter" ? ` · ${handoff.method}` : ""}`;
     if (curTrack.to?.become?.mode === "consume") {
       const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
       return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
@@ -247,6 +247,15 @@
     else withSelectedTracks((t, _resolved, d, sid) => {
       if (t.id) setTrack(d, sid, t.id, { stagger: p }, manifestFor);
     });
+  }
+  /** The select's spelling of a stagger ordering key and back (the data keys are objects). */
+  function staggerByValue(by: Stagger["by"] | undefined): string {
+    if (!by) return "index";
+    if (typeof by === "string") return by === "data" ? "value" : by;
+    return by.key === "index" ? "data-index" : by.key;
+  }
+  function staggerByFrom(value: string): Stagger["by"] {
+    return value === "value" ? { key: "value" } : value === "count" ? { key: "count" } : value === "data-index" ? { key: "index" } : value as "index" | "x" | "y";
   }
   function staggerMode(total: boolean) {
     editFields((t, resolved) => {
@@ -354,7 +363,7 @@
     refreshEndpointDisplay();
   }
   const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id], modelManifest: id => $scene3dManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
-  function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode">>) {
+  function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode" | "method">>) {
     try {
       withCurTrack((t, d) => {
         const spec = t.to?.become, s = d.slides.find(s => s.id === slide.id);
@@ -446,6 +455,7 @@
   });
   const modelContentPair = $derived.by(()=>{
     if(!curTrack)return null;const a=transformPreState(slide,curTrack.target,curBeatIndex);
+    if(handoff?.ref.members)return null; // a set never pairs one model with another
     const b=handoff?transformPreState(slide,handoff.ref.element,curBeatIndex):a?transformEndState(a,curTrack):undefined;
     return a?.type==="model3d"&&(handoff||curTrack.to?.assetId)?modelPair(a,b??undefined,{modelAsset:id=>$project.assets.find(asset=>asset.id===id)}):null;
   });
@@ -576,10 +586,19 @@
       <div class="dest" aria-label="Transform destination">
         <div class="dl">Destination</div>
         <div class="dv">{destinationLabel}{#if modelContentPair} <span data-model-content-badge title={modelPairIssue(modelContentPair)??"Same mesh structure — the shape morphs smoothly."}>·&nbsp;{modelContentPair.ok?"Vertex morph":"Crossfade"}</span>{/if}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
+        {#if handoff?.ref.members}
+          <!-- a destination SET: one chip per member, named as its own lane would be -->
+          <div class="dmembers" aria-label="Destination members">{#each handoff.ref.members as member, i (i)}<span class="dmember">{refLabel(member, slide, manifestFor, new Map(), 2)}</span>{/each}</div>
+        {/if}
         {#if handoff}
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
               {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
+            </select>
+          </label>
+          <label class="f" title="Transform method: what a filled shape's interior does while its outline splits into several pieces, or several pieces merge into it">Method ▾
+            <select aria-label="Hand-off method" value={handoff.method ?? "shatter"} onchange={e => changeHandoff({ method: e.currentTarget.value as BecomeSpec["method"] })}>
+              {#each TRANSFORM_METHODS as m (m.id)}<option value={m.id} title={m.hint}>{m.label}</option>{/each}
             </select>
           </label>
           <div class="f">Reveal
@@ -687,8 +706,11 @@
       {@render overrideRow("stagger")}
       {#if curTrack.stagger?.totalMs !== undefined || curTrack.stagger?.perMs}
         <label class="f">by
-          <select aria-label="Stagger order" value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
+          <select aria-label="Stagger order" value={staggerByValue(curTrack.stagger?.by)} onchange={(e) => patchStagger({ by: staggerByFrom(e.currentTarget.value) })}>
             <option value="index">order</option><option value="x">x →</option><option value="y">y ↑</option>
+            <option value="value" title="each part's data value (a hexagon's mean, a cell's value, a bar's height): low → high">value</option>
+            <option value="count" title="observations per hexagon: few → many">count</option>
+            <option value="data-index" title="the generator's own index (data-index)">data index</option>
           </select>
         </label>
         <label class="f">from
@@ -909,6 +931,12 @@
   .dest .dv { font-size: 12px; color: var(--c-tx); line-height: 1.4; }
   .dest .warn { color: var(--c-warning); }
   .dacts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .dmembers { display: flex; flex-wrap: wrap; gap: 4px; }
+  .dmember {
+    display: inline-flex; align-items: center; height: 18px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font: 11px var(--font-mono); color: var(--c-tx-2);
+    border: 1px solid var(--c-line); border-radius: var(--r-ui); padding: 0 5px;
+  }
   .dchip {
     display: inline-flex; align-items: center; gap: 2px; height: 18px;
     font: 11px var(--font-mono); color: var(--c-tx-2);

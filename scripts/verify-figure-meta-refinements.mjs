@@ -8,7 +8,8 @@ const h=harness('verify-figure-meta-refinements');
 const {browser,page}=await launch({width:1500,height:980});
 const mod=process.platform==='darwin'?'Meta':'Control';
 const click=async(p,s)=>{const b=await p.$eval(s,e=>{e.scrollIntoView({block:'nearest'});const b=e.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2}});await p.mouse.click(b.x,b.y)};
-const fill=async(p,s,value)=>{await click(p,s);await p.keyboard.down(mod);await p.keyboard.press('KeyA');await p.keyboard.up(mod);await p.keyboard.type(value);await p.keyboard.press('Tab')};
+// macOS headless CDP needs the native editing command alongside Command+A.
+const fill=async(p,s,value)=>{await click(p,s);await p.keyboard.down(mod);await p.keyboard.press('KeyA', process.platform === 'darwin' ? {commands:['selectAll']} : {});await p.keyboard.up(mod);await p.keyboard.type(value);await p.keyboard.press('Tab')};
 const open=async()=>{await page.keyboard.down('Alt');await page.keyboard.press('KeyM');await page.keyboard.up('Alt');await page.waitForSelector('.caption-block textarea')};
 const fit=async p=>{await p.waitForFunction(()=>{const v=document.querySelector('.preview-viewport'),s=document.querySelector('.preview-sheet');if(!v||!s||v.dataset.fit!=='true')return false;const a=v.getBoundingClientRect(),b=s.getBoundingClientRect();return b.width>10&&b.height>10&&b.left>=a.left-1&&b.right<=a.right+1&&b.top>=a.top-1&&b.bottom<=a.bottom+1&&v.scrollHeight<=v.clientHeight+2&&v.scrollWidth<=v.clientWidth+2;});};
 try{

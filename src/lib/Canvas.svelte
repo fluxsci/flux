@@ -10,6 +10,7 @@
   import { editSession } from "./interact/editSession";
   const textEdits = editSession();
   import { transientSceneTransforms } from "./interact/sceneTransforms";
+  import { resizePreviewTransform, transientResizeKind } from "./interact/resizePreview";
   const sceneTransforms = transientSceneTransforms();
   import { frameHandleRect } from "./interact/frameResize";
   import { figureFramePreview } from "./store";
@@ -52,8 +53,10 @@
   import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
   import { restorePlotClip, partDomId } from "./plot/parse";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
-  import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
+  import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, coarseScale, proxyCovers, type ZoomSnapshot, type ProxyRaster } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
+  import { viewAs, viewAsFilter } from "./color/cvd";
+  import { partReadout, readoutText, nodeAttrs } from "./plot/readout";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
@@ -90,6 +93,7 @@
   import { plotManifests, plotGen } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
   import ElementView from "./Element.svelte";
+  import ElementSlot from "./ElementSlot.svelte";
 
   // ===========================================================================
   // Rendering architecture (performance-critical):
@@ -287,7 +291,7 @@
   // Deep-select affordance (screen px): with ctrl/meta held at rest over a
   // plot, the part a ctrl-click would drill to is outlined (Figma's
   // deep-target hover). Cleared on modifier release / gesture start / leave.
-  let partHover: { x: number; y: number; w: number; h: number } | null = null;
+  let partHover: { x: number; y: number; w: number; h: number; text?: string } | null = null;
   let frameDraft: Rect | null = null;
   let gNb: Rect | null = null;
   let liveBox: Rect | null = null;
@@ -513,7 +517,11 @@
     const covered = vx >= cullRect.x && vy >= cullRect.y &&
       vx + hostW / viewZ <= cullRect.x + cullRect.w && vy + hostH / viewZ <= cullRect.y + cullRect.h;
     if ((!sceneHot && !zoomUnsettled && key !== cullKey) || !covered) {
-      if (proxyActive) endZoomProxy();
+      // No proxy abort here: a re-cull that changes the mounted set bumps
+      // mountedGen / visibleFigures, i.e. the snapshot's sceneKey, and the
+      // key check below ends the proxy in this same flush. A re-cull that
+      // mounts nothing new (every zoom-out past the cull buffer on a small
+      // canvas) used to throw a valid proxy away after ~8 ticks (2026-09-30).
       cullKey = key;
       const cz = covered ? z : viewZ;
       const rect = (m: number): Rect => ({
@@ -714,6 +722,7 @@
       sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS); // still busy — re-check
     } else {
       sceneHot = false; // idle demotion → full-quality re-raster + tile release
+      gestureCooledAt = performance.now(); // a pointer/wheel gesture just ended: its snapshot may follow quickly
       sceneDriveRef?.cool(); // same frame as the demotion: the plain style holds the value
     }
   }
@@ -802,6 +811,7 @@
   let proxyActive = false;
   let snapScheduled = false;
   let snapGen = 0; // bumps on every scheduling — a stale async snapshot is dropped
+  let snapSerial = 0; // identifies a landed snapshot (data-snap on the proxy; gates compare it)
   // Everything that changes what the MOUNTED scene looks like. Not the viewport,
   // not the baked zoom: the snapshot is drawn in world units at its own raster
   // scale, so pans and folds never invalidate it (only content does).
@@ -835,14 +845,26 @@
   // 1k nodes) plus Blink's parse of the image (~7 ms per 1k nodes). So it waits
   // for the scene to be QUIET (no content change for SNAPSHOT_QUIET_MS — a
   // cold figure's plots arrive one by one and must not trigger one each; a run
-  // of nudges must not host one between two keys), runs in a real idle slot (no
-  // forced timeout), and is skipped altogether above SNAPSHOT_MAX_NODES — that
+  // of nudges must not host one between two keys), runs in an idle slot (a short
+  // timeout only AFTER the quiet interval), and is skipped altogether above SNAPSHOT_MAX_NODES — that
   // scene zooms live, as before. verify-scale-lazy-assets pins that a cold settle
   // stays free of snapshot tasks; the native figure gate pins key-to-paint.
   // Quiet must outlast a working rhythm (nudge, nudge, nudge…): a snapshot that
   // lands between two edits is a 40–150 ms key-to-paint outlier (the production
   // gate caught exactly that at 600 ms). A zoom that starts sooner runs live.
   const SNAPSHOT_QUIET_MS = 1500;
+  // …except right after a pointer/wheel gesture ends (drag commit, pan, zoom
+  // fold): the owner zooms right after moving things, and a gesture is not a
+  // rhythm of edits the way keyboard nudges are. Measured 2026-09-30 (zoom-path
+  // report): drag → 500 ms → zoom went 0/24 → 24/24 proxied ticks; a 300 ms
+  // quiet for ALL edits instead put a snapshot after every nudge (~70 ms of
+  // main thread each) and raised nudge key-to-paint p50 by up to 30 ms.
+  const SNAPSHOT_QUIET_AFTER_GESTURE_MS = 300;
+  // When the last gesture's scene cooled. Only a scheduling in the same moment
+  // (the cool itself re-runs the scheduling block) gets the short quiet; a
+  // content change later (a nudge, an agent edit) waits the full interval.
+  let gestureCooledAt = -Infinity;
+  const SNAPSHOT_IDLE_TIMEOUT_MS = 300; // after the quiet interval, not instead of it
   // ~7 ms of parse per 1k nodes: 20k ≈ 140 ms at idle is the most this may cost.
   const SNAPSHOT_MAX_NODES = 20_000;
   let snapQuietTimer: ReturnType<typeof setTimeout> | null = null;
@@ -865,17 +887,23 @@
     snapScheduled = false;
   }
   function scheduleSnapshot() {
+    const quiet = performance.now() - gestureCooledAt < 50 ? SNAPSHOT_QUIET_AFTER_GESTURE_MS : SNAPSHOT_QUIET_MS;
     cancelSnapshot();
     snapQuietTimer = setTimeout(() => {
       snapQuietTimer = null;
       if (snapScheduled) return;
       snapScheduled = true;
       const gen = snapGen;
-      const ric = (globalThis as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+      const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
       const run = () => { snapIdle = null; void takeSnapshot(gen); };
-      if (ric) snapIdle = ric(run);
+      // The quiet interval already proved the user idle; the timeout only covers
+      // Chromium postponing idle periods on a visible window that renders no
+      // frames (seen on Wayland and X11 maximized, 2026-09-30): without it the
+      // capture ran when the NEXT gesture woke the frame loop, inside it, and
+      // was thrown away — the proxy was never ready for that gesture.
+      if (ric) snapIdle = ric(run, { timeout: SNAPSHOT_IDLE_TIMEOUT_MS });
       else snapIdle = window.setTimeout(run, 250);
-    }, SNAPSHOT_QUIET_MS);
+    }, quiet);
   }
   async function takeSnapshot(gen: number) {
     snapScheduled = false;
@@ -903,9 +931,14 @@
     if (!box) return; // the scene is out of view — nothing to proxy
     const S = snapshotScale(box, renderZoom, Math.min(2, window.devicePixelRatio || 1));
     if (S === null) return; // a box no image could hold — the gesture runs live
+    const dprS = Math.min(2, window.devicePixelRatio || 1);
+    // ONE serialization and ONE parse of the whole mounted scene; the sharp
+    // region is drawn as a crop of it and the coarse backing
+    // (the whole scene, ≤1 MP) from all of it — the parse is the cost, not the draw.
+    const Sc = coarseScale(scene, box, S, dprS);
     let ser: ReturnType<typeof serializeSceneSnapshot>;
     try {
-      ser = serializeSceneSnapshot(sceneSvgEl, box, S);
+      ser = serializeSceneSnapshot(sceneSvgEl, Sc === null ? box : scene, S);
     } catch {
       return; // a scene we cannot serialize simply has no proxy
     }
@@ -916,70 +949,116 @@
     // <img> as vector content every time its area repaints, and the resting proxy
     // covers the scene — that cost ~20 ms per nudge at 1,600 elements even when
     // the image sat on its own composited layer (2026-09-16). So the image is
-    // rasterized ONCE here, at device resolution, and the <img> shows a PNG whose
-    // tiles are a plain blit. PNG encode and decode run off the main thread.
+    // rasterized ONCE here, at device resolution, into a canvas that is shown
+    // as-is: its texture is a plain blit.
     const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     const svgImg = new Image();
     svgImg.src = svgUrl;
-    let pngUrl: string | undefined;
+    let sharpCanvas: HTMLCanvasElement;
+    let coarse: ProxyRaster | null = null;
+    const sw = Math.max(1, Math.floor(box.bw * S));
+    const sh = Math.max(1, Math.floor(box.bh * S));
     try {
       await svgImg.decode();
       if (snapshotDestroyed || gen !== snapGen || key !== sceneKey || sceneHot) { URL.revokeObjectURL(svgUrl); return; }
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const cw = Math.max(1, Math.floor(ser.w * dpr));
-      const ch = Math.max(1, Math.floor(ser.h * dpr));
-      const canvas = document.createElement("canvas");
-      canvas.width = cw;
-      canvas.height = ch;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("no 2d context");
-      ctx.drawImage(svgImg, 0, 0, cw, ch);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-      if (!blob) throw new Error("toBlob failed");
-      pngUrl = URL.createObjectURL(blob);
-      const png = new Image();
-      png.src = pngUrl;
-      await png.decode();
+      const dpr = dprS;
+      // Intrinsic px of the serialized image per world unit (floored sizes, exact per axis).
+      const kx = ser.w / (Sc === null ? box.bw : scene.bw);
+      const ky = ser.h / (Sc === null ? box.bh : scene.bh);
+      // The canvas IS the proxy bitmap: no toBlob/PNG round trip. toBlob forced
+      // a synchronous GPU flush + readback of the SVG raster on the main thread
+      // (24 ms for a 0.2 MP canvas, 81 ms for 1 MP here, 2026-09-30); a hosted
+      // accelerated canvas is rasterized by the GPU process and composited as a
+      // plain texture — still a bitmap, never the SVG-image redraw trap.
+      const raster = (sx: number, sy: number, sW: number, sH: number, w: number, h: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.floor(w * dpr));
+        canvas.height = Math.max(1, Math.floor(h * dpr));
+        canvas.style.cssText = `display:block;width:${w}px;height:${h}px`; // block: no line-box baseline offset
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("no 2d context");
+        // A GPU reset loses an accelerated canvas's pixels: never let a blank
+        // bitmap stand in for the scene — drop the snapshot (it re-captures once quiet).
+        canvas.addEventListener("contextlost", () => {
+          if (zoomSnap && (zoomSnap.canvas === canvas || zoomSnap.coarse?.canvas === canvas)) {
+            if (proxyActive) endZoomProxy();
+            zoomSnap = null;
+          }
+        });
+        // Crop by placing the WHOLE image under the canvas clip: the 9-argument
+        // source-rect drawImage is not needed and is no cheaper.
+        const fx = canvas.width / sW, fy = canvas.height / sH;
+        ctx.drawImage(svgImg, -sx * fx, -sy * fy, ser.w * fx, ser.h * fy);
+        return canvas;
+      };
+      sharpCanvas = Sc === null
+        ? raster(0, 0, ser.w, ser.h, ser.w, ser.h)
+        : raster((box.bx - scene.bx) * kx, (box.by - scene.by) * ky, box.bw * kx, box.bh * ky, sw, sh);
+      if (Sc !== null) {
+        const cW = Math.max(1, Math.floor(scene.bw * Sc));
+        const cH = Math.max(1, Math.floor(scene.bh * Sc));
+        coarse = { canvas: raster(0, 0, ser.w, ser.h, cW, cH), bx: scene.bx, by: scene.by, bw: scene.bw, bh: scene.bh, w: cW, h: cH };
+      }
     } catch {
-      if (pngUrl) URL.revokeObjectURL(pngUrl);
       URL.revokeObjectURL(svgUrl);
       return;
     }
     URL.revokeObjectURL(svgUrl);
     if (snapshotDestroyed || gen !== snapGen || key !== sceneKey || proxyActive || !paneActive) {
-      URL.revokeObjectURL(pngUrl);
+      releaseCanvas(sharpCanvas);
+      if (coarse) releaseCanvas(coarse.canvas);
       return;
     }
     const prev = zoomSnap;
-    zoomSnap = { sceneKey: key, url: pngUrl, bx: box.bx, by: box.by, bw: box.bw, bh: box.bh, S, captureZoom: v.zoom, w: ser.w, h: ser.h };
-    if (prev) URL.revokeObjectURL(prev.url);
+    zoomSnap = { sceneKey: key, gen: ++snapSerial, canvas: sharpCanvas, bx: box.bx, by: box.by, bw: box.bw, bh: box.bh, S, captureZoom: v.zoom, w: Sc === null ? ser.w : sw, h: Sc === null ? ser.h : sh, coarse };
+    if (prev) revokeSnapshot(prev);
+  }
+  /** Free a proxy canvas's backing store now rather than at GC. */
+  function releaseCanvas(c: HTMLCanvasElement) {
+    c.width = 0;
+    c.height = 0;
+  }
+  function revokeSnapshot(z: ZoomSnapshot) {
+    releaseCanvas(z.canvas);
+    if (z.coarse) releaseCanvas(z.coarse.canvas);
+  }
+  /** Host a proxy canvas inside its positioned wrapper (swapped when the snapshot is retaken). */
+  function hostCanvas(node: HTMLElement, c: HTMLCanvasElement) {
+    node.replaceChildren(c);
+    return { update(n: HTMLCanvasElement) { if (node.firstChild !== n) node.replaceChildren(n); } };
   }
   function beginZoomProxy() {
     if (!zoomSnap || proxyActive || Object.keys($modelPreviews).length) return;
     if (zoomSnap.sceneKey !== sceneKey || !sceneBox ||
-      !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH })) return;
+      !proxyCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH })) return;
     proxyActive = true;
     // Place it for THIS viewport before it shows (its rest transform is stale by design), then promote.
     proxyDriveRef?.set(zoomProxyTransform(zoomSnap, $viewport.panX, $viewport.panY, $viewport.zoom));
     proxyDriveRef?.hot();
+    if (zoomSnap.coarse) {
+      coarseDriveRef?.set(zoomProxyTransform(zoomSnap.coarse, $viewport.panX, $viewport.panY, $viewport.zoom));
+      coarseDriveRef?.hot();
+    }
   }
   // Bounds/content may change DURING a burst too (zoom out, pan, Undo, a
   // source refresh, slide navigation). Never hide fresh content behind a
   // stale or cropped image. Abort in the same flush as the new viewport.
   $: if (proxyActive && Object.keys($modelPreviews).length) endZoomProxy();
   $: if (proxyActive && zoomSnap && (!paneActive || zoomSnap.sceneKey !== sceneKey ||
-    !sceneBox || !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH }))) endZoomProxy();
+    !sceneBox || !proxyCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH }))) endZoomProxy();
   function endZoomProxy() {
     if (!proxyActive) return;
     // Demote the scene BEFORE the fold's repaint: a non-animating layer waits
     // for its tiles, so the frame that brings the live scene back is complete.
     coolLiveScene();
     proxyDriveRef?.cool();
+    coarseDriveRef?.cool();
     proxyActive = false;
   }
   function coolLiveScene() {
     sceneDriveRef?.cool();
     sceneHot = false;
+    gestureCooledAt = performance.now();
     if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
     sceneCoolTimer = null;
   }
@@ -990,7 +1069,25 @@
     scenePending = null;
   }
   $: proxyTransform = zoomSnap ? zoomProxyTransform(zoomSnap, $viewport.panX, $viewport.panY, $viewport.zoom) : "";
+  $: coarseTransform = zoomSnap?.coarse ? zoomProxyTransform(zoomSnap.coarse, $viewport.panX, $viewport.panY, $viewport.zoom) : "";
   let proxyDriveRef: TransformDrive | null = null;
+  let coarseDriveRef: TransformDrive | null = null;
+  // The coarse backing rides the same live-only drive as the sharp image.
+  function coarseDrive(node: HTMLElement, transform: string) {
+    const d = createTransformDrive(node);
+    d.set(transform);
+    coarseDriveRef = d;
+    if (proxyActive) d.hot();
+    return {
+      update(t: string) {
+        if (proxyActive) d.set(t);
+      },
+      destroy() {
+        d.destroy();
+        if (coarseDriveRef === d) coarseDriveRef = null;
+      },
+    };
+  }
   function proxyDrive(node: HTMLElement, transform: string) {
     const d = createTransformDrive(node);
     d.set(transform);
@@ -1012,7 +1109,7 @@
   onDestroy(() => {
     snapshotDestroyed = true;
     cancelSnapshot();
-    if (zoomSnap) URL.revokeObjectURL(zoomSnap.url);
+    if (zoomSnap) revokeSnapshot(zoomSnap);
   });
   $: if ($viewport.zoom !== renderZoom) scheduleZoomFold();
   // Gesture starts promote in the same event turn their pointerdown runs
@@ -1925,11 +2022,11 @@
     // parts; alt keeps duplicate-drag. SCAFFOLD parts (figure/plot-area/background
     // patches/axis containers) never drill — a ctrl-click on a plot's
     // background selects the whole plot, like Figma's deep-click on a frame.
-    const deep = (e.ctrlKey || e.metaKey) && (!e.shiftKey || presentation?.picking) && !e.altKey;
+    const deep = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
     if (el.type === "plot") {
       const ps = $partSelection;
       const plainSame =
-        !presentation?.picking && !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
+        !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
       let pid: string | null = null;
       if (deep || plainSame) {
         pid = partAtPoint(el, e);
@@ -1943,7 +2040,6 @@
         // The drill makes the plot ELEMENT the selection (deep pierces any
         // group; a continuation click never widens an existing selection).
         if (deep || !$selection.has(el.id)) selection.set(new Set([el.id]));
-        if (presentation?.picking) return;
         // Select tool → arm the part move; scale tool keeps whole-plot
         // semantics (falls through to a normal move of the plot).
         if ($activeTool === "select" && beginPartMove(e, fig, el.id, pid)) return;
@@ -1962,7 +2058,6 @@
     // Deep-click on a non-plot (or a plot's scaffold) selects the element
     // ITSELF — no group-unit expansion (Figma deep select).
     const grp = deep ? new Set([el.id]) : expandGroups($project, new Set([el.id]), scope);
-    if (presentation?.picking) { selection.set(grp); return; }
     // Shift has two meanings on an element: shift-CLICK toggles its selection,
     // but shift-DRAG constrains the move to one axis. We can't tell which at
     // pointer-down, so for an already-selected element we DEFER the toggle to
@@ -2041,19 +2136,22 @@
 
   // Screen-px box of the deep-select target under the pointer (the hovered
   // plot's REAL part), or null when there's nothing a ctrl-click would drill.
-  function partHoverBox(ev: PointerEvent): { x: number; y: number; w: number; h: number } | null {
+  function partHoverBox(ev: PointerEvent): { x: number; y: number; w: number; h: number; text?: string } | null {
     const hid = $hoverId;
     if (!hid || !hostEl) return null;
     const f = findElement($project, hid);
     if (!f || f.element.type !== "plot" || effLocked(f.element)) return null;
     const pid = partAtPoint(f.element, ev);
-    if (!pid || isScaffoldPart($plotManifests[f.element.assetId], pid)) return null;
+    const manifest = $plotManifests[f.element.assetId];
+    if (!pid || isScaffoldPart(manifest, pid)) return null;
     const node = document.getElementById(partDomId(f.element.id, pid));
     if (!node) return null;
     const r = node.getBoundingClientRect();
     const h = hostEl.getBoundingClientRect();
     const O = 2;
-    return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
+    // plan F6: say what the part IS in data terms (a point's x/y, a bar's height, a hexagon's count …)
+    const text = readoutText(partReadout(manifest, pid, nodeAttrs(node)));
+    return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O, ...(text ? { text } : {}) };
   }
 
   // Arm a part-move gesture on the live mounted node. Returns false when the
@@ -2389,18 +2487,22 @@
       dragging = true;
       // F5 flicker-free move: a move applies a transient GPU transform to the live
       // scene groups (no hide, no re-decode, no overlay copy), so SVG/plot/image
-      // elements never blank. Only resize freezes the originals + uses the overlay
-      // (cheap geometry). The data model stays frozen until pointer-up either way.
+      // elements never blank. Resize freezes the originals + uses the overlay copy
+      // (cheap geometry) EXCEPT for plots, which stay live under a transient transform
+      // (resizeTransforms: re-mounting a plot copy per move was ~120 ms). Crop keeps
+      // its ghost overlay for every kind. The data model stays frozen until pointer-up.
       gestureHiddenIds =
-        gesture?.kind === "resize" ? new Set(gestureEls.map((el) => el.id)) : new Set();
+        gesture?.kind === "resize"
+          ? new Set(gestureEls.filter((el) => gesture?.kind === "resize" && (gesture.crop || !transientResizeKind(el))).map((el) => el.id))
+          : new Set();
     }
   }
 
   function onPointerMove(e: PointerEvent) {
-    // Hover is interaction too: a pending SVG snapshot can parse/raster for
-    // tens of milliseconds. Keep that work behind the same quiet interval,
-    // without promoting the live scene or invalidating an existing bitmap.
-    if (snapWanted && !Object.keys($modelPreviews).length && paneActive && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
+    // Hover does NOT postpone the zoom snapshot (2026-09-30): the quiet timer
+    // restarts only on content changes and gestures. Restarting it on every
+    // move meant anyone who moved the mouse and then zoomed within the quiet
+    // interval — i.e. every quick zoom — got the live path.
     // Ruler-guide drag (modal — no Gesture).
     if (guideDrag) {
       onGuideDragMove(e);
@@ -2444,7 +2546,8 @@
     if (
       !gesture &&
       (e.ctrlKey || e.metaKey) &&
-      (!e.shiftKey || presentation?.picking) &&
+      !e.shiftKey &&
+      !presentation?.picking &&
       !e.altKey &&
       ($activeTool === "select" || $activeTool === "scale") &&
       !editPathId
@@ -3270,7 +3373,8 @@
       editingId ||
       editPathId ||
       ($activeTool !== "select" && $activeTool !== "scale") ||
-      $selection.has($hoverId)
+      $selection.has($hoverId) ||
+      presentation?.picking // an embedded picker draws its own hover
     )
       return null;
     const found = findElement($project, $hoverId);
@@ -3325,9 +3429,40 @@
           h: displayBox.h * $viewport.zoom,
         }
       : null;
-  $: handlesScreen = selScreen
+  // Move gestures: the selection chrome (box, handles, rotate stem) is drawn at
+  // the gesture-start box and rides ONE rigid translate through the compositor
+  // drive, instead of rewriting its geometry per pointermove. Changing overlay
+  // geometry re-runs Chromium's layerization (PaintArtifactCompositor::Update,
+  // O(paint chunks)) every frame, just like an inline transform write
+  // (2026-09-30, notes/perf_figure_responsiveness_2026-09-30/report-drag-layer.md).
+  // Exact: during a move displayBox === liveBox === gesture.ob + (gDX, gDY).
+  $: chromeMove =
+    dragging && gesture?.kind === "move" && liveBox && af && gesture.figId === af.id
+      ? gesture
+      : null;
+  $: selChrome =
+    chromeMove && af
+      ? {
+          x: $viewport.panX + (af.x + chromeMove.ob.x) * $viewport.zoom,
+          y: $viewport.panY + (af.y + chromeMove.ob.y) * $viewport.zoom,
+          w: chromeMove.ob.w * $viewport.zoom,
+          h: chromeMove.ob.h * $viewport.zoom,
+        }
+      : selScreen;
+  $: selChromeTransform = chromeMove ? `translate(${gDX * $viewport.zoom}px, ${gDY * $viewport.zoom}px)` : "";
+  function chromeDrive(node: SVGGElement, t: string) {
+    const d = createTransformDrive(node);
+    const apply = (next: string) => {
+      d.set(next);
+      if (next) d.hot();
+      else d.cool();
+    };
+    apply(t);
+    return { update: apply, destroy: () => d.destroy() };
+  }
+  $: handlesScreen = selChrome
     ? HANDLES.map((h) => {
-        const [hx, hy] = handlePos(h, selScreen);
+        const [hx, hy] = handlePos(h, selChrome);
         return { h, x: hx - HS / 2, y: hy - HS / 2, cursor: cursorFor[h] };
       })
     : [];
@@ -3533,7 +3668,7 @@
   // to the figure edges. Pure overlay; suppressed mid-gesture so Alt-drag-dup and
   // Alt-disable-snap keep working.
   $: measure = (() => {
-    if (!altDown || !af || gesture || dragging || editPathId || $activeTool !== "select") return null;
+    if (!altDown || !af || gesture || dragging || editPathId || $activeTool !== "select" || presentation?.picking) return null;
     const sel = af.elements.filter((e) => $selection.has(e.id) && !absentPresentationIds.has(e.id));
     if (!sel.length) return null;
     const S = selectionBBox(sel);
@@ -3770,6 +3905,20 @@
     return gestureEls.map(original=>{const el={...original};remapResize(el,original,g,gNb!);return el;});
   })();
   $: if (dragging && gesture?.kind==="resize" && !gesture.crop && resizedEls.length) liveBox=selectionBBox(resizedEls);
+  // Resize preview split (perf 2026-09-30): plots follow the box by a transient transform on their
+  // LIVE scene group (no re-mount per move; one render at the release commit); every other kind
+  // keeps the overlay copy. resizedEls[i] is the remap of gestureEls[i].
+  $: overlayResizedEls = resizedEls.filter((el) => !transientResizeKind(el));
+  $: resizeTransforms = (() => {
+    if (!dragging || gesture?.kind !== "resize" || gesture.crop || !resizedEls.length) return null;
+    const m = new Map<string, string>();
+    resizedEls.forEach((el, i) => {
+      if (!transientResizeKind(el)) return;
+      const t = resizePreviewTransform(gestureEls[i], el);
+      if (t) m.set(el.id, t);
+    });
+    return m;
+  })();
 
   // Crop overlay (figure-v1 P5): a GHOST of the full content at 0.35 opacity +
   // a full-opacity copy clipped to the live window (= the cropped preview —
@@ -3802,12 +3951,10 @@
       opacity: 1,
     };
     delete (ghost as ImageElement | SemanticPlotElement).crop;
-    const live: Element = { ...ghost, id: `${o.id}-croplive` };
     const ccx = cropRes.x + cropRes.width / 2;
     const ccy = cropRes.y + cropRes.height / 2;
     return {
       ghost,
-      live,
       wrap: o.rotation ? `rotate(${o.rotation} ${ccx} ${ccy})` : null,
       clip: { x: cropRes.x, y: cropRes.y, w: cropRes.width, h: cropRes.height },
     };
@@ -3836,7 +3983,7 @@
       ? `translate(${gesture.cx}px, ${gesture.cy}px) rotate(${gRotDeg}deg) translate(${-gesture.cx}px, ${-gesture.cy}px)`
       : "";
 
-  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform);
+  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform, resizeTransforms);
 
   // F8 frame move: the figure being moved + its transient GPU transform, plus
   // smart-guide lines (world-absolute, drawn full-viewport in the overlay).
@@ -3909,7 +4056,7 @@
     style:will-change={sceneHot && !zoomUnsettled && !proxyActive ? "transform" : null}
     style:opacity={proxyActive ? 0 : null}
   >
-    <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg" bind:this={sceneSvgEl}>
+    <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg" bind:this={sceneSvgEl} style:filter={viewAsFilter($viewAs)}>
       <g transform={`scale(${renderZoom})`}>
         {#each visibleFigures as fig (fig.id)}
           {@const bounds = gesture?.kind === "figresize" && gesture.figId === fig.id && frameDraft
@@ -3982,7 +4129,7 @@
                   {#if sceneOverride && sceneOverride.id === el.id}
                     <ElementView element={sceneOverride.el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {:else}
-                    <ElementView element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
+                    <ElementSlot element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {/if}
                 </g>
               {/each}
@@ -4012,17 +4159,26 @@
   <!-- ZOOM PROXY: an invisible cached raster at rest; it carries a
        zoom burst on the compositor while the live scene above is frozen and
        hidden (rationale in the script). -->
+  {#if zoomSnap?.coarse}
+    <div
+      class="zoom-proxy-coarse"
+      class:live={proxyActive}
+      style:width={`${zoomSnap.coarse.w}px`}
+      style:height={`${zoomSnap.coarse.h}px`}
+      use:hostCanvas={zoomSnap.coarse.canvas}
+      use:coarseDrive={coarseTransform}
+    ></div>
+  {/if}
   {#if zoomSnap}
-    <img
+    <div
       class="zoom-proxy"
       class:live={proxyActive}
-      src={zoomSnap.url}
-      alt=""
-      draggable="false"
+      data-snap={zoomSnap.gen}
       style:width={`${zoomSnap.w}px`}
       style:height={`${zoomSnap.h}px`}
+      use:hostCanvas={zoomSnap.canvas}
       use:proxyDrive={proxyTransform}
-    />
+    ></div>
   {/if}
   </div>
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
@@ -4033,7 +4189,7 @@
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
-        {#each resizedEls as el (el.id)}
+        {#each overlayResizedEls as el (el.id)}
           <ElementView element={el} />
         {/each}
       </g>
@@ -4051,8 +4207,10 @@
               height={cropOverlay.clip.h}
             />
           </clipPath>
-          <g opacity="0.35"><ElementView element={cropOverlay.ghost} /></g>
-          <g clip-path="url(#flux-crop-live)"><ElementView element={cropOverlay.live} /></g>
+          <g opacity="0.35"><g id="flux-crop-ghost"><ElementView element={cropOverlay.ghost} /></g></g>
+          <!-- the live window is the SAME content: a native <use> clone of the ghost (full opacity,
+               clipped) instead of a second ElementView — a second plot mount was ~120 ms at crop start -->
+          <use href="#flux-crop-ghost" clip-path="url(#flux-crop-live)" />
           <rect
             class="crop-outline"
             x={cropOverlay.clip.x}
@@ -4178,27 +4336,28 @@
         r="5"
         on:pointerdown={(e) => onLineEndDown(e, 2)}
       />
-    {:else if selScreen && !editingInfo && !editPathId}
-      <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
+    {:else if selChrome && !editingInfo && !editPathId}
+      <g class="sel-chrome" use:chromeDrive={selChromeTransform}>
+      <rect class="sel-box" x={selChrome.x} y={selChrome.y} width={selChrome.w} height={selChrome.h} fill="none" />
       {#if !selLocked}
         <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
         <line
           class="rot-stem"
-          x1={selScreen.x + selScreen.w / 2}
-          y1={selScreen.y}
-          x2={selScreen.x + selScreen.w / 2}
-          y2={selScreen.y - 15}
+          x1={selChrome.x + selChrome.w / 2}
+          y1={selChrome.y}
+          x2={selChrome.x + selChrome.w / 2}
+          y2={selChrome.y - 15}
         />
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <circle
           class="rot-handle"
-          cx={selScreen.x + selScreen.w / 2}
-          cy={selScreen.y - 20}
+          cx={selChrome.x + selChrome.w / 2}
+          cy={selChrome.y - 20}
           r="5"
           on:pointerdown={onRotateDown}
         />
         {#if gesture?.kind === "rotate" && rotateTip}
-          <text class="rot-tip" x={selScreen.x + selScreen.w / 2 + 12} y={selScreen.y - 18}>{rotateTip}</text>
+          <text class="rot-tip" x={selChrome.x + selChrome.w / 2 + 12} y={selChrome.y - 18}>{rotateTip}</text>
         {/if}
         {#each handlesScreen as hd}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -4213,6 +4372,7 @@
           />
         {/each}
       {/if}
+      </g>
     {/if}
 
     <!-- selected plot part -->
@@ -4239,7 +4399,7 @@
       />
     {/if}
 
-    <!-- deep-select hover target (ctrl/meta held over a plot part) -->
+    <!-- deep-select hover target (ctrl/meta held over a plot part), with its data readout -->
     {#if partHover && !gesture}
       <rect
         class="part-hover"
@@ -4249,6 +4409,15 @@
         height={partHover.h}
         fill="none"
       />
+      {#if partHover.text}
+        {@const readoutLines = partHover.text.split("\n")}
+        <g class="part-readout" data-part-readout transform={`translate(${partHover.x + partHover.w + 6} ${partHover.y})`}>
+          <rect class="part-readout-bg" x="0" y="0" width={Math.max(...readoutLines.map((l) => l.length)) * 6.2 + 12} height={readoutLines.length * 14 + 8} rx="3" />
+          {#each readoutLines as line, i}
+            <text class="part-readout-text" class:title={i === 0} x="6" y={16 + i * 14}>{line}</text>
+          {/each}
+        </g>
+      {/if}
     {/if}
 
     <!-- pen preview: committed curve (solid) + rubber-band to cursor (dashed) -->
@@ -4542,7 +4711,8 @@
        block in the script). `contain: paint` is likewise FORBIDDEN: it clips
        panned content outside the host box. */
   }
-  .zoom-proxy {
+  .zoom-proxy,
+  .zoom-proxy-coarse {
     position: absolute;
     left: 0;
     top: 0;
@@ -4552,7 +4722,8 @@
     will-change: transform; /* its own fixed-size layer: promoted for the gesture, never grows with zoom */
     user-select: none;
   }
-  .zoom-proxy.live {
+  .zoom-proxy.live,
+  .zoom-proxy-coarse.live {
     opacity: 1;
   }
   .scene-svg {
@@ -4671,6 +4842,9 @@
     vector-effect: non-scaling-stroke;
   }
   /* lighter than .part-box: a PREVIEW of what ctrl-click would drill to */
+  .part-readout-bg { fill: var(--surface-2, #1c1b1a); fill-opacity: 0.94; stroke: var(--line, #8884); stroke-width: 1; }
+  .part-readout-text { font: 11px var(--font-mono, ui-monospace, monospace); fill: var(--tx, #cecdc3); pointer-events: none; }
+  .part-readout-text.title { fill: var(--accent, #4385be); }
   .part-hover {
     stroke: var(--c-accent-bright);
     stroke-width: 1;

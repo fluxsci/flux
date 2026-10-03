@@ -287,6 +287,32 @@ try {
   assert(returnStart.ticks.every(t => t.opacity === 0), "reverse seek hides incoming tick clones");
   assert(pageErrors.length === 0, "exported partial plot player has no console errors");
   await page3.close();
+
+  // Letters (oct2 W3): export-deck bakes the glyphs of a shape → text Become,
+  // and the offline file flies real outlines from them (no system fonts there).
+  const letters = slideOps.createDeck({ id: "letters", title: "Letters", withTitleSlide: false });
+  const ls = slideOps.addSlide(letters, { name: "Pour", layout: "blank" }).id;
+  slideOps.addElement(letters, ls, { id: "pour-rect", type: "rect", x: 60, y: 200, width: 220, height: 90, rotation: 0, fill: "#d95f0e", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
+  slideOps.addElement(letters, ls, { id: "pour-word", type: "text", x: 420, y: 230, width: 300, height: 56, rotation: 0, text: "Optics", fontFamily: "Arial", fontSize: 48, fontWeight: 400, fontStyle: "normal", align: "left", color: "#1f3a93", sizing: "auto" } as never);
+  const pour = slideOps.addBeat(letters, ls, { label: "Pour" })!;
+  slideOps.setTransform(letters, ls, pour.id, "pour-rect", { state: {}, duration: 1000, easing: "linear" });
+  pour.tracks[0].to!.become = { mode: "handoff", ref: { element: "pour-word" } };
+  await slides.saveDeck(root, letters);
+  const lettersOut = await slides.exportDeck(root, "letters");
+  const page4 = await (browser as unknown as { newPage(): Promise<typeof page> }).newPage();
+  page4.on("pageerror", (e: Error) => pageErrors.push(String(e)));
+  await page4.goto(pathToFileURL(lettersOut.path).href, { waitUntil: "load" });
+  await page4.waitForFunction("!!window.fluxDeck");
+  const flightAt = (ms: number) => page4.evaluate((ms) => {
+    (window as unknown as { fluxDeck: { seek(s: number, b: number, ms: number): void } }).fluxDeck.seek(0, 1, ms);
+    const paths = [...document.querySelectorAll<SVGPathElement>(".sl-flight .sl-handoff-path")].filter(p => Number(p.getAttribute("opacity") ?? 1) > 0.01 && getComputedStyle(p).visibility !== "hidden");
+    return { paths: paths.length, boxHold: !!document.querySelector(".sl-flight .sl-handoff-text"), word: getComputedStyle(document.querySelector('[data-el-id="pour-word"]')!).visibility };
+  }, ms);
+  const pourMid = await flightAt(500), pourEnd = await flightAt(1000);
+  assert(pourMid.paths === 7 && !pourMid.boxHold, `exported shape → text Become flies the baked letter outlines (O-p-t-i-c-s, the i in two parts: 7) (${pourMid.paths}, no box fallback)`);
+  assert(pourEnd.paths === 0 && pourEnd.word === "visible", `…and flips to the live word at the end (${JSON.stringify(pourEnd)})`);
+  assert(pageErrors.length === 0, "exported letter flight has no console errors");
+  await page4.close();
   await page2.close();
 } finally {
   await browser?.close().catch(() => {});

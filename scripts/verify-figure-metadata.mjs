@@ -7,7 +7,8 @@ const { browser, page } = await launch({ width:1500, height:950 });
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 async function chord(p, key, shift=false) { await p.keyboard.down('Alt'); if(shift) await p.keyboard.down('Shift'); await p.keyboard.press(key); if(shift) await p.keyboard.up('Shift'); await p.keyboard.up('Alt'); }
 async function click(p, selector) { const b=await p.$eval(selector,e=>{e.scrollIntoView({block:'nearest'});const b=e.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2};});await p.mouse.click(b.x,b.y); }
-async function fill(p, selector, value) { await click(p,selector); await p.keyboard.down(mod); await p.keyboard.press('KeyA'); await p.keyboard.up(mod); await p.keyboard.press('Backspace'); await p.keyboard.type(value); }
+// macOS headless CDP needs the native editing command alongside Command+A.
+async function fill(p, selector, value) { await click(p,selector); await p.keyboard.down(mod); await p.keyboard.press('KeyA', process.platform === 'darwin' ? {commands:['selectAll']} : {}); await p.keyboard.up(mod); await p.keyboard.press('Backspace'); await p.keyboard.type(value); }
 const disk = () => page.evaluate(async () => { const get=window.__flux.get; const root=get(window.__flux.shell.projectModel).root; const index=JSON.parse(await window.fig.readText(root+'/fig/index.json')); const canvases=await Promise.all(index.canvases.map(c=>window.fig.readText(root+'/fig/canvases/'+c.id+'.json').then(JSON.parse))); return {root, model:{figures:canvases.flatMap(c=>c.figures)}, caption:await window.fig.readText(root+'/fig/captions/growth.md')}; });
 try {
  await gotoApp(page,{url:'http://127.0.0.1:1420/?fixture=demo'});

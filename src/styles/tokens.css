@@ -99,6 +99,15 @@
   --c-success: #879a39;
   --c-warning: #da702c;
 
+  /* ---- The Slide "Become picker" mode accent (2026-10-02) -------------- */
+  /* Flexoki green: the stage outline, halo, pick outlines and the pick bar's
+     rail. The halo is the ONE scoped exception to the surface contract's
+     no-glow rule (owner ask: "a slightly glowing green outline on the slide"),
+     pinned by verify-become-picker-gui / verify-xray-theme. */
+  --c-pick:      #879a39;
+  --c-pick-text: #a3b955;
+  --c-pick-glow: color-mix(in oklab, var(--c-pick) 35%, transparent);
+
   /* ---- Home / chrome dot-grid (engineering-paper backdrop) -------------- */
   --c-dot: color-mix(in oklab, var(--flx-base-500) 12%, transparent);
 
@@ -283,6 +292,10 @@
   --c-danger: #af3029;
   --c-success: #66800b;
   --c-warning: #bc5215;
+  --c-pick: #66800b;
+  --c-pick-text: #536907;
+  /* re-declared: a custom property's var() resolves where it is declared (§9) */
+  --c-pick-glow: color-mix(in oklab, var(--c-pick) 35%, transparent);
 }
 
 /* Central reduced-motion kill-switch for CSS-driven motion. The JS motion

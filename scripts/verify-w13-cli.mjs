@@ -80,8 +80,11 @@ try {
   // The structural companion to that timing: a heavy import shows up as bytes
   // long before it shows up as milliseconds, and bytes do not depend on load.
   // The budget is on the CORE bundle, which every verb but help still parses.
+  // Raised 8 → 10 MB by the owner on 2026-10-03 at 8.7 MB, all deliberate: src/lib 3.4 MB
+  // (3D + animation v2 grew it 6.6 → 8.0 MB), citeproc 0.7, opentype.js 0.6 (text-morph letter
+  // outlines), tr46/zod/js-yaml/ajv ~0.3 each. Growth past 10 MB is an import to look at.
   const bundleMB = statSync(CORE).size / (1024 * 1024);
-  if (bundleMB < 8) ok(`bundle is ${bundleMB.toFixed(1)} MB (<8 MB — no accidental heavyweight import)`);
+  if (bundleMB < 10) ok(`bundle is ${bundleMB.toFixed(1)} MB (<10 MB — no accidental heavyweight import)`);
   else bad("bundle size", `${bundleMB.toFixed(1)} MB`);
 
   // 3. scaffold → deck → slide → export (through the bundle) -------------------

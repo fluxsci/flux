@@ -116,11 +116,14 @@
     buildPlayer(start);
     timer = setInterval(() => (elapsed += 1), 1000);
     root?.focus();
+    document.addEventListener("fullscreenchange", onFullscreenChange);
     void enterFullscreen(); // B5: fill the screen on launch
     void requestWake(); // B18
     bumpIdle();
   });
   onDestroy(() => {
+    closed = true;
+    document.removeEventListener("fullscreenchange", onFullscreenChange);
     presentContext.set(null);
     player?.destroy(); models?.dispose(); nextPosters?.abort();
     if (timer) clearInterval(timer);
@@ -129,6 +132,26 @@
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // B23
   });
 
+  // One Esc leaves Present. In fullscreen Chromium spends Escape on leaving
+  // fullscreen and never delivers the key, so a fullscreen exit we did not ask
+  // for (F toggles set `selfExit`) closes Present — unless a shell modal owns
+  // the keyboard, in which case that Escape was meant for the modal.
+  let fullscreen = false;
+  let selfExit = false;
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    onClose();
+  }
+  function onFullscreenChange(e: Event) {
+    const now = !!root && document.fullscreenElement === root;
+    const left = fullscreen && !now;
+    fullscreen = now;
+    if (!left) return;
+    if (selfExit) { selfExit = false; return; }
+    if (!yieldsToShellModal(e)) close();
+  }
   async function enterFullscreen() {
     try { if (!document.fullscreenElement) await root?.requestFullscreen?.(); } catch { /* needs a gesture; F retries */ }
   }
@@ -175,15 +198,17 @@
     const motionChanged = r.state.reducedMotion !== reducedMotion;
     reducedMotion = r.state.reducedMotion;
     switch (r.effect.kind) {
-      case "close": onClose(); break;
+      case "close": close(); break;
       case "fullscreen": toggleFullscreen(); break;
       case "rebuild": if (motionChanged) buildPlayer({ slide: st.slide, beat: st.beat }); break;
       case "resetTimer": elapsed = 0; break;
     }
   }
   function toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else root?.requestFullscreen?.().catch(() => {});
+    if (document.fullscreenElement) {
+      selfExit = true;
+      document.exitFullscreen().catch(() => { selfExit = false; });
+    } else root?.requestFullscreen?.().catch(() => {});
   }
   function onClick(e: MouseEvent) {
     if (!player || get(captureOpen)) return;
@@ -246,7 +271,7 @@
         {st.mediaPlaying ? "Pause playback" : "Resume playback"}
       </button>
     {/if}
-    <button class="x" onclick={(e) => { e.stopPropagation(); onClose(); }} title="Exit (Esc)">Esc</button>
+    <button class="x" onclick={(e) => { e.stopPropagation(); close(); }} title="Exit (Esc)">Esc</button>
   </div>
 </div>
 

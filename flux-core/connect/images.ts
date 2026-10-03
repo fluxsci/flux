@@ -11,7 +11,7 @@ import type { InclusionPlan } from "./budget";
 import type { ConnectFacts } from "./facts";
 import { createHash } from "node:crypto";
 import { renderCanvasSvg, renderFigureSvg, rasterizeSvgToPng } from "../render";
-import { modelPosterAvailabilitySignature } from "../model3dPosterCache";
+import { modelPosterAvailabilitySignature, projectModelPosterSignature } from "../model3dPosterCache";
 import { buildInfo } from "../buildInfo";
 import { ensureDom } from "../render";
 import { gatherSlidePayload } from "../../src/lib/slide/payload";
@@ -219,17 +219,21 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
       await one(`${f.id} "${f.displayName}"`, `figure-${safe(f.id)}.png`, warnings => renderFigureSvg(root, f.id, { model3dPolicy: 'collect', warnings }), FIGURE_MAX_EDGE, renderKey(root, "figure", f.id, f.canvasId, FIGURE_MAX_EDGE, assets));
   }
   if (plan.deckSheets) {
+    let deckPosters: string | undefined;
     for (const d of p.decks) {
       if (!d.slides.length || !d.path) continue;
       const deckFile = path.join(root, d.path);
       const deckText = await fs.readFile(deckFile, "utf8").catch(() => null);
       if (deckText === null) continue;
+      // Deck stills are not Figure live keys: a model deck's sheet also follows
+      // the project poster cache, so render-model-posters --deck refreshes it.
+      const posters = /"(?:model3d|glb)"/.test(deckText) ? (deckPosters ??= await projectModelPosterSignature(root)) : "";
       const sheets = Math.ceil(d.slides.length / SHEET_SLIDES);
       for (let s = 0; s < sheets; s++) {
         const first = s * SHEET_SLIDES, last = Math.min(d.slides.length, first + SHEET_SLIDES);
         const label = `deck "${d.title}" (${d.id}): slides ${first + 1}–${last}${sheets > 1 ? ` of ${d.slides.length}` : ""}`;
         const b = buildInfo();
-        const key = Promise.resolve(sha256([RENDER_CACHE_VERSION, b.version, b.commit, "deck", d.id, s, sha256(deckText), assets].join("\0")));
+        const key = Promise.resolve(sha256([RENDER_CACHE_VERSION, b.version, b.commit, "deck", d.id, s, sha256(deckText), assets, posters].join("\0")));
         await one(label, `deck-${safe(d.id)}-${s + 1}.png`, () => deckSheetSvg(root, JSON.parse(deckText) as Deck, first, last), CANVAS_MAX_EDGE, key);
       }
     }

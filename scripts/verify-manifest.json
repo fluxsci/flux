@@ -13,6 +13,7 @@
       "verify-an-manuscript.ts",
       "verify-an-render.ts",
       "verify-an-validate-plot.ts",
+      "verify-fluxplot-schema.ts",
       "verify-an-validate.ts",
       "verify-assign-hardening.ts",
       "verify-assign-outcome.ts",
@@ -58,6 +59,7 @@
       "verify-fetchflow.ts",
       "verify-figfamily.ts",
       "verify-ops.ts",
+      "verify-channel-opacity.ts",
       "verify-fig-order.ts",
       "verify-doc-order.ts",
       "verify-doc-delete.ts",
@@ -113,6 +115,7 @@
       "verify-refformat.ts",
       "verify-embed-normalize.ts",
       "verify-paper-render-overrides.ts",
+      "verify-fig-source-cache.ts",
       "verify-export-qmd.ts",
       "verify-scaffold.ts",
       "verify-sync-render.ts",
@@ -217,6 +220,7 @@
       "verify-fluxplot03.ts",
       "verify-fluxplot-recipe-ipc.ts",
       "verify-slide-embed-core.ts",
+      "verify-slide-embed-chip.ts",
       "verify-slide-video.ts",
       "verify-slide-video-model.ts",
       "verify-slide-media.ts",
@@ -286,6 +290,7 @@
       "verify-recovery-entry.ts",
       "verify-eyedropper.ts",
       "verify-text-arrange.ts",
+      "verify-resize-preview.ts",
       "verify-text-runs.ts",
       "verify-figure-metadata.ts",
       "verify-caption-postscript.ts",
@@ -329,6 +334,18 @@
       "verify-slide-camera.ts",
       "verify-plot-binding.ts",
       "verify-plot-view-verb.ts",
+      "verify-colorscale-parity.ts",
+      "verify-colorscale-dom.ts",
+      "verify-plot-theme.ts",
+      "verify-cvd-filter.ts",
+      "verify-colorscale-verb.ts",
+      "verify-series-color.ts",
+      "verify-plot-data.ts",
+      "verify-plot-readout.ts",
+      "verify-plot-value-morph.ts",
+      "verify-plot-view-filled.ts",
+      "verify-plot-view-twin.ts",
+      "verify-id-aliases.ts",
       "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
@@ -361,7 +378,12 @@
       "verify-model3d-embed.ts",
       "verify-slide-model3d-parts.ts",
       "verify-slide-model3d-parts-browser.ts",
-      "verify-slide-model3d-scale.ts"
+      "verify-slide-model3d-scale.ts",
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts",
+      "verify-become-picker.ts",
+      "verify-manifest-contracts.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -466,6 +488,7 @@
       "verify-plot-gallery.mjs",
       "verify-plot-hit-area.mjs",
       "verify-paper-slide-embeds.mjs",
+      "verify-slide-embed-chip.mjs",
       "verify-slide-embed-lifecycle.mjs",
       "verify-slide-video-clips-gui.mjs",
       "verify-gallery-workflow.mjs",
@@ -503,6 +526,7 @@
       "verify-ask-gui.mjs",
       "verify-background-run-gui.mjs",
       "verify-plot-view-gui.mjs",
+      "verify-colorscale-gui.mjs",
       "verify-model3d-gui.mjs",
       "verify-model3d-export.mjs",
       "verify-model3d-orbit-gui.mjs",
@@ -515,7 +539,8 @@
       "verify-slide-model3d-gui.mjs",
       "verify-model3d-embed-gui.mjs",
       "verify-slide-model3d-morph-gui.mjs",
-      "verify-slide-model3d-parts-gui.mjs"
+      "verify-slide-model3d-parts-gui.mjs",
+      "verify-become-picker-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -711,6 +736,8 @@
       "verify-slide-embed-core.ts",
       "verify-paper-slide-embeds.mjs",
       "verify-slide-embed-lifecycle.mjs",
+      "verify-slide-embed-chip.ts",
+      "verify-slide-embed-chip.mjs",
       "verify-render-optimizations.mjs",
       "verify-v020-paper-slide.ts",
       "verify-v020-export-recovery.ts",
@@ -796,6 +823,8 @@
     "inline-slides": [
       "verify-slide-embed-core.ts",
       "verify-paper-slide-embeds.mjs",
+      "verify-slide-embed-chip.ts",
+      "verify-slide-embed-chip.mjs",
       "verify-slide-embed-lifecycle.mjs",
       "verify-scale-paper-slide-embeds.mjs",
       "verify-model3d-embed.ts",
@@ -853,7 +882,12 @@
       "verify-slide-handoff-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
-      "verify-slide-stagger.ts"
+      "verify-slide-stagger.ts",
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts",
+      "verify-become-picker.ts",
+      "verify-become-picker-gui.mjs"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -1197,6 +1231,14 @@
       "verify-slide-model3d-scale.ts",
       "verify-scale-slide.mjs",
       "verify-slide-model3d-scale-electron.cjs"
+    ],
+    "text-morph": [
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts",
+      "verify-slide-tween.ts",
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-export-transform.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1229,6 +1271,13 @@
     },
     {
       "glob": "scripts/lib/animatorMotionChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs"
+      ]
+    },
+    {
+      "$why": "2026-10-02 W4: the timeline grid, Alt+A/D align and Ctrl+Alt-drag Inherit checks run inside the animator gate.",
+      "glob": "scripts/lib/animatorAlignChecks.mjs",
       "run": [
         "verify-slide-animator-gui.mjs"
       ]
@@ -1312,6 +1361,112 @@
       ]
     },
     {
+      "$why": "2026-09-30 colour-system plan B1: a slide plot's scaffold ink follows the deck theme (plot/themeDom.ts); every plot host applies it before overrides.",
+      "glob": "{src/lib/plot/themeDom.ts,src/lib/slide/theme.ts}",
+      "run": [
+        "verify-plot-theme.ts",
+        "verify-colorscale-dom.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan B3: the View-as colour-deficiency filter (color/cvd.ts, ViewAsToggle) over the canvas root; the matrices are fluxplot's Machado tables.",
+      "glob": "{src/lib/color/cvd.ts,src/lib/ViewAsToggle.svelte,scripts/fixtures/cvd_machado.json}",
+      "run": [
+        "verify-cvd-filter.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F6: hover readouts (plot/readout.ts) for the canvas deep-hover box and the X-ray rows.",
+      "glob": "src/lib/plot/readout.ts",
+      "run": [
+        "verify-plot-readout.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F5: get_plot_data reads a plot's data from its manifest (plot/plotData.ts) with windowed arrays.",
+      "glob": "src/lib/plot/plotData.ts",
+      "run": [
+        "verify-plot-data.ts",
+        "verify-registry-parity.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan B2: one colour for a whole series (plot/seriesColor.ts, ops.setSeriesColor, the set_series_color verb) and the restyle -> legend swatch coupling (F6).",
+      "glob": "src/lib/plot/seriesColor.ts",
+      "run": [
+        "verify-series-color.ts",
+        "verify-registry-parity.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/colorscale.ts",
+      "run": [
+        "verify-colorscale-parity.ts",
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/{colorScaleDom,ticks}.ts",
+      "run": [
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs",
+        "verify-plot-view-gui.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/{colorScaleControls,regenerate}.ts",
+      "run": [
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs",
+        "verify-registry-parity.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/ColorScaleControls.svelte",
+      "run": [
+        "verify-colorscale-gui.mjs",
+        "verify-fluxplot03-gui.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/color/colormapLuts*.ts",
+      "run": [
+        "verify-colorscale-parity.ts",
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs",
+        "verify-startup.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/colorscale/**",
+      "run": [
+        "verify-colorscale-dom.ts",
+        "verify-colorscale-verb.ts",
+        "verify-colorscale-gui.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/colorscale_vectors.json",
+      "run": [
+        "verify-colorscale-parity.ts"
+      ]
+    },
+    {
       "glob": "src/lib/plot/viewControls.ts",
       "run": [
         "verify-plot-view-verb.ts",
@@ -1332,6 +1487,40 @@
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
         "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "$why": "2026-10-02 letter outlines (oct2 W3): fontRequest/fontFiles (Node + main + renderer key), glyphFont (opentype.js), glyphOutlines (placement, keyholes, boxes), the GUI loader, the slide glyph provider and the shared which-texts scan; keep the slide-player regression groups the player/** rule carries.",
+      "glob": "{src/lib/text/**,src/lib/slide/glyphTexts.ts,src/lib/slide/player/glyphProvider.ts}",
+      "run": [
+        "group:text-morph",
+        "verify-ipc-contract.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "$why": "2026-10-02 glyph-matched text morph (oct2 W3): textMatch.ts is the pure matcher/plan/timeline core, player/textMorph.ts its browser driver inside the transform driver and the hand-off player; keep the broader slide-player regression groups (pathMap is first-match).",
+      "glob": "{src/lib/slide/textMatch.ts,src/lib/slide/player/textMorph.ts}",
+      "run": [
+        "group:text-morph",
+        "verify-transform-gui.mjs",
+        "verify-slide-become-gui.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
@@ -2304,6 +2493,17 @@
       ]
     },
     {
+      "$why": "2026-09-30 resize preview — plots follow a resize by a transient transform on their live scene group (resizePreview.ts through sceneTransforms.ts), rendered once at release; the pure gate proves the transform equals the committed geometry, the ui gates drive real resize/crop/Esc/move gestures.",
+      "glob": "{src/lib/interact/resizePreview.ts,src/lib/interact/sceneTransforms.ts}",
+      "run": [
+        "verify-resize-preview.ts",
+        "verify-crop.mjs",
+        "verify-fig-esc.mjs",
+        "verify-f5-drag.mjs",
+        "verify-v020-geometry-gui.mjs"
+      ]
+    },
+    {
       "$why": "2026-09-25 the editor zoom range lives in ONE module — the wheel (Canvas.svelte) and the toolbar buttons clamp through it; the raster gate proves the deep-zoom path.",
       "glob": "{src/lib/interact/zoomLimits.ts,src/lib/Toolbar.svelte}",
       "run": [
@@ -2330,7 +2530,62 @@
         "verify-canvas-zoom-raster.mjs",
         "verify-text-arrange-gui.mjs",
         "verify-cross-figure-drag.mjs",
-        "verify-model3d-snapshot-quiet.mjs"
+        "verify-model3d-snapshot-quiet.mjs",
+        "verify-become-picker-gui.mjs"
+      ]
+    },
+    {
+      "$why": "2026-09-29 the live Paper preview serves 3D models over a postMessage bridge to the shared worker; keeps the broader slide groups below plus paper-gate for PreviewPane.",
+      "glob": "{src/lib/slide/previewModel*.ts,src/lib/slide/embed{Document,DocumentRuntime,Repository,ServiceHost}.ts,src/shell/modes/paper/render/PreviewPane.svelte}",
+      "run": [
+        "group:model3d-embed",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:paper-gate"
+      ]
+    },
+    {
+      "$why": "2026-10-02 W4: align-tracks / inherit-track pure core (GUI Alt+A/D and Ctrl+Alt-drag, CLI/MCP twins); keeps the broader slide rule's groups.",
+      "glob": "src/lib/slide/alignTracks.ts",
+      "run": [
+        "verify-slide-timeline.ts",
+        "verify-slide-resolve.ts",
+        "verify-registry-parity.ts",
+        "verify-slide-animator-gui.mjs",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "$why": "2026-10-02 the Slide Become picker (pick/): one temporary mode for Become / Appear from / Animate like — its pure model, its GUI gate, the Become record gate and the surfaces it shares (X-ray parity, the annotate hover vocabulary, the surface contract's scoped glow exception). Retains the slide/** entry's groups it shadows.",
+      "glob": "{src/shell/modes/slide/pick/**,src/shell/modes/slide/SlideMode.svelte}",
+      "run": [
+        "verify-become-picker.ts",
+        "verify-become-picker-gui.mjs",
+        "verify-slide-become-gui.mjs",
+        "group:slide-transforms",
+        "verify-xray-multi-gui.mjs",
+        "verify-xray-theme.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-annotation-surface-gui.mjs",
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-slide-editor-gui.mjs",
+        "verify-slide-marquee-gui.mjs",
+        "verify-slide-canvas-presentation-gui.mjs",
+        "verify-figure-controls-gui.mjs",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:slide-model3d-gui"
       ]
     },
     {
@@ -2467,6 +2722,18 @@
       ]
     },
     {
+      "$why": "2026-10-02 W5: an embedded slide's source line folds to a '▷ Deck 3 · Slide 4' chip (slideEmbeds fold plugin + slideChipCatalog), and both source chips share the double-click arming in chipActivation (the first click reveals the source, so a chip-level dblclick never fired). Keeps the broader Paper entry's paper-gate + pure tier.",
+      "glob": "src/shell/modes/paper/science/{slideEmbeds,chips,widgets,chipActivation,slideChipCatalog}.ts",
+      "run": [
+        "verify-slide-embed-chip.ts",
+        "verify-slide-embed-chip.mjs",
+        "verify-embed-chip.mjs",
+        "group:paper-gate",
+        "group:inline-slides",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "src/shell/modes/paper/**",
       "run": [
         "group:paper-gate",
@@ -2478,7 +2745,10 @@
       "glob": "src/styles/tokens.css",
       "run": [
         "verify-paper-textscale.ts",
-        "verify-paper-textsize-gui.mjs"
+        "verify-paper-textsize-gui.mjs",
+        "verify-become-picker-gui.mjs",
+        "verify-xray-theme.mjs",
+        "verify-fmenu-surface.mjs"
       ]
     },
     {
@@ -2628,6 +2898,20 @@
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
         "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "$why": "F3 (2026-09-30): fluxplot's vendored schema is the plot contract; the generated types and the validator ride on it.",
+      "glob": "{src/lib/plot/schemas/**,src/lib/plot/types.gen.ts,src/lib/plot/types.ts,src/lib/plot/contract.ts,scripts/sync-fluxplot-schemas.mjs,scripts/fixtures/fluxplot03/**}",
+      "run": [
+        "verify-fluxplot-schema.ts",
+        "verify-fluxplot03.ts",
+        "verify-an-validate-plot.ts",
+        "verify-an-validate.ts",
+        "verify-slide-autobuild.ts",
+        "verify-plot-view.ts",
+        "verify-plot-binding.ts",
+        "tier:pure"
       ]
     },
     {
@@ -2799,6 +3083,16 @@
       ]
     },
     {
+      "$why": "2026-10-02 fonts:lookup (oct2 W3): the IPC family resolving system font files through src/lib/text/fontFiles.mjs for text ↔ shape letter outlines; the contract gate pins the channel, the glyph gate drives the handler.",
+      "glob": "electron/ipc/fonts.cjs",
+      "run": [
+        "verify-glyph-outlines.ts",
+        "verify-ipc-contract.ts",
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "electron/**",
       "run": [
         "tier:presence",
@@ -2860,7 +3154,8 @@
         "verify-panel-label-menu.mjs",
         "verify-no-retired-agent-layer.ts",
         "verify-plot-view-gui.mjs",
-        "group:model3d-xray"
+        "group:model3d-xray",
+        "verify-become-picker-gui.mjs"
       ]
     },
     {
@@ -2916,6 +3211,38 @@
       "glob": "{README.md,docs/**/*.qmd,docs/for_agents/**,resources/{flux-context,agent-skills}/**,src/**/*.svelte,src/shell/command/*.ts}",
       "run": [
         "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan C7: saved part ids resolve through manifest.idAliases (fluxplot 0.3.2 renames).",
+      "glob": "{src/lib/plot/tree.ts,src/lib/plot/parse.ts}",
+      "run": [
+        "verify-id-aliases.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan C4: twin value axes (axes[].y2 / .x2) are their own view keys; series with axis: y2 re-project through the twin's domain.",
+      "glob": "{src/lib/plot/project.ts,src/lib/plot/projectDom.ts,src/lib/plot/viewControls.ts}",
+      "run": [
+        "verify-plot-view-twin.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F4: the axis view re-ticks the viewed axis and re-projects filled marks (bars, cells, hexagons) vertex by vertex.",
+      "glob": "{src/lib/plot/projectDom.ts,src/lib/plot/ticks.ts}",
+      "run": [
+        "verify-plot-view-filled.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F7: data-order stagger, value morphs by member key and the per-panel build.",
+      "glob": "{src/lib/slide/staggerData.ts,src/lib/slide/autobuild.ts,src/lib/slide/stagger.ts}",
+      "run": [
+        "verify-plot-value-morph.ts",
+        "tier:pure"
       ]
     }
   ],
@@ -3405,6 +3732,15 @@
       "coverage": "behavior"
     },
     "verify-assign-outcome.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fig-source-cache.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -5121,6 +5457,15 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-channel-opacity.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-ops.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -5394,6 +5739,17 @@
       "coverage": "behavior"
     },
     "verify-paper-slide-embeds.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-embed-chip.mjs": {
       "runtime": "tsx",
       "prerequisites": [
         "server"
@@ -5833,6 +6189,15 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-resize-preview.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-s2.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -6151,6 +6516,15 @@
       "coverage": "behavior"
     },
     "verify-slide-embed-core.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-embed-chip.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -8640,6 +9014,44 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-colorscale-parity.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-colorscale-dom.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-colorscale-verb.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-colorscale-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-plot-view-verb.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -9215,6 +9627,152 @@
       "isolation": "scratch",
       "timeoutMs": 240000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fluxplot-schema.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-theme.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-series-color.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-cvd-filter.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-data.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-readout.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-id-aliases.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-twin.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-filled.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-value-morph.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-become-picker.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-become-picker-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-text-match.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-text-morph-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-glyph-outlines.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-manifest-contracts.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

@@ -1,0 +1,26 @@
+{
+  "env": null,
+  "generatedAt": "2026-09-06T00:00:00Z",
+  "inputs": [],
+  "outputs": {
+    "manifest": "presets.fluxplot.json",
+    "svg": "presets.svg"
+  },
+  "params": {
+    "__fluxplot__": {
+      "cloud": {
+        "cmap": "viridis",
+        "extend": "neither",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 18.0,
+        "vmin": 1.0
+      }
+    }
+  },
+  "plot": "presets",
+  "schemaVersion": "0.3.2",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

@@ -1,11 +1,13 @@
-/** Static document policy: original model identities keep Design appearance;
- * an identity retyped into 3D uses its evaluated model endpoint. Mesh and
- * furniture always receive the same complete state. */
+/** Static document policy: original model identities keep Design appearance
+ * (orbit, look, shape) at the step's placement and part visibility; an identity
+ * retyped into 3D uses its evaluated model endpoint. Mesh and furniture always
+ * receive the same complete state. */
 import type { Element } from '../types';
 import type { Model3dAsset, Model3dElement } from '../model3d/types';
 import { model3dSvgContext } from '../model3d/static';
 import type { ExportPayload } from './export/runtime';
-import type { Slide } from './types';
+import type { Slide, StageSize } from './types';
+import { compileSlide, type CompileOptions, type PartFrame, type SlideFrame } from './compile';
 
 export function staticModelElement(element: Element, slide: Slide): Element {
   if (element.type !== 'model3d') return element;
@@ -14,8 +16,25 @@ export function staticModelElement(element: Element, slide: Slide): Element {
   const { x, y, width, height, rotation, opacity, hidden, flipX, flipY } = element;
   return { ...design, x, y, width, height, rotation, opacity, hidden, flipX, flipY } as Model3dElement;
 }
-export function staticModelContext(payload: ExportPayload) {
-  return model3dSvgContext(payload.deck.assets, payload.modelManifests ?? {}, 'slide');
+export interface SlideModelStill { step: number; element: Model3dElement; partStates?: Record<string, PartFrame> }
+/** Every model still a slide's static frames picture: each build step's sampled
+ * placement under this policy, with that step's part appearance. Payload
+ * gathering and render-model-posters share it, so they name the same posters. */
+export function slideModelStills(slide: Slide, stage: StageSize, options: CompileOptions): SlideModelStill[] {
+  const compiled = compileSlide(slide, stage, options), stills: SlideModelStill[] = [];
+  for (let step = 0; step < Math.max(1, slide.beats.length); step++) {
+    const frame = compiled.sample(step);
+    for (const sampled of frame.elements) {
+      const element = staticModelElement(sampled, slide);
+      if (element.type === 'model3d') stills.push({ step, element, partStates: frame.partStates[element.id] });
+    }
+  }
+  return stills;
+}
+/** `partStates` (a sampled frame's, by element id) gives each still its step's
+ * mesh-part and furniture appearance, as the in-app stills and live frame do. */
+export function staticModelContext(payload: ExportPayload, partStates?: SlideFrame['partStates']) {
+  return model3dSvgContext(payload.deck.assets, payload.modelManifests ?? {}, 'slide', undefined, partStates ? element => partStates[element.id] : undefined);
 }
 export function payloadModelCompileOptions(payload: ExportPayload) {
   const assets = new Map(payload.deck.assets.filter((asset): asset is Model3dAsset => asset.kind === 'glb').map(asset => [asset.id, asset]));
