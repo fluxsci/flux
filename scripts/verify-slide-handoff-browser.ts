@@ -87,6 +87,9 @@ try {
   addElement(deck, setSlide.id, { id: "source", type: "rect", x: 161, y: 111, width: 135, height: 45, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
   for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, setSlide.id, dot(id, y));
   handoff(setSlide, "source", { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] });
+  // A later Change on ONE member must bind to that member's own content.
+  const after = addBeat(deck, setSlide.id, { id: "set-after" })!;
+  setTransform(deck, setSlide.id, after.id, "e2", { state: { x: 560, fill: "#4169e1" }, duration: 400, easing: "linear" });
   const mixedSlide = add("set-mixed");
   addElement(deck, mixedSlide.id, pathEl("source"));
   addElement(deck, mixedSlide.id, plot("dest", "box", 300, { width: 300, height: 180 }));
@@ -263,6 +266,14 @@ try {
     h.ok(st.source === "hidden" && st.dest.every(v => v === "visible") && st.count === 0, "set: at raw 1 the three ellipses show, the rect is hidden and the flight layer is empty");
     await seek(S, 500); await seek(S, 0); st = await setState();
     h.ok(st.source === "visible" && st.dest.every(v => v === "hidden") && st.count === 0, "set: reverse seek restores the rect and hides the ellipses again");
+    // Step 2: a Change on one landed member moves and recolours only that member.
+    const member = () => page.evaluate(() => ["e1", "e2", "e3"].map(id => { const w = document.querySelector(`[data-el-id="${id}"]`) as HTMLElement, shape = w.querySelector("ellipse,path,circle") as SVGGraphicsElement, r = shape.getBoundingClientRect(); return { x: r.x + r.width / 2, fill: getComputedStyle(shape).fill, vis: getComputedStyle(w).visibility }; }));
+    await seek(S, 1000); const landedMembers = await member();
+    await seek(S, 400, 2); const moved = await member();
+    h.ok(moved.every(m => m.vis === "visible") && moved[1].x > landedMembers[1].x + 20 && /65, 105, 225|4169e1/i.test(moved[1].fill) && Math.abs(moved[0].x - landedMembers[0].x) < 0.5 && Math.abs(moved[2].x - landedMembers[2].x) < 0.5 && moved[0].fill === landedMembers[0].fill,
+      `set: a later Change on one landed member moves and recolours only that member (${JSON.stringify(moved.map(m => Math.round(m.x)))})`);
+    await seek(S, 0, 2); await seek(S, 0, 1); const back = await member();
+    h.ok(back.every(m => m.vis === "hidden") && Math.abs(back[1].x - landedMembers[1].x) < 0.5, "set: seeking back before the landing hides every member again at its pre-Change place");
     await seek(S, 500);
     await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-set.png") });
     // Parts of two plots + an ellipse.

@@ -11,6 +11,7 @@ import fluxplotManifestSchema from "../plot/schemas/manifest.schema.json";
 // exactly what catches an agent's malformed write.
 
 import { EASING_TOKENS } from "../slide/curves";
+import { PAIR_POLICY_IDS } from "../slide/targets";
 
 const draft = "http://json-schema.org/draft-07/schema#";
 
@@ -44,24 +45,33 @@ const TIMING_CURVE_PROPS = {
   influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
   curve: CURVE,
 };
-/** 0.6 (Oct-2): a Become's destination may be an ad-hoc SET of element/part
- *  refs (`ref.members`). Only the set's shape is pinned here — one level, each
- *  member names an element and never a group or another set; every other
- *  `become` key stays open as before (older 0.6 records validate unchanged). */
+/** 0.6: a Become (`to.become`). `ref` names the destination: an element,
+ *  plot/model parts, a selector, a figure group, or (Oct-2) an ad-hoc SET of
+ *  element/part refs — one level, never a group or another set. Mode, pair and
+ *  reveal are closed vocabularies (pair = slide/targets.ts PAIR_POLICIES ids). */
+const REF_FIELDS = {
+  element: { type: "string", pattern: "[\\s\\S]" },
+  parts: { type: "array", items: { type: "string" } },
+  selector: { type: "object" },
+} as const;
 const BECOME_MEMBER = {
   type: "object",
   required: ["element"],
-  properties: { element: { type: "string", pattern: "[\\s\\S]" }, parts: { type: "array", items: { type: "string" } }, selector: { type: "object" } },
+  properties: REF_FIELDS,
   not: { anyOf: [{ required: ["members"] }, { required: ["group"] }] },
 } as const;
 const BECOME = {
   type: "object",
+  required: ["ref", "mode"],
   properties: {
     ref: {
       type: "object",
       required: ["element"],
-      properties: { element: { type: "string" }, members: { type: "array", minItems: 1, items: BECOME_MEMBER } },
+      properties: { ...REF_FIELDS, group: { type: "string" }, members: { type: "array", minItems: 1, items: BECOME_MEMBER } },
     },
+    mode: { enum: ["consume", "handoff"] },
+    pair: { enum: [...PAIR_POLICY_IDS] },
+    reveal: { enum: ["flip", "draw"] },
   },
 } as const;
 const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
