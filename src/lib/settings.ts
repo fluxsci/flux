@@ -28,6 +28,9 @@ export interface Settings {
   captionFontSize: number; // Figure-Meta caption typing size in screen px
   // Figure — what a Plot gallery (Alt+G) search reaches (plot/galleryScope.ts).
   plotSearchScope: PlotSearchScope; // "current" | "folder" | "project" | "global" | "all"
+  // Figure — the Plot gallery's Folders sidebar: a click on a folder row also expands /
+  // collapses it (default off: the click shows the folder, the › arrow expands it).
+  galleryFolderClickExpands: boolean;
   // Paper — the dynamic margin.
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
@@ -58,6 +61,7 @@ const DEFAULTS: Settings = {
   snapPixel: false,
   captionFontSize: 16,
   plotSearchScope: DEFAULT_PLOT_SEARCH_SCOPE,
+  galleryFolderClickExpands: false,
   paperMarginScene: "inkwind",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,

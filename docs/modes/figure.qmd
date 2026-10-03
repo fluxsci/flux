@@ -88,8 +88,10 @@ slide copies retain the assets they need. A slide copy has its own layout and an
 - **Alt+G** opens the **Plot gallery**, showing SVG and PNG previews in the current
   folder, including GLB meshes marked **3D**. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
   the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
-  shows or collapses a directory tree; expand its branches to browse files without losing
-  your picks. Flux remembers these display choices.
+  shows or collapses a directory tree; clicking a folder shows what is in it, and the **›**
+  arrow beside it expands or collapses its branches, so you can browse files without losing
+  your picks (**Settings → Plot gallery** can make the click do both). Flux remembers these
+  display choices.
 - **Project** / **Global** at the top of the gallery (**Alt+1** / **Alt+2**) switches between
   this project's `plots/` folder and your **global plot library**, the
   `plot_library` folder inside your FluxConfig folder (by default

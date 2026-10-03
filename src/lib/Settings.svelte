@@ -453,6 +453,11 @@
               </select>
             </label>
             <p class="hint">What typing in the Plot gallery (<b>Alt+G</b>) searches. <b>Project</b> is this project's <code>plots/</code> folder; <b>Global</b> is your plot library in <code>{plotLibPath || "FluxConfig/plot_library"}</code>, shared by every project. The switch at the top of the gallery picks which one you browse.</p>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.galleryFolderClickExpands} onchange={(e) => settings.update((v) => ({ ...v, galleryFolderClickExpands: e.currentTarget.checked }))} />
+              Clicking a gallery folder expands/collapses it
+            </label>
+            <p class="hint">Off: clicking a folder in the gallery's <b>Folders</b> sidebar only shows what is in it, and the <b>›</b> arrow beside it expands or collapses the subtree. On: the click does both.</p>
 
             <h3>Colour pickers</h3>
             <label class="row">
