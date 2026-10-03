@@ -46,7 +46,7 @@ A set is only ever a Become destination (always hand-off; never a source, Consum
 = `{trackIds, landAt}`; the destination stays hidden until `landAt` (the group's latest end),
 each lander plans ONE shared correspondence of all sources (the destination tiles among
 them) and keeps its own pairs, earlier landers hold their landed frame, and the last
-lander's layer (with any fill underlay) lies beneath the others. Partial overlaps and
+lander's layer (with the destination's leftovers) lies beneath the others. Partial overlaps and
 crossfading mesh landings are still refused. `trackRef` derives it,
 `targetKey` gives its canonical identity, and `resolveTargetLeaves` expands parts and groups.
 The family law allows one transform per complete source ref per step. A whole-plot Change
@@ -301,7 +301,7 @@ never jank):
    layers across frames (`holdFlightLayers`), since a fresh layer bakes its first frame's
    offset and an encoder's worth of wall time between frames would otherwise mean a fresh
    layer per frame (`slide-video-frames-probe`: 400 ms between frames, text Δy per frame
-   1.017 ± 0.015 stage px — sub-pixel).
+   1.017 ± 0.015 stage px — sub-pixel). The player's camera (`.sl-camera`) is itself a permanent compositor layer (2026-10-03): otherwise a promoted flight made Chromium squash every overlapping later sibling onto composited layers, flipping their text anti-aliasing at the first and last frame of every transform.
 
 Frame pacing in the editor preview (`scripts/perf/slide-playback-profile.mjs`): 89 consecutive
 16.7 ms frames, zero drops, on the normal fixture before and after; the dense fixture (1,200-mark

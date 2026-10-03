@@ -1314,8 +1314,13 @@ Persistence invariants (all machine-checked — do not weaken):
   hand-offs of one step with an identical destination ref co-land (compile `merge =
   {trackIds, landAt}`; the destination reveals at the last landing; each lander plans ONE
   shared correspondence and keeps its own pairs; earlier landers hold via a hold curve; the
-  last lander's layer goes beneath the group). A filled ring that tiles keeps a travelling
-  fill-only underlay pair (`fade: "out" | "in"`) so its interior never pops. Copy/preset/embed
+  last lander's layer goes beneath the group). A filled ring tiling into three or more
+  partners keeps its interior as one fill-only TRIANGLE per arc (chord-polygon centroid → the
+  arc's ends, role `slice`, paired with a fill-only copy of the arc's own partner, drawn beneath
+  the arcs): the fill pours into each partner with its piece and fades where the partner has no
+  fill — never a separate blob that floats off (the 2026-10-02 travelling underlay read exactly
+  so and was removed). `mergeChains` fuses touching chains only under one paint: a boxplot's
+  7-px half-alpha box stroke stays its own flight beside its whiskers. Copy/preset/embed
   remaps retain element, group and every set member's destination identity; deleted destinations remain dangling and diagnosed. PPTX
   phase ownership includes destinations so a later landing cannot leak into an earlier phase.
   The retype law: `applyState` with
@@ -1365,7 +1370,13 @@ Persistence invariants (all machine-checked — do not weaken):
   that flight (`promoteMovingWrapper`/`settleWrapper`, `will-change: transform`; the
   transform driver via `pureMove`, keyframed specs via `transformFlight` — camera pans,
   `move`, fadeRise's lift) and is demoted at either endpoint or after 250 ms parked; a flight
-  that scales or rotates paints in place every frame. Promoted, the browser rasterizes once
+  that scales or rotates paints in place every frame. The player's CAMERA (`.sl-camera`) is a
+  compositor layer at all times (`will-change: transform`, 2026-10-03): a wrapper promoted
+  mid-slide made Chromium squash every later sibling it overlapped into composited layers, and
+  text there flipped LCD → grayscale anti-aliasing on the first frame and back on the last — a
+  whole-slide text shimmer at both ends of every transform (≈1,100 px² of change beside a 13 px
+  word morph; 1.8 / 0 with the layer). Stage text therefore always renders as it did mid-flight.
+  Promoted, the browser rasterizes once
   and moves the raster at float precision — the only way moving TEXT glides (in-place glyphs
   snap their baseline to device pixels) and heavy plots move without repainting; demoted at
   rest, everything is crisp. Two measured refinements: a gliding node is ARMED at rest with a
@@ -1668,8 +1679,9 @@ Persistence invariants (all machine-checked — do not weaken):
     Ctrl+P and Alt+G enter Add mode: every element created meanwhile joins the pick (one unit
     per element) — drawing no longer confirms. X-ray parity: `xrayPickSink` receives every
     user-driven row pick (`applySelection`); the picker replaces only the units the X-ray can
-    show (its seeded rows and its own picks — series members have no rows), and `b` confirms
-    the whole pick. The `a` rule is ONE function, `xray/buildXrayTree.ts widenToSiblings`,
+    show (its seeded rows and its own picks — series members have no rows), and Space (or `b`)
+    in the X-ray confirms the whole pick; on the canvas Space or Enter confirms (owner,
+    2026-10-03 — `b` ARMS Become there now, so it is not a confirm key). The `a` rule is ONE function, `xray/buildXrayTree.ts widenToSiblings`,
     generic over X-ray rows and plot part-tree nodes. Several separate objects compose W1's
     `TargetRef.members` set through `normalizeRef` when it exists, else the pick refuses with a
     toast (never a ref an older `becomeTransform` would read as "the whole first object").
@@ -1678,8 +1690,8 @@ Persistence invariants (all machine-checked — do not weaken):
     or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
 
     Slide's one `pickState` owns Become, Appear from and Animate like. While Become is
-    armed, `xrayBecomeSource` names the waiting source and `b` confirms the picked destination
-    rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
+    armed, `xrayBecomeSource` names the waiting source and Space or `b` confirms the picked
+    destination rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
     Canvas's view-only `picking` allows Shift+Ctrl/Meta part picks without starting a drag;
     `EditorCanvasPresentation.highlight` accepts a list so every accumulated part stays lit.
     Escape or slide/step changes cancel. The pick commits one ref through `becomeTransform`
@@ -3222,7 +3234,11 @@ outside this PNG packaging change.
   corollaries: (1) a promoted layer that SCALES is a resampled raster (soft while growing,
   then a sharpen pop on settle) — scaling/rotating flights stay un-promoted and paint in
   place; (2) nothing may REST promoted (a fractional offset stays slightly soft and text loses
-  LCD AA) — endpoints demote synchronously and a parked scrub cools after 250 ms. The cool-down
+  LCD AA) — endpoints demote synchronously and a parked scrub cools after 250 ms; the flip
+  side (2026-10-03): a promotion ALSO drags every overlapping later sibling onto a composited
+  layer (Chromium's overlap squashing), so unrelated text on the slide lost LCD AA for exactly
+  the flight and snapped back at rest — hence the camera is one permanent layer (§4) and text
+  AA never changes. The cool-down
   is a single `setTimeout`, never a frame callback: playback owns the ONE animation clock
   (`verify-slide-timeline` counts scheduled frames). (3) Chromium's "raster translation": a
   layer it does not consider animating is rastered with its fractional offset baked in — at
@@ -9482,3 +9498,35 @@ manifest-contracts gate), the slide/paper/verb cohort 48/48; ui tier and native 
 - A worker's own frames found the gold-standard regression (a filled ring going hollow on frame 1) that
   no gate measured: look at mid-flight frames of the OWNER's deck, not only fixtures.
 
+### 2026-10-03 — Slides Oct-2 follow-ups: the owner's four notes + a smoothness pass (Claude Fable 5.1, `slides-oct2`)
+**Work:** (1) The fill underlay from the Oct-2 batch was judged worse than the hollow ring it
+replaced ("a blob that floats a bit and fades"); removed. A filled ring tiling into ≥3 partners now
+keeps its interior as fill-only TRIANGLES (chord-polygon centroid → each arc's ends, role `slice`,
+paired with a fill-only copy of the arc's own partner, drawn beneath, opaque fills overlapping by
+0.5 stage px so no anti-aliased seam shows); two partners need none. (2) The owner's "box flashes in"
+was `mergeChains` fusing the boxplot's 7-px half-alpha box stroke into its 1-px whiskers (touching
+endpoints) — the merged chain took the whiskers' paint and the box only appeared at landing; chains
+now fuse only under one paint. (3) The path→path "twitch then snap" was `lerpNodes`: unequal node
+counts were resampled to N equal-arc-length stations on BOTH sides, moving every corner off its
+place, so frame 1 ≠ the pre render and the last frame ≠ the end render (Δ 205 / 1,044 px²); both
+chains are now split at the union of their node stations (de Casteljau, each side exact) — Δ 1.4 /
+26 (the residue is anti-aliasing of the composite frame vs rest). (4) A sweep probe over all three
+demo decks found a whole-slide text shimmer at the start and end of every transform: the promoted
+flight wrapper squashed later siblings into composited layers and their text flipped LCD ↔ grayscale
+AA. The camera is now a permanent compositor layer (1,106 → 1.8 px²). (5) Space confirms picks (canvas
+and X-ray); plain `b` arms Become; Change ⌃⇧C, Ghost ⌃⌥G, Appear from ⌃⌥A, track cascade ⌃⌥C.
+(6) Paper's bottom panel (vim status bar) now clips to the pane's rounded corners.
+**Learnings:**
+- Measure boundaries at 2 ms steps (`scripts/perf/slide-twitch-probe.mts`, `slide-twitch-sweep.mts`):
+  a start twitch or end snap is a paint spike at raw 0→0+ or 1−→1 with nothing beside it. The
+  sweep found the AA shimmer that no gate measures; frames + a pixel-diff locator told WHERE.
+- Chromium overlap squashing: promoting one layer changes the raster of everything painted after
+  it. Layer hygiene must consider the siblings, not only the flight (guide §4/§9 updated).
+- A flag kept across a disarm (`PickOverlay.spaceHeld`): confirming WITH Space tore the overlay down
+  before Space's keyup arrived, and the stale flag handed the next pick's clicks to the canvas
+  (Alt+click selected the group's members; Animate like… ignored its click). Reset on arm/disarm.
+- `grep` treats several `src/lib/slide/*.ts` files as binary (non-ASCII in comments): `grep -a`.
+- Residual boundary deltas worth a later look (Deck 2 of the demo project): a plot view change's
+  first frame re-ticks its axes (55 px² at the axis corners); a spine hand-off's landing differs
+  from the plot's own spines by ~50 px² along the axes; a 300 ms count text ("epoch 0→4") moves
+  ~22 px² on its first frame.
