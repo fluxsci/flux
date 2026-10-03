@@ -2022,11 +2022,11 @@
     // parts; alt keeps duplicate-drag. SCAFFOLD parts (figure/plot-area/background
     // patches/axis containers) never drill — a ctrl-click on a plot's
     // background selects the whole plot, like Figma's deep-click on a frame.
-    const deep = (e.ctrlKey || e.metaKey) && (!e.shiftKey || presentation?.picking) && !e.altKey;
+    const deep = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
     if (el.type === "plot") {
       const ps = $partSelection;
       const plainSame =
-        !presentation?.picking && !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
+        !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
       let pid: string | null = null;
       if (deep || plainSame) {
         pid = partAtPoint(el, e);
@@ -2040,7 +2040,6 @@
         // The drill makes the plot ELEMENT the selection (deep pierces any
         // group; a continuation click never widens an existing selection).
         if (deep || !$selection.has(el.id)) selection.set(new Set([el.id]));
-        if (presentation?.picking) return;
         // Select tool → arm the part move; scale tool keeps whole-plot
         // semantics (falls through to a normal move of the plot).
         if ($activeTool === "select" && beginPartMove(e, fig, el.id, pid)) return;
@@ -2059,7 +2058,6 @@
     // Deep-click on a non-plot (or a plot's scaffold) selects the element
     // ITSELF — no group-unit expansion (Figma deep select).
     const grp = deep ? new Set([el.id]) : expandGroups($project, new Set([el.id]), scope);
-    if (presentation?.picking) { selection.set(grp); return; }
     // Shift has two meanings on an element: shift-CLICK toggles its selection,
     // but shift-DRAG constrains the move to one axis. We can't tell which at
     // pointer-down, so for an already-selected element we DEFER the toggle to
@@ -2548,7 +2546,8 @@
     if (
       !gesture &&
       (e.ctrlKey || e.metaKey) &&
-      (!e.shiftKey || presentation?.picking) &&
+      !e.shiftKey &&
+      !presentation?.picking &&
       !e.altKey &&
       ($activeTool === "select" || $activeTool === "scale") &&
       !editPathId
@@ -3374,7 +3373,8 @@
       editingId ||
       editPathId ||
       ($activeTool !== "select" && $activeTool !== "scale") ||
-      $selection.has($hoverId)
+      $selection.has($hoverId) ||
+      presentation?.picking // an embedded picker draws its own hover
     )
       return null;
     const found = findElement($project, $hoverId);
@@ -3668,7 +3668,7 @@
   // to the figure edges. Pure overlay; suppressed mid-gesture so Alt-drag-dup and
   // Alt-disable-snap keep working.
   $: measure = (() => {
-    if (!altDown || !af || gesture || dragging || editPathId || $activeTool !== "select") return null;
+    if (!altDown || !af || gesture || dragging || editPathId || $activeTool !== "select" || presentation?.picking) return null;
     const sel = af.elements.filter((e) => $selection.has(e.id) && !absentPresentationIds.has(e.id));
     if (!sel.length) return null;
     const S = selectionBBox(sel);

@@ -28,6 +28,17 @@ source/destination checkouts. Shared `trackActions.ts` handles structural action
 editor, thumbnails, live player, and standalone HTML export. Compile and bind
 scene data once; playback samples existing elements without rebuilding content.
 
+## The Become picker
+
+`pick/` is the one temporary mode for Become, Appear from… and Animate like….
+`pickState.svelte.ts` holds the state machine (pick and Add sub-states, keys,
+the X-ray sink); `pickModel.ts` the pure rules (units, toggling, refs, chips,
+the marquee law, `a` widening); `stageHit.ts` the hit walk and stage rects;
+`PickOverlay.svelte` the accent, outlines and canvas press ownership;
+`BecomeBar.svelte` the bar. SlideMode arms it and commits what it returns
+through `performBecome` / `performLike`, so the record written is unchanged.
+Gates: `verify-become-picker.ts` and `verify-become-picker-gui.mjs`.
+
 ## Ghost transforms
 
 `GhostTransformDialog.svelte` selects a copy count and original behavior.
