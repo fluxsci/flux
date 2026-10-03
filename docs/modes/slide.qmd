@@ -84,12 +84,58 @@ reorder. Drag onto a step to move it; hold **Alt** to copy between steps. Shift 
 selects several lanes; **Ctrl/Cmd+A** selects this step's effects. **Ctrl/Cmd+G** groups the selection,
 **Ctrl/Cmd+Shift+G** ungroups it, and **Ctrl/Cmd+D** duplicates it. Groups can collapse without changing
 timing. Double-click a group name to rename it; drag its span to retime or move the whole group. Right-click a lane for these actions and moves to named steps. Ctrl/Cmd-wheel zooms timing;
-**fit ⟲** restores automatic scaling. Vertical grid lines run through every lane at the
-ruler's ticks; while you drag, a guide follows the edge you are moving and runs the full
+**fit ⟲** restores automatic scaling. The ruler and its vertical grid lines fill the whole
+visible time axis at every zoom, even past the step's last effect; while you drag, a guide follows the edge you are moving and runs the full
 height of the ruler when it snaps to another effect's edge or to a grid line — every major and
 minor line drawn is a snap target (the 50 ms round-number grid still catches drags between
 them), and a resize snaps the effect's *end* onto the line — and a single
 selected effect shows its start and end across all lanes so alignment reads at a glance.
+
+## Align starts and ends
+
+Select effects and press **Alt+A** to align their starts, or **Alt+D** to align their ends —
+the same keys align objects left and right on the canvas. Press again to step through the
+choices, nearest first: with several effects selected whose edges differ, the first press lines
+them up with the selection's own earliest start or latest end; after that each press moves them
+to the start or end of the next lane *above* the selection, and after the last one the
+effects return to where they were. A full-height line and a ruler label (**→ ‹rect 2› end ·
+1.95 s**) show what each press aligned to. With four effects under a 1 s draw-on and a
+0.95 s rise starting at 1 s, **Alt+D** ends them at 1.00 s, again at 1.95 s, and a third time
+restores them.
+
+Aligning moves each effect and keeps its duration. Add **Shift** (**Alt+Shift+A**,
+**Alt+Shift+D**) to resize instead: the opposite edge stays put. The presses of one cycle are a
+single **Undo**. A moved start detaches a [Follow timing](#follow-timing) link, as a drag does,
+and the toast names the former lane. **Align starts** and **Align ends** are also on a bar's
+right-click menu. `align-tracks` does the same from the CLI and MCP:
+
+```bash
+flux align-tracks talk slide1 --tracks e3,e4,e5 --edge end --to rect2      # rect2's end
+flux align-tracks talk slide1 --tracks e3,e4 --edge start --to 250 --resize  # starts at 250 ms
+```
+
+## Inherit an effect's animation
+
+To give several effects exactly the animation of another one, select them, hold **Ctrl+Alt**
+(**⌘+⌥** on macOS) and drag one of their bars onto the other effect's lane. The bars stay where
+they are; a dashed line runs from the selection to the pointer, the lane under it lights, and a
+label reads **Inherit from ‹rect 2›**. Release to apply; release anywhere else or press
+**Escape** to cancel. The effects keep their own start times unless you hold **Shift** as you
+release, which copies the start too. One **Undo** reverts the whole drop, and a toast names
+what was inherited (**4 effects inherit ‹rect 2› · 953 ms · spring**). **Inherit animation
+from…** on a bar's right-click menu does the same with one click on the source lane.
+
+Inherit copies the source's duration, easing or spring and stagger. Between two entrances (or two
+exits, or two transforms) the effect itself and its options come too — four pops become four
+rises. Across kinds only the timing travels, so an exit stays an exit. If the source uses an
+[animation style](#animation-styles), the effects link to that style instead and follow its
+later edits. What the effects animate, their transform endpoints, links, groups and on/off state
+never change. Video commands and animations do not share timing. `inherit-track` is the
+CLI and MCP twin:
+
+```bash
+flux inherit-track talk slide1 --from rect2 --to e3,e4,e5,e6 [--include-start]
+```
 
 The **X-ray** (**Alt+R**) animates too: select one plot — or several — press **Alt+R**, pick
 the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
@@ -108,8 +154,9 @@ issue to inspect its track. The **Easing** field shows the timing curve and open
 **Library** holds reusable presets and multi-track templates.
 
 Keyboard commands belong to the focused surface. In the animation dock or inspector, **Delete**
-removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts, and
-**Alt+Shift+left/right** adjusts durations. On the canvas, Delete removes objects and arrows move
+removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts,
+**Alt+Shift+left/right** adjusts durations, and **Alt+A** / **Alt+D** align starts / ends.
+**Ctrl+Alt-drag** a bar onto another lane to inherit its animation. On the canvas, Delete removes objects and arrows move
 them. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset, **G** Stagger, and **E**
 opens Easing. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
 

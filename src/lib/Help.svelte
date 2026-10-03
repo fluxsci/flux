@@ -261,6 +261,8 @@
             ["⌘D", "Duplicate tracks (dock focused)"],
             ["Alt+← / →", "Nudge start"],
             ["Alt+Shift+← / →", "Change duration"],
+            ["Alt+A / Alt+D", "Align starts / ends (repeat: next lane above · +Shift resizes)"],
+            ["Ctrl+Alt-drag a bar", "Inherit the animation of the lane you release on"],
           ],
         },
       ],

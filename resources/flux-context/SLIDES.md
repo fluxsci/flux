@@ -93,6 +93,9 @@ flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
      [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
      [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
      [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index] [--seed uint32]
+flux align-tracks <deck> <slideId> --tracks t1,t2 --edge start|end --to ms|t3[:start|end]
+     [--beat beatId|index] [--resize]                             # (align_tracks) Alt+A / Alt+D: land resolved edges on a time/edge
+flux inherit-track <deck> <slideId> --from t1 --to t2,t3 [--beat beatId|index] [--include-start] # (inherit_track) exact animation of t1
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -314,6 +317,16 @@ needed), refusing incompatible families per target. `--beat <beatId>` requires t
 and limits targets to that beat; omitted, it links across the slide. `anim-style` also accepts
 `--params` and `--influence` as JSON; media styles refuse stagger. Portable slide snapshots carry referenced
 styles; insertion merges by name and family.
+
+**Align** (`align-tracks`, GUI **Alt+A** / **Alt+D**): edges are resolved (styles, anchors); an end
+includes the stagger tail. Default moves each track (keeps duration); `--resize` keeps the
+opposite edge. Starts clamp at 0, durations at 1 ms; a moved start writes an own `start` and
+detaches an anchor; video commands move but refuse `--resize`.
+**Inherit** (`inherit-track`, GUI **Ctrl+Alt-drag** onto a lane): a linked source links the
+targets to its style plus its own overrides; otherwise the resolved duration, timing curve and
+stagger copy, and within one family and phase (entrance → entrance) also preset, params and arc.
+Bindings, `to`, `ghostFrom`, anchors, groups and enabled state never travel; `start` only with
+`--include-start`. Video commands and animations refuse each other.
 
 **Follow timing** (GUI **⛓ Follow timing…**): `anchor:{trackId,edge:"start"|"end",offsetMs?}` follows a same-step effect.
 End includes duration and the stagger tail. Cycles and missing targets produce compiler issues

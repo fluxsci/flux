@@ -16,7 +16,7 @@
   import { get } from "svelte/store";
   import { onDestroy, untrack } from "svelte";
   import { deckOverlay, activeBeat, commitDeckLive, selTrackIds, exitEndpointEdit } from "../../../lib/slide/store";
-  import { selection, partSelection, partSelections } from "../../../lib/store";
+  import { selection, partSelection, partSelections, xrayOpen } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
   import { scene3dManifests } from "../../../lib/model3d/store";
@@ -44,7 +44,7 @@
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
   } = $props();
 
-  let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void } | null>(null);
+  let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void; alignSelection(edge: "start" | "end", mode?: "move" | "resize"): void } | null>(null);
   let libOpen = $state(false);
   // ONE class of action — Transform — three ways: Change · Ghost · Become.
   let appearMenu = $state<{ x: number; y: number } | null>(null);
@@ -140,6 +140,14 @@
       e.preventDefault();
       if (e.shiftKey) railRef?.ungroupSelection();
       else railRef?.groupSelection();
+      return;
+    }
+    // Align starts / ends (Alt+A / Alt+D, Shift = resize): physical keys, like the
+    // canvas's align chords. The X-ray (Alt+A = all results) wins while open.
+    if (e.altKey && !mod && (e.code === "KeyA" || e.code === "KeyD")) {
+      if (get(xrayOpen)) return;
+      e.preventDefault();
+      if (!e.repeat) railRef?.alignSelection(e.code === "KeyA" ? "start" : "end", e.shiftKey ? "resize" : "move");
       return;
     }
     if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
@@ -367,7 +375,7 @@
         <button class="b" onclick={() => timelinePxPerMs.set(null)} title="Reset the timeline zoom to auto-fit">fit ⟲</button>
       {/if}
       <button class="b" onclick={toggleDockSize} title="Toggle animator size (or double-click the top edge)">⇕</button>
-      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change · +E become. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Space plays/pauses.">Keyboard ⌨</span>
+      <span class="keyhint" title="Cmd/Ctrl+Shift+A appear · +D disappear · +T change · +E become. Timeline: arrows navigate, Delete removes effects, Cmd/Ctrl+D duplicates, Cmd/Ctrl+G groups, Alt+arrows retime, Alt+A / Alt+D align starts / ends (repeat to cycle, +Shift resizes), Ctrl/Cmd+Alt-drag a bar onto another lane inherits its animation, Space plays/pauses.">Keyboard ⌨</span>
     </div>
 
     <div class="dock-body">

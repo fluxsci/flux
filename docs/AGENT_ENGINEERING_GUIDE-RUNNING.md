@@ -170,6 +170,7 @@ The established shared cores — extend these, don't duplicate them:
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
+| Timeline align and Inherit (candidate law, edge alignment, exact-HOW inheritance) | `src/lib/slide/alignTracks.ts` | `verify-slide-timeline.ts` (law + ops field by field), `verify-slide-resolve.ts` (REAL CLI `align-tracks` / `inherit-track` write the GUI op's bytes), `verify-slide-animator-gui.mjs` via `scripts/lib/animatorAlignChecks.mjs` (real keys and Ctrl+Alt drags) |
 | Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts`, `verify-slide-easing.ts` (legacy snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists; `animator/CurveField.svelte` is the UI consumer, covered by `verify-slide-animator-gui.mjs`, authoring/cascade GUI and both surface gates |
 | Stagger distribution and box arcs | `src/lib/slide/stagger.ts`, `tween.ts` (`arcBox`), `ops.ts` | `verify-slide-stagger.ts` (Total/order/real player parity), `verify-slide-tween.ts`, `verify-slide-player.ts` (painted content and box frames), `verify-slide-timeline.ts`, `verify-slide-animator-gui.mjs` (Each/Total, seed/Undo, Arc/scrub) |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
@@ -1128,6 +1129,22 @@ Persistence invariants (all machine-checked — do not weaken):
   coordinates so scrolling preserves the anchor. Preview selection stays local until release
   to keep Selected objects filtering stable; cancellation writes no selection/history. Edge
   scrolling runs only during a gesture. `verify-slide-marquee-gui.mjs` gates this contract.
+  The ruler and grid are built by `animator/shared.ts timeGrid` over the DRAWN extent
+  (`timeWidth / scale`), not the beat, so they fill the dock at every zoom; scrub stays clamped
+  to the beat, labels past its end keep text room (an absolute label past the edge would widen
+  the scroller), and a 400-line budget doubles the minor step, then the tick, on long zoomed-in
+  extents — the coarsened minor step is the snap grid, so drawn = snap still holds.
+  **Align and Inherit (2026-10-02)** live in the pure `slide/alignTracks.ts`, shared with
+  `align-tracks` / `inherit-track`. Edges are resolved and an end includes the stagger tail
+  (`trackEdges`, the anchor/magnet end). `alignCandidates` is the press law: the selection's own
+  extreme when its edges differ, then enabled lanes above the topmost selected one, deduplicated
+  and nearest first; `alignCycleStep` returns to the origin after the last. The dock re-applies
+  every press from the cycle's ORIGIN bytes under one `commitDeckLive` coalesce key: presses
+  never accumulate clamping, a cycle is one Undo, and a full cycle is an identity edit with no
+  entry. `alignTrackEdges` moves through `setTrack` (a moved start detaches an anchor and writes
+  an own start over a style, as a drag does). `inheritTrack` links to a linked source's style
+  plus the source's own overrides, else copies the resolved HOW; preset/params/arc travel only
+  within one family AND phase. Ctrl/⌘+Alt on a bar branches before Follow timing and copy.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
   Preset facts live in the pure `slide/presetCatalog.ts`; compiler, player metadata,
@@ -3272,6 +3289,14 @@ outside this PNG packaging change.
   imports fail with "does not provide an export named 'parse'"). Import the namespace and fall
   back to `.default` (`text/glyphFont.ts`). Keep the parser out of `export/runtime.ts`'s import
   graph: exported decks read baked records (`verify-text-morph-browser` greps the HTML).
+
+- **A "surface X owns this key" check needs a positive control.** Toggling the X-ray re-syncs
+  the canvas selection, which clears the animator's track selection, so an Alt+A-while-X-ray
+  check passed with nothing selected. Re-select after the toggle and repeat the same dispatch
+  with the surface closed (`animatorAlignChecks.mjs`). Likewise `findTrack` is deck-wide by id:
+  seeding the same track ids onto a second slide makes slide-scoped ops refuse "not found".
+- **A fresh worktree has no `dist/flux-model3d-*` runtime** (gitignored), so
+  `verify-model3d-headless` fails "3D renderer is missing" until `npm run build:model3d`.
 - **Editing sources while the ui tier runs** produces `PAGEERR <Identifier> is not defined`
   in whichever gate is mid-flight (a half-swapped module). Freeze sources, then rerun the
   failed gate alone before believing it.
@@ -9399,3 +9424,25 @@ New `scripts/perf/slide-handoff-strip-probe.mts` films one hand-off of a real pr
   and `verify-resize-preview.ts` have no `execution` contract (reported; not fixed on this
   branch). `verify-model3d-headless.ts` needs the gitignored `dist/flux-model3d-runtime.js`
   (`node scripts/gen-model3d-viewer.mjs`) in a fresh worktree.
+
+
+### 2026-10-02 — Animator timeline: full-width grid, Alt+A / Alt+D align, Ctrl+Alt-drag Inherit (Claude Opus 5.5, `oct2/timeline`)
+**Work:** Owner inbox, Deck 3. The ruler and grid now fill the whole visible time axis
+(`shared.ts timeGrid`, a 400-line budget); Alt+A / Alt+D align starts / ends through a pure
+candidate law with a full cycle back to the origin, one Undo per cycle, a lit line and a ruler
+label; Ctrl+Alt-dragging the selection onto another lane inherits that effect's exact
+animation (dashed guide, lane highlight, Shift copies the start, a bar-menu twin). One pure
+module (`slide/alignTracks.ts`) backs the GUI and the new `align-tracks` / `inherit-track`
+verbs. Body §2 table row and §4 animator paragraph added; the two gate traps below are
+promoted to §9.
+**Learnings:**
+- Re-apply a press cycle from the ORIGIN bytes under one coalesce key rather than stepping
+  from the last result: clamps never accumulate, the cycle is one Undo, and returning to the
+  origin is an identity edit that leaves no entry at all.
+- Toggling the X-ray re-syncs the canvas selection and so clears the timeline's track
+  selection; a "the X-ray wins" key check passes vacuously unless the gate re-selects after
+  the toggle and runs a positive control with the X-ray closed.
+- `findTrack` is deck-wide by id. A gate that seeds the same track ids onto a second slide makes
+  the slide-scoped ops refuse "not found" on the second — seed fresh ids or replace the slide.
+- A fresh worktree lacks the gitignored `dist/flux-model3d-*` runtime, so
+  `verify-model3d-headless` fails "3D renderer is missing" until `npm run build:model3d`.
