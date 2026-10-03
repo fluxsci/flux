@@ -4,7 +4,7 @@ name: ci
 # headless: type-check → build → hermetic pure verify tier
 # (build (which proves BOTH the Vite bundle and the CLI+MCP node bundles)) →
 # CLI/MCP stdio handshakes against the built bundles. A broken commit can't reach
-# a release tag (release.yml runs the same gate first). `test-windows` repeats
+# a release (release.yml waits for THIS workflow to be green on the tagged commit). `test-windows` repeats
 # the headless path on a Windows runner (observing until promoted, see below).
 
 on:
@@ -78,6 +78,10 @@ jobs:
         run: npm run check && npm run check:headless
       - name: Build (Vite bundle + dist/flux-cli.mjs + dist/flux-mcp.mjs)
         run: npm run build
+      # Every release ships the offline help; a link escaping docs/ broke this build
+      # unnoticed from 09-27 until release prep on 10-03.
+      - name: Offline help builds (release.yml packages it)
+        run: npm run build:docs
       - name: Pure verify tier (hermetic — no network, no dev server)
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}

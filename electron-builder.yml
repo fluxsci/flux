@@ -103,11 +103,12 @@ mac:
     - from: extension/signed
       to: extension/signed
       filter: ["**/*.xpi"]
+  # The install script (install.sh, 2026-10-03) is the ONE supported install path: it fetches
+  # exactly these names from releases/latest/download. A zip per architecture, no DMG.
   target:
-    - target: dmg
-      arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
+  artifactName: Flux-mac-${arch}.${ext}
   # notarize is enabled per-build from CI (release.yml) so an unsigned build (no
   # secrets) still succeeds.
 
@@ -142,9 +143,11 @@ linux:
     - from: extension/signed
       to: extension/signed
       filter: ["**/*.xpi"]
+  # The .deb is the supported Linux target (install.sh installs it with apt). No AppImage:
+  # Ubuntu 24.04 needs libfuse2 for it and refuses its Electron sandbox (guide §9).
   target:
-    - AppImage
     - deb
+  artifactName: Flux-linux-${arch}.${ext}
 
 win:
   extraResources:
@@ -157,9 +160,6 @@ win:
     - from: extension/signed
       to: extension/signed
       filter: ["**/*.xpi"]
-
-dmg:
-  title: ${productName} ${version}
 
 publish:
   provider: github

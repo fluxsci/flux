@@ -34,7 +34,9 @@ export async function freshOutput(parent) {
 }
 export function assertArtifactSet(files,platform,arches=RELEASE_TARGETS[platform]) {
   const names=files.map(f=>path.basename(f));
-  const wanted=platform==='linux'?[/\.deb$/, /\.AppImage$/]:platform==='darwin'?[...(arches.includes('arm64')?[/arm64.*\.dmg$/, /arm64.*\.zip$/]:[]),...(arches.includes('x64')?[/^(?!.*arm64).*\.dmg$/, /^(?!.*arm64).*\.zip$/]:[])]:null;
+  // The install script fetches these exact names from releases/latest/download (2026-10-03):
+  // one zip per Mac architecture, one .deb for Linux. No DMG or AppImage is published.
+  const wanted=platform==='linux'?arches.map(a=>new RegExp(`^Flux-linux-${a==='x64'?'amd64':a}\\.deb$`)):platform==='darwin'?arches.map(a=>new RegExp(`^Flux-mac-${a}\\.zip$`)):null;
   if(!wanted)throw Error(`No release artifacts are authorized for ${platform}`);
   for(const pattern of wanted)if(!names.some(n=>pattern.test(n)))throw Error(`Missing fresh ${platform} artifact: ${pattern}`);
 }

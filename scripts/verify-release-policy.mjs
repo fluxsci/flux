@@ -15,8 +15,8 @@ assert.throws(()=>assertChecks(report,{...identity,digest:'stale'}));
 assertResults({total:1,passed:1,results:[{status:'passed',attempts:[{status:'passed'}]}]});
 assert.throws(()=>assertResults({sourceChanged:true,total:1,passed:1,results:[{status:'passed',attempts:[{status:'passed'}]}]}),/source changed/);
 assert.throws(()=>assertResults({total:1,passed:1,results:[{status:'passed',attempts:[{status:'failed'},{status:'passed'}]}]}));
-assertArtifactSet(['fresh.deb','fresh.AppImage'],'linux');assert.throws(()=>assertArtifactSet(['old.deb'],'linux'));
-assertArtifactSet(['Flux-arm64.dmg','Flux-arm64.zip','Flux.dmg','Flux.zip'],'darwin');assert.throws(()=>assertArtifactSet(['Flux-arm64.dmg','Flux-arm64.zip'],'darwin'));
+assertArtifactSet(['Flux-linux-amd64.deb'],'linux');assert.throws(()=>assertArtifactSet(['Flux-linux-x64.deb'],'linux'));assert.throws(()=>assertArtifactSet(['Flux-old.deb'],'linux'));
+assertArtifactSet(['Flux-mac-arm64.zip','Flux-mac-x64.zip'],'darwin');assert.throws(()=>assertArtifactSet(['Flux-mac-arm64.zip'],'darwin'));assert.throws(()=>assertArtifactSet(['Flux-arm64.dmg','Flux.dmg'],'darwin'));
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'release-policy-'));
 try{
  const first=await freshOutput(root),second=await freshOutput(root);assert.notEqual(first,second);await fs.writeFile(path.join(first,'old.AppImage'),'stale');assert.deepEqual(await fs.readdir(second),[]);
@@ -37,7 +37,7 @@ try{
  const actual=await sourceIdentity(repo),reportsRoot=path.join(root,'qualification fixtures'),approvalFile=path.join(root,'synthetic approval.json'),listFile=path.join(root,'verified-artifacts.nul');
  const approval={commit:actual.commit,tag:'v0.2.0',reviewer:'Synthetic fixture, not approval',checks:Object.fromEntries(['linuxPhysicalDisplay','macArm64PhysicalDisplay','macX64PhysicalDisplay','distributionPolicy'].map(k=>[k,{status:'passed',evidence:'synthetic test fixture only'}]))};await fs.writeFile(approvalFile,JSON.stringify(approval));
  const records=[];const expectedArtifacts=[];
- for(const [platform,arch,names] of [['linux','x64',['fixture.deb','fixture.AppImage']],['darwin','arm64',['fixture-arm64.dmg','fixture-arm64.zip']],['darwin','x64',['fixture-x64.dmg','fixture-x64.zip']]]){
+ for(const [platform,arch,names] of [['linux','x64',['Flux-linux-amd64.deb']],['darwin','arm64',['Flux-mac-arm64.zip']],['darwin','x64',['Flux-mac-x64.zip']]]){
    const directory=path.join(reportsRoot,`${platform}-${arch}`);await fs.mkdir(path.join(directory,'artifacts'),{recursive:true});
    const artifacts=[];for(const name of names){const bytes=Buffer.from(`${platform}-${arch}:${name}`),file=path.join(directory,'artifacts',name);await fs.writeFile(file,bytes);expectedArtifacts.push(file);artifacts.push({name,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')});}
    const value={status:'qualified',platform,arch,tag:'v0.2.0',version:'0.2.0',identity:actual,checks:Object.fromEntries([...REQUIRED_CHECKS,'package','packaged-smoke','fetch-correction-runtime','fetch-video-encoder'].map(k=>[k,{status:'passed'}])),artifacts};
@@ -57,6 +57,6 @@ try{
  const lost=records[2];await fs.rename(lost.file,lost.file+'.disabled');try{await assert.rejects(verify,/Missing platform qualification: darwin-x64/);}finally{await fs.rename(lost.file+'.disabled',lost.file);}
  const changed=expectedArtifacts[0],before=await fs.readFile(changed);await fs.writeFile(changed,'corrupted bytes');try{await assert.rejects(verify,/Artifact bytes changed/);}finally{await fs.writeFile(changed,before);}
  const invalidApproval=structuredClone(approval);invalidApproval.checks.macX64PhysicalDisplay.status='unavailable';await fs.writeFile(approvalFile,JSON.stringify(invalidApproval));try{await assert.rejects(verify,/Platform qualification missing: macX64PhysicalDisplay/);}finally{await fs.writeFile(approvalFile,JSON.stringify(approval));}
- console.log('Publication evidence adverse checks PASS: exact6 artifact NUL list excludes extra fixture ZIP; empty/missing architecture, stale source, blocked UI, missing docs check, duplicate/corrupt bytes, and missing physical evidence refused.');
+ console.log('Publication evidence adverse checks PASS: exact artifact NUL list excludes extra fixture ZIP; empty/missing architecture, stale source, blocked UI, missing docs check, duplicate/corrupt bytes, and missing physical evidence refused.');
 }finally{await fs.rm(root,{recursive:true,force:true})}
 console.log('Release policy PASS: mismatched tag, dirty/stale source, failed UI/flaky evidence, stale output and missing native executable refuse qualification.');

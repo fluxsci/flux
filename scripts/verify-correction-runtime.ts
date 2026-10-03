@@ -167,8 +167,11 @@ h.ok(CORRECTION_RELEASE === "b10288" && ["linux-x64", "darwin-arm64", "darwin-x6
 h.ok(fetchScript.includes("ubuntu-vulkan-x64") && fetchScript.includes("eda0a9c25e15bb478b1227edb2464f20cec222b945308401617a558c8a55a48e"), "Linux packages stage the pinned Vulkan helper instead of the CPU-only archive");
 h.ok(fetchScript.includes("libggml-metal") && fetchScript.includes("libggml-vulkan") && fetchScript.includes("backend"), "accelerator libraries are discovered and checksummed into the runtime manifest");
 h.ok(builder.includes("build/correction-runtime/darwin-${arch}/") && builder.includes("build/correction-runtime/linux-${arch}/"), "each packaged architecture receives only its matching helper runtime");
-const releaseCheck = readFileSync(path.join(process.cwd(), "scripts/release-check.mjs"), "utf8");
-h.ok(release.includes("scripts/release-check.mjs --platform") && release.includes("platform: darwin") && release.includes("arch: arm64") && release.includes("arch: x64") && releaseCheck.includes("'correction-runtime','video-encoder'") && releaseCheck.includes("fetch-${helper}.mjs"), "all native CI targets use the shared qualification fetchers before packaging");
+// release.yml (2026-10-03) fetches both helpers per target itself, before electron-builder runs.
+const fetchAt = (helper: string) => release.indexOf(`node scripts/fetch-${helper}.mjs --platform \${{ matrix.platform }} --arches \${{ matrix.arch }}`);
+h.ok(release.includes("platform: darwin") && release.includes("platform: linux") && release.includes("arch: arm64") && release.includes("arch: x64")
+  && fetchAt("correction-runtime") > 0 && fetchAt("video-encoder") > 0 && Math.max(fetchAt("correction-runtime"), fetchAt("video-encoder")) < release.indexOf("npx electron-builder"),
+  "all native CI targets use the shared fetchers for their own platform and arch before packaging");
 h.ok(release.includes("macos-15-intel") && release.includes("macos-15"), "both macOS architectures build on their native CI runners");
 
 writeFileSync(path.join(modelDir, tiny.file), "abd");

@@ -1,127 +1,156 @@
 name: release
 
+# Push a tag vX.Y.Z (equal to package.json's version) → build the three targets install.sh
+# installs, smoke each packaged app, and create ONE draft GitHub Release carrying exactly:
+#   Flux-mac-arm64.zip  Flux-mac-x64.zip  Flux-linux-amd64.deb  SHA256SUMS  install.sh
+# Publishing that draft (one click on the Releases page) is the release: it becomes what
+#   curl -fsSL https://fluxsci.github.io/install.sh | bash
+# installs, and what a running Flux's update notice offers. workflow_dispatch is a dry run
+# (build + smoke, artifacts kept on the run, nothing published).
+#
+# The gate is "ci.yml is green on this exact commit" plus a packaged-app smoke per target.
+# scripts/release-check.mjs (every tier on each target, physical-display evidence) remains a
+# LOCAL deep-qualification tool; hosted runners cannot pass its ui/scale/native tiers.
+
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: # qualification artifacts only; manual runs never publish
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  qualify:
+  ci-green:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for a green ci.yml run on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # A tag pushed right after its commit races CI: wait for that run (up to 75 min).
+          for _ in $(seq 1 75); do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=20" \
+              --jq '[.workflow_runs[] | {status, conclusion}]')
+            if echo "$runs" | jq -e 'any(.conclusion == "success")' >/dev/null; then echo "ci.yml is green on $GITHUB_SHA"; exit 0; fi
+            if ! echo "$runs" | jq -e 'any(.status != "completed")' >/dev/null; then
+              echo "::error::ci.yml has no successful run for $GITHUB_SHA ($runs). Push the commit to main and let CI pass before tagging."
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "::error::timed out waiting for ci.yml on $GITHUB_SHA"; exit 1
+
+  build:
+    needs: ci-green
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
           - os: macos-15
             platform: darwin
             arch: arm64
+            builder: --mac --arm64
           - os: macos-15-intel
             platform: darwin
             arch: x64
+            builder: --mac --x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            builder: --linux --x64
     runs-on: ${{ matrix.os }}
     env:
-      RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
       FLUX_ELECTRON_NO_SANDBOX: ${{ matrix.platform == 'linux' && '1' || '0' }}
-      FLUX_GALLERY_ALLOW_DESKTOP: '1' # disposable hosted desktop, never an owner's session
-      FLUX_STASH_ALLOW_DESKTOP: '1' # same disposable hosted desktop
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+      - name: The tag names package.json's version
+        if: github.ref_type == 'tag'
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          [ "$GITHUB_REF_NAME" = "$want" ] || { echo "::error::tag $GITHUB_REF_NAME does not match package.json version ($want)"; exit 1; }
       - run: npm ci
-      # Electron 43 has no install hook; fetch the binary before the hermetic pure
-      # tier needs it (the 3D poster worker), as ci.yml does.
+      # Electron 43 has no install hook (guide §9).
       - name: Fetch the Electron binary
         run: node node_modules/electron/install.js
+      # Quarto builds the offline help (docs/_site) that ships inside the app.
       - uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: '1.7.32'
-          tinytex: ${{ matrix.platform == 'darwin' }}
+      # The smoke's offline-help check drives a real Chrome.
       - uses: browser-actions/setup-chrome@v1
         id: chrome
-      - name: Native display and packaging libraries (Linux)
-        if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb libvulkan1 libfuse2 libarchive-tools texlive-latex-extra texlive-fonts-recommended lmodern
-      # Same provisioning as ci.yml's test job (see the comments there): the 3D
-      # poster worker is spawned by product code, which FLUX_ELECTRON_NO_SANDBOX
-      # does not reach, and the glyph-outline gates read msttcorefonts faces.
-      - name: Electron sandbox and msttcorefonts (Linux)
+        with:
+          chrome-version: stable
+          install-dependencies: ${{ matrix.platform == 'linux' }}
+      - name: Display for the packaged smoke (Linux)
         if: matrix.platform == 'linux'
         run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
-          sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer
-          sudo fc-cache -f
-          for f in Arial Arial_Italic Georgia Georgia_Bold; do
-            test -f "/usr/share/fonts/truetype/msttcorefonts/$f.ttf" || { echo "::error::msttcorefonts download failed: $f.ttf missing"; exit 1; }
-          done
-      - name: Provision PDF dependencies before offline checks (macOS)
-        if: matrix.platform == 'darwin'
-        run: tlmgr install lmodern koma-script bookmark tools booktabs caption float framed fvextra microtype upquote footnotehyper tcolorbox
-      # Both local and CI qualification use the same clean-source/tag/checks,
-      # freshly staged helpers, fresh artifact directory and packaged smokes.
-      # No builder invocation can publish before these steps have passed.
-      - name: Qualify Linux
-        if: matrix.platform == 'linux'
+      - name: Fetch the bundled helpers for this target
+        run: |
+          node scripts/fetch-correction-runtime.mjs --platform ${{ matrix.platform }} --arches ${{ matrix.arch }}
+          node scripts/fetch-video-encoder.mjs --platform ${{ matrix.platform }} --arches ${{ matrix.arch }}
+      - name: Build (renderer, CLI/MCP bundles, offline help)
+        run: npm run build && npm run build:docs
+      # No Apple Developer ID (owner decision): identity=null skips electron-builder's signing
+      # and build/afterPack.cjs ad-hoc signs the app, which Apple Silicon requires.
+      - name: Package
+        run: npx electron-builder ${{ matrix.builder }} --publish never -c.directories.output=release/out ${{ matrix.platform == 'darwin' && '-c.mac.identity=null -c.mac.hardenedRuntime=false' || '' }}
+      - name: Smoke the packaged app
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
-        run: xvfb-run -a node scripts/release-check.mjs --platform linux --arch x64
-      - name: Qualify native macOS architecture
-        if: matrix.platform == 'darwin'
-        env:
-          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node scripts/release-check.mjs --platform darwin --arch ${{ matrix.arch }}
-      - name: Preserve all attempts and artifact evidence
-        if: always()
-        uses: actions/upload-artifact@v4
+        run: |
+          if [ "${{ matrix.platform }}" = linux ]; then
+            xvfb-run -a node scripts/verify-packaged-app.mjs --directory release/out --platform linux --arch x64
+          else
+            node scripts/verify-packaged-app.mjs --directory release/out --platform darwin --arch ${{ matrix.arch }}
+          fi
+      - name: Keep exactly the install.sh artifact
+        run: |
+          ls -la release/out
+          mkdir -p upload
+          cp release/out/Flux-mac-*.zip release/out/Flux-linux-*.deb upload/ 2>/dev/null || true
+          test "$(ls upload | wc -l)" -eq 1 || { echo "::error::expected exactly one Flux-mac-*.zip or Flux-linux-*.deb"; ls upload; exit 1; }
+      - uses: actions/upload-artifact@v4
         with:
-          name: qualification-${{ matrix.platform }}-${{ matrix.arch }}
-          path: |
-            release/qualification-*/qualification.json
-            release/qualification-*/checks/**
-            release/qualification-*/artifacts/*.deb
-            release/qualification-*/artifacts/*.AppImage
-            release/qualification-*/artifacts/*.dmg
-            release/qualification-*/artifacts/*.zip
-            release/qualification-*/artifacts/smoke-evidence/**
-            test-results/runs/**
+          name: flux-${{ matrix.platform }}-${{ matrix.arch }}
+          path: upload/*
           if-no-files-found: error
 
   publish:
-    needs: qualify
+    needs: build
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - uses: actions/download-artifact@v4
         with:
-          pattern: qualification-*
-          path: qualified-artifacts
-      - name: Require all architectures, exact provenance and platform approval
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/verify-release-evidence.mjs --directory qualified-artifacts --platform-evidence docs/release-platform-evidence.json --artifact-list verified-artifacts.nul
-      - name: Publish the verified artifacts as a draft
+          pattern: flux-*
+          path: dist-release
+          merge-multiple: true
+      - name: Assemble the release files and their checksums
+        run: |
+          cp install.sh dist-release/
+          cd dist-release
+          for f in Flux-mac-arm64.zip Flux-mac-x64.zip Flux-linux-amd64.deb; do
+            test -f "$f" || { echo "::error::missing $f"; exit 1; }
+          done
+          sha256sum Flux-mac-arm64.zip Flux-mac-x64.zip Flux-linux-amd64.deb install.sh > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the draft release (publish it by hand to ship)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          mapfile -d '' artifacts < verified-artifacts.nul
-          gh release create "$RELEASE_TAG" "${artifacts[@]}" --draft --verify-tag --title "Flux $RELEASE_TAG" --generate-notes
+          cd dist-release
+          gh release create "$GITHUB_REF_NAME" Flux-mac-arm64.zip Flux-mac-x64.zip Flux-linux-amd64.deb SHA256SUMS install.sh \
+            --draft --verify-tag --title "Flux $GITHUB_REF_NAME" --generate-notes
