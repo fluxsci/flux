@@ -51,11 +51,14 @@
     onPickLibraryDocs,
     zoteroMatchSummary = "",
     onChange,
+    onInstallQuarto,
   }: {
     formats: readonly ExportFormat[];
     styles: readonly ExportStyleOption[];
     engineLabel?: string;
     blockedReason?: string;
+    /** Present when the block is a missing Quarto: offers the install right here. */
+    onInstallQuarto?: () => void;
     initial: ExportPlan;
     onExport: (plan: ExportPlan) => void;
     onClose: () => void;
@@ -241,6 +244,7 @@
       <div class="col">
         <p class="hint" class:warn={!!blockedReason}>{engineLabel}</p>
         {#if blockedReason}<p class="hint warn">{blockedReason}</p>{/if}
+        {#if blockedReason && onInstallQuarto}<button class="ghost install-quarto" type="button" data-install-quarto onclick={onInstallQuarto}>Install Quarto…</button>{/if}
       </div>
     </div>
   {/if}
@@ -352,6 +356,10 @@
   }
   .hint.warn {
     color: var(--c-danger, #d14d41);
+  }
+  .install-quarto {
+    align-self: flex-start;
+    margin-top: var(--sp-1);
   }
   .path {
     flex: 1 1 auto;

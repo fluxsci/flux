@@ -170,6 +170,7 @@
   import { figRevision, bibRevision, deckRevision, slideEmbedRevision } from "../../scholar/revisions";
   import { revealFigure, revealReader } from "../../scholar/nav";
   import HoverCard from "./scholar/HoverCard.svelte";
+  import { openSetup, quartoReady } from "../../setup/setupState";
 
   // `active` (W16): false when this pane is kept-alive but hidden — the ambient
   // margin background pauses (a hidden canvas still gets rAF ticks otherwise).
@@ -782,6 +783,8 @@
   let exportBusy = $state(false);
   let exportDone = $state(false);
   let quartoAvail = $state(false);
+  // Installing Quarto from "Set up Flux…" unblocks Word export without reopening Paper.
+  $effect(() => quartoReady.subscribe((ready) => { if (ready) quartoAvail = true; }));
   // Live render progress (Quarto streams its log through quarto:log).
   let exportToken = $state("");
   let exportLogTail = $state("");
@@ -1000,7 +1003,7 @@
   function exportBlockedReason(plan: ExportPlan): string {
     if (plan.style !== "flux" && plan.format !== "docx") return "Journal styles are available for Word export only.";
     if (plan.format === "docx" && !quartoAvail) {
-      return "Word export needs Quarto — install it, then reopen this dialog.";
+      return "Word export needs Quarto, which Flux can install for you (no admin rights needed).";
     }
     return "";
   }
@@ -2863,6 +2866,7 @@
       initial={exportPlan}
       engineLabel={exportEngineLabel(exportPlan)}
       blockedReason={exportBlockedReason(exportPlan)}
+      onInstallQuarto={exportPlan.format === "docx" && !quartoAvail ? () => { exportOpen = false; openSetup(); } : undefined}
       onChange={(p) => {
         // Keep the destination in step with the axes unless the user picked
         // their own path — a stale ".pdf" name on a Word export is a foot-gun.

@@ -32,4 +32,21 @@ function pickRelease(json, currentVersion, fallbackUrl) {
   return { version, url: String((json && json.html_url) || fallbackUrl || "") };
 }
 
-module.exports = { versionIsNewer, pickRelease };
+// Flux is installed and updated by ONE script (the curl line on the website). The single URL:
+const INSTALL_SCRIPT_URL = "https://fluxsci.github.io/install.sh";
+
+// The line a person pastes into a terminal (Linux updates: apt needs a password there).
+function installLine({ update = false, url = INSTALL_SCRIPT_URL } = {}) {
+  return `curl -fsSL ${url} | bash${update ? " -s -- --update" : ""}`;
+}
+
+// What "Update now" spawns on macOS: the same script, told to wait for this app's pid to exit,
+// replace the installed app and reopen it. The URL is a constant and the pid an integer, so the
+// shell string carries no caller-controlled text.
+function updateSpawn({ pid, url = INSTALL_SCRIPT_URL } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error("updateSpawn needs the running app's pid");
+  if (!/^https:\/\/[\w.-]+\/[\w./-]*$/.test(url)) throw new Error("Unexpected install script URL");
+  return { command: "/bin/bash", args: ["-c", `curl -fsSL '${url}' | bash -s -- --update --wait-pid ${pid} --relaunch`] };
+}
+
+module.exports = { versionIsNewer, pickRelease, INSTALL_SCRIPT_URL, installLine, updateSpawn };

@@ -168,6 +168,24 @@ export interface RunnerStart {
   /** Empty prepares the session without submitting a question. */
   firstMessage: string; images?: RunnerImage[]; resume?: string;
 }
+/** "Set up Flux…" detection snapshot (electron/ipc/setup.cjs). */
+export interface SetupStatus {
+  platform: string;
+  /** Show the window on this launch (installed app, never completed). */
+  firstRun: boolean;
+  launcher: { installed: boolean; onPath: boolean; launcher: string; profile: string };
+  quarto: { installed: boolean; origin: "env" | "path" | "system" | "managed" | null; command: string | null; version: string };
+  /** Flux can download Quarto on this platform. */
+  quartoManageable: boolean;
+  quartoPinned: string;
+  tex: { installed: boolean; kind: "tinytex" | "system" | null; path: string | null };
+  agents: { claude: boolean; codex: boolean };
+  busy: string[];
+}
+export interface SetupTaskResult { ok: boolean; cancelled?: boolean; error?: string; version?: string }
+export type SetupProgress =
+  | { task: "quarto"; phase: "download" | "verify" | "extract" | "done"; done: number; total: number }
+  | { task: "tinytex"; phase: "log"; line: string };
 export interface FileBridge {
   importModel3d?(request: import('../model3d/importData').Model3dImportRequest): Promise<import('../model3d/importData').Model3dImportResult>;
   importDroppedModel3d?(file: File, request: Omit<import('../model3d/importData').Model3dImportRequest, 'sourcePath'>): Promise<import('../model3d/importData').Model3dImportResult>;
@@ -488,7 +506,17 @@ export interface FileBridge {
   projectOpenElsewhere?(root: string): Promise<boolean>;
   // 5.3 update check (packaged app only): resolves to a newer release's
   // { version, url } or null. Main owns the ≤1/day throttle + GitHub fetch.
-  checkForUpdate?(): Promise<{ version: string; url: string } | null>;
+  // canInstall: macOS updates in place (updateInstall); elsewhere show installLine to paste.
+  checkForUpdate?(): Promise<{ version: string; url: string; canInstall?: boolean; installLine?: string } | null>;
+  /** "Update now" (installed macOS app): runs the install script detached, then quits. */
+  updateInstall?(): Promise<{ ok: boolean; error?: string }>;
+  // "Set up Flux…" (ipc/setup.cjs): companion detection + no-admin installers.
+  setupStatus?(): Promise<SetupStatus>;
+  setupAddToTerminal?(): Promise<SetupStatus["launcher"] & { profileChanged: boolean }>;
+  setupInstallQuarto?(): Promise<SetupTaskResult>;
+  setupInstallTinytex?(): Promise<SetupTaskResult>;
+  setupCancel?(task: "quarto" | "tinytex"): Promise<boolean>;
+  onSetupProgress?(cb: (p: SetupProgress) => void): () => void;
   // F2: re-run a plot's recipe (regenerate). Electron only.
   cancelRecipe?(jobId: string): Promise<boolean>;
   runRecipe?(

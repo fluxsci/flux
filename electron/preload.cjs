@@ -110,6 +110,17 @@ contextBridge.exposeInMainWorld("fig", {
     ipcRenderer.on("quarto:log", handler);
     return () => ipcRenderer.removeListener("quarto:log", handler);
   },
+  // "Set up Flux…": companion detection + no-admin installers (ipc/setup.cjs).
+  setupStatus: () => ipcRenderer.invoke("setup:status"),
+  setupAddToTerminal: () => ipcRenderer.invoke("setup:addToTerminal"),
+  setupInstallQuarto: () => ipcRenderer.invoke("setup:installQuarto"),
+  setupInstallTinytex: () => ipcRenderer.invoke("setup:installTinytex"),
+  setupCancel: (task) => ipcRenderer.invoke("setup:cancel", task),
+  onSetupProgress: (cb) => {
+    const handler = (_e, info) => cb(info);
+    ipcRenderer.on("setup:progress", handler);
+    return () => ipcRenderer.removeListener("setup:progress", handler);
+  },
   // Reveal an exported file in the OS file manager (Finder/Files).
   revealPath: (p) => ipcRenderer.invoke("shell:showItemInFolder", p),
   openPath: (p) => ipcRenderer.invoke("shell:openPath", p),
@@ -178,6 +189,7 @@ contextBridge.exposeInMainWorld("fig", {
   // resolves to { version, url } when a newer release exists, else null. The renderer
   // gates the call on settings.updateCheck and toasts the result.
   checkForUpdate: () => ipcRenderer.invoke("update:check"),
+  updateInstall: () => ipcRenderer.invoke("update:install"),
 
   // File-watch live reload (F1): register the open project root, and subscribe to
   // external (agent/script) changes mapped to a subsystem ("fig"|"plots"|
