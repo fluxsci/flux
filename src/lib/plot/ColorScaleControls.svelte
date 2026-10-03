@@ -53,6 +53,17 @@
   $: target = layout === "wide" ? (scales.find((s) => s.id === picking) ?? scales[0] ?? null) : null;
   // legacy (pre-0.3.1) drafts: regenerate-only
   let legacy: Record<string, { cmap: string; min: number | null; max: number | null }> = {};
+  // A draft belongs to one plot's generated values. The hosts reuse this instance as the selection
+  // changes, so another element or a regenerated source reseeds the drafts and drops their error
+  // (else plot A's unsent range would be applied to plot B); an unrelated store update keeps them.
+  let draftSeed = "";
+  $: {
+    const seed = JSON.stringify([elementId, legacyKeys.map((key) => {
+      const field = manifest?.series.find((s) => s.field?.controlKey === key)?.field;
+      return [key, field?.cmap, field?.normalization.vmin, field?.normalization.vmax];
+    })]);
+    if (seed !== draftSeed) { draftSeed = seed; legacy = {}; error = ""; }
+  }
   $: for (const key of legacyKeys) if (!legacy[key]) {
     const field = manifest?.series.find((s) => s.field?.controlKey === key)?.field;
     legacy[key] = { cmap: field?.cmap ?? "", min: field?.normalization.vmin ?? null, max: field?.normalization.vmax ?? null };
