@@ -219,7 +219,8 @@ export interface TrackSelector {
 }
 
 /** ONE way to name a thing that animates (0.6): an element, a set of a plot's
- *  parts, a role/series filter over a plot, or a figure group. `Track.target`
+ *  parts, a role/series filter over a plot, a figure group, or (destinations
+ *  only) an ad-hoc set of those element/part refs. `Track.target`
  *  + `part`/`parts`/`selector` remain the on-disk binding of a track's OWN
  *  target (`trackRef` derives the ref); `to.become.ref` names a Become's
  *  destination in this form. `targetKey(ref)` is the identity the family law
@@ -233,6 +234,15 @@ export interface TargetRef {
   selector?: TrackSelector;
   /** A figure group (groups registry id): the union of its member elements. */
   group?: Id;
+  /** An ad-hoc SET of targets picked together (0.6, Oct-2): each member is a
+   *  plain element ref or a plot/model part-set ref of ONE element — never a
+   *  group, never itself a set (one level). A set resolves to the union of its
+   *  members; `targetKey` is the sorted member keys; `element` is
+   *  `members[0].element` (the convention that keeps every `ref.element` reader
+   *  valid). Only a Become DESTINATION may be a set: the pick writes one when
+   *  several things are picked, and `normalizeRef` collapses a 1-member set to
+   *  the member. See slide/targets.ts. */
+  members?: TargetRef[];
 }
 
 /** How the planner pairs source and destination outlines of a Become

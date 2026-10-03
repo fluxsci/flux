@@ -11,6 +11,7 @@ import fluxplotManifestSchema from "../plot/schemas/manifest.schema.json";
 // exactly what catches an agent's malformed write.
 
 import { EASING_TOKENS } from "../slide/curves";
+import { PAIR_POLICY_IDS } from "../slide/targets";
 
 const draft = "http://json-schema.org/draft-07/schema#";
 
@@ -44,6 +45,35 @@ const TIMING_CURVE_PROPS = {
   influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
   curve: CURVE,
 };
+/** 0.6: a Become (`to.become`). `ref` names the destination: an element,
+ *  plot/model parts, a selector, a figure group, or (Oct-2) an ad-hoc SET of
+ *  element/part refs — one level, never a group or another set. Mode, pair and
+ *  reveal are closed vocabularies (pair = slide/targets.ts PAIR_POLICIES ids). */
+const REF_FIELDS = {
+  element: { type: "string", pattern: "[\\s\\S]" },
+  parts: { type: "array", items: { type: "string" } },
+  selector: { type: "object" },
+} as const;
+const BECOME_MEMBER = {
+  type: "object",
+  required: ["element"],
+  properties: REF_FIELDS,
+  not: { anyOf: [{ required: ["members"] }, { required: ["group"] }] },
+} as const;
+const BECOME = {
+  type: "object",
+  required: ["ref", "mode"],
+  properties: {
+    ref: {
+      type: "object",
+      required: ["element"],
+      properties: { ...REF_FIELDS, group: { type: "string" }, members: { type: "array", minItems: 1, items: BECOME_MEMBER } },
+    },
+    mode: { enum: ["consume", "handoff"] },
+    pair: { enum: [...PAIR_POLICY_IDS] },
+    reveal: { enum: ["flip", "draw"] },
+  },
+} as const;
 const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
 const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: ["totalMs"] }], properties: {
   perMs: { type: "number", minimum: 0 }, totalMs: { type: "number", minimum: 0 },
@@ -619,7 +649,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         stagger: STAGGER,
                         arc: ARC,
                         // 0.3.0: `to.state` carries a transform's sparse patch
-                        to: { type: "object", properties: { path: { enum: ["pole", "fly"] } } },
+                        to: { type: "object", properties: { path: { enum: ["pole", "fly"] }, become: BECOME } },
                         keyframes: { type: "array" },
                         groupId: { type: "string" }, // 0.3.0: TrackGroup ref
                         styleId: { type: "string" }, // 0.6: deck AnimStyle ref

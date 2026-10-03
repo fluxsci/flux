@@ -206,14 +206,69 @@ try{
   check(!await page.$('.become-bar')&&JSON.stringify((await read()).slide)===cancelBytes,'Escape discards accumulated picks without a track or document change');
   await seed();await openTransform('Become');await page.select('[aria-label="Become pairing"]','data');await pickPart('axis.x.spine');await confirm();
   check(handoff(await read())?.to.become.pair==='data','Pair by data is written on the hand-off record');
-  // Several separate objects need W1's destination sets; until they exist the pick refuses clearly.
-  const setsSupported=await page.evaluate(async()=>typeof (await import('/src/lib/slide/targets.ts')).normalizeRef==='function');
-  if(!setsSupported){
-    await seed();await openTransform('Become');await clickObject('bh-rect',true);await clickObject('bh-rect2',true);await page.keyboard.press('Enter');await paint();
-    check(!handoff(await read())&&!!await page.$('.become-bar')&&await page.evaluate(()=>document.body.textContent.includes('Pick parts of one object, or one object')),'multiple whole objects are refused clearly and the pick stays armed');
-    await page.keyboard.press('Escape');
-  }
-  await seed();await openTransform('Become');await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);await clickText('.become-bar button','Become');await paint();
+  // --- Oct-2: Become into a SET of things (TargetRef.members) ------------------------------
+  const seedSet=async(grouped=false)=>{
+    await page.evaluate((grouped)=>{
+      const f=window.__flux,sid=f.get(f.fig.activeFigureId);
+      f.slide.setEditDestination({kind:'design'});f.slide.selTrackIds.set([]);f.fig.partSelection.set(null);f.fig.selection.set(new Set());
+      f.slide.commitDeckLive(d=>{
+        d.stage={width:640,height:360};const s=f.slideOps.slideById(d,sid);
+        s.groups=grouped?{'set-g':{id:'set-g',name:'Group 1'}}:undefined;if(!grouped)delete s.groups;
+        const dot=(id,y)=>({id,type:'ellipse',x:458,y,width:40,height:40,rotation:0,fill:'#d95f02',stroke:'none',strokeWidth:0,...(grouped?{groupId:'set-g'}:{})});
+        s.elements=[{id:'set-rect',type:'rect',name:'Rect',x:120,y:140,width:160,height:60,rotation:0,fill:'#d95f02',stroke:'none',strokeWidth:0,cornerRadius:0},dot('set-e1',60),dot('set-e2',160),dot('set-e3',260)];
+        s.beats=[{id:'set-design',label:'Design',tracks:[]},{id:'set-step',label:'Split',tracks:[]}];
+      });
+      f.slide.activeBeat.set(1);f.fig.selectOnly('set-rect');
+    },grouped);
+    await paint();await clickText('.edit-statebar button','Fit');
+  };
+  await seedSet();await openTransform('Become');
+  await clickObject('set-e1',true);await clickObject('set-e2',true);state=await read();
+  check(!handoff(state)&&!!await page.$('.become-bar')&&await page.$$eval('[data-pick-unit]',els=>els.length===2),'Shift+click accumulates two ellipses as picks, both highlighted, without committing');
+  const setUndoBytes=JSON.stringify(state.slide);
+  await page.keyboard.press('Enter');await paint();state=await read();
+  const setTrack=handoff(state);
+  check(setTrack?.target==='set-rect'&&setTrack.to.become.ref.members?.length===2&&JSON.stringify(setTrack.to.become.ref.members.map(m=>m.element).sort())==='["set-e1","set-e2"]'&&state.slide.beats[1].tracks.length===1&&state.slide.elements.length===4,'Enter commits ONE hand-off whose destination is the set of both ellipses; nothing is consumed');
+  check(!await page.evaluate(()=>document.body.textContent.includes('Group these objects first')),'the old "Group these objects first" refusal is gone');
+  check(await page.evaluate(()=>[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('‹Rect› hands off to ‹2 ellipses›'))),'the toast names the set: "‹Rect› hands off to ‹2 ellipses›"');
+  check(await page.$eval(`.lane-row[data-track-id="${setTrack.id}"] .track-label`,e=>e.firstChild.textContent.trim())==='Rect → 2 ellipses','the lane reads "Rect → 2 ellipses"');
+  await clickText('.inspector-tabs button','Animation');
+  check(await page.$eval('.props .dest .dv',e=>e.textContent.trim().startsWith('hands off to 2 ellipses'))&&await page.$$eval('.props .dmembers .dmember',els=>els.length===2&&els.every(e=>/^ellipse \d+$/.test(e.textContent.trim()))),'the Destination row names the set and lists each member');
+  check(await page.$eval('.props .dacts button[title*="cannot be reversed"]',b=>b.disabled&&b.textContent.includes('Swap direction'))&&!await page.$$eval('.props .dacts button',bs=>bs.some(b=>b.textContent.includes('Consume instead'))),'Swap direction is disabled with its reason and Consume is not offered for a set');
+  check(state.presentation.hiddenElementIds.includes('set-rect')&&!state.presentation.hiddenElementIds.includes('set-e1')&&!state.presentation.hiddenElementIds.includes('set-e2'),'After checkout shows the landed ellipses and hides the rect');
+  await page.screenshot({path:'test-results/slide-become-set.png'});
+  await page.click('[aria-label="Undo"]');await paint();
+  check(JSON.stringify((await read()).slide)===setUndoBytes,'one Undo removes the set hand-off exactly');
+  // The owner's case: the ellipses are GROUPED. In the picker a plain click picks the member under the
+  // pointer; three clicks (any order) then Enter make ONE set stored in slide order, and Alt+click picks
+  // the whole group (a group hand-off, no set needed).
+  await seedSet(true);await openTransform('Become');await clickObject('set-e3');await clickObject('set-e1');await clickObject('set-e2');await page.keyboard.press('Enter');await paint();state=await read();
+  check(JSON.stringify(handoff(state)?.to.become.ref.members?.map(m=>m.element))==='["set-e1","set-e2","set-e3"]','three clicks on grouped ellipses then Enter hand off to the set of all three (stored in slide order, whatever the click order)');
+  const groupBytes=JSON.stringify(state.slide);
+  await seedSet(true);await openTransform('Become');await clickObject('set-e2',false,true);await page.keyboard.press('Enter');await paint();state=await read();
+  check(handoff(state)?.to.become.ref.group==='set-g'&&!handoff(state)?.to.become.ref.members,'Alt+click on a grouped ellipse then Enter hands off to the whole GROUP (a group ref, not a set)');
+  // Destination side: select the three ellipses, Appear from…, click the rect — the same record.
+  await seedSet(true);await page.evaluate(()=>window.__flux.fig.selection.set(new Set(['set-e1','set-e2','set-e3'])));await paint();
+  await page.click('[aria-label="Appear options"]');await clickText('.menu button[role="menuitem"]','Appear from…');
+  check(await page.$eval('.become-msg strong',e=>e.textContent.trim()==='3 ellipses'),'Appear from… arms with the three selected ellipses named as one set');
+  await clickObject('set-rect');await page.keyboard.press('Enter');await paint();state=await read();
+  const groupTrack=JSON.parse(groupBytes).beats[1].tracks[0];
+  check(JSON.stringify(handoff(state)?.to)===JSON.stringify(groupTrack.to)&&handoff(state)?.target==='set-rect','Appear from… writes the same set hand-off from the destination side');
+  // MERGE (stretch): Appear from… on the rect, Shift+click three ellipses → three hand-offs into the rect.
+  await seedSet();await page.evaluate(()=>window.__flux.fig.selectOnly('set-rect'));await paint();
+  const mergeBefore=JSON.stringify((await read()).slide);
+  await page.click('[aria-label="Appear options"]');await clickText('.menu button[role="menuitem"]','Appear from…');
+  await clickObject('set-e1');await clickObject('set-e2');await clickObject('set-e3');
+  check(!handoff(await read())&&await page.$$eval('[data-pick-unit]',els=>els.length===3),'Appear from… accumulates three source ellipses without committing');
+  await page.keyboard.press('Enter');await paint();state=await read();
+  const merged=state.slide.beats[1].tracks;
+  check(merged.length===3&&JSON.stringify(merged.map(t=>t.target).sort())==='["set-e1","set-e2","set-e3"]'&&merged.every(t=>t.to?.become?.mode==='handoff'&&JSON.stringify(t.to.become.ref)==='{"element":"set-rect"}')&&state.slide.elements.length===4,'Enter writes three hand-offs, one per ellipse, each into the rect (a merge)');
+  check(await page.evaluate(()=>[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('‹3 ellipses› merge into ‹Rect›'))),'the toast reads "‹3 ellipses› merge into ‹Rect›"');
+  check(JSON.stringify([...state.tracks].sort())===JSON.stringify(merged.map(t=>t.id).sort())&&!state.presentation.hiddenElementIds.includes('set-rect')&&['set-e1','set-e2','set-e3'].every(id=>state.presentation.hiddenElementIds.includes(id)),'all three lanes are selected; After checkout shows the rect and hides the ellipses');
+  check(await page.$$eval('.lane-row .track-label',els=>els.filter(e=>/→ Rect$/.test(e.firstChild.textContent.trim())).length===3),'three lanes read "ellipse N → Rect"');
+  await page.click('[aria-label="Undo"]');await paint();
+  check(JSON.stringify((await read()).slide)===mergeBefore,'one Undo removes the whole merge');
+  await page.screenshot({path:'test-results/slide-become-merge.png'});  await seed();await openTransform('Become');await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);await clickText('.become-bar button','Become');await paint();
   await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].find(el=>el.textContent.toLowerCase().includes('x axis spine + 1'));const button=[...toast.querySelectorAll('button')].find(el=>el.textContent.includes('Auto-animate the rest'));button.click();});await paint();state=await read();
   const landingIndex=state.slide.beats.findIndex(b=>b.id==='bh-step'),generated=state.slide.beats.flatMap((b,i)=>b.tracks.filter(t=>t.generatedBy==='auto-reveal').map(t=>({t,i})));
   check(generated.length>0&&generated.every(({t,i})=>i>landingIndex&&!['axis.x.spine','axis.y.spine'].includes(t.part)),'toast Auto-animate the rest generates later reveals without the landed spines');

@@ -39,7 +39,8 @@
     editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
-  import { hasPartBinding, isWholeElementRef, sameRef, trackRef } from "../../../lib/slide/targets";
+  import { hasPartBinding, isWholeElementRef, sameRef, trackRef, composeDestination, refElementIds } from "../../../lib/slide/targets";
+  import { membersDeep } from "../../../lib/groups";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../lib/slide/autobuild";
   import { buildPartTree } from "../../../lib/plot/tree";
   import { isExitPreset } from "../../../lib/slide/presetCatalog";
@@ -84,6 +85,7 @@
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
   import type { Deck, TransitionKind, TargetRef } from "../../../lib/slide/types";
+  import type { Figure } from "../../../lib/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
@@ -177,6 +179,7 @@
     fig: () => get(project).figures.find(f => f.id === get(activeFigureId)) ?? null,
     refLabel: ref => refLabel(ref),
     commitTarget: (pick, ref) => performBecome(pick, ref),
+    commitMerge: (pick, sources) => performMerge(pick, sources),
     commitLike: (pick, elementId) => performLike(pick, elementId),
     likeEffect: (pick, elementId) => {
       const t = activeSlide?.beats[pick.beatIndex]?.tracks.find(tr => tr.target === elementId && tr.styleId) ?? activeSlide?.beats[pick.beatIndex]?.tracks.find(tr => tr.target === elementId);
@@ -1078,6 +1081,14 @@
     const s = activeSlide;
     return describeUnit(u, { slide: s ?? { elements: [] }, refLabel, manifestFor: id => { const el = s?.elements.find(e => e.id === id); return el?.type === "plot" ? get(plotManifests)[el.assetId] : undefined; } });
   }
+  /** Several picks name ONE destination: a set of the objects and plot parts
+   *  picked (group picks expand to their objects). One pick stays itself. */
+  function composeDest(refs: TargetRef[]): TargetRef | null {
+    const s = activeSlide;
+    try {
+      return composeDestination(refs, groupId => s ? membersDeep(s as unknown as Figure, groupId).map(e => e.id) : []);
+    } catch (error) { pushToast("info", "Couldn't use that set", {detail: errMsg(error)}); return null; }
+  }
   function animateFromXray(req: XrayAnimateRequest) {
     stopPreview();
     if (!animatorOpen) toggleAnimator();
@@ -1144,13 +1155,16 @@
   function startBecome(armedFrom: "become" | "appear-from" = "become", refs = selectedRefs()) {
     const s = activeSlide, sid = $activeFigureId;
     if (!s || !sid) return;
-    if (refs.length !== 1) { pushToast("info", "Select one object or its parts to become something"); return; }
-    const source = refs[0], el = s.elements.find(e => e.id === source.element);
+    // Appear from… may start from several destinations: they land as one set.
+    if (!refs.length || refs.length > 1 && armedFrom === "become") { pushToast("info", "Select one object or its parts to become something"); return; }
+    const source = armedFrom === "appear-from" ? composeDest(refs) : refs[0];
+    if (!source) return;
+    const el = s.elements.find(e => e.id === source.element);
     if (!el) return;
     if (source.group && armedFrom === "become") { pushToast("info", "Choose an object or plot parts as the Become source, rather than a group."); return; }
-    if (el.type === "video") { pushToast("info", "Video clips cannot take part in a Become", {detail: "Use Change for a clip's geometry, or Duplicate it."}); return; }
+    if (refElementIds(source).some(id => s.elements.find(e => e.id === id)?.type === "video")) { pushToast("info", "Video clips cannot take part in a Become", {detail: "Use Change for a clip's geometry, or Duplicate it."}); return; }
     let bi = $activeBeat > 0 ? $activeBeat : Math.max(1, s.beats.length - 1);
-    const birth = ghostBirth(s, source.element);
+    const birth = refElementIds(source).map(id => ghostBirth(s, id)).reduce<ReturnType<typeof ghostBirth>>((late, b) => b && (!late || b.beatIndex > late.beatIndex) ? b : late, null);
     if (birth && birth.beatIndex > bi) { pushToast("info", "Choose the ghost's birth step or a later one"); return; }
     if (s.beats.length <= 1) commitDeckLive(d => { slideOps.addBeat(d, sid, {label: "Beat 1", advance: "click"}); });
     bi = Math.min(bi, (composedSlide(sid)?.beats.length ?? 2) - 1);
@@ -1166,6 +1180,29 @@
     selection.set(new Set([targetId]));
     setPartSelections((source.parts ?? []).map(partId => ({elementId: targetId, partId})));
     activeBeat.set(beatIndex); startBecome("become", [source]);
+  }
+  /** Many → one: one hand-off per picked source into the armed destination,
+   *  written in ONE transaction (one Undo), all with the same new-track timing. */
+  function performMerge(pick: TargetPick, sources: TargetRef[]) {
+    const s = activeSlide;
+    if (!s || s.id !== pick.slideId) return;
+    const dest = pick.source;
+    picker.finish();
+    try {
+      const options = { animStyles: overlay?.animStyles, modelManifest: (id: string) => get(scene3dManifests)[id], plotManifest: (id: string) => get(plotManifests)[id], modelAsset: (id: string) => get(project).assets.find(a => a.id === id) };
+      const trackIds = commitDeckLive(d => {
+        const slide = slideOps.slideById(d, s.id), beat = slide?.beats[pick.beatIndex];
+        if (!slide || !beat) throw new Error("The step no longer exists.");
+        return sources.map(source => slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, compiled: compileSlide(slide, stage, options), modelAsset: options.modelAsset})!.trackId);
+      });
+      if (!trackIds?.length) return;
+      activeBeat.set(pick.beatIndex); selTrackIds.set(trackIds);
+      enterEndpointEdit(trackIds, "t2"); inspectorTab = "animation";
+      pushToast("success", `‹${refLabel({element: sources[0].element, members: sources})}› merge into ‹${refLabel(dest)}›`, {ttl: 3500});
+    } catch (error) {
+      picker.resume(pick);
+      pushToast("error", "Couldn't merge those objects", { detail: errMsg(error) });
+    }
   }
   function performBecome(pick: TargetPick, ref: TargetRef) {
     const s = activeSlide;

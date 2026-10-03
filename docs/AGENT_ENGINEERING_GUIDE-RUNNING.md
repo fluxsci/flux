@@ -159,7 +159,7 @@ The established shared cores — extend these, don't duplicate them:
 | Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
-| Semantic targets, hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
+| Semantic targets (incl. destination SETS: `normalizeRef`, `composeDestination`, `setLabel`), hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | Stage-space geometry for element, plot-part and group targets | `src/lib/slide/targetGeometry.ts` | `verify-target-geometry.ts` (pure/core parity), `verify-target-geometry-browser.ts` (live CTM) |
@@ -1286,8 +1286,20 @@ Persistence invariants (all machine-checked — do not weaken):
   effective step manifests, never sampled appearance. When retaining an existing source's
   timing, birth admission must compare its resolved start (styles/anchors included), not the
   raw track's start. Read `compiled.resolvedSlide` so disabled tracks being re-enabled keep
-  their effective timing too. Copy/preset/embed remaps retain element
-  and group destination identity; deleted destinations remain dangling and diagnosed. PPTX
+  their effective timing too. **Destination SETS (Oct-2):** `TargetRef.members` is one level
+  of element/part refs (never a group or a set) and only ever a Become DESTINATION — always
+  hand-off, refused as a source, by Consume and by Swap. `normalizeRef` (dedupe, merge one
+  element's parts, collapse a 1-member set, `element = members[0].element`) is the one
+  canonicalizer and `becomeTransform` stores members in slide order, so every route writes the
+  same bytes; every reader resolves through `resolveTargetLeaves` / the compiler's resolver,
+  member by member against ITS OWN element's manifest (never read `ref.element`'s manifest for
+  a whole ref). Labels come from the pure `setLabel` ("3 ellipses"). **Merge** is the reverse:
+  hand-offs of one step with an identical destination ref co-land (compile `merge =
+  {trackIds, landAt}`; the destination reveals at the last landing; each lander plans ONE
+  shared correspondence and keeps its own pairs; earlier landers hold via a hold curve; the
+  last lander's layer goes beneath the group). A filled ring that tiles keeps a travelling
+  fill-only underlay pair (`fade: "out" | "in"`) so its interior never pops. Copy/preset/embed
+  remaps retain element, group and every set member's destination identity; deleted destinations remain dangling and diagnosed. PPTX
   phase ownership includes destinations so a later landing cannot leak into an earlier phase.
   The retype law: `applyState` with
   `state.type` keeps only BASE_PROPS and completes the new kind's required props
@@ -1647,6 +1659,16 @@ Persistence invariants (all machine-checked — do not weaken):
     While Become is armed, `xrayBecomeSource` names the waiting source. Escape (Add mode / the
     X-ray first) or slide/step changes cancel. The pick commits one ref through `becomeTransform`
     or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
+
+    Slide's one `pickState` owns Become, Appear from and Animate like. While Become is
+    armed, `xrayBecomeSource` names the waiting source and `b` confirms the picked destination
+    rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
+    Canvas's view-only `picking` allows Shift+Ctrl/Meta part picks without starting a drag;
+    `EditorCanvasPresentation.highlight` accepts a list so every accumulated part stays lit.
+    Escape or slide/step changes cancel. The pick commits one ref through `becomeTransform`
+    or its `appearFrom` twin (several destination picks compose ONE set via
+    `composeDestination`, group picks expanded; several Appear from… SOURCE picks write one
+    hand-off each — a merge — in one `commitDeckLive`), then selects the track's After endpoint. Design retains the
     compiler's future hand-off destination visibility while ordinary appearances stay editable.
     Inspector retargeting starts from `trackRef`, preserving the source's part/selector binding.
     Auto-animate the rest (post-pick toast and Destination row) calls the ONE
@@ -3043,6 +3065,18 @@ architecture on its native runner. `npmRebuild:false` cannot supply a missing op
 dependency. This work does not qualify either macOS artifact; run the packaged smoke
 on each target architecture before release. PDF snip/text native dependencies remain
 outside this PNG packaging change.
+
+**Generated validators and browser probes (Oct-2):**
+
+- **A JSON-schema `minLength` crashes every generated validator.** Ajv standalone emits
+  `require("ajv/dist/runtime/ucs2length")` for it, and `validators.gen.js` is an ES module, so
+  every importer dies with "require is not defined in ES module scope" (it looks like a broken
+  gate run, not a schema edit). Express "non-empty string" as `pattern: "[\\s\\S]"` (as
+  `ghostFrom` does) and grep the regenerated file for `require(` before committing.
+- **`page.evaluate` of a callback with named inner functions fails under tsx** with
+  "__name is not defined": tsx keeps function names through an injected `__name` helper the
+  page lacks. Define it on the page once (`page.evaluate("globalThis.__name = (fn) => fn")`)
+  or avoid named inner `const f = () => …` in evaluated callbacks.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 
@@ -9346,3 +9380,22 @@ evidence. Frames are in `notes/slides_oct2/reports/W3/`.
 - Measure the browser's own glyph positions and never compute them. Spans cloned per substring
   land within 0.05 stage px of the real text. Positions recomputed from font metrics would
   disagree with browser shaping at the flip.
+
+### 2026-10-02 — Become into ANY set of things, and many into one (Claude Opus 5.5, `oct2/become-sets`)
+**Work:** Owner ask (Deck 3 slide 2): a rect should become three ellipses the way slide 1's
+rect becomes a plot's points, without grouping anything. Added `TargetRef.members` (an ad-hoc
+destination set) through targets/compile/player/op/schema/CLI(`--to`, `--members`)/GUI
+(several picks compose one set; the "Group these objects first" toast is gone), plus the
+stretch MERGE (several sources → one destination, revealed at the last landing). Watching
+mid-flight frames of the owner's real deck exposed a pre-existing pop in slide 1 too: a filled
+ring tiled into arcs lost its interior on frame 1 — fixed with a travelling fill underlay.
+New `scripts/perf/slide-handoff-strip-probe.mts` films one hand-off of a real project.
+**Learnings:**
+- Promoted to §4 (sets, merge, underlay, pick composition) and §9 (Ajv `minLength` → ESM
+  `require`; tsx `__name` in `page.evaluate`).
+- Look at frames, not just gates: every assertion passed while frame 1 of both the old and the
+  new hand-off visibly dropped the fill. A film strip of the owner's own deck found it in seconds.
+- `slides-oct2` @ 2541dc58 cannot run `--tier pure` as a whole: `verify-fig-source-cache.ts`
+  and `verify-resize-preview.ts` have no `execution` contract (reported; not fixed on this
+  branch). `verify-model3d-headless.ts` needs the gitignored `dist/flux-model3d-runtime.js`
+  (`node scripts/gen-model3d-viewer.mjs`) in a fresh worktree.

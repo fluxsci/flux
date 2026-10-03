@@ -364,8 +364,12 @@ picking: every click on the canvas is a pick.
   spine, ticks and labels; expand them to choose only the spine. **B** in the X-ray confirms the
   whole pick, and closing the X-ray keeps it.
 
-A hand-off has one destination object until destination sets arrive: pick parts of one plot, one
-object, or a group (Alt+click a member, or its row in the X-ray).
+- **Several things at once.** Pick several things and the source becomes **all of them**: three
+  loose ellipses, parts of two different plots, or a mix of shapes and plot parts. Your layers stay
+  as they are; there is no need to group anything first (**Alt+click** a grouped object to pick its
+  whole group). The source's outline splits into one piece per destination, and each piece lands
+  exactly on its own object. The lane and the Destination row name the set (**Rect → 3 ellipses**)
+  and list its members; a set cannot be swapped — author the reverse hand-offs from each object.
 
 A loose drawn destination between whole objects uses **Consume**: its appearance becomes the source's After state
 and the destination is removed. The source keeps its identity; one Undo restores both.
@@ -374,15 +378,24 @@ with the destination hidden before landing and the source hidden afterwards. For
 a drawn chevron can become a plot's X and Y axis spines, or a box on a plot can become a
 rectangle. The canvas lands in **Edit after step**, with the track selected in the
 **Animation** inspector. **Show hidden** lets you inspect hidden objects as faint ghosts.
-Video clips cannot take part; use Change to move or resize them. Groups can be destinations;
-choose one object or plot parts as the source.
+Video clips cannot take part; use Change to move or resize them. Groups and sets of several
+objects can be destinations; choose one object or plot parts as the source. A set always hands
+off: **Consume** and **↔ Swap direction** need a single destination.
 
-To work from the other end, select the destination object or plot parts and choose
-**Appear ▾ → Appear from…**. The main **Appear** button still adds a normal entrance.
-The same picker opens and the bar names what **appears from…**; pick its source (one object or
-parts of one plot) and confirm with **B** or **Enter**, or double-click it.
+To work from the other end, select the destination object or plot parts (or several objects,
+which then appear together from one source) and choose **Appear ▾ → Appear from…**. The main
+**Appear** button still adds a normal entrance. The same picker opens and the bar names what
+**appears from…**; pick its source and confirm with **B** or **Enter**, or double-click it. Pick
+**several** sources and they **merge**: each hands off into the destination in the same step, early
+pieces hold in place, and the destination appears when the last one lands (one Undo removes them all).
 In the X-ray, **m**, then **5** (**Appear from…**) starts this same flow from the picked
 rows. Both routes create exactly the same hand-off.
+
+**Merge many into one.** With **Appear from…** armed on one object, **Shift+click** several
+sources and press **Enter**: each source gets its own hand-off into the same destination, in
+one Undo. The destination is shared out among them (the reverse of becoming a set), the
+pieces converge, and the destination appears when the last of them lands. A piece that
+arrives early waits in place. Each source keeps its own lane, so you can stagger them.
 
 **Pair** chooses how the outlines match: **auto**, **by position**, **by order**, **by data**,
 or **tile**. Connected strokes, such as two axis spines, form one path. Order follows point
@@ -405,7 +418,8 @@ the toast offers **Auto-animate the rest…**. It adds the plot's remaining buil
 the landing, excluding the leaves already revealed by the hand-off. A hand-off to the whole
 plot already reveals every part, so it offers no remainder.
 
-**Destination.** The Animation inspector names both sides of a hand-off. **Pair ▾** chooses
+**Destination.** The Animation inspector names both sides of a hand-off; for a set it reads,
+for example, “hands off to 3 ellipses” and lists each member below. **Pair ▾** chooses
 auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
 **↔ Swap direction** reverses the hand-off, including plot parts, in one Undo. It keeps timing,
 styles and follower links. It refuses ghost births, group sources, missing outlines and a
@@ -423,7 +437,8 @@ IDs crossfades as a whole. A Become at a step with an existing Change replaces t
 same target's endpoint; a ghost can Become something at its birth step.
 
 From the command line or an agent, `become` can name destination parts with `--part` and
-source parts with `--source-part`. Plots, images and part sets use **hand-off** by default:
+source parts with `--source-part`. A destination set is `--to <id>` repeated, or
+`--members` with a JSON list of objects and their parts; `appear-from --members` is its twin. Plots, images and part sets use **hand-off** by default:
 the source hides after landing and the destination stays on the slide. Whole drawn objects
 use **Consume**, which replaces the source and removes the destination; `--mode` chooses
 either completion for whole objects. `appear-from` authors the same hand-off from the

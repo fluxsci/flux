@@ -53,6 +53,8 @@ export function conflicts(a: PickUnit, b: PickUnit, ctx: UnitContext = {}): bool
 /** Is this unit (part of) the waiting source itself? The source never picks itself. */
 export function isSourceUnit(u: PickUnit, source: TargetRef | null | undefined, ctx: UnitContext = {}): boolean {
   if (!source) return false;
+  // A set source (Appear from… armed on several objects): any member is the source.
+  if (source.members) return source.members.some((m) => isSourceUnit(u, m, ctx));
   if (source.group) return covers(u, ctx).some((id) => (ctx.membersOf?.(source.group!) ?? [source.element]).includes(id));
   if (u.group) return covers(u, ctx).includes(source.element);
   if (u.element !== source.element) return false;
@@ -106,11 +108,11 @@ export function targetsToUnits(targets: readonly { elementId: string; partId?: s
   return targets.map((t) => (t.groupId ? { element: t.elementId, group: t.groupId } : t.partId ? { element: t.elementId, part: t.partId } : { element: t.elementId }));
 }
 
-/** W2/W1 seam: the destination of a pick set. One ref passes through; several
- *  become W1's ad-hoc set form (`TargetRef.members`), normalized by W1's
- *  `normalizeRef` when it is available. Until W1 lands `supportsSets` is false
- *  and the caller refuses a multi-object set instead of writing a ref an older
- *  `becomeTransform` would misread as "the whole first object". */
+/** The destination of a pick set, DOM-free: one ref passes through; several
+ *  become the ad-hoc set form (`TargetRef.members`, slide/targets.ts), run
+ *  through `normalize` when given. The live picker uses the shared
+ *  `targets.composeDestination` (which also expands group picks); this form
+ *  is the pure gate's and the fallback's. */
 export function composeDestination(picks: readonly TargetRef[], normalize?: (ref: TargetRef) => TargetRef): TargetRef | null {
   if (!picks.length) return null;
   if (picks.length === 1) return picks[0];

@@ -20,7 +20,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { validateDeckFile } from "../src/lib/project/validate";
 import { isNewerSchema } from "../src/lib/project/types";
-import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
+import { DECK_SCHEMA_VERSION, type Deck } from "../src/lib/slide/types";
 import * as slideOps from "../src/lib/slide/ops";
 import { validateDeck as validateDeckVerb, saveDeck, loadDeck, mutateDeck } from "../flux-core/slides";
 import { scaffold } from "../flux-core/index";
@@ -121,6 +121,39 @@ assert(validateDeckFile(good).length === 0, "a createDeck() deck validates again
   const badView = structuredClone(v6) as unknown as { slides: { elements: { id: string; view?: unknown }[] }[] };
   badView.slides[0].elements.find((e) => e.id === plot)!.view = { x: { domain: [0] } };
   assert(validateDeckFile(badView).length > 0, "a view domain that is not a pair → rejected");
+  // Oct-2: a Become destination SET (`ref.members`) — one level of element/part refs.
+  const setDeck = structuredClone(v6) as unknown as { slides: { beats: { tracks: { to?: { become?: { ref: Record<string, unknown> } } }[] }[] }[] };
+  const setTrack = setDeck.slides[0].beats[1].tracks.find(t => t.to?.become)!;
+  setTrack.to!.become!.ref = { element: el, members: [{ element: el }, { element: plot, parts: ["peaches.box"] }] };
+  assert(validateDeckFile(structuredClone(setDeck)).length === 0, "a saved destination set (an object + a plot's parts) validates");
+  assert(JSON.stringify(slideOps.migrateDeck(structuredClone(setDeck) as unknown as Deck)).includes('"members"'), "migration keeps a saved set record intact");
+  for (const [label, members] of [
+    ["a nested set member", [{ element: el, members: [{ element: el }] }]],
+    ["a group member", [{ element: plot, group: "g" }]],
+    ["a member without an element", [{ parts: ["peaches.box"] }]],
+    ["an empty set", []],
+  ] as const) {
+    const bad = structuredClone(setDeck);
+    bad.slides[0].beats[1].tracks.find(t => t.to?.become)!.to!.become!.ref = { element: el, members };
+    assert(validateDeckFile(bad).length > 0, `a destination set with ${label} → rejected`);
+  }
+  // The whole `to.become` record is schematized: ref + closed mode/pair/reveal vocabularies.
+  const becomeOf = (d: typeof setDeck) => d.slides[0].beats[1].tracks.find(t => t.to?.become)!.to!.become as unknown as Record<string, unknown>;
+  for (const [label, patch] of [
+    ["an unknown mode", { mode: "absorb" }], ["an unknown pair", { pair: "nearest" }], ["an unknown reveal", { reveal: "wipe" }],
+    ["no mode", { mode: undefined }], ["no ref", { ref: undefined }], ["a ref without an element", { ref: { parts: ["a"] } }],
+    ["non-string parts", { ref: { element: el, parts: [1] } }],
+  ] as const) {
+    const bad = structuredClone(setDeck);
+    const become = becomeOf(bad);
+    for (const [k, v] of Object.entries(patch)) if (v === undefined) delete become[k]; else become[k] = v;
+    assert(validateDeckFile(bad).length > 0, `a Become with ${label} → rejected`);
+  }
+  for (const [label, patch] of [["a group ref", { ref: { element: plot, group: "g" } }], ["pair tile + reveal draw", { pair: "tile", reveal: "draw" }], ["consume provenance", { mode: "consume", ref: { element: el } }]] as const) {
+    const ok = structuredClone(setDeck);
+    Object.assign(becomeOf(ok), patch);
+    assert(validateDeckFile(ok).length === 0, `a Become with ${label} validates`);
+  }
 }
 
 // Timing specs share the same disk contract on ordinary, ghost and style tracks.

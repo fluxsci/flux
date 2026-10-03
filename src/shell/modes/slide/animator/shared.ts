@@ -7,7 +7,7 @@ import type { FluxPlotManifest, PartNode } from "../../../../lib/plot/types";
 import { buildModel3dTree } from "../../../../lib/model3d/tree";
 import { labelForPart } from "../../../../lib/plot/tree";
 import { elementLabel } from "../../../../lib/xray/buildXrayTree";
-import { isHandoff, trackRef, targetPartIds, isScene3dManifest } from "../../../../lib/slide/targets";
+import { isHandoff, trackRef, targetPartIds, isScene3dManifest, setLabel } from "../../../../lib/slide/targets";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
 import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
@@ -51,6 +51,7 @@ export const EL_GLYPH: Record<string, string> = {
 /** A compact label for a track chip (prefixed with a P-tag when the slide has
  *  several plots so identical part names stay distinguishable). */
 export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: ManifestFor = () => undefined, plotTags = new Map<string, string>(), maxParts = 1): string {
+  if (ref.members) return setLabel(ref.members, slide?.elements ?? [], id => manifestFor(id));
   const el = slide?.elements.find(e => e.id === ref.element);
   if (ref.group) return slide?.groups?.[ref.group]?.name || "Group";
   if (!el || !slide) return "missing";

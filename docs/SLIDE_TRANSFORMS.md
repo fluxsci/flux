@@ -36,7 +36,18 @@ form; it is still one of Become's destinations, not a fourth transform way.
 ## 3. Model semantics
 
 Deck `0.6.0` retains the existing track binding (`target`, `part`/`parts`, `selector`) and
-adds a shared `TargetRef`: `{element, parts?, selector?, group?}`. `trackRef` derives it,
+adds a shared `TargetRef`: `{element, parts?, selector?, group?, members?}`. `members` (Oct-2)
+is an ad-hoc destination SET: one level of element or part-set refs of any objects/plots,
+never a group or a set; `normalizeRef` dedupes it, merges one element's parts, collapses a
+single member and sets `element = members[0].element`; Become stores members in slide order.
+A set is only ever a Become destination (always hand-off; never a source, Consume or Swap).
+**Merge** is the reverse: several hand-offs of one step whose destination refs are identical
+(`sameRef`) co-land instead of being refused as overlapping. `CompiledSlide.handoffs[].merge`
+= `{trackIds, landAt}`; the destination stays hidden until `landAt` (the group's latest end),
+each lander plans ONE shared correspondence of all sources (the destination tiles among
+them) and keeps its own pairs, earlier landers hold their landed frame, and the last
+lander's layer (with any fill underlay) lies beneath the others. Partial overlaps and
+crossfading mesh landings are still refused. `trackRef` derives it,
 `targetKey` gives its canonical identity, and `resolveTargetLeaves` expands parts and groups.
 The family law allows one transform per complete source ref per step. A whole-plot Change
 and a hand-off of one box can coexist; part styling Changes still use the whole plot's
@@ -214,8 +225,8 @@ attributes, with no SVG serialization, parsing or geometry planning.
 
 - **Transform ▾** offers **Change**, **Ghost…** and **Become**. Become arms a source object
   or part set. Click a destination immediately, Ctrl/Cmd-click a plot part, or Shift-click
-  to accumulate picks. Enter/**Become** confirms one object, one plot's parts, or an X-ray
-  group. The bar names both sides and exposes Pair. Escape or a step/slide change cancels.
+  to accumulate picks. Enter/**Become** confirms one object, one plot's parts, an X-ray
+  group, or — when several things are picked — one destination SET of all of them. The bar names both sides and exposes Pair. Escape or a step/slide change cancels.
   X-ray **b** confirms picked rows; **a**, **5** starts **Appear from…** from the destination.
 - **Appear ▾ → Appear from…** writes the same record by picking the source. **Animate like…**
   picks another effect's linked style. Ordinary X-ray appearance picks fan out per part;

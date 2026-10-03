@@ -27,7 +27,7 @@ import { xrayPickSink, type XrayPickUpdate } from "../../../../lib/xray/animateH
 import { buildXrayTree, widenToSiblings, type XRow } from "../../../../lib/xray/buildXrayTree";
 import { membersDeep } from "../../../../lib/groups";
 import { buildPartTree } from "../../../../lib/plot/tree";
-import * as targetLaw from "../../../../lib/slide/targets";
+import { composeDestination as composeSetDestination } from "../../../../lib/slide/targets";
 import type { Figure } from "../../../../lib/types";
 import type { PairPolicy, TargetRef } from "../../../../lib/slide/types";
 import {
@@ -73,6 +73,8 @@ export interface PickerHooks {
   fig(): Figure | null;
   refLabel(ref: TargetRef): string;
   commitTarget(pick: TargetPick, ref: TargetRef): void;
+  /** Appear from… with several sources: they MERGE into the armed destination. */
+  commitMerge(pick: TargetPick, sources: TargetRef[]): void;
   commitLike(pick: LikePick, elementId: string): void;
   /** Animate like: the effect an object has in the pick's step, or null. */
   likeEffect(pick: LikePick, elementId: string): string | null;
@@ -83,9 +85,9 @@ export interface PickerHooks {
 /** Tools that draw something new: choosing one while picking enters Add mode. */
 export const DRAW_TOOLS: ReadonlySet<string> = new Set(["text", "rect", "ellipse", "line", "arrow", "pen"]);
 
-/** W1 seam (`TargetRef.members`): present once destination sets have landed. */
-const normalizeSet = (targetLaw as unknown as { normalizeRef?: (ref: TargetRef) => TargetRef }).normalizeRef;
-export const supportsSets = typeof normalizeSet === "function";
+/** Destination sets (`TargetRef.members`, slide/targets.ts) landed with the
+ *  picker: several picks compose into ONE set destination. */
+export const supportsSets = true;
 
 export class BecomePicker {
   mode = $state.raw<PickMode | null>(null);
@@ -223,15 +225,18 @@ export class BecomePicker {
       return;
     }
     const refs = unitsToRefs(t.units);
-    if (refs.length > 1 && t.kind === "appearFrom") {
-      pushToast("info", "Pick one object, or parts of one object, to appear from", { detail: "An appearance has one source; picks across several objects would need several effects." });
+    // Appear from… with several sources is a MERGE: one hand-off per source
+    // into the armed destination (the picks are sources, not a set).
+    if (refs.length > 1 && t.kind === "appearFrom") { this.hooks.commitMerge(t, refs); return; }
+    let ref: TargetRef | null;
+    try {
+      // Several picks become ONE destination set (group picks expand to their
+      // objects; a lone pick stays itself) — the shared slide/targets.ts rule.
+      ref = refs.length > 1 ? composeSetDestination(refs, (gid) => [...(this.unitContext().membersOf?.(gid) ?? [])]) : composeDestination(refs);
+    } catch (error) {
+      pushToast("info", "Couldn't use that set", { detail: error instanceof Error ? error.message : String(error) });
       return;
     }
-    if (refs.length > 1 && !supportsSets) {
-      pushToast("info", "Pick parts of one object, or one object", { detail: "Becoming several separate objects at once needs destination sets, which this build does not have yet." });
-      return;
-    }
-    const ref = composeDestination(refs, normalizeSet);
     if (ref) this.hooks.commitTarget(t, ref);
   }
   likeEffectOf(elementId: string): string | null { const l = this.like; return l ? this.hooks.likeEffect(l, elementId) : null; }

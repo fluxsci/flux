@@ -52,6 +52,22 @@ for (const reverse of [false, true]) {
 const ringTile = planCorrespondence([outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], true)], disjoint, { pair: "tile" });
 h.ok(near(ringTile.pairs.reduce((sum, p) => sum + len(p.a!), 0), 160, 1e-6), "ring tiles cover the full perimeter");
 h.ok(ringTile.pairs.every((p) => !p.a!.closed), "ring tiles are open arcs");
+// Oct-2: a FILLED ring keeps its interior while it splits — a fill-only copy
+// rides first as a leftover (fades over the first 40 %, or in over the last 40 % merging).
+const filledRing = outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], true);
+filledRing.paint = { ...filledRing.paint, fill: "#d95f02", stroke: "#100f0f", strokeWidth: 2 };
+for (const reverse of [false, true]) {
+  const p = planCorrespondence(reverse ? disjoint : [filledRing], reverse ? [filledRing] : disjoint, { pair: "tile" });
+  const under = p.pairs[0], side = reverse ? under.b : under.a, travel = reverse ? under.a : under.b;
+  const cloud = { x: (0 + 190) / 2, y: (0 + 70) / 2 };
+  h.ok(!!travel?.closed && near(travel.bbox.x + travel.bbox.w / 2, cloud.x, 1e-9) && near(travel.bbox.y + travel.bbox.h / 2, cloud.y, 1e-9), `filled ring ${reverse ? "merge" : "split"}: the underlay travels between the ring and its partners' centre`);
+  h.ok(p.pairs.length === 3 && under.fade === (reverse ? "in" : "out") && !!side?.closed && side.paint.fill === "#d95f02" && side.paint.stroke === "none" && side.paint.strokeWidth === 0, `filled ring ${reverse ? "merge" : "split"}: a fill-only underlay pair rides first, beneath the pieces`);
+  h.ok(near(p.pairs.slice(1).reduce((sum, q) => sum + len(reverse ? q.b! : q.a!), 0), 160, 1e-6), `filled ring ${reverse ? "merge" : "split"}: the pieces still tile the whole perimeter`);
+  p.prepare();
+  const op = (t: number) => sampleCorrespondence(p, t)[0].opacity;
+  h.ok(reverse ? op(0) === 0 && op(.6) === 0 && near(op(.8), .5, 1e-9) && op(1) === 1 : op(0) === 1 && near(op(.2), .5, 1e-9) && op(.4) === 0, `filled ring ${reverse ? "merge" : "split"}: the underlay ${reverse ? "resolves over the last" : "dissolves over the first"} 40 %`);
+}
+h.eq(ringTile.pairs.length, 2, "an UNFILLED ring tiles with no underlay");
 
 h.section("data stations and complete union");
 const sine = outline("sine", Array.from({ length: 49 }, (_, i) => [30 + i * 4, 60 + 24 * Math.sin(i / 48 * Math.PI * 2)]), false, { data: { x: 0 }, role: "line" });

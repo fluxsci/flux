@@ -13,7 +13,7 @@ import { staggerKey, manifestCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
-import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, isWholeElementRef, type ResolvedTarget } from "./targets";
+import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, isWholeElementRef, refElementIds, type ResolvedTarget } from "./targets";
 import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
@@ -60,7 +60,12 @@ export interface CompiledSlide {
    *  source fades out while the destination fades in (mesh parts through the
    *  model's per-part opacity, furniture parts through the DOM), on the track's
    *  own curve, so the landing frame is the destination's own render. */
-  handoffs: { trackId: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec; crossfade?: true }[];
+  handoffs: { trackId: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec; crossfade?: true;
+    /** MERGE (Oct-2): several hand-offs of one step land on the SAME
+     *  destination ref. `trackIds` is the whole group in story order (start,
+     *  then lane); the destination reveals at `landAt` (ms into the beat, the
+     *  group's latest end) and an earlier lander holds its landed frame. */
+    merge?: { trackIds: string[]; landAt: number } }[];
   /** Manifest-aware canonical resolution, shared with Become authoring. */
   resolveTarget(ref: TargetRef, beat: number): ResolvedTarget[];
   /** The frame at `timeMs` into `beat`. Beats `fromBeat`..`beat` play as one
@@ -149,7 +154,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     return { id: beat.id, duration: Math.max(0, ...tracks.map((t) => t.end)), tracks: tracks.sort((a, b) => a.start - b.start) };
   });
   const handoffs: CompiledSlide["handoffs"] = [];
-  const flights = new Map<CompiledTrack, { source: string[]; destination: string[]; crossfade: boolean }>();
+  const flights = new Map<CompiledTrack, { source: string[]; destination: string[]; crossfade: boolean; landAt?: number }>();
+  const handoffTracks = new Map<CompiledSlide["handoffs"][number], CompiledTrack>();
   const keysOf = (targets: ResolvedTarget[]) => targets.flatMap(t => t.partIds === null ? [t.elementId] : t.partIds.map(p => `${t.elementId}\0${p}`));
   const births = ghostBirths(slide);
   // Mesh leaves draw in WebGL and own no DOM nodes, so no flight can carry
@@ -169,7 +175,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       && modelVideoHandoff(transformPreState(slide, source[0].elementId, ct.beat) ?? undefined, transformPreState(slide, destination[0].elementId, ct.beat) ?? undefined);
     const unborn = births.filter(b => !b.enabled || b.beat > ct.beat || b.beat === ct.beat && b.start > ct.start);
     const crossfade = meshParts(destination, ct.beat);
-    let reason = !slide.elements.some(e => e.id === spec.ref.element) ? "Destination parts not found. Retarget this Become."
+    const missingMembers = refElementIds(spec.ref).filter(id => !slide.elements.some(e => e.id === id));
+    let reason = missingMembers.length === refElementIds(spec.ref).length ? "Destination parts not found. Retarget this Become."
       : unborn.some(b => b.target === spec.ref.element || destination.some(t => t.elementId === b.target)) ? "The destination is not yet born at this step. Choose a later step."
       : !destination.length ? "Destination parts not found. Retarget this Become."
       : !source.length ? "Source parts not found. Retarget this Become."
@@ -180,11 +187,31 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       : unborn.some(b => source.some(t => t.elementId === b.target)) ? "The source is not yet born at this step. Choose a later step."
       : !posterVideo && slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
       : "";
-    if (!reason && handoffs.some(h => h.beat === ct.beat && handoffTargetsOverlap(destination, h.destination)))
+    // Many sources may MERGE into one destination: hand-offs with an identical
+    // destination ref co-land (a crossfading mesh landing never merges).
+    if (!reason && handoffs.some(h => h.beat === ct.beat && !(sameRef(h.spec.ref, spec.ref) && !h.crossfade && !crossfade) && handoffTargetsOverlap(destination, h.destination)))
       reason = "Another hand-off in this step already lands on these destination parts. Choose different parts or another step.";
     if (reason) { issues.push({ trackId: ct.track.id, target: ct.track.target, reason }); continue; }
+    // A set that lost some members (deleted objects) still lands on the rest; say so.
+    if (missingMembers.length) issues.push({ trackId: ct.track.id, target: ct.track.target,
+      reason: `${missingMembers.length === 1 ? "One destination object is" : `${missingMembers.length} destination objects are`} missing; the hand-off lands on the rest. Retarget this Become.` });
     handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec, ...(crossfade ? { crossfade: true as const } : {}) });
     flights.set(ct, { source: keysOf(source), destination: keysOf(destination), crossfade });
+    handoffTracks.set(handoffs[handoffs.length - 1], ct);
+  }
+  // Group co-landers: the destination reveals when the LAST of them lands.
+  for (const h of handoffs) {
+    if (h.merge || h.crossfade) continue;
+    const group = handoffs.filter(o => o.beat === h.beat && !o.crossfade && sameRef(o.spec.ref, h.spec.ref));
+    if (group.length < 2) continue;
+    const cts = group.map(o => handoffTracks.get(o)!);
+    const landAt = Math.max(...cts.map(c => c.start + c.duration));
+    const trackIds = group.map(o => o.trackId);
+    for (const [i, o] of group.entries()) {
+      o.merge = { trackIds, landAt };
+      const flight = flights.get(cts[i]);
+      if (flight) flight.landAt = landAt;
+    }
   }
   function sample(beatIndex: number, timeMs = Infinity, fromBeat = beatIndex): SlideFrame {
     const elements = structuredClone(slide.elements);
@@ -253,9 +280,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
             appearance.set(key, { opacity: 0, visible: false }); handoffVisibility.set(key, false);
             if (raw < 1) inFlight.add(key);
           }
+          // A merging lander holds until the group's last landing.
+          const land = flight.landAt === undefined ? raw : flight.landAt - ct.start > 0 ? clamp((local - ct.start) / (flight.landAt - ct.start)) : 1;
           for (const key of flight.destination) {
-            appearance.set(key, { opacity: raw >= 1 ? 1 : 0, visible: raw >= 1 }); handoffVisibility.set(key, raw >= 1);
-            if (raw > 0 && raw < 1) inFlight.add(key);
+            appearance.set(key, { opacity: land >= 1 ? 1 : 0, visible: land >= 1 }); handoffVisibility.set(key, land >= 1);
+            if (land > 0 && land < 1) inFlight.add(key);
           }
         }
         continue; // a hand-off changes presentation, never the source's props
