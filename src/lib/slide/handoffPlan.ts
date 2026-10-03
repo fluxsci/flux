@@ -48,8 +48,7 @@ const lettered = (outlines: StageOutline[]) => outlines.some(o => o.paint.text);
  *  the ONE shared correspondence of all their sources against the destination
  *  (the time-reverse of a set split: the destination tiles among the sources)
  *  and keeps only the pairs its own source owns; the last lander also carries
- *  the destination-only pairs (leftovers, a filled ring's underlay), which
- *  resolve as the group lands. */
+ *  the destination-only pairs (leftovers), which resolve as the group lands. */
 export function planHandoff(track: Track, frame: SlideFrame, ctx: GeometryCtx, group?: readonly Track[]): CorrespondencePlan {
   if (group && group.length > 1) return planMergeShare(track, frame, ctx, group);
   return planOne(track, frame, ctx);
@@ -66,7 +65,7 @@ function planMergeShare(track: Track, frame: SlideFrame, ctx: GeometryCtx, group
   const full = planOne(track, frame, ctx, sources.flat());
   const mine = new Set(sources[group.findIndex(isMe)]?.map(o => ownerKey(o.owner)) ?? []);
   const last = isMe(group[group.length - 1]);
-  const pairs = full.pairs.filter(p => p.fade || !p.a ? last : (p.a.owner.members ?? [p.a.owner]).some(m => mine.has(ownerKey(m))));
+  const pairs = full.pairs.filter(p => !p.a ? last : (p.a.owner.members ?? [p.a.owner]).some(m => mine.has(ownerKey(m))));
   return { pairs, policy: full.policy, driver: full.driver, destinations: full.destinations, prepare() { for (const p of pairs) p.plan?.prepare(); } };
 }
 

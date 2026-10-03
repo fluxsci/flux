@@ -21,9 +21,6 @@ export interface CorrespondencePair {
   landing?: { x: number; y: number; scale: number };
   crossfade?: true;
   boxes?: { a: StageOutline["bbox"]; b: StageOutline["bbox"] };
-  /** A paired outline that still fades like a leftover: "out" over the first
-   *  40 %, "in" over the last 40 % (a filled ring's travelling fill underlay). */
-  fade?: "out" | "in";
 }
 export interface CorrespondencePlan {
   pairs: CorrespondencePair[];
@@ -57,6 +54,15 @@ const length = (o: Outline) => parameterize(o.nodes, o.closed).total;
 const copyNode = (n: VectorNode): VectorNode => ({ ...n, hIn: n.hIn && { ...n.hIn }, hOut: n.hOut && { ...n.hOut } });
 const members = (o: StageOutline) => o.owner.members ?? [{ elementId: o.owner.elementId, ...(o.owner.partId === undefined ? {} : { partId: o.owner.partId }) }];
 
+/** Two chains may fuse into one only when one stroke could have drawn them:
+ *  same colour, width, dash and alpha. A boxplot's box is a 7-px half-alpha
+ *  stroke whose ends touch its 1-px whiskers; fused, the merged chain took the
+ *  whiskers' paint and the box simply appeared when the flight landed. */
+const samePaint = (a: OutlinePaint, b: OutlinePaint) =>
+  a.stroke === b.stroke && a.fill === b.fill && Math.abs(a.strokeWidth - b.strokeWidth) < 1e-6 &&
+  (a.opacity ?? 1) === (b.opacity ?? 1) && (a.dash?.join() ?? "") === (b.dash?.join() ?? "") &&
+  !!a.arrowStart === !!b.arrowStart && !!a.arrowEnd === !!b.arrowEnd;
+
 /** Greedy endpoint joins; reversing a chain also reverses its Bézier handles. */
 export function mergeChains(outlines: StageOutline[], eps?: number): StageOutline[] {
   const result = outlines.slice();
@@ -65,7 +71,7 @@ export function mergeChains(outlines: StageOutline[], eps?: number): StageOutlin
     if (result[i].closed || boxOnly(result[i]) || result[i].nodes.length < 2) continue;
     for (let j = i + 1; j < result.length; j++) {
       const a = result[i], b = result[j];
-      if (b.closed || boxOnly(b) || b.nodes.length < 2) continue;
+      if (b.closed || boxOnly(b) || b.nodes.length < 2 || !samePaint(a.paint, b.paint)) continue;
       const tolerance = eps ?? Math.max(0.75, 0.01 * Math.min(lengths[i], lengths[j]));
       let join: [boolean, boolean] | undefined;
       for (const ra of [false, true]) {
@@ -228,7 +234,9 @@ export function sliceIntoLetters(single: StageOutline, letters: StageOutline[]):
   for (const o of ordered) {
     const lo = x + (acc / total) * w; acc += Math.max(o.bbox.w, 1e-3);
     const hi = x + (acc / total) * w;
-    const pts = clipBand(poly, lo, hi);
+    // opaque strips overlap by half a stage px so no anti-aliased seam shows
+    const over = opaque(single.paint) ? SEAM_OVERLAP : 0;
+    const pts = clipBand(poly, lo - over, hi + over);
     if (pts.length < 3) return null;
     const nodes = pts.map((p) => ({ x: p.x, y: p.y, type: "corner" as const }));
     const bbox = nodesExtent(nodes, true);
@@ -267,25 +275,91 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean): 
   cuts[cuts.length - 1] = 1;
   const tiles = pieces(splitSide, cuts);
   const pairs: CorrespondencePair[] = ordered.map((p, i) => ({ a: source ? tiles[i] : p.o, b: source ? p.o : tiles[i] }));
-  // A FILLED ring split into open arcs paints almost none of its interior, so
-  // without help the fill would vanish on the first flight frame (and pop in
-  // on the last when many pieces merge into one ring). Its fill-only copy rides
-  // first, beneath the pieces, as an ordinary leftover: a source dissolves over
-  // the first 40 %, a destination resolves over the last 40 % — frame 0 and the
-  // landing stay exactly the endpoint's own render.
-  // The underlay travels toward the partners' centre, so it stays with the
-  // departing (or arriving) pieces rather than lingering where the ring was.
-  if (single.closed && isFilled(single)) {
-    const underlay: StageOutline = { ...single, paint: { ...single.paint, stroke: "none", strokeWidth: 0, dash: undefined, arrowStart: false, arrowEnd: false } };
-    const x0 = Math.min(...partners.map(o => o.bbox.x)), y0 = Math.min(...partners.map(o => o.bbox.y));
-    const x1 = Math.max(...partners.map(o => o.bbox.x + o.bbox.w)), y1 = Math.max(...partners.map(o => o.bbox.y + o.bbox.h));
-    const c = center(single), dx = (x0 + x1) / 2 - c.x, dy = (y0 + y1) / 2 - c.y;
-    const moved: StageOutline = { ...underlay, nodes: underlay.nodes.map(n => ({ ...copyNode(n), x: n.x + dx, y: n.y + dy })), bbox: { ...underlay.bbox, x: underlay.bbox.x + dx, y: underlay.bbox.y + dy } };
-    pairs.unshift(source ? { a: underlay, b: moved, fade: "out" } : { a: moved, b: underlay, fade: "in" });
+  // A FILLED ring's open arcs paint only their chord-closed segments, so with
+  // three or more partners the polygon between the chords would go blank on the
+  // first flight frame (and pop in on the last, merging). Its area rides along
+  // too: one fill-only triangle per piece, from the chord polygon's centroid to
+  // the piece's two ends, paired with the piece's own partner (as a fill-only
+  // copy of it) — the interior pours into the partner with its arc and fades
+  // where the partner has no fill. Beneath the arcs; the hand-off covers the
+  // triangles' seams with the live shape over the flight's first (or last)
+  // 15 % — `slice`, the letter-strip rule. (A travelling fill-only copy of the
+  // whole ring was tried for this and read as a blob floating off and fading,
+  // 2026-10-02.)
+  if (single.closed && filled(single) && tiles.length >= 3) {
+    const corners = tiles.map((t) => t.nodes[0]);
+    const centroid = polygonCentroid(corners);
+    if (centroid) {
+      const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint, stroke: "none", strokeWidth: 0, dash: undefined, arrowStart: false, arrowEnd: false } });
+      const fills: CorrespondencePair[] = [];
+      tiles.forEach((t, i) => {
+        const o = ordered[i].o;
+        if (boxOnly(o)) return; // a text/raster partner crossfades its clone; no fill to pour into it
+        const p0 = t.nodes[0], p1 = t.nodes[t.nodes.length - 1];
+        // Adjacent fills share edges, and two anti-aliased edges never quite meet:
+        // an OPAQUE fill overlaps its neighbours by half a stage px (hidden under
+        // them and under the arcs drawn on top), so the shape never shows seams.
+        const pts = expandPolygon([centroid, p0, p1], opaque(single.paint) ? SEAM_OVERLAP : 0);
+        const nodes: VectorNode[] = pts.map((q) => ({ x: q.x, y: q.y, type: "corner" as const }));
+        const tri: StageOutline = { ...fillOnly(single), nodes, closed: true, bbox: nodesExtent(nodes, true), owner: { ...single.owner, role: "slice", index: o.owner.index } };
+        fills.push(source ? { a: tri, b: fillOnly(o) } : { a: fillOnly(o), b: tri });
+      });
+      pairs.unshift(...fills);
+    }
   }
   return pairs;
 }
-const isFilled = (o: StageOutline) => !["", "none", "transparent"].includes(o.paint.fill.trim().toLowerCase());
+
+/** Half a stage px of overlap between adjacent opaque fill pieces (device px
+ *  ≥ 1 at any presentation scale), so no anti-aliased seam can show. */
+const SEAM_OVERLAP = 0.5;
+/** Whether a fill (with the outline's own alpha) paints fully opaque — only then
+ *  may pieces overlap invisibly; a translucent fill would darken where it did. */
+export function opaque(paint: OutlinePaint): boolean {
+  if ((paint.opacity ?? 1) < 1) return false;
+  const c = paint.fill.trim().toLowerCase();
+  if (["", "none", "transparent"].includes(c)) return false;
+  if (c.startsWith("#")) return c.length === 7 || c.length === 4 || /ff$/.test(c) && (c.length === 9) || (c.length === 5 && c.endsWith("f"));
+  const fn = /^(?:rgba?|hsla?|oklch|oklab|color)\((.*)\)$/.exec(c);
+  if (!fn) return true; // named colours
+  const alpha = fn[1].includes("/") ? fn[1].split("/")[1] : fn[1].split(",")[3];
+  if (alpha === undefined) return true;
+  const v = alpha.trim(); return v.endsWith("%") ? parseFloat(v) >= 100 : parseFloat(v) >= 1;
+}
+/** Offset a convex polygon's edges outward by `d` (mitred corners, mitre length
+ *  capped at 3·d so a needle-thin triangle never grows a spike). d = 0 → copy. */
+export function expandPolygon(pts: { x: number; y: number }[], d: number): { x: number; y: number }[] {
+  const n = pts.length;
+  if (!d || n < 3) return pts.map((p) => ({ x: p.x, y: p.y }));
+  let area = 0;
+  for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; area += p.x * q.y - q.x * p.y; }
+  const sign = area >= 0 ? 1 : -1; // outward = right of travel for a CCW ring in y-down… both handled by sign
+  const normal = (p: { x: number; y: number }, q: { x: number; y: number }) => {
+    const dx = q.x - p.x, dy = q.y - p.y, len = Math.hypot(dx, dy) || 1;
+    return { x: sign * dy / len, y: -sign * dx / len };
+  };
+  return pts.map((v, i) => {
+    const n1 = normal(pts[(i + n - 1) % n], v), n2 = normal(v, pts[(i + 1) % n]);
+    const dot = n1.x * n2.x + n1.y * n2.y;
+    let mx = (n1.x + n2.x) / (1 + dot), my = (n1.y + n2.y) / (1 + dot);
+    const len = Math.hypot(mx, my);
+    if (!Number.isFinite(len) || len > 3) { const k = 3 / (len || 1); mx = Number.isFinite(mx) ? mx * k : n1.x * 3; my = Number.isFinite(my) ? my * k : n1.y * 3; }
+    return { x: v.x + d * mx, y: v.y + d * my };
+  });
+}
+
+/** Signed-area centroid of a simple polygon; null when it has no area. */
+function polygonCentroid(pts: { x: number; y: number }[]): { x: number; y: number } | null {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    const cross = p.x * q.y - q.x * p.y;
+    a += cross; cx += (p.x + q.x) * cross; cy += (p.y + q.y) * cross;
+  }
+  a /= 2;
+  if (Math.abs(a) < 1e-6) return null;
+  return { x: cx / (6 * a), y: cy / (6 * a) };
+}
 
 function byData(A: StageOutline[], B: StageOutline[], hint: DataHint): CorrespondencePair[] {
   const axis = hint.axis ?? dataAxis(A, B, hint) ?? "x";
@@ -445,7 +519,7 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       path = { nodes: [], closed: one.closed, paint: { ...one.paint }, opacity: 1, owner: { a: a?.owner, b: b?.owner } };
       buffers.set(path, buf); out[i] = path;
     }
-    path.opacity = !b || pair.fade === "out" ? clamp(1 - t / 0.4) : !a || pair.fade === "in" ? clamp((t - 0.6) / 0.4) : 1;
+    path.opacity = !b ? clamp(1 - t / 0.4) : !a ? clamp((t - 0.6) / 0.4) : 1;
     if (!a || !b || t === 0 || t === 1 || pair.crossfade) {
       const end = !a ? b! : !b ? a : t < 0.5 ? a : b;
       path.nodes = end === a ? buf.a : buf.b;

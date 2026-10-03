@@ -70,7 +70,7 @@ export interface HandoffOptions {
    *  the box crossfade (which stays the fallback when the texts cannot be mapped). */
   text?: { a: TextElement; b: TextElement; render: SlideRenderCtx; durationMs: number };
   /** Insert this flight's layer before that one (a merge's last lander, whose
-   *  fill underlay must lie beneath every co-lander's pieces). */
+   *  destination leftovers must lie beneath every co-lander's pieces). */
   beneath?: Element | null;
 }
 export interface HandoffController extends MorphController {
@@ -250,6 +250,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         } else if (plan.driver === "path" || !pair.a) {
           const node = document.createElementNS(NS, "path");
           node.setAttribute("class", "sl-handoff-path"); node.setAttribute("stroke-linejoin", "round");
+          // a fill piece of a sliced shape (letter strip, interior triangle) — for probes and gates
+          if (pair.a?.owner.role === "slice" || pair.b?.owner.role === "slice") node.setAttribute("data-piece", "slice");
           parent.appendChild(node);
           const heads: SVGElement[] = [], fixed: FixedHead[] = [];
           if (pair.a?.paint.arrowStart || pair.a?.paint.arrowEnd || pair.b?.paint.arrowStart || pair.b?.paint.arrowEnd) {
@@ -278,7 +280,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         if (!sample) continue;
         // `text: true` makes the clone place itself by its MEASURED live box (the
         // whole element), not by this strip's or letter's outline box.
-        const live = clone({ ...sample, owner: { elementId: sample.owner.elementId }, paint: { ...sample.paint, text: true } }, layer);
+        // A sliced plot PART covers with its own node, never the whole plot.
+        const live = clone({ ...sample, owner: { elementId: sample.owner.elementId, ...(sample.owner.partId ? { partId: sample.owner.partId } : {}) }, paint: { ...sample.paint, text: true } }, layer);
         if (!live) continue;
         live.node.setAttribute("class", role === "slice" ? "sl-handoff-shape" : "sl-handoff-text");
         boxFades.push({ clone: live, landing: side === "b", boxes: role === "glyph-box" });

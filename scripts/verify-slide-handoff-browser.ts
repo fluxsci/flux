@@ -265,7 +265,9 @@ try {
       const rx = shape.w / 2, ry = shape.h / 2, cx = shape.x + rx, cy = shape.y + ry;
       return { shape: st.shapes.indexOf(shape), error: Math.max(...points.map(p => Math.abs(Math.hypot((p.x - cx) / rx, (p.y - cy) / ry) - 1) * Math.min(rx, ry))) };
     });
-    h.ok(st.count === 3 && new Set(fits.map(f => f.shape)).size === 3 && fits.every(f => f.error < 0.5), `set: at raw .999999 every piece lies on its own ellipse's outline within 0.5 px (${fits.map(f => f.error.toFixed(3)).join(", ")})`);
+    // 3 arcs + 3 fill triangles (Oct-3: a filled ring's interior rides as fill-only
+    // pieces paired with fill-only copies of the partners), all on the ellipses.
+    h.ok(st.count === 6 && new Set(fits.map(f => f.shape)).size === 3 && fits.every(f => f.error < 0.5), `set: at raw .999999 every piece — three arcs and three fill pieces — lies on its own ellipse's outline within 0.5 px (${fits.map(f => f.error.toFixed(3)).join(", ")})`);
     await seek(S, 1000); st = await setState();
     h.ok(st.source === "hidden" && st.dest.every(v => v === "visible") && st.count === 0, "set: at raw 1 the three ellipses show, the rect is hidden and the flight layer is empty");
     await seek(S, 500); await seek(S, 0); st = await setState();
@@ -307,7 +309,7 @@ try {
       const toFlight = (node: SVGGraphicsElement) => flight.getScreenCTM()!.inverse().multiply(node.getScreenCTM()!);
       const pts = paths.map(p => { const m = toFlight(p), len = p.getTotalLength(); return Array.from({ length: 16 }, (_, i) => { const q = p.getPointAtLength(len * i / 15); return { x: m.a * q.x + m.e, y: m.d * q.y + m.f }; }); });
       const vis = (id: string) => getComputedStyle(document.querySelector(`[data-el-id="${id}"]`)!).visibility;
-      return { layers: layers.length, paths: paths.length, pts, dest: vis("dest"), dots: ["e1", "e2", "e3"].map(vis) };
+      return { layers: layers.length, paths: paths.length, pts, slice: paths.map(p => p.getAttribute("data-piece") === "slice"), dest: vis("dest"), dots: ["e1", "e2", "e3"].map(vis) };
     });
     await seek(G, 0); let m = await merge();
     h.ok(m.dest === "hidden" && m.dots.every(v => v === "visible") && m.paths === 0, "merge: at zero the three ellipses show, the rect is hidden and nothing flies");
@@ -315,10 +317,19 @@ try {
     h.ok(m.layers === 3 && m.paths >= 3 && m.dots.every(v => v === "hidden") && m.dest === "hidden", `merge: mid-flight all three converge at once (${m.paths} pieces in ${m.layers} flights)`);
     await seek(G, 750); m = await merge();
     h.ok(m.layers === 3 && m.paths >= 3 && m.dest === "hidden", "merge: after the first two land (600, 750 ms) their pieces HOLD on the rect while the last still flies; the rect stays hidden");
-    h.ok(await page.evaluate(() => { const layers = Array.from(document.querySelectorAll(".sl-flight > .sl-handoff")).filter(l => l.getAttribute("visibility") !== "hidden"); return layers.length === 3 && Array.from(layers[0].querySelectorAll(".sl-handoff-path")).length === 2 && layers.slice(1).every(l => l.querySelectorAll(".sl-handoff-path").length === 1); }), "merge: the last lander's layer (its piece + the rect's fill underlay) lies BENEATH the other landers' pieces");
+    h.ok(await page.evaluate(() => {
+      const layers = Array.from(document.querySelectorAll(".sl-flight > .sl-handoff")).filter(l => l.getAttribute("visibility") !== "hidden");
+      const ids = layers.map(l => Number((l.getAttribute("data-handoff") ?? "").replace(/\D/g, "")));
+      // every lander carries its own arc + its own fill triangle of the rect's interior; the
+      // last lander (created last, the highest id) is inserted BENEATH the others
+      return layers.length === 3 && layers.every(l => l.querySelectorAll(".sl-handoff-path").length === 2) && ids[0] === Math.max(...ids);
+    }), "merge: each lander's layer holds its arc and its fill triangle, and the last lander's layer lies BENEATH the other landers'");
     await seek(G, 899.999); m = await merge();
     const onRect = (p: { x: number; y: number }) => Math.min(Math.abs(p.x - 161), Math.abs(p.x - 296), Math.abs(p.y - 111), Math.abs(p.y - 156));
-    h.ok(m.pts.length >= 3 && m.pts.every(points => points.every(p => onRect(p) < 0.5)), `merge: just before the reveal every piece lies on the rect's outline within 0.5 px (max ${Math.max(...m.pts.flat().map(onRect)).toFixed(3)})`);
+    const inRect = (p: { x: number; y: number }) => p.x > 161 - 0.6 && p.x < 296 + 0.6 && p.y > 111 - 0.6 && p.y < 156 + 0.6;
+    const arcPts = m.pts.filter((_, i) => !m.slice[i]), fillPts = m.pts.filter((_, i) => m.slice[i]);
+    h.ok(arcPts.length === 3 && arcPts.every(points => points.every(p => onRect(p) < 0.5)), `merge: just before the reveal every arc piece lies on the rect's outline within 0.5 px (max ${Math.max(...arcPts.flat().map(onRect)).toFixed(3)})`);
+    h.ok(fillPts.length === 3 && fillPts.every(points => points.every(inRect)), "merge: just before the reveal the three fill triangles lie inside the rect (its interior arrives with the pieces, never pops)");
     await seek(G, 900); m = await merge();
     h.ok(m.dest === "visible" && m.dots.every(v => v === "hidden") && m.paths === 0, "merge: the rect reveals at the LAST landing and the flight layer empties");
     await seek(G, 400); await seek(G, 0); m = await merge();
