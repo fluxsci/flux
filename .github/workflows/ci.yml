@@ -30,6 +30,18 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      # Electron 43's package has no install hook: `npm ci` leaves the binary
+      # missing and the first require("electron") downloads it — mid-way through
+      # the hermetic pure tier (verify-model3d-headless runs the real 3D poster
+      # worker). Fetch it here, before anything is measured.
+      - name: Fetch the Electron binary
+        run: node node_modules/electron/install.js
+      # Ubuntu 24.04 forbids unprivileged user namespaces through AppArmor, so an
+      # npm-installed Electron (chrome-sandbox not setuid) cannot start its
+      # sandbox and dies on a signal ("3D poster worker exited null"). Developer
+      # desktops allow them; make the runner match instead of dropping the sandbox.
+      - name: Allow Electron's user-namespace sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: '1.7.32'
@@ -44,6 +56,20 @@ jobs:
           # librsvg2-bin: Quarto needs rsvg-convert to place an SVG figure in a
           # PDF, and verify-slide-embed-export compiles a document that does.
           sudo apt-get install -y --no-install-recommends texlive-latex-extra texlive-fonts-recommended lmodern librsvg2-bin
+      # Text ↔ shape Becomes fly real letter outlines read from the system font
+      # file; verify-glyph-outlines, verify-text-morph-browser and
+      # verify-slide-export-transform pin Arial/Georgia glyphs from msttcorefonts
+      # (the reference workstation's faces). Without them the export falls back
+      # to glyph boxes and those three gates fail.
+      - name: Provision the msttcorefonts faces the glyph-outline gates read
+        run: |
+          echo "ttf-mscorefonts-installer msttcorefonts/accept-mscorefonts-eula select true" | sudo debconf-set-selections
+          sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer
+          sudo fc-cache -f
+          # The package downloads the faces at install time and only warns on failure.
+          for f in Arial Arial_Italic Georgia Georgia_Bold; do
+            test -f "/usr/share/fonts/truetype/msttcorefonts/$f.ttf" || { echo "::error::msttcorefonts download failed: $f.ttf missing"; exit 1; }
+          done
       - name: Provision and rehash the pinned host video encoder
         run: node scripts/fetch-video-encoder.mjs
       - name: Type-check (svelte-check must be 0 errors)
@@ -99,6 +125,9 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      # As in the Linux job: Electron 43 no longer fetches its binary at install.
+      - name: Fetch the Electron binary
+        run: node node_modules/electron/install.js
       # Two pure gates render through Quarto (export recovery, DOCX publication);
       # neither needs TeX.
       - uses: quarto-dev/quarto-actions/setup@v2

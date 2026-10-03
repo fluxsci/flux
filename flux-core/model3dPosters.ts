@@ -208,11 +208,16 @@ async function runModelPosterBatch(requests: readonly PosterRequest[], options: 
           } catch { failure ||= "Invalid 3D poster worker response"; kill(); }
         }
       });
-      child.once("close", code => {
+      child.once("close", (code, signal) => {
         clearTimeout(killTimer); options.signal?.removeEventListener("abort", cancel);
         if (options.signal?.aborted) reject(abortError(options.signal));
         else if (code === 0 && finished && !failure) resolve(finished);
-        else reject(new Error([failure || `3D poster worker exited ${code}`, stderr.trim()].filter(Boolean).join("\n")));
+        else {
+          // Callers keep only the first line, so a crash names its signal and Electron's last words there.
+          const last = stderr.trim().split("\n").pop()?.trim();
+          const exit = `3D poster worker ${code === null ? `killed by ${signal}` : `exited ${code}`}${last ? ` (${last.slice(0, 300)})` : ""}`;
+          reject(new Error([failure || exit, stderr.trim()].filter(Boolean).join("\n")));
+        }
       });
       options.signal?.addEventListener("abort", cancel, { once: true });
       if (options.signal?.aborted) cancel();
