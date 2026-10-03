@@ -3783,6 +3783,10 @@ outside this PNG packaging change.
   `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
   (`verify-xray-multi-gui.mjs`) instead of switching modes.
 
+- **`verify-v020-controls-gui.mjs` is red on main @ 2541dc58** (2026-10-02): its self-contained
+  probe fails at `page.click("summary")` — the `ControlsProbe.svelte` fixture no longer renders a
+  `<details>`; it fails identically on an untouched checkout, so it is not a product regression of the
+  Oct-2 slides batch. Repair the fixture (or the control it probes) rather than skipping the gate.
 - **Plot mount cost (2026-09-30, deferred):** mounting a 3k-node plot is ~60–85 ms of synchronous JS
   (prefixIds ~21 ms, the projection bind ~17 ms, importNode ~6 ms after the 2026-09-30 diet) and runs inside
   input events: the duplicate's copy on the first alt-drag move, the resize/crop release render, a cull
