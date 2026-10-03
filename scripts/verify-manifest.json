@@ -2584,7 +2584,8 @@
         "group:slide-ghosts",
         "tier:pure",
         "group:inline-slides",
-        "group:slide-stash"
+        "group:slide-stash",
+        "group:slide-model3d-gui"
       ]
     },
     {
