@@ -34,7 +34,7 @@ try {
   const b1 = addBeat(deck, slide.id, { id: "b1" })!, b2 = addBeat(deck, slide.id, { id: "b2" })!;
   becomeTransform(deck, slide.id, b1.id, "arrow", "blob", { duration: 1000, easing: "linear" });     // inflate (filled ring)
   becomeTransform(deck, slide.id, b1.id, "bracket", "pointer", { duration: 1000, easing: "linear" }); // stroke → arrow (cut/open)
-  becomeTransform(deck, slide.id, b1.id, "label", "card", { duration: 1000, easing: "linear" });      // text → rect: crossfade
+  becomeTransform(deck, slide.id, b1.id, "label", "card", { duration: 1000, easing: "linear" });      // text → rect: letters pour into the rect
   becomeTransform(deck, slide.id, b2.id, "arrow", "box", { duration: 1000, easing: "linear" });       // chained: ellipse → rotated rect
   const file = path.join(tmp, "become.html"); await fs.writeFile(file, (await exportDeckHtml({ deck })).html);
   check(deck.slides[0].elements.length === 3, "the export carries only the three surviving sources");
@@ -100,7 +100,14 @@ try {
   // --- text → rect: a crossfade over the lerped box --------------------------------
   await page.evaluate("window.fluxDeck.seek(0,1,500)");
   const tx = await inspect("label");
-  check(tx.layers === 2 && tx.layerOpacity[0] === "0.5" && tx.layerOpacity[1] === "0.5" && Math.abs(tx.x - 270) < 0.6, "text → rect crossfades two layers while the box tweens");
+  // Superseded 2026-10-02 (oct2 W3): text → rect POURS — the letters (boxes here:
+  // this export bakes no fonts) fuse into strips of the rect on the element's own
+  // morph layer, while the box still tweens. Was a two-layer crossfade.
+  const pour = await page.evaluate(() => {
+    const m = document.querySelector('[data-el-id="label"] .sl-glyph-morph') as HTMLElement | null;
+    return { visible: !!m && getComputedStyle(m).visibility !== "hidden", paths: m ? m.querySelectorAll("path").length : 0 };
+  });
+  check(tx.layers === 3 && pour.visible && pour.paths === 6 && Math.abs(tx.x - 270) < 0.6, `text → rect pours its six letters into the rect while the box tweens (${pour.paths} rings)`);
   // --- chained: ellipse → rotated rounded rect, from the first Become's end ---------
   await page.evaluate("window.fluxDeck.seek(0,2,0)");
   const c0 = await inspect("arrow");

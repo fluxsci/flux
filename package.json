@@ -83,6 +83,7 @@
     "markdown-it-bracketed-spans": "^1.0.1",
     "markdown-it-deflist": "^3.0.1",
     "markdown-it-footnote": "^4.0.0",
+    "opentype.js": "2.0.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "^6.1.200",
     "three": "0.186.1"

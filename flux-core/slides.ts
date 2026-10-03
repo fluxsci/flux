@@ -1,5 +1,7 @@
 import { boundedModelFile } from "./model3dFile";
 import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
+import { lookupFont } from "../src/lib/text/fontFiles.mjs";
+import { userDataDir } from "./fluxlib";
 import { partStatesFromOpacity } from "../src/lib/model3d/appearance";
 import { projectSourceRelativePath } from "./projectSource";
 import { updateManifest } from "./manifest";
@@ -1302,6 +1304,8 @@ export async function gatherDeckPayload(
     deck.assets = deck.assets.filter(asset => used.has(asset.id));
   }
   const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), readModelFile: p => boundedModelFile(p, GLB_LIMITS.maxBytes, root), videoUrl: opts.videoUrl,
+    // Letters of text ↔ shape Becomes: the SAME resolver the app's fonts:lookup uses.
+    glyphFont: async style => (await lookupFont(style, { cacheFile: path.join(userDataDir(), "fonts-index.json") })).bytes,
     modelPoster: async (request, relative) => {
       const { resolveModelPosters } = await import("./model3dPosterCache");
       const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, background: "transparent", elements: [request.element] };

@@ -188,6 +188,8 @@ const CHANNELS = [
   { channel: "model3d:readFile", kind: "invoke", scope: "read" },
   { channel: "model3d:sourceFingerprint", kind: "invoke", scope: "read" },
   { channel: "model3d:availability", kind: "invoke", scope: "read" },
+  // --- fonts (text ↔ shape letter outlines) ------------------------------------
+  { channel: "fonts:lookup", kind: "invoke", scope: "read" },
   // --- text styles (machine-global library) --------------------------------------------
   { channel: "textstyles:get", kind: "invoke", scope: "read" },
   { channel: "textstyles:set", kind: "invoke", scope: "write" },

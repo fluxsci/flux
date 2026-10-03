@@ -7,6 +7,9 @@ import type { MorphController } from "../../plot/project";
 import { prefixIds } from "../../plot/parse";
 import { pathD, pathRender } from "../../path";
 import { warmWhenIdle } from "./transform";
+import { createTextMorph, type TextMorph } from "./textMorph";
+import type { TextElement } from "../../types";
+import type { SlideRenderCtx } from "./render";
 
 const NS = "http://www.w3.org/2000/svg";
 const clamp01 = (u: number) => Math.max(0, Math.min(1, u));
@@ -50,6 +53,9 @@ export interface HandoffCtx {
   /** Story order (beat/start), for chains and reverse hand-offs sharing nodes. */
   order?: number;
   crop?(owner: OutlineOwner): { x: number; y: number; width: number; height: number; rotation: number } | undefined;
+  /** Letter outlines in this flight (text ↔ shape): play waits for their fonts,
+   *  and a plan built while a font was loading is rebuilt once it lands. */
+  glyphs?: { ready(): Promise<void>; revision(): number };
 }
 export interface HandoffOptions {
   flight: SVGSVGElement;
@@ -59,6 +65,10 @@ export interface HandoffOptions {
   spec: BecomeSpec;
   ctx: HandoffCtx;
   media?: HandoffMedia;
+  /** Two whole, unrotated text elements: the glyph-matched text morph flies
+   *  their words on a stage-level HTML layer beside the flight SVG instead of
+   *  the box crossfade (which stays the fallback when the texts cannot be mapped). */
+  text?: { a: TextElement; b: TextElement; render: SlideRenderCtx; durationMs: number };
 }
 export interface HandoffController extends MorphController {
   /** A later Appear releases the source's exit without affecting its target. */
@@ -90,11 +100,25 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   layer.setAttribute("visibility", "hidden");
   flight.appendChild(layer);
   const custom = opts.media?.mount?.(layer);
-  let readyState = !opts.media, preparation: Promise<void> | undefined;
+  let readyState = !opts.media && !ctx.glyphs, preparation: Promise<void> | undefined;
   let disposed = false, prepared = false, plan: CorrespondencePlan | undefined, sampled: CorrespondencePlan | undefined;
   let lastPhase = -1;
   const out: SampledPath[] = [], paths: PathDrawing[] = [], crosses: Crossfade[] = [], glyphs: Glyph[] = [];
   const clips = new Map<string, string>();
+  // The text-morph layer: camera-local, stage px, BEFORE the flight svg so the
+  // flight stays the camera's last child.
+  let textLayer: HTMLElement | null = null, textMorph: TextMorph | null = null;
+  if (opts.text) {
+    textLayer = document.createElement("div");
+    textLayer.className = "sl-flight-text";
+    textLayer.dataset.handoff = id;
+    textLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:visible;visibility:hidden;";
+    flight.parentNode?.insertBefore(textLayer, flight);
+    textMorph = createTextMorph(opts.text.a, opts.text.b, { layer: textLayer, ctx: opts.text.render, durationMs: opts.text.durationMs });
+  }
+  /** True while the text morph owns this flight (it never falls back mid-way:
+   *  the box crossfade below takes over only if the texts cannot be mapped). */
+  const textOwns = () => !!textMorph && !textMorph.failed() && textMorph.ensure();
 
   function container(pair: CorrespondencePair): SVGElement {
     const owner = pair.b?.owner ?? pair.a!.owner, crop = ctx.crop?.(owner);
@@ -171,8 +195,24 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     return { node: g, box: { ...box, w: measured.w || box.w, h: measured.h || box.h }, opacity: (outline.paint.opacity ?? 1) / (insideOpacity || 1) };
   }
 
+  let builtRevision = -1;
+  /** A plan built while a font was still loading drew letters as boxes:
+   *  discard its drawings so the next frame plans real outlines. */
+  function invalidateIfStale(): void {
+    if (!prepared || !ctx.glyphs || builtRevision === ctx.glyphs.revision()) return;
+    prepared = false; paths.length = 0; crosses.length = 0; glyphs.length = 0; boxFades.length = 0; out.length = 0;
+    for (const child of Array.from(layer.childNodes)) child.remove();
+  }
+  /** Live clones held over the flight's ends, on RAW progress over 15 %:
+   *  - a shape sliced into letter strips covers its own seams (it dissolves
+   *    into the strips leaving, the strips fuse under it landing);
+   *  - glyph BOXES (no font outline) crossfade with the live text, so the boxes
+   *    land on each letter and then become it (`boxes`: the paths fade too). */
+  const boxFades: { clone: HandoffClone; landing: boolean; boxes: boolean }[] = [];
+
   function ensure(): void {
     if (prepared || disposed) return;
+    builtRevision = ctx.glyphs?.revision() ?? -1;
     if (custom) { prepared = true; layer.setAttribute("data-driver", "model3d"); return; }
     plan = opts.plan(); plan.prepare();
     layer.setAttribute("data-driver", plan.driver);
@@ -228,18 +268,28 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           paths.push({ node, pair, heads, fixed });
         }
       }
+      for (const side of ["a", "b"] as const) for (const role of ["glyph-box", "slice"] as const) {
+        const sample = plan.pairs.find(p => p[side]?.owner.role === role)?.[side];
+        if (!sample) continue;
+        // `text: true` makes the clone place itself by its MEASURED live box (the
+        // whole element), not by this strip's or letter's outline box.
+        const live = clone({ ...sample, owner: { elementId: sample.owner.elementId }, paint: { ...sample.paint, text: true } }, layer);
+        if (!live) continue;
+        live.node.setAttribute("class", role === "slice" ? "sl-handoff-shape" : "sl-handoff-text");
+        boxFades.push({ clone: live, landing: side === "b", boxes: role === "glyph-box" });
+      }
       prepared = true;
     } finally { flight.insertBefore(layer, next); }
   }
 
-  function drawPath(drawing: PathDrawing, sample: SampledPath, u: number): void {
+  function drawPath(drawing: PathDrawing, sample: SampledPath, u: number, fade = 1): void {
     const { node, pair, heads, fixed } = drawing, p = sample.paint;
     const d = pathD(sample.nodes, sample.closed);
     if (!heads.length) set(node, "d", d);
     set(node, "fill", p.fill); set(node, "stroke", p.stroke);
     set(node, "stroke-width", String(p.strokeWidth)); set(node, "stroke-linecap", p.cap);
     set(node, "stroke-dasharray", p.dash?.join(" ") || "none");
-    set(node, "opacity", String(sample.opacity * (p.opacity ?? 1)));
+    set(node, "opacity", String(sample.opacity * (p.opacity ?? 1) * fade));
     for (const head of fixed) {
       const a = pair.a?.bbox ?? pair.b!.bbox, b = pair.b?.bbox ?? a;
       const x = lerp(a.x, b.x, u), y = lerp(a.y, b.y, u), w = lerp(a.w, b.w, u), h = lerp(a.h, b.h, u);
@@ -279,17 +329,33 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       for (const entry of destinations) { entry.claim.active = phase !== 0; entry.claim.hidden = phase !== 2; }
       for (const entry of claims) paintVisibility(entry.node, entry.state);
       set(layer, "visibility", phase === 1 ? "visible" : "hidden");
+      if (textLayer) textLayer.style.visibility = phase === 1 ? "" : "hidden";
       lastPhase = phase;
     }
-    if (phase !== 1) return;
+    if (phase !== 1) { textMorph?.hide(); return; }
+    if (textMorph && textOwns()) {
+      // Anything the box fallback drew while the host could not measure yet stays hidden.
+      set(layer, "visibility", "hidden");
+      const a = opts.text!.a, b = opts.text!.b;
+      textMorph.frame(u, raw, { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) });
+      return;
+    }
+    invalidateIfStale();
     ensure();
     if (custom) { custom.seek(t, raw); return; }
+    // The box crossfade runs on RAW progress (a phase, never an eased overshoot).
+    let textWeight = 0;
+    for (const f of boxFades) {
+      const w = f.landing ? clamp01((raw - 0.85) / 0.15) : clamp01(1 - raw / 0.15);
+      if (f.boxes) textWeight = Math.max(textWeight, w);
+      set(f.clone.node, "transform", `translate(${f.clone.box.x} ${f.clone.box.y})`); set(f.clone.node, "opacity", String(w * f.clone.opacity));
+    }
     if (paths.length) {
       sampleCorrespondence(sampled!, t, out);
       let i = 0;
       for (const drawing of paths) {
         while (sampled!.pairs[i] !== drawing.pair) i++;
-        drawPath(drawing, out[i], t);
+        drawPath(drawing, out[i], t, 1 - textWeight);
       }
     }
     const fade = raw < .85 ? 1 : clamp01((1 - raw) / .15);
@@ -300,21 +366,27 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     for (const cross of crosses) {
       const a = cross.aBox, b = cross.bBox;
       const x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t), w = lerp(a.w, b.w, t), h = lerp(a.h, b.h, t);
+      // A text clone scales UNIFORMLY (by height): glyphs never stretch with a
+      // box whose aspect changes; rasters and shapes still fill the lerped box.
+      const fit = (c: HandoffClone, text: boolean | undefined) => {
+        const sy = h / (c.box.h || 1);
+        return `translate(${x} ${y}) scale(${text ? sy : w / (c.box.w || 1)} ${sy})`;
+      };
       if (cross.a) {
-        set(cross.a.node, "transform", `translate(${x} ${y}) scale(${w / (cross.a.box.w || 1)} ${h / (cross.a.box.h || 1)})`);
+        set(cross.a.node, "transform", fit(cross.a, cross.pair.a?.paint.text));
         set(cross.a.node, "opacity", String((cross.pair.b ? 1 - t : clamp01(1 - t / .4)) * cross.a.opacity));
       }
       if (cross.b) {
-        set(cross.b.node, "transform", `translate(${x} ${y}) scale(${w / (cross.b.box.w || 1)} ${h / (cross.b.box.h || 1)})`);
+        set(cross.b.node, "transform", fit(cross.b, cross.pair.b?.paint.text));
         set(cross.b.node, "opacity", String((cross.pair.a ? t : clamp01((t - .6) / .4)) * cross.b.opacity));
       }
     }
   }
 
-  warmWhenIdle(() => { if (!disposed && flight.isConnected) ensure(); });
+  warmWhenIdle(() => { if (!disposed && flight.isConnected) { if (!(textMorph && textOwns())) ensure(); } });
   return { seek, targetRoot: ctx.targetRoot,
     isReady: () => readyState,
-    ready() { ensure(); return preparation ??= Promise.resolve(opts.media?.ready()).finally(() => { readyState = true; }); },
+    ready() { ensure(); return preparation ??= Promise.all([opts.media?.ready(), ctx.glyphs?.ready()]).then(() => {}).finally(() => { readyState = true; }); },
     releaseSource() {
       for (const entry of sources) { entry.claim.hidden = false; paintVisibility(entry.node, entry.state); }
       lastPhase = -1;
@@ -322,6 +394,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     dispose() {
       if (disposed) return;
       disposed = true; custom?.dispose(); opts.media?.dispose(); layer.remove();
+      textMorph?.dispose(); textLayer?.remove();
       for (const entry of claims) {
         entry.state.claims.delete(entry.claim); paintVisibility(entry.node, entry.state);
         if (!entry.state.claims.size) visibility.delete(entry.node);

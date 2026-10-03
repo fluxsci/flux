@@ -20,6 +20,9 @@ files:
   - node_modules/js-yaml/**/*
   - src/lib/plot/recipeContract.mjs
   - src/lib/model3d/importData.native.gen.mjs
+  # fonts:lookup resolves system font files through the shared resolver.
+  - src/lib/text/fontFiles.mjs
+  - src/lib/text/fontRequest.mjs
   - dist/**/*
   - package.json
   - "!**/node_modules/**/*"
@@ -67,6 +70,9 @@ asarUnpack:
   - electron/model3dImport.cjs
   - electron/fsRetry.cjs
   - src/lib/model3d/importData.native.gen.mjs
+  # fonts:lookup resolves system font files through the shared resolver.
+  - src/lib/text/fontFiles.mjs
+  - src/lib/text/fontRequest.mjs
   - electron/entry.cjs
   # External agents launch the MCP server as a Node child too, so it needs
   # the same real-disk layout.

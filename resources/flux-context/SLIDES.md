@@ -145,7 +145,8 @@ beat — chain across beats) authored three ways:
 
 - **Change** (`set-transform`): the object becomes a different version of itself — position,
   size, shape geometry, colors (blended in OKLab), opacity, dash, text (a pure numeric change
-  digit-tweens; a rewrite crossfades — moving all the while), plot part styles. Stores a
+  digit-tweens; a rewrite plays the TEXT MORPH — shared words glide to their new places,
+  the rest fades by reading order — moving all the while), plot part styles. Stores a
   **sparse patch** (`to.state`) against the track's pre-state; **chaining composes**: t1 of a
   later transform = the earlier one's end. Never hand-compose states; pass the patch and let
   the engine fold. `--to-asset` sets the plot content half (see Become).

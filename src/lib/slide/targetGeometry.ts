@@ -22,6 +22,11 @@ export interface GeometryCtx {
   plotRoot(assetId: string): Element | undefined;
   /** SlideFrame has no registry; callers pass the owning slide's group defs. */
   groups?: Record<string, GroupDef>;
+  /** Letter outlines for a text element (oct2 W3): unrotated stage-px rings, one
+   *  per connected letter part (player/glyphProvider.ts measures and places them;
+   *  boxes stand in for letters with no font outline). When it yields outlines a
+   *  text is no longer a box-only crossfade target. Sync and cache-backed. */
+  glyphs?: (el: Extract<SceneElement, { type: "text" }>) => StageOutline[] | null;
 }
 
 const translate = (x: number, y: number): SvgMatrix => [1, 0, 0, 1, x, y];
@@ -49,8 +54,15 @@ function stage(outline: Outline, matrix: SvgMatrix, owner: OutlineOwner, paint: 
   return { nodes, closed: outline.closed, bbox: nodesExtent(nodes, outline.closed), owner, paint };
 }
 
-export function elementStageOutlines(el: SceneElement): StageOutline[] {
+export function elementStageOutlines(el: SceneElement, ctx?: Pick<GeometryCtx, "glyphs">): StageOutline[] {
   const b = elementBBox(el), outline = elementOutline(el);
+  if (el.type === "text" && ctx?.glyphs) {
+    const letters = ctx.glyphs(el);
+    if (letters?.length) {
+      const m = placement(el, true);
+      return letters.map((o) => { const nodes = applyToNodes(o.nodes, m); return { ...o, nodes, bbox: nodesExtent(nodes, true) }; });
+    }
+  }
   if (outline) return [stage(outline, compose(placement(el, false), translate(b.x, b.y)),
     { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1 })];
   if (el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d") return [];
@@ -326,7 +338,7 @@ export function targetOutlines(ref: TargetRef, frame: SlideFrame, ctx: GeometryC
   const out: StageOutline[] = [];
   for (const leaf of resolveTargetLeaves(ref, { elements: frame.elements, groups: ctx.groups }, ctx.manifest)) {
     const el = elements.get(leaf.elementId)!;
-    if (el.type !== "plot") { out.push(...elementStageOutlines(el)); continue; }
+    if (el.type !== "plot") { out.push(...elementStageOutlines(el, ctx)); continue; }
     const root = ctx.plotRoot(el.assetId);
     if (!root) { out.push(...elementStageOutlines(el)); continue; }
     const manifest = ctx.manifest(el.assetId);

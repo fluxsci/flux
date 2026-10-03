@@ -25,7 +25,9 @@ const text = { id: "t", type: "text" as const, x: 220, y: 60, width: 280, height
 const host = document.createElement("div") as unknown as HTMLElement;
 function build(slide: Slide) { const rendered = renderSlide(host, slide, stage, opts); return { rendered, specs: computeSlideAnims(slide, rendered, host, stage, opts) }; }
 function paintedTexts(): string[] {
-  return Array.from(host.querySelectorAll("text")).filter((el) => { for (let p: Element | null = el; p && p !== host; p = p.parentElement) if ((p as HTMLElement).style?.opacity === "0") return false; return true; }).map((e) => e.textContent ?? "");
+  // Unpainted = an ancestor at opacity 0 (crossfade layers) or hidden (the text
+  // morph's idle A / span / B layers, 2026-10-02).
+  return Array.from(host.querySelectorAll("text")).filter((el) => { for (let p: Element | null = el; p && p !== host; p = p.parentElement) if ((p as HTMLElement).style?.opacity === "0" || (p as HTMLElement).style?.visibility === "hidden") return false; return true; }).map((e) => e.textContent ?? "");
 }
 const slide: Slide = { id: "s", elements: [rect, text], beats: [
   { id: "base", tracks: [] },
@@ -238,7 +240,9 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   const unborn = structuredClone(handoff); unborn.beats[3].tracks = [{ id: "birth", target: plot.id, ghostFrom: "r", preset: "transform", to: { state: {} } }];
   check(/destination is not yet born/.test(issuesFor(unborn)), "a destination born at a later step is diagnosed");
   const textPair: Slide = { id: "text-pair", elements: [text, { ...text, id: "other" }], beats: [{ id: "b0", tracks: [] }, { id: "b1", tracks: [{ id: "text-flight", target: "t", preset: "transform", to: { state: {}, become: { ref: { element: "other" }, mode: "handoff" } } }] }] };
-  check(/Neither side of this Become has an outline; it crossfades/.test(issuesFor(textPair)), "box-only text pairs report the crossfade as information");
+  // Superseded 2026-10-02 (oct2 W3): two whole texts play the glyph-matched text
+  // morph; text ↔ raster below still reports the box fade.
+  check(!/Neither side of this Become has an outline/.test(issuesFor(textPair)), "a text ↔ text hand-off is a text morph, not a reported crossfade");
   const imagePair = structuredClone(textPair); imagePair.elements[1] = { id: "other", type: "image", assetId: "image", x: 0, y: 0, width: 100, height: 100, rotation: 0 };
   check(/Neither side/.test(issuesFor(imagePair)), "text-to-raster also reports the non-outline fallback");
   const labelOnly = structuredClone(handoff);

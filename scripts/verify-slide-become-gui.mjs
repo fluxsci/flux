@@ -219,6 +219,19 @@ try{
   check(generated.length>0&&generated.every(({t,i})=>i>landingIndex&&!['axis.x.spine','axis.y.spine'].includes(t.part)),'toast Auto-animate the rest generates later reveals without the landed spines');
   check(state.presentation.partStates['bh-plot']['axis.x.spine'].visible&&state.presentation.partStates['bh-plot']['peaches.box'].visible===false,'landing shows the spines while the remaining plot waits for its later build');
   await page.screenshot({path:'test-results/slide-become-landing.png'});
+  // A shape → text Become flies letter outlines; this browser has no font bridge
+  // (Electron's fonts:lookup), so the letters land as boxes and the Animation
+  // inspector says so (oct2 W3).
+  await page.evaluate(()=>{const f=window.__flux;f.slide.commitDeckLive(d=>{
+    const s=f.slideOps.addSlide(d,{layout:'blank',name:'Pour into letters'});window.__pourSlide=s.id;
+    f.slideOps.addElement(d,s.id,{id:'pour-rect',type:'rect',x:60,y:120,width:160,height:70,rotation:0,fill:'#d95f0e',stroke:'none',strokeWidth:0,cornerRadius:0});
+    const t=f.slideOps.addSlideText(d,s.id,{text:'Microscopy',x:320,y:140,width:220,height:46});
+    const b=f.slideOps.addBeat(d,s.id,{label:'Pour'});
+    f.slideOps.setTransform(d,s.id,b.id,'pour-rect',{state:{},duration:1200});
+    b.tracks.find(x=>x.target==='pour-rect').to.become={mode:'handoff',ref:{element:t}};
+  });f.slide.selectSlide(window.__pourSlide);});await paint();
+  await page.waitForFunction(()=>[...document.querySelectorAll('.animation-issues button')].some(b=>/land as boxes/.test(b.textContent||'')),{timeout:5000});
+  check(true,'the Animation inspector reports a text ↔ shape Become whose font has no readable outlines (letters land as boxes)');
   check(realErrors(page).length===0,'no renderer errors');
   console.log(`##VERIFY## ${JSON.stringify({script:'verify-slide-become-gui',ok:true,checks:passed,failed:0})}`);
 }catch(error){console.error(error);console.error('Renderer errors',realErrors(page));await page.screenshot({path:'test-results/slide-become-failure.png'}).catch(()=>{});console.log(`##VERIFY## ${JSON.stringify({script:'verify-slide-become-gui',ok:false,checks:passed+1,failed:1})}`);process.exitCode=1;}finally{await browser.close();}

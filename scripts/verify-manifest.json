@@ -379,6 +379,9 @@
       "verify-slide-model3d-parts.ts",
       "verify-slide-model3d-parts-browser.ts",
       "verify-slide-model3d-scale.ts",
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts",
       "verify-become-picker.ts"
     ],
     "net": [
@@ -879,6 +882,9 @@
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts",
       "verify-become-picker.ts",
       "verify-become-picker-gui.mjs"
     ],
@@ -1224,6 +1230,14 @@
       "verify-slide-model3d-scale.ts",
       "verify-scale-slide.mjs",
       "verify-slide-model3d-scale-electron.cjs"
+    ],
+    "text-morph": [
+      "verify-text-match.ts",
+      "verify-text-morph-browser.ts",
+      "verify-glyph-outlines.ts",
+      "verify-slide-tween.ts",
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-export-transform.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1465,6 +1479,40 @@
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
         "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "$why": "2026-10-02 letter outlines (oct2 W3): fontRequest/fontFiles (Node + main + renderer key), glyphFont (opentype.js), glyphOutlines (placement, keyholes, boxes), the GUI loader, the slide glyph provider and the shared which-texts scan; keep the slide-player regression groups the player/** rule carries.",
+      "glob": "{src/lib/text/**,src/lib/slide/glyphTexts.ts,src/lib/slide/player/glyphProvider.ts}",
+      "run": [
+        "group:text-morph",
+        "verify-ipc-contract.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "$why": "2026-10-02 glyph-matched text morph (oct2 W3): textMatch.ts is the pure matcher/plan/timeline core, player/textMorph.ts its browser driver inside the transform driver and the hand-off player; keep the broader slide-player regression groups (pathMap is first-match).",
+      "glob": "{src/lib/slide/textMatch.ts,src/lib/slide/player/textMorph.ts}",
+      "run": [
+        "group:text-morph",
+        "verify-transform-gui.mjs",
+        "verify-slide-become-gui.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
@@ -3008,6 +3056,16 @@
         "verify-background-run.ts",
         "verify-background-run-gui.mjs",
         "verify-mcp-readonly.ts"
+      ]
+    },
+    {
+      "$why": "2026-10-02 fonts:lookup (oct2 W3): the IPC family resolving system font files through src/lib/text/fontFiles.mjs for text ↔ shape letter outlines; the contract gate pins the channel, the glyph gate drives the handler.",
+      "glob": "electron/ipc/fonts.cjs",
+      "run": [
+        "verify-glyph-outlines.ts",
+        "verify-ipc-contract.ts",
+        "tier:presence",
+        "tier:pure"
       ]
     },
     {
@@ -9655,6 +9713,33 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-text-match.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-text-morph-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-glyph-outlines.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

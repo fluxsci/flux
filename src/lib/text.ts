@@ -380,6 +380,13 @@ function visualLineSpans(text: string, vis: readonly string[]): { from: number; 
   return spans;
 }
 
+/** Each visual line's range in the element's `text` (the line strings
+ *  `blockLayout` draws), or null when the wrap cache cannot be mapped onto the
+ *  text — the slide text morph reads glyph positions per line through this. Pure. */
+export function visualLineRanges(e: TextElement): { from: number; to: number }[] | null {
+  return visualLineSpans(e.text, visualLines(e));
+}
+
 export interface LaidOutLine extends VisualLine {
   /** Present only on a line that per-range formatting actually touches: the
    *  line cut into single-look pieces, in order. Absent means "draw the whole

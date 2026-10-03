@@ -327,6 +327,50 @@ try {
   await waitFor(page, () => !document.querySelector(".present"), null, { timeout: 5000, label: "present closed" });
   ok(true, "Esc exits Present back to the editor");
 
+  // --- a text Change plays the glyph-matched text morph (oct2 W3) -------------------
+  // A real deck edit (a text rewrite on a new slide), presented, advanced with a
+  // real key: mid-flight the span layer draws the words (shared ones glide), and
+  // at rest only the new text paints and nothing stays promoted.
+  await page.evaluate(() => {
+    const f = window.__flux;
+    f.slide.commitDeckLive((d) => {
+      const s = f.slideOps.addSlide(d, { layout: "blank", name: "Text morph" });
+      const id = f.slideOps.addSlideText(d, s.id, { text: "The quick brown fox", x: 60, y: 80, width: 300, height: 40 });
+      const b = f.slideOps.addBeat(d, s.id, { label: "Rewrite" });
+      f.slideOps.setTransform(d, s.id, b.id, id, { state: { text: "The brown fox quickly", x: 120 }, duration: 1200, easing: "linear" });
+      window.__tmSlide = s.id;
+    });
+    f.slide.selectSlide(window.__tmSlide);
+  });
+  await sleep(400);
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".deckbar button")].find((b) => /Present/.test(b.textContent || ""))?.click();
+  });
+  await waitFor(page, () => !!document.querySelector(".present .mount [data-el-id]"), null, { timeout: 8000, label: "present mounted (text morph)" });
+  await page.evaluate(`(() => {
+    window.__tmFrames = [];
+    var collect = function () {
+      var spans = [...document.querySelectorAll('.present .mount .sl-tm-span')];
+      window.__tmFrames.push({ visible: spans.filter(function (s) { return getComputedStyle(s).visibility === 'visible'; }).length,
+        glides: spans.filter(function (s) { return s.dataset.kind === 'glide' && getComputedStyle(s).visibility === 'visible'; }).length });
+      if (window.__tmFrames.length < 120) requestAnimationFrame(collect);
+    };
+    requestAnimationFrame(collect);
+  })()`);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction("window.__tmFrames && window.__tmFrames.length >= 110", { timeout: 10000 });
+  await sleep(500);
+  const tm = await page.evaluate(() => {
+    const spans = [...document.querySelectorAll(".present .mount .sl-tm-span")];
+    const painted = [...document.querySelectorAll(".present .mount text")].filter((t) => getComputedStyle(t).visibility !== "hidden" && !t.closest(".sl-tm-span")).map((t) => t.textContent);
+    return { mid: window.__tmFrames.filter((f) => f.glides >= 3).length, restVisible: spans.filter((s) => getComputedStyle(s).visibility === "visible").length, promoted: spans.filter((s) => s.style.willChange).length, painted };
+  });
+  ok(tm.mid >= 5, `a presented text Change plays the span layer: ${tm.mid} frames with ≥ 3 gliding words`);
+  ok(tm.restVisible === 0 && tm.promoted === 0, `…at rest no span shows and none stays promoted (${tm.restVisible}/${tm.promoted})`);
+  ok(tm.painted.includes("The brown fox quickly") && !tm.painted.includes("The quick brown fox"), `…and only the new text paints (${JSON.stringify(tm.painted)})`);
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector(".present"), null, { timeout: 5000, label: "present closed (text morph)" });
+
   // --- console clean --------------------------------------------------------------
   const errs = await realErrors(page);
   ok(errs.length === 0, "console is clean", errs.join(" | "));

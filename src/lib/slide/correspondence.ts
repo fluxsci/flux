@@ -190,15 +190,73 @@ function pieces(outline: StageOutline, cuts: number[]): StageOutline[] {
   });
 }
 
+const isLetter = (o: StageOutline) => (o.owner.role === "glyph" || o.owner.role === "glyph-box") && Number.isFinite(o.owner.index);
+const filled = (o: StageOutline) => !["", "none", "transparent"].includes(o.paint.fill.trim().toLowerCase());
+
+/** Sutherland–Hodgman against the vertical band lo ≤ x ≤ hi (a convex window,
+ *  so any subject polygon clips correctly). */
+function clipBand(poly: { x: number; y: number }[], lo: number, hi: number): { x: number; y: number }[] {
+  const edge = (pts: { x: number; y: number }[], keep: (p: { x: number }) => boolean, at: number) => {
+    const out: { x: number; y: number }[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length], kp = keep(p), kq = keep(q);
+      if (kp) out.push(p);
+      if (kp !== kq) { const t = (at - p.x) / (q.x - p.x || 1e-12); out.push({ x: at, y: p.y + (q.y - p.y) * t }); }
+    }
+    return out;
+  };
+  return edge(edge(poly, (p) => p.x >= lo, lo), (p) => p.x <= hi, hi);
+}
+
+/** A FILLED shape splitting into letters splits its AREA: vertical strips, one
+ *  per letter in reading order, each as wide as its share of the letters'
+ *  widths — closed filled rings that morph ring-to-ring into their letters
+ *  (cutting the outline into open pieces instead dropped the fill at t = 0+).
+ *  The strips tile the shape exactly; the hand-off covers their seams with the
+ *  shape itself for the first (or last) 15 %. Null when a strip would vanish. */
+export function sliceIntoLetters(single: StageOutline, letters: StageOutline[]): StageOutline[] | null {
+  const ordered = letters.slice().sort((a, b) => a.owner.index! - b.owner.index!);
+  const param = paramOf(single), samples = Math.max(96, 12 * ordered.length);
+  const poly = Array.from({ length: samples }, (_, i) => pointAt(param, i / samples));
+  const total = ordered.reduce((sum, o) => sum + Math.max(o.bbox.w, 1e-3), 0);
+  const { x, w } = single.bbox;
+  let acc = 0;
+  const strips: StageOutline[] = [];
+  for (const o of ordered) {
+    const lo = x + (acc / total) * w; acc += Math.max(o.bbox.w, 1e-3);
+    const hi = x + (acc / total) * w;
+    const pts = clipBand(poly, lo, hi);
+    if (pts.length < 3) return null;
+    const nodes = pts.map((p) => ({ x: p.x, y: p.y, type: "corner" as const }));
+    const bbox = nodesExtent(nodes, true);
+    if (bbox.w < 1e-6 || bbox.h < 1e-6) return null;
+    // Strips carry the shape's FILL only: an outline per strip would draw every
+    // seam; the hand-off holds the shape itself (outline and all) over the seams.
+    strips.push({ ...single, nodes, closed: true, bbox, owner: { ...single.owner, role: "slice", index: o.owner.index }, paint: { ...single.paint, stroke: "none", strokeWidth: 0, dash: undefined } });
+  }
+  return strips;
+}
+
 function tile(single: StageOutline, partners: StageOutline[], source: boolean): CorrespondencePair[] {
   if (!partners.length) return [{ a: source ? single : null, b: source ? null : single }];
   if (partners.length === 1) return [{ a: source ? single : partners[0], b: source ? partners[0] : single }];
   if (boxOnly(single)) return source ? spatial([single], partners) : spatial(partners, [single]);
+  if (single.closed && filled(single) && partners.every(isLetter)) {
+    const strips = sliceIntoLetters(single, partners);
+    if (strips) {
+      const ordered = partners.slice().sort((a, b) => a.owner.index! - b.owner.index!);
+      return ordered.map((o, i) => ({ a: source ? strips[i] : o, b: source ? o : strips[i] }));
+    }
+  }
   // Rings start beside the first partner, then all partners rank along that seam.
   const seam = single.closed ? nearest(single, center(partners[0])).station : 0;
   const splitSide = single.closed ? { ...single, ...openRing(single, seam, false) } : single;
   const ordered = partners.map((o, index) => ({ o, index, s: nearest(splitSide, center(o)).station, len: length(o) }));
-  ordered.sort((a, b) => a.s - b.s || a.index - b.index);
+  // Letters (text glyph outlines) take their pieces in READING order — the
+  // shape pours into the word left to right — rather than around the seam.
+  const letters = partners.every((o) => (o.owner.role === "glyph" || o.owner.role === "glyph-box") && Number.isFinite(o.owner.index));
+  if (letters) ordered.sort((a, b) => a.o.owner.index! - b.o.owner.index!);
+  else ordered.sort((a, b) => a.s - b.s || a.index - b.index);
   const total = ordered.reduce((sum, p) => sum + p.len, 0);
   let acc = 0;
   const cuts = [0];

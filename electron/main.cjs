@@ -1449,6 +1449,8 @@ videoMediaCore.registerHandlers(ipcMain);
 app.on("will-quit", () => videoMediaCore.cancelAll());
 const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 model3dCore.registerHandlers(ipcMain);
+// Letter outlines for text ↔ shape Becomes: system font bytes for a CSS request.
+require("./ipc/fonts.cjs").createFontsFamily({ configDir: () => fluxPaths.userDataDir() }).registerHandlers(ipcMain);
 
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
 // Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`

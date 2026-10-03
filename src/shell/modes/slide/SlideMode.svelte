@@ -114,6 +114,7 @@
   import { readIncomingPlot, importPlotsFromPaths, type Incoming } from "../../../lib/io";
   import { readIncomingVideo, discardIncomingVideo } from "../../../lib/slide/importVideo";
   import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
+  import { glyphFontsRevision, textGlyphStatus } from "../../../lib/slide/player/glyphProvider";
   import { warmSlideMorphs, transformPreState } from "../../../lib/slide/tween";
   import { staggerSpan } from "../../../lib/slide/stagger";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
@@ -688,7 +689,9 @@
 
   // The asset lookup lets model pairs be evaluated; without it every model
   // Change content/hand-off reads as "topology unavailable" (a warning the author can never clear).
-  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id)}).issues : []);
+  // glyphStatus: a text ↔ shape Become whose font has no readable outlines lands
+  // as boxes; the revision re-derives once a font settles (oct2 W3).
+  const animationIssues=$derived(activeSlide && $glyphFontsRevision >= 0 ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id),glyphStatus:textGlyphStatus}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));

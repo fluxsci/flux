@@ -42,7 +42,7 @@ try {
   await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.seek");
   const inspect = () => page.evaluate(`(() => {
     const r=document.querySelector('[data-el-id="r"]'), effects=r.querySelector('.sl-effects');
-    const visible=[...document.querySelectorAll('[data-el-id="t"] text')].filter(t=>{for(let p=t;p;p=p.parentElement)if(Number(getComputedStyle(p).opacity)===0)return false;return true;}).map(t=>t.textContent);
+    const visible=[...document.querySelectorAll('[data-el-id="t"] text')].filter(t=>{if(getComputedStyle(t).visibility==="hidden")return false;for(let p=t;p;p=p.parentElement)if(Number(getComputedStyle(p).opacity)===0)return false;return true;}).map(t=>t.textContent);
     return {left:r.style.left,rotation:r.style.transform,opacity:r.style.opacity,effectOpacity:getComputedStyle(effects).opacity,visible,state:window.fluxDeck.state()};
   })()`);
   await page.evaluate("window.fluxDeck.seek(0,1,200)"); const mid = await inspect();
