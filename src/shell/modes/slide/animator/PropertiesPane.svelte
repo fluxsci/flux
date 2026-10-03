@@ -27,7 +27,7 @@
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
-  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES } from "../../../../lib/slide/targets";
+  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../../lib/slide/autobuild";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
@@ -165,7 +165,7 @@
     if (!curTrack || curFamily !== "transform") return "";
     const st = (curTrack.to?.state ?? {}) as Record<string, unknown>;
     const kind = typeof st.type === "string" ? st.type : null;
-    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}`;
+    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}${handoff.method && handoff.method !== "shatter" ? ` · ${handoff.method}` : ""}`;
     if (curTrack.to?.become?.mode === "consume") {
       const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
       return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
@@ -363,7 +363,7 @@
     refreshEndpointDisplay();
   }
   const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id], modelManifest: id => $scene3dManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
-  function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode">>) {
+  function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode" | "method">>) {
     try {
       withCurTrack((t, d) => {
         const spec = t.to?.become, s = d.slides.find(s => s.id === slide.id);
@@ -594,6 +594,11 @@
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
               {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
+            </select>
+          </label>
+          <label class="f" title="Transform method: what a filled shape's interior does while its outline splits into several pieces, or several pieces merge into it">Method ▾
+            <select aria-label="Hand-off method" value={handoff.method ?? "shatter"} onchange={e => changeHandoff({ method: e.currentTarget.value as BecomeSpec["method"] })}>
+              {#each TRANSFORM_METHODS as m (m.id)}<option value={m.id} title={m.hint}>{m.label}</option>{/each}
             </select>
           </label>
           <div class="f">Reveal

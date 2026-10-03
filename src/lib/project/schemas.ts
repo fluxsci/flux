@@ -11,7 +11,7 @@ import fluxplotManifestSchema from "../plot/schemas/manifest.schema.json";
 // exactly what catches an agent's malformed write.
 
 import { EASING_TOKENS } from "../slide/curves";
-import { PAIR_POLICY_IDS } from "../slide/targets";
+import { PAIR_POLICY_IDS, TRANSFORM_METHOD_IDS } from "../slide/targets";
 
 const draft = "http://json-schema.org/draft-07/schema#";
 
@@ -72,6 +72,7 @@ const BECOME = {
     mode: { enum: ["consume", "handoff"] },
     pair: { enum: [...PAIR_POLICY_IDS] },
     reveal: { enum: ["flip", "draw"] },
+    method: { enum: [...TRANSFORM_METHOD_IDS] },
   },
 } as const;
 const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };

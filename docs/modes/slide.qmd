@@ -468,6 +468,11 @@ plot already reveals every part, so it offers no remainder.
 **Destination.** The Animation inspector names both sides of a hand-off; for a set it reads,
 for example, “hands off to 3 ellipses” and lists each member below. **Pair ▾** chooses
 auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
+**Method ▾** chooses what a filled shape's interior does while its outline splits into several
+pieces (or several pieces merge into it): **shatter** splits it into wedges that fly with the
+pieces; **dissolve** fades it away in place as the outline leaves; **collapse** shrinks it into
+the shape's centre; **drain** empties it toward where the pieces are going (and fills from that
+side when pieces merge). Shatter is the default.
 **↔ Swap direction** reverses the hand-off, including plot parts, in one Undo. It keeps timing,
 styles and follower links. It refuses ghost births, group sources, missing outlines and a
 destination that already has a transform in this step. The command twin is `swap-become`.
@@ -489,7 +494,8 @@ source parts with `--source-part`. A destination set is `--to <id>` repeated, or
 the source hides after landing and the destination stays on the slide. Whole drawn objects
 use **Consume**, which replaces the source and removes the destination; `--mode` chooses
 either completion for whole objects. `appear-from` authors the same hand-off from the
-destination's side. `--pair` chooses how outlines match, and `--reveal` chooses flip or draw.
+destination's side. `--pair` chooses how outlines match, `--reveal` chooses flip or draw, and
+`--method` chooses shatter, dissolve, collapse or drain for a filled shape's interior.
 See the [slide command reference](../../resources/flux-context/SLIDES.md) for syntax.
 
 **Alt+G** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.

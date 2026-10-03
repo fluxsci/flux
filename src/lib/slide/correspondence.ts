@@ -2,7 +2,7 @@
 // in the player's warm hook, never its frame callback. All placements are stage px.
 import type { VectorNode } from "../types";
 import type { FluxPlotAxis } from "../plot/types";
-import type { PairPolicy } from "./types";
+import type { PairPolicy, TransformMethod } from "./types";
 import type { StageOutline, OutlineOwner, OutlinePaint } from "./stageOutline";
 import { nodesExtent, reverseNodes, segPoint, segLength, splitSeg, type PathSeg } from "../path";
 import { lerpColor, prepareColorLerp } from "../color/interp";
@@ -21,7 +21,23 @@ export interface CorrespondencePair {
   landing?: { x: number; y: number; scale: number };
   crossfade?: true;
   boxes?: { a: StageOutline["bbox"]; b: StageOutline["bbox"] };
+  /** A filled ring's INTERIOR while its outline splits (a-only) or pieces merge into
+   *  it (b-only), under a transform method other than shatter: the sampler fades,
+   *  shrinks or drains the ring's fill-only copy instead of flying it anywhere. */
+  interior?: InteriorSpec;
 }
+export interface InteriorSpec {
+  method: Exclude<TransformMethod, "shatter">;
+  /** The ring's centre (collapse shrinks toward it; drain measures from it). */
+  centre: { x: number; y: number };
+  /** Unit direction from the ring toward its partners (drain's front moves along it). */
+  dir: { x: number; y: number };
+  /** The ring's extent projected on `dir`, relative to `centre`. */
+  lo: number;
+  hi: number;
+}
+/** How much of the flight (eased progress) the interior takes to leave or arrive. */
+export const INTERIOR_WINDOW: Record<InteriorSpec["method"], number> = { dissolve: 0.3, collapse: 0.45, drain: 0.45 };
 export interface CorrespondencePlan {
   pairs: CorrespondencePair[];
   policy: Exclude<PairPolicy, "auto">;
@@ -248,11 +264,11 @@ export function sliceIntoLetters(single: StageOutline, letters: StageOutline[]):
   return strips;
 }
 
-function tile(single: StageOutline, partners: StageOutline[], source: boolean): CorrespondencePair[] {
+function tile(single: StageOutline, partners: StageOutline[], source: boolean, method: TransformMethod = "shatter"): CorrespondencePair[] {
   if (!partners.length) return [{ a: source ? single : null, b: source ? null : single }];
   if (partners.length === 1) return [{ a: source ? single : partners[0], b: source ? partners[0] : single }];
   if (boxOnly(single)) return source ? spatial([single], partners) : spatial(partners, [single]);
-  if (single.closed && filled(single) && partners.every(isLetter)) {
+  if (single.closed && filled(single) && partners.every(isLetter) && method === "shatter") {
     const strips = sliceIntoLetters(single, partners);
     if (strips) {
       const ordered = partners.slice().sort((a, b) => a.owner.index! - b.owner.index!);
@@ -273,8 +289,26 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean): 
   const cuts = [0];
   for (const p of ordered) { acc += total ? p.len / total : 1 / ordered.length; cuts.push(clamp(acc)); }
   cuts[cuts.length - 1] = 1;
-  const tiles = pieces(splitSide, cuts);
+  let tiles = pieces(splitSide, cuts);
+  const interior = single.closed && filled(single);
+  // Under every method but shatter the arcs carry the STROKE only: the interior is
+  // one fill-only ring the sampler fades, shrinks or drains (below), never a set
+  // of chord-filled segments flying apart.
+  if (interior && method !== "shatter") tiles = tiles.map((t) => ({ ...t, paint: { ...t.paint, fill: "none" } }));
   const pairs: CorrespondencePair[] = ordered.map((p, i) => ({ a: source ? tiles[i] : p.o, b: source ? p.o : tiles[i] }));
+  if (interior && method !== "shatter") {
+    const ring = fillOnly(single);
+    const c = center(single);
+    const x0 = Math.min(...partners.map((o) => o.bbox.x)), y0 = Math.min(...partners.map((o) => o.bbox.y));
+    const x1 = Math.max(...partners.map((o) => o.bbox.x + o.bbox.w)), y1 = Math.max(...partners.map((o) => o.bbox.y + o.bbox.h));
+    const dx = (x0 + x1) / 2 - c.x, dy = (y0 + y1) / 2 - c.y, len = Math.hypot(dx, dy);
+    const dir = len > 1e-6 ? { x: dx / len, y: dy / len } : { x: 1, y: 0 };
+    const param = paramOf(single);
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < 64; i++) { const q = pointAt(param, i / 64); const d = (q.x - c.x) * dir.x + (q.y - c.y) * dir.y; lo = Math.min(lo, d); hi = Math.max(hi, d); }
+    const spec: InteriorSpec = { method, centre: c, dir, lo, hi };
+    pairs.unshift(source ? { a: ring, b: null, interior: spec } : { a: null, b: ring, interior: spec });
+  }
   // A FILLED ring's open arcs paint only their chord-closed segments, so with
   // three or more partners the polygon between the chords would go blank on the
   // first flight frame (and pop in on the last, merging). Its area rides along
@@ -286,11 +320,10 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean): 
   // 15 % — `slice`, the letter-strip rule. (A travelling fill-only copy of the
   // whole ring was tried for this and read as a blob floating off and fading,
   // 2026-10-02.)
-  if (single.closed && filled(single) && tiles.length >= 3) {
+  if (interior && method === "shatter" && tiles.length >= 3) {
     const corners = tiles.map((t) => t.nodes[0]);
     const centroid = polygonCentroid(corners);
     if (centroid) {
-      const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint, stroke: "none", strokeWidth: 0, dash: undefined, arrowStart: false, arrowEnd: false } });
       const fills: CorrespondencePair[] = [];
       tiles.forEach((t, i) => {
         const o = ordered[i].o;
@@ -309,6 +342,9 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean): 
   }
   return pairs;
 }
+
+/** The outline's fill alone: no stroke, dash or heads. */
+const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint, stroke: "none", strokeWidth: 0, dash: undefined, arrowStart: false, arrowEnd: false } });
 
 /** Half a stage px of overlap between adjacent opaque fill pieces (device px
  *  ≥ 1 at any presentation scale), so no anti-aliased seam can show. */
@@ -441,8 +477,8 @@ function planPair(pair: CorrespondencePair): void {
 // batches. No key construction, geometry planning or cache lookup in sampling.
 const batches = new Map<string, CorrespondencePlan>();
 const BATCH_CACHE_MAX = 4;
-export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: { pair?: PairPolicy; data?: DataHint } = {}): CorrespondencePlan {
-  const key = JSON.stringify([A, B, opts.pair ?? "auto", opts.data]);
+export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: { pair?: PairPolicy; data?: DataHint; method?: TransformMethod } = {}): CorrespondencePlan {
+  const key = JSON.stringify([A, B, opts.pair ?? "auto", opts.data, opts.method ?? "shatter"]);
   const hit = batches.get(key);
   if (hit) return hit;
   // A later edit to a producer's arrays must not alter a cached earlier frame.
@@ -456,7 +492,7 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
       pairs = byData(bs, as, { ...opts.data, destAxisFit: opts.data.sourceAxisFit ?? opts.data.destAxisFit }).map((p) => ({ a: p.b, b: p.a }));
     } else pairs = byData(as, bs, opts.data);
   } else if (policy === "tile" && (as.length === 1 || bs.length === 1)) {
-    pairs = as.length === 1 ? tile(as[0], bs, true) : tile(bs[0], as, false);
+    pairs = as.length === 1 ? tile(as[0], bs, true, opts.method) : tile(bs[0], as, false, opts.method);
   } else if (policy === "order" && as.length === bs.length) {
     const rank = (a: StageOutline, b: StageOutline) => (a.owner.index ?? Infinity) - (b.owner.index ?? Infinity) || (a.owner.series ?? "").localeCompare(b.owner.series ?? "");
     const indexedA = as.filter((o) => Number.isFinite(o.owner.index)), indexedB = bs.filter((o) => Number.isFinite(o.owner.index));
@@ -493,8 +529,25 @@ interface SampleBuffers {
   bDash?: number[];
   fill: (t: number) => string;
   stroke: (t: number) => string;
+  /** drain: the ring sampled as a polygon once; `morph` holds the clipped result. */
+  ring?: { x: number; y: number }[];
 }
 const buffers = new WeakMap<SampledPath, SampleBuffers>();
+const smooth = (p: number) => p * p * (3 - 2 * p);
+/** Keep the part of `poly` on the far side of the line through `centre + s·dir`
+ *  perpendicular to `dir` (points whose projection ≥ s), as reused nodes in `out`. */
+function clipBeyond(poly: { x: number; y: number }[], centre: { x: number; y: number }, dir: { x: number; y: number }, s: number, out: VectorNode[]): VectorNode[] {
+  let n = 0;
+  const put = (x: number, y: number) => { const node = out[n] ?? (out[n] = { x, y, type: "corner" }); node.x = x; node.y = y; node.type = "corner"; delete node.hIn; delete node.hOut; n++; };
+  const proj = (p: { x: number; y: number }) => (p.x - centre.x) * dir.x + (p.y - centre.y) * dir.y;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length], dp = proj(p) - s, dq = proj(q) - s;
+    if (dp >= 0) put(p.x, p.y);
+    if ((dp >= 0) !== (dq >= 0)) { const u = dp / (dp - dq); put(p.x + (q.x - p.x) * u, p.y + (q.y - p.y) * u); }
+  }
+  out.length = n;
+  return out;
+}
 
 /** prepare() must run before sampling. Endpoint nodes are the exact authored
  *  chains (the aligned intermediate may have additional corner-preserving
@@ -520,6 +573,41 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       buffers.set(path, buf); out[i] = path;
     }
     path.opacity = !b ? clamp(1 - t / 0.4) : !a ? clamp((t - 0.6) / 0.4) : 1;
+    if (pair.interior) {
+      // The interior of a splitting (a-only) or merging (b-only) filled ring: how
+      // much of it is PRESENT runs 1 → 0 over the first window of the flight
+      // leaving, 0 → 1 over the last window arriving, eased so it starts and
+      // ends without a step. Its paint is the ring's own fill; nothing lerps.
+      const spec = pair.interior, W = INTERIOR_WINDOW[spec.method];
+      const present = smooth(a ? 1 - clamp(t / W) : clamp((t - (1 - W)) / W));
+      const base = a ? buf.a : buf.b;
+      path.closed = true;
+      if (spec.method === "dissolve") { path.nodes = base; path.opacity = present; }
+      else if (spec.method === "collapse") {
+        // shrink about the centre; the last fifth also fades so no dot remains
+        const k = present, c = spec.centre;
+        if (buf.morph.length !== base.length) buf.morph = base.map(copyNode);
+        for (let j = 0; j < base.length; j++) {
+          const src = base[j], dst = buf.morph[j];
+          dst.x = c.x + (src.x - c.x) * k; dst.y = c.y + (src.y - c.y) * k;
+          if (src.hIn) dst.hIn = { dx: src.hIn.dx * k, dy: src.hIn.dy * k }; else delete dst.hIn;
+          if (src.hOut) dst.hOut = { dx: src.hOut.dx * k, dy: src.hOut.dy * k }; else delete dst.hOut;
+        }
+        path.nodes = buf.morph; path.opacity = clamp(k / 0.2);
+      } else {
+        // drain: a straight front sweeps along `dir` (toward the partners); what
+        // remains lies beyond the front — leaving, it empties toward the pieces;
+        // arriving, it fills from the side the pieces come from
+        if (!buf.ring) { const param = parameterize(base, true); buf.ring = Array.from({ length: 64 }, (_, j) => pointAt(param, j / 64)); }
+        const front = lerp(spec.lo, spec.hi, 1 - present);
+        path.nodes = clipBeyond(buf.ring, spec.centre, spec.dir, front, buf.morph);
+        path.opacity = path.nodes.length >= 3 ? 1 : 0;
+      }
+      const p = (a ?? b)!.paint, paint = path.paint;
+      paint.fill = p.fill; paint.stroke = "none"; paint.strokeWidth = 0; paint.dash = undefined; paint.cap = p.cap; paint.opacity = p.opacity ?? 1;
+      paint.arrowStart = false; paint.arrowEnd = false; paint.text = p.text; paint.raster = p.raster;
+      continue;
+    }
     if (!a || !b || t === 0 || t === 1 || pair.crossfade) {
       const end = !a ? b! : !b ? a : t < 0.5 ? a : b;
       path.nodes = end === a ? buf.a : buf.b;

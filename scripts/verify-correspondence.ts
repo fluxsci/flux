@@ -83,6 +83,34 @@ for (const reverse of [false, true]) {
   h.ok(sampled.slice(0, 3).every((q) => q.opacity === 1 && /^#d95f02[0-9a-f]{2}$/i.test(q.paint.fill) && parseInt(q.paint.fill.slice(7), 16) < 160 && parseInt(q.paint.fill.slice(7), 16) > 96), `filled ring ${reverse ? "merge" : "split"}: a triangle never fades as a leftover — its fill pours into the stroke partner, alpha halfway at t = .5 (${sampled[0].paint.fill})`);
   h.ok(sampleCorrespondence(p, 0).slice(0, 3).every((q) => q.paint.fill === (reverse ? "none" : "#d95f02")) && sampleCorrespondence(p, 1).slice(0, 3).every((q) => q.paint.fill === (reverse ? "#d95f02" : "none")), `filled ring ${reverse ? "merge" : "split"}: the triangles are exactly the ring's fill at its own end and nothing at the other`);
 }
+h.section("transform methods: dissolve · collapse · drain (the interior as ONE fill-only ring)");
+for (const method of ["dissolve", "collapse", "drain"] as const) {
+  for (const reverse of [false, true]) {
+    const p = planCorrespondence(reverse ? three : [filledRing], reverse ? [filledRing] : three, { pair: "tile", method });
+    const arcs = p.pairs.filter((q) => !q.interior), ring = p.pairs.find((q) => q.interior)!;
+    const side = reverse ? ring.b! : ring.a!, other = reverse ? ring.a : ring.b;
+    h.ok(p.pairs.length === 4 && p.pairs[0] === ring && other === null && side.closed && side.paint.fill === "#d95f02" && side.paint.stroke === "none" && ring.interior!.method === method, `${method} ${reverse ? "merge" : "split"}: one fill-only interior ring rides beneath three stroke-only arcs`);
+    h.ok(arcs.every((q) => (reverse ? q.b : q.a)!.paint.fill === "none" && (reverse ? q.b : q.a)!.paint.stroke === "#100f0f") && near(arcs.reduce((sum, q) => sum + len(reverse ? q.b! : q.a!), 0), 160, 1e-6), `${method} ${reverse ? "merge" : "split"}: the arcs carry the stroke only and still tile the perimeter`);
+    p.prepare();
+    const at = (t: number) => sampleCorrespondence(p, t)[0];
+    const W = { dissolve: 0.3, collapse: 0.45, drain: 0.45 }[method];
+    const full = reverse ? 1 : 0, gone = reverse ? 0 : 1;
+    const area = (pts: VectorNode[]) => Math.abs(pts.reduce((sum, a, i) => { const b = pts[(i + 1) % pts.length]; return sum + a.x * b.y - b.x * a.y; }, 0)) / 2;
+    const s0 = at(full), s1 = at(gone), mid = at(reverse ? 1 - W / 2 : W / 2);
+    h.ok(s0.opacity === 1 && near(area(s0.nodes), 1600, method === "drain" ? 40 : 1e-6) && s0.paint.fill === "#d95f02" && s0.paint.stroke === "none", `${method} ${reverse ? "merge" : "split"}: at its own end the interior is the whole ring's fill (area ${area(s0.nodes).toFixed(0)})`);
+    h.ok(s1.opacity === 0 || area(s1.nodes) < 1e-6, `${method} ${reverse ? "merge" : "split"}: at the other end nothing of it remains`);
+    if (method === "dissolve") h.ok(near(mid.opacity, 0.5, 1e-9) && near(area(mid.nodes), 1600, 1e-6), `dissolve ${reverse ? "merge" : "split"}: halfway through its window the whole ring is at half opacity`);
+    if (method === "collapse") h.ok(mid.opacity === 1 && near(area(mid.nodes), 400, 1e-6) && near(mid.nodes.reduce((sx, n) => sx + n.x, 0) / 4, 40, 1e-9), `collapse ${reverse ? "merge" : "split"}: halfway the ring is half its size about its centre`);
+    if (method === "drain") { const a2 = area(mid.nodes); h.ok(mid.opacity === 1 && a2 > 600 && a2 < 1000 && mid.nodes.every((n) => n.x >= 20 - 1e-6 && n.x <= 60 + 1e-6 && n.y >= 20 - 1e-6 && n.y <= 60 + 1e-6), `drain ${reverse ? "merge" : "split"}: halfway about half the ring remains, inside the ring, behind a straight front (area ${a2.toFixed(0)})`); }
+    const beyond = at(reverse ? 1 - W - 0.1 : W + 0.1);
+    h.ok(beyond.opacity === 0 || area(beyond.nodes) < 1e-6, `${method} ${reverse ? "merge" : "split"}: outside its window the interior is gone while the arcs still fly`);
+  }
+}
+const kept = planCorrespondence([filledRing], three, { pair: "tile", method: "drain" }); kept.prepare();
+const keptOut: ReturnType<typeof sampleCorrespondence> = [];
+const firstNodes = sampleCorrespondence(kept, 0.2, keptOut)[0].nodes, firstNode = firstNodes[0];
+h.ok(sampleCorrespondence(kept, 0.25, keptOut)[0].nodes === firstNodes && keptOut[0].nodes[0] === firstNode, "drain reuses its clipped node buffer (array and nodes) across frames");
+h.eq(planCorrespondence([filledRing], three, { pair: "tile", method: "shatter" }).pairs.length, 6, "shatter stays the default geometry (three arcs + three wedges)");
 h.eq(ringTile.pairs.length, 2, "an UNFILLED ring tiles with no fill pieces");
 h.eq(planCorrespondence([outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], true)], three, { pair: "tile" }).pairs.length, 3, "an UNFILLED ring into three partners: three arcs, nothing beneath");
 h.section("seam overlap helpers");

@@ -86,7 +86,7 @@ function planOne(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlin
   if (dest?.type === "plot" && isWholeElementRef(spec.ref) && (!spec.pair || spec.pair === "auto" || spec.pair === "tile")) {
     const spines = b.filter(o => /(?:^|\.)axis\.[xy]\.spine$/.test(o.owner.partId ?? ""));
     if (spines.length) {
-      const flight = planCorrespondence(a, spines, { pair: "tile", data });
+      const flight = planCorrespondence(a, spines, { pair: "tile", data, method: spec.method });
       const rest = planCorrespondence([], b.filter(o => !spines.includes(o)));
       return { pairs: [...flight.pairs, ...rest.pairs], policy: "tile", driver: flight.driver,
         destinations: [...flight.destinations, ...rest.destinations], prepare() { flight.prepare(); rest.prepare(); } };
@@ -101,11 +101,11 @@ function planOne(track: Track, frame: SlideFrame, ctx: GeometryCtx, sourceOutlin
     const spined = new Set([...wholePlots].filter(id => b.some(o => o.owner.elementId === id && spine(o))));
     if (spined.size) {
       const flying = b.filter(o => !spined.has(o.owner.elementId) || spine(o)), resting = b.filter(o => !flying.includes(o));
-      const flight = planCorrespondence(a, flying, { pair: spec.pair, data });
+      const flight = planCorrespondence(a, flying, { pair: spec.pair, data, method: spec.method });
       const rest = planCorrespondence([], resting);
       return { pairs: [...flight.pairs, ...rest.pairs], policy: flight.policy, driver: flight.driver,
         destinations: [...flight.destinations, ...rest.destinations], prepare() { flight.prepare(); rest.prepare(); } };
     }
   }
-  return planCorrespondence(a, b, { pair: spec.pair, data });
+  return planCorrespondence(a, b, { pair: spec.pair, data, method: spec.method });
 }

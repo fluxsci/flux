@@ -263,6 +263,16 @@ const swapOptions = { plotManifest: () => manifest, plotRoot: () => plotRoot };
   ok(JSON.stringify(how(swapped)) === JSON.stringify(how(original)) && swapped.to?.become?.pair === "order" && swapped.to.become.reveal === "draw", "swap preserves style, explicit curve, anchor, group, pairing and reveal without materializing inherited fields");
   ok(deck.slides[0].beats[1].tracks.find(t => t.id === "follower")?.anchor?.trackId === id && JSON.stringify(deck.slides[0].beats[1].groups) === JSON.stringify(beat.groups), "swap rebinds followers and retains track groups");
   ok(validateDeckFile(deck).length === 0 && compiledFor(deck).handoffs.length === 1, "swapped deck validates and compiles through the real shared compiler");
+  // Transform method (owner, 2026-10-03): written only when set, survives a swap, validates.
+  ok(!("method" in (original.to!.become as object)), "an unset transform method writes no key (existing specs keep their bytes)");
+  {
+    const { deck: d2, slideId: s2, beats: b2 } = deckWith([line("src"), plot(), rect("box")]);
+    const r2 = ops.becomeTransform(d2, s2, b2[1], "src", spines, { compiled: compiledFor(d2), method: "drain" })!;
+    const t2 = d2.slides[0].beats[1].tracks.find(t => t.id === r2.trackId)!;
+    ok(t2.to?.become?.method === "drain" && validateDeckFile(d2).length === 0, "method drain is written on the spec and validates");
+    const id2 = ops.swapBecome(d2, s2, r2.trackId, swapOptions);
+    ok(d2.slides[0].beats[1].tracks.find(t => t.id === id2)?.to?.become?.method === "drain", "swap preserves the transform method");
+  }
   const store = await import("../src/lib/slide/store"), fig = await import("../src/lib/store");
   const { setStoreTenant } = await import("../src/lib/tenancy");
   setStoreTenant("slide"); const unregister = fig.registerHistoryCompanion(store.overlayHistoryCompanion());
@@ -344,15 +354,20 @@ console.log("── destination SETS (Oct-2: TargetRef.members) ──");
   ok(!visible(end, "src") && ["e1", "e2", "e3"].every(id => visible(end, id)), "after landing the three ellipses show and the rect stays hidden");
   const plan = planHandoff(track, compiled.sample(1, 0), { manifest: manifests, plotRoot: roots, groups: undefined });
   plan.prepare();
-  const flying = plan.pairs.filter(p => p.a && p.b && !p.fade);
+  // shatter (the default method): three arcs fly, and the filled rect's interior rides as
+  // three fill-only wedges (role slice) paired with fill-only copies of the ellipses
+  const flying = plan.pairs.filter(p => p.a && p.b && p.a.owner.role !== "slice"), wedges = plan.pairs.filter(p => p.a?.owner.role === "slice");
   ok(plan.policy === "tile" && flying.length === 3 && flying.every(p => !p.a!.closed && p.b!.closed) && new Set(flying.map(p => p.b!.owner.elementId)).size === 3, "pair auto resolves to tile: the rect's ring splits by arc length into three pieces, one per ellipse");
-  const underlay = plan.pairs[0];
-  const cloud = { x: (458 + 479) / 2, y: (71 + 197) / 2 };
-  ok(plan.pairs.length === 4 && underlay.fade === "out" && underlay.a!.closed && underlay.a!.paint.fill === "#d95f02" && underlay.a!.paint.stroke === "none" && Math.abs(underlay.b!.bbox.x + underlay.b!.bbox.w / 2 - cloud.x) < 1e-6 && Math.abs(underlay.b!.bbox.y + underlay.b!.bbox.h / 2 - cloud.y) < 1e-6, "the filled rect keeps a fill-only underlay, drawn first (beneath the pieces), travelling toward the ellipses' centre");
+  ok(wedges.length === 3 && wedges.every(p => p.a!.closed && p.b!.closed && p.b!.paint.stroke === "none") && new Set(wedges.map(p => p.b!.owner.elementId)).size === 3, "shatter: the rect's interior rides as three fill wedges, one per ellipse");
+  // Oct-3: the interior rides as wedges (role slice) paired with fill-only copies of the
+  // ellipses, drawn first; a paired wedge never fades as a leftover. (The Oct-2 travelling
+  // underlay is gone.)
+  const wedge = plan.pairs[0];
+  ok(plan.pairs.length === 6 && wedge.a!.owner.role === "slice" && wedge.a!.closed && wedge.a!.paint.fill === "#d95f02" && wedge.a!.paint.stroke === "none" && wedge.b!.paint.stroke === "none" && wedge.b!.closed, "the filled rect's interior rides as fill-only wedges, drawn first (beneath the arcs), each paired with a fill-only copy of its ellipse");
   const { sampleCorrespondence } = await import("../src/lib/slide/correspondence");
-  const first = sampleCorrespondence(plan, 0)[0].opacity, fading = sampleCorrespondence(plan, .2)[0].opacity, gone = sampleCorrespondence(plan, .4)[0].opacity;
-  ok(first === 1 && Math.abs(fading - .5) < 1e-9 && gone === 0, "the underlay is whole at frame 0 and dissolves over the first 40 % (no fill pop as the outline splits)");
-  const last = sampleCorrespondence(plan, 1).filter((_, i) => !plan.pairs[i].fade);
+  const first = sampleCorrespondence(plan, 0)[0].opacity, half = sampleCorrespondence(plan, .5)[0].opacity, landedOpacity = sampleCorrespondence(plan, 1)[0].opacity;
+  ok(first === 1 && half === 1 && landedOpacity === 1, "a wedge never fades: the interior is part of the transform from the first frame to the last");
+  const last = sampleCorrespondence(plan, 1).filter((_, i) => plan.pairs[i].a?.owner.role !== "slice");
   ok(last.length === 3 && last.every(p => { const b = flying.find(q => q.b!.owner.elementId === p.owner.b!.elementId)!.b!; return p.nodes.length === b.nodes.length && p.nodes.every((n, i) => Math.abs(n.x - b.nodes[i].x) < 1e-9 && Math.abs(n.y - b.nodes[i].y) < 1e-9); }), "the last flight frame IS each ellipse's own outline (the flip is pixel-invisible)");
   const lengths = flying.map(p => p.a!.nodes.length);
   ok(lengths.every(n => n >= 2), "every piece of the split rect is a real chain");
@@ -427,12 +442,12 @@ console.log("── MERGE: many sources → one destination (Oct-2 stretch) ─�
   const frame = compiled.sample(1, 0), ctx = { manifest: () => undefined, plotRoot: () => undefined, groups: undefined };
   const plans = tracks.map(t => planHandoff(t, frame, ctx, tracks));
   plans.forEach(p => p.prepare());
-  const flying = plans.map(p => p.pairs.filter(q => q.a && q.b && !q.fade));
+  const flying = plans.map(p => p.pairs.filter(q => q.a && q.b && q.b!.owner.role !== "slice"));
   ok(flying.every((f, i) => f.length === 1 && f[0].a!.owner.elementId === ["e1", "e2", "e3"][i] && f[0].b!.owner.elementId === "dest" && !f[0].b!.closed), "each lander flies its own ellipse into its own piece of the rect");
   const perimeter = 2 * (135 + 45), lengthOf = (nodes: { x: number; y: number }[]) => nodes.slice(1).reduce((sum, n, i) => sum + Math.hypot(n.x - nodes[i].x, n.y - nodes[i].y), 0);
   ok(Math.abs(flying.reduce((sum, f) => sum + lengthOf(f[0].b!.nodes), 0) - perimeter) < 1e-6, "the three pieces tile the rect's whole perimeter exactly once (the time-reverse of the set split)");
-  ok(plans[0].pairs.every(q => !q.fade) && plans[1].pairs.every(q => !q.fade) && plans[2].pairs.some(q => q.fade === "in" && q.b!.closed && q.b!.paint.stroke === "none"), "only the last lander carries the rect's fill underlay, which resolves over the last 40 %");
-  const landed = plans.map(p => sampleCorrespondence(p, 1).filter((_, i) => !p.pairs[i].fade)[0]);
+  ok(plans.every(p => p.pairs.length === 2 && p.pairs.filter(q => q.b?.owner.role === "slice" && q.b!.closed && q.b!.paint.stroke === "none" && q.a && q.a.paint.stroke === "none").length === 1) && plans.every(p => p.pairs.every(q => q.a)), "every lander also carries its own wedge of the rect's interior (a fill-only copy of its ellipse pours into it); nothing is left to the last lander alone");
+  const landed = plans.map(p => sampleCorrespondence(p, 1).filter((_, i) => p.pairs[i].b?.owner.role !== "slice")[0]);
   ok(landed.every((path, i) => path.nodes.length === flying[i][0].b!.nodes.length && path.nodes.every((n, j) => Math.abs(n.x - flying[i][0].b!.nodes[j].x) < 1e-9 && Math.abs(n.y - flying[i][0].b!.nodes[j].y) < 1e-9)), "every lander's last frame is exactly its piece of the rect's own outline");
   // The overlap law still refuses a PARTIAL overlap of the merged destination.
   const mergedBytes = JSON.stringify(deck);

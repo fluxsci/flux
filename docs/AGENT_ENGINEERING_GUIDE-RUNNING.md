@@ -1319,7 +1319,14 @@ Persistence invariants (all machine-checked — do not weaken):
   arc's ends, role `slice`, paired with a fill-only copy of the arc's own partner, drawn beneath
   the arcs): the fill pours into each partner with its piece and fades where the partner has no
   fill — never a separate blob that floats off (the 2026-10-02 travelling underlay read exactly
-  so and was removed). `mergeChains` fuses touching chains only under one paint: a boxplot's
+  so and was removed). That is the `shatter` **transform method** (`BecomeSpec.method`,
+  `targets.TRANSFORM_METHODS`, default); the owner's alternatives keep the arcs stroke-only
+  and give the interior ONE fill-only ring the sampler drives (`CorrespondencePair.interior`,
+  `INTERIOR_WINDOW`): `dissolve` fades it in place over the first 30 % of eased progress,
+  `collapse` shrinks it into the centre over 45 %, `drain` clips it behind a straight front
+  sweeping toward the partners over 45 % (merging runs each in reverse over the last window).
+  One catalogue feeds the inspector's Method ▾, `--method`, and the deck schema; unset specs
+  keep their bytes. `mergeChains` fuses touching chains only under one paint: a boxplot's
   7-px half-alpha box stroke stays its own flight beside its whiskers. Copy/preset/embed
   remaps retain element, group and every set member's destination identity; deleted destinations remain dangling and diagnosed. PPTX
   phase ownership includes destinations so a later landing cannot leak into an earlier phase.
@@ -9515,7 +9522,10 @@ demo decks found a whole-slide text shimmer at the start and end of every transf
 flight wrapper squashed later siblings into composited layers and their text flipped LCD ↔ grayscale
 AA. The camera is now a permanent compositor layer (1,106 → 1.8 px²). (5) Space confirms picks (canvas
 and X-ray); plain `b` arms Become; Change ⌃⇧C, Ghost ⌃⌥G, Appear from ⌃⌥A, track cascade ⌃⌥C.
-(6) Paper's bottom panel (vim status bar) now clips to the pane's rounded corners.
+(6) Paper's bottom panel (vim status bar) now clips to the pane's rounded corners. (7) Later the
+same day the owner asked for the fill behaviour as a per-transform option: `BecomeSpec.method`
+— shatter (default) · dissolve · collapse · drain — through ops/CLI/schema/inspector, with the
+three non-shatter methods driven by the sampler on one fill-only interior ring.
 **Learnings:**
 - Measure boundaries at 2 ms steps (`scripts/perf/slide-twitch-probe.mts`, `slide-twitch-sweep.mts`):
   a start twitch or end snap is a paint spike at raw 0→0+ or 1−→1 with nothing beside it. The

@@ -10,8 +10,8 @@ import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog
 import type { PlotViewFields } from "../src/lib/plot/viewControls";
 import type { ColorScaleVerbFields } from "./slides";
 import { EASING_TOKENS, CURVE_CATALOG, parseCurve } from "../src/lib/slide/curves";
-import type { EasingToken, PairPolicy, Track, PresetName, TargetRef } from "../src/lib/slide/types";
-import { PAIR_POLICY_IDS } from "../src/lib/slide/targets";
+import type { EasingToken, PairPolicy, TransformMethod, Track, PresetName, TargetRef } from "../src/lib/slide/types";
+import { PAIR_POLICY_IDS, TRANSFORM_METHOD_IDS } from "../src/lib/slide/targets";
 import type { VerbDef, CliArgSpec } from "./registry";
 import { INBOX_VERBS } from "./inboxVerbs";
 import { MODEL3D_VERBS } from './model3dVerbs';
@@ -3636,6 +3636,7 @@ export const VERBS: VerbDef[] = [
       mode: z.enum(["consume", "handoff"]).optional(),
       pair: z.enum(PAIR_POLICY_IDS).optional(),
       reveal: z.enum(["flip", "draw"]).optional(),
+      method: z.enum(TRANSFORM_METHOD_IDS).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
@@ -3655,6 +3656,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "mode", into: "mode" },
       { kind: "flag", at: "pair", into: "pair" },
       { kind: "flag", at: "reveal", into: "reveal" },
+      { kind: "flag", at: "method", into: "method" },
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
@@ -3670,6 +3672,7 @@ export const VERBS: VerbDef[] = [
         ...(a.mode != null ? { mode: a.mode as "consume" | "handoff" } : {}),
         ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
         ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
+        ...(a.method != null ? { method: a.method as TransformMethod } : {}),
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
         ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
@@ -3718,6 +3721,7 @@ export const VERBS: VerbDef[] = [
       sourcePart: z.array(z.string().min(1)).min(1).optional(),
       pair: z.enum(PAIR_POLICY_IDS).optional(),
       reveal: z.enum(["flip", "draw"]).optional(),
+      method: z.enum(TRANSFORM_METHOD_IDS).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
@@ -3733,6 +3737,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "source-part", into: "sourcePart", as: "csv" },
       { kind: "flag", at: "pair", into: "pair" },
       { kind: "flag", at: "reveal", into: "reveal" },
+      { kind: "flag", at: "method", into: "method" },
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
@@ -3743,6 +3748,7 @@ export const VERBS: VerbDef[] = [
       ...(a.sourcePart != null ? { sourceParts: a.sourcePart as string[] } : {}),
       ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
       ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
+      ...(a.method != null ? { method: a.method as TransformMethod } : {}),
       ...(a.start != null ? { start: a.start as number } : {}),
       ...(a.duration != null ? { duration: a.duration as number } : {}),
       ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),

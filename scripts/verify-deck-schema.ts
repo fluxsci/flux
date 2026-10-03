@@ -140,7 +140,7 @@ assert(validateDeckFile(good).length === 0, "a createDeck() deck validates again
   // The whole `to.become` record is schematized: ref + closed mode/pair/reveal vocabularies.
   const becomeOf = (d: typeof setDeck) => d.slides[0].beats[1].tracks.find(t => t.to?.become)!.to!.become as unknown as Record<string, unknown>;
   for (const [label, patch] of [
-    ["an unknown mode", { mode: "absorb" }], ["an unknown pair", { pair: "nearest" }], ["an unknown reveal", { reveal: "wipe" }],
+    ["an unknown mode", { mode: "absorb" }], ["an unknown pair", { pair: "nearest" }], ["an unknown reveal", { reveal: "wipe" }], ["an unknown method", { method: "explode" }],
     ["no mode", { mode: undefined }], ["no ref", { ref: undefined }], ["a ref without an element", { ref: { parts: ["a"] } }],
     ["non-string parts", { ref: { element: el, parts: [1] } }],
   ] as const) {
@@ -149,7 +149,7 @@ assert(validateDeckFile(good).length === 0, "a createDeck() deck validates again
     for (const [k, v] of Object.entries(patch)) if (v === undefined) delete become[k]; else become[k] = v;
     assert(validateDeckFile(bad).length > 0, `a Become with ${label} → rejected`);
   }
-  for (const [label, patch] of [["a group ref", { ref: { element: plot, group: "g" } }], ["pair tile + reveal draw", { pair: "tile", reveal: "draw" }], ["consume provenance", { mode: "consume", ref: { element: el } }]] as const) {
+  for (const [label, patch] of [["a group ref", { ref: { element: plot, group: "g" } }], ["pair tile + reveal draw", { pair: "tile", reveal: "draw" }], ["method drain", { method: "drain" }], ["consume provenance", { mode: "consume", ref: { element: el } }]] as const) {
     const ok = structuredClone(setDeck);
     Object.assign(becomeOf(ok), patch);
     assert(validateDeckFile(ok).length === 0, `a Become with ${label} validates`);

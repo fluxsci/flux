@@ -36,6 +36,16 @@ export const PAIR_POLICIES = [
 ] as const;
 /** The ids alone, as the non-empty tuple `z.enum` takes. */
 export const PAIR_POLICY_IDS = PAIR_POLICIES.map(p => p.id) as [(typeof PAIR_POLICIES)[number]["id"], ...(typeof PAIR_POLICIES)[number]["id"][]];
+/** Transform methods (owner, 2026-10-03): what a filled shape's interior does while
+ *  its outline splits into pieces, or pieces merge into it. One catalogue for the
+ *  GUI select, the CLI flag and the deck schema. */
+export const TRANSFORM_METHODS = [
+  { id: "shatter", label: "shatter", hint: "The interior splits into wedges that fly with the pieces" },
+  { id: "dissolve", label: "dissolve", hint: "The interior fades away in place as the outline leaves" },
+  { id: "collapse", label: "collapse", hint: "The interior shrinks into the shape's centre as the outline leaves" },
+  { id: "drain", label: "drain", hint: "The interior empties toward where the pieces are going" },
+] as const;
+export const TRANSFORM_METHOD_IDS = TRANSFORM_METHODS.map(m => m.id) as [(typeof TRANSFORM_METHODS)[number]["id"], ...(typeof TRANSFORM_METHODS)[number]["id"][]];
 
 /** Structural endpoint test; callers own preset and enabled eligibility. */
 export function isHandoff<T extends Pick<Track, "to">>(track: T | null | undefined): track is T & { to: { become: BecomeSpec } } {

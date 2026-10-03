@@ -1290,6 +1290,8 @@ export interface BecomeOptions extends TimingCurvePatch {
   mode?: BecomeSpec["mode"];
   pair?: BecomeSpec["pair"];
   reveal?: BecomeSpec["reveal"];
+  /** Hand-off only; written only when given (default shatter), so unset specs keep their bytes. */
+  method?: BecomeSpec["method"];
   start?: number;
   duration?: number;
   /** GUI may supply the compiler's manifest-aware evaluation of the slide. */
@@ -1378,7 +1380,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
         throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
     }
     const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...timing })!;
-    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip" }, state: {} };
+    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== "shatter" ? { method: opts.method } : {}) }, state: {} };
     delete track.disabled;
     return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
   }
@@ -1443,7 +1445,7 @@ export function swapBecome(deck: Deck, slideId: Id, trackId: Id, opts: CompileOp
   const beat = candidate.beats[bi], groups = beat.groups;
   removeTracks(work, slideId, [trackId]);
   const result = becomeTransform(work, slideId, beat.id, spec.ref, trackRef(track), {
-    mode: "handoff", pair: spec.pair, reveal: spec.reveal,
+    mode: "handoff", pair: spec.pair, reveal: spec.reveal, method: spec.method,
     start: resolved.start ?? 0, duration: trackDuration(resolved), easing: resolved.easing,
     compiled: compileSlide(candidate, deck.stage, options),
   });

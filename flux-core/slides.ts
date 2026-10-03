@@ -1258,7 +1258,7 @@ export async function become(
   opts: BecomeOptions = {},
 ): Promise<slideOps.BecomeResult & { assetId?: string }> {
   if ([opts.targetId, opts.assetId, opts.members].filter(v => v != null).length !== 1) throw new Error("become needs exactly one of --target <elementId>, --to <elementId> (repeatable), --members <json> or --asset <assetId>");
-  if (opts.assetId && (opts.parts || opts.sourceParts || opts.mode || opts.pair || opts.reveal)) throw new Error("Parts, mode, pair and reveal require --target, rather than --asset.");
+  if (opts.assetId && (opts.parts || opts.sourceParts || opts.mode || opts.pair || opts.reveal || opts.method)) throw new Error("Parts, mode, pair, reveal and method require --target, rather than --asset.");
   return mutateDeck(root, deckId, "become", async (deck) => {
     const slide = mustSlide(deck, slideId);
     if (opts.targetId || opts.members) {
