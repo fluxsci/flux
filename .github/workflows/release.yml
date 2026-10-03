@@ -56,7 +56,7 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          echo "ttf-mscorefonts-installer msttcorefonts/accept-mscorefonts-eula select true" | sudo debconf-set-selections
+          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
           sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer
           sudo fc-cache -f
           for f in Arial Arial_Italic Georgia Georgia_Bold; do

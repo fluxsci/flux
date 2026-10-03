@@ -63,7 +63,9 @@ jobs:
       # to glyph boxes and those three gates fail.
       - name: Provision the msttcorefonts faces the glyph-outline gates read
         run: |
-          echo "ttf-mscorefonts-installer msttcorefonts/accept-mscorefonts-eula select true" | sudo debconf-set-selections
+          # The question is accepteD-mscorefonts-eula (the package's templates); the widely copied
+          # "accept-mscorefonts-eula" preseeds nothing and the install silently skips the download.
+          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
           sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer
           sudo fc-cache -f
           # The package downloads the faces at install time and only warns on failure.

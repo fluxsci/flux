@@ -2765,7 +2765,9 @@ days (probe geometry like `width` instead).
   `verify-text-morph-browser`, `verify-slide-export-transform`; 2026-10-03). They read the
   reference workstation's Arial/Georgia files; without them, letter flights fall back to
   glyph boxes (6 paths instead of 7 for "Optics"). The Linux CI/release jobs install
-  `ttf-mscorefonts-installer` (EULA preseeded) and fail the step if the download did.
+  `ttf-mscorefonts-installer` and fail the step if the download did. The EULA question is
+  `msttcorefonts/accepted-mscorefonts-eula`; the widely copied `accept-…` key preseeds nothing,
+  and the package then skips the download with only "user did not accept" in the log.
   `verify-glyph-outlines` hardcodes the Debian paths, so it is still red on macOS/Windows.
 - **Pure-tier timing budgets are relative to an in-process control** (2026-10-03). The
   shared 4-vCPU runner at `--jobs 4` measured 107 ms for a 25 ms plan and 8 ms p95 for
