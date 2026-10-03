@@ -65,8 +65,14 @@ assert(/AbortSignal\.timeout\(/.test(main), "the fetch is time-boxed (offline ca
 // --- 4. preload + types + memBridge --------------------------------------------------
 console.log("\nupdate-check — bridge surface (source):");
 assert(/checkForUpdate: \(\) => ipcRenderer\.invoke\("update:check"\)/.test(read("electron/preload.cjs")), "preload exposes fig.checkForUpdate");
-assert(/checkForUpdate\?\(\): Promise<\{ version: string; url: string \} \| null>/.test(read("src/lib/project/types.ts")), "FileBridge types checkForUpdate");
+assert(/checkForUpdate\?\(\): Promise<\{ version: string; url: string; canInstall\?: boolean; installLine\?: string \} \| null>/.test(read("src/lib/project/types.ts")), "FileBridge types checkForUpdate (with the in-place / paste-a-line choice)");
 assert(/async checkForUpdate\(\)/.test(read("src/lib/project/memBridge.ts")), "the dev fixture stubs checkForUpdate (returns null)");
+// 2026-10-03: installed by one curl line, updated by the same script.
+assert(/updateInstall: \(\) => ipcRenderer\.invoke\("update:install"\)/.test(read("electron/preload.cjs")), "preload exposes fig.updateInstall");
+assert(/ipcMain\.handle\("update:install"/.test(main) && /!app\.isPackaged \|\| process\.platform !== "darwin"/.test(main), "update:install exists and runs only in the installed macOS app");
+assert(/updateSpawn\(\{ pid: process\.pid \}\)/.test(main) && /detached: true/.test(main) && /update\.log/.test(main) && /app\.quit\(\)/.test(main),
+  "it spawns the install script detached for this pid, logs to update.log, then quits");
+assert(/canInstall: process\.platform === "darwin"/.test(main) && /installLine: installLine\(\{ update: true \}\)/.test(main), "the offer says whether to update in place (macOS) or hand over the line");
 
 // --- 5. renderer trigger gates on the opt-out + toasts with a Download action ---------
 console.log("\nupdate-check — Shell trigger (source):");
@@ -74,7 +80,9 @@ const shell = read("src/shell/Shell.svelte");
 assert(/get\(settings\)\.updateCheck/.test(shell), "the trigger honors the settings.updateCheck opt-out");
 assert(/checkForUpdate\?\.\(\)/.test(shell), "calls fileBridge().checkForUpdate()");
 assert(/pushToast\("info", `Flux \$\{u\.version\} is available`/.test(shell), "a newer release raises an info toast naming the version");
-assert(/openExternal\?\.\(u\.url\)/.test(shell) && /label: "Download"/.test(shell), "the toast's Download action opens the release URL");
+assert(/openExternal\?\.\(u\.url\)/.test(shell) && /label: "Download"/.test(shell), "the toast's Download action opens the release URL (fallback)");
+assert(/u\.canInstall/.test(shell) && /label: "Update now", run: \(\) => void fileBridge\(\)\?\.updateInstall\?\.\(\)/.test(shell), "macOS: 'Update now' runs the in-place update");
+assert(/label: "Copy update command"/.test(shell) && /writeText\(line\)/.test(shell), "Linux: the toast copies the update line for a terminal");
 assert(/void maybeCheckForUpdate\(\)/.test(shell), "the check fires once the bridge is present (alongside onCapture/onAppError)");
 
 // --- 6. the opt-out toggle exists and defaults on ------------------------------------

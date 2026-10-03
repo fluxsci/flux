@@ -383,7 +383,8 @@
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
       "verify-become-picker.ts",
-      "verify-manifest-contracts.ts"
+      "verify-manifest-contracts.ts",
+      "verify-managed-tools.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -540,7 +541,8 @@
       "verify-model3d-embed-gui.mjs",
       "verify-slide-model3d-morph-gui.mjs",
       "verify-slide-model3d-parts-gui.mjs",
-      "verify-become-picker-gui.mjs"
+      "verify-become-picker-gui.mjs",
+      "verify-setup-flux-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -3093,6 +3095,17 @@
       ]
     },
     {
+      "glob": "electron/{managedTools.cjs,ipc/setup.cjs,updateCheck.cjs}",
+      "run": [
+        "verify-managed-tools.ts",
+        "verify-update-check.ts",
+        "verify-ipc-contract.ts",
+        "verify-setup-flux-gui.mjs",
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "electron/**",
       "run": [
         "tier:presence",
@@ -3205,6 +3218,13 @@
         "verify-slide-pdf.ts",
         "verify-slide-export-menu.mjs",
         "verify-slide-pptx.ts"
+      ]
+    },
+    {
+      "glob": "src/shell/setup/**",
+      "run": [
+        "verify-setup-flux-gui.mjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -9773,6 +9793,26 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-managed-tools.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-setup-flux-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }
