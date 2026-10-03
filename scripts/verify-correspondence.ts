@@ -295,18 +295,23 @@ const opts = { pair: "data" as const, data: { destAxisFit: fit } };
 const coldStart = performance.now();
 const warm = planCorrespondence(dense, [sine], opts); warm.prepare();
 console.log(`cold plan + prepare: ${(performance.now() - coldStart).toFixed(2)} ms`);
-// A cache MISS with warm code: shift every ring by a sub-pixel so the batch key differs.
-const dense2 = dense.map((o) => ({ ...o, nodes: o.nodes.map((n) => ({ ...n, x: n.x + 0.001 })), bbox: { ...o.bbox, x: o.bbox.x + 0.001 } }));
-const start = performance.now();
-const large = planCorrespondence(dense2, [sine], opts); large.prepare();
-const ms = performance.now() - start;
-// Warm-hook work (never a frame): what remains is the exact batch key (~3 ms), the protective
-// input clone (~7 ms) and the data pairing itself; 40 ms leaves headroom for a loaded machine.
-h.ok(ms <= 40, `(f) 1,200-ring plan including prepare, warm code but a cache MISS: ${ms.toFixed(2)} ms ≤ 40 ms (glyph pairs plan no outline correspondence)`);
+// Wall-clock budgets are not portable (guide §9): the shared CI runner plans 2–4× slower than a
+// workstation. So the budget is relative to the work a miss cannot avoid, measured here, on this
+// machine: the exact batch key (JSON.stringify) plus the protective input clone. Best of five on
+// both sides — contention only ever adds time. Each run shifts every ring by a further sub-pixel,
+// so every plan is a cache MISS with warm code.
+const misses = Array.from({ length: 5 }, (_, k) => dense.map((o) => ({ ...o, nodes: o.nodes.map((n) => ({ ...n, x: n.x + 0.001 * (k + 1) })), bbox: { ...o.bbox, x: o.bbox.x + 0.001 * (k + 1) } })));
+const bestOf = (run: (i: number) => void) => { let best = Infinity; for (let i = 0; i < misses.length; i++) { const t = performance.now(); run(i); best = Math.min(best, performance.now() - t); } return best; };
+const unavoidable = bestOf((i) => { JSON.stringify([misses[i], [sine], opts.pair, opts.data, "shatter"]); structuredClone(misses[i]); structuredClone([sine]); });
+let large!: ReturnType<typeof planCorrespondence>;
+const ms = bestOf((i) => { large = planCorrespondence(misses[i], [sine], opts); large.prepare(); });
+// What remains on top is the data pairing itself: today ≈ 3.5×. Planning the 1,200 outline
+// correspondences a glyph flight never samples measured ≈ 15×. (The old fixed 40 ms was ≈ 9.5×
+// on the workstation, so 8× is stricter there and portable everywhere.)
+h.ok(ms <= 8 * unavoidable, `(f) 1,200-ring plan including prepare, warm code but a cache MISS: ${ms.toFixed(2)} ms ≤ 8 × the key + clone it cannot avoid (${unavoidable.toFixed(2)} ms) — glyph pairs plan no outline correspondence`);
 h.ok(large.pairs.every((p) => !p.plan), "(f) glyph pairs carry landings only — no per-pair outline plan to prepare");
-const hitStart = performance.now();
-planCorrespondence(dense2, [sine], opts).prepare();
-h.ok(performance.now() - hitStart <= 5, "(f) a repeated plan is a cache hit");
+const hitMs = bestOf(() => planCorrespondence(misses[misses.length - 1], [sine], opts).prepare());
+h.ok(planCorrespondence(misses[misses.length - 1], [sine], opts) === large && hitMs <= unavoidable, `(f) a repeated plan is a cache hit: the same plan object, for less than a miss's key + clone (${hitMs.toFixed(2)} ≤ ${unavoidable.toFixed(2)} ms)`);
 h.eq(large.driver, "glyph", "(f) large small-ring set selects glyph flights");
 h.ok(large.pairs.length === 1200 && large.pairs.every((p) => p.landing && p.landing.x >= sine.bbox.x && p.landing.x <= sine.bbox.x + sine.bbox.w && near(p.landing.scale, 0.5)), "(f) every marker has an on-curve landing and stroke-to-marker scale");
 h.ok(large.pairs.every((p) => {
