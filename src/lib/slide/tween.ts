@@ -27,6 +27,7 @@ import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
 import { elementBBox } from "../geometry";
 import { pathD, pathToNodes, resampleNodes } from "../path";
+import { parameterize, boundaryParams, splitOutline } from "./outline";
 import { outlineMorphable, planElementMorph, sampleElementMorph } from "./outline";
 import { compileSlide } from "./compile";
 import { planHandoff } from "./handoffPlan";
@@ -255,16 +256,30 @@ function lerpHandle(
   return { dx: lerp(ax, bx, t), dy: lerp(ay, by, t) };
 }
 
-/** Tween two node lists (same closedness). Unequal counts arc-length-resample
- *  BOTH to the larger count (geometry-preserving), then lerp positions +
- *  handles; node type follows the END side's classification intent (corner —
- *  types are editing metadata, not render state). */
+/** Tween two node lists (same closedness). Unequal counts split BOTH chains at
+ *  the union of their normalized arc-length node stations (de Casteljau cuts:
+ *  every original corner and curve survives on its own side), so the frame at
+ *  t = 0 is exactly the pre chain and the frame at t = 1 exactly the end chain
+ *  — resampling both to N equal-arc-length stations instead moved every corner
+ *  off its place, and the real render then "twitched" in at either end
+ *  (2026-10-03). Then lerp positions + handles; node type follows the END
+ *  side's classification intent (types are editing metadata, not render state). */
 export function lerpNodes(a: VectorNode[], b: VectorNode[], closed: boolean, t: number): VectorNode[] {
   let na = a, nb = b;
   if (a.length !== b.length) {
-    const n = Math.max(a.length, b.length, closed ? 3 : 2);
-    na = resampleNodes(a, closed, n);
-    nb = resampleNodes(b, closed, n);
+    const pa = parameterize(a, closed), pb = parameterize(b, closed);
+    if (pa.total > 1e-9 && pb.total > 1e-9) {
+      const stations = [...boundaryParams(pa, closed), ...boundaryParams(pb, closed)];
+      na = splitOutline({ nodes: a, closed }, stations);
+      nb = splitOutline({ nodes: b, closed }, stations);
+    }
+    if (na.length !== nb.length) {
+      // degenerate (zero-length chain, or two stations of one side within the
+      // splitter's tolerance): the classic equal-station resample
+      const n = Math.max(a.length, b.length, closed ? 3 : 2);
+      na = resampleNodes(a, closed, n);
+      nb = resampleNodes(b, closed, n);
+    }
   }
   const len = Math.min(na.length, nb.length);
   const out: VectorNode[] = [];
