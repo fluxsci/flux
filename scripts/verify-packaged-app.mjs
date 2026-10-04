@@ -125,6 +125,8 @@ try{
  if(!page){console.error('attaching to the app window did not finish in 45 s');await sampleFlux();throw Error('packaged window attach hung (see samples above)');}
  assert.ok(page,'packaged application opens its window');
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ // Navigation/lifecycle of the app window (macOS capture step diagnosis, 2026-10-04).
+ for(const ev of ['framenavigated','load','domcontentloaded','framedetached'])page.on(ev,f=>console.error(`app page ${ev}${f?.url?': '+f.url().slice(0,120):''}`));
  await page.waitForFunction(()=>window.fig&&document.body.textContent.includes('Packaged scientific smoke'),{timeout:60000});
  // Recording is deliberately deferred beyond the project-open IPC. Observe
  // the eventual machine-local record without adding a wait to production open.
@@ -168,12 +170,14 @@ try{
  console.error('smoke step: capture intake');
  const {articleCaptureName}=await import('../electron/captureRules.js'),captureName=articleCaptureName('10.0000/packaged-qualification');
  await fs.writeFile(path.join(capture,'personal-decoy.pdf'),'untouched decoy');await fs.writeFile(path.join(capture,captureName),pdf);
+ console.error('capture: evaluate start');
  const captureResult=await page.evaluate(async()=>({extension:await window.fig.captureExtensionInfo(),intake:await window.fig.captureIntake(),fulltext:await window.fig.searchFulltext('packagedqualifier')}));
+ console.error('capture: evaluate done');
  assert.equal(captureResult.extension.hasDir,true);assert.ok(captureResult.extension.dir.startsWith(resources+path.sep));
  assert.ok(captureResult.intake.pdfs?.includes(captureName));assert.ok(!captureResult.fulltext?.error,JSON.stringify(captureResult.fulltext));
  assert.equal(await fs.readFile(path.join(capture,'personal-decoy.pdf'),'utf8'),'untouched decoy');
  assert.deepEqual(await fs.readFile(path.join(env.HOME,'FluxConfig/FluxLib/pdfs_to_assign',captureName)),pdf);
- await page.screenshot({path:path.join(evidence,'packaged-app.png')});assert.deepEqual(errors,[]);
+ console.error('capture: screenshot start');await page.screenshot({path:path.join(evidence,'packaged-app.png')});console.error('capture: screenshot done');assert.deepEqual(errors,[]);
  // Exercise the actual installed help as an OS file browser would, without
  // opening the owner's default browser or navigating a privileged app window.
  docsBrowser=await puppeteer.launch({executablePath:env.FLUX_CHROME||'/usr/bin/google-chrome',headless:true,userDataDir:path.join(scratch,'documentation browser'),env,args:['--no-sandbox','--disable-dev-shm-usage'],defaultViewport:{width:1440,height:960}});
