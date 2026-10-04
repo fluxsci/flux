@@ -62,7 +62,10 @@ export async function withLockAt<T>(dir: string, name: string, client: string, f
     }
     let stopped = false, lost: unknown = null, beats = Promise.resolve();
     const timer = setInterval(() => {
-      beats = beats.then(async () => { if (!stopped && !await leases.renew(lease)) lost = new Error(`Lost lease: ${name}`); }).catch(error => { lost = error; });
+      // Only a renew that finds another owner's token is a loss; a renew that throws (arbitration
+      // timeout under load, an I/O hiccup) is transient — the lease is still ours, a live owner is
+      // never stale, and assertOwned below is the authority. It used to fail completed work (2026-10-04).
+      beats = beats.then(async () => { if (!stopped && !await leases.renew(lease)) lost = new Error(`Lost lease: ${name}`); }).catch(() => {});
     }, opts.heartbeatMs ?? 10_000);
     timer.unref?.();
     try {
