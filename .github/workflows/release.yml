@@ -52,15 +52,15 @@ jobs:
           - os: macos-15
             platform: darwin
             arch: arm64
-            builder: --mac --arm64
+            builder: --mac zip --arm64
           - os: macos-15-intel
             platform: darwin
             arch: x64
-            builder: --mac --x64
+            builder: --mac zip --x64
           - os: ubuntu-latest
             platform: linux
             arch: x64
-            builder: --linux --x64
+            builder: --linux deb --x64
     runs-on: ${{ matrix.os }}
     env:
       FLUX_ELECTRON_NO_SANDBOX: ${{ matrix.platform == 'linux' && '1' || '0' }}
@@ -100,6 +100,9 @@ jobs:
           node scripts/fetch-video-encoder.mjs --platform ${{ matrix.platform }} --arches ${{ matrix.arch }}
       - name: Build (renderer, CLI/MCP bundles, offline help)
         run: npm run build && npm run build:docs
+      # The target is named on the command line so ONLY this runner's arch is built: with a bare
+      # `--mac --arm64`, the config's `arch: [arm64, x64]` won and the arm64 runner also packaged an
+      # x64 app with no x64 helpers (v0.2.0 first attempt, 2026-10-04).
       # No Apple Developer ID (owner decision): identity=null skips electron-builder's signing
       # and build/afterPack.cjs ad-hoc signs the app, which Apple Silicon requires.
       - name: Package

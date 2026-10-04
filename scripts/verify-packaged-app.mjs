@@ -77,7 +77,10 @@ try{
  const native=scope.spawn(launchArgs[0],launchArgs.slice(1),{command:executable,nodeArgs:[],cwd,env,deadlineMs:180000});
  const end=Date.now()+60000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`});break}catch{await new Promise(r=>setTimeout(r,100))}}
  assert.ok(browser,'packaged application exposes its own test debugging endpoint');
- const pages=await browser.pages(),page=pages.find(p=>p.url().startsWith('file:'))??pages[0];
+ // The debugging endpoint answers before the window exists (v0.2.0 Linux smoke, 2026-10-04): wait for
+ // the app's own file: page rather than taking whatever pages() holds at connect time.
+ const target=await browser.waitForTarget(t=>t.type()==='page'&&t.url().startsWith('file:'),{timeout:60000}),page=await target.page();
+ assert.ok(page,'packaged application opens its window');
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await page.waitForFunction(()=>window.fig&&document.body.textContent.includes('Packaged scientific smoke'),{timeout:60000});
  // Recording is deliberately deferred beyond the project-open IPC. Observe
