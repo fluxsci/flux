@@ -385,7 +385,8 @@
       "verify-become-picker.ts",
       "verify-manifest-contracts.ts",
       "verify-install-script.ts",
-      "verify-managed-tools.ts"
+      "verify-managed-tools.ts",
+      "verify-packaged-requires.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -2067,7 +2068,8 @@
       "glob": "{electron-builder.yml,flux-core/render.ts}",
       "run": [
         "tier:pure",
-        "verify-w13-cli.mjs"
+        "verify-w13-cli.mjs",
+        "verify-packaged-requires.ts"
       ]
     },
     {
@@ -9832,6 +9834,15 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-packaged-requires.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

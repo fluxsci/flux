@@ -17,7 +17,6 @@ directories:
 files:
   - electron/**/*
   - resources/agent-skills/**/*
-  - node_modules/js-yaml/**/*
   - src/lib/plot/recipeContract.mjs
   - src/lib/model3d/importData.native.gen.mjs
   # fonts:lookup resolves system font files through the shared resolver.
@@ -26,6 +25,9 @@ files:
   - dist/**/*
   - package.json
   - "!**/node_modules/**/*"
+  # Runtime modules come AFTER that exclusion: later patterns win. js-yaml (agentSetup.cjs) sat
+  # above it from 09-27 to 10-04, so every packaged app died at launch with "Cannot find module".
+  - node_modules/js-yaml/**/*
   # PNG rendering stays in a child process; ship its wrapper + platform prebuilt.
   - node_modules/@resvg/**/*
   - node_modules/pdf-lib/cjs/**/*
