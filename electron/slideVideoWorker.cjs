@@ -105,6 +105,18 @@ if (process.env.FLUX_SLIDE_VIDEO_WORKER === "1") {
   process.stdin.on("end", () => controller.abort());
   process.on("SIGTERM", () => controller.abort());
   const emit = message => process.stdout.write(`FLUX_VIDEO ${JSON.stringify(message)}\n`);
+  // A worker decides when it exits. Electron's default quits when the last window closes, so a
+  // capture renderer that died (render-process-gone → window destroyed) ended the process with code 0
+  // before the worker could report why (packaged video export under load, 2026-10-04).
+  app.on("window-all-closed", () => {});
+  // app.exit() does not wait for a piped stdout to drain: the final result/error line could be lost and
+  // the parent saw a bare non-zero exit (packaged video export on CI, 2026-10-04). Exit once it is
+  // written; an error also goes to stderr, which the parent includes in its message.
+  const finish = (message, code) => {
+    if (message.error) process.stderr.write(`[flux worker] ${message.error}\n`);
+    const exit = () => app.exit(code), fallback = setTimeout(exit, 2000);
+    process.stdout.write(`FLUX_VIDEO ${JSON.stringify(message)}\n`, () => { clearTimeout(fallback); exit(); });
+  };
   (async () => {
     const job = JSON.parse(require("node:fs").readFileSync(process.env.FLUX_VIDEO_JOB, "utf8"));
     app.setPath("userData", path.join(path.dirname(job.html), "profile"));
@@ -114,7 +126,7 @@ if (process.env.FLUX_SLIDE_VIDEO_WORKER === "1") {
     await Promise.race([app.whenReady(), new Promise((_resolve, reject) => setTimeout(() => reject(new Error("Video renderer did not start")), 20000))]);
     app.dock?.hide();
     const watchdog = setTimeout(() => controller.abort(), 60 * 60 * 1000);
-    try { emit({ result: await renderVideo(job, { BrowserWindow, session }, controller.signal, emit) }); app.exit(0); }
+    try { finish({ result: await renderVideo(job, { BrowserWindow, session }, controller.signal, emit) }, 0); }
     finally { clearTimeout(watchdog); }
-  })().catch(error => { emit({ error: String(error.message || error), cancelled: controller.signal.aborted }); app.exit(1); });
+  })().catch(error => finish({ error: String(error.message || error), cancelled: controller.signal.aborted }, 1));
 }
