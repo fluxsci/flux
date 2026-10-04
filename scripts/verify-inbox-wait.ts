@@ -108,7 +108,9 @@ try {
     await claimItem(root, event.id, {}, { session: heron });
     const initial = await waitForInbox(root, { timeoutMs: 0 }, { session: heron });
     const old = worker(scope, root, "wait", { session: heron, cursor: initial.cursor, timeoutMs: 2000 });
-    const next = worker(scope, root, "wait", { session: wren, mode: "filter", filter: { surface: "slide" }, timeoutMs: 700 });
+    // 2000 like every other waiter here: a 700 ms long-poll could expire before a loaded runner (39.5 s for
+    // this gate vs 8.8 s locally) delivered the reassignment, failing "Reassign bypasses the filter" (2026-10-04).
+    const next = worker(scope, root, "wait", { session: wren, mode: "filter", filter: { surface: "slide" }, timeoutMs: 2000 });
     await Promise.all([old.ready, next.ready]);
     await appendAnnotationEvent(root, makeAssign(event.id, route, "human"));
     const [revoked, delivered] = await Promise.all([resultOf(old), resultOf(next)]);

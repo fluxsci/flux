@@ -11,7 +11,8 @@ async function withRecipeLease(recipePath, fn) {
     const got = await leases.acquire(canonical, name, "recipe");
     if (!got.ok) throw new Error("This recipe is already running in another operation");
     let lost = false, stopped = false, beats = Promise.resolve();
-    const timer = setInterval(() => { beats = beats.then(async () => { if (!stopped && !await leases.renew(got.lease)) lost = true; }).catch(() => {lost = true;}); }, 10000);
+    // A renew that throws is transient (see guiLeases heartbeat); only another owner's token is a loss.
+    const timer = setInterval(() => { beats = beats.then(async () => { if (!stopped && !await leases.renew(got.lease)) lost = true; }).catch(() => {}); }, 10000);
     timer.unref?.();
     try {
       return await fn(async () => { if (lost) throw new Error("Recipe ownership was lost"); await leases.assertOwned(got.lease); });

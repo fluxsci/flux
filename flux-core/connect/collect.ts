@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import * as fluxPaths from "../../electron/fluxPaths.cjs";
 import { resolveSpawn } from "../../electron/execResolve.cjs";
+import { quartoCommandSync } from "../../electron/managedTools.cjs";
 import { listKnownProjects } from "../../electron/projectsRegistry.cjs";
 import { configInfo } from "../references";
 import { loadManifest, readFigIndex, readCanvasFiles } from "../model";
@@ -314,7 +315,7 @@ async function machineFacts(workspace: string | null): Promise<{ machine: Machin
     mcpRegistrations(),
     fluxLibFacts(info.fluxLibPath),
     fluxplotFacts(workspace),
-    versionOf("quarto", ["--version"]),
+    versionOf(quartoCommandSync(), ["--version"]),
     versionOf("uv", ["--version"]),
   ]);
   return {

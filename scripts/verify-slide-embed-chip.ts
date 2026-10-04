@@ -28,15 +28,26 @@ import { createSlideChipCatalog, slideChipLabel, slideSourceSpans, type SlideCat
 const h = harness("verify-slide-embed-chip");
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-slide-chip-"));
 const tick = () => new Promise((r) => setTimeout(r, 0));
-let reads = 0;
+let reads = 0, inflight = 0;
+/** Every repository read is tracked, so "the read settled" is a condition, not a turn count. */
+const track = <T>(work: Promise<T>) => { inflight++; return work.finally(() => { inflight--; }); };
+/** Wait until no repository read is pending across consecutive turns (the catalog's own
+ *  continuations run in those turns). Two bare ticks raced a loaded CI runner's disk (2026-10-03). */
+async function settle() {
+  for (let quiet = 0, turns = 0; quiet < 3; turns++) {
+    if (turns > 5000) throw new Error("repository reads never settled");
+    await tick();
+    quiet = inflight === 0 ? quiet + 1 : 0;
+  }
+}
 const io = {
   readText: (p: string) => {
     if (p.endsWith("deck.json")) reads++;
-    return fs.readFile(p, "utf8");
+    return track(fs.readFile(p, "utf8"));
   },
-  readFile: (p: string) => fs.readFile(p),
-  exists: async (p: string) => fs.access(p).then(() => true, () => false),
-  readdir: async (p: string) => (await fs.readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, dir: e.isDirectory() })),
+  readFile: (p: string) => track(fs.readFile(p)),
+  exists: (p: string) => track(fs.access(p).then(() => true, () => false)),
+  readdir: (p: string) => track(fs.readdir(p, { withFileTypes: true }).then((entries) => entries.map((e) => ({ name: e.name, dir: e.isDirectory() })))),
 };
 const writeDeck = async (deck: ReturnType<typeof inlineSlideFixture>) => {
   await fs.mkdir(path.join(root, "slides", deck.id), { recursive: true });
@@ -63,9 +74,7 @@ try {
   h.eq(first.state, "pending", "first sight answers synchronously with pending");
   const pend = slideChipLabel({ deck: "talk", slide: "slide_murfegg25pk8_8" }, first, raw);
   h.ok(pend.text === "Slide murfeg" && pend.resolved && pend.pending, `pending label is the short-id fallback, not dimmed (${pend.text})`);
-  // Await the shared disk read; two timer ticks do not guarantee IO completion.
-  await repo.deck("talk");
-  await tick();
+  await settle();
   h.eq(changes, 1, "the settled read notifies once");
   const resolved = slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw);
   h.eq(resolved.text, "Deck 3 · Title", "deck title · slide name — the widget footer's text");
@@ -77,12 +86,11 @@ try {
 
   const before = reads;
   for (let i = 0; i < 2000; i++) catalog.lookup({ deck: "talk", slide: i % 2 ? "results" : "intro" });
-  await tick();
+  await settle();
   h.eq(reads - before, 0, "2,000 lookups cost zero deck reads (no per-keystroke IO)");
 
   catalog.lookup({ deck: "gone", slide: "x" });
-  await repo.deck("gone").catch(() => {});
-  await tick();
+  await settle();
   const gone = slideChipLabel({ deck: "gone", slide: "x" }, catalog.lookup({ deck: "gone", slide: "x" }), raw);
   h.ok(!gone.resolved && gone.text === "Missing slide deck" && /no longer registered/.test(gone.tooltip), `unknown deck → unresolved chip with the reason (${gone.tooltip.split(":")[0]})`);
   const lost = slideChipLabel({ deck: "talk", slide: "nope" }, catalog.lookup({ deck: "talk", slide: "nope" }), raw);
@@ -97,8 +105,7 @@ try {
   repo.invalidate();
   h.eq(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).text, "Deck 3 · Title",
     "while the fresh read is in flight the old entry still answers (no fallback flash)");
-  await repo.deck("talk");
-  await tick();
+  await settle();
   h.ok(changes === 1, `one invalidation → one notification (${changes})`);
   h.eq(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).text, "Evidence deck · Title", "rename reaches the label");
 
@@ -106,8 +113,7 @@ try {
   talk.slides = [talk.slides[1], talk.slides[0], talk.slides[2]];
   await writeDeck(talk);
   repo.invalidate();
-  await repo.deck("talk");
-  await tick();
+  await settle();
   h.ok(slideChipLabel({ deck: "talk", slide: "results" }, catalog.lookup({ deck: "talk", slide: "results" }), raw).tooltip.includes("slide 1 of 3"), "reordering renumbers the position in the tooltip");
   h.eq(slideChipLabel({ deck: "talk", slide: "third" }, catalog.lookup({ deck: "talk", slide: "third" }), raw).text, "Evidence deck · Slide 3", "…and an unnamed slide's fallback");
 
@@ -121,8 +127,7 @@ try {
 
   changes = 0;
   repo.invalidate();
-  await repo.deck("talk");
-  await tick();
+  await settle();
   h.eq(changes, 0, "an invalidation with no visible change does not notify");
 
   // Superseded reads: a slow first read must not overwrite a newer one.

@@ -171,7 +171,7 @@ If no sessions appear, run the copied connection command in the agent. Presence
 appears after an explicit project connection and expires when its heartbeat stops.
 The monitor does not start an agent or enable watch mode by itself.
 
-If `flux` is not on PATH, use the full launcher path in the [installation guide](../installation.qmd#first-run).
+If `flux` is not on PATH, use the full launcher path in the [installation guide](../installation.qmd#your-fluxconfig).
 Run `flux connect doctor` (or `--json`) for the same diagnostics from a terminal.
 If an agent's shell cannot write outside its workspace, use the registered MCP tools;
 connect also has a temporary-cache fallback. Setup does not change the agent's sandbox policy.

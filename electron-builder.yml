@@ -17,7 +17,6 @@ directories:
 files:
   - electron/**/*
   - resources/agent-skills/**/*
-  - node_modules/js-yaml/**/*
   - src/lib/plot/recipeContract.mjs
   - src/lib/model3d/importData.native.gen.mjs
   # fonts:lookup resolves system font files through the shared resolver.
@@ -26,6 +25,14 @@ files:
   - dist/**/*
   - package.json
   - "!**/node_modules/**/*"
+  # Runtime modules come AFTER that exclusion: later patterns win. js-yaml (agentSetup.cjs) sat
+  # above it from 09-27 to 10-04, so every packaged app died at launch with "Cannot find module".
+  - node_modules/js-yaml/**/*
+  - node_modules/argparse/**/*
+  # File watching (main.cjs loadChokidar: import("chokidar")) and its one dependency. Missing from
+  # every packaged build until 10-04, so external/agent edits never live-reloaded there.
+  - node_modules/chokidar/**/*
+  - node_modules/readdirp/**/*
   # PNG rendering stays in a child process; ship its wrapper + platform prebuilt.
   - node_modules/@resvg/**/*
   - node_modules/pdf-lib/cjs/**/*
@@ -103,11 +110,12 @@ mac:
     - from: extension/signed
       to: extension/signed
       filter: ["**/*.xpi"]
+  # The install script (install.sh, 2026-10-03) is the ONE supported install path: it fetches
+  # exactly these names from releases/latest/download. A zip per architecture, no DMG.
   target:
-    - target: dmg
-      arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
+  artifactName: Flux-mac-${arch}.${ext}
   # notarize is enabled per-build from CI (release.yml) so an unsigned build (no
   # secrets) still succeeds.
 
@@ -142,9 +150,11 @@ linux:
     - from: extension/signed
       to: extension/signed
       filter: ["**/*.xpi"]
+  # The .deb is the supported Linux target (install.sh installs it with apt). No AppImage:
+  # Ubuntu 24.04 needs libfuse2 for it and refuses its Electron sandbox (guide §9).
   target:
-    - AppImage
     - deb
+  artifactName: Flux-linux-${arch}.${ext}
 
 win:
   extraResources:
@@ -157,9 +167,6 @@ win:
     - from: extension/signed
       to: extension/signed
       filter: ["**/*.xpi"]
-
-dmg:
-  title: ${productName} ${version}
 
 publish:
   provider: github

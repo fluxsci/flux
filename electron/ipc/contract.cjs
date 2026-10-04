@@ -89,6 +89,14 @@ const CHANNELS = [
   { channel: "app:flush", kind: "push", scope: "read" },
   { channel: "app:flush:done", kind: "send", scope: "read" },
   { channel: "update:check", kind: "invoke", scope: "read" },
+  { channel: "update:install", kind: "invoke", scope: "spawn" },
+  // --- Set up Flux… (ipc/setup.cjs) ---------------------------------------------
+  { channel: "setup:status", kind: "invoke", scope: "read" },
+  { channel: "setup:addToTerminal", kind: "invoke", scope: "write" },
+  { channel: "setup:installQuarto", kind: "invoke", scope: "spawn" },
+  { channel: "setup:installTinytex", kind: "invoke", scope: "spawn" },
+  { channel: "setup:cancel", kind: "invoke", scope: "spawn" },
+  { channel: "setup:progress", kind: "push", scope: "read" },
   // --- window chrome -----------------------------------------------------------
   { channel: "win:minimize", kind: "invoke", scope: "read" },
   { channel: "win:maximizeToggle", kind: "invoke", scope: "read" },

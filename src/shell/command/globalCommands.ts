@@ -2,6 +2,7 @@ import { requestInbox } from "../inbox/inboxState";
 import { requestAsk } from "../agent/askChord";
 import { requestAnnotation } from "../agent/annotateChord";
 import { openAI } from "../agent/aiMonitorState";
+import { openSetup } from "../setup/setupState";
 // The GlobalPalette command list (non-paper modes; PaperMode appends the same
 // entries to its own palette). Context-doc commands switch to Paper and open
 // the doc; machine-context commands open the file in the OS editor.
@@ -43,6 +44,7 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
     );
   }
   cmds.push(
+    { id: "setup-flux", title: "Set up Flux…", hint: "Setup", keywords: "install onboarding quarto tinytex word pdf terminal flux command fluxplot agents", run: () => openSetup() },
     { id: "ai-status", title: "AI status", hint: "AI Bundle", keywords: "connect claude codex doctor agents", run: () => openAI() },
     { id: "ai-new-skill", title: "New agent skill…", hint: "AI Bundle", keywords: "user context skills", run: () => openAI({ newSkill: true }) },
     { id: "ctx-global-rules", title: "Open global rules", hint: "Context", keywords: "user conventions machine", run: () => void openMachineContext("UserContext/RULES.md") },

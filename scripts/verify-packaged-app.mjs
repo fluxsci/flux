@@ -32,9 +32,21 @@ const scratch=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'Flux pac
 const scope=new TestProcessScope(),env=isolatedEnv(path.join(scratch,'configuration'));
 const cwd=path.join(scratch,'unrelated directory');await fs.mkdir(cwd);
 const capture=path.join(cwd,'browser downloads');await fs.mkdir(capture);
-const preferences=path.join(env.XDG_CONFIG_HOME,'flux/preferences.json');
-await fs.writeFile(preferences,JSON.stringify({...JSON.parse(await fs.readFile(preferences,'utf8')),captureDir:capture}));
-let browser,docsBrowser;
+// Flux's machine config dir (electron/fluxPaths.cjs): ~/Library/Application Support on macOS, the XDG
+// dir elsewhere. The XDG path alone left the Mac app without the capture dir (v0.2.0 smoke, 2026-10-04).
+const preferences=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux/preferences.json');
+await fs.mkdir(path.dirname(preferences),{recursive:true});
+await fs.writeFile(preferences,JSON.stringify({...JSON.parse(await fs.readFile(preferences,'utf8').catch(()=>'{}')),captureDir:capture}));
+let browser,docsBrowser,sampled=false,nativeApp=null,appTargetId=null;
+/** macOS: a hung packaged app prints nothing; sample every Flux process (main and helpers) before the
+ *  scope kills them, so a failure names the stuck native stack (v0.2.0, 2026-10-04). Once per run. */
+async function sampleFlux(){if(platform!=='darwin'||sampled)return;sampled=true;const {execFileSync}=await import('node:child_process');
+ const pids=(()=>{try{return execFileSync('pgrep',['-f',path.dirname(path.dirname(executable))],{encoding:'utf8'}).trim().split('\n').filter(Boolean)}catch{return []}})();
+ for(const pid of pids){try{const out=path.join(os.tmpdir(),`flux-sample-${pid}.txt`);execFileSync('sample',[pid,'2','-file',out],{stdio:'ignore'});
+  const lines=(await fs.readFile(out,'utf8')).split('\n'),hot=lines.filter(l=>/Keychain|SecItem|SecKeychain|OSCrypt|safe.?storage|kcsearch|SecurityAgent|semaphore|ConditionVariable|WaitableEvent|_pthread_cond_wait|mach_msg/i.test(l));
+  console.error(`=== sample ${pid}\n`+lines.slice(0,45).join('\n')+`\n--- ${hot.length} wait/keychain frames ---\n`+hot.slice(0,70).join('\n'));}catch(e){console.error(`sample ${pid} failed: ${e.message}`)}}}
+// puppeteer can reject outside an awaited call (a page it creates for an unresponsive target).
+process.on('unhandledRejection',async error=>{console.error(error);await sampleFlux();process.exit(1);});
 async function command(file,argv,extraEnv={},deadlineMs=60000){const child=scope.spawn(argv[0]??'',argv.slice(1),{command:file,nodeArgs:[],cwd,env:{...env,...extraEnv},deadlineMs});const status=await scope.waitExit(child);assert.equal(status.code,0,`${file}: ${child.stdout}\n${child.stderr}`);return child.stdout+child.stderr;}
 try{
  assert.match(await command(executable,[cli,'help'],{ELECTRON_RUN_AS_NODE:'1'}),/compose-figure/);
@@ -68,20 +80,57 @@ try{
  const movie=path.join(evidence,'packaged-frame.mp4');
  const videoOutput=await command(executable,[cli,'export-slide-video',deck.id,'packaged-frame','--root',project,'--out',movie,'--start-hold','0','--end-hold','0','--height','720'],videoEnv,90000);
  assert.match(videoOutput,/"frames"\s*:\s*1/);assert.equal(await fs.readFile(deckFile,'utf8'),deckBytes);
- await command(path.join(encoder,'ffmpeg'),['-v','error','-i',movie,'-frames:v','1',path.join(evidence,'packaged-frame.png')]);
+ await command(path.join(encoder,'ffmpeg'),['-y','-v','error','-i',movie,'-frames:v','1',path.join(evidence,'packaged-frame.png')]);
  const frame=await fs.readFile(path.join(evidence,'packaged-frame.png'));assert.equal(frame.readUInt32BE(16),1280);assert.equal(frame.readUInt32BE(20),720);
  const port=await new Promise((resolve,reject)=>{const s=net.createServer();s.once('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p))})});
  const launchArgs=[project,`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1',`--user-data-dir=${path.join(scratch,'electron profile')}`];
  if(platform==='linux')launchArgs.push('--ozone-platform=x11','--disable-gpu');
  if(env.FLUX_ELECTRON_NO_SANDBOX==='1')launchArgs.push('--no-sandbox');
- const native=scope.spawn(launchArgs[0],launchArgs.slice(1),{command:executable,nodeArgs:[],cwd,env,deadlineMs:180000});
- const end=Date.now()+60000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`});break}catch{await new Promise(r=>setTimeout(r,100))}}
- assert.ok(browser,'packaged application exposes its own test debugging endpoint');
- const pages=await browser.pages(),page=pages.find(p=>p.url().startsWith('file:'))??pages[0];
+ const native=nativeApp=scope.spawn(launchArgs[0],launchArgs.slice(1),{command:executable,nodeArgs:[],cwd,env,deadlineMs:180000});
+ // A cold first launch on a hosted Intel Mac is slow; 120 s bounds the wait, and a miss reports the
+ // app's own output instead of a bare assertion (v0.2.0 Intel smoke, 2026-10-04).
+ const end=Date.now()+120000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`,protocolTimeout:60000,
+  // Attach to Flux's own app window(s) only. Hidden helper windows (static print, proxy fetch) start at
+  // about:blank; auto-attaching puppeteer to one whose renderer never answers Network.enable rejected
+  // in the background and killed the smoke (macOS, 2026-10-04).
+  // Once the app window is chosen, ONLY that target: a later page (even a dist/index.html one) is not
+  // auto-attached; macOS showed a second attach hanging in the capture step (2026-10-04).
+  targetFilter:target=>target.type()!=='page'||(appTargetId?target._targetId===appTargetId:target.url().includes('/dist/index.html'))});break}catch{await new Promise(r=>setTimeout(r,100))}}
+ assert.ok(browser,`packaged application exposes its own test debugging endpoint (120 s). App stdout:\n${String(native.stdout??'').slice(-4000)}\nApp stderr:\n${String(native.stderr??'').slice(-4000)}`);
+ // The debugging endpoint answers before the window exists (v0.2.0 Linux smoke, 2026-10-04): wait for
+ // the app's own file: page rather than taking whatever pages() holds at connect time.
+ const target=await browser.waitForTarget(t=>t.type()==='page'&&t.url().startsWith('file:'),{timeout:60000});appTargetId=target._targetId;
+ // Log every target the app creates/changes/destroys (type, URL), attached or not, to see what the
+ // macOS capture step does.
+ {const watch=await browser.target().createCDPSession();for(const ev of ['targetCreated','targetInfoChanged','targetDestroyed'])watch.on(`Target.${ev}`,e=>console.error(`target ${ev}: ${e.targetInfo?`${e.targetInfo.type} ${e.targetInfo.targetId.slice(0,8)} ${e.targetInfo.url.slice(0,120)}`:e.targetId?.slice(0,8)}`));await watch.send('Target.setDiscoverTargets',{discover:true});}
+ // macOS v0.2.0 smoke: the window's renderer stopped answering CDP once a capture dir was set. Probe it
+ // first; when it does not answer, pause it to print the JavaScript it is stuck in, then sample.
+ {const probe=await target.createCDPSession(),within=(ms,work)=>Promise.race([work,new Promise(r=>setTimeout(()=>r('TIMEOUT'),ms))]);
+  const answer=await within(20000,probe.send('Runtime.evaluate',{expression:'location.href+" "+document.readyState',returnByValue:true}).catch(e=>'ERR '+e.message));
+  if(answer==='TIMEOUT'||typeof answer==='string'){console.error(`renderer did not answer Runtime.evaluate: ${answer}`);
+   const paused=new Promise(r=>probe.once('Debugger.paused',r));await within(10000,probe.send('Debugger.enable').catch(()=>{}));await within(10000,probe.send('Debugger.pause').catch(()=>{}));
+   const event=await within(15000,paused);console.error(event==='TIMEOUT'?'Debugger.pause got no answer (renderer blocked outside JavaScript)':'renderer JavaScript stack:\n'+event.callFrames.map(f=>`  ${f.functionName||'(anonymous)'} ${f.url}:${f.location.lineNumber+1}:${f.location.columnNumber+1}`).join('\n'));
+   await sampleFlux();throw Error('packaged window renderer is unresponsive (see the stack and samples above)');}
+  else{console.error(`renderer answers: ${answer.result?.value}`);
+   // The Mac window then sat in readyState 'loading' with Network.enable hung until the app was killed
+   // (2026-10-04). Wait for the document; if it never finishes, record what it is waiting on and sample
+   // every Flux process while they are still alive.
+   let state='loading';for(let i=0;i<60&&state==='loading';i++){await new Promise(r=>setTimeout(r,500));const v=await within(5000,probe.send('Runtime.evaluate',{expression:'document.readyState',returnByValue:true}).catch(()=>null));state=v&&v!=='TIMEOUT'?v.result?.value:state;}
+   if(state==='loading'){const detail=await within(10000,probe.send('Runtime.evaluate',{returnByValue:true,expression:"JSON.stringify({scripts:[...document.querySelectorAll('script')].map(s=>(s.src||'inline')+(s.type?' '+s.type:'')+(s.async?' async':'')+(s.defer?' defer':'')),links:[...document.querySelectorAll('link')].map(l=>l.rel+' '+l.href),resources:performance.getEntriesByType('resource').map(e=>e.name+' end='+Math.round(e.responseEnd)),body:(document.body?.innerHTML||'').slice(0,300)})"}).catch(e=>'ERR '+e.message));
+    console.error('document still loading after 30 s:',typeof detail==='string'?detail:detail.result?.value);await sampleFlux();throw Error('packaged window never finished loading (see resources and samples above)');}
+   console.error(`document readyState: ${state}`);}
+  await probe.detach().catch(()=>{});}
+ // Bounded: if attaching to the window hangs, sample every Flux process while it is still alive.
+ const page=await Promise.race([target.page(),new Promise(r=>setTimeout(()=>r(null),45000))]);
+ if(!page){console.error('attaching to the app window did not finish in 45 s');await sampleFlux();throw Error('packaged window attach hung (see samples above)');}
+ assert.ok(page,'packaged application opens its window');
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ // Navigation/lifecycle of the app window (macOS capture step diagnosis, 2026-10-04).
+ for(const ev of ['framenavigated','load','domcontentloaded','framedetached'])page.on(ev,f=>console.error(`app page ${ev}${f?.url?': '+f.url().slice(0,120):''}`));
  await page.waitForFunction(()=>window.fig&&document.body.textContent.includes('Packaged scientific smoke'),{timeout:60000});
  // Recording is deliberately deferred beyond the project-open IPC. Observe
  // the eventual machine-local record without adding a wait to production open.
+ console.error('smoke step: registry');
  const registryFile=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux','projects.json');
  let openedProject;
  const registryDeadline=Date.now()+10000;
@@ -90,6 +139,7 @@ try{
   await new Promise(resolve=>setTimeout(resolve,50)); // poll deferred history publication
  }
  assert.ok(openedProject,'native project-open path records the project title and timestamp');
+ console.error('smoke step: runtime evidence');
  const runtimeEnvironment=await recordBrowserRuntime(page,{label:'installed-native-window',directory:evidence,appBuild:version});
  assert.ok(runtimeEnvironment.viewport.width>=940 && runtimeEnvironment.viewport.height>=620,'observe actual native minimum window without synthetic viewport override');
  const encoderPixels=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);return [...context.getImageData(16,12,1,1).data]},'data:image/png;base64,'+png.toString('base64'));
@@ -98,8 +148,13 @@ try{
  assert.ok(encoderPixels[0]>240&&encoderPixels[1]<15&&encoderPixels[2]<15&&encoderPixels[3]===255,`Encoder pixel mismatch ${encoderPixels}`);
  const videoPixels=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);return [...context.getImageData(640,360,1,1).data]},'data:image/png;base64,'+frame.toString('base64'));
  assert.ok(videoPixels[0]>240&&videoPixels[1]<15&&videoPixels[2]>240&&videoPixels[3]===255,`Packaged worker pixel mismatch ${videoPixels}`);
+ console.error('smoke step: native lease + io');
  const nativeResult=await page.evaluate(async root=>{
-  const lock=await window.fig.lockAcquire('project','project',root);if(!lock.ok)throw Error('packaged native lease refused');
+  // Like the app's own withIpcLock: a refusal held by this app ("human") is one of its own operations
+  // finishing (the project-open save); retry briefly. A lease stuck for 10 s still fails. The single
+  // unretried call raced that save on loaded runners (2026-10-04).
+  let lock;for(let attempt=0;attempt<40;attempt++){lock=await window.fig.lockAcquire('project','project',root);if(lock.ok||lock.heldBy!=='human')break;await new Promise(r=>setTimeout(r,250));}
+  if(!lock.ok)throw Error('packaged native lease refused: '+JSON.stringify(lock));
   const valid=await window.fig.lockCheck('project','project',lock.token);await window.fig.lockRelease('project','project',lock.token);
   const text=root+'/packaged-io.txt';await window.fig.writeText(text,'saved scientific bytes');if(await window.fig.readText(text)!=='saved scientific bytes')throw Error('saved bytes mismatch');
   const pdf=root+'/packaged-no-script.pdf';await window.fig.printPdf('<html><body><p>STATIC_SCIENTIFIC_OUTPUT</p><script>document.body.textContent="SCRIPT_EXECUTED"</script></body></html>',pdf,{baseDir:root});
@@ -112,29 +167,44 @@ try{
  try{const document=await loadingTask.promise;const text=(await (await document.getPage(1)).getTextContent()).items.map(i=>i.str??'').join(' ');assert.match(text,/STATIC_SCIENTIFIC_OUTPUT/);assert.ok(!text.includes('SCRIPT_EXECUTED'));}finally{await loadingTask.destroy();}
  // The current capture contract is a browser-downloaded file, not the retired
  // flux:// scheme. Exercise the shipped filename producer and native intake.
+ console.error('smoke step: capture intake');
  const {articleCaptureName}=await import('../electron/captureRules.js'),captureName=articleCaptureName('10.0000/packaged-qualification');
  await fs.writeFile(path.join(capture,'personal-decoy.pdf'),'untouched decoy');await fs.writeFile(path.join(capture,captureName),pdf);
+ console.error('capture: evaluate start');
  const captureResult=await page.evaluate(async()=>({extension:await window.fig.captureExtensionInfo(),intake:await window.fig.captureIntake(),fulltext:await window.fig.searchFulltext('packagedqualifier')}));
+ console.error('capture: evaluate done');
  assert.equal(captureResult.extension.hasDir,true);assert.ok(captureResult.extension.dir.startsWith(resources+path.sep));
  assert.ok(captureResult.intake.pdfs?.includes(captureName));assert.ok(!captureResult.fulltext?.error,JSON.stringify(captureResult.fulltext));
  assert.equal(await fs.readFile(path.join(capture,'personal-decoy.pdf'),'utf8'),'untouched decoy');
  assert.deepEqual(await fs.readFile(path.join(env.HOME,'FluxConfig/FluxLib/pdfs_to_assign',captureName)),pdf);
- await page.screenshot({path:path.join(evidence,'packaged-app.png')});assert.deepEqual(errors,[]);
+ console.error('capture: screenshot start');await page.screenshot({path:path.join(evidence,'packaged-app.png')});console.error('capture: screenshot done');assert.deepEqual(errors,[]);
  // Exercise the actual installed help as an OS file browser would, without
  // opening the owner's default browser or navigating a privileged app window.
- docsBrowser=await puppeteer.launch({executablePath:env.FLUX_CHROME||'/usr/bin/google-chrome',headless:true,userDataDir:path.join(scratch,'documentation browser'),env,args:['--no-sandbox','--disable-dev-shm-usage'],defaultViewport:{width:1440,height:960}});
+ // macOS runners: this launch timed out with setup-chrome's bundle-less Chrome (2026-10-04; release.yml
+ // now uses the preinstalled Chrome.app). A cold start is bounded at 120 s.
+ console.error('docs step: launch browser');const launchedAt=Date.now();
+ docsBrowser=await puppeteer.launch({executablePath:env.FLUX_CHROME||'/usr/bin/google-chrome',headless:true,userDataDir:path.join(scratch,'documentation browser'),env,args:['--no-sandbox','--disable-dev-shm-usage'],defaultViewport:{width:1440,height:960},timeout:120000});
+ console.error(`docs step: browser up in ${Date.now()-launchedAt} ms`);
  const help=await docsBrowser.newPage(),documentationErrors=[],documentationDialogs=[],blockedExternalResources=[];
+ const helpConsole=[];help.on('console',m=>helpConsole.push(`${m.type()}: ${m.text()}`.slice(0,300)));
+ // Never run on macOS before 2026-10-04: label each step, and on a miss print what the page shows.
+ const docStep=async(label,work)=>{console.error(`docs step: ${label}`);try{return await work();}catch(error){console.error(`docs step failed: ${label} at ${help.url()}; search box: ${!!await help.$('.aa-Input').catch(()=>null)}; results: ${(await help.$$('.aa-Item').catch(()=>[])).length}; console:\n  ${helpConsole.slice(-20).join('\n  ')}`);throw error;}};
  help.on('pageerror',error=>documentationErrors.push(String(error)));help.on('dialog',async dialog=>{documentationDialogs.push(dialog.message());await dialog.dismiss()});
  await help.setRequestInterception(true);help.on('request',request=>{if(/^https?:/.test(request.url())){blockedExternalResources.push(request.url());void request.abort()}else void request.continue()});
- await help.goto(pathToFileURL(path.join(docs,'index.html')).href,{waitUntil:'load'});await help.waitForSelector('.aa-Input');
+ await docStep('open home',()=>help.goto(pathToFileURL(path.join(docs,'index.html')).href,{waitUntil:'load'}));await docStep('search box',()=>help.waitForSelector('.aa-Input'));
  await help.screenshot({path:path.join(evidence,'packaged-docs-home.png'),fullPage:true});
- await Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('a[href="./modes/figure.html"]')]);
+ await docStep('open Figure page',()=>Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('a[href="./modes/figure.html"]')]));
  assert.match(await help.$eval('h1',el=>el.textContent),/Figure/);
- await Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('.sidebar-title a')]);assert.match(help.url(),/\/index\.html$/);
- await help.type('.aa-Input','semantic');await help.waitForSelector('.aa-Item');
+ await docStep('back to home',()=>Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('.sidebar-title a')]));assert.match(help.url(),/\/index\.html$/);
+ await docStep('search results',async()=>{await help.type('.aa-Input','semantic');await help.waitForSelector('.aa-Item');});
  const documentationResults=await help.$$eval('.aa-Item',items=>items.map(el=>({text:el.textContent,href:el.querySelector('a')?.href})));
  assert.ok(documentationResults.some(item=>/semantic/i.test(item.text)));assert.deepEqual(documentationErrors,[]);assert.deepEqual(documentationDialogs,[]);
  await help.screenshot({path:path.join(evidence,'packaged-docs-search.png'),fullPage:true});await docsBrowser.close();docsBrowser=null;
  await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
+}catch(error){
+ if(nativeApp)console.error('--- packaged app stderr (tail) ---\n'+String(nativeApp.stderr??'').split('\n').filter(l=>!/dbus|object_proxy/.test(l)).slice(-40).join('\n'));
+ try{const locks=path.join(cwd,'scientific project','.meta','locks');for(const f of await fs.readdir(locks))console.error(`lock ${f}: ${(await fs.readFile(path.join(locks,f),'utf8').catch(()=>'(dir)')).slice(0,300)}`);}catch(e){console.error(`no project locks: ${e.code||e.message}`)}
+ await sampleFlux();
+ throw error;
 }finally{await docsBrowser?.close();browser?.disconnect();await scope.dispose();await fs.rm(scratch,{recursive:true,force:true});await fs.rm(env.TMPDIR,{recursive:true,force:true});}

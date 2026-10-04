@@ -383,7 +383,10 @@
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
       "verify-become-picker.ts",
-      "verify-manifest-contracts.ts"
+      "verify-manifest-contracts.ts",
+      "verify-install-script.ts",
+      "verify-managed-tools.ts",
+      "verify-packaged-requires.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -540,7 +543,8 @@
       "verify-model3d-embed-gui.mjs",
       "verify-slide-model3d-morph-gui.mjs",
       "verify-slide-model3d-parts-gui.mjs",
-      "verify-become-picker-gui.mjs"
+      "verify-become-picker-gui.mjs",
+      "verify-setup-flux-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -2064,7 +2068,15 @@
       "glob": "{electron-builder.yml,flux-core/render.ts}",
       "run": [
         "tier:pure",
-        "verify-w13-cli.mjs"
+        "verify-w13-cli.mjs",
+        "verify-packaged-requires.ts"
+      ]
+    },
+    {
+      "glob": "{install.sh,scripts/lib/releasePolicy.mjs}",
+      "run": [
+        "verify-install-script.ts",
+        "verify-release-policy.mjs"
       ]
     },
     {
@@ -3093,6 +3105,17 @@
       ]
     },
     {
+      "glob": "electron/{managedTools.cjs,ipc/setup.cjs,updateCheck.cjs}",
+      "run": [
+        "verify-managed-tools.ts",
+        "verify-update-check.ts",
+        "verify-ipc-contract.ts",
+        "verify-setup-flux-gui.mjs",
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "electron/**",
       "run": [
         "tier:presence",
@@ -3208,6 +3231,13 @@
       ]
     },
     {
+      "glob": "src/shell/setup/**",
+      "run": [
+        "verify-setup-flux-gui.mjs",
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
       "glob": "{README.md,docs/**/*.qmd,docs/for_agents/**,resources/{flux-context,agent-skills}/**,src/**/*.svelte,src/shell/command/*.ts}",
       "run": [
         "verify-no-retired-agent-layer.ts"
@@ -3289,7 +3319,9 @@
     "verify-scale-slide-dense.mjs": 180000,
     "verify-slide-video-electron.cjs": 480000,
     "verify-slide-media-export.ts": 300000,
-    "verify-slide-video-clips-electron.cjs": 180000
+    "verify-slide-video-clips-electron.cjs": 180000,
+    "verify-slide-become.ts": 300000,
+    "verify-slide-resolve.ts": 300000
   },
   "execution": {
     "figenh-01-parity.ts": {
@@ -6444,7 +6476,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 300000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -8963,7 +8995,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 300000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -9772,6 +9804,44 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-install-script.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-managed-tools.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-setup-flux-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-packaged-requires.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
       "exclusive": false,
       "coverage": "behavior"
     }

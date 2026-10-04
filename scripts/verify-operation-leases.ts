@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { withLockAt } from '../flux-core/locks';
 const require = createRequire(import.meta.url);
@@ -55,5 +56,50 @@ try {
   await native.release(sender(1), { name: 'project', token: child.token });
   const cli = await leases.acquire(path.join(root, '.meta/locks'), 'project', 'cli'); assert.ok(cli.ok); await leases.release(cli.lease);
   await native.releaseAll();
+
+  // A heartbeat renew that THROWS is transient: the lease file is still this owner's and a live owner
+  // is never stale. Both heartbeats used to treat it as lost: the GUI window then refused its own
+  // operations ("heldBy: human", v0.2.0 packaged smoke on CI, 2026-10-04) and the engine failed work it
+  // had completed. Only a renew that finds another owner's token is a real loss. The failure here is
+  // genuine, not patched in: a live contender's ticket-0 register makes renew wait out its 5 s
+  // arbitration deadline and throw, exactly as a loaded machine does.
+  const blockArbitration = async (dir: string, name: string) => {
+    const queue = path.join(await fs.realpath(dir), `.${name}.arbitration`), token = randomUUID();
+    await fs.mkdir(queue, { recursive: true });
+    const file = path.join(queue, `${token}.choosing.json`);
+    await fs.writeFile(file, JSON.stringify({ token, pid: process.pid, host: os.hostname(), ticket: 0, ts: new Date().toISOString() }));
+    return () => fs.rm(file, { force: true });
+  };
+  const ARBITRATION_DEADLINE = 5000;
+  {
+    const beating = createGuiLeases({ rootFor: () => root, fluxLibDir: () => path.join(root, 'library'), heartbeatMs: 20 });
+    try {
+      assert.equal(await beating.set(sender(7), { name: 'project', held: true }), true);
+      const lockDir = path.join(root, '.meta/locks');
+      const unblock = await blockArbitration(lockDir, 'project');
+      await new Promise(r => setTimeout(r, ARBITRATION_DEADLINE + 600)); // one renew times out and throws
+      await unblock();
+      const afterHiccup = await beating.acquire(sender(7), { name: 'project', expectedRoot: root });
+      assert.ok(afterHiccup.ok, `a transient renew failure must not cost the window its own activity (${JSON.stringify(afterHiccup)})`);
+      await beating.release(sender(7), { name: 'project', token: afterHiccup.token });
+      // A real loss still counts: another owner's token in the lease file is never adopted.
+      const file = path.join(lockDir, 'project.json');
+      const record = JSON.parse(await fs.readFile(file, 'utf8'));
+      await fs.writeFile(file, JSON.stringify({ ...record, token: 'someone-else', client: 'agent' }));
+      await new Promise(r => setTimeout(r, 120)); // beats see the foreign token
+      const stolen = await beating.acquire(sender(7), { name: 'project', expectedRoot: root });
+      assert.equal(stolen.ok, false, 'a lease another owner holds is not adopted by the heartbeat');
+      await fs.rm(file);
+    } finally { await beating.releaseAll(); }
+  }
+  {
+    const result = await withLockAt(root, 'transient', 'mcp', async () => {
+      const unblock = await blockArbitration(root, 'transient');
+      await new Promise(r => setTimeout(r, ARBITRATION_DEADLINE + 600));
+      await unblock();
+      return 'completed';
+    }, { heartbeatMs: 20 });
+    assert.equal(result, 'completed', 'a transient renew failure does not fail completed, still-owned work');
+  }
   console.log('Operation leases: same-process exclusion, explicit nesting, exception cleanup, token ABA, live TTL and native sender/child ownership PASS');
 } finally { await fs.rm(root, { recursive: true, force: true }); }

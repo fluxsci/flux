@@ -2772,6 +2772,40 @@ days (probe geometry like `width` instead).
   `msttcorefonts/accepted-mscorefonts-eula`; the widely copied `accept-…` key preseeds nothing,
   and the package then skips the download with only "user did not accept" in the log.
   `verify-glyph-outlines` hardcodes the Debian paths, so it is still red on macOS/Windows.
+- **electron-builder `files` patterns apply in order; later ones win** (2026-10-04). An include
+  placed above `"!**/node_modules/**/*"` is silently undone: `node_modules/js-yaml/**/*` sat
+  there from 09-27, so every packaged Flux died at launch ("Cannot find module 'js-yaml'"). On
+  macOS the main thread then waits in Electron's error dialog (`NSAlert runModal`) and prints
+  nothing. `verify-packaged-requires` (pure) now checks every package the main process requires
+  is included after the exclusion. To check a packaged launch on Linux without a window on the
+  desktop, build `--linux dir`, then run its binary with `--ozone-platform=headless`, a scratch
+  HOME (`isolatedEnv`) and `--remote-debugging-port`, and poll `/json/list` for the `file:` page.
+- **Release runners:** `xvfb-run`'s default screen is 640×480×8, on which Chromium's GPU process
+  fails; give it `-s "-screen 0 1920x1080x24"` (plus Mesa's `libgl1-mesa-dri libegl1
+  mesa-vulkan-drivers`). A bare `--mac --arm64` builds every arch the config lists; name the
+  target (`--mac zip --arm64`). The Electron debugging endpoint answers before the window
+  exists, so wait for the page target rather than reading `pages()` once.
+- **`setup-chrome` on macOS unpacks Chrome without its `.app` bundle** (2026-10-04). Its helpers
+  then cannot reach the browser (`MachPortRendezvousServer … Unknown service name`), the network
+  service restarts forever and every page hangs at `Network.enable`. Mac jobs use the runner's
+  preinstalled `/Applications/Google Chrome.app`.
+- **An Electron worker must own its exit** (2026-10-04). Electron quits when the last window
+  closes, so an offscreen capture window going away ended the slide-video/poster worker with code
+  0 and no result: the packaged export failed 18/20 under load with a bare "exit 1". Workers
+  register a no-op `window-all-closed` and flush their final stdout line before `app.exit`
+  (piped stdout is cut at 64 KB on an immediate exit, measured).
+- **A lease heartbeat that throws is transient** (2026-10-04). Only a renew that finds another
+  owner's token is a loss (`guiLeases`, `flux-core/locks.ts`, `recipeJob.cjs`); marking a
+  thrown renew (5 s arbitration timeout under load) lost made the window refuse its own
+  operations ("heldBy: human") until released. Callers of `lockAcquire` must retry a
+  `human`-held refusal like `withIpcLock` does: the app's own post-open save holds it briefly.
+- **Reproducing CI-only flakes locally** (2026-10-04): unpack Ubuntu's `xvfb` without sudo
+  (`apt download xvfb && dpkg -x … ~/.local/share/flux-xvfb/root`), run `Xvfb :87 -screen 0
+  1920x1080x24 -nolisten tcp`, then the smoke with `env -u WAYLAND_DISPLAY DISPLAY=:87
+  FLUX_ELECTRON_NO_SANDBOX=1` against an `electron-builder --linux dir` build. Add `taskset -c
+  0,1` plus two busy loops to reach CI's starvation; that reproduced the lease and video failures
+  that clean runs on this 128-core box never showed. Never `pkill -f` a pattern from the same
+  shell command (it matches, and kills, that shell).
 - **Pure-tier timing budgets are relative to an in-process control** (2026-10-03). The
   shared 4-vCPU runner at `--jobs 4` measured 107 ms for a 25 ms plan and 8 ms p95 for
   0.9 ms. `verify-correspondence` bounds a cache-miss plan at 8 × its unavoidable
@@ -3738,12 +3772,22 @@ outside this PNG packaging change.
   `scripts/oneoff/migrate-2026-09-flux-connect.mjs` is a historical migration record,
   not app startup code; it may be removed once every intended machine has run it.
 
-- **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
-  notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`
-  (local, ignored). It targets bundled tools, explicit Mac first-launch approval, and an
-  early Sparkle/Flux-owned-signature update prototype. That route is not yet qualified;
-  do not claim seamless Mac updates from installer-build success or restore Apple
-  membership as a release prerequisite. Extend the accepted fortification release gates.
+- **Distribution policy (owner decisions, 2026-09-21 and 2026-10-03).** No Apple Developer ID.
+  The ONE supported install and update path is `curl -fsSL https://fluxsci.github.io/install.sh
+  | bash` (`install.sh` at the repo root; the website serves a bootstrap that runs the copy
+  attached to the latest release). It verifies `SHA256SUMS`, installs `Flux-mac-<arch>.zip`
+  into `/Applications` (curl downloads carry no quarantine flag, so no Gatekeeper detour;
+  ad-hoc signing is still required on Apple Silicon) or `Flux-linux-amd64.deb` with apt, and
+  puts `~/.local/bin` on PATH with one marked line. Updates re-run the same script (macOS
+  **Update now**; Linux shows the line). No DMG, AppImage, electron-updater, Sparkle, bundled
+  Python or bundled Quarto: fluxplot lives in the user's analysis environment, and Quarto and
+  TinyTeX are one-button, no-admin installs in the first-launch setup window. `release.yml`
+  (tag `vX.Y.Z` = package.json) waits for a green `ci.yml` on the commit, builds the three
+  targets, runs `verify-packaged-app.mjs` on each and creates a DRAFT release; publishing it by
+  hand ships it. `scripts/release-check.mjs` stays as a local deep-qualification tool. The
+  09-21 plan in `notes/packaging_distribution_integration-plan.md` is superseded where it
+  differs. A self-signed certificate (stable identity, so macOS privacy grants survive updates)
+  is the open follow-up.
 
 - **Physical-display flicker remains a separate validation surface.** The
   original September 16 report attributed remaining flicker to Wayland/NVIDIA,
@@ -9672,3 +9716,59 @@ fix reverted fails with `'2'` vs `'0'`). Local: pure 382/382, ui reds above gree
 **Work:** Merged 132 upstream commits through `6b34ba32`, retaining the Mac fixes and both session logs; refreshed locked dependencies, Electron, native runtimes, and production assets. Build, renderer check (0 errors/warnings), and headless check pass. Fixed four Mac keyboard harness failures and the slide-chip test's disk-read race without changing assertions or budgets; promoted the keyboard lesson to §9. Final Paper/startup cohort: 71/73 (`test-results/runs/2026-10-03T23-11-52-933Z-7354`), followed by the repaired slide-chip gate passing (`2026-10-03T23-18-40-436Z-9392`). Remaining: eager Home JS 872.5 KB exceeds 800 KB; morph preview failed once at 185.5 ms but passed the final cohort, so retain both receipts. Final cold typing was 4.6–8.5 ms. No experimental product-loading changes retained; npm reports 13 advisories (2 moderate, 11 high) in the upstream lock, with no version changes during sync.
 **Learnings:**
 - Await the repository's shared read promise before asserting asynchronous catalog labels; two timer ticks do not establish filesystem completion.
+
+### 2026-10-03 (night) — "Set up Flux…": managed Quarto, TinyTeX, the first-launch window, Update now (Claude Opus 5.5, onboarding worktree)
+
+**Work:** Flux is installed only by the curl line (owner, 2026-10-03), so the app now gets its optional
+companions itself, with no terminal and no admin rights. `electron/managedTools.cjs` (shared by main and
+flux-core) is the ONE quarto resolver for every spawn site: `quarto:available`/`quarto:render`,
+`flux compile` (manuscript.ts) and flux-connect's machine facts. The order is `FLUX_QUARTO`, then PATH,
+then the common install folders, then the Flux-managed copy at `<FluxConfig>/tools/quarto/<version>`.
+It also holds the no-admin installer (pinned Quarto 1.7.32 tarballs, sha256 from Quarto's own
+checksums file, tar into a scratch dir, published with one rename; cancel or failure leaves nothing),
+TeX detection, `quarto install tinytex --no-prompt`, and the shell-profile PATH line shared verbatim
+with install.sh. `electron/ipc/setup.cjs` is the IPC family. `src/shell/setup/` holds the window
+(terminal · Quarto · TinyTeX · fluxplot · agents rows). It opens by itself on a packaged app's first
+launch (`prefs.onboardingCompleted`; `FLUX_SHOW_ONBOARDING=1` previews it from source). It reopens from
+Settings → General → Setup and the palette's "Set up Flux…". Word export's dead end now offers
+"Install Quarto…" and unblocks live. The update toast is "Update now" on macOS: `update:install` runs
+`updateCheck.updateSpawn` (install script `--update --wait-pid <pid> --relaunch`, logged to
+`<FluxConfig>/logs/update.log`) and quits. Linux gets "Copy update command".
+Gates: `verify-managed-tools.ts` (pure, 54) and `verify-setup-flux-gui.mjs` (ui, 22). The real Linux
+tarball installs through the same installer in ~2 s and `--version` reads 1.7.32.
+**Learnings:**
+- A packaged macOS app launched from Finder has launchd's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`).
+  Every bare-name spawn (`resolveSpawn("quarto")`) silently missed a Homebrew or `.pkg` Quarto. Resolve
+  external tools through PATH plus the common install folders (managedTools.commonToolDirs).
+- Quarto's tarballs differ by platform: macOS is flat (`./bin/quarto`, Apple-signed, xattrs in the
+  tar), Linux nests `quarto-<v>/`. Normalize after extraction, never by stripping components blindly.
+- GUI PDF export is Flux's in-app renderer. Only Word export and Quarto PDF builds (`flux compile`,
+  agents) need Quarto, and only the latter need TeX. The window says so instead of pushing TinyTeX on
+  everyone.
+- The browser fixture has no `onAppError`, so anything hung off Shell's `attach()` never runs there.
+  Give a startup check its own bridge retry if a gate must see it.
+
+### 2026-10-04 (overnight) — v0.2.0 release dry runs: two packaging crashes, three real bugs, four test traps (Claude Opus 5.5, `main`)
+
+**Work:** The new tag → CI-green → build → `verify-packaged-app` → draft pipeline was run repeatedly
+as `workflow_dispatch` dry runs (they skip the CI wait; tags still require it) until all three
+targets passed. **Product bugs:** every packaged build since 09-27 crashed at launch
+(`js-yaml` included above the `node_modules` exclusion) and had no file watching (`chokidar`, an
+`import()`, never shipped); `verify-packaged-requires` now checks requires, imports and their
+dependencies against the allowlist order. Lease heartbeats treated a thrown renew as lost (window
+refused its own operations; engine failed completed work; recipes aborted). Background workers
+were quit by Electron when their offscreen window closed and could exit before flushing their
+result. **Test/runner traps:** the smoke raced the app's own post-open save on the project lease;
+ffmpeg prompted to overwrite; `xvfb-run`'s 8-bit screen and missing Mesa broke Chromium's GPU
+process; puppeteer auto-attached to hidden helper windows (now pinned to the app window, every
+target logged); `setup-chrome`'s bundle-less Chrome on macOS. All diagnosed from evidence: local
+Xvfb + `taskset` reproduction, the app's own refusal log, `sample` of hung macOS processes, target
+and lifecycle logs, Chrome `dumpio`.
+**Learnings:**
+- A packaged app is a different program from the checkout. Launch the PACKAGED build headless
+  (`--ozone-platform=headless`, scratch HOME, `/json/list`) before trusting any release.
+- When a CI-only failure will not reproduce, add load (`taskset`), not retries; then make the
+  failure explain itself (who holds the lease, which step, which target, what the process is
+  doing) before changing code.
+- Test the theory before the fix: the lease bug has a deterministic gate (genuine arbitration
+  timeout via a live ticket-0 register), mutation-checked both ways.

@@ -1,7 +1,7 @@
 // Sender-bound adapter over the SAME filesystem lease engine used by flux-core.
 const path = require('node:path');
 const leases = require('./operationLease.cjs');
-function createGuiLeases({ rootFor, fluxLibDir }) {
+function createGuiLeases({ rootFor, fluxLibDir, heartbeatMs = 10000 }) {
   const activities = new Map(), operations = new Map();
   function directory(scope, root) {
     if (scope === 'fluxlib') return path.join(fluxLibDir(), '.fluxlib', 'locks');
@@ -17,9 +17,16 @@ function createGuiLeases({ rootFor, fluxLibDir }) {
     entry.beats = Promise.resolve();
     entry.timer = setInterval(() => {
       entry.beats = entry.beats.then(async () => {
-        if (!entry.stopped && !await leases.renew(entry.lease)) entry.lost = true;
-      }).catch(() => { entry.lost = true; });
-    }, 10000);
+        if (entry.stopped) return;
+        // false = another owner's token is in the lease file: a real loss. A renew that THROWS
+        // (arbitration timeout on a loaded machine, an I/O hiccup) is transient: the file is still
+        // ours and a live owner is never stale, so the next beat simply tries again. Treating it
+        // as lost made the window refuse its own operations, "heldBy: human" (2026-10-04).
+        const was = entry.lost;
+        entry.lost = !await leases.renew(entry.lease);
+        if (entry.lost && !was) console.error(`[flux] lease ${entry.name}: another owner holds it now`);
+      }).catch(error => { console.error(`[flux] lease ${entry.name}: heartbeat renew deferred (${error?.message || error})`); });
+    }, heartbeatMs);
     entry.timer.unref?.();
   }
   async function dispose(entry) {
@@ -63,7 +70,12 @@ function createGuiLeases({ rootFor, fluxLibDir }) {
       // Explicitly derive a short operation from this sender's activity lease.
       // A distinct child resource serializes operations even within that sender.
       const result = await leases.acquire(context.dir, parent ? `${name}.operation` : name, 'human');
-      if (!result.ok) return { ok: false, heldBy: result.heldBy };
+      if (!result.ok) {
+        // Rare, and when it is this process's own lease the cause is local: say which activity was
+        // (or was not) found for this request, so a refusal explains itself in the app's log.
+        if (result.info?.pid === process.pid) console.error(`[flux] lease ${name} refused for window ${context.sender}: held by this process; request key ${context.key}; activity here: ${candidate ? (candidate.retiring ? 'retiring' : candidate.lost ? 'lost' : 'live') : 'none'}; activities: ${JSON.stringify([...activities.values()].map(a => ({ key: a.key, retiring: !!a.retiring, lost: !!a.lost, children: a.children })))}`);
+        return { ok: false, heldBy: result.heldBy };
+      }
       if (parent) parent.children++;
       const entry = { ...context, lease: result.lease, parent };
       operations.set(result.lease.token, entry); heartbeat(entry);

@@ -15,7 +15,10 @@
   import { aiOpen, startAIMonitor } from "./agent/aiMonitorState";
   import { contextCommands } from "./command/globalCommands";
   import CommandPalette from "./command/CommandPalette.svelte";
+  import { setupOpen, maybeOpenSetupOnFirstRun } from "./setup/setupState";
   let homePalette = $state(false);
+  let Setup: typeof import("./setup/SetupFlux.svelte").default | null = $state(null);
+  $effect(() => { if ($setupOpen && !Setup) void import("./setup/SetupFlux.svelte").then(m => Setup = m.default); });
   let AI: typeof import("./agent/AIPanel.svelte").default | null = $state(null);
   const loadAI = () => import("./agent/AIPanel.svelte").then(m => AI = m.default);
   $effect(() => { if ($aiOpen && !AI) void loadAI(); });
@@ -62,10 +65,27 @@
       if (!get(settings).updateCheck) return; // user opted out in Settings
       const u = await fileBridge()?.checkForUpdate?.();
       if (!u) return; // dev / non-packaged / throttled / already current
-      pushToast("info", `Flux ${u.version} is available`, {
-        ttl: 0, // sticky: the daily throttle + newer-only guard mean it won't nag
-        action: { label: "Download", run: () => void fileBridge()?.openExternal?.(u.url) },
-      });
+      // macOS updates in place (the install script replaces the app and reopens it); on Linux
+      // apt asks for a password, so the toast hands over the one line to paste in a terminal.
+      if (u.canInstall) {
+        pushToast("info", `Flux ${u.version} is available`, {
+          ttl: 0, // sticky: the daily throttle + newer-only guard mean it won't nag
+          detail: "Flux closes, updates and reopens.",
+          action: { label: "Update now", run: () => void fileBridge()?.updateInstall?.() },
+        });
+      } else if (u.installLine) {
+        const line = u.installLine;
+        pushToast("info", `Flux ${u.version} is available`, {
+          ttl: 0,
+          detail: `Update in a terminal: ${line}`,
+          action: { label: "Copy update command", run: () => void navigator.clipboard?.writeText(line).catch(() => {}) },
+        });
+      } else {
+        pushToast("info", `Flux ${u.version} is available`, {
+          ttl: 0,
+          action: { label: "Download", run: () => void fileBridge()?.openExternal?.(u.url) },
+        });
+      }
     } catch {
       /* update check is best-effort; swallow everything */
     }
@@ -124,6 +144,14 @@
       }
     }
     attach();
+    // "Set up Flux…" opens by itself on the installed app's first launch only (main decides;
+    // the browser fixture never does unless a gate asks). Same late-bridge retry as attach().
+    let setupTries = 0;
+    const firstRun = () => {
+      if (fileBridge()?.setupStatus) void maybeOpenSetupOnFirstRun();
+      else if (setupTries++ < 40) setTimeout(firstRun, 100);
+    };
+    firstRun();
     // Multi-window: Ctrl/Cmd+Shift+N opens a fresh window at Home. Shell-level
     // so it works in every mode and on Home; macOS also has the File-menu item.
     const onNewWindowKey = (e: KeyboardEvent) => {
@@ -173,6 +201,7 @@
   {#if Inbox && $inboxOpen}<Inbox />{/if}
   {#if Annotation}<Annotation />{/if}
   {#if $aiOpen && AI}<AI />{/if}
+  {#if Setup && $setupOpen}<Setup />{/if}
   {#if homePalette && $view === "home"}<CommandPalette commands={contextCommands({ inPaper: false })} onClose={() => homePalette = false} />{/if}
   {#if Ask && $askOpen && $askRequest}{#key $askRequest.generation}<Ask request={$askRequest} />{/key}{/if}
 

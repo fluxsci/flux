@@ -11,13 +11,63 @@
 // never ships in a production build.
 
 import { scaffoldProject } from "./scaffold";
-import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
+import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart, type SetupProgress, type SetupStatus, type SetupTaskResult } from "./types";
 import type { Model3dImportRequest, Model3dImportResult, Model3dImportOwnership } from '../model3d/importData';
 import { GLB_LIMITS } from '../model3d/glbCore.mjs';
 
 const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 const enc = new TextEncoder();
 const dec = new TextDecoder();
+
+/** The browser fixture's "Set up Flux…" machine: nothing installed, not a first run unless a
+ *  gate says so. Installs complete in a few progress steps unless `hold` keeps them running
+ *  (so a gate can observe progress and Cancel); `fail` makes the next install fail. */
+const setupFixture = (() => {
+  const state = {
+    platform: "darwin",
+    // A gate previews the first-launch window by setting this key before the page loads.
+    firstRun: typeof localStorage !== "undefined" && localStorage.getItem("flux.fixture.setupFirstRun") === "1",
+    launcher: { installed: false, onPath: false, launcher: "/home/demo/.local/bin/flux", profile: "/home/demo/.zshrc" },
+    quarto: { installed: false, origin: null, command: null, version: "" } as SetupStatus["quarto"],
+    quartoManageable: true,
+    quartoPinned: "1.7.32",
+    tex: { installed: false, kind: null, path: null } as SetupStatus["tex"],
+    agents: { claude: false, codex: false },
+    hold: false,
+    fail: "",
+  };
+  const listeners = new Set<(p: SetupProgress) => void>();
+  const pending = new Map<string, (r: SetupTaskResult) => void>();
+  const emit = (p: SetupProgress) => listeners.forEach((cb) => cb(p));
+  const fixture = {
+    state, listeners,
+    status: (): SetupStatus => ({ ...structuredClone({ ...state, hold: undefined, fail: undefined }), busy: [...pending.keys()] } as SetupStatus),
+    run(task: "quarto" | "tinytex"): Promise<SetupTaskResult> {
+      return new Promise((resolve) => {
+        pending.set(task, resolve);
+        const finish = (r: SetupTaskResult) => { if (pending.get(task) === resolve) { pending.delete(task); resolve(r); } };
+        if (task === "quarto") emit({ task, phase: "download", done: 50, total: 100 });
+        else emit({ task, phase: "log", line: "Installing TinyTeX…" });
+        if (state.hold) return;
+        setTimeout(() => {
+          if (state.fail) { const error = state.fail; state.fail = ""; finish({ ok: false, error }); return; }
+          if (task === "quarto") { state.quarto = { installed: true, origin: "managed", command: "/home/demo/FluxConfig/tools/quarto/1.7.32/bin/quarto", version: "1.7.32" }; emit({ task, phase: "done", done: 100, total: 100 }); }
+          else state.tex = { installed: true, kind: "tinytex", path: "/home/demo/Library/TinyTeX/bin/universal-darwin/lualatex" };
+          finish({ ok: true });
+        }, 120);
+      });
+    },
+    cancel(task: string) {
+      const resolve = pending.get(task);
+      if (!resolve) return false;
+      pending.delete(task);
+      resolve({ ok: false, cancelled: true, error: "Cancelled" });
+      return true;
+    },
+  };
+  if (typeof window !== "undefined") (window as unknown as { __fluxSetupFixture?: typeof fixture }).__fluxSetupFixture = fixture;
+  return fixture;
+})();
 
 function norm(p: string): string {
   return p.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/(.)\/+$/, "$1");
@@ -507,6 +557,31 @@ export function createMemBridge(): FileBridge & {
     },
     async checkForUpdate() {
       return null; // never self-checks in the dev fixture (packaged-only feature)
+    },
+    async updateInstall() {
+      return { ok: false, error: "Updating is available in the installed app." };
+    },
+    // "Set up Flux…": a controllable fake machine (window.__fluxSetupFixture) so the ui gate
+    // can drive every row's detection state and action without touching the real one.
+    async setupStatus() {
+      return setupFixture.status();
+    },
+    async setupAddToTerminal() {
+      setupFixture.state.launcher = { ...setupFixture.state.launcher, installed: true, onPath: true };
+      return { ...setupFixture.state.launcher, profileChanged: true };
+    },
+    async setupInstallQuarto() {
+      return setupFixture.run("quarto");
+    },
+    async setupInstallTinytex() {
+      return setupFixture.run("tinytex");
+    },
+    async setupCancel(task: "quarto" | "tinytex") {
+      return setupFixture.cancel(task);
+    },
+    onSetupProgress(cb: (p: SetupProgress) => void) {
+      setupFixture.listeners.add(cb);
+      return () => setupFixture.listeners.delete(cb);
     },
     async quartoAvailable() {
       return { installed: false };

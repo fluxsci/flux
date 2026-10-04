@@ -1,88 +1,100 @@
 ---
 title: "Installing Flux"
-subtitle: "The app, and the small set of external tools that make it fully capable"
+subtitle: "One line in a terminal, then a short setup window"
 ---
 
-::: {.callout-tip}
-## Setting up a Mac with an AI agent?
+# Install
 
-[`docs/for_agents/claude-install-flux-mac.md`](https://github.com/fluxsci/flux/blob/main/docs/for_agents/claude-install-flux-mac.md)
-is the executable version of this page — a step-by-step runbook that verifies after every
-step. Clone the repo, open a Claude Code session in it, and say *"read
-docs/for_agents/claude-install-flux-mac.md and set up Flux on this Mac."*
-:::
-
-Flux itself is one app, but its full capability rests on a small set of external tools:
-Node for a source checkout, Quarto (+ TeX) for compiling manuscripts, a Python
-environment with **fluxplot** for semantic plots, and the house fonts for faithful
-rendering. This page is the complete checklist for a fresh machine.
-
-# Installing Flux itself
-
-## From a packaged release
-
-Grab the artifact for your platform from the GitHub Releases page (`.dmg` for macOS,
-`.AppImage`/`.deb` for Linux x64) and install normally. The release matrix qualifies macOS
-Apple Silicon and Intel on their respective native runners. Windows code portability checks
-do not imply that a Windows installer is published.
-
-**macOS note:** unsigned builds are ad-hoc signed so they run, but a *downloaded* app is
-Gatekeeper-quarantined — the first launch needs right-click → Open (or
-`xattr -dr com.apple.quarantine /Applications/Flux.app`). A locally-built app (below) has
-no such friction.
-
-## From source
+Paste this into a terminal:
 
 ```bash
-git clone https://github.com/fluxsci/flux ~/flux
-cd ~/flux
-npm ci                     # needs Node ≥ 22.15 (see below)
-npm run dist:mac           # or dist:linux → installers in release/
+curl -fsSL https://fluxsci.github.io/install.sh | bash
 ```
 
-`~/flux` is only a convention — clone anywhere you like; Flux resolves its own location at
-runtime. What *does* matter is that the checkout stays put afterwards: first run bakes its
-location into the stable agent launcher and the stock context docs. Run setup again
-after moving the installation. (Contrast
-[fluxplot](#uv-python-fluxplot-the-keystone) below, where the path is a genuine requirement.)
+It works on **macOS** (Apple Silicon and Intel) and **Debian/Ubuntu Linux** (x86-64), and it:
 
-For development instead of packaging: `npm run electron:dev` (Vite dev server + Electron,
-hot reload). A source checkout is also currently required for
-[**Lighttable**](lighttable.qmd), the image-set triage companion — it isn't bundled into
-packaged builds.
+1. downloads the latest Flux release from GitHub and checks it against the release's
+   published SHA-256 checksums (nothing is installed if they differ);
+2. installs it: on macOS, `Flux.app` goes into `/Applications` (or `~/Applications` if
+   `/Applications` isn't writable); on Linux, the `.deb` is installed with `apt`, which asks
+   for your password;
+3. adds `~/.local/bin` to your `PATH` with one marked line in `~/.zshrc` (or `~/.bashrc`), so
+   the `flux` command works in new terminals;
+4. opens Flux.
 
-# The critical companions
+This is the one supported way to install Flux. A terminal line instead of a download button
+is deliberate: Flux is not signed with an Apple Developer ID, and macOS flags apps downloaded
+by a browser as from an "unidentified developer". Files fetched by `curl` carry no such flag,
+so Flux simply opens. You can [read the script](https://github.com/fluxsci/flux/blob/main/install.sh)
+before running it.
 
-## Node.js ≥ 22.15
+To install a specific release: `curl -fsSL https://fluxsci.github.io/install.sh | bash -s -- --version v0.2.0`.
 
-A source checkout needs Node 22.15 or newer. The stable launcher pins the runtime
-for that installation; packaged Flux uses its bundled Electron runtime for the CLI
-and MCP server. For source work, install Node through your platform's usual channel
-(nvm, Homebrew, apt) and check:
+## Updating
+
+Flux checks for a new release at most once a day (Settings can turn this off). On macOS,
+**Update now** runs the same installer: it waits for Flux to quit, replaces the app and opens
+it again. On Linux, Flux shows the install line to paste into a terminal, because `apt` needs
+your password. Running the install line again at any time also updates Flux.
+
+## Uninstalling
+
+Delete `/Applications/Flux.app` (macOS) or run `sudo apt remove flux` (Linux). Your projects
+are never touched. Flux's machine-level files live in `~/FluxConfig` (your context, FluxLib
+and global plot library: keep these if you might come back) and `~/.local/share/flux`; the
+installer's PATH line is the one under `# Added by Flux` in your shell startup file.
+
+# First launch: the setup window
+
+The first time Flux opens, a short **Set up Flux** window lists the optional extras. Each
+row checks what is already on the machine and offers one button for what's missing; nothing
+needs admin rights or a terminal. Reopen it any time from **Settings → General → Setup** or
+the command palette (**Ctrl+K → Set up Flux…**).
+
+| Row | What it gives you | What the button does |
+|---|---|---|
+| **`flux` in the terminal** | the `flux` command for you and your AI agents | installs the launcher and puts `~/.local/bin` on your PATH (the installer usually did this already) |
+| **Word export · Quarto** | Word export and `flux compile` | installs [Quarto](https://quarto.org) into `~/FluxConfig` (a Quarto you already have always wins) |
+| **PDF through Quarto · TinyTeX** | PDFs built by Quarto (`flux compile --to pdf`, journal styles) | installs TinyTeX through Quarto, in your home folder |
+| **Plots** | semantic, restylable plots | nothing to install in Flux: add **fluxplot** to your analysis environment (below) |
+| **AI agents** | Claude Code or Codex working inside your projects | detects them, links to their installers, and connects them to Flux |
+
+Everything else ships inside the app, including Flux's own PDF export, its video encoder,
+the local writing-correction model and the offline help.
+
+# The companions in detail
+
+## fluxplot (your plots)
+
+[fluxplot](https://github.com/fluxsci/fluxplot) lives in **your own analysis
+environment**, beside the rest of your Python stack, not inside Flux. Flux runs each plot's
+recipe with the command recorded in it, in that environment. With
+[uv](https://docs.astral.sh/uv/) (recommended; agents set up a uv project per analysis):
 
 ```bash
-node --version    # v22.15+
+uv add fluxplot            # in an analysis project (uv init first if it is new)
+uv add "fluxplot[mesh]"    # also the 3D mesh exports
 ```
 
-## Quarto + TinyTeX
+or `pip install fluxplot` in any other environment.
 
-Quarto compiles manuscripts to HTML/DOCX/PDF (it bundles its own pandoc — no separate
-install). **PDF output additionally needs a TeX distribution**; TinyTeX via Quarto is the
-easy path:
+Why it matters: fluxplot emits *semantic* SVGs. Every series, point, and axis label carries
+a stable id, which is what makes Flux figures restylable per part, regenerable without losing
+hand-tuning, and morphable in slides. Without it, plots import as plain images.
 
-```bash
-# install quarto from quarto.org (or brew install --cask quarto / apt) — equivalent
-quarto install tinytex
-quarto check               # verify both halves
-```
+## Quarto + TinyTeX (Word export and `flux compile`)
 
-Without TinyTeX, `flux compile --to pdf` fails while `--to html|docx` still work.
+Flux's own PDF export needs neither. Quarto powers Word export and `flux compile` (HTML,
+Word, PDF; it bundles its own pandoc), and Quarto's PDF builds additionally need TeX. The
+setup window installs both. If you prefer to manage them yourself, install Quarto from
+[quarto.org](https://quarto.org) (or `brew install --cask quarto`); Flux always uses a Quarto
+you installed (on your `PATH` or in its usual install folder) before its own copy, and
+`quarto install tinytex` adds TeX. Without TeX, `flux compile --to pdf` fails while HTML and
+Word still work.
 
-**TinyTeX is not added to your PATH.** `quarto install tinytex` installs into
-`~/Library/TinyTeX` (macOS) or `~/.TinyTeX` (Linux) and leaves your PATH alone. Flux and
-Quarto don't care — they locate TinyTeX internally, so PDF export works either way. But
-`tlmgr` and `kpsewhich` below are TeX's own commands, so without this they fail with
-*command not found* even on a perfectly good install:
+**TinyTeX is not added to your PATH.** It installs into `~/Library/TinyTeX` (macOS) or
+`~/.TinyTeX` (Linux). Flux and Quarto find it anyway, but TeX's own commands (`tlmgr`,
+`kpsewhich`, used below) need it on your PATH:
 
 ```bash
 # macOS — add to ~/.zshrc to make it permanent
@@ -100,7 +112,7 @@ on how TeX got onto the machine:
 
 | TeX install | Command | Needs admin? |
 |---|---|---|
-| TinyTeX (`quarto install tinytex` — recommended, all platforms) | `tlmgr install lineno setspace` | No — TinyTeX lives in your home directory |
+| TinyTeX (the setup window, or `quarto install tinytex`) | `tlmgr install lineno setspace` | No — TinyTeX lives in your home directory |
 | MacTeX | `sudo tlmgr install lineno setspace` | Yes |
 | Linux distro TeX Live (apt) | `sudo apt install texlive-latex-recommended texlive-humanities texlive-luatex texlive-fonts-recommended` | Yes — Debian and Ubuntu disable `tlmgr` package installs |
 
@@ -120,32 +132,6 @@ anyway — a journal-styled `.docx` needs no TeX at all. When an export does hit
 missing piece, Flux names the package to install instead of showing you the raw
 LaTeX log.
 
-## uv + Python + fluxplot (the keystone)
-
-[uv](https://docs.astral.sh/uv/) is the recommended Python project/environment manager —
-Flux's agent conventions assume it (agents set up a uv project per analysis, with
-fluxplot as a dependency).
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh          # install uv
-git clone https://github.com/fluxsci/fluxplot ~/fluxplot   # fluxplot lives HERE
-```
-
-**fluxplot must be cloned to `~/fluxplot`** — that's the conventional location agents
-look for (and add as a dependency) when setting up analysis projects. In any analysis
-project:
-
-```bash
-uv init
-uv add --editable ~/fluxplot
-uv add cmasher             # the continuous-colormap extra fluxplot[style] uses
-```
-
-Why it's the keystone: fluxplot emits *semantic* SVGs — every series, point, and axis
-label carries a stable id. That is what makes Flux figures restylable per-part,
-regenerable without losing hand-tuning, and morphable in slides. Without it, plots
-import as opaque images.
-
 ## Fonts
 
 Fluxplot saves plot text as *real text*, and Flux rasterizes figures with the fonts
@@ -160,22 +146,21 @@ installed on the machine. The house style's stacks lead with **Arial / Helvetica
   consistent — matplotlib embeds whichever family it actually picked, and the renderer
   substitutes anything missing, which shifts text metrics subtly.
 
-# First run
+# Your FluxConfig
 
 Launching Flux (or a CLI command) initializes `~/FluxConfig`: your **UserContext**,
 the stock **FluxContext** manual, and the **FluxLib** reference library. Your personal
 context is seeded once; the stock manual is refreshed with this installation's paths.
 
 Flux creates stable `flux` and `flux-connect` launchers in `~/.local/share/flux/bin`
-(Linux/macOS), or `%LOCALAPPDATA%\flux\bin` (Windows). Add that folder to PATH or
-use its full path. When `~/.local/bin` exists, Flux also adds convenience shims there;
-`flux connect setup --create-local-bin` can create them. Your own unmarked files are
-preserved. Flux prints PATH guidance and never changes shell startup files for you.
+(Linux/macOS), or `%LOCALAPPDATA%\flux\bin` (Windows), plus convenience shims in
+`~/.local/bin` (which the installer puts on your PATH). Your own unmarked files there are
+preserved. The only shell startup change is the installer's (or the setup window's) one
+marked PATH line.
 
-The launcher stays with its owning installation across starts from other checkouts.
-Use **AI status → Use this Flux for agents**, or setup's `--use-this-install`, to
-choose another. AppImage launchers use the persistent AppImage file. On macOS, move
-Flux into `/Applications` before setup to avoid a temporary App Translocation path.
+The launcher stays with its owning installation. Use **AI status → Use this Flux for
+agents**, or setup's `--use-this-install`, to choose another (for example a source
+checkout).
 
 1. Fill out `~/FluxConfig/Context/UserContext/WHO-AM-I.md`.
 2. Adjust `UserContext/RULES.md` and add reusable procedures under `UserContext/Skills/`.
@@ -188,10 +173,11 @@ that need migration.
 # Connect an AI agent
 
 Install and sign in to Claude Code or Codex in its own app or terminal. Open **AI** in
-the titlebar, or **Ctrl+K → AI status**, then choose **Connect** on its card. The Home
-screen's **Connect an AI agent** card opens the same monitor. Review replacements if
-shown, then restart open agent sessions. In Codex, review newly installed hooks in
-**/hooks**. This registers tools and skills; it does not start a project session.
+the titlebar, or **Ctrl+K → AI status**, then choose **Connect** on its card (the setup
+window's **AI agents** row and the Home screen's **Connect an AI agent** card open the same
+monitor). Review replacements if shown, then restart open agent sessions. In Codex, review
+newly installed hooks in **/hooks**. This registers tools and skills; it does not start a
+project session.
 
 From a terminal the equivalent is `flux connect setup --dry-run`, then `flux connect
 setup`, followed by `flux connect doctor`. Copy the panel's `/flux-connect <project>`
@@ -201,26 +187,43 @@ or `$flux-connect <project>` command into your agent to connect a session. See
 # Verify the setup
 
 ```bash
-node --version                            # ≥ 22.15
-quarto check                              # quarto + tinytex
-uv --version
-uv run python -c "import fluxplot"        # inside an analysis project
-flux config                              # prints machine paths + build info
+flux version                             # the installed build
+flux config                              # machine paths + build info
 flux connect doctor                      # checks the Flux AI Bundle
+quarto check                             # if you export papers: quarto + tinytex
+uv run python -c "import fluxplot"       # inside an analysis project
 ```
 
 # Troubleshooting
 
 | Symptom | Cause → fix |
 |---|---|
-| `compile --to pdf` fails; html works | No TeX → `quarto install tinytex` |
+| `flux: command not found` | Open a new terminal (the PATH line applies to new shells). Still missing → **Set up Flux… → `flux` in the terminal** |
+| `compile --to pdf` fails; html works | No TeX → **Set up Flux… → PDF through Quarto**, or `quarto install tinytex` |
 | Journal PDF fails with `File 'lineno.sty' not found` (or `setspace.sty`) | Minimal TeX install → the journal-PDF table above |
 | Journal PDF fails mentioning `rsvg-convert` | SVG figures cannot be placed → install `librsvg2-bin` / `librsvg` |
 | Journal PDF fails with `luaotfload` or `not loadable: Metric` | lualatex present but its fonts are not → `texlive-luatex` + `texlive-fonts-recommended`, or use TinyTeX |
 | Plots import as flat images; `restyle` finds no parts | Plot not saved via `fp.save` (or fluxplot missing) → check `flux validate-plot` |
 | Figure PNGs render with wrong/shifted text | Missing fonts on this machine → install the stacks above; keep machines consistent |
-| `flux: command not found` | Launcher directory not on `PATH` → use the full path above, or setup with `--create-local-bin` and add `~/.local/bin` to PATH |
-| `flux` CLI verb missing that the docs mention | Stale bundle → `npm run build:cli` in the repo; `flux version` shows the build |
 | Agent has no Flux tools or skill | Run `flux connect doctor`, use **AI status → Repair**, then restart the agent session |
 | Nothing live-reloads in the open app | Watcher failed to start (a toast said so at open) → reopen the project |
-| Flux "won't start" — no window, no error | A windowless earlier instance is holding the single-instance lock (the launch now says so in the terminal) → `pgrep -af electron` to find it, then `kill <pid>` (plain SIGTERM — it saves unsaved work on the way out; keep `kill -9` as the last resort) |
+| Flux "won't start" — no window, no error | A windowless earlier instance is holding the single-instance lock → `pgrep -af Flux` to find it, then `kill <pid>` (plain SIGTERM saves unsaved work on the way out; keep `kill -9` as the last resort) |
+| The installer says "checksum mismatch" | A corrupted or intercepted download; nothing was installed → run it again |
+
+# For developers: running from source
+
+Contributors run Flux from a checkout instead (Node ≥ 22.15 required):
+
+```bash
+git clone https://github.com/fluxsci/flux ~/flux
+cd ~/flux
+npm ci
+node node_modules/electron/install.js   # Electron 43 no longer downloads itself at install
+npm run electron:dev                    # Vite dev server + Electron, hot reload
+```
+
+A checkout's launcher pins the Node it was set up with; use **AI status → Use this Flux for
+agents** to point your agents at it rather than at an installed Flux. A checkout is also
+required for [**Lighttable**](lighttable.qmd), the image-set triage companion, which isn't
+bundled into releases. `docs/for_agents/claude-install-flux-mac.md` is a step-by-step runbook
+an AI agent can follow to set up a development Mac.
