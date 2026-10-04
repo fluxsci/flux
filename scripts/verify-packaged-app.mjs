@@ -180,10 +180,10 @@ try{
  console.error('capture: screenshot start');await page.screenshot({path:path.join(evidence,'packaged-app.png')});console.error('capture: screenshot done');assert.deepEqual(errors,[]);
  // Exercise the actual installed help as an OS file browser would, without
  // opening the owner's default browser or navigating a privileged app window.
- // macOS runners: puppeteer's 30 s launch timeout expired starting this Chrome (2026-10-04). Its own
- // output is shown and the launch is bounded at 120 s while that is diagnosed.
+ // macOS runners: this launch timed out with setup-chrome's bundle-less Chrome (2026-10-04; release.yml
+ // now uses the preinstalled Chrome.app). A cold start is bounded at 120 s.
  console.error('docs step: launch browser');const launchedAt=Date.now();
- docsBrowser=await puppeteer.launch({executablePath:env.FLUX_CHROME||'/usr/bin/google-chrome',headless:true,userDataDir:path.join(scratch,'documentation browser'),env,args:['--no-sandbox','--disable-dev-shm-usage'],defaultViewport:{width:1440,height:960},timeout:120000,dumpio:platform==='darwin'});
+ docsBrowser=await puppeteer.launch({executablePath:env.FLUX_CHROME||'/usr/bin/google-chrome',headless:true,userDataDir:path.join(scratch,'documentation browser'),env,args:['--no-sandbox','--disable-dev-shm-usage'],defaultViewport:{width:1440,height:960},timeout:120000});
  console.error(`docs step: browser up in ${Date.now()-launchedAt} ms`);
  const help=await docsBrowser.newPage(),documentationErrors=[],documentationDialogs=[],blockedExternalResources=[];
  const helpConsole=[];help.on('console',m=>helpConsole.push(`${m.type()}: ${m.text()}`.slice(0,300)));
