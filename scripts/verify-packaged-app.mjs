@@ -173,14 +173,17 @@ try{
  // opening the owner's default browser or navigating a privileged app window.
  docsBrowser=await puppeteer.launch({executablePath:env.FLUX_CHROME||'/usr/bin/google-chrome',headless:true,userDataDir:path.join(scratch,'documentation browser'),env,args:['--no-sandbox','--disable-dev-shm-usage'],defaultViewport:{width:1440,height:960}});
  const help=await docsBrowser.newPage(),documentationErrors=[],documentationDialogs=[],blockedExternalResources=[];
+ const helpConsole=[];help.on('console',m=>helpConsole.push(`${m.type()}: ${m.text()}`.slice(0,300)));
+ // Never run on macOS before 2026-10-04: label each step, and on a miss print what the page shows.
+ const docStep=async(label,work)=>{console.error(`docs step: ${label}`);try{return await work();}catch(error){console.error(`docs step failed: ${label} at ${help.url()}; search box: ${!!await help.$('.aa-Input').catch(()=>null)}; results: ${(await help.$$('.aa-Item').catch(()=>[])).length}; console:\n  ${helpConsole.slice(-20).join('\n  ')}`);throw error;}};
  help.on('pageerror',error=>documentationErrors.push(String(error)));help.on('dialog',async dialog=>{documentationDialogs.push(dialog.message());await dialog.dismiss()});
  await help.setRequestInterception(true);help.on('request',request=>{if(/^https?:/.test(request.url())){blockedExternalResources.push(request.url());void request.abort()}else void request.continue()});
- await help.goto(pathToFileURL(path.join(docs,'index.html')).href,{waitUntil:'load'});await help.waitForSelector('.aa-Input');
+ await docStep('open home',()=>help.goto(pathToFileURL(path.join(docs,'index.html')).href,{waitUntil:'load'}));await docStep('search box',()=>help.waitForSelector('.aa-Input'));
  await help.screenshot({path:path.join(evidence,'packaged-docs-home.png'),fullPage:true});
- await Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('a[href="./modes/figure.html"]')]);
+ await docStep('open Figure page',()=>Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('a[href="./modes/figure.html"]')]));
  assert.match(await help.$eval('h1',el=>el.textContent),/Figure/);
- await Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('.sidebar-title a')]);assert.match(help.url(),/\/index\.html$/);
- await help.type('.aa-Input','semantic');await help.waitForSelector('.aa-Item');
+ await docStep('back to home',()=>Promise.all([help.waitForNavigation({waitUntil:'load'}),help.click('.sidebar-title a')]));assert.match(help.url(),/\/index\.html$/);
+ await docStep('search results',async()=>{await help.type('.aa-Input','semantic');await help.waitForSelector('.aa-Item');});
  const documentationResults=await help.$$eval('.aa-Item',items=>items.map(el=>({text:el.textContent,href:el.querySelector('a')?.href})));
  assert.ok(documentationResults.some(item=>/semantic/i.test(item.text)));assert.deepEqual(documentationErrors,[]);assert.deepEqual(documentationDialogs,[]);
  await help.screenshot({path:path.join(evidence,'packaged-docs-search.png'),fullPage:true});await docsBrowser.close();docsBrowser=null;
