@@ -37,7 +37,7 @@ const capture=path.join(cwd,'browser downloads');await fs.mkdir(capture);
 const preferences=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux/preferences.json');
 await fs.mkdir(path.dirname(preferences),{recursive:true});
 await fs.writeFile(preferences,JSON.stringify({...JSON.parse(await fs.readFile(preferences,'utf8').catch(()=>'{}')),captureDir:capture}));
-let browser,docsBrowser,sampled=false;
+let browser,docsBrowser,sampled=false,nativeApp=null;
 /** macOS: a hung packaged app prints nothing; sample every Flux process (main and helpers) before the
  *  scope kills them, so a failure names the stuck native stack (v0.2.0, 2026-10-04). Once per run. */
 async function sampleFlux(){if(platform!=='darwin'||sampled)return;sampled=true;const {execFileSync}=await import('node:child_process');
@@ -80,16 +80,20 @@ try{
  const movie=path.join(evidence,'packaged-frame.mp4');
  const videoOutput=await command(executable,[cli,'export-slide-video',deck.id,'packaged-frame','--root',project,'--out',movie,'--start-hold','0','--end-hold','0','--height','720'],videoEnv,90000);
  assert.match(videoOutput,/"frames"\s*:\s*1/);assert.equal(await fs.readFile(deckFile,'utf8'),deckBytes);
- await command(path.join(encoder,'ffmpeg'),['-v','error','-i',movie,'-frames:v','1',path.join(evidence,'packaged-frame.png')]);
+ await command(path.join(encoder,'ffmpeg'),['-y','-v','error','-i',movie,'-frames:v','1',path.join(evidence,'packaged-frame.png')]);
  const frame=await fs.readFile(path.join(evidence,'packaged-frame.png'));assert.equal(frame.readUInt32BE(16),1280);assert.equal(frame.readUInt32BE(20),720);
  const port=await new Promise((resolve,reject)=>{const s=net.createServer();s.once('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p))})});
  const launchArgs=[project,`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1',`--user-data-dir=${path.join(scratch,'electron profile')}`];
  if(platform==='linux')launchArgs.push('--ozone-platform=x11','--disable-gpu');
  if(env.FLUX_ELECTRON_NO_SANDBOX==='1')launchArgs.push('--no-sandbox');
- const native=scope.spawn(launchArgs[0],launchArgs.slice(1),{command:executable,nodeArgs:[],cwd,env,deadlineMs:180000});
+ const native=nativeApp=scope.spawn(launchArgs[0],launchArgs.slice(1),{command:executable,nodeArgs:[],cwd,env,deadlineMs:180000});
  // A cold first launch on a hosted Intel Mac is slow; 120 s bounds the wait, and a miss reports the
  // app's own output instead of a bare assertion (v0.2.0 Intel smoke, 2026-10-04).
- const end=Date.now()+120000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`,protocolTimeout:60000});break}catch{await new Promise(r=>setTimeout(r,100))}}
+ const end=Date.now()+120000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`,protocolTimeout:60000,
+  // Attach to Flux's own app window(s) only. Hidden helper windows (static print, proxy fetch) start at
+  // about:blank; auto-attaching puppeteer to one whose renderer never answers Network.enable rejected
+  // in the background and killed the smoke (macOS, 2026-10-04).
+  targetFilter:target=>target.type()!=='page'||target.url().includes('/dist/index.html')});break}catch{await new Promise(r=>setTimeout(r,100))}}
  assert.ok(browser,`packaged application exposes its own test debugging endpoint (120 s). App stdout:\n${String(native.stdout??'').slice(-4000)}\nApp stderr:\n${String(native.stderr??'').slice(-4000)}`);
  // The debugging endpoint answers before the window exists (v0.2.0 Linux smoke, 2026-10-04): wait for
  // the app's own file: page rather than taking whatever pages() holds at connect time.
@@ -111,7 +115,9 @@ try{
     console.error('document still loading after 30 s:',typeof detail==='string'?detail:detail.result?.value);await sampleFlux();throw Error('packaged window never finished loading (see resources and samples above)');}
    console.error(`document readyState: ${state}`);}
   await probe.detach().catch(()=>{});}
- const page=await target.page();
+ // Bounded: if attaching to the window hangs, sample every Flux process while it is still alive.
+ const page=await Promise.race([target.page(),new Promise(r=>setTimeout(()=>r(null),45000))]);
+ if(!page){console.error('attaching to the app window did not finish in 45 s');await sampleFlux();throw Error('packaged window attach hung (see samples above)');}
  assert.ok(page,'packaged application opens its window');
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await page.waitForFunction(()=>window.fig&&document.body.textContent.includes('Packaged scientific smoke'),{timeout:60000});
@@ -137,7 +143,11 @@ try{
  assert.ok(videoPixels[0]>240&&videoPixels[1]<15&&videoPixels[2]>240&&videoPixels[3]===255,`Packaged worker pixel mismatch ${videoPixels}`);
  console.error('smoke step: native lease + io');
  const nativeResult=await page.evaluate(async root=>{
-  const lock=await window.fig.lockAcquire('project','project',root);if(!lock.ok)throw Error('packaged native lease refused: '+JSON.stringify(lock));
+  // Like the app's own withIpcLock: a refusal held by this app ("human") is one of its own operations
+  // finishing (the project-open save); retry briefly. A lease stuck for 10 s still fails. The single
+  // unretried call raced that save on loaded runners (2026-10-04).
+  let lock;for(let attempt=0;attempt<40;attempt++){lock=await window.fig.lockAcquire('project','project',root);if(lock.ok||lock.heldBy!=='human')break;await new Promise(r=>setTimeout(r,250));}
+  if(!lock.ok)throw Error('packaged native lease refused: '+JSON.stringify(lock));
   const valid=await window.fig.lockCheck('project','project',lock.token);await window.fig.lockRelease('project','project',lock.token);
   const text=root+'/packaged-io.txt';await window.fig.writeText(text,'saved scientific bytes');if(await window.fig.readText(text)!=='saved scientific bytes')throw Error('saved bytes mismatch');
   const pdf=root+'/packaged-no-script.pdf';await window.fig.printPdf('<html><body><p>STATIC_SCIENTIFIC_OUTPUT</p><script>document.body.textContent="SCRIPT_EXECUTED"</script></body></html>',pdf,{baseDir:root});
@@ -177,6 +187,7 @@ try{
  await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
 }catch(error){
+ if(nativeApp)console.error('--- packaged app stderr (tail) ---\n'+String(nativeApp.stderr??'').split('\n').filter(l=>!/dbus|object_proxy/.test(l)).slice(-40).join('\n'));
  try{const locks=path.join(cwd,'scientific project','.meta','locks');for(const f of await fs.readdir(locks))console.error(`lock ${f}: ${(await fs.readFile(path.join(locks,f),'utf8').catch(()=>'(dir)')).slice(0,300)}`);}catch(e){console.error(`no project locks: ${e.code||e.message}`)}
  await sampleFlux();
  throw error;
