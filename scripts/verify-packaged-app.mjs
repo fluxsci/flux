@@ -117,6 +117,7 @@ try{
  await page.waitForFunction(()=>window.fig&&document.body.textContent.includes('Packaged scientific smoke'),{timeout:60000});
  // Recording is deliberately deferred beyond the project-open IPC. Observe
  // the eventual machine-local record without adding a wait to production open.
+ console.error('smoke step: registry');
  const registryFile=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux','projects.json');
  let openedProject;
  const registryDeadline=Date.now()+10000;
@@ -125,6 +126,7 @@ try{
   await new Promise(resolve=>setTimeout(resolve,50)); // poll deferred history publication
  }
  assert.ok(openedProject,'native project-open path records the project title and timestamp');
+ console.error('smoke step: runtime evidence');
  const runtimeEnvironment=await recordBrowserRuntime(page,{label:'installed-native-window',directory:evidence,appBuild:version});
  assert.ok(runtimeEnvironment.viewport.width>=940 && runtimeEnvironment.viewport.height>=620,'observe actual native minimum window without synthetic viewport override');
  const encoderPixels=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);return [...context.getImageData(16,12,1,1).data]},'data:image/png;base64,'+png.toString('base64'));
@@ -133,8 +135,9 @@ try{
  assert.ok(encoderPixels[0]>240&&encoderPixels[1]<15&&encoderPixels[2]<15&&encoderPixels[3]===255,`Encoder pixel mismatch ${encoderPixels}`);
  const videoPixels=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);return [...context.getImageData(640,360,1,1).data]},'data:image/png;base64,'+frame.toString('base64'));
  assert.ok(videoPixels[0]>240&&videoPixels[1]<15&&videoPixels[2]>240&&videoPixels[3]===255,`Packaged worker pixel mismatch ${videoPixels}`);
+ console.error('smoke step: native lease + io');
  const nativeResult=await page.evaluate(async root=>{
-  const lock=await window.fig.lockAcquire('project','project',root);if(!lock.ok)throw Error('packaged native lease refused');
+  const lock=await window.fig.lockAcquire('project','project',root);if(!lock.ok)throw Error('packaged native lease refused: '+JSON.stringify(lock));
   const valid=await window.fig.lockCheck('project','project',lock.token);await window.fig.lockRelease('project','project',lock.token);
   const text=root+'/packaged-io.txt';await window.fig.writeText(text,'saved scientific bytes');if(await window.fig.readText(text)!=='saved scientific bytes')throw Error('saved bytes mismatch');
   const pdf=root+'/packaged-no-script.pdf';await window.fig.printPdf('<html><body><p>STATIC_SCIENTIFIC_OUTPUT</p><script>document.body.textContent="SCRIPT_EXECUTED"</script></body></html>',pdf,{baseDir:root});
@@ -147,6 +150,7 @@ try{
  try{const document=await loadingTask.promise;const text=(await (await document.getPage(1)).getTextContent()).items.map(i=>i.str??'').join(' ');assert.match(text,/STATIC_SCIENTIFIC_OUTPUT/);assert.ok(!text.includes('SCRIPT_EXECUTED'));}finally{await loadingTask.destroy();}
  // The current capture contract is a browser-downloaded file, not the retired
  // flux:// scheme. Exercise the shipped filename producer and native intake.
+ console.error('smoke step: capture intake');
  const {articleCaptureName}=await import('../electron/captureRules.js'),captureName=articleCaptureName('10.0000/packaged-qualification');
  await fs.writeFile(path.join(capture,'personal-decoy.pdf'),'untouched decoy');await fs.writeFile(path.join(capture,captureName),pdf);
  const captureResult=await page.evaluate(async()=>({extension:await window.fig.captureExtensionInfo(),intake:await window.fig.captureIntake(),fulltext:await window.fig.searchFulltext('packagedqualifier')}));
@@ -173,6 +177,7 @@ try{
  await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
 }catch(error){
+ try{const locks=path.join(cwd,'scientific project','.meta','locks');for(const f of await fs.readdir(locks))console.error(`lock ${f}: ${(await fs.readFile(path.join(locks,f),'utf8').catch(()=>'(dir)')).slice(0,300)}`);}catch(e){console.error(`no project locks: ${e.code||e.message}`)}
  await sampleFlux();
  throw error;
 }finally{await docsBrowser?.close();browser?.disconnect();await scope.dispose();await fs.rm(scratch,{recursive:true,force:true});await fs.rm(env.TMPDIR,{recursive:true,force:true});}
