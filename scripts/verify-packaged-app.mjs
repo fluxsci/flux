@@ -75,8 +75,10 @@ try{
  if(platform==='linux')launchArgs.push('--ozone-platform=x11','--disable-gpu');
  if(env.FLUX_ELECTRON_NO_SANDBOX==='1')launchArgs.push('--no-sandbox');
  const native=scope.spawn(launchArgs[0],launchArgs.slice(1),{command:executable,nodeArgs:[],cwd,env,deadlineMs:180000});
- const end=Date.now()+60000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`});break}catch{await new Promise(r=>setTimeout(r,100))}}
- assert.ok(browser,'packaged application exposes its own test debugging endpoint');
+ // A cold first launch on a hosted Intel Mac is slow; 120 s bounds the wait, and a miss reports the
+ // app's own output instead of a bare assertion (v0.2.0 Intel smoke, 2026-10-04).
+ const end=Date.now()+120000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`});break}catch{await new Promise(r=>setTimeout(r,100))}}
+ assert.ok(browser,`packaged application exposes its own test debugging endpoint (120 s). App stdout:\n${String(native.stdout??'').slice(-4000)}\nApp stderr:\n${String(native.stderr??'').slice(-4000)}`);
  // The debugging endpoint answers before the window exists (v0.2.0 Linux smoke, 2026-10-04): wait for
  // the app's own file: page rather than taking whatever pages() holds at connect time.
  const target=await browser.waitForTarget(t=>t.type()==='page'&&t.url().startsWith('file:'),{timeout:60000}),page=await target.page();
