@@ -86,12 +86,26 @@ jobs:
       - uses: quarto-dev/quarto-actions/setup@v2
         with:
           version: '1.7.32'
-      # The smoke's offline-help check drives a real Chrome.
+      # The smoke's offline-help check drives a real Chrome. Linux: setup-chrome. macOS: the runner's
+      # preinstalled /Applications/Google Chrome.app — setup-chrome unpacks Chrome WITHOUT its .app
+      # bundle there, and its helper processes then cannot find the browser ("MachPortRendezvousServer
+      # … Unknown service name"), so every page hung (2026-10-04).
       - uses: browser-actions/setup-chrome@v1
+        if: matrix.platform == 'linux'
         id: chrome
         with:
           chrome-version: stable
-          install-dependencies: ${{ matrix.platform == 'linux' }}
+          install-dependencies: true
+      - name: Chrome for the help check
+        id: browser
+        run: |
+          if [ "${{ matrix.platform }}" = darwin ]; then
+            chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          else
+            chrome="${{ steps.chrome.outputs.chrome-path }}"
+          fi
+          "$chrome" --version
+          echo "path=$chrome" >> "$GITHUB_OUTPUT"
       - name: Display for the packaged smoke (Linux)
         if: matrix.platform == 'linux'
         run: |
@@ -116,7 +130,7 @@ jobs:
         run: npx electron-builder ${{ matrix.builder }} --publish never -c.directories.output=release/out ${{ matrix.platform == 'darwin' && '-c.mac.identity=null -c.mac.hardenedRuntime=false' || '' }}
       - name: Smoke the packaged app
         env:
-          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          FLUX_CHROME: ${{ steps.browser.outputs.path }}
         run: |
           if [ "${{ matrix.platform }}" = linux ]; then
             # xvfb-run's default screen is 640x480 at 8-bit depth, on which Chromium's GPU process
