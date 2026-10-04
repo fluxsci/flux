@@ -37,7 +37,7 @@ const capture=path.join(cwd,'browser downloads');await fs.mkdir(capture);
 const preferences=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux/preferences.json');
 await fs.mkdir(path.dirname(preferences),{recursive:true});
 await fs.writeFile(preferences,JSON.stringify({...JSON.parse(await fs.readFile(preferences,'utf8').catch(()=>'{}')),captureDir:capture}));
-let browser,docsBrowser,sampled=false,nativeApp=null;
+let browser,docsBrowser,sampled=false,nativeApp=null,appTargetId=null;
 /** macOS: a hung packaged app prints nothing; sample every Flux process (main and helpers) before the
  *  scope kills them, so a failure names the stuck native stack (v0.2.0, 2026-10-04). Once per run. */
 async function sampleFlux(){if(platform!=='darwin'||sampled)return;sampled=true;const {execFileSync}=await import('node:child_process');
@@ -93,11 +93,16 @@ try{
   // Attach to Flux's own app window(s) only. Hidden helper windows (static print, proxy fetch) start at
   // about:blank; auto-attaching puppeteer to one whose renderer never answers Network.enable rejected
   // in the background and killed the smoke (macOS, 2026-10-04).
-  targetFilter:target=>target.type()!=='page'||target.url().includes('/dist/index.html')});break}catch{await new Promise(r=>setTimeout(r,100))}}
+  // Once the app window is chosen, ONLY that target: a later page (even a dist/index.html one) is not
+  // auto-attached; macOS showed a second attach hanging in the capture step (2026-10-04).
+  targetFilter:target=>target.type()!=='page'||(appTargetId?target._targetId===appTargetId:target.url().includes('/dist/index.html'))});break}catch{await new Promise(r=>setTimeout(r,100))}}
  assert.ok(browser,`packaged application exposes its own test debugging endpoint (120 s). App stdout:\n${String(native.stdout??'').slice(-4000)}\nApp stderr:\n${String(native.stderr??'').slice(-4000)}`);
  // The debugging endpoint answers before the window exists (v0.2.0 Linux smoke, 2026-10-04): wait for
  // the app's own file: page rather than taking whatever pages() holds at connect time.
- const target=await browser.waitForTarget(t=>t.type()==='page'&&t.url().startsWith('file:'),{timeout:60000});
+ const target=await browser.waitForTarget(t=>t.type()==='page'&&t.url().startsWith('file:'),{timeout:60000});appTargetId=target._targetId;
+ // Log every target the app creates/changes/destroys (type, URL), attached or not, to see what the
+ // macOS capture step does.
+ {const watch=await browser.target().createCDPSession();for(const ev of ['targetCreated','targetInfoChanged','targetDestroyed'])watch.on(`Target.${ev}`,e=>console.error(`target ${ev}: ${e.targetInfo?`${e.targetInfo.type} ${e.targetInfo.targetId.slice(0,8)} ${e.targetInfo.url.slice(0,120)}`:e.targetId?.slice(0,8)}`));await watch.send('Target.setDiscoverTargets',{discover:true});}
  // macOS v0.2.0 smoke: the window's renderer stopped answering CDP once a capture dir was set. Probe it
  // first; when it does not answer, pause it to print the JavaScript it is stuck in, then sample.
  {const probe=await target.createCDPSession(),within=(ms,work)=>Promise.race([work,new Promise(r=>setTimeout(()=>r('TIMEOUT'),ms))]);
