@@ -254,8 +254,17 @@ Selection follows Figma's logic, tuned for plots:
   bracket's test and p — read from the plot's manifest, never from the picture.
 - **Double-click** descends a level: into a group, into a plot's parts, into text editing,
   into a path's nodes.
-- Whatever part you've drilled stays plain-draggable, and **Escape** steps back out one level
-  at a time.
+- **Ctrl+Shift+click** adds the part under the cursor to the pick (click it again to drop it).
+  Once a plot has a picked part, a plain **Shift+click** on another of its parts adds that one
+  too — so Ctrl+click the first point, Shift+click the rest. Every picked part is outlined.
+- **Ctrl+drag** from a plot's empty space draws a **marquee inside the plot**: every part that
+  ends up fully inside the box is picked — the same box you draw in the slide **Become**
+  picker. Data marks win over furniture (a box around three points and the tick labels under
+  them picks the points), and when no data mark is inside the furniture is picked. Hold
+  **Shift** as well to add to what you already have; **Escape** mid-drag drops the box.
+- Whatever you've picked stays plain-draggable — drag any picked part and the whole pick moves
+  together (**Shift** locks the axis), the arrow keys nudge them all — and **Escape** steps
+  back out one level at a time.
 
 With a part selected, press **F** to open **Properties** and restyle it — color, width, size, font, opacity, visibility,
 even a positional nudge in the plot's own units. The same fields sit in the right rail's

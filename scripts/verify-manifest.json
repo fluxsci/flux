@@ -383,6 +383,7 @@
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
       "verify-become-picker.ts",
+      "verify-part-marquee.ts",
       "verify-manifest-contracts.ts",
       "verify-install-script.ts",
       "verify-managed-tools.ts",
@@ -1386,6 +1387,17 @@
       "glob": "src/lib/plot/readout.ts",
       "run": [
         "verify-plot-readout.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-10-04 the in-plot marquee law (plot/partMarquee.ts): ONE pure module behind the Figure canvas's ctrl-drag inside a plot and the Become picker's leaf level — its pure gate, the picker's pure + GUI gates and the canvas part gate.",
+      "glob": "src/lib/plot/partMarquee.ts",
+      "run": [
+        "verify-part-marquee.ts",
+        "verify-become-picker.ts",
+        "verify-become-picker-gui.mjs",
+        "figenh-15-partmove.mjs",
         "tier:pure"
       ]
     },
@@ -9752,6 +9764,15 @@
       "coverage": "behavior"
     },
     "verify-become-picker.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-part-marquee.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

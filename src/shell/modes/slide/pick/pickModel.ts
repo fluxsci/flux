@@ -14,6 +14,7 @@ import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { buildPartTree, type XrayNode } from "../../../../lib/plot/tree";
 import { isScaffoldPart } from "../../../../lib/plot/partStyle";
 import { rowParents, widenToSiblings } from "../../../../lib/xray/buildXrayTree";
+import { rectInside, isDataRole, boxFrom, preferData, type Box } from "../../../../lib/plot/partMarquee";
 
 export interface PickUnit {
   element: string;
@@ -169,8 +170,12 @@ export function chipRuns(units: readonly PickUnit[], describe: (u: PickUnit) => 
 export const pickCount = (units: readonly PickUnit[]): number => units.length;
 
 // --- marquee -----------------------------------------------------------------------------------
+// The leaf-level law (fully inside, data preferred) is the shared pure module
+// `lib/plot/partMarquee.ts` — the Figure canvas's in-plot ctrl-drag uses the
+// same one. This layer adds the object level: a whole element inside wins.
 
-export interface StageRect { x: number; y: number; w: number; h: number }
+export type StageRect = Box;
+export { rectInside, isDataRole, boxFrom };
 
 export interface MarqueeCandidate {
   unit: PickUnit;
@@ -179,11 +184,6 @@ export interface MarqueeCandidate {
   level: "object" | "leaf";
   /** Leaf parts only: a DATA mark (point, bar, box, line, …) rather than guide furniture. */
   data?: boolean;
-}
-
-const EPS = 0.5;
-export function rectInside(r: StageRect, box: StageRect): boolean {
-  return r.x >= box.x - EPS && r.y >= box.y - EPS && r.x + r.w <= box.x + box.w + EPS && r.y + r.h <= box.y + box.h + EPS;
 }
 
 /** The marquee law: every unit whose stage box is FULLY inside. A whole object
@@ -195,24 +195,15 @@ export function rectInside(r: StageRect, box: StageRect): boolean {
 export function marqueeUnits(candidates: readonly MarqueeCandidate[], box: StageRect): PickUnit[] {
   const inside = candidates.filter((c) => (c.rect.w > 0 || c.rect.h > 0) && rectInside(c.rect, box));
   const wholeObjects = new Set(inside.filter((c) => c.level === "object").map((c) => c.unit.element));
-  const leaves = inside.filter((c) => c.level === "leaf" && !wholeObjects.has(c.unit.element));
-  const withData = new Set(leaves.filter((c) => c.data).map((c) => c.unit.element));
+  const leavesByElement = new Map<string, MarqueeCandidate[]>();
+  for (const c of inside) {
+    if (c.level !== "leaf" || wholeObjects.has(c.unit.element)) continue;
+    const list = leavesByElement.get(c.unit.element);
+    if (list) list.push(c); else leavesByElement.set(c.unit.element, [c]);
+  }
   const out: PickUnit[] = inside.filter((c) => c.level === "object").map((c) => c.unit);
-  for (const c of leaves) if (!withData.has(c.unit.element) || c.data) out.push(c.unit);
+  for (const leaves of leavesByElement.values()) for (const c of preferData(leaves)) out.push(c.unit);
   return out;
-}
-
-/** Leaf roles that are guide furniture rather than data (the marquee's preference). */
-const FURNITURE_ROLES = new Set([
-  "tick", "tick-label", "spine", "gridline", "axis-title", "title", "subtitle", "label", "legend", "legend-entry",
-  "legend-label", "legend-handle", "colorbar", "colorbar-label", "colorbar-tick", "colorbar-tick-label", "colorbar-outline",
-  "annotation", "reference-line", "significance-bracket", "text",
-]);
-export const isDataRole = (role: string | undefined): boolean => !!role && !FURNITURE_ROLES.has(role);
-
-/** Normalize a drag box (any corner order). */
-export function boxFrom(a: { x: number; y: number }, b: { x: number; y: number }): StageRect {
-  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }
 
 // --- `a`: widening plot parts -------------------------------------------------------------------

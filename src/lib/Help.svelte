@@ -104,6 +104,8 @@
             ["Double-click text", "Edit text inline"],
             ["Double-click group", "Enter group (Esc steps back out)"],
             ["⌃ + click plot", "Deep-select a part (dbl-click too) · drag moves it, arrows nudge"],
+            ["⌃ + ⇧ + click part", "Add / drop a part in the pick (Shift alone adds a sibling part) · drag a picked part moves them all"],
+            ["⌃ + drag plot space", "Marquee the plot's parts (fully inside, data first) · + ⇧ adds"],
             ["⌃ + drag handle", "Crop (content stays pinned; reset in Inspector)"],
             ["F", "Property menu beside the selection — a letter arms a row, the wheel / Space adjusts and applies"],
             ["Shift + R", "Toggle rulers"],

@@ -154,7 +154,10 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 
 Mouse: **drag a figure's sidebar row** = reorder the figures (**Shift+click** picks a run,
 **Ctrl/⌘+click** adds or drops one) · plain click = whole plot/group · **Ctrl+click** = pierce to the part under the cursor
-(hold Ctrl to preview) · **double-click** = descend (group → inside; text → edit; plot → part;
+(hold Ctrl to preview) · **Ctrl+Shift+click** = add / drop a part in the pick (a plain **Shift+click** on a
+sibling part of a picked plot adds too) · **Ctrl+drag** on a plot's empty space = marquee its parts
+(fully inside, data marks first; **+Shift** adds) · drag a picked part = move the whole pick ·
+**double-click** = descend (group → inside; text → edit; plot → part;
 path → node edit) · **Shift+click** = add to selection · **Alt+drag** = duplicate ·
 **Shift+drag** = axis-constrain · **Ctrl+drag a resize handle** = crop · **Alt while
 dragging** = disable snapping · **Shift while resizing** = keep aspect · **Space+drag** /

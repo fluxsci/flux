@@ -13,7 +13,14 @@
 //  - ctrl-click on plot SCAFFOLDING (the background patch) selects the whole
 //    plot without drilling; a plain scaffold drag still moves the whole plot;
 //  - double-click DESCENDS into the part (the modifier-free drill);
-//  - 'x' toggles the drilled part's hidden override.
+//  - 'x' toggles the drilled part's hidden override;
+//  - (2026-10-04, the plural pick on the canvas) CTRL+SHIFT-click ADDS a part
+//    to the pick, a plain SHIFT-click on a sibling part extends it and on a
+//    picked part drops it; every picked part is outlined; a plain drag on a
+//    picked part moves the WHOLE pick (one override per part, ONE undo);
+//  - CTRL-drag from the plot's whitespace is a marquee over THAT plot's parts
+//    (fully inside, data preferred); ctrl+shift-drag adds; Esc mid-drag
+//    leaves the pick alone; a ctrl-CLICK on whitespace still selects the whole plot.
 import { readFileSync } from "node:fs";
 import { launch, gotoApp, clickMode, shot, realErrors, waitFor, waitForFrame } from "./lib/driver.mjs";
 
@@ -425,6 +432,188 @@ try {
     return { hidden: el.hidden ?? false };
   });
   assert(m.hidden === false, "'x' again shows the element");
+
+  // ---- 11. ctrl+shift-click ADDS a second part to the pick -------------------
+  const parts = () => page.evaluate(() => window.__flux.get(window.__flux.fig.partSelections).map((p) => p.partId));
+  const partBoxes = () => page.evaluate(() => document.querySelectorAll(".overlay-svg .part-box").length);
+  await page.evaluate(() => window.__flux.fig.clearSelection());
+  r = await partRect(PART);
+  await page.keyboard.down("Control");
+  await page.mouse.click(r.x + r.w / 2, r.y + r.h / 2);
+  await page.keyboard.up("Control");
+  await waitFor(page, (p) => window.__flux.get(window.__flux.fig.partSelection)?.partId === p, PART, {
+    label: "ctrl-click drilled the first part",
+  });
+  const rp2b = await partRect(PART2);
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.mouse.click(rp2b.x + rp2b.w / 2, rp2b.y + rp2b.h / 2);
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 2, null, {
+    label: "ctrl+shift-click added the second part",
+  });
+  let pk = await parts();
+  assert(pk.length === 2 && pk[0] === PART && pk[1] === PART2, `ctrl+shift-click adds the part to the pick; the first stays primary (${pk})`);
+  m = await model();
+  assert(m.ps?.partId === PART && m.sel.length === 1 && m.sel[0] === "plot1", "…primary unchanged, the plot stays the selection");
+  await waitFor(page, () => document.querySelectorAll(".overlay-svg .part-box").length === 2, null, {
+    label: "both picked parts outlined",
+  });
+  assert((await partBoxes()) === 2, "every picked part gets a .part-box outline");
+  await shot(page, "figenh15-03-two-parts");
+
+  // ---- 12. plain drag on a picked part moves the WHOLE pick: two overrides, ONE undo ----
+  r = await partRect(PART);
+  await page.mouse.move(r.x + r.w / 2, r.y + r.h / 2);
+  await page.mouse.down();
+  await page.mouse.move(r.x + r.w / 2 + 20, r.y + r.h / 2 + 10, { steps: 5 });
+  await waitFor(page, () => document.querySelectorAll(".overlay-svg .part-box").length === 2, null, {
+    label: "both moving parts highlighted mid-drag",
+  });
+  await page.mouse.up();
+  await waitFor(
+    page,
+    (p) => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === "plot1")?.overrides?.[p]?.dx != null,
+    PART2,
+    { label: "the drag committed the second part's override too" },
+  );
+  m = await model();
+  assert(near(m.overrides[PART]?.dx, 20) && near(m.overrides[PART]?.dy, 10), `the pressed part moved (dx=${m.overrides[PART]?.dx}, dy=${m.overrides[PART]?.dy})`);
+  assert(near(m.overrides[PART2]?.dx, 20) && near(m.overrides[PART2]?.dy, 10), `…and so did the other picked part (dx=${m.overrides[PART2]?.dx}, dy=${m.overrides[PART2]?.dy})`);
+  assert(m.x === 40 && m.y === 40, "the plot element did not move");
+  pk = await parts();
+  assert(pk.length === 2, "the pick survives the drag");
+  await page.evaluate(() => window.__flux.fig.undo());
+  await waitOv("dx", undefined, "undo removed the pressed part's override");
+  m = await model();
+  assert(m.overrides[PART2]?.dx === undefined, "…and the other part's — ONE history entry for the whole pick");
+
+  // ---- 13. shift-CLICK on a picked part drops it; shift-click on a sibling adds it ----
+  const rp2c = await partRect(PART2);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(rp2c.x + rp2c.w / 2, rp2c.y + rp2c.h / 2);
+  await page.keyboard.up("Shift");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 1, null, {
+    label: "shift-click dropped the picked part",
+  });
+  pk = await parts();
+  assert(pk.length === 1 && pk[0] === PART, `shift-click on a picked part drops it (${pk})`);
+  m = await model();
+  assert(m.sel.length === 1 && m.sel[0] === "plot1", "…the plot stays selected");
+  const PART3 = "axis.x.ticklabel.3";
+  const rp3 = await partRect(PART3);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(rp3.x + rp3.w / 2, rp3.y + rp3.h / 2);
+  await page.keyboard.up("Shift");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 2, null, {
+    label: "shift-click added a sibling part",
+  });
+  pk = await parts();
+  assert(pk[0] === PART && pk[1] === PART3, `a plain shift-click on a sibling part extends the pick (${pk})`);
+
+  // ---- 14. ctrl-DRAG from the plot's whitespace marquees the parts fully inside ----
+  // A box hugging tick labels 4..6, pressed on the figure background below-left
+  // of label 4 (scaffold → marquee, not a drill). Its top is the labels' own
+  // top: the tick marks above overlap the label boxes by a couple of pixels,
+  // so a box that fully holds the labels and starts there leaves the ticks
+  // (whose tops are higher) outside — exactly the three labels are inside.
+  const l4 = await partRect("axis.x.ticklabel.4");
+  const l6 = await partRect("axis.x.ticklabel.6");
+  assert(l4 && l6, "tick labels 4 and 6 present");
+  const mx0 = l4.x - 8, my0 = l4.y + l4.h + 8, mx1 = l6.x + l6.w + 8, my1 = l4.y;
+  await page.keyboard.down("Control");
+  await page.mouse.move(mx0, my0);
+  await page.mouse.down();
+  await page.mouse.move(mx1, my1, { steps: 8 });
+  await waitFor(page, () => !!document.querySelector(".overlay-svg [data-part-marquee]"), null, {
+    label: "the in-plot marquee box is drawn mid-drag",
+  });
+  await waitFor(page, () => document.querySelectorAll(".overlay-svg [data-part-preview]").length === 3, null, {
+    label: "three parts previewed inside the marquee",
+  });
+  await page.mouse.up();
+  await page.keyboard.up("Control");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 3, null, {
+    label: "the marquee published a three-part pick",
+  });
+  pk = await parts();
+  assert(pk.join(",") === "axis.x.ticklabel.4,axis.x.ticklabel.5,axis.x.ticklabel.6", `ctrl-drag picks the parts fully inside, in tree order (${pk})`);
+  m = await model();
+  assert(m.x === 40 && m.y === 40, "a ctrl-drag marquee never moves the plot");
+  assert(m.sel.length === 1 && m.sel[0] === "plot1", "…and the plot is the selection");
+  assert(m.ps?.partId === "axis.x.ticklabel.4", "…the first part inside is the primary");
+  await waitFor(page, () => document.querySelectorAll(".overlay-svg .part-box").length === 3, null, {
+    label: "three picked parts outlined after the marquee",
+  });
+  assert(!(await page.evaluate(() => document.querySelector(".overlay-svg [data-part-marquee]"))), "the marquee box is gone after release");
+  await shot(page, "figenh15-04-marquee");
+
+  // ---- 15. ctrl+shift-DRAG adds to the pick; Esc mid-drag leaves it alone -----
+  const l8 = await partRect("axis.x.ticklabel.8");
+  const l9 = await partRect("axis.x.ticklabel.9");
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.mouse.move(l8.x - 8, l8.y + l8.h + 8);
+  await page.mouse.down();
+  await page.mouse.move(l9.x + l9.w + 8, l8.y, { steps: 8 });
+  await waitFor(page, () => document.querySelectorAll(".overlay-svg [data-part-preview]").length === 2, null, {
+    label: "two more parts previewed",
+  });
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 5, null, {
+    label: "ctrl+shift-drag added two parts",
+  });
+  pk = await parts();
+  assert(pk.slice(0, 3).join(",") === "axis.x.ticklabel.4,axis.x.ticklabel.5,axis.x.ticklabel.6" && pk.slice(3).join(",") === "axis.x.ticklabel.8,axis.x.ticklabel.9", `ctrl+shift-drag ADDS the parts inside to the pick (${pk})`);
+  // Esc mid-drag: with Shift the press kept the pick, so Esc leaves it whole;
+  // without Shift the press itself re-selected the whole plot (Figma: a
+  // marquee deselects at the press), so Esc leaves the plot selected, no parts.
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.mouse.move(mx0, my0);
+  await page.mouse.down();
+  await page.mouse.move(mx0 + 30, my0 - 30, { steps: 4 });
+  await waitFor(page, () => !!document.querySelector(".overlay-svg [data-part-marquee]"), null, { label: "marquee drawn (Esc case)" });
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector(".overlay-svg [data-part-marquee]"), null, { label: "Esc dropped the marquee" });
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+  await waitForFrame(page);
+  pk = await parts();
+  assert(pk.length === 5, `Esc mid ctrl+shift-marquee leaves the pick alone (${pk.length} parts)`);
+  await page.keyboard.down("Control");
+  await page.mouse.move(mx0, my0);
+  await page.mouse.down();
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 0, null, { label: "a ctrl-press on whitespace re-selects the whole plot (pick cleared)" });
+  await page.mouse.move(mx0 + 30, my0 - 30, { steps: 4 });
+  await waitFor(page, () => !!document.querySelector(".overlay-svg [data-part-marquee]"), null, { label: "marquee drawn (Esc case, no shift)" });
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector(".overlay-svg [data-part-marquee]"), null, { label: "Esc dropped the marquee (no shift)" });
+  await page.mouse.up();
+  await page.keyboard.up("Control");
+  await waitForFrame(page);
+  m = await model();
+  assert(m.ps === null && m.sel.length === 1 && m.sel[0] === "plot1" && m.x === 40, "Esc mid ctrl-marquee: the whole plot stays selected, nothing committed");
+  // Re-arm a pick for the whitespace click below.
+  await page.keyboard.down("Control");
+  await page.mouse.click(l4.x + l4.w / 2, l4.y + l4.h / 2);
+  await page.keyboard.up("Control");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 1, null, { label: "re-drilled one part" });
+
+  // ---- 16. ctrl-CLICK on the whitespace still selects the whole plot, no parts ----
+  await page.keyboard.down("Control");
+  await page.mouse.click(mx0, my0);
+  await page.keyboard.up("Control");
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelections).length === 0, null, {
+    label: "ctrl-click on whitespace cleared the pick",
+  });
+  m = await model();
+  assert(m.ps === null && m.sel.length === 1 && m.sel[0] === "plot1", "ctrl-click on whitespace (no drag) selects the whole plot without drilling");
+  assert(m.x === 40, "…and moves nothing");
 
   const errs = realErrors(page);
   assert(errs.length === 0, `no console errors (${errs.length})`);
