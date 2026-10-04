@@ -1271,6 +1271,14 @@ Persistence invariants (all machine-checked — do not weaken):
   writes nothing (`verify-plot-binding` counts it). Keep appended nodes display-hidden until their first seek, so
   appearance compilation reads authored opacity. `applyAt` runs content controllers before
   keyframed appearances, independent of story order; content paint must not erase an entrance.
+  Custom vector pose bundles can use empty `axes`/`series` and an explicit parts tree:
+  keep every semantic ID, SVG tag and numeric attribute template identical between poses
+  for geometry/paint interpolation without residue fades. Zero-radius ellipses retain their
+  identity while contributing no painted area (useful for a no-opacity merge/split).
+  Opacity staying at 1 is not an aesthetic guarantee: shared contraction/recoloring can
+  still read as a fade. Liquid coalescence needs staggered trajectories and actual
+  connecting silhouettes (editable cubic necks can preserve that same pose contract).
+  Insetting an ellipse by half its matching stroke preserves its original outside radius.
   Only ID-less plots retain the whole-content fallback. Union
   vertex indices preserve missing-data gaps; unmatched markers and line edges fade.
   Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu (armed
@@ -9772,3 +9780,13 @@ and lifecycle logs, Chrome `dumpio`.
   doing) before changing code.
 - Test the theory before the fix: the lease bug has a deterministic gate (genuine arbitration
   timeout via a live ticket-0 register), mutation-checked both ways.
+
+
+### 2026-10-04 10:35 CDT — Editable Flux logo and reusable motion kit (Codex, main)
+**Work:** Created the user's global `plot_library/flux-logo` kit: exact canonical 88-ellipse SVGs at 256/1024 px, fluxplot 0.3.2 manifests/recipes, regeneration sources and actual-player previews. Installed global slide presets for the no-fade spiral pulse, ellipse/path/line morphs and 88 native editable ellipses. Schema/checksum/import-remap checks pass; Chromium verified canonical geometry/transparency and 168 pulse frames with opacity 1, one visible merged ellipse, identical loop endpoints and no runtime errors.
+**Learnings:**
+- Promoted the stable-ID/tag/template pose contract and zero-radius geometric absorption technique to §4. Portable preset asset IDs include their SVG hash so a regenerated kit cannot reuse stale embedded bytes.
+
+### 2026-10-04 11:38 CDT — Liquid logo revision after visual feedback (Codex, main)
+**Work:** Replaced the rejected shared contraction/recoloring animation in the global logo kit with individual staggered spiral trajectories, tangential ellipse deformation, editable cubic necks between neighbors/the central pool, local color absorption, and seed contraction/expansion. Added fill-matched inset strokes to both canonical SVG sizes and all 88 native ellipses. Refreshed the pulse and ellipse/path/line presets, actual-player preview, movie, sources and instructions. Asset-only change; shared runtime unchanged. All 48 bundles pass schema/contract/checksum validation; fresh-deck preset insertion passes. Chromium checked 273 pulse samples, all 81 shape-morph beats, fixed outside radii, strokes, transparency, opacity, no residue layers and identical loop endpoints. A separate 20-second actual-playback observation crossed the loop boundary with no frame interval over 35 ms. Previous inserted presets remain snapshots and need reinsertion.
+**Learnings:** No-opacity tests did not catch the first version's fade-like visual impression. Inspect silhouettes and individual trajectories in motion. Cubic connector handles must follow the transformed ellipse tangents, not circular approximations, or thin spikes stick out of stretched dots. Keep the pool in its declared palette group even when changing SVG paint order.
