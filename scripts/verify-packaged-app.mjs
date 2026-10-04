@@ -37,7 +37,15 @@ const capture=path.join(cwd,'browser downloads');await fs.mkdir(capture);
 const preferences=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux/preferences.json');
 await fs.mkdir(path.dirname(preferences),{recursive:true});
 await fs.writeFile(preferences,JSON.stringify({...JSON.parse(await fs.readFile(preferences,'utf8').catch(()=>'{}')),captureDir:capture}));
-let browser,docsBrowser;
+let browser,docsBrowser,sampled=false;
+/** macOS: a hung packaged app prints nothing; sample every Flux process (main and helpers) before the
+ *  scope kills them, so a failure names the stuck native stack (v0.2.0, 2026-10-04). Once per run. */
+async function sampleFlux(){if(platform!=='darwin'||sampled)return;sampled=true;const {execFileSync}=await import('node:child_process');
+ const pids=(()=>{try{return execFileSync('pgrep',['-f',path.dirname(path.dirname(executable))],{encoding:'utf8'}).trim().split('\n').filter(Boolean)}catch{return []}})();
+ for(const pid of pids){try{const out=path.join(os.tmpdir(),`flux-sample-${pid}.txt`);execFileSync('sample',[pid,'2','-file',out],{stdio:'ignore'});
+  const text=await fs.readFile(out,'utf8');console.error(`=== sample ${pid}\n`+text.split('\n').slice(0,110).join('\n'));}catch(e){console.error(`sample ${pid} failed: ${e.message}`)}}}
+// puppeteer can reject outside an awaited call (a page it creates for an unresponsive target).
+process.on('unhandledRejection',async error=>{console.error(error);await sampleFlux();process.exit(1);});
 async function command(file,argv,extraEnv={},deadlineMs=60000){const child=scope.spawn(argv[0]??'',argv.slice(1),{command:file,nodeArgs:[],cwd,env:{...env,...extraEnv},deadlineMs});const status=await scope.waitExit(child);assert.equal(status.code,0,`${file}: ${child.stdout}\n${child.stderr}`);return child.stdout+child.stderr;}
 try{
  assert.match(await command(executable,[cli,'help'],{ELECTRON_RUN_AS_NODE:'1'}),/compose-figure/);
@@ -84,7 +92,17 @@ try{
  assert.ok(browser,`packaged application exposes its own test debugging endpoint (120 s). App stdout:\n${String(native.stdout??'').slice(-4000)}\nApp stderr:\n${String(native.stderr??'').slice(-4000)}`);
  // The debugging endpoint answers before the window exists (v0.2.0 Linux smoke, 2026-10-04): wait for
  // the app's own file: page rather than taking whatever pages() holds at connect time.
- const target=await browser.waitForTarget(t=>t.type()==='page'&&t.url().startsWith('file:'),{timeout:60000}),page=await target.page();
+ const target=await browser.waitForTarget(t=>t.type()==='page'&&t.url().startsWith('file:'),{timeout:60000});
+ // macOS v0.2.0 smoke: the window's renderer stopped answering CDP once a capture dir was set. Probe it
+ // first; when it does not answer, pause it to print the JavaScript it is stuck in, then sample.
+ {const probe=await target.createCDPSession(),within=(ms,work)=>Promise.race([work,new Promise(r=>setTimeout(()=>r('TIMEOUT'),ms))]);
+  const answer=await within(20000,probe.send('Runtime.evaluate',{expression:'location.href+" "+document.readyState',returnByValue:true}).catch(e=>'ERR '+e.message));
+  if(answer==='TIMEOUT'||typeof answer==='string'){console.error(`renderer did not answer Runtime.evaluate: ${answer}`);
+   const paused=new Promise(r=>probe.once('Debugger.paused',r));await within(10000,probe.send('Debugger.enable').catch(()=>{}));await within(10000,probe.send('Debugger.pause').catch(()=>{}));
+   const event=await within(15000,paused);console.error(event==='TIMEOUT'?'Debugger.pause got no answer (renderer blocked outside JavaScript)':'renderer JavaScript stack:\n'+event.callFrames.map(f=>`  ${f.functionName||'(anonymous)'} ${f.url}:${f.location.lineNumber+1}:${f.location.columnNumber+1}`).join('\n'));
+   await sampleFlux();throw Error('packaged window renderer is unresponsive (see the stack and samples above)');}
+  else console.error(`renderer answers: ${answer.result?.value}`);await probe.detach().catch(()=>{});}
+ const page=await target.page();
  assert.ok(page,'packaged application opens its window');
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await page.waitForFunction(()=>window.fig&&document.body.textContent.includes('Packaged scientific smoke'),{timeout:60000});
@@ -146,11 +164,6 @@ try{
  await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
 }catch(error){
- // A hung packaged app on macOS prints nothing: sample every Flux process (main and helpers)
- // before the scope kills them, so the failure names the stuck stack (v0.2.0, 2026-10-04).
- if(platform==='darwin'){const {execFileSync}=await import('node:child_process');
-  const pids=(()=>{try{return execFileSync('pgrep',['-f',path.dirname(path.dirname(executable))],{encoding:'utf8'}).trim().split('\n').filter(Boolean)}catch{return []}})();
-  for(const pid of pids){try{const out=path.join(os.tmpdir(),`flux-sample-${pid}.txt`);execFileSync('sample',[pid,'2','-file',out],{stdio:'ignore'});
-   const text=await fs.readFile(out,'utf8');console.error(`=== sample ${pid}\n`+text.split('\n').slice(0,90).join('\n'));}catch(e){console.error(`sample ${pid} failed: ${e.message}`)}}}
+ await sampleFlux();
  throw error;
 }finally{await docsBrowser?.close();browser?.disconnect();await scope.dispose();await fs.rm(scratch,{recursive:true,force:true});await fs.rm(env.TMPDIR,{recursive:true,force:true});}

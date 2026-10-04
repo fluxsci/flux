@@ -97,7 +97,9 @@ jobs:
         run: |
           # libvulkan1: the Vulkan loader Chromium's GPU process probes (the previous qualification
           # installed it too). The packaged smoke exports a real one-frame video through Electron.
-          sudo apt-get update && sudo apt-get install -y xvfb libvulkan1
+          # Mesa's software GL/EGL: a GPU-less runner otherwise fails Chromium's GPU process and the
+          # packaged video export exited 1 intermittently (passed 2 of 3 dry runs, 2026-10-04).
+          sudo apt-get update && sudo apt-get install -y xvfb libvulkan1 libgl1-mesa-dri libegl1 mesa-vulkan-drivers
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Fetch the bundled helpers for this target
         run: |
