@@ -22,6 +22,9 @@
     activeCanvasId,
     selection,
     partSelection,
+    partSelections,
+    setPartSelections,
+    type PartSelection,
     enteredGroupId,
     activeTool,
     drawStyle,
@@ -52,6 +55,7 @@
   // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
   import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
   import { restorePlotClip, partDomId } from "./plot/parse";
+  import { partsInside, leafPartIds, partIndexOf, isDataRole, boxFrom as partBoxFrom, type PartBoxCandidate, type Box as PartBox } from "./plot/partMarquee";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, coarseScale, proxyCovers, type ZoomSnapshot, type ProxyRaster } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
@@ -246,22 +250,49 @@
         ys: number[];
       }
     | {
-        // Move one PART of a semantic plot (drag writes an id-keyed {dx,dy}
-        // override in PLOT-LOCAL units on release; the drag itself is a
-        // transient DOM transform — the model stays frozen until commit).
+        // Move the picked PARTS of semantic plots (the drag writes an id-keyed
+        // {dx,dy} override in PLOT-LOCAL units per part on release; the drag
+        // itself is a transient DOM transform — the model stays frozen until
+        // commit). `parts[0]` is the pressed part; the others ride along with
+        // their own captured CTMs (a pick may span plots).
         kind: "partmove";
         figId: string;
-        elementId: string;
-        partId: string;
-        node: SVGGraphicsElement; // the live mounted node (prefixed id)
-        inv: DOMMatrix; // screen → plot-local, captured at pointerdown
+        parts: PartMoveEntry[];
         sx: number; // client coords at down
         sy: number;
-        baseDx: number; // existing override translation (or 0)
-        baseDy: number;
-        baseTransform: string; // node's transform attribute at down (restored on Esc)
-        restTransform: string; // baseTransform minus the override's translate prefix
+        // A Shift-press on an already-picked part: a CLICK (no drag) drops it
+        // from the pick on release (deferred like pendingShiftToggle).
+        toggleOnClick: PartSelection | null;
+      }
+    | {
+        // Ctrl-drag from a plot's whitespace: marquee over THAT plot's leaf
+        // parts (fully inside, data preferred — lib/plot/partMarquee.ts, the
+        // Become picker's law). Host-relative px throughout: the candidates
+        // are measured once at the press, the drag is arithmetic. A click
+        // (no drag) keeps the ctrl-click-on-scaffold contract (whole plot).
+        kind: "partmarquee";
+        figId: string;
+        elementId: string;
+        x0: number;
+        y0: number;
+        cands: PartBoxCandidate[];
+        keep: PartSelection[]; // Shift: the pick before the press
+        keepEls: Set<string>; // Shift: the selection before the press
+        shift: boolean;
       };
+
+  interface PartMoveEntry {
+    elementId: string;
+    partId: string;
+    node: SVGGraphicsElement; // the live mounted node (prefixed id)
+    inv: DOMMatrix; // screen → the node's PARENT space, captured at pointerdown
+    baseDx: number; // existing override translation (or 0)
+    baseDy: number;
+    dx: number; // live translation (plot-local), committed on release
+    dy: number;
+    baseTransform: string; // node's transform attribute at down (restored on Esc)
+    restTransform: string; // baseTransform minus the override's translate prefix
+  }
 
   let gesture: Gesture = null;
 
@@ -282,12 +313,16 @@
   let gDY = 0;
   let fDX = 0; // live frame-move delta, world units (F8)
   let fDY = 0;
-  let pDX = 0; // live part-move translation, PLOT-LOCAL units (dx/dy override)
+  let pDX = 0; // live part-move translation of the pressed part, PLOT-LOCAL units (dx/dy override)
   let pDY = 0;
-  // Transient highlight for the moving part (screen px). The reactive
-  // partBoxScreen suppresses itself during gestures, so the drag draws its own
-  // box from the live node's bounding rect each frame.
-  let partMoveBox: { x: number; y: number; w: number; h: number } | null = null;
+  // Transient highlights for the moving parts (screen px). The reactive
+  // partBoxesScreen suppresses itself during gestures, so the drag draws its
+  // own boxes from the live nodes' bounding rects each frame.
+  let partMoveBoxes: PartBox[] = [];
+  // The in-plot marquee (host-relative px) and the parts it currently holds.
+  let partMarqueeBox: PartBox | null = null;
+  let partMarqueePreview: PartBox[] = [];
+  let lastPartMarqueeKey = "";
   // Deep-select affordance (screen px): with ctrl/meta held at rest over a
   // plot, the part a ctrl-click would drill to is outlined (Figma's
   // deep-target hover). Cleared on modifier release / gesture start / leave.
@@ -2022,30 +2057,62 @@
     // parts; alt keeps duplicate-drag. SCAFFOLD parts (figure/plot-area/background
     // patches/axis containers) never drill — a ctrl-click on a plot's
     // background selects the whole plot, like Figma's deep-click on a frame.
-    const deep = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+    const mod = e.ctrlKey || e.metaKey;
+    const deep = mod && !e.shiftKey && !e.altKey;
+    // Ctrl+Shift-click ADDS the part under the cursor to the pick (a click
+    // without a drag on a picked part drops it again) — the plural part
+    // selection on the canvas (2026-10-04; the X-ray had it first). A plain
+    // Shift-click on a plot that already has a picked part does the same for
+    // that part: Shift extends a pick at the level it is at (Figma's sibling
+    // shift-click), so ctrl-click one point, then shift-click the next ones.
+    const deepAdd = mod && e.shiftKey && !e.altKey;
     if (el.type === "plot") {
-      const ps = $partSelection;
-      const plainSame =
-        !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
+      const picked = $partSelections;
+      const pickedHere = picked.filter((p) => p.elementId === el.id);
+      const siblingAdd = !mod && e.shiftKey && !e.altKey && pickedHere.length > 0;
+      const plainSame = !mod && !e.shiftKey && !e.altKey && pickedHere.length > 0;
       let pid: string | null = null;
-      if (deep || plainSame) {
+      if (deep || deepAdd || siblingAdd || plainSame) {
         pid = partAtPoint(el, e);
         if (pid && isScaffoldPart($plotManifests[el.assetId], pid)) pid = null;
-        // The plain-click continuation only holds on the very part that is
-        // already drilled — any other spot re-selects the whole plot.
-        if (plainSame && pid !== ps!.partId) pid = null;
+        // The plain-click continuation only holds on a part that is already
+        // picked — any other spot re-selects the whole plot.
+        if (plainSame && !pickedHere.some((p) => p.partId === pid)) pid = null;
       }
-      partSelection.set(pid ? { elementId: el.id, partId: pid } : null);
+      // Ctrl-press on the plot's whitespace/scaffold: a DRAG marquees this
+      // plot's parts; a click still selects the whole plot (the gesture's
+      // release). Shift keeps the current pick. Non-semantic plots and the
+      // scale tool fall through to the whole-plot behaviour below.
+      if ((deep || deepAdd) && !pid && $activeTool === "select" && beginPartMarquee(e, fig, el, e.shiftKey)) return;
+      if ((deepAdd || siblingAdd) && pid) {
+        const here = { elementId: el.id, partId: pid };
+        const already = pickedHere.some((p) => p.partId === pid);
+        const list = already ? picked : [...picked, here];
+        // Elements first, parts second (the store's prune rule): the pick's
+        // owners are the selection.
+        selection.set(new Set(list.map((p) => p.elementId)));
+        setPartSelections(list);
+        // A press on an already-picked part may start a drag of the whole
+        // pick; only a CLICK drops the part. Unmounted → selection only.
+        if ($activeTool === "select") beginPartMove(e, fig, list, here, already ? here : null);
+        return;
+      }
       if (pid) {
-        // The drill makes the plot ELEMENT the selection (deep pierces any
-        // group; a continuation click never widens an existing selection).
-        if (deep || !$selection.has(el.id)) selection.set(new Set([el.id]));
-        // Select tool → arm the part move; scale tool keeps whole-plot
+        const here = { elementId: el.id, partId: pid };
+        if (deep) {
+          // The drill makes the pierced part the pick and the plot ELEMENT
+          // the selection (deep pierces any group).
+          selection.set(new Set([el.id]));
+          partSelection.set(here);
+        } else if (!$selection.has(el.id)) selection.set(new Set(picked.map((p) => p.elementId)));
+        // Select tool → arm the part move (a continuation drag moves the WHOLE
+        // pick, Figma's drag-selected-children); scale tool keeps whole-plot
         // semantics (falls through to a normal move of the plot).
-        if ($activeTool === "select" && beginPartMove(e, fig, el.id, pid)) return;
+        if ($activeTool === "select" && beginPartMove(e, fig, deep ? [here] : picked, here, null)) return;
         beginMove(e, fig);
         return;
       }
+      partSelection.set(null);
     } else if (el.type === "model3d" && deep && model3dPartAtPoint(el.id, e)) {
       // The same one-shot deep select reaches a 3D fluxplot's furniture parts.
       // It selects without dragging: 3D part offsets are edited numerically.
@@ -2154,14 +2221,23 @@
     return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O, ...(text ? { text } : {}) };
   }
 
-  // Arm a part-move gesture on the live mounted node. Returns false when the
-  // node/CTM isn't available (unmounted asset, <image> fallback) — the caller
-  // then falls through to the normal whole-plot move.
-  function beginPartMove(e: PointerEvent, fig: Figure, elementId: string, partId: string): boolean {
+  // A node-by-id lookup scoped to this host (a thumbnail or another pane may
+  // carry the same prefixed ids). For a handful of ids a scoped query each;
+  // for a big pick ONE walk of the scene's ids — never a scan per part.
+  function partNodeLookup(count: number): (domId: string) => globalThis.Element | null {
+    if (count <= 4) return (domId) => hostEl.querySelector(`[id="${CSS.escape(domId)}"]`);
+    const byId = new Map<string, globalThis.Element>();
+    for (const n of hostEl.querySelectorAll("[id]")) if (!byId.has(n.id)) byId.set(n.id, n);
+    return (domId) => byId.get(domId) ?? null;
+  }
+
+  // One picked part's live node + captured CTM, or null when it isn't movable
+  // here (not a mounted semantic plot part, hidden/locked owner, stashed).
+  function partMoveEntry(elementId: string, partId: string, lookup: (domId: string) => globalThis.Element | null): PartMoveEntry | null {
     const found = findElement($project, elementId);
-    if (!found || found.element.type !== "plot" || effHidden(found.element) || stashedPresentationParts.get(elementId)?.has(partId)) return false;
-    const node = document.getElementById(partDomId(elementId, partId)) as unknown as SVGGraphicsElement | null;
-    if (!node || typeof node.getScreenCTM !== "function") return false;
+    if (!found || found.element.type !== "plot" || effHidden(found.element) || effLocked(found.element) || stashedPresentationParts.get(elementId)?.has(partId)) return null;
+    const node = lookup(partDomId(elementId, partId)) as unknown as SVGGraphicsElement | null;
+    if (!node || typeof node.getScreenCTM !== "function") return null;
     restorePlotClip(node);
     // The override translate is PREPENDED to the node's transform list, so it
     // operates in the space where that list begins — the PARENT's user space.
@@ -2169,7 +2245,7 @@
     // rotate/scale, e.g. a rotated y-axis title, and the drag would shear).
     const parent = node.parentNode as SVGGraphicsElement | null;
     const raw = parent && typeof parent.getScreenCTM === "function" ? parent.getScreenCTM() : node.getScreenCTM();
-    if (!raw) return false;
+    if (!raw) return null;
     // getScreenCTM may hand back a legacy SVGMatrix (no transformPoint) —
     // normalize to a real DOMMatrix so the move handler can map points.
     const ctm = new DOMMatrix([raw.a, raw.b, raw.c, raw.d, raw.e, raw.f]);
@@ -2185,27 +2261,72 @@
       const prefix = `translate(${baseDx} ${baseDy})`;
       if (baseTransform.startsWith(prefix)) restTransform = baseTransform.slice(prefix.length).trimStart();
     }
-    gesture = {
-      kind: "partmove",
-      figId: fig.id,
-      elementId,
-      partId,
-      node,
-      inv: ctm.inverse(),
-      sx: e.clientX,
-      sy: e.clientY,
-      baseDx,
-      baseDy,
-      baseTransform,
-      restTransform,
-    };
+    return { elementId, partId, node, inv: ctm.inverse(), baseDx, baseDy, dx: baseDx, dy: baseDy, baseTransform, restTransform };
+  }
+
+  // Arm a part-move gesture over every picked part that is mounted, the
+  // pressed part first. Returns false when the pressed part's node/CTM isn't
+  // available (unmounted asset, <image> fallback) — the caller then falls
+  // through to the normal whole-plot move.
+  function beginPartMove(e: PointerEvent, fig: Figure, parts: readonly PartSelection[], pressed: PartSelection, toggleOnClick: PartSelection | null): boolean {
+    let primary: PartMoveEntry | null = null;
+    const others: PartMoveEntry[] = [];
+    const lookup = partNodeLookup(parts.length);
+    for (const p of parts) {
+      const entry = partMoveEntry(p.elementId, p.partId, lookup);
+      if (!entry) continue;
+      if (p.elementId === pressed.elementId && p.partId === pressed.partId) primary = entry;
+      else others.push(entry);
+    }
+    if (!primary) return false;
+    gesture = { kind: "partmove", figId: fig.id, parts: [primary, ...others], sx: e.clientX, sy: e.clientY, toggleOnClick };
     gestureFig = fig;
     gestureEls = [];
     committed = false;
     dragging = false;
-    pDX = baseDx;
-    pDY = baseDy;
-    partMoveBox = null;
+    pDX = primary.baseDx;
+    pDY = primary.baseDy;
+    partMoveBoxes = [];
+    hostEl.setPointerCapture(e.pointerId);
+    return true;
+  }
+
+  // Arm the in-plot marquee on a ctrl-press over a plot's whitespace: measure
+  // every mounted leaf part of THAT plot once (host-relative px; the drag is
+  // pure arithmetic — the Become picker's recipe). Without Shift the whole
+  // plot is selected at the press, so a click keeps the ctrl-click-on-
+  // scaffold contract and a drag refines it to the parts inside the box.
+  function beginPartMarquee(e: PointerEvent, fig: Figure, el: SemanticPlotElement, shift: boolean): boolean {
+    const manifest = $plotManifests[el.assetId];
+    if (!manifest || effHidden(el)) return false;
+    const wrapper = hostEl.querySelector(`[data-editor-element-id="${CSS.escape(el.id)}"]`);
+    if (!wrapper) return false;
+    const h = hostEl.getBoundingClientRect();
+    const byId = new Map<string, globalThis.Element>();
+    for (const n of wrapper.querySelectorAll("[id]")) byId.set(n.id, n);
+    const idx = partIndexOf(manifest);
+    const stashed = stashedPresentationParts.get(el.id);
+    const cands: PartBoxCandidate[] = [];
+    for (const pid of leafPartIds(manifest)) {
+      if (stashed?.has(pid)) continue;
+      const r = byId.get(partDomId(el.id, pid))?.getBoundingClientRect();
+      if (!r || (!r.width && !r.height)) continue;
+      cands.push({ partId: pid, rect: { x: r.left - h.left, y: r.top - h.top, w: r.width, h: r.height }, data: isDataRole(idx[pid]?.role) });
+    }
+    const keep = shift ? [...$partSelections] : [];
+    const keepEls = shift ? new Set($selection) : new Set<string>();
+    if (!shift) {
+      selection.set(new Set([el.id]));
+      partSelection.set(null);
+    }
+    gesture = { kind: "partmarquee", figId: fig.id, elementId: el.id, x0: e.clientX - h.left, y0: e.clientY - h.top, cands, keep, keepEls, shift };
+    gestureFig = fig;
+    gestureEls = [];
+    committed = false;
+    dragging = false;
+    partMarqueeBox = null;
+    partMarqueePreview = [];
+    lastPartMarqueeKey = "\0";
     hostEl.setPointerCapture(e.pointerId);
     return true;
   }
@@ -2546,7 +2667,6 @@
     if (
       !gesture &&
       (e.ctrlKey || e.metaKey) &&
-      !e.shiftKey &&
       !presentation?.picking &&
       !e.altKey &&
       ($activeTool === "select" || $activeTool === "scale") &&
@@ -2584,17 +2704,45 @@
       // 2px client threshold: below it this stays a click (selection only).
       if (!dragging && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 2) return;
       startDragging();
-      const p0 = g.inv.transformPoint(new DOMPoint(g.sx, g.sy));
-      const p1 = g.inv.transformPoint(new DOMPoint(e.clientX, e.clientY));
-      pDX = g.baseDx + (p1.x - p0.x);
-      pDY = g.baseDy + (p1.y - p0.y);
-      const t = [`translate(${pDX} ${pDY})`, g.restTransform].filter(Boolean).join(" ");
-      g.node.setAttribute("transform", t);
-      // live highlight from the moving node's real bounds
-      const r = g.node.getBoundingClientRect();
+      // Shift constrains to the dominant screen axis (the element move's rule).
+      let cx = e.clientX, cy = e.clientY;
+      if (e.shiftKey) {
+        if (Math.abs(cx - g.sx) >= Math.abs(cy - g.sy)) cy = g.sy;
+        else cx = g.sx;
+      }
+      // Writes first, reads second: one layout for the whole pick.
+      for (const part of g.parts) {
+        const p0 = part.inv.transformPoint(new DOMPoint(g.sx, g.sy));
+        const p1 = part.inv.transformPoint(new DOMPoint(cx, cy));
+        part.dx = part.baseDx + (p1.x - p0.x);
+        part.dy = part.baseDy + (p1.y - p0.y);
+        part.node.setAttribute("transform", [`translate(${part.dx} ${part.dy})`, part.restTransform].filter(Boolean).join(" "));
+      }
+      pDX = g.parts[0].dx;
+      pDY = g.parts[0].dy;
+      // live highlights from the moving nodes' real bounds
       const h = hostEl.getBoundingClientRect();
       const O = 2;
-      partMoveBox = { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
+      partMoveBoxes = g.parts.map((part) => {
+        const r = part.node.getBoundingClientRect();
+        return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
+      });
+      return;
+    }
+    if (g.kind === "partmarquee") {
+      const h = hostEl.getBoundingClientRect();
+      const x = e.clientX - h.left, y = e.clientY - h.top;
+      if (!dragging && Math.hypot(x - g.x0, y - g.y0) < 2) return;
+      startDragging();
+      const box = partBoxFrom({ x: g.x0, y: g.y0 }, { x, y });
+      partMarqueeBox = box;
+      const ids = partsInside(g.cands, box);
+      const key = ids.join(",");
+      if (key !== lastPartMarqueeKey) {
+        lastPartMarqueeKey = key;
+        const inside = new Set(ids);
+        partMarqueePreview = g.cands.filter((c) => inside.has(c.partId)).map((c) => c.rect);
+      }
       return;
     }
 
@@ -2925,12 +3073,45 @@
       });
     } else if (g.kind === "partmove") {
       if (dragging) {
-        // ONE undo step. The mount signature includes overrides, so the commit
-        // re-clones the plot once — replacing the transiently-mutated node with
-        // a pristine clone carrying the new translate. Below the threshold this
-        // was a click: selection only, DOM untouched.
+        // ONE undo step for the whole pick. The mount signature includes
+        // overrides, so the commit re-clones each plot once — replacing the
+        // transiently-mutated nodes with pristine clones carrying the new
+        // translates. Below the threshold this was a click: DOM untouched.
         ensureCommitted();
-        mutateFigure(g.figId, (p) => ops.setPartOverride(p, g.elementId, g.partId, { dx: pDX, dy: pDY }));
+        const parts = g.parts.map((part) => ({ elementId: part.elementId, partId: part.partId, dx: part.dx, dy: part.dy }));
+        const write = (p: Project) => {
+          for (const q of parts) ops.setPartOverride(p, q.elementId, q.partId, { dx: q.dx, dy: q.dy });
+        };
+        const figIds = new Set(parts.map((q) => findElement($project, q.elementId)?.figure.id ?? g.figId));
+        if (figIds.size === 1) mutateFigure([...figIds][0], write);
+        else mutate(write);
+      } else if (g.toggleOnClick) {
+        // A Shift-CLICK (no drag) on an already-picked part drops it from the
+        // pick; the last part leaving keeps the whole plot selected.
+        const t = g.toggleOnClick;
+        const rest = get(partSelections).filter((p) => !(p.elementId === t.elementId && p.partId === t.partId));
+        if (rest.length) selection.set(new Set(rest.map((p) => p.elementId)));
+        setPartSelections(rest);
+      }
+    } else if (g.kind === "partmarquee") {
+      if (dragging && partMarqueeBox) {
+        const ids = partsInside(g.cands, partMarqueeBox);
+        const picked = [...g.keep, ...ids.map((partId) => ({ elementId: g.elementId, partId }))];
+        if (picked.length) {
+          selection.set(new Set([...g.keepEls, ...picked.map((p) => p.elementId)]));
+          setPartSelections(picked);
+        }
+        // Nothing inside: the whole plot stays selected (set at the press);
+        // with Shift the pick is simply unchanged.
+      } else if (g.shift) {
+        // Ctrl+Shift-CLICK on the whitespace: toggle the whole plot in the
+        // selection (the shift-click rule); its parts leave with it.
+        selection.update((s) => {
+          const n = new Set(s);
+          if (n.has(g.elementId)) n.delete(g.elementId);
+          else n.add(g.elementId);
+          return n;
+        });
       }
     } else if (g.kind === "rotate" && dragging && gRotDeg !== 0) {
       // FIG-1: commit the transient rotate once. The model is still at the pre-rotation state
@@ -3001,7 +3182,9 @@
     fDY = 0;
     pDX = 0;
     pDY = 0;
-    partMoveBox = null;
+    partMoveBoxes = [];
+    partMarqueeBox = null;
+    partMarqueePreview = [];
     cropRes = null;
     cropChip = null;
     gNb = null;
@@ -3033,10 +3216,12 @@
     // Endpoint pivot is transient (WS-1 Fix 2) — dropping lineEndLive IS the
     // cancel; the model was never touched.
     if (gesture?.kind === "draw" || gesture?.kind === "textbox") activeTool.set("select");
-    // Part move mutated the live node's transform transiently — put it back.
+    // Part move mutated the live nodes' transforms transiently — put them back.
     if (gesture?.kind === "partmove" && dragging) {
-      if (gesture.baseTransform) gesture.node.setAttribute("transform", gesture.baseTransform);
-      else gesture.node.removeAttribute("transform");
+      for (const part of gesture.parts) {
+        if (part.baseTransform) part.node.setAttribute("transform", part.baseTransform);
+        else part.node.removeAttribute("transform");
+      }
     }
     resetGestureTransients();
     return true;
@@ -3804,36 +3989,50 @@
     return d;
   })();
 
-  // Measure only when the selected part's content changes, after its DOM commit.
-  // Store world coordinates: viewport projection is synchronous, layout-free and
-  // cannot observe yesterday's compositor transform during a pan/zoom update.
-  let partWorldBox: Rect | null = null;
+  // Measure only when the picked parts' content changes, after its DOM commit
+  // (every picked part gets an outline — the pick is plural). Store world
+  // coordinates: viewport projection is synchronous, layout-free and cannot
+  // observe yesterday's compositor transform during a pan/zoom update.
+  let partWorldBoxes: Rect[] = [];
   let partMeasureGeneration = 0;
   $: partContentKey = (() => {
-    const ps=$partSelection;
-    if (!ps || dragging || gesture) return "";
-    const found=findElement($project,ps.elementId);
-    if (!found) return "";
-    return JSON.stringify([ps,found.figure.x,found.figure.y,found.element,"assetId" in found.element ? $plotGen[found.element.assetId] : 0]);
+    const parts=$partSelections;
+    if (!parts.length || dragging || gesture) return "";
+    // One element entry per distinct owner (a pick of 300 points of one plot
+    // must not stringify that plot 300 times).
+    const owners: unknown[] = [];
+    const seen = new Set<string>();
+    for (const ps of parts) {
+      if (seen.has(ps.elementId)) continue;
+      seen.add(ps.elementId);
+      const found=findElement($project,ps.elementId);
+      if (found) owners.push([found.figure.x,found.figure.y,found.element,"assetId" in found.element ? $plotGen[found.element.assetId] : 0]);
+    }
+    return owners.length ? JSON.stringify([parts,owners]) : "";
   })();
   $: measurePart(partContentKey);
   async function measurePart(key: string) {
     const gen=++partMeasureGeneration;
-    if (!key) {partWorldBox=null;return;}
+    if (!key) {partWorldBoxes=[];return;}
     await tick();
     if (gen!==partMeasureGeneration || snapshotDestroyed || !hostEl) return;
-    const ps=get(partSelection);
-    if (!ps) return;
-    const node=hostEl.querySelector(`[id="${CSS.escape(partDomId(ps.elementId, ps.partId))}"]`);
-    if (!node) {partWorldBox=null;return;}
-    const r=node.getBoundingClientRect(),h=hostEl.getBoundingClientRect(),v=get(viewport);
-    partWorldBox={x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom};
+    const h=hostEl.getBoundingClientRect(),v=get(viewport);
+    const boxes: Rect[]=[];
+    const picked=get(partSelections), lookup=partNodeLookup(picked.length);
+    for (const ps of picked) {
+      const node=lookup(partDomId(ps.elementId, ps.partId));
+      if (!node) continue;
+      const r=node.getBoundingClientRect();
+      if (!r.width && !r.height) continue;
+      boxes.push({x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom});
+    }
+    partWorldBoxes=boxes;
   }
-  $: partBoxScreen = partWorldBox ? {
-    x:$viewport.panX+partWorldBox.x*$viewport.zoom-2,
-    y:$viewport.panY+partWorldBox.y*$viewport.zoom-2,
-    w:partWorldBox.w*$viewport.zoom+4,h:partWorldBox.h*$viewport.zoom+4,
-  } : null;
+  $: partBoxesScreen = partWorldBoxes.map((b) => ({
+    x:$viewport.panX+b.x*$viewport.zoom-2,
+    y:$viewport.panY+b.y*$viewport.zoom-2,
+    w:b.w*$viewport.zoom+4,h:b.h*$viewport.zoom+4,
+  }));
 
   // The crosshair family (styles/cursors.css, owner request 2026-09-15): the
   // default over the canvas is the precise crosshair; something selectable
@@ -4376,27 +4575,21 @@
     {/if}
 
     <!-- selected plot part -->
-    {#if partBoxScreen}
-      <rect
-        class="part-box"
-        x={partBoxScreen.x}
-        y={partBoxScreen.y}
-        width={partBoxScreen.w}
-        height={partBoxScreen.h}
-        fill="none"
-      />
-    {/if}
+    {#each partBoxesScreen as b, i (i)}
+      <rect class="part-box" x={b.x} y={b.y} width={b.w} height={b.h} fill="none" />
+    {/each}
 
-    <!-- part being MOVED (partBoxScreen suppresses itself during gestures) -->
-    {#if partMoveBox}
-      <rect
-        class="part-box"
-        x={partMoveBox.x}
-        y={partMoveBox.y}
-        width={partMoveBox.w}
-        height={partMoveBox.h}
-        fill="none"
-      />
+    <!-- parts being MOVED (partBoxesScreen suppresses itself during gestures) -->
+    {#each partMoveBoxes as b, i (i)}
+      <rect class="part-box" x={b.x} y={b.y} width={b.w} height={b.h} fill="none" />
+    {/each}
+
+    <!-- the in-plot marquee (ctrl-drag from a plot's whitespace) and the parts it holds -->
+    {#if partMarqueeBox}
+      {#each partMarqueePreview as b, i (i)}
+        <rect class="part-preview" data-part-preview x={b.x - 2} y={b.y - 2} width={b.w + 4} height={b.h + 4} fill="none" />
+      {/each}
+      <rect class="marquee" data-part-marquee x={partMarqueeBox.x} y={partMarqueeBox.y} width={partMarqueeBox.w} height={partMarqueeBox.h} />
     {/if}
 
     <!-- deep-select hover target (ctrl/meta held over a plot part), with its data readout -->
@@ -4845,7 +5038,8 @@
   .part-readout-bg { fill: var(--surface-2, #1c1b1a); fill-opacity: 0.94; stroke: var(--line, #8884); stroke-width: 1; }
   .part-readout-text { font: 11px var(--font-mono, ui-monospace, monospace); fill: var(--tx, #cecdc3); pointer-events: none; }
   .part-readout-text.title { fill: var(--accent, #4385be); }
-  .part-hover {
+  .part-hover,
+  .part-preview {
     stroke: var(--c-accent-bright);
     stroke-width: 1;
     opacity: 0.6;

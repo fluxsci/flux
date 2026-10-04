@@ -1648,7 +1648,29 @@ Persistence invariants (all machine-checked — do not weaken):
     and a `selection` change prunes parts whose element left the selection (a gallery insert
     or a Layers click must not leave the Inspector editing the old plot). Every part editor —
     `applyPartStyle`, hide (`x`), nudge, B/I/U, the menu, the Inspector, Animate — fans out
-    over the list in ONE commit.
+    over the list in ONE commit. Publish elements FIRST, parts second, or the prune eats the
+    fresh pick.
+  - **The pick on the canvas (2026-10-04, `Canvas.svelte`).** Ctrl = parts. Ctrl-click pierces
+    (replaces the pick); Ctrl+Shift-click adds the part under the cursor, and on a picked part a
+    CLICK drops it while a drag moves (deferred like `pendingShiftToggle`); a plain Shift-click
+    on a plot that already has a picked part does the same for that part (Figma's sibling
+    shift-click), so Shift-drag on a picked part is an axis-locked move, never a toggle. A plain
+    drag on any picked part moves the WHOLE pick: the `partmove` gesture carries one
+    `PartMoveEntry` per mounted part (own node, own parent-CTM inverse, own base override;
+    writes first, rect reads second — one layout per move) and commits one `setPartOverride`
+    per part in ONE history entry (`mutateFigure` when every owner is in one figure, else
+    `mutate`). Ctrl-drag from a plot's whitespace/scaffold is the `partmarquee` gesture:
+    candidates (that plot's non-scaffold leaf parts, host-relative px) are measured ONCE at the
+    press, the drag is arithmetic over `plot/partMarquee.ts` — fully inside, data marks
+    preferred, zero-area never — with preview outlines and the pick published on release; a
+    ctrl-CLICK there keeps the old contract (whole plot, no drill) because the press itself
+    selects the plot, like the element marquee's deselect-on-down; Ctrl+Shift keeps the prior
+    pick and selection. Every picked part is outlined (`partWorldBoxes`, one measure pass per
+    content key). `lib/plot/partMarquee.ts` is the ONE marquee law — the Become picker's
+    `pickModel.marqueeUnits` adds only its object level on top of `preferData`/`rectInside`,
+    and `stageHit` takes `leafPartIds`/`partIndexOf` from it; never re-implement the law in
+    either surface. Gates: `verify-part-marquee.ts` (pure), `figenh-15-partmove.mjs` §11–16,
+    `verify-become-picker.ts` (unchanged results after the rebase).
   - **X-ray (`Xray.svelte` + `xray/buildXrayTree.ts`).** Rows multi-select (click, Ctrl/⌘,
     Shift-range, Ctrl+A, Alt+A = every search result, Shift+↑/↓, and a press-and-sweep over
     rows — Ctrl/⌘ at the press adds; the click ending a sweep is swallowed for one task only);
@@ -9712,3 +9734,25 @@ and lifecycle logs, Chrome `dumpio`.
   doing) before changing code.
 - Test the theory before the fix: the lease bug has a deterministic gate (genuine arbitration
   timeout via a live ticket-0 register), mutation-checked both ways.
+
+### 2026-10-04 — Multi-part selection on the Figure canvas: Ctrl+Shift-click, sibling Shift-click, in-plot marquee (Claude Fable 5.1, `main`)
+**Work:** Owner ask: select several parts inside one plot on the canvas and move them together,
+plus a Become-picker-style marquee inside a plot. The plural `partSelections` store already
+existed (X-ray) and every part editor already fanned out over it, so the work was the canvas
+gestures: Ctrl+Shift-click adds/drops a part, a plain Shift-click on a sibling part of a
+picked plot adds it, a drag on any picked part moves the whole pick (one override per part, one
+undo), and Ctrl-drag from a plot's whitespace marquees that plot's parts (fully inside, data
+preferred; Ctrl+Shift adds; Esc cancels). The marquee law moved out of `pick/pickModel.ts` into
+the shared pure `lib/plot/partMarquee.ts`; the picker now builds on it (pure gate unchanged).
+Every picked part gets an outline. Docs: figure.qmd, shortcuts.qmd, Help. Gates:
+`verify-part-marquee.ts` (new, pure), `figenh-15-partmove.mjs` §11–16 (new), pure tier + the
+Canvas/pick pathMap set green.
+**Learnings:**
+
+- The old `partSelection.set(ps)` on a plain continuation drag silently collapsed an X-ray
+  multi-pick to one part; a continuation press must leave the plural pick alone.
+- Tick-mark boxes overlap tick-label boxes by ~2 px in matplotlib output, and `rectInside`
+  tolerates half a pixel: a marquee "around the labels" also holds the ticks unless its top is
+  at the labels' own top. Compute expected sets from measured rects, not from eyeballed margins.
+- Pointer-capture gestures that write transforms and then read rects for N parts must write
+  ALL first and read ALL second — interleaving forces one layout per part.

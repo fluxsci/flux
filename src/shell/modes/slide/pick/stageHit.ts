@@ -6,11 +6,12 @@
 
 import type { Element as FigElement, Figure, SemanticPlotElement } from "../../../../lib/types";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
-import { buildPartIndex, partDomId } from "../../../../lib/plot/parse";
+import { partDomId } from "../../../../lib/plot/parse";
 import { resolvePartId, isScaffoldPart } from "../../../../lib/plot/partStyle";
 import { buildPartTree } from "../../../../lib/plot/tree";
 import { membersDeep, topGroupOf } from "../../../../lib/groups";
 import { isDataRole, type MarqueeCandidate, type PickUnit, type StageRect } from "./pickModel";
+import { leafPartIds, partIndexOf } from "../../../../lib/plot/partMarquee";
 
 export interface HitContext {
   fig: Figure;
@@ -19,19 +20,7 @@ export interface HitContext {
   excluded: (elementId: string, partId?: string) => boolean;
 }
 
-const indexes = new WeakMap<FluxPlotManifest, ReturnType<typeof buildPartIndex>>();
-export function partIndexOf(manifest: FluxPlotManifest | undefined): ReturnType<typeof buildPartIndex> {
-  if (!manifest) return {};
-  let idx = indexes.get(manifest);
-  if (!idx) { idx = buildPartIndex(manifest); indexes.set(manifest, idx); }
-  return idx;
-}
-const leafLists = new WeakMap<FluxPlotManifest, string[]>();
-function leavesOf(manifest: FluxPlotManifest): string[] {
-  let leaves = leafLists.get(manifest);
-  if (!leaves) { leaves = [...new Set(buildPartTree(manifest)?.targets ?? [])]; leafLists.set(manifest, leaves); }
-  return leaves;
-}
+export { partIndexOf };
 
 const nodeTargets = new WeakMap<FluxPlotManifest, Map<string, string[]>>();
 /** A part id's concrete leaf ids (itself for a leaf). */
@@ -143,8 +132,8 @@ export function marqueeCandidates(root: ParentNode, ctx: HitContext, f: FrameBox
     const idx = partIndexOf(manifest);
     const byId = new Map<string, Element>();
     for (const n of wrapper.querySelectorAll("[id]")) byId.set(n.id, n);
-    for (const pid of leavesOf(manifest)) {
-      if (isScaffoldPart(manifest, pid) || ctx.excluded(el.id, pid)) continue;
+    for (const pid of leafPartIds(manifest)) {
+      if (ctx.excluded(el.id, pid)) continue;
       const node = byId.get(partDomId(el.id, pid));
       const pr = node?.getBoundingClientRect();
       if (!pr || (!pr.width && !pr.height)) continue;
