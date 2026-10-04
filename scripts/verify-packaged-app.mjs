@@ -80,7 +80,7 @@ try{
  const native=scope.spawn(launchArgs[0],launchArgs.slice(1),{command:executable,nodeArgs:[],cwd,env,deadlineMs:180000});
  // A cold first launch on a hosted Intel Mac is slow; 120 s bounds the wait, and a miss reports the
  // app's own output instead of a bare assertion (v0.2.0 Intel smoke, 2026-10-04).
- const end=Date.now()+120000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`});break}catch{await new Promise(r=>setTimeout(r,100))}}
+ const end=Date.now()+120000;while(Date.now()<end){if(native.exited)throw Error(native.stderr);try{browser=await puppeteer.connect({defaultViewport:null,browserURL:`http://127.0.0.1:${port}`,protocolTimeout:60000});break}catch{await new Promise(r=>setTimeout(r,100))}}
  assert.ok(browser,`packaged application exposes its own test debugging endpoint (120 s). App stdout:\n${String(native.stdout??'').slice(-4000)}\nApp stderr:\n${String(native.stderr??'').slice(-4000)}`);
  // The debugging endpoint answers before the window exists (v0.2.0 Linux smoke, 2026-10-04): wait for
  // the app's own file: page rather than taking whatever pages() holds at connect time.
@@ -145,4 +145,12 @@ try{
  await help.screenshot({path:path.join(evidence,'packaged-docs-search.png'),fullPage:true});await docsBrowser.close();docsBrowser=null;
  await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
+}catch(error){
+ // A hung packaged app on macOS prints nothing: sample every Flux process (main and helpers)
+ // before the scope kills them, so the failure names the stuck stack (v0.2.0, 2026-10-04).
+ if(platform==='darwin'){const {execFileSync}=await import('node:child_process');
+  const pids=(()=>{try{return execFileSync('pgrep',['-f',path.dirname(path.dirname(executable))],{encoding:'utf8'}).trim().split('\n').filter(Boolean)}catch{return []}})();
+  for(const pid of pids){try{const out=path.join(os.tmpdir(),`flux-sample-${pid}.txt`);execFileSync('sample',[pid,'2','-file',out],{stdio:'ignore'});
+   const text=await fs.readFile(out,'utf8');console.error(`=== sample ${pid}\n`+text.split('\n').slice(0,90).join('\n'));}catch(e){console.error(`sample ${pid} failed: ${e.message}`)}}}
+ throw error;
 }finally{await docsBrowser?.close();browser?.disconnect();await scope.dispose();await fs.rm(scratch,{recursive:true,force:true});await fs.rm(env.TMPDIR,{recursive:true,force:true});}
