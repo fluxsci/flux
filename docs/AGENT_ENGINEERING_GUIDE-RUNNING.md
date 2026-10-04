@@ -2778,9 +2778,31 @@ days (probe geometry like `width` instead).
   desktop, build `--linux dir`, then run its binary with `--ozone-platform=headless`, a scratch
   HOME (`isolatedEnv`) and `--remote-debugging-port`, and poll `/json/list` for the `file:` page.
 - **Release runners:** `xvfb-run`'s default screen is 640×480×8, on which Chromium's GPU process
-  fails; give it `-s "-screen 0 1920x1080x24"`. A bare `--mac --arm64` builds every arch the
-  config lists; name the target (`--mac zip --arm64`). The Electron debugging endpoint answers
-  before the window exists, so wait for the page target rather than reading `pages()` once.
+  fails; give it `-s "-screen 0 1920x1080x24"` (plus Mesa's `libgl1-mesa-dri libegl1
+  mesa-vulkan-drivers`). A bare `--mac --arm64` builds every arch the config lists; name the
+  target (`--mac zip --arm64`). The Electron debugging endpoint answers before the window
+  exists, so wait for the page target rather than reading `pages()` once.
+- **`setup-chrome` on macOS unpacks Chrome without its `.app` bundle** (2026-10-04). Its helpers
+  then cannot reach the browser (`MachPortRendezvousServer … Unknown service name`), the network
+  service restarts forever and every page hangs at `Network.enable`. Mac jobs use the runner's
+  preinstalled `/Applications/Google Chrome.app`.
+- **An Electron worker must own its exit** (2026-10-04). Electron quits when the last window
+  closes, so an offscreen capture window going away ended the slide-video/poster worker with code
+  0 and no result: the packaged export failed 18/20 under load with a bare "exit 1". Workers
+  register a no-op `window-all-closed` and flush their final stdout line before `app.exit`
+  (piped stdout is cut at 64 KB on an immediate exit, measured).
+- **A lease heartbeat that throws is transient** (2026-10-04). Only a renew that finds another
+  owner's token is a loss (`guiLeases`, `flux-core/locks.ts`, `recipeJob.cjs`); marking a
+  thrown renew (5 s arbitration timeout under load) lost made the window refuse its own
+  operations ("heldBy: human") until released. Callers of `lockAcquire` must retry a
+  `human`-held refusal like `withIpcLock` does: the app's own post-open save holds it briefly.
+- **Reproducing CI-only flakes locally** (2026-10-04): unpack Ubuntu's `xvfb` without sudo
+  (`apt download xvfb && dpkg -x … ~/.local/share/flux-xvfb/root`), run `Xvfb :87 -screen 0
+  1920x1080x24 -nolisten tcp`, then the smoke with `env -u WAYLAND_DISPLAY DISPLAY=:87
+  FLUX_ELECTRON_NO_SANDBOX=1` against an `electron-builder --linux dir` build. Add `taskset -c
+  0,1` plus two busy loops to reach CI's starvation; that reproduced the lease and video failures
+  that clean runs on this 128-core box never showed. Never `pkill -f` a pattern from the same
+  shell command (it matches, and kills, that shell).
 - **Pure-tier timing budgets are relative to an in-process control** (2026-10-03). The
   shared 4-vCPU runner at `--jobs 4` measured 107 ms for a 25 ms plan and 8 ms p95 for
   0.9 ms. `verify-correspondence` bounds a cache-miss plan at 8 × its unavoidable
@@ -9665,3 +9687,28 @@ tarball installs through the same installer in ~2 s and `--version` reads 1.7.32
   everyone.
 - The browser fixture has no `onAppError`, so anything hung off Shell's `attach()` never runs there.
   Give a startup check its own bridge retry if a gate must see it.
+
+### 2026-10-04 (overnight) — v0.2.0 release dry runs: two packaging crashes, three real bugs, four test traps (Claude Opus 5.5, `main`)
+
+**Work:** The new tag → CI-green → build → `verify-packaged-app` → draft pipeline was run repeatedly
+as `workflow_dispatch` dry runs (they skip the CI wait; tags still require it) until all three
+targets passed. **Product bugs:** every packaged build since 09-27 crashed at launch
+(`js-yaml` included above the `node_modules` exclusion) and had no file watching (`chokidar`, an
+`import()`, never shipped); `verify-packaged-requires` now checks requires, imports and their
+dependencies against the allowlist order. Lease heartbeats treated a thrown renew as lost (window
+refused its own operations; engine failed completed work; recipes aborted). Background workers
+were quit by Electron when their offscreen window closed and could exit before flushing their
+result. **Test/runner traps:** the smoke raced the app's own post-open save on the project lease;
+ffmpeg prompted to overwrite; `xvfb-run`'s 8-bit screen and missing Mesa broke Chromium's GPU
+process; puppeteer auto-attached to hidden helper windows (now pinned to the app window, every
+target logged); `setup-chrome`'s bundle-less Chrome on macOS. All diagnosed from evidence: local
+Xvfb + `taskset` reproduction, the app's own refusal log, `sample` of hung macOS processes, target
+and lifecycle logs, Chrome `dumpio`.
+**Learnings:**
+- A packaged app is a different program from the checkout. Launch the PACKAGED build headless
+  (`--ozone-platform=headless`, scratch HOME, `/json/list`) before trusting any release.
+- When a CI-only failure will not reproduce, add load (`taskset`), not retries; then make the
+  failure explain itself (who holds the lease, which step, which target, what the process is
+  doing) before changing code.
+- Test the theory before the fix: the lease bug has a deterministic gate (genuine arbitration
+  timeout via a live ticket-0 register), mutation-checked both ways.
