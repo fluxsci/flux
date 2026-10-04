@@ -2769,6 +2769,18 @@ days (probe geometry like `width` instead).
   `msttcorefonts/accepted-mscorefonts-eula`; the widely copied `accept-…` key preseeds nothing,
   and the package then skips the download with only "user did not accept" in the log.
   `verify-glyph-outlines` hardcodes the Debian paths, so it is still red on macOS/Windows.
+- **electron-builder `files` patterns apply in order; later ones win** (2026-10-04). An include
+  placed above `"!**/node_modules/**/*"` is silently undone: `node_modules/js-yaml/**/*` sat
+  there from 09-27, so every packaged Flux died at launch ("Cannot find module 'js-yaml'"). On
+  macOS the main thread then waits in Electron's error dialog (`NSAlert runModal`) and prints
+  nothing. `verify-packaged-requires` (pure) now checks every package the main process requires
+  is included after the exclusion. To check a packaged launch on Linux without a window on the
+  desktop, build `--linux dir`, then run its binary with `--ozone-platform=headless`, a scratch
+  HOME (`isolatedEnv`) and `--remote-debugging-port`, and poll `/json/list` for the `file:` page.
+- **Release runners:** `xvfb-run`'s default screen is 640×480×8, on which Chromium's GPU process
+  fails; give it `-s "-screen 0 1920x1080x24"`. A bare `--mac --arm64` builds every arch the
+  config lists; name the target (`--mac zip --arm64`). The Electron debugging endpoint answers
+  before the window exists, so wait for the page target rather than reading `pages()` once.
 - **Pure-tier timing budgets are relative to an in-process control** (2026-10-03). The
   shared 4-vCPU runner at `--jobs 4` measured 107 ms for a 25 ms plan and 8 ms p95 for
   0.9 ms. `verify-correspondence` bounds a cache-miss plan at 8 × its unavoidable

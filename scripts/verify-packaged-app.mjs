@@ -32,8 +32,11 @@ const scratch=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'Flux pac
 const scope=new TestProcessScope(),env=isolatedEnv(path.join(scratch,'configuration'));
 const cwd=path.join(scratch,'unrelated directory');await fs.mkdir(cwd);
 const capture=path.join(cwd,'browser downloads');await fs.mkdir(capture);
-const preferences=path.join(env.XDG_CONFIG_HOME,'flux/preferences.json');
-await fs.writeFile(preferences,JSON.stringify({...JSON.parse(await fs.readFile(preferences,'utf8')),captureDir:capture}));
+// Flux's machine config dir (electron/fluxPaths.cjs): ~/Library/Application Support on macOS, the XDG
+// dir elsewhere. The XDG path alone left the Mac app without the capture dir (v0.2.0 smoke, 2026-10-04).
+const preferences=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux/preferences.json');
+await fs.mkdir(path.dirname(preferences),{recursive:true});
+await fs.writeFile(preferences,JSON.stringify({...JSON.parse(await fs.readFile(preferences,'utf8').catch(()=>'{}')),captureDir:capture}));
 let browser,docsBrowser;
 async function command(file,argv,extraEnv={},deadlineMs=60000){const child=scope.spawn(argv[0]??'',argv.slice(1),{command:file,nodeArgs:[],cwd,env:{...env,...extraEnv},deadlineMs});const status=await scope.waitExit(child);assert.equal(status.code,0,`${file}: ${child.stdout}\n${child.stderr}`);return child.stdout+child.stderr;}
 try{
