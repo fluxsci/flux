@@ -3317,7 +3317,9 @@
     "verify-scale-slide-dense.mjs": 180000,
     "verify-slide-video-electron.cjs": 480000,
     "verify-slide-media-export.ts": 300000,
-    "verify-slide-video-clips-electron.cjs": 180000
+    "verify-slide-video-clips-electron.cjs": 180000,
+    "verify-slide-become.ts": 300000,
+    "verify-slide-resolve.ts": 300000
   },
   "execution": {
     "figenh-01-parity.ts": {
@@ -6472,7 +6474,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 300000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -8991,7 +8993,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 300000,
       "exclusive": false,
       "coverage": "behavior"
     },

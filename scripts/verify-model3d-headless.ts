@@ -74,8 +74,13 @@ try {
   await fs.rm(path.join(root, posterPath(request.key)));
   await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', renderBatch });
   h.ok((await fs.stat(liveMachine)).mtimeMs > touched.getTime(), 'an image-request hit marks its machine poster recently used');
+  // Compare each transition with the state just before it: a key names its content, so after
+  // delete + republish of the same bytes ext4 may reuse the inode and size + inode can match the
+  // pre-delete signature again (CI, 2026-10-04) — the same publication, correctly unchanged.
+  const deletedSignature = await cache.modelPosterAvailabilitySignature(root);
+  h.ok(deletedSignature !== touchedSignature, 'deleting a live project poster changes the signature');
   await fs.writeFile(path.join(root, posterPath(request.key)), posterBytes);
-  h.ok(await cache.modelPosterAvailabilitySignature(root) !== touchedSignature, 'republishing a live project poster changes the signature');
+  h.ok(await cache.modelPosterAvailabilitySignature(root) !== deletedSignature, 'republishing a live project poster changes the signature');
   const afterRepublish = await cache.modelPosterAvailabilitySignature(root); const now = new Date(); await fs.utimes(liveMachine, now, now);
   h.eq(await cache.modelPosterAvailabilitySignature(root), afterRepublish, 'an LRU touch alone does not invalidate Connect pictures');
   await fs.rm(path.join(machine, 'm3d-00000000000abc.png'));
