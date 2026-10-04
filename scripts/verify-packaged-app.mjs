@@ -43,7 +43,8 @@ let browser,docsBrowser,sampled=false;
 async function sampleFlux(){if(platform!=='darwin'||sampled)return;sampled=true;const {execFileSync}=await import('node:child_process');
  const pids=(()=>{try{return execFileSync('pgrep',['-f',path.dirname(path.dirname(executable))],{encoding:'utf8'}).trim().split('\n').filter(Boolean)}catch{return []}})();
  for(const pid of pids){try{const out=path.join(os.tmpdir(),`flux-sample-${pid}.txt`);execFileSync('sample',[pid,'2','-file',out],{stdio:'ignore'});
-  const text=await fs.readFile(out,'utf8');console.error(`=== sample ${pid}\n`+text.split('\n').slice(0,110).join('\n'));}catch(e){console.error(`sample ${pid} failed: ${e.message}`)}}}
+  const lines=(await fs.readFile(out,'utf8')).split('\n'),hot=lines.filter(l=>/Keychain|SecItem|SecKeychain|OSCrypt|safe.?storage|kcsearch|SecurityAgent|semaphore|ConditionVariable|WaitableEvent|_pthread_cond_wait|mach_msg/i.test(l));
+  console.error(`=== sample ${pid}\n`+lines.slice(0,45).join('\n')+`\n--- ${hot.length} wait/keychain frames ---\n`+hot.slice(0,70).join('\n'));}catch(e){console.error(`sample ${pid} failed: ${e.message}`)}}}
 // puppeteer can reject outside an awaited call (a page it creates for an unresponsive target).
 process.on('unhandledRejection',async error=>{console.error(error);await sampleFlux();process.exit(1);});
 async function command(file,argv,extraEnv={},deadlineMs=60000){const child=scope.spawn(argv[0]??'',argv.slice(1),{command:file,nodeArgs:[],cwd,env:{...env,...extraEnv},deadlineMs});const status=await scope.waitExit(child);assert.equal(status.code,0,`${file}: ${child.stdout}\n${child.stderr}`);return child.stdout+child.stderr;}
@@ -101,7 +102,15 @@ try{
    const paused=new Promise(r=>probe.once('Debugger.paused',r));await within(10000,probe.send('Debugger.enable').catch(()=>{}));await within(10000,probe.send('Debugger.pause').catch(()=>{}));
    const event=await within(15000,paused);console.error(event==='TIMEOUT'?'Debugger.pause got no answer (renderer blocked outside JavaScript)':'renderer JavaScript stack:\n'+event.callFrames.map(f=>`  ${f.functionName||'(anonymous)'} ${f.url}:${f.location.lineNumber+1}:${f.location.columnNumber+1}`).join('\n'));
    await sampleFlux();throw Error('packaged window renderer is unresponsive (see the stack and samples above)');}
-  else console.error(`renderer answers: ${answer.result?.value}`);await probe.detach().catch(()=>{});}
+  else{console.error(`renderer answers: ${answer.result?.value}`);
+   // The Mac window then sat in readyState 'loading' with Network.enable hung until the app was killed
+   // (2026-10-04). Wait for the document; if it never finishes, record what it is waiting on and sample
+   // every Flux process while they are still alive.
+   let state='loading';for(let i=0;i<60&&state==='loading';i++){await new Promise(r=>setTimeout(r,500));const v=await within(5000,probe.send('Runtime.evaluate',{expression:'document.readyState',returnByValue:true}).catch(()=>null));state=v&&v!=='TIMEOUT'?v.result?.value:state;}
+   if(state==='loading'){const detail=await within(10000,probe.send('Runtime.evaluate',{returnByValue:true,expression:"JSON.stringify({scripts:[...document.querySelectorAll('script')].map(s=>(s.src||'inline')+(s.type?' '+s.type:'')+(s.async?' async':'')+(s.defer?' defer':'')),links:[...document.querySelectorAll('link')].map(l=>l.rel+' '+l.href),resources:performance.getEntriesByType('resource').map(e=>e.name+' end='+Math.round(e.responseEnd)),body:(document.body?.innerHTML||'').slice(0,300)})"}).catch(e=>'ERR '+e.message));
+    console.error('document still loading after 30 s:',typeof detail==='string'?detail:detail.result?.value);await sampleFlux();throw Error('packaged window never finished loading (see resources and samples above)');}
+   console.error(`document readyState: ${state}`);}
+  await probe.detach().catch(()=>{});}
  const page=await target.page();
  assert.ok(page,'packaged application opens its window');
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
