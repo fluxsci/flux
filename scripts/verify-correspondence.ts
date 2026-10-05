@@ -1,8 +1,8 @@
 // Animation v2 B2/B3: real public planner + sampler, hand-written stage fixtures.
 import { readFileSync } from "node:fs";
 import { harness } from "./lib/harness.mjs";
-import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, opaque, expandPolygon } from "../src/lib/slide/correspondence";
-import { planCorrespondence as corePlan, sampleCorrespondence as coreSample } from "../flux-core/index";
+import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, RING_MORPH_THRESHOLD, opaque, expandPolygon } from "../src/lib/slide/correspondence";
+import { planCorrespondence as corePlan, sampleCorrespondence as coreSample, RING_MORPH_THRESHOLD as coreRingCap } from "../flux-core/index";
 import { planOutlines, parameterize, pointAt, sampleNodes } from "../src/lib/slide/outline";
 import { nodesExtent } from "../src/lib/path";
 import { lerpColor, prepareColorLerp } from "../src/lib/color/interp";
@@ -323,4 +323,32 @@ h.ok(large.pairs.every((p) => {
 }), "(f) landing points lie on the actual destination chain");
 h.ok(large.pairs.every((p) => near(p.landing!.x, 30 + 192 * p.a!.owner.data!.x!, 1e-7)), "glyphs land at their own data station, including endpoint tails");
 h.eq(GLYPH_FLIGHT_THRESHOLD, 64, "glyph threshold is pinned at 64");
+
+h.section("ring ↔ ring sets morph; only markers pouring into a stroke fly as glyphs (2026-10-05)");
+// The owner's slide: 88 logo dots (small rings) become 88 drawn ellipses. Over the glyph
+// threshold, but every dot has a RING to become, so the truest picture is the outline morph
+// one dot gets — the glyph flight (fly, shrink to the stroke, fade) is for a stroke destination.
+h.eq(coreRingCap, RING_MORPH_THRESHOLD, "flux-core exports the same ring-morph budget");
+const ringAt = (id: string, x: number, y: number, size: number, fill = "#4488cc") => outline(id, [[x - size / 2, y - size / 2], [x + size / 2, y - size / 2], [x + size / 2, y + size / 2], [x - size / 2, y + size / 2]], true, {}, { fill, strokeWidth: 2 });
+const dots = Array.from({ length: 88 }, (_, i) => ringAt(`dot${i}`, 20 + (i % 11) * 10, 20 + Math.floor(i / 11) * 10, 8));
+const drawn = Array.from({ length: 88 }, (_, i) => ringAt(`ell${i}`, 300 + (i % 11) * 18, 40 + Math.floor(i / 11) * 18, 16, "#7fd68d"));
+const rr = planCorrespondence(dots, drawn); rr.prepare();
+h.eq(rr.driver, "path", "(g) 88 small rings becoming 88 rings take the PATH driver (an outline morph per pair)");
+h.ok(rr.pairs.length === 88 && rr.pairs.every((p) => p.a && p.b && p.plan && !p.landing && !p.crossfade), "(g) every dot is paired with a ring and carries a prepared outline plan");
+const mid = sampleCorrespondence(rr, 0.5);
+h.ok(mid.every((p) => p.closed && p.nodes.length >= 4 && p.opacity === 1), "(g) mid-flight every pair is one closed ring at full opacity — nothing fades");
+h.ok(mid.every((p, i) => { const a = rr.pairs[i].a!, b = rr.pairs[i].b!, e = nodesExtent(p.nodes, true); return near(e.w, (a.bbox.w + b.bbox.w) / 2, 1e-6) && near(e.h, (a.bbox.h + b.bbox.h) / 2, 1e-6); }), "(g) at t = 0.5 each ring is halfway between its dot's size and its ellipse's size");
+// The same dots pouring into ONE stroke stay glyph flights: their pieces are open arcs.
+const intoLine = planCorrespondence(dots, [outline("line", [[300, 60], [560, 60]])]);
+h.eq(intoLine.driver, "glyph", "(g) 88 small rings into one stroke still fly as glyphs (tiles are open pieces)");
+h.ok(intoLine.pairs.every((p) => !p.plan && p.landing && near(p.landing.y, 60, 1e-9) && near(p.landing.scale, 2 / 8, 1e-9)), "(g) a stroke landing sits on the stroke at the stroke's width");
+// Beyond the ring-morph budget a ring ↔ ring set falls back to glyph flights that land on
+// each ring's CENTRE at the ring's size (never a point on its perimeter at stroke width).
+const many = RING_MORPH_THRESHOLD + 1, cols = Math.ceil(Math.sqrt(many));
+const manyDots = Array.from({ length: many }, (_, i) => ringAt(`md${i}`, (i % cols) * 6, Math.floor(i / cols) * 6, 4));
+const manyRings = Array.from({ length: many }, (_, i) => ringAt(`mr${i}`, 1000 + (i % cols) * 12, Math.floor(i / cols) * 12, 8, "#7fd68d"));
+const over = planCorrespondence(manyDots, manyRings);
+h.eq(over.driver, "glyph", `(g) ${many} ring ↔ ring pairs exceed the morph budget and fly as glyphs`);
+h.ok(over.pairs.every((p) => !p.plan && p.landing && near(p.landing.x, p.b!.bbox.x + p.b!.bbox.w / 2, 1e-9) && near(p.landing.y, p.b!.bbox.y + p.b!.bbox.h / 2, 1e-9) && near(p.landing.scale, 2, 1e-9)), "(g) each glyph lands on its ring's centre at the ring's size");
+h.eq(planCorrespondence(manyDots.slice(0, RING_MORPH_THRESHOLD), manyRings.slice(0, RING_MORPH_THRESHOLD)).driver, "path", `(g) exactly ${RING_MORPH_THRESHOLD} ring ↔ ring pairs still morph`);
 await h.done();

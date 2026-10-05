@@ -1359,8 +1359,18 @@ Persistence invariants (all machine-checked — do not weaken):
   Call `CorrespondencePlan.prepare()` in the warm hook before sampling (unprepared sampling
   refuses instead of planning on the frame path), and retain its output array to reuse all
   geometry/dash buffers and prepared OKLab conversions. Unsliced `destinations` and merged
-  `owner.members` are the reveal inventory. Large marker sets expose glyph landing points;
-  text/raster pairs expose crossfade boxes without a path plan. The core does not mount the
+  `owner.members` are the reveal inventory. The flight DRIVER is chosen by what the rings
+  land on, not by count alone (2026-10-05): a set of more than `GLYPH_FLIGHT_THRESHOLD` (64)
+  marker-sized rings flies as glyphs (the markers themselves fly, shrink to the stroke and
+  fade over the last 15 %) ONLY when its rings pour into open pieces (a scatter into a fitted
+  line) or when a ring ↔ ring set exceeds `RING_MORPH_THRESHOLD` (400 — measured in the
+  portable player: 400 ring morphs 4.9 ms of main thread per frame, 1,200 → 15 ms and dropped
+  frames; `scripts/perf/slide-handoff-cost-probe.mts`). Within that budget a ring ↔ ring set
+  keeps the path driver and every dot morphs outline to outline exactly as one dot does
+  (88 logo dots → 88 drawn ellipses used to glide, shrink and fade while the ellipses popped
+  in). A glyph that does land on a ring lands on its centre at the ring's size; one landing
+  on a stroke sits at the stroke's station and width. Text/raster pairs expose crossfade
+  boxes without a path plan. The core does not mount the
   hand-off flight layer. The player's `handoff.ts` owns one retained drawing group per
   controller inside `renderSlide`'s last camera child, `svg.sl-flight`. `handoffPlan.ts`
   prepares the same correspondence for playback and optional-context dock warming.
@@ -9837,3 +9847,29 @@ Canvas/pick pathMap set green.
 
 ### 2026-10-04 16:16 CDT — Reconcile main with origin and publish Mac fixes (Codex, main)
 **Work:** Investigated the five-local/one-remote divergence: four unpushed integration merges plus the original Mac compatibility commit, against upstream's plot-part selection work. Committed the pending logo guide notes and merged `b535f64c`, preserving both sides; only appended guide entries conflicted. Renderer check (0 errors/warnings), headless check, production build and eight focused gates pass (part marquee, Become picker pure/GUI, part movement, zoom proxy, Figure-Meta refinements, docs and manifest contracts), using the installed Chrome for Testing through `FLUX_CHROME` after the default browser path proved absent.
+
+### 2026-10-05 — 88 dots that faded instead of becoming: the glyph-flight rule was count-only (Claude Fable 5.1, `main`)
+**Work:** Owner annotation (MASTER_DEMO deck, slide 8): one logo dot became a drawn ellipse
+perfectly, but 88 dots → 88 ellipses glided into place, shrank, faded out and the ellipses popped
+in. `planCorrespondence` picked the glyph driver for ANY set of more than 64 small rings, so each
+dot flew to a point on its ellipse's PERIMETER at stroke-width scale and faded over the last 15 %.
+The driver is now keyed on the destination: ring ↔ ring sets keep the path driver (an outline
+morph per pair) up to `RING_MORPH_THRESHOLD` = 400, measured in the exported player (88 → 1.6 ms,
+400 → 4.9 ms, 1,200 → 15 ms per frame with rAF p95 33 ms); rings pouring into open pieces stay
+glyph flights; a glyph landing on a ring lands on its centre at the ring's size. Body §4 updated;
+`verify-correspondence` (g) pins the three cases; the measurement probe is
+`scripts/perf/slide-handoff-cost-probe.mts`. The owner's second annotation (a Diels–Alder
+animation on slide 10) was authored headlessly with Change tracks — the script lives in the demo
+repo's `notes_planning_etc/`, not here.
+**Learnings:**
+- A budget fallback keyed on COUNT alone overrode the truest picture: "many small sources" is
+  not "sources with nothing to become". Key such fallbacks on the destination's kind first and
+  measure the count ceiling in the real player (JS seek time + rAF intervals per frame).
+- Film the owner's own step before and after (`slide-handoff-strip-probe.mts` on a trimmed
+  scratch copy: project.json + the deck's slides of interest + their assets — the 2.6 GB
+  project itself never needs copying).
+- A connector whose two ends must follow two moving objects (a forming bond): give it ONE Change
+  whose start and end geometry are those objects' start and end poses on the same timing — matching
+  linear lerps coincide at every t; opacity 0 → 1 on the same Change reads as the bond strengthening.
+- `page.evaluate` under tsx: pass the body as a STRING (tsx injects `__name` helpers into named
+  inner functions, which do not exist in the page) — the known trap, met again.

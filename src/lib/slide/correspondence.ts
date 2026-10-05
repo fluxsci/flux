@@ -69,10 +69,18 @@ export interface SampledPath {
   owner: { a?: OutlineOwner; b?: OutlineOwner };
 }
 export const GLYPH_FLIGHT_THRESHOLD = 64;
+/** Ring ↔ ring sets morph outline to outline up to this many pairs (the driver choice
+ *  in planCorrespondence); beyond it they fall back to glyph flights. Measured in the
+ *  portable player on the reference workstation (2026-10-05, scratch-probe/frame-cost):
+ *  88 ring morphs 1.6 ms of main thread per frame, 400 → 4.9 ms (p95 6.2, rAF held at
+ *  16.7), 1,200 → 15 ms with rAF p95 at 33 ms — so 400 keeps a third of the frame. */
+export const RING_MORPH_THRESHOLD = 400;
 const clamp = (v: number) => Math.max(0, Math.min(1, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const center = (o: StageOutline) => ({ x: o.bbox.x + o.bbox.w / 2, y: o.bbox.y + o.bbox.h / 2 });
 const boxOnly = (o: StageOutline) => !!(o.paint.text || o.paint.raster);
+/** A marker-sized ring (a scatter point, a logo dot): what a glyph flight may carry. */
+const smallRing = (o: StageOutline) => o.closed && !boxOnly(o) && o.bbox.w <= 12 && o.bbox.h <= 12;
 const length = (o: Outline) => parameterize(o.nodes, o.closed).total;
 const copyNode = (n: VectorNode): VectorNode => ({ ...n, hIn: n.hIn && { ...n.hIn }, hOut: n.hOut && { ...n.hOut } });
 const members = (o: StageOutline) => o.owner.members ?? [{ elementId: o.owner.elementId, ...(o.owner.partId === undefined ? {} : { partId: o.owner.partId }) }];
@@ -509,15 +517,31 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
       pairs.push(...spatial(as.filter((o) => !Number.isFinite(o.owner.index)), bs.filter((o) => !Number.isFinite(o.owner.index))));
     } else { policy = "spatial"; pairs = spatial(as, bs); }
   } else { policy = "spatial"; pairs = spatial(as, bs); }
-  const driver = pairs.length > GLYPH_FLIGHT_THRESHOLD && as.length > 0 && as.every((o) => o.closed && !boxOnly(o) && o.bbox.w <= 12 && o.bbox.h <= 12) ? "glyph" : "path";
+  // The glyph driver is the BUDGET route for markers pouring into a STROKE: a dense
+  // scatter's points fly to their stations on a fitted line, shrink to its width and
+  // fade, because planning and sampling 1,200 outline morphs there would not hold a
+  // frame. It is never the truest picture for a ring that has a RING to become: 88
+  // logo dots becoming 88 drawn ellipses must morph outline to outline exactly as one
+  // dot does (owner, 2026-10-05 — "truly becoming, not a fade unless nothing better
+  // exists"), so a ring ↔ ring set stays on the path driver up to RING_MORPH_THRESHOLD
+  // pairs (a ring morph is a handful of nodes; the budget's measurement sits on the
+  // constant). Only a set whose rings land on open pieces, or one beyond that budget,
+  // flies as glyphs.
+  const markers = pairs.length > GLYPH_FLIGHT_THRESHOLD && as.length > 0 && as.every(smallRing);
+  const ringToRing = markers && pairs.every((p) => !p.a || !p.b || (p.b.closed && !boxOnly(p.b)));
+  const driver = markers && !(ringToRing && pairs.length <= RING_MORPH_THRESHOLD) ? "glyph" : "path";
   for (const pair of pairs) {
     // A glyph flight moves the marker nodes themselves and never samples a
     // path plan, so planning 1,200 outline correspondences would only burn the
     // warm hook (measured: ~65 of ~90 ms). Glyph pairs keep their landing only.
     if (driver !== "glyph") planPair(pair);
     if (driver === "glyph" && pair.a && pair.b && !pair.landing) {
-      const station = pointAt(paramOf(pair.b), 0.5);
-      pair.landing = { ...station, scale: pair.b.paint.strokeWidth / (Math.max(pair.a.bbox.w, pair.a.bbox.h) || 1) };
+      const b = pair.b, size = Math.max(pair.a.bbox.w, pair.a.bbox.h) || 1;
+      // A marker landing on a RING (a ring ↔ ring set over the morph budget) lands on
+      // the ring's centre at the ring's size; one landing on a stroke sits on the
+      // stroke's station at the stroke's width.
+      if (b.closed) pair.landing = { x: b.bbox.x + b.bbox.w / 2, y: b.bbox.y + b.bbox.h / 2, scale: Math.max(b.bbox.w, b.bbox.h) / size };
+      else { const station = pointAt(paramOf(b), 0.5); pair.landing = { ...station, scale: b.paint.strokeWidth / size }; }
     }
   }
   const result: CorrespondencePlan = { pairs, policy, driver, destinations: bs, prepare() { for (const p of pairs) p.plan?.prepare(); } };
