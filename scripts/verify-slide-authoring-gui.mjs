@@ -113,6 +113,26 @@ try{
   const {verifyCopyTiming,verifyM3CrossBeatSeams}=await import('./lib/animatorCurveChecks.mjs');
   await verifyCopyTiming(page,check);
   await verifyM3CrossBeatSeams(page,check);
+  // Filmstrip names (owner, 2026-10-05): a duplicate continues a lettered series on its base name,
+  // and the caption renames in place — double-click or F2, Enter/blur commits, Escape cancels.
+  const names=()=>page.evaluate(()=>window.__flux.get(window.__flux.slide.deckOverlay).slides.map(s=>s.name??''));
+  const before=await names();
+  await page.click('.thumb.active .ta[title="Duplicate"]');await paint();
+  const after=await names();
+  check(after.length===before.length+1&&after.some(n=>/_a$/.test(n))&&!after.some(n=>/ copy$/.test(n)),`duplicating a slide names it <base>_a, never "… copy" (${after.join(' | ')})`);
+  await page.click('.thumb.active .ta[title="Duplicate"]');await paint();
+  check((await names()).some(n=>/_b$/.test(n)),'the next duplicate continues the series with _b');
+  await page.evaluate(()=>document.querySelector('.thumb.active .nm').dispatchEvent(new MouseEvent('dblclick',{bubbles:true})));await paint();
+  check(!!await page.$('.thumb.active input.nm-edit'),'double-clicking the active caption opens the rename field in place');
+  await page.keyboard.down('Control');await page.keyboard.press('KeyA');await page.keyboard.up('Control');
+  await page.keyboard.type('Methods overview');await page.keyboard.press('Enter');await paint();
+  const activeName=()=>page.evaluate(()=>{const f=window.__flux,sid=f.get(f.fig.activeFigureId);return f.get(f.slide.deckOverlay).slides.find(s=>s.id===sid).name;});
+  check(await activeName()==='Methods overview'&&!(await page.$('input.nm-edit')),'Enter commits the typed name and closes the field');
+  await page.keyboard.press('F2');await paint();
+  check(!!await page.$('.thumb.active input.nm-edit'),'F2 opens the rename field for the active slide');
+  await page.keyboard.type(' scrapped');await page.keyboard.press('Escape');await paint();
+  check(await activeName()==='Methods overview'&&!(await page.$('input.nm-edit')),'Escape cancels the edit and keeps the committed name');
+  check(await page.$eval('.thumb.active .nm',e=>e.textContent.trim())==='Methods overview','the caption shows the new name');
   check(realErrors(page).length===0,'console remains clean: '+realErrors(page).join('; '));
   await page.screenshot({path:'test-results/slide-authoring-overhaul.png',fullPage:true});
   console.log(`##VERIFY## ${JSON.stringify({name:'slide-authoring-gui',passed,failed:0})}`);

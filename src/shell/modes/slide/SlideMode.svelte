@@ -473,6 +473,26 @@
     });
     if (nid) selectSlide(nid);
   }
+  // Rename in the filmstrip (owner, 2026-10-05): double-click a caption, or F2 on the
+  // active slide; Enter / blur commits, Escape cancels. The Slide inspector's name field
+  // and `set-slide --name` write the same op.
+  let renaming = $state<{ id: string; value: string } | null>(null);
+  const renameValue = () => renaming?.value ?? "";
+  function startRename(id: string) {
+    const s = overlay?.slides.find((x) => x.id === id);
+    if (!s) return;
+    renaming = { id, value: s.name ?? "" };
+    requestAnimationFrame(() => { const el = filmEl?.querySelector<HTMLInputElement>("input.nm-edit"); el?.focus(); el?.select(); });
+  }
+  function commitRename() {
+    const r = renaming;
+    renaming = null;
+    if (!r) return;
+    const name = r.value.trim();
+    const s = overlay?.slides.find((x) => x.id === r.id);
+    if (!name || !s || (s.name ?? "") === name) return;
+    commitDeckLive((dd) => slideOps.setSlide(dd, r.id, { name }));
+  }
   async function onDeleteSlide(id: string) {
     if ((overlay?.slides.length ?? 0) <= 1 || !pm || !activeDeckId) return;
     const deckId = activeDeckId;
@@ -1417,6 +1437,8 @@
       return;
     }
     if (!typing) {
+      // F2 renames the active slide in the filmstrip.
+      if (e.key === "F2" && !e.ctrlKey && !e.metaKey && !e.altKey && $activeFigureId) { e.preventDefault(); startRename($activeFigureId); return; }
       // F5 presents from the first slide; Shift+F5 from the current one.
       if (e.key === "F5") {
         e.preventDefault();
@@ -1674,7 +1696,7 @@
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="thumb" class:active={s.id === $activeFigureId}
             class:dragging={dragIdx === i} class:dropbefore={dropIdx === i && dragIdx !== null && dragIdx > i} class:dropafter={dropIdx === i && dragIdx !== null && dragIdx < i}
-            draggable="true"
+            draggable={renaming?.id !== s.id}
             ondragstart={(e) => { dragIdx = i; if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; }}
             ondragover={(e) => { e.preventDefault(); dropIdx = i; if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; }}
             ondrop={(e) => { e.preventDefault(); if (dragIdx !== null) moveSlide(dragIdx, i); dragIdx = null; dropIdx = null; }}
@@ -1682,7 +1704,16 @@
             onclick={() => selectSlide(s.id)}>
             <span class="n">{i + 1}</span>
             <div class="mini"><SlideThumb slideId={s.id} {stage} /></div>
-            <span class="nm">{s.name ?? `Slide ${i + 1}`}</span>
+            {#if renaming?.id === s.id}
+              <input class="nm-edit" value={renameValue()} aria-label="Slide name" spellcheck="false"
+                oninput={(e) => { if (renaming) renaming.value = e.currentTarget.value; }}
+                onclick={(e) => e.stopPropagation()} ondblclick={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()}
+                onkeydown={(e) => { e.stopPropagation(); if (e.key === "Enter") commitRename(); else if (e.key === "Escape") renaming = null; }}
+                onblur={commitRename} />
+            {:else}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <span class="nm" title="Double-click to rename (F2)" ondblclick={(e) => { e.stopPropagation(); startRename(s.id); }}>{s.name ?? `Slide ${i + 1}`}</span>
+            {/if}
             <div class="thumbacts">
               <button class="ta" title="Duplicate" aria-label="Duplicate slide" onclick={(e) => { e.stopPropagation(); onDuplicateSlide(s.id); }}>⧉</button>
               {#if overlay.slides.length > 1}
@@ -2009,6 +2040,10 @@
   .mini { border: 1px solid var(--c-line-strong); border-radius: var(--r-0); overflow: hidden; position: relative; }
   .nm { font-size: 11px; color: var(--c-tx-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .thumb.active .nm { color: var(--c-tx-hi); }
+  .nm-edit {
+    font: 11px var(--font-ui); color: var(--c-tx-hi); background: var(--c-surface); border: 1px solid var(--c-accent);
+    border-radius: var(--r-ui); padding: 0 4px; min-width: 0; width: 100%; height: 18px; box-sizing: border-box;
+  }
   .thumbacts { position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; opacity: 0; }
   .thumb:hover .thumbacts { opacity: 1; }
   .ta {

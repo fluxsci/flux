@@ -1359,18 +1359,21 @@ Persistence invariants (all machine-checked — do not weaken):
   Call `CorrespondencePlan.prepare()` in the warm hook before sampling (unprepared sampling
   refuses instead of planning on the frame path), and retain its output array to reuse all
   geometry/dash buffers and prepared OKLab conversions. Unsliced `destinations` and merged
-  `owner.members` are the reveal inventory. The flight DRIVER is chosen by what the rings
-  land on, not by count alone (2026-10-05): a set of more than `GLYPH_FLIGHT_THRESHOLD` (64)
-  marker-sized rings flies as glyphs (the markers themselves fly, shrink to the stroke and
-  fade over the last 15 %) ONLY when its rings pour into open pieces (a scatter into a fitted
-  line) or when a ring ↔ ring set exceeds `RING_MORPH_THRESHOLD` (400 — measured in the
-  portable player: 400 ring morphs 4.9 ms of main thread per frame, 1,200 → 15 ms and dropped
-  frames; `scripts/perf/slide-handoff-cost-probe.mts`). Within that budget a ring ↔ ring set
-  keeps the path driver and every dot morphs outline to outline exactly as one dot does
-  (88 logo dots → 88 drawn ellipses used to glide, shrink and fade while the ellipses popped
-  in). A glyph that does land on a ring lands on its centre at the ring's size; one landing
-  on a stroke sits at the stroke's station and width. Text/raster pairs expose crossfade
-  boxes without a path plan. The core does not mount the
+  `owner.members` are the reveal inventory. THE LAW (owner, 2026-10-05): every pair morphs,
+  outline to outline — a dot becomes its ellipse, a dot becomes its piece of a rectangle's
+  outline, a point becomes its slice of a fitted line — and nothing on either side merely
+  fades while the other side has outlines: `complete()` hands a destination the greedy match
+  left over to its nearest matched source (which tiles across both) and merges a leftover
+  source into a piece of its nearest destination; only a side with nothing opposite it, or a
+  text/raster box (no outline to split), keeps the fade envelope. The glyph driver (the
+  markers themselves fly, shrink to their landing and fade over the last 15 %) is purely the
+  BUDGET route: a set of more than `GLYPH_FLIGHT_THRESHOLD` (400) marker-sized rings — measured
+  in the exported player, 400 morphs cost 4.9 ms of main thread per frame, 1,200 cost 15 ms and
+  dropped frames (`scripts/perf/slide-handoff-cost-probe.mts`). Until 2026-10-05 the threshold
+  was 64 and keyed on count alone, so 88 logo dots that had ellipses or a rectangle to become
+  glided, shrank and crossfaded instead. A glyph landing on a ring sits on its centre at the
+  ring's size; one landing on a stroke at the stroke's station and width. Text/raster pairs
+  expose crossfade boxes without a path plan. The core does not mount the
   hand-off flight layer. The player's `handoff.ts` owns one retained drawing group per
   controller inside `renderSlide`'s last camera child, `svg.sl-flight`. `handoffPlan.ts`
   prepares the same correspondence for playback and optional-context dock warming.
@@ -9873,3 +9876,24 @@ repo's `notes_planning_etc/`, not here.
   linear lerps coincide at every t; opacity 0 → 1 on the same Change reads as the bond strengthening.
 - `page.evaluate` under tsx: pass the body as a STRING (tsx injects `__name` helpers into named
   inner functions, which do not exist in the page) — the known trap, met again.
+
+### 2026-10-05 (later) — The law behind the Become driver, correspondence completion, slide names (Claude Fable 5.1, `main`)
+**Work:** The owner's next round: 88 dots becoming ONE rectangle's outline still crossfaded (the
+morning's ring ↔ ring rule did not cover rings landing on open pieces), with the instruction to find
+the general law rather than a patch. The law is now that EVERY pair morphs and the glyph driver is
+only the measured budget route (`GLYPH_FLIGHT_THRESHOLD` 64 → 400; `RING_MORPH_THRESHOLD`
+removed the same day it was added); and `spatial()` gained `complete()`: leftovers split or merge
+into their nearest matched counterpart instead of fading (`verify-correspondence` (d) and (g)
+rewritten). Slide duplicates are named `<base>_a`, `_b`, … (`ops.duplicateName`) and the filmstrip
+caption renames on double-click or F2 (the Slide inspector field already did). Two demo slides
+authored headlessly in the demo repo's `notes_planning_etc/` (pinacol re-paced ×1.4, a Beckmann
+ring expansion), both all-geometric: no opacity anywhere.
+**Learnings:**
+- When the owner says "general", look for the rule that made the special case necessary and
+  delete it: the morning's fix added a second count constant for one shape pair; the law needed
+  one budget constant and no shape test at all.
+- A completion step belongs in the generic pairing policy, not in callers: `tile()` already knew
+  how to split one outline across partners, so leftovers only needed routing to a host.
+- A heptagon that grows out of a hexagon needs nothing but every bond's two endpoints tweening
+  to the new polygon on one timing; a bond that migrates is the same Change with one endpoint
+  re-homed. Bonds that form grow from a 0.01-px dot; bonds that break collapse into their atom.

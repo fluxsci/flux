@@ -1,8 +1,8 @@
 // Animation v2 B2/B3: real public planner + sampler, hand-written stage fixtures.
 import { readFileSync } from "node:fs";
 import { harness } from "./lib/harness.mjs";
-import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, RING_MORPH_THRESHOLD, opaque, expandPolygon } from "../src/lib/slide/correspondence";
-import { planCorrespondence as corePlan, sampleCorrespondence as coreSample, RING_MORPH_THRESHOLD as coreRingCap } from "../flux-core/index";
+import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, opaque, expandPolygon } from "../src/lib/slide/correspondence";
+import { planCorrespondence as corePlan, sampleCorrespondence as coreSample, GLYPH_FLIGHT_THRESHOLD as coreBudget } from "../flux-core/index";
 import { planOutlines, parameterize, pointAt, sampleNodes } from "../src/lib/slide/outline";
 import { nodesExtent } from "../src/lib/path";
 import { lerpColor, prepareColorLerp } from "../src/lib/color/interp";
@@ -174,17 +174,27 @@ const logPoints = [1, 10, 100].map((x, i) => ring(`log${i}`, i * 10, 80, x));
 const logPlan = planCorrespondence(logPoints, [axisChain], { pair: "data", data: { destAxisFit: { m: 100 / Math.log(100), c: 0, log: true } } });
 h.ok(near(logPlan.pairs[0].b!.nodes.at(-1)!.x, 25) && near(logPlan.pairs[1].b!.nodes.at(-1)!.x, 75), "log fits project each source datum before cutting midpoint stations");
 
-h.section("leftovers, policies and crossfades");
+h.section("completion, policies and crossfades");
+// 2026-10-05: once both sides have outlines nothing merely fades — a leftover destination
+// receives a piece of its nearest source (which splits), a leftover source merges into a piece
+// of its nearest destination. Only a side with nothing opposite it keeps the fade envelope.
 const a3 = [0, 20, 40].map((x, i) => ring(`a${i}`, x, 0));
 const b4 = [0, 20, 40, 60].map((x, i) => ring(`b${i}`, x, 30));
 const leftover = planCorrespondence(a3, b4, { pair: "spatial" }); leftover.prepare();
-h.eq(leftover.pairs.filter((p) => !p.a && !!p.b).length, 1, "(d) 3↔4 leaves exactly one destination-only outline");
-const li = leftover.pairs.findIndex((p) => !p.a);
-h.ok([0, 0.2, 0.6].every((t) => sampleCorrespondence(leftover, t)[li].opacity === 0) && sampleCorrespondence(leftover, 1)[li].opacity === 1, "(d) destination leftover envelope is zero through 0.6 and one at 1");
-h.ok(near(sampleCorrespondence(leftover, 0.8)[li].opacity, 0.5), "destination leftover fades linearly");
-const fade = planCorrespondence(b4, a3, { pair: "spatial" }); fade.prepare();
-const fi = fade.pairs.findIndex((p) => !p.b);
-h.ok(sampleCorrespondence(fade, 0)[fi].opacity === 1 && near(sampleCorrespondence(fade, 0.2)[fi].opacity, 0.5) && sampleCorrespondence(fade, 0.4)[fi].opacity === 0, "source leftover uses the first 40 percent");
+h.ok(leftover.pairs.length === 4 && leftover.pairs.every((p) => p.a && p.b), "(d) 3↔4 completes: four pairs, no destination-only outline");
+const split = leftover.pairs.filter((p) => p.a!.owner.elementId === "a2");
+h.ok(split.length === 2 && split.every((p) => !p.a!.closed) && near(split.reduce((sum, p) => sum + len(p.a!), 0), 16, 1e-6) && new Set(split.map((p) => p.b!.owner.elementId)).size === 2, "(d) the nearest source (a2) splits into two arcs covering its whole ring, one per destination (b2, b3)");
+h.ok([0.2, 0.5, 0.8].every((t) => sampleCorrespondence(leftover, t).every((p) => p.opacity === 1)), "(d) every piece stays at full opacity mid-flight — nothing fades in");
+const merge = planCorrespondence(b4, a3, { pair: "spatial" }); merge.prepare();
+h.ok(merge.pairs.length === 4 && merge.pairs.every((p) => p.a && p.b), "(d) 4↔3 completes the other way: the extra source merges into a piece of its nearest destination");
+h.ok(merge.pairs.filter((p) => p.b!.owner.elementId === "a2").length === 2 && [0.2, 0.5, 0.8].every((t) => sampleCorrespondence(merge, t).every((p) => p.opacity === 1)), "(d) the destination a2 is tiled into two pieces and nothing fades out");
+const alone = planCorrespondence(a3, [], { pair: "spatial" }); alone.prepare();
+h.ok(alone.pairs.length === 3 && alone.pairs.every((p) => p.a && !p.b) && sampleCorrespondence(alone, 0)[0].opacity === 1 && near(sampleCorrespondence(alone, 0.2)[0].opacity, 0.5) && sampleCorrespondence(alone, 0.4)[0].opacity === 0, "(d) with nothing opposite, a source still leaves over the first 40 percent");
+const arriving = planCorrespondence([], b4, { pair: "spatial" }); arriving.prepare();
+h.ok(arriving.pairs.length === 4 && [0, 0.2, 0.6].every((t) => sampleCorrespondence(arriving, t)[0].opacity === 0) && sampleCorrespondence(arriving, 1)[0].opacity === 1, "(d) with nothing opposite, a destination still arrives over the last 40 percent");
+const textHost = outline("label", [[0, 0], [60, 0], [60, 20], [0, 20]], true, {}, { text: true });
+const unsplit = planCorrespondence([textHost], b4.slice(0, 2), { pair: "spatial" });
+h.ok(unsplit.pairs.length === 2 && unsplit.pairs.filter((p) => !p.a).length === 1, "(d) a text box cannot split: its leftover destination keeps the fade");
 const indexed = a3.map((o, i) => ({ ...o, owner: { ...o.owner, index: 2 - i } }));
 h.eq(choosePolicy(points, [sine], { destAxisFit: fit }), "data", "(h) auto chooses data with a shared variable and fit");
 h.eq(choosePolicy(indexed, indexed), "order", "(h) auto chooses order for indexed equal counts");
@@ -322,13 +332,14 @@ h.ok(large.pairs.every((p) => {
   return near(q.y, a.y + (b.y - a.y) * (q.x - a.x) / (b.x - a.x), 1e-7);
 }), "(f) landing points lie on the actual destination chain");
 h.ok(large.pairs.every((p) => near(p.landing!.x, 30 + 192 * p.a!.owner.data!.x!, 1e-7)), "glyphs land at their own data station, including endpoint tails");
-h.eq(GLYPH_FLIGHT_THRESHOLD, 64, "glyph threshold is pinned at 64");
 
-h.section("ring ↔ ring sets morph; only markers pouring into a stroke fly as glyphs (2026-10-05)");
-// The owner's slide: 88 logo dots (small rings) become 88 drawn ellipses. Over the glyph
-// threshold, but every dot has a RING to become, so the truest picture is the outline morph
-// one dot gets — the glyph flight (fly, shrink to the stroke, fade) is for a stroke destination.
-h.eq(coreRingCap, RING_MORPH_THRESHOLD, "flux-core exports the same ring-morph budget");
+h.section("every pair morphs; glyph flights are only the budget route (2026-10-05)");
+// The owner's slides: 88 logo dots (small rings) become 88 drawn ellipses, and 88 dots become
+// ONE rectangle's outline. Both were over the old count-only threshold and crossfaded at landing.
+// The law: the path driver (an outline morph per pair) up to GLYPH_FLIGHT_THRESHOLD pairs of
+// marker-sized rings; only beyond it do the markers themselves fly, shrink and fade.
+h.eq(coreBudget, GLYPH_FLIGHT_THRESHOLD, "flux-core exports the same budget");
+h.eq(GLYPH_FLIGHT_THRESHOLD, 400, "the budget is pinned at 400 (measured: 400 ring morphs 4.9 ms per frame, 1,200 → 15 ms)");
 const ringAt = (id: string, x: number, y: number, size: number, fill = "#4488cc") => outline(id, [[x - size / 2, y - size / 2], [x + size / 2, y - size / 2], [x + size / 2, y + size / 2], [x - size / 2, y + size / 2]], true, {}, { fill, strokeWidth: 2 });
 const dots = Array.from({ length: 88 }, (_, i) => ringAt(`dot${i}`, 20 + (i % 11) * 10, 20 + Math.floor(i / 11) * 10, 8));
 const drawn = Array.from({ length: 88 }, (_, i) => ringAt(`ell${i}`, 300 + (i % 11) * 18, 40 + Math.floor(i / 11) * 18, 16, "#7fd68d"));
@@ -338,17 +349,21 @@ h.ok(rr.pairs.length === 88 && rr.pairs.every((p) => p.a && p.b && p.plan && !p.
 const mid = sampleCorrespondence(rr, 0.5);
 h.ok(mid.every((p) => p.closed && p.nodes.length >= 4 && p.opacity === 1), "(g) mid-flight every pair is one closed ring at full opacity — nothing fades");
 h.ok(mid.every((p, i) => { const a = rr.pairs[i].a!, b = rr.pairs[i].b!, e = nodesExtent(p.nodes, true); return near(e.w, (a.bbox.w + b.bbox.w) / 2, 1e-6) && near(e.h, (a.bbox.h + b.bbox.h) / 2, 1e-6); }), "(g) at t = 0.5 each ring is halfway between its dot's size and its ellipse's size");
-// The same dots pouring into ONE stroke stay glyph flights: their pieces are open arcs.
-const intoLine = planCorrespondence(dots, [outline("line", [[300, 60], [560, 60]])]);
-h.eq(intoLine.driver, "glyph", "(g) 88 small rings into one stroke still fly as glyphs (tiles are open pieces)");
-h.ok(intoLine.pairs.every((p) => !p.plan && p.landing && near(p.landing.y, 60, 1e-9) && near(p.landing.scale, 2 / 8, 1e-9)), "(g) a stroke landing sits on the stroke at the stroke's width");
-// Beyond the ring-morph budget a ring ↔ ring set falls back to glyph flights that land on
-// each ring's CENTRE at the ring's size (never a point on its perimeter at stroke width).
-const many = RING_MORPH_THRESHOLD + 1, cols = Math.ceil(Math.sqrt(many));
+// The same dots becoming ONE rectangle outline: tiled into 88 arcs, each dot MORPHS into its arc.
+const frame = outline("rect", [[300, 100], [500, 100], [500, 260], [300, 260]], true, {}, { fill: "none", strokeWidth: 2 });
+const intoRect = planCorrespondence(dots, [frame]); intoRect.prepare();
+h.eq(intoRect.driver, "path", "(g) 88 small rings into one rectangle outline take the PATH driver too");
+h.ok(intoRect.pairs.length === 88 && intoRect.pairs.every((p) => p.a && p.b && !p.b.closed && p.plan && !p.landing) && near(intoRect.pairs.reduce((sum, p) => sum + len(p.b!), 0), 720, 1e-6), "(g) each dot owns one open arc; the arcs tile the whole perimeter");
+h.ok(sampleCorrespondence(intoRect, 0.5).every((p) => p.opacity === 1), "(g) nothing fades while the dots become the outline");
+// Beyond the budget a marker set falls back to glyph flights; one landing on a ring sits on its
+// CENTRE at the ring's size, one landing on a stroke at the stroke's station and width.
+const many = GLYPH_FLIGHT_THRESHOLD + 1, cols = Math.ceil(Math.sqrt(many));
 const manyDots = Array.from({ length: many }, (_, i) => ringAt(`md${i}`, (i % cols) * 6, Math.floor(i / cols) * 6, 4));
 const manyRings = Array.from({ length: many }, (_, i) => ringAt(`mr${i}`, 1000 + (i % cols) * 12, Math.floor(i / cols) * 12, 8, "#7fd68d"));
 const over = planCorrespondence(manyDots, manyRings);
-h.eq(over.driver, "glyph", `(g) ${many} ring ↔ ring pairs exceed the morph budget and fly as glyphs`);
+h.eq(over.driver, "glyph", `(g) ${many} ring ↔ ring pairs exceed the budget and fly as glyphs`);
 h.ok(over.pairs.every((p) => !p.plan && p.landing && near(p.landing.x, p.b!.bbox.x + p.b!.bbox.w / 2, 1e-9) && near(p.landing.y, p.b!.bbox.y + p.b!.bbox.h / 2, 1e-9) && near(p.landing.scale, 2, 1e-9)), "(g) each glyph lands on its ring's centre at the ring's size");
-h.eq(planCorrespondence(manyDots.slice(0, RING_MORPH_THRESHOLD), manyRings.slice(0, RING_MORPH_THRESHOLD)).driver, "path", `(g) exactly ${RING_MORPH_THRESHOLD} ring ↔ ring pairs still morph`);
+const intoLine = planCorrespondence(manyDots, [outline("line", [[300, 60], [3000, 60]])]);
+h.ok(intoLine.driver === "glyph" && intoLine.pairs.every((p) => !p.plan && p.landing && near(p.landing.y, 60, 1e-9) && near(p.landing.scale, 2 / 4, 1e-9)), `(g) ${many} markers into one stroke fly as glyphs landing on the stroke at its width`);
+h.eq(planCorrespondence(manyDots.slice(0, GLYPH_FLIGHT_THRESHOLD), manyRings.slice(0, GLYPH_FLIGHT_THRESHOLD)).driver, "path", `(g) exactly ${GLYPH_FLIGHT_THRESHOLD} pairs still morph`);
 await h.done();

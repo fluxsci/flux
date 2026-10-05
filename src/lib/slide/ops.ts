@@ -244,6 +244,21 @@ export function deleteSlide(deck: Deck, slideId: Id): { nextActiveId: Id | null 
 /** Duplicate a slide (all elements + groups + beats), remapping element/group/
  *  beat/track ids and retargeting the copy's tracks at the copy's elements —
  *  the one op that must re-map beat targets when element ids change. */
+/** The name a duplicate gets: the source's BASE name plus the first free letter suffix
+ *  among the deck's slides — "Slide 5" → "Slide 5_a", then "Slide 5_b" (duplicating
+ *  "Slide 5_a" also continues the series); a legacy "Slide 5 copy copy" counts as base
+ *  "Slide 5". Never "copy copy copy" (owner, 2026-10-05). Rename any time: the filmstrip
+ *  caption (double-click / F2), the Slide inspector, or `set-slide --name`. */
+export function duplicateName(deck: Pick<Deck, "slides">, name: string): string {
+  const base = name.replace(/(?:_[a-z]{1,2}|(?: copy)+)$/u, "") || name;
+  const taken = new Set(deck.slides.map((s) => s.name ?? ""));
+  const letters = (i: number) => (i < 26 ? "" : String.fromCharCode(96 + Math.floor(i / 26))) + String.fromCharCode(97 + i % 26);
+  for (let i = 0; ; i++) {
+    const candidate = `${base}_${letters(i)}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   const src = slideById(deck, slideId);
   if (!src) return null;
@@ -252,7 +267,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   const copy: Slide = {
     ...structuredClone(src),
     id: newId("slide"),
-    name: `${src.name ?? "Slide"} copy`,
+    name: duplicateName(deck, src.name ?? "Slide"),
     elements,
     ...(Object.keys(groups).length ? { groups } : {}),
   };

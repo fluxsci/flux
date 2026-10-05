@@ -179,6 +179,16 @@ assert(eq(back, deck), "projectIntoDeck(deckToProject(d), d) === d — full fixt
   assert(t1.target !== "e-text" && copy.elements.some((e) => e.id === t1.target), "duplicateSlide RETARGETS tracks at the copies");
   assert(copy.beats[1].tracks[3].target === "gone-element", "…while a dangling target rides along untouched (tolerate, never prune)");
   assert(Object.keys(copy.groups ?? {})[0] !== "g1", "duplicateSlide clones the group registry with fresh ids");
+  // Names (owner, 2026-10-05): a duplicate continues a lettered series on the source's base
+  // name — never "copy copy copy".
+  assert(copy.name === "One_a", `duplicate of "One" is "One_a" (got ${copy.name})`);
+  const byId = (id: string | null) => d.slides.find((s) => s.id === id)!;
+  const second = byId(slideOps.duplicateSlide(d, "s1"));
+  assert(second.name === "One_b", `the next duplicate of "One" is "One_b" (got ${second.name})`);
+  const third = byId(slideOps.duplicateSlide(d, nid));
+  assert(third.name === "One_c", `duplicating "One_a" continues the series with "One_c" (got ${third.name})`);
+  d.slides.push({ ...structuredClone(copy), id: "legacy", name: "Two copy copy" });
+  assert(byId(slideOps.duplicateSlide(d, "legacy")).name === "Two_a", "a legacy '… copy copy' name counts as its base");
 }
 
 console.log("\nDECKPROJECT ROUND-TRIP: PASS");

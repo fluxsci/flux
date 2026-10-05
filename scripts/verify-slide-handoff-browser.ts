@@ -22,13 +22,17 @@ try {
     svg: await fs.readFile(new URL(`./fixtures/plots/${name}_FLUXPLOT.svg`, import.meta.url), "utf8"),
     manifest: JSON.parse(await fs.readFile(new URL(`./fixtures/plots/${name}_FLUXPLOT.fluxplot.json`, import.meta.url), "utf8")),
   };
-  // A deterministic large marker fixture exercises the production threshold
-  // (64), rather than changing planner policy through a test-only code path.
-  const points = Array.from({ length: 100 }, (_, i) => ({ index: i, svgId: `samples.point.${i}`, x: i / 20, y: 20 + 12 * Math.sin(i) }));
-  plots.large = {
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100"><g id="samples.points" fill="#4169e1">${points.map(p => `<g id="${p.svgId}" data-flux-glyph="1" transform="translate(${p.x * 36} ${p.y})"><circle r="2" opacity=".8"/></g>`).join("")}</g></svg>`,
-    manifest: { spec: "fluxplot", schemaVersion: "0.2.0", size: { width: 200, height: 100, unit: "px" }, axes: [{ x: { scale: "linear", domain: [0, 5], anchors: [{ data: 0, svg: 0 }, { data: 5, svg: 180 }] }, y: { scale: "linear", domain: [0, 100], anchors: [{ data: 0, svg: 0 }, { data: 100, svg: 100 }] } }], series: [{ id: "samples", roles: ["point"], svg: { points: "samples.points" }, points }] },
+  // Deterministic marker fixtures exercise the production budget (GLYPH_FLIGHT_THRESHOLD,
+  // 400 since 2026-10-05) rather than changing planner policy through a test-only code
+  // path: 420 markers fly as glyphs; 100 markers MORPH (one pair path per marker).
+  const markers = (n: number) => {
+    const points = Array.from({ length: n }, (_, i) => ({ index: i, svgId: `samples.point.${i}`, x: i / (n / 5), y: 20 + 12 * Math.sin(i) }));
+    return {
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100"><g id="samples.points" fill="#4169e1">${points.map(p => `<g id="${p.svgId}" data-flux-glyph="1" transform="translate(${p.x * 36} ${p.y})"><circle r="2" opacity=".8"/></g>`).join("")}</g></svg>`,
+      manifest: { spec: "fluxplot", schemaVersion: "0.2.0", size: { width: 200, height: 100, unit: "px" }, axes: [{ x: { scale: "linear", domain: [0, 5], anchors: [{ data: 0, svg: 0 }, { data: 5, svg: 180 }] }, y: { scale: "linear", domain: [0, 100], anchors: [{ data: 0, svg: 0 }, { data: 100, svg: 100 }] } }], series: [{ id: "samples", roles: ["point"], svg: { points: "samples.points" }, points }] },
+    };
   };
+  plots.large = markers(420); plots.medium = markers(100);
   const deck = createDeck({ withTitleSlide: false }); deck.stage = { width: 960, height: 540 }; deck.defaults.transition = "none";
   const plot = (id: string, assetId: string, x = 480, extra: Partial<SemanticPlotElement> = {}): SemanticPlotElement => ({ id, type: "plot", assetId, x, y: 100, width: 360, height: 216, rotation: 0, ...extra });
   const pathEl = (id: string) => ({ id, type: "path" as const, x: 40, y: 60, width: 180, height: 120, rotation: 0, d: "M0 120 L90 0 L180 120", closed: false, fill: "none", stroke: "#4169e1", strokeWidth: 4, nodes: [{ x: 0, y: 120, type: "corner" as const }, { x: 90, y: 0, type: "corner" as const }, { x: 180, y: 120, type: "corner" as const }] });
@@ -107,6 +111,10 @@ try {
   const setPlan = compileSlide(mixedSlide, deck.stage, { plotManifest: id => plots[id]?.manifest });
   h.ok(setPlan.handoffs.length === 1 && setPlan.handoffs[0].destination.map(d => `${d.elementId}:${d.partIds?.join(",") ?? "*"}`).join(" ") === "dest:peaches.box dest2:2hz.line e1:*" && !setPlan.issues.length, "the compiler resolves each set member against its own plot's manifest");
 
+  // Within the budget, markers morph: one pair path per marker, no glyph clone (owner, 2026-10-05).
+  const mm = add("morph-markers"); addElement(deck, mm.id, plot("source", "medium", 30, { width: 200, height: 100 })); addElement(deck, mm.id, plot("dest", "sine", 520, { height: 108 }));
+  handoff(mm, "source", { element: "dest", parts: ["2hz.line"] }, { pair: "data" }, ["samples.points"]);
+
   // In-memory curves until M3 enables their persisted schema.
   const springPaths = structuredClone(b), springGlyphs = structuredClone(d);
   springPaths.id = "spring-pairs"; springGlyphs.id = "spring-glyphs";
@@ -168,12 +176,16 @@ try {
   const scales = await page.evaluate(() => Array.from(document.querySelectorAll(".sl-flight .sl-handoff > g")).map(g => { const m = (g as SVGGraphicsElement).transform.baseVal.consolidate()?.matrix; return m ? [m.a, m.d] : [1, 1]; }));
   h.ok(scales.length >= 2 && scales.every(([sx, sy]) => Math.abs(sx - sy) < 1e-6), `text crossfade clones scale uniformly (${JSON.stringify(scales)})`);
   await seek(3, 250); const early = await inspect(); await seek(3, 750); const late = await inspect();
-  h.ok(early.driver === "glyph" && early.glyphs.length === 100 && early.count === 0, "100 actual marker groups use the glyph driver with no pair paths");
+  h.ok(early.driver === "glyph" && early.glyphs.length === 420 && early.count === 0, "420 actual marker groups (over the 400 budget) use the glyph driver with no pair paths");
   h.ok(late.glyphs.every((g, i) => g.x! > early.glyphs[i].x! && g.opacity === 1), "every marker moves toward its landing and stays opaque before raw .85");
   h.ok(await page.$eval(".sl-handoff-glyph circle", el => getComputedStyle(el).opacity === "0.8") && late.glyphs.every(g => g.opacity === 1), "cloning preserves marker alpha exactly once");
 
   await seek(3, 925); h.ok((await inspect()).glyphs.every(g => near(g.opacity, .5, .0001)), "glyph opacity fades only during the final 15 percent");
   await seek(3, 1000); state = await inspect(); h.ok(state.visibleFlight === 0 && state.curve === "visible", "glyph landing reveals the curve and hides every clone");
+  const mmIndex = deck.slides.findIndex(s => s.id === "morph-markers");
+  await seek(mmIndex, 500); const morphing = await inspect();
+  h.ok(morphing.driver === "path" && morphing.glyphs.length === 0 && morphing.count === 100 && morphing.finite, `100 markers within the budget MORPH: the path driver draws one pair path per marker and no glyph clone (driver ${morphing.driver}, ${morphing.count} paths, ${morphing.glyphs.length} glyphs)`);
+  await seek(mmIndex, 1000); state = await inspect(); h.ok(state.visibleFlight === 0 && state.curve === "visible", "their landing reveals the curve the same way");
   const { resolveCurve } = await import("../src/lib/slide/curves");
   const spring = resolveCurve(springPaths.beats[1].tracks[0]);
   const samples = Array.from({ length: 60 }, (_, i) => ({ raw: i / 59, t: spring.clamped(i / 59) }));

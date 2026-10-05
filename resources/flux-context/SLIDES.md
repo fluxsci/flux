@@ -32,7 +32,7 @@ flux decks                                     # (list_decks)   list the project
 flux new-deck [--title T] [--theme T]          # (create_deck)  scaffold + register a deck
 flux add-slide <deck> [--name N] [--layout L]  # (add_slide)    layout: title|section|content-figure|two-column|full-bleed|blank
 flux delete-slide <deck> <slideId>             # (delete_slide)
-flux duplicate-slide <deck> <slideId>          # (duplicate_slide)  deep copy, fresh ids
+flux duplicate-slide <deck> <slideId>          # (duplicate_slide)  deep copy, fresh ids, named <base>_a, _b, … (rename: set-slide --name; GUI: caption double-click / F2)
 flux reorder-slides <deck> --order id1,id2,…   # (reorder_slides)   exact permutation
 flux set-slide <deck> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]
                                                # (set_slide)    notes = speaker notes; camera = base pose

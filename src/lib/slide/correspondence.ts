@@ -68,13 +68,16 @@ export interface SampledPath {
   opacity: number;
   owner: { a?: OutlineOwner; b?: OutlineOwner };
 }
-export const GLYPH_FLIGHT_THRESHOLD = 64;
-/** Ring ↔ ring sets morph outline to outline up to this many pairs (the driver choice
- *  in planCorrespondence); beyond it they fall back to glyph flights. Measured in the
- *  portable player on the reference workstation (2026-10-05, scratch-probe/frame-cost):
- *  88 ring morphs 1.6 ms of main thread per frame, 400 → 4.9 ms (p95 6.2, rAF held at
- *  16.7), 1,200 → 15 ms with rAF p95 at 33 ms — so 400 keeps a third of the frame. */
-export const RING_MORPH_THRESHOLD = 400;
+/** The pair budget of the path driver (an outline morph per pair, the truest picture of
+ *  any Become). A set of MORE marker-sized rings than this flies as glyphs instead (the
+ *  markers themselves fly to their landings, shrink and fade); anything else morphs at any
+ *  count. Measured in the portable player on the reference workstation (2026-10-05,
+ *  scripts/perf/slide-handoff-cost-probe.mts): 88 morphs 1.6 ms of main thread per frame,
+ *  400 → 4.9 ms (p95 6.2, rAF held at 16.7 ms), 1,200 → 15 ms with rAF p95 at 33 ms — so
+ *  400 keeps a third of the frame. (Was 64 until 2026-10-05, when it also keyed on count
+ *  alone and sent 88 logo dots that had ellipses — or a rectangle's outline — to become
+ *  into a glide-and-crossfade; owner: the engine must always find the truest transform.) */
+export const GLYPH_FLIGHT_THRESHOLD = 400;
 const clamp = (v: number) => Math.max(0, Math.min(1, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const center = (o: StageOutline) => ({ x: o.bbox.x + o.bbox.w / 2, y: o.bbox.y + o.bbox.h / 2 });
@@ -141,24 +144,60 @@ export function choosePolicy(A: StageOutline[], B: StageOutline[], hint?: DataHi
   return "spatial";
 }
 
-function spatial(A: StageOutline[], B: StageOutline[]): CorrespondencePair[] {
-  const pairs: CorrespondencePair[] = [];
+function spatial(A: StageOutline[], B: StageOutline[], method: TransformMethod = "shatter"): CorrespondencePair[] {
+  const matched: { a: StageOutline; b: StageOutline }[] = [];
+  const unusedA: StageOutline[] = [], unusedB: StageOutline[] = [];
   if (A.length * B.length > 4096) {
     const rank = (a: StageOutline, b: StageOutline) => center(a).x - center(b).x || center(a).y - center(b).y;
     const as = A.slice().sort(rank), bs = B.slice().sort(rank);
-    for (let i = 0; i < Math.max(as.length, bs.length); i++) pairs.push({ a: as[i] ?? null, b: bs[i] ?? null });
-    return pairs;
+    for (let i = 0; i < Math.max(as.length, bs.length); i++) {
+      if (as[i] && bs[i]) matched.push({ a: as[i], b: bs[i] }); else if (as[i]) unusedA.push(as[i]); else unusedB.push(bs[i]);
+    }
+  } else {
+    const ac = A.map(center), bc = B.map(center);
+    const edges: { a: number; b: number; distance: number }[] = [];
+    for (let a = 0; a < A.length; a++) for (let b = 0; b < B.length; b++) edges.push({ a, b, distance: (ac[a].x - bc[b].x) ** 2 + (ac[a].y - bc[b].y) ** 2 });
+    edges.sort((a, b) => a.distance - b.distance || a.a - b.a || a.b - b.b);
+    const usedA = new Set<number>(), usedB = new Set<number>();
+    for (const e of edges) if (!usedA.has(e.a) && !usedB.has(e.b)) {
+      matched.push({ a: A[e.a], b: B[e.b] }); usedA.add(e.a); usedB.add(e.b);
+    }
+    A.forEach((a, i) => { if (!usedA.has(i)) unusedA.push(a); });
+    B.forEach((b, i) => { if (!usedB.has(i)) unusedB.push(b); });
   }
-  const ac = A.map(center), bc = B.map(center);
-  const edges: { a: number; b: number; distance: number }[] = [];
-  for (let a = 0; a < A.length; a++) for (let b = 0; b < B.length; b++) edges.push({ a, b, distance: (ac[a].x - bc[b].x) ** 2 + (ac[a].y - bc[b].y) ** 2 });
-  edges.sort((a, b) => a.distance - b.distance || a.a - b.a || a.b - b.b);
-  const usedA = new Set<number>(), usedB = new Set<number>();
-  for (const e of edges) if (!usedA.has(e.a) && !usedB.has(e.b)) {
-    pairs.push({ a: A[e.a], b: B[e.b] }); usedA.add(e.a); usedB.add(e.b);
-  }
-  A.forEach((a, i) => { if (!usedA.has(i)) pairs.push({ a, b: null }); });
-  B.forEach((b, i) => { if (!usedB.has(i)) pairs.push({ a: null, b }); });
+  return complete(matched, unusedA, unusedB, method);
+}
+
+/** COMPLETION (2026-10-05): once both sides have outlines, nothing on either side merely
+ *  fades. A destination the greedy match left over joins the partner set of its NEAREST
+ *  matched source, which then tiles across all of them (one dot splits into two pieces that
+ *  become two ellipses); a leftover source joins its nearest matched destination, which
+ *  tiles into pieces the sources merge into. Only a side with nothing at all opposite it —
+ *  or a text/raster box, which has no outline to split — keeps the fade envelope. */
+function complete(matched: { a: StageOutline; b: StageOutline }[], unusedA: StageOutline[], unusedB: StageOutline[], method: TransformMethod): CorrespondencePair[] {
+  const nearestIndex = (o: StageOutline, side: "a" | "b") => {
+    const c = center(o);
+    let best = -1, distance = Infinity;
+    for (let i = 0; i < matched.length; i++) {
+      const host = matched[i][side];
+      if (boxOnly(host)) continue; // a text/raster box cannot split
+      const hc = center(host), d = (hc.x - c.x) ** 2 + (hc.y - c.y) ** 2;
+      if (d < distance) { distance = d; best = i; }
+    }
+    return best;
+  };
+  const extraB = matched.map(() => [] as StageOutline[]), extraA = matched.map(() => [] as StageOutline[]);
+  const leftB: StageOutline[] = [], leftA: StageOutline[] = [];
+  for (const b of unusedB) { const i = nearestIndex(b, "a"); if (i < 0) leftB.push(b); else extraB[i].push(b); }
+  for (const a of unusedA) { const i = nearestIndex(a, "b"); if (i < 0) leftA.push(a); else extraA[i].push(a); }
+  const pairs: CorrespondencePair[] = [];
+  matched.forEach(({ a, b }, i) => {
+    if (extraB[i].length) pairs.push(...tile(a, [b, ...extraB[i]], true, method));
+    else if (extraA[i].length) pairs.push(...tile(b, [a, ...extraA[i]], false, method));
+    else pairs.push({ a, b });
+  });
+  for (const a of leftA) pairs.push({ a, b: null });
+  for (const b of leftB) pairs.push({ a: null, b });
   return pairs;
 }
 
@@ -282,7 +321,7 @@ export function sliceIntoLetters(single: StageOutline, letters: StageOutline[]):
 function tile(single: StageOutline, partners: StageOutline[], source: boolean, method: TransformMethod = "shatter"): CorrespondencePair[] {
   if (!partners.length) return [{ a: source ? single : null, b: source ? null : single }];
   if (partners.length === 1) return [{ a: source ? single : partners[0], b: source ? partners[0] : single }];
-  if (boxOnly(single)) return source ? spatial([single], partners) : spatial(partners, [single]);
+  if (boxOnly(single)) return source ? spatial([single], partners, method) : spatial(partners, [single], method);
   if (single.closed && filled(single) && partners.every(isLetter) && method === "shatter") {
     const strips = sliceIntoLetters(single, partners);
     if (strips) {
@@ -412,10 +451,10 @@ function polygonCentroid(pts: { x: number; y: number }[]): { x: number; y: numbe
   return { x: cx / (6 * a), y: cy / (6 * a) };
 }
 
-function byData(A: StageOutline[], B: StageOutline[], hint: DataHint): CorrespondencePair[] {
+function byData(A: StageOutline[], B: StageOutline[], hint: DataHint, method: TransformMethod = "shatter"): CorrespondencePair[] {
   const axis = hint.axis ?? dataAxis(A, B, hint) ?? "x";
   const rawFit = hint.destAxisFit;
-  if (!rawFit) return spatial(A, B);
+  if (!rawFit) return spatial(A, B, method);
   const fit = "m" in rawFit ? rawFit : axisFit(rawFit);
   const groups = B.map(() => [] as { o: StageOutline; station: number; index: number }[]);
   const unused: StageOutline[] = [];
@@ -461,7 +500,7 @@ function byData(A: StageOutline[], B: StageOutline[], hint: DataHint): Correspon
       } });
     }
   });
-  return result.concat(spatial(unused, remainingB));
+  return result.concat(spatial(unused, remainingB, method));
 }
 
 const ready = new WeakMap<CorrespondencePair, ReturnType<typeof planOutlines>>();
@@ -504,8 +543,8 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
   if (policy === "data" && opts.data?.destAxisFit) {
     // In reverse, project the destination data into the source summary's fit.
     if (as.length === 1 && bs.length > 1 && bs.every((o) => o.owner.data)) {
-      pairs = byData(bs, as, { ...opts.data, destAxisFit: opts.data.sourceAxisFit ?? opts.data.destAxisFit }).map((p) => ({ a: p.b, b: p.a }));
-    } else pairs = byData(as, bs, opts.data);
+      pairs = byData(bs, as, { ...opts.data, destAxisFit: opts.data.sourceAxisFit ?? opts.data.destAxisFit }, opts.method).map((p) => ({ a: p.b, b: p.a }));
+    } else pairs = byData(as, bs, opts.data, opts.method);
   } else if (policy === "tile" && (as.length === 1 || bs.length === 1)) {
     pairs = as.length === 1 ? tile(as[0], bs, true, opts.method) : tile(bs[0], as, false, opts.method);
   } else if (policy === "order" && as.length === bs.length) {
@@ -514,22 +553,17 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
     if (indexedA.length === indexedB.length) {
       indexedA.sort(rank); indexedB.sort(rank);
       pairs = indexedA.map((a, i) => ({ a, b: indexedB[i] }));
-      pairs.push(...spatial(as.filter((o) => !Number.isFinite(o.owner.index)), bs.filter((o) => !Number.isFinite(o.owner.index))));
-    } else { policy = "spatial"; pairs = spatial(as, bs); }
-  } else { policy = "spatial"; pairs = spatial(as, bs); }
-  // The glyph driver is the BUDGET route for markers pouring into a STROKE: a dense
-  // scatter's points fly to their stations on a fitted line, shrink to its width and
-  // fade, because planning and sampling 1,200 outline morphs there would not hold a
-  // frame. It is never the truest picture for a ring that has a RING to become: 88
-  // logo dots becoming 88 drawn ellipses must morph outline to outline exactly as one
-  // dot does (owner, 2026-10-05 — "truly becoming, not a fade unless nothing better
-  // exists"), so a ring ↔ ring set stays on the path driver up to RING_MORPH_THRESHOLD
-  // pairs (a ring morph is a handful of nodes; the budget's measurement sits on the
-  // constant). Only a set whose rings land on open pieces, or one beyond that budget,
-  // flies as glyphs.
-  const markers = pairs.length > GLYPH_FLIGHT_THRESHOLD && as.length > 0 && as.every(smallRing);
-  const ringToRing = markers && pairs.every((p) => !p.a || !p.b || (p.b.closed && !boxOnly(p.b)));
-  const driver = markers && !(ringToRing && pairs.length <= RING_MORPH_THRESHOLD) ? "glyph" : "path";
+      pairs.push(...spatial(as.filter((o) => !Number.isFinite(o.owner.index)), bs.filter((o) => !Number.isFinite(o.owner.index)), opts.method));
+    } else { policy = "spatial"; pairs = spatial(as, bs, opts.method); }
+  } else { policy = "spatial"; pairs = spatial(as, bs, opts.method); }
+  // THE LAW: every pair morphs, outline to outline — a dot becomes its ellipse, a dot
+  // becomes its piece of a rectangle's outline, a point becomes its slice of a fitted line
+  // (owner, 2026-10-05: "truly becoming, never a fade unless nothing better exists"). The
+  // glyph driver (the markers themselves fly, shrink to their landing and fade over the
+  // last 15 %) is purely the BUDGET route: only a set of marker-sized rings too large to
+  // morph within a frame takes it, and planning its outline correspondences would only
+  // burn the warm hook (measured: ~65 of ~90 ms at 1,200).
+  const driver = pairs.length > GLYPH_FLIGHT_THRESHOLD && as.length > 0 && as.every(smallRing) ? "glyph" : "path";
   for (const pair of pairs) {
     // A glyph flight moves the marker nodes themselves and never samples a
     // path plan, so planning 1,200 outline correspondences would only burn the
