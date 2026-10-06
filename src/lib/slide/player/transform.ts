@@ -95,6 +95,11 @@ export function warmWhenIdle(job: () => void): void {
   else if (typeof g.setTimeout === "function") g.setTimeout(job, 0);
 }
 
+/** The transform controller that last wrote a content host's static markup (per element,
+ *  across beats): an endpoint repaint is skipped only while the same controller still owns
+ *  the content (see the endpoint rule in seek). */
+const contentWriter = new WeakMap<HTMLElement, object>();
+
 export function createTransform(
   wrap: HTMLElement,
   source: FigElement,
@@ -466,6 +471,8 @@ export function createTransform(
     }
   }
 
+  let endpointPhase = -1; // 0 = at the start, 2 = at the end, 1 = in flight; -1 = never painted
+  const self = {};        // this controller's identity as a content writer
   function seek(u: number, raw = clamp01(u)): void {
     const t = clamp01(u);
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw);
@@ -566,8 +573,23 @@ export function createTransform(
       return;
     }
 
-    if (staticUpdate) staticUpdate(content, t, raw);
-    else updateStaticContent(contentHost, content, ctx);
+    // ENDPOINTS PAINT THE COMPLETE STATE (2026-10-06). The compiled updater writes
+    // only the attributes that differ between this transform's own two ends — but the
+    // content nodes are shared with every other transform of this element, and the
+    // player materializes every transform at its start and, on each beat change, resets
+    // every later one to its start before applying the past. A later transform whose
+    // start sits elsewhere bakes its own position into the content's translate; an
+    // earlier transform that never moves the box has no binding for it and would leave
+    // it stale (DNA slide: half the bases rested at a later step's position). So an
+    // endpoint repaints every attribute in place (identity-preserving) whenever this
+    // transform reaches it afresh OR another transform wrote the content since; frames
+    // in flight keep the fast per-binding updater, repeated endpoint frames cost nothing.
+    const phase = raw <= 0 ? 0 : raw >= 1 ? 2 : 1;
+    const owned = contentWriter.get(contentHost) === self;
+    if (staticUpdate && phase === 1) staticUpdate(content, t, raw);
+    else if (!staticUpdate || !owned || phase !== endpointPhase) updateStaticContent(contentHost, content, ctx);
+    contentWriter.set(contentHost, self);
+    endpointPhase = phase;
   }
 
   // Build in story order, before later tracks resolve their targets. A B-only

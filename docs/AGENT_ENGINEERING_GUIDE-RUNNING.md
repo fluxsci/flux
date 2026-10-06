@@ -1271,6 +1271,15 @@ Persistence invariants (all machine-checked — do not weaken):
   writes nothing (`verify-plot-binding` counts it). Keep appended nodes display-hidden until their first seek, so
   appearance compilation reads authored opacity. `applyAt` runs content controllers before
   keyframed appearances, independent of story order; content paint must not erase an entrance.
+  Several transforms of ONE element share its content nodes, and the player materializes every
+  transform at its start when it binds a slide and resets every later one to its start on each
+  beat change before applying the past — so a transform's ENDPOINT repaints the complete state
+  through `updateStaticContent` (identity-preserving) whenever it reaches that endpoint afresh or
+  another transform wrote the content since (`transform.ts contentWriter`); only frames in
+  flight use the compiled per-binding updater, which writes just the attributes that differ
+  between its own two ends (2026-10-06: a later geometry tween had baked its start position into
+  the content's translate and an earlier geometry-only transform had no binding to repaint it;
+  `verify-slide-player` "shared content" pins seven forward/back seeks).
   Custom vector pose bundles can use empty `axes`/`series` and an explicit parts tree:
   keep every semantic ID, SVG tag and numeric attribute template identical between poses
   for geometry/paint interpolation without residue fades. Zero-radius ellipses retain their
@@ -9897,3 +9906,29 @@ ring expansion), both all-geometric: no opacity anywhere.
 - A heptagon that grows out of a hexagon needs nothing but every bond's two endpoints tweening
   to the new polygon on one timing; a bond that migrates is the same Change with one endpoint
   re-homed. Bonds that form grow from a 0.01-px dot; bonds that break collapse into their atom.
+
+### 2026-10-06 — Five demo slides, and the player bug a 71-element choreography exposed (Claude Fable 5.1, `main`)
+**Work:** Owner inbox: a Fischer esterification (slide 13) and a Diels–Alder on a new slide (14), then
+the textbook Diels–Alder with maleic anhydride (fused bicyclic product, wedge hydrogens that spread
+from plain lines as closed filled triangles; slide 15), a crystallization (400-atom fluxplot scatters
+in the new `CORE/crystallization`, hand-offs with `pair:"order"` and `stagger by x` — a freezing
+front; slide 16) and DNA replication (helix → ladder → a fork in three chained keyframes →
+synthesis → twin helices; 71 elements; slide 17). All geometric, no opacity anywhere; scripts in the
+demo repo's `notes_planning_etc/`. The DNA slide rested half its bases 38 px below their strand at
+the end of step 1: the pure rest state was right, the player wrong — a later geometry TWEEN, reset to
+its start by the beat-change sweep (and materialized at bind), baked its position into the shared
+content translate, and the earlier geometry-only transform had no binding to repaint it. Fixed in
+`player/transform.ts` (endpoints repaint the complete state; a per-content-host writer registry);
+body §4 updated; `verify-slide-player` pins it (red 238 for 200 without the fix).
+**Learnings:**
+- When a rest frame is wrong, ask the pure engine first (`evaluateSlideState`): if it agrees with
+  the deck, the defect is a DOM-side ownership problem, and the fast way to find the owner is to
+  dump the offending SVG node's attributes and parent chain at that seek.
+- A per-controller compiled updater is only correct while it is the sole writer; any shared node
+  needs either full endpoint repaints or a writer registry. Prefer the registry over a phase memo:
+  the materialize-at-bind pass makes the LAST controller the writer, so a memo alone skips the
+  repaint the first controller owes.
+- Half-the-elements symptoms correlate with a code-path discriminator: here node ORIENTATION
+  (same → tween path, reversed → morph layers). Sort the broken set by a geometric property
+  before reading code.
+- `page.evaluate` under tsx, met again: pass string bodies; named inner arrows get `__name`.

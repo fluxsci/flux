@@ -377,6 +377,36 @@ try {
     await page.screenshot({ path: `notes/flux_animation_v2/workers/out/shots/M6/arc-${arc}-${contentChange ? "content" : "box"}.png` });
     await page.evaluate(() => (window as any).__arcPlayer.destroy());
   }
+  // 2026-10-06: several transforms of ONE element share its content nodes. A later geometry
+  // tween, reset to its start by the beat-change sweep (and materialized once at build), used
+  // to leave its own position baked into the content's translate while an earlier transform
+  // that never moved the box had no binding to repaint it — on the DNA slide half the bases
+  // rested 38 px below their strand. Endpoints now paint the complete state, and a transform
+  // repaints whenever another one wrote the content since.
+  const seg = (y: number, h: number) => ({ y, height: h, nodes: [{ x: 0, y: 0, type: "corner" as const }, { x: 0, y: h, type: "corner" as const }], d: `M 0 0 L 0 ${h}` });
+  const sharedDeck = createDeck({ withTitleSlide: false, stage }); sharedDeck.defaults.transition = "none";
+  sharedDeck.slides = [{ id: "shared", elements: [{ type: "path", id: "base", x: 195, width: 0.001, rotation: 0, fill: "none", stroke: "#bc5215", strokeWidth: 2.2, closed: false, cap: "butt", ...seg(200, 17) }], beats: [
+    { id: "b0", tracks: [] },
+    { id: "b1", tracks: [{ id: "t1", target: "base", preset: "transform", duration: 1000, easing: "linear", to: { state: { ...seg(200, 26) } } }] },   // geometry only: the box never moves
+    { id: "b2", tracks: [{ id: "t2", target: "base", preset: "transform", duration: 1000, easing: "linear", to: { state: { y: 238 } } }] },            // a pure move
+    { id: "b3", tracks: [{ id: "t3", target: "base", preset: "transform", duration: 1000, easing: "linear", to: { state: { ...seg(272, 14) } } }] },   // geometry + move, same node orientation
+  ] }];
+  // (a string body: tsx wraps named inner functions in `__name`, which the page does not have)
+  const shared = await page.evaluate(`(deck => {
+    const host = document.getElementById("host"), player = window.springPlayer(host, deck), origin = host.getBoundingClientRect();
+    const frames = [];
+    const probe = label => { const p = host.querySelector('[data-el-id="base"] path'), r = p.getBoundingClientRect(); frames.push({ label, top: r.top - origin.top, height: r.height }); };
+    player.seek(0, 1, 1000); probe("b1 end");
+    player.seek(0, 3, 1000); probe("b3 end");
+    player.seek(0, 1, 500); probe("b1 mid");
+    player.seek(0, 1, 1000); probe("b1 end again");
+    player.seek(0, 2, 1000); probe("b2 end");
+    player.seek(0, 1, 0); probe("b1 start");
+    player.seek(0, 2, 500); probe("b2 mid");
+    player.destroy(); return frames;
+  })(${JSON.stringify(sharedDeck)})`) as { label: string; top: number; height: number }[];
+  const expect: Record<string, [number, number]> = { "b1 end": [200, 26], "b3 end": [272, 14], "b1 mid": [200, 21.5], "b1 end again": [200, 26], "b2 end": [238, 26], "b1 start": [200, 17], "b2 mid": [219, 26] };
+  for (const f of shared) assert(Math.abs(f.top - expect[f.label][0]) < .01 && Math.abs(f.height - expect[f.label][1]) < .01, `shared content: ${f.label} paints the path at y ${expect[f.label][0]} × ${expect[f.label][1]} (got ${f.top.toFixed(2)} × ${f.height.toFixed(2)})`);
 } finally { await browser.close(); }
 
 console.log("\nALL SLIDE-PLAYER (P2) TESTS PASSED");
