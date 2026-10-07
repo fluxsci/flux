@@ -9932,3 +9932,12 @@ body §4 updated; `verify-slide-player` pins it (red 238 for 200 without the fix
   (same → tween path, reversed → morph layers). Sort the broken set by a geometric property
   before reading code.
 - `page.evaluate` under tsx, met again: pass string bodies; named inner arrows get `__name`.
+- The owner then saw the same defect in PRESENT ("stranded, then snaps at the end") while the editor's
+  Edit-after-step looked right: the editor composes rest state from the pure engine, Present plays the
+  player. `scripts/perf/slide-play-probe.mts` replays the auto chain under a fake clock (seek-per-step
+  strips cannot show state that leaks between steps) — 8 bases at y≈276 through steps 4–5 without the fix,
+  none with it. The running app predated the rebuild; a restart was the remaining step.
+- `git stash push <path>` with NO uncommitted change in that path creates nothing, and the following
+  `git stash pop` pops someone else's old stash (this repo carries seven from model3d branches) — six
+  conflicted files. To test "without a committed fix": `git show <sha> -- <file> | git apply -R`, run,
+  `git checkout -- <file>`.
