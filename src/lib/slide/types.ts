@@ -250,7 +250,7 @@ export interface TargetRef {
 /* The ids of slide/targets.ts PAIR_POLICIES (the one list; menu labels live there). */
 export type PairPolicy = (typeof import("./targets").PAIR_POLICIES)[number]["id"];
 /** How a filled shape's INTERIOR travels when it splits into several pieces or several
- *  pieces merge into it (targets.TRANSFORM_METHODS; default "shatter"). */
+ *  pieces merge into it (targets.TRANSFORM_METHODS; absent = targets.DEFAULT_TRANSFORM_METHOD, dissolve). */
 export type TransformMethod = (typeof import("./targets").TRANSFORM_METHODS)[number]["id"];
 
 /** Where a Become goes (0.6). `consume` is the original semantics (the
@@ -268,8 +268,8 @@ export interface BecomeSpec {
    *  geometry from t = 1. */
   reveal?: "flip" | "draw";
   /** Hand-off only: the interior of a filled shape that tiles into pieces (or that
-   *  pieces merge into) — `shatter` (default) splits it into wedges that fly with
-   *  the pieces; `dissolve` fades it in place; `collapse` shrinks it to the centre;
+   *  pieces merge into) — `dissolve` (the default) fades it in place; `shatter`
+   *  splits it into wedges that fly with the pieces; `collapse` shrinks it to the centre;
    *  `drain` empties it toward where the pieces are going. */
   method?: TransformMethod;
 }

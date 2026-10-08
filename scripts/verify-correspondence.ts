@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { harness } from "./lib/harness.mjs";
 import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, opaque, expandPolygon } from "../src/lib/slide/correspondence";
+import { DEFAULT_TRANSFORM_METHOD } from "../src/lib/slide/targets";
 import { planCorrespondence as corePlan, sampleCorrespondence as coreSample, GLYPH_FLIGHT_THRESHOLD as coreBudget } from "../flux-core/index";
 import { planOutlines, parameterize, pointAt, sampleNodes } from "../src/lib/slide/outline";
 import { nodesExtent } from "../src/lib/path";
@@ -61,9 +62,9 @@ const filledRing = outline("rect", [[20, 20], [60, 20], [60, 60], [20, 60]], tru
 filledRing.paint = { ...filledRing.paint, fill: "#d95f02", stroke: "#100f0f", strokeWidth: 2 };
 const three = [...disjoint, outline("third", [[100, 140], [130, 140]])];
 for (const reverse of [false, true]) {
-  const two = planCorrespondence(reverse ? disjoint : [filledRing], reverse ? [filledRing] : disjoint, { pair: "tile" });
+  const two = planCorrespondence(reverse ? disjoint : [filledRing], reverse ? [filledRing] : disjoint, { pair: "tile", method: "shatter" });
   h.ok(two.pairs.length === 2 && two.pairs.every((q) => !(reverse ? q.b : q.a)!.closed), `filled ring ${reverse ? "merge" : "split"} into TWO partners: just the two chord-closed arcs`);
-  const p = planCorrespondence(reverse ? three : [filledRing], reverse ? [filledRing] : three, { pair: "tile" });
+  const p = planCorrespondence(reverse ? three : [filledRing], reverse ? [filledRing] : three, { pair: "tile", method: "shatter" });
   const fills = p.pairs.filter((q) => (reverse ? q.b : q.a)!.owner.role === "slice"), arcs = p.pairs.filter((q) => (reverse ? q.b : q.a)!.owner.role !== "slice");
   h.ok(p.pairs.length === 6 && fills.length === 3 && p.pairs.slice(0, 3).every((q) => fills.includes(q)), `filled ring ${reverse ? "merge" : "split"} into THREE: three fill triangles ride beneath the three arcs`);
   h.ok(near(arcs.reduce((sum, q) => sum + len(reverse ? q.b! : q.a!), 0), 160, 1e-6) && arcs.every((q) => !(reverse ? q.b : q.a)!.closed), `filled ring ${reverse ? "merge" : "split"}: the arcs still tile the whole perimeter`);
@@ -74,7 +75,7 @@ for (const reverse of [false, true]) {
   const covered = tris.reduce((sum, t) => sum + area(t.nodes), 0);
   h.ok(chord > 1 && covered > chord && covered < chord * 1.25, `filled ring ${reverse ? "merge" : "split"}: the OPAQUE triangles tile the chord polygon with a hair of overlap (${covered.toFixed(1)} over ${chord.toFixed(1)})`);
   const glassy = { ...filledRing, paint: { ...filledRing.paint, fill: "#d95f0280" } };
-  const g = planCorrespondence(reverse ? three : [glassy], reverse ? [glassy] : three, { pair: "tile" });
+  const g = planCorrespondence(reverse ? three : [glassy], reverse ? [glassy] : three, { pair: "tile", method: "shatter" });
   const gtris = g.pairs.slice(0, 3).map((q) => (reverse ? q.b : q.a)!);
   h.ok(near(gtris.reduce((sum, t) => sum + area(t.nodes), 0), chord, 1e-6) && gtris.every((t) => t.nodes.length === 3), `filled ring ${reverse ? "merge" : "split"}: a TRANSLUCENT fill's triangles tile the chord polygon exactly (an overlap would double-paint)`);
   h.ok(fills.every((q, i) => { const partner = reverse ? q.a! : q.b!, own = reverse ? arcs[i].a! : arcs[i].b!; return partner.owner.elementId === own.owner.elementId && partner.paint.stroke === "none" && partner.paint.strokeWidth === 0 && partner.paint.fill === "none"; }), `filled ring ${reverse ? "merge" : "split"}: each triangle pairs with a fill-only copy of its arc's own partner`);
@@ -110,7 +111,12 @@ const kept = planCorrespondence([filledRing], three, { pair: "tile", method: "dr
 const keptOut: ReturnType<typeof sampleCorrespondence> = [];
 const firstNodes = sampleCorrespondence(kept, 0.2, keptOut)[0].nodes, firstNode = firstNodes[0];
 h.ok(sampleCorrespondence(kept, 0.25, keptOut)[0].nodes === firstNodes && keptOut[0].nodes[0] === firstNode, "drain reuses its clipped node buffer (array and nodes) across frames");
-h.eq(planCorrespondence([filledRing], three, { pair: "tile", method: "shatter" }).pairs.length, 6, "shatter stays the default geometry (three arcs + three wedges)");
+h.eq(planCorrespondence([filledRing], three, { pair: "tile", method: "shatter" }).pairs.length, 6, "shatter keeps its geometry (three arcs + three wedges)");
+// 2026-10-08 (owner): DISSOLVE is the default method — a plan without one gets the fill-only interior ring, not wedges.
+h.eq(DEFAULT_TRANSFORM_METHOD, "dissolve", "the catalogue default is dissolve");
+const dflt = planCorrespondence([filledRing], three, { pair: "tile" });
+h.ok(dflt.pairs.length === 4 && dflt.pairs[0].interior?.method === "dissolve" && dflt.pairs.slice(1).every((q) => !q.a!.closed && q.a!.paint.fill === "none"), "a plan without a method is the dissolve plan: one interior ring + three stroke-only arcs, no wedges");
+h.ok(planCorrespondence([filledRing], three, { pair: "tile" }) === planCorrespondence([filledRing], three, { pair: "tile", method: "dissolve" }), "an absent method and an explicit dissolve share one cache entry");
 h.section("dissolve runs on real time when the flight's timing is known");
 {
   const p = planCorrespondence([filledRing], three, { pair: "tile", method: "dissolve" }); p.prepare();
@@ -180,14 +186,18 @@ h.section("completion, policies and crossfades");
 // of its nearest destination. Only a side with nothing opposite it keeps the fade envelope.
 const a3 = [0, 20, 40].map((x, i) => ring(`a${i}`, x, 0));
 const b4 = [0, 20, 40, 60].map((x, i) => ring(`b${i}`, x, 30));
+// (the fixture rings are FILLED, so the split ring also carries its interior under the default
+// method — dissolve: one fill-only ring that fades in place; the flights themselves never fade)
 const leftover = planCorrespondence(a3, b4, { pair: "spatial" }); leftover.prepare();
-h.ok(leftover.pairs.length === 4 && leftover.pairs.every((p) => p.a && p.b), "(d) 3↔4 completes: four pairs, no destination-only outline");
-const split = leftover.pairs.filter((p) => p.a!.owner.elementId === "a2");
+const flightsOf = (plan: ReturnType<typeof planCorrespondence>) => plan.pairs.filter((p) => !p.interior);
+h.ok(flightsOf(leftover).length === 4 && flightsOf(leftover).every((p) => p.a && p.b) && leftover.pairs.filter((p) => p.interior).length === 1, "(d) 3↔4 completes: four flights, no destination-only outline (plus the split ring's dissolving interior)");
+const split = flightsOf(leftover).filter((p) => p.a!.owner.elementId === "a2");
 h.ok(split.length === 2 && split.every((p) => !p.a!.closed) && near(split.reduce((sum, p) => sum + len(p.a!), 0), 16, 1e-6) && new Set(split.map((p) => p.b!.owner.elementId)).size === 2, "(d) the nearest source (a2) splits into two arcs covering its whole ring, one per destination (b2, b3)");
-h.ok([0.2, 0.5, 0.8].every((t) => sampleCorrespondence(leftover, t).every((p) => p.opacity === 1)), "(d) every piece stays at full opacity mid-flight — nothing fades in");
+h.ok([0.2, 0.5, 0.8].every((t) => sampleCorrespondence(leftover, t).every((p, i) => leftover.pairs[i].interior || p.opacity === 1)), "(d) every flight stays at full opacity mid-flight — nothing fades in");
+h.ok(planCorrespondence(a3, b4, { pair: "spatial", method: "shatter" }).pairs.length === 4, "(d) under shatter the two-way split needs no interior pair at all");
 const merge = planCorrespondence(b4, a3, { pair: "spatial" }); merge.prepare();
-h.ok(merge.pairs.length === 4 && merge.pairs.every((p) => p.a && p.b), "(d) 4↔3 completes the other way: the extra source merges into a piece of its nearest destination");
-h.ok(merge.pairs.filter((p) => p.b!.owner.elementId === "a2").length === 2 && [0.2, 0.5, 0.8].every((t) => sampleCorrespondence(merge, t).every((p) => p.opacity === 1)), "(d) the destination a2 is tiled into two pieces and nothing fades out");
+h.ok(flightsOf(merge).length === 4 && flightsOf(merge).every((p) => p.a && p.b), "(d) 4↔3 completes the other way: the extra source merges into a piece of its nearest destination");
+h.ok(flightsOf(merge).filter((p) => p.b!.owner.elementId === "a2").length === 2 && [0.2, 0.5, 0.8].every((t) => sampleCorrespondence(merge, t).every((p, i) => merge.pairs[i].interior || p.opacity === 1)), "(d) the destination a2 is tiled into two pieces and no flight fades out");
 const alone = planCorrespondence(a3, [], { pair: "spatial" }); alone.prepare();
 h.ok(alone.pairs.length === 3 && alone.pairs.every((p) => p.a && !p.b) && sampleCorrespondence(alone, 0)[0].opacity === 1 && near(sampleCorrespondence(alone, 0.2)[0].opacity, 0.5) && sampleCorrespondence(alone, 0.4)[0].opacity === 0, "(d) with nothing opposite, a source still leaves over the first 40 percent");
 const arriving = planCorrespondence([], b4, { pair: "spatial" }); arriving.prepare();
@@ -312,7 +322,7 @@ console.log(`cold plan + prepare: ${(performance.now() - coldStart).toFixed(2)} 
 // so every plan is a cache MISS with warm code.
 const misses = Array.from({ length: 5 }, (_, k) => dense.map((o) => ({ ...o, nodes: o.nodes.map((n) => ({ ...n, x: n.x + 0.001 * (k + 1) })), bbox: { ...o.bbox, x: o.bbox.x + 0.001 * (k + 1) } })));
 const bestOf = (run: (i: number) => void) => { let best = Infinity; for (let i = 0; i < misses.length; i++) { const t = performance.now(); run(i); best = Math.min(best, performance.now() - t); } return best; };
-const unavoidable = bestOf((i) => { JSON.stringify([misses[i], [sine], opts.pair, opts.data, "shatter"]); structuredClone(misses[i]); structuredClone([sine]); });
+const unavoidable = bestOf((i) => { JSON.stringify([misses[i], [sine], opts.pair, opts.data, DEFAULT_TRANSFORM_METHOD]); structuredClone(misses[i]); structuredClone([sine]); });
 let large!: ReturnType<typeof planCorrespondence>;
 const ms = bestOf((i) => { large = planCorrespondence(misses[i], [sine], opts); large.prepare(); });
 // What remains on top is the data pairing itself: today ≈ 3.5×. Planning the 1,200 outline

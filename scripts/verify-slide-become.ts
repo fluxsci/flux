@@ -354,20 +354,26 @@ console.log("── destination SETS (Oct-2: TargetRef.members) ──");
   ok(!visible(end, "src") && ["e1", "e2", "e3"].every(id => visible(end, id)), "after landing the three ellipses show and the rect stays hidden");
   const plan = planHandoff(track, compiled.sample(1, 0), { manifest: manifests, plotRoot: roots, groups: undefined });
   plan.prepare();
-  // shatter (the default method): three arcs fly, and the filled rect's interior rides as
-  // three fill-only wedges (role slice) paired with fill-only copies of the ellipses
-  const flying = plan.pairs.filter(p => p.a && p.b && p.a.owner.role !== "slice"), wedges = plan.pairs.filter(p => p.a?.owner.role === "slice");
+  // dissolve (the default method since 2026-10-08): three stroke-only arcs fly, and the filled
+  // rect's interior is ONE fill-only ring the sampler fades in place — no wedges.
+  const flying = plan.pairs.filter(p => p.a && p.b && p.a.owner.role !== "slice"), interior = plan.pairs.filter(p => p.interior);
   ok(plan.policy === "tile" && flying.length === 3 && flying.every(p => !p.a!.closed && p.b!.closed) && new Set(flying.map(p => p.b!.owner.elementId)).size === 3, "pair auto resolves to tile: the rect's ring splits by arc length into three pieces, one per ellipse");
+  ok(interior.length === 1 && interior[0].interior!.method === "dissolve" && interior[0].a!.closed && interior[0].a!.paint.fill === "#d95f02" && !interior[0].b && flying.every(p => p.a!.paint.fill === "none") && plan.pairs.length === 4, "an unset method plans DISSOLVE: one fill-only interior ring, three stroke-only arcs, no wedges");
+  // shatter on request: the interior rides as three fill-only wedges (role slice) paired with
+  // fill-only copies of the ellipses, drawn first; a paired wedge never fades as a leftover.
+  // (The Oct-2 travelling underlay is gone.)
+  track.to!.become!.method = "shatter";
+  const splan = planHandoff(track, compiled.sample(1, 0), { manifest: manifests, plotRoot: roots, groups: undefined });
+  splan.prepare();
+  delete track.to!.become!.method;
+  const wedges = splan.pairs.filter(p => p.a?.owner.role === "slice");
   ok(wedges.length === 3 && wedges.every(p => p.a!.closed && p.b!.closed && p.b!.paint.stroke === "none") && new Set(wedges.map(p => p.b!.owner.elementId)).size === 3, "shatter: the rect's interior rides as three fill wedges, one per ellipse");
-  // Oct-3: the interior rides as wedges (role slice) paired with fill-only copies of the
-  // ellipses, drawn first; a paired wedge never fades as a leftover. (The Oct-2 travelling
-  // underlay is gone.)
-  const wedge = plan.pairs[0];
-  ok(plan.pairs.length === 6 && wedge.a!.owner.role === "slice" && wedge.a!.closed && wedge.a!.paint.fill === "#d95f02" && wedge.a!.paint.stroke === "none" && wedge.b!.paint.stroke === "none" && wedge.b!.closed, "the filled rect's interior rides as fill-only wedges, drawn first (beneath the arcs), each paired with a fill-only copy of its ellipse");
+  const wedge = splan.pairs[0];
+  ok(splan.pairs.length === 6 && wedge.a!.owner.role === "slice" && wedge.a!.closed && wedge.a!.paint.fill === "#d95f02" && wedge.a!.paint.stroke === "none" && wedge.b!.paint.stroke === "none" && wedge.b!.closed, "the filled rect's interior rides as fill-only wedges paired with fill-only copies of the ellipses");
   const { sampleCorrespondence } = await import("../src/lib/slide/correspondence");
-  const first = sampleCorrespondence(plan, 0)[0].opacity, half = sampleCorrespondence(plan, .5)[0].opacity, landedOpacity = sampleCorrespondence(plan, 1)[0].opacity;
+  const first = sampleCorrespondence(splan, 0)[0].opacity, half = sampleCorrespondence(splan, .5)[0].opacity, landedOpacity = sampleCorrespondence(splan, 1)[0].opacity;
   ok(first === 1 && half === 1 && landedOpacity === 1, "a wedge never fades: the interior is part of the transform from the first frame to the last");
-  const last = sampleCorrespondence(plan, 1).filter((_, i) => plan.pairs[i].a?.owner.role !== "slice");
+  const last = sampleCorrespondence(splan, 1).filter((_, i) => splan.pairs[i].a?.owner.role !== "slice");
   ok(last.length === 3 && last.every(p => { const b = flying.find(q => q.b!.owner.elementId === p.owner.b!.elementId)!.b!; return p.nodes.length === b.nodes.length && p.nodes.every((n, i) => Math.abs(n.x - b.nodes[i].x) < 1e-9 && Math.abs(n.y - b.nodes[i].y) < 1e-9); }), "the last flight frame IS each ellipse's own outline (the flip is pixel-invisible)");
   const lengths = flying.map(p => p.a!.nodes.length);
   ok(lengths.every(n => n >= 2), "every piece of the split rect is a real chain");
@@ -440,7 +446,14 @@ console.log("── MERGE: many sources → one destination (Oct-2 stretch) ─�
   ok(!vis(at(0), "dest") && vis(at(0), "e1"), "reverse seek restores the sources and hides the rect again");
   // Each lander keeps its own share of ONE shared tiling of the rect.
   const frame = compiled.sample(1, 0), ctx = { manifest: () => undefined, plotRoot: () => undefined, groups: undefined };
+  // Under the default method (dissolve, 2026-10-08) each lander flies its own stroke-only arc and
+  // the LAST lander also carries the rect's one fill-only interior ring, arriving as the group lands.
+  const dplans = tracks.map(t => planHandoff(t, frame, ctx, tracks)); dplans.forEach(p => p.prepare());
+  ok(dplans.slice(0, -1).every(p => p.pairs.length === 1 && !!p.pairs[0].a && !!p.pairs[0].b && p.pairs[0].b!.paint.fill === "none") && dplans.at(-1)!.pairs.length === 2 && dplans.at(-1)!.pairs.some(q => !q.a && q.interior?.method === "dissolve" && q.b!.closed), "default method (dissolve): arcs are stroke-only, the last lander carries the one fill-only interior ring, no wedges");
+  // Shatter on request: every lander carries its own wedge of the interior.
+  for (const t of tracks) t.to!.become!.method = "shatter";
   const plans = tracks.map(t => planHandoff(t, frame, ctx, tracks));
+  for (const t of tracks) delete t.to!.become!.method;
   plans.forEach(p => p.prepare());
   const flying = plans.map(p => p.pairs.filter(q => q.a && q.b && q.b!.owner.role !== "slice"));
   ok(flying.every((f, i) => f.length === 1 && f[0].a!.owner.elementId === ["e1", "e2", "e3"][i] && f[0].b!.owner.elementId === "dest" && !f[0].b!.closed), "each lander flies its own ellipse into its own piece of the rect");

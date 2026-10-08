@@ -3,6 +3,7 @@
 import type { VectorNode } from "../types";
 import type { FluxPlotAxis } from "../plot/types";
 import type { PairPolicy, TransformMethod } from "./types";
+import { DEFAULT_TRANSFORM_METHOD } from "./targets";
 import type { StageOutline, OutlineOwner, OutlinePaint } from "./stageOutline";
 import { nodesExtent, reverseNodes, segPoint, segLength, splitSeg, type PathSeg } from "../path";
 import { lerpColor, prepareColorLerp } from "../color/interp";
@@ -144,7 +145,7 @@ export function choosePolicy(A: StageOutline[], B: StageOutline[], hint?: DataHi
   return "spatial";
 }
 
-function spatial(A: StageOutline[], B: StageOutline[], method: TransformMethod = "shatter"): CorrespondencePair[] {
+function spatial(A: StageOutline[], B: StageOutline[], method: TransformMethod = DEFAULT_TRANSFORM_METHOD): CorrespondencePair[] {
   const matched: { a: StageOutline; b: StageOutline }[] = [];
   const unusedA: StageOutline[] = [], unusedB: StageOutline[] = [];
   if (A.length * B.length > 4096) {
@@ -318,11 +319,15 @@ export function sliceIntoLetters(single: StageOutline, letters: StageOutline[]):
   return strips;
 }
 
-function tile(single: StageOutline, partners: StageOutline[], source: boolean, method: TransformMethod = "shatter"): CorrespondencePair[] {
+function tile(single: StageOutline, partners: StageOutline[], source: boolean, method: TransformMethod = DEFAULT_TRANSFORM_METHOD): CorrespondencePair[] {
   if (!partners.length) return [{ a: source ? single : null, b: source ? null : single }];
   if (partners.length === 1) return [{ a: source ? single : partners[0], b: source ? partners[0] : single }];
   if (boxOnly(single)) return source ? spatial([single], partners, method) : spatial(partners, [single], method);
-  if (single.closed && filled(single) && partners.every(isLetter) && method === "shatter") {
+  // A filled shape becoming LETTERS pours its area into them as strips whatever the method:
+  // the strips are the letters' own pairs, there is no separate interior for a method to
+  // dissolve, collapse or drain (the method concerns an interior whose outline splits into
+  // pieces, or pieces merging into it).
+  if (single.closed && filled(single) && partners.every(isLetter)) {
     const strips = sliceIntoLetters(single, partners);
     if (strips) {
       const ordered = partners.slice().sort((a, b) => a.owner.index! - b.owner.index!);
@@ -451,7 +456,7 @@ function polygonCentroid(pts: { x: number; y: number }[]): { x: number; y: numbe
   return { x: cx / (6 * a), y: cy / (6 * a) };
 }
 
-function byData(A: StageOutline[], B: StageOutline[], hint: DataHint, method: TransformMethod = "shatter"): CorrespondencePair[] {
+function byData(A: StageOutline[], B: StageOutline[], hint: DataHint, method: TransformMethod = DEFAULT_TRANSFORM_METHOD): CorrespondencePair[] {
   const axis = hint.axis ?? dataAxis(A, B, hint) ?? "x";
   const rawFit = hint.destAxisFit;
   if (!rawFit) return spatial(A, B, method);
@@ -532,7 +537,7 @@ function planPair(pair: CorrespondencePair): void {
 const batches = new Map<string, CorrespondencePlan>();
 const BATCH_CACHE_MAX = 4;
 export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: { pair?: PairPolicy; data?: DataHint; method?: TransformMethod } = {}): CorrespondencePlan {
-  const key = JSON.stringify([A, B, opts.pair ?? "auto", opts.data, opts.method ?? "shatter"]);
+  const key = JSON.stringify([A, B, opts.pair ?? "auto", opts.data, opts.method ?? DEFAULT_TRANSFORM_METHOD]);
   const hit = batches.get(key);
   if (hit) return hit;
   // A later edit to a producer's arrays must not alter a cached earlier frame.

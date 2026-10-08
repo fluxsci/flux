@@ -33,7 +33,7 @@ import { targetOutlines } from "./targetGeometry";
 import { diffState, transformPreState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
-import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef, normalizeRef, refElementIds } from "./targets";
+import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef, normalizeRef, refElementIds, DEFAULT_TRANSFORM_METHOD } from "./targets";
 import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
 import { modelBecomeResult, modelVideoHandoff } from "./model3dMorph";
 import {
@@ -1305,7 +1305,7 @@ export interface BecomeOptions extends TimingCurvePatch {
   mode?: BecomeSpec["mode"];
   pair?: BecomeSpec["pair"];
   reveal?: BecomeSpec["reveal"];
-  /** Hand-off only; written only when given (default shatter), so unset specs keep their bytes. */
+  /** Hand-off only; written only when it differs from the default (targets.DEFAULT_TRANSFORM_METHOD), so unset specs keep their bytes. */
   method?: BecomeSpec["method"];
   start?: number;
   duration?: number;
@@ -1395,7 +1395,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
         throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
     }
     const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...timing })!;
-    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== "shatter" ? { method: opts.method } : {}) }, state: {} };
+    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== DEFAULT_TRANSFORM_METHOD ? { method: opts.method } : {}) }, state: {} };
     delete track.disabled;
     return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
   }

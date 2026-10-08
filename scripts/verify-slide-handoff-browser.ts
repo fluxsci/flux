@@ -90,7 +90,7 @@ try {
   const setSlide = add("set-ellipses");
   addElement(deck, setSlide.id, { id: "source", type: "rect", x: 161, y: 111, width: 135, height: 45, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
   for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, setSlide.id, dot(id, y));
-  handoff(setSlide, "source", { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] });
+  handoff(setSlide, "source", { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] }, { method: "shatter" });   // shatter on request: the DOM assertions below count its fill pieces
   // A later Change on ONE member must bind to that member's own content.
   const after = addBeat(deck, setSlide.id, { id: "set-after" })!;
   setTransform(deck, setSlide.id, after.id, "e2", { state: { x: 560, fill: "#4169e1" }, duration: 400, easing: "linear" });
@@ -105,7 +105,7 @@ try {
   addElement(deck, mergeSlide.id, { id: "dest", type: "rect", x: 161, y: 111, width: 135, height: 45, rotation: 0, fill: "#d95f02", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
   for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, mergeSlide.id, dot(id, y));
   const mergeBeat = addBeat(deck, mergeSlide.id, { id: "merge-flight" })!;
-  ["e1", "e2", "e3"].forEach((id, i) => mergeBeat.tracks.push({ id: `m-${id}`, target: id, preset: "transform", start: 150 * i, duration: 600, easing: "linear", to: { become: { mode: "handoff", ref: { element: "dest" } }, state: {} } }));
+  ["e1", "e2", "e3"].forEach((id, i) => mergeBeat.tracks.push({ id: `m-${id}`, target: id, preset: "transform", start: 150 * i, duration: 600, easing: "linear", to: { become: { mode: "handoff", ref: { element: "dest" }, method: "shatter" }, state: {} } }));
   const mergePlan = compileSlide(mergeSlide, deck.stage);
   h.ok(mergePlan.handoffs.length === 3 && mergePlan.handoffs.every(x => x.merge?.landAt === 900 && x.merge.trackIds.length === 3) && !mergePlan.issues.length, "three hand-offs into one rect compile as one merge landing at 900 ms");
   const setPlan = compileSlide(mixedSlide, deck.stage, { plotManifest: id => plots[id]?.manifest });

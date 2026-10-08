@@ -1337,7 +1337,10 @@ Persistence invariants (all machine-checked — do not weaken):
   the arcs): the fill pours into each partner with its piece and fades where the partner has no
   fill — never a separate blob that floats off (the 2026-10-02 travelling underlay read exactly
   so and was removed). That is the `shatter` **transform method** (`BecomeSpec.method`,
-  `targets.TRANSFORM_METHODS`, default); the owner's alternatives keep the arcs stroke-only
+  `targets.TRANSFORM_METHODS`); the default — an absent `method` — is `dissolve` since
+  2026-10-08 (`targets.DEFAULT_TRANSFORM_METHOD`, the catalogue's first entry: one constant that
+  the planner's defaults, its cache key, `becomeTransform`'s "write only when it differs" and the
+  inspector select all read; shatter was the default before). The alternatives keep the arcs stroke-only
   and give the interior ONE fill-only ring the sampler drives (`CorrespondencePair.interior`,
   `INTERIOR_WINDOW`): `dissolve` fades it in place over the first 30 % of eased progress,
   `collapse` shrinks it into the centre over 45 %, `drain` clips it behind a straight front
@@ -9941,3 +9944,26 @@ body §4 updated; `verify-slide-player` pins it (red 238 for 200 without the fix
   `git stash pop` pops someone else's old stash (this repo carries seven from model3d branches) — six
   conflicted files. To test "without a committed fix": `git show <sha> -- <file> | git apply -R`, run,
   `git checkout -- <file>`.
+
+### 2026-10-08 — Dissolve is the default transform method; seven shape-state surfaces for the demo (Claude Fable 5.1, `main`)
+**Work:** Owner inbox. (1) `BecomeSpec.method` absent now means `dissolve` (was `shatter`): one
+constant, `targets.DEFAULT_TRANSFORM_METHOD` = the catalogue's first entry, read by the planner's
+defaults and cache key, `becomeTransform`'s write-only-when-different, the inspector select and its
+summary; `TRANSFORM_METHODS` reordered (the enum order changed → validators regenerated; the
+registry golden was unaffected). A filled shape becoming LETTERS keeps its area strips under every
+method — strips are the letters' own pairs, there is no separate interior for a method to act on.
+Gates rewritten to both contracts (default dissolve asserted; shatter asserted on request):
+`verify-correspondence` (tile, completion, cache key), `verify-slide-become` (split and merge).
+(2) Seven parametric surfaces with colormaps and shape states in the demo repo's
+`CORE/form_flow_chaos/pure_scripts/scenes3d.py` (torus → horn → spindle, Möbius band → cylinder →
+triple twist, superquadric sphere → cube → star, Enneper order 1 → 2 → 3, a conical seashell, a
+sphere with three spherical-harmonic bumps whose weights mix, Dini's surface → pseudosphere →
+corkscrew), each on one (u, v) grid so the states share vertex order; generated into the project's
+`plots/form_flow_chaos/`, notebook cells and README rows added.
+**Learnings:**
+- A default that several sites repeat as a literal is a bug waiting for the day it changes: put it on
+  the catalogue (first entry) and make every reader import it; the gates then assert "absent means
+  the default" once, and the explicit alternatives separately.
+- The completion law composes with the method: a filled source that splits for a leftover
+  destination carries its interior by the default method too (an interior pair, b-less), so gate
+  counts must separate flights from interior pairs.

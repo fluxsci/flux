@@ -37,15 +37,20 @@ export const PAIR_POLICIES = [
 /** The ids alone, as the non-empty tuple `z.enum` takes. */
 export const PAIR_POLICY_IDS = PAIR_POLICIES.map(p => p.id) as [(typeof PAIR_POLICIES)[number]["id"], ...(typeof PAIR_POLICIES)[number]["id"][]];
 /** Transform methods (owner, 2026-10-03): what a filled shape's interior does while
- *  its outline splits into pieces, or pieces merge into it. One catalogue for the
- *  GUI select, the CLI flag and the deck schema. */
+ *  its outline splits into pieces, or pieces merge into it (a shape becoming letters
+ *  pours its area into them as strips under every method). One catalogue for the
+ *  GUI select, the CLI flag and the deck schema; the first entry is the DEFAULT — a
+ *  spec without a `method` key means it (dissolve since 2026-10-08, shatter before:
+ *  owner, "make dissolve the default wherever it applies"). */
 export const TRANSFORM_METHODS = [
+  { id: "dissolve", label: "dissolve", hint: "The interior fades away in place as the outline leaves (default)" },
   { id: "shatter", label: "shatter", hint: "The interior splits into wedges that fly with the pieces" },
-  { id: "dissolve", label: "dissolve", hint: "The interior fades away in place as the outline leaves" },
   { id: "collapse", label: "collapse", hint: "The interior shrinks into the shape's centre as the outline leaves" },
   { id: "drain", label: "drain", hint: "The interior empties toward where the pieces are going" },
 ] as const;
 export const TRANSFORM_METHOD_IDS = TRANSFORM_METHODS.map(m => m.id) as [(typeof TRANSFORM_METHODS)[number]["id"], ...(typeof TRANSFORM_METHODS)[number]["id"][]];
+/** The method an absent `BecomeSpec.method` means — THE one place that knows it. */
+export const DEFAULT_TRANSFORM_METHOD: (typeof TRANSFORM_METHODS)[number]["id"] = TRANSFORM_METHODS[0].id;
 
 /** Structural endpoint test; callers own preset and enabled eligibility. */
 export function isHandoff<T extends Pick<Track, "to">>(track: T | null | undefined): track is T & { to: { become: BecomeSpec } } {

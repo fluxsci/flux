@@ -27,7 +27,7 @@
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
-  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS } from "../../../../lib/slide/targets";
+  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../../lib/slide/autobuild";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
@@ -165,7 +165,7 @@
     if (!curTrack || curFamily !== "transform") return "";
     const st = (curTrack.to?.state ?? {}) as Record<string, unknown>;
     const kind = typeof st.type === "string" ? st.type : null;
-    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}${handoff.method && handoff.method !== "shatter" ? ` · ${handoff.method}` : ""}`;
+    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}${handoff.method && handoff.method !== DEFAULT_TRANSFORM_METHOD ? ` · ${handoff.method}` : ""}`;
     if (curTrack.to?.become?.mode === "consume") {
       const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
       return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
@@ -597,7 +597,7 @@
             </select>
           </label>
           <label class="f" title="Transform method: what a filled shape's interior does while its outline splits into several pieces, or several pieces merge into it">Method ▾
-            <select aria-label="Hand-off method" value={handoff.method ?? "shatter"} onchange={e => changeHandoff({ method: e.currentTarget.value as BecomeSpec["method"] })}>
+            <select aria-label="Hand-off method" value={handoff.method ?? DEFAULT_TRANSFORM_METHOD} onchange={e => changeHandoff({ method: e.currentTarget.value as BecomeSpec["method"] })}>
               {#each TRANSFORM_METHODS as m (m.id)}<option value={m.id} title={m.hint}>{m.label}</option>{/each}
             </select>
           </label>

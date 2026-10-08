@@ -69,11 +69,11 @@ flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently
 flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become) BECOME
      [--part id,id --source-part id,id --mode consume|handoff]
-     [--pair auto|spatial|order|data|tile --reveal flip|draw --method shatter|dissolve|collapse|drain]
+     [--pair auto|spatial|order|data|tile --reveal flip|draw --method dissolve|shatter|collapse|drain]
      [--start ms --duration ms --easing e]
 flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>             # (appear_from) same hand-off from the destination side
      [--part id,id --source-part id,id --pair auto|spatial|order|data|tile --reveal flip|draw]
-     [--method shatter|dissolve|collapse|drain --start ms --duration ms --easing e]
+     [--method dissolve|shatter|collapse|drain --start ms --duration ms --easing e]
 flux become <deck> <slideId> <beatId> <sourceId> --to <elId> --to <elId> [--to …]  # a destination SET: one hand-off into several objects
      [--members '[{"element":"plot1","parts":["s1.point.0"]},{"element":"ellipse2"}]']  # …or objects + parts of any plots; always a hand-off
 flux appear-from <deck> <slideId> <beatId> --members '<json>' --from <sourceId>       # the same set, authored from its destination side
@@ -169,7 +169,7 @@ beat — chain across beats) authored three ways:
   whole-plot consume route; consume refuses part sets. `--part` selects destination parts,
   `--source-part` selects source parts. `--pair` chooses correspondence, `--reveal` flip/draw,
   `--method` what a filled shape's interior does while it splits into pieces or pieces merge into it
-  (shatter = wedges fly with the pieces, the default; dissolve = fades in place; collapse = shrinks to
+  (dissolve = fades in place, the default; shatter = wedges fly with the pieces; a shape becoming letters always pours its area into them; collapse = shrinks to
   the centre; drain = empties toward the pieces).
   A destination cannot receive overlapping hand-offs in one step. Neither side may be video;
   ghost destinations must already be born. New tracks use 600 ms / smooth / start 0; replacing
