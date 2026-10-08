@@ -16,7 +16,9 @@ async function main() {
     const seed = scope.spawn(path.join(__dirname, 'lib/figurePolishFixture.ts'), [root], { env, cwd: repo });
     await scope.waitExit(seed);
     if (seed.code !== 0) throw Error(seed.stdout + seed.stderr);
-    const args = [root];
+    // Exact marker bytes require one color space: macOS display profiles can
+    // encode the same visible sRGB color differently in the captured PNG.
+    const args = [root, '--force-color-profile=srgb'];
     if (process.platform === 'linux') args.push('--ozone-platform=x11');
     const probe = scope.spawn(path.join(__dirname, 'lib/liveViewProbeEntry.cjs'), args, {
       command: require('electron'), nodeArgs: [], env, cwd: repo, deadlineMs: 100000,

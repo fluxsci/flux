@@ -2919,6 +2919,11 @@ days (probe geometry like `width` instead).
   Command+A without selecting input/textarea text; pass Puppeteer's
   `{ commands: ['selectAll'] }` with the keypress on Darwin. Keep real typing and saved-byte
   assertions, and verify the caret reached document end before export-recovery input.
+- **Exact native screenshot colors need a fixed test color space.** macOS captures can
+  embed the display's ICC profile, so raw PNG/bitmap RGB values differ from the authored
+  CSS color even when the marker is visibly correct. `verify-live-view-electron` launches
+  its isolated probe with `--force-color-profile=srgb`; keep its exact marker-pixel assertion.
+  This calibrates the test only, without changing the application's display-color policy.
 - **`spawn("npm", …)` needs `shell: true` on Windows** — there is no bare `npm` executable,
   only `npm.cmd`, so an unshelled spawn dies with `ENOENT` (measured: unshelled ENOENT,
   `shell: true` exit 0). `run-verifies.mjs` hit exactly this starting its own dev server: the
@@ -9967,3 +9972,6 @@ corkscrew), each on one (u, v) grid so the states share vertex order; generated 
 - The completion law composes with the method: a filled source that splits for a leftover
   destination carries its interior by the default method too (an interior pair, b-less), so gate
   counts must separate flights from interior pairs.
+
+### 2026-10-07 22:41 CDT — Refresh and verify the Mac checkout (Codex, main)
+**Work:** Fast-forwarded five upstream commits through `2f110436`; the dependency lock was unchanged. Production build, renderer check (0 errors/warnings), headless check and 15 focused gates pass, including slide authoring and native launch/capture. The first authoring attempt lost its execution context during navigation; the isolated rerun passed. The native marker initially failed on raw display-profile RGB values; fixed only the probe launch color space, retaining the exact pixel assertion, and promoted the calibration rule to §9. Initial and final receipts remain under `test-results/runs/`.
