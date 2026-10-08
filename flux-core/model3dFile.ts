@@ -7,6 +7,7 @@ import { projectRelativePath } from './projectSource';
 import { confinedRecoveryPath } from './recovery';
 import { tmpPathFor, fsyncDir } from './fsx';
 import { shareRetry } from '../electron/fsRetry.cjs';
+import { publishExclusive } from '../electron/fsExclusive.cjs';
 
 /** Bound allocation against the opened regular file, rechecking confinement
  * after open so a delayed provider cannot follow a substituted symlink. With a
@@ -50,16 +51,16 @@ export async function publishModelFile(root: string, file: string, bytes: Uint8A
     await confinedRecoveryPath(root, file);
     if (await fs.realpath(parent) !== directory || !same(await fs.stat(directory), directoryStat)) throw new Error('3D output directory changed during publication');
   };
-  let handle: Awaited<ReturnType<typeof fs.open>> | undefined, identity: Stats | undefined, published = false;
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined, identity: Stats | undefined, published: Stats | undefined;
   const checkTemporary = async () => {
     await checkDirectory();
     if (await fs.realpath(temporary) !== temporary || !same(await fs.lstat(temporary), identity!)) throw new Error('3D output temporary file changed during publication');
   };
   // Cleanup only the exclusive inode created by this call, including when the
   // parent alias was substituted at open. Never remove a replacement file.
-  const removeOwned = async (name: string) => {
+  const removeOwned = async (name: string, owned = identity) => {
     await retry(async () => {
-      try { if (identity && same(await fs.lstat(name), identity)) await fs.unlink(name); }
+      try { if (owned && same(await fs.lstat(name), owned)) await fs.unlink(name); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     });
   };
@@ -70,19 +71,24 @@ export async function publishModelFile(root: string, file: string, bytes: Uint8A
     if (!identity.isFile()) throw new Error('3D output temporary file must be regular');
     await checkTemporary();
     await handle.writeFile(bytes); await handle.sync();
+    // Re-read through the handle: exFAT numbers an empty file with a placeholder
+    // inode and assigns the real one with its first cluster (2026-10-07).
+    if (bytes.length) identity = await handle.stat();
     await checkTemporary();
     await handle.close(); handle = undefined;
     await retry(async () => {
       await checkTemporary();
-      if (createOnly) await fs.link(temporary, destination); else await fs.rename(temporary, destination);
-      published = true;
+      if (!createOnly) await fs.rename(temporary, destination);
+      // A volume without hard links (exFAT) publishes an exclusive copy: a new inode, still ours.
+      else if (await publishExclusive(temporary, destination, { retry: operation => operation() }) === 'copied') { published = await fs.lstat(destination); return; }
+      published = identity;
     });
     await checkDirectory();
-    if (!same(await fs.lstat(destination), identity)) throw new Error('3D output changed after publication');
+    if (!same(await fs.lstat(destination), published!)) throw new Error('3D output changed after publication');
     if (createOnly) await removeOwned(temporary);
     await fsyncDir(directory);
   } catch (error) {
-    if (published) await removeOwned(destination).catch(() => {});
+    if (published) await removeOwned(destination, published).catch(() => {});
     throw error;
   } finally {
     await handle?.close().catch(() => {});

@@ -1,4 +1,5 @@
 "use strict";
+const { publishExclusive, isNoHardLinks } = require("./fsExclusive.cjs");
 // Exclusive verified publication shared by capture and assignment.
 function createVerifiedMove({fs=require("node:fs"),fsp=fs.promises,path=require("node:path")}={}) {
   const crypto=require("node:crypto");
@@ -34,7 +35,8 @@ function createVerifiedMove({fs=require("node:fs"),fsp=fs.promises,path=require(
     try {
       try { await fsp.link(src, dst); published = true; }
       catch (error) {
-        if (error.code !== "EXDEV") throw error;
+        // Across volumes, or on one without hard links (exFAT): copy, verify, publish.
+        if (error.code !== "EXDEV" && !isNoHardLinks(error)) throw error;
         const tmp = `${dst}.pending-${crypto.randomUUID()}`;
         try {
           await fsp.copyFile(src, tmp, fs.constants.COPYFILE_EXCL);
@@ -43,7 +45,7 @@ function createVerifiedMove({fs=require("node:fs"),fsp=fs.promises,path=require(
           // cross-device capture failed to publish there, forever and silently.
           const fd = await fsp.open(tmp, "r+"); try { await fd.sync(); } finally { await fd.close(); }
           if (await digest(tmp) !== sha256 || await digest(src) !== sha256) throw new Error("Capture copy verification failed; original retained");
-          await fsp.link(tmp, dst); published = true;
+          await publishExclusive(tmp, dst, { retry: op => op(), fsp }); published = true;
         } finally { await fsp.rm(tmp, {force:true}).catch(() => {}); }
       }
       const after = await fsp.lstat(src);

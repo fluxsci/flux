@@ -243,6 +243,7 @@
       "verify-frame-oracle.ts",
       "verify-runner-runtime.mjs",
       "verify-operation-leases.ts",
+      "verify-fs-exclusive.ts",
       "verify-manifest-transactions.ts",
       "verify-canonical-reads.ts",
       "verify-native-boundaries.ts",
@@ -2376,6 +2377,15 @@
       "glob": "electron/*Lease*.cjs",
       "run": [
         "verify-operation-leases.ts",
+        "verify-fs-exclusive.ts",
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "electron/fsExclusive.cjs",
+      "run": [
+        "verify-fs-exclusive.ts",
         "tier:presence",
         "tier:pure"
       ]
@@ -7690,6 +7700,15 @@
       "coverage": "behavior"
     },
     "verify-operation-leases.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fs-exclusive.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

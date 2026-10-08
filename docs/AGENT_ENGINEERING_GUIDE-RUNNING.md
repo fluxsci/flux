@@ -2968,6 +2968,17 @@ days (probe geometry like `width` instead).
   replaced or unlinked there. `flux-core/fsx.ts` used it; its main-process twin `atomicWriteMain`
   — the path EVERY renderer write takes — did not, so a GUI write that lost that race just failed.
   When a helper says "one implementation for both module systems", check that both twins call it.
+- **exFAT/FAT volumes (external drives) have no hard links, and macOS litters them with `._` files.**
+  `fs.link` comes back ENOTSUP there, and every create-only publish (lease bakery registers,
+  `atomicWrite(..., createOnly)`, `atomicWriteMain`, verified copy/move, video, 3D) used it — so no
+  project on such a drive could even open ("lock:acquire … ENOTSUP … link", 2026-10-07). Publish
+  create-only through `publishExclusive` (`electron/fsExclusive.cjs`), which falls back to an O_EXCL
+  copy; never call `fs.link` directly. Two more exFAT facts the mock cannot show (probe a real
+  volume): macOS writes an AppleDouble sibling `._<name>` beside EVERY file and directory a process
+  creates there (the `com.apple.provenance` xattr; it vanishes with its file), so a scanner keyed on
+  an extension must reject `._*` — the bakery waited on `._<token>.json` as a ticket-0 contender until
+  timeout; and an EMPTY file has a placeholder inode that changes when its first cluster is written,
+  so an identity captured at open must be re-read through the handle after writing.
 - **A comparator that is not TOTAL makes results depend on arrival order.** `rankHits` compared
   three fields and stopped; the fulltext scan path pushes from parallel workers, so a corpus where
   every document ties came back shuffled differently every run and disagreed with the sequential
@@ -9975,3 +9986,21 @@ corkscrew), each on one (u, v) grid so the states share vertex order; generated 
 
 ### 2026-10-07 22:41 CDT — Refresh and verify the Mac checkout (Codex, main)
 **Work:** Fast-forwarded five upstream commits through `2f110436`; the dependency lock was unchanged. Production build, renderer check (0 errors/warnings), headless check and 15 focused gates pass, including slide authoring and native launch/capture. The first authoring attempt lost its execution context during navigation; the isolated rerun passed. The native marker initially failed on raw display-profile RGB values; fixed only the probe launch color space, retaining the exact pixel assertion, and promoted the calibration rule to §9. Initial and final receipts remain under `test-results/runs/`.
+
+### 2026-10-07 23:05 CDT — Projects on an exFAT drive would not open (Claude Opus 5.5, `claude/flux-project-open-error-48234b`)
+**Work:** Owner's demo project on an external exFAT SSD failed at open with "lock:acquire … ENOTSUP:
+operation not supported on socket, link". New `electron/fsExclusive.cjs` `publishExclusive` (link,
+else streamed O_EXCL copy + fsync) now carries every create-only publish: lease registers, `fsx`
+`atomicWrite`, `atomicWriteMain`, `verifiedCopy`, `verifiedMove` (no-link joins the EXDEV path),
+`videoMedia`, `model3dImport`, `model3dFile`. The real volume then exposed two more: the bakery read
+macOS's `._<token>.json` AppleDouble siblings as contenders (registers now match only
+`<uuid>(.choosing).json`), and `publishModelFile`'s temp identity changed when exFAT assigned the
+inode on first write (re-read after writing). The renderer's `fs:readdir` drops `._X` beside `X`, and
+the project watcher ignores `._*`. Gate: `verify-fs-exclusive.ts` (pure; fails ENOTSUP without the
+fix); probed on the real exFAT volume too.
+**Learnings:**
+- Mocking `fs.link` to throw proved the fallback but not the volume: two of three bugs appeared only
+  on the real drive. For filesystem-semantics bugs, run the probe where the user's files live.
+- flux-core scanners (CLI/MCP) still readdir directly; most skip dotfiles but `._*` filtering there
+  is unaudited.
+

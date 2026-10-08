@@ -184,7 +184,7 @@ const sourceWatchCore = require("./ipc/sourceWatch.cjs").createSourceWatchCore({
   loadChokidar,
   notify: notifyRenderer,
 });
-const { TMP_WRITE_RE } = require("./ipc/files.cjs");
+const { TMP_WRITE_RE, APPLE_DOUBLE_RE } = require("./ipc/files.cjs");
 
 
 // ---------------------------------------------------------------------------
@@ -1299,8 +1299,9 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   const watcher = ck.watch(targets, {
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
-    // Never surface in-flight atomic-write temp files (ours or flux-core's).
-    ignored: (p) => TMP_WRITE_RE.test(p) || isPrunedWatchPath(p),
+    // Never surface in-flight atomic-write temp files (ours or flux-core's), nor
+    // the AppleDouble sibling macOS writes beside each of them on exFAT.
+    ignored: (p) => TMP_WRITE_RE.test(p) || APPLE_DOUBLE_RE.test(p) || isPrunedWatchPath(p),
   });
   watcher.on("all", (_evt, abs) => {
     if (isSelfWrite(abs)) return;

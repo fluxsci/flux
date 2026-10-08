@@ -11,6 +11,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const { readTextBounded } = require("../boundedText.cjs");
 const { shareRetry } = require("../fsRetry.cjs");
+const { publishExclusive } = require("../fsExclusive.cjs");
 
 // W2 (V1 review): durable renderer writes — every fs:write* lands via
 // write-tmp + fsync + rename, so a crash/power-loss can never truncate a
@@ -18,6 +19,11 @@ const { shareRetry } = require("../fsRetry.cjs");
 // The dot-prefixed `.name.tmp-<pid>-<seq>` pattern is shared with
 // flux-core/fsx.ts and ignored by the project watcher.
 const TMP_WRITE_RE = /(^|[/\\])\.[^/\\]*\.tmp-\d+-\d+$/;
+/** macOS keeps extended attributes on exFAT/FAT volumes in an AppleDouble
+ *  sibling, `._<name>`, created beside every file a process writes there. It is
+ *  OS metadata, never project content, and unfiltered `._figure.svg` would list
+ *  as a plot and `._deck-id` as a deck (2026-10-07, a project on an exFAT SSD). */
+const APPLE_DOUBLE_RE = /(^|[/\\])\._[^/\\]+$/;
 
 /**
  * Build the file core. deps:
@@ -65,7 +71,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
       // the write EVERY renderer save goes through, and losing that race is
       // what the owner saw as "Couldn't save figures" (2026-09-22).
       if (createOnly) {
-        await shareRetry(() => fs.promises.link(tmp, p));
+        await publishExclusive(tmp, p, { mode });
         await shareRetry(() => fs.promises.unlink(tmp));
       } else await shareRetry(() => fs.promises.rename(tmp, p));
       noteWrite(p, senderId);
@@ -305,7 +311,10 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
       fsGuard(p, e.sender.id); // W12 (SHL-6): was unguarded — a directory-listing of any path
       try {
         const es = await fs.promises.readdir(p, { withFileTypes: true });
-        return es.map((ent) => ({ name: ent.name, dir: ent.isDirectory() }));
+        // Drop `._X` only beside its `X`: a real file the user named `._X` still lists.
+        const names = new Set(es.map((ent) => ent.name));
+        return es.filter((ent) => !(ent.name.startsWith("._") && names.has(ent.name.slice(2))))
+          .map((ent) => ({ name: ent.name, dir: ent.isDirectory() }));
       } catch (error) {
         if (strict) throw error; // Canonical absence must not hide access/IO failure.
         return [];
@@ -372,4 +381,4 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
   };
 }
 
-module.exports = { createFileCore, TMP_WRITE_RE };
+module.exports = { createFileCore, TMP_WRITE_RE, APPLE_DOUBLE_RE };

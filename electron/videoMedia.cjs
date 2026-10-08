@@ -6,6 +6,7 @@ const fsp = fs.promises;
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
+const { publishExclusive } = require("./fsExclusive.cjs");
 
 const VIDEO_EXT = /\.(mp4|mov)$/i;
 function safeId(id) { return typeof id === "string" && /^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,180}$/.test(id); }
@@ -231,7 +232,7 @@ async function copyVideoAssets({ root, sourceDeckId, deckId, paths, checkCurrent
     for (const item of staged) {
       checkCurrent();
       if (await projectFile(root, `slides/${deckId}/assets`) !== directory) throw new Error("Video copy destination was replaced");
-      await fsp.link(item.temporary, item.destination); // atomic, no clobber
+      await publishExclusive(item.temporary, item.destination, { retry: operation => operation() }); // no clobber
       created.push(item.destination);
     }
     if (process.platform !== "win32") { const dir = await fsp.open(directory, "r"); try { await dir.sync(); } finally { await dir.close(); } }

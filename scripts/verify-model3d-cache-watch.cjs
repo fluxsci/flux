@@ -22,7 +22,7 @@ async function waitFor(test, label) {
   const main = await fs.readFile(path.join(__dirname, "../electron/main.cjs"), "utf8");
   const classifySource = main.match(/function subsystemFor\(root, abs\) \{[\s\S]*?\n\}/)?.[0];
   const pruneSource = main.match(/const isPrunedWatchPath = \(abs\) => \{[\s\S]*?\n  \};/)?.[0];
-  ok(classifySource && pruneSource && /ignored:\s*\(p\)\s*=>\s*TMP_WRITE_RE\.test\(p\)\s*\|\|\s*isPrunedWatchPath\(p\)/.test(main), "native watcher actually consumes the tested pruning policy");
+  ok(classifySource && pruneSource && /ignored:\s*\(p\)\s*=>\s*TMP_WRITE_RE\.test\(p\)\s*\|\|\s*APPLE_DOUBLE_RE\.test\(p\)\s*\|\|\s*isPrunedWatchPath\(p\)/.test(main), "native watcher actually consumes the tested pruning policy");
   const { isLighttableProjectRel } = await import("../electron/plotsFolders.js");
   const { isDissectionProjectRel } = await import("../electron/dissectRules.js");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-model3d-cache-watch-"));

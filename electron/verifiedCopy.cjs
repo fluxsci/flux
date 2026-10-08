@@ -1,5 +1,6 @@
 "use strict";
 // Native, bounded-memory copy with exclusive atomic publication. The source is retained.
+const { publishExclusive }=require("./fsExclusive.cjs");
 function createVerifiedCopy({ fs=require("node:fs"), fsp=fs.promises, path=require("node:path"), retry=require("./fsRetry.cjs").shareRetry }={}) {
   const crypto=require("node:crypto");
   const digest=async file=>{ const hash=crypto.createHash("sha256"); for await(const bytes of fs.createReadStream(file)) hash.update(bytes); return hash.digest("hex"); };
@@ -17,7 +18,7 @@ function createVerifiedCopy({ fs=require("node:fs"), fsp=fs.promises, path=requi
       const handle=await fsp.open(tmp,"r+"); try { await handle.sync(); } finally { await handle.close(); }
       const after=await regular(source);
       if(before.size!==after.size||before.mtimeMs!==after.mtimeMs||await digest(tmp)!==sha||await digest(source)!==sha) throw new Error("Copy source changed or copy verification failed");
-      try { await retry(async()=>{ await beforePublish(); await fsp.link(tmp,destination); }); } catch(error) { if(error.code!=="EEXIST") throw error; await identical(destination,sha); }
+      try { await retry(async()=>{ await beforePublish(); await publishExclusive(tmp,destination,{retry:op=>op(),fsp}); }); } catch(error) { if(error.code!=="EEXIST") throw error; await identical(destination,sha); }
       if(process.platform!=="win32") { const handle=await fsp.open(dir,"r"); try { await handle.sync(); } finally { await handle.close(); } }
       return sha;
     } finally { await retry(()=>fsp.rm(tmp,{force:true})); }

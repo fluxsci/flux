@@ -9,6 +9,7 @@
 
 import { promises as fs } from "node:fs";
 import { shareRetry } from "../electron/fsRetry.cjs";
+import { publishExclusive } from "../electron/fsExclusive.cjs";
 import path from "node:path";
 
 let seq = 0;
@@ -34,7 +35,7 @@ export async function atomicWrite(p: string, data: string | Uint8Array, createOn
     // read the previous version (a scanner, an indexer), and the replace comes
     // back EPERM — a moment to wait out, not a refusal. Without this a save
     // failed outright and the user saw "Couldn't save figures" (2026-09-22).
-    if (createOnly) { await shareRetry(() => fs.link(tmp, p)); await shareRetry(() => fs.unlink(tmp)); }
+    if (createOnly) { await publishExclusive(tmp, p, { mode }); await shareRetry(() => fs.unlink(tmp)); }
     else await shareRetry(() => fs.rename(tmp, p));
   } finally {
     await fh?.close().catch(() => {});

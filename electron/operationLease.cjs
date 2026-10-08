@@ -37,11 +37,14 @@ function stale(info, ttl = TTL) {
 // lease record here and for every project-file write in flux-core/fsx.ts. The
 // arbitration registers need no retry: they are never replaced (see transition).
 const { shareRetry, isSharingViolation } = require("./fsRetry.cjs");
+const { publishExclusive } = require("./fsExclusive.cjs");
 async function atomic(file, value, exclusive = false) {
   const tmp = `${file}.tmp-${randomUUID()}`;
   try {
     await fs.writeFile(tmp, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
-    await shareRetry(() => (exclusive ? fs.link(tmp, file) : fs.rename(tmp, file)));
+    // exclusive: a link, or an O_EXCL create where the volume has no hard links.
+    if (exclusive) await publishExclusive(tmp, file, { mode: 0o600 });
+    else await shareRetry(() => fs.rename(tmp, file));
   } finally {
     // The temp link is disposable: losing it leaks a byte, losing the operation
     // loses the user's work.
@@ -52,6 +55,11 @@ const discard = file => shareRetry(() => fs.rm(file, { force: true })).catch(() 
 const ticketOf = info => (Number.isSafeInteger(info.ticket) ? info.ticket : 0);
 /** Every register is `<token>.json` or `<token>.choosing.json`; a UUID has no dot. */
 const tokenOfName = name => name.split('.')[0];
+/** Only a register is a contender. macOS keeps extended attributes on exFAT/FAT in
+ *  an AppleDouble sibling, `._<name>`, beside EVERY file a process creates there;
+ *  read as a register it never parses, so it was a ticket-0 contender everyone
+ *  waited on until "Lease arbitration timed out" (2026-10-07). */
+const REGISTER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.choosing)?\.json$/;
 /**
  * The live contenders, ONE record per token. A token that has published its
  * number is read at that number even while its choosing flag is still on disk
@@ -77,7 +85,7 @@ const tokenOfName = name => name.split('.')[0];
 async function registers(dir) {
   const byToken = new Map();
   for (const name of await fs.readdir(dir)) {
-    if (!name.endsWith('.json')) continue;
+    if (!REGISTER_RE.test(name)) continue;
     const file = path.join(dir, name);
     let info;
     try { info = await read(file); }

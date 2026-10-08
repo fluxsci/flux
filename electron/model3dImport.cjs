@@ -6,6 +6,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { shareRetry } = require("./fsRetry.cjs");
+const { publishExclusive: publishFile } = require("./fsExclusive.cjs");
 // GLB_LIMITS.maxBytes (glbCore.mjs). This CommonJS boundary cannot import the ESM
 // core synchronously; verify-model3d-import pins the two values equal.
 const MAX_BYTES = 200 * 1024 * 1024;
@@ -103,7 +104,7 @@ async function publishExclusive(location, file, bytes, checkCurrent) {
     await shareRetry(async () => {
       await checkCurrent();
       if (await assertDirectory(location) !== realDir) throw new Error("Model asset directory changed");
-      await fsp.link(temporary, destination);
+      await publishFile(temporary, destination, { retry: operation => operation() });
       published = true;
     });
     await syncDirectory(realDir);
