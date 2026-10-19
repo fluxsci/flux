@@ -10010,3 +10010,13 @@ inspection error → exit 1); it now uses `%SystemRoot%\System32\tasklist.exe` (
 **Learnings:**
 - `chmod` cannot make a Windows directory unwritable; a file in the parent's place fails on every OS.
 - Any OS tool a fixture-run process calls must be absolute: `agentFixture` sets PATH to fake bins only.
+
+### 2026-10-19 — `verify-model3d-cache-watch`: the last Linux red was a runner-image change (Claude Opus 5.5, `main`)
+**Work:** Green on every Linux run with ubuntu24 image 20260901, red on every run from 20261002
+on (same Node 22.23.3): after `rm -r fig/renders` the control watcher, whose root IS
+`fig/renders`, never reported `unlinkDir fig/renders`. The settle signal now waits for the
+deletions inside the watched root; the contract (`actual` stays empty) is unchanged.
+**Learnings:**
+- Never settle a watcher test on the watched root's own removal: whether chokidar reports it is
+  kernel-dependent. Settle on events for paths beneath the root.
+- When a gate flips red with no code change, compare the runner image line in the job log first.

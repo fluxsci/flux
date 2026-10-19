@@ -92,7 +92,10 @@ async function waitFor(test, label) {
     await fs.writeFile(path.join(project, "fig/renders/overview.svg"), "<svg/>");
     await waitFor(() => settledCacheControl.some(row => row.relative === "fig/renders/overview.svg") && settledCacheControl.some(row => row.relative.endsWith("external.png")), "external derived writes observed by settled cache control");
     await fs.rm(path.join(project, "fig/renders"), { recursive: true });
-    await waitFor(() => settledCacheControl.some(row => row.relative === "fig/renders" && row.event === "unlinkDir"), "cache pruning observed by settled cache control");
+    // Settle on the deletions inside the watched root: whether a watched root's own removal
+    // surfaces as unlinkDir is kernel-dependent (ubuntu-24.04 images from 2026-10 stopped).
+    const removed = (relative, event) => settledCacheControl.some(row => row.relative === relative && row.event === event);
+    await waitFor(() => removed("fig/renders/overview.svg", "unlink") && (removed("fig/renders/model3d", "unlinkDir") || removed("fig/renders/model3d/external.png", "unlink")), "cache pruning observed by settled cache control");
     ok(actual.length === 0, "external cache publication and pruning also stay outside canonical revisions");
     phase = "canonical and source edits";
     for (const relative of canonical) await fs.writeFile(path.join(project, relative), `edited ${relative}`);
