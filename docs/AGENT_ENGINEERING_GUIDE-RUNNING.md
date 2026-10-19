@@ -10059,3 +10059,11 @@ it (connection closed on Windows); it now hands the `.cmd` launcher to the SDK d
 - `chrome.exe --version` is not a probe on Windows; check the file.
 - A path a renderer built with `/` never `===` a `path.join` path on Windows: normalize first.
 - `resolveSpawn` output needs `windowsVerbatimArguments`; never feed it to cross-spawn/the MCP SDK.
+
+### 2026-10-19 — `verify-inbox-wait`: a waiter's clock ran while its sibling booted (Claude Opus 5.5, `main`)
+**Work:** Two cases started a long-poll worker, awaited it, and only then spawned the next worker;
+a tsx worker boots in seconds on Windows, so the 2 s/5 s waits expired before the event arrived.
+The writer now boots before the waiter, and the release case awaits both waiters together (the
+pattern the reassignment case adopted 2026-10-04). Timeouts unchanged.
+**Learnings:**
+- In multi-process wait gates, boot every worker before any waiter's deadline starts.
