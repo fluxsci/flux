@@ -180,15 +180,24 @@ try {
   const glbs=loaded.project.assets.filter(a=>a.kind==='glb').map(a=>path.join(root,'fig',a.path));
   // Deny byte reads while leaving metadata/stat available. The same process
   // first proves denial, then Connect must still produce its overview images.
-  // chmod 0 only sets Windows' read-only attribute; an ACL deny is the Windows equivalent (EPERM there).
-  const icacls=path.join(process.env.SystemRoot||'C:\\Windows','System32','icacls.exe'), win=process.platform==='win32';
-  const deny=async(file:string,on:boolean)=>{ if(!win) return fs.chmod(file,on?0:0o600); const {execFileSync}=await import('node:child_process'); execFileSync(icacls,[file,...(on?['/deny','*S-1-1-0:(RD)']:['/remove:d','*S-1-1-0'])],{stdio:'ignore'}); };
-  for(const file of glbs) await deny(file,true);
+  // Windows: chmod 0 only sets the read-only attribute, and an ACL deny does not bind an elevated
+  // runner (libuv opens with backup semantics). A helper holding the files with FileShare.None
+  // denies every other reader (EBUSY) while stat still works.
+  let holder:import('node:child_process').ChildProcess|undefined;
+  if(process.platform==='win32'){
+    const ps=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
+    const opens=glbs.map(f=>`[IO.File]::Open('${f.replaceAll("'","''")}','Open','Read','None')`).join(',');
+    holder=spawn(ps,['-NoProfile','-NonInteractive','-Command',`$h=@(${opens}); 'HELD'; [Console]::In.ReadLine() | Out-Null; $h | % { $_.Close() }`],{stdio:['pipe','pipe','inherit'],windowsHide:true});
+    await new Promise<void>((resolve,reject)=>{let out='';holder!.stdout!.on('data',d=>{out+=d;if(out.includes('HELD'))resolve();});holder!.once('exit',c=>reject(Error(`file holder exited ${c}`)));});
+  } else for(const file of glbs) await fs.chmod(file,0);
   try {
-    await assert.rejects(fs.readFile(glbs[0]), /EACCES|EPERM/);
+    await assert.rejects(fs.readFile(glbs[0]), /EACCES|EBUSY/);
     const pack=await connect({target:root,identity:detectAgentIdentity({})});
-    h.ok(pack.images.length>0 && pack.problems.some(w=>w.includes('poster not rendered')) && !pack.problems.some(w=>/EACCES|EPERM|Missing GLB/.test(w)), 'actual Connect renders named placeholders while GLB byte access is denied');
-  } finally {for(const file of glbs)await deny(file,false);}
+    h.ok(pack.images.length>0 && pack.problems.some(w=>w.includes('poster not rendered')) && !pack.problems.some(w=>/EACCES|EBUSY|Missing GLB/.test(w)), 'actual Connect renders named placeholders while GLB byte access is denied');
+  } finally {
+    if(holder){holder.stdin!.end('\n');await new Promise(resolve=>holder!.once('exit',resolve));}
+    else for(const file of glbs)await fs.chmod(file,0o600);
+  }
   h.eq(await tree(root),beforeConnectProject,'actual Connect leaves the 3D project unchanged');
   h.eq(await tree(machineModelPosterDir()),beforeModelCache,'actual Connect never writes the model poster machine cache');
 

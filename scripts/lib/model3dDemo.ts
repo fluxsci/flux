@@ -79,6 +79,15 @@ async function publishScratchDirectory<T>(input: string, build: (stage: string, 
         const code = (error as NodeJS.ErrnoException).code;
         // An existing target (occupied, substituted) also reads EPERM on Windows; that is final.
         const occupied = await fs.lstat(target).then(() => true, () => false);
+        if (process.platform === 'win32' && !occupied && attempt >= 20) {
+          // Name what still holds the stage: try each top-level entry in place (rename to itself + '~').
+          const held: string[] = [];
+          for (const name of await fs.readdir(stage).catch(() => [] as string[])) {
+            const from = path.join(stage, name);
+            try { await fs.rename(from, from + '~'); await fs.rename(from + '~', from); } catch { held.push(name); }
+          }
+          (error as Error).message += ` (still held after retries; locked entries: ${held.join(', ') || 'none — the directory itself'})`;
+        }
         if (process.platform !== 'win32' || occupied || attempt >= 20 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '')) throw error;
         await new Promise(resolve => setTimeout(resolve, 50 + 50 * attempt));
       }
