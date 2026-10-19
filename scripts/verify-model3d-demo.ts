@@ -104,7 +104,7 @@ try {
     if (mode !== 'parent') await fs.mkdir(destination);
     let swapped = false;
     fs.rename = async (from, to) => {
-      if (!swapped && String(from).includes('flux-model3d-demo-stage-') && String(to).endsWith('/project')) {
+      if (!swapped && String(from).includes('flux-model3d-demo-stage-') && path.basename(String(to)) === 'project') {
         swapped = true;
         if (mode === 'target') { await rename(destination, destination + '-held'); await fs.symlink(outside, destination, 'dir'); }
         else if (mode === 'parent') { await rename(parent, parent + '-held'); await fs.symlink(outside, parent, 'dir'); }
@@ -120,7 +120,7 @@ try {
   }
   const originalWrite = fs.writeFile; let failedStage = '';
   fs.writeFile = async (file, ...args) => {
-    if (String(file).includes('flux-model3d-demo-stage-') && String(file).endsWith('/project.json')) { failedStage = path.dirname(String(file)); throw new Error('Injected scaffold failure'); }
+    if (String(file).includes('flux-model3d-demo-stage-') && path.basename(String(file)) === 'project.json') { failedStage = path.dirname(String(file)); throw new Error('Injected scaffold failure'); }
     return originalWrite(file, ...args);
   };
   try { await assert.rejects(createModel3dDemo(path.join(scratch, 'failed-project')), /Injected scaffold failure/); } finally { fs.writeFile = originalWrite; }

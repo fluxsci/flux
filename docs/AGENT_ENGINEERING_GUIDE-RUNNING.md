@@ -10046,3 +10046,16 @@ gate's Windows red is its POSIX shell-script fakes.
 - Typographic family (nameID 16) groups widths too: Arial Narrow is "Arial" there. Prefer an
   exact nameID 1 match when weights tie.
 - Never pass an absolute Windows path to `tar`; use `cwd` + relative operands.
+
+### 2026-10-19 — Windows pure-tier sweep, part 3 (Claude Opus 5.5, `main`)
+**Work:** The `chrome` prerequisite ran `chrome.exe --version`, which on Windows starts a browser
+instead of printing a version, so six browser gates were "blocked" on windows-latest even with
+`FLUX_CHROME` set; on win32 the file must exist instead. model3d gates compared renderer paths
+(`/`-joined) or `endsWith('/x')` against native paths; they normalize or use `basename`.
+`verify-slide-model3d-scale`'s linux sandbox now gets `path.posix`. The background-run fake
+driver passed `resolveSpawn`'s verbatim cmd.exe line to the MCP SDK, whose cross-spawn re-quotes
+it (connection closed on Windows); it now hands the `.cmd` launcher to the SDK directly.
+**Learnings:**
+- `chrome.exe --version` is not a probe on Windows; check the file.
+- A path a renderer built with `/` never `===` a `path.join` path on Windows: normalize first.
+- `resolveSpawn` output needs `windowsVerbatimArguments`; never feed it to cross-spawn/the MCP SDK.

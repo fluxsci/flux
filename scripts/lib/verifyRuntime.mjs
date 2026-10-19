@@ -135,7 +135,9 @@ export async function missingPrerequisites(spec, repo, env = process.env) {
       if (problem) missing.push(problem);
       if (!runs('uv', ['--version'])) missing.push('uv executable (uv --version)');
     } else if (p === 'chrome') {
-      if (!runs(env.FLUX_CHROME || '/usr/bin/google-chrome', ['--version'])) missing.push('Chrome executable (FLUX_CHROME or /usr/bin/google-chrome)');
+      // chrome.exe has no --version on Windows (it starts a browser), so there the file must exist.
+      const chrome = env.FLUX_CHROME || '/usr/bin/google-chrome';
+      if (!(process.platform === 'win32' ? !!env.FLUX_CHROME && existsSync(chrome) : runs(chrome, ['--version']))) missing.push('Chrome executable (FLUX_CHROME or /usr/bin/google-chrome)');
     } else if (p === 'latex') {
       if (!runs('pdflatex', ['--version']) || ['lmodern.sty', 'scrartcl.cls', 'bookmark.sty', 'longtable.sty'].some(name => !runs('kpsewhich', [name]))) missing.push('PDF TeX toolchain (pdflatex, lmodern, KOMA Script, bookmark, longtable)');
     } else if (p === 'native-encoder') {

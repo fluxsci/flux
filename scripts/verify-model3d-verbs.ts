@@ -141,7 +141,7 @@ try {
   const raceMetadata=await readModel3dMetadata(root,raceProject,raceAsset.id),{staticModelRequest}=await import('../src/lib/model3d/static');
   const raceRequest=staticModelRequest({...raceElement,orbitAzimuth:333},raceAsset as import('../src/lib/model3d/types').Model3dAsset,raceMetadata.manifest,'figure')!;
   const newlyReferenced=path.join(dir,`${raceRequest.key}.png`);await fs.writeFile(newlyReferenced,'old cache becoming live');await fs.utimes(newlyReferenced,ago,ago);
-  const originalOpen=mutableFs.open;let savedDuringRender=false;mutableFs.open=async(...args)=>{if(!savedDuringRender&&String(args[0])===path.join(root,`fig/assets/${raceAsset.id}.fluxplot.json`)){savedDuringRender=true;await core.setModelViewCommand(root,{target:model.id,noPoster:true},{azimuth:333});}return originalOpen(...args);};syncBuiltinESMExports();
+  const originalOpen=mutableFs.open;let savedDuringRender=false;mutableFs.open=async(...args)=>{if(!savedDuringRender&&path.normalize(String(args[0]))===path.join(root,`fig/assets/${raceAsset.id}.fluxplot.json`)){savedDuringRender=true;await core.setModelViewCommand(root,{target:model.id,noPoster:true},{azimuth:333});}return originalOpen(...args);};syncBuiltinESMExports();
   let raced:Awaited<ReturnType<typeof core.renderModelPosters>>;try{raced=await core.renderModelPosters(root,{figureId,prune:true});}finally{mutableFs.open=originalOpen;syncBuiltinESMExports();}
   h.ok(savedDuringRender&&!raced.removed.includes(path.basename(newlyReferenced))&&await fs.readFile(newlyReferenced,'utf8')==='old cache becoming live','prune refreshes saved references after render and protects a newly referenced old key');
   // A registered deck that cannot be read (missing, newer or unparsable) used

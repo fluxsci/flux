@@ -3,7 +3,6 @@ import * as fs from 'node:fs/promises';
 import * as readline from 'node:readline';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { resolveSpawn } from '../../../electron/execResolve.cjs';
 const driver = process.argv[2], args = process.argv.slice(3);
 if (args.includes('--version')) { console.log(driver === 'claude' ? '2.1.283' : 'codex-cli 0.157.1'); process.exit(0); }
 if (args.includes('--help')) {
@@ -16,8 +15,9 @@ if (driver === 'claude') {
   for await (const line of lines) { text = JSON.parse(line).message.content; lines.close(); break; }
 } else for await (const chunk of process.stdin) text += chunk;
 const root = process.env.FLUX_PROJECT!;
-const resolved = resolveSpawn(process.env.FAKE_TASK_LAUNCHER!, ['mcp', root]);
-const transport = new StdioClientTransport({ command: resolved.command, args: resolved.args, env: process.env as Record<string, string>, cwd: process.cwd(), stderr: 'pipe' });
+// The SDK spawns through cross-spawn, which wraps a .cmd launcher itself; resolveSpawn's verbatim
+// cmd.exe line would be re-quoted and mangled, closing the connection on Windows.
+const transport = new StdioClientTransport({ command: process.env.FAKE_TASK_LAUNCHER!, args: ['mcp', root], env: process.env as Record<string, string>, cwd: process.cwd(), stderr: 'pipe' });
 const client = new Client({ name: driver, version: 'fixture' });
 try {
   await client.connect(transport);
