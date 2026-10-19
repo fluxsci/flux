@@ -26,6 +26,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 const isWin = process.platform === "win32";
+// Absolute, so a fixture that narrows PATH (fake agent bins) cannot make kill a silent no-op.
+const taskkill = isWin ? path.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe") : "taskkill";
 
 /** Explicit CI opt-in is test-owned; never relax production launch policy. */
 export function testElectronArgs(command, file, args, env) {
@@ -134,7 +136,7 @@ export class TestProcessScope {
     if (entry.exited || child.pid == null) return;
     if (isWin) {
       try {
-        execFileSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
+        execFileSync(taskkill, ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
       } catch {}
     } else {
       try {

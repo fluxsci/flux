@@ -9982,3 +9982,11 @@ Gate: `verify-launcher`. `verify-connect-doctor` times out at 120s on Windows wi
 - A file-only status check must compare against the same facts setup wrote; when it cannot spawn
   to rediscover them, read them back from the managed launcher, not from the running process.
   Any field in the monitor's `installKey` must resolve identically in file-only and full mode.
+
+### 2026-10-19 — `verify-connect-doctor` hung 120s on Windows: taskkill not on the fixture's PATH (Claude Opus 5.5, `main`)
+**Work:** `agentFixture` narrows `PATH` to its fake-agent bin, so `TestProcessScope.kill` ran a bare
+`taskkill`, got ENOENT, swallowed it, and `mcp.close()` waited for the 120s deadline. The scope
+now calls `%SystemRoot%\System32\taskkill.exe` by absolute path; the gate passes in ~16s.
+**Learnings:**
+- Test-infrastructure kills must not resolve through `PATH`: fixtures rewrite it, and the
+  silent `catch {}` turns a missing binary into a deadline-length hang, not an error.
