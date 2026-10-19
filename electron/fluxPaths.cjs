@@ -473,6 +473,7 @@ function resolveOwnCliCommandsSync(options = {}) {
   if (platform === "darwin" && /[\\/]AppTranslocation[\\/]/.test(appRoot + "/" + execPath)) {
     throw new Error("Move Flux to /Applications first; a translocated app cannot own the agent launcher.");
   }
+  const launcher = path.join(options.binDir || binDirSync(platform), platform === "win32" ? "flux.cmd" : "flux");
   let executable, args, target, electron = false;
   if (packaged) {
     electron = true;
@@ -488,7 +489,9 @@ function resolveOwnCliCommandsSync(options = {}) {
       args = [path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs")];
     }
   } else {
-    executable = options.nodePath || (options.commands === false ? execPath : resolveAgentNodeSync());
+    // Status reads must not launch Node: reuse the runtime this checkout's own
+    // launcher pins (setup resolved it), never Electron's execPath when one exists.
+    executable = options.nodePath || (options.commands === false ? launcherNodeSync(launcher, appRoot, platform) || execPath : resolveAgentNodeSync());
     target = appRoot;
     const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
     if (fsSync.existsSync(distCli)) args = [distCli];
@@ -501,6 +504,13 @@ function resolveOwnCliCommandsSync(options = {}) {
     }
   }
   let build = options.build;
+  // The bundle's stamped build comes first in every mode, so status and doctor
+  // name the same install (a mismatch discards doctor's evidence on refresh).
+  if (!build) {
+    const bundle = packaged && resourcesPath ? path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs") : path.join(appRoot, "dist", "flux-cli.mjs");
+    try { build = /^\/\/ flux-agent-build commit=(\S+)$/m.exec(fsSync.readFileSync(bundle, "utf8"))?.[1]; }
+    catch { /* source-only checkout */ }
+  }
   if (!build && options.commands === false) {
     // Status reads must not launch Node or git. Source-only worktrees may keep
     // refs in the common git dir; a missing ref is unknown until an explicit probe.
@@ -520,15 +530,9 @@ function resolveOwnCliCommandsSync(options = {}) {
     build ||= "unknown";
   }
   if (!build) {
-    const bundle = packaged && resourcesPath ? path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs") : path.join(appRoot, "dist", "flux-cli.mjs");
-    try { build = /^\/\/ flux-agent-build commit=(\S+)$/m.exec(fsSync.readFileSync(bundle, "utf8"))?.[1]; }
-    catch { /* source-only checkout */ }
-  }
-  if (!build) {
     const git = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: appRoot, encoding: "utf8", timeout: 2000 });
     build = git.status === 0 ? git.stdout.trim() : "unknown";
   }
-  const launcher = path.join(options.binDir || binDirSync(platform), platform === "win32" ? "flux.cmd" : "flux");
   return { cli: launcher, mcp: `${(platform === "win32" ? batchQuote : shellQuote)(launcher)} mcp`, executable, args, target, build, electron, platform };
 }
 
@@ -557,12 +561,24 @@ function launcherOwnerSync(file = path.join(binDirSync(), process.platform === "
 /** Does a managed launcher still have everything it executes (Node/Electron, script)?
  *  An owner whose checkout survives but whose built CLI is gone (dist/ cleaned, a
  *  worktree pruned of its build) is as dead as a deleted one: every `flux` fails. */
-function launcherRunsSync(body, platform) {
+function launcherPathsIn(body, platform) {
   const tokens = [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => platform === "win32"
     ? m[1].replaceAll("%%", "%")
     : m[1].replace(/\\(.)/g, "$1"));
-  const paths = tokens.filter(t => (platform === "win32" ? path.win32 : path.posix).isAbsolute(t));
-  return paths.every(p => fsSync.existsSync(p)); // nothing readable: can't tell, so it stays live
+  return tokens.filter(t => (platform === "win32" ? path.win32 : path.posix).isAbsolute(t));
+}
+function launcherRunsSync(body, platform) {
+  return launcherPathsIn(body, platform).every(p => fsSync.existsSync(p)); // nothing readable: can't tell, so it stays live
+}
+/** The Node a source checkout's own managed launcher executes (its first quoted path),
+ *  read without launching anything; null when another install owns the launcher. */
+function launcherNodeSync(file, target, platform) {
+  try {
+    const body = readShim(file), owner = body && launcherOwnerSync(file);
+    if (!owner || path.resolve(owner.target) !== path.resolve(target)) return null;
+    const node = launcherPathsIn(body, platform)[0];
+    return node && fsSync.existsSync(node) ? node : null;
+  } catch { return null; }
 }
 /** Is the recorded owner of a managed launcher still a working install? */
 function launcherOwnerAliveSync(file = path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux"), platform = process.platform) {

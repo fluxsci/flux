@@ -9967,3 +9967,18 @@ corkscrew), each on one (u, v) grid so the states share vertex order; generated 
 - The completion law composes with the method: a filled source that splits for a leftover
   destination carries its interior by the default method too (an interior pair, b-less), so gate
   counts must separate flights from interior pairs.
+
+### 2026-10-19 — AI status: false "MCP registration differs" on source checkouts (Claude Opus 5.5, `main`)
+**Work:** The panel's file-only refresh (`probeAgents({ commands: false })`) resolved a source
+checkout's runtime executable to Electron's `execPath`, so `claude.mcp` compared the correct
+`node.exe` registration against an `electron.exe` one and always failed (and doctor's later
+refresh re-failed it). `resolveOwnCliCommandsSync` now reuses the Node pinned by this checkout's
+own managed launcher (`launcherNodeSync`, file read only), falling back to `execPath`. Second
+cause, same panel: status read the build from git refs (`2f11043`) while doctor read the bundle
+stamp (`2f110436-dirty`), so `installKey` differed and every refresh discarded doctor's `mcp`
+result ("MCP responds" stayed Not checked). The bundle stamp is now read first in both modes.
+Gate: `verify-launcher`. `verify-connect-doctor` times out at 120s on Windows with or without this change.
+**Learnings:**
+- A file-only status check must compare against the same facts setup wrote; when it cannot spawn
+  to rediscover them, read them back from the managed launcher, not from the running process.
+  Any field in the monitor's `installKey` must resolve identically in file-only and full mode.

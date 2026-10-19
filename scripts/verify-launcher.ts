@@ -54,10 +54,13 @@ try {
   h.eq(JSON.parse(await run(runtime.cli)).verb, 'version', 'unbuilt source executes version through absolute Node + tsx');
   h.eq(JSON.parse(await run(path.join(bin, 'flux-connect' + suffix), ['a path'])).args, ['a path'], 'flux-connect delegates connect and preserves argv');
   h.ok(!await fs.stat(path.join(process.env.HOME!, '.local', 'bin')).catch(() => null), 'does not invent the convenience directory');
-  await fs.mkdir(path.join(source, 'dist')); await fs.writeFile(path.join(source, 'dist', 'flux-cli.mjs'), code);
+  await fs.mkdir(path.join(source, 'dist')); await fs.writeFile(path.join(source, 'dist', 'flux-cli.mjs'), '// flux-agent-build commit=src1234-dirty\n' + code);
   runtime = resolveOwnCliCommandsSync({ appRoot: source, nodePath: process.execPath, binDir: bin, appImage: '', packaged: false });
   await installLaunchers([], { runtime, createConvenience: true });
   h.eq(JSON.parse(await run(runtime.cli)).verb, 'version', 'built source executes version');
+  const status = (appRoot: string) => resolveOwnCliCommandsSync({ appRoot, execPath: '/not-executed/electron', binDir: bin, commands: false, appImage: '', packaged: false });
+  h.eq(status(source).executable, runtime.executable, 'source status reuses the Node its own launcher pins, not Electron');
+  h.eq([status(source).build, runtime.build], ['src1234-dirty', 'src1234-dirty'], 'status and doctor read the same stamped build, so doctor evidence survives refresh');
   const shim = path.join(process.env.HOME!, '.local', 'bin', 'flux' + suffix);
   h.eq(JSON.parse(await run(shim)).verb, 'version', 'convenience shim delegates to canonical launcher');
   const good = await fs.readFile(runtime.cli, 'utf8');
@@ -92,6 +95,7 @@ try {
   const otherRuntime = resolveOwnCliCommandsSync({ appRoot: other, nodePath: process.execPath, binDir: bin, appImage: '', packaged: false });
   await installLaunchers([], { runtime: otherRuntime });
   h.eq(launcherOwnerSync(runtime.cli)?.target, source, 'a live owner keeps the launcher');
+  h.eq(status(other).executable, '/not-executed/electron', "status never borrows another install's pinned Node");
   await fs.rm(path.join(source, 'dist', 'flux-cli.mjs'));
   await installLaunchers([], { runtime: otherRuntime });
   h.eq(launcherOwnerSync(runtime.cli)?.target, other, 'an owner whose built CLI is gone (checkout kept) permits repair');
