@@ -180,19 +180,27 @@ try {
   const glbs=loaded.project.assets.filter(a=>a.kind==='glb').map(a=>path.join(root,'fig',a.path));
   // Deny byte reads while leaving metadata/stat available. The same process
   // first proves denial, then Connect must still produce its overview images.
-  // Windows: chmod 0 only sets the read-only attribute, and an ACL deny does not bind an elevated
-  // runner (libuv opens with backup semantics). Holding each file open with libuv's
-  // UV_FS_O_EXLOCK (no sharing) denies every other reader (EBUSY) while stat still works.
-  const UV_FS_O_EXLOCK=0x10000000, held:Array<Awaited<ReturnType<typeof fs.open>>>=[];
-  if(process.platform==='win32') for(const file of glbs) held.push(await fs.open(file,UV_FS_O_EXLOCK));
-  else for(const file of glbs) await fs.chmod(file,0);
+  // Windows: chmod 0 only sets the read-only attribute, and GitHub's elevated runner reads
+  // through both deny ACEs and exclusive share modes. There the denial is injected in-process
+  // (Connect runs here), as the publication-race checks above do: opens and reads of the GLBs
+  // fail EACCES, while stat stays untouched.
+  const win=process.platform==='win32', denied=new Set(glbs.map(f=>path.resolve(f)));
+  const syncFs=(await import('node:fs')).default, saved={open:mutableFs.open,readFile:mutableFs.readFile,openSync:syncFs.openSync,readFileSync:syncFs.readFileSync};
+  const refuse=(file:unknown)=>{if(typeof file==='string'&&denied.has(path.resolve(file)))throw Object.assign(Error(`EACCES: permission denied, open '${file}'`),{code:'EACCES'});};
+  if(win){
+    mutableFs.open=(async(file:any,...rest:any[])=>{refuse(file);return saved.open(file,...rest);}) as typeof mutableFs.open;
+    mutableFs.readFile=(async(file:any,...rest:any[])=>{refuse(file);return saved.readFile(file,...rest);}) as typeof mutableFs.readFile;
+    syncFs.openSync=((file:any,...rest:any[])=>{refuse(file);return saved.openSync(file,...rest);}) as typeof syncFs.openSync;
+    syncFs.readFileSync=((file:any,...rest:any[])=>{refuse(file);return saved.readFileSync(file,...rest);}) as typeof syncFs.readFileSync;
+    syncBuiltinESMExports();
+  } else for(const file of glbs) await fs.chmod(file,0);
   try {
-    await assert.rejects(fs.readFile(glbs[0]), /EACCES|EBUSY/);
+    await assert.rejects(fs.readFile(glbs[0]), /EACCES/);
     const pack=await connect({target:root,identity:detectAgentIdentity({})});
-    h.ok(pack.images.length>0 && pack.problems.some(w=>w.includes('poster not rendered')) && !pack.problems.some(w=>/EACCES|EBUSY|Missing GLB/.test(w)), 'actual Connect renders named placeholders while GLB byte access is denied');
+    h.ok(pack.images.length>0 && pack.problems.some(w=>w.includes('poster not rendered')) && !pack.problems.some(w=>/EACCES|Missing GLB/.test(w)), 'actual Connect renders named placeholders while GLB byte access is denied');
   } finally {
-    for(const handle of held)await handle.close();
-    if(process.platform!=='win32') for(const file of glbs)await fs.chmod(file,0o600);
+    if(win){Object.assign(mutableFs,{open:saved.open,readFile:saved.readFile});Object.assign(syncFs,{openSync:saved.openSync,readFileSync:saved.readFileSync});syncBuiltinESMExports();}
+    else for(const file of glbs)await fs.chmod(file,0o600);
   }
   h.eq(await tree(root),beforeConnectProject,'actual Connect leaves the 3D project unchanged');
   h.eq(await tree(machineModelPosterDir()),beforeModelCache,'actual Connect never writes the model poster machine cache');

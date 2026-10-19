@@ -156,7 +156,7 @@ try {
   await seek(1, 875); st = await state();
   const owner = st.spans;
   h.ok(owner.some((s) => s.kind === "exit" && s.visible) && owner.some((s) => s.kind === "enter" && s.visible), "owner Become mid-flight: letters of both words are on screen (the wave overlaps)");
-  h.ok(owner.filter((s) => s.kind === "exit").length === 10 && owner.filter((s) => s.kind === "enter").length === 14, "owner Become: a letter wave (10 out, 14 in)");
+  h.ok(owner.filter((s) => s.kind === "exit").length === 10 && owner.filter((s) => s.kind === "enter").length === 14, `owner Become: a letter wave (10 out, 14 in; got ${owner.filter((s) => s.kind === "exit").length} out, ${owner.filter((s) => s.kind === "enter").length} in, texts ${JSON.stringify(owner.map((s) => s.text).join(""))})`);
   await seek(1, 450); const wave = (await state()).spans.filter((s) => s.kind === "exit").map((s) => s.opacity);
   h.ok(wave.every((o, i) => !i || o >= wave[i - 1] - 1e-6) && wave[0] < wave[wave.length - 1], `owner Become: the exit wave runs in reading order (${wave.map((o) => o.toFixed(2)).join(" ")})`);
   await seek(1, 875, 2); st = await state();

@@ -10099,3 +10099,14 @@ still refuse. `verify-managed-tools` proves the Windows forms on a Windows host 
 - Windows `rename` onto an existing directory is EPERM even when it is empty.
 - A Windows stand-in executable: copy `node.exe` to `<name>.exe` and preload a script with
   `NODE_OPTIONS=--require`; argv[1] arrives resolved to an absolute path.
+
+### 2026-10-19 — Windows: in-process read denial; text-morph counts in its message (Claude Opus 5.5, `main`)
+**Work:** Neither a deny ACE nor an exclusive `UV_FS_O_EXLOCK` open stopped GitHub's elevated
+Windows runner from reading the GLBs (both work on a non-elevated laptop), so
+`verify-model3d-verbs` injects the denial in-process on win32, patching `fs` open/readFile
+(async and sync) the way its publication-race checks already do; Linux keeps `chmod 0`.
+`verify-text-morph-browser`'s letter-wave check failed on 2 of 6 windows-latest runs and 0 of
+10 local runs; its message now carries the counts and texts so the next failure is diagnosable.
+**Learnings:**
+- Supersedes this morning's entries: on an elevated Windows runner no OS mechanism tried
+  (ACL, share mode) reliably denies a same-user read; inject the fault in-process.
