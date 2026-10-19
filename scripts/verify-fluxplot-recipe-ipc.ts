@@ -6,6 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../flux-core/fsx";
 import { spawn } from "node:child_process";
 import { resolveSpawn } from "../electron/execResolve.cjs";
@@ -55,7 +56,7 @@ fs.writeFileSync('plot.recipe.json', JSON.stringify({...${JSON.stringify(recipe)
   fs.writeFileSync(scriptPath, `import fs from 'node:fs';
 const params = JSON.parse(process.env.FLUX_PARAMS);
 if (process.env.FLUXPLOT_ONLY !== 'target') throw Error('3D sibling protection missing');
-fs.copyFileSync(${JSON.stringify(fixture.pathname)}, 'new.glb');
+fs.copyFileSync(${JSON.stringify(fileURLToPath(fixture))}, 'new.glb');
 fs.writeFileSync('new.metadata.json', JSON.stringify({spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'new.glb'}));
 fs.writeFileSync('plot.recipe.json', JSON.stringify({...${JSON.stringify(glbRecipe)}, outputs:{glb:'new.glb',manifest:'new.metadata.json'}, params, inputs:['fresh-3d-generation']}));`);
   const glbResult = await handler({sender}, {recipePath, params:{dose:2e-9,__fluxplot__:{field:{range:[1e-7,2e-7]}}}});

@@ -3651,6 +3651,9 @@ outside this PNG packaging change.
   verbatim as its expected root fails every path equality on that host alone and nowhere else
   (`verify-native-boundaries`, 2026-09-25). Take the scratch root through `realpath` once, at
   creation; a developer's Windows laptop never shows this, which is why it reached CI first.
+  Since 2026-10-19 the runner does this for every gate: `isolatedEnv` expands its `fv-` root
+  with `realpathSync.native` (plain `realpathSync` does NOT expand 8.3 names), so TMP/TEMP and
+  `os.tmpdir()` are already long inside gates.
 - **An agent lock budget has to outlast the holder's BURST, not one cycle.** `withLock` polls
   every 250 ms and the holder re-acquires in the gap before the waiter's next poll, so a
   waiter only gets in when the holder pauses. On Linux a fig save cycle is ~100 ms and three
@@ -10020,3 +10023,13 @@ deletions inside the watched root; the contract (`actual` stays empty) is unchan
 - Never settle a watcher test on the watched root's own removal: whether chokidar reports it is
   kernel-dependent. Settle on events for paths beneath the root.
 - When a gate flips red with no code change, compare the runner image line in the job log first.
+
+### 2026-10-19 — Windows pure-tier sweep, part 2 (Claude Opus 5.5, `main`)
+**Work:** `verify-fluxplot-recipe-ipc` used `URL.pathname` as a file path (`C:\D:\…` on Windows),
+now `fileURLToPath`. `verify-annotate-chord-census` walked `src` with `path.join`, so its
+`src/...`-keyed allowlists never matched on Windows; it walks with `path.posix.join`.
+`isolatedEnv` now expands the runner's 8.3 short temp root (see §9), aimed at the model3d
+family's "must be a child of the system temporary directory" / "real scratch" reds on CI.
+**Learnings:**
+- `new URL(...).pathname` is never a Windows file path; use `fileURLToPath`.
+- Source-census gates must key files with posix separators, or every allowlist misses on Windows.

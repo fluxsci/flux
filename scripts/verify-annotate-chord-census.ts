@@ -18,7 +18,8 @@ const local: Record<string, string> = {
   'src/lib/slide/export/runtime.ts:mount': 'Standalone exported deck; deliberately no app keymap.',
 };
 const retiredOwners = new Set(['src/shell/agent/annotateChord.ts', 'src/lib/plot/galleryWindow.ts']);
-const walkFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walkFiles(path.join(dir, e.name)) : /\.(ts|svelte|cjs|js)$/.test(e.name) ? [path.join(dir, e.name)] : []);
+// Posix separators: the allowlists and owners below are keyed by `src/...` on every OS.
+const walkFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walkFiles(path.posix.join(dir, e.name)) : /\.(ts|svelte|cjs|js)$/.test(e.name) ? [path.posix.join(dir, e.name)] : []);
 const inventory: { file: string; line: number; name: string; body: string }[] = [];
 const errors: string[] = [];
 const used = new Set<string>();
