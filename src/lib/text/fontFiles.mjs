@@ -28,6 +28,11 @@ export { parseFamilyStack, fontRequestKey };
  *  variable WOFF2 is bundled, which the parser cannot read → the caller falls back. */
 export const BUNDLED_FAMILIES = Object.freeze({ gelasio: "woff2" });
 const GENERIC = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-serif", "ui-sans-serif", "ui-monospace"]);
+/** Chromium's default generic faces where the scan path runs (no fontconfig to ask). */
+const SCAN_GENERICS = {
+  win32: { "sans-serif": "Arial", serif: "Times New Roman", monospace: "Consolas" },
+  darwin: { "sans-serif": "Helvetica", serif: "Times", monospace: "Menlo" },
+};
 
 /** CSS weight → fontconfig weight. */
 function fcWeight(w) {
@@ -220,7 +225,9 @@ export function pickFace(index, family, weight, italic) {
   let best = null, score = Infinity;
   for (const [file, entry] of Object.entries(index)) for (const face of entry.faces) {
     if (face.family.toLowerCase() !== want && face.legacyFamily.toLowerCase() !== want) continue;
-    const s = Math.abs(face.weight - weight) + (face.italic === italic ? 0 : 1000);
+    // +1 breaks ties toward the face whose legacy (nameID 1) family is the request: Arial Narrow
+    // declares typographic family "Arial", and must not stand in for Arial at the same weight.
+    const s = Math.abs(face.weight - weight) + (face.italic === italic ? 0 : 1000) + (face.legacyFamily.toLowerCase() === want ? 0 : 1);
     if (s < score) { score = s; best = { file, index: face.index, family: face.family }; }
   }
   return best;
@@ -248,9 +255,11 @@ export async function resolveFontFile(req, opts = {}) {
       if (GENERIC.has(family.toLowerCase()) || got.includes(family.toLowerCase())) return file ? { file, index: Number(idx) || 0, family: fams.split(",")[0].trim() } : null;
       continue;
     }
-    if (GENERIC.has(family.toLowerCase())) continue; // no portable generic mapping on a scan
+    // No fontconfig on a scan: a generic family takes Chromium's default face on that OS.
+    const scanned = GENERIC.has(family.toLowerCase()) ? SCAN_GENERICS[platform]?.[family.toLowerCase().replace(/^ui-/, "")] : family;
+    if (!scanned) continue;
     index ??= await fontIndex({ dirs: opts.dirs ?? systemFontDirs(platform), cacheFile: opts.cacheFile });
-    const face = pickFace(index, family, weight, italic);
+    const face = pickFace(index, scanned, weight, italic);
     if (face) return face;
   }
   return null;

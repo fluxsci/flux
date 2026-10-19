@@ -10033,3 +10033,16 @@ family's "must be a child of the system temporary directory" / "real scratch" re
 **Learnings:**
 - `new URL(...).pathname` is never a Windows file path; use `fileURLToPath`.
 - Source-census gates must key files with posix separators, or every allowlist misses on Windows.
+
+### 2026-10-19 — Fonts on the scan path; portable tar (Claude Opus 5.5, `main`)
+**Work:** `pickFace` let Arial Narrow (typographic family "Arial") stand in for Arial at equal
+weight; a +1 tie-break now prefers the face whose nameID 1 family is the request. The scan path
+(win32/darwin) skipped generic families outright; they now map to Chromium's defaults
+(Arial/Times New Roman/Consolas; Helvetica/Times/Menlo). `verify-glyph-outlines` reads the
+host's own font folder. The Quarto installer and `verify-managed-tools` pass `tar` relative
+operands from a `cwd` (Git Bash's GNU tar reads `C:\…` as a remote host); the rest of that
+gate's Windows red is its POSIX shell-script fakes.
+**Learnings:**
+- Typographic family (nameID 16) groups widths too: Arial Narrow is "Arial" there. Prefer an
+  exact nameID 1 match when weights tie.
+- Never pass an absolute Windows path to `tar`; use `cwd` + relative operands.

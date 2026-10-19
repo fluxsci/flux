@@ -34,7 +34,12 @@ try {
   h.eq(tools.resolveQuartoSync({ env: { PATH: "" }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: localBin, origin: "system" },
     "a quarto in a common install folder (~/.local/bin) beats the managed copy, even off PATH — a Finder-launched app's PATH is launchd's");
   const onPath = exe(path.join(scratch, "pathbin", "quarto"));
-  h.eq(tools.resolveQuartoSync({ env: { PATH: path.dirname(onPath) }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: onPath, origin: "path" }, "PATH wins over the common folders");
+  // A drive-letter path cannot sit in a ':'-separated (simulated Linux) PATH, so a Windows host
+  // proves the Windows form instead: a ';' PATH and PATHEXT resolution. Linux CI runs the Linux form.
+  if (process.platform === "win32") {
+    const onWinPath = exe(path.join(scratch, "winpathbin", "quarto.cmd"), "@echo 1.7.32\r\n");
+    h.eq(tools.resolveQuartoSync({ env: { Path: `${path.join(scratch, "empty")};${path.dirname(onWinPath)}`, PATHEXT: ".EXE;.CMD" }, platform: "win32", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: onWinPath, origin: "path" }, "PATH (with PATHEXT) resolves the user's quarto on Windows");
+  } else h.eq(tools.resolveQuartoSync({ env: { PATH: path.dirname(onPath) }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: onPath, origin: "path" }, "PATH wins over the common folders");
   const pinned = exe(path.join(scratch, "pinned", "quarto"));
   h.eq(tools.resolveQuartoSync({ env: { PATH: path.dirname(onPath), FLUX_QUARTO: pinned }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: pinned, origin: "env" }, "FLUX_QUARTO wins over everything");
   h.ok(tools.commonToolDirs("darwin", home).includes("/opt/homebrew/bin") && tools.commonToolDirs("darwin", home).includes("/Applications/quarto/bin"), "macOS searches Homebrew and the Quarto .pkg's folder");
@@ -52,7 +57,8 @@ try {
     fs.mkdirSync(path.join(top, "share"), { recursive: true });
     fs.writeFileSync(path.join(top, "share", "marker.txt"), name);
     const tar = path.join(scratch, `${name}.tar.gz`);
-    execFileSync("tar", ["-czf", tar, "-C", src, "."]);
+    // Relative operands: Git Bash's GNU tar reads "C:\..." as a remote host.
+    execFileSync("tar", ["-czf", path.basename(tar), "-C", path.basename(src), "."], { cwd: scratch });
     const bytes = fs.readFileSync(tar);
     return { file: `${name}.tar.gz`, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), body: bytes };
   };

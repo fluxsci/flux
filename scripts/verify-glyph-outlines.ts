@@ -26,8 +26,13 @@ import type { TextElement, VectorNode } from "../src/lib/types";
 import type { StageOutline } from "../src/lib/slide/stageOutline";
 
 const h = harness("verify-glyph-outlines");
-const FONTS = "/usr/share/fonts/truetype/msttcorefonts";
-const ARIAL = path.join(FONTS, "Arial.ttf"), GEORGIA = path.join(FONTS, "Georgia.ttf");
+// The Linux box has msttcorefonts; Windows ships the same faces under its own file names.
+const WIN = process.platform === "win32";
+const FONTS = WIN ? path.join(process.env.SystemRoot || "C:\Windows", "Fonts") : "/usr/share/fonts/truetype/msttcorefonts";
+const FACE = WIN
+  ? { arial: "arial.ttf", arialItalic: "ariali.ttf", georgia: "georgia.ttf", georgiaBold: "georgiab.ttf" }
+  : { arial: "Arial.ttf", arialItalic: "Arial_Italic.ttf", georgia: "Georgia.ttf", georgiaBold: "Georgia_Bold.ttf" };
+const ARIAL = path.join(FONTS, FACE.arial), GEORGIA = path.join(FONTS, FACE.georgia);
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-glyphs-"));
 const text = (value: string, extra: Partial<TextElement> = {}): TextElement => ({ id: "t", type: "text", x: 100, y: 50, width: 300, height: 60, rotation: 0, text: value, fontFamily: "Arial", fontSize: 100, fontWeight: 400, fontStyle: "normal", align: "left", color: "#1f3a93", sizing: "auto", ...extra });
 /** Winding number at p of a ring, sampled along its true curves. */
@@ -42,7 +47,7 @@ const winding = (nodes: VectorNode[], p: { x: number; y: number }) => {
   return w;
 };
 try {
-  h.ok(existsSync(ARIAL) && existsSync(GEORGIA), "this machine has Arial and Georgia (msttcorefonts)");
+  h.ok(existsSync(ARIAL) && existsSync(GEORGIA), "this machine has Arial and Georgia (msttcorefonts or Windows Fonts)");
 
   // --- request identity ----------------------------------------------------------
   h.eq(JSON.stringify(parseFamilyStack('Georgia, "Gelasio", \'Times New Roman\', serif')), JSON.stringify(["Georgia", "Gelasio", "Times New Roman", "serif"]), "family stacks parse with quotes removed");
@@ -50,8 +55,8 @@ try {
 
   // --- resolution ------------------------------------------------------------------------
   h.eq((await resolveFontFile({ family: "Arial" }))?.file, ARIAL, "fontconfig resolves Arial to its file");
-  h.eq((await resolveFontFile({ family: 'Georgia, "Gelasio", serif', weight: 700 }))?.file, path.join(FONTS, "Georgia_Bold.ttf"), "a stack takes its first installed family, at the requested weight");
-  h.eq((await resolveFontFile({ family: "Arial", style: "italic" }))?.file, path.join(FONTS, "Arial_Italic.ttf"), "italic resolves to the italic face");
+  h.eq((await resolveFontFile({ family: 'Georgia, "Gelasio", serif', weight: 700 }))?.file, path.join(FONTS, FACE.georgiaBold), "a stack takes its first installed family, at the requested weight");
+  h.eq((await resolveFontFile({ family: "Arial", style: "italic" }))?.file, path.join(FONTS, FACE.arialItalic), "italic resolves to the italic face");
   const bundled = await resolveFontFile({ family: "Gelasio, serif" });
   h.ok(bundled?.bundled === "woff2" && !bundled.file && BUNDLED_FAMILIES.gelasio === "woff2", "a family the app serves itself (Gelasio) stops resolution — the browser would paint it, not the system serif");
   h.ok(!(await lookupFont({ family: "Gelasio" })).bytes, "…and yields no bytes (variable WOFF2 → glyph boxes)");
@@ -61,7 +66,7 @@ try {
   const t0 = performance.now();
   const scanned = await resolveFontFile({ family: "Georgia", weight: 700 }, { dirs: [FONTS], cacheFile });
   const scanMs = performance.now() - t0;
-  h.eq(scanned?.file, path.join(FONTS, "Georgia_Bold.ttf"), `the macOS/Windows scan path (name/OS-2 tables only) resolves the same face (${scanMs.toFixed(0)} ms cold)`);
+  h.eq(scanned?.file, path.join(FONTS, FACE.georgiaBold), `the macOS/Windows scan path (name/OS-2 tables only) resolves the same face (${scanMs.toFixed(0)} ms cold)`);
   const cached = JSON.parse(await fs.readFile(cacheFile, "utf8"));
   h.ok(Object.keys(cached).length >= 10 && Object.values(cached).every((v: any) => typeof v.stamp === "string"), "the face index is cached as JSON keyed by path (mtime + size stamps)");
   const before = (await fs.stat(cacheFile)).mtimeMs;
