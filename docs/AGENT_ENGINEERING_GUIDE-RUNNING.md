@@ -3669,7 +3669,7 @@ outside this PNG packaging change.
   build, so the Windows red on that gate was the ffmpeg version, not Windows — and users on
   different platforms got different HDR tone mapping. Now: ffmpeg **9.0.2** everywhere (BtbN's
   dated GPL release for Linux x64/arm64 + Windows, Martin Riedl's per-build directories for both
-  Macs), each target an immutable archive (URL + size + SHA-256), the executable's path inside
+  Macs), each target a pinned archive (URL + size + SHA-256), the executable's path inside
   it, and LICENSE/README each as an archive `member` or a pinned `url`. The fetcher reads zip
   in-process (`readZip`, only the pinned members) and tar.xz through the host's `tar`; the
   staged layout (`ffmpeg`, `LICENSE`, `README`, `NOTICE.md`, `manifest.json`) is unchanged, so
@@ -3679,7 +3679,10 @@ outside this PNG packaging change.
   oracle is calibrated against. Two traps met on the way: `raw.githubusercontent.com` and other
   text hosts gzip small files, so the downloader asks for `identity` encoding (the byte-size
   contract is about bytes on disk); and evermeet/gyan delete old versions, so only dated,
-  immutable release assets are pinnable.
+  immutable release assets are pinnable. BtbN's dated releases are **not** all kept: daily
+  autobuilds are pruned after about two weeks (the 09-25 pin 404'd and broke every CI job on
+  2026-10-19); only month-end releases (`autobuild-YYYY-MM-<last day>-…`) persist, so pin those.
+  Riedl's Linux builds use `--enable-nonfree` (not redistributable); its Mac builds do not.
 
 - **A dependency Vite's start-up crawl cannot see reloads every open page when it is first
   used.** The crawl follows index.html's import graph; a package imported only from a Web
@@ -9990,3 +9993,11 @@ now calls `%SystemRoot%\System32\taskkill.exe` by absolute path; the gate passes
 **Learnings:**
 - Test-infrastructure kills must not resolve through `PATH`: fixtures rewrite it, and the
   silent `catch {}` turns a missing binary into a deadline-length hang, not an error.
+
+### 2026-10-19 — Video encoder re-pinned: BtbN pruned the 09-25 release (Claude Opus 5.5, `main`)
+**Work:** CI's encoder fetch returned 404 on every job: BtbN deleted `autobuild-2026-09-25-15-37`.
+Linux x64/arm64 and Windows x64 now pin the month-end `autobuild-2026-09-30-13-08` (still 9.0.2,
+build `n9.0.2-17-g2a571b6068`); hashes match GitHub's asset digests, Windows fetch +
+`verify-runtime-assets` + `verify-v020-hdr-media` pass locally. Macs unchanged.
+**Learnings:**
+- Promoted to §9 (encoder pin): BtbN keeps only month-end releases; Riedl Linux builds are nonfree.

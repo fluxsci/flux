@@ -3,65 +3,65 @@
   "release": "9.0.2",
   "targets": {
     "linux-x64": {
-      "provider": "BtbN/FFmpeg-Builds release autobuild-2026-09-25-15-37 (GPL build)",
-      "version": "n9.0.2-8-gb135b25c19",
+      "provider": "BtbN/FFmpeg-Builds release autobuild-2026-09-30-13-08 (GPL build; month-end releases are retained)",
+      "version": "n9.0.2-17-g2a571b6068",
       "archive": {
-        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-25-15-37/ffmpeg-n9.0.2-8-gb135b25c19-linux64-gpl-9.0.tar.xz",
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0.tar.xz",
         "format": "tar.xz",
-        "size": 150996268,
-        "sha256": "9334c9aba849df15701de2a6c5b44667a30365cf6b27571ba7c8b36bcb8eb35c"
+        "size": 151017172,
+        "sha256": "68ee646831adaae2495618346f3bba94ff207ff83bbd34d643e7004730d66269"
       },
-      "executable": "ffmpeg-n9.0.2-8-gb135b25c19-linux64-gpl-9.0/bin/ffmpeg",
+      "executable": "ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0/bin/ffmpeg",
       "notices": {
         "LICENSE": {
-          "member": "ffmpeg-n9.0.2-8-gb135b25c19-linux64-gpl-9.0/LICENSE.txt"
+          "member": "ffmpeg-n9.0.2-17-g2a571b6068-linux64-gpl-9.0/LICENSE.txt"
         },
         "README": {
-          "url": "https://raw.githubusercontent.com/BtbN/FFmpeg-Builds/58cc05f33c20e3ead0ce876b72531ab482d0f981/README.md",
-          "size": 2759,
-          "sha256": "1ed4437797363166cb9d04b8342987bab307874e2ce238b78bee585d963d92e0"
+          "url": "https://raw.githubusercontent.com/BtbN/FFmpeg-Builds/6c9aec5fc9a72ec3abedd1fa84db141fa18cf52b/README.md",
+          "size": 2777,
+          "sha256": "4f6f817fd57c5524e0d0832618e8f75d589093e2f05ef1ec2839af98e70e5053"
         }
       }
     },
     "linux-arm64": {
-      "provider": "BtbN/FFmpeg-Builds release autobuild-2026-09-25-15-37 (GPL build)",
-      "version": "n9.0.2-8-gb135b25c19",
+      "provider": "BtbN/FFmpeg-Builds release autobuild-2026-09-30-13-08 (GPL build; month-end releases are retained)",
+      "version": "n9.0.2-17-g2a571b6068",
       "archive": {
-        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-25-15-37/ffmpeg-n9.0.2-8-gb135b25c19-linuxarm64-gpl-9.0.tar.xz",
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-linuxarm64-gpl-9.0.tar.xz",
         "format": "tar.xz",
-        "size": 127411512,
-        "sha256": "8e74324ea06ea79d02db4348e508aaa42fab53a440bc4da6c45b338b5813b290"
+        "size": 127445692,
+        "sha256": "91afcd7695d4bbbb9e0057aa10baaf9875ec4e1a97303f9059ec971336a2ab46"
       },
-      "executable": "ffmpeg-n9.0.2-8-gb135b25c19-linuxarm64-gpl-9.0/bin/ffmpeg",
+      "executable": "ffmpeg-n9.0.2-17-g2a571b6068-linuxarm64-gpl-9.0/bin/ffmpeg",
       "notices": {
         "LICENSE": {
-          "member": "ffmpeg-n9.0.2-8-gb135b25c19-linuxarm64-gpl-9.0/LICENSE.txt"
+          "member": "ffmpeg-n9.0.2-17-g2a571b6068-linuxarm64-gpl-9.0/LICENSE.txt"
         },
         "README": {
-          "url": "https://raw.githubusercontent.com/BtbN/FFmpeg-Builds/58cc05f33c20e3ead0ce876b72531ab482d0f981/README.md",
-          "size": 2759,
-          "sha256": "1ed4437797363166cb9d04b8342987bab307874e2ce238b78bee585d963d92e0"
+          "url": "https://raw.githubusercontent.com/BtbN/FFmpeg-Builds/6c9aec5fc9a72ec3abedd1fa84db141fa18cf52b/README.md",
+          "size": 2777,
+          "sha256": "4f6f817fd57c5524e0d0832618e8f75d589093e2f05ef1ec2839af98e70e5053"
         }
       }
     },
     "win32-x64": {
-      "provider": "BtbN/FFmpeg-Builds release autobuild-2026-09-25-15-37 (GPL build)",
-      "version": "n9.0.2-8-gb135b25c19",
+      "provider": "BtbN/FFmpeg-Builds release autobuild-2026-09-30-13-08 (GPL build; month-end releases are retained)",
+      "version": "n9.0.2-17-g2a571b6068",
       "archive": {
-        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-25-15-37/ffmpeg-n9.0.2-8-gb135b25c19-win64-gpl-9.0.zip",
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-9.0.zip",
         "format": "zip",
-        "size": 194029144,
-        "sha256": "ff56e385441f84d51a83ac5476395bb255dffadd2def7f6fbc961b2251887649"
+        "size": 194034585,
+        "sha256": "a0e45723c72141975f51d8666302e614711745f3102b704ca3f82c897a58d278"
       },
-      "executable": "ffmpeg-n9.0.2-8-gb135b25c19-win64-gpl-9.0/bin/ffmpeg.exe",
+      "executable": "ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-9.0/bin/ffmpeg.exe",
       "notices": {
         "LICENSE": {
-          "member": "ffmpeg-n9.0.2-8-gb135b25c19-win64-gpl-9.0/LICENSE.txt"
+          "member": "ffmpeg-n9.0.2-17-g2a571b6068-win64-gpl-9.0/LICENSE.txt"
         },
         "README": {
-          "url": "https://raw.githubusercontent.com/BtbN/FFmpeg-Builds/58cc05f33c20e3ead0ce876b72531ab482d0f981/README.md",
-          "size": 2759,
-          "sha256": "1ed4437797363166cb9d04b8342987bab307874e2ce238b78bee585d963d92e0"
+          "url": "https://raw.githubusercontent.com/BtbN/FFmpeg-Builds/6c9aec5fc9a72ec3abedd1fa84db141fa18cf52b/README.md",
+          "size": 2777,
+          "sha256": "4f6f817fd57c5524e0d0832618e8f75d589093e2f05ef1ec2839af98e70e5053"
         }
       }
     },
