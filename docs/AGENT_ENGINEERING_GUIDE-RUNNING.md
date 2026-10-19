@@ -10001,3 +10001,12 @@ build `n9.0.2-17-g2a571b6068`); hashes match GitHub's asset digests, Windows fet
 `verify-runtime-assets` + `verify-v020-hdr-media` pass locally. Macs unchanged.
 **Learnings:**
 - Promoted to §9 (encoder pin): BtbN keeps only month-end releases; Riedl Linux builds are nonfree.
+
+### 2026-10-19 — Two more Windows-only pure-tier reds (Claude Opus 5.5, `main`)
+**Work:** `verify-connect`'s stdout-only case relied on `chmod 0o500` dirs, which Windows ignores;
+it now makes the bases unwritable by putting a regular file where a parent directory should be.
+`verify-connect-e2e`'s migrator ran a bare `tasklist` under the fixture's narrowed PATH (ENOENT →
+inspection error → exit 1); it now uses `%SystemRoot%\System32\tasklist.exe` (`/bin/ps` on macOS).
+**Learnings:**
+- `chmod` cannot make a Windows directory unwritable; a file in the parent's place fails on every OS.
+- Any OS tool a fixture-run process calls must be absolute: `agentFixture` sets PATH to fake bins only.

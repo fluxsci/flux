@@ -306,10 +306,12 @@ try {
   h.section("stdout-only mode");
   {
     const ro = path.join(scratch, "ro");
-    await fs.mkdir(path.join(ro, "a"), { recursive: true });
-    await fs.mkdir(path.join(ro, "b"), { recursive: true });
-    await fs.chmod(path.join(ro, "a"), 0o500);
-    await fs.chmod(path.join(ro, "b"), 0o500);
+    // A base whose parent is a regular file is unwritable on every OS; chmod 0o500 does
+    // not stop directory writes on Windows (it only toggles the read-only attribute).
+    const block = async (...names: string[]) => { for (const n of names) { await fs.rm(path.join(ro, n), { recursive: true, force: true }); await fs.writeFile(path.join(ro, n), "not a directory"); } };
+    const unblock = async (...names: string[]) => { for (const n of names) { await fs.rm(path.join(ro, n), { force: true }); await fs.mkdir(path.join(ro, n), { recursive: true }); } };
+    await fs.mkdir(ro, { recursive: true });
+    await block("a", "b");
     process.env.FLUX_CONNECT_CACHE = path.join(ro, "a", "connect");
     process.env.FLUX_CONNECT_FALLBACK = path.join(ro, "b", "connect");
     try {
@@ -330,17 +332,16 @@ try {
     } finally {
       delete process.env.FLUX_CONNECT_CACHE;
       delete process.env.FLUX_CONNECT_FALLBACK;
-      await fs.chmod(path.join(ro, "a"), 0o700);
-      await fs.chmod(path.join(ro, "b"), 0o700);
+      await unblock("a", "b");
     }
     process.env.FLUX_CONNECT_CACHE = path.join(ro, "a", "connect");
-    await fs.chmod(path.join(ro, "a"), 0o500);
+    await block("a");
     try {
       const fbk = await conn.connect({ target: root, identity, noRender: true });
       h.ok(!fbk.stdoutOnly && fbk.briefPath!.startsWith(os.tmpdir() + path.sep) && fbk.problems.some((p) => p.includes("not writable")), "an unwritable primary falls back to the tmp cache and says so");
     } finally {
       delete process.env.FLUX_CONNECT_CACHE;
-      await fs.chmod(path.join(ro, "a"), 0o700);
+      await unblock("a");
     }
   }
 
@@ -375,8 +376,6 @@ try {
   }
 } finally {
   await h.done(async () => {
-    await fs.chmod(path.join(scratch, "ro", "a"), 0o700).catch(() => {});
-    await fs.chmod(path.join(scratch, "ro", "b"), 0o700).catch(() => {});
     await fs.rm(scratch, { recursive: true, force: true });
   });
 }
