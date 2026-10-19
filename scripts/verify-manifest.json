@@ -3314,6 +3314,7 @@
   ],
   "timeouts": {
     "verify-scale-figure.mjs": 120000,
+    "verify-model3d-demo.ts": 150000,
     "verify-scale-paper.mjs": 120000,
     "verify-slide-export-parity.ts": 300000,
     "verify-slide-export-core.ts": 300000,

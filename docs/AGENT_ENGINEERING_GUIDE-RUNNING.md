@@ -10110,3 +10110,9 @@ Windows runner from reading the GLBs (both work on a non-elevated laptop), so
 **Learnings:**
 - Supersedes this morning's entries: on an elevated Windows runner no OS mechanism tried
   (ACL, share mode) reliably denies a same-user read; inject the fault in-process.
+
+### 2026-10-19 — `verify-model3d-demo` gets a 150 s runner budget (Claude Opus 5.5, `main`)
+**Work:** With the Windows rename fixed, the gate runs to completion on windows-latest and passes
+every check it reaches, but takes just over the 60 s default (55–58 s already on earlier
+Windows runs; ~28 s on Linux CI), dying in its final CLI-generator step. Added a
+`timeouts` entry of 150 s; no assertion changed.
