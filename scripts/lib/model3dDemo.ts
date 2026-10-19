@@ -71,25 +71,20 @@ async function publishScratchDirectory<T>(input: string, build: (stage: string, 
     // pathname is swapped between the check and rename. rename itself never
     // follows an existing target symlink or replaces a populated directory.
     const target = process.platform === 'linux' ? `/proc/self/fd/${directory.fd}/${path.basename(root)}` : root;
-    // Windows refuses a directory rename while a scanner (Defender, the indexer) still holds a
-    // handle on the freshly written files: a sharing violation, transient, so retry briefly.
+    // POSIX rename replaces an existing EMPTY directory; Windows refuses (EPERM). There, an
+    // existing target is removed only while it is still the original empty, non-link directory,
+    // then the rename is retried; an occupied or substituted target stays a refusal. A missing
+    // target refused EPERM is a transient sharing violation (a scanner on fresh files): retry.
     for (let attempt = 0; ; attempt++) {
       try { await fs.rename(stage, target); break; }
       catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        // An existing target (occupied, substituted) also reads EPERM on Windows; that is final.
-        const occupied = await fs.lstat(target).then(() => true, () => false);
-        if (process.platform === 'win32' && !occupied && attempt >= 20) {
-          // Name what still holds the stage: try each top-level entry in place (rename to itself + '~').
-          const held: string[] = [];
-          for (const name of await fs.readdir(stage).catch(() => [] as string[])) {
-            const from = path.join(stage, name);
-            try { await fs.rename(from, from + '~'); await fs.rename(from + '~', from); } catch { held.push(name); }
-          }
-          (error as Error).message += ` (still held after retries; locked entries: ${held.join(', ') || 'none — the directory itself'})`;
-        }
-        if (process.platform !== 'win32' || occupied || attempt >= 20 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '')) throw error;
-        await new Promise(resolve => setTimeout(resolve, 50 + 50 * attempt));
+        if (process.platform !== 'win32' || attempt >= 20 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '')) throw error;
+        const now = await fs.lstat(target).catch(() => undefined);
+        if (now) {
+          if (!original || now.isSymbolicLink() || !now.isDirectory() || !same(now, original)) throw error;
+          await fs.rmdir(target).catch(() => { throw error; }); // ENOTEMPTY: someone filled it
+        } else await new Promise(resolve => setTimeout(resolve, 50 + 50 * attempt));
       }
     }
     stage = undefined;

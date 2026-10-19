@@ -10083,4 +10083,19 @@ publisher retries a Windows directory rename on a transient sharing violation wh
 is still absent.
 **Learnings:**
 - Promoted to §9: Electron main-process stdin on Windows.
-- To deny reads on Windows use `icacls <file> /deny *S-1-1-0:(RD)`; restore with `/remove:d`.
+- To deny reads on Windows, hold the file open with libuv's `UV_FS_O_EXLOCK` (`0x10000000`,
+  no sharing): other readers get EBUSY, stat still works. (An `icacls` deny ACE does NOT bind
+  GitHub's elevated runner: libuv opens with backup semantics. Corrected later the same day.)
+
+### 2026-10-19 — Last Windows pure-tier reds: exclusive opens, empty-target rename, managed-tools fakes (Claude Opus 5.5, `main`)
+**Work:** `verify-model3d-verbs` now denies GLB reads by holding them with `UV_FS_O_EXLOCK`
+(the icacls ACE from earlier today did not bind the elevated runner). The demo publisher's
+Windows EPERM was not a lock: the CLI's `--out` folder already exists and Windows `rename`
+never replaces a directory, where POSIX replaces an empty one; it now removes the target only
+while it is still the original empty, non-link directory, so occupied/substituted targets
+still refuse. `verify-managed-tools` proves the Windows forms on a Windows host (no exec bit;
+`;` PATH + PATHEXT for TeX; a `quarto.exe` fake = node.exe + a NODE_OPTIONS preload).
+**Learnings:**
+- Windows `rename` onto an existing directory is EPERM even when it is empty.
+- A Windows stand-in executable: copy `node.exe` to `<name>.exe` and preload a script with
+  `NODE_OPTIONS=--require`; argv[1] arrives resolved to an absolute path.
