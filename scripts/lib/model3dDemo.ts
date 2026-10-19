@@ -71,7 +71,19 @@ async function publishScratchDirectory<T>(input: string, build: (stage: string, 
     // pathname is swapped between the check and rename. rename itself never
     // follows an existing target symlink or replaces a populated directory.
     const target = process.platform === 'linux' ? `/proc/self/fd/${directory.fd}/${path.basename(root)}` : root;
-    await fs.rename(stage, target); stage = undefined;
+    // Windows refuses a directory rename while a scanner (Defender, the indexer) still holds a
+    // handle on the freshly written files: a sharing violation, transient, so retry briefly.
+    for (let attempt = 0; ; attempt++) {
+      try { await fs.rename(stage, target); break; }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        // An existing target (occupied, substituted) also reads EPERM on Windows; that is final.
+        const occupied = await fs.lstat(target).then(() => true, () => false);
+        if (process.platform !== 'win32' || occupied || attempt >= 20 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '')) throw error;
+        await new Promise(resolve => setTimeout(resolve, 50 + 50 * attempt));
+      }
+    }
+    stage = undefined;
     try { await assertParent(); }
     catch (error) {
       const published = await fs.lstat(target).catch(() => undefined);

@@ -3645,6 +3645,11 @@ outside this PNG packaging change.
   `npx`, replace-vs-unlink, separators, signals, symlinks) or a Windows product bug; it is
   never fixed by loosening the gate.
 
+- **An Electron main process cannot read stdin on Windows.** It emits `end` at once and never
+  delivers data, so a worker that treats stdin's end as "parent died" cancels itself on start:
+  every 3D poster and slide-video worker did, on every Windows machine, until 2026-10-19.
+  Workers take cancellation from `electron/workerCancel.cjs` (stdin on POSIX; parent-pid
+  liveness on win32, where the parent's taskkill delivers an explicit cancel).
 - **GitHub's Windows runners hand out an 8.3 SHORT temp path** (`C:\Users\RUNNER~1\…`), and
   anything that canonicalizes — `realpath`, the IPC asset resolver, every handler that answers
   in the form the filesystem resolves to — returns the LONG name. A gate that takes `tmpdir()`
@@ -10067,3 +10072,15 @@ The writer now boots before the waiter, and the release case awaits both waiters
 pattern the reassignment case adopted 2026-10-04). Timeouts unchanged.
 **Learnings:**
 - In multi-process wait gates, boot every worker before any waiter's deadline starts.
+
+### 2026-10-19 — Windows: 3D posters and slide video cancelled themselves; ACL deny; rename retry (Claude Opus 5.5, `main`)
+**Work:** `verify-model3d-headless` reported "3D poster rendering cancelled" on Windows: the poster
+and video workers abort on stdin `end`, which an Electron main process on Windows emits at 1 ms
+(reproduced with a bare Electron script). New `electron/workerCancel.cjs` keeps stdin on POSIX
+and polls the parent pid on win32. `verify-model3d-verbs` denied GLB reads with `chmod 0`
+(a no-op on Windows); it now uses an `icacls` deny ACE there (reads then fail EPERM). The demo
+publisher retries a Windows directory rename on a transient sharing violation while the target
+is still absent.
+**Learnings:**
+- Promoted to §9: Electron main-process stdin on Windows.
+- To deny reads on Windows use `icacls <file> /deny *S-1-1-0:(RD)`; restore with `/remove:d`.

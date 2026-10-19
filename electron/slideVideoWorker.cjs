@@ -101,9 +101,7 @@ module.exports = { renderVideo };
 if (process.env.FLUX_SLIDE_VIDEO_WORKER === "1") {
   const { app, BrowserWindow, session } = require("electron");
   const controller = new AbortController();
-  process.stdin.on("data", () => controller.abort());
-  process.stdin.on("end", () => controller.abort());
-  process.on("SIGTERM", () => controller.abort());
+  require("./workerCancel.cjs").watchCancellation(controller);
   const emit = message => process.stdout.write(`FLUX_VIDEO ${JSON.stringify(message)}\n`);
   // A worker decides when it exits. Electron's default quits when the last window closes, so a
   // capture renderer that died (render-process-gone → window destroyed) ended the process with code 0

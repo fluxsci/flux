@@ -180,12 +180,15 @@ try {
   const glbs=loaded.project.assets.filter(a=>a.kind==='glb').map(a=>path.join(root,'fig',a.path));
   // Deny byte reads while leaving metadata/stat available. The same process
   // first proves denial, then Connect must still produce its overview images.
-  for(const file of glbs) await fs.chmod(file,0);
+  // chmod 0 only sets Windows' read-only attribute; an ACL deny is the Windows equivalent (EPERM there).
+  const icacls=path.join(process.env.SystemRoot||'C:\\Windows','System32','icacls.exe'), win=process.platform==='win32';
+  const deny=async(file:string,on:boolean)=>{ if(!win) return fs.chmod(file,on?0:0o600); const {execFileSync}=await import('node:child_process'); execFileSync(icacls,[file,...(on?['/deny','*S-1-1-0:(RD)']:['/remove:d','*S-1-1-0'])],{stdio:'ignore'}); };
+  for(const file of glbs) await deny(file,true);
   try {
-    await assert.rejects(fs.readFile(glbs[0]), /EACCES/);
+    await assert.rejects(fs.readFile(glbs[0]), /EACCES|EPERM/);
     const pack=await connect({target:root,identity:detectAgentIdentity({})});
-    h.ok(pack.images.length>0 && pack.problems.some(w=>w.includes('poster not rendered')) && !pack.problems.some(w=>/EACCES|Missing GLB/.test(w)), 'actual Connect renders named placeholders while GLB byte access is denied');
-  } finally {for(const file of glbs)await fs.chmod(file,0o600);}
+    h.ok(pack.images.length>0 && pack.problems.some(w=>w.includes('poster not rendered')) && !pack.problems.some(w=>/EACCES|EPERM|Missing GLB/.test(w)), 'actual Connect renders named placeholders while GLB byte access is denied');
+  } finally {for(const file of glbs)await deny(file,false);}
   h.eq(await tree(root),beforeConnectProject,'actual Connect leaves the 3D project unchanged');
   h.eq(await tree(machineModelPosterDir()),beforeModelCache,'actual Connect never writes the model poster machine cache');
 
