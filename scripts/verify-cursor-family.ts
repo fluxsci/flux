@@ -27,8 +27,10 @@ import {
   isDefaultCursorParams,
   CURSOR_DEFAULTS,
   CURSOR_FALLBACK,
-  CURSOR_SCHEMES,
+  CURSOR_PRESETS,
   CURSOR_STATES,
+  cursorPresetOf,
+  svgColor,
   CURSOR_SIZE_RANGE,
   type CursorParams,
   type CursorState,
@@ -69,11 +71,12 @@ function numbersIn(svg: string): number[] {
 }
 const extremes: Partial<CursorParams>[] = [
   {},
-  { size: CURSOR_SIZE_RANGE.min, stroke: 2.5, gap: 6, halo: "normal" },
-  { size: CURSOR_SIZE_RANGE.max, stroke: 0.8, gap: 0, halo: "off" },
-  { size: 30, stroke: 2.5, gap: 6, halo: "normal", scheme: "paper" },
-  { size: 32, scheme: "paper", centre: "ring", hoverDot: false, pressContract: false },
-  { scheme: "accent", centre: "dot", halo: "thin" },
+  { size: CURSOR_SIZE_RANGE.min, stroke: 2.5, gap: 6 },
+  { size: CURSOR_SIZE_RANGE.max, stroke: 0.8, gap: 0, haloWidth: 0 },
+  { size: 30, stroke: 3, gap: 6, haloWidth: 6, ...CURSOR_PRESETS.paper },
+  { size: 32, ...CURSOR_PRESETS.paper, centre: "ring", hoverDot: false, pressContract: false },
+  { ...CURSOR_PRESETS.accent, centre: "dot", haloWidth: 2.3 },
+  { coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" },
 ];
 for (const params of extremes) {
   const p = clampCursorParams({ ...CURSOR_DEFAULTS, ...params });
@@ -122,19 +125,31 @@ for (const params of extremes) {
   assert(arcs.every((svg) => /<path d='M[^']*A[^']*'/.test(svg) && /<circle/.test(svg)), "every rotate cursor is an arc about the hotspot with the centre dot");
 }
 
-// --- 5. halo under core per scheme; none when off ----------------------------
-for (const scheme of CURSOR_SCHEMES) {
-  const f = buildCursorFamily({ scheme });
+// --- 5. halo under core per preset; explicit colours and widths; none when 0 ---
+for (const [preset, colours] of Object.entries(CURSOR_PRESETS)) {
+  const f = buildCursorFamily(colours);
   const svg = f.cross.svg;
   const strokes = [...svg.matchAll(/stroke='([^']+)' stroke-width='([\d.]+)'/g)].map((m) => ({ c: m[1], w: +m[2] }));
   const half = strokes.length / 2;
   const haloFirst = strokes.slice(0, half).every((s) => s.w > strokes[half].w) && new Set(strokes.slice(0, half).map((s) => s.c)).size === 1;
-  assert(haloFirst, `${scheme}: the halo pass (wider) is painted before the core pass`);
-  const expect = { ink: ["%23fff", "%23151515"], paper: ["%23151515", "%23fff"], accent: ["%23fff", "%234385be"] }[scheme];
-  assert(strokes[0].c === expect[0] && strokes[half].c === expect[1], `${scheme}: halo ${expect[0]}, core ${expect[1]}`);
+  assert(haloFirst, `${preset}: the halo pass (wider) is painted before the core pass`);
+  const expect = { ink: ["%23fff", "%23151515"], paper: ["%23151515", "%23fff"], accent: ["%23fff", "%234385be"] }[preset]!;
+  assert(strokes[0].c === expect[0] && strokes[half].c === expect[1], `${preset}: halo ${expect[0]}, core ${expect[1]}`);
+  assert(cursorPresetOf(colours) === preset, `${preset} is recognised from its colours`);
 }
-assert(lines(buildCursorFamily({ halo: "off" }).cross.svg).length === 4, "halo off paints only the four core arms");
-assert(lines(buildCursorFamily({ halo: "thin" }).cross.svg)[0][0] === 12 && /stroke-width='2\.3'/.test(buildCursorFamily({ halo: "thin" }).cross.svg), "a thin halo is stroke + 1.0");
+assert(lines(buildCursorFamily({ haloWidth: 0 }).cross.svg).length === 4, "halo width 0 paints only the four core arms");
+assert(/stroke-width='2\.3'/.test(buildCursorFamily({ haloWidth: 2.3 }).cross.svg), "the halo width is the user's number");
+{
+  const custom = { coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" };
+  const f = buildCursorFamily(custom);
+  assert(cursorPresetOf(custom) === "custom", "colours off every preset read as custom");
+  // (#aa2200 → %23a20, #ffee00 → %23fe0, #00aa00 → %230a0: svgColor compresses doubled pairs)
+  assert(f.cross.svg.includes("stroke='%23a20' stroke-width='1.3'") && f.cross.svg.includes("stroke='%23fe0' stroke-width='1.5'") && f.cross.svg.includes("stroke-opacity='.6'"), "the crosshair and halo take the user's colours, widths and opacity");
+  assert(f["cross-hover"].svg.includes("fill='%230a0'") && f["cross-hover"].svg.includes("fill='%23fe0'"), "the dot takes the dot colour over a disc of the halo colour");
+  assert(f["move-copy"].svg.includes("fill='%230a0' stroke='%23fe0'"), "the duplicate badge follows the dot and halo colours");
+  assert(svgColor("#ffffff") === "%23fff" && svgColor("#aabbcc") === "%23abc" && svgColor("#151515") === "%23151515" && svgColor("#4385be") === "%234385be", "svgColor compresses doubled hex pairs (the defaults stay byte-identical)");
+  assert(clampCursorParams({ coreColor: "red" as never, haloWidth: 99, haloOpacity: 0 }).coreColor === "#151515" && clampCursorParams({ haloWidth: 99 }).haloWidth === 6 && clampCursorParams({ haloOpacity: 0 }).haloOpacity === 0.2, "colours must be 6-digit hex; halo width and opacity are bounded");
+}
 
 // --- 6. system resize style, defaults predicate, clamping ---------------------
 {
@@ -142,8 +157,8 @@ assert(lines(buildCursorFamily({ halo: "thin" }).cross.svg)[0][0] === 12 && /str
   assert(f["resize-ns"].css === "ns-resize" && f["rotate-se"].css === "grab" && f.move.css === "move" && f["move-copy"].css === "copy", "system style resolves the transform states to the OS cursors");
   assert(f.cross.css.startsWith('url("data:') && f["cross-hover"].css.startsWith('url("data:'), "…and keeps the cross states drawn");
   assert(isDefaultCursorParams({}) && isDefaultCursorParams({ size: 24 }) && !isDefaultCursorParams({ size: 28 }) && !isDefaultCursorParams({ hoverDot: false }), "isDefaultCursorParams tells the theme writer when to clear :root");
-  const c = clampCursorParams({ size: 999, stroke: -1, gap: 99, scheme: "neon" as never, accent: "red" });
-  assert(c.size === CURSOR_SIZE_RANGE.max && c.stroke === 0.8 && c.gap === 6 && c.scheme === "ink" && c.accent === "#4385be", "clampCursorParams bounds numbers and falls back on unknown enums / colours");
+  const c = clampCursorParams({ size: 999, stroke: -1, gap: 99, centre: "neon" as never, dotColor: "red" });
+  assert(c.size === CURSOR_SIZE_RANGE.max && c.stroke === 0.8 && c.gap === 6 && c.centre === "none" && c.dotColor === "#4385be", "clampCursorParams bounds numbers and falls back on unknown enums / colours");
   assert(clampCursorParams({ size: 27 }).size === 28 && clampCursorParams({ size: 21 }).size === 22 && clampCursorParams({ size: 23 }).size === 24 && clampCursorParams({ size: 40 }).size === 32 && CURSOR_SIZE_RANGE.max === 32, "sizes round to even and cap at 32 (Chromium's large-cursor viewport rule)");
   assert(drawCursor("cross", { gap: 0 }).svg.includes("y2='12'") || drawCursor("cross", { gap: 0 }).svg.includes("y2='9'"), "gap 0 still draws (arms meet the centre)");
 }

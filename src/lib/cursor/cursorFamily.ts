@@ -14,18 +14,23 @@
 // Hardware cursors stay hardware (`cursor: url()`): a DOM "software cursor"
 // would trail the pointer by a frame, so the morph is geometric, never tweened.
 
-export type CursorScheme = "ink" | "paper" | "accent";
-export type CursorHalo = "off" | "thin" | "normal";
 export type CursorCentre = "none" | "dot" | "ring";
 export type CursorResizeStyle = "crosshair" | "system";
 
 export interface CursorParams {
   /** Mark size in CSS px (square); the hotspot is its centre. */
   size: number;
-  /** Core stroke width in px. */
+  /** Core (crosshair) stroke width in px. */
   stroke: number;
-  /** The light/dark halo drawn under the core so the mark reads on any background. */
-  halo: CursorHalo;
+  /** Core stroke colour (6-digit hex). */
+  coreColor: string;
+  /** The halo drawn under the core so the mark reads on any background: its
+   *  stroke width in px (0 = no halo), colour and opacity. */
+  haloWidth: number;
+  haloColor: string;
+  haloOpacity: number;
+  /** The accent dot (hover / press / rotate centre) and the move-copy badge. */
+  dotColor: string;
   /** Centre gap radius in px — the pointed-at pixel is never covered. 0 = a continuous cross. */
   gap: number;
   /** What sits in the gap at REST (hover always adds the dot when `hoverDot`). */
@@ -34,10 +39,6 @@ export interface CursorParams {
   hoverDot: boolean;
   /** A press contracts the arms. */
   pressContract: boolean;
-  /** Core/halo colouring. */
-  scheme: CursorScheme;
-  /** The accent (dot) colour, from the theme. */
-  accent: string;
   /** Resize/rotate/move states: drawn in the family, or the OS cursors. */
   resizeStyle: CursorResizeStyle;
 }
@@ -45,26 +46,60 @@ export interface CursorParams {
 export const CURSOR_DEFAULTS: CursorParams = {
   size: 24,
   stroke: 1.3,
-  halo: "normal",
+  coreColor: "#151515",
+  haloWidth: 3.2,
+  haloColor: "#ffffff",
+  haloOpacity: 0.92,
+  dotColor: "#4385be",
   gap: 3,
   centre: "none",
   hoverDot: true,
   pressContract: true,
-  scheme: "ink",
-  accent: "#4385be",
   resizeStyle: "crosshair",
 };
+
+/** Colour presets (Settings → Cursor → Colours). Picking one writes these three
+ *  fields; editing any colour afterwards makes the preset "custom". */
+export const CURSOR_PRESETS = {
+  ink: { coreColor: "#151515", haloColor: "#ffffff", haloOpacity: 0.92 },
+  paper: { coreColor: "#ffffff", haloColor: "#151515", haloOpacity: 0.85 },
+  accent: { coreColor: "#4385be", haloColor: "#ffffff", haloOpacity: 0.92 },
+} as const;
+export type CursorPreset = keyof typeof CURSOR_PRESETS | "custom";
+export const CURSOR_PRESET_IDS: readonly CursorPreset[] = ["ink", "paper", "accent", "custom"];
+
+/** Which preset the colours match, else "custom". */
+export function cursorPresetOf(p: Pick<CursorParams, "coreColor" | "haloColor" | "haloOpacity">): CursorPreset {
+  for (const [id, c] of Object.entries(CURSOR_PRESETS) as [keyof typeof CURSOR_PRESETS, (typeof CURSOR_PRESETS)[keyof typeof CURSOR_PRESETS]][]) {
+    if (c.coreColor === p.coreColor.toLowerCase() && c.haloColor === p.haloColor.toLowerCase() && Math.abs(c.haloOpacity - p.haloOpacity) < 1e-9) return id;
+  }
+  return "custom";
+}
 
 // Chromium shows a custom cursor larger than 32 CSS px only while the whole
 // image fits inside the viewport, and falls back to the OS cursor near every
 // window edge otherwise — so 32 is the ceiling. Even sizes keep an integer
 // hotspot.
 export const CURSOR_SIZE_RANGE = { min: 20, max: 32 } as const;
-export const CURSOR_STROKE_RANGE = { min: 0.8, max: 2.5 } as const;
+export const CURSOR_STROKE_RANGE = { min: 0.8, max: 3 } as const;
+export const CURSOR_HALO_WIDTH_RANGE = { min: 0, max: 6 } as const;
+export const CURSOR_HALO_OPACITY_RANGE = { min: 0.2, max: 1 } as const;
 export const CURSOR_GAP_RANGE = { min: 0, max: 6 } as const;
-export const CURSOR_SCHEMES: readonly CursorScheme[] = ["ink", "paper", "accent"];
-export const CURSOR_HALOS: readonly CursorHalo[] = ["off", "thin", "normal"];
 export const CURSOR_CENTRES: readonly CursorCentre[] = ["none", "dot", "ring"];
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
+/** A 6-digit hex, lowercased, or the default; `#aabbcc` is kept as typed (the
+ *  data URL compresses it to `#abc` where it can, see `svgColor`). */
+export function cursorHex(v: unknown, d: string): string {
+  return typeof v === "string" && HEX6.test(v) ? v.toLowerCase() : d;
+}
+/** The colour as it is written inside the SVG data URL: `#` → `%23`, and
+ *  `#rrggbb` → `#rgb` when the pairs allow it — `#ffffff` → `%23fff`, which is
+ *  what keeps the 2026-09-15 cursors byte-identical at the defaults. */
+export function svgColor(hex: string): string {
+  const h = hex.toLowerCase();
+  const short = h[1] === h[2] && h[3] === h[4] && h[5] === h[6] ? `#${h[1]}${h[3]}${h[5]}` : h;
+  return short.replace("#", "%23");
+}
 export const CURSOR_RESIZE_STYLES: readonly CursorResizeStyle[] = ["crosshair", "system"];
 
 export type CursorState =
@@ -140,13 +175,15 @@ export function clampCursorParams(p: Partial<CursorParams>): CursorParams {
   return {
     size: even(clamp(p.size, CURSOR_SIZE_RANGE, CURSOR_DEFAULTS.size)),
     stroke: clamp(p.stroke, CURSOR_STROKE_RANGE, CURSOR_DEFAULTS.stroke),
-    halo: pick(p.halo, CURSOR_HALOS, CURSOR_DEFAULTS.halo),
+    coreColor: cursorHex(p.coreColor, CURSOR_DEFAULTS.coreColor),
+    haloWidth: clamp(p.haloWidth, CURSOR_HALO_WIDTH_RANGE, CURSOR_DEFAULTS.haloWidth),
+    haloColor: cursorHex(p.haloColor, CURSOR_DEFAULTS.haloColor),
+    haloOpacity: clamp(p.haloOpacity, CURSOR_HALO_OPACITY_RANGE, CURSOR_DEFAULTS.haloOpacity),
+    dotColor: cursorHex(p.dotColor, CURSOR_DEFAULTS.dotColor),
     gap: clamp(p.gap, CURSOR_GAP_RANGE, CURSOR_DEFAULTS.gap),
     centre: pick(p.centre, CURSOR_CENTRES, CURSOR_DEFAULTS.centre),
     hoverDot: typeof p.hoverDot === "boolean" ? p.hoverDot : CURSOR_DEFAULTS.hoverDot,
     pressContract: typeof p.pressContract === "boolean" ? p.pressContract : CURSOR_DEFAULTS.pressContract,
-    scheme: pick(p.scheme, CURSOR_SCHEMES, CURSOR_DEFAULTS.scheme),
-    accent: typeof p.accent === "string" && /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : CURSOR_DEFAULTS.accent,
     resizeStyle: pick(p.resizeStyle, CURSOR_RESIZE_STYLES, CURSOR_DEFAULTS.resizeStyle),
   };
 }
@@ -160,7 +197,7 @@ export function cursorGeometry(p: CursorParams) {
   const armLen = outer - inner;
   // A press keeps the inner third... two thirds of each arm (7.5 → 5 at the defaults).
   const pressOuter = inner + armLen * (2 / 3);
-  const haloWidth = p.halo === "off" ? 0 : p.halo === "thin" ? p.stroke + 1.0 : p.stroke + 1.9;
+  const haloWidth = p.haloWidth;
   // Arrowheads: a chevron whose legs run back from the tip at 45°.
   const head = Math.max(2.4, Math.min(3.6, armLen * 0.42));
   const pressHead = Math.min(head, Math.max(2.0, (pressOuter - inner) * 0.5));
@@ -174,19 +211,12 @@ export function cursorGeometry(p: CursorParams) {
   return { c, margin, outer, inner, armLen, pressOuter, haloWidth, head, pressHead, arcR, arcHead, dotR, dotHaloR };
 }
 
+/** The encoded colours of one drawing: the core, the halo (null when its
+ *  width is 0), and the dot's disc, which is always the halo colour so the dot
+ *  reads over anything the way the arms do. */
 function schemeColours(p: CursorParams): { core: string; halo: string | null; haloOpacity: string; disc: string; discOpacity: string } {
-  const dark = "%23151515";
-  const light = "%23fff";
-  const accent = p.accent.replace("#", "%23");
-  switch (p.scheme) {
-    case "paper":
-      return { core: light, halo: dark, haloOpacity: ".85", disc: dark, discOpacity: ".85" };
-    case "accent":
-      return { core: accent, halo: light, haloOpacity: ".92", disc: light, discOpacity: ".92" };
-    case "ink":
-    default:
-      return { core: dark, halo: light, haloOpacity: ".92", disc: light, discOpacity: ".92" };
-  }
+  const op = fmt(p.haloOpacity);
+  return { core: svgColor(p.coreColor), halo: p.haloWidth > 0 ? svgColor(p.haloColor) : null, haloOpacity: op, disc: svgColor(p.haloColor), discOpacity: op };
 }
 
 type Seg = [number, number, number, number];
@@ -273,7 +303,7 @@ function paintLayer(p: CursorParams, g: ReturnType<typeof cursorGeometry>, L: La
 
 function dot(p: CursorParams, g: ReturnType<typeof cursorGeometry>): string {
   const col = schemeColours(p);
-  const accent = p.accent.replace("#", "%23");
+  const accent = svgColor(p.dotColor);
   return (
     `<circle cx='${fmt(g.c)}' cy='${fmt(g.c)}' r='${fmt(g.dotHaloR)}' fill='${col.disc}' fill-opacity='${col.discOpacity}'/>` +
     `<circle cx='${fmt(g.c)}' cy='${fmt(g.c)}' r='${fmt(g.dotR)}' fill='${accent}'/>`
@@ -292,13 +322,13 @@ function ring(p: CursorParams, g: ReturnType<typeof cursorGeometry>): string {
 /** The "+" badge of move-copy: a small disc at the lower right with a plus. */
 function plusBadge(p: CursorParams, g: ReturnType<typeof cursorGeometry>): string {
   const col = schemeColours(p);
-  const accent = p.accent.replace("#", "%23");
+  const accent = svgColor(p.dotColor);
   const r = 3.4;
   const bx = p.size - r - 0.6;
   const by = p.size - r - 0.6;
   const arm = 1.8;
   return (
-    `<circle cx='${fmt(bx)}' cy='${fmt(by)}' r='${fmt(r)}' fill='${accent}' stroke='${col.halo ?? col.core}' stroke-width='1'/>` +
+    `<circle cx='${fmt(bx)}' cy='${fmt(by)}' r='${fmt(r)}' fill='${accent}' stroke='${col.disc}' stroke-width='1'/>` +
     `<line x1='${fmt(bx - arm)}' y1='${fmt(by)}' x2='${fmt(bx + arm)}' y2='${fmt(by)}' stroke='%23fff' stroke-width='1.3' stroke-linecap='round'/>` +
     `<line x1='${fmt(bx)}' y1='${fmt(by - arm)}' x2='${fmt(bx)}' y2='${fmt(by + arm)}' stroke='%23fff' stroke-width='1.3' stroke-linecap='round'/>`
   );

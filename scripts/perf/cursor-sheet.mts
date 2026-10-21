@@ -6,7 +6,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { launch } from "../lib/driver.mjs";
-import { buildCursorFamily, CURSOR_STATES, CURSOR_SCHEMES, type CursorParams } from "../../src/lib/cursor/cursorFamily";
+import { buildCursorFamily, CURSOR_STATES, CURSOR_PRESETS, type CursorParams } from "../../src/lib/cursor/cursorFamily";
 
 const argIdx = process.argv.indexOf("--params");
 const extra: Partial<CursorParams> = argIdx > 0 ? JSON.parse(process.argv[argIdx + 1]) : {};
@@ -15,13 +15,13 @@ const only = onlyIdx > 0 ? new Set(process.argv[onlyIdx + 1].split(",")) : null;
 const scaleIdx = process.argv.indexOf("--scales");
 const scales = scaleIdx > 0 ? process.argv[scaleIdx + 1].split(",").map(Number) : [1, 2, 4];
 const states = only ? CURSOR_STATES.filter((s) => only.has(s)) : CURSOR_STATES;
-const schemes = only ? (["ink"] as const) : CURSOR_SCHEMES;
+const schemes = only ? (["ink"] as const) : (Object.keys(CURSOR_PRESETS) as (keyof typeof CURSOR_PRESETS)[]);
 const out = path.resolve(only ? "test-results/cursor-sheet-detail.png" : "test-results/cursor-sheet.png");
 mkdirSync(path.dirname(out), { recursive: true });
 
 const rows: string[] = [];
 for (const scheme of schemes) {
-  const fam = buildCursorFamily({ ...extra, scheme });
+  const fam = buildCursorFamily({ ...CURSOR_PRESETS[scheme], ...extra }); // --params colours win over the preset
   for (const bg of ["#1c1b1a", "#fffcf0", "#4385be"]) {
     rows.push(
       `<div class="row" style="background:${bg}"><div class="lbl" style="color:${bg === "#fffcf0" ? "#333" : "#eee"}">${scheme} · ${bg}</div>` +

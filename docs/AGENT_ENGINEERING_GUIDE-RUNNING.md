@@ -1870,9 +1870,11 @@ Persistence invariants (all machine-checked — do not weaken):
     builder's defaults (`scripts/gen-cursors.mjs` writes it; never by hand). The 2026-09-15
     cursors are reproduced byte for byte (gates key on `y1='4'` for press, `<circle>` for
     hover). Settings → General → Cursor (`cursor*` keys in settings.ts: size 20–32 even —
-    Chromium shows a custom cursor over 32 px only while it fits the viewport — stroke,
-    halo off/thin/normal, gap, centre none/dot/ring, hover dot, press contraction, scheme
-    ink/paper/accent, resize style crosshair/system) feed `cursor/cursorTheme.ts`, which
+    Chromium shows a custom cursor over 32 px only while it fits the viewport — the core's
+    stroke width and colour, the halo's width (0 = none), colour and opacity, the dot colour
+    (`CURSOR_PRESETS` ink/paper/accent are presets over those fields; `cursorPresetOf` reads
+    them back, anything else is "custom"), gap, centre none/dot/ring, hover dot, press
+    contraction, resize style crosshair/system) feed `cursor/cursorTheme.ts`, which
     writes the `--cursor-*` variables on `:root` ONCE per settings change (and clears them at
     the defaults) — never per hover or frame. A software (DOM) cursor was considered and
     rejected: it trails the pointer by a frame and dies at window edges / under capture; the

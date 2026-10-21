@@ -14,10 +14,12 @@
   import { onDestroy, untrack } from "svelte";
   import { settings, settingsOpen, type Settings } from "./settings";
   import {
-    buildCursorFamily, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE,
-    type CursorState,
+    buildCursorFamily, cursorPresetOf, isDefaultCursorParams, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE,
+    CURSOR_PRESETS, CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE,
+    type CursorPreset, type CursorState,
   } from "./cursor/cursorFamily";
   import { cursorParamsFromSettings } from "./cursor/cursorTheme";
+  import ColorField from "./ColorField.svelte";
   import { modalFocus } from "./ui/modalFocus";
   import { fileBridge } from "./project/types";
   import {
@@ -39,11 +41,14 @@
     { state: "move-copy", label: "duplicate" },
   ];
   const cursorFamily = $derived(buildCursorFamily(cursorParamsFromSettings($settings)));
-  const cursorIsDefault = $derived(
-    $settings.cursorSize === CURSOR_DEFAULTS.size && $settings.cursorStroke === CURSOR_DEFAULTS.stroke && $settings.cursorHalo === CURSOR_DEFAULTS.halo &&
-    $settings.cursorGap === CURSOR_DEFAULTS.gap && $settings.cursorCentre === CURSOR_DEFAULTS.centre && $settings.cursorHoverDot === CURSOR_DEFAULTS.hoverDot &&
-    $settings.cursorPressContract === CURSOR_DEFAULTS.pressContract && $settings.cursorScheme === CURSOR_DEFAULTS.scheme && $settings.cursorResizeStyle === CURSOR_DEFAULTS.resizeStyle,
-  );
+  const cursorIsDefault = $derived(isDefaultCursorParams(cursorParamsFromSettings($settings)));
+  const cursorPreset = $derived(cursorPresetOf({ coreColor: $settings.cursorCoreColor, haloColor: $settings.cursorHaloColor, haloOpacity: $settings.cursorHaloOpacity }));
+  function applyCursorPreset(id: string) {
+    if (!(id in CURSOR_PRESETS)) return; // "custom" keeps whatever the fields hold
+    const c = CURSOR_PRESETS[id as keyof typeof CURSOR_PRESETS];
+    settings.update((v) => ({ ...v, cursorCoreColor: c.coreColor, cursorHaloColor: c.haloColor, cursorHaloOpacity: c.haloOpacity }));
+  }
+  const PRESET_LABELS: Record<CursorPreset, string> = { ink: "Ink — dark mark, light halo", paper: "Paper — light mark, dark halo", accent: "Accent — blue mark, light halo", custom: "Custom" };
   function cursorImg(state: CursorState): string {
     // the builder's svg uses %23 for '#'; an <img> data URL wants the same encoding
     return `data:image/svg+xml,${cursorFamily[state].svg.replace(/#/g, "%23")}`;
@@ -51,9 +56,11 @@
   function resetCursor() {
     settings.update((v) => ({
       ...v,
-      cursorSize: CURSOR_DEFAULTS.size, cursorStroke: CURSOR_DEFAULTS.stroke, cursorHalo: CURSOR_DEFAULTS.halo, cursorGap: CURSOR_DEFAULTS.gap,
+      cursorSize: CURSOR_DEFAULTS.size, cursorStroke: CURSOR_DEFAULTS.stroke, cursorCoreColor: CURSOR_DEFAULTS.coreColor,
+      cursorHaloWidth: CURSOR_DEFAULTS.haloWidth, cursorHaloColor: CURSOR_DEFAULTS.haloColor, cursorHaloOpacity: CURSOR_DEFAULTS.haloOpacity,
+      cursorDotColor: CURSOR_DEFAULTS.dotColor, cursorGap: CURSOR_DEFAULTS.gap,
       cursorCentre: CURSOR_DEFAULTS.centre, cursorHoverDot: CURSOR_DEFAULTS.hoverDot, cursorPressContract: CURSOR_DEFAULTS.pressContract,
-      cursorScheme: CURSOR_DEFAULTS.scheme, cursorResizeStyle: CURSOR_DEFAULTS.resizeStyle,
+      cursorResizeStyle: CURSOR_DEFAULTS.resizeStyle,
     }));
   }
   const num = (v: string, lo: number, hi: number, d: number, step = 1) => {
@@ -463,20 +470,40 @@
             <p class="hint">The crosshair is the pointer everywhere in Flux, and one mark that changes form: over a handle or edge its arms become the resize arrows, outside a corner the rotate arc, while dragging the pressed cross grows four heads. These knobs shape every state together; hover a tile to see the real cursor.</p>
             <label class="row">
               <span>Colours</span>
-              <select bind:value={$settings.cursorScheme} aria-label="Cursor colour scheme">
-                <option value="ink">Ink — dark mark, light halo</option>
-                <option value="paper">Paper — light mark, dark halo</option>
-                <option value="accent">Accent — blue mark, light halo</option>
+              <select value={cursorPreset} onchange={(e) => applyCursorPreset(e.currentTarget.value)} aria-label="Cursor colour preset">
+                {#each ["ink", "paper", "accent", "custom"] as id (id)}<option value={id} disabled={id === "custom" && cursorPreset !== "custom"}>{PRESET_LABELS[id as CursorPreset]}</option>{/each}
               </select>
             </label>
-            <label class="row">
-              <span>Halo</span>
-              <select bind:value={$settings.cursorHalo} aria-label="Cursor halo">
-                <option value="normal">Normal</option>
-                <option value="thin">Thin</option>
-                <option value="off">Off</option>
-              </select>
+            <div class="row cursor-colour">
+              <span>Crosshair colour</span>
+              <ColorField value={$settings.cursorCoreColor} fallback={CURSOR_DEFAULTS.coreColor} label="Crosshair colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorCoreColor: hex }))} />
+            </div>
+            <div class="row cursor-colour">
+              <span>Halo colour</span>
+              <ColorField value={$settings.cursorHaloColor} fallback={CURSOR_DEFAULTS.haloColor} label="Halo colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorHaloColor: hex }))} />
+            </div>
+            <div class="row cursor-colour">
+              <span>Dot colour</span>
+              <ColorField value={$settings.cursorDotColor} fallback={CURSOR_DEFAULTS.dotColor} label="Dot colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorDotColor: hex }))} />
+            </div>
+            <label class="chk num">
+              Crosshair stroke
+              <input type="number" min={CURSOR_STROKE_RANGE.min} max={CURSOR_STROKE_RANGE.max} step="0.1" value={$settings.cursorStroke} aria-label="Crosshair stroke width"
+                onchange={(e) => settings.update((v) => ({ ...v, cursorStroke: num(e.currentTarget.value, CURSOR_STROKE_RANGE.min, CURSOR_STROKE_RANGE.max, CURSOR_DEFAULTS.stroke, 0.1) }))} />
+              px
             </label>
+            <label class="chk num">
+              Halo width
+              <input type="number" min={CURSOR_HALO_WIDTH_RANGE.min} max={CURSOR_HALO_WIDTH_RANGE.max} step="0.1" value={$settings.cursorHaloWidth} aria-label="Halo stroke width"
+                onchange={(e) => settings.update((v) => ({ ...v, cursorHaloWidth: num(e.currentTarget.value, CURSOR_HALO_WIDTH_RANGE.min, CURSOR_HALO_WIDTH_RANGE.max, CURSOR_DEFAULTS.haloWidth, 0.1) }))} />
+              px
+            </label>
+            <label class="chk num">
+              Halo opacity
+              <input type="number" min={CURSOR_HALO_OPACITY_RANGE.min} max={CURSOR_HALO_OPACITY_RANGE.max} step="0.05" value={$settings.cursorHaloOpacity} aria-label="Halo opacity"
+                onchange={(e) => settings.update((v) => ({ ...v, cursorHaloOpacity: num(e.currentTarget.value, CURSOR_HALO_OPACITY_RANGE.min, CURSOR_HALO_OPACITY_RANGE.max, CURSOR_DEFAULTS.haloOpacity, 0.05) }))} />
+            </label>
+            <p class="hint">The halo is the outline under the crosshair that keeps it legible on any background; a width of 0 removes it. The dot is the accent that marks anything you can select, the rotate centre and the duplicate badge.</p>
             <label class="row">
               <span>Centre at rest</span>
               <select bind:value={$settings.cursorCentre} aria-label="Cursor centre mark">
@@ -489,12 +516,6 @@
               Size
               <input type="number" min={CURSOR_SIZE_RANGE.min} max={CURSOR_SIZE_RANGE.max} step="2" value={$settings.cursorSize} aria-label="Cursor size"
                 onchange={(e) => settings.update((v) => ({ ...v, cursorSize: num(e.currentTarget.value, CURSOR_SIZE_RANGE.min, CURSOR_SIZE_RANGE.max, CURSOR_DEFAULTS.size, 2) }))} />
-              px
-            </label>
-            <label class="chk num">
-              Stroke
-              <input type="number" min={CURSOR_STROKE_RANGE.min} max={CURSOR_STROKE_RANGE.max} step="0.1" value={$settings.cursorStroke} aria-label="Cursor stroke width"
-                onchange={(e) => settings.update((v) => ({ ...v, cursorStroke: num(e.currentTarget.value, CURSOR_STROKE_RANGE.min, CURSOR_STROKE_RANGE.max, CURSOR_DEFAULTS.stroke, 0.1) }))} />
               px
             </label>
             <label class="chk num">
@@ -972,6 +993,13 @@
   }
   .cursor-actions {
     margin: 8px 0 0;
+  }
+  /* the colour rows: a swatch + hex field in the control column */
+  .cursor-colour {
+    grid-template-columns: minmax(0, 1fr) minmax(130px, 180px);
+  }
+  .cursor-colour :global(.wrap) {
+    width: 100%;
   }
 
   /* ---- controls ------------------------------------------------------------ */

@@ -324,10 +324,11 @@ that changes form rather than a set of unrelated arrows: over an object's edge o
 two arms along that axis grow arrowheads and the other two disappear; just outside a corner
 it becomes a curved rotate arrow; while you drag it shows four heads (with a small **+** when
 **Alt** is duplicating); and it keeps that form for the whole drag. Text fields keep the
-I-beam and pan keeps the hand. **Settings → General → Cursor** shapes the family — size,
-stroke, halo, the centre gap and what sits in it, the hover dot, the press, and a light-on-dark
-or accent colour scheme — with a live preview, or switches the resize, rotate and move states
-back to the system's own cursors.
+I-beam and pan keeps the hand. **Settings → General → Cursor** shapes the family — the
+crosshair's colour and stroke width, the halo's colour, width and opacity (a width of 0 removes
+it), the dot's colour, with Ink, Paper and Accent presets or your own colours; the size, the
+centre gap and what sits in it, the hover dot and the press — with a live preview, or switches
+the resize, rotate and move states back to the system's own cursors.
 
 **Selecting and moving.** Click an object to select it; a path, line or hollow shape is
 selected by clicking on or near its stroke. Once selected, its **bounding box is the handle**:

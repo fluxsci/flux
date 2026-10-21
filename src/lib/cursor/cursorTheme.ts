@@ -14,12 +14,15 @@ export function cursorParamsFromSettings(s: Settings): Partial<CursorParams> {
   return {
     size: s.cursorSize,
     stroke: s.cursorStroke,
-    halo: s.cursorHalo,
+    coreColor: s.cursorCoreColor,
+    haloWidth: s.cursorHaloWidth,
+    haloColor: s.cursorHaloColor,
+    haloOpacity: s.cursorHaloOpacity,
+    dotColor: s.cursorDotColor,
     gap: s.cursorGap,
     centre: s.cursorCentre,
     hoverDot: s.cursorHoverDot,
     pressContract: s.cursorPressContract,
-    scheme: s.cursorScheme,
     resizeStyle: s.cursorResizeStyle,
   };
 }
