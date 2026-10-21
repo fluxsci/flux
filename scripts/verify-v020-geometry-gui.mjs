@@ -42,7 +42,7 @@ const closeRect=(a,b,label)=>{assert.ok(a&&b,label+' exists');for(const key of [
 for(const kind of ['rect','text','path'])for(const rotation of [0,30,45,90]){
   await seedElement(kind,rotation,rotation===30||rotation===90);
   const before=await state();
-  const handle=await page.evaluate(()=>{const n=document.querySelectorAll('.handle')[4],r=n?.getBoundingClientRect();return r?{x:r.x+r.width/2,y:r.y+r.height/2}:null});
+  const handle=await page.evaluate(()=>{const n=document.querySelector('.handle[data-h="se"]'),r=n?.getBoundingClientRect();return r?{x:r.x+r.width/2,y:r.y+r.height/2}:null});
   assert.ok(handle,`${kind}/${rotation} southeast handle exists`);
   await page.mouse.move(handle.x,handle.y);await page.mouse.down();await page.mouse.move(handle.x+48,handle.y+31,{steps:5});await waitForFrame(page);
   const during=await state(),preview=await rectOf('.overlay-svg > g[style*="will-change"]');
@@ -69,7 +69,7 @@ for(const rotation of [0,30,45,90]){
   assert.ok(Math.hypot(final[1].x-h.x-31,final[1].y-h.y+27)<0.75,'dragged endpoint follows actual pointer');gestures.push({kind:'line',rotation,preview,rendered});
 }
 await seedElement('plot',0,true);const cropBefore=await state();
-const cropHandle=await page.evaluate(()=>{const r=document.querySelectorAll('.handle')[4].getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}});
+const cropHandle=await page.evaluate(()=>{const r=document.querySelector('.handle[data-h="se"]').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}});
 const modifier=await page.evaluate(()=>/Mac|iPhone|iPad/.test(navigator.platform)?'Meta':'Control');
 await page.keyboard.down(modifier);await page.mouse.move(cropHandle.x,cropHandle.y);await page.mouse.down();await page.mouse.move(cropHandle.x-28,cropHandle.y-18,{steps:5});await waitForFrame(page);
 const cropPreview=await rectOf('.crop-outline');assert.deepEqual((await state()).el,cropBefore.el,'crop preview leaves authored model intact');

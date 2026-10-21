@@ -53,7 +53,7 @@
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
   import { perfCounters } from "./dev/perfCounters";
   // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
-  import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
+  import { CORNERS, HANDLES, handlePos, resizeCursorVar, rotateCursorVar, selectionHitZones, zoneClipForFrame, type Handle, type RotateZone } from "./interact/handles";
   import { restorePlotClip, partDomId } from "./plot/parse";
   import { partsInside, leafPartIds, partIndexOf, isDataRole, boxFrom as partBoxFrom, type PartBoxCandidate, type Box as PartBox } from "./plot/partMarquee";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
@@ -160,6 +160,10 @@
   }
 
   const HS = 9; // on-screen handle size in px (constant)
+  // A move (or a rotate) begins only after the pointer has travelled this far
+  // (screen px): a shaky click inside the selection's box — now a grab area —
+  // must not nudge the object or add an undo entry (Figma's drag threshold).
+  const DRAG_SLOP = 3;
   const RULER = 20; // ruler strip thickness in screen px (Feature 11)
 
   // Active ruler-guide drag (create from a ruler, or move/delete an existing one).
@@ -194,6 +198,16 @@
         handle: Handle;
         ob: Rect;
         origs: Map<string, Element>;
+        // Where on the band/zone the press landed, relative to the edge(s) it
+        // drives (figure-local). The edge then moves by the DRAG, not to the
+        // pointer: a press 4 px inside the right edge never makes it jump 4 px
+        // on the first move (Figma keeps the grab offset; the old mid-edge
+        // knobs sat exactly on the edge, so they never needed one).
+        grab: { dx: number; dy: number };
+        // Smart-guide targets (other boxes' edges and centres, the frame, ruler
+        // guides) the DRIVEN edges snap to — resizes snap like moves (Figma).
+        xs: number[];
+        ys: number[];
         scale?: boolean; // Scale tool (F5): also scales stroke/corner/font
         // figure-v1 P5: ctrl/meta-drag on a handle = CROP (exactly one unlocked
         // image/plot with a sized asset). The snapshot pins the content→canvas
@@ -238,6 +252,9 @@
         cy: number;
         startAngle: number;
         origs: Map<string, Element>;
+        zone: RotateZone; // which rotate cursor the host shows: the knob is "n", the corner zones their corner
+        sx: number;
+        sy: number;
       }
     | {
         kind: "figmove";
@@ -1188,6 +1205,27 @@
     return false;
   }
 
+  const pointInBox = (p: { x: number; y: number }, b: Rect | null) => !!b && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
+
+  /** The bounding-box grab (2026-10-21, Figma): a primary, unmodified (Alt
+   *  allowed) press with the Select tool that landed on a background while the
+   *  ACTIVE figure has a movable selection whose box contains the point. Starts
+   *  the ordinary move gesture for that selection and reports true. */
+  function selectionBoxGrab(e: PointerEvent, fig: Figure, lp: { x: number; y: number }): boolean {
+    // Shift is allowed: inside the box it is the axis-locked move it already is
+    // on the stroke (one object, one meaning); a Shift-click there is a no-op.
+    if (e.button !== 0 || e.ctrlKey || e.metaKey) return false;
+    if ($activeTool !== "select" && $activeTool !== "scale") return false;
+    if (fig.id !== $activeFigureId || !overlayBox || selLocked || editPathId || editingId || presentation?.picking) return false;
+    if (selLine) return false; // a single line shows endpoint handles and no box — nothing to grab by
+    const b = overlayBox;
+    if (lp.x < b.x || lp.x > b.x + b.w || lp.y < b.y || lp.y > b.y + b.h) return false;
+    if (!selectedEls(fig).length) return false;
+    partHover = null;
+    beginMove(e, fig);
+    return true;
+  }
+
   function onCanvasDown(e: PointerEvent) {
     lastDownEl = null; // background pointerdown — no element under a dblclick
     if (startPanIfNeeded(e)) return;
@@ -1196,6 +1234,9 @@
       commitArrange(); // click applies the live arrangement and exits the mode
       return;
     }
+    // The selection's box can reach past its figure's frame (an element half
+    // outside it): a press there lands on the canvas, and is still a grab.
+    if (af && !editPathId && selectionBoxGrab(e, af, localPoint(e.clientX, e.clientY, af))) return;
     if (editPathId) {
       // pen sub-mode with a live draft: an off-canvas click cancels the draft
       // but stays in the mode; otherwise leave node-edit as before.
@@ -1235,10 +1276,20 @@
       exitNodeEdit();
     }
     e.stopPropagation();
+    const lp = localPoint(e.clientX, e.clientY, fig);
+    // Figma: once something is selected, its bounding box is the grab area. A
+    // primary press that hit NOTHING (it reached this background) but lies
+    // inside the selection's box moves the selection — a hollow ellipse, an
+    // open path, a line, a text's gaps all become draggable from their box —
+    // and a plain click there keeps the selection (the move gesture ends with
+    // no drag and no toggle). A press that hits an element goes to
+    // onElementDown, which applies the same rule to objects BENEATH the
+    // selection. Ctrl keeps today's routes (deep select, part marquee); Shift is
+    // the axis-locked move; Alt duplicates on drag, as beginMove already does.
+    if (selectionBoxGrab(e, fig, lp)) return;
     activeFigureId.set(fig.id);
     selectedFrameId.set(null);
     partHover = null;
-    const lp = localPoint(e.clientX, e.clientY, fig);
 
     if ($activeTool === "select" || $activeTool === "scale") {
       // P7: deselect on pointerdown (Figma), but DON'T exit the entered-group
@@ -2132,6 +2183,7 @@
     // Alt means duplicate-on-drag, so shift+alt is "drag a copy, axis-locked" —
     // never a selection toggle.
     pendingShiftToggle = null;
+    pendingClickSelect = null;
     if (e.shiftKey && !e.altKey) {
       if ($selection.has(el.id)) {
         pendingShiftToggle = el.id; // keep selection for the drag; toggle on click-up
@@ -2142,13 +2194,39 @@
           return n;
         });
       }
+    } else if (!deep && !e.shiftKey && !$selection.has(el.id) && pointInBox(localPoint(e.clientX, e.clientY, fig), overlayBox) && selectionBoxGrabBeneath(fig, el)) {
+      // Figma: inside the selection's box the SELECTION owns the drag even over
+      // an unselected object that lies BENEATH it (an annotation path over a
+      // plot is the common case); a click without a drag selects that object
+      // instead — decided on release, like the deferred Shift toggle.
+      pendingClickSelect = grp;
     } else if (deep || !$selection.has(el.id)) {
       // deep always REPLACES the selection with exactly the pierced element
       // (Figma); a plain click only re-selects when the unit wasn't selected.
       selection.set(grp);
+    } else if (!e.altKey && $selection.size > grp.size) {
+      // Figma: a CLICK (no drag) on one member of a multi-selection reduces the
+      // selection to that member; a drag still moves everything.
+      pendingClickSelect = grp;
     }
     beginMove(e, fig);
   }
+
+  /** Does a press on unselected `el` fall inside the active selection's box
+   *  with `el` beneath the selection in z-order? Then the selection is grabbed. */
+  function selectionBoxGrabBeneath(fig: Figure, el: Element): boolean {
+    if (fig.id !== $activeFigureId || !overlayBox || selLocked || selLine || editPathId || editingId || presentation?.picking) return false;
+    if ($activeTool !== "select" && $activeTool !== "scale") return false;
+    const sel = selectedEls(fig);
+    if (!sel.length) return false;
+    const topSelected = Math.max(...sel.map((s) => fig.elements.indexOf(s)));
+    if (fig.elements.indexOf(el) > topSelected) return false; // above the selection: the object wins
+    return true;
+  }
+
+  // A plain click's deferred selection (see onElementDown): applied on release
+  // only when the press never became a drag.
+  let pendingClickSelect: Set<string> | null = null;
 
   function beginMove(e: PointerEvent, fig: Figure) {
     const sel = selectedEls(fig);
@@ -2526,10 +2604,46 @@
     }
   }
 
-  function onHandleDown(e: PointerEvent, handle: Handle) {
+  /** The scene element under a pointer event, looking THROUGH the overlay
+   *  (hit zones, handles) — for presses that should hand off to the object. */
+  function sceneElementUnder(e: PointerEvent, fig: Figure): Element | null {
+    for (const node of document.elementsFromPoint(e.clientX, e.clientY)) {
+      const w = (node as globalThis.Element).closest?.("[data-editor-element-id]");
+      if (!w) continue;
+      const id = w.getAttribute("data-editor-element-id");
+      const el = fig.elements.find((x) => x.id === id);
+      return el ?? null;
+    }
+    return null;
+  }
+
+  /** A press on an EDGE band that lies inside the box hands off to the plot
+   *  beneath when it means a part gesture: Ctrl/⌘ (deep select — a tick label
+   *  flush at a tight-cropped plot's edge must still pierce, not crop) or a
+   *  press on an already-picked part (its drag moves the pick, not the edge).
+   *  Corners and the band's outer half keep crop and resize. Returns true when
+   *  it handed off. */
+  function bandHandOff(e: PointerEvent, fig: Figure, handle: Handle): boolean {
+    if (!overlayBox) return false;
+    const lp = localPoint(e.clientX, e.clientY, fig);
+    const b = overlayBox;
+    const inside = lp.x > b.x && lp.x < b.x + b.w && lp.y > b.y && lp.y < b.y + b.h;
+    if (!inside) return false;
+    const under = sceneElementUnder(e, fig);
+    if (!under || under.type !== "plot") return false;
+    const mod = e.ctrlKey || e.metaKey;
+    const pickedHere = $partSelections.some((p) => p.elementId === under.id && p.partId === partAtPoint(under, e));
+    if (!mod && !pickedHere) return false;
+    void handle;
+    onElementDown(e, under, fig);
+    return true;
+  }
+
+  function onHandleDown(e: PointerEvent, handle: Handle, zone: "corner" | "edge" = "corner") {
     e.stopPropagation();
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
+    if (zone === "edge" && bandHandOff(e, fig, handle)) return;
     const sel = selectedEls(fig);
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
@@ -2545,7 +2659,14 @@
         if (disp) crop = { orig: structuredClone(el), disp };
       }
     }
-    gesture = { kind: "resize", figId: fig.id, handle, ob: { ...overlayBox }, origs, scale: $activeTool === "scale", crop };
+    const lp0 = localPoint(e.clientX, e.clientY, fig);
+    const [ex, ey] = handlePos(handle, overlayBox);
+    const grab = {
+      dx: handle.includes("e") || handle.includes("w") ? lp0.x - ex : 0,
+      dy: handle.includes("n") || handle.includes("s") ? lp0.y - ey : 0,
+    };
+    const { xs, ys } = boxSnapTargets(fig.elements.filter((el) => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
+    gesture = { kind: "resize", figId: fig.id, handle, ob: { ...overlayBox }, origs, scale: $activeTool === "scale", crop, grab, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
     committed = false;
@@ -2582,7 +2703,7 @@
   // Rotate handle (F2): drag rotates the selection about its bbox centre. The
   // model is updated live (from the captured originals so the delta never
   // compounds); Shift snaps the primary element's resulting angle to 15°.
-  function onRotateDown(e: PointerEvent) {
+  function onRotateDown(e: PointerEvent, zone: RotateZone = "n") {
     e.stopPropagation();
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
@@ -2594,7 +2715,7 @@
     const startAngle = (Math.atan2(lp.y - cy, lp.x - cx) * 180) / Math.PI;
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
-    gesture = { kind: "rotate", figId: fig.id, cx, cy, startAngle, origs };
+    gesture = { kind: "rotate", figId: fig.id, cx, cy, startAngle, origs, zone, sx: e.clientX, sy: e.clientY };
     gestureFig = fig;
     gestureEls = sel;
     committed = false;
@@ -2619,7 +2740,24 @@
     }
   }
 
+  // The last real pointermove of a gesture, replayed when a modifier changes
+  // with the pointer still (Figma updates Alt-centre / Shift-aspect at once).
+  let lastMoveEvent: PointerEvent | null = null;
+  function replayLastMove(k: KeyboardEvent) {
+    if (!gesture || !lastMoveEvent) return;
+    const m = lastMoveEvent;
+    const down = k.type === "keydown";
+    const synth = new PointerEvent("pointermove", {
+      clientX: m.clientX, clientY: m.clientY, pointerId: m.pointerId, pointerType: m.pointerType, buttons: 1, bubbles: false,
+      shiftKey: k.key === "Shift" ? down : m.shiftKey,
+      altKey: k.key === "Alt" ? down : m.altKey,
+      ctrlKey: m.ctrlKey, metaKey: m.metaKey,
+    });
+    onPointerMove(synth);
+  }
+
   function onPointerMove(e: PointerEvent) {
+    if (gesture && e.isTrusted) lastMoveEvent = e;
     // Hover does NOT postpone the zoom snapshot (2026-09-30): the quiet timer
     // restarts only on content changes and gestures. Restarting it on every
     // move meant anyone who moved the mouse and then zoomed within the quiet
@@ -2778,6 +2916,13 @@
     }
 
     if (g.kind === "move") {
+      // Figma's drag threshold: nothing moves (and nothing snaps) until the
+      // pointer has travelled DRAG_SLOP screen px; past it the full delta
+      // applies, so the object catches up with the pointer rather than
+      // re-basing. A click with a 1–2 px wiggle therefore leaves geometry and
+      // history alone — which is what lets a click inside the box keep the
+      // selection and a click on a member reduce a multi-selection to it.
+      if (!dragging && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < DRAG_SLOP) return;
       const rawDx = (e.clientX - g.sx) / $viewport.zoom;
       const rawDy = (e.clientY - g.sy) / $viewport.zoom;
       // Shift constrains movement to the dominant axis (Figma-style).
@@ -2843,7 +2988,8 @@
       // target). Only the figure editor shows several frames at once.
       dropFigId = frame ? null : (moveDropTarget(g, e)?.id ?? null);
     } else if (g.kind === "resize") {
-      const lp = localPoint(e.clientX, e.clientY, fig);
+      const raw = localPoint(e.clientX, e.clientY, fig);
+      const lp = { x: raw.x - g.grab.dx, y: raw.y - g.grab.dy }; // the edge follows the drag, not the pointer
       if (g.crop) {
         // Crop mode: pure per-frame math against the pointer-down snapshot —
         // NO snapping of any kind. The selection box + handles track the live
@@ -2862,8 +3008,39 @@
       // The Scale tool always scales uniformly; a single locked-aspect element does
       // too (no Shift needed).
       const forceAspect = g.scale || gestureEls.some(el => Math.abs(Math.sin((el.rotation ?? 0)*Math.PI/90)) > 1e-8) || (gestureEls.length === 1 && !!gestureEls[0].lockAspect);
-      const nb = computeResizeBox(g.ob, g.handle, lp, e.shiftKey || forceAspect);
+      // Alt resizes about the centre (Figma): the opposite edge mirrors the drag.
+      const keepAspect = e.shiftKey || forceAspect;
+      const nb = computeResizeBox(g.ob, g.handle, lp, keepAspect, e.altKey);
+      // Resizes snap like moves (Figma): the DRIVEN edge(s) take the nearest
+      // smart-guide target within the move threshold, then the grid. Not under
+      // aspect lock or centre mode, where one edge cannot move alone.
+      const nextGuides: { x?: number; y?: number }[] = [];
+      if (!keepAspect && !e.altKey) {
+        const thr = 6 / $viewport.zoom;
+        const G = $settings.snapGrid && $settings.gridSize > 0 ? $settings.gridSize : 0;
+        if (g.handle.includes("e")) {
+          const sX = snap([nb.x + nb.w], g.xs, thr);
+          if (sX.line != null) { nb.w = Math.max(1, nb.w + sX.off); nextGuides.push({ x: sX.line }); }
+          else if (G) nb.w = Math.max(1, Math.round((nb.x + nb.w) / G) * G - nb.x);
+        } else if (g.handle.includes("w")) {
+          const sX = snap([nb.x], g.xs, thr);
+          const r = nb.x + nb.w;
+          if (sX.line != null) { nb.x = Math.min(r - 1, nb.x + sX.off); nb.w = r - nb.x; nextGuides.push({ x: sX.line }); }
+          else if (G) { nb.x = Math.min(r - 1, Math.round(nb.x / G) * G); nb.w = r - nb.x; }
+        }
+        if (g.handle.includes("s")) {
+          const sY = snap([nb.y + nb.h], g.ys, thr);
+          if (sY.line != null) { nb.h = Math.max(1, nb.h + sY.off); nextGuides.push({ y: sY.line }); }
+          else if (G) nb.h = Math.max(1, Math.round((nb.y + nb.h) / G) * G - nb.y);
+        } else if (g.handle.includes("n")) {
+          const sY = snap([nb.y], g.ys, thr);
+          const btm = nb.y + nb.h;
+          if (sY.line != null) { nb.y = Math.min(btm - 1, nb.y + sY.off); nb.h = btm - nb.y; nextGuides.push({ y: sY.line }); }
+          else if (G) { nb.y = Math.min(btm - 1, Math.round(nb.y / G) * G); nb.h = btm - nb.y; }
+        }
+      }
       startDragging();
+      guides = nextGuides;
       gNb = nb;
       liveBox = nb;
     } else if (g.kind === "lineEnd") {
@@ -2885,6 +3062,7 @@
       // to the selection's LIVE scene groups (composited), committing once on release. The old
       // path mutate()'d the model every pointermove, re-running visibleByFig + re-diffing every
       // visible element each frame (janky at 1–2k elements). Mirrors the move/resize path.
+      if (!dragging && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < DRAG_SLOP) return; // the same threshold as a move
       const lp = localPoint(e.clientX, e.clientY, fig);
       let delta = (Math.atan2(lp.y - g.cy, lp.x - g.cx) * 180) / Math.PI - g.startAngle;
       const base = g.origs.get(gestureEls[0]?.id ?? "")?.rotation ?? 0;
@@ -3014,6 +3192,11 @@
           for (const id of grp) n.delete(id);
           return n;
         });
+      } else if (pendingClickSelect) {
+        // A plain CLICK: select the object under the pointer (the one beneath
+        // the selection's box, or the one member of a multi-selection).
+        selection.set(pendingClickSelect);
+        partSelection.set(null);
       }
     } else if (g.kind === "resize" && g.crop && dragging && cropRes) {
       // Crop: ONE commit writing {x,y,width,height,crop} through the shared
@@ -3195,6 +3378,8 @@
     dragging = false;
     gestureAltDup = false;
     pendingShiftToggle = null;
+    pendingClickSelect = null;
+    lastMoveEvent = null;
     gesture = null;
   }
 
@@ -3245,6 +3430,7 @@
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
     if (e.key === "Alt") altDown = true; // caliper (measure) mode
+    if ((e.key === "Alt" || e.key === "Shift") && gesture) replayLastMove(e); // modifiers apply at once mid-gesture
     if (e.key === "Control") ctrlDown = true; // bend affordance in node-edit
     if (typing) return;
     if (e.key === "Escape" && cancelGesture()) { e.preventDefault(); return; }
@@ -3331,6 +3517,7 @@
   }
   function onKeyUp(e: KeyboardEvent) {
     if (e.code === "Space") spaceDown = false;
+    if ((e.key === "Alt" || e.key === "Shift") && gesture) replayLastMove(e); // modifiers apply at once mid-gesture
     if (e.key === "Alt") altDown = false;
     if (e.key === "Control") ctrlDown = false;
     if ((e.key === "Control" || e.key === "Meta") && partHover) partHover = null;
@@ -3645,14 +3832,38 @@
     apply(t);
     return { update: apply, destroy: () => d.destroy() };
   }
+  // Figma selection chrome (2026-10-21, owner): FOUR drawn corner squares; the
+  // hit geometry is the pure zones law — every edge is grabbable along its
+  // whole length for a one-axis resize, the corner squares take both axes, and
+  // the L just outside each corner rotates (`interact/handles.ts
+  // selectionHitZones`, pinned by verify-interact-core). The zones are
+  // transparent rects inside .sel-chrome, so during a move they ride the same
+  // compositor translate as the box and cost no per-frame geometry.
   $: handlesScreen = selChrome
-    ? HANDLES.map((h) => {
+    ? CORNERS.map((h) => {
         const [hx, hy] = handlePos(h, selChrome);
-        return { h, x: hx - HS / 2, y: hy - HS / 2, cursor: cursorFor[h] };
+        return { h, x: hx - HS / 2, y: hy - HS / 2 };
       })
     : [];
+  // Zones exist only at rest: during any gesture the pointer is captured on
+  // the host, so they would only rewrite their geometry per frame of a resize;
+  // while the Become picker owns presses they must not catch any.
+  // Zones are clipped to the active figure's frame (plus the bands' outer reach,
+  // and only 3 px above its top): the title bar above the frame and the next
+  // figure's own frame bands stay clickable beside a selection flush with an edge.
+  $: selZones =
+    selChrome && af && !selLocked && !gesture && !presentation?.picking
+      ? selectionHitZones(selChrome, {
+          hs: HS,
+          clip: zoneClipForFrame({ x: $viewport.panX + af.x * $viewport.zoom, y: $viewport.panY + af.y * $viewport.zoom, w: af.width * $viewport.zoom, h: af.height * $viewport.zoom }),
+        })
+      : [];
+  // The live size while resizing (Figma's W × H under the selection), the
+  // rot-tip's twin. World units; a tenth shown only when fractional.
+  const tipNum = (v: number) => (Number.isInteger(Math.round(v * 10) / 10) ? String(Math.round(v)) : (Math.round(v * 10) / 10).toFixed(1));
+  $: resizeTip = gesture?.kind === "resize" && dragging && liveBox ? `${tipNum(liveBox.w)} × ${tipNum(liveBox.h)}` : "";
   $: guidesScreen =
-    gesture?.kind === "move" && gestureFig
+    (gesture?.kind === "move" || gesture?.kind === "resize") && gestureFig
       ? guides.map((gd) =>
           gd.x != null
             ? {
@@ -4059,6 +4270,13 @@
   // Never route `$hoverId` back into this value, and never give `.el`
   // `cursor: inherit` — verify-cursor-gui pins the recalc cost on a dense
   // plot fixture.
+  //
+  // ONE FAMILY, BY GESTURE (2026-10-21, owner): while the pointer is captured
+  // the host's value IS the cursor, so a gesture shows the state it means — a
+  // resize drag keeps the resize arrows of the handle it started on, a rotate
+  // drag the rotate arc, a move in flight the four-headed cross (with the +
+  // badge when Alt duplicates) — instead of snapping every drag to the
+  // contracted press cross. Still one flip per gesture, never per move.
   $: hostCursor =
     gesture?.kind === "pan"
       ? "grabbing"
@@ -4066,9 +4284,17 @@
         ? "grab"
         : $activeTool === "text"
           ? "text"
-          : gesture || pressing
-            ? "var(--cursor-cross-press)"
-            : "var(--cursor-cross)";
+          : gesture?.kind === "resize" || gesture?.kind === "figresize"
+            ? resizeCursorVar(gesture.handle)
+            : gesture?.kind === "rotate"
+              ? rotateCursorVar(gesture.zone)
+              : (gesture?.kind === "move" || gesture?.kind === "figmove") && dragging
+                ? gestureAltDup && gesture.kind === "move"
+                  ? "var(--cursor-move-copy)"
+                  : "var(--cursor-move)"
+                : gesture || pressing
+                  ? "var(--cursor-cross-press)"
+                  : "var(--cursor-cross)";
 
   // The primary button is down somewhere on the canvas — the press variant
   // shows for the whole press, gesture or not (a plain click on empty space
@@ -4509,7 +4735,7 @@
         {@const hit = frameHandleRect(handle, frameBoxScreen)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <rect class="frame-resize-handle" class:corner={handle.length === 2} data-frame-handle={handle}
-          x={hit.x} y={hit.y} width={hit.w} height={hit.h} style:cursor={cursorFor[handle]}
+          x={hit.x} y={hit.y} width={hit.w} height={hit.h} style:cursor={resizeCursorVar(handle)}
           on:pointerdown={(e) => startFrameResize(e, handle)}><title>Resize figure — Shift keeps proportions</title></rect>
       {/each}
     {/if}
@@ -4558,17 +4784,24 @@
         {#if gesture?.kind === "rotate" && rotateTip}
           <text class="rot-tip" x={selChrome.x + selChrome.w / 2 + 12} y={selChrome.y - 18}>{rotateTip}</text>
         {/if}
-        {#each handlesScreen as hd}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <rect
-            class="handle"
-            x={hd.x}
-            y={hd.y}
-            width={HS}
-            height={HS}
-            style={`cursor:${hd.cursor}`}
-            on:pointerdown={(e) => onHandleDown(e, hd.h)}
-          />
+        {#if resizeTip}
+          <text class="rot-tip size-tip" x={selChrome.x + selChrome.w / 2} y={selChrome.y + selChrome.h + 16}>{resizeTip}</text>
+        {/if}
+        <!-- hit zones in paint order (rotate → edge → corner: the topmost wins) -->
+        {#each selZones as z, i (`${z.kind}:${"handle" in z ? z.handle : z.zone}:${i}`)}
+          {#if z.kind === "rotate"}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <rect class="zone rotate" data-zone={z.zone} x={z.rect.x} y={z.rect.y} width={z.rect.w} height={z.rect.h}
+              style:cursor={rotateCursorVar(z.zone)} on:pointerdown={(e) => onRotateDown(e, z.zone)} />
+          {:else}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <rect class="zone {z.kind}" data-h={z.handle} x={z.rect.x} y={z.rect.y} width={z.rect.w} height={z.rect.h}
+              style:cursor={resizeCursorVar(z.handle)} on:pointerdown={(e) => onHandleDown(e, z.handle, z.kind)} />
+          {/if}
+        {/each}
+        <!-- the four drawn corner squares (the corner ZONE beneath takes the press) -->
+        {#each handlesScreen as hd (hd.h)}
+          <rect class="handle" data-h={hd.h} x={hd.x} y={hd.y} width={HS} height={HS} />
         {/each}
       {/if}
       </g>
@@ -4757,11 +4990,11 @@
     {#each guideScreen as g}
       {#if g.vertical}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <line class="guide-hit" x1={g.sx} y1={g.a} x2={g.sx} y2={g.b} on:pointerdown={(e) => onGuideDown(e, "x", g.pos)} />
+        <line class="guide-hit gx" x1={g.sx} y1={g.a} x2={g.sx} y2={g.b} on:pointerdown={(e) => onGuideDown(e, "x", g.pos)} />
         <line class="guide-line" class:preview={g.preview} x1={g.sx} y1={g.a} x2={g.sx} y2={g.b} />
       {:else}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <line class="guide-hit" x1={g.a} y1={g.sy} x2={g.b} y2={g.sy} on:pointerdown={(e) => onGuideDown(e, "y", g.pos)} />
+        <line class="guide-hit gy" x1={g.a} y1={g.sy} x2={g.b} y2={g.sy} on:pointerdown={(e) => onGuideDown(e, "y", g.pos)} />
         <line class="guide-line" class:preview={g.preview} x1={g.a} y1={g.sy} x2={g.b} y2={g.sy} />
       {/if}
     {/each}
@@ -4983,7 +5216,7 @@
   .figure-titlebar {
     fill: transparent;
     pointer-events: all;
-    cursor: move;
+    cursor: var(--cursor-cross-hover); /* grabbable; the drag itself shows the move cross */
   }
   .figure-label {
     fill: var(--c-tx-2);
@@ -5050,7 +5283,16 @@
     fill: var(--c-tx-hi);
     stroke: var(--c-accent);
     stroke-width: 1.5;
+    pointer-events: none; /* the corner ZONE under it is the hit target */
+  }
+  /* invisible hit zones: fully transparent fills paint nothing (no paint chunk) */
+  .zone {
+    fill: none; /* paints nothing (no paint chunk) — pointer-events: all still hits the interior */
+    stroke: none;
     pointer-events: all;
+  }
+  .size-tip {
+    text-anchor: middle;
   }
   .rot-stem {
     stroke: var(--c-accent);
@@ -5062,14 +5304,14 @@
     stroke: var(--c-accent);
     stroke-width: 1.5;
     pointer-events: all;
-    cursor: grab;
+    cursor: var(--cursor-rotate-n);
   }
   .endpoint-handle {
     fill: var(--c-tx-hi);
     stroke: var(--c-accent);
     stroke-width: 1.5;
     pointer-events: all;
-    cursor: var(--cursor-cross);
+    cursor: var(--cursor-cross-hover); /* grabbable, like everything else you can take hold of */
   }
   .endpoint-handle:hover {
     fill: var(--c-accent);
@@ -5123,13 +5365,19 @@
   .guide-hit {
     stroke: transparent;
     stroke-width: 9;
-    cursor: grab;
     pointer-events: stroke;
+  }
+  /* a guide drags across itself: a vertical (x) guide moves horizontally */
+  .guide-hit.gx {
+    cursor: var(--cursor-resize-ew);
+  }
+  .guide-hit.gy {
+    cursor: var(--cursor-resize-ns);
   }
   .ruler {
     fill: var(--c-surface);
     opacity: 0.96;
-    cursor: crosshair;
+    cursor: var(--cursor-cross);
     pointer-events: all;
   }
   .ruler-corner {
@@ -5268,7 +5516,7 @@
     fill: var(--c-bg);
     stroke: var(--c-accent);
     stroke-width: 1.5;
-    cursor: move;
+    cursor: var(--cursor-cross-hover);
     pointer-events: all;
   }
   .node-pt.sel {
@@ -5339,7 +5587,7 @@
     stroke-width: 1.25;
     stroke-dasharray: 2 2;
     opacity: 0.55;
-    cursor: copy;
+    cursor: var(--cursor-cross-hover);
     pointer-events: all;
   }
   .node-insert:hover {

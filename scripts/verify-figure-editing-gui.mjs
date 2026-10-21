@@ -52,7 +52,8 @@ try {
   await page.mouse.up();await record('pointercancel move (A should remain x40 y40)');
 
   await seed({aspect:true});await prime(['review-a']);
-  const h=await page.evaluate(()=>{const n=[...document.querySelectorAll('.handle')].find(n=>n.getAttribute('style')?.includes('ew-resize')&&Number(n.getAttribute('x'))>200);if(!n)return null;const b=n.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2}});
+  // 2026-10-21: the east HANDLE is the whole right edge (a band); press ON the edge at mid-height
+  const h=await page.evaluate(()=>{const n=document.querySelector('.zone.edge[data-h="e"]');const box=document.querySelector('.sel-box');if(!n||!box)return null;const b=n.getBoundingClientRect();const s=box.getBoundingClientRect();return{x:s.x+s.width,y:b.y+b.height/2}});
   if(h){await page.mouse.move(h.x,h.y);await page.mouse.down();await page.mouse.move(h.x-40,h.y,{steps:6});await page.mouse.up();await record('aspect-locked east handle dragged inward 40px (width should shrink below120)');} else console.log('NO EAST HANDLE');
 
   await seed({locked:true});await prime(['review-a','review-b']);

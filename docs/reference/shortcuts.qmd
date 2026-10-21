@@ -159,7 +159,11 @@ sibling part of a picked plot adds too) · **Ctrl+drag** on a plot's empty space
 (fully inside, data marks first; **+Shift** adds) · drag a picked part = move the whole pick ·
 **double-click** = descend (group → inside; text → edit; plot → part;
 path → node edit) · **Shift+click** = add to selection · **Alt+drag** = duplicate ·
-**Shift+drag** = axis-constrain · **Ctrl+drag a resize handle** = crop · **Alt while
+**Shift+drag** = axis-constrain · **drag inside a selected object's box** = move it (a click
+there keeps it selected; a click on one member of a multi-selection selects just it) · **drag
+an edge** = resize that axis (anywhere along it; edges snap like moves) · **drag a
+corner** = resize both · **drag just outside a corner** = rotate (**Shift** snaps 15°) ·
+**Ctrl+drag a handle or edge** = crop · **Alt while resizing** = from the centre · **Alt while
 dragging** = disable snapping · **Shift while resizing** = keep aspect · **Space+drag** /
 middle button = pan · **Ctrl+wheel** = zoom · **Shift+wheel** = horizontal pan ·
 **drag a rail edge** = resize the sidebar / Inspector (double-click resets).

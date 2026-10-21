@@ -6,6 +6,7 @@
 //   Run: npx tsx scripts/verify-cursor-policy.ts
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
+import { CURSOR_DEFAULTS, CURSOR_FALLBACK, CURSOR_STATES, cursorVar } from "../src/lib/cursor/cursorFamily";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -35,10 +36,24 @@ for (const f of files) {
 }
 assert(offenders.length === 0, `no component says cursor: pointer / default (${offenders.length}: ${offenders.slice(0, 3).join("; ")})`);
 const cursors = readFileSync(path.join(root, "src/styles/cursors.css"), "utf8");
-for (const v of ["--cursor-cross", "--cursor-cross-hover", "--cursor-cross-press"]) {
-  assert(new RegExp(`${v}: url\\("data:image/svg\\+xml,[^"]+"\\) 12 12, crosshair;`).test(cursors), `${v} is a hardware svg cursor with the 12 12 hotspot and a crosshair fallback`);
+// 2026-10-21: the family is generated (src/lib/cursor/cursorFamily.ts) — every
+// state is a hardware svg cursor with the hotspot at the mark's centre and its
+// own OS fallback; verify-cursor-family pins the drawing itself.
+const hot = CURSOR_DEFAULTS.size / 2;
+for (const state of CURSOR_STATES) {
+  const v = cursorVar(state);
+  assert(new RegExp(`${v}: url\\("data:image/svg\\+xml,[^"]+"\\) ${hot} ${hot}, ${CURSOR_FALLBACK[state]};`).test(cursors), `${v} is a hardware svg cursor with the ${hot} ${hot} hotspot and a ${CURSOR_FALLBACK[state]} fallback`);
 }
 assert(/<circle/.test(decodeURIComponent(cursors.split("--cursor-cross-hover")[1].split("\n")[0])) && !/<circle/.test(decodeURIComponent(cursors.split("--cursor-cross: ")[1].split("\n")[0])), "the hover variant carries the dot, the plain one does not");
+// 2026-10-21: on the canvas itself every cursor is the family — guides, rulers,
+// path nodes, the figure title bar and the node-insert markers included — so
+// the owner never sees an OS crosshair or three different "move" drawings
+// beside the mark. Only the host's pan (grab/grabbing) and the text tool keep
+// OS cursors, and those live in the host's JS value, not in the stylesheet.
+const canvas = readFileSync(path.join(root, "src/lib/Canvas.svelte"), "utf8");
+const canvasStyle = canvas.slice(canvas.lastIndexOf("<style"));
+const osInCanvas = [...canvasStyle.matchAll(/cursor:\s*([^;]+);/g)].map((m) => m[1].trim()).filter((v) => !v.startsWith("var(--cursor-"));
+assert(osInCanvas.length === 0, `Canvas.svelte's stylesheet uses only the cursor family (${osInCanvas.length} OS cursor(s): ${osInCanvas.join(", ")})`);
 const app = readFileSync(path.join(root, "src/app.css"), "utf8");
 assert(/body \{[^}]*cursor: var\(--cursor-cross\);/s.test(app), "body uses the plain crosshair");
 assert(/button,\n\[role="button"\],\na,[\s\S]*?cursor: var\(--cursor-cross-hover\);/.test(app), "interactive elements get the dotted variant globally");

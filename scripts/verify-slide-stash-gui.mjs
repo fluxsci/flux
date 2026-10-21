@@ -106,6 +106,9 @@ try {
   await page.mouse.move(gp.x + gp.w / 2, gp.y + gp.h / 2); await page.mouse.down(); await page.keyboard.down('Alt');
   await page.mouse.move(gp.x + gp.w / 2 + 32, gp.y + gp.h / 2 + 16, { steps: 4 }); await page.mouse.up(); await page.keyboard.up('Alt'); await paint();
   state = await read(); check(state.display.find(e => e.id === 'group-visible').x === 120 && state.display.find(e => e.id === 'group-hidden').x === 200, 'group drag leaves the stashed member untouched'); await undo();
+  // Since 2026-10-21 a drag that starts inside a SELECTED object's box moves it
+  // (Figma's bounding-box grab), so the marquee has to start from a clear slate.
+  await page.evaluate(() => window.__flux.fig.clearSelection()); await paint();
   const a = await point(55, 225), b = await point(290, 345);
   await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 5 }); await page.mouse.up(); await paint();
   assert.deepEqual((await read()).selection, ['group-visible']); check(true, 'marquee selection excludes stashed objects and group expansion');

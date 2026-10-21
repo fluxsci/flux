@@ -319,8 +319,37 @@ folder.
 Everywhere in Flux the pointer is a **crosshair** built to stay visible on any background — a
 white halo under a dark core, with a small gap at the centre so the exact pixel you are
 pointing at is never covered. Over anything you can click or select — a button, a layer, a
-swatch, an object — it gains an accent dot, and it tightens while you press.
-Text fields keep the I-beam; handles keep their resize arrows and pan keeps the hand.
+swatch, an object — it gains an accent dot, and it tightens while you press. It is one mark
+that changes form rather than a set of unrelated arrows: over an object's edge or corner its
+two arms along that axis grow arrowheads and the other two disappear; just outside a corner
+it becomes a curved rotate arrow; while you drag it shows four heads (with a small **+** when
+**Alt** is duplicating); and it keeps that form for the whole drag. Text fields keep the
+I-beam and pan keeps the hand. **Settings → General → Cursor** shapes the family — size,
+stroke, halo, the centre gap and what sits in it, the hover dot, the press, and a light-on-dark
+or accent colour scheme — with a live preview, or switches the resize, rotate and move states
+back to the system's own cursors.
+
+**Selecting and moving.** Click an object to select it; a path, line or hollow shape is
+selected by clicking on or near its stroke. Once selected, its **bounding box is the handle**:
+drag from anywhere inside the box — an open path's empty interior, a hollow ellipse's middle,
+the gaps of a group, even over a plot the path annotates — to move it, and a click there keeps
+it selected (a click on an object lying beneath the selection selects that object instead; an
+object drawn on top of the selection still wins its own click). A drag has to travel a few
+pixels before anything moves, so a shaky click never nudges. With several objects selected, a
+click on one of them selects just that one; a drag still moves them all.
+
+**Resizing and rotating.** The selection shows four corner handles. Drag a **corner** to resize
+both axes, or grab **anywhere along an edge** to resize that axis alone — the edge follows your
+drag from wherever you took hold of it, and snaps to neighbouring edges, centres and guides
+the way a move does. **Shift** keeps the proportions (from an edge it grows about the opposite
+edge's middle), **Alt** resizes about the centre (press or release it mid-drag and the box
+follows at once), and the live **W × H** readout under the box shows the size as you go.
+Thin objects — a scale bar, a one-line label — have no edge bands across their short side, so
+their whole body stays grabbable; their corners still resize them from the outside. To
+rotate, drag the knob above the box or simply drag from **just outside any corner**;
+**Shift** snaps to 15°. **Ctrl+drag** a handle or edge of an image or plot to crop instead
+(on a plot, **Ctrl** just inside the edge still picks the part under the pointer). Images and
+plots stretch freely by an edge, so use a corner or **Shift** when the proportions matter.
 
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
 duplicate, **Shift+drag** to constrain to an axis. To move something to a **different

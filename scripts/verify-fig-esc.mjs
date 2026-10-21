@@ -140,7 +140,8 @@ try {
   // --- 3. resize cancel ------------------------------------------------------------------
   console.log("Esc cancels a RESIZE:");
   await page.evaluate((id) => window.__flux.fig.selectOnly(id), ids[1]);
-  await waitFor(page, () => document.querySelectorAll(".overlay-svg .handle").length === 8, null, {
+  // 2026-10-21: four corner handles (edges are grabbable bands, no mid knobs)
+  await waitFor(page, () => document.querySelectorAll(".overlay-svg .handle").length === 4, null, {
     label: "resize handles mounted",
   });
   c = await scr(ids[1], 1, 1); // SE corner handle sits at the box corner

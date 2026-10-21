@@ -1857,26 +1857,99 @@ Persistence invariants (all machine-checked — do not weaken):
     `verify-annotation-surface-gui.mjs`, `verify-scale-annotate-hover.mjs`,
     `verify-annotate-utility-electron.cjs` (browser/scale/native). Retain `paper-gate`,
     `verify-scale-paper`, and the 800KB startup ceiling after context/keyboard changes.
-  - **The crosshair cursor family = `styles/cursors.css` + `Canvas.svelte hostCursor`** (owner
-    note, 2026-09-15): three hardware `cursor: url()` SVGs (24 px, hotspot 12 12; white halo
-    under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot) and press
-    (contracted arms). **Two levels, load-bearing (2026-09-16):** the HOST value flips only
-    for pan (grab/grabbing), tool (text I-beam) and press (`gesture || pressing`); every
-    element wrapper `.el` carries the hover variant as an EXPLICIT constant, so the dot needs
-    no JS (the pointer over an object hits the wrapper's subtree) and — the point — the
-    wrapper is a firewall: `cursor` inherits, and a host flip would otherwise restyle every
-    mounted plot node (~120 ms per hover boundary at 15k nodes — the Linux "laggy Figure"
-    regression, §9). The press variant still shows over objects because element presses
-    capture the pointer on the host and Chromium takes the cursor from the capture target.
-    Never feed `$hoverId` into `hostCursor`, never write `.el { cursor: inherit }`. Handles
-    keep their resize arrows, rulers keep the platform crosshair, text keeps the I-beam. There
-    is NO click ring (it shipped 2026-09-15, measured cost-free, and was retired 2026-09-16 at
-    the owner's request as distracting — the press feel is the cursor alone; nothing else may
-    bloom at a press, `verify-cursor-gui` pins it). Gate:
+  - **The crosshair cursor family = ONE parametric drawing** (`src/lib/cursor/cursorFamily.ts`,
+    2026-10-21; owner note 2026-09-15 for the first three states). Fourteen hardware
+    `cursor: url()` SVGs are generated from one template — rest, hover (accent dot), press
+    (contracted arms), `resize-ns/ew/nwse/nesw` (the two arms along the axis grow arrowheads,
+    the other two vanish), `rotate-n/ne/se/sw/nw` (a quarter arc at arm radius + the dot),
+    `move` and `move-copy` (the PRESS cross with four heads, + a "+" badge for Alt-duplicate,
+    shown from the press on, so the arms never jump when a drag starts) — same hotspot
+    (size/2), stroke, halo and arm geometry, so a state change reads as the mark changing
+    form; `verify-cursor-family` (pure) pins that REGISTRATION (the resize arms are the rest
+    cross's own line endpoints) and that `styles/cursors.css`'s generated block equals the
+    builder's defaults (`scripts/gen-cursors.mjs` writes it; never by hand). The 2026-09-15
+    cursors are reproduced byte for byte (gates key on `y1='4'` for press, `<circle>` for
+    hover). Settings → General → Cursor (`cursor*` keys in settings.ts: size 20–32 even —
+    Chromium shows a custom cursor over 32 px only while it fits the viewport — stroke,
+    halo off/thin/normal, gap, centre none/dot/ring, hover dot, press contraction, scheme
+    ink/paper/accent, resize style crosshair/system) feed `cursor/cursorTheme.ts`, which
+    writes the `--cursor-*` variables on `:root` ONCE per settings change (and clears them at
+    the defaults) — never per hover or frame. A software (DOM) cursor was considered and
+    rejected: it trails the pointer by a frame and dies at window edges / under capture; the
+    "morph" is geometric, not tweened. Look at the family with
+    `scripts/perf/cursor-sheet.mts` (CDP screenshots never include the pointer).
+    **Two levels, load-bearing (2026-09-16):** the HOST value flips only for pan
+    (grab/grabbing), tool (text I-beam) and — since 2026-10-21 — the GESTURE kind
+    (`resize`/`figresize` → the handle's resize variant, `rotate` → its zone's arc, a `move`
+    in flight → move / move-copy, any other press → the contracted cross), one flip per
+    gesture; every element wrapper `.el` carries the hover variant as an EXPLICIT constant, so
+    the dot needs no JS (the pointer over an object hits the wrapper's subtree) and — the
+    point — the wrapper is a firewall: `cursor` inherits, and a host flip would otherwise
+    restyle every mounted plot node (~120 ms per hover boundary at 15k nodes — the Linux
+    "laggy Figure" regression, §9). The gesture variant shows over objects because element
+    presses capture the pointer on the host and Chromium takes the cursor from the capture
+    target (which is also why, before 2026-10-21, every resize drag snapped from the OS arrow
+    to the pressed cross — the incoherence the owner reported). Never feed `$hoverId` into
+    `hostCursor`, never write `.el { cursor: inherit }`. Handles, edge bands and rotate zones
+    carry the family variants through `interact/handles.ts resizeCursorVar / rotateCursorVar`
+    (OS names only as fallbacks, or as the values under `resizeStyle: "system"`); rulers keep
+    the platform crosshair, text the I-beam. There is NO click ring (it shipped 2026-09-15,
+    measured cost-free, and was retired 2026-09-16 at the owner's request as distracting — the
+    press feel is the cursor alone; nothing else may bloom at a press, `verify-cursor-gui` pins
+    it). Gates: `verify-cursor-family.ts`, `verify-cursor-policy.ts` (pure);
     `verify-cursor-gui.mjs` (ui) — family behavior plus the firewall leg on the dense
     lazy-assets fixture (30k plot nodes: RecalcStyleDuration per pointer transition < 8 ms,
     no long task, one computed cursor on a plot's inner nodes across rest / hover / press;
-    the pre-fix code reads 89 ms and 36 long tasks there).
+    the pre-fix code reads 89 ms and 36 long tasks there); `verify-selection-zones-gui.mjs`
+    (the zone cursors and the host-by-gesture cursor mid-drag).
+  - **Selection chrome = four corner handles + the zones law** (`interact/handles.ts
+    selectionHitZones`, 2026-10-21, owner note: "the whole edge is the handle", Figma). The
+    drawn `rect.handle`s are the four corners (pointer-events none); the HIT geometry is
+    `fill: none` rects inside `.sel-chrome` (no paint chunk; present only at rest — never
+    during a gesture or while the Become picker owns presses), painted rotate → edge → corner
+    so the topmost wins where they overlap: corner squares 13 px (6.5 px out, `cornerIn` 4 px
+    in), edge BANDS along each whole edge (6 px out, `bandIn` 4 px in — shallow on purpose so a
+    plot's margin or a photo's border near its edge is still a grab-and-move; the bands run
+    between the corner squares' inward extents, exist only when two squares fit along the edge
+    AND the box is ≥ 12 px deep across them), and an L-shaped ROTATE zone 16 px deep outside
+    each corner (the stem + knob stay; the knob is rotate zone `n`). Every zone is CLIPPED to the
+    active figure's frame plus the bands' outer reach — but only 3 px above the frame's top
+    (`zoneClipForFrame`): the figure title bar lives there, and an element flush with the top edge
+    once covered it with its rotate L (the native polish gate's title-bar click rotated instead). **Small sides
+    (`ZONE_SMALL_SIDE` 24 px): no inward reach at all on that axis**, so a 10 px label has no
+    bands, a 2 px scale bar and a zero-height row of lines are grabbable along their whole
+    length, and every box — 0 × N included — keeps a free centre (pure invariant). A press on a
+    band INSIDE a selected plot hands off to the plot when it means a part gesture (`bandHandOff`:
+    Ctrl/⌘ = deep select — a tick label flush at a tight-cropped edge must pierce, not crop — or
+    a press on an already-picked part); corners and the outer band keep crop. A resize keeps the
+    GRAB OFFSET (the edge moves by the drag, not to the pointer — the old knobs sat on the edge
+    and never needed one), SNAPS its driven edges to the smart-guide targets then the grid
+    (never under aspect lock or centre mode; the guide lines render), and applies Alt/Shift the
+    moment the key changes (`replayLastMove` re-dispatches the last pointermove). **Alt**
+    resizes about the centre (`gestureMath.resizeAboutCentre`, Shift+Alt keeps aspect about
+    it; crop keeps its own Alt); **Shift from an EDGE anchors the opposite edge's midpoint**
+    (`computeResizeBox`; the oracle battery's invariant was updated with it); a `size-tip`
+    ("W × H", the rot-tip's twin) rides the box during the drag. Moves and rotates start only
+    after `DRAG_SLOP` (3 screen px) — a shaky click moves nothing and writes no history.
+    **The bounding-box grab** (owner note, Figma): with the Select/Scale tool a primary press
+    that reached a BACKGROUND (`onFigureDown` / `onCanvasDown`) while the ACTIVE figure's
+    selection is movable (not a single line, not text-editing, not node-editing, not picking)
+    and its `overlayBox` contains the point starts the ordinary move (`selectionBoxGrab`); and
+    in `onElementDown` an unselected element BENEATH the topmost selected element (z-order),
+    pressed inside the box, also starts the selection's move, with the plain click deferred:
+    `pendingClickSelect` selects that element on a release that never dragged (the same
+    deferral reduces a multi-selection to the one member you click). Objects drawn ABOVE the
+    selection win their own press. A click inside the box keeps the selection; Shift there is
+    the axis-locked move (Shift-click a no-op); Ctrl keeps the deep routes; Alt duplicates
+    (beginMove's rule); a double-click in a selected path's empty box enters node edit. Gates:
+    `verify-interact-core.ts` (zones law, precedence, small sides, degenerate boxes, cursor
+    variables, centre and edge-aspect resize), `verify-selection-zones-gui.mjs`,
+    `verify-bbox-grab-gui.mjs`, `figenh-15-partmove` §7b (band hand-off), plus the updated
+    `verify-fig-esc`, `figenh-16-groups-ui`, `figenh-01-pen`, `verify-crop`,
+    `verify-figure-editing-gui`, `verify-v020-geometry-gui` (four handles; the E edge is a
+    band). `frameResize.ts frameHandleRect` (the FIGURE frame's outside-only bands) is
+    unchanged and keeps its 8 zones. Deliberately not Figma: the box never flips past its
+    opposite edge (sizes floor at 1 px).
   - **The scene pans on the compositor drive** (`interact/compositorDrive.ts`, 2026-09-16).
     Chromium re-layerizes the whole page (`PaintArtifactCompositor::Update`, O(paint chunks))
     after EVERY inline-style transform write, will-change or not — 4–7 ms per frame over a
@@ -10116,3 +10189,38 @@ Windows runner from reading the GLBs (both work on a non-elevated laptop), so
 every check it reaches, but takes just over the 60 s default (55–58 s already on earlier
 Windows runs; ~28 s on Linux CI), dying in its final CLI-generator step. Added a
 `timeouts` entry of 150 s; no assertion changed.
+
+### 2026-10-21 — Figure editor UX batch: one cursor family, Figma edge grab, the bounding-box grab (Claude Fable 5.1, `oct21/figure-ux`)
+**Work:** Three owner inbox notes (Feature_test_proj). (1) The crosshair became ONE parametric drawing
+(`src/lib/cursor/cursorFamily.ts`: rest, hover, press, four resize axes, five rotate arcs, move and
+move-copy — registered on the same arms, stroke, halo and hotspot), generated into `styles/cursors.css`
+by `scripts/gen-cursors.mjs` (the three 2026-09-15 cursors byte for byte) and overridden on `:root` from
+Settings → General → Cursor (size ≤ 32, stroke, halo, gap, centre mark, hover dot, press, scheme, system
+pointers; live preview tiles carry the real cursor). The host cursor now follows the GESTURE (a resize
+drag keeps the resize arrows, a rotate the arc, a move the press cross with heads) and every canvas
+cursor is the family (guides, rulers, nodes, title bar). (2) Figma selection chrome: four corner handles,
+whole-edge bands, rotate L-zones outside the corners, grab offset preserved, Alt-from-centre, Shift-edge
+about the opposite midpoint, resize snapping, live modifiers, a W × H tip, a 3 px drag slop, small-side
+and degenerate-box rules, band hand-off to plot parts. (3) The bounding-box grab: a selected object is
+moved from anywhere inside its box — background or an object beneath it — with the plain click deferred
+to the release (selects what is under the pointer; reduces a multi-selection to the clicked member).
+Two Opus 5.5 plan reviews drove most of the refinements (ledger: `notes/figure_ux_oct21/PLAN.md` §6).
+Gates: `verify-cursor-family` (pure, new), `verify-selection-zones-gui`, `verify-bbox-grab-gui` (new),
+`verify-interact-core` and `verify-cursor-policy` extended, seven handle gates updated; body §4 rewritten
+for the cursor family and the selection chrome; user docs, shortcuts and Help updated.
+**Learnings:**
+- A hardware cursor "morph" is geometric registration, not animation: generate every state from one
+  template so a switch only adds or removes strokes; a DOM cursor trails the pointer by a frame.
+- While the pointer is captured the HOST's `cursor` is what the user sees — a gesture must set the state
+  it means, or every drag snaps to the pressed glyph regardless of where it started.
+- A hit area wider than the thing it replaces needs a GRAB OFFSET (edge moves by the drag, not to the
+  pointer) and a drag SLOP, or presses jump and clicks nudge.
+- Zones over content must yield to the content's own gestures: give edge bands a shallow inward reach,
+  none on small sides, and hand modifier presses inside the box to the object beneath.
+- Chromium shows a custom cursor wider than 32 CSS px only while the whole image fits the viewport —
+  cap custom cursors at 32.
+- Gate fixtures that drag must land clear of smart-guide snap targets (edges AND centres of every
+  other box within 6 px), or exact-delta assertions flake; a marquee selects by box intersection, so a
+  "nothing selected" probe must click, not drag.
+- Inserting markup "before the next pane's comment" can land OUTSIDE the previous pane's closing tag:
+  anchor insertions on the enclosing element's end, and screenshot the result.
