@@ -1,6 +1,10 @@
 import { decodePreferences } from "./preferences";
 import { writable } from "svelte/store";
 import { DEFAULT_PLOT_SEARCH_SCOPE, PLOT_SEARCH_SCOPE_IDS, type PlotSearchScope } from "./plot/galleryScope";
+import {
+  CURSOR_CENTRES, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALOS, CURSOR_RESIZE_STYLES, CURSOR_SCHEMES, CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE,
+  type CursorCentre, type CursorHalo, type CursorResizeStyle, type CursorScheme,
+} from "./cursor/cursorFamily";
 
 // Paper caret motion model (src/shell/modes/paper/editing/caretFeel.ts):
 // "chase" = exponential pursuit (default); "smooth" = fixed-duration
@@ -31,6 +35,18 @@ export interface Settings {
   // Figure — the Plot gallery's Folders sidebar: a click on a folder row also expands /
   // collapses it (default off: the click shows the folder, the › arrow expands it).
   galleryFolderClickExpands: boolean;
+  // The crosshair cursor family (2026-10-21, cursor/cursorFamily.ts): the one
+  // drawing every pointer state is generated from. Defaults reproduce the
+  // 2026-09-15 cursors byte for byte; cursorTheme.ts writes :root when they differ.
+  cursorSize: number; // mark size in px (20–40); hotspot = size/2
+  cursorStroke: number; // core stroke width (0.8–2.5)
+  cursorHalo: CursorHalo; // off | thin | normal — the contrast halo under the core
+  cursorGap: number; // centre gap radius (0–6)
+  cursorCentre: CursorCentre; // none | dot | ring at rest
+  cursorHoverDot: boolean; // the accent dot over anything selectable
+  cursorPressContract: boolean; // a press pulls the arms in
+  cursorScheme: CursorScheme; // ink (dark on light halo) | paper | accent
+  cursorResizeStyle: CursorResizeStyle; // resize/rotate/move drawn in the family, or the OS cursors
   // Paper — the dynamic margin.
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
@@ -62,6 +78,15 @@ const DEFAULTS: Settings = {
   captionFontSize: 16,
   plotSearchScope: DEFAULT_PLOT_SEARCH_SCOPE,
   galleryFolderClickExpands: false,
+  cursorSize: CURSOR_DEFAULTS.size,
+  cursorStroke: CURSOR_DEFAULTS.stroke,
+  cursorHalo: CURSOR_DEFAULTS.halo,
+  cursorGap: CURSOR_DEFAULTS.gap,
+  cursorCentre: CURSOR_DEFAULTS.centre,
+  cursorHoverDot: CURSOR_DEFAULTS.hoverDot,
+  cursorPressContract: CURSOR_DEFAULTS.pressContract,
+  cursorScheme: CURSOR_DEFAULTS.scheme,
+  cursorResizeStyle: CURSOR_DEFAULTS.resizeStyle,
   paperMarginScene: "inkwind",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
@@ -114,6 +139,8 @@ export function decodeSettings(value: unknown): Settings {
     paletteCollection: { enum: ["flexoki", "brewer", "tol", "project"] }, colormapCollection: { enum: ["mpl", "crameri", "tol", "cmasher"] },
     paperMarginScene: { enum: ["harmonograph", "neurons", "inkwind", "loom", "vines"] },
     plotSearchScope: { enum: PLOT_SEARCH_SCOPE_IDS },
+    cursorSize: { ...CURSOR_SIZE_RANGE }, cursorStroke: { ...CURSOR_STROKE_RANGE }, cursorGap: { ...CURSOR_GAP_RANGE },
+    cursorHalo: { enum: CURSOR_HALOS }, cursorCentre: { enum: CURSOR_CENTRES }, cursorScheme: { enum: CURSOR_SCHEMES }, cursorResizeStyle: { enum: CURSOR_RESIZE_STYLES },
     paperCaretFeel: { enum: ["chase", "smooth"] }, paperCorrectionProvider: { enum: ["flux", "ollama", "openai"] },
     paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },
     paperCorrectionAggressiveness: { enum: ["standard", "aggressive", "really-aggressive"] },
