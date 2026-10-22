@@ -113,7 +113,7 @@
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
   import Xray from "../../../lib/Xray.svelte";
   import PlotImporter, { type PlotPick } from "../../../lib/PlotImporter.svelte";
-  import { readIncomingPlot, importPlotsFromPaths, type Incoming } from "../../../lib/io";
+  import { readIncomingPlot, importPlotsFromPaths, type Incoming, type PlaceAt } from "../../../lib/io";
   import { readIncomingVideo, discardIncomingVideo } from "../../../lib/slide/importVideo";
   import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
   import { glyphFontsRevision, textGlyphStatus } from "../../../lib/slide/player/glyphProvider";
@@ -145,6 +145,11 @@
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
+  import LeftRail from "../../../lib/plotsRail/LeftRail.svelte";
+  import { createHitBridge } from "../../../lib/interact/canvasHitBridge";
+  import { plotsRailOwnsKey } from "../../../lib/plotsRail/keyScope";
+  import { registerRailHost } from "../../../lib/plotsRail/railState";
+  import type { PlaceAdapter } from "../../../lib/plotsRail/insert";
   import { pushToast, errMsg } from "../../../lib/toast";
 
   // Shared components (Inspector/Toolbar) read this to hide figure-only
@@ -597,26 +602,40 @@
   let filmEl = $state<HTMLElement | null>(null);
   const FILM_DEFAULT_W = 172;
   const filmMaxW = () => Math.max(FILM_DEFAULT_W, Math.round(window.innerWidth * 0.5));
+  // The gutter sizes whichever view the left rail shows: the filmstrip, or the Plots rail
+  // (each keeps its own width — a 320 px gallery must not leave a 320 px filmstrip behind).
   function startFilmDrag(e: PointerEvent) {
     if (e.button !== 0) return;
     cancelFilmResize?.();
-    const original = get(slideLayout).filmstripW;
+    const { filmstripW, plotsRailW } = get(slideLayout);
     filmResize = true;
     cancelFilmResize = pointerDrag(e, moveFilmDrag,
-      () => slideLayout.update(s => ({ ...s, filmstripW: original })), endFilmDrag);
+      () => slideLayout.update(s => ({ ...s, filmstripW, plotsRailW })), endFilmDrag);
   }
   function moveFilmDrag(e: PointerEvent) {
-    if (!filmResize || !filmEl) return;
-    const w = Math.max(120, Math.min(filmMaxW(), e.clientX - filmEl.getBoundingClientRect().left));
-    slideLayout.update((s) => ({ ...s, filmstripW: Math.round(w) }));
+    if (!filmResize || !slideBodyEl) return;
+    const x = e.clientX - slideBodyEl.getBoundingClientRect().left;
+    if (get(slideLayout).leftView === "plots") slideLayout.update((s) => ({ ...s, plotsRailW: Math.round(Math.max(220, Math.min(720, x))) }));
+    else slideLayout.update((s) => ({ ...s, filmstripW: Math.round(Math.max(120, Math.min(filmMaxW(), x))) }));
   }
   function endFilmDrag() {
     filmResize = false;
     cancelFilmResize = null;
   }
   function resetFilmW() {
-    slideLayout.update((s) => ({ ...s, filmstripW: FILM_DEFAULT_W }));
+    slideLayout.update((s) => s.leftView === "plots" ? { ...s, plotsRailW: 320 } : { ...s, filmstripW: FILM_DEFAULT_W });
   }
+
+  // --- the left rail's Plots view (Alt+G; plotsRail/) -----------------------------------
+  const railHitBridge = createHitBridge();
+  const setLeftView = (v: "slides" | "plots") => slideLayout.update((s) => (s.leftView === v ? s : { ...s, leftView: v }));
+  $effect(() => registerRailHost("slide", { isPlots: () => get(slideLayout).leftView === "plots", setPlots: (on) => setLeftView(on ? "plots" : "slides") }));
+  /** Rail inserts: Slide's import route (deck/slide guards, video clips). In a Become pick a
+   *  placed plot is a destination being made — the pick enters Add mode first, so it joins. */
+  const placeFromRail: PlaceAdapter = async (paths, canPlace, opts) => {
+    if (picker.target?.sub === "pick") picker.enterAdd();
+    return importSlideItems(paths.map((abs) => ({ abs, rel: "", semantic: false })), canPlace, { ...opts, rail: true });
+  };
 
   // --- draggable rail edge → right-rail width (same pattern; the store's
   // inspectorW was persisted-but-dormant until this gutter landed) -------------
@@ -855,7 +874,8 @@
   $effect(()=>{if(!$importerOpen)morphFor=null;});
 
   let videoImportStatus = $state("");
-  let videoImport = $state<{ id: string; root: string; deckId: string; slideId: string; cancelled: boolean } | null>(null);
+  // `rail`: started from the Plots rail — it outlives no dialog, so a closed gallery does not cancel it.
+  let videoImport = $state<{ id: string; root: string; deckId: string; slideId: string; cancelled: boolean; rail?: boolean } | null>(null);
   function cancelClipImport() {
     const job = videoImport;
     if (!job || job.cancelled) return;
@@ -865,13 +885,13 @@
   }
   $effect(() => {
     const job = videoImport;
-    if (job && (!active || !$importerOpen || pm?.root !== job.root || activeDeckId !== job.deckId || $activeFigureId !== job.slideId)) cancelClipImport();
+    if (job && (!active || (!job.rail && !$importerOpen) || pm?.root !== job.root || activeDeckId !== job.deckId || $activeFigureId !== job.slideId)) cancelClipImport();
   });
   onDestroy(cancelClipImport);
-  async function importSlideItems(picks: PlotPick[], canPlace: () => boolean): Promise<number> {
+  async function importSlideItems(picks: PlotPick[], canPlace: () => boolean, opts: { at?: PlaceAt; rail?: boolean } = {}): Promise<number> {
     const deck = currentDeck(), root = pm?.root, slideId = $activeFigureId;
     if (!deck || !root || !slideId) throw new Error("Select a slide before importing.");
-    const job = { id: crypto.randomUUID(), root, deckId: deck.id, slideId, cancelled: false };
+    const job = { id: crypto.randomUUID(), root, deckId: deck.id, slideId, cancelled: false, rail: !!opts.rail };
     const prepared: Incoming[] = [];
     videoImport = job;
     const ensureDestination = () => {
@@ -893,7 +913,7 @@
           ensureDestination();
           return incoming;
         } catch (error) { ensureDestination(); throw error; }
-      });
+      }, opts.at ? { at: opts.at } : {});
     } catch (error) {
       const cleanup = await Promise.allSettled(prepared.map(incoming => discardIncomingVideo(incoming, root, deck.id)));
       if (cleanup.some(result => result.status === "rejected")) pushToast("error", "Some unused imported video files could not be removed.");
@@ -1162,6 +1182,9 @@
   // typing, menus and shell modals keep theirs.
   function pickKey(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e) || !focused || presentOpen) return;
+    // The Plots rail's own keys (Enter places, Space looks, Backspace climbs) never confirm,
+    // widen or trim the pick; chords still reach the picker.
+    if (plotsRailOwnsKey(e)) return;
     const target = e.target instanceof Element ? e.target : null;
     if (target?.closest("input,textarea,select,[contenteditable=true],[role=menu]")) return;
     if (picker.mode && e.key === "Escape" && gestureCancelHook.fn?.()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
@@ -1416,6 +1439,8 @@
     if (get(cascadeState)) return;
     const tag = (e.target as HTMLElement)?.tagName;
     const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable;
+    // The Plots rail owns its unmodified keys (F5 still presents); chords go on to the keymap.
+    if (plotsRailOwnsKey(e) && e.key !== "F5") return;
     const inAnimation = !!(e.target as HTMLElement)?.closest?.('[data-command-scope="animation"]');
     if (inAnimation) {
       const mod=e.metaKey||e.ctrlKey;
@@ -1682,11 +1707,14 @@
   <!-- the SHARED figure toolbar: tools, undo/redo, rulers, zoom -->
   <Toolbar saveStatus={$autosaveStatus} saveError={$autosaveError} retrySave={() => void autosave.flush()} />
 
-  <div class="body" bind:this={slideBodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
+  <div class="body" bind:this={slideBodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --sb-w:${$slideLayout.leftView === "plots" ? $slideLayout.plotsRailW : $slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
     {#if $leftRailHidden}
-      <button class="edgetab left" title="Show slides (Ctrl+B)" onclick={() => leftRailHidden.set(false)}>›</button>
+      <button class="edgetab left" title={$slideLayout.leftView === "plots" ? "Show the Plots rail (Ctrl+B)" : "Show slides (Ctrl+B)"} onclick={() => leftRailHidden.set(false)}>›</button>
     {:else}
-    <!-- filmstrip -->
+    <!-- the left rail: [Slides | Plots] (Alt+G) -->
+    <LeftRail unit="slide" paneActive={active} hitBridge={railHitBridge} slideView={$slideLayout.leftView} onSlideView={setLeftView}
+      onPickSlide={(id) => selectSlide(id)} place={placeFromRail}>
+    {#snippet slides()}
     <aside class="filmstrip" bind:this={filmEl}>
       {#if pm}
         <DeckPicker {decks} activeId={activeDeckId} onSelect={(id) => void openDeck(id)} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} busy={deckBusy} />
@@ -1727,10 +1755,12 @@
           title="Insert a slide from your machine-global preset library (FluxConfig/presets/slides)">+ Preset</button>
       {/if}
     </aside>
+    {/snippet}
+    </LeftRail>
     <!-- the drag gutter sits OUTSIDE the (vertically scrolling) filmstrip so it
          never scrolls away; a flex sibling with negative margins overlays the seam -->
     <div class="film-gutter" class:active={filmResize} role="separator" aria-orientation="vertical"
-      aria-label="Resize slide list" onpointerdown={startFilmDrag} ondblclick={resetFilmW}><span class="grip"></span></div>
+      aria-label={$slideLayout.leftView === "plots" ? "Resize the Plots rail" : "Resize slide list"} onpointerdown={startFilmDrag} ondblclick={resetFilmW}><span class="grip"></span></div>
     {/if}
 
     <!-- stage: the SHARED figure canvas in frame mode -->
@@ -1753,7 +1783,7 @@
       {#if animationIssues.length}<details class="animation-issues"><summary>⚠ {animationIssues.length} animation {animationIssues.length===1?"issue":"issues"}</summary>{#each animationIssues as issue}<button onclick={()=>inspectIssue(issue.trackId)}>{issue.reason}</button>{/each}</details>{/if}
       <div class="canvas-wrap" bind:this={canvasWrapEl}>
         {#if ready && overlay}
-          <Canvas frame paneActive={active} presentation={canvasPresentation} />
+          <Canvas frame paneActive={active} presentation={canvasPresentation} hitBridge={railHitBridge} />
           <PickOverlay {picker} wrap={canvasWrapEl} slideId={$activeFigureId} presentation={canvasPresentation} refLabel={refLabel} describe={describePick} />
           <ArrangeHud />
           <CascadePopover tracks={trackCascadeAdapter} />
@@ -2022,7 +2052,7 @@
   .disk-toast button.ghost { color: var(--c-tx-2); }
   .body { display: flex; flex: 1; min-height: 0; position: relative; }
   .filmstrip {
-    flex: 0 0 var(--film-w, 172px); overflow-y: auto; border-right: 1px solid var(--c-line);
+    flex: 1; min-height: 0; overflow-y: auto;
     background: var(--c-bg-raised); padding: 8px; display: flex; flex-direction: column; gap: 6px;
   }
   .thumb {

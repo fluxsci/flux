@@ -5,23 +5,34 @@
   // (and makes that plot the Dissections pane's focus); double-click / Enter places the selection
   // in the active figure; drag places at the pointer; Space is Quick Look. Recent sort is one
   // newest-first list. Typing "_" offers the reserved companion collections.
+  //
+  // Narrowing (P3), all visible as chips under/in the search row: the ⋯ filters (Unused ·
+  // Fluxplots only · Has dissections), a focus folder (context menu "Show only this folder";
+  // Backspace climbs), Similar names (a flat ranked list). Variant stacks (⋯, off by default)
+  // fold fig1_a…f / _v1…_v7 into one tile. Fresh dots mark what changed since the rail last
+  // listed it. Hovering a tile 350 ms (or Shift+Space) shows Peek. Idle time pre-warms the
+  // thumbnail cache for everything listed.
   import { tick, untrack } from "svelte";
   import { get } from "svelte/store";
   import JustifiedGrid, { type GridItem, type GridSection, type TileFlags } from "./JustifiedGrid.svelte";
   import Tile from "./Tile.svelte";
   import RailMenu, { type RailMenuItem } from "./RailMenu.svelte";
   import GalleryExpandedPreview from "../plot/GalleryExpandedPreview.svelte";
-  import { createPlotIndex, type PlotIndex, type PlotItem, type IndexState } from "./plotIndex";
+  import { createPlotIndex, freshPlots, clearFresh, type PlotIndex, type PlotItem, type IndexState } from "./plotIndex";
+  import { applyFilters, anyFilter, inFolder, parentFolder, similarTo, stackVariants, widthClass, type StackEntry } from "./galleryModel";
+  import { peekHover, peekToggle, hidePeek, type PlotPeek } from "./peek";
+  import { setPrewarm, clearPrewarm, type WarmJob } from "./thumbClient";
   import { railPrefs, toggledFolders, saveToggledFolders, isCollapsed, TILE_H_MIN, TILE_H_MAX } from "./railPrefs";
   import { railQuickLook, plotsRailFocusRequest, takeRailFocus } from "./railState";
   import { offerFile, resolvePlotElement } from "./focusPlot";
   import { beginPlotDrag } from "./dragPlace";
-  import { insertPlots } from "./insert";
-  import { RESERVED_PLOT_FOLDERS } from "../project/plotsFolders";
+  import { insertPlots, destinationName, type PlaceAdapter } from "./insert";
+  import { RESERVED_PLOT_FOLDERS, VIDEO_DIRNAME } from "../project/plotsFolders";
   import { plotKeyFor } from "../dissect/rules";
   import { fileBridge, joinPath } from "../project/types";
   import { project, activeFigureId, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
   import { pushToast } from "../toast";
+  import { storeTenant } from "../tenancy";
   import type { HitBridgeHolder } from "../interact/canvasHitBridge";
 
   let {
@@ -29,6 +40,8 @@
     hitBridge = null,
     refreshKey = 0,
     onShowDissections,
+    accept = "svg,png,glb",
+    place = null,
   }: {
     active?: boolean;
     hitBridge?: HitBridgeHolder | null;
@@ -36,6 +49,10 @@
     refreshKey?: number;
     /** A ⧉ chip / "Show dissections": make sure the Dissections pane is visible. */
     onShowDissections?: () => void;
+    /** What the tree lists (Slide adds mp4,mov). */
+    accept?: string;
+    /** The mode's placement route (Slide); the shared pipeline when null. */
+    place?: PlaceAdapter | null;
   } = $props();
 
   const root = $derived($embeddedProjectRoot || $projectDir || "");
@@ -59,7 +76,7 @@
   $effect(() => {
     const r = root, sc = scope, col = collection;
     if (!r && sc === "project") { index = null; ix = EMPTY; return; }
-    const created = createPlotIndex({ scope: sc, collection: col || undefined, accept: "svg,png,glb", watch: true });
+    const created = createPlotIndex({ scope: sc, collection: col || undefined, accept, watch: true });
     index = created;
     const offState = created.subscribe((v) => { ix = v; });
     const offCounts = created.counts.subscribe((m) => { counts = m; });
@@ -102,17 +119,43 @@
     if (!base) return;
     let alive = true;
     void Promise.all(RESERVED_PLOT_FOLDERS.map(async (f) => ((await fileBridge()?.exists?.(joinPath(base, f.name))) ? f : null))).then((found) => {
-      if (alive) reservedHere = found.filter((f): f is (typeof RESERVED_PLOT_FOLDERS)[number] => !!f);
+      // Clips live in _videos: offered only where the rail can place them (Slide).
+      if (alive) reservedHere = found.filter((f): f is (typeof RESERVED_PLOT_FOLDERS)[number] => !!f && (f.name !== VIDEO_DIRNAME || /\bmp4\b/.test(accept)));
     });
     return () => { alive = false; };
   });
 
+  // ---- narrowing: focus folder → search → filters (→ similar names)
+  let folderState = $state({ dir: "", owner: "" });
+  const focusDir = $derived(folderState.owner === `${root}|${scope}|${collection}` ? folderState.dir : "");
+  let similarState = $state.raw<{ item: PlotItem | null; owner: string }>({ item: null, owner: "" });
+  const similar = $derived(similarState.owner === `${root}|${scope}|${collection}` ? similarState.item : null);
+  const filters = $derived({ unused: $railPrefs.filterUnused, fluxplot: $railPrefs.filterFluxplot, dissected: $railPrefs.filterDissected && scope === "project" && !collection });
+  const filtering = $derived(anyFilter(filters));
   const matches = $derived.by(() => {
     void ix.version;
     if (q.startsWith("_") && !collection) return [];
-    if (!q) return ix.items;
-    return ix.items.filter((it) => it.rel.toLowerCase().includes(q));
+    let out = ix.items;
+    if (focusDir) out = out.filter((it) => inFolder(it.dir, focusDir));
+    if (q) out = out.filter((it) => it.rel.toLowerCase().includes(q));
+    if (filtering) out = applyFilters(out, filters, (it) => usage.get(slash(it.abs))?.count ?? 0, (it) => { const n = counts.get(plotKeyFor(it.abs, root)); return n === undefined ? null : n; });
+    if (similar) out = similarTo(out.some((it) => it.abs === similar.abs) ? out : [similar, ...out], similar);
+    return out;
   });
+  // Has-dissections needs every listed plot's count, not only the visible ones'.
+  $effect(() => {
+    if (!filters.dissected || !index || !ix.loaded) return;
+    void ix.version;
+    const keys = ix.items.map((i) => plotKeyFor(i.abs, root)).filter(Boolean);
+    untrack(() => index?.ensureCounts(keys));
+  });
+  // Variant stacks: expanded keys (dir/key) for this session.
+  let expandedStacks = $state.raw<Set<string>>(new Set());
+  function toggleStack(key: string) {
+    const next = new Set(expandedStacks);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    expandedStacks = next;
+  }
   const recent = $derived($railPrefs.sort === "recent");
   const rootLabel = $derived(collection || (scope === "global" ? (libraryRoot.split(/[\\/]/).pop() || "plot_library") : "plots"));
 
@@ -125,28 +168,64 @@
         items: rows.map((f) => ({ id: `reserved:${f.name}`, aspect: 1, block: 30, data: { reserved: f } })) });
       return out;
     }
-    if (recent) {
-      const items = [...matches].sort((a, b) => b.mtimeMs - a.mtimeMs);
-      out.push({ key: "recent", title: "", depth: 0, collapsed: false, collapsible: false, headerH: 0, items: items.map(toGrid) });
+    if (similar) {
+      out.push({ key: "similar", title: "", depth: 0, collapsed: false, collapsible: false, headerH: 0, items: matches.map((it) => toGrid(it)) });
       return out;
     }
+    if (recent) {
+      const items = [...matches].sort((a, b) => b.mtimeMs - a.mtimeMs);
+      out.push({ key: "recent", title: "", depth: 0, collapsed: false, collapsible: false, headerH: 0, items: items.map((it) => toGrid(it)) });
+      return out;
+    }
+    const stacking = $railPrefs.stacks && !q;
     let cur: GridSection | null = null;
+    let run: PlotItem[] = [];
+    const flush = () => {
+      if (!cur) return;
+      if (stacking) for (const e of stackVariants(run, expandedStacks)) cur.items.push(entryToGrid(e));
+      else for (const it of run) cur.items.push(toGrid(it));
+      cur.meta = `· ${run.length}`;
+      run = [];
+    };
     for (const it of matches) {
       if (!cur || cur.key !== `dir:${it.dir}`) {
-        const depth = it.dir ? it.dir.split("/").length : 0;
-        cur = { key: `dir:${it.dir}`, title: it.dir || rootLabel, depth: Math.min(3, depth), collapsed: !q && isCollapsed(it.dir, toggled), collapsible: true, headerH: 24, items: [] };
+        flush();
+        const depth = it.dir ? it.dir.split("/").length - (focusDir ? focusDir.split("/").length : 0) : 0;
+        cur = { key: `dir:${it.dir}`, title: it.dir || rootLabel, depth: Math.max(0, Math.min(3, depth)), collapsed: !q && it.dir !== focusDir && isCollapsed(it.dir, toggled), collapsible: it.dir !== focusDir || !focusDir, headerH: 24, items: [] };
         out.push(cur);
       }
-      cur.items.push(toGrid(it));
+      run.push(it);
     }
-    for (const s of out) s.meta = `· ${s.items.length}`;
+    flush();
     return out;
   });
-  function toGrid(it: PlotItem): GridItem {
-    return { id: it.abs, aspect: it.w && it.h ? it.w / it.h : 4 / 3, data: it };
+  type StackData = { stack: { key: string; members: PlotItem[] }; item: PlotItem };
+  type HeadData = { head: { key: string; count: number }; item: PlotItem };
+  // Videos have no header size: their poster's aspect, once it loads.
+  let posterAspect = $state.raw<Map<string, number>>(new Map());
+  function aspectOf(it: PlotItem): number {
+    return it.w && it.h ? it.w / it.h : posterAspect.get(it.abs) ?? (/\.(mp4|mov)$/i.test(it.name) ? 16 / 9 : 4 / 3);
   }
+  function toGrid(it: PlotItem): GridItem {
+    return { id: it.abs, aspect: aspectOf(it), data: it };
+  }
+  function entryToGrid(e: StackEntry<PlotItem>): GridItem {
+    if (e.kind === "stack") return { id: e.top.abs, aspect: aspectOf(e.top), data: { stack: { key: e.key, members: e.members }, item: e.top } satisfies StackData };
+    if (e.head) return { id: e.item.abs, aspect: aspectOf(e.item), data: { head: e.head, item: e.item } satisfies HeadData };
+    return toGrid(e.item);
+  }
+  /** The plot a grid item shows (a stack shows its newest variant). */
+  function plotOf(g: GridItem | null | undefined): PlotItem | null {
+    const d = g?.data as PlotItem | StackData | HeadData | undefined;
+    if (!d) return null;
+    if ("abs" in d) return d;
+    if ("item" in d) return d.item;
+    return null;
+  }
+  const stackOf = (g: GridItem) => (g.data as Partial<StackData>).stack ?? null;
+  const headOf = (g: GridItem) => (g.data as Partial<HeadData>).head ?? null;
   /** The items in display order (expanded sections only) — Quick Look stepping, ranges, probes. */
-  const displayItems = $derived(sections.filter((s) => !s.collapsed).flatMap((s) => s.items.map((i) => i.data as PlotItem)).filter((x) => x && "abs" in x));
+  const displayItems = $derived(sections.filter((s) => !s.collapsed).flatMap((s) => s.items.map((i) => plotOf(i))).filter((x): x is PlotItem => !!x));
   const fileCount = $derived(ix.items.length);
 
   // ------------------------------------------------------------------ canvas linkage
@@ -168,18 +247,25 @@
     untrack(() => {
       const it = ix.items.find((i) => i.abs === id);
       if (it && !q && !recent && isCollapsed(it.dir, toggled)) toggleFolder(it.dir);
+      // Inside a collapsed variant stack whose top is another variant: open the stack.
+      for (const sec of sections) for (const g of sec.items) {
+        const st = stackOf(g);
+        if (st && g.id !== id && st.members.some((m) => m.abs === id)) toggleStack(st.key);
+      }
       void tick().then(() => grid?.reveal(id, "center"));
     });
   });
 
   const usage = $derived.by(() => {
-    const m = new Map<string, { active: boolean; count: number }>();
+    const m = new Map<string, { active: boolean; count: number; figs: string[] }>();
     for (const f of $project.figures) for (const el of f.elements) {
+      // Placed plots carry their source path; images and video clips are copied (no in-use mark).
       const src = el.type === "plot" ? el.source?.svgPath : "";
       if (!src) continue;
       const abs = absOf(src);
-      const e = m.get(abs) ?? { active: false, count: 0 };
+      const e = m.get(abs) ?? { active: false, count: 0, figs: [] };
       e.count++;
+      if (!e.figs.includes(f.id)) e.figs.push(f.id);
       if (f.id === $activeFigureId) e.active = true;
       m.set(abs, e);
     }
@@ -194,7 +280,7 @@
   let suppressClick = false;
   let focusTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function itemOf(g: GridItem): PlotItem | null { const d = g.data as PlotItem; return d && "abs" in d ? d : null; }
+  function itemOf(g: GridItem): PlotItem | null { return plotOf(g); }
   function focusPlotFor(it: PlotItem, delay = 0) {
     if (focusTimer) { clearTimeout(focusTimer); focusTimer = null; }
     const go = () => offerFile(it.abs, root, scope);
@@ -206,6 +292,7 @@
     if (res) { enterCollection(res.name); return; }
     const it = itemOf(g);
     if (!it) return;
+    clearFresh(it.abs);
     if (e.shiftKey && anchorId) {
       const order = displayItems.map((i) => i.abs);
       const a = order.indexOf(anchorId), b = order.indexOf(it.abs);
@@ -226,6 +313,9 @@
   function onOpen(g: GridItem, e: MouseEvent) {
     const it = itemOf(g);
     if (!it || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    // A stack opens (which variant to place is the user's choice); a plot is placed.
+    const st = stackOf(g);
+    if (st) { toggleStack(st.key); return; }
     void insert(selected.has(it.abs) ? orderedSelection() : [it.abs]);
   }
   function orderedSelection(): string[] {
@@ -236,7 +326,8 @@
   }
   async function insert(paths: string[], at?: { figId: string; x: number; y: number; fx: number; fy: number }) {
     if (!paths.length) return;
-    await insertPlots(paths, at);
+    for (const p of paths) clearFresh(p);
+    await insertPlots(paths, at, place);
   }
 
   // ------------------------------------------------------------------ drag to place
@@ -258,7 +349,7 @@
         backdrop: getComputedStyle(pageEl).backgroundColor || null,
       };
     }, hitBridge, {
-      onStart: () => { suppressClick = true; },
+      onStart: () => { suppressClick = true; hidePeek(); },
       onEnd: () => { setTimeout(() => { suppressClick = false; }, 0); },
       onDrop: (fig, at, paths) => { void insert(paths, { figId: fig.id, ...at }); },
       onMiss: () => pushToast("info", "Drop onto a figure to place it"),
@@ -289,14 +380,55 @@
     const paths = orderedSelection();
     const fig = $project.figures.find((f) => f.id === $activeFigureId);
     const fb = fileBridge();
+    const destName = destinationName(fig);
+    const onto = storeTenant() === "slide" ? "on" : "in";
+    const st = stackOf(g), head = headOf(g);
     menu = { x: e.clientX, y: e.clientY, items: [
-      { kind: "action", label: paths.length > 1 ? `Place ${paths.length} plots in ${fig?.nickname || fig?.name || "the figure"}` : `Place in ${fig?.nickname || fig?.name || "the figure"}`, hint: "Enter", disabled: !fig, run: () => void insert(paths) },
+      { kind: "action", label: paths.length > 1 ? `Place ${paths.length} plots ${onto} ${destName || "the figure"}` : `Place ${onto} ${destName || "the figure"}`, hint: "Enter", disabled: !fig, run: () => void insert(paths) },
       { kind: "action", label: "Quick Look", hint: "Space", run: () => openQuick(it) },
-      ...(scope === "project" ? [{ kind: "action" as const, label: "Show dissections", run: () => { offerFile(it.abs, root, scope); onShowDissections?.(); } }] : []),
+      ...(scope === "project" && !collection ? [{ kind: "action" as const, label: "Show dissections", run: () => { offerFile(it.abs, root, scope); onShowDissections?.(); } }] : []),
+      ...(st ? [{ kind: "action" as const, label: `Show all ${st.members.length} variants`, hint: "Enter", run: () => toggleStack(st.key) }] : []),
+      ...(head ? [{ kind: "action" as const, label: `Stack these ${head.count} variants`, run: () => toggleStack(head.key) }] : []),
+      { kind: "separator" },
+      { kind: "action", label: "Similar names", hint: "≈", run: () => showSimilar(it) },
+      { kind: "action", label: it.dir ? `Show only ${it.dir.split("/").pop()}` : "Show only this folder", disabled: !it.dir || it.dir === focusDir, run: () => focusFolder(it.dir) },
       { kind: "separator" },
       { kind: "action", label: "Reveal in file manager", disabled: !fb?.revealPath, run: () => void fb?.revealPath?.(it.abs) },
       { kind: "action", label: "Copy path", run: () => void navigator.clipboard?.writeText(it.abs).catch(() => {}) },
     ] };
+  }
+  function onHeaderContext(sec: GridSection, e: MouseEvent) {
+    if (!sec.key.startsWith("dir:")) return;
+    const dir = sec.key.slice(4);
+    menu = { x: e.clientX, y: e.clientY, items: [
+      { kind: "action", label: "Show only this folder", disabled: !dir || dir === focusDir, run: () => focusFolder(dir) },
+      { kind: "action", label: sec.collapsed ? "Expand" : "Collapse", run: () => toggleFolder(dir) },
+      { kind: "action", label: "Collapse the others", hint: "Alt+click ▾", run: () => onHeaderToggle(sec, new MouseEvent("click", { altKey: true })) },
+    ] };
+  }
+
+  // ------------------------------------------------------------------ focus folder / similar
+  function focusFolder(dir: string) {
+    folderState = { dir, owner: `${root}|${scope}|${collection}` };
+    similarState = { item: null, owner: "" };
+    void tick().then(() => grid?.scrollToTop());
+  }
+  function showSimilar(it: PlotItem) {
+    similarState = { item: it, owner: `${root}|${scope}|${collection}` };
+    search = "";
+    void tick().then(() => { grid?.scrollToTop(); grid?.focusGrid(); });
+  }
+  function clearSimilar() {
+    const was = similar;
+    similarState = { item: null, owner: "" };
+    if (was) void tick().then(() => grid?.reveal(was.abs, "center"));
+  }
+  /** Backspace in an empty search: leave Similar, then climb the focus folder, then the collection. */
+  function stepOut(): boolean {
+    if (similar) { clearSimilar(); return true; }
+    if (focusDir) { focusFolder(parentFolder(focusDir)); return true; }
+    if (collection) { leaveCollection(); return true; }
+    return false;
   }
 
   // ------------------------------------------------------------------ folders / collections
@@ -329,10 +461,17 @@
   // ------------------------------------------------------------------ keyboard
   function onGridKey(e: KeyboardEvent, focused: GridItem | null) {
     const it = focused ? itemOf(focused) : null;
+    if (e.code === "Space" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (focused && it) peekToggle(() => plotPeekFor(it), cellOf(focused.id));
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       const res = focused && (focused.data as { reserved?: { name: string } }).reserved;
       if (res) { enterCollection(res.name); return; }
+      const st = focused ? stackOf(focused) : null;
+      if (st && !e.ctrlKey && !e.metaKey && selected.size <= 1) { toggleStack(st.key); return; }
       const paths = selected.size ? orderedSelection() : it ? [it.abs] : [];
       void insert(paths);
       return;
@@ -345,8 +484,14 @@
     if (e.key === "Escape") {
       e.preventDefault();
       if (search) { search = ""; searchEl?.focus(); return; }
+      if (similar) { clearSimilar(); return; }
       if (collection) { leaveCollection(); return; }
       (e.currentTarget as HTMLElement).blur();
+      return;
+    }
+    if (e.key === "Backspace" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      stepOut();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "a") {
@@ -383,11 +528,12 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       if (search) search = "";
+      else if (similar) clearSimilar();
       else if (collection) leaveCollection();
       else searchEl?.blur();
-    } else if (e.key === "Backspace" && !search && collection) {
+    } else if (e.key === "Backspace" && !search && (similar || focusDir || collection)) {
       e.preventDefault();
-      leaveCollection();
+      stepOut();
     }
   }
   function onRootKey(e: KeyboardEvent) {
@@ -412,6 +558,7 @@
     if (anchor && y != null) void tick().then(() => grid?.anchorTo(anchor, y));
   }
   function onScrollState(s: { firstVisible: number }) {
+    firstVisible = s.firstVisible;
     if (scope !== "project" || !index) return;
     const near = displayItems.slice(Math.max(0, s.firstVisible - 20), s.firstVisible + 80);
     const keys = near.map((i) => plotKeyFor(i.abs, root)).filter(Boolean);
@@ -421,22 +568,83 @@
     if (scope !== "project" || collection) return 0;
     return counts.get(plotKeyFor(it.abs, root)) ?? 0;
   }
-  const glyphFor = (it: PlotItem) => (it.model3d ? "3D" : it.snip ? "✂" : it.semantic ? "◆" : "");
-  const glyphTitle = (it: PlotItem) => (it.model3d ? "3D model" : it.snip ? "Paper snip" : it.semantic ? "Fluxplot — editable parts and data" : "");
+  const isVideo = (it: PlotItem) => /\.(mp4|mov)$/i.test(it.name);
+  const glyphFor = (it: PlotItem) => (it.model3d ? "3D" : isVideo(it) ? "▶" : it.snip ? "✂" : it.semantic ? "◆" : "");
+  const glyphTitle = (it: PlotItem) => (it.model3d ? "3D model" : isVideo(it) ? "Video clip" : it.snip ? "Paper snip" : it.semantic ? "Fluxplot — editable parts and data" : "");
+
+  // ------------------------------------------------------------------ peek
+  function cellOf(id: string): HTMLElement | null {
+    return gallery?.querySelector<HTMLElement>(`[data-grid-id="${CSS.escape(id)}"]`) ?? null;
+  }
+  function plotPeekFor(it: PlotItem): PlotPeek {
+    const u = usage.get(slash(it.abs));
+    const figs = $project.figures;
+    const placements = (u?.figs ?? []).map((id) => { const f = figs.find((x) => x.id === id); return { name: destinationName(f), active: id === $activeFigureId }; });
+    placements.sort((a, b) => Number(b.active) - Number(a.active));
+    const key = scope === "project" && !collection ? plotKeyFor(it.abs, root) : "";
+    const lib = scope === "global" ? (libraryRoot.split(/[\\/]/).pop() || "plot_library") : collection ? `plots/${collection}` : "plots";
+    const fresh = $freshPlots.has(it.abs);
+    clearFresh(it.abs);
+    return {
+      kind: "plot", abs: it.abs, stamp: it.stamp, name: it.name, folder: it.dir ? `${lib}/${it.dir}` : lib,
+      aspect: aspectOf(it), physMm: it.physMm ?? null, size: it.size, mtimeMs: it.mtimeMs,
+      kindLabel: it.model3d ? "3D model" : isVideo(it) ? "▶ video clip" : it.snip ? "✂ paper snip" : it.semantic ? "◆ fluxplot — editable parts and data" : /\.png$/i.test(it.name) ? "PNG image" : "SVG",
+      placements, dissectKey: key, dissections: key ? counts.get(key) ?? 0 : 0,
+      stats: it.stats ?? null, paper: it.paper ?? null, fresh,
+      placeholder: cellOf(it.abs)?.querySelector<HTMLImageElement>(".page img")?.src ?? "",
+    };
+  }
+  function onItemHover(g: GridItem | null, cell: HTMLElement | null) {
+    const it = g ? itemOf(g) : null;
+    peekHover(it ? () => plotPeekFor(it) : null, it ? cell : null);
+  }
+
+  // ------------------------------------------------------------------ pre-warm
+  // Once a listing settles (1.5 s quiet), everything listed — nearest the view first, then the
+  // collapsed folders — is handed to the thumbnail client's idle queue at the bucket its tile
+  // uses (the laid-out width, or an estimate for collapsed folders).
+  const warmOwner = {};
+  let firstVisible = 0;
+  $effect(() => {
+    const st = ix, on = active, h = $railPrefs.tileH;
+    void displayItems;
+    if (!on || !st.loaded || !st.items.length) { clearPrewarm(warmOwner); return; }
+    const t = setTimeout(() => untrack(() => {
+      const shown = displayItems;
+      const start = Math.min(firstVisible, shown.length);
+      const ordered = [...shown.slice(start), ...shown.slice(0, start)];
+      const seen = new Set(ordered.map((i) => i.abs));
+      for (const i of st.items) if (!seen.has(i.abs)) ordered.push(i);
+      const jobs: WarmJob[] = ordered.map((i) => ({ path: i.abs, stamp: i.stamp, cssWidth: grid?.widthOf(i.abs) ?? Math.min(360, h * aspectOf(i)) }));
+      setPrewarm(warmOwner, jobs, window.devicePixelRatio || 1);
+    }), 1500);
+    return () => clearTimeout(t);
+  });
+  $effect(() => () => { clearPrewarm(warmOwner); hidePeek(); });
+  let gallery = $state<HTMLDivElement>();
+  const filterChips = $derived([
+    ...(filters.unused ? [{ key: "filterUnused", label: "Unused" }] : []),
+    ...(filters.fluxplot ? [{ key: "filterFluxplot", label: "Fluxplots" }] : []),
+    ...(filters.dissected ? [{ key: "filterDissected", label: "Has dissections" }] : []),
+  ] as { key: "filterUnused" | "filterFluxplot" | "filterDissected"; label: string }[]);
   const emptyText = $derived(
     !root && scope === "project" ? "Open a Flux project to browse its plots."
     : ix.error ? ix.error
     : !ix.loaded ? ""
     : q && !matches.length && !q.startsWith("_") ? `No plots match “${search.trim()}”.`
+    : fileCount && !matches.length && filtering ? "No plots pass the filters."
+    : fileCount && !matches.length && focusDir ? `${focusDir} has no plots.`
     : !fileCount ? (scope === "global" ? "Your global plot library is empty." : collection ? `${collection} is empty.` : "No plots yet — save SVG or PNG plots into plots/ and they appear here.")
     : "");
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="gallery" onkeydown={onRootKey} onfocusin={onFocusIn} data-plots-gallery>
+<div class="gallery" bind:this={gallery} onkeydown={onRootKey} onfocusin={onFocusIn} data-plots-gallery>
   <div class="search-row">
     <svg class="mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
     {#if collection}<button class="chip-collection" title="Leave this collection (Backspace)" onclick={leaveCollection}>{collection} ✕</button>{/if}
+    {#if focusDir}<button class="chip-collection" title={`Showing only ${focusDir} — Backspace goes up a folder; click to show everything`} onclick={() => focusFolder("")} data-focus-folder={focusDir}>{focusDir.split("/").pop()} ✕</button>{/if}
+    {#if similar}<button class="chip-collection" title={`Names similar to ${similar.name} — click or Esc to leave`} onclick={clearSimilar} data-similar={similar.name}>≈ {similar.name.replace(/\.[^.]+$/, "")} ✕</button>{/if}
     <input
       bind:this={searchEl}
       bind:value={search}
@@ -453,7 +661,14 @@
       <button class:chosen={scope === "global"} aria-pressed={scope === "global"} disabled={!libraryRoot} title={libraryRoot ? "Your global plot library (Alt+2)" : "The global plot library needs the desktop app"} onclick={() => setScope("global")} data-scope="global">Glob</button>
     </div>
   </div>
-  {#if recent && !q.startsWith("_")}<div class="mode-note" data-recent-note>Newest first · <button onclick={() => railPrefs.update((p) => ({ ...p, sort: "folders" }))}>show folders</button></div>{/if}
+  {#if filterChips.length}
+    <div class="filter-line" data-filter-chips>
+      <span class="fl">Only</span>
+      {#each filterChips as f (f.key)}<button class="fchip" title={`Remove the ${f.label} filter`} onclick={() => railPrefs.update((p) => ({ ...p, [f.key]: false }))} data-filter-chip={f.key}>{f.label} ✕</button>{/each}
+      <span class="fcount">{matches.length} of {fileCount}</span>
+    </div>
+  {/if}
+  {#if recent && !q.startsWith("_") && !similar}<div class="mode-note" data-recent-note>Newest first · <button onclick={() => railPrefs.update((p) => ({ ...p, sort: "folders" }))}>show folders</button></div>{/if}
   <JustifiedGrid
     bind:this={grid}
     {sections}
@@ -473,13 +688,18 @@
     {onFocusChange}
     onKeyDown={onGridKey}
     onZoom={(d, id) => zoom(d, id)}
-    {onScrollState}>
+    {onScrollState}
+    {onItemHover}
+    {onHeaderContext}
+    onScrolled={hidePeek}>
     {#snippet tile(g: GridItem, w: number, h: number, flags: TileFlags)}
       {@const res = (g.data as { reserved?: { name: string; hint: string } }).reserved}
       {#if res}
         <div class="reserved-row" data-reserved={res.name}><span class="arrow">↳</span><b>{res.name}</b><span class="hint">{res.hint}</span></div>
       {:else}
-        {@const it = g.data as PlotItem}
+        {@const it = plotOf(g)!}
+        {@const st = stackOf(g)}
+        {@const head = headOf(g)}
         <Tile
           path={it.abs}
           stamp={it.stamp}
@@ -487,8 +707,8 @@
           {w}
           {h}
           captionH={$railPrefs.names ? 14 : 0}
-          name={recent && it.dir ? `${it.dir}/${it.name.replace(/\.(svg|png|glb)$/i, "")}` : it.name.replace(/\.(svg|png|glb)$/i, "")}
-          title={`${it.rel}${it.bad ? `\nPreview failed: ${it.bad}` : ""}\nDouble-click or Enter places it · drag onto a figure · Space for Quick Look`}
+          name={(recent || similar) && it.dir ? `${it.dir}/${it.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "")}` : it.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "")}
+          title={st ? `${it.rel} — the newest of ${st.members.length} variants\nEnter or double-click shows them all · drag places this one` : `${it.rel}${it.bad ? `\nPreview failed: ${it.bad}` : ""}\nDouble-click or Enter places it · drag onto a ${storeTenant() === "slide" ? "slide" : "figure"} · Space for Quick Look`}
           stats={it.stats ?? null}
           paper={it.paper ?? null}
           backdrop={$railPrefs.backdrop}
@@ -501,6 +721,13 @@
           dissections={dissectionsFor(it)}
           glyph={glyphFor(it)}
           glyphTitle={glyphTitle(it)}
+          fresh={$freshPlots.has(it.abs)}
+          badge={$railPrefs.widthBadge ? widthClass(it.physMm) : null}
+          stack={st ? st.members.length : 0}
+          stackHead={head ? head.count : 0}
+          onStackToggle={() => { const k = st?.key ?? head?.key; if (k) toggleStack(k); }}
+          darkMedia={it.model3d || isVideo(it)}
+          onAspect={isVideo(it) && !it.w ? (a) => { if (Math.abs((posterAspect.get(it.abs) ?? 0) - a) > 0.01) posterAspect = new Map(posterAspect).set(it.abs, a); } : undefined}
           onDissections={() => { offerFile(it.abs, root, scope); onShowDissections?.(); }} />
       {/if}
     {/snippet}
@@ -518,6 +745,7 @@
       root={root}
       dissections={scope === "project" && !collection}
       onClose={closeQuick}
+      onSimilar={() => { const it = quick; closeQuick(); if (it) showSimilar(it); }}
       onPrevious={quickIndex > 0 ? () => stepQuick(-1) : undefined}
       onNext={quickIndex >= 0 && quickIndex < displayItems.length - 1 ? () => stepQuick(1) : undefined} />
   {/key}
@@ -539,6 +767,11 @@
   .scope button:hover:not(:disabled) { color: var(--c-tx-hi); }
   .scope button:disabled { opacity: .4; cursor: var(--cursor-cross); }
   .scope .chosen { background: var(--c-accent-tint); color: var(--c-tx-hi); }
+  .filter-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex-shrink: 0; padding: 3px 8px; border-bottom: 1px solid var(--c-line); font: 10.5px var(--font-ui); color: var(--c-tx-muted); }
+  .fchip { height: 18px; padding: 0 6px; border: 1px solid var(--c-accent); border-radius: var(--r-ui); background: var(--c-accent-tint); color: var(--c-tx-hi); font: 10.5px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .fchip:hover { background: var(--c-surface-2); }
+  .fcount { margin-left: auto; font: 10px var(--font-mono); color: var(--c-tx-faint); }
+  .chip-collection { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mode-note { flex-shrink: 0; padding: 3px 10px; font: 10.5px var(--font-ui); color: var(--c-tx-muted); border-bottom: 1px solid var(--c-line); }
   .mode-note button, .link { padding: 0; border: 0; background: none; color: var(--c-accent); font: inherit; cursor: var(--cursor-cross-hover); }
   .note { flex-shrink: 0; padding: 6px 10px; border-top: 1px solid var(--c-line); color: var(--c-tx-muted); font: 11px var(--font-ui); }

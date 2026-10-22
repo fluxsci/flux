@@ -18,11 +18,11 @@ export interface TablePreview {
 export const CARD_ROWS = 6;
 const LINE = 15, TITLE = 20, PAD = 6;
 
-/** Parse the head of a CSV/TSV for a card. */
-export function tablePreview(text: string, name: string, truncatedInput: boolean): TablePreview {
-  const t = parseDelimited(text, { name, maxRows: CARD_ROWS + 1, inputTruncated: truncatedInput });
+/** Parse the head of a CSV/TSV for a card (or, with `maxRows`, for Peek's longer look). */
+export function tablePreview(text: string, name: string, truncatedInput: boolean, maxRows = CARD_ROWS): TablePreview {
+  const t = parseDelimited(text, { name, maxRows: maxRows + 1, inputTruncated: truncatedInput });
   const transposed = t.rows.length === 1 && t.cols > 5;
-  return { header: t.header, rows: t.rows.slice(0, CARD_ROWS), rowCount: t.totalRows, complete: t.complete && !truncatedInput, cols: t.cols, transposed };
+  return { header: t.header, rows: t.rows.slice(0, maxRows), rowCount: t.totalRows, complete: t.complete && !truncatedInput, cols: t.cols, transposed };
 }
 
 /** The card's height (the grid lays it out as a block of this height). */

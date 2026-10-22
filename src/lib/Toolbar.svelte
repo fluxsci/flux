@@ -56,7 +56,7 @@
       <button on:click={saveProject} title="Save (Ctrl+S)">Save</button>
     {/if}
     <button on:click={importAssets} title={slideMode ? "Import PNG/SVG (Ctrl+Shift+K)" : "Import PNG/SVG/GLB (Ctrl+Shift+K)"}>Import</button>
-    <button on:click={() => importerOpen.set(true)} data-open-gallery title={slideMode ? "Browse project plots and MP4/MOV clips (Alt+G)" : "The full plot gallery (Shift+Alt+G opens it pinned; Alt+G shows plots in the left rail)"}>{slideMode ? "Plots & videos" : "Gallery"}</button>
+    <button on:click={() => importerOpen.set(true)} data-open-gallery title={slideMode ? "Browse project plots and MP4/MOV clips (Shift+Alt+G opens it pinned; Alt+G shows plots in the left rail)" : "The full plot gallery (Shift+Alt+G opens it pinned; Alt+G shows plots in the left rail)"}>{slideMode ? "Plots & videos" : "Gallery"}</button>
     {#if !slideMode}<button title="Figure-Meta (Alt+M)" on:click={() => openFigureMeta($activeFigureId ?? undefined)}>Figure-Meta</button>{/if}
   </div>
 

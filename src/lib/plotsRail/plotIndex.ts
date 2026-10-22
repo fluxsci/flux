@@ -56,6 +56,41 @@ function toItem(e: PlotIndexEntry): PlotItem {
   };
 }
 
+// FRESH marks (session-scoped): a file that appeared, or changed version, after the rail first
+// listed its tree this session. The last listing of every base is remembered here — outside any
+// one index — so a rail that was unmounted (Layers showing, another mode) still sees what changed
+// meanwhile. Clicking, peeking or placing a plot clears its mark.
+const lastSeen = new Map<string, Map<string, string>>(); // base → abs → stamp
+const freshStore = writable<ReadonlySet<string>>(new Set());
+/** The plots marked fresh (new or regenerated since the rail last listed them). */
+export const freshPlots: Readable<ReadonlySet<string>> = { subscribe: freshStore.subscribe };
+export function clearFresh(abs?: string): void {
+  freshStore.update((s) => {
+    if (abs === undefined) return s.size ? new Set() : s;
+    if (!s.has(abs)) return s;
+    const n = new Set(s); n.delete(abs); return n;
+  });
+}
+/** Compare a (re)listing of `base` — the whole tree, or only `dirs` of it — with the last one. */
+function noteListing(base: string, items: Iterable<PlotItem>, dirs: string[] | null): void {
+  const prev = lastSeen.get(base);
+  const next = new Map<string, string>();
+  if (prev && dirs) {
+    // A partial re-list: keep what lies outside the re-listed folders.
+    for (const [abs, stamp] of prev) {
+      const cut = Math.max(abs.lastIndexOf("/"), abs.lastIndexOf("\\"));
+      if (!dirs.includes(abs.slice(0, cut))) next.set(abs, stamp);
+    }
+  }
+  const marked: string[] = [];
+  for (const it of items) {
+    next.set(it.abs, it.stamp);
+    if (prev && prev.get(it.abs) !== it.stamp) marked.push(it.abs);
+  }
+  lastSeen.set(base, next);
+  if (marked.length) freshStore.update((s) => { const n = new Set(s); for (const a of marked) n.add(a); return n; });
+}
+
 // The app's own writes under plots/ never reach the watcher (isSelfWrite) — writers announce them.
 const writeListeners = new Set<(paths: string[]) => void>();
 /** Announce files the app itself wrote under plots/ (pasted images, snips, dissection folders). */
@@ -108,6 +143,7 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
     if (mine !== generation || disposed || r.stale) return;
     byAbs.clear();
     for (const e of r.entries) byAbs.set(e.abs, toItem(e));
+    if (r.base) noteListing(r.base, byAbs.values(), null);
     publish({ base: r.base, loading: false, loaded: true, truncated: r.truncated, error: r.error && !r.unavailable ? r.error : "" });
     if (changedDuringLoad) { changedDuringLoad = false; void load(); }
   }
@@ -136,6 +172,8 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
       if (prev && prev.stamp === it.stamp && prev.w && !it.w) { it.w = prev.w; it.h = prev.h; it.physMm = prev.physMm; }
       byAbs.set(e.abs, it);
     }
+    const listedItems = [...byAbs.values()].filter((it) => listed.has(it.abs.slice(0, it.abs.length - it.name.length - 1)));
+    noteListing(base, listedItems, [...listed]);
     publish();
   }
 
@@ -154,10 +192,11 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
         let changed = false;
         for (const p of res) {
           const it = byAbs.get(p.abs);
-          if (it && p.w && p.h) { it.w = p.w; it.h = p.h; it.physMm = p.physMm ?? null; changed = true; }
+          // A NEW item object, never a mutation: views memoise on item identity.
+          if (it && p.w && p.h) { byAbs.set(p.abs, { ...it, w: p.w, h: p.h, physMm: p.physMm ?? null }); changed = true; }
           else if (it) unsized.add(`${p.abs}|${it.stamp}`);
         }
-        if (changed) state.update((s) => ({ ...s, version: s.version + 1 }));
+        if (changed) state.update((s) => ({ ...s, items: s.items.map((i) => byAbs.get(i.abs) ?? i), version: s.version + 1 }));
       }
     } finally { for (const a of want) probing.delete(a); }
   }
@@ -174,11 +213,15 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
       const ask = [...countQueue]; countQueue.clear();
       if (!fb?.dissectCounts || !ask.length) return;
       const mine = generation;
-      try {
-        const got = await fb.dissectCounts(ask);
-        if (mine !== generation || disposed) return;
-        counts.update((m) => { const next = new Map(m); for (const k of ask) next.set(k, got[k] ?? 0); return next; });
-      } catch { /* counts are decoration */ }
+      // The bridge takes at most 5,000 keys a call (a Has-dissections filter asks for them all).
+      for (let i = 0; i < ask.length; i += 2000) {
+        const chunk = ask.slice(i, i + 2000);
+        try {
+          const got = await fb.dissectCounts(chunk);
+          if (mine !== generation || disposed) return;
+          counts.update((m) => { const next = new Map(m); for (const k of chunk) next.set(k, got[k] ?? 0); return next; });
+        } catch { /* counts are decoration */ }
+      }
     }, 0);
   }
 

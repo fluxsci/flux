@@ -708,7 +708,7 @@
                 {#each PLOT_SEARCH_SCOPES as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
               </select>
             </label>
-            <p class="hint">What typing in the Plot gallery (<b>Alt+G</b>) searches. <b>Project</b> is this project's <code>plots/</code> folder; <b>Global</b> is your plot library in <code>{plotLibPath || "FluxConfig/plot_library"}</code>, shared by every project. The switch at the top of the gallery picks which one you browse.</p>
+            <p class="hint">What typing in the Plot gallery (<b>Shift+Alt+G</b>) searches. <b>Project</b> is this project's <code>plots/</code> folder; <b>Global</b> is your plot library in <code>{plotLibPath || "FluxConfig/plot_library"}</code>, shared by every project. The switch at the top of the gallery picks which one you browse.</p>
             <label class="chk">
               <input type="checkbox" checked={$settings.galleryFolderClickExpands} onchange={(e) => settings.update((v) => ({ ...v, galleryFolderClickExpands: e.currentTarget.checked }))} />
               Clicking a gallery folder expands/collapses it

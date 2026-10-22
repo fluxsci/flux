@@ -4579,7 +4579,7 @@
                   font-size={12 / renderZoom}
                 >
                   <tspan x={fig.width / 2} dy={-5 / renderZoom}>{frame ? "Drop PNG/SVG plots here" : "Drop PNG/SVG plots or GLB models here"}</tspan>
-                  <tspan x={fig.width / 2} dy={18 / renderZoom}>{frame ? "Ctrl+Shift+K import · Alt+G plot gallery" : "Ctrl+Shift+K import · Alt+G plots"}</tspan>
+                  <tspan x={fig.width / 2} dy={18 / renderZoom}>"Ctrl+Shift+K import · Alt+G plots"</tspan>
                 </text>
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}

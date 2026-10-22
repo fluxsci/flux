@@ -11,6 +11,12 @@
   import { get } from "svelte/store";
   import GalleryPane from "./GalleryPane.svelte";
   import DissectionsPane from "./DissectionsPane.svelte";
+  import Peek from "./Peek.svelte";
+  import { hidePeek, setPeekOnHover } from "./peek";
+  import { holdPrewarm } from "./thumbClient";
+  import { railPrefs } from "./railPrefs";
+  import type { PlaceAdapter } from "./insert";
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
   import { figureLayout, FIGURE_LAYOUT_DEFAULTS } from "../figureLayoutStore";
   import { pointerDrag } from "../ui/pointerDrag";
   import { resolvePlotElement, offerElement, resetFocus } from "./focusPlot";
@@ -19,7 +25,17 @@
   import { project, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
   import type { HitBridgeHolder } from "../interact/canvasHitBridge";
 
-  let { active = true, hitBridge = null, refreshKey = 0 }: { active?: boolean; hitBridge?: HitBridgeHolder | null; refreshKey?: number } = $props();
+  let { active = true, hitBridge = null, refreshKey = 0, accept = "svg,png,glb", place = null, unit = "figure" }: {
+    active?: boolean;
+    hitBridge?: HitBridgeHolder | null;
+    refreshKey?: number;
+    /** What the gallery lists (Slide adds video clips). */
+    accept?: string;
+    /** The mode's placement route (Slide's adapter); the shared pipeline when null. */
+    place?: PlaceAdapter | null;
+    /** What a destination is called. */
+    unit?: "figure" | "slide";
+  } = $props();
 
   const SNAP = 24;
   const MIN_PANE = 96;
@@ -94,33 +110,58 @@
     const offPart = partSelection.subscribe(() => offerCanvas());
     // … and press-driven: a press on the canvas re-claims the focus even when it changes no
     // selection (re-clicking the plot that is already selected). After the press is handled.
+    // A canvas press also holds thumbnail pre-warm until the gesture ends (+300 ms).
+    let holding = false;
     const press = (e: PointerEvent) => {
       if (!(e.target instanceof Element) || !e.target.closest(".canvas-wrap")) return;
+      holding = true; holdPrewarm(true);
       setTimeout(offerCanvas, 0);
     };
+    const release = () => { if (holding) { holding = false; holdPrewarm(false); } };
     window.addEventListener("pointerdown", press, true);
-    return () => { offSel(); offPart(); window.removeEventListener("pointerdown", press, true); };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    return () => {
+      offSel(); offPart(); release();
+      window.removeEventListener("pointerdown", press, true);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+    };
+  });
+
+  // ------------------------------------------------------------------ Peek hides
+  $effect(() => { setPeekOnHover($railPrefs.peek); });
+  $effect(() => {
+    if (!active) { hidePeek(); return; }
+    // Any key hides it (Shift+Space toggles it — the panes handle that one).
+    const key = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+      if (!(e.code === "Space" && e.shiftKey) && e.key !== "Shift") hidePeek();
+    };
+    window.addEventListener("keydown", key, true);
+    return () => { window.removeEventListener("keydown", key, true); hidePeek(); };
   });
   // A different project: the old focus means nothing here.
   let lastRoot = "";
   $effect(() => { const r = root; if (lastRoot && r !== lastRoot) resetFocus(); lastRoot = r; });
 </script>
 
-<div class="plots-rail" data-command-scope={PLOTS_RAIL_SCOPE} data-plots-rail bind:this={body}>
+<div class="plots-rail" data-command-scope={PLOTS_RAIL_SCOPE} data-plots-rail bind:this={body} onpointerleave={hidePeek} onpointerdowncapture={hidePeek} role="presentation">
   {#if galleryCollapsed}
     <button class="collapsed-bar" onclick={() => figureLayout.update((l) => ({ ...l, galleryCollapsed: false }))} title="Show the gallery" data-gallery-collapsed>
       <span class="eyebrow">Plots</span><span class="hint">▾ show</span>
     </button>
   {:else}
     <div class="gallery-slot" style:height={`${galleryH}px`}>
-      <GalleryPane {active} {hitBridge} {refreshKey} onShowDissections={showDissections} />
+      <GalleryPane {active} {hitBridge} {refreshKey} {accept} {place} onShowDissections={showDissections} />
     </div>
   {/if}
   {#if !galleryCollapsed && !dissectCollapsed}
     <div class="splitter" role="separator" aria-orientation="horizontal" aria-label="Resize gallery and dissections (double-click resets)" onpointerdown={startSplit} ondblclick={resetSplit} data-plots-splitter></div>
   {/if}
-  <DissectionsPane {active} {hitBridge} collapsed={dissectCollapsed} {galleryCollapsed} onCollapse={toggleDissections} onMaximize={toggleMaximize} />
+  <DissectionsPane {active} {hitBridge} {place} collapsed={dissectCollapsed} {galleryCollapsed} onCollapse={toggleDissections} onMaximize={toggleMaximize} />
 </div>
+{#if active}<Peek {unit} railEl={body} />{/if}
 
 <style>
   .plots-rail { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--c-bg-raised); color: var(--c-tx); font: 12px var(--font-ui); -webkit-font-smoothing: antialiased; }

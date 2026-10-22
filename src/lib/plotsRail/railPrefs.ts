@@ -17,9 +17,22 @@ export interface RailPrefs {
   dissectTileH: number;
   /** Scroll the gallery to the plot selected on the canvas when it is off-screen. */
   autoReveal: boolean;
+  /** Peek (the information popover) after a 350 ms hover. Shift+Space works either way. */
+  peek: boolean;
+  /** Filters — only plots placed nowhere / fluxplots / plots with dissections. */
+  filterUnused: boolean;
+  filterFluxplot: boolean;
+  filterDissected: boolean;
+  /** A 1c / 1.5c / 2c journal-width badge on each tile (from the physical size). */
+  widthBadge: boolean;
+  /** Collapse fig1_a…f / _v1…_v7 variants in one folder into one stack tile. */
+  stacks: boolean;
 }
 
-export const RAIL_PREFS_DEFAULTS: RailPrefs = { scope: "project", sort: "folders", names: true, backdrop: "auto", tileH: 112, dissectTileH: 84, autoReveal: true };
+export const RAIL_PREFS_DEFAULTS: RailPrefs = {
+  scope: "project", sort: "folders", names: true, backdrop: "auto", tileH: 112, dissectTileH: 84, autoReveal: true,
+  peek: true, filterUnused: false, filterFluxplot: false, filterDissected: false, widthBadge: false, stacks: false,
+};
 export const TILE_H_MIN = 56;
 export const TILE_H_MAX = 360;
 const KEY = "flux.plotsRail";

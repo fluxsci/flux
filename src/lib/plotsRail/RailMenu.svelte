@@ -3,7 +3,7 @@
     | { kind: "action"; label: string; hint?: string; checked?: boolean; disabled?: boolean; danger?: boolean; run: () => void }
     | { kind: "heading"; label: string }
     | { kind: "separator" }
-    | { kind: "slider"; label: string; min: number; max: number; step: number; value: number; set: (v: number) => void };
+    | { kind: "slider"; label: string; min: number; max: number; step: number; value: number; set: (v: number) => void; unit?: string; hint?: string };
 </script>
 
 <script lang="ts">
@@ -23,6 +23,8 @@
   } = $props();
 
   let el = $state<HTMLDivElement>();
+  // Sliders show their value live (the items are a snapshot taken when the menu opened).
+  let live = $state<Record<number, number>>({});
   let left = $state(0), top = $state(0);
 
   onMount(() => {
@@ -66,7 +68,7 @@
     {:else if item.kind === "heading"}
       <div class="heading">{item.label}</div>
     {:else if item.kind === "slider"}
-      <label class="slider"><span>{item.label}</span><input type="range" min={item.min} max={item.max} step={item.step} value={item.value} oninput={(e) => item.set(Number((e.currentTarget as HTMLInputElement).value))} /></label>
+      <label class="slider" title={item.hint}><span>{item.label}</span><input type="range" min={item.min} max={item.max} step={item.step} value={item.value} aria-label={item.label} oninput={(e) => { const v = Number((e.currentTarget as HTMLInputElement).value); live[i] = v; item.set(v); }} /><output>{live[i] ?? item.value}{item.unit ?? ""}</output></label>
     {:else}
       <button
         role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
@@ -95,4 +97,5 @@
   .sep { height: 1px; margin: 4px 0; background: var(--c-line); }
   .slider { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px 0 24px; color: var(--c-tx-2); white-space: nowrap; }
   .slider input { flex: 1; min-width: 80px; accent-color: var(--c-accent); }
+  .slider output { min-width: 40px; text-align: right; color: var(--c-tx-faint); font: 10.5px var(--font-mono); }
 </style>

@@ -6,7 +6,8 @@
 //           element drags exist here): click toggles a unit, Alt+click picks
 //           the whole object, a drag draws a fully-inside marquee, `a` widens
 //           to siblings, double-click picks + confirms, `b`/Enter confirm.
-//   add   — entered by a drawing tool, Ctrl+P (presets) or Alt+G (gallery):
+//   add   — entered by a drawing tool, Ctrl+P (presets), the gallery dialog, or a plot
+//           placed from the Plots rail (SlideMode.placeFromRail):
 //           the ordinary editor runs, and every element created meanwhile
 //           joins the pick. Enter/Done returns to `pick`; Escape leaves first.
 //

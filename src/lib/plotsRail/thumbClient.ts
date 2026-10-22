@@ -6,7 +6,13 @@
 //
 // Fallback (no bridge method, the worker unavailable, a format the worker cannot decode): the
 // renderer draws the tile itself (browserThumb.ts), one at a time, with the SAME ink analysis —
-// the backdrop law holds on every path. 3D models use the existing gallery preview.
+// the backdrop law holds on every path. 3D models use the existing gallery preview, videos their
+// poster frame (Slide's rail lists them).
+//
+// PRE-WARM: after a listing settles the rail hands over every listed plot; the worker renders
+// them into the DISK cache one at a time (no bytes cross IPC), only while no visible request is
+// queued or in flight, and never during a canvas pointer gesture (+300 ms) — the next scroll or
+// project open is then served from disk.
 
 import { fileBridge, type PlotThumbResult } from "../project/types";
 import { bucketFor, type InkStats } from "./rules";
@@ -66,7 +72,7 @@ function trim() {
   for (const [key, e] of entries) {
     if (entries.size <= MAX_ENTRIES && bytes <= MAX_BYTES) break;
     if (e.users.size || e.phase !== "done") continue;
-    if (e.state.url) URL.revokeObjectURL(e.state.url);
+    if (e.state.url.startsWith("blob:")) URL.revokeObjectURL(e.state.url);
     bytes -= e.bytes;
     entries.delete(key);
   }
@@ -81,6 +87,7 @@ function pump() {
     inFlight++;
     void request(e).finally(() => { inFlight--; pump(); });
   }
+  if (!inFlight && !queue.length && warmQueue.length) scheduleWarm(100);
 }
 
 function finish(e: Entry, bytes: Uint8Array | null, r: { width?: number; height?: number; stats?: InkStats | null; paper?: string | null; error?: string }) {
@@ -98,6 +105,7 @@ function finish(e: Entry, bytes: Uint8Array | null, r: { width?: number; height?
 async function request(e: Entry): Promise<void> {
   const fb = fileBridge();
   if (/\.glb$/i.test(e.path)) return model3d(e);
+  if (/\.(mp4|mov)$/i.test(e.path)) return video(e);
   if (forceFallback || !fb?.plotThumb) { fallback(e); return; }
   let r: PlotThumbResult;
   try { r = await fb.plotThumb({ path: e.path, bucket: e.bucket, priority: e.priority, rid: e.rid }); }
@@ -119,6 +127,20 @@ async function model3d(e: Entry) {
     publish(e, { url: p.url, width: 0, height: 0, stats: null, paper: null, pending: false, error: "" });
   } catch (err) {
     finish(e, null, { error: err instanceof Error ? err.message : "No 3D preview" });
+  }
+}
+
+async function video(e: Entry) {
+  try {
+    const fb = fileBridge();
+    if (!fb?.videoPreview) throw new Error("Video previews need the desktop app");
+    const p = await fb.videoPreview(e.path);
+    e.phase = "done";
+    e.bytes = p.poster.length;
+    publish(e, { url: p.poster, width: p.width, height: p.height, stats: null, paper: null, pending: false, error: "" });
+    trim();
+  } catch (err) {
+    finish(e, null, { error: err instanceof Error ? err.message : "No video preview" });
   }
 }
 
@@ -206,7 +228,82 @@ export function knownStats(path: string, stamp: string): { stats: InkStats | nul
 
 /** Drop every cached URL (project change). */
 export function clearThumbs(): void {
-  for (const e of entries.values()) if (e.state.url && !e.users.size) URL.revokeObjectURL(e.state.url);
+  for (const e of entries.values()) if (e.state.url.startsWith("blob:") && !e.users.size) URL.revokeObjectURL(e.state.url);
   for (const [key, e] of entries) if (!e.users.size) entries.delete(key);
   statsMemo.clear();
+  warmQueue.length = 0;
+  warmed.clear();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pre-warm.
+// ---------------------------------------------------------------------------------------------
+
+export interface WarmJob { path: string; stamp: string; cssWidth: number }
+const warmQueue: (WarmJob & { bucket: number })[] = [];
+/** path|stamp|bucket already in the disk cache (or failed) this session. */
+const warmed = new Set<string>();
+let warmOwner: object | null = null;
+let warmBusy = false;
+let warmHeld = false;
+let warmHoldUntil = 0;
+let warmTimer: ReturnType<typeof setTimeout> | null = null;
+let warmDisabled = false;
+let warmDone = 0;
+
+/** Hand the pre-warm queue to `owner` (replacing any other owner's): these files, in order. */
+export function setPrewarm(owner: object, jobs: WarmJob[], dpr: number): void {
+  warmOwner = owner;
+  warmQueue.length = 0;
+  for (const j of jobs) {
+    if (!/\.(svg|png)$/i.test(j.path)) continue;
+    const bucket = bucketFor(j.cssWidth, dpr);
+    const key = `${j.path}|${j.stamp}|${bucket}`;
+    if (warmed.has(key) || entries.get(key)?.phase === "done") continue;
+    warmQueue.push({ ...j, bucket });
+  }
+  scheduleWarm(0);
+}
+/** Stop pre-warming for `owner` (rail hidden, project changed, unmounted). */
+export function clearPrewarm(owner: object): void {
+  if (warmOwner !== owner) return;
+  warmOwner = null;
+  warmQueue.length = 0;
+}
+/** Hold pre-warm during a canvas pointer gesture; release resumes it after 300 ms. */
+export function holdPrewarm(on: boolean): void {
+  warmHeld = on;
+  if (!on) { warmHoldUntil = Date.now() + 300; scheduleWarm(300); }
+}
+/** Dev/test: what pre-warm is doing. */
+export function prewarmState(): { queued: number; done: number; busy: boolean; held: boolean } {
+  return { queued: warmQueue.length, done: warmDone, busy: warmBusy, held: warmHeld || Date.now() < warmHoldUntil };
+}
+
+function scheduleWarm(ms: number) {
+  if (warmTimer) return;
+  warmTimer = setTimeout(() => { warmTimer = null; pumpWarm(); }, ms);
+}
+
+function pumpWarm() {
+  if (warmBusy || warmDisabled || !warmQueue.length || forceFallback) return;
+  const fb = fileBridge();
+  if (!fb?.plotThumb) return;
+  // Visible work first, always; then wait out a gesture.
+  if (inFlight || queue.length || fallbackQueue.length || fallbackBusy) { scheduleWarm(250); return; }
+  if (warmHeld || Date.now() < warmHoldUntil) { scheduleWarm(Math.max(50, warmHoldUntil - Date.now())); return; }
+  const job = warmQueue.shift()!;
+  const key = `${job.path}|${job.stamp}|${job.bucket}`;
+  if (warmed.has(key) || entries.get(key)?.phase === "done") { scheduleWarm(0); return; }
+  warmBusy = true;
+  void fb.plotThumb({ path: job.path, bucket: job.bucket, priority: 1e9, rid: `w${++ridSeq}`, warm: true })
+    .then((r) => {
+      if (r.unavailable) { warmDisabled = true; warmQueue.length = 0; return; }
+      if (r.cancelled) return;
+      warmed.add(key);
+      warmDone++;
+      if (r.stats) statsMemo.set(`${job.path}|${job.stamp}`, { stats: r.stats, paper: r.paper ?? null });
+    })
+    .catch(() => { warmed.add(key); })
+    .finally(() => { warmBusy = false; scheduleWarm(0); });
 }

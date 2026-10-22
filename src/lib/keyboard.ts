@@ -68,8 +68,8 @@ import { saveProject, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen, shellModalOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { dissectTarget, openDissectForSelection } from "./dissect/state";
-import { figureLayout } from "./figureLayoutStore";
-import { requestRailFocus, railQuickLook } from "./plotsRail/railState";
+import { requestRailFocus, railQuickLook, railHostFor } from "./plotsRail/railState";
+import "./plotsRail/figureRailHost";
 import { plotsRailOwnsKey, inPlotsRailScope } from "./plotsRail/keyScope";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
@@ -812,27 +812,36 @@ export function handleKey(e: KeyboardEvent) {
     t &&
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
-  // Alt+G — the Plots rail (Figure only; Slide keeps its gallery and Become Add mode).
-  // Works while typing, so the round trip from the rail's own search box lands:
-  //   rail hidden or showing Layers → show Plots, focus its search;
+  // Alt+G — the Plots rail, in every mode that has one (Figure's [Layers | Plots], Slide's
+  // [Slides | Plots]: railState's host registry). Works while typing, so the round trip from
+  // the rail's own search box lands:
+  //   rail hidden or showing its other view → show Plots, focus its search;
   //   Plots showing, keyboard elsewhere → focus its search;
-  //   keyboard inside the rail → back to Layers, keyboard back to the canvas.
+  //   keyboard inside the rail → back to the other view, keyboard back to the canvas.
   // Shift+Alt+G opens the full gallery, pinned (unchanged).
-  if (e.altKey && !mod && e.code === "KeyG" && !e.shiftKey && storeTenant() === "figure" && (!typing || inPlotsRailScope(e))) {
+  const railHost = e.altKey && !mod && e.code === "KeyG" && !e.shiftKey ? railHostFor(storeTenant()) : null;
+  if (railHost && (!typing || inPlotsRailScope(e))) {
     // With the full gallery pinned in its own window, Alt+G keeps focusing that window
     // (PlotImporter's own listener does it).
     if (get(importerOpen) && get(importerDetached)) return;
     e.preventDefault();
     if (!(get(embeddedProjectRoot) || get(projectDir))) return;
-    const hidden = get(leftRailHidden), view = get(figureLayout).leftView;
-    if (!hidden && view === "plots" && inPlotsRailScope(e)) {
-      figureLayout.update((l) => ({ ...l, leftView: "layers" }));
+    const hidden = get(leftRailHidden), plots = railHost.isPlots();
+    if (!hidden && plots && inPlotsRailScope(e)) {
+      railHost.setPlots(false);
       (e.target as HTMLElement | null)?.blur?.();
       return;
     }
     if (hidden) leftRailHidden.set(false);
-    if (view !== "plots") figureLayout.update((l) => ({ ...l, leftView: "plots" }));
+    if (!plots) railHost.setPlots(true);
     requestRailFocus();
+    return;
+  }
+
+  // Shift+Alt+G from the rail's own search box: the full gallery, pinned (the rail's "more").
+  if (e.altKey && !mod && e.code === "KeyG" && e.shiftKey && typing && inPlotsRailScope(e)) {
+    e.preventDefault();
+    if (get(embeddedProjectRoot) || get(projectDir)) { importerPinRequested.set(true); importerOpen.set(true); }
     return;
   }
 
@@ -884,7 +893,7 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Shift+Alt+G (and, in Slide, Alt+G): the full Plot Gallery — Shift opens it pinned.
+  // Shift+Alt+G: the full Plot Gallery, pinned (Alt+G alone, in a mode without a Plots rail).
   if (e.altKey && !mod && e.code === "KeyG") {
     e.preventDefault();
     if (get(embeddedProjectRoot) || get(projectDir)) { importerPinRequested.set(e.shiftKey); importerOpen.set(true); }

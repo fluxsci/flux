@@ -6,6 +6,7 @@
   import { get } from "svelte/store";
   import { activeTool, importerOpen, embeddedProjectRoot, projectDir } from "../../../../lib/store";
   import { presetPicker } from "../../../../lib/presets";
+  import { openPlotsRail } from "../../../../lib/plotsRail/railState";
   import { PAIR_POLICIES } from "../../../../lib/slide/targets";
   import type { PairPolicy } from "../../../../lib/slide/types";
   import TimelineMenu, { type MenuItem } from "../animator/TimelineMenu.svelte";
@@ -41,7 +42,7 @@
     { label: "Text", hint: "T", action: tool("text") },
     { label: "", divider: true },
     { label: "Preset…", hint: "Ctrl+P · from your preset library", action: () => presetPicker.set({ mode: "insert" }) },
-    { label: "Plot…", hint: "Alt+G · from the plot gallery", disabled: !(get(embeddedProjectRoot) || get(projectDir)), action: () => importerOpen.set(true) },
+    { label: "Plot…", hint: "Alt+G · from the Plots rail", disabled: !(get(embeddedProjectRoot) || get(projectDir)), action: () => { if (!openPlotsRail("slide")) importerOpen.set(true); } },
   ]);
   function openAdd(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();

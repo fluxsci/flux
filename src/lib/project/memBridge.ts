@@ -305,6 +305,13 @@ export function createMemBridge(): FileBridge & {
         if (/\.svg$/i.test(abs) && sidecar) {
           try { const tok = JSON.parse(dec.decode(sidecar))?.style?.tokens; const v = tok?.paper ?? tok?.plot; if (typeof v === "string") paper = v; } catch { /* no paper */ }
         }
+        // Pre-warm (the rail's idle generation): the app's worker fills its disk cache and returns
+        // no bytes; here the render is the work, and gates read the count.
+        if (request.warm) {
+          const w = window as unknown as { __fluxPrewarmed?: string[] };
+          (w.__fluxPrewarmed ??= []).push(abs);
+          return { warmed: true, stats: t.stats, paper };
+        }
         return { bytes: t.png, width: t.width, height: t.height, stats: t.stats, paper, naturalWidth: t.naturalWidth, naturalHeight: t.naturalHeight };
       } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
     },
