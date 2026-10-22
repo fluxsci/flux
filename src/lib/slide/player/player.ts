@@ -854,7 +854,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     if (bi >= beats() - 1) { if (!opts.manualSteps) nextSlide(); return; }
     // Interrupt settle: a click on a moving cue finishes it (<= SETTLE_MAX_MS, velocity-continuous) before the
     // next cue starts; further clicks queue. Seek/video/prev/Animator preview never reach here.
-    if (!opts.manualSteps && opts.settle !== false && playing && !reduced) {
+    if (!opts.manualSteps && opts.settle !== false && config.animate !== false && playing && !reduced) {
       if (clockMode === "settling") { queuedClicks++; return; }
       const remaining = duration - time;
       if (clockMode === "forward" && remaining >= SETTLE_MIN_REMAINING_MS) {

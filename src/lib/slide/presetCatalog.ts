@@ -123,9 +123,10 @@ export function autoBuildMs(preset: PresetName, manifestMs?: number): number {
  *  caller OMITTED is filled from `authoredFields`, so an agent-authored deck gets the same explicit pace as a
  *  GUI-authored one. Only known, non-media presets are filled; supplied fields win key by key; an `influence`
  *  or `curve` the caller supplied suppresses the easing/curve fill (one group); keyframe-only tracks are left
- *  alone. Copy/paste, snapshots and library inserts never call this (an omitted field there stays omitted,
+ *  alone; a style-linked track (`styleId`) is returned unchanged so the style keeps supplying its fields. Copy/paste, snapshots and library inserts never call this (an omitted field there stays omitted,
  *  i.e. frozen-classic). */
-export function withAuthoringTiming<T extends { preset?: string; duration?: number; easing?: EasingToken; influence?: unknown; curve?: unknown; params?: Record<string, unknown> }>(track: T): T {
+export function withAuthoringTiming<T extends { preset?: string; styleId?: string; duration?: number; easing?: EasingToken; influence?: unknown; curve?: unknown; params?: Record<string, unknown> }>(track: T): T {
+  if (track.styleId !== undefined) return track; // a style-linked track INHERITS its timing/curve/params from the style: never write local overrides
   if (track.preset === undefined || !KNOWN_PRESETS.has(track.preset) || PRESET_CATALOG[track.preset as PresetName].family === "media") return track;
   const fields = authoredFields(track.preset, track.params), out = { ...track } as T & { easing?: EasingToken; curve?: unknown };
   if (out.duration === undefined) out.duration = fields.duration;

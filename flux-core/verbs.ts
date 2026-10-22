@@ -3990,8 +3990,7 @@ export const VERBS: VerbDef[] = [
       if(a.track && keys.some(k=>a[k]!==undefined))throw new ValidationError('Pass --track or individual animation fields, not both');
       const track=(a.track??pick(a,keys)) as import('../src/lib/slide/types').Track;
       if(typeof track.target!=='string'||!track.target.trim())throw new ValidationError('set-animation needs --target (an element id, or @camera/@stage)');
-      await core.setAnimation(ctx.root,s(a.deckId),s(a.slideId),s(a.beatId),track,{append:!!a.append});
-      return track;
+      return await core.setAnimation(ctx.root,s(a.deckId),s(a.slideId),s(a.beatId),track,{append:!!a.append});
     },
     render:{human:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return {err:`✓ set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`};},mcp:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return text(`set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`);}},
   },

@@ -128,6 +128,8 @@ h.eq(withAuthoringTiming({ preset: "fade", curve: { kind: "bezier", p: [0, 0, 1,
 { const input = { preset: "fadeRise" }; withAuthoringTiming(input as any); h.eq(input, { preset: "fadeRise" }, "withAuthoringTiming never mutates its input"); }
 h.eq(withAuthoringTiming({ preset: "fade", duration: 400, easing: "linear" } as any), { preset: "fade", duration: 400, easing: "linear" }, "supplied timing is untouched");
 h.eq(withAuthoringTiming({ preset: "fade", influence: { in: 30, out: 30 } } as any), { preset: "fade", influence: { in: 30, out: 30 }, duration: 700 }, "an influence is a curve choice: duration filled, no easing added");
+{ const linked = { target: "x", preset: "fadeRise", styleId: "gentle-reveal" }; h.eq(withAuthoringTiming(linked as any), { target: "x", preset: "fadeRise", styleId: "gentle-reveal" }, "a style-linked track is returned unchanged (the style supplies duration/curve/params)");
+  h.eq(withAuthoringTiming({ target: "x", preset: "fade" } as any), { target: "x", preset: "fade", duration: 700, curve: QUICK_SMOOTH }, "an unlinked track is still filled"); }
 h.eq(withAuthoringTiming({ preset: "videoStart" } as any), { preset: "videoStart" }, "media commands untouched");
 h.eq(withAuthoringTiming({ target: "x" } as any), { target: "x" }, "keyframe-only tracks untouched");
 ops.addElement(deck, s.id, { type: "ellipse", id: "e", x: 200, y: 50, width: 50, height: 50, rotation: 0, fill: "#00f", stroke: "none", strokeWidth: 0 } as any);
@@ -156,7 +158,15 @@ h.section("settle clock (pure)");
   h.eq([f(0), f(120), f(500)], [t0, D, D], "settleTime starts at the click time and lands exactly on the end");
   let mono = true; for (let e = 1; e <= 120; e++) if (f(e) < f(e - 1)) mono = false; h.ok(mono, "monotone");
   h.ok(Math.abs((f(0.001) - f(0)) / 0.001 - 1) < 1e-3, "velocity is continuous at the click (rate 1)");
-  let worst = 0; for (let e = 1; e <= 120; e++) worst = Math.max(worst, f(e) - f(e - 1)); h.ok(worst < 16.7 * 4.2, `per-frame time advance stays <= 4.2x real time (${worst.toFixed(1)} ms per ms-step x 1 frame)`);
+  // the true end-of-settle cue-time rate is 2/a - 1 with a = span/remaining (rate is 1 at the click, rising monotonically)
+  { const a = 120 / (D - t0), rate = (e: number) => (f(e + 0.01) - f(e - 0.01 < 0 ? 0 : e - 0.01)) / (e - 0.01 < 0 ? 0.01 : 0.02);
+    h.ok(Math.abs(rate(0) - 1) < 1e-2 && rate(120 - 0.01) <= 2 / a - 1 + 1e-6 && Math.abs(rate(120 - 0.01) - (2 / a - 1)) < 0.05, `end-of-settle rate is 2/a - 1 = ${(2 / a - 1).toFixed(2)}x real time (measured ${rate(120 - 0.01).toFixed(2)}x), never above it`); } 
+  // the VISIBLE quantity: eased progress per 16.7 ms frame of a QUICK_SMOOTH appearance clicked at 300 of 700 ms
+  { const curve = (resolveCurve({ curve: QUICK_SMOOTH, preset: "fade" } as any) as any).fn as (x: number) => number, D2 = 700, c0 = 300;
+    const g = (e: number) => curve(settleTime(c0, D2, 120, e) / D2);
+    let step = 0; for (let e = 16.7; e <= 120; e += 1) step = Math.max(step, g(e) - g(e - 16.7));
+    const snap = 1 - curve(c0 / D2);
+    h.ok(snap > 0.4 && step < 0.5 * snap, `a settled click moves at most ${(step * 100).toFixed(0)}% of the progress in one frame vs the ${(snap * 100).toFixed(0)}% snap jump (R4_T1 measured 11% at its click point)`); }
   h.eq([settleTime(700, 700, 120, 10), settleTime(0, 700, 0, 10), settleTime(150, 700, 120, -5)], [700, 700, 150], "degenerate inputs: nothing remaining / zero span snap to the end; negative elapsed clamps to the click time"); }
 h.ok(SETTLE_MAX_MS === 120 && SETTLE_MIN_REMAINING_MS === 60, "SETTLE_MAX_MS 120, SETTLE_MIN_REMAINING_MS 60");
 h.section("settle in the real player (clockMode)");

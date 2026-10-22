@@ -1591,6 +1591,15 @@
       ]
     },
     {
+      "$why": "motion/tokens.ts owns EASE.smooth, smoothEasing and the pure ceSmooth/rushInto/rushFrom/doubleSmooth that the pace and easing gates pin byte for byte.",
+      "glob": "src/lib/motion/tokens.ts",
+      "run": [
+        "verify-pace-defaults.ts",
+        "verify-slide-easing.ts",
+        "verify-slide-curves.ts"
+      ]
+    },
+    {
       "glob": "src/lib/slide/curves.ts",
       "run": [
         "verify-slide-curves.ts",
@@ -2859,6 +2868,8 @@
       "$why": "tokens.css owns the `:root, .ts-scaled` type scale — Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
       "glob": "src/styles/tokens.css",
       "run": [
+        "verify-pace-defaults.ts",
+        "verify-slide-easing.ts",
         "verify-paper-textscale.ts",
         "verify-paper-textsize-gui.mjs",
         "verify-become-picker-gui.mjs",

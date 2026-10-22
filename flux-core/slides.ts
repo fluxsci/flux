@@ -396,13 +396,16 @@ export async function setAnimation(
   beatId: string,
   track: Track,
   opts: { append?: boolean } = {},
-): Promise<void> {
+): Promise<Track> {
+  let stored = track;
   await mutateDeck(root, deckId, "set_animation", (deck) => {
     mustSlide(deck, slideId);
     const authored = withAuthoringTiming(track);
+    stored = authored;
     const ok = opts.append ? slideOps.appendAnimation(deck, slideId, beatId, authored) : slideOps.setAnimation(deck, slideId, beatId, authored);
     if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
   });
+  return stored;
 }
 
 /** Create independent ghost results through the same pure operation as the UI. */
