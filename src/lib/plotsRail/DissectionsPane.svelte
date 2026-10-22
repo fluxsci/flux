@@ -240,13 +240,29 @@
 
   // ------------------------------------------------------------------ header thumbnail
   let headThumb = $state("");
+  // Keyed by the file's version (size:mtime from a header probe), re-probed when the watcher
+  // names the file — a regenerated plot's header picture is fresh, an unchanged one is cached.
+  let headRev = $state(0);
   $effect(() => {
     const abs = target?.abs;
+    const off = fileBridge()?.onFsChangedBatch?.((info) => {
+      if (info.subsystem === "plots" && abs && (info.rescan || info.paths.some((p) => p.replace(/\\/g, "/") === abs.replace(/\\/g, "/")))) headRev++;
+    });
+    return () => off?.();
+  });
+  $effect(() => {
+    const abs = target?.abs;
+    void headRev;
     headThumb = "";
     if (!abs || !/\.(svg|png)$/i.test(abs)) return;
-    // Keyed per focus change, so a regenerated plot's header picture is fresh (the disk cache
-    // makes the repeat cheap).
-    return acquireThumb(abs, `head:${focus.n}`, 40, window.devicePixelRatio || 1, 0, (s) => { headThumb = s.url; });
+    let release: (() => void) | null = null, alive = true;
+    void (async () => {
+      let stamp = "?";
+      try { const [p] = (await fileBridge()?.plotsProbe?.([abs])) ?? []; if (p?.size != null) stamp = `${p.size}:${p.mtimeMs}`; } catch { /* the cached picture, if any */ }
+      if (!alive) return;
+      release = acquireThumb(abs, stamp, 40, window.devicePixelRatio || 1, 0, (st) => { headThumb = st.url; });
+    })();
+    return () => { alive = false; release?.(); };
   });
 
   async function createFolder() {

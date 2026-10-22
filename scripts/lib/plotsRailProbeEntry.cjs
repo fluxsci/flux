@@ -23,9 +23,13 @@ const workerPids = () => { if (process.platform !== 'linux') return []; try { re
 const tile = (suffix) => `[data-plots-gallery] [data-tile$="${suffix}"]`;
 const backdropOf = (suffix) => js(win, `document.querySelector(${JSON.stringify(tile(suffix))})?.getAttribute('data-backdrop')`);
 const imgLoaded = (suffix) => js(win, `!!document.querySelector(${JSON.stringify(tile(suffix) + ' img')})?.naturalWidth`);
+/** Bring a tile on screen the way a user finds one: type its name into the rail's search. */
 async function scrollTo(suffix) {
-  await wait(() => js(win, `(async()=>{const vp=document.querySelector('[data-plots-gallery] .viewport');for(let i=0;i<120;i++){const n=document.querySelector(${JSON.stringify(tile(suffix))});if(n){n.scrollIntoView({block:'center'});return true}vp.scrollTop+=200;await new Promise(r=>setTimeout(r,30))}vp.scrollTop=0;return false})()`), 'scroll to ' + suffix);
+  const stem = suffix.split('/').pop().replace(/\.[^.]+$/, '');
+  await js(win, `(()=>{const i=document.querySelector('[data-plots-search]');i.value=${JSON.stringify(stem)};i.dispatchEvent(new Event('input',{bubbles:true}));return true})()`);
+  await wait(() => js(win, `(()=>{const n=document.querySelector(${JSON.stringify(tile(suffix))});if(!n)return false;n.scrollIntoView({block:'center'});return true})()`), 'find ' + suffix);
 }
+const clearSearch = () => js(win, "(()=>{const i=document.querySelector('[data-plots-search]');i.value='';i.dispatchEvent(new Event('input',{bubbles:true}));return true})()");
 
 async function main() {
   win = await wait(() => BrowserWindow.getAllWindows()[0], 'app window'); win.show(); win.focus();
@@ -66,9 +70,12 @@ async function main() {
   check(true, 'a file written into the dissection folder appears through the real watcher');
   // A regenerated plot: new bytes on disk → a fresh thumbnail (new version stamp).
   const src0 = await js(win, `document.querySelector(${JSON.stringify(tile('/growth.svg') + ' img')})?.src`);
+  const head0 = await js(win, "document.querySelector('[data-plots-dissections] img.mini')?.src ?? ''");
   fs.writeFileSync(path.join(root, 'plots', 'growth.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="48pt" viewBox="0 0 72 48"><rect width="72" height="48" fill="#24837b"/></svg>');
   await wait(async () => { const s = await js(win, `document.querySelector(${JSON.stringify(tile('/growth.svg') + ' img')})?.src`); return s && s !== src0; }, 'regenerated thumbnail');
   check(true, 'a regenerated plot gets a fresh thumbnail without a refresh');
+  await wait(async () => { const h = await js(win, "document.querySelector('[data-plots-dissections] img.mini')?.src ?? ''"); return h && h !== head0; }, 'regenerated header picture');
+  check(true, "…and the Dissections header's picture of it is fresh too");
   // Kill the worker: the next thumbnail still arrives (respawn).
   if (process.platform === 'linux' && workers.length) {
     process.kill(workers[0], 'SIGKILL');
@@ -78,6 +85,7 @@ async function main() {
     check(workerPids().length === 1 && workerPids()[0] !== workers[0], 'a killed worker is respawned and serves the next thumbnail');
   }
   // The burst: 1,500 plots flung end to end (the lighttable lesson) — the app and worker survive.
+  await clearSearch();
   await js(win, "(async()=>{const vp=document.querySelector('[data-plots-gallery] .viewport');for(let i=0;i<60;i++){vp.scrollTop+=vp.scrollHeight/60;await new Promise(r=>setTimeout(r,16))}for(let i=0;i<30;i++){vp.scrollTop-=vp.scrollHeight/30;await new Promise(r=>setTimeout(r,16))}return true})()");
   await scrollTo('/burst/p1499.svg');
   await wait(() => imgLoaded('/burst/p1499.svg'), 'the last burst plot renders', 30000);
