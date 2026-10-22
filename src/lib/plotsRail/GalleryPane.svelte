@@ -76,7 +76,10 @@
   $effect(() => {
     const r = root, sc = scope, col = collection;
     if (!r && sc === "project") { index = null; ix = EMPTY; return; }
-    const created = createPlotIndex({ scope: sc, collection: col || undefined, accept, watch: true });
+    // Clips are the project's own (plots/_videos): Slide's video reader and importer refuse
+    // anything else, so the library never lists them.
+    const acc = sc === "global" ? accept.split(",").filter((x) => x !== "mp4" && x !== "mov").join(",") : accept;
+    const created = createPlotIndex({ scope: sc, collection: col || undefined, accept: acc, watch: true });
     index = created;
     const offState = created.subscribe((v) => { ix = v; });
     const offCounts = created.counts.subscribe((m) => { counts = m; });
@@ -135,11 +138,12 @@
   const matches = $derived.by(() => {
     void ix.version;
     if (q.startsWith("_") && !collection) return [];
+    // Similar names ranks the whole tree — across folders, past the folder focus and filters.
+    if (similar) return similarTo(ix.items.some((it) => it.abs === similar.abs) ? ix.items : [similar, ...ix.items], similar);
     let out = ix.items;
     if (focusDir) out = out.filter((it) => inFolder(it.dir, focusDir));
     if (q) out = out.filter((it) => it.rel.toLowerCase().includes(q));
-    if (filtering) out = applyFilters(out, filters, (it) => usage.get(slash(it.abs))?.count ?? 0, (it) => { const n = counts.get(plotKeyFor(it.abs, root)); return n === undefined ? null : n; });
-    if (similar) out = similarTo(out.some((it) => it.abs === similar.abs) ? out : [similar, ...out], similar);
+    if (filtering) out = applyFilters(out, filters, (it) => (placedSet.has(slash(it.abs)) ? 1 : 0), (it) => { const n = counts.get(plotKeyFor(it.abs, root)); return n === undefined ? null : n; });
     return out;
   });
   // Has-dissections needs every listed plot's count, not only the visible ones'.
@@ -271,6 +275,10 @@
     }
     return m;
   });
+  // The placed sources as one string: a commit that moves or restyles an element leaves it equal,
+  // so a filtered gallery does not re-filter and re-lay-out 20,000 plots on every edit.
+  const placedSig = $derived([...usage.keys()].sort().join("\n"));
+  const placedSet = $derived(new Set(placedSig ? placedSig.split("\n") : []));
   const destination = $derived($project.figures.find((f) => f.id === $activeFigureId)?.background ?? null);
 
   // ------------------------------------------------------------------ selection + focus
@@ -327,7 +335,14 @@
   async function insert(paths: string[], at?: { figId: string; x: number; y: number; fx: number; fy: number }) {
     if (!paths.length) return;
     for (const p of paths) clearFresh(p);
-    await insertPlots(paths, at, place);
+    const n = await insertPlots(paths, at, place);
+    // Under Unused the placed plots leave the list: drop them from the selection too, or the
+    // next Enter would place them again (the selection keeps hidden plots on purpose).
+    if (n > 0 && filters.unused) {
+      await tick();
+      const shownNow = new Set(displayItems.map((i) => i.abs));
+      selected = new Set([...selected].filter((a) => shownNow.has(a)));
+    }
   }
 
   // ------------------------------------------------------------------ drag to place
@@ -615,7 +630,7 @@
       const ordered = [...shown.slice(start), ...shown.slice(0, start)];
       const seen = new Set(ordered.map((i) => i.abs));
       for (const i of st.items) if (!seen.has(i.abs)) ordered.push(i);
-      const jobs: WarmJob[] = ordered.map((i) => ({ path: i.abs, stamp: i.stamp, cssWidth: grid?.widthOf(i.abs) ?? Math.min(360, h * aspectOf(i)) }));
+      const jobs: WarmJob[] = ordered.map((i) => ({ path: i.abs, stamp: i.stamp, size: i.size, cssWidth: grid?.widthOf(i.abs) ?? Math.min(360, h * aspectOf(i)) }));
       setPrewarm(warmOwner, jobs, window.devicePixelRatio || 1);
     }), 1500);
     return () => clearTimeout(t);

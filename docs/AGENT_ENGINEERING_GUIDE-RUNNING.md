@@ -1617,9 +1617,12 @@ Persistence invariants (all machine-checked — do not weaken):
   P3 (`galleryModel.ts`, pure): filters, focus folder, Similar names, variant stacks, width class;
   `peek.ts` + `Peek.svelte` (350 ms dwell, hides on rail leave/scroll/key/press; Shift+Space);
   Fresh marks compare each listing with the last one of that base THIS SESSION (module-level, so
-  an unmounted rail still sees what changed); pre-warm = `thumbClient.setPrewarm` → `thumbs:get
-  {warm:true}` (disk cache only, one job, only with no visible request queued, held during canvas
-  presses). Keyboard: the rail is `data-command-scope="plots-rail"`;
+  an unmounted rail still sees what changed; keyed base|accept, since Slide also lists clips);
+  pre-warm = `thumbClient.setPrewarm` → `thumbs:get {warm:true}` (disk cache only, one job, only
+  with no visible request queued, held during canvas presses, never a file > 2 MB, and OFF for
+  the session at the first quarantined file — idle work must never spend the worker's respawn
+  budget). The Unused filter reads a SIGNATURE of the placed sources, so commits that only move
+  things do not re-filter 20k plots. Keyboard: the rail is `data-command-scope="plots-rail"`;
   `plotsRail/keyScope.ts` yields only UNMODIFIED keys to it (in `handleKey` and Canvas's own
   `onKeyDown`), so Ctrl+Z/S/B still reach the editor — narrower than the `.animator` yield.
   **Thumbnails** never rasterize in main or the renderer: `electron/ipc/plotThumbs.cjs`

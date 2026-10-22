@@ -70,6 +70,9 @@ const ctxMenu = async (suffix, re) => { const p = await pagePoint(suffix); await
     [`${P}/deep/er/hidden_1.svg`]: svg("#ce5d97"),
     [`${P}/deep/er/hidden_2.svg`]: svg("#d0a215"),
     [`${P}/cold/store/never_shown.svg`]: svg("#9c6d1f"),
+    // > 2 MB: pre-warm leaves it to the moment its tile shows.
+    [`${P}/cold/store/huge.svg`]: svg("#9c6d1f").replace("</svg>", `<!--${"x".repeat(2_200_000)}--></svg>`),
+    [`${P}/deep/latency_v9.svg`]: svg("#24837b", 500, 250),
   };
   for (let i = 1; i <= 4; i++) files[`${P}/_dissections/alpha/by_subject/s0${i}.svg`] = svg("#e7298a");
   files[`${P}/_dissections/alpha/stats.csv`] = "subject,mean,sd\n" + Array.from({ length: 30 }, (_, i) => `s${i},${(i * 1.5).toFixed(1)},${(i / 10).toFixed(2)}`).join("\n");
@@ -186,8 +189,20 @@ h.section("filters");
   names = await shown();
   h.ok(names.length === 1 && names[0] === "panels/editable.svg", `filters combine: unused fluxplots (${names.join(",")})`);
   h.ok(/1 of \d+/.test(await page.evaluate(() => document.querySelector("[data-filter-chips] .fcount").textContent)), "the chip line counts what passes");
-  await page.click('[data-filter-chip="filterUnused"]');
+  // Placing from under Unused: the plot leaves the list and the selection — a second Enter
+  // does not place it again.
   await page.click('[data-filter-chip="filterFluxplot"]');
+  const pe = await pagePoint("/panels/editable.svg");
+  await page.mouse.click(pe.x, pe.y);
+  const placedCount = () => page.evaluate(() => window.__flux.figures().reduce((n, f) => n + f.elements.filter((e) => e.source?.svgPath?.endsWith("panels/editable.svg")).length, 0));
+  await page.keyboard.press("Enter");
+  await waitFor(page, async () => true, null, { label: "noop" });
+  await page.waitForFunction(() => window.__flux.figures().some((f) => f.elements.some((e) => e.source?.svgPath?.endsWith("panels/editable.svg"))), { timeout: 6000 });
+  await sleep(200);
+  await page.keyboard.press("Enter");
+  await sleep(500);
+  h.eq(await placedCount(), 1, "under Unused, a placed plot leaves the selection: a second Enter places nothing");
+  await page.click('[data-filter-chip="filterUnused"]');
   await sleep(100);
   h.ok(!(await page.evaluate(() => !!document.querySelector("[data-filter-chips]"))), "removing the chips clears the filters (no chip line when none is active)");
   await viewMenu(/^Has dissections/);
@@ -217,20 +232,24 @@ h.section("focus folder and similar names");
   await page.click("[data-focus-folder]");
   await sleep(100);
   h.ok(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("flux.plotsRail.toggled:")).every((k) => !JSON.parse(localStorage.getItem(k)).includes("deep/er"))), "focusing a folder never rewrites its saved collapse");
-  // Similar names.
+  // Similar names — across folders, even from inside a folder shown alone.
+  await ctxMenu("/panels/editable.svg", /^Show only panels/);
+  await waitFor(page, () => document.querySelector("[data-focus-folder]")?.getAttribute("data-focus-folder") === "panels", null, { label: "focus panels again" });
   await ctxMenu("/panels/latency.svg", /^Similar names/);
   await waitFor(page, () => !!document.querySelector("[data-similar]"), null, { label: "similar chip" });
   const sim = await shown();
-  h.ok(sim[0] === "panels/latency.svg" && sim.includes("panels/latency_v2.svg") && sim.length === 2, `Similar names: the reference, then its variants (${sim.join(",")})`);
+  h.ok(sim[0] === "panels/latency.svg" && sim.includes("panels/latency_v2.svg") && sim.includes("deep/latency_v9.svg") && sim.length === 3, `Similar names: the reference, then its variants in every folder (${sim.join(",")})`);
   await page.keyboard.press("Escape");
   await sleep(100);
-  h.ok(!(await page.evaluate(() => !!document.querySelector("[data-similar]"))), "Esc leaves Similar names");
+  h.ok(!(await page.evaluate(() => !!document.querySelector("[data-similar]"))) && (await page.evaluate(() => document.querySelector("[data-focus-folder]")?.getAttribute("data-focus-folder"))) === "panels", "Esc leaves Similar names, back to the folder it came from");
+  await page.click("[data-focus-folder]");
 }
 
 h.section("fresh dots and the width badge");
 {
   await write({ [`${P}/panels/new_result.svg`]: svg("#5e409d") });
   await emit(`${P}/panels/new_result.svg`);
+  for (let i = 0; i < 4 && !(await pagePoint("/new_result.svg")); i++) await sleep(300); // listed, and scrolled into view
   await waitFor(page, () => document.querySelector('[data-plots-gallery] [data-tile$="/new_result.svg"]')?.hasAttribute("data-fresh"), null, { label: "fresh dot", timeout: 6000 });
   h.ok((await page.evaluate(() => document.querySelectorAll("[data-plots-gallery] [data-fresh]").length)) === 1, "a file written after the listing gets the Fresh dot (no other tile does)");
   await write({ [`${P}/fixtures/dark.svg`]: fixture("dark.svg").replace("</svg>", "<!-- regenerated --></svg>") });
@@ -281,6 +300,7 @@ h.section("pre-warm");
   // (Pre-warm has been running since the first listing; the fixture records every warm render.)
   await waitFor(page, () => (window.__fluxPrewarmed ?? []).some((p) => p.endsWith("/cold/store/never_shown.svg")), null, { label: "prewarmed hidden plot", timeout: 15000 });
   h.ok(!(await page.evaluate(() => !!document.querySelector('[data-plots-gallery] [data-tile$="/cold/store/never_shown.svg"]'))), "pre-warm renders a plot that was never on a tile (a collapsed folder)");
+  h.ok(!(await page.evaluate(() => (window.__fluxPrewarmed ?? []).some((p) => p.endsWith("/cold/store/huge.svg")))), "…but never a file over 2 MB (it would hold up the visible tiles behind it)");
   const warmCount = await page.evaluate(() => (window.__fluxPrewarmed ?? []).length);
   await viewMenu(/^Refresh/);
   await sleep(2500);
@@ -297,6 +317,14 @@ h.section("pre-warm");
   await page.mouse.up();
   await waitFor(page, () => (window.__fluxPrewarmed ?? []).filter((p) => /batch_/.test(p)).length >= 12, null, { label: "resumed", timeout: 15000 });
   h.ok(held === 0, `pre-warm holds during a canvas press (${held} rendered while held) and resumes after it`);
+  // A file that kills (or hangs) the worker stops pre-warm for the session: its deaths count
+  // against the worker's respawn budget, which idle work must never spend.
+  await write({ [`${P}/deep/er/a__kills_worker__.svg`]: svg("#af3029"), ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`${P}/deep/er/z_after_${i}.svg`, svg("#5e409d")])) });
+  await page.evaluate(() => { window.__fluxPrewarmed = []; });
+  await emit(`${P}/deep/er/a__kills_worker__.svg`);
+  await waitFor(page, async () => (await import("/src/lib/plotsRail/thumbClient.ts")).prewarmState().disabled, null, { label: "pre-warm stopped", timeout: 15000 });
+  await sleep(1500);
+  h.ok(!(await page.evaluate(() => (window.__fluxPrewarmed ?? []).some((p) => /z_after_/.test(p)))), "a worker-killing file stops pre-warm for the session (nothing after it is warmed)");
 }
 
 h.eq(errs.length, 0, `console stays clean${errs.length ? `: ${errs.slice(0, 3).join(" | ")}` : ""}`);

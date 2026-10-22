@@ -150,7 +150,7 @@
     {/if}
   </div>
   {#if inUse && inUse.count > 0}
-    <span class="chip use" class:active={inUse.active} title={inUse.active ? `Placed in the active figure${inUse.count > 1 ? ` (${inUse.count} placements)` : ""}` : `Placed in ${inUse.count} ${inUse.count === 1 ? "place" : "places"} in this project`} style:left={`${page.x + 3}px`} style:top={`${page.y + 3}px`}>●{#if inUse.count > 1}<span class="n">{inUse.count}</span>{/if}</span>
+    <span class="chip use" class:active={inUse.active} title={inUse.active ? `Placed here${inUse.count > 1 ? ` (${inUse.count} placements in all)` : ""}` : `Placed elsewhere (${inUse.count} ${inUse.count === 1 ? "placement" : "placements"})`} style:left={`${page.x + 3}px`} style:top={`${page.y + 3}px`}>●{#if inUse.count > 1}<span class="n">{inUse.count}</span>{/if}</span>
   {/if}
   {#if dissections > 0}
     <button class="chip dis" title={`${dissections} dissection ${dissections === 1 ? "file" : "files"} — show them`} style:right={`${w - page.x - page.w + 3}px`} style:top={`${page.y + 3}px`} onclick={(e) => { e.stopPropagation(); onDissections?.(); }} ondblclick={(e) => e.stopPropagation()} data-dissections-chip>⧉ {dissections}</button>

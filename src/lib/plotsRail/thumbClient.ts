@@ -12,7 +12,10 @@
 // PRE-WARM: after a listing settles the rail hands over every listed plot; the worker renders
 // them into the DISK cache one at a time (no bytes cross IPC), only while no visible request is
 // queued or in flight, and never during a canvas pointer gesture (+300 ms) — the next scroll or
-// project open is then served from disk.
+// project open is then served from disk. It never touches a file over WARM_MAX_BYTES (a render
+// that long would hold up the visible tiles queued behind it in the one worker), and it stops
+// for the session at the first file that kills or hangs the worker (quarantined): every such
+// death counts against the worker's respawn budget, which pre-warm must never spend.
 
 import { fileBridge, type PlotThumbResult } from "../project/types";
 import { bucketFor, type InkStats } from "./rules";
@@ -239,7 +242,9 @@ export function clearThumbs(): void {
 // Pre-warm.
 // ---------------------------------------------------------------------------------------------
 
-export interface WarmJob { path: string; stamp: string; cssWidth: number }
+export interface WarmJob { path: string; stamp: string; cssWidth: number; size: number }
+/** Pre-warm leaves bigger files to the moment their tile is on screen. */
+export const WARM_MAX_BYTES = 2 * 1024 * 1024;
 const warmQueue: (WarmJob & { bucket: number })[] = [];
 /** path|stamp|bucket already in the disk cache (or failed) this session. */
 const warmed = new Set<string>();
@@ -256,7 +261,7 @@ export function setPrewarm(owner: object, jobs: WarmJob[], dpr: number): void {
   warmOwner = owner;
   warmQueue.length = 0;
   for (const j of jobs) {
-    if (!/\.(svg|png)$/i.test(j.path)) continue;
+    if (!/\.(svg|png)$/i.test(j.path) || !(j.size <= WARM_MAX_BYTES)) continue;
     const bucket = bucketFor(j.cssWidth, dpr);
     const key = `${j.path}|${j.stamp}|${bucket}`;
     if (warmed.has(key) || entries.get(key)?.phase === "done") continue;
@@ -276,8 +281,8 @@ export function holdPrewarm(on: boolean): void {
   if (!on) { warmHoldUntil = Date.now() + 300; scheduleWarm(300); }
 }
 /** Dev/test: what pre-warm is doing. */
-export function prewarmState(): { queued: number; done: number; busy: boolean; held: boolean } {
-  return { queued: warmQueue.length, done: warmDone, busy: warmBusy, held: warmHeld || Date.now() < warmHoldUntil };
+export function prewarmState(): { queued: number; done: number; busy: boolean; held: boolean; disabled: boolean } {
+  return { queued: warmQueue.length, done: warmDone, busy: warmBusy, held: warmHeld || Date.now() < warmHoldUntil, disabled: warmDisabled };
 }
 
 function scheduleWarm(ms: number) {
@@ -298,7 +303,8 @@ function pumpWarm() {
   warmBusy = true;
   void fb.plotThumb({ path: job.path, bucket: job.bucket, priority: 1e9, rid: `w${++ridSeq}`, warm: true })
     .then((r) => {
-      if (r.unavailable) { warmDisabled = true; warmQueue.length = 0; return; }
+      // The worker is gone, or this file crashed / hung it: never risk another death.
+      if (r.unavailable || r.quarantined) { warmDisabled = true; warmQueue.length = 0; warmed.add(key); return; }
       if (r.cancelled) return;
       warmed.add(key);
       warmDone++;

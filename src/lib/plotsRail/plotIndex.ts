@@ -60,7 +60,9 @@ function toItem(e: PlotIndexEntry): PlotItem {
 // listed its tree this session. The last listing of every base is remembered here — outside any
 // one index — so a rail that was unmounted (Layers showing, another mode) still sees what changed
 // meanwhile. Clicking, peeking or placing a plot clears its mark.
-const lastSeen = new Map<string, Map<string, string>>(); // base → abs → stamp
+// Keyed by base AND what was listed: Figure and Slide list the same plots/ with different
+// kinds (Slide adds clips) — one must not read the other's extra files as new.
+const lastSeen = new Map<string, Map<string, string>>(); // base|accept → abs → stamp
 const freshStore = writable<ReadonlySet<string>>(new Set());
 /** The plots marked fresh (new or regenerated since the rail last listed them). */
 export const freshPlots: Readable<ReadonlySet<string>> = { subscribe: freshStore.subscribe };
@@ -72,8 +74,9 @@ export function clearFresh(abs?: string): void {
   });
 }
 /** Compare a (re)listing of `base` — the whole tree, or only `dirs` of it — with the last one. */
-function noteListing(base: string, items: Iterable<PlotItem>, dirs: string[] | null): void {
-  const prev = lastSeen.get(base);
+function noteListing(base: string, accept: string, items: Iterable<PlotItem>, dirs: string[] | null): void {
+  const seenKey = `${base}|${accept}`;
+  const prev = lastSeen.get(seenKey);
   const next = new Map<string, string>();
   if (prev && dirs) {
     // A partial re-list: keep what lies outside the re-listed folders.
@@ -87,7 +90,7 @@ function noteListing(base: string, items: Iterable<PlotItem>, dirs: string[] | n
     next.set(it.abs, it.stamp);
     if (prev && prev.get(it.abs) !== it.stamp) marked.push(it.abs);
   }
-  lastSeen.set(base, next);
+  lastSeen.set(seenKey, next);
   if (marked.length) freshStore.update((s) => { const n = new Set(s); for (const a of marked) n.add(a); return n; });
 }
 
@@ -143,7 +146,7 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
     if (mine !== generation || disposed || r.stale) return;
     byAbs.clear();
     for (const e of r.entries) byAbs.set(e.abs, toItem(e));
-    if (r.base) noteListing(r.base, byAbs.values(), null);
+    if (r.base) noteListing(r.base, opts.accept, byAbs.values(), null);
     publish({ base: r.base, loading: false, loaded: true, truncated: r.truncated, error: r.error && !r.unavailable ? r.error : "" });
     if (changedDuringLoad) { changedDuringLoad = false; void load(); }
   }
@@ -173,7 +176,7 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
       byAbs.set(e.abs, it);
     }
     const listedItems = [...byAbs.values()].filter((it) => listed.has(it.abs.slice(0, it.abs.length - it.name.length - 1)));
-    noteListing(base, listedItems, [...listed]);
+    noteListing(base, opts.accept, listedItems, [...listed]);
     publish();
   }
 

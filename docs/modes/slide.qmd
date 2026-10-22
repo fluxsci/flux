@@ -36,7 +36,10 @@ again from inside it returns to the filmstrip. The two views keep their own widt
   at the size it will land.
 - Click a plot on the stage and the rail shows its dissections; the gallery marks the plots
   already on this slide.
-- Type **`_vid`** to open **`_videos`**: clips show their poster frames and place like plots.
+- Type **`_vid`** to open **`_videos`**: clips show their poster frames and place like plots;
+  a clip that needs converting shows its progress at the top of the rail, with **Cancel**.
+  Clips come from this project only — the global library lists plots, not clips.
+- **⋯ → Show only → Unused** means on no slide of this deck yet.
 - During a **Become** pick, a plot placed from the rail joins the pick (the pick switches to
   Add mode, exactly as when you draw something); **Enter** and **Space** in the rail place and
   look — they never confirm the pick.

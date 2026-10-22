@@ -44,6 +44,10 @@ await page.evaluate(async (files) => { for (const [p, t] of Object.entries(files
   [`${P}/_dissections/beta/by_subject/s01.svg`]: svg("#e7298a"),
   [`${P}/_dissections/beta/by_subject/s02.svg`]: svg("#205ea6"),
   [`${P}/_videos/clip.mp4`]: "not really a movie",
+  [`${P}/loose_clip.mp4`]: "a clip outside _videos",
+  [`${P}/broken.svg`]: "this is not an svg",
+  ["/home/demo/FluxConfig/plot_library/lib_plot.svg"]: svg("#bc5215"),
+  ["/home/demo/FluxConfig/plot_library/lib_clip.mp4"]: "a library clip",
 });
 // Clip posters come from the desktop app's video reader; stub it (the dialog's gates do too).
 await page.evaluate(() => {
@@ -82,7 +86,6 @@ h.section("Slide's left rail: [Slides | Plots]");
   await sleep(100);
   const layout = await page.evaluate(() => JSON.parse(localStorage.getItem("flux.slide.layout")));
   h.ok(Math.abs(layout.plotsRailW - 380) <= 3 && layout.filmstripW === 172, `the gutter resizes the Plots rail and leaves the filmstrip's width alone (${layout.plotsRailW}/${layout.filmstripW})`);
-  await page.mouse.dblclick?.(g.x + 60, g.y);
   await page.evaluate(() => { const n = document.querySelector(".film-gutter"); n.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
   await sleep(100);
   h.eq(await railW(), 320, "double-clicking the gutter resets the Plots rail's width");
@@ -170,6 +173,14 @@ h.section("the Become pick");
   const bar = await page.evaluate(() => document.querySelector("[data-pick-bar]").innerText.replace(/\s+/g, " "));
   h.ok(/1 picked/.test(bar), `Enter in the rail places a plot (never confirms the pick), and it joins the pick in Add mode (…${bar.slice(-60)})`);
   const cancel = () => page.evaluate(() => [...document.querySelectorAll("[data-pick-bar] button")].find((b) => /^Cancel/.test(b.textContent.trim()))?.click());
+  // Back to picking (Done), then a placement that FAILS: the pick returns to picking, unchanged.
+  await page.evaluate(() => [...document.querySelectorAll("[data-pick-bar] button")].find((b) => /^Done/.test(b.textContent.trim()))?.click());
+  await waitFor(page, () => document.querySelector("[data-pick-bar]")?.getAttribute("data-pick-bar") === "pick", null, { label: "back to picking" });
+  const bk = await tileCenter("/broken.svg");
+  await page.mouse.click(bk.x, bk.y, { count: 2 });
+  await waitFor(page, () => /Import failed|Could not place/.test([...document.querySelectorAll(".toast, [data-toast]")].map((t) => t.innerText).join(" ")), null, { label: "broken refused", timeout: 6000 });
+  await sleep(150);
+  h.eq(await page.evaluate(() => document.querySelector("[data-pick-bar]")?.getAttribute("data-pick-bar")), "pick", "a placement that fails leaves the pick picking (not stuck in Add mode)");
   await cancel();
   await waitFor(page, () => !document.querySelector("[data-pick-bar]"), null, { label: "pick cancelled", timeout: 4000 });
   // Add ▾ → Plot… shows the rail (from the filmstrip view).
@@ -204,6 +215,11 @@ h.section("F5 and clips");
   await waitFor(page, () => !!document.querySelector('[data-plots-gallery] [data-tile$="/_videos/clip.mp4"] img'), null, { label: "clip poster", timeout: 8000 }).catch(async (e) => { console.log(await page.evaluate(() => ({ g: document.querySelector("[data-plots-gallery]")?.innerText.slice(0, 300), t: document.querySelector('[data-plots-gallery] [data-tile] .page')?.innerHTML.slice(0, 200), vp: typeof window.fig.videoPreview }))); throw e; });
   const clip = await page.evaluate(() => { const t = document.querySelector('[data-plots-gallery] [data-tile$="/_videos/clip.mp4"]'); const r = t.querySelector(".page").getBoundingClientRect(); return { backdrop: t.getAttribute("data-backdrop"), glyph: t.querySelector(".chip.kind")?.textContent, aspect: r.width / r.height }; });
   h.ok(clip.backdrop === "dark" && clip.glyph === "▶" && Math.abs(clip.aspect - 16 / 9) < 0.05, `a clip tile shows its poster on the dark backdrop, ▶, at the poster's aspect (${JSON.stringify(clip)})`);
+  const ck = await tileCenter("/_videos/clip.mp4");
+  await page.mouse.move(ck.x, ck.y);
+  await waitFor(page, () => !!document.querySelector("[data-plots-peek]"), null, { label: "clip peek" });
+  h.eq(await page.evaluate(() => document.querySelector("[data-plots-peek] [data-peek-backdrop]")?.getAttribute("data-peek-backdrop")), "dark", "Peek shows a clip on the same dark backdrop as its tile");
+  await page.mouse.move(800, 500);
   // Placing a clip goes through Slide's video import (the desktop app's preparer, stubbed as in
   // verify-slide-video-clips-gui) — and is not cancelled for want of an open gallery dialog.
   await page.evaluate(({ movie, posterPng }) => {
@@ -223,6 +239,20 @@ h.section("F5 and clips");
     };
   }, { movie, posterPng });
   const before = (await slideEls()).filter((e) => e.type === "video").length;
+  // A long preparation shows its progress in the rail, with Cancel.
+  await page.evaluate(() => {
+    const real = window.fig.prepareSlideVideo;
+    window.fig.cancelVideoImport = async () => { window.__releaseRailClip?.(); };
+    window.fig.prepareSlideVideo = async (request) => { window.__railClipHeld = true; await new Promise((r) => { window.__releaseRailClip = r; }); window.fig.prepareSlideVideo = real; return real(request); };
+  });
+  const c0 = await tileCenter("/_videos/clip.mp4");
+  await page.mouse.click(c0.x, c0.y, { count: 2 });
+  await waitFor(page, () => !!document.querySelector("[data-rail-status] button"), null, { label: "rail status", timeout: 6000 });
+  h.ok(/Preparing/.test(await page.evaluate(() => document.querySelector("[data-rail-status]").textContent)), "a clip being prepared shows its progress in the rail, with Cancel");
+  await page.click("[data-rail-status] button");
+  await waitFor(page, () => !document.querySelector("[data-rail-status]"), null, { label: "status gone", timeout: 6000 });
+  await sleep(300);
+  h.eq((await slideEls()).filter((e) => e.type === "video").length, before, "Cancel stops it: nothing is placed");
   const cp = await tileCenter("/_videos/clip.mp4");
   await page.mouse.click(cp.x, cp.y, { count: 2 });
   await page.waitForFunction((before) => { const F = window.__flux, id = F.get(F.fig.activeFigureId); return (F.figures().find((f) => f.id === id)?.elements.filter((e) => e.type === "video").length ?? 0) === before + 1; }, { timeout: 8000 }, before);
@@ -237,6 +267,27 @@ h.section("F5 and clips");
   await page.keyboard.type("_");
   await sleep(300);
   h.ok(!(await page.evaluate(() => !!document.querySelector('[data-plots-gallery] [data-reserved="_videos"]'))), "…and not in Figure, which cannot place clips");
+  await page.keyboard.press("Escape");
+  // Back in Slide: the clip Figure never listed is not "new" (each listing kind keeps its own past).
+  await clickMode(page, "Slide");
+  await page.mouse.click(760, 520);
+  await alt("KeyG");
+  await waitFor(page, () => !!document.querySelector('[data-plots-gallery] [data-tile$="/loose_clip.mp4"]'), null, { label: "loose clip listed", timeout: 8000 });
+  h.ok(!(await page.evaluate(() => document.querySelector('[data-plots-gallery] [data-tile$="/loose_clip.mp4"]').hasAttribute("data-fresh"))), "switching from Figure to Slide marks no clip as new");
+  // The global library: plots yes, clips no (only the project's clips can be read and imported).
+  await page.click('[data-plots-gallery] [data-scope="global"]');
+  await waitFor(page, () => !!document.querySelector('[data-plots-gallery] [data-tile$="/lib_plot.svg"]'), null, { label: "library listed", timeout: 8000 });
+  h.ok(!(await page.evaluate(() => !!document.querySelector('[data-plots-gallery] [data-tile$="/lib_clip.mp4"]'))), "the library lists its plots, never clips (Slide cannot import them)");
+  await page.click('[data-plots-gallery] [data-scope="project"]');
+}
+
+h.section("rename from the Plots view");
+{
+  await page.mouse.click(760, 520);
+  await page.keyboard.press("F2");
+  await waitFor(page, () => document.querySelector("[data-left-rail]")?.getAttribute("data-left-rail") === "slides" && document.activeElement?.classList.contains("nm-edit"), null, { label: "rename field", timeout: 4000 });
+  h.ok(true, "F2 with the Plots view showing switches to the filmstrip and opens the rename field");
+  await page.keyboard.press("Escape");
 }
 
 h.eq(errs.length, 0, `console stays clean${errs.length ? `: ${errs.slice(0, 3).join(" | ")}` : ""}`);

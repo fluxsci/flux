@@ -487,6 +487,9 @@
     const s = overlay?.slides.find((x) => x.id === id);
     if (!s) return;
     renaming = { id, value: s.name ?? "" };
+    // The rename field lives in the filmstrip: show it (the left rail may be on Plots, or hidden).
+    if (get(leftRailHidden)) leftRailHidden.set(false);
+    setLeftView("slides");
     requestAnimationFrame(() => { const el = filmEl?.querySelector<HTMLInputElement>("input.nm-edit"); el?.focus(); el?.select(); });
   }
   function commitRename() {
@@ -633,8 +636,17 @@
   /** Rail inserts: Slide's import route (deck/slide guards, video clips). In a Become pick a
    *  placed plot is a destination being made — the pick enters Add mode first, so it joins. */
   const placeFromRail: PlaceAdapter = async (paths, canPlace, opts) => {
-    if (picker.target?.sub === "pick") picker.enterAdd();
-    return importSlideItems(paths.map((abs) => ({ abs, rel: "", semantic: false })), canPlace, { ...opts, rail: true });
+    // Add mode records its baseline when entered, so it must be entered BEFORE the commit; a
+    // placement that fails or is refused returns the pick to picking.
+    const adding = picker.target?.sub === "pick";
+    if (adding) picker.enterAdd();
+    let n = 0;
+    try {
+      n = await importSlideItems(paths.map((abs) => ({ abs, rel: "", semantic: false })), canPlace, { ...opts, rail: true });
+      return n;
+    } finally {
+      if (adding && !(n > 0) && picker.target?.sub === "add") picker.exitAdd();
+    }
   };
 
   // --- draggable rail edge → right-rail width (same pattern; the store's
@@ -1713,7 +1725,8 @@
     {:else}
     <!-- the left rail: [Slides | Plots] (Alt+G) -->
     <LeftRail unit="slide" paneActive={active} hitBridge={railHitBridge} slideView={$slideLayout.leftView} onSlideView={setLeftView}
-      onPickSlide={(id) => selectSlide(id)} place={placeFromRail}>
+      onPickSlide={(id) => selectSlide(id)} place={placeFromRail}
+      status={videoImport?.rail ? { text: videoImportStatus || "Preparing the clip…", cancel: videoImport.cancelled ? undefined : cancelClipImport } : null}>
     {#snippet slides()}
     <aside class="filmstrip" bind:this={filmEl}>
       {#if pm}

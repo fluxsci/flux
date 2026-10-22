@@ -28,6 +28,7 @@
     onPickSlide,
     place = null,
     accept,
+    status = null,
   }: {
     paneActive?: boolean;
     hitBridge?: HitBridgeHolder | null;
@@ -41,6 +42,8 @@
     onPickSlide?: (id: string) => void;
     place?: PlaceAdapter | null;
     accept?: string;
+    /** A long placement in progress (Slide's clip import): its progress, and Cancel. */
+    status?: { text: string; cancel?: () => void } | null;
   } = $props();
 
   const slide = $derived(unit === "slide");
@@ -96,7 +99,7 @@
       { kind: "action", label: "By folder", checked: p.sort === "folders", run: () => set({ sort: "folders" }) },
       { kind: "action", label: "Recent first", checked: p.sort === "recent", run: () => set({ sort: "recent" }) },
       { kind: "heading", label: "Show only" },
-      { kind: "action", label: "Unused", hint: "placed nowhere", checked: p.filterUnused, run: () => set({ filterUnused: !p.filterUnused }) },
+      { kind: "action", label: "Unused", hint: slide ? "on no slide of the deck" : "in no figure", checked: p.filterUnused, run: () => set({ filterUnused: !p.filterUnused }) },
       { kind: "action", label: "Fluxplots", hint: "◆ editable", checked: p.filterFluxplot, run: () => set({ filterFluxplot: !p.filterFluxplot }) },
       { kind: "action", label: "Has dissections", hint: "⧉", checked: p.filterDissected, disabled: p.scope !== "project", run: () => set({ filterDissected: !p.filterDissected }) },
       { kind: "heading", label: "Tiles" },
@@ -142,6 +145,9 @@
       <button class="more" title="View options" aria-label="Plots view options" onclick={viewMenu} data-rail-menu>⋯</button>
     {/if}
   </div>
+  {#if status && plots}
+    <div class="rail-status" role="status" aria-live="polite" data-rail-status><span class="st">{status.text}</span>{#if status.cancel}<button onclick={status.cancel}>Cancel</button>{/if}</div>
+  {/if}
   {#if plots}
     <PlotsRail active={paneActive} {hitBridge} {refreshKey} {place} {unit} accept={accept ?? (slide ? "svg,png,glb,mp4,mov" : "svg,png,glb")} />
   {:else if slide}
@@ -160,6 +166,10 @@
   .rail-tab:hover { color: var(--c-tx-hi); }
   .rail-tab.chosen { color: var(--c-tx-hi); background: var(--c-accent-tint); box-shadow: inset 0 -2px 0 var(--c-accent); }
   .grow { flex: 1; }
+  .rail-status { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 24px; padding: 2px 8px; border-bottom: 1px solid var(--c-line); background: var(--c-accent-tint); color: var(--c-tx-hi); font: 11px var(--font-ui); }
+  .rail-status .st { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rail-status button { height: 18px; padding: 0 6px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: none; color: var(--c-tx); font: inherit; cursor: var(--cursor-cross-hover); }
+  .rail-status button:hover { border-color: var(--c-tx-muted); }
   .dest { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 55%; height: 20px; padding: 0 6px; border: 1px solid var(--c-line); border-radius: var(--r-ui); background: none; color: var(--c-tx-2); font: 11px var(--font-ui); white-space: nowrap; cursor: var(--cursor-cross-hover); transition: background-color 90ms linear; }
   .dest:hover:not(:disabled) { border-color: var(--c-line-strong); color: var(--c-tx-hi); }
   .dest.flash { background: var(--c-accent-tint); border-color: var(--c-accent); }

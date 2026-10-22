@@ -185,6 +185,14 @@ try {
       h.ok(warm.bytes?.length === cold.bytes.length, "a warm thumbnail is served from the disk cache");
       h.ok(guardCalls.includes(join(P, "a.svg")), "every served path passes the window's read guard");
       h.eq(fam._state().pending, state0.pending, "…without a worker round trip");
+      // Pre-warm (the rail's idle generation): renders into the disk cache, answers without bytes.
+      const warmCold = await call("thumbs:get", { path: join(P, "figs/b.svg"), bucket: 256, warm: true });
+      h.ok(warmCold.warmed === true && !warmCold.bytes && !!warmCold.stats, "a pre-warm request renders in the worker and answers with the analysis, no bytes");
+      const warmAgain = await call("thumbs:get", { path: join(P, "figs/b.svg"), bucket: 256, warm: true });
+      h.ok(warmAgain.warmed === true && !warmAgain.bytes, "a pre-warm of a cached thumbnail is answered from the cache, no bytes");
+      const stateW = fam._state();
+      const served = await call("thumbs:get", { path: join(P, "figs/b.svg"), bucket: 256 });
+      h.ok(served.bytes?.length > 100 && fam._state().pending === stateW.pending, "…and the tile that later asks for it is a disk-cache hit");
       const counts = await call("dissect:counts", ["a", "figs/b", "../x"]);
       h.eq(JSON.stringify(counts), JSON.stringify({ a: 2 }), "dissection counts: loose + one group level, sidecars excluded, unknown and unsafe keys omitted");
       await call("thumbs:cancel", ["nope"]);
@@ -224,8 +232,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     fam.registerHandlers(ipc);
     const call = (ch: string, ...a: unknown[]) => (ipc.handlers.get(ch) as (...x: unknown[]) => Promise<any>)(ev, ...a);
     try {
-      const crashed = await call("thumbs:get", { path: join(P, "crash.svg"), bucket: 256 });
-      h.ok(crashed.quarantined, "a render that kills the worker is answered (quarantined), not left hanging");
+      const crashed = await call("thumbs:get", { path: join(P, "crash.svg"), bucket: 256, warm: true });
+      h.ok(crashed.quarantined && !crashed.warmed, "a render that kills the worker is answered (quarantined), not left hanging — a pre-warm too (the client then stops pre-warming)");
       const after = await call("thumbs:get", { path: join(P, "a.svg"), bucket: 256 });
       h.eq(after.error, "stub", "the worker respawned and serves the next request");
       h.ok(readFileSync(log, "utf8").includes(`quarantine ${join(P, "crash.svg")}`), "the culprit was quarantined in the respawned worker");

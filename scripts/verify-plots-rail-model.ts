@@ -6,17 +6,14 @@
 //     folder only, the newest on top, expanded stacks in place with a head;
 //   * the journal width class and Peek's formatters;
 //   * tablePreview's longer look (Peek's 20 rows) leaves the card's 6 alone;
-//   * the slide layout store decodes the new left-rail view + width safely;
-//   * thumbs:get answers a pre-warm without bytes (source seam).
+//   * the slide layout store decodes the new left-rail view + width safely (behaviour; the IPC's
+//     pre-warm path is gated in verify-plot-thumbs.ts, Slide's routing in -slide.mjs).
 //   Run: node scripts/run-verifies.mjs --tier pure --only verify-plots-rail-model
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { harness } from "./lib/harness.mjs";
 import { applyFilters, anyFilter, inFolder, parentFolder, similarTo, variantKey, stackVariants, widthClass, formatMm, relativeTime, formatBytes, type ModelItem } from "../src/lib/plotsRail/galleryModel";
 import { tablePreview, CARD_ROWS } from "../src/lib/plotsRail/tableCard";
 
 const h = harness("verify-plots-rail-model");
-const repo = join(import.meta.dirname, "..");
 
 const it = (rel: string, mtimeMs = 0, semantic = false): ModelItem & { rel: string } => {
   const i = rel.lastIndexOf("/");
@@ -98,18 +95,17 @@ h.section("table previews");
   h.ok(peek.rows.length === 20 && peek.rowCount === 40, `Peek's look: 20 rows of 40 (${peek.rows.length}/${peek.rowCount})`);
 }
 
-h.section("seams");
+h.section("the slide layout decodes the left rail's view and width");
 {
-  const store = readFileSync(join(repo, "src/shell/modes/slide/slideLayoutStore.ts"), "utf8");
-  h.ok(/leftView: \{ enum: \["slides", "plots"\] \}/.test(store) && /plotsRailW: \{ min: 220, max: 720 \}/.test(store), "the slide layout decodes leftView (enum) and plotsRailW (bounded)");
-  const ipc = readFileSync(join(repo, "electron/ipc/plotThumbs.cjs"), "utf8");
-  h.ok(/warm \? \{ warmed: true/.test(ipc) && /if \(warm\) return \{ warmed: true/.test(ipc), "thumbs:get answers a pre-warm (cache hit or render) without bytes");
-  const kb = readFileSync(join(repo, "src/lib/keyboard.ts"), "utf8");
-  h.ok(/railHostFor\(storeTenant\(\)\)/.test(kb) && !/storeTenant\(\) === "figure" && \(!typing/.test(kb), "Alt+G asks the tenant's rail host (Figure and Slide), not a Figure-only check");
-  const slide = readFileSync(join(repo, "src/shell/modes/slide/SlideMode.svelte"), "utf8");
-  h.ok(/function pickKey[\s\S]{0,400}plotsRailOwnsKey\(e\)/.test(slide), "the Become picker's keys yield to the rail");
-  h.ok(/picker\.target\?\.sub === "pick"\) picker\.enterAdd\(\)/.test(slide), "a rail insert during a Become pick enters Add mode first");
-  h.ok(/!job\.rail && !\$importerOpen/.test(slide), "a rail import is not cancelled by the gallery dialog being closed");
+  // slideLayoutStore reads localStorage at import: stub it with a hostile saved layout.
+  const saved: Record<string, string> = { "flux.slide.layout": JSON.stringify({ filmstripW: 200, leftView: "gallery", plotsRailW: 9999 }) };
+  (globalThis as unknown as { localStorage: Storage }).localStorage = { getItem: (k: string) => saved[k] ?? null, setItem: (k: string, v: string) => { saved[k] = v; }, removeItem: () => {}, clear: () => {}, key: () => null, length: 0 } as Storage;
+  const { slideLayout } = await import("../src/shell/modes/slide/slideLayoutStore");
+  const { get } = await import("svelte/store");
+  const v = get(slideLayout);
+  h.ok(v.leftView === "slides" && v.plotsRailW === 720 && v.filmstripW === 200, `an unknown view falls back to Slides, the width clamps to 720, other fields survive (${JSON.stringify(v)})`);
+  slideLayout.set({ ...v, leftView: "plots", plotsRailW: 360 });
+  h.ok(/"leftView":"plots"/.test(saved["flux.slide.layout"]) && /"plotsRailW":360/.test(saved["flux.slide.layout"]), "the view and its width persist");
 }
 
 await h.done();

@@ -122,18 +122,20 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   **Shift+Space** peeks at the selected tile from the keyboard (and closes it again). Peek
   never takes clicks and vanishes when the pointer leaves the rail; **⋯ → Peek on hover**
   turns the hover off.
-- **Narrow the gallery** from **⋯ → Show only**: **Unused** (placed nowhere in the project),
+- **Narrow the gallery** from **⋯ → Show only**: **Unused** (in no figure yet — slides are not counted),
   **Fluxplots** (editable ones), **Has dissections**. Active filters show as chips under the
   search box; click one to remove it. Right-click a plot (or a folder heading) for **Show
   only this folder**, and **Backspace** in an empty search climbs back out one folder at a
-  time. **Similar names** lists a plot's variants across folders (`_v2`, `_s07`, …).
+  time. **Similar names** lists a plot's variants across all folders (`_v2`, `_s07`, …), even
+  from inside a folder shown alone; **Escape** returns to where you were.
 - **⋯ → Stack variants** folds runs of variants in one folder — `fig1_a` … `fig1_f`,
   `latency`, `latency_v2` … — into one tile showing the newest, with a **×6** badge.
   **Enter**, a double-click or the badge opens the stack in place; the first variant's
   **◂** badge folds it again. Dragging a stack places the variant it shows.
 - While you work, Flux prepares the previews of the plots you have not scrolled to yet, a
   little at a time, so the next scroll or project open is instant. It pauses while you drag
-  on the canvas.
+  on the canvas, leaves very large files (over 2 MB) until you scroll to them, and stops for
+  the session if a file crashes the preview renderer.
 - **Double-click** or **Enter** places the selected plots in the figure named at the top
   (**→ Fig 3** — click it to pick another figure). **Drag** a plot onto any figure to place
   it where you let go; over the canvas it shows at the size it will land. **Space** opens a

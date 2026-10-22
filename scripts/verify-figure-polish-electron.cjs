@@ -11,10 +11,10 @@ async function main(){try{
  if(seed.status!==0)throw Error(seed.stdout+seed.stderr);
  // Dense plots for the Plots-rail-open measurement: 24 SVGs of 3,000 marks each, so the rail is
  // busy rendering thumbnails while the editor is measured (the stop-ship rail-open budget).
- // Plus 60 more in a folder that starts collapsed (depth 2): only the rail's idle PRE-WARM renders
- // those, so it is busy while the editor is measured.
+ // Plus 120 more in a folder that starts collapsed (depth 2): only the rail's idle PRE-WARM renders
+ // those, so it is busy throughout the editor's measurement (too many to finish within it).
  fs.mkdirSync(path.join(root,'plots','dense','cold','stack'),{recursive:true});
- for(let i=0;i<60;i++){let marks='';for(let k=0;k<3000;k++)marks+=`<circle cx="${(k*41+i*13)%400}" cy="${(k*59)%300}" r="1.6" fill="#${(0x66800b+k*613+i*5).toString(16).slice(-6)}"/>`;fs.writeFileSync(path.join(root,'plots','dense','cold','stack',`c${i}.svg`),`<svg xmlns="http://www.w3.org/2000/svg" width="300pt" height="225pt" viewBox="0 0 400 300">${marks}</svg>`)}
+ for(let i=0;i<120;i++){let marks='';for(let k=0;k<3000;k++)marks+=`<circle cx="${(k*41+i*13)%400}" cy="${(k*59)%300}" r="1.6" fill="#${(0x66800b+k*613+i*5).toString(16).slice(-6)}"/>`;fs.writeFileSync(path.join(root,'plots','dense','cold','stack',`c${i}.svg`),`<svg xmlns="http://www.w3.org/2000/svg" width="300pt" height="225pt" viewBox="0 0 400 300">${marks}</svg>`)}
  fs.mkdirSync(path.join(root,'plots','dense'),{recursive:true});
  for(let i=0;i<24;i++){let marks='';for(let k=0;k<3000;k++)marks+=`<circle cx="${(k*37+i*11)%400}" cy="${(k*53)%300}" r="1.6" fill="#${(0x205ea6+k*911+i*7).toString(16).slice(-6)}"/>`;fs.writeFileSync(path.join(root,'plots','dense',`d${i}.svg`),`<svg xmlns="http://www.w3.org/2000/svg" width="300pt" height="225pt" viewBox="0 0 400 300">${marks}</svg>`)}
  const result=await new Promise((resolve,reject)=>{

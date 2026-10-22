@@ -8,7 +8,7 @@
   import { untrack } from "svelte";
   import { peekState, type PeekContent } from "./peek";
   import { acquireThumb, type ThumbState } from "./thumbClient";
-  import { chooseBackdrop, readsPoorlyOn, backdropTone } from "./rules";
+  import { chooseBackdrop, readsPoorlyOn, backdropTone, BACKDROPS, type BackdropChoice } from "./rules";
   import { railPrefs } from "./railPrefs";
   import { widthClass, formatMm, relativeTime, formatBytes } from "./galleryModel";
   import { listDissections } from "../dissect/loader";
@@ -58,8 +58,10 @@
   const stats = $derived(c?.kind === "plot" ? (thumb?.stats ?? c.stats) : (thumb?.stats ?? null));
   const paper = $derived(c?.kind === "plot" ? (thumb?.paper ?? c.paper) : null);
   const destBg = $derived(dest?.background ?? null);
-  const choice = $derived(chooseBackdrop(stats, { manifestPaper: paper, mode: $railPrefs.backdrop, destination: destBg }));
   const isVideoOr3d = $derived(!!c && /\.(glb|mp4|mov)$/i.test(c.abs));
+  // The tile's own rule: videos and 3D previews sit on the dark backdrop under Automatic.
+  const MEDIA: BackdropChoice = { kind: "dark", color: BACKDROPS.dark, reason: "Videos and 3D models sit on the dark backdrop" };
+  const choice = $derived(isVideoOr3d && $railPrefs.backdrop === "auto" ? MEDIA : chooseBackdrop(stats, { manifestPaper: paper, mode: $railPrefs.backdrop, destination: destBg }));
   const poor = $derived(!!c && !isVideoOr3d && !!destBg && readsPoorlyOn(stats, destBg));
   const wc = $derived(c?.kind === "plot" ? widthClass(c.physMm) : null);
 
@@ -117,9 +119,9 @@
         {#if wc}<div class="sub">{wc.title}</div>{/if}
         <div class="row" data-peek-placements>
           {#if c.placements.length}
-            Placed in {#each c.placements.slice(0, 6) as p, i}{i ? ", " : ""}<span class:accent={p.active}>{p.name}</span>{/each}{#if c.placements.length > 6}, +{c.placements.length - 6}{/if}
+            {unit === "slide" ? "On" : "Placed in"} {#each c.placements.slice(0, 6) as p, i}{i ? ", " : ""}<span class:accent={p.active}>{p.name}</span>{/each}{#if c.placements.length > 6}, +{c.placements.length - 6}{/if}
           {:else}
-            <span class="muted">Not placed anywhere yet</span>
+            <span class="muted">{unit === "slide" ? "On no slide of this deck yet" : "In no figure yet"}</span>
           {/if}
         </div>
         {#if c.dissections > 0}
@@ -137,7 +139,7 @@
       {#if !(c.kind === "dissection" && c.table)}
         <div class="backdrop" data-peek-backdrop={choice.kind}>
           <span class="sw" class:checker={choice.kind === "checker"} style:background-color={choice.kind === "checker" ? null : swatch || null}></span>
-          <span>{isVideoOr3d && choice.reason === "Not analysed yet" ? "Paper backdrop" : choice.reason}</span>
+          <span>{choice.reason}</span>
         </div>
       {/if}
       {#if poor}

@@ -297,6 +297,8 @@ export function createMemBridge(): FileBridge & {
       const b = files.get(abs);
       if (!b) return { error: "missing" };
       if (/\.webp$/i.test(abs)) return { error: "unsupported image format", unsupported: true };
+      // A gate's stand-in for a file that crashes or hangs the app's worker (it is quarantined).
+      if (abs.includes("__kills_worker__")) return { error: "the preview timed out", quarantined: true };
       try {
         const { renderThumbInBrowser } = await import("../plotsRail/browserThumb");
         const t = await renderThumbInBrowser(b, abs, request.bucket);
