@@ -1871,7 +1871,17 @@ Persistence invariants (all machine-checked — do not weaken):
     press and move are the same arrow (Figma keeps its pointer) and the shared resize / rotate /
     move-copy states are drawn in the arrow's fill and outline; the canvas stays ≤ 32 px
     (`arrowCanvas`). Knobs: `arrowSize`, `arrowFill`, `arrowOutline`, `arrowOutlineWidth`,
-    `arrowRounding`, `arrowShadow`, `arrowTilt`. The crosshair below is the other style. Fourteen hardware
+    `arrowRounding`, `arrowShadow`, `arrowTilt`. **Pixel law (audit, 2026-10-21):** every mark is
+    built about the HOT PIXEL'S CENTRE, a half-integer — the crosshair's `cursorGeometry` centres on
+    `cursorHotspot(p) + 0.5` (12.5 for the 24 px default) so a 1 px arm fills one column and the
+    drawing is mirror-symmetric about the pixel the click lands on; the arrow is defined in its own
+    frame (`ARROW_SHAPE`: barbs exact mirrors, the notch on the axis) and only then rotated by the
+    lean, and `arrowOrigin` places the geometric tip so the OUTLINE's apex (`arrowTipInset`) lands on
+    the hot pixel's centre; the margin rule keeps every round cap inside the canvas (a halo shortens
+    the arms by its half width). Audit tools: `scripts/perf/cursor-audit-render.mjs` renders every
+    state at 1× and 2× plus a padded copy (anything in the padding ring is clipped) for a pixel
+    audit, `cursor-sheet.mts --out` the contact sheets, `PROBE_CURSOR_DUMP=1` on the input probe the
+    real `cursor-changed` bitmaps. The crosshair below is the other style. Fourteen hardware
     `cursor: url()` SVGs are generated from one template — rest, hover (accent dot), press
     (contracted arms), `resize-ns/ew/nwse/nesw` (the two arms along the axis grow arrowheads,
     the other two vanish), `rotate-n/ne/se/sw/nw` (a quarter arc at arm radius + the dot),
@@ -10312,3 +10322,13 @@ arrow, bands show the outlined resize arrows — then the crosshair legs under `
   makes `cursor` compute to `auto`, so moving the bare-name mapping under the editors' classes removed
   the cursor from every other mode at once (the `-light`/`-dark` literals stay on `:root` for Settings'
   preview).
+- **Final pixel audit (same night).** Owner asked for a last check of symmetry and crispness. Two real
+  flaws, both invisible in a contact sheet and obvious in a pixel dump: the crosshair was centred on
+  the canvas midpoint (12), a pixel BOUNDARY, so every 1.3 px arm smeared across two columns at ~65 %
+  and the mark was asymmetric about the hot pixel; and the arrow's hot pixel (3 3) lay one pixel
+  up-left of its visible tip (the hot pixel had alpha 16). Law now: build about the hot pixel's
+  centre (half-integers), derive symmetric shapes in their own frame and rotate, place the OUTLINE's
+  apex on the hot pixel's centre. A border pixel with alpha is not proof of clipping (a round cap may
+  legitimately end inside the last pixel) — render a padded copy and look at the ring. A stroke that
+  is pixel-exact at every scale is an integer width (1 or 2 px); the crosshair's 1.3 px default
+  leaves ~15 % ghosts beside each arm at 1× (owner's knob, left as is).

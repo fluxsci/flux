@@ -42,7 +42,7 @@ const cursors = readFileSync(path.join(root, "src/styles/cursors.css"), "utf8");
 // Two literal sets (drawn for light / dark surfaces) and a static mapping: the
 // bare names point at the dark set (the app is dark), `.cursor-on-light` and
 // `.cursor-on-dark` repoint them for a subtree. Static CSS — nothing per hover.
-const hot = CURSOR_DEFAULTS.size / 2;
+const hot = Math.floor(CURSOR_DEFAULTS.size / 2); // the middle pixel (the mark is centred on ITS centre)
 const ARROW_STATES = new Set(["cross", "cross-hover", "cross-press", "move", "move-copy"]);
 for (const state of CURSOR_STATES) {
   // the default family is the classic arrow: its arrow-shaped states carry the tip hotspot and a `default` fallback

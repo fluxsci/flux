@@ -253,11 +253,23 @@ export function clampCursorParams(p: Partial<CursorParams>): CursorParams {
   };
 }
 
+/** The hot pixel of a crosshair state: the canvas's middle pixel (12 for the 24 px default). */
+export function cursorHotspot(p: CursorParams): number {
+  return Math.floor(p.size / 2);
+}
+
 /** The template's derived measures — ONE place, so every state agrees. */
 export function cursorGeometry(p: CursorParams) {
-  const c = p.size / 2; // hotspot
-  const margin = 1.5; // the arm tip's distance from the mark's edge (constant, keeps caps inside)
-  const outer = c - margin; // arm tip radius
+  // The hot pixel is the canvas's middle pixel and every stroke is centred on
+  // ITS centre (a half-integer): a 1 px arm then fills one pixel column instead
+  // of smearing across two at half strength, and the mark is mirror-symmetric
+  // about the pixel the click lands on (pixel audit, 2026-10-21).
+  const hot = cursorHotspot(p);
+  const c = hot + 0.5;
+  // the arm tip's distance from the canvas edge: room for the round cap of the
+  // widest stroke (core or halo) so nothing is ever clipped
+  const margin = Math.max(1.5, p.stroke / 2 + 0.5, p.haloWidth / 2 + 0.5);
+  const outer = Math.min(c, p.size - c) - margin; // arm tip radius
   const inner = Math.min(p.gap, outer - 2); // arm root radius (the centre gap)
   const armLen = outer - inner;
   // A press keeps the inner third... two thirds of each arm (7.5 → 5 at the defaults).
@@ -389,8 +401,8 @@ function plusBadge(p: CursorParams, g: ReturnType<typeof cursorGeometry>): strin
   const col = schemeColours(p);
   const accent = svgColor(p.dotColor);
   const r = 3.4;
-  const bx = p.size - r - 0.6;
-  const by = p.size - r - 0.6;
+  const bx = p.size - r - 1.1; // a clear pixel outside the badge's 0.5 px outline
+  const by = p.size - r - 1.1;
   const arm = 1.8;
   return (
     `<circle cx='${fmt(bx)}' cy='${fmt(by)}' r='${fmt(r)}' fill='${accent}' stroke='${col.disc}' stroke-width='1'/>` +
@@ -401,7 +413,7 @@ function plusBadge(p: CursorParams, g: ReturnType<typeof cursorGeometry>): strin
 
 function wrap(p: CursorParams, body: string, rotateDeg = 0): string {
   const s = fmt(p.size);
-  const c = fmt(p.size / 2);
+  const c = fmt(cursorHotspot(p) + 0.5);
   const inner = rotateDeg ? `<g transform='rotate(${fmt(rotateDeg)} ${c} ${c})'>${body}</g>` : body;
   return `<svg xmlns='http://www.w3.org/2000/svg' width='${s}' height='${s}' viewBox='0 0 ${s} ${s}'>${inner}</svg>`;
 }
@@ -411,15 +423,51 @@ function wrap(p: CursorParams, body: string, rotateDeg = 0): string {
 // a long left edge down to the tail, a notch, and the short right point — drawn
 // as a dark fill with a light outline (paint-order stroke, so the outline sits
 // OUTSIDE the fill and the fill's silhouette is exactly the geometry) and a
-// soft drop shadow for the slight lift. Unit geometry (height 1, tip at 0 0):
+// soft drop shadow for the slight lift. The shape is defined in its OWN frame —
+// the axis from the tip to the notch is +y, so the two barbs are exact mirror
+// images — and only then rotated by the lean, so symmetry is a property of
+// the construction, not of hand-typed coordinates (pixel audit, 2026-10-21).
+// Lengths are fractions of the arrow's height (`arrowSize`).
+export const ARROW_SHAPE = {
+  halfWidth: 0.43, // barb half-width across the axis
+  barb: 0.94, // the barbs' distance from the tip along the axis
+  notch: 0.78, // the notch's distance from the tip along the axis
+  lean: 35, // degrees the axis leans to the right of straight down (Figma's pointer)
+} as const;
+/** The arrow's vertices in its own frame (tip, right barb, notch, left barb). */
 export const ARROW_UNIT: readonly [number, number][] = [
-  [0, 0], // tip
-  [0.885, 0.525], // right point
-  [0.443, 0.639], // notch
-  [0.18, 1.0], // tail
+  [0, 0],
+  [ARROW_SHAPE.halfWidth, ARROW_SHAPE.barb],
+  [0, ARROW_SHAPE.notch],
+  [-ARROW_SHAPE.halfWidth, ARROW_SHAPE.barb],
 ];
-/** The hotspot pixel of every arrow-shaped state (the visible tip). */
+/** The hotspot pixel of every arrow-shaped state: the pixel whose CENTRE is the
+ *  visible tip of the outline. */
 export const ARROW_HOTSPOT: [number, number] = [3, 3];
+
+/** The arrow's rotation on screen, clockwise degrees: the lean plus the user's tilt. */
+function arrowAngle(p: CursorParams): number {
+  return ((p.arrowTilt - ARROW_SHAPE.lean) * Math.PI) / 180;
+}
+
+/** How far INSIDE the geometric tip the visible tip of the outlined arrow sits
+ *  (negative = outside): the fillet pulls the fill's apex in by half the fillet's
+ *  tangent length times cos(half-apex) (a quadratic fillet's midpoint), the
+ *  outline pushes it back out by its width. */
+export function arrowTipInset(p: CursorParams): number {
+  const half = Math.atan2(ARROW_SHAPE.halfWidth, ARROW_SHAPE.barb); // half the apex angle
+  const edge = Math.hypot(ARROW_SHAPE.halfWidth, ARROW_SHAPE.barb) * p.arrowSize;
+  const t = Math.min(p.arrowRounding / Math.tan(half), edge / 2); // the fillet's tangent length (as roundedPolygonPath)
+  return 0.5 * t * Math.cos(half) - p.arrowOutlineWidth;
+}
+
+/** Where the geometric tip goes so the visible tip is the hot pixel's centre. */
+export function arrowOrigin(p: CursorParams): { ox: number; oy: number } {
+  const a = arrowAngle(p);
+  const axis = [-Math.sin(a), Math.cos(a)]; // tip → tail, unit
+  const inset = arrowTipInset(p);
+  return { ox: ARROW_HOTSPOT[0] + 0.5 - inset * axis[0], oy: ARROW_HOTSPOT[1] + 0.5 - inset * axis[1] };
+}
 
 /** The canvas the arrow family draws on: tight to the arrow plus its outline
  *  and the shadow's reach, never over 32 px (Chromium shows larger custom
@@ -428,18 +476,18 @@ export function arrowCanvas(p: CursorParams): { w: number; h: number; ox: number
   const ow = p.arrowOutlineWidth;
   const blur = 1.6 * p.arrowShadow;
   const reach = Math.ceil(ow + 3 * blur + 1.2 * p.arrowShadow + 1); // outline + 3σ + offset + a pixel
-  const ox = ARROW_HOTSPOT[0] + ow * 0.9; // the geometric tip sits just inside the hotspot pixel
-  const oy = ARROW_HOTSPOT[1] + ow * 0.9;
+  const { ox, oy } = arrowOrigin(p);
   const pts = arrowPoints(p, ox, oy);
   const maxX = Math.max(...pts.map((q) => q[0]));
   const maxY = Math.max(...pts.map((q) => q[1]));
   return { w: Math.min(32, Math.ceil(maxX + reach)), h: Math.min(32, Math.ceil(maxY + reach)), ox, oy };
 }
 
-/** The arrow's vertices in canvas px: unit geometry × height, tilted about the tip, translated. */
+/** The arrow's vertices in canvas px: the symmetric unit shape × height, rotated
+ *  about the tip by the lean and the tilt, translated to the origin. */
 export function arrowPoints(p: CursorParams, ox: number, oy: number): [number, number][] {
   const s = p.arrowSize;
-  const a = (p.arrowTilt * Math.PI) / 180;
+  const a = arrowAngle(p);
   const cos = Math.cos(a);
   const sin = Math.sin(a);
   return ARROW_UNIT.map(([ux, uy]) => {
@@ -509,8 +557,8 @@ function drawArrowState(state: CursorState, p: CursorParams): CursorDrawing | nu
   if (state === "move-copy") {
     // the "+" badge beside the arrow's right point, in the dot colour over the outline colour
     const r = 3.4;
-    const bx = c.w - r - 0.6;
-    const by = c.h - r - 0.6;
+    const bx = c.w - r - 1.1;
+    const by = c.h - r - 1.1;
     const arm = 1.8;
     extra =
       `<circle cx='${fmt(bx)}' cy='${fmt(by)}' r='${fmt(r)}' fill='${svgColor(p.dotColor)}' stroke='${svgColor(p.arrowOutline)}' stroke-width='1'/>` +

@@ -16,7 +16,8 @@ const scaleIdx = process.argv.indexOf("--scales");
 const scales = scaleIdx > 0 ? process.argv[scaleIdx + 1].split(",").map(Number) : [1, 2, 4];
 const states = only ? CURSOR_STATES.filter((s) => only.has(s)) : CURSOR_STATES;
 const schemes = only ? (["classic"] as const) : (["classic", ...Object.keys(CURSOR_PRESETS)] as string[]);
-const out = path.resolve(only ? "test-results/cursor-sheet-detail.png" : "test-results/cursor-sheet.png");
+const outIdx = process.argv.indexOf("--out");
+const out = path.resolve(outIdx > 0 ? process.argv[outIdx + 1] : only ? "test-results/cursor-sheet-detail.png" : "test-results/cursor-sheet.png");
 mkdirSync(path.dirname(out), { recursive: true });
 
 const rows: string[] = [];
@@ -27,7 +28,7 @@ for (const scheme of schemes) {
   for (const bg of ["#1c1b1a", "#fffcf0", "#4385be"]) {
     const fam = bg === "#fffcf0" ? famLight : famDark; // the drawing that surface would get
     rows.push(
-      `<div class="row" style="background:${bg}"><div class="lbl" style="color:${bg === "#fffcf0" ? "#333" : "#eee"}">${scheme} · ${bg}</div>` +
+      `<div class="row" style="background:${bg}"><div class="lbl" style="color:${bg === "#fffcf0" ? "#333" : "#eee"}">${scheme}${extra.style ? " · " + extra.style : ""} · ${bg}</div>` +
         states.map((s) => {
           const svg = fam[s].svg.replace(/%23/g, "#");
           return `<div class="cell"><div class="name" style="color:${bg === "#fffcf0" ? "#333" : "#eee"}">${s}</div>${scales

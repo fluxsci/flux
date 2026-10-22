@@ -60,8 +60,8 @@ await waitFor(page, () => !!document.querySelector(".canvas-host") && !!document
 const ok = (cond, msg) => { checks.push([!!cond, msg]); console.log(`${cond ? "✓" : "✗"} ${msg}`); };
 const cursorOf = (sel = ".canvas-host") => page.$eval(sel, (el) => getComputedStyle(el).cursor);
 const isCross = (c) => /data:image\/svg\+xml/.test(c) && /crosshair$/.test(c);
-const isHover = (c) => isCross(c) && /circle/.test(c) && !/y1='4'/.test(c);
-const isPress = (c) => isCross(c) && /y1='4'/.test(c);
+const isPress = (c) => isCross(c) && /y1='4\.83'/.test(c); // contracted arms (the full arm starts at 2.5)
+const isHover = (c) => isCross(c) && /circle/.test(c) && !isPress(c);
 const host = await page.$eval(".canvas-host", (el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
 const empty = { x: host.x + host.w - 60, y: host.y + host.h - 60 };
 const el = await page.$eval("[data-editor-element-id]", (g) => { const r = g.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, id: g.getAttribute("data-editor-element-id") }; });

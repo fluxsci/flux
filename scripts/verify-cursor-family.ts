@@ -19,12 +19,16 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   ARROW_HOTSPOT,
+  ARROW_SHAPE,
   ARROW_UNIT,
   arrowCanvas,
+  arrowOrigin,
   arrowPoints,
+  arrowTipInset,
   buildCursorFamily,
   buildCursorFamilyDark,
   clampCursorParams,
+  cursorGeometry,
   roundedPolygonPath,
   cursorCssBlock,
   cursorGeometry,
@@ -66,7 +70,19 @@ const legacy = {
 const CROSS = { style: "crosshair" as const };
 const fam = buildCursorFamily(CROSS); // the crosshair: adaptive, no halo (light-surface drawing)
 const famO = buildCursorFamily({ ...CROSS, ...CURSOR_PRESETS.outlined }); // the 2026-09-15 look
-assert(famO.cross.css === legacy.cross, "the crosshair's OUTLINED preset is the 2026-09-15 drawing byte for byte");
+// The OUTLINED preset is the 2026-09-15 drawing in every respect but one: since the
+// pixel audit (2026-10-21) the mark is centred on the hot pixel's CENTRE (12.5), not
+// the canvas midpoint (12), so a 1 px arm fills one column and the drawing is
+// mirror-symmetric about the pixel the click lands on. Compare modulo that shift.
+{
+  const shift = (css: string) => css.replace(/'(\d+(?:\.\d+)?)'/g, (_, n) => `'${+(+n + 0.5).toFixed(2)}'`);
+  const stripNums = (css: string) => css.replace(/\d+(?:\.\d+)?/g, "#");
+  assert(stripNums(famO.cross.css) === stripNums(legacy.cross), "the crosshair's OUTLINED preset is the 2026-09-15 drawing's structure (same elements, order, colours, widths)");
+  const gO = cursorGeometry(clampCursorParams({ ...CURSOR_DEFAULTS, ...CROSS, ...CURSOR_PRESETS.outlined }));
+  assert(lines(famO.cross.svg).length === lines(legacy.cross).length && gO.c === 12.5 && famO.cross.svg.includes(`x1='12.5' y1='${+(gO.c - gO.outer).toFixed(2)}'`) && /stroke='%23fff'/.test(famO.cross.svg), "…its arms are the legacy arms moved to the pixel centre, under the halo");
+  assert(gO.outer < cursorGeometry(clampCursorParams({ ...CURSOR_DEFAULTS, ...CROSS })).outer && gO.c + gO.outer + gO.haloWidth / 2 <= 24, "a halo shortens the arms by its own half width so its round caps never leave the canvas");
+  void shift;
+}
 assert(lines(fam.cross.svg).length === 4 && fam.cross.svg.includes("stroke='%23151515'") && !fam.cross.svg.includes("%23fff"), "the adaptive resting crosshair has no halo: four dark-ink arms for light surfaces");
 const famD = buildCursorFamilyDark(CROSS);
 assert(lines(famD.cross.svg).length === 4 && famD.cross.svg.includes("stroke='%23fffcf0'"), "…and its dark-surface twin is the same drawing in paper-white");
@@ -98,9 +114,31 @@ assert(famD.cross.svg.replace(/%23fffcf0/g, "%23151515") === fam.cross.svg, "the
     const cc = arrowCanvas(clampCursorParams({ ...CURSOR_DEFAULTS, arrowSize: size, arrowShadow: 1, arrowOutlineWidth: 2.5 }));
     assert(cc.w <= 32 && cc.h <= 32, `size ${size} with the strongest shadow and outline still fits 32 px (${cc.w} × ${cc.h})`);
   }
-  const pts = arrowPoints(clampCursorParams(CURSOR_DEFAULTS), 0, 0);
-  assert(pts.length === 4 && pts[0][0] === 0 && pts[0][1] === 0 && pts[3][1] === 22 && Math.abs(pts[1][0] - 0.885 * 22) < 1e-9, "the arrow's vertices are the unit geometry × its height, tip at the origin");
-  assert(ARROW_UNIT.length === 4 && ARROW_UNIT[0][0] === 0 && ARROW_UNIT[3][1] === 1, "the unit arrow: tip, right point, notch, tail");
+  const pd = clampCursorParams(CURSOR_DEFAULTS);
+  const pts = arrowPoints(pd, 0, 0);
+  assert(pts.length === 4 && pts[0][0] === 0 && pts[0][1] === 0 && pts[3][1] > pts[1][1] && pts[1][0] > pts[3][0], "the arrow's vertices: tip at the origin, the right barb higher and further right than the tail");
+  assert(ARROW_UNIT.length === 4 && ARROW_UNIT[0][0] === 0 && ARROW_UNIT[0][1] === 0 && ARROW_UNIT[2][0] === 0 && ARROW_UNIT[1][0] === -ARROW_UNIT[3][0] && ARROW_UNIT[1][1] === ARROW_UNIT[3][1], "the unit arrow is symmetric about its axis by construction: the notch on the axis, the barbs exact mirrors");
+  // …and so are the rotated vertices: reflect the right barb across the tip→notch axis and land on the left barb
+  for (const tilt of [0, 17, -30]) {
+    const q = arrowPoints(clampCursorParams({ ...CURSOR_DEFAULTS, arrowTilt: tilt }), 5, 7);
+    const [tip, right, notch, left] = q;
+    const ax = notch[0] - tip[0], ay = notch[1] - tip[1];
+    const len = Math.hypot(ax, ay);
+    const ux = ax / len, uy = ay / len;
+    const rx = right[0] - tip[0], ry = right[1] - tip[1];
+    const dot = rx * ux + ry * uy;
+    const mirror = [tip[0] + 2 * dot * ux - rx, tip[1] + 2 * dot * uy - ry];
+    assert(Math.abs(mirror[0] - left[0]) < 1e-9 && Math.abs(mirror[1] - left[1]) < 1e-9, `tilt ${tilt}: the left barb is the exact mirror of the right barb across the arrow's axis`);
+  }
+  // the visible tip (the outline's apex) is the hot pixel's centre
+  {
+    const o = arrowOrigin(pd);
+    const inset = arrowTipInset(pd);
+    const a = ((pd.arrowTilt - ARROW_SHAPE.lean) * Math.PI) / 180;
+    const vis = [o.ox + inset * -Math.sin(a), o.oy + inset * Math.cos(a)];
+    assert(Math.abs(vis[0] - (ARROW_HOTSPOT[0] + 0.5)) < 1e-9 && Math.abs(vis[1] - (ARROW_HOTSPOT[1] + 0.5)) < 1e-9, "the outline's tip lands on the centre of the hot pixel");
+    assert(inset < 0 && inset > -1, `at the defaults the outline's tip sits just outside the geometric tip (${inset.toFixed(2)} px)`);
+  }
   const sharp = roundedPolygonPath([[0, 0], [10, 0], [10, 10]], 0);
   const round = roundedPolygonPath([[0, 0], [10, 0], [10, 10]], 1);
   assert(sharp === "M0 0L10 0L10 10Z" && round.startsWith("M") && (round.match(/Q/g) || []).length === 3 && round.endsWith("Z"), "rounding 0 is the sharp polygon; a radius fillets every corner with a quadratic");
@@ -113,7 +151,7 @@ assert(famD.cross.svg.replace(/%23fffcf0/g, "%23151515") === fam.cross.svg, "the
   const custom = buildCursorFamily({ arrowFill: "#aa2200", arrowOutline: "#ffee00" });
   assert(custom.cross.svg.includes("fill='%23a20'") && custom.cross.svg.includes("stroke='%23fe0'"), "fill and outline take the user's colours");
 }
-assert(/y1='4'/.test(fam["cross-press"].css) && /<circle/.test(fam["cross-press"].css), "press: contracted arms (y1='4') + dot — the tokens verify-cursor-gui keys on");
+assert(/y1='4\.83'/.test(fam["cross-press"].css) && /<circle/.test(fam["cross-press"].css) && /y1='2\.5'/.test(fam.cross.css), "press: contracted arms (y1='4.83'; the full arm starts at 2.5) + dot — the tokens verify-cursor-gui keys on");
 assert(/<circle/.test(fam["cross-hover"].css) && !/y1='4'/.test(fam["cross-hover"].css), "hover: the dot without contraction");
 assert(!/<circle/.test(fam.cross.css), "rest: no dot");
 
@@ -144,7 +182,7 @@ for (const params of extremes) {
     const d = f[s];
     const svgOk = d.svg.startsWith("<svg xmlns='http://www.w3.org/2000/svg'") && d.svg.endsWith("</svg>") && !/["\n]/.test(d.svg);
     const arrowState = p.style === "classic" && ["cross", "cross-hover", "cross-press", "move", "move-copy"].includes(s);
-    const hot = arrowState ? d.hotspot[0] === ARROW_HOTSPOT[0] && d.hotspot[1] === ARROW_HOTSPOT[1] : d.hotspot[0] === p.size / 2 && d.hotspot[1] === p.size / 2;
+    const hot = arrowState ? d.hotspot[0] === ARROW_HOTSPOT[0] && d.hotspot[1] === ARROW_HOTSPOT[1] : d.hotspot[0] === Math.floor(p.size / 2) && d.hotspot[1] === Math.floor(p.size / 2);
     const fb = arrowState ? d.css.endsWith(s === "move-copy" ? ", copy" : ", default") : d.css.endsWith(`, ${CURSOR_FALLBACK[s]}`) || d.css === CURSOR_FALLBACK[s];
     const canvas = arrowState ? Math.max(arrowCanvas(p).w, arrowCanvas(p).h) : p.size;
     const inBounds = numbersIn(d.svg).every((n) => n >= -0.01 && n <= canvas + 0.01);
@@ -165,7 +203,14 @@ for (const params of extremes) {
   const rest = lines(famO.cross.svg);
   const core = rest.slice(rest.length / 2); // halo pass then core pass
   const restNoHalo = lines(fam.cross.svg);
-  assert(restNoHalo.length === 4 && restNoHalo.every((l, i) => JSON.stringify(l) === JSON.stringify(core[i])), "without a halo the default's four arms ARE the outlined core pass");
+  // the outlined core pass is the halo-less arms with their tips pulled in by the
+  // halo's half width (the margin rule: a halo's round caps never leave the canvas)
+  const dOut = cursorGeometry(clampCursorParams({ ...CURSOR_DEFAULTS, ...CROSS })).outer - cursorGeometry(clampCursorParams({ ...CURSOR_DEFAULTS, ...CROSS, ...CURSOR_PRESETS.outlined })).outer;
+  const sameButTip = (a: number[], b: number[]) => {
+    const diffs = a.map((v, k) => Math.abs(v - b[k])).filter((d) => d > 1e-9);
+    return diffs.length === 1 && Math.abs(diffs[0] - dOut) < 0.011;
+  };
+  assert(restNoHalo.length === 4 && dOut > 0 && restNoHalo.every((l, i) => sameButTip(l as number[], core[i] as number[])), `without a halo the default's four arms ARE the outlined core pass, tips ${dOut.toFixed(2)} px longer (no halo cap to make room for)`);
   const key = (l: number[]) => l.map((v) => Math.round(v * 100)).join(",");
   const restArms = new Set(core.map(key));
   const nsCore = lines(famO["resize-ns"].svg);
@@ -178,7 +223,7 @@ for (const params of extremes) {
   const moveArms = lines(famO.move.svg).filter((l) => (l[0] === l[2] || l[1] === l[3]) && Math.hypot(l[2] - l[0], l[3] - l[1]) > g.pressHead + 0.5);
   assert(moveArms.length >= 4 && moveArms.every((l) => pressCore.has(key(l))) && /<circle/.test(famO.move.svg), "move is the PRESS cross (contracted arms + dot) with heads — a drag that starts from a press adds heads only, nothing jumps");
   assert(famO["move-copy"].svg.startsWith(famO.move.svg.slice(0, famO.move.svg.length - 6)), "move-copy is move plus the badge");
-  assert(/rotate\(-45 12 12\)/.test(fam["resize-nwse"].svg) && /rotate\(45 12 12\)/.test(fam["resize-nesw"].svg), "the diagonal resize cursors are the ns drawing rotated ±45° about the hotspot");
+  assert(/rotate\(-45 12\.5 12\.5\)/.test(fam["resize-nwse"].svg) && /rotate\(45 12\.5 12\.5\)/.test(fam["resize-nesw"].svg), "the diagonal resize cursors are the ns drawing rotated ±45° about the hot pixel's centre");
   const press = lines(famO["cross-press"].svg);
   const pressCoreLines = press.slice(press.length / 2);
   const roots = (ls: number[][]) => new Set(ls.map((l) => key([Math.min(Math.abs(l[0] - 12), Math.abs(l[2] - 12)), Math.min(Math.abs(l[1] - 12), Math.abs(l[3] - 12))])));
@@ -234,7 +279,7 @@ assert(/stroke-width='2\.3'/.test(buildCursorFamily({ ...CROSS, haloWidth: 2.3 }
   const c = clampCursorParams({ size: 999, stroke: -1, gap: 99, centre: "neon" as never, dotColor: "red" });
   assert(c.size === CURSOR_SIZE_RANGE.max && c.stroke === 0.8 && c.gap === 6 && c.centre === "none" && c.dotColor === "#4385be", "clampCursorParams bounds numbers and falls back on unknown enums / colours");
   assert(clampCursorParams({ size: 27 }).size === 28 && clampCursorParams({ size: 21 }).size === 22 && clampCursorParams({ size: 23 }).size === 24 && clampCursorParams({ size: 40 }).size === 32 && CURSOR_SIZE_RANGE.max === 32, "sizes round to even and cap at 32 (Chromium's large-cursor viewport rule)");
-  assert(drawCursor("cross", { ...CROSS, gap: 0 }).svg.includes("y2='12'") || drawCursor("cross", { ...CROSS, gap: 0 }).svg.includes("y2='9'"), "gap 0 still draws (arms meet the centre)");
+  assert(drawCursor("cross", { ...CROSS, gap: 0 }).svg.includes("y2='12.5'"), "gap 0 still draws (arms meet the hot pixel's centre)");
 }
 
 // --- 7. the tone law (cursor/cursorTone.ts) -------------------------------------
