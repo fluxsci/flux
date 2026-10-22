@@ -39,12 +39,19 @@ const cursors = readFileSync(path.join(root, "src/styles/cursors.css"), "utf8");
 // 2026-10-21: the family is generated (src/lib/cursor/cursorFamily.ts) — every
 // state is a hardware svg cursor with the hotspot at the mark's centre and its
 // own OS fallback; verify-cursor-family pins the drawing itself.
+// Two literal sets (drawn for light / dark surfaces) and a static mapping: the
+// bare names point at the dark set (the app is dark), `.cursor-on-light` and
+// `.cursor-on-dark` repoint them for a subtree. Static CSS — nothing per hover.
 const hot = CURSOR_DEFAULTS.size / 2;
 for (const state of CURSOR_STATES) {
-  const v = cursorVar(state);
-  assert(new RegExp(`${v}: url\\("data:image/svg\\+xml,[^"]+"\\) ${hot} ${hot}, ${CURSOR_FALLBACK[state]};`).test(cursors), `${v} is a hardware svg cursor with the ${hot} ${hot} hotspot and a ${CURSOR_FALLBACK[state]} fallback`);
+  for (const tone of ["light", "dark"] as const) {
+    const v = cursorVar(state, tone);
+    assert(new RegExp(`${v}: url\\("data:image/svg\\+xml,[^"]+"\\) ${hot} ${hot}, ${CURSOR_FALLBACK[state]};`).test(cursors), `${v} is a hardware svg cursor with the ${hot} ${hot} hotspot and a ${CURSOR_FALLBACK[state]} fallback`);
+  }
+  assert(cursors.includes(`  ${cursorVar(state)}: var(${cursorVar(state, "dark")});`), `${cursorVar(state)} defaults to the dark-surface drawing`);
 }
-assert(/<circle/.test(decodeURIComponent(cursors.split("--cursor-cross-hover")[1].split("\n")[0])) && !/<circle/.test(decodeURIComponent(cursors.split("--cursor-cross: ")[1].split("\n")[0])), "the hover variant carries the dot, the plain one does not");
+assert(/\.cursor-on-light \{[^}]*--cursor-cross: var\(--cursor-cross-light\);/.test(cursors) && /\.cursor-on-dark \{[^}]*--cursor-cross: var\(--cursor-cross-dark\);/.test(cursors), "the two tone classes repoint the bare names for their subtree");
+assert(/<circle/.test(cursors.split("--cursor-cross-hover-light: ")[1].split("\n")[0]) && !/<circle/.test(cursors.split("--cursor-cross-light: ")[1].split("\n")[0]), "the hover variant carries the dot, the plain one does not");
 // 2026-10-21: on the canvas itself every cursor is the family — guides, rulers,
 // path nodes, the figure title bar and the node-insert markers included — so
 // the owner never sees an OS crosshair or three different "move" drawings

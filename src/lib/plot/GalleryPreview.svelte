@@ -7,7 +7,7 @@
   onMount(() => previews.acquire(path, value => { url = value; ready = true; }));
 </script>
 
-<span class="preview" class:failed>
+<span class="preview cursor-on-light" class:failed>
   {#if url && !failed}
     <img src={url} alt="" decoding="async" on:error={() => failed = true} />
   {:else if ready}

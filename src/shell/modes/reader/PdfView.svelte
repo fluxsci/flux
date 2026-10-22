@@ -931,7 +931,7 @@
 
 <svelte:window onmousedown={() => (menu = null)} onmousemove={onMarqueeMove} onmouseup={onMarqueeUp} />
 
-<div class="pdf-root" data-testid="pdf-root" data-pages={numPages} data-rendered={rendered} data-hl-blend={HL_BLEND ? "on" : "off"}>
+<div class="pdf-root cursor-on-light" data-testid="pdf-root" data-pages={numPages} data-rendered={rendered} data-hl-blend={HL_BLEND ? "on" : "off"}>
   {#if status === "error"}
     <div class="msg err">Couldn't render this PDF: {errMsg}</div>
   {/if}

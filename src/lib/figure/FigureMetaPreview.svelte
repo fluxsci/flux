@@ -96,7 +96,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
 <div class="preview-viewport" class:zoomed={!fit} class:panning bind:this={viewport} role="region" aria-label="Figure preview" tabindex="0" use:watch use:wheel on:pointerdown={pan} on:keydown={keys} data-scale={scale} data-fit={fit}>
   <div class="preview-stage" style={`width:${stageWidth}px;height:${stageHeight}px`}>
-    <div class="preview-sheet" bind:this={sheet} style={`width:${sheetWidth}px;left:${(stageWidth-sheetWidth*scale)/2}px;top:${(stageHeight-sheetHeight*scale)/2}px;transform:scale(${scale})`}>
+    <div class="preview-sheet cursor-on-light" bind:this={sheet} style={`width:${sheetWidth}px;left:${(stageWidth-sheetWidth*scale)/2}px;top:${(stageHeight-sheetHeight*scale)/2}px;transform:scale(${scale})`}>
       <div class="art" style={`aspect-ratio:${aspect > 0 ? aspect : 1}`}>
         {#if image}<img src={image} alt={title} draggable="false" />{:else}<p>{error || 'Preparing preview…'}</p>{/if}
       </div>

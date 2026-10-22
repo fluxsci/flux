@@ -22,8 +22,11 @@ export interface CursorParams {
   size: number;
   /** Core (crosshair) stroke width in px. */
   stroke: number;
-  /** Core stroke colour (6-digit hex). */
+  /** Core stroke colour (6-digit hex) over LIGHT backgrounds (a figure's paper). */
   coreColor: string;
+  /** Core stroke colour over DARK backgrounds (the app chrome, the canvas, dark
+   *  paper, dark fills). Equal to `coreColor` when the cursor does not adapt. */
+  coreColorDark: string;
   /** The halo drawn under the core so the mark reads on any background: its
    *  stroke width in px (0 = no halo), colour and opacity. */
   haloWidth: number;
@@ -43,11 +46,15 @@ export interface CursorParams {
   resizeStyle: CursorResizeStyle;
 }
 
+// Defaults (2026-10-21, owner): no halo — the mark adapts its colour to the
+// surface instead (dark ink on a figure's paper, Flexoki paper-white on the
+// dark app and canvas). The 2026-09-15 outlined look is the "outlined" preset.
 export const CURSOR_DEFAULTS: CursorParams = {
   size: 24,
   stroke: 1.3,
   coreColor: "#151515",
-  haloWidth: 3.2,
+  coreColorDark: "#fffcf0",
+  haloWidth: 0,
   haloColor: "#ffffff",
   haloOpacity: 0.92,
   dotColor: "#4385be",
@@ -58,20 +65,25 @@ export const CURSOR_DEFAULTS: CursorParams = {
   resizeStyle: "crosshair",
 };
 
-/** Colour presets (Settings → Cursor → Colours). Picking one writes these three
- *  fields; editing any colour afterwards makes the preset "custom". */
+/** Colour presets (Settings → Cursor → Colours). Picking one writes these
+ *  fields; editing any of them afterwards makes the preset "custom". */
 export const CURSOR_PRESETS = {
-  ink: { coreColor: "#151515", haloColor: "#ffffff", haloOpacity: 0.92 },
-  paper: { coreColor: "#ffffff", haloColor: "#151515", haloOpacity: 0.85 },
-  accent: { coreColor: "#4385be", haloColor: "#ffffff", haloOpacity: 0.92 },
+  /** The default: no halo, dark ink on paper, paper-white on dark surfaces. */
+  adaptive: { coreColor: "#151515", coreColorDark: "#fffcf0", haloWidth: 0, haloColor: "#ffffff", haloOpacity: 0.92 },
+  /** The 2026-09-15 look: one dark mark under a white halo, everywhere. */
+  outlined: { coreColor: "#151515", coreColorDark: "#151515", haloWidth: 3.2, haloColor: "#ffffff", haloOpacity: 0.92 },
+  /** The accent blue on every surface, no halo. */
+  accent: { coreColor: "#4385be", coreColorDark: "#4385be", haloWidth: 0, haloColor: "#ffffff", haloOpacity: 0.92 },
 } as const;
 export type CursorPreset = keyof typeof CURSOR_PRESETS | "custom";
-export const CURSOR_PRESET_IDS: readonly CursorPreset[] = ["ink", "paper", "accent", "custom"];
+export const CURSOR_PRESET_IDS: readonly CursorPreset[] = ["adaptive", "outlined", "accent", "custom"];
+type PresetFields = Pick<CursorParams, "coreColor" | "coreColorDark" | "haloWidth" | "haloColor" | "haloOpacity">;
 
-/** Which preset the colours match, else "custom". */
-export function cursorPresetOf(p: Pick<CursorParams, "coreColor" | "haloColor" | "haloOpacity">): CursorPreset {
-  for (const [id, c] of Object.entries(CURSOR_PRESETS) as [keyof typeof CURSOR_PRESETS, (typeof CURSOR_PRESETS)[keyof typeof CURSOR_PRESETS]][]) {
-    if (c.coreColor === p.coreColor.toLowerCase() && c.haloColor === p.haloColor.toLowerCase() && Math.abs(c.haloOpacity - p.haloOpacity) < 1e-9) return id;
+/** Which preset the colours match, else "custom" (the halo colour only counts while a halo is drawn). */
+export function cursorPresetOf(p: PresetFields): CursorPreset {
+  for (const [id, c] of Object.entries(CURSOR_PRESETS) as [keyof typeof CURSOR_PRESETS, PresetFields][]) {
+    const haloSame = c.haloWidth === 0 && p.haloWidth === 0 ? true : c.haloColor === p.haloColor.toLowerCase() && Math.abs(c.haloOpacity - p.haloOpacity) < 1e-9 && Math.abs(c.haloWidth - p.haloWidth) < 1e-9;
+    if (c.coreColor === p.coreColor.toLowerCase() && c.coreColorDark === p.coreColorDark.toLowerCase() && haloSame) return id;
   }
   return "custom";
 }
@@ -143,9 +155,20 @@ export const CURSOR_FALLBACK: Record<CursorState, string> = {
   "move-copy": "copy",
 };
 
-/** The CSS custom property that carries each state. */
-export function cursorVar(state: CursorState): string {
-  return `--cursor-${state}`;
+/** The CSS custom property that carries each state. Consumers use the bare
+ *  name (`--cursor-cross`), which :root points at the DARK-surface set and
+ *  `.cursor-on-light` / `.cursor-on-dark` repoint for their subtree; the two
+ *  literal sets are `--cursor-<state>-light` (drawn for light backgrounds) and
+ *  `--cursor-<state>-dark`. */
+export type CursorTone = "light" | "dark";
+export function cursorVar(state: CursorState, tone?: CursorTone): string {
+  return tone ? `--cursor-${state}-${tone}` : `--cursor-${state}`;
+}
+/** `var(--cursor-<state>[-tone])` — the host's gesture cursor names a tone
+ *  explicitly (a `cursor` change on the host stops at the `.el` firewalls; a
+ *  custom-property change there would not). */
+export function cursorVarRef(state: CursorState, tone?: CursorTone): string {
+  return `var(${cursorVar(state, tone)})`;
 }
 
 export interface CursorDrawing {
@@ -176,6 +199,7 @@ export function clampCursorParams(p: Partial<CursorParams>): CursorParams {
     size: even(clamp(p.size, CURSOR_SIZE_RANGE, CURSOR_DEFAULTS.size)),
     stroke: clamp(p.stroke, CURSOR_STROKE_RANGE, CURSOR_DEFAULTS.stroke),
     coreColor: cursorHex(p.coreColor, CURSOR_DEFAULTS.coreColor),
+    coreColorDark: cursorHex(p.coreColorDark, CURSOR_DEFAULTS.coreColorDark),
     haloWidth: clamp(p.haloWidth, CURSOR_HALO_WIDTH_RANGE, CURSOR_DEFAULTS.haloWidth),
     haloColor: cursorHex(p.haloColor, CURSOR_DEFAULTS.haloColor),
     haloOpacity: clamp(p.haloOpacity, CURSOR_HALO_OPACITY_RANGE, CURSOR_DEFAULTS.haloOpacity),
@@ -402,16 +426,34 @@ export function drawCursor(state: CursorState, params: Partial<CursorParams> = {
   return { state, svg, css, hotspot };
 }
 
+/** The family drawn for LIGHT backgrounds (`coreColor`). */
 export function buildCursorFamily(params: Partial<CursorParams> = {}): CursorFamily {
   const out = {} as CursorFamily;
   for (const s of CURSOR_STATES) out[s] = drawCursor(s, params);
   return out;
 }
 
-/** The `:root { … }` block cursors.css carries for the defaults. */
+/** The family drawn for DARK backgrounds: the same drawing with `coreColorDark`. */
+export function buildCursorFamilyDark(params: Partial<CursorParams> = {}): CursorFamily {
+  const p = clampCursorParams({ ...CURSOR_DEFAULTS, ...params });
+  return buildCursorFamily({ ...p, coreColor: p.coreColorDark });
+}
+
+/** Every `--cursor-*` declaration for the defaults, as cursors.css carries them:
+ *  the two literal sets, then the mapping — :root points the bare names at the
+ *  dark-surface set (the app chrome and the canvas are dark) and the two
+ *  tone classes repoint them for a subtree (a figure's paper, a dark fill, a
+ *  PDF page). The mapping is static CSS: nothing flips per hover. */
 export function cursorCssBlock(params: Partial<CursorParams> = {}): string {
-  const fam = buildCursorFamily(params);
-  return `:root {\n${CURSOR_STATES.map((s) => `  ${cursorVar(s)}: ${fam[s].css};`).join("\n")}\n}\n`;
+  const light = buildCursorFamily(params);
+  const dark = buildCursorFamilyDark(params);
+  const lines = (f: (s: CursorState) => string) => CURSOR_STATES.map((s) => `  ${f(s)}`).join("\n");
+  return (
+    `:root {\n${lines((s) => `${cursorVar(s, "light")}: ${light[s].css};`)}\n${lines((s) => `${cursorVar(s, "dark")}: ${dark[s].css};`)}\n` +
+    `${lines((s) => `${cursorVar(s)}: var(${cursorVar(s, "dark")});`)}\n}\n` +
+    `.cursor-on-light {\n${lines((s) => `${cursorVar(s)}: var(${cursorVar(s, "light")});`)}\n}\n` +
+    `.cursor-on-dark {\n${lines((s) => `${cursorVar(s)}: var(${cursorVar(s, "dark")});`)}\n}\n`
+  );
 }
 
 /** True when `params` draws exactly the default family (the theme writer then clears :root). */

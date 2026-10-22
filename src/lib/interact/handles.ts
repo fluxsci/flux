@@ -62,17 +62,20 @@ export function resizeAxisFor(h: Handle): ResizeAxis {
   }
 }
 
-/** `var(--cursor-resize-<axis>)` for a handle. */
-export function resizeCursorVar(h: Handle): string {
-  return `var(--cursor-resize-${resizeAxisFor(h)})`;
+/** `var(--cursor-resize-<axis>[-tone])` for a handle. The bare name follows
+ *  the surface through CSS inheritance; the HOST's gesture cursor names the
+ *  tone it captured at the press (a `cursor` change on the host stops at the
+ *  `.el` firewalls, a custom-property change there would not). */
+export function resizeCursorVar(h: Handle, tone?: "light" | "dark"): string {
+  return `var(--cursor-resize-${resizeAxisFor(h)}${tone ? `-${tone}` : ""})`;
 }
 
 export type RotateZone = "n" | "ne" | "se" | "sw" | "nw";
 export const ROTATE_ZONES: RotateZone[] = ["ne", "se", "sw", "nw"];
 
-/** `var(--cursor-rotate-<zone>)` for a rotate zone (the knob is `n`). */
-export function rotateCursorVar(z: RotateZone): string {
-  return `var(--cursor-rotate-${z})`;
+/** `var(--cursor-rotate-<zone>[-tone])` for a rotate zone (the knob is `n`). */
+export function rotateCursorVar(z: RotateZone, tone?: "light" | "dark"): string {
+  return `var(--cursor-rotate-${z}${tone ? `-${tone}` : ""})`;
 }
 
 // --- the selection's hit zones (2026-10-21, owner: "the whole edge is the handle") ----

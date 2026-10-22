@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   buildCursorFamily,
+  buildCursorFamilyDark,
   clampCursorParams,
   cursorCssBlock,
   cursorGeometry,
@@ -50,14 +51,20 @@ const e = css.indexOf(END);
 assert(b > 0 && e > b, "cursors.css has the generated block markers");
 const block = css.slice(css.indexOf("\n", b) + 1, e);
 assert(block === cursorCssBlock(), "the generated block equals the builder's default output (run scripts/gen-cursors.mjs)");
-for (const s of CURSOR_STATES) assert(block.includes(`  ${cursorVar(s)}: url("data:image/svg+xml,`), `cursors.css declares ${cursorVar(s)} as a hardware svg cursor`);
+for (const s of CURSOR_STATES) assert(block.includes(`  ${cursorVar(s, "light")}: url("data:image/svg+xml,`) && block.includes(`  ${cursorVar(s, "dark")}: url("data:image/svg+xml,`) && block.includes(`  ${cursorVar(s)}: var(${cursorVar(s, "dark")});`), `cursors.css declares ${cursorVar(s)} in both tones and points the bare name at the dark-surface set`);
+assert(block.includes(".cursor-on-light {") && block.includes(".cursor-on-dark {"), "the two tone classes are generated");
 
 // --- 2. the 2026-09-15 cursors, byte for byte --------------------------------
 const legacy = {
   cross: `url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><line x1='12' y1='1.5' x2='12' y2='9' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='12' y1='15' x2='12' y2='22.5' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='1.5' y1='12' x2='9' y2='12' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='15' y1='12' x2='22.5' y2='12' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='12' y1='1.5' x2='12' y2='9' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/><line x1='12' y1='15' x2='12' y2='22.5' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/><line x1='1.5' y1='12' x2='9' y2='12' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/><line x1='15' y1='12' x2='22.5' y2='12' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/></svg>") 12 12, crosshair`,
 };
-const fam = buildCursorFamily();
-assert(fam.cross.css === legacy.cross, "the resting crosshair is the 2026-09-15 drawing byte for byte");
+const fam = buildCursorFamily(); // the default: adaptive, no halo (light-surface drawing)
+const famO = buildCursorFamily(CURSOR_PRESETS.outlined); // the 2026-09-15 look
+assert(famO.cross.css === legacy.cross, "the OUTLINED preset is the 2026-09-15 drawing byte for byte");
+assert(lines(fam.cross.svg).length === 4 && fam.cross.svg.includes("stroke='%23151515'") && !fam.cross.svg.includes("%23fff"), "the default resting crosshair has no halo: four dark-ink arms for light surfaces");
+const famD = buildCursorFamilyDark();
+assert(lines(famD.cross.svg).length === 4 && famD.cross.svg.includes("stroke='%23fffcf0'"), "…and its dark-surface twin is the same drawing in paper-white");
+assert(famD.cross.svg.replace(/%23fffcf0/g, "%23151515") === fam.cross.svg, "the two tones differ ONLY in the core colour");
 assert(/y1='4'/.test(fam["cross-press"].css) && /<circle/.test(fam["cross-press"].css), "press: contracted arms (y1='4') + dot — the tokens verify-cursor-gui keys on");
 assert(/<circle/.test(fam["cross-hover"].css) && !/y1='4'/.test(fam["cross-hover"].css), "hover: the dot without contraction");
 assert(!/<circle/.test(fam.cross.css), "rest: no dot");
@@ -73,8 +80,8 @@ const extremes: Partial<CursorParams>[] = [
   {},
   { size: CURSOR_SIZE_RANGE.min, stroke: 2.5, gap: 6 },
   { size: CURSOR_SIZE_RANGE.max, stroke: 0.8, gap: 0, haloWidth: 0 },
-  { size: 30, stroke: 3, gap: 6, haloWidth: 6, ...CURSOR_PRESETS.paper },
-  { size: 32, ...CURSOR_PRESETS.paper, centre: "ring", hoverDot: false, pressContract: false },
+  { size: 30, stroke: 3, gap: 6, haloWidth: 6, ...CURSOR_PRESETS.outlined },
+  { size: 32, ...CURSOR_PRESETS.outlined, centre: "ring", hoverDot: false, pressContract: false },
   { ...CURSOR_PRESETS.accent, centre: "dot", haloWidth: 2.3 },
   { coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" },
 ];
@@ -100,49 +107,61 @@ for (const params of extremes) {
 // --- 4. registration: the family shares one arm geometry ----------------------
 {
   const g = cursorGeometry(CURSOR_DEFAULTS);
-  const rest = lines(fam.cross.svg);
+  // registration is checked on the outlined family (halo pass then core pass, the
+  // 2026-09-15 structure) and the halo-less default (core pass only)
+  const rest = lines(famO.cross.svg);
   const core = rest.slice(rest.length / 2); // halo pass then core pass
+  const restNoHalo = lines(fam.cross.svg);
+  assert(restNoHalo.length === 4 && restNoHalo.every((l, i) => JSON.stringify(l) === JSON.stringify(core[i])), "without a halo the default's four arms ARE the outlined core pass");
   const key = (l: number[]) => l.map((v) => Math.round(v * 100)).join(",");
   const restArms = new Set(core.map(key));
-  const nsCore = lines(fam["resize-ns"].svg);
+  const nsCore = lines(famO["resize-ns"].svg);
   const nsArms = nsCore.filter((l) => l[0] === l[2] && Math.abs(l[1] - l[3]) > g.head + 0.5); // the vertical arms (heads are short)
   assert(nsArms.length >= 2 && nsArms.every((l) => restArms.has(key(l))), "resize-ns keeps the rest cross's vertical arms (identical endpoints) — the morph only removes the horizontal arms and adds heads");
-  const ewArms = lines(fam["resize-ew"].svg).filter((l) => l[1] === l[3] && Math.abs(l[0] - l[2]) > g.head + 0.5);
+  const ewArms = lines(famO["resize-ew"].svg).filter((l) => l[1] === l[3] && Math.abs(l[0] - l[2]) > g.head + 0.5);
   assert(ewArms.length >= 2 && ewArms.every((l) => restArms.has(key(l))), "resize-ew keeps the rest cross's horizontal arms");
-  const pressArmsAll = lines(fam["cross-press"].svg);
+  const pressArmsAll = lines(famO["cross-press"].svg);
   const pressCore = new Set(pressArmsAll.slice(pressArmsAll.length / 2).map(key));
-  const moveArms = lines(fam.move.svg).filter((l) => (l[0] === l[2] || l[1] === l[3]) && Math.hypot(l[2] - l[0], l[3] - l[1]) > g.pressHead + 0.5);
-  assert(moveArms.length >= 4 && moveArms.every((l) => pressCore.has(key(l))) && /<circle/.test(fam.move.svg), "move is the PRESS cross (contracted arms + dot) with heads — a drag that starts from a press adds heads only, nothing jumps");
-  assert(fam["move-copy"].svg.startsWith(fam.move.svg.slice(0, fam.move.svg.length - 6)), "move-copy is move plus the badge");
+  const moveArms = lines(famO.move.svg).filter((l) => (l[0] === l[2] || l[1] === l[3]) && Math.hypot(l[2] - l[0], l[3] - l[1]) > g.pressHead + 0.5);
+  assert(moveArms.length >= 4 && moveArms.every((l) => pressCore.has(key(l))) && /<circle/.test(famO.move.svg), "move is the PRESS cross (contracted arms + dot) with heads — a drag that starts from a press adds heads only, nothing jumps");
+  assert(famO["move-copy"].svg.startsWith(famO.move.svg.slice(0, famO.move.svg.length - 6)), "move-copy is move plus the badge");
   assert(/rotate\(-45 12 12\)/.test(fam["resize-nwse"].svg) && /rotate\(45 12 12\)/.test(fam["resize-nesw"].svg), "the diagonal resize cursors are the ns drawing rotated ±45° about the hotspot");
-  const press = lines(fam["cross-press"].svg);
+  const press = lines(famO["cross-press"].svg);
   const pressCoreLines = press.slice(press.length / 2);
   const roots = (ls: number[][]) => new Set(ls.map((l) => key([Math.min(Math.abs(l[0] - 12), Math.abs(l[2] - 12)), Math.min(Math.abs(l[1] - 12), Math.abs(l[3] - 12))])));
   assert([...roots(pressCoreLines)].every((r) => roots(core).has(r)), "the press contraction keeps the arms' roots (only the tips move in)");
   const hoverNoDot = fam["cross-hover"].svg.replace(/<circle[^>]*\/>/g, "");
-  assert(hoverNoDot === fam.cross.svg, "hover differs from rest only by the dot");
+  assert(hoverNoDot === fam.cross.svg && famO["cross-hover"].svg.replace(/<circle[^>]*\/>/g, "") === famO.cross.svg, "hover differs from rest only by the dot (both looks)");
   const arcs = (["rotate-n", "rotate-ne", "rotate-se", "rotate-sw", "rotate-nw"] as CursorState[]).map((s) => fam[s].svg);
   assert(arcs.every((svg) => /<path d='M[^']*A[^']*'/.test(svg) && /<circle/.test(svg)), "every rotate cursor is an arc about the hotspot with the centre dot");
 }
 
-// --- 5. halo under core per preset; explicit colours and widths; none when 0 ---
+// --- 5. the presets; halo under core when drawn; explicit colours and widths ----
 for (const [preset, colours] of Object.entries(CURSOR_PRESETS)) {
   const f = buildCursorFamily(colours);
+  const fd = buildCursorFamilyDark(colours);
   const svg = f.cross.svg;
   const strokes = [...svg.matchAll(/stroke='([^']+)' stroke-width='([\d.]+)'/g)].map((m) => ({ c: m[1], w: +m[2] }));
-  const half = strokes.length / 2;
-  const haloFirst = strokes.slice(0, half).every((s) => s.w > strokes[half].w) && new Set(strokes.slice(0, half).map((s) => s.c)).size === 1;
-  assert(haloFirst, `${preset}: the halo pass (wider) is painted before the core pass`);
-  const expect = { ink: ["%23fff", "%23151515"], paper: ["%23151515", "%23fff"], accent: ["%23fff", "%234385be"] }[preset]!;
-  assert(strokes[0].c === expect[0] && strokes[half].c === expect[1], `${preset}: halo ${expect[0]}, core ${expect[1]}`);
+  if (colours.haloWidth > 0) {
+    const half = strokes.length / 2;
+    const haloFirst = strokes.slice(0, half).every((s) => s.w > strokes[half].w) && new Set(strokes.slice(0, half).map((s) => s.c)).size === 1;
+    assert(haloFirst && strokes[0].c === "%23fff" && strokes[half].c === "%23151515", `${preset}: the halo pass (wider, white) is painted before the dark core pass`);
+  } else {
+    assert(strokes.length === 4 && new Set(strokes.map((s) => s.c)).size === 1, `${preset}: no halo — four core arms only`);
+  }
+  const expect = { adaptive: ["%23151515", "%23fffcf0"], outlined: ["%23151515", "%23151515"], accent: ["%234385be", "%234385be"] }[preset]!;
+  const coreOf = (x: string) => [...x.matchAll(/stroke='([^']+)' stroke-width='1\.3'/g)][0]?.[1];
+  assert(coreOf(f.cross.svg) === expect[0] && coreOf(fd.cross.svg) === expect[1], `${preset}: light-surface core ${expect[0]}, dark-surface core ${expect[1]}`);
   assert(cursorPresetOf(colours) === preset, `${preset} is recognised from its colours`);
 }
+assert(cursorPresetOf({ ...CURSOR_PRESETS.adaptive, haloColor: "#123456", haloOpacity: 0.5 }) === "adaptive", "a halo colour or opacity does not count while the halo is off");
+assert(cursorPresetOf({ ...CURSOR_PRESETS.adaptive, coreColorDark: "#ffffff" }) === "custom", "a different dark-surface colour is custom");
 assert(lines(buildCursorFamily({ haloWidth: 0 }).cross.svg).length === 4, "halo width 0 paints only the four core arms");
 assert(/stroke-width='2\.3'/.test(buildCursorFamily({ haloWidth: 2.3 }).cross.svg), "the halo width is the user's number");
 {
   const custom = { coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" };
   const f = buildCursorFamily(custom);
-  assert(cursorPresetOf(custom) === "custom", "colours off every preset read as custom");
+  assert(cursorPresetOf({ ...CURSOR_DEFAULTS, ...custom }) === "custom", "colours off every preset read as custom");
   // (#aa2200 → %23a20, #ffee00 → %23fe0, #00aa00 → %230a0: svgColor compresses doubled pairs)
   assert(f.cross.svg.includes("stroke='%23a20' stroke-width='1.3'") && f.cross.svg.includes("stroke='%23fe0' stroke-width='1.5'") && f.cross.svg.includes("stroke-opacity='.6'"), "the crosshair and halo take the user's colours, widths and opacity");
   assert(f["cross-hover"].svg.includes("fill='%230a0'") && f["cross-hover"].svg.includes("fill='%23fe0'"), "the dot takes the dot colour over a disc of the halo colour");
@@ -156,11 +175,31 @@ assert(/stroke-width='2\.3'/.test(buildCursorFamily({ haloWidth: 2.3 }).cross.sv
   const f = buildCursorFamily({ resizeStyle: "system" });
   assert(f["resize-ns"].css === "ns-resize" && f["rotate-se"].css === "grab" && f.move.css === "move" && f["move-copy"].css === "copy", "system style resolves the transform states to the OS cursors");
   assert(f.cross.css.startsWith('url("data:') && f["cross-hover"].css.startsWith('url("data:'), "…and keeps the cross states drawn");
-  assert(isDefaultCursorParams({}) && isDefaultCursorParams({ size: 24 }) && !isDefaultCursorParams({ size: 28 }) && !isDefaultCursorParams({ hoverDot: false }), "isDefaultCursorParams tells the theme writer when to clear :root");
+  assert(isDefaultCursorParams({}) && isDefaultCursorParams({ size: 24 }) && !isDefaultCursorParams({ size: 28 }) && !isDefaultCursorParams({ hoverDot: false }) && !isDefaultCursorParams({ coreColorDark: "#ffffff" }), "isDefaultCursorParams tells the theme writer when to clear :root");
   const c = clampCursorParams({ size: 999, stroke: -1, gap: 99, centre: "neon" as never, dotColor: "red" });
   assert(c.size === CURSOR_SIZE_RANGE.max && c.stroke === 0.8 && c.gap === 6 && c.centre === "none" && c.dotColor === "#4385be", "clampCursorParams bounds numbers and falls back on unknown enums / colours");
   assert(clampCursorParams({ size: 27 }).size === 28 && clampCursorParams({ size: 21 }).size === 22 && clampCursorParams({ size: 23 }).size === 24 && clampCursorParams({ size: 40 }).size === 32 && CURSOR_SIZE_RANGE.max === 32, "sizes round to even and cap at 32 (Chromium's large-cursor viewport rule)");
   assert(drawCursor("cross", { gap: 0 }).svg.includes("y2='12'") || drawCursor("cross", { gap: 0 }).svg.includes("y2='9'"), "gap 0 still draws (arms meet the centre)");
+}
+
+// --- 7. the tone law (cursor/cursorTone.ts) -------------------------------------
+{
+  const { relativeLuminance, toneOfColor, figureTone, elementTone, chromeTone } = await import("../src/lib/cursor/cursorTone");
+  assert(relativeLuminance("#ffffff") === 1 && relativeLuminance("#000000") === 0 && relativeLuminance("white") === 1, "relative luminance: white 1, black 0");
+  assert(toneOfColor("#fffcf0") === "light" && toneOfColor("#151515") === "dark" && toneOfColor("#808080") === "dark" && toneOfColor("#c0c0c0") === "light" && toneOfColor("#fff") === "light" && toneOfColor("rgb(20, 20, 20)") === "dark", "tone by luminance (0.4 threshold), short hex and rgb() accepted");
+  assert(toneOfColor("transparent") === null && toneOfColor("none", "dark") === "dark" && toneOfColor(undefined, "light") === "light", "unreadable colours fall back");
+  assert(figureTone({ background: "#ffffff" }) === "light" && figureTone({ background: "#202020" }) === "dark" && figureTone({ background: "transparent" }) === "dark" && figureTone(null) === "dark", "a figure's paper tone; transparent shows the dark canvas");
+  const rect = (fill: string) => ({ type: "rect", id: "r", x: 0, y: 0, width: 10, height: 10, rotation: 0, fill, stroke: "#000", strokeWidth: 1 }) as never;
+  assert(elementTone(rect("#000000")) === "dark" && elementTone(rect("#ffffff")) === "light" && elementTone(rect("none")) === null && elementTone(rect("transparent")) === null, "a solid rect fill decides; an unfilled one shows the paper");
+  assert(elementTone({ ...rect("#000000"), fillMap: { stops: [] } } as never) === null, "a gradient fill does not decide");
+  assert(elementTone({ type: "path", id: "p", x: 0, y: 0, width: 1, height: 1, rotation: 0, d: "M0 0", fill: "#000000", stroke: "#000", strokeWidth: 1, closed: false } as never) === null, "an open path shows the paper");
+  assert(elementTone({ type: "path", id: "p", x: 0, y: 0, width: 1, height: 1, rotation: 0, d: "M0 0", fill: "#000000", stroke: "#000", strokeWidth: 1, closed: true } as never) === "dark", "a closed filled path decides");
+  assert(elementTone({ type: "text", id: "t", x: 0, y: 0, width: 1, height: 1, rotation: 0, text: "x", fontSize: 12, fill: "#000" } as never) === null, "text shows the paper through its glyph cells");
+  assert(elementTone({ type: "image", id: "i", x: 0, y: 0, width: 1, height: 1, rotation: 0, assetId: "a" } as never) === null, "an image's content is unknown: the paper's tone");
+  const plot = { type: "plot", id: "pl", x: 0, y: 0, width: 1, height: 1, rotation: 0, assetId: "a" } as never;
+  assert(elementTone(plot, { style: { tokens: { paper: "#111111" } } } as never) === "dark" && elementTone(plot, { style: { tokens: { paper: "#ffffff" } } } as never) === "light" && elementTone(plot, null) === null && elementTone(plot, {} as never) === null, "a plot follows its manifest's paper token when present");
+  const fig = { background: "#ffffff" };
+  assert(chromeTone(fig, [rect("#000000")], () => null) === "dark" && chromeTone(fig, [rect("none")], () => null) === "light" && chromeTone(fig, [rect("#000000"), rect("#000000")], () => null) === "light", "the chrome takes a single selected element's tone, else the figure's");
 }
 
 if (failures) {

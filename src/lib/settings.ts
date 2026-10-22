@@ -40,7 +40,9 @@ export interface Settings {
   // 2026-09-15 cursors byte for byte; cursorTheme.ts writes :root when they differ.
   cursorSize: number; // mark size in px (20–32, even); hotspot = size/2
   cursorStroke: number; // crosshair stroke width (0.8–3)
-  cursorCoreColor: string; // crosshair stroke colour (6-digit hex)
+  cursorAdaptive: boolean; // the mark's colour follows the surface (dark ink on paper, light on dark)
+  cursorCoreColor: string; // crosshair colour over light surfaces (6-digit hex)
+  cursorCoreColorDark: string; // crosshair colour over dark surfaces (used when adaptive)
   cursorHaloWidth: number; // halo stroke width (0–6; 0 = no halo)
   cursorHaloColor: string; // halo colour
   cursorHaloOpacity: number; // halo opacity (0.2–1)
@@ -83,7 +85,9 @@ const DEFAULTS: Settings = {
   galleryFolderClickExpands: false,
   cursorSize: CURSOR_DEFAULTS.size,
   cursorStroke: CURSOR_DEFAULTS.stroke,
+  cursorAdaptive: true,
   cursorCoreColor: CURSOR_DEFAULTS.coreColor,
+  cursorCoreColorDark: CURSOR_DEFAULTS.coreColorDark,
   cursorHaloWidth: CURSOR_DEFAULTS.haloWidth,
   cursorHaloColor: CURSOR_DEFAULTS.haloColor,
   cursorHaloOpacity: CURSOR_DEFAULTS.haloOpacity,
@@ -138,11 +142,14 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   // Cursor (2026-10-21, same day): the first cut had a colour SCHEME and a halo
   // ENUM; the owner asked for the colours and widths directly. Translate the
   // short-lived keys so a worktree build's settings carry over, then drop them.
-  if (typeof out.cursorScheme === "string" && out.cursorScheme in CURSOR_PRESETS) {
-    const c = CURSOR_PRESETS[out.cursorScheme as keyof typeof CURSOR_PRESETS];
-    if (out.cursorCoreColor === undefined) out.cursorCoreColor = c.coreColor;
-    if (out.cursorHaloColor === undefined) out.cursorHaloColor = c.haloColor;
-    if (out.cursorHaloOpacity === undefined) out.cursorHaloOpacity = c.haloOpacity;
+  if (typeof out.cursorScheme === "string") {
+    // the first cut's ink/paper/accent schemes: outlined looks, one colour everywhere
+    const c = out.cursorScheme === "paper" ? { core: "#ffffff", halo: "#151515", op: 0.85 } : out.cursorScheme === "accent" ? { core: "#4385be", halo: "#ffffff", op: 0.92 } : { core: "#151515", halo: "#ffffff", op: 0.92 };
+    if (out.cursorCoreColor === undefined) out.cursorCoreColor = c.core;
+    if (out.cursorCoreColorDark === undefined) out.cursorCoreColorDark = c.core;
+    if (out.cursorAdaptive === undefined) out.cursorAdaptive = false;
+    if (out.cursorHaloColor === undefined) out.cursorHaloColor = c.halo;
+    if (out.cursorHaloOpacity === undefined) out.cursorHaloOpacity = c.op;
   }
   if (typeof out.cursorHalo === "string" && out.cursorHaloWidth === undefined) {
     const st = typeof out.cursorStroke === "number" ? out.cursorStroke : CURSOR_DEFAULTS.stroke;
@@ -151,6 +158,7 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   delete out.cursorScheme;
   delete out.cursorHalo;
   if (out.cursorCoreColor !== undefined) out.cursorCoreColor = cursorHex(out.cursorCoreColor, CURSOR_DEFAULTS.coreColor);
+  if (out.cursorCoreColorDark !== undefined) out.cursorCoreColorDark = cursorHex(out.cursorCoreColorDark, CURSOR_DEFAULTS.coreColorDark);
   if (out.cursorHaloColor !== undefined) out.cursorHaloColor = cursorHex(out.cursorHaloColor, CURSOR_DEFAULTS.haloColor);
   if (out.cursorDotColor !== undefined) out.cursorDotColor = cursorHex(out.cursorDotColor, CURSOR_DEFAULTS.dotColor);
   return out;
@@ -165,7 +173,7 @@ export function decodeSettings(value: unknown): Settings {
     plotSearchScope: { enum: PLOT_SEARCH_SCOPE_IDS },
     cursorSize: { ...CURSOR_SIZE_RANGE }, cursorStroke: { ...CURSOR_STROKE_RANGE }, cursorGap: { ...CURSOR_GAP_RANGE },
     cursorHaloWidth: { ...CURSOR_HALO_WIDTH_RANGE }, cursorHaloOpacity: { ...CURSOR_HALO_OPACITY_RANGE },
-    cursorCoreColor: { maxLength: 7 }, cursorHaloColor: { maxLength: 7 }, cursorDotColor: { maxLength: 7 },
+    cursorCoreColor: { maxLength: 7 }, cursorCoreColorDark: { maxLength: 7 }, cursorHaloColor: { maxLength: 7 }, cursorDotColor: { maxLength: 7 },
     cursorCentre: { enum: CURSOR_CENTRES }, cursorResizeStyle: { enum: CURSOR_RESIZE_STYLES },
     paperCaretFeel: { enum: ["chase", "smooth"] }, paperCorrectionProvider: { enum: ["flux", "ollama", "openai"] },
     paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },

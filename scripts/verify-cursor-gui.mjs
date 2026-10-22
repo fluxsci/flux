@@ -59,6 +59,51 @@ await sleep(60);
 c = await cursorOf();
 ok(isCross(c) && !/circle/.test(c), "release returns to the plain crosshair");
 
+// --- 3b. the TONE follows the surface (2026-10-21): the dark canvas shows the
+// paper-white drawing, a figure's paper the dark-ink one, a dark-filled shape
+// flips back, a dark paper flips its whole figure — all by CSS inheritance,
+// nothing per hover (the host keeps ONE resting value).
+{
+  const LIGHT_CORE = "%23fffcf0"; // the drawing for dark surfaces
+  const DARK_CORE = "%23151515"; // the drawing for light surfaces
+  const hostCur = await cursorOf();
+  ok(hostCur.includes(LIGHT_CORE) && !hostCur.includes(DARK_CORE), "the dark canvas shows the paper-white crosshair");
+  const seeded = await page.evaluate(() => {
+    const F = window.__flux.fig;
+    const out = {};
+    F.commit((p) => {
+      const g = p.figures[0];
+      g.background = "#ffffff";
+      out.fig = g.id;
+      out.dark = F.newId("rect");
+      g.elements.push({ type: "rect", id: out.dark, x: 20, y: 20, width: 60, height: 40, rotation: 0, fill: "#101010", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+      out.light = F.newId("rect");
+      g.elements.push({ type: "rect", id: out.light, x: 100, y: 20, width: 60, height: 40, rotation: 0, fill: "#f4f1e8", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+      out.hollow = F.newId("rect");
+      g.elements.push({ type: "rect", id: out.hollow, x: 180, y: 20, width: 60, height: 40, rotation: 0, fill: "none", stroke: "#222", strokeWidth: 2, cornerRadius: 0 });
+    });
+    return out;
+  });
+  await sleep(150);
+  const curOf = (sel) => page.$eval(sel, (n) => getComputedStyle(n).cursor);
+  const bg = await curOf(`g[data-annotation-figure="${seeded.fig}"] rect.figure-bg`);
+  ok(bg.includes(DARK_CORE) && !bg.includes(LIGHT_CORE), "a white figure's paper shows the dark-ink crosshair");
+  const darkEl = await curOf(`[data-editor-element-id="${seeded.dark}"]`);
+  ok(darkEl.includes(LIGHT_CORE) && /circle/.test(darkEl), "a dark-filled rect flips to the paper-white hover cursor");
+  const lightEl = await curOf(`[data-editor-element-id="${seeded.light}"]`);
+  ok(lightEl.includes(DARK_CORE) && /circle/.test(lightEl), "a light-filled rect keeps the dark-ink hover cursor");
+  const hollowEl = await curOf(`[data-editor-element-id="${seeded.hollow}"]`);
+  ok(hollowEl.includes(DARK_CORE), "an unfilled rect shows its paper's tone");
+  ok((await cursorOf()).includes(LIGHT_CORE), "…while the HOST's resting value never changed (no per-hover flip)");
+  await page.evaluate((id) => window.__flux.fig.commit((p) => { p.figures.find((f) => f.id === id).background = "#202020"; }), seeded.fig);
+  await sleep(150);
+  const bgDark = await curOf(`g[data-annotation-figure="${seeded.fig}"] rect.figure-bg`);
+  ok(bgDark.includes(LIGHT_CORE), "a dark paper flips its figure to the paper-white crosshair");
+  ok((await curOf(`[data-editor-element-id="${seeded.hollow}"]`)).includes(LIGHT_CORE), "…and its unfilled shapes follow");
+  await page.evaluate((s) => window.__flux.fig.commit((p) => { const g = p.figures.find((f) => f.id === s.fig); g.background = "#ffffff"; g.elements = g.elements.filter((e) => ![s.dark, s.light, s.hollow].includes(e.id)); }), seeded);
+  await sleep(100);
+}
+
 // --- 4. tools: draw = plain cross, pan = grab, text = I-beam --------------------------
 await page.keyboard.press("r");
 await sleep(60);

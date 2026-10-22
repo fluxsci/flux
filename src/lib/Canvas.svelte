@@ -54,6 +54,7 @@
   import { perfCounters } from "./dev/perfCounters";
   // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
   import { CORNERS, HANDLES, handlePos, resizeCursorVar, rotateCursorVar, selectionHitZones, zoneClipForFrame, type Handle, type RotateZone } from "./interact/handles";
+  import { chromeTone, elementTone, figureTone, type CursorTone } from "./cursor/cursorTone";
   import { restorePlotClip, partDomId } from "./plot/parse";
   import { partsInside, leafPartIds, partIndexOf, isDataRole, boxFrom as partBoxFrom, type PartBoxCandidate, type Box as PartBox } from "./plot/partMarquee";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
@@ -1228,6 +1229,7 @@
 
   function onCanvasDown(e: PointerEvent) {
     lastDownEl = null; // background pointerdown — no element under a dblclick
+    pressTone = "dark"; // the canvas itself
     if (startPanIfNeeded(e)) return;
     if (get(arrange)?.active) {
       e.stopPropagation();
@@ -1251,6 +1253,7 @@
 
   function onFigureDown(e: PointerEvent, fig: Figure) {
     lastDownEl = null; // figure-background pointerdown (also the locked/tool fallthrough)
+    pressTone = figureTone(fig);
     if (startPanIfNeeded(e)) return;
     if (get(arrange)?.active) {
       e.stopPropagation();
@@ -2051,6 +2054,7 @@
       const point = localPoint(e.clientX, e.clientY, fig);
       if (preferred && !effHidden(preferred) && !effLocked(preferred) && rectIntersectsElement({x:point.x,y:point.y,w:0.1,h:0.1}, preferred)) el = preferred;
     }
+    pressTone = elementTone(el, el.type === "plot" ? $plotManifests[el.assetId] : null) ?? figureTone(fig);
     if (startPanIfNeeded(e)) return;
     if (get(arrange)?.active) {
       e.stopPropagation();
@@ -2643,6 +2647,7 @@
     e.stopPropagation();
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
+    pressTone = chromeToneNow;
     if (zone === "edge" && bandHandOff(e, fig, handle)) return;
     const sel = selectedEls(fig);
     const origs = new Map<string, Element>();
@@ -2684,6 +2689,7 @@
     e.stopPropagation();
     const fig = activeFigure();
     if (!fig || !selLine) return;
+    pressTone = figureTone(fig);
     const { p1, p2 } = lineWorldEndpoints(selLine);
     gesture = {
       kind: "lineEnd",
@@ -2707,6 +2713,7 @@
     e.stopPropagation();
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
+    pressTone = chromeToneNow;
     const sel = selectedEls(fig);
     if (!sel.length) return;
     const cx = overlayBox.x + overlayBox.w / 2;
@@ -3380,6 +3387,7 @@
     pendingShiftToggle = null;
     pendingClickSelect = null;
     lastMoveEvent = null;
+    pressTone = "dark";
     gesture = null;
   }
 
@@ -4277,6 +4285,15 @@
   // drag the rotate arc, a move in flight the four-headed cross (with the +
   // badge when Alt duplicates) — instead of snapping every drag to the
   // contracted press cross. Still one flip per gesture, never per move.
+  //
+  // TONE (2026-10-21, owner: no halo, the colour follows the surface): the
+  // figure group, each element wrapper and the selection chrome carry
+  // `.cursor-on-light` / `.cursor-on-dark` from the model (cursor/cursorTone.ts),
+  // so the bare `--cursor-*` names resolve to the right drawing by CSS
+  // inheritance — nothing flips per hover. While the pointer is CAPTURED the
+  // host's value is what shows, so it names the tone recorded at the press
+  // (`pressTone`) explicitly; a custom-property flip on the host would restyle
+  // the plot DOM beneath, a `cursor` flip stops at the `.el` firewalls.
   $: hostCursor =
     gesture?.kind === "pan"
       ? "grabbing"
@@ -4285,16 +4302,22 @@
         : $activeTool === "text"
           ? "text"
           : gesture?.kind === "resize" || gesture?.kind === "figresize"
-            ? resizeCursorVar(gesture.handle)
+            ? resizeCursorVar(gesture.handle, pressTone)
             : gesture?.kind === "rotate"
-              ? rotateCursorVar(gesture.zone)
+              ? rotateCursorVar(gesture.zone, pressTone)
               : (gesture?.kind === "move" || gesture?.kind === "figmove") && dragging
                 ? gestureAltDup && gesture.kind === "move"
-                  ? "var(--cursor-move-copy)"
-                  : "var(--cursor-move)"
+                  ? `var(--cursor-move-copy-${pressTone})`
+                  : `var(--cursor-move-${pressTone})`
                 : gesture || pressing
-                  ? "var(--cursor-cross-press)"
+                  ? `var(--cursor-cross-press-${pressTone})`
                   : "var(--cursor-cross)";
+  // The surface tone under the press, for the host's captured-pointer cursor.
+  let pressTone: CursorTone = "dark";
+  // The chrome's tone: a single selected element's own, else its figure's.
+  // `$selection` is read here on purpose — a store read hidden in selectedEls
+  // would not register as a dependency (guide §9).
+  $: chromeToneNow = af && $selection ? chromeTone(af, selectedEls(af), (el) => (el.type === "plot" ? $plotManifests[el.assetId] : null)) : "dark";
 
   // The primary button is down somewhere on the canvas — the press variant
   // shows for the whole press, gesture or not (a plain click on empty space
@@ -4491,7 +4514,7 @@
             style:transform={figMoveId === fig.id ? frameTransform : null}
             style:will-change={figMoveId === fig.id ? "transform" : null}
           >
-          <g data-annotation-figure={fig.id} transform={`translate(${fig.x} ${fig.y})`}>
+          <g data-annotation-figure={fig.id} transform={`translate(${fig.x} ${fig.y})`} class:cursor-on-light={figureTone(fig) === "light"} class:cursor-on-dark={figureTone(fig) === "dark"}>
             <rect class="fig-shadow" x={bounds.x + 3} y={bounds.y + 4} width={bounds.w} height={bounds.h} />
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <rect
@@ -4529,9 +4552,12 @@
                 </text>
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
+                {@const elTone = elementTone(el, el.type === "plot" ? $plotManifests[el.assetId] : null)}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <g
                   class="el"
+                  class:cursor-on-light={elTone === "light"}
+                  class:cursor-on-dark={elTone === "dark"}
                   data-editor-element-id={el.id}
                   use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : el.type === 'model3d' ? $model3dPosterRevision : 0 }}
                   opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
@@ -4762,7 +4788,7 @@
         on:pointerdown={(e) => onLineEndDown(e, 2)}
       />
     {:else if selChrome && !editingInfo && !editPathId}
-      <g class="sel-chrome" use:chromeDrive={selChromeTransform}>
+      <g class="sel-chrome" class:cursor-on-light={chromeToneNow === "light"} class:cursor-on-dark={chromeToneNow === "dark"} use:chromeDrive={selChromeTransform}>
       <rect class="sel-box" x={selChrome.x} y={selChrome.y} width={selChrome.w} height={selChrome.h} fill="none" />
       {#if !selLocked}
         <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
@@ -5194,6 +5220,9 @@
     z-index: 10;
   }
   .figure-bg {
+    /* its own declaration, so the paper resolves the FIGURE's tone (an inherited
+       `cursor` would arrive from the host already resolved to the canvas's) */
+    cursor: var(--cursor-cross);
     stroke: #00000022;
     stroke-width: 1;
     vector-effect: non-scaling-stroke;

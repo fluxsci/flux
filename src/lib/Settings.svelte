@@ -14,7 +14,7 @@
   import { onDestroy, untrack } from "svelte";
   import { settings, settingsOpen, type Settings } from "./settings";
   import {
-    buildCursorFamily, cursorPresetOf, isDefaultCursorParams, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE,
+    buildCursorFamily, buildCursorFamilyDark, cursorPresetOf, isDefaultCursorParams, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE,
     CURSOR_PRESETS, CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE,
     type CursorPreset, type CursorState,
   } from "./cursor/cursorFamily";
@@ -41,22 +41,44 @@
     { state: "move-copy", label: "duplicate" },
   ];
   const cursorFamily = $derived(buildCursorFamily(cursorParamsFromSettings($settings)));
+  const cursorFamilyDark = $derived(buildCursorFamilyDark(cursorParamsFromSettings($settings)));
   const cursorIsDefault = $derived(isDefaultCursorParams(cursorParamsFromSettings($settings)));
-  const cursorPreset = $derived(cursorPresetOf({ coreColor: $settings.cursorCoreColor, haloColor: $settings.cursorHaloColor, haloOpacity: $settings.cursorHaloOpacity }));
+  const cursorPreset = $derived(
+    cursorPresetOf({
+      coreColor: $settings.cursorCoreColor,
+      coreColorDark: $settings.cursorAdaptive ? $settings.cursorCoreColorDark : $settings.cursorCoreColor,
+      haloWidth: $settings.cursorHaloWidth,
+      haloColor: $settings.cursorHaloColor,
+      haloOpacity: $settings.cursorHaloOpacity,
+    }),
+  );
   function applyCursorPreset(id: string) {
     if (!(id in CURSOR_PRESETS)) return; // "custom" keeps whatever the fields hold
     const c = CURSOR_PRESETS[id as keyof typeof CURSOR_PRESETS];
-    settings.update((v) => ({ ...v, cursorCoreColor: c.coreColor, cursorHaloColor: c.haloColor, cursorHaloOpacity: c.haloOpacity }));
+    settings.update((v) => ({
+      ...v,
+      cursorAdaptive: c.coreColor !== c.coreColorDark,
+      cursorCoreColor: c.coreColor,
+      cursorCoreColorDark: c.coreColorDark,
+      cursorHaloWidth: c.haloWidth,
+      cursorHaloColor: c.haloColor,
+      cursorHaloOpacity: c.haloOpacity,
+    }));
   }
-  const PRESET_LABELS: Record<CursorPreset, string> = { ink: "Ink — dark mark, light halo", paper: "Paper — light mark, dark halo", accent: "Accent — blue mark, light halo", custom: "Custom" };
-  function cursorImg(state: CursorState): string {
+  const PRESET_LABELS: Record<CursorPreset, string> = {
+    adaptive: "Adaptive — ink on paper, light on dark",
+    outlined: "Outlined — dark mark under a light halo",
+    accent: "Accent — blue everywhere",
+    custom: "Custom",
+  };
+  function cursorImg(state: CursorState, tone: "light" | "dark" = "light"): string {
     // the builder's svg uses %23 for '#'; an <img> data URL wants the same encoding
-    return `data:image/svg+xml,${cursorFamily[state].svg.replace(/#/g, "%23")}`;
+    return `data:image/svg+xml,${(tone === "dark" ? cursorFamilyDark : cursorFamily)[state].svg.replace(/#/g, "%23")}`;
   }
   function resetCursor() {
     settings.update((v) => ({
       ...v,
-      cursorSize: CURSOR_DEFAULTS.size, cursorStroke: CURSOR_DEFAULTS.stroke, cursorCoreColor: CURSOR_DEFAULTS.coreColor,
+      cursorSize: CURSOR_DEFAULTS.size, cursorStroke: CURSOR_DEFAULTS.stroke, cursorAdaptive: true, cursorCoreColor: CURSOR_DEFAULTS.coreColor, cursorCoreColorDark: CURSOR_DEFAULTS.coreColorDark,
       cursorHaloWidth: CURSOR_DEFAULTS.haloWidth, cursorHaloColor: CURSOR_DEFAULTS.haloColor, cursorHaloOpacity: CURSOR_DEFAULTS.haloOpacity,
       cursorDotColor: CURSOR_DEFAULTS.dotColor, cursorGap: CURSOR_DEFAULTS.gap,
       cursorCentre: CURSOR_DEFAULTS.centre, cursorHoverDot: CURSOR_DEFAULTS.hoverDot, cursorPressContract: CURSOR_DEFAULTS.pressContract,
@@ -462,7 +484,10 @@
             <div class="cursor-preview" aria-label="Cursor preview">
               {#each CURSOR_PREVIEW as c (c.state)}
                 <figure class="cursor-cell">
-                  <div class="swatch" style:cursor={cursorFamily[c.state].css} title="Hover to see the real cursor"><img src={cursorImg(c.state)} alt={c.label} width={$settings.cursorSize * 2} height={$settings.cursorSize * 2} draggable="false" /></div>
+                  <div class="swatch" title="Hover to see the real cursor">
+                    <span class="half dark cursor-on-dark" style:cursor={cursorFamilyDark[c.state].css}><img src={cursorImg(c.state, "dark")} alt={c.label} width={$settings.cursorSize * 2} height={$settings.cursorSize * 2} draggable="false" /></span>
+                    <span class="half light cursor-on-light" style:cursor={cursorFamily[c.state].css}><img src={cursorImg(c.state, "light")} alt="" width={$settings.cursorSize * 2} height={$settings.cursorSize * 2} draggable="false" /></span>
+                  </div>
                   <figcaption>{c.label}</figcaption>
                 </figure>
               {/each}
@@ -471,13 +496,23 @@
             <label class="row">
               <span>Colours</span>
               <select value={cursorPreset} onchange={(e) => applyCursorPreset(e.currentTarget.value)} aria-label="Cursor colour preset">
-                {#each ["ink", "paper", "accent", "custom"] as id (id)}<option value={id} disabled={id === "custom" && cursorPreset !== "custom"}>{PRESET_LABELS[id as CursorPreset]}</option>{/each}
+                {#each ["adaptive", "outlined", "accent", "custom"] as id (id)}<option value={id} disabled={id === "custom" && cursorPreset !== "custom"}>{PRESET_LABELS[id as CursorPreset]}</option>{/each}
               </select>
             </label>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.cursorAdaptive} onchange={(e) => settings.update((v) => ({ ...v, cursorAdaptive: e.currentTarget.checked }))} />
+              Adapt the colour to the surface — one colour over paper and other light surfaces, another over the dark canvas, chrome and dark fills
+            </label>
             <div class="row cursor-colour">
-              <span>Crosshair colour</span>
+              <span>{$settings.cursorAdaptive ? "Crosshair on light surfaces" : "Crosshair colour"}</span>
               <ColorField value={$settings.cursorCoreColor} fallback={CURSOR_DEFAULTS.coreColor} label="Crosshair colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorCoreColor: hex }))} />
             </div>
+            {#if $settings.cursorAdaptive}
+              <div class="row cursor-colour">
+                <span>Crosshair on dark surfaces</span>
+                <ColorField value={$settings.cursorCoreColorDark} fallback={CURSOR_DEFAULTS.coreColorDark} label="Crosshair colour on dark surfaces" onchange={(hex) => settings.update((v) => ({ ...v, cursorCoreColorDark: hex }))} />
+              </div>
+            {/if}
             <div class="row cursor-colour">
               <span>Halo colour</span>
               <ColorField value={$settings.cursorHaloColor} fallback={CURSOR_DEFAULTS.haloColor} label="Halo colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorHaloColor: hex }))} />
@@ -503,7 +538,7 @@
               <input type="number" min={CURSOR_HALO_OPACITY_RANGE.min} max={CURSOR_HALO_OPACITY_RANGE.max} step="0.05" value={$settings.cursorHaloOpacity} aria-label="Halo opacity"
                 onchange={(e) => settings.update((v) => ({ ...v, cursorHaloOpacity: num(e.currentTarget.value, CURSOR_HALO_OPACITY_RANGE.min, CURSOR_HALO_OPACITY_RANGE.max, CURSOR_DEFAULTS.haloOpacity, 0.05) }))} />
             </label>
-            <p class="hint">The halo is the outline under the crosshair that keeps it legible on any background; a width of 0 removes it. The dot is the accent that marks anything you can select, the rotate centre and the duplicate badge.</p>
+            <p class="hint">The halo is an outline drawn under the crosshair; it is off by default (width 0) because the adaptive colour already keeps the mark legible — give it a width to bring the outlined look back. The dot is the accent that marks anything you can select, the rotate centre and the duplicate badge.</p>
             <label class="row">
               <span>Centre at rest</span>
               <select bind:value={$settings.cursorCentre} aria-label="Cursor centre mark">
@@ -978,14 +1013,23 @@
     font: 10px var(--font-mono);
     color: var(--c-tx-muted);
   }
-  /* half dark, half paper: the halo has to read on both */
+  /* a dark half and a paper half, each showing (and carrying) the drawing for its surface */
   .cursor-cell .swatch {
-    display: grid;
-    place-items: center;
-    padding: 6px;
+    display: flex;
     border-radius: var(--r-ui);
     border: 1px solid var(--c-line);
-    background: linear-gradient(135deg, #1c1b1a 0 50%, #fffcf0 50% 100%);
+    overflow: hidden;
+  }
+  .cursor-cell .half {
+    display: grid;
+    place-items: center;
+    padding: 6px 4px;
+  }
+  .cursor-cell .half.dark {
+    background: #1c1b1a;
+  }
+  .cursor-cell .half.light {
+    background: #fffcf0;
   }
   .cursor-cell img {
     display: block;

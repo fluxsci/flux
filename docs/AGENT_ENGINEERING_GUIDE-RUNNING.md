@@ -1871,12 +1871,35 @@ Persistence invariants (all machine-checked — do not weaken):
     cursors are reproduced byte for byte (gates key on `y1='4'` for press, `<circle>` for
     hover). Settings → General → Cursor (`cursor*` keys in settings.ts: size 20–32 even —
     Chromium shows a custom cursor over 32 px only while it fits the viewport — the core's
-    stroke width and colour, the halo's width (0 = none), colour and opacity, the dot colour
-    (`CURSOR_PRESETS` ink/paper/accent are presets over those fields; `cursorPresetOf` reads
-    them back, anything else is "custom"), gap, centre none/dot/ring, hover dot, press
-    contraction, resize style crosshair/system) feed `cursor/cursorTheme.ts`, which
-    writes the `--cursor-*` variables on `:root` ONCE per settings change (and clears them at
-    the defaults) — never per hover or frame. A software (DOM) cursor was considered and
+    stroke width and TWO colours (`coreColor` for light surfaces, `coreColorDark` for dark
+    ones; equal when "adapt to the surface" is off), the halo's width (0 = none, the
+    default since the owner dropped it), colour and opacity, the dot colour
+    (`CURSOR_PRESETS` adaptive/outlined/accent are presets over those fields — outlined IS
+    the 2026-09-15 look; `cursorPresetOf` reads them back, anything else is "custom"), gap,
+    centre none/dot/ring, hover dot, press contraction, resize style crosshair/system) feed
+    `cursor/cursorTheme.ts`, which writes the two literal sets `--cursor-<state>-light` /
+    `-dark` on `:root` ONCE per settings change (and clears them at the defaults) — never
+    per hover or frame.
+    **The TONE law (2026-10-21, `cursor/cursorTone.ts`, pure):** the cursor is a hardware
+    image and cannot sample pixels, so its colour follows the surface STRUCTURALLY: the bare
+    names (`--cursor-cross`…) are what every consumer uses; `:root` points them at the
+    dark-surface set (the app chrome and the canvas are dark), and the classes
+    `.cursor-on-light` / `.cursor-on-dark` repoint all fourteen for their subtree — the
+    figure group carries its paper's tone (`figureTone`: background luminance ≥ 0.4 is
+    light; `transparent` shows the dark canvas), each `.el` wrapper its own body's tone when
+    it has one (`elementTone`: a solid rect/ellipse/closed-path fill, a plot whose manifest
+    `style.tokens.paper` is dark; strokes, text, images and unfilled shapes inherit the
+    paper's), `.sel-chrome` the single selected element's or the figure's (`chromeTone`), and
+    known light surfaces outside the canvas opt in by class (the Reader's `.pdf-root`, the
+    Figure-Meta `.preview-sheet`, the gallery tiles). All of it is CSS inheritance decided at
+    render time from the model: nothing runs per pointer move and no host-level property
+    flips per hover, so the firewall holds. The one dynamic piece is the HOST while the
+    pointer is captured: it names the tone recorded at the press (`pressTone`, set in every
+    pointerdown route, reset with the gesture) in the variable itself
+    (`var(--cursor-resize-ns-light)`), because a `cursor` change on the host stops at the
+    `.el` firewalls while a custom-property change there would restyle the plot DOM beneath.
+    Per-pixel adaptation was weighed and rejected: it needs either a DOM cursor (a frame of
+    lag) or restyling the hovered plot's subtree (the 120 ms regression of 2026-09-16). A software (DOM) cursor was considered and
     rejected: it trails the pointer by a frame and dies at window edges / under capture; the
     "morph" is geometric, not tweened. Look at the family with
     `scripts/perf/cursor-sheet.mts` (CDP screenshots never include the pointer).
@@ -10226,3 +10249,22 @@ for the cursor family and the selection chrome; user docs, shortcuts and Help up
   "nothing selected" probe must click, not drag.
 - Inserting markup "before the next pane's comment" can land OUTSIDE the previous pane's closing tag:
   anchor insertions on the enclosing element's end, and screenshot the result.
+
+### 2026-10-21 (evening) — Cursor follow-ups: direct colours, then no halo and a surface-adaptive tone (Claude Fable 5.1, `oct21/figure-ux`)
+**Work:** Owner asked first for direct crosshair/halo colour and width knobs (the scheme and halo enums
+became explicit fields with presets over them), then to drop the halo and let the colour follow the
+background. Per-pixel sampling is impossible for a hardware cursor, so the tone is decided
+structurally (`cursor/cursorTone.ts`): two literal cursor sets (`--cursor-<state>-light` / `-dark`),
+`:root` points the bare names at the dark set, and `.cursor-on-light` / `.cursor-on-dark` repoint them
+per subtree — the figure group from its paper's luminance, each `.el` from its own fill or a plot's
+`style.tokens.paper`, the chrome from the selection, PDF pages / gallery tiles / the Figure-Meta sheet by
+class; the host names the press tone in its gesture variable. Defaults: adaptive, halo 0; the
+2026-09-15 look is the Outlined preset. Gates: `verify-cursor-family` (tone law, presets, both sets),
+`verify-cursor-policy` (both sets + mapping), `verify-cursor-gui` (a tone leg). Body §4 updated.
+**Learnings:**
+- An element that INHERITS `cursor` gets the ancestor's already-resolved value, not the `var()`: a
+  region that should resolve the family in its own tone must declare `cursor: var(--cursor-…)` itself
+  (the figure's paper rect did not, and the tone leg caught it).
+- Changing a custom property on a host restyles every descendant that uses it (plot DOM included); the
+  host's captured-pointer cursor therefore names the tone in the variable name instead.
+- Puppeteer's triple-click does not select a number input's text; use Ctrl+A before typing.

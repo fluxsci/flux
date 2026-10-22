@@ -6,7 +6,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { launch } from "../lib/driver.mjs";
-import { buildCursorFamily, CURSOR_STATES, CURSOR_PRESETS, type CursorParams } from "../../src/lib/cursor/cursorFamily";
+import { buildCursorFamily, buildCursorFamilyDark, CURSOR_STATES, CURSOR_PRESETS, type CursorParams } from "../../src/lib/cursor/cursorFamily";
 
 const argIdx = process.argv.indexOf("--params");
 const extra: Partial<CursorParams> = argIdx > 0 ? JSON.parse(process.argv[argIdx + 1]) : {};
@@ -21,8 +21,11 @@ mkdirSync(path.dirname(out), { recursive: true });
 
 const rows: string[] = [];
 for (const scheme of schemes) {
-  const fam = buildCursorFamily({ ...CURSOR_PRESETS[scheme], ...extra }); // --params colours win over the preset
+  const params = { ...CURSOR_PRESETS[scheme], ...extra }; // --params colours win over the preset
+  const famLight = buildCursorFamily(params);
+  const famDark = buildCursorFamilyDark(params);
   for (const bg of ["#1c1b1a", "#fffcf0", "#4385be"]) {
+    const fam = bg === "#fffcf0" ? famLight : famDark; // the drawing that surface would get
     rows.push(
       `<div class="row" style="background:${bg}"><div class="lbl" style="color:${bg === "#fffcf0" ? "#333" : "#eee"}">${scheme} · ${bg}</div>` +
         states.map((s) => {

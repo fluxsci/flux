@@ -7,7 +7,7 @@
 // constant `cursor`; host flips are per gesture) is untouched: a settings
 // change is one style recalc, which is the cost of changing the cursor at all.
 import { settings, type Settings } from "../settings";
-import { buildCursorFamily, cursorVar, CURSOR_STATES, isDefaultCursorParams, type CursorParams } from "./cursorFamily";
+import { buildCursorFamily, buildCursorFamilyDark, cursorVar, CURSOR_STATES, isDefaultCursorParams, type CursorParams } from "./cursorFamily";
 
 /** The builder's parameters from the persisted settings (the one mapping). */
 export function cursorParamsFromSettings(s: Settings): Partial<CursorParams> {
@@ -15,6 +15,8 @@ export function cursorParamsFromSettings(s: Settings): Partial<CursorParams> {
     size: s.cursorSize,
     stroke: s.cursorStroke,
     coreColor: s.cursorCoreColor,
+    // not adapting = one colour on every surface
+    coreColorDark: s.cursorAdaptive ? s.cursorCoreColorDark : s.cursorCoreColor,
     haloWidth: s.cursorHaloWidth,
     haloColor: s.cursorHaloColor,
     haloOpacity: s.cursorHaloOpacity,
@@ -32,11 +34,20 @@ export function applyCursorFamily(s: Settings, root: HTMLElement | null = typeof
   const params = cursorParamsFromSettings(s);
   if (!root) return isDefaultCursorParams(params) ? "defaults" : "custom";
   if (isDefaultCursorParams(params)) {
-    for (const st of CURSOR_STATES) root.style.removeProperty(cursorVar(st));
+    for (const st of CURSOR_STATES) {
+      root.style.removeProperty(cursorVar(st, "light"));
+      root.style.removeProperty(cursorVar(st, "dark"));
+    }
     return "defaults";
   }
-  const fam = buildCursorFamily(params);
-  for (const st of CURSOR_STATES) root.style.setProperty(cursorVar(st), fam[st].css);
+  // Only the two literal sets are written; the bare names and the tone
+  // classes keep pointing at them from the static stylesheet.
+  const light = buildCursorFamily(params);
+  const dark = buildCursorFamilyDark(params);
+  for (const st of CURSOR_STATES) {
+    root.style.setProperty(cursorVar(st, "light"), light[st].css);
+    root.style.setProperty(cursorVar(st, "dark"), dark[st].css);
+  }
   return "custom";
 }
 
