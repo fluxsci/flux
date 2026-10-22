@@ -381,9 +381,9 @@ const isSecondary = (role: string) => /^(errorbar|whisker|cap|median|mean|flier|
 const win = (pt: PlanTrack, pace: AutoPace) => Math.max(pt.durationMs, pace.floor(pt.preset));
 /** A frame spine is the top/right one; the primary spines (bottom/left, or the pre-0.3.2 bare `axis.<x|y>.spine`) are the axes. */
 const isFrameSpine = (pt: PlanTrack) => pt.role === "spine" && /\.(top|right)$/.test(pt.part);
-/** A y axis draws bottom to top (origin corner first) and `staggerRanks` orders `by: "y"` by ascending SCREEN y, so the
- *  y-axis groups lag from the END to follow the pen; x lags from the start. */
-const scaffoldFrom = (axis: "x" | "y" | undefined): "start" | "end" => (axis === "y" ? "end" : "start");
+// Both axes lag `from: "start"`: fluxplot's tick/label/gridline nodes carry no data-x / data-y, so the ranks follow DOM
+// order, which already runs left to right and bottom to top, the direction each spine's pen travels (see resolve.ts
+// `tickCompensation` for the measurement).
 
 function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<string, number>) {
   // gridlines fold into the Axes click; the legend frame/background belongs with the legend, not the Data phase it landed in
@@ -399,7 +399,7 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
     const mk = (pt: PlanTrack, extra: Partial<Track>): Track => ({ id: idOf(pt), target: elId, part: pt.part, preset: pt.preset, duration: win(pt, pace), start: pt.delayMs ?? 0, ...extra });
     /** a scaffold stagger group along its own axis */
     const scaffoldGroup = (pt: PlanTrack, spec: ScaffoldStagger): Track => {
-      const shared = { by: pt.axis === "y" ? "y" as const : "x" as const, from: scaffoldFrom(pt.axis) };
+      const shared = { by: pt.axis === "y" ? "y" as const : "x" as const, from: "start" as const };
       const f = spec.windowMs !== undefined
         ? { duration: spec.windowMs, stagger: { ...shared, totalMs: pt.nLeaves > 1 ? spec.totalMs : 0 } as Stagger }
         : staggerFields(planStagger(spec.totalMs, spec.lag, Math.max(0, pt.nLeaves - 1)), shared);

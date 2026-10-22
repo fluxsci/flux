@@ -37,7 +37,7 @@
   import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
-  import { resolveBeat, resolveTrack, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
+  import { resolveBeat, resolveTrackRaw, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
   import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
@@ -286,7 +286,7 @@
       if (keepArrival) {
         // A reset can restore a linked spring or the family default. Measure
         // the op's resolved result, not the discarded zero-influence patch.
-        const updated = resolveTrack(t, d);
+        const updated = resolveTrackRaw(t, d);
         setTrack(d, sid, t.id, { duration: Math.max(150, Math.min(4000, duration * arrival / resolveCurve(updated, familyOf(updated)).arrival)) });
       }
     });

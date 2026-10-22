@@ -9,6 +9,7 @@ import { parseHTML } from "linkedom";
 import { computeSlideAnims, applyStatic, applyAt, resolveEasing } from "../src/lib/slide/player/player";
 import { resolveCurve } from "../src/lib/slide/curves";
 import { PRESETS } from "../src/lib/slide/player/presets";
+import { drawReach } from "../src/lib/slide/player/trim";
 import { FLUX_DARK } from "../src/lib/slide/theme";
 import type { Track } from "../src/lib/slide/types";
 import type { RenderedSlide } from "../src/lib/slide/player/render";
@@ -144,14 +145,29 @@ const offset = (n: HTMLElement) => (n.style as unknown as { strokeDashoffset?: s
 assert(drawSpecs.some((s) => s.node === (linePath as never)), "drawOn drilled to the real path geometry");
 applyStatic(drawSpecs, 0);
 assert(dash(geoNode) !== "" && offset(geoNode) !== "" && offset(geoNode) !== "0", "beat 0: draw-on part rests UNDRAWN (offset = G; no zero-dash cap dots)");
-// linkedom has no getTotalLength (length falls back to 1) — assert the
-// overshoot FORMULA (len + max(4, 5%) = 5 here); the real-browser overshoot
-// is pinned by verify-slide-export-transform against a painted ellipse.
-assert(parseFloat(dash(geoNode)) >= 5, `…with the dasharray OVERSHOT past the measured length (seam-proof: ${dash(geoNode)} >= 5)`);
+// linkedom has no getTotalLength (length falls back to 1) — assert the HIDDEN-window contract: the pre-beat
+// gap G = drawReach + 1 is strictly longer than the length a full draw sweeps (T3: the draw itself reaches
+// len*(1+eps)+0.05, no longer the old len+max(4,5 %) overshoot that finished strokes at 34-73 % of their
+// duration). The real-browser painted lengths are pinned by verify-slide-export-transform.
+assert(Math.abs(parseFloat(dash(geoNode)) - (drawReach(1, "path") + 1)) < 1e-9 && offset(geoNode).replace("px", "") === dash(geoNode), `…with the HIDDEN gap G = drawReach+1 (sliver-proof): dasharray ${dash(geoNode)}, offset ${offset(geoNode)}`);
 applyStatic(drawSpecs, 1);
 assert(offset(geoNode) === "" && dash(geoNode) === "", "beat 1: draw-on removes its temporary dash window and restores the authored full stroke");
 applyStatic(drawSpecs, 0);
 assert(offset(geoNode) !== "0" && offset(geoNode) !== "", "back to beat 0 re-hides the draw (reversible)");
+// T3 P9: `stagger` with `params.child:"drawOn"` is a drawOn whose spec preset is "stagger" — it used to leave the
+// dash window on the stroke FOREVER (cleanup was keyed on spec.preset === "drawOn"); `transient` is generic now.
+{
+  const stgLine = document.createElementNS(svgNS, "path");
+  stgLine.setAttribute("d", "M 0 0 L 100 0"); stgLine.setAttribute("stroke", "#fff"); stgLine.setAttribute("fill", "none");
+  const stgNode = el("ln_stg"); stgNode.appendChild(stgLine);
+  const stgSlide = { ...drawSlide, id: "s_stg", elements: [{ ...drawSlide.elements[0], id: "ln_stg" }], beats: [drawSlide.beats[0], { id: "d1", tracks: [{ target: "ln_stg", preset: "stagger", params: { child: "drawOn" }, start: 0, duration: 800 }] }] } as Slide;
+  const stgSpecs = computeSlideAnims(stgSlide, { elements: new Map([["ln_stg", stgNode]]) }, camera, stage, opts);
+  applyStatic(stgSpecs, 1);
+  const sd = (stgLine.style as unknown as { strokeDasharray?: string }).strokeDasharray ?? "", so = (stgLine.style as unknown as { strokeDashoffset?: string }).strokeDashoffset ?? "";
+  assert(sd === "" && so === "", "stagger + child drawOn rests UNDASHED at the end (the generic `transient` list, not preset === 'drawOn')");
+  applyStatic(stgSpecs, 0);
+  assert((stgLine.style as unknown as { strokeDasharray?: string }).strokeDasharray !== "", "…and re-hides when seeked back");
+}
 
 // geometry-less target → the fade fallback keeps enter semantics (never a no-op)
 const bareNode = el("ln_bare");

@@ -26,7 +26,7 @@ export function inDefs(el: Element): boolean {
  *  be measured and its defs path is shared); both lists empty → callers pick
  *  the whole-node fade fallback instead of silently no-oping. */
 export const GEO_TAGS = "path,line,polyline,polygon,rect,ellipse,circle";
-function paintOf(el: Element): { stroked: boolean; filled: boolean } {
+export function paintOf(el: Element): { stroked: boolean; filled: boolean } {
   const paint = readPaint(el);
   return { stroked: paint.stroke !== "none", filled: paint.fill !== "none" };
 }

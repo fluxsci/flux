@@ -8,7 +8,7 @@ import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../.
 import { activeFigureId, selection, partSelection } from "../../../../lib/store";
 import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks, setTrack, setTrackCurve } from "../../../../lib/slide/ops";
 import type { Deck, Track } from "../../../../lib/slide/types";
-import { resolveTrack } from "../../../../lib/slide/resolve";
+import { resolveTrackRaw } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
 import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
 import { scene3dManifests } from "../../../../lib/model3d/store";
@@ -39,7 +39,7 @@ export function withSelectedTracks(fn: (t: Track, resolved: Track, deck: Deck, s
       // A birth owns a result identity and must remain a whole-object Change.
       // Bulk property callbacks may share timing, never rewire that ownership.
       const birth = t.ghostFrom ? {target:t.target, ghostFrom:t.ghostFrom, preset:t.preset} : null;
-      fn(t, resolveTrack(t, d), d, c.sid);
+      fn(t, resolveTrackRaw(t, d), d, c.sid); // RAW: callbacks derive WRITES from `resolved`
       if (birth) { Object.assign(t, birth); delete t.part; delete t.selector; }
       if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; delete t.curve; }
     }
@@ -55,7 +55,7 @@ export function copySelectedTiming(): void {
   const c = ctx(), d = get(deckOverlay);
   const t = c && d && slideById(d, c.sid)?.beats.flatMap(b => b.tracks).find(t => t.id === c.ids.at(-1));
   if (!t || !d || familyOf(t) === "media") return;
-  const r = resolveTrack(t, d);
+  const r = resolveTrackRaw(t, d); // RAW: a pasted timing is stored data
   copiedTiming = structuredClone({ duration: trackDuration(r), curve: r.curve, influence: r.influence && (r.influence.in > 0 || r.influence.out > 0) ? r.influence : undefined,
     easing: r.easing ?? defaultEasingFor(r.preset), stagger: r.stagger });
 }

@@ -125,8 +125,8 @@ for (const [name, m] of [["scatter", scatter], ["bars", bars], ["boxplot", boxes
   h.ok(sx.start === 0 && sy.start === 0 && sx.duration === SCAFFOLD_SPINE_MS && sy.duration === SCAFFOLD_SPINE_MS && sx.preset === "drawOn", "v2: both primary spines draw concurrently from the origin corner, start 0, SCAFFOLD_SPINE_MS (exempt from the drawOn floor and drawDuration)");
   h.ok((tx.start ?? 0) === 0 && (lx.start ?? 0) > (tx.start ?? 0) && (tt.start ?? 0) > (lx.start ?? 0) && (tx.start ?? 0) >= (sx.start ?? 0), "v2: spine <= ticks < tick labels < title by start (scaffold-first)");
   h.ok(tx.preset === "drawOn" && tx.duration === SCAFFOLD_TICK_WINDOW_MS && tx.stagger?.totalMs === SCAFFOLD_TICK_SPREAD_MS && tx.stagger.by === "x" && tx.stagger.from === "start", "v2: x ticks drawOn, window 140, spread 450, along x from the start");
-  h.ok(ty.stagger?.by === "y" && ty.stagger.from === "end", "v2: y ticks lag along y FROM THE END (the y spine draws bottom to top, ranks ascend by screen y)");
-  h.ok(lx.start === SCAFFOLD_LABEL_START_MS && lx.duration === SCAFFOLD_LABEL_WINDOW_MS && lx.stagger?.totalMs === SCAFFOLD_TICK_SPREAD_MS && ly.stagger?.from === "end", "v2: tick labels follow the same law, start 40, window 200");
+  h.ok(ty.stagger?.by === "y" && ty.stagger.from === "start", "v2: y ticks lag along y from the start of DOM order (tick nodes carry no data-y; DOM order is bottom to top, the y spine's pen direction)");
+  h.ok(lx.start === SCAFFOLD_LABEL_START_MS && lx.duration === SCAFFOLD_LABEL_WINDOW_MS && lx.stagger?.totalMs === SCAFFOLD_TICK_SPREAD_MS && ly.stagger?.from === "start", "v2: tick labels follow the same law, start 40, window 200");
   h.ok(tt.start === SCAFFOLD_TITLE_START_MS && tt.duration === SCAFFOLD_TITLE_MS, "v2: axis title fade 250 @370");
   h.ok(beats[0].tracks.filter(t => /gridlines$/.test(t.part ?? "")).length === 2, "v2: both gridline groups live in the Axes & grid click");
   const g = at("axis.x.gridlines");

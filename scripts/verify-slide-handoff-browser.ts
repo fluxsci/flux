@@ -162,10 +162,15 @@ try {
   const curveBox = await page.evaluate(() => { const p = document.querySelector('[id="dest__2hz.line"] path') as SVGGraphicsElement, flight = document.querySelector(".sl-flight") as SVGSVGElement, b = p.getBBox(), m = flight.getScreenCTM()!.inverse().multiply(p.getScreenCTM()!); return { x: m.a*b.x+m.e, y:m.d*b.y+m.f, right:m.a*(b.x+b.width)+m.e, bottom:m.d*(b.y+b.height)+m.f }; });
   h.ok(Object.keys(bounds).every(k => near(bounds[k as keyof typeof bounds], curveBox[k as keyof typeof curveBox], 1)), `at .999 the tiled pieces cover the curve within 1px: ${JSON.stringify({ bounds, curveBox })}`);
   await seek(1, 1000);
-  const dash0 = await page.$eval('[id="dest__2hz.line"] path', el => Number((el as SVGElement).style.strokeDashoffset));
+  // T3: the reveal is an exact WINDOW (dash list "k, rest" with k growing), not a shrinking offset; the
+  // pre-reveal frame is the 1-entry hidden gap.
+  const dashOf = () => page.$eval('[id="dest__2hz.line"] path', el => (el as SVGElement).style.strokeDasharray);
+  const dash0 = await dashOf();
   await seek(1, 1100);
-  const dash1 = await page.$eval('[id="dest__2hz.line"] path', el => Number((el as SVGElement).style.strokeDashoffset));
-  h.ok(dash0 > dash1 && dash1 > 0, `reveal draw advances the destination's dash after the flight (${dash0} → ${dash1})`);
+  const dash1 = parseFloat((await dashOf()).split(/[\s,]+/)[0]);
+  await seek(1, 1300);
+  const dash2 = parseFloat((await dashOf()).split(/[\s,]+/)[0]);
+  h.ok(!dash0.includes(",") && !dash0.trim().includes(" ") && dash1 > 0 && dash2 > dash1, `reveal draw advances the destination's dash WINDOW after the flight (hidden '${dash0}' → ${dash1} → ${dash2})`);
   await seek(1, 2000); h.eq(await page.$eval('[id="dest__2hz.line"] path', el => (el as SVGElement).style.strokeDashoffset), "", "draw completion removes temporary dash styling");
 
   await seek(2, 500);

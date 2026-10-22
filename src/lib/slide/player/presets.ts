@@ -10,10 +10,11 @@
 // builds while the scene is otherwise still. `transform`/`countUp` live elsewhere.
 // ---------------------------------------------------------------------------
 
-import { drawGeometry } from "../strokeGeometry";
+import { inDefs, paintOf, GEO_TAGS } from "../strokeGeometry";
+import { readPaint, parseStyleAttr } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
 import { PRESET_CATALOG, isEnterPreset, isExitPreset } from "../presetCatalog";
-import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
+import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, type TrimSpec } from "./trim";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
 
@@ -35,6 +36,14 @@ export interface NodeAnim {
   index: number;
   enter: boolean;
   prep?: () => void;
+  /** T3: an exact per-frame style source (raw track progress, the track's curve -> one frame). When present the
+   *  player samples THIS instead of interpolating `keyframes` (which then only declare the hidden-before / rest
+   *  frames and the property set to clear). Lets a draw emit dash lists whose length changes per frame. A
+   *  keyframes-only anim (no `sample`) stays valid: a sweep that is pure keyframes (T8's x-clock) returns that. */
+  sample?: (raw: number, ease: (x: number) => number) => Keyframe;
+  /** T3: props that exist only while the effect plays: dropped at progress 1, so the authored attributes are the
+   *  rest state (the generic form of the old `preset === "drawOn"` special case). */
+  transient?: readonly string[];
   /** Rebuild camera frames at play start; no argument restores the compiled FROM. */
   refreshCamera?: (transform?: string) => boolean;
   /** The exact transform at an eased progress OUTSIDE [0,1] (a spring's
@@ -64,13 +73,45 @@ function wipeInsets(direction: string): [string, string] {
   return [hidden, `inset(${M} ${M} ${M} ${M})`];
 }
 
-/** The dash/gap magnitude for the default draw compile: the measured length
- *  plus a safety overshoot, so the hidden state ([0,G]) covers the WHOLE
- *  stroke and the drawn state ([G,0]) is seam-free even when the browser's
- *  getTotalLength undershoots the painted arc (ellipses/circles, ~0.6%). */
-function drawGap(len: number): number {
-  return Math.round((len + Math.max(4, len * 0.05)) * 100) / 100;
+/** T3: the INK extent of a target along the wipe axis, as fractions of its box ([0,1] = the box edge to edge) along
+ *  the SWEEP direction. A fixed-width, centred text box is mostly empty: sweeping the whole box leaves a quarter of
+ *  the duration revealing nothing before the first glyph and after the last. SVG nodes use their geometry boxes;
+ *  HTML text uses the union of its text-node client rects. No layout (headless DOM) -> [0,1], the whole box. */
+function inkFractions(node: TargetNode, direction: string): [number, number] {
+  const horiz = direction === "ltr" || direction === "rtl";
+  try {
+    const box = node.getBoundingClientRect();
+    const size = horiz ? box.width : box.height;
+    if (!(size > 1)) return [0, 1];
+    let lo = Infinity, hi = -Infinity;
+    const take = (r: DOMRect) => {
+      if (!(r.width > 0 || r.height > 0)) return;
+      lo = Math.min(lo, horiz ? r.left : r.top); hi = Math.max(hi, horiz ? r.right : r.bottom);
+    };
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!n.textContent?.trim()) continue;
+      range.selectNodeContents(n);
+      for (const r of Array.from(range.getClientRects())) take(r);
+    }
+    if (!Number.isFinite(lo)) for (const el of Array.from(node.querySelectorAll("path,rect,circle,ellipse,line,polyline,polygon,image,img,canvas"))) take(el.getBoundingClientRect());
+    if (!Number.isFinite(lo)) return [0, 1];
+    const origin = horiz ? box.left : box.top;
+    let a = (lo - origin) / size, b = (hi - origin) / size;
+    if (direction === "rtl" || direction === "btt") [a, b] = [1 - b, 1 - a]; // fractions along the SWEEP direction
+    return [Math.min(1, Math.max(0, a)), Math.min(1, Math.max(a + 0.02, Math.min(1, b)))];
+  } catch { return [0, 1]; }
 }
+/** inset() with the sweeping edge at fraction `f` of the box (0 = hidden at the sweep start, 1 = the box end); the
+ *  non-sweeping edges keep the -20 % overflow margin (descenders survive, see wipeInsets). */
+function wipeAt(direction: string, f: number): string {
+  const M = "-20%", e = `${Math.round((1 - f) * 10000) / 100}%`;
+  return direction === "rtl" ? `inset(${M} ${M} ${M} ${e})` : direction === "ttb" ? `inset(${M} ${M} ${e} ${M})` :
+    direction === "btt" ? `inset(${e} ${M} ${M} ${M})` : `inset(${M} ${e} ${M} ${M})`;
+}
+/** Where the sweep has covered the ink; the last (1 - this) only uncovers the overhang margin. */
+export const WIPE_BOX_AT = 0.95;
 
 /** Measured length of a strokable node, honoring an explicit pathLength
  *  attribute (dash units must then be expressed in ITS scale). */
@@ -101,15 +142,237 @@ interface TrimParams {
   to?: number;
 }
 
-/** Build the trim NodeAnim for one geometry (the enriched drawOn/drawOff). */
-function trimAnim(geo: SVGElement, index: number, enter: boolean, p: TrimParams): NodeAnim {
-  const len = geoLength(geo);
+// ---------------------------------------------------------------------------
+// T3 — the draw plan. One compiler for drawOn/drawOff: classify the target's geometry into pen UNITS, give every
+// piece of a unit a slice of ONE eased pen clock, and emit a per-frame sampler (`NodeAnim.sample`) whose frames
+// are exact dash windows (trim.ts `windowsDash`). Contract for a later clock mode (WP 3.1, T8's x-clock): a sweep
+// that is pure keyframes returns NodeAnims WITHOUT `sample` (built on `hiddenDash(len)`, ending at
+// `drawReach(len, tag)`, declaring `transient: ["strokeDashoffset", "strokeDasharray"]`); `drawPlan` offers those
+// keyframes before it chooses `sample`.
+// ---------------------------------------------------------------------------
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+/** A filled piece: the outline runs over the first DRAW_OUTLINE of the clock, the fill ramps over the last (1 - DRAW_FILL_FROM). */
+export const DRAW_OUTLINE = 0.6, DRAW_FILL_FROM = 0.45;
+/** Hairline of the synthetic border drawn round a fill-only shape (stage units). */
+export const DRAW_HAIRLINE = 1.25;
+/** Dash segments a single drawOn/drawOff target may have live at once. Measured (Chrome 156, 40 lines x 400 dashes =
+ *  16,000 segments): raster 1.8 -> 10.1 ms/frame, JS 0.2 -> 1.6 ms. Past this a target's authored patterns are NOT kept
+ *  during the draw (it draws solid and takes the pattern at rest, as every deck did before T3). */
+export const DRAW_DASH_BUDGET = 4000;
+/** Props that exist only while a draw plays; dropped at progress 1 (the authored attributes are the rest state). */
+const DRAW_TRANSIENT = ["strokeDashoffset", "strokeDasharray", "strokeLinecap", "fillOpacity", "stroke", "strokeWidth", "transform", "transformOrigin"] as const;
+const IDENT = (x: number) => x;
+
+function rawPaintVal(el: Element, name: string): string {
+  for (let p: Element | null = el; p; p = p.parentElement) {
+    const v = parseStyleAttr(p.getAttribute("style")).get(name) ?? p.getAttribute(name);
+    if (v != null && v !== "inherit") return v.trim();
+  }
+  return "";
+}
+function pts(el: Element): [number, number][] {
+  const nums = (el.getAttribute("points") ?? "").trim().split(/[\s,]+/).map(Number).filter(Number.isFinite);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) out.push([nums[i], nums[i + 1]]);
+  return out;
+}
+/** A stroke's end point in its parent's user space. */
+function strokeEnd(geo: SVGElement, which: "start" | "end"): [number, number] | null {
+  const tag = geo.tagName.toLowerCase();
+  if (tag === "line") return which === "start" ? [Number(geo.getAttribute("x1")), Number(geo.getAttribute("y1"))] : [Number(geo.getAttribute("x2")), Number(geo.getAttribute("y2"))];
+  if (tag !== "path") return null;
+  const g = geo as unknown as SVGGeometryElement;
+  try {
+    const pt = g.getPointAtLength(which === "start" ? 0 : g.getTotalLength());
+    const m = (geo as unknown as SVGGraphicsElement).transform?.baseVal?.consolidate?.()?.matrix;
+    return m ? [m.a * pt.x + m.c * pt.y + m.e, m.b * pt.x + m.d * pt.y + m.f] : [pt.x, pt.y];
+  } catch { return null; }
+}
+/** The TRUE geometric length (never the `pathLength` attribute, whose units are dash units): the pen-clock weight. */
+function trueLength(geo: SVGElement, fallback: number): number {
+  try { return (geo as unknown as SVGGeometryElement).getTotalLength?.() || fallback; } catch { return fallback; }
+}
+
+interface Piece {
+  geo: SVGElement; tag: string; role: "stroke" | "strokeFill" | "fill" | "headFill" | "headVee";
+  /** dash-math length: `geoLength`, which honours an explicit `pathLength` (X12) */
+  len: number; closed: boolean; pattern?: number[];
+  /** the pen length this piece contributes to its unit's clock (true geometric length; the head's own for heads) */
+  pen: number;
+  /** headFill: scale origin (user space). headVee: the tip is the polyline's mid-length. */
+  origin?: [number, number];
+}
+interface Unit { pieces: Piece[]; pen: number }
+
+/** Classify a target's geometry into pen UNITS. A Flux line/path arrow is a stroke plus sibling head shapes
+ *  (`<polygon>` filled / `<polyline>` vee): the heads join their shaft's unit, so the pen reaches them in order.
+ *  Same geometry selection as `strokeGeometry.drawGeometry` (GEO tags, nothing inside `<defs>`, no `<use>`). */
+function drawUnits(node: TargetNode): Unit[] {
+  const el = node as Element, tag = el.tagName?.toLowerCase();
+  const all: SVGElement[] = [];
+  if (tag && new RegExp(`^(${GEO_TAGS.replace(/,/g, "|")})$`).test(tag)) { if (!inDefs(el)) all.push(el as SVGElement); }
+  else for (const g of Array.from(el.querySelectorAll?.(GEO_TAGS) ?? []) as SVGElement[]) if (!inDefs(g)) all.push(g);
+  const paint = new Map(all.map((g) => [g, paintOf(g)] as const));
+  const used = new Set<SVGElement>();
+  const units: Unit[] = [];
+  const mk = (geo: SVGElement, role: Piece["role"]): Piece => {
+    const len = geoLength(geo);
+    const dash = readPaint(geo).dash;
+    return { geo, tag: geo.tagName.toLowerCase(), role, len, closed: geoClosed(geo), pen: trueLength(geo, len), ...(dash?.some((v) => v > 0) ? { pattern: dash } : {}) };
+  };
+  // heads first: a head belongs to the stroked line/open-path sibling whose end it sits on
+  const hosts = all.filter((g) => ["line", "path"].includes(g.tagName.toLowerCase()) && paint.get(g)!.stroked && !paint.get(g)!.filled && !geoClosed(g));
+  // each host's two ends, measured ONCE (getTotalLength + getPointAtLength per candidate head x host would be
+  // O(heads x hosts x pathLength) on a dense plot part, at every slide rebuild)
+  const ends = new Map<SVGElement, { start: [number, number] | null; end: [number, number] | null }>();
+  const endsOf = (h: SVGElement) => { let e = ends.get(h); if (!e) { e = { start: strokeEnd(h, "start"), end: strokeEnd(h, "end") }; ends.set(h, e); } return e; };
+  const headOf = new Map<SVGElement, { start?: SVGElement; end?: SVGElement }>();
+  for (const g of all) {
+    const tg = g.tagName.toLowerCase(), p = paint.get(g)!;
+    const fillHead = tg === "polygon" && p.filled && !p.stroked, veeHead = tg === "polyline" && p.stroked && !p.filled;
+    if (!fillHead && !veeHead) continue;
+    // a head with its own `transform` attribute is NOT classified: the scale() reveal is a CSS transform, which
+    // REPLACES the SVG attribute (measured: the polygon jumps to the origin). It draws as a plain filled piece
+    // instead. (Flux-authored arrows carry no transform attribute: export.ts:213,234.)
+    if (g.hasAttribute("transform")) continue;
+    const q = pts(g); const tip = fillHead ? q[0] : q[1];
+    if (!tip || q.length !== 3) continue;
+    const extent = Math.max(...q.map((v) => Math.hypot(v[0] - tip[0], v[1] - tip[1])));
+    let best: { host: SVGElement; which: "start" | "end"; d: number } | null = null;
+    for (const h of hosts) {
+      if (h.parentNode !== g.parentNode) continue;
+      for (const which of ["start", "end"] as const) {
+        const e = endsOf(h)[which]; if (!e) continue;
+        const d = Math.hypot(e[0] - tip[0], e[1] - tip[1]);
+        if (d <= extent * 1.2 + 0.75 && (!best || d < best.d)) best = { host: h, which, d };
+      }
+    }
+    if (!best) continue;
+    const slot = headOf.get(best.host) ?? {}; if (slot[best.which]) continue; slot[best.which] = g; headOf.set(best.host, slot);
+  }
+  for (const h of hosts) {
+    const slot = headOf.get(h); if (!slot) continue;
+    const pieces: Piece[] = [];
+    const head = (g: SVGElement, which: "start" | "end"): Piece => {
+      const q = pts(g), fill = g.tagName.toLowerCase() === "polygon";
+      const tip = fill ? q[0] : q[1];
+      const base: [number, number] = fill ? [(q[1][0] + q[2][0]) / 2, (q[1][1] + q[2][1]) / 2] : [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2];
+      const pen = Math.hypot(tip[0] - base[0], tip[1] - base[1]) || 1;
+      // an END head grows from its base (where the shaft arrives); a START head from its tip (where the pen begins)
+      const p = mk(g, fill ? "headFill" : "headVee"); p.pen = pen; if (fill) p.origin = which === "end" ? base : tip;
+      return p;
+    };
+    if (slot.start) pieces.push(head(slot.start, "start"));
+    const shaft = mk(h, "stroke"); pieces.push(shaft);
+    if (slot.end) pieces.push(head(slot.end, "end"));
+    used.add(h); if (slot.start) used.add(slot.start); if (slot.end) used.add(slot.end);
+    units.push({ pieces, pen: pieces.reduce((n, p) => n + p.pen, 0) });
+  }
+  for (const g of all) {
+    if (used.has(g)) continue;
+    const p = paint.get(g)!;
+    const role: Piece["role"] | null = p.stroked && p.filled ? "strokeFill" : p.stroked ? "stroke" : p.filled ? "fill" : null;
+    if (!role) continue;
+    const piece = mk(g, role);
+    units.push({ pieces: [piece], pen: piece.pen });
+  }
+  // DOM order of each unit's first member (keeps authored z-order = pen order)
+  const order = (u: Unit) => Math.min(...u.pieces.map((q) => all.indexOf(q.geo)));
+  return units.sort((a, b) => order(a) - order(b));
+}
+
+/** The pieces of ONE unit take back-to-back slices of its eased pen clock, proportional to their pen length: one
+ *  curve gives a pen of continuous speed across shaft -> head (a unit's slices are cumulative sums, [0,1] in total).
+ *  Deliberately local and lag-free: across-unit stroke ORDER (WP 2.4) is a separate, later feature. */
+function unitSlices(weights: readonly number[]): [number, number][] {
+  const w = weights.map((v) => Math.max(v, 1e-9)), total = w.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  return w.map((v) => { const a = acc / total; acc += v; return [a, Math.min(1, acc / total)] as [number, number]; });
+}
+
+/** A forward sampler: raw progress of the TRACK (0..1) and the track's curve. */
+type Forward = (raw: number, ease: (x: number) => number) => Keyframe;
+const win = (raw: number, w0: number, w1: number) => clamp01((raw - w0) / Math.max(1e-9, w1 - w0));
+
+/** Frame builders: every frame of one piece carries the SAME key set. `[a,b]` = this piece's slice of the unit's
+ *  EASED pen clock. */
+function pieceSampler(piece: Piece, [a, b]: [number, number]): Forward {
+  const { geo, len, closed, pattern } = piece;
+  const reach = drawReach(len, piece.tag);
+  const spec = { len: reach, closed, pattern };
+  const fillOp = parseFloat(rawPaintVal(geo, "fill-opacity")); const restFillOp = Number.isFinite(fillOp) && fillOp >= 0 ? fillOp : 1;
+  const fillCol = rawPaintVal(geo, "fill");
+  const strokeCol = rawPaintVal(geo, "stroke");
+  const hid = hiddenDash(reach);
+  const clock = (raw: number, ease: (x: number) => number) => ease(clamp01(raw));
+  const slice = (c: number) => clamp01((c - a) / Math.max(1e-9, b - a));
+  if (piece.role === "stroke") return (raw, ease) => (windowsDash(spec, [[0, slice(clock(raw, ease)) * reach]]) ?? hid) as unknown as Keyframe;
+  if (piece.role === "headFill") {
+    const [ox, oy] = piece.origin!;
+    return (raw, ease) => ({ transform: `scale(${Math.max(1e-4, slice(clock(raw, ease)))})`, transformOrigin: `${ox}px ${oy}px` });
+  }
+  if (piece.role === "headVee") return (raw, ease) => {
+    const k = slice(clock(raw, ease)) * len, mid = len / 2; // grows out of the tip (the polyline's mid-length)
+    return (windowsDash({ len, closed: false }, [[mid - k / 2, mid + k / 2]]) ?? hiddenDash(len)) as unknown as Keyframe;
+  };
+  // filled pieces: the OUTLINE runs in its own window (the first DRAW_OUTLINE of the clock) and the FILL in its own
+  // (the last 1 - DRAW_FILL_FROM), each eased by the track's curve (manim's double_smooth, overlapped, no plateau).
+  const outline = (raw: number, ease: (x: number) => number) => clamp01(ease(win(raw, 0, DRAW_OUTLINE)));
+  const fillRamp = (raw: number, ease: (x: number) => number) => clamp01(ease(win(raw, DRAW_FILL_FROM, 1)));
+  if (piece.role === "strokeFill") return (raw, ease) => {
+    const f = windowsDash(spec, [[0, outline(raw, ease) * reach]]) ?? hid;
+    return { ...f, fillOpacity: restFillOp * fillRamp(raw, ease) } as unknown as Keyframe;
+  };
+  // fill only: a hairline border in the fill colour is drawn first, then fades into the fill
+  const colourOK = fillCol && !/^(none|url\(|transparent)/i.test(fillCol);
+  let hw = DRAW_HAIRLINE;
+  try { const m = (geo as unknown as SVGGraphicsElement).getCTM?.(); const sc = m ? Math.hypot(m.a, m.b) : 1; if (sc > 0) hw = DRAW_HAIRLINE / sc; } catch { /* no CTM */ }
+  return (raw, ease) => {
+    if (!colourOK) return { ...hid, fillOpacity: restFillOp * clamp01(ease(clamp01(raw))), stroke: strokeCol || "none", strokeWidth: 0 } as unknown as Keyframe;
+    const ramp = fillRamp(raw, ease);
+    const f = windowsDash(spec, [[0, outline(raw, ease) * reach]]) ?? hid;
+    return { ...f, fillOpacity: restFillOp * ramp, stroke: fillCol, strokeWidth: hw * (1 - ramp) } as unknown as Keyframe;
+  };
+}
+
+function drawPlan(node: TargetNode, index: number, t: Track, enter: boolean): NodeAnim[] {
+  const units = drawUnits(node);
+  const dashTotal = units.reduce((n, u) => n + u.pieces.reduce((m, p) => m + (p.pattern ? (drawReach(p.len, p.tag) / p.pattern.reduce((x, v) => x + v, 0)) * Math.ceil(p.pattern.length / 2) : 0), 0), 0);
+  if (dashTotal > DRAW_DASH_BUDGET) for (const u of units) for (const p of u.pieces) delete p.pattern;
+  // no drawable geometry (<use>-based ticks in pre-regen fluxplot SVGs): a fade, never a silent no-op
+  if (!units.length) return [{ node, index, enter, keyframes: enter ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }] }];
+  const params = (t.params ?? {}) as TrimParams;
+  const trim = !isDefaultTrim(params);
+  const out: NodeAnim[] = [];
+  for (const unit of units) {
+    // pieces of one unit share the unit's EASED clock: shaft -> head with no stall
+    const inner = unit.pieces.length > 1 ? unitSlices(unit.pieces.map((p) => p.pen)) : [[0, 1] as [number, number]];
+    unit.pieces.forEach((piece, pi) => {
+      const forward: Forward = trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], params) : pieceSampler(piece, inner[pi]);
+      // exit = the enter sampled backwards in time with the MIRRORED curve (1 - e(1 - v)): the retreat eases in
+      // exit time exactly as the legacy offset reversal did, for any curve
+      const sample = enter
+        ? (raw: number, ease: (x: number) => number) => forward(clamp01(raw), ease)
+        : (raw: number, ease: (x: number) => number) => forward(1 - clamp01(raw), (v) => 1 - ease(1 - v));
+      out.push({
+        node: piece.geo, index, enter, sample,
+        keyframes: enter ? [forward(0, IDENT), forward(1, IDENT)] : [forward(1, IDENT), forward(0, IDENT)],
+        ...(enter ? { transient: DRAW_TRANSIENT } : {}),
+      });
+    });
+  }
+  return out;
+}
+
+/** Explicit trim params: the legacy window math, sampled exactly per frame with NO structural zero dashes (so the
+ *  authored linecap stays: no butt -> round pop on the last frame). */
+function trimSampler(piece: Piece, [a, b]: [number, number], p: TrimParams): Forward {
+  const geo = piece.geo, len = piece.len;
   const box = (geo as unknown as { getBBox?: () => { width: number; height: number } }).getBBox?.();
   const spec: TrimSpec = {
-    len,
-    closed: geoClosed(geo),
+    len, closed: piece.closed,
     anchor: resolveAnchor(p.anchor, {
-      tag: geo.tagName?.toLowerCase() ?? "path",
+      tag: piece.tag,
       width: box?.width ?? Number(geo.getAttribute?.("width")) ?? undefined,
       height: box?.height ?? Number(geo.getAttribute?.("height")) ?? undefined,
     }),
@@ -118,23 +381,9 @@ function trimAnim(geo: SVGElement, index: number, enter: boolean, p: TrimParams)
     from: typeof p.from === "number" ? p.from : 0,
     to: typeof p.to === "number" ? p.to : 1,
   };
-  const kfs = trimKeyframes(spec, enter);
-  // The trim engine's window lists carry STRUCTURAL zero-length dashes, and a
-  // round/square linecap paints a DOT at every zero dash — force butt caps
-  // for the trim's lifetime (constant across keyframes; the ends read square
-  // during the draw, restored by the re-baseline after).
-  const capped = (geo.getAttribute?.("stroke-linecap") ?? "").toLowerCase() !== "" ||
-    /stroke-linecap\s*:/.test(geo.getAttribute?.("style") ?? "");
-  return {
-    node: geo,
-    index,
-    enter,
-    keyframes: kfs.map((k) => ({
-      ...(k.offset != null ? { offset: k.offset } : {}),
-      strokeDasharray: k.strokeDasharray,
-      strokeDashoffset: k.strokeDashoffset,
-      ...(capped ? { strokeLinecap: "butt" } : {}),
-    })),
+  return (raw, ease) => {
+    const c = clamp01((ease(clamp01(raw)) - a) / Math.max(1e-9, b - a));
+    return (trimDashAt(spec, c, piece.pattern) ?? hiddenDash(len)) as unknown as Keyframe;
   };
 }
 
@@ -166,54 +415,20 @@ export const PRESETS: Record<string, Preset> = {
     })),
 
   // Tier-2: directional reveal via a clip-path inset (math / axis labels /
-  // text). params.direction: ltr (default) | rtl | ttb | btt.
-  writeOn: (nodes, t) => {
-    const [hidden, shown] = wipeInsets((t.params?.direction as string) ?? "ltr");
-    return each(nodes, (node, index) => ({
-      node, index, enter: true,
-      keyframes: [{ clipPath: hidden }, { clipPath: shown }],
-    }));
-  },
+  // text). params.direction: ltr (default) | rtl | ttb | btt. The sweep is fitted
+  // to the INK: hidden exactly at the first ink, covering the last ink at
+  // WIPE_BOX_AT, the overhang margin uncovered after: no dead lead, no dead tail.
+  writeOn: (nodes, t) => nodes.flatMap((node, index): NodeAnim[] => {
+    const dir = (t.params?.direction as string) ?? "ltr";
+    const shown = wipeInsets(dir)[1], [a, b] = inkFractions(node, dir);
+    return [{ node, index, enter: true, keyframes: [{ clipPath: wipeAt(dir, a) }, { clipPath: wipeAt(dir, b), offset: WIPE_BOX_AT }, { clipPath: shown }] }];
+  }),
 
-  // Tier-2: the SVG self-draw — Flux's Trim Paths. Drills through wrapper
-  // <g>s to the geometry and splits it by paint: STROKE-rendered children
-  // dash-draw by their own length; FILL-rendered children (arrowheads, area
-  // fills, filled shapes — dash hides strokes only) pop in near the END of
-  // the draw. The default compile animates a [dash, gap] PAIR at offset 0
-  // ([0,G] → [G,0], G = length + safety): the endpoints are EXACT regardless
-  // of measurement error — browsers' getTotalLength on <ellipse>/<circle>
-  // undershoots the painted perimeter (~0.6%), and the old constant-dasharray
-  // form left a visible sliver before the beat and a missing notch at the
-  // seam forever after. Any trim param switches to the trim engine (trim.ts).
-  // A target with NO drawable geometry (<use>-based ticks in pre-regen
-  // fluxplot SVGs) falls back to a fade — never a silent no-op that leaves
-  // the part visible before its beat.
-  drawOn: (nodes, t) =>
-    nodes.flatMap((node, index): NodeAnim[] => {
-      const { strokes, fills } = drawGeometry(node);
-      if (!strokes.length && !fills.length) return [{ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] }];
-      const trim = !isDefaultTrim(t.params as TrimParams | undefined);
-      const out: NodeAnim[] = strokes.map((geo): NodeAnim => {
-        if (trim) return trimAnim(geo, index, true, (t.params ?? {}) as TrimParams);
-        // offset-based hiding paints NOTHING pre-beat (no zero-length dash →
-        // no round/square cap dots); the overshot G covers the true perimeter
-        // at offset 0, so the drawn rest state has no seam either.
-        const G = drawGap(geoLength(geo));
-        return {
-          node: geo, index, enter: true,
-          prep: () => { geo.style.strokeDasharray = `${G}`; },
-          keyframes: [{ strokeDashoffset: G }, { strokeDashoffset: 0 }],
-        };
-      });
-      for (const geo of fills) {
-        out.push({
-          node: geo, index, enter: true,
-          // hidden until ~3/4 through the draw, then pops in with the stroke
-          keyframes: [{ opacity: 0 }, { opacity: 0, offset: 0.72 }, { opacity: 1 }],
-        });
-      }
-      return out;
-    }),
+  // Tier-2: the SVG self-draw — Flux's Trim Paths (T3 draw plan, see drawPlan()).
+  // A target with NO drawable geometry (<use>-based ticks in pre-regen fluxplot
+  // SVGs) falls back to a fade, never a silent no-op that leaves the part visible
+  // before its beat. Any trim param switches the stroke pieces to the trim windows.
+  drawOn: (nodes, t) => nodes.flatMap((node, index) => drawPlan(node, index, t, true)),
 
   // --- exits (hidden AFTER their beat) --------------------------------------
   fadeOut: (nodes) =>
@@ -227,41 +442,16 @@ export const PRESETS: Record<string, Preset> = {
     }));
   },
 
-  // Tier-2: writeOn's mirror — a directional wipe via clip-path. The default
-  // wipes back right-to-left (the reverse of the ltr write).
-  wipeOut: (nodes, t) => {
-    const [hidden, shown] = wipeInsets((t.params?.direction as string) ?? "ltr");
-    return each(nodes, (node, index) => ({
-      node, index, enter: false,
-      keyframes: [{ clipPath: shown }, { clipPath: hidden }],
-    }));
-  },
+  // Tier-2: writeOn's mirror — a directional wipe via clip-path, ink-fitted.
+  wipeOut: (nodes, t) => nodes.flatMap((node, index): NodeAnim[] => {
+    const dir = (t.params?.direction as string) ?? "ltr";
+    const shown = wipeInsets(dir)[1], [a, b] = inkFractions(node, dir);
+    return [{ node, index, enter: false, keyframes: [{ clipPath: shown }, { clipPath: wipeAt(dir, b), offset: 1 - WIPE_BOX_AT }, { clipPath: wipeAt(dir, a) }] }];
+  }),
 
-  // Tier-2: drawOn reversed — the stroke un-draws itself. Same geometry
-  // split (fill-rendered children vanish EARLY, as the un-draw leaves them),
-  // same trim enrichment, same no-geometry fallback (a fade-out).
-  drawOff: (nodes, t) =>
-    nodes.flatMap((node, index): NodeAnim[] => {
-      const { strokes, fills } = drawGeometry(node);
-      if (!strokes.length && !fills.length) return [{ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] }];
-      const trim = !isDefaultTrim(t.params as TrimParams | undefined);
-      const out: NodeAnim[] = strokes.map((geo): NodeAnim => {
-        if (trim) return trimAnim(geo, index, false, (t.params ?? {}) as TrimParams);
-        const G = drawGap(geoLength(geo));
-        return {
-          node: geo, index, enter: false,
-          prep: () => { geo.style.strokeDasharray = `${G}`; },
-          keyframes: [{ strokeDashoffset: 0 }, { strokeDashoffset: G }],
-        };
-      });
-      for (const geo of fills) {
-        out.push({
-          node: geo, index, enter: false,
-          keyframes: [{ opacity: 1 }, { opacity: 0, offset: 0.28 }, { opacity: 0 }],
-        });
-      }
-      return out;
-    }),
+  // Tier-2: drawOn reversed — the same plan sampled backwards (the pen runs from
+  // the head back to the tail, heads fold into the shaft first, fills drain first).
+  drawOff: (nodes, t) => nodes.flatMap((node, index) => drawPlan(node, index, t, false)),
 
   // --- transforms / emphasis (already-present elements) --------------------
   move: (nodes, t) => {

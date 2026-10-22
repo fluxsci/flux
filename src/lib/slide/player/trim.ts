@@ -204,7 +204,9 @@ function closedKeyframe(spec: TrimSpec, p: number): TrimKeyframe {
 }
 
 /** Build the 2–3 dash keyframes for a trim animation. `enter` grows the
- *  window (drawOn); exits (drawOff) play the same list in reverse. */
+ *  window (drawOn); exits (drawOff) play the same list in reverse.
+ *  @oracle gate-only: the player no longer calls this (drawPlan samples `trimDashAt`); verify-draw pins
+ *  `trimDashAt` against the visible set these keyframes describe. */
 export function trimKeyframes(spec: TrimSpec, enter: boolean): TrimKeyframe[] {
   const L = Math.max(1e-6, spec.len);
   const s: TrimSpec = { ...spec, len: L };
@@ -222,4 +224,121 @@ export function trimKeyframes(spec: TrimSpec, enter: boolean): TrimKeyframe[] {
     for (const f of frames) if (f.offset != null) f.offset = 1 - f.offset;
   }
   return frames;
+}
+
+// ===========================================================================
+// T3 — exact-window dash frames and the shared TRACE primitive.
+//
+// `windowDash` turns "the visible stretch(es) of the stroke are [lo,hi]" into
+// the stroke-dasharray/-dashoffset pair that paints exactly that, with
+//   • NO structural zero-length dashes (a round/square linecap paints a dot at
+//     every zero dash — the reason trimAnim used to force butt caps and then
+//     snap back to the authored cap at rest): one dash per window, one huge gap;
+//   • an optional authored dash PATTERN preserved inside the window (a dashed
+//     line draws dash by dash instead of solid-then-snap);
+//   • null when nothing is visible (callers emit the offset-hidden frame).
+// Pure and DOM-free like everything above; the player samples it per frame
+// (NodeAnim.sample), so list lengths may differ frame to frame.
+// ===========================================================================
+
+export interface DashFrame { strokeDasharray: string; strokeDashoffset: number }
+export interface WindowSpec { len: number; closed?: boolean; pattern?: number[] }
+const MAX_DASHES = 3000;
+
+/** Hidden: dash G / gap G at offset G leaves [0,G) in the gap (G ≥ len). */
+export function hiddenDash(len: number): DashFrame {
+  const G = fmt(len + 1);
+  return { strokeDasharray: String(G), strokeDashoffset: G };
+}
+
+/** The length a FULL draw sweeps: the measured length plus a small margin for the dasher's
+ *  undershoot (Chrome 156 measured: ellipse/circle 0.07-0.16 %, every other geometry 0 %). The margin
+ *  also covers other engines (the previously documented Chromium figure for ellipses is 0.6 %): a
+ *  residual undershoot would otherwise leave a sliver that pops when the transient dash is dropped
+ *  at progress 1. NOT the old 5 % / >=4-unit slack, which finished a draw early (short strokes at
+ *  34 % of their duration). */
+export const DRAW_REACH_EPS = { round: 0.006, other: 0.002 } as const;
+export function drawReach(len: number, tag: string): number {
+  return len * (1 + (tag === "ellipse" || tag === "circle" ? DRAW_REACH_EPS.round : DRAW_REACH_EPS.other)) + 0.05;
+}
+
+/** Dash frame painting exactly the windows (sorted, disjoint, arc units) of a
+ *  stroke of length `spec.len`; null if nothing is visible. */
+export function windowsDash(spec: WindowSpec, windows: [number, number][]): DashFrame | null {
+  const L = Math.max(1e-6, spec.len);
+  const ws = windows.map(([a, b]) => [Math.max(0, a), Math.min(L, b)] as [number, number]).filter(([a, b]) => b - a > 1e-4);
+  if (!ws.length) return null;
+  const pat = spec.pattern && spec.pattern.length && spec.pattern.some((v) => v > 0)
+    ? (spec.pattern.length % 2 ? [...spec.pattern, ...spec.pattern] : spec.pattern) : null;
+  // 1. clip the dash pattern (or solid) to the windows → visible intervals
+  const vis: [number, number][] = [];
+  if (!pat) for (const w of ws) vis.push(w);
+  else {
+    const P = pat.reduce((s, v) => s + v, 0);
+    if (L / P * pat.length / 2 > MAX_DASHES) { for (const w of ws) vis.push(w); }  // pathological dust: draw solid
+    else for (const [a, b] of ws) {
+      for (let k = Math.floor(a / P); k * P < b; k++) {
+        let c = k * P;
+        for (let j = 0; j < pat.length; c += pat[j], j++) {
+          if (j % 2) continue; // gap entries
+          const s = Math.max(a, c), e = Math.min(b, c + pat[j]);
+          if (e - s > 1e-4) vis.push([s, e]);
+        }
+      }
+    }
+  }
+  if (!vis.length) return null;
+  // 2. closed single window that can wrap the seam keeps the exact period L
+  if (spec.closed && vis.length === 1 && !pat) {
+    const w = vis[0][1] - vis[0][0];
+    if (w < L - 1e-4) return { strokeDasharray: `${fmt(w)} ${fmt(L - w)}`, strokeDashoffset: fmt(-vis[0][0]) };
+  }
+  // 3. [d1, g1, d2, …, dm, BIG] at offset −s1: one period longer than the path
+  const list: number[] = [];
+  for (let i = 0; i < vis.length; i++) {
+    if (i) list.push(vis[i][0] - vis[i - 1][1]);
+    list.push(vis[i][1] - vis[i][0]);
+  }
+  list.push(L + 1);
+  return { strokeDasharray: dasharray(list), strokeDashoffset: fmt(-vis[0][0]) };
+}
+export const windowDash = (spec: WindowSpec, lo: number, hi: number) => windowsDash(spec, [[lo, hi]]);
+
+/** The TRACE primitive (WP 2.2's Circumscribe / ShowPassingFlash build on it; no consumer in 1.4): a sliver whose TAIL and HEAD are
+ *  independent path fractions (open paths clip to [0,1]; closed paths wrap, a
+ *  window ≥ one lap is the whole stroke). With a dash pattern the pattern is
+ *  clipped to the sliver (dashes stay intact, they do not crawl). */
+export function traceDash(spec: WindowSpec, tail: number, head: number): DashFrame | null {
+  const L = Math.max(1e-6, spec.len), w = head - tail;
+  if (w <= 1e-6) return null;
+  if (!spec.closed) return windowsDash(spec, [[Math.max(0, tail) * L, Math.min(1, head) * L]]);
+  if (w >= 1 - 1e-6) return spec.pattern?.length ? windowsDash(spec, [[0, L]]) : { strokeDasharray: `${fmt(L)} ${fmt(1)}`, strokeDashoffset: 0 };
+  const start = (((tail % 1) + 1) % 1) * L, end = start + w * L;
+  // no pattern: ONE dash of exact period L — Skia joins the dash across the seam
+  if (!spec.pattern?.length) return { strokeDasharray: `${fmt(w * L)} ${fmt(L - w * L)}`, strokeDashoffset: fmt(-start) };
+  return windowsDash(spec, end > L ? [[0, end - L], [start, L]] : [[start, end]]);
+}
+
+/** manim ShowPassingFlash's window (time_width w): head = lerp(0, 1+w, p), tail = head − w. */
+export function passingFlash(width: number, p: number): { tail: number; head: number } {
+  const head = p * (1 + width);
+  return { tail: head - width, head };
+}
+
+/** The dash frame of the (legacy) trim model at progress p — the same windows
+ *  openWindow/closedKeyframe describe, painted with NO structural zero dashes. */
+export function trimDashAt(spec: TrimSpec, p: number, pattern?: number[]): DashFrame | null {
+  const L = Math.max(1e-6, spec.len), ws: WindowSpec = { len: L, closed: spec.closed, pattern };
+  if (spec.closed) {
+    const span = clamp(Math.abs(spec.to - spec.from), 0, 1) * L, A = clamp(spec.anchor, 0, 1) * L, k = p * span;
+    const start = spec.mode === "both-ends" || spec.mode === "middle-out" ? A - k / 2 : spec.direction === "reverse" ? A - k : A;
+    return traceDash(ws, start / L, (start + k) / L);
+  }
+  if (spec.mode === "both-ends") {
+    const F = clamp(Math.min(spec.from, spec.to), 0, 1) * L, T = clamp(Math.max(spec.from, spec.to), 0, 1) * L;
+    const k = (p * (T - F)) / 2;
+    return windowsDash(ws, [[F, F + k], [T - k, T]]);
+  }
+  const { lo, hi } = openWindow(spec, p);
+  return windowsDash(ws, [[lo, hi]]);
 }

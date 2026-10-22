@@ -22,7 +22,7 @@ import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, t
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
-import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
+import { resolveTrack, resolveTrackRaw, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
 import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
@@ -801,7 +801,8 @@ export function setAnimStyle(deck: Deck, id: Id, patch: Partial<Omit<AnimStyle, 
 }
 
 function materializeStyle(track: Track, deck: Deck): void {
-  const resolved = presetTrackOf(resolveTrack(track, deck));
+  // RAW: the stored fields only (X13's tick compensation is a read view and never lands in storage)
+  const resolved = presetTrackOf(resolveTrackRaw(track, deck));
   for (const key of ANIM_STYLE_FIELDS) delete track[key];
   Object.assign(track, resolved);
   delete track.styleId;
@@ -834,7 +835,7 @@ export function linkTrackStyle(deck: Deck, slideId: Id, trackId: Id, styleId: Id
 export function styleFromTrack(deck: Deck, slideId: Id, trackId: Id, name: string): AnimStyle | null {
   const found = findTrack(deck, trackId);
   if (!found || found.slide.id !== slideId) return null;
-  const resolved = resolveTrack(found.track, deck), family = familyOf(found.track);
+  const resolved = resolveTrackRaw(found.track, deck), family = familyOf(found.track); // RAW: a style is stored data
   if (family === "camera") return null;
   const style = addAnimStyle(deck, { name, family, track: presetTrackOf(resolved) });
   linkTrackStyle(deck, slideId, trackId, style.id);
@@ -915,7 +916,7 @@ export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
   try {
     if (patch.stagger !== undefined) {
       if (familyOf(found.track) === "media") throw new Error("Video commands cannot stagger");
-      found.track.stagger = patchStagger(resolveTrack(found.track, deck).stagger, patch.stagger);
+      found.track.stagger = patchStagger(resolveTrackRaw(found.track, deck).stagger, patch.stagger); // RAW base: an explicit edit never inherits the tick compensation
     }
     if (patch.arc !== undefined) setTrackArc(found.track, patch.arc);
   } catch (error) { return restore({ ok: false, reason: (error as Error).message }); }
@@ -1544,7 +1545,7 @@ export function cascadeTracks(
     if (b0.stagger === undefined) delete t.stagger;
     else t.stagger = { ...b0.stagger };
   }
-  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property !== "curve.bounce" || resolveTrack(t, deck).curve?.kind === "spring") && (spec.property.startsWith("stagger.") ? !!resolveTrack(t, deck).stagger : spec.property === "arc" ? familyOf(t) === "transform" : true));
+  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property !== "curve.bounce" || resolveTrack(t, deck).curve?.kind === "spring") && (spec.property.startsWith("stagger.") ? !!resolveTrackRaw(t, deck).stagger : spec.property === "arc" ? familyOf(t) === "transform" : true));
   if (spec.order === "list") {
     const pos = new Map(trackIds.map((id, i) => [id, i] as const));
     list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));
@@ -1555,7 +1556,7 @@ export function cascadeTracks(
   for (let rank = 0; rank < list.length; rank++) {
     const t = list[rank].t;
     const step = stepOf(rank, spec.firstFixed);
-    const b0 = resolveTrack(t, deck);
+    const b0 = resolveTrackRaw(t, deck); // RAW: the cascade writes back what it reads
     switch (spec.property) {
       case "start":
         if (t.anchor) t.anchor.offsetMs = cascadeValue(t.anchor.offsetMs ?? 0, spec, step);

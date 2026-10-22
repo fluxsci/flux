@@ -113,6 +113,10 @@ interface Spec {
    *  nodes (fade acts on the part's <g>, drawOn drills to its path). */
   key: string;
   prep?: () => void;
+  /** Exact per-frame sample (T3): replaces keyframe interpolation when present. */
+  sample?: (raw: number, ease: (x: number) => number) => Keyframe;
+  /** Props dropped at progress 1 (the authored attributes are the rest state). */
+  transient?: readonly string[];
   /** Rebuild all camera frames from live FROM at play time, or restore on seek. */
   refreshCamera?: (transform?: string) => boolean;
   /** Exact transform for eased progress outside [0,1] (the camera's geometric path). */
@@ -269,7 +273,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
             const draw = { ...track, preset: "drawOn" as const, params: undefined };
             for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
               node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
-              key: `handoff-draw:${track.id}`, prep: na.prep, preset: "drawOn", trackId: track.id, owner: track,
+              key: `handoff-draw:${track.id}`, prep: na.prep, sample: na.sample, transient: na.transient, preset: "drawOn", trackId: track.id, owner: track,
               delay: ct.start + hold, duration: DUR.gentle,
               ease: resolveCurve(draw),
             });
@@ -350,7 +354,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           ease: ct.ease,
           enter: na.enter,
           key,
-          prep: na.prep,
+          prep: na.prep, sample: na.sample, transient: na.transient,
           refreshCamera: na.refreshCamera,
           transformAt: na.transformAt,
           trackId: track.id, owner: track,
@@ -375,7 +379,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   return specs;
 }
 
-const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin"] as const;
+const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin", "fillOpacity", "stroke", "strokeWidth"] as const;
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** How a keyframed spec moves its node: a flight whose keyframes differ only
  *  in translate() rides a compositor layer while it plays (render.ts layer
@@ -445,6 +449,18 @@ function numericSampler(a: unknown, b: unknown): { sample: (t: number) => string
 }
 function frameSampler(spec: Spec): (t: number) => Keyframe {
   const frames = spec.keyframes;
+  // The REST frame (raw >= 1) is the last keyframe minus `transient` props, so the authored attributes are
+  // the resting state — filtered HERE, in one place, for every consumer (applyAt and applyAccumulated of
+  // later specs), for exact samplers and keyframed specs alike.
+  const drop = spec.transient;
+  const last = frames[frames.length - 1];
+  const rest = (drop && last ? Object.fromEntries(Object.entries(last).filter(([k]) => !drop.includes(k))) : last) as Keyframe;
+  if (spec.sample) {
+    // An exact per-frame source (T3). NOTE: `ease.fn` is passed UNCLAMPED (springs overshoot); a sampler
+    // must clamp whatever it cannot extrapolate.
+    const sample = spec.sample;
+    return (raw) => raw <= 0 ? frames[0] : raw >= 1 ? rest : sample(raw, spec.ease.fn);
+  }
   const properties = [...new Set(frames.flatMap(frame => Object.keys(frame).filter(p => !["offset", "easing", "composite"].includes(p))))];
   const channels = properties.map(property => {
     const points = frames.flatMap((frame, i) => property in frame
@@ -459,7 +475,7 @@ function frameSampler(spec: Spec): (t: number) => Keyframe {
   const frame: Record<string, unknown> = {};
   return (raw) => {
     if (raw <= 0) return frames[0];
-    if (raw >= 1) return frames.at(-1)!;
+    if (raw >= 1) return rest;
     const u = spec.ease.fn(raw), t = spec.ease.clamped(raw);
     for (const channel of channels) {
       const progress = channel.discrete ? raw : channel.box ? u : t;
@@ -575,21 +591,17 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       if (superseded(spec)) continue;
       // Completed draw-on contributes no temporary dash/cap styling. The
       // authored resting attributes remain correct after any later geometry change.
-      if (!(p >= 1 && spec.preset === "drawOn")) spec.prep?.();
+      if (!(p >= 1 && spec.transient)) spec.prep?.();
       if (p < 0) {
         if (!applied.length && spec === keyframed[0] && spec.enter) applied.push({ ...spec, keyframes: [spec.keyframes[0]] });
         continue;
       }
-      const sampled = plan.samplers.get(spec)!(p);
-      const frame = p >= 1 && spec.preset === "drawOn"
-        ? Object.fromEntries(Object.entries(sampled).filter(([property]) => !["strokeDashoffset", "strokeDasharray", "strokeLinecap"].includes(property)))
-        : sampled;
-      applied.push({ ...spec, keyframes: [frame] });
+      applied.push({ ...spec, keyframes: [plan.samplers.get(spec)!(p)] });
       const flight = p > 0 && p < 1 ? flights.get(spec) : undefined;
       if (flight) { moving++; if (flight === "translate") pureMoves++; }
       // Use native effects for active frames when available. Their time is
       // explicitly controlled; no independent WAAPI clock can drift from data.
-      if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
+      if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.sample && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
         let animation = plan.natives.get(spec);
         if (!animation) {
           animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.ease.css, fill: "both" });
