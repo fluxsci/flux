@@ -47,7 +47,6 @@
     lastDupOffset,
     hoverId,
     nodeEditId,
-    arrange,
     canvasBox,
   } from "./store";
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
@@ -64,7 +63,8 @@
   import { partReadout, readoutText, nodeAttrs } from "./plot/readout";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
-  import { commitArrange } from "./keyboard";
+  import ArrangeGapOverlay from "./ArrangeGapOverlay.svelte";
+  import { alignArrange, arrangementPreview } from "./interact/alignArrange";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick, onDestroy } from "svelte";
@@ -624,6 +624,12 @@
         for (const f of next) mountedFigs.add(f.id);
         return next;
       })();
+  // Layout previews may bring previously offscreen objects into view. Cull
+  // against BOTH model and preview bounds; retain model sources for the whole
+  // gesture so visible artwork is never replaced while its spacing changes.
+  $: layoutFigureId = $alignArrange?.figureId ?? null;
+  $: layoutDeltas = new Map($arrangementPreview?.plan.translations.map(t => [t.id, t]) ?? []);
+  $: layoutViewKey = layoutFigureId ? `${Math.round($viewport.panX / 64)},${Math.round($viewport.panY / 64)},${$viewport.zoom},${hostW},${hostH}` : '';
   function visibleEls(fig: Figure): Element[] {
     // The frame being moved renders all its elements: its world position is stale
     // until commit, so culling by the stale bbox would drop elements as it travels.
@@ -634,13 +640,21 @@
     const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
     const lrOut: Rect = { x: cullRectOut.x - fig.x, y: cullRectOut.y - fig.y, w: cullRectOut.w, h: cullRectOut.h };
     const was = mountedEls.get(fig.id);
+    const z = $viewport.zoom, pad = 96 / z;
+    const layoutView: Rect = { x: -$viewport.panX / z - fig.x - pad, y: -$viewport.panY / z - fig.y - pad,
+      w: hostW / z + 2 * pad, h: hostH / z + 2 * pad };
     // FIG-4: cull by the ROTATED bounds — a tilted element near the viewport edge must
     // not vanish while its spun corners are still visible (unrotated = same fast path).
     const els = fig.elements.filter((el) => {
       if (effHidden(el)) return false;
-      if ($selection.has(el.id)) return true;
+      if ($selection.has(el.id) && fig.id !== layoutFigureId) return true;
       const box = rotatedAABB(el);
-      return rectsIntersect(box, lr) || (was?.has(el.id) === true && rectsIntersect(box, lrOut));
+      const delta = fig.id === layoutFigureId ? layoutDeltas.get(el.id) : undefined;
+      const destination = delta ? { ...box, x: box.x + delta.dx, y: box.y + delta.dy } : box;
+      if (fig.id === layoutFigureId && $selection.has(el.id))
+        return rectsIntersect(box, layoutView) || rectsIntersect(destination, layoutView);
+      return rectsIntersect(box, lr) || rectsIntersect(destination, lr) ||
+        (was?.has(el.id) === true && (rectsIntersect(box, lrOut) || rectsIntersect(destination, lrOut)));
     });
     const ids = new Set(els.map((el) => el.id));
     if (!was || was.size !== ids.size || [...ids].some((id) => !was.has(id))) mountedGen++; // the mounted set changed (snapshot key)
@@ -670,40 +684,54 @@
     // throttle's own `cullKey` let and forced a re-cull every pan frame.
     cullRef: null as Rect | null,
     cullGen: 0,
+    layoutFigure: null as string | null,
+    layoutDeltas: null as typeof layoutDeltas | null,
+    layoutGen: 0,
+    layoutViewKey: "",
     frozen: new Map<string, Element[]>(), // last computed map (Fix 7 suspension)
   };
-  $: visibleByFig = (() => {
-    if (!paneActive) return visMemoBox.frozen; // Fix 7: hidden pane — no recompute
-    void effState; // P7: group eyes change the visible set (effHidden reads it)
-    if ($selection !== visMemoBox.sel) {
-      visMemoBox.sel = $selection;
-      visMemoBox.selGen++;
-    }
-    if (cullMovingFigureId !== visMemoBox.movingFigure) {
-      visMemoBox.movingFigure = cullMovingFigureId;
-      visMemoBox.gesGen++;
-    }
-    if (cullRect !== visMemoBox.cullRef) {
-      visMemoBox.cullRef = cullRect;
-      visMemoBox.cullGen++;
-    }
-    const next = new Map<string, { key: string; els: Element[] }>();
-    const m = new Map<string, Element[]>();
-    for (const f of visibleFigures) {
-      const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${absentPresentationKey}`;
-      let mm = visMemoBox.map.get(f.id);
-      if (!mm || mm.key !== key) {
-        perfCounters.visRecomputes++;
-        mm = { key, els: visibleEls(f) };
+  let visibleByFig = new Map<string, Element[]>();
+  $: {
+    if (paneActive) { // Fix 7: hidden pane — no recompute
+      void effState; // P7: group eyes change the visible set (effHidden reads it)
+      if ($selection !== visMemoBox.sel) {
+        visMemoBox.sel = $selection;
+        visMemoBox.selGen++;
       }
-      next.set(f.id, mm);
-      m.set(f.id, mm.els);
+      if (cullMovingFigureId !== visMemoBox.movingFigure) {
+        visMemoBox.movingFigure = cullMovingFigureId;
+        visMemoBox.gesGen++;
+      }
+      if (cullRect !== visMemoBox.cullRef) {
+        visMemoBox.cullRef = cullRect;
+        visMemoBox.cullGen++;
+      }
+      if (layoutFigureId !== visMemoBox.layoutFigure || layoutDeltas !== visMemoBox.layoutDeltas || layoutViewKey !== visMemoBox.layoutViewKey) {
+        visMemoBox.layoutFigure = layoutFigureId;
+        visMemoBox.layoutDeltas = layoutDeltas;
+        visMemoBox.layoutViewKey = layoutViewKey;
+        visMemoBox.layoutGen++;
+      }
+      const next = new Map<string, { key: string; els: Element[] }>();
+      const m = new Map<string, Element[]>();
+      for (const f of visibleFigures) {
+        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}`;
+        let mm = visMemoBox.map.get(f.id);
+        if (!mm || mm.key !== key) {
+          perfCounters.visRecomputes++;
+          const els = visibleEls(f);
+          const previous = mm?.els;
+          mm = { key, els: previous && previous.length === els.length && els.every((el, i) => el === previous[i]) ? previous : els };
+        }
+        next.set(f.id, mm);
+        m.set(f.id, mm.els);
+      }
+      for (const id of Array.from(mountedEls.keys())) if (!next.has(id)) { mountedEls.delete(id); mountedGen++; } // a figure that left starts fresh
+      const changed = m.size !== visMemoBox.frozen.size || [...m].some(([id, els]) => visMemoBox.frozen.get(id) !== els);
+      visMemoBox.map = next;
+      if (changed) { visMemoBox.frozen = m; visibleByFig = m; }
     }
-    for (const id of Array.from(mountedEls.keys())) if (!next.has(id)) { mountedEls.delete(id); mountedGen++; } // a figure that left starts fresh
-    visMemoBox.map = next;
-    visMemoBox.frozen = m;
-    return m;
-  })();
+  }
 
   // selection bbox in active-figure-local coords
   $: overlayBox = (() => {
@@ -791,7 +819,7 @@
   }
   function maybeCoolScene() {
     sceneCoolTimer = null;
-    if (gesture || guideDrag || nodeDrag || zoomUnsettled) {
+    if (gesture || guideDrag || nodeDrag || $arrangementPreview || zoomUnsettled) {
       sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS); // still busy — re-check
     } else {
       sceneHot = false; // idle demotion → full-quality re-raster + tile release
@@ -982,7 +1010,7 @@
     snapScheduled = false;
     if (snapshotDestroyed || !paneActive || gen !== snapGen) return;
     if (!sceneSvgEl || hostW <= 0 || hostH <= 0) return;
-    if (Object.keys($modelPreviews).length || sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
+    if ($arrangementPreview || Object.keys($modelPreviews).length || sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
       scheduleSnapshot(); // still moving — try again once quiet
       return;
     }
@@ -1193,6 +1221,7 @@
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    if ($alignArrange?.dragging) return;
     finishModelOrbit();
     keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();
@@ -1217,6 +1246,7 @@
   }
 
   function startPanIfNeeded(e: PointerEvent): boolean {
+    if ($alignArrange?.dragging) { e.preventDefault(); return true; }
     if (e.button === 1 || (spaceDown && e.button === 0) || $activeTool === "hand") {
       gesture = { kind: "pan", sx: e.clientX, sy: e.clientY, panX: $viewport.panX, panY: $viewport.panY };
       hostEl.setPointerCapture(e.pointerId);
@@ -1251,11 +1281,6 @@
     lastDownEl = null; // background pointerdown — no element under a dblclick
     pressTone = "dark"; // the canvas itself
     if (startPanIfNeeded(e)) return;
-    if (get(arrange)?.active) {
-      e.stopPropagation();
-      commitArrange(); // click applies the live arrangement and exits the mode
-      return;
-    }
     // The selection's box can reach past its figure's frame (an element half
     // outside it): a press there lands on the canvas, and is still a grab.
     if (af && !editPathId && selectionBoxGrab(e, af, localPoint(e.clientX, e.clientY, af))) return;
@@ -1275,11 +1300,6 @@
     lastDownEl = null; // figure-background pointerdown (also the locked/tool fallthrough)
     pressTone = figureTone(fig);
     if (startPanIfNeeded(e)) return;
-    if (get(arrange)?.active) {
-      e.stopPropagation();
-      commitArrange();
-      return;
-    }
     // Node-edit sub-modes intercept figure clicks: pen places/connects draft
     // points; delete de-escalates back to edit on a background click. Plain
     // edit mode exits as before (unless the pen TOOL is active — then it's
@@ -2076,11 +2096,6 @@
     }
     pressTone = elementTone(el, el.type === "plot" ? $plotManifests[el.assetId] : null) ?? figureTone(fig);
     if (startPanIfNeeded(e)) return;
-    if (get(arrange)?.active) {
-      e.stopPropagation();
-      commitArrange();
-      return;
-    }
     // Pen/delete sub-modes: a click on ANY element routes like a figure click
     // (pen places a draft point "through" element bodies; delete de-escalates)
     // — never starts a move/selection.
@@ -3465,6 +3480,7 @@
     if (inPlotsRailScope(e)) return;
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
+    if (get(alignArrange)) { spaceDown = false; return; }
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
     if (e.key === "Alt") altDown = true; // caliper (measure) mode
     if ((e.key === "Alt" || e.key === "Shift") && gesture) replayLastMove(e); // modifiers apply at once mid-gesture
@@ -3734,7 +3750,7 @@
   }
 
   $: af = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
-  $: displayBox = liveBox ?? overlayBox; // figure-local, active figure
+  $: displayBox = ($arrangementPreview?.figureId === $activeFigureId ? $arrangementPreview.plan.bounds : null) ?? liveBox ?? overlayBox; // figure-local, active figure
 
   // A selection made entirely of locked elements (only reachable via the Layers
   // panel) shows its box but NO resize/rotate handles — locked elements can't be
@@ -4461,7 +4477,53 @@
       ? `translate(${gesture.cx}px, ${gesture.cy}px) rotate(${gRotDeg}deg) translate(${-gesture.cx}px, ${-gesture.cy}px)`
       : "";
 
-  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform, resizeTransforms);
+  // Once an object leaves the viewport, retain its last offscreen transform
+  // instead of needlessly updating it on every subsequent sample. View mapping
+  // is frozen during dragging; a numeric-preview viewport change also checks
+  // the previous rendered bounds, so neither returning objects nor old pixels
+  // can be missed. The memo ends with the transient baseline, never the model.
+  const layoutTransformMemo = { elements: null as Element[] | null, transforms: new Map<string, string>(),
+    deltas: new Map<string, { dx: number; dy: number }>() };
+  $: layoutTransforms = (() => {
+    const preview = $arrangementPreview;
+    const fig = preview ? canvasFigures.find(f => f.id === preview.figureId) : undefined;
+    if (!preview || !fig) {
+      layoutTransformMemo.elements = null; layoutTransformMemo.transforms.clear(); layoutTransformMemo.deltas.clear();
+      return null;
+    }
+    if (layoutTransformMemo.elements !== fig.elements) {
+      layoutTransformMemo.elements = fig.elements; layoutTransformMemo.transforms.clear(); layoutTransformMemo.deltas.clear();
+    }
+    const z = $viewport.zoom, margin = 32 / z;
+    const view = { x: -$viewport.panX / z - fig.x - margin, y: -$viewport.panY / z - fig.y - margin,
+      w: hostW / z + margin * 2, h: hostH / z + margin * 2 };
+    const transforms = new Map<string, string>(), deltas = new Map<string, { dx: number; dy: number }>();
+    for (const el of visibleByFig.get(fig.id) ?? []) {
+      const delta = layoutDeltas.get(el.id), transform = preview.transforms.get(el.id);
+      if (!delta || !transform) continue;
+      const box = rotatedAABB(el), previous = layoutTransformMemo.deltas.get(el.id);
+      const oldBox = previous ? { ...box, x: box.x + previous.dx, y: box.y + previous.dy } : box;
+      const newBox = { ...box, x: box.x + delta.dx, y: box.y + delta.dy };
+      if (rectsIntersect(oldBox, view) || rectsIntersect(newBox, view)) {
+        transforms.set(el.id, transform); deltas.set(el.id, delta);
+      } else if (previous) {
+        transforms.set(el.id, layoutTransformMemo.transforms.get(el.id)!); deltas.set(el.id, previous);
+      }
+    }
+    layoutTransformMemo.transforms = transforms; layoutTransformMemo.deltas = deltas;
+    return transforms;
+  })();
+  $: layoutDirectIds = layoutTransforms && layoutTransforms.size > 128
+    ? new Set(canvasFigures.find(f => f.id === $arrangementPreview?.figureId)?.elements
+      .filter(el => el.type !== 'plot' && el.type !== 'image' && el.type !== 'model3d')
+      .map(el => el.id) ?? []) : null;
+  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform, layoutTransforms ?? resizeTransforms, layoutDirectIds);
+  $: if ($arrangementPreview) {
+    if (proxyActive) endZoomProxy();
+    cancelSnapshot();
+    if (zoomSnap) { revokeSnapshot(zoomSnap); zoomSnap = null; }
+    keepSceneHot();
+  }
 
   // F8 frame move: the figure being moved + its transient GPU transform, plus
   // smart-guide lines (world-absolute, drawn full-viewport in the overlay).
@@ -5069,6 +5131,9 @@
         <text class="ruler-label" x="10" y={t.sy - 3} transform={`rotate(-90 10 ${t.sy - 3})`}>{t.label}</text>
       {/each}
       <rect class="ruler-corner" x="0" y="0" width={RULER} height={RULER} />
+    {/if}
+    {#if af && $alignArrange?.figureId === af.id}
+      <ArrangeGapOverlay viewport={$viewport} figureX={af.x} figureY={af.y} width={hostW} height={hostH} />
     {/if}
   </svg>
 

@@ -9,6 +9,7 @@
 
 import { get, type Readable } from "svelte/store";
 import * as fig from "../store";
+import * as layout from "../interact/alignArrange";
 import { settings } from "../settings";
 import * as panes from "../../shell/paneStore";
 import * as shell from "../../shell/shellStore";
@@ -37,6 +38,7 @@ export interface FluxDevHandle {
   get: <T>(s: Readable<T>) => T;
   /** The Figure-editor store module (project, viewport, selection, commit, …). */
   fig: typeof fig;
+  layout: typeof layout;
   /** Pane layout stores/actions. */
   panes: typeof panes;
   /** Shell navigation stores/actions (newProject, openProject, …). */
@@ -92,7 +94,7 @@ export function installDevHandle(): void {
   const existing = w.__flux ?? {};
   w.__flux = {
     get: <T>(s: Readable<T>) => get(s),
-    fig,
+    fig, layout,
     panes,
     shell,
     caps,

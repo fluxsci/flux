@@ -1706,6 +1706,25 @@ Persistence invariants (all machine-checked — do not weaken):
     selects expand inline (`.opts .opt`; wheel, w·a·s·d, 1–9), `c` opens `ColorPicker.svelte`
     (palette rows + recent, hover previews through the session, click commits), `s` searches.
     Columns (1/2/3 by field count) replace vertical scroll.
+  - **Align / Arrange (A / Alt+T) = `AlignArrangePanel.svelte` + `interact/alignArrange.ts`.**
+    Space switches views; Arrow is Shift+L in Figure/Slide (Annotate retains its own map).
+    `layout/arrangement.ts` owns inferred rows/columns/grids, immutable translation plans,
+    per-axis gaps and fixed-point anchoring; `layout/layoutMath.ts` also serves legacy
+    `arrangeGrid`. Old headless calls preserve their defaults. A regular inferred layout
+    returns exact identity; X-only gap edits preserve Y bytes. Arrange owns one editSession
+    per visit; NumberField's opt-in externalOwner and canvas gap drags own inner baselines,
+    preview through Canvas's existing sceneTransforms, and publish positions only on accept.
+    Layout culling includes original and preview bounds; publish visible sets only when their
+    members/model identities change. Bulk primitive previews use direct transforms instead of
+    thousands of compositor animations; dense artwork keeps its drive. Stop updating a primitive
+    once its last rendered bounds and planned bounds are both offscreen; reset on baseline exit.
+    Cancel inner edits before cancelling the visit; outside model/source conflicts finish
+    already-owned settled work and discard transient drafts, never restore stale snapshots.
+    `plot/landmarks.ts` resolves actual semantic spine centerlines through shared prepared
+    SVG geometry, with strict visibility/crop/orientation preflight and rigid group movement.
+    `align_plot_spines` exposes the same policy to file/live agents. New GUI, numeric-owner,
+    controller, layout and spine gates live in `group:align-arrange`; native coverage extends
+    the existing isolated Figure polish harness (`group:align-arrange-native`).
   - **Anchoring law = `ui/anchor.ts` (pure, `verify-surface-anchor.ts`).** Every popover that
     opens "at the selection" (menu, X-ray) avoids the selection's union rect: right → left →
     below → above → pointer → centre, aligned to the pointer on the free axis, re-clamped on
@@ -10521,3 +10540,10 @@ fallback, one-shot Alt+G, ©-typing, tile re-rank vs cancel/resend, self-writes,
 gate registration) with regression checks. The one ui red on the way was a selector collision:
 the rail's tab row used `.tabs` and `verify-figure-metadata` clicks `.tabs button:first-child` —
 classes in an always-mounted rail must be specific (`.rail-tabs`).
+
+
+### 2026-10-22 17:08 CDT — Flux Align and Arrange (Codex, `feat/align-arrange`)
+**Work:** Implemented the reviewed Align/Arrange blueprint in an isolated worktree: shared anchored layout plans, dedicated keyboard/click panels, transient pink gap scrubbing, strict semantic plot-spine alignment, CLI/live parity, and registered regression/native coverage. Updated user/agent docs and the architecture guidance above; detailed validation and design decisions are in `notes/align_arrange_2026-10-22/IMPLEMENTATION.md`. Main checkout and the running user application were preserved.
+**Learnings:**
+- Native traces showed thousands of per-primitive compositor animations cost more than drawing those primitives. Preserve artwork drives, bound visual work to viewport coverage, and avoid scene publications when visible members and model identities are unchanged.
+- A pointer gesture must transfer focus from a previously focused button/input before claiming Space; consuming the document key alone does not suppress native button activation.

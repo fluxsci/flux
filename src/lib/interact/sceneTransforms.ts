@@ -19,6 +19,7 @@ export function transientSceneTransforms() {
   const nodes = new Map<string, SVGGElement>();
   const drives = new Map<string, TransformDrive>();
   let transforms = new Map<string, string>();
+  let direct: ReadonlySet<string> | null = null;
   const release = (id: string) => {
     drives.get(id)?.destroy();
     drives.delete(id);
@@ -32,6 +33,15 @@ export function transientSceneTransforms() {
         d.cool();
         release(id);
       } else node.style.transform = "";
+      node.style.willChange = "";
+      return;
+    }
+    // Thousands of tiny primitive layers cost more to animate than to paint.
+    // Layout may opt those wrappers into direct transforms while dense plot
+    // artwork retains its compositor drive. Existing move/resize is unchanged.
+    if (direct?.has(id)) {
+      release(id);
+      node.style.transform = transform;
       node.style.willChange = "";
       return;
     }
@@ -60,13 +70,15 @@ export function transientSceneTransforms() {
     },
     // `perElement` (resize preview): an individual transform per wrapper, for gestures whose
     // transient differs per element (a plot's box → its remapped box).
-    update(move: ReadonlySet<string> | null, moveTransform: string, rotate: ReadonlySet<string> | null, rotateTransform: string, perElement?: ReadonlyMap<string, string> | null) {
+    update(move: ReadonlySet<string> | null, moveTransform: string, rotate: ReadonlySet<string> | null, rotateTransform: string, perElement?: ReadonlyMap<string, string> | null, directIds?: ReadonlySet<string> | null) {
       const previous = transforms;
+      const previousDirect = direct;
+      direct = directIds ?? null;
       transforms = new Map(perElement ?? []);
       for (const id of rotate ?? []) transforms.set(id, rotateTransform);
       for (const id of move ?? []) transforms.set(id, moveTransform);
       for (const id of new Set([...previous.keys(), ...transforms.keys()])) {
-        if (previous.get(id) === transforms.get(id)) continue;
+        if (previous.get(id) === transforms.get(id) && !!previousDirect?.has(id) === !!direct?.has(id)) continue;
         const node = nodes.get(id);
         if (node) apply(id, node);
       }

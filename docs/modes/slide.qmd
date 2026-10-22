@@ -74,6 +74,12 @@ each after the short delay the plot suggests. A multi-panel plot offers **panel 
 same four phases for each panel in turn (an inset right after its host), with the figure's title
 first and its shared legend last.
 
+The slide canvas shares Figure's [alignment and arrangement tools](figure.qmd#alignment-and-arrangement).
+**A** opens Flux Align; **Alt+T** opens Flux Arrange, with pink gap guides and a fixed-edge or
+center anchor. **Space** switches the tool's views when its surface has focus. The Animator
+keeps its own timing and playback shortcuts. **Shift+L** selects the Arrow drawing tool;
+**L** remains Line.
+
 Drag a box from empty timing-grid space to select the effects it intersects. Hold **Shift**
 (or Ctrl/Cmd) to add to the selection. Crossing a collapsed group span selects its members.
 Scroll while dragging, or hold near the grid edge to scroll; **Escape** cancels the selection.

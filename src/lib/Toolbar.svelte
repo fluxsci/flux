@@ -35,7 +35,7 @@
     { id: "rect", label: "Rect", key: "R" },
     { id: "ellipse", label: "Ellipse", key: "O" },
     { id: "line", label: "Line", key: "L" },
-    { id: "arrow", label: "Arrow", key: "A" },
+    { id: "arrow", label: "Arrow", key: "Shift+L" },
     { id: "pen", label: "Pen", key: "P" },
   ];
 

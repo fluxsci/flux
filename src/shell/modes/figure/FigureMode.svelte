@@ -23,7 +23,7 @@
   import { createHitBridge } from "../../../lib/interact/canvasHitBridge";
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
-  import ArrangeHud from "../../../lib/ArrangeHud.svelte";
+  import AlignArrangePanel from "../../../lib/AlignArrangePanel.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
   import FigureDeletionDialog from "../../../lib/FigureDeletionDialog.svelte";
   import FigureCatalog from "../../../lib/FigureCatalog.svelte";
@@ -275,7 +275,7 @@
       <button class="edgetab left" title="Show sidebar (Ctrl+B)" onclick={() => leftRailHidden.set(false)}>›</button>
     {/if}
     <main class="canvas-wrap">
-      <Canvas paneActive={active} {hitBridge} /><ArrangeHud /><CascadePopover />
+      <Canvas paneActive={active} {hitBridge} /><AlignArrangePanel active={active && focused} /><CascadePopover />
       <!-- Only the focused pane owns/hosts the namer (split-workspace safe). -->
       {#if focused}<FigureCatalog /><FigureDeletionDialog />{/if}
     </main>

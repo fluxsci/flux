@@ -211,7 +211,7 @@ const SCENARIOS = {
   ovSel: '.canvas-host .overlay-svg .sel-box,.canvas-host .overlay-svg .handle,.canvas-host .overlay-svg .rot-handle,.canvas-host .overlay-svg .hover-box,.canvas-host .overlay-svg .hover-trace{display:none !important}', // selection box + handles + hover
   sceneNoWC: '.canvas-host .scene{will-change:auto !important}', // drag-layer bisect: the scene wrapper not promoted by will-change (its paused animation still is)
   noInspector: 'aside.inspector{visibility:hidden !important}', // drag-layer paint bisect: live x/y readouts not painted
-  noHud: '.arrange-hud,.canvas-host .hud{visibility:hidden !important}', // drag-layer paint bisect
+  noHud: '.align-arrange-panel,.gap-guides,.canvas-host .hud{visibility:hidden !important}', // drag-layer paint bisect
 };
 // --layers: mid-gesture compositor layer snapshot (CDP LayerTree) + the dragged element's animations/will-change.
 let layerLatest = null, layerOn = false; const layerMsgs = {};

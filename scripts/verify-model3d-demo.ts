@@ -95,7 +95,7 @@ try {
   h.ok((await fs.readFile(path.join(root, 'paper/notes.qmd'), 'utf8')).includes('@fig-model3d-overview'), 'Paper source references the saved model overview');
   const before = await fs.readFile(path.join(root, 'project.json'));
   await assert.rejects(createModel3dDemo(root), /not empty/); h.eq(await fs.readFile(path.join(root, 'project.json')), before, 'regeneration refuses an existing populated project without changing it');
-  await assert.rejects(emptyScratchDestination(process.cwd()), /temporary/); h.ok(true, 'generator rejects a non-scratch destination before writing');
+  await assert.rejects(emptyScratchDestination(path.parse(process.cwd()).root), /temporary/); h.ok(true, 'generator rejects a non-scratch destination before writing');
   const alias = path.join(scratch,'alias'); await fs.symlink(root,alias,'dir'); await assert.rejects(emptyScratchDestination(alias), /real scratch/); h.ok(true,'generator rejects a symlink destination');
   const rename = fs.rename;
   for (const mode of ['target', 'parent', 'occupied'] as const) {
