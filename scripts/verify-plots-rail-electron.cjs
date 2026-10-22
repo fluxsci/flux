@@ -4,7 +4,9 @@
 // project; never opens or writes the user's own workspace. Checks: native Alt+G; worker-rendered
 // thumbnails on the backdrop the law picks; the cache and per-root index on disk; one worker;
 // a native double-click insert saved at true size; live dissections and a regenerated plot
-// through the real watcher; a killed worker respawning; 1,500 plots flung end to end.
+// through the real watcher; a killed worker respawning; 1,500 plots flung end to end; Peek's
+// 1024 px raster from the worker; pre-warm filling the disk cache for plots never on a tile;
+// Slide's [Slides | Plots] rail placing through Slide's import route.
 // Needs `npm run build`. On Linux pass a private display (FLUX_PRIVATE_DISPLAY=1 + DISPLAY) to
 // keep windows off the desktop.
 'use strict';
@@ -25,6 +27,8 @@ async function main() {
     put('plots/_dissections/growth/overview.svg', svg('#7570b3'));
     for (let i = 1; i <= 2; i++) put(`plots/_dissections/growth/by_subject/s0${i}.svg`, svg('#e7298a'));
     put('plots/_dissections/growth/_stats/anova.csv', 'term,estimate,p\nintake,0.42,0.003\n');
+    // Never on a tile (a depth-2 folder starts collapsed): only pre-warm renders these.
+    for (let i = 1; i <= 3; i++) put(`plots/a_cold/deeper/never_${i}.svg`, svg('#9c6d1f', 60 + i * 10, 40));
     for (let i = 0; i < 1500; i++) put(`plots/burst/p${i}.svg`, svg(['#4385be', '#879a39', '#ce5d97', '#d0a215'][i % 4], 40 + (i % 5) * 12, 30 + (i % 3) * 10));
     fs.mkdirSync(path.join(repo, 'test-results'), { recursive: true });
     const result = await new Promise((resolve, reject) => {
@@ -32,7 +36,7 @@ async function main() {
       if (process.platform === 'linux') args.push('--no-sandbox', '--ozone-platform=x11');
       const child = spawn(require('electron'), args, { env, cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] });
       let output = '';
-      const timer = setTimeout(() => child.kill('SIGKILL'), 190000);
+      const timer = setTimeout(() => child.kill('SIGKILL'), 232000);
       child.stdout.on('data', (b) => { output += b; for (const line of String(b).split('\n')) if (line.startsWith('PROBE ')) console.log(line); });
       child.stderr.on('data', (b) => { output += b; for (const line of String(b).split('\n')) if (line.startsWith('PROBE ')) console.log(line); });
       child.on('error', reject);

@@ -393,6 +393,7 @@
       "verify-plots-rail-layout.ts",
       "verify-plots-rail-backdrop.ts",
       "verify-plots-rail-focus.ts",
+      "verify-plots-rail-model.ts",
       "verify-plot-thumbs.ts",
       "verify-asar-unpack-closure.ts"
     ],
@@ -556,7 +557,9 @@
       "verify-slide-model3d-parts-gui.mjs",
       "verify-become-picker-gui.mjs",
       "verify-setup-flux-gui.mjs",
-      "verify-plots-rail.mjs"
+      "verify-plots-rail.mjs",
+      "verify-plots-rail-p3.mjs",
+      "verify-plots-rail-slide.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -1261,8 +1264,11 @@
       "verify-plots-rail-layout.ts",
       "verify-plots-rail-backdrop.ts",
       "verify-plots-rail-focus.ts",
+      "verify-plots-rail-model.ts",
       "verify-plot-thumbs.ts",
-      "verify-plots-rail.mjs"
+      "verify-plots-rail.mjs",
+      "verify-plots-rail-p3.mjs",
+      "verify-plots-rail-slide.mjs"
     ],
     "plots-rail-native": [
       "verify-plots-rail-electron.cjs",
@@ -2683,7 +2689,19 @@
         "tier:pure",
         "group:inline-slides",
         "group:slide-stash",
-        "group:slide-model3d-gui"
+        "group:slide-model3d-gui",
+        "group:plots-rail"
+      ]
+    },
+    {
+      "$why": "2026-10-22 Slide's left rail is [Slides | Plots]: the layout store holds the view and both widths (the filmstrip gates read the default view), so the Plots rail group and the filmstrip gate ride along with the slide groups this file would otherwise get.",
+      "glob": "src/shell/modes/slide/slideLayoutStore.ts",
+      "run": [
+        "group:plots-rail",
+        "verify-slide-filmstrip-gui.mjs",
+        "group:figures-slides-overhaul",
+        "tier:pure",
+        "group:slide-stash"
       ]
     },
     {
@@ -10086,6 +10104,37 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail-model.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail-p3.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail-slide.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
     }

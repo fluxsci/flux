@@ -93,6 +93,38 @@ async function main() {
   // Index persistence: the per-root index is on disk (next open lays out instantly).
   await wait(() => fs.readdirSync(cacheDir()).some((f) => f.startsWith('index-')), 'index written');
   check(true, 'the per-root index (sizes, analysis) persists in the cache');
+  // Peek: a native hover dwell → the 1024 px raster rendered by the worker into the cache.
+  const { cachedThumb } = await import(path.resolve(__dirname, '../../electron/plotThumbEngine.mjs'));
+  await clearSearch();
+  await scrollTo('/fixtures/light.svg');
+  const lp = await center(win, tile('/fixtures/light.svg') + ' .page');
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: lp.x - 20, y: lp.y });
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: lp.x, y: lp.y });
+  await wait(() => js(win, "!!document.querySelector('[data-plots-peek] .img img')?.naturalWidth"), 'peek picture');
+  const lightAbs = path.join(root, 'plots', 'fixtures', 'light.svg');
+  await wait(() => cachedThumb(cacheDir(), lightAbs, 1024), 'the 1024 px peek raster in the cache');
+  check(/Dark ink — paper backdrop/.test(await js(win, "document.querySelector('[data-plots-peek] [data-peek-backdrop]')?.textContent ?? ''")), "a native hover peeks with the worker's 1024 px raster and the backdrop's reason");
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: 900, y: 500 });
+  await wait(() => js(win, "!document.querySelector('[data-plots-peek]')"), 'peek hides off the rail');
+  // Pre-warm: plots that were never on a tile land in the disk cache (after the 1,500 burst).
+  await clearSearch();
+  const neverAbs = [1, 2, 3].map((i) => path.join(root, 'plots', 'a_cold', 'deeper', `never_${i}.svg`));
+  const warmHit = async (abs) => { for (const b of [256, 512, 1024]) if (await cachedThumb(cacheDir(), abs, b)) return true; return false; };
+  check(!(await js(win, `!!document.querySelector('[data-tile$="/a_cold/deeper/never_1.svg"]')`)), 'the cold plots are on no tile (a collapsed folder)');
+  await wait(async () => (await Promise.all(neverAbs.map(warmHit))).every(Boolean), 'pre-warm reaches the cold plots', 60000);
+  check(workerPids().length === 1, 'pre-warm rendered plots that were never on a tile into the disk cache (still one worker)');
+  // Slide: [Slides | Plots], placing through Slide's import route.
+  await click(win, 'button[aria-label=Slide]');
+  await wait(() => js(win, "!!document.querySelector('.filmstrip .thumb')"), 'Slide filmstrip', 30000);
+  check(await js(win, "document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='slides'"), 'Slide opens on its filmstrip');
+  key(win, 'g', ['alt']);
+  await wait(() => js(win, "document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='plots'&&document.activeElement?.hasAttribute('data-plots-search')"), 'Slide plots rail');
+  const stageCount = () => js(win, "document.querySelectorAll('.canvas-wrap [data-editor-element-id]').length");
+  const n0 = await stageCount();
+  await scrollTo('/fixtures/dark.svg');
+  await click(win, tile('/fixtures/dark.svg') + ' .page', 2);
+  await wait(async () => (await stageCount()) === n0 + 1, 'placed on the slide');
+  check(true, "native Alt+G in Slide shows its Plots rail; a double-click places the plot on the slide");
   fs.writeFileSync(path.resolve(__dirname, '../../test-results/plots-rail-native.png'), (await win.webContents.capturePage()).toPNG());
   fs.writeFileSync(path.resolve(__dirname, '../../test-results/plots-rail-native.json'), JSON.stringify(checks, null, 2));
 }
@@ -100,4 +132,4 @@ app.whenReady().then(() => main().then(() => { fs.writeSync(1, 'PROBE result=PAS
   try { if (win && !win.isDestroyed()) fs.writeFileSync(path.resolve(__dirname, '../../test-results/plots-rail-native-failure.png'), (await win.webContents.capturePage()).toPNG()); } catch {}
   fs.writeSync(2, `PROBE failure=${e?.stack ?? e}\n`); process.exit(1);
 }));
-setTimeout(() => { fs.writeSync(2, 'PROBE failure=timeout\n'); process.exit(2); }, 170000);
+setTimeout(() => { fs.writeSync(2, 'PROBE failure=timeout\n'); process.exit(2); }, 225000);

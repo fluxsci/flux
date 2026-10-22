@@ -1,0 +1,115 @@
+// Plots rail gallery rules (pure) — src/lib/plotsRail/galleryModel.ts and the P3 seams:
+//   * filters (Unused · Fluxplots · Has dissections): conjunctive, an unknown count never hides;
+//   * the focus folder (subtree membership, climbing) and Similar names (the dialog's rule,
+//     reference first, ranked);
+//   * variant stacks: _v<n> / _<n> / _<letter> suffixes, the unsuffixed original joins, one
+//     folder only, the newest on top, expanded stacks in place with a head;
+//   * the journal width class and Peek's formatters;
+//   * tablePreview's longer look (Peek's 20 rows) leaves the card's 6 alone;
+//   * the slide layout store decodes the new left-rail view + width safely;
+//   * thumbs:get answers a pre-warm without bytes (source seam).
+//   Run: node scripts/run-verifies.mjs --tier pure --only verify-plots-rail-model
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { harness } from "./lib/harness.mjs";
+import { applyFilters, anyFilter, inFolder, parentFolder, similarTo, variantKey, stackVariants, widthClass, formatMm, relativeTime, formatBytes, type ModelItem } from "../src/lib/plotsRail/galleryModel";
+import { tablePreview, CARD_ROWS } from "../src/lib/plotsRail/tableCard";
+
+const h = harness("verify-plots-rail-model");
+const repo = join(import.meta.dirname, "..");
+
+const it = (rel: string, mtimeMs = 0, semantic = false): ModelItem & { rel: string } => {
+  const i = rel.lastIndexOf("/");
+  return { rel, abs: `/p/plots/${rel}`, name: i >= 0 ? rel.slice(i + 1) : rel, dir: i >= 0 ? rel.slice(0, i) : "", mtimeMs, semantic };
+};
+
+h.section("filters");
+{
+  const items = [it("a.svg", 1, true), it("b.svg", 2), it("c.svg", 3, true), it("d.svg", 4)];
+  const placed = (x: ModelItem) => (x.name === "a.svg" ? 2 : 0);
+  const counts: Record<string, number | null> = { "a.svg": 3, "b.svg": 0, "c.svg": null, "d.svg": 5 };
+  const dis = (x: ModelItem) => counts[x.name] ?? null;
+  const names = (xs: ModelItem[]) => xs.map((x) => x.name).join(",");
+  const none = { unused: false, fluxplot: false, dissected: false };
+  h.ok(!anyFilter(none) && applyFilters(items, none, placed, dis) === items, "no filter: the same list (no copy)");
+  h.eq(names(applyFilters(items, { ...none, unused: true }, placed, dis)), "b.svg,c.svg,d.svg", "Unused drops placed plots");
+  h.eq(names(applyFilters(items, { ...none, fluxplot: true }, placed, dis)), "a.svg,c.svg", "Fluxplots keeps the editable ones");
+  h.eq(names(applyFilters(items, { ...none, dissected: true }, placed, dis)), "a.svg,c.svg,d.svg", "Has dissections drops a known 0 and keeps an unknown count");
+  h.eq(names(applyFilters(items, { unused: true, fluxplot: true, dissected: true }, placed, dis)), "c.svg", "filters combine (AND)");
+}
+
+h.section("focus folder and similar names");
+{
+  h.ok(inFolder("figs/latency", "figs") && inFolder("figs", "figs") && !inFolder("figs2", "figs") && inFolder("x", ""), "subtree membership (not a name prefix)");
+  h.eq(parentFolder("figs/latency/raw"), "figs/latency", "one folder up");
+  h.eq(parentFolder("figs"), "", "a top-level folder climbs to everything");
+  const items = [it("a/latency_raincloud_v1.svg"), it("a/other.svg"), it("b/latency_raincloud_v2.svg"), it("a/latency_raincloud_s07.svg")];
+  const sim = similarTo(items, items[0]).map((x) => x.rel);
+  h.eq(sim[0], "a/latency_raincloud_v1.svg", "the reference comes first");
+  h.ok(sim.includes("b/latency_raincloud_v2.svg") && sim.includes("a/latency_raincloud_s07.svg") && !sim.includes("a/other.svg"), `variants across folders, unrelated names dropped (${sim.join(" ")})`);
+}
+
+h.section("variant stacks");
+{
+  h.eq(variantKey("fig1_a.svg"), "fig1", "a panel letter");
+  h.eq(variantKey("latency_v12.svg"), "latency", "a version");
+  h.eq(variantKey("run-07.png"), "run", "a numbered run");
+  h.eq(variantKey("latency_raincloud_v2.svg"), "latency_raincloud", "only the LAST suffix is the variant");
+  h.eq(variantKey("growth.svg"), null, "no suffix, no key");
+  h.eq(variantKey("fig_2d.svg"), null, "a word that merely ends in a digit-letter is not a variant");
+  const items = [it("p/fig1_a.svg", 5), it("p/fig1_b.svg", 9), it("p/fig1_c.svg", 7), it("p/growth.svg", 1), it("p/latency.svg", 2), it("p/latency_v2.svg", 3), it("p/solo_a.svg", 4)];
+  const out = stackVariants(items, new Set());
+  const shape = out.map((e) => (e.kind === "stack" ? `[${e.top.name}×${e.members.length}]` : e.item.name)).join(" ");
+  h.eq(shape, "[fig1_b.svg×3] growth.svg [latency_v2.svg×2] solo_a.svg", "stacks sit where their first member was, newest on top; the unsuffixed original joins; a lone variant stays a plot");
+  const expanded = stackVariants(items, new Set(["p/fig1"]));
+  const ex = expanded.map((e) => (e.kind === "stack" ? "S" : `${e.item.name}${e.head ? `^${e.head.count}` : ""}`)).join(" ");
+  h.eq(ex, "fig1_a.svg^3 fig1_b.svg fig1_c.svg growth.svg S solo_a.svg", "an expanded stack lays out in place, its first member the head");
+  const twoDirs = stackVariants([it("x/fig1_a.svg"), it("x/fig1_b.svg")], new Set());
+  h.ok(twoDirs.length === 1 && twoDirs[0].kind === "stack" && twoDirs[0].key === "x/fig1", "the stack key carries the folder");
+  const big = Array.from({ length: 20000 }, (_, i) => it(`d${i % 50}/plot${i}_v${i % 3}.svg`, i));
+  const t0 = performance.now();
+  stackVariants(big, new Set());
+  const ms = performance.now() - t0;
+  h.ok(ms < 60, `20,000 plots stack in ${ms.toFixed(1)} ms (< 60)`);
+}
+
+h.section("width class and formatters");
+{
+  h.eq(widthClass([89, 60])?.label, "1c", "89 mm is one column");
+  h.eq(widthClass([120, 60])?.label, "1.5c", "120 mm is a column and a half");
+  h.eq(widthClass([183, 90])?.label, "2c", "183 mm is the full page");
+  h.eq(widthClass([240, 90])?.label, ">2c", "wider than a page");
+  h.eq(widthClass(null), null, "no physical size, no badge");
+  h.eq(formatMm([89, 61.234]), "89.0 × 61.2 mm", "Peek's physical size");
+  const now = Date.UTC(2026, 9, 22, 12);
+  h.eq(relativeTime(now - 10_000, now), "just now", "seconds");
+  h.eq(relativeTime(now - 12 * 60_000, now), "12 min ago", "minutes");
+  h.eq(relativeTime(now - 3 * 3_600_000, now), "3 h ago", "hours");
+  h.eq(relativeTime(now - 30 * 3_600_000, now), "yesterday", "yesterday");
+  h.eq(formatBytes(1536), "2 KB", "kilobytes");
+  h.eq(formatBytes(3.4 * 1024 * 1024), "3.4 MB", "megabytes");
+}
+
+h.section("table previews");
+{
+  const csv = "a,b\n" + Array.from({ length: 40 }, (_, i) => `${i},${i * 2}`).join("\n");
+  h.eq(tablePreview(csv, "t.csv", false).rows.length, CARD_ROWS, "the card keeps its 6 rows");
+  const peek = tablePreview(csv, "t.csv", false, 20);
+  h.ok(peek.rows.length === 20 && peek.rowCount === 40, `Peek's look: 20 rows of 40 (${peek.rows.length}/${peek.rowCount})`);
+}
+
+h.section("seams");
+{
+  const store = readFileSync(join(repo, "src/shell/modes/slide/slideLayoutStore.ts"), "utf8");
+  h.ok(/leftView: \{ enum: \["slides", "plots"\] \}/.test(store) && /plotsRailW: \{ min: 220, max: 720 \}/.test(store), "the slide layout decodes leftView (enum) and plotsRailW (bounded)");
+  const ipc = readFileSync(join(repo, "electron/ipc/plotThumbs.cjs"), "utf8");
+  h.ok(/warm \? \{ warmed: true/.test(ipc) && /if \(warm\) return \{ warmed: true/.test(ipc), "thumbs:get answers a pre-warm (cache hit or render) without bytes");
+  const kb = readFileSync(join(repo, "src/lib/keyboard.ts"), "utf8");
+  h.ok(/railHostFor\(storeTenant\(\)\)/.test(kb) && !/storeTenant\(\) === "figure" && \(!typing/.test(kb), "Alt+G asks the tenant's rail host (Figure and Slide), not a Figure-only check");
+  const slide = readFileSync(join(repo, "src/shell/modes/slide/SlideMode.svelte"), "utf8");
+  h.ok(/function pickKey[\s\S]{0,400}plotsRailOwnsKey\(e\)/.test(slide), "the Become picker's keys yield to the rail");
+  h.ok(/picker\.target\?\.sub === "pick"\) picker\.enterAdd\(\)/.test(slide), "a rail insert during a Become pick enters Add mode first");
+  h.ok(/!job\.rail && !\$importerOpen/.test(slide), "a rail import is not cancelled by the gallery dialog being closed");
+}
+
+await h.done();

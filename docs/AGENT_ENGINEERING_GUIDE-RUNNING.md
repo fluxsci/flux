@@ -1599,15 +1599,27 @@ Persistence invariants (all machine-checked — do not weaken):
   (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
   window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
   `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
-- **The Plots rail (2026-10-22) — the Figure left rail's second view.** `plotsRail/LeftRail.svelte`
-  hosts a tab row ([Layers | Plots], the destination chip, the ⋯ view menu) over `Sidebar` or
+- **The Plots rail (2026-10-22) — the Figure and Slide left rails' second view.** `plotsRail/LeftRail.svelte`
+  hosts a tab row (Figure [Layers | Plots], Slide [Slides | Plots] — `unit="slide"` renders the
+  filmstrip from a snippet; the destination chip; the ⋯ view menu) over `Sidebar`/the filmstrip or
   `PlotsRail` (Gallery over Dissections, a splitter; layout in `figureLayoutStore`: `leftView`,
   per-view widths `sidebarW`/`plotsRailW`, `plotsSplit`, collapse flags — FigureMode pans the
-  viewport by the width change so a view switch never moves the canvas). **Alt+G** (Figure tenant
-  only, handled ABOVE `handleKey`'s `typing` return) shows Plots + focuses its search / from
-  inside the rail returns to Layers; with the full gallery pinned it still focuses that window.
-  The full gallery opens from the toolbar's Gallery (`data-open-gallery`) or **Shift+Alt+G**
-  (pinned); Slide keeps Alt+G. Keyboard: the rail is `data-command-scope="plots-rail"`;
+  viewport by the width change so a view switch never moves the canvas; Slide keeps its view and
+  widths in `slideLayout` `leftView`/`plotsRailW`, the film gutter sizing whichever shows). **Alt+G**
+  (handled ABOVE `handleKey`'s `typing` return) asks the store tenant's RAIL HOST
+  (`railState.registerRailHost`: `figureRailHost.ts` at import, SlideMode on mount) — shows Plots
+  + focuses its search / from inside the rail returns to the other view; with the full gallery
+  pinned it still focuses that window. The full gallery opens from the toolbar
+  (`data-open-gallery`) or **Shift+Alt+G** (pinned; also from the rail's search box). Slide places
+  through a `PlaceAdapter` (its `importSlideItems`: deck/slide guards, clips; a rail job is not
+  cancelled by the closed dialog) and, in a Become pick, enters Add mode first so the placed plot
+  joins; SlideMode's `pickKey` and `onKey` yield the rail's unmodified keys (F5 excepted).
+  P3 (`galleryModel.ts`, pure): filters, focus folder, Similar names, variant stacks, width class;
+  `peek.ts` + `Peek.svelte` (350 ms dwell, hides on rail leave/scroll/key/press; Shift+Space);
+  Fresh marks compare each listing with the last one of that base THIS SESSION (module-level, so
+  an unmounted rail still sees what changed); pre-warm = `thumbClient.setPrewarm` → `thumbs:get
+  {warm:true}` (disk cache only, one job, only with no visible request queued, held during canvas
+  presses). Keyboard: the rail is `data-command-scope="plots-rail"`;
   `plotsRail/keyScope.ts` yields only UNMODIFIED keys to it (in `handleKey` and Canvas's own
   `onKeyDown`), so Ctrl+Z/S/B still reach the editor — narrower than the `.animator` yield.
   **Thumbnails** never rasterize in main or the renderer: `electron/ipc/plotThumbs.cjs`
@@ -1631,7 +1643,8 @@ Persistence invariants (all machine-checked — do not weaken):
   (every plots/dissections path in the watcher window, `rescan` past 500) plus
   `notifyPlotsWritten` for the app's own writes (the watcher skips them). Drag-to-place: a
   per-FigureMode `interact/canvasHitBridge.ts` (never a singleton) + `placeIncoming(…, at)`.
-  Gates: `group:plots-rail` (four pure + `verify-plots-rail.mjs`), `verify-asar-unpack-closure.ts`.
+  Gates: `group:plots-rail` (five pure + `verify-plots-rail.mjs`, `-p3.mjs`, `-slide.mjs`),
+  `verify-asar-unpack-closure.ts`, `group:plots-rail-native`.
 - **The Plot gallery (Shift+Alt+G pinned; the toolbar's Gallery) is an editor-owned utility view.** Gallery/list, preview size
   (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
   `GalleryTree` reads only expanded directories, windows its rows and includes explicit
@@ -1692,7 +1705,7 @@ Persistence invariants (all machine-checked — do not weaken):
   hairline dividers, accent-tint selection with an inset rail (never solid accent fills), no
   blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
   motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
-  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G the Plots rail (Figure) / plot gallery (Slide), Alt+T arrange,
+  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G the Plots rail (Figure and Slide), Alt+T arrange,
   Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
@@ -4038,6 +4051,18 @@ outside this PNG packaging change.
 - **puppeteer `mouse.click(…, { clickCount: 2 })` is deprecated and does not double-click** on
   this version — use `{ count: 2 }`. A synthetic `dispatchEvent(new MouseEvent("dblclick"))`
   proves the handler, not the gesture.
+- **Never mutate an item a view memoises on.** `plotIndex.ensureSizes` once wrote `it.w`/`it.physMm`
+  in place and bumped a version: the layout (which reads a new GridItem each pass) updated, but
+  a `{@const it = …}` → Tile prop chain memoised on the SAME object never re-read `physMm` —
+  width badges appeared at random. Replace the object (`{ ...it, w, h, physMm }`).
+- **A Slide import job cancels itself when the gallery DIALOG is closed** (`videoImport` +
+  `!$importerOpen`) — right for the dialog, silent death (an AbortError → 0, no toast) for any
+  other caller. Callers that are not the dialog mark the job (`rail: true`).
+- **In the browser harness Shift+Alt+G opens the pinned gallery as a popup** — `.importer` never
+  appears in the page; read `importerOpen`/`importerDetached` through `__flux` and close it via
+  the store (a leftover open gallery puts the next Become pick straight into Add mode).
+- **RailMenu checked items' text starts with "✓"** — match a menu item's `.label`, never
+  `textContent` with `^`.
 - **Contain a requested path AFTER canonicalising it.** `plots/../project.json` passes a
   prefix check on the raw string; refuse `..` segments, `path.resolve`, then compare
   (`plotThumbs.cjs placeOf`, pinned in verify-plot-thumbs.ts).

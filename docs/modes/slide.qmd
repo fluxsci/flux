@@ -24,6 +24,25 @@ Light*, *Paper*, *Midnight*, *Slate*, *Sepia*, and *Contrast* — and the **stag
 4:3, 16:10). **Ctrl+Shift+B** hides the whole rail, and both rails resize by dragging their
 inner edge (the filmstrip too; **Ctrl+B** hides it when no text is selected).
 
+## The Plots rail {#the-plots-rail}
+
+The left rail has two views: **Slides** (the deck list and filmstrip) and **Plots** — the same
+plot gallery and live dissections Figure has ([Figure: the Plots rail](figure.qmd#the-plots-rail)).
+**Alt+G** shows Plots with the cursor in its search box (and opens a hidden rail); **Alt+G**
+again from inside it returns to the filmstrip. The two views keep their own widths.
+
+- **Double-click** or **Enter** places a plot on the active slide (**→ Title** at the top names
+  it; click it to switch slides). **Drag** a plot onto the stage to place it where you let go,
+  at the size it will land.
+- Click a plot on the stage and the rail shows its dissections; the gallery marks the plots
+  already on this slide.
+- Type **`_vid`** to open **`_videos`**: clips show their poster frames and place like plots.
+- During a **Become** pick, a plot placed from the rail joins the pick (the pick switches to
+  Add mode, exactly as when you draw something); **Enter** and **Space** in the rail place and
+  look — they never confirm the pick.
+- **F5** still presents from the rail. **Shift+Alt+G** and **Plots & videos** open the full
+  gallery dialog.
+
 # Steps and editing destination
 
 A presentation is a sequence of named **steps** (called beats in the deck file and commands).
@@ -401,8 +420,9 @@ picking: every click on the canvas is a pick.
   without creating a transform and puts the source selection back. Changing slides or steps also
   cancels.
 - **Add mode** lets the source become something that does not exist yet. Press a drawing tool
-  key (**R** rect, **O** ellipse, **L** line, **P** pen, **T** text), **Ctrl+P** for a preset or
-  **Alt+G** for a gallery plot, or choose from **Add ▾** on the bar. The outline gains an inner
+  key (**R** rect, **O** ellipse, **L** line, **P** pen, **T** text), **Ctrl+P** for a preset,
+  or place a plot from the [Plots rail](#the-plots-rail) (**Alt+G**; or **Add ▾ → Plot…**), or
+  choose from **Add ▾** on the bar. The outline gains an inner
   dashed line and the editor works as usual: everything you draw or insert joins the pick.
   **Enter** or **Done** returns to picking with those objects picked; **Escape** also returns,
   and a second **Escape** cancels.
@@ -498,7 +518,8 @@ destination's side. `--pair` chooses how outlines match, `--reveal` chooses flip
 `--method` chooses shatter, dissolve, collapse or drain for a filled shape's interior.
 See the [slide command reference](https://github.com/fluxsci/flux/blob/main/resources/flux-context/SLIDES.md) for syntax.
 
-**Alt+G** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
+**Plots & videos** (or **Shift+Alt+G**) opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure;
+**Alt+G** shows the [Plots rail](#the-plots-rail) beside the stage.
 Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a
 separate window for repeated insertion onto the active slide.
 
@@ -684,8 +705,8 @@ insertion refuses and asks for a matching re-export; the saved preset stays unch
 
 # Video clips
 
-Keep **`.mp4` and `.mov`** files in **`plots/_videos`**. Open **Plots & videos** in Slide mode (or press **Alt+G**),
-choose a clip by its poster thumbnail, and import it onto the current slide. Drag, resize,
+Keep **`.mp4` and `.mov`** files in **`plots/_videos`**. Open **Plots & videos** in Slide mode (or **Shift+Alt+G**,
+or type `_vid` in the [Plots rail](#the-plots-rail)), choose a clip by its poster thumbnail, and import it onto the current slide. Drag, resize,
 rotate, group, and duplicate it with the same tools used for images. The inspector includes
 **Muted** and **Loop** options. Imported clips keep their originals; the deck stores a
 compatible MP4 playback copy and a poster frame. Longer imports show progress and can be cancelled.

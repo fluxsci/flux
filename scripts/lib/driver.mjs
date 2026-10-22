@@ -228,9 +228,9 @@ export async function assertH264(page, what = "this gate") {
   }
 }
 
-/** Open the full plot gallery (the dialog) in Figure mode the way a user does: the toolbar's
- *  Gallery button. (Since 2026-10-22 Alt+G in Figure shows the Plots rail instead; Shift+Alt+G
- *  still opens the gallery pinned. Slide keeps Alt+G for its gallery.) */
+/** Open the full plot gallery (the dialog) the way a user does: the toolbar's Gallery (Figure)
+ *  / Plots & videos (Slide) button. (Since 2026-10-22 Alt+G shows the left rail's Plots view in
+ *  both modes; Shift+Alt+G still opens the gallery pinned.) */
 export async function openGalleryDialog(page) {
   await page.click("[data-open-gallery]");
   await page.waitForSelector(".importer");
