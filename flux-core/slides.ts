@@ -45,7 +45,9 @@ import { planSourceUpdates, writeSourceUpdates, hasCompleteSvgStructure } from "
 import { svgIntrinsicSize } from "../src/lib/plot/svgGeometry";
 import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../src/lib/slide/sourceSync";
 import { plotSourceCandidates } from "../src/lib/plot/source";
-import { animateElement, animatePart } from "../src/lib/slide/autobuild";
+import { animateElement, animatePart, applyAutoAnimation, AUTO_PACES, paceUsesLengths, type AutoBuildOptions, type AutoPace } from "../src/lib/slide/autobuild";
+import { plotPenLengths } from "../src/lib/slide/partLength";
+import { parseHTML } from "linkedom";
 import { hasTweenableSeries } from "../src/lib/plot/project";
 import { slideAssetIds } from "../src/lib/slide/deckProject";
 import { gatherPayload } from "../src/lib/slide/payload";
@@ -1114,6 +1116,52 @@ async function readPlotManifest(
     }
   }
   return undefined;
+}
+
+/** The plot's SVG text, found exactly as its manifest is (same candidate order, `.svg` for `.fluxplot.json`). */
+async function readPlotSvg(
+  root: string,
+  el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } },
+  deckId?: string,
+): Promise<string | undefined> {
+  const candidates: string[] = deckId ? [j("slides", deckId, "assets", `${el.assetId}.svg`)] : [];
+  if (el.source?.svgPath) candidates.push(el.source.svgPath);
+  if (el.source?.manifestPath) candidates.push(el.source.manifestPath.replace(/\.fluxplot\.json$/i, ".svg"));
+  candidates.push(j("plots", `${el.assetId}.svg`));
+  candidates.push(j("fig", "assets", `${el.assetId}.svg`));
+  for (const rel of candidates) {
+    try { return await fs.readFile(safeJoin(root, rel), "utf8"); } catch { /* next candidate */ }
+  }
+  return undefined;
+}
+
+/** animate-plot: the plot AUTO-BUILD (what the Animate > Auto button does) for the headless host. ONE implementation of the build
+ *  (`applyAutoAnimation`) and ONE pen measure (`plotPenLengths`, on a parse of the plot's own SVG), so a CLI/MCP build and the
+ *  GUI button write identical tracks. `pace` picks the AutoPace table (default: the build's default pace). Returns the click beats added. */
+export async function animatePlotVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  elementId: string,
+  opts: { perPanel?: boolean; pace?: AutoPace["id"] } = {},
+): Promise<{ beats: number }> {
+  return mutateDeck(root, deckId, "animate_plot", async (deck) => {
+    mustSlide(deck, slideId);
+    const found = slideOps.findElement(deck, elementId);
+    if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
+    const manifest = await readPlotManifest(root, found.el, deckId);
+    if (!manifest) throw new Error(`no plot manifest for ${found.el.assetId} (a plot without a parts tree cannot be auto-built)`);
+    const svg = await readPlotSvg(root, found.el, deckId);
+    const options: AutoBuildOptions = { perPanel: opts.perPanel };
+    if (opts.pace !== undefined) {
+      if (!Object.hasOwn(AUTO_PACES, opts.pace)) throw new Error(`unknown pace: ${opts.pace} (classic | v2)`);
+      options.pace = AUTO_PACES[opts.pace];
+    }
+    if (svg && paceUsesLengths(options.pace)) options.lengths = plotPenLengths(parseHTML(svg).document, manifest, found.el.width);
+    const beats = applyAutoAnimation(deck, slideId, elementId, manifest, options);
+    if (!beats) throw new Error(`the plot ${found.el.assetId} has no parts tree to build from`);
+    return { beats };
+  });
 }
 
 /** animate-part: ensure ONE plot part animates in — re-enables existing tracks

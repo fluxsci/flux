@@ -349,6 +349,8 @@
       "verify-plot-view-twin.ts",
       "verify-id-aliases.ts",
       "verify-slide-stagger.ts",
+      "verify-slide-choreo.ts",
+      "verify-animate-plot.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
       "verify-model3d-scene3d.ts",
@@ -900,6 +902,8 @@
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
+      "verify-slide-choreo.ts",
+      "verify-animate-plot.ts",
       "verify-text-match.ts",
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
@@ -1283,6 +1287,16 @@
         "verify-project-media-paths.ts",
         "verify-slide-video-media-electron.cjs",
         "group:model3d"
+      ]
+    },
+    {
+      "$why": "WP 1.3 choreography core: the stagger planner, the plot auto-build (AutoPace tables, scaffold, chains), the shared pen measure and the animate-plot verb.",
+      "glob": "{src/lib/slide/stagger.ts,src/lib/slide/autobuild.ts,src/lib/slide/partLength.ts,src/lib/slide/strokeGeometry.ts,src/lib/slide/animateSelection.ts,flux-core/slides.ts}",
+      "run": [
+        "verify-slide-choreo.ts",
+        "verify-animate-plot.ts",
+        "verify-slide-autobuild.ts",
+        "verify-slide-scatter-showcase.ts"
       ]
     },
     {
@@ -9250,6 +9264,24 @@
       "coverage": "behavior"
     },
     "verify-slide-stagger.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-choreo.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-animate-plot.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

@@ -29,6 +29,7 @@
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
   import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../../lib/slide/autobuild";
+  import { guiPenLengths } from "../../../../lib/slide/partLengthGui";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import CurveField, { type CurveEdit } from "./CurveField.svelte";
@@ -403,7 +404,7 @@
     commitDeckLive(d => {
       const s = d.slides.find(s => s.id === slide.id)!;
       const leaves = compile(d, s).resolveTarget(handoff.ref, curBeatIndex).flatMap(t => t.partIds ?? buildPartTree($plotManifests[destinationEl.assetId])?.targets ?? []);
-      autoAnimateExcept(d, s.id, destinationEl.id, $plotManifests[destinationEl.assetId], leaves);
+      autoAnimateExcept(d, s.id, destinationEl.id, $plotManifests[destinationEl.assetId], leaves, { lengths: guiPenLengths(destinationEl.assetId, $plotManifests[destinationEl.assetId], destinationEl.width) });
     });
     const bi = currentDeck()?.slides.find(s => s.id === slide.id)?.beats.findIndex(b => b.id === beatId);
     if (bi != null && bi >= 0) activeBeat.set(bi);

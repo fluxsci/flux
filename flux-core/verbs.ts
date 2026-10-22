@@ -3572,6 +3572,28 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "animate_plot",
+    scope: "project",
+    cli: "animate-plot",
+    cliRoot: "flags",
+    summary:
+      "Auto-build a plot element's reveal exactly as Animate > Auto does: scaffold-first axes (spine, ticks, labels, titles) with the gridlines in the same click, the data with a capped lag total, the legend last. pace picks the numbers (classic | v2). Replaces the element's generated build; manual tracks are kept. Returns the number of click beats.",
+    params: { deckId: z.string(), slideId: z.string(), elementId: z.string(), perPanel: z.boolean().optional(), pace: z.enum(["classic", "v2"]).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "elementId", required: true },
+      { kind: "flag", at: "per-panel", into: "perPanel", as: "boolean" },
+      { kind: "flag", at: "pace", into: "pace" },
+    ],
+    handler: (ctx, a) =>
+      core.animatePlotVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.elementId), { perPanel: a.perPanel as boolean | undefined, pace: a.pace as "classic" | "v2" | undefined }),
+    render: {
+      human: (r, a) => ({ err: `✓ ${a.elementId} builds in ${(r as { beats: number }).beats} click(s)` }),
+      mcp: (r, a) => text(`${a.elementId} builds in ${(r as { beats: number }).beats} click(s)`),
+    },
+  },
+  {
     name: "animate_element",
     scope: "project",
     cli: "animate-element",

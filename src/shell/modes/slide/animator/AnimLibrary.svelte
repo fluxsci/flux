@@ -14,6 +14,7 @@
   import { plotManifests } from "../../../../lib/plot/store";
   import { slideById, addBeat as addBeatOp, setAnimation, setTransform, groupTracks, addAnimStyle, linkTrackStyle } from "../../../../lib/slide/ops";
   import { suggestElementTrack, suggestTrack, animatePart } from "../../../../lib/slide/autobuild";
+  import { guiPenLengths } from "../../../../lib/slide/partLengthGui";
   import {
     applyTemplate, deriveTemplateSlots, makeAnimPreset,
     type AnimPreset, type AnimTemplate, type TemplateScope,
@@ -78,7 +79,7 @@
         if (!el2) continue;
         // smart target defaults under the preset's settings (preset wins)
         const base: Track = ps
-          ? suggestTrack($plotManifests[(el2 as { assetId?: string }).assetId ?? ""], id, ps.partId)
+          ? suggestTrack($plotManifests[(el2 as { assetId?: string }).assetId ?? ""], id, ps.partId, { lengths: el2.type === "plot" ? guiPenLengths(el2.assetId, $plotManifests[el2.assetId], el2.width) : undefined })
           : suggestElementTrack(el2);
         const track: Track = { ...base, ...structuredClone(p.track), target: id, ...(ps ? { part: ps.partId } : {}) };
         if (style) track.id = newId("track");

@@ -29,8 +29,8 @@ const manifest = JSON.parse(await fs.readFile(M, "utf8")) as FluxPlotManifest;
 const beats = autoAnimatePlot(manifest, "plot1");
 
 // --- phase structure ---------------------------------------------------------
-assert(beats.length === 4, "4 phase beats produced");
-assert(beats.map((b) => b.label).join(" | ") === "Axes | Gridlines | Data | Legend & annotations", "beats labelled by phase, in order");
+assert(beats.length === 3, "3 click beats produced (Axes & grid, Data, Legend): gridlines fold into the Axes click");
+assert(beats.map((b) => b.label).join(" | ") === "Axes & grid | Data | Legend & annotations", "beats labelled by phase, in order");
 
 // --- Axes: spines+ticks draw-on; labels+title fade; gridlines excluded -------
 const axes = beats[0];
@@ -39,22 +39,26 @@ const fadeParts = axes.tracks.filter((t) => t.preset === "fade").map((t) => t.pa
 assert(["axis.x.spine", "axis.x.ticks", "axis.y.spine", "axis.y.ticks"].every((p) => drawParts.includes(p)), "Axes: both spines + tick marks draw-on");
 assert(["axis.x.tick-labels", "axis.x.title", "axis.y.tick-labels", "axis.y.title"].every((p) => fadeParts.includes(p)), "Axes: tick-labels + titles fade-in");
 assert(!axes.tracks.some((t) => /tick-label|title/.test(t.part) && t.preset === "drawOn"), "Axes: NEVER draw-on a text label (the role-correctness rule)");
-assert(!axes.tracks.some((t) => t.part.includes("gridline")), "Axes: gridlines are NOT in this beat (they are their own step)");
+assert(axes.tracks.filter((t) => t.part.includes("gridline")).length === 2, "Axes: both gridline groups are folded into this click");
 
 // --- Gridlines: both axes, fade ----------------------------------------------
-const grid = beats[1];
+const grid = { tracks: axes.tracks.filter((t) => t.part.includes("gridline")) };
 assert(grid.tracks.length === 2 && grid.tracks.every((t) => t.preset === "fade"), "Gridlines: 2 fade tracks");
 assert(grid.tracks.map((t) => t.part).sort().join(",") === "axis.x.gridlines,axis.y.gridlines", "Gridlines: both axes' gridline groups (resolved from the 'gridlines' role-ref)");
+assert(grid.tracks.every((t) => { const a = t.anchor && axes.tracks.find((x) => x.id === t.anchor!.trackId); return !!a && a.part === t.part.replace("gridlines", "ticks") && t.anchor!.edge === "start"; }), "Gridlines: each group is anchored to the SAME axis's tick track (retiming the ticks carries the grid)");
+assert(!beats.some((b) => b.advance === "with-prev"), "no with-prev beat is needed: the grid shares the Axes click");
 
 // --- Data: points stagger by x left→right; line draws on, offset to the end ---
-const data = beats[2];
+const data = beats[1];
 const pts = data.tracks.filter((t) => t.preset === "stagger");
 assert(pts.length === 3, "Data: 3 point series stagger");
 assert(pts.every((t) => t.stagger?.by === "x" && t.stagger?.from === "start"), "Data: points stagger by x, left→right");
 assert(pts.every((t) => t.params?.child === "fade"), "Data: points fade-in (staggered), not rise");
 const line = data.tracks.find((t) => t.part === "fit.line");
 assert(line?.preset === "drawOn", "Data: the fit line draws itself on");
-const expectedStart = Math.round(0.5 * targetPartIds(pts[0], manifest).length * (pts[0].stagger?.perMs ?? 40));
+const expectedStart = Math.round(0.5 * Math.min(targetPartIds(pts[0], manifest).length * 40, 1200)); // classic pace: half the (capped) spread
+const capStep = (n: number) => n > 1 ? Math.min(40, Math.floor(1200 / (n - 1) * 100) / 100) : 40;
+assert(pts.every((t) => t.stagger?.perMs === capStep(targetPartIds(t, manifest).length) && t.stagger.totalMs === undefined && t.duration === 240), "Data (classic pace): points keep Each mode + the 240 ms window; the step is the plot's 40 ms, lowered only so the spread never exceeds 1200 ms");
 assert(line?.anchor?.trackId === pts[0].id && line.anchor.edge === "start", "Data: the line anchors to the points stagger start");
 assert(resolveStart(line!, data, {}, () => manifest).start === expectedStart, `Data: resolved line start retains the exact old literal ${expectedStart}ms`);
 const area = data.tracks.find((t) => t.part === "ci95.area");
@@ -69,8 +73,9 @@ assert(resolveBeat(data, {}, () => manifest).tracks.find(t => t.id === line!.id)
 pts[0].start = 0;
 
 // --- Legend: fade ------------------------------------------------------------
-const legend = beats[3];
+const legend = beats[2];
 assert(legend.tracks.length > 0 && legend.tracks.every((t) => t.preset === "fade"), "Legend: fades in last");
+assert(!data.tracks.some((t) => /(^|\.)legend(\.|$)/.test(t.part ?? "")), "no legend part is revealed by the Data click (the legend frame belongs to the Legend click: bug fix)");
 
 // --- every track targets the placed element ----------------------------------
 assert(beats.every((b) => b.tracks.every((t) => t.target === "plot1")), "every track targets the placed plot element id");
@@ -81,10 +86,10 @@ const sid = slideOps.addSlide(deck, { name: "S", layout: "blank" }).id;
 const plotId = slideOps.addPlotToSlide(deck, sid, { assetId: "scatterA", x: 0, y: 0, width: 800, height: 500 })!;
 const added = applyAutoAnimation(deck, sid, plotId, manifest);
 const s = slideOps.slideById(deck, sid)!;
-assert(added === 4, "applyAutoAnimation reports 4 build beats added");
-assert(s.beats.length === 5, "slide now has [resting + 4 phase] beats");
+assert(added === 3, "applyAutoAnimation reports 3 build beats added");
+assert(s.beats.length === 4, "slide now has [resting + 3 phase] beats");
 assert(s.beats[0].tracks.length === 0, "beat 0 is the resting (empty) beat");
-assert(s.beats[1].label === "Axes" && s.beats[4].label === "Legend & annotations", "phase beats in order");
+assert(s.beats[1].label === "Axes & grid" && s.beats[3].label === "Legend & annotations", "phase beats in order");
 assert(s.beats.slice(1).every((b) => b.tracks.every((t) => t.target === plotId)), "every track targets the placed plot element id");
 // a plot with no manifest → no-op (the GUI falls back / disables the button)
 const added0 = applyAutoAnimation(deck, sid, plotId, undefined);
@@ -133,7 +138,7 @@ const pointLeaf = targetPartIds(pts[0], manifest)[0];
 const exclude = ["axis.x.spine", "axis.y.spine", pointLeaf];
 const contributed = autoAnimateExcept(handoffDeck, hs.id, hp, manifest, exclude);
 const generated = hs.beats.flatMap(b => b.tracks.filter(t => t.generatedBy === "auto-reveal"));
-assert(contributed === 4 && generated.length > 0, "autoAnimateExcept retains the rest of the real four-phase build");
+assert(contributed === 3 && generated.length > 0, "autoAnimateExcept retains the rest of the real three-click build");
 assert(generated.every(t => targetPartIds(t, manifest).every(id => !exclude.includes(id))), "no generated track resolves to a landed leaf, including partial point containers");
 const narrowed = generated.find(t => t.parts?.length);
 assert(narrowed && targetPartIds(narrowed, manifest).length === targetPartIds(pts[0], manifest).length - 1, "partially excluded point groups retain every other point");
@@ -141,7 +146,7 @@ assert(hs.beats.findIndex(b => b.id === hb.id) === 1 && hs.beats.slice(2).every(
 assert(JSON.stringify(hb.tracks[0]) === beforeLanding && JSON.stringify(hb.tracks.find(t => t.id === "manual")) === beforeManual, "hand-off and manual appearance bytes are preserved");
 const firstCount = generated.length;
 autoAnimateExcept(handoffDeck, hs.id, hp, manifest, exclude);
-assert(hs.beats.flatMap(b => b.tracks).filter(t => t.generatedBy === "auto-reveal").length === firstCount && hs.beats.length === 6, "repeating Auto-animate the rest replaces only its generated sequence");
+assert(hs.beats.flatMap(b => b.tracks).filter(t => t.generatedBy === "auto-reveal").length === firstCount && hs.beats.length === 5, "repeating Auto-animate the rest replaces only its generated sequence");
 const after = compileSlide(hs, handoffDeck.stage, {plotManifest: () => manifest}).sample(1);
 assert(after.presentation.partStates?.[hp]?.["axis.x.spine"]?.visible === true && after.presentation.partStates?.[hp]?.["ci95.area"]?.visible === false, "compiled landing shows its spines and hides the later reveal geometry");
 const allPoints = targetPartIds(pts[0], manifest);
