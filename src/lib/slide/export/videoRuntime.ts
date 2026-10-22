@@ -1,13 +1,15 @@
 import { payloadModelHost, payloadModelContext } from "./model3dPayloadHost";
 import { createPlayer } from "../player/player";
 import { holdFlightLayers } from "../player/render";
+import { slideZoomsCamera } from "../camera";
 import { embedPlayerOptions, compileSlideFor } from "../embedRender";
 import { planSlideVideo, videoFrame, videoOptions, videoSize, type SlideVideoOptions } from "../video";
 import type { ExportPayload } from "./runtime";
 import { videoAudioSegments, videoEventsForPlan } from "../mediaTimeline";
 import { registerGlyphFonts, bakedGlyphLoader } from "../player/glyphProvider";
 
-/** Isolated capture host: no editor stores, presenter chrome, timers or rAF. */
+/** Isolated capture host: no editor stores, presenter chrome or playback clock. Capture does await requestAnimationFrame
+ *  (the camera layer's raster re-bake, `player.settleRaster()`), but every wait is bounded by SETTLE_TIMEOUT_MS. */
 export async function boot(payload: ExportPayload, input: Partial<SlideVideoOptions>) {
   const options = videoOptions(input), { deck } = payload;
   if (deck.slides.length !== 1) throw new Error("Video export requires exactly one slide");
@@ -29,12 +31,15 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
     await img.decode();
   }
   const modelHost = payloadModelHost(payload);
-  const playerOptions = { ...embedPlayerOptions(payload), ...payloadModelContext(payload), model3d: modelHost, pixelScale: scale };
+  const playerOptions = { ...embedPlayerOptions(payload), ...payloadModelContext(payload), model3d: modelHost, pixelScale: scale, captureMode: true };
   document.body.style.background = deck.slides[0].background ?? deck.background ?? playerOptions.theme.background;
   // Frames are captured with arbitrary wall time between them: hold every
   // flight layer so a moving element is ONE raster moved across frames, not a
   // fresh layer per frame (which bakes its fractional offset in and steps).
-  holdFlightLayers(true);
+  // A slide that ZOOMS its camera paints wrapper flights in place for the whole video: a flight layer promoted
+  // inside a zooming camera keeps its pre-zoom raster (measured energy 0.33 of exact) and a per-frame switch
+  // flaps at the zoom window's edges. Non-zoom slides keep today's held layers (byte-identical frames).
+  holdFlightLayers(true, slideZoomsCamera(deck.slides[0]));
   // Letters of text ↔ shape Becomes fly from the payload's baked outlines.
   registerGlyphFonts(bakedGlyphLoader(payload.glyphs ?? {}));
   const player = createPlayer(host, deck, playerOptions);
@@ -44,7 +49,12 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
   const mediaEvents = videoEventsForPlan(deck.slides[0], plan, timing);
   return {
     info: { ...size, frames: plan.frameCount, durationMs: plan.frameCount * 1000 / plan.fps, fps: plan.fps, issues: [...player.state().issues, ...(!modelHost && Object.keys(payload.models ?? {}).length ? [{ reason: "3D model rendered as a still" }] : [])], audio: videoAudioSegments(deck.slides[0], mediaEvents, plan.frameCount * 1000 / plan.fps) },
-    async frame(index: number) { const at = videoFrame(plan, index); player.seek(0, at.beat, at.time, at.fromBeat, false); await player.captureMedia(mediaEvents, index * 1000 / plan.fps); },
+    async frame(index: number) {
+      const at = videoFrame(plan, index); player.seek(0, at.beat, at.time, at.fromBeat, false);
+      await player.settleRaster();
+      await player.captureMedia(mediaEvents, index * 1000 / plan.fps);
+    },
+    rasterBakes: () => player.rasterBakes(),
     destroy: () => { player.destroy(); modelHost?.dispose(); },
   };
 }

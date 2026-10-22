@@ -32,6 +32,9 @@ for (const [glob, yes, no] of [
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
   ["scripts/lib/model3dS8Fixture.ts", ["group:model3d-s8", "tier:pure"]],
+  // WP 1.8: the raster keeper's harness files run only the offscreen raster gate; the join law runs the pure raster gate.
+  ["scripts/lib/slideRasterElectronProbe.ts", ["verify-slide-raster-electron.cjs"]],
+  ["src/lib/strokeStyle.ts", ["verify-slide-raster-pure.ts"]],
   ["scripts/perf/input-probe-model3d.cjs", ["group:model3d-s8", "tier:pure"]],
   ["scripts/lib/nativeWindowQualification.cjs", ["group:model3d-native", "verify-input-probe-policy.cjs", "verify-slide-embed-electron.cjs", "group:model3d-native-scale", "tier:pure"]],
   ["scripts/lib/slideEmbedProbeEntry.cjs", ["verify-slide-embed-electron.cjs", "verify-input-probe-policy.cjs", "tier:pure"]],

@@ -235,6 +235,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       resume: () => player.resume(),
       stop: () => player.stop(),
       state: () => player.state(),
+      rasterBakes: () => player.rasterBakes(), settleRaster: () => player.settleRaster(),
       readyMedia: () => player.readyMedia(),
       slideCount: deck.slides.length,
       beatsOf: (s: number) => deck.slides[s]?.beats.length ?? 0,

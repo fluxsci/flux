@@ -334,6 +334,7 @@
       "verify-slide-curves.ts",
       "verify-slide-handoff-browser.ts",
       "verify-slide-camera.ts",
+      "verify-slide-raster-pure.ts",
       "verify-plot-binding.ts",
       "verify-plot-view-verb.ts",
       "verify-colorscale-parity.ts",
@@ -660,6 +661,7 @@
       "verify-plot-gallery-electron.cjs",
       "verify-slide-embed-electron.cjs",
       "verify-slide-video-electron.cjs",
+      "verify-slide-raster-electron.cjs",
       "verify-slide-media-export.ts",
       "verify-slide-video-media-electron.cjs",
       "verify-slide-video-clips-electron.cjs",
@@ -852,7 +854,9 @@
       "verify-slide-timeline.ts",
       "verify-slide-playback.ts",
       "verify-slide-timeline-browser.ts",
-      "verify-slide-video-electron.cjs"
+      "verify-slide-video-electron.cjs",
+      "verify-slide-raster-pure.ts",
+      "verify-slide-raster-electron.cjs"
     ],
     "slide-clips": [
       "verify-slide-video-model.ts",
@@ -883,6 +887,7 @@
     ],
     "slide-transforms": [
       "verify-slide-tween.ts",
+      "verify-slide-raster-pure.ts",
       "verify-slide-outline.ts",
       "verify-slide-become.ts",
       "verify-slide-become-browser.ts",
@@ -2240,6 +2245,18 @@
       ]
     },
     {
+      "glob": "scripts/lib/slideRaster*",
+      "run": [
+        "verify-slide-raster-electron.cjs"
+      ]
+    },
+    {
+      "glob": "src/lib/strokeStyle.ts",
+      "run": [
+        "verify-slide-raster-pure.ts"
+      ]
+    },
+    {
       "glob": "scripts/lib/liveProxyFixture.cjs",
       "run": [
         "verify-runner-runtime.mjs",
@@ -3434,6 +3451,7 @@
     "verify-scale-lazy-assets.mjs": 180000,
     "verify-scale-slide-dense.mjs": 180000,
     "verify-slide-video-electron.cjs": 480000,
+    "verify-slide-raster-electron.cjs": 480000,
     "verify-slide-media-export.ts": 300000,
     "verify-slide-video-clips-electron.cjs": 180000,
     "verify-slide-become.ts": 300000,
@@ -7162,6 +7180,27 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-raster-pure.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-raster-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "display",
+        "native-encoder"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 480000,
       "exclusive": true,
       "coverage": "behavior"
     },
