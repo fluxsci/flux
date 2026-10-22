@@ -50,6 +50,7 @@ const CHANNELS = [
   { channel: "fs:fsyncDir", kind: "invoke", scope: "write" },
   { channel: "fs:beginOpen", kind: "invoke", scope: "read" },
   { channel: "fs:changed", kind: "push", scope: "read" },
+  { channel: "fs:changedBatch", kind: "push", scope: "read" },
   // --- dialogs / shell -------------------------------------------------------
   { channel: "dlg:open", kind: "invoke", scope: "read" },
   { channel: "dlg:save", kind: "invoke", scope: "write" },
@@ -198,6 +199,12 @@ const CHANNELS = [
   { channel: "model3d:availability", kind: "invoke", scope: "read" },
   // --- fonts (text ↔ shape letter outlines) ------------------------------------
   { channel: "fonts:lookup", kind: "invoke", scope: "read" },
+  // --- the Plots rail (listing, header probes, thumbnails, dissection counts) --------------
+  { channel: "plots:list", kind: "invoke", scope: "read" },
+  { channel: "plots:probe", kind: "invoke", scope: "read" },
+  { channel: "thumbs:get", kind: "invoke", scope: "read" },
+  { channel: "thumbs:cancel", kind: "invoke", scope: "read" },
+  { channel: "dissect:counts", kind: "invoke", scope: "read" },
   // --- text styles (machine-global library) --------------------------------------------
   { channel: "textstyles:get", kind: "invoke", scope: "read" },
   { channel: "textstyles:set", kind: "invoke", scope: "write" },

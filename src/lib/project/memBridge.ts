@@ -14,6 +14,10 @@ import { scaffoldProject } from "./scaffold";
 import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart, type SetupProgress, type SetupStatus, type SetupTaskResult } from "./types";
 import type { Model3dImportRequest, Model3dImportResult, Model3dImportOwnership } from '../model3d/importData';
 import { GLB_LIMITS } from '../model3d/glbCore.mjs';
+import { RESERVED_PLOT_DIRNAMES } from "./plotsFolders";
+import { DISSECT_REL, dissectionRootRelFor, classifyDissectionFile } from "../dissect/rules";
+import { probeImageSize } from "../plotsRail/rules";
+import type { PlotIndexEntry } from "./types";
 
 const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 const enc = new TextEncoder();
@@ -104,7 +108,15 @@ export function createMemBridge(): FileBridge & {
     const normalized = { ...event, runId, seq: ++run.seq };
     for (const cb of runnerEvents) cb(normalized);
   };
-  const files = new Map<string, Uint8Array>();
+  // File times for the Plots rail's version stamps (size:mtime): every write moves the clock.
+  const mtimes = new Map<string, number>();
+  let clock = Date.now();
+  class StampedFiles extends Map<string, Uint8Array> {
+    set(key: string, value: Uint8Array) { mtimes.set(key, ++clock); return super.set(key, value); }
+    delete(key: string) { mtimes.delete(key); return super.delete(key); }
+  }
+  const files = new StampedFiles();
+  const batchListeners = new Set<(info: { subsystem: string; paths: string[]; rescan?: boolean }) => void>();
   const dirs = new Set<string>(["/"]);
   const fsListeners = new Set<(info: { subsystem: string; path: string }) => void>();
   let watchedRoot: string | null | undefined, watchGeneration = 0;
@@ -232,6 +244,92 @@ export function createMemBridge(): FileBridge & {
     // Dev-only: lets the headless harness simulate an external (agent) fs change.
     _emitFsChange: (info) => {
       for (const l of fsListeners) l(info);
+      // The real watcher also sends every changed path under plots/ in one batch.
+      if (info.subsystem === "plots" || info.subsystem === "dissections")
+        for (const l of batchListeners) l({ subsystem: info.subsystem, paths: [info.path] });
+    },
+    // --- the Plots rail (electron/ipc/plotThumbs.cjs in the app) --------------------------
+    async stat(p) {
+      const b = files.get(norm(p));
+      if (!b) return null;
+      return { mtimeMs: mtimes.get(norm(p)) ?? 0, size: b.byteLength };
+    },
+    async plotsList(request) {
+      const base0 = request.scope === "global" ? "/home/demo/FluxConfig/plot_library" : watchedRoot ? `${watchedRoot}/plots` : "";
+      const collection = request.collection && RESERVED_PLOT_DIRNAMES.includes(request.collection) ? request.collection : "";
+      const base = collection ? `${base0}/${collection}` : base0;
+      if (!base0) return { base: "", entries: [], truncated: false };
+      const exts = new Set((request.accept ?? "svg,png").split(","));
+      const only = request.dirs ? new Set(request.dirs.map(norm)) : null;
+      const entries: PlotIndexEntry[] = [];
+      const seenDirs = new Set<string>();
+      for (const [key, bytes] of files) {
+        if (!key.startsWith(base + "/")) continue;
+        const rel = key.slice(base.length + 1);
+        const parts = rel.split("/");
+        const name = parts[parts.length - 1];
+        const parent = parentOf(key);
+        if (!collection && parts.slice(0, -1).some((d) => RESERVED_PLOT_DIRNAMES.includes(d))) continue;
+        seenDirs.add(parent);
+        if (only && !only.has(parent)) continue;
+        const ext = (name.match(/\.([a-z0-9]+)$/i)?.[1] ?? "").toLowerCase();
+        if (!exts.has(ext) || /\.(fluxplot|recipe|snip)\.json$/i.test(name)) continue;
+        entries.push({ rel, abs: key, size: bytes.byteLength, mtimeMs: mtimes.get(key) ?? 0,
+          semantic: /\.(svg|glb)$/i.test(name) && files.has(key.replace(/\.(svg|glb)$/i, ".fluxplot.json")),
+          snip: /\.png$/i.test(name) && files.has(key.replace(/\.png$/i, ".snip.json")) });
+      }
+      const missing = only ? [...only].filter((d) => !seenDirs.has(d) && !dirs.has(d)) : [];
+      return { base, entries, truncated: false, missing };
+    },
+    async plotsProbe(paths) {
+      return paths.map((abs) => {
+        const b = files.get(norm(abs));
+        if (!b) return { abs, error: "missing" };
+        const size = probeImageSize(abs, /\.svg$/i.test(abs) ? dec.decode(b.subarray(0, 16384)) : b);
+        const stamp = { size: b.byteLength, mtimeMs: mtimes.get(norm(abs)) ?? 0 };
+        return size ? { abs, w: size.width, h: size.height, physMm: size.physMm, ...stamp } : { abs, error: "unknown", ...stamp };
+      });
+    },
+    async plotThumb(request) {
+      // A gate can switch the "worker" off to walk the renderer's fallback path.
+      if (localStorage.getItem("flux.fixture.thumbsUnavailable") === "1") return { error: "unavailable", unavailable: true };
+      const abs = norm(request.path);
+      const b = files.get(abs);
+      if (!b) return { error: "missing" };
+      if (/\.webp$/i.test(abs)) return { error: "unsupported image format", unsupported: true };
+      try {
+        const { renderThumbInBrowser } = await import("../plotsRail/browserThumb");
+        const t = await renderThumbInBrowser(b, abs, request.bucket);
+        let paper: string | null = null;
+        const sidecar = files.get(abs.replace(/\.svg$/i, ".fluxplot.json"));
+        if (/\.svg$/i.test(abs) && sidecar) {
+          try { const tok = JSON.parse(dec.decode(sidecar))?.style?.tokens; const v = tok?.paper ?? tok?.plot; if (typeof v === "string") paper = v; } catch { /* no paper */ }
+        }
+        return { bytes: t.png, width: t.width, height: t.height, stats: t.stats, paper, naturalWidth: t.naturalWidth, naturalHeight: t.naturalHeight };
+      } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+    },
+    async plotThumbCancel() {},
+    async dissectCounts(keys) {
+      const out: Record<string, number> = {};
+      const root = watchedRoot ?? "";
+      for (const key of keys) {
+        const dir = `${root}/plots/${dissectionRootRelFor(key)}`;
+        if (!dir.startsWith(`${root}/${DISSECT_REL}/`)) continue;
+        let n = 0, any = dirs.has(dir);
+        for (const f of files.keys()) {
+          if (!f.startsWith(dir + "/")) continue;
+          const rest = f.slice(dir.length + 1).split("/");
+          if (rest.length > 2) continue;
+          any = true;
+          if (classifyDissectionFile(rest[rest.length - 1]) !== "sidecar") n++;
+        }
+        if (any) out[key] = n;
+      }
+      return out;
+    },
+    onFsChangedBatch(cb) {
+      batchListeners.add(cb);
+      return () => batchListeners.delete(cb);
     },
     // Dev-only stand-in for Electron's win:capture (Snapshot & annotate): a PNG the size of
     // the window, so the overlay's ASYNC capture path — the one every real build takes — runs

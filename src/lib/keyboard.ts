@@ -68,6 +68,9 @@ import { saveProject, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen, shellModalOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { dissectTarget, openDissectForSelection } from "./dissect/state";
+import { figureLayout } from "./figureLayoutStore";
+import { plotsRailFocusRequest, railQuickLook } from "./plotsRail/railState";
+import { plotsRailOwnsKey, inPlotsRailScope } from "./plotsRail/keyScope";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
@@ -772,9 +775,14 @@ export function handleKey(e: KeyboardEvent) {
     get(cascadeState) ||
     (get(figureCatalog) || get(figureDeletion)) ||
     get(dissectTarget) ||
+    get(railQuickLook) ||
     get(shellModalOpen)
   )
     return;
+
+  // The Plots rail owns its own unmodified keys (tool letters type into its search, arrows move
+  // between tiles); chords still reach this keymap — Ctrl+Z undoes a rail insert.
+  if (plotsRailOwnsKey(e)) return;
 
   // Node-edit mode (Feature 1) owns the keyboard: Canvas.svelte handles
   // Enter/Esc/Delete/Tab on the vector nodes. Yield everything so Delete doesn't
@@ -803,6 +811,35 @@ export function handleKey(e: KeyboardEvent) {
   const typing =
     t &&
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+
+  // Alt+G — the Plots rail (Figure only; Slide keeps its gallery and Become Add mode).
+  // Works while typing, so the round trip from the rail's own search box lands:
+  //   rail hidden or showing Layers → show Plots, focus its search;
+  //   Plots showing, keyboard elsewhere → focus its search;
+  //   keyboard inside the rail → back to Layers, keyboard back to the canvas.
+  // Shift+Alt+G opens the full gallery, pinned (unchanged).
+  if (e.altKey && !mod && e.code === "KeyG" && !e.shiftKey && storeTenant() === "figure") {
+    e.preventDefault();
+    if (!(get(embeddedProjectRoot) || get(projectDir))) return;
+    const hidden = get(leftRailHidden), view = get(figureLayout).leftView;
+    if (!hidden && view === "plots" && inPlotsRailScope(e)) {
+      figureLayout.update((l) => ({ ...l, leftView: "layers" }));
+      (e.target as HTMLElement | null)?.blur?.();
+      return;
+    }
+    if (hidden) leftRailHidden.set(false);
+    if (view !== "plots") figureLayout.update((l) => ({ ...l, leftView: "plots" }));
+    plotsRailFocusRequest.update((n) => n + 1);
+    return;
+  }
+
+  // Ctrl+B from the rail's search box still hides/shows the rail (the text-style meaning of
+  // Ctrl+B needs a canvas text selection, which the rail's search box never is).
+  if (mod && !e.shiftKey && !e.altKey && e.code === "KeyB" && inPlotsRailScope(e)) {
+    e.preventDefault();
+    leftRailHidden.update((v) => !v);
+    return;
+  }
 
   // Shortcuts that work even while typing: save/open, rail toggle.
   // Save As remains in the palette. The retired shifted chord is inert.
@@ -844,7 +881,7 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Alt+G: open the Plot Gallery (search/browse the project's plots/ dir).
+  // Shift+Alt+G (and, in Slide, Alt+G): the full Plot Gallery — Shift opens it pinned.
   if (e.altKey && !mod && e.code === "KeyG") {
     e.preventDefault();
     if (get(embeddedProjectRoot) || get(projectDir)) { importerPinRequested.set(e.shiftKey); importerOpen.set(true); }

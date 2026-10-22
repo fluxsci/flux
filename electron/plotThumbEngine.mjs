@@ -50,6 +50,36 @@ async function writeAtomic(file, data) {
   await fsp.rename(tmp, file);
 }
 
+/** The cache files for one (file version, bucket). */
+export function thumbCacheFiles(cacheDir, abs, size, mtimeMs, bucket) {
+  const key = sha1(`${abs}\0${size}\0${mtimeMs}\0${bucket}\0${PLOT_THUMB_GEN}`);
+  const png = path.join(cacheDir, key.slice(0, 2), `${key}.png`);
+  return { key, png, meta: png.replace(/\.png$/, ".json") };
+}
+
+async function refsFreshOf(meta) {
+  for (const ref of meta.refs ?? []) {
+    try { const st = await fsp.stat(ref.path); if (st.size !== ref.size || st.mtimeMs !== ref.mtimeMs) return false; }
+    catch { return false; }
+  }
+  return true;
+}
+
+/** A cached thumbnail, without rendering (null on a miss). The Electron main process serves
+ *  warm tiles through this directly — no worker round trip, no raster work in main. */
+export async function cachedThumb(cacheDir, abs, bucket, st = null) {
+  try {
+    st ??= await fsp.stat(abs);
+    const files = thumbCacheFiles(cacheDir, abs, st.size, st.mtimeMs, bucket);
+    const meta = JSON.parse(await fsp.readFile(files.meta, "utf8"));
+    if (!meta?.stats || !(await refsFreshOf(meta))) return null;
+    await fsp.access(files.png);
+    // Last-used, at most once a day (never atime — relatime/noatime mounts lie).
+    if (Date.now() - (meta.used ?? 0) > 864e5) { meta.used = Date.now(); void writeAtomic(files.meta, JSON.stringify(meta)).catch(() => {}); }
+    return { path: files.png, width: meta.width, height: meta.height, stats: meta.stats, paper: meta.paper ?? null, naturalWidth: meta.naturalWidth, naturalHeight: meta.naturalHeight };
+  } catch { return null; }
+}
+
 /** Every font request (family stack × weight × style) an SVG makes, de-duplicated. */
 export function svgFontRequests(svgText) {
   const stacks = new Set();
@@ -141,14 +171,15 @@ export function createThumbEngine(o) {
    * folders; `accept(name)` picks files. Returns rel paths under `base` with stamps and
    * whatever the index already knows (size, analysis, manifest paper).
    */
-  async function list(base, { skipDir = () => false, accept = (n) => /\.(svg|png)$/i.test(n), maxFiles = 20000, maxDepth = 20, indexRoot = base } = {}) {
+  async function list(base, { skipDir = () => false, accept = (n) => /\.(svg|png)$/i.test(n), maxFiles = 20000, maxDepth = 20, indexRoot = base, dirs = null } = {}) {
     const ix = await rootIndex(indexRoot);
     const out = [];
+    const missing = [];
     let truncated = false;
-    const visit = async (dir, rel, depth) => {
+    const visit = async (dir, rel, depth, recurse = true) => {
       if (depth > maxDepth || out.length >= maxFiles) { truncated = true; return; }
       let entries;
-      try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+      try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { missing.push(dir); return; }
       const names = new Set(entries.map((e) => e.name));
       const files = [];
       for (const e of entries) {
@@ -176,14 +207,26 @@ export function createThumbEngine(o) {
           ...(hit?.bad ? { bad: hit.bad } : {}),
         });
       });
+      if (!recurse) return;
       for (const e of entries.filter((d) => d.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
         if (skipDir(e.name, rel)) continue;
         await visit(path.join(dir, e.name), rel ? `${rel}/${e.name}` : e.name, depth + 1);
         if (out.length >= maxFiles) { truncated = true; return; }
       }
     };
+    if (Array.isArray(dirs)) {
+      // Incremental: just these folders' own files (a watcher batch named them). A folder that
+      // is gone comes back in `missing` — its entries are the caller's to drop.
+      for (const dir of dirs) {
+        if (dir !== base && !dir.startsWith(base + path.sep)) continue;
+        const rel = path.relative(base, dir).split(path.sep).join("/");
+        if (rel.split("/").some((seg) => skipDir(seg))) continue;
+        await visit(dir, rel, 0, false);
+      }
+      return { entries: out, truncated, missing };
+    }
     await visit(base, "", 0);
-    return { entries: out, truncated };
+    return { entries: out, truncated, missing };
   }
 
   // ------------------------------------------------------------------ probe
@@ -192,20 +235,21 @@ export function createThumbEngine(o) {
     let st;
     try { st = await fsp.stat(abs); } catch { return { abs, error: "missing" }; }
     const hit = ix && fresh(ix.data[abs], st);
-    if (hit?.w) return { abs, w: hit.w, h: hit.h, physMm: hit.physMm ?? null };
+    const stamp = { size: st.size, mtimeMs: st.mtimeMs };
+    if (hit?.w) return { abs, w: hit.w, h: hit.h, physMm: hit.physMm ?? null, ...stamp };
     let size = null;
     try {
       const lower = abs.toLowerCase();
       // SVG: the root tag sits in the first bytes. PNG: pHYs may follow big iCCP/tEXt chunks.
       size = probeImageSize(abs, await readHead(abs, lower.endsWith(".svg") ? 16 * 1024 : HEAD_BYTES));
     } catch { /* unreadable → no size */ }
-    if (!size) return { abs, error: "unknown" };
+    if (!size) return { abs, error: "unknown", ...stamp };
     if (ix) {
       const prev = fresh(ix.data[abs], st) ?? { size: st.size, mtimeMs: st.mtimeMs };
       ix.data[abs] = { ...prev, w: size.width, h: size.height, physMm: size.physMm };
       touchIndex(ix);
     }
-    return { abs, w: size.width, h: size.height, physMm: size.physMm };
+    return { abs, w: size.width, h: size.height, physMm: size.physMm, ...stamp };
   }
   async function probe(paths, indexRoot) {
     const out = [];
@@ -287,14 +331,6 @@ export function createThumbEngine(o) {
     } catch { return null; }
   }
 
-  async function refsFresh(meta) {
-    for (const ref of meta.refs ?? []) {
-      try { const st = await fsp.stat(ref.path); if (st.size !== ref.size || st.mtimeMs !== ref.mtimeMs) return false; }
-      catch { return false; }
-    }
-    return true;
-  }
-
   /**
    * A thumbnail of `abs` at `bucket` px wide. Returns { path, width, height, stats, paper,
    * naturalWidth, naturalHeight } — or { error, quarantined?, tooLarge? }.
@@ -307,18 +343,9 @@ export function createThumbEngine(o) {
     const ix = indexRoot ? await rootIndex(indexRoot) : null;
     const entry = ix ? fresh(ix.data[abs], st) : null;
     if (entry?.bad) return { error: entry.bad, quarantined: true };
-    const key = sha1(`${abs}\0${st.size}\0${st.mtimeMs}\0${bucket}\0${PLOT_THUMB_GEN}`);
-    const png = path.join(o.cacheDir, key.slice(0, 2), `${key}.png`);
-    const metaFile = png.replace(/\.png$/, ".json");
-    try {
-      const meta = JSON.parse(await fsp.readFile(metaFile, "utf8"));
-      if (meta?.stats && (await refsFresh(meta))) {
-        await fsp.access(png);
-        // Last-used, at most once a day (never atime — relatime/noatime mounts lie).
-        if (Date.now() - (meta.used ?? 0) > 864e5) { meta.used = Date.now(); void writeAtomic(metaFile, JSON.stringify(meta)).catch(() => {}); }
-        return { path: png, width: meta.width, height: meta.height, stats: meta.stats, paper: meta.paper ?? null, naturalWidth: meta.naturalWidth, naturalHeight: meta.naturalHeight };
-      }
-    } catch { /* a miss */ }
+    const hit = await cachedThumb(o.cacheDir, abs, bucket, st);
+    if (hit) return hit;
+    const { png, meta: metaFile } = thumbCacheFiles(o.cacheDir, abs, st.size, st.mtimeMs, bucket);
     let src;
     try { src = await sourceFor(abs, st); }
     catch (e) { return { error: String(e?.message ?? e), tooLarge: !!e?.tooLarge, unsupported: !!e?.unsupported }; }
@@ -337,7 +364,9 @@ export function createThumbEngine(o) {
     await writeAtomic(metaFile, JSON.stringify(meta));
     if (ix) {
       const prev = fresh(ix.data[abs], st) ?? { size: st.size, mtimeMs: st.mtimeMs };
-      ix.data[abs] = { ...prev, stats, ...(paper ? { paper } : {}), ...(prev.w ? {} : src.naturalWidth ? { w: src.naturalWidth, h: src.naturalHeight } : {}) };
+      // Placed size (w/h) belongs to probe(): a PNG's render size is its pixels, its placed size
+      // honours pHYs. The index only learns the analysis here.
+      ix.data[abs] = { ...prev, stats, ...(paper ? { paper } : {}) };
       touchIndex(ix);
     }
     return { path: png, width: meta.width, height: meta.height, stats, paper, naturalWidth: src.naturalWidth, naturalHeight: src.naturalHeight };

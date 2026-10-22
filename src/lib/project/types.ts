@@ -196,6 +196,17 @@ export interface FileBridge {
   /** System font bytes for a CSS font request (text ↔ shape letter outlines);
    *  null bytes when no readable font file backs it. */
   fontLookup?(request: { family: string; weight?: number; style?: string }): Promise<{ key: string; bytes: Uint8Array | null; format: string | null }>;
+  // --- the Plots rail (electron/ipc/plotThumbs.cjs) ------------------------------------
+  /** Walk the project's plots/ (or the global library) in the thumbnail worker: files with
+   *  stamps plus whatever the per-root index already knows (placed size, ink analysis). */
+  plotsList?(request: { scope: "project" | "global"; accept?: string; collection?: string; dirs?: string[] }): Promise<PlotsListResult>;
+  /** Placed size from file headers (no raster). */
+  plotsProbe?(paths: string[]): Promise<PlotProbe[]>;
+  /** A cached raster thumbnail (rendered off the main thread on a miss) + its ink analysis. */
+  plotThumb?(request: { path: string; bucket: number; priority?: number; rid?: string }): Promise<PlotThumbResult>;
+  plotThumbCancel?(rids: string[]): Promise<void>;
+  /** Dissection file counts for plot keys (listDissections semantics). */
+  dissectCounts?(keys: string[]): Promise<Record<string, number>>;
   runnerCapabilities?(): Promise<RunnerCapability[]>;
   runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
   runnerSend?(options: { runId: string; text: string; images?: RunnerImage[] }): Promise<void>;
@@ -411,6 +422,8 @@ export interface FileBridge {
   /** Exact linked-source read/watch capabilities, scoped to one project/window. */
   watchSourceFiles?(root: string, scope: string, sources: import("../plot/source").LinkedSourceFiles[]): Promise<unknown>;
   onFsChanged?(cb: (info: { subsystem: string; path: string }) => void): () => void;
+  /** Every changed path under plots/ in one watcher window (`rescan` when there were too many). */
+  onFsChangedBatch?(cb: (info: { subsystem: string; paths: string[]; rescan?: boolean }) => void): () => void;
   // Web capture: the folder the browser downloads into, where the bookmarklet drops
   // `flux-*.pdf` / `.fluxcap` files. Electron only; null when it can't be resolved.
   captureDir?(): Promise<string | null>;
@@ -581,4 +594,45 @@ export function slugify(s: string): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 60) || "project"
   );
+}
+
+// --- the Plots rail -------------------------------------------------------------------------
+/** The ink analysis of a rendered image (electron/plotThumbRules.mjs analyzeInk). */
+export interface InkStats { v: number; opaqueBorder: number; exposed: number; halo: number; bins: number[]; edgeBins: number[] }
+export interface PlotIndexEntry {
+  /** Path relative to the listed base (forward slashes). */
+  rel: string;
+  abs: string;
+  size: number;
+  mtimeMs: number;
+  /** A .fluxplot.json sits beside it. */
+  semantic: boolean;
+  /** A paper snip (.snip.json beside a PNG). */
+  snip: boolean;
+  /** Placed size in CSS px (96/in), when the index already knows it. */
+  w?: number;
+  h?: number;
+  physMm?: [number, number] | null;
+  stats?: InkStats;
+  /** A fluxplot's declared paper colour. */
+  paper?: string;
+  /** Quarantined: the preview crashed or timed out (until the file changes). */
+  bad?: string;
+}
+export interface PlotsListResult { base: string; entries: PlotIndexEntry[]; truncated: boolean; missing?: string[]; error?: string; unavailable?: boolean; stale?: boolean }
+export interface PlotProbe { abs: string; w?: number; h?: number; physMm?: [number, number] | null; size?: number; mtimeMs?: number; error?: string }
+export interface PlotThumbResult {
+  bytes?: Uint8Array;
+  width?: number;
+  height?: number;
+  stats?: InkStats;
+  paper?: string | null;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  error?: string;
+  cancelled?: boolean;
+  quarantined?: boolean;
+  unavailable?: boolean;
+  tooLarge?: boolean;
+  unsupported?: boolean;
 }

@@ -100,6 +100,8 @@
   import { model3dPosterRevision } from "./model3d/store";
   import ElementView from "./Element.svelte";
   import ElementSlot from "./ElementSlot.svelte";
+  import type { HitBridgeHolder, CanvasHits } from "./interact/canvasHitBridge";
+  import { inPlotsRailScope } from "./plotsRail/keyScope";
 
   // ===========================================================================
   // Rendering architecture (performance-critical):
@@ -495,6 +497,23 @@
   // multi-figure arrangement chrome (titlebar drag / name label) suppressed.
   // Strictly additive: with the prop unset, figure mode is byte-identical.
   export let frame = false;
+
+  // The Plots rail's drag-to-place hit testing (one holder per FigureMode — see
+  // interact/canvasHitBridge). The host box is read ONCE per drag by the caller.
+  export let hitBridge: HitBridgeHolder | null = null;
+  onMount(() => {
+    if (!hitBridge) return;
+    const holder = hitBridge;
+    const hits: CanvasHits = {
+      hostRect: () => hostEl?.getBoundingClientRect() ?? null,
+      figureAt: (cx, cy, r) => figureAtWorld((cx - r.left - $viewport.panX) / $viewport.zoom, (cy - r.top - $viewport.panY) / $viewport.zoom),
+      toFigure: (fig, cx, cy, r) => ({ x: (cx - r.left - $viewport.panX) / $viewport.zoom - fig.x, y: (cy - r.top - $viewport.panY) / $viewport.zoom - fig.y }),
+      zoom: () => $viewport.zoom,
+      setDropHighlight: (id) => { dropFigId = id; },
+    };
+    holder.set(hits);
+    return () => { if (holder.get() === hits) holder.set(null); };
+  });
 
   const effMemoBox = { key: "", val: new Map<string, { hidden: boolean; locked: boolean }>() };
   $: effState = (() => {
@@ -3442,6 +3461,8 @@
   function onKeyDown(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.defaultPrevented || (e.target instanceof HTMLElement && (e.target.closest('.animator, [data-command-scope="animation"]') || (get(modelOrbit) && e.target.closest('[data-command-scope="model3d-orbit"]'))))) return;
+    // Browsing the Plots rail: its keys (and held Space / Alt) are not the canvas's pan/caliper.
+    if (inPlotsRailScope(e)) return;
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;

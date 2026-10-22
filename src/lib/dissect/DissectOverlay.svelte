@@ -101,14 +101,16 @@
       detailIdx = null;
       return;
     }
-    const identity = `${dissectRoot()}\0${t.key}`;
+    const identity = `${dissectRoot()}\0${t.key}\0${t.initial ? `${t.initial.group}/${t.initial.name}` : ""}`;
     if (identity === lastKey) return;
     lastKey = identity;
     listing = null;
     groupIdx = 0;
     selectedIdx = 0;
-    detailIdx = null;
-    void refresh();
+    // Opened on a file (the Plots rail): land in its detail view. refresh() keeps a detail
+    // index only while one is open, so mark one open and let it resolve the name.
+    detailIdx = t.initial ? 0 : null;
+    void refresh(t.initial ? { group: t.initial.group, sel: t.initial.name, detail: t.initial.name } : undefined);
   });
 
   // Live: external writes under _dissections bump the revision → re-list in place,

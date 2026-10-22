@@ -1,20 +1,24 @@
 // Dissect viewer state + the hotkey's selection→plot resolution. The open/closed state is a
 // plain writable (the importerOpen layering rule: keyboard.ts, Inspector and the overlay all
-// need it), and openDissectForSelection mirrors openXray's resolution ladder — a drilled part
-// resolves to its OWNING plot, else the single selected element. Dissections are keyed by the
-// plot's plots/-relative path (see dissect/rules), so the last step maps the element's source
-// (or, for sourceless pasted/snip images, its asset NAME) to that key.
+// need it). The selection→plot ladder is NOT here: it is plotsRail/focusPlot's
+// resolvePlotElement, shared with the Plots rail's Dissections pane (one ladder — the
+// verify-plots-rail-focus gate pins that this file keeps no private copy). Dissections are keyed
+// by the plot's plots/-relative path (see dissect/rules); sourceless pasted/snip images fall
+// back to their asset NAME.
 
 import { get, writable } from "svelte/store";
 import { project, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
 import { pushToast } from "../toast";
 import { plotKeyFor } from "./rules";
+import { resolvePlotElement, focusTargetFor } from "../plotsRail/focusPlot";
 
 export interface DissectTarget {
   /** The plot's dissection key (plots/-relative path sans extension). */
   key: string;
   /** What the overlay header calls the plot (the key's basename). */
   displayName: string;
+  /** Open straight to this file's detail view (the Plots rail's Enter / ⤢ on a file). */
+  initial?: { group: string; name: string };
 }
 
 /** Non-null = the Dissect overlay is open on this plot. */
@@ -41,50 +45,32 @@ export function dissectKeyForElement(el: { type: string; assetId?: string; sourc
 }
 
 /**
- * The `d` hotkey: open the Dissect overlay for the selection. Resolution ladder:
- *   1. a drilled plot part → its owning plot element;
- *   2. a single selected plot or image element → that element.
- * Anything else (empty/multi selection, non-asset elements) gets an informational toast —
- * dissections are a per-plot affordance.
+ * The `d` hotkey: open the Dissect overlay for the selection. The selection→plot ladder is the
+ * Plots rail's (plotsRail/focusPlot resolvePlotElement — ONE ladder): a drilled part → its
+ * owning plot; a single selected element; with several selected, the last plot-like one. A
+ * placed dissection FILE opens its owner plot's dissections at that file.
  */
-type AssetEl = { type: string; assetId?: string; source?: { svgPath?: string } };
-
 export function openDissectForSelection(): void {
-  const p = get(project);
-  let el: AssetEl | null = null;
-  const ps = get(partSelection);
-  if (ps) {
-    for (const f of p.figures) {
-      const hit = f.elements.find((e) => e.id === ps.elementId);
-      if (hit && hit.type === "plot") {
-        el = hit;
-        break;
-      }
-    }
-  }
-  if (!el) {
-    const sel = get(selection);
-    if (sel.size === 1) {
-      const id = [...sel][0];
-      for (const f of p.figures) {
-        const hit = f.elements.find((e) => e.id === id);
-        if (hit) {
-          el = hit as AssetEl;
-          break;
-        }
-      }
-    }
-  }
-  if (!el || !("assetId" in el && el.assetId)) {
+  const el = resolvePlotElement(get(project), get(selection), get(partSelection));
+  if (!el || !el.assetId) {
     pushToast("info", "Select a plot to view its dissections");
     return;
   }
-  const key = dissectKeyForElement(el);
-  if (!key) {
-    pushToast("info", "Can't locate this plot's source under plots/", {
-      detail: "Dissections are keyed by the plot's file under the project's plots/ folder.",
-    });
-    return;
-  }
-  dissectTarget.set({ key, displayName: key.split("/").pop() ?? key });
+  const root = dissectRoot();
+  const assetName = get(project).assets.find((a) => a.id === el.assetId)?.name ?? "";
+  void focusTargetFor(el, root, assetName).then((t) => {
+    if (t.kind === "external") {
+      pushToast("info", "Library plots have no dissections", {
+        detail: "Dissections live in a project's plots/_dissections folder.",
+      });
+      return;
+    }
+    if (!t.key) {
+      pushToast("info", "Can't locate this plot's source under plots/", {
+        detail: "Dissections are keyed by the plot's file under the project's plots/ folder.",
+      });
+      return;
+    }
+    dissectTarget.set({ key: t.key, displayName: t.key.split("/").pop() ?? t.key, ...(t.file ? { initial: t.file } : {}) });
+  });
 }

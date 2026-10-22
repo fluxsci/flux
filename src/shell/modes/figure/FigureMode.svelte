@@ -19,7 +19,8 @@
   import { onMount, onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
   import Toolbar from "../../../lib/Toolbar.svelte";
-  import Sidebar from "../../../lib/Sidebar.svelte";
+  import LeftRail from "../../../lib/plotsRail/LeftRail.svelte";
+  import { createHitBridge } from "../../../lib/interact/canvasHitBridge";
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
@@ -34,7 +35,8 @@
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import { activeFigureId, dirty as figDirty, embeddedProjectRoot } from "../../../lib/store";
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
-  import { figureLayout, FIGURE_LAYOUT_DEFAULTS } from "../../../lib/figureLayoutStore";
+  import { figureLayout, FIGURE_LAYOUT_DEFAULTS, PLOTS_RAIL_MIN, PLOTS_RAIL_MAX } from "../../../lib/figureLayoutStore";
+  import { viewport } from "../../../lib/store";
   import { projectModel } from "../../shellStore";
   import { loadFigInto, saveFigFrom, figDiskDiverged } from "../../../lib/project/figbridge";
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
@@ -134,7 +136,14 @@
       }, () => figureLayout.set(original), () => { cancelRail = null; });
     };
   }
+  // The left rail's drag edge sizes whichever view is showing: Layers is happy narrow, the
+  // Plots view wants room for a gallery (up to half the window).
   const startSbDrag = railDrag((x, rect) => {
+    if (get(figureLayout).leftView === "plots") {
+      const w = Math.max(PLOTS_RAIL_MIN, Math.min(Math.max(PLOTS_RAIL_MIN, Math.min(PLOTS_RAIL_MAX, Math.round(window.innerWidth * 0.5))), x - rect.left));
+      figureLayout.update((s) => ({ ...s, plotsRailW: Math.round(w) }));
+      return;
+    }
     const w = Math.max(140, Math.min(railMax(420), x - rect.left));
     figureLayout.update((s) => ({ ...s, sidebarW: Math.round(w) }));
   });
@@ -142,7 +151,26 @@
     const w = Math.max(200, Math.min(railMax(480), rect.right - x));
     figureLayout.update((s) => ({ ...s, inspectorW: Math.round(w) }));
   });
-  const resetSbW = () => figureLayout.update((s) => ({ ...s, sidebarW: FIGURE_LAYOUT_DEFAULTS.sidebarW }));
+  const resetSbW = () => figureLayout.update((s) => s.leftView === "plots"
+    ? { ...s, plotsRailW: FIGURE_LAYOUT_DEFAULTS.plotsRailW }
+    : { ...s, sidebarW: FIGURE_LAYOUT_DEFAULTS.sidebarW });
+
+  // One canvas hit bridge per FigureMode (the Plots rail's drag-to-place targets THIS canvas).
+  const hitBridge = createHitBridge();
+  const leftW = $derived($figureLayout.leftView === "plots" ? $figureLayout.plotsRailW : $figureLayout.sidebarW);
+  // Switching the rail's view changes its width; pan the canvas by the same amount so the
+  // world stays still on screen (Alt+G is a round trip — the canvas must not hop each time).
+  let lastView = get(figureLayout).leftView;
+  let lastLeftW = 0;
+  $effect(() => {
+    const view = $figureLayout.leftView, w = leftW;
+    if (view !== lastView && !get(leftRailHidden) && focused) {
+      const d = w - lastLeftW;
+      if (d) viewport.update((v) => ({ ...v, panX: v.panX - d }));
+    }
+    lastView = view;
+    lastLeftW = w;
+  });
   const resetInspW = () => figureLayout.update((s) => ({ ...s, inspectorW: FIGURE_LAYOUT_DEFAULTS.inspectorW }));
 
   $effect(() => {
@@ -232,9 +260,9 @@
   <div
     class="body"
     bind:this={bodyEl}
-    style={`--sb-w:${$figureLayout.sidebarW}px; --insp-w:${$figureLayout.inspectorW}px`}>
+    style={`--sb-w:${leftW}px; --insp-w:${$figureLayout.inspectorW}px`}>
     {#if !$leftRailHidden}
-      <Sidebar paneActive={active} />
+      <LeftRail paneActive={active} {hitBridge} />
       <div
         class="rail-gutter"
         role="separator"
@@ -247,7 +275,7 @@
       <button class="edgetab left" title="Show sidebar (Ctrl+B)" onclick={() => leftRailHidden.set(false)}>›</button>
     {/if}
     <main class="canvas-wrap">
-      <Canvas paneActive={active} /><ArrangeHud /><CascadePopover />
+      <Canvas paneActive={active} {hitBridge} /><ArrangeHud /><CascadePopover />
       <!-- Only the focused pane owns/hosts the namer (split-workspace safe). -->
       {#if focused}<FigureCatalog /><FigureDeletionDialog />{/if}
     </main>

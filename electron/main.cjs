@@ -1280,13 +1280,22 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   let presenceTimer = null;
   let presencePath = "";
   const pending = new Map(); // subsystem -> latest changed path
+  // The Plots rail needs EVERY changed path under plots/ in the window (fs:changed keeps only
+  // the latest): which folders to re-list, which thumbnails to re-key. Over BATCH_CAP paths
+  // the batch says { rescan: true } instead.
+  const BATCH_CAP = 500;
+  const batches = new Map(); // "plots" | "dissections" -> Set(abs) | "rescan"
   let timer = null;
   const flush = () => {
     timer = null;
-    if (!s.win.isDestroyed())
+    if (!s.win.isDestroyed()) {
       for (const [subsystem, p] of pending)
         s.win.webContents.send("fs:changed", { subsystem, path: p });
+      for (const [subsystem, set] of batches)
+        s.win.webContents.send("fs:changedBatch", set === "rescan" ? { subsystem, paths: [], rescan: true } : { subsystem, paths: [...set] });
+    }
     pending.clear();
+    batches.clear();
   };
   // Derived Figure renders must not invalidate their canonical source. Prune
   // them and exploratory lighttable collections before opening watch descriptors.
@@ -1316,6 +1325,13 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
       return;
     }
     pending.set(subsystem, abs);
+    if (subsystem === "plots" || subsystem === "dissections") {
+      const set = batches.get(subsystem) ?? new Set();
+      if (set !== "rescan") {
+        set.add(abs);
+        batches.set(subsystem, set.size > BATCH_CAP ? "rescan" : set);
+      }
+    }
     if (!timer) timer = setTimeout(flush, 200);
   });
   watcher.on("error", (err) =>
@@ -1474,6 +1490,20 @@ const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, ge
 model3dCore.registerHandlers(ipcMain);
 // Letter outlines for text ↔ shape Becomes: system font bytes for a CSS request.
 require("./ipc/fonts.cjs").createFontsFamily({ configDir: () => fluxPaths.userDataDir() }).registerHandlers(ipcMain);
+// Plots rail: plot listing, header probes, cached thumbnails (raster work in a Node child,
+// never here) and dissection counts. Cache is machine-local under the lowercase app dir.
+const plotThumbsFamily = require("./ipc/plotThumbs.cjs").createPlotThumbsFamily({
+  app,
+  appRoot: path.resolve(__dirname, ".."),
+  rootFor,
+  libraryRoot: () => fluxPaths.plotLibraryPathSync(readPrefs()),
+  cacheDir: () => path.join(fluxPaths.userDataDir(), "cache", "plot-thumbs"),
+  fontIndexFile: () => path.join(fluxPaths.userDataDir(), "fonts-index.json"),
+  fsReadGuard: fileCore.fsReadGuard,
+  log: (msg, detail) => console.warn(`[plots] ${msg}${detail ? `: ${detail}` : ""}`),
+});
+plotThumbsFamily.registerHandlers(ipcMain);
+app.on("will-quit", () => plotThumbsFamily.shutdown());
 const setupFamily = require("./ipc/setup.cjs").createSetupFamily({
   isPackaged: () => app.isPackaged,
   readPrefs,

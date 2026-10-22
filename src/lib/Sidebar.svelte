@@ -659,12 +659,12 @@
      lift, and the active row is an accent tint with a 2px rail — never a
      solid fill. DOM structure and every class/aria the gates pin are kept. */
   .sidebar {
-    /* Width var set by the host mode (FigureMode drag-resize); the fallback
-       keeps standalone/demo mounts at the shipped width. */
-    width: var(--sb-w, 200px);
-    flex: 0 0 var(--sb-w, 200px);
+    /* Fills the left rail (plotsRail/LeftRail.svelte), which owns the width
+       (FigureMode's drag-resize var), the tab row above and the right hairline. */
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
     background: var(--c-bg-raised);
-    border-right: 1px solid var(--c-line);
     overflow-y: auto;
     padding: 0 0 12px;
     font: 12px var(--font-ui);

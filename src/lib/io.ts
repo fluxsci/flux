@@ -329,8 +329,12 @@ export async function readIncomingPlot(absPath: string): Promise<Incoming> {
 // error toast listing each basename (no silent failures). All placements go
 // through a single placeIncoming call — one undo step, grid auto-arrange for
 // N>1, the physical-size contract, and select-all-new.
+/** Where a drop lands: the figure-local point under the pointer, and which point OF THE PLOT
+ *  sits there (fractions of its width/height — the grab point on the dragged tile). */
+export interface PlaceAt { x: number; y: number; fx?: number; fy?: number }
+
 export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true,
-  read: (path: string) => Promise<Incoming> = readIncomingPlot) {
+  read: (path: string) => Promise<Incoming> = readIncomingPlot, opts: { at?: PlaceAt } = {}) {
   if (!window.fig || !absPaths.length) return 0;
   if (absPaths.some(path => /\.glb$/i.test(path))) {
     const originalDestination = importDestination(), model = await import('./model3d/import');
@@ -354,7 +358,7 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
     }
   }
   if (!allowed()) throw new Error("The insertion destination changed. Select a figure and insert again.");
-  placeIncoming(incoming, targetId ?? undefined); placed = true;
+  placeIncoming(incoming, targetId ?? undefined, opts.at); placed = true;
   if (failed.length) {
     pushToast(
       "error",
@@ -502,7 +506,7 @@ export async function importDroppedFiles(files: File[], figId: string) {
 // (The old 70%-fit rule silently rescaled each import by a different factor, so
 // same-pt fonts landed at different apparent sizes — the one thing a journal
 // figure tool must never do.)
-export function placeIncoming(incoming: Incoming[], figId?: string) {
+export function placeIncoming(incoming: Incoming[], figId?: string, at?: PlaceAt) {
   if (!incoming.length) return;
   if (incoming.some(it => it.canInstall && !it.canInstall())) throw new Error("The insertion destination changed");
   const p = get(project);
@@ -510,7 +514,23 @@ export function placeIncoming(incoming: Incoming[], figId?: string) {
   const fig = p.figures.find((f) => f.id === id);
   if (!fig) return;
 
-  if (incoming.length === 1) {
+  if (at) {
+    // A drop (the Plots rail): the first plot's grab point lands under the pointer; more plots
+    // follow in a row from there (wrapping at the frame's right edge), true size as always.
+    const gap = Math.min(fig.width, fig.height) * 0.02;
+    const first = incoming[0].el;
+    let x = at.x - (at.fx ?? 0.5) * first.width;
+    let y = at.y - (at.fy ?? 0.5) * first.height;
+    const left = x;
+    let rowH = 0;
+    for (const it of incoming) {
+      if (it !== incoming[0] && x + it.el.width > fig.width && x > left) { x = left; y += rowH + gap; rowH = 0; }
+      it.el.x = x;
+      it.el.y = y;
+      x += it.el.width + gap;
+      rowH = Math.max(rowH, it.el.height);
+    }
+  } else if (incoming.length === 1) {
     const it = incoming[0];
     it.el.x = (fig.width - it.el.width) / 2;
     it.el.y = (fig.height - it.el.height) / 2;

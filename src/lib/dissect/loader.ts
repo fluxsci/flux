@@ -56,9 +56,11 @@ function filesOf(entries: { name: string; dir: boolean }[], dir: string): Dissec
 
 /** List a plot's dissections: loose files form the default group, one level of subfolders
  *  form named groups (deeper nesting is not walked — the convention is one level). */
-export async function listDissections(projectRoot: string, key: string): Promise<DissectListing> {
+export async function listDissections(projectRoot: string, key: string, opts: { ownEpoch?: boolean } = {}): Promise<DissectListing> {
   const epoch = cacheEpoch;
-  const assertCurrent = () => { if (epoch !== cacheEpoch) throw new DOMException("Dissection changed", "AbortError"); };
+  // `ownEpoch`: the caller tracks its own staleness (the Plots rail's dissectionsModel) — another
+  // viewer clearing the shared byte cache must not abort this listing.
+  const assertCurrent = () => { if (!opts.ownEpoch && epoch !== cacheEpoch) throw new DOMException("Dissection changed", "AbortError"); };
   const fb = fileBridge();
   const root = dissectionRootAbs(projectRoot, key);
   if (!fb?.readdir || !projectRoot || !key || !(await fb.exists(root)))

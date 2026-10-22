@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld("fig", {
   model3dSourceFingerprint: request => ipcRenderer.invoke("model3d:sourceFingerprint", request),
   model3dAvailability: () => ipcRenderer.invoke("model3d:availability"),
   fontLookup: (request) => ipcRenderer.invoke("fonts:lookup", request),
+  plotsList: (request) => ipcRenderer.invoke("plots:list", request),
+  plotsProbe: (paths) => ipcRenderer.invoke("plots:probe", paths),
+  plotThumb: (request) => ipcRenderer.invoke("thumbs:get", request),
+  plotThumbCancel: (rids) => ipcRenderer.invoke("thumbs:cancel", rids),
+  dissectCounts: (keys) => ipcRenderer.invoke("dissect:counts", keys),
   openFiles: (filters) => ipcRenderer.invoke("dlg:open", { multiple: true, filters }),
   openDirectory: (title) => ipcRenderer.invoke("dlg:open", { directory: true, title }),
   save: (defaultPath, filters) => ipcRenderer.invoke("dlg:save", { defaultPath, filters }),
@@ -259,6 +264,11 @@ contextBridge.exposeInMainWorld("fig", {
     const handler = (_e, info) => cb(info);
     ipcRenderer.on("fs:changed", handler);
     return () => ipcRenderer.removeListener("fs:changed", handler);
+  },
+  onFsChangedBatch: (cb) => {
+    const handler = (_e, info) => cb(info);
+    ipcRenderer.on("fs:changedBatch", handler);
+    return () => ipcRenderer.removeListener("fs:changedBatch", handler);
   },
 
   // App-level notices: main-process failures (watcher death, spawn errors) surface
