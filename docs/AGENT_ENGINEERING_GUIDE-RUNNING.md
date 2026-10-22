@@ -1857,8 +1857,21 @@ Persistence invariants (all machine-checked — do not weaken):
     `verify-annotation-surface-gui.mjs`, `verify-scale-annotate-hover.mjs`,
     `verify-annotate-utility-electron.cjs` (browser/scale/native). Retain `paper-gate`,
     `verify-scale-paper`, and the 800KB startup ceiling after context/keyboard changes.
-  - **The crosshair cursor family = ONE parametric drawing** (`src/lib/cursor/cursorFamily.ts`,
-    2026-10-21; owner note 2026-09-15 for the first three states). Fourteen hardware
+  - **The cursor family = ONE parametric drawing, in the Figure and Slide editors ONLY**
+    (`src/lib/cursor/cursorFamily.ts`, 2026-10-21; owner note 2026-09-15 for the first three
+    states). **Scope (owner, 2026-10-21):** the bare `--cursor-*` names consumers write exist only
+    under `.figure-mode, .slide-mode` (`CURSOR_SCOPE`; app.css's policy block is scoped the same
+    way and `body` declares no cursor), so Paper, Reader, Library, Home and the shell keep the
+    system's cursors — an undefined `var()` makes `cursor` fall back to `auto`, which is why no
+    component outside the editors needed touching. **The default mark is the "classic" arrow**
+    (`CursorParams.style`): Figma's stem-less, right-leaning arrowhead (`ARROW_UNIT`, tip at the
+    origin), a dark fill under a light outline painted FIRST (`paint-order: stroke`, so the fill's
+    silhouette is exactly the geometry), corners filleted by `roundedPolygonPath`, a `feDropShadow`
+    lift, the tip as hotspot (`ARROW_HOTSPOT` 3 3), `default` as the OS fallback; rest, hover,
+    press and move are the same arrow (Figma keeps its pointer) and the shared resize / rotate /
+    move-copy states are drawn in the arrow's fill and outline; the canvas stays ≤ 32 px
+    (`arrowCanvas`). Knobs: `arrowSize`, `arrowFill`, `arrowOutline`, `arrowOutlineWidth`,
+    `arrowRounding`, `arrowShadow`, `arrowTilt`. The crosshair below is the other style. Fourteen hardware
     `cursor: url()` SVGs are generated from one template — rest, hover (accent dot), press
     (contracted arms), `resize-ns/ew/nwse/nesw` (the two arms along the axis grow arrowheads,
     the other two vanish), `rotate-n/ne/se/sw/nw` (a quarter arc at arm radius + the dot),
@@ -10268,3 +10281,34 @@ class; the host names the press tone in its gesture variable. Defaults: adaptive
 - Changing a custom property on a host restyles every descendant that uses it (plot DOM included); the
   host's captured-pointer cursor therefore names the tone in the variable name instead.
 - Puppeteer's triple-click does not select a number input's text; use Ctrl+A before typing.
+
+### 2026-10-21 (late) — The classic arrow is the default cursor; the family lives in Figure and Slide only (Claude Fable 5.1, `oct21/figure-ux`)
+**Work:** Owner asked for a Figma-style "classic" arrow as the default (crosshair stays a Settings
+choice), dark fill under a light outline, "PERFECTLY crisp", with every easy knob exposed for now, and
+the custom cursor removed from Paper entirely. `CursorParams.style` ("classic" | "crosshair");
+the arrow is a four-vertex polygon (`ARROW_UNIT`, tip at the origin, Figma's lean) filleted by
+`roundedPolygonPath`, painted `paint-order: stroke` so the outline sits UNDER the fill and the fill's
+edge is the true silhouette, a `feDropShadow` lift, the tip as hotspot (3 3), OS `default` as fallback,
+canvas ≤ 32 px (`arrowCanvas`); rest/hover/press/move are the same arrow (Figma keeps its pointer),
+resize/rotate/move-copy are drawn in the arrow's fill and outline. Scope: the bare `--cursor-*` names
+exist only under `.figure-mode, .slide-mode` (`CURSOR_SCOPE`), app.css's policy block is scoped the
+same way and `body` declares no cursor — every other mode falls back to `auto`. Settings: Style
+select; arrow fill/outline/size/outline width/rounding/shadow/tilt; the crosshair's knobs under its
+branch. Gates: family (arrow geometry, both tones identical, canvas rule, knobs), policy (scope, arrow
+hotspot/fallback), cursor-gui (a classic leg first — Paper keeps `auto`/`text`, the editor shows the
+arrow, bands show the outlined resize arrows — then the crosshair legs under `cursorStyle:
+"crosshair"`), selection-zones (style-agnostic rest/move checks). Body §4 updated; user docs
+(`modes/figure.qmd`).
+**Learnings:**
+- `paint-order: stroke` is what keeps an outlined glyph crisp at cursor sizes: the stroke is painted
+  first and the fill on top, so the fill keeps its exact geometry and the outline is purely outside it
+  (a stroke over the fill would eat 0.65 px of the arrow at a 1.3 px outline).
+- Chromium rasterises an SVG cursor at the display's device scale factor, so a vector cursor is crisp
+  on HiDPI for free; the only crispness decisions left are the hotspot (an integer) and NOT snapping
+  the tilted edges to pixels (which would make the lean jagged). Judge it in the contact sheet at 4×/8×
+  AND in the real `cursor-changed` bitmaps (`PROBE_CURSOR_DUMP=1` on the input probe) — a CDP screenshot
+  never includes the pointer.
+- Scoping a `var()`-based cursor family needs no per-component work: an undefined custom property
+  makes `cursor` compute to `auto`, so moving the bare-name mapping under the editors' classes removed
+  the cursor from every other mode at once (the `-light`/`-dark` literals stay on `:root` for Settings'
+  preview).

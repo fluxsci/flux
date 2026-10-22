@@ -12,6 +12,14 @@ import { buildCursorFamily, buildCursorFamilyDark, cursorVar, CURSOR_STATES, isD
 /** The builder's parameters from the persisted settings (the one mapping). */
 export function cursorParamsFromSettings(s: Settings): Partial<CursorParams> {
   return {
+    style: s.cursorStyle,
+    arrowSize: s.arrowSize,
+    arrowFill: s.arrowFill,
+    arrowOutline: s.arrowOutline,
+    arrowOutlineWidth: s.arrowOutlineWidth,
+    arrowRounding: s.arrowRounding,
+    arrowShadow: s.arrowShadow,
+    arrowTilt: s.arrowTilt,
     size: s.cursorSize,
     stroke: s.cursorStroke,
     coreColor: s.cursorCoreColor,

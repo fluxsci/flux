@@ -176,16 +176,17 @@ try {
   // --- 5. the cursor during the gesture + the size tip --------------------------------
   console.log("Host cursor by gesture, size tip:");
   await reseed();
+  const restCur = await hostCursor(); // whichever style Settings chose (classic arrow by default)
   const during = await drag(scr(280, 175), 40, 0, {
     mid: async () => ({ cur: await hostCursor(), tip: await page.$eval(".overlay-svg .size-tip", (t) => t.textContent).catch(() => null) }),
   });
   ok(fam(during.cur, "ew-resize"), `mid-resize the host cursor IS the resize arrows (not the pressed cross): ${during.cur.slice(-24)}`);
   ok(during.tip && /^\d+(\.\d)? × \d+(\.\d)?$/.test(during.tip) && during.tip.startsWith("200"), `the live W × H tip reads ${during.tip}`);
-  ok(/crosshair$/.test(await hostCursor()) && !/y1='4'/.test(await hostCursor()), "released: back to the plain crosshair");
+  ok((await hostCursor()) === restCur && /data:image\/svg\+xml/.test(restCur), "released: back to the resting cursor");
   ok((await page.$(".overlay-svg .size-tip")) === null, "the size tip is gone at rest");
   await reseed();
   const moveCur = await drag(scr(200, 175), 30, 20, { mid: hostCursor });
-  ok(fam(moveCur, "move"), "mid-move the host shows the four-headed move cross");
+  ok(fam(moveCur, "move") || fam(moveCur, "default"), `mid-move the host shows the family's move state (the classic arrow keeps its pointer, the crosshair grows four heads): ${moveCur.slice(-24)}`);
   await reseed();
   const copyCur = await drag(scr(200, 175), 30, 20, { alt: true, mid: hostCursor });
   ok(fam(copyCur, "copy"), "Alt-duplicate in flight shows the move-copy cross");

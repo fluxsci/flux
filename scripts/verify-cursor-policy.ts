@@ -6,7 +6,7 @@
 //   Run: npx tsx scripts/verify-cursor-policy.ts
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
-import { CURSOR_DEFAULTS, CURSOR_FALLBACK, CURSOR_STATES, cursorVar } from "../src/lib/cursor/cursorFamily";
+import { ARROW_HOTSPOT, CURSOR_DEFAULTS, CURSOR_FALLBACK, CURSOR_SCOPE, CURSOR_STATES, cursorVar } from "../src/lib/cursor/cursorFamily";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -43,15 +43,26 @@ const cursors = readFileSync(path.join(root, "src/styles/cursors.css"), "utf8");
 // bare names point at the dark set (the app is dark), `.cursor-on-light` and
 // `.cursor-on-dark` repoint them for a subtree. Static CSS — nothing per hover.
 const hot = CURSOR_DEFAULTS.size / 2;
+const ARROW_STATES = new Set(["cross", "cross-hover", "cross-press", "move", "move-copy"]);
 for (const state of CURSOR_STATES) {
+  // the default family is the classic arrow: its arrow-shaped states carry the tip hotspot and a `default` fallback
+  const arrow = CURSOR_DEFAULTS.style === "classic" && ARROW_STATES.has(state);
+  const hx = arrow ? ARROW_HOTSPOT[0] : hot;
+  const hy = arrow ? ARROW_HOTSPOT[1] : hot;
+  const fb = arrow ? (state === "move-copy" ? "copy" : "default") : CURSOR_FALLBACK[state];
   for (const tone of ["light", "dark"] as const) {
     const v = cursorVar(state, tone);
-    assert(new RegExp(`${v}: url\\("data:image/svg\\+xml,[^"]+"\\) ${hot} ${hot}, ${CURSOR_FALLBACK[state]};`).test(cursors), `${v} is a hardware svg cursor with the ${hot} ${hot} hotspot and a ${CURSOR_FALLBACK[state]} fallback`);
+    assert(new RegExp(`${v}: url\\("data:image/svg\\+xml,[^"]+"\\) ${hx} ${hy}, ${fb};`).test(cursors), `${v} is a hardware svg cursor with the ${hx} ${hy} hotspot and a ${fb} fallback`);
   }
   assert(cursors.includes(`  ${cursorVar(state)}: var(${cursorVar(state, "dark")});`), `${cursorVar(state)} defaults to the dark-surface drawing`);
 }
+// The bare names consumers use exist only inside the Figure and Slide editors:
+// everywhere else `var(--cursor-…)` is undefined and `cursor` falls back to auto.
+const scoped = cursors.split(`${CURSOR_SCOPE} {`)[1]?.split("}")[0] ?? "";
+assert(scoped.includes(`${cursorVar("cross")}: var(${cursorVar("cross", "dark")});`) && !/^:root \{[^}]*--cursor-cross: var/m.test(cursors), "the bare-name mapping lives under the Figure/Slide scope, not on :root");
+assert(/^:root \{[^}]*--cursor-cross-light: url/m.test(cursors), "the literal sets live on :root (the theme writer overrides them there)");
 assert(/\.cursor-on-light \{[^}]*--cursor-cross: var\(--cursor-cross-light\);/.test(cursors) && /\.cursor-on-dark \{[^}]*--cursor-cross: var\(--cursor-cross-dark\);/.test(cursors), "the two tone classes repoint the bare names for their subtree");
-assert(/<circle/.test(cursors.split("--cursor-cross-hover-light: ")[1].split("\n")[0]) && !/<circle/.test(cursors.split("--cursor-cross-light: ")[1].split("\n")[0]), "the hover variant carries the dot, the plain one does not");
+assert(/<path d='M/.test(cursors.split("--cursor-cross-light: ")[1].split("\n")[0]) && /paint-order='stroke'/.test(cursors.split("--cursor-cross-light: ")[1].split("\n")[0]), "the default resting mark is the classic arrow: a filled path outlined underneath (paint-order stroke)");
 // 2026-10-21: on the canvas itself every cursor is the family — guides, rulers,
 // path nodes, the figure title bar and the node-insert markers included — so
 // the owner never sees an OS crosshair or three different "move" drawings
@@ -62,10 +73,11 @@ const canvasStyle = canvas.slice(canvas.lastIndexOf("<style"));
 const osInCanvas = [...canvasStyle.matchAll(/cursor:\s*([^;]+);/g)].map((m) => m[1].trim()).filter((v) => !v.startsWith("var(--cursor-"));
 assert(osInCanvas.length === 0, `Canvas.svelte's stylesheet uses only the cursor family (${osInCanvas.length} OS cursor(s): ${osInCanvas.join(", ")})`);
 const app = readFileSync(path.join(root, "src/app.css"), "utf8");
-assert(/body \{[^}]*cursor: var\(--cursor-cross\);/s.test(app), "body uses the plain crosshair");
-assert(/button,\n\[role="button"\],\na,[\s\S]*?cursor: var\(--cursor-cross-hover\);/.test(app), "interactive elements get the dotted variant globally");
+assert(!/body \{[^}]*cursor:/s.test(app), "body declares NO cursor: Paper, Reader, Library, Home and the shell keep the system's (owner, 2026-10-21)");
+assert(/\.figure-mode,\n\.slide-mode \{\n  cursor: var\(--cursor-cross\);/.test(app), "the Figure and Slide editors carry the family's resting mark");
+assert(/:is\(\.figure-mode, \.slide-mode\) :is\(button, \[role="button"\], a,[^{]*\{\n  cursor: var\(--cursor-cross-hover\);/.test(app), "interactive elements inside the editors take the hover variant");
+assert(/:is\(\.figure-mode, \.slide-mode\) :is\(button:active,[^{]*\{\n  cursor: var\(--cursor-cross-press\);/.test(app), "a pressed control inside the editors takes the press variant");
 assert(/textarea,[\s\S]*?cursor: text;/.test(app), "text fields keep the I-beam");
-assert(/button:active,[\s\S]*?cursor: var\(--cursor-cross-press\);/.test(app), "a pressed control contracts the crosshair");
 const main = readFileSync(path.join(root, "src/main.ts"), "utf8");
 assert(/import "\.\/styles\/cursors\.css";/.test(main), "main.ts loads the cursor family");
 console.log("VERIFY-CURSOR-POLICY PASS");

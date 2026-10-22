@@ -17,12 +17,46 @@
 import { launch, gotoApp, clickMode, realErrors, waitFor, sleep, APP_URL } from "./lib/driver.mjs";
 import { installDenseProject } from "./lib/lazyFixture.mjs";
 
+const checks = [];
 const { browser, page } = await launch();
+// --- 0. the DEFAULT family is the classic arrow (owner, 2026-10-21): same arrow at
+// rest, hovered and pressed (Figma keeps its pointer), the tip as hotspot, outlined
+// resize arrows on the chrome, and NOTHING of it outside Figure/Slide.
+await gotoApp(page, { url: APP_URL + "?fixture=demo", settle: 2500 });
+{
+  const cur = (sel) => page.$eval(sel, (el) => getComputedStyle(el).cursor);
+  const checksBefore = [];
+  const okc = (c, m) => { checksBefore.push([!!c, m]); console.log(`${c ? "✓" : "✗"} ${m}`); };
+  const paperCur = await page.evaluate(() => getComputedStyle(document.body).cursor);
+  okc(paperCur === "auto" || paperCur === "default", `outside the editors the body keeps the system cursor (${paperCur})`);
+  await clickMode(page, "Paper").catch(() => {});
+  await sleep(600);
+  const cmCur = await page.$eval(".cm-editor .cm-content", (el) => getComputedStyle(el).cursor).catch(() => "n/a");
+  const paperBtn = await page.evaluate(() => { const b = document.querySelector(".paper button, .paper-mode button, .mc:not(.hidden) button"); return b ? getComputedStyle(b).cursor : "n/a"; });
+  okc(cmCur === "text" || cmCur === "n/a", `Paper's editor keeps the I-beam (${cmCur})`);
+  okc(!/data:image/.test(paperBtn), `Paper's buttons show no custom cursor (${paperBtn.slice(0, 20)})`);
+  await clickMode(page, "Figure").catch(() => {});
+  await waitFor(page, () => !!document.querySelector(".canvas-host") && !!document.querySelector("[data-editor-element-id]"), null, { timeout: 15000, label: "figure canvas" });
+  const host = await cur(".canvas-host");
+  okc(/data:image\/svg\+xml/.test(host) && /paint-order='stroke'/.test(host) && /<feDropShadow/.test(host) && / 3 3, default$/.test(host), "the canvas shows the classic arrow: a filled path outlined underneath, with its shadow, tip hotspot 3 3, system-arrow fallback");
+  const elCur = await cur("[data-editor-element-id]");
+  okc(elCur === host, "hovering an object shows the SAME arrow (no dot, no change — Figma)");
+  const toolbarBtn = await page.evaluate(() => { const b = document.querySelector(".figure-mode button"); return b ? getComputedStyle(b).cursor : "n/a"; });
+  okc(toolbarBtn === host, "the editor's own buttons carry the arrow too");
+  await page.evaluate(() => { const F = window.__flux.fig; F.selection.set(new Set([window.__flux.figures()[0].elements[0].id])); });
+  await sleep(200);
+  const band = await cur('.overlay-svg .zone.edge[data-h="e"]');
+  okc(/data:image/.test(band) && /stroke='%23fff' stroke-width='3\.9'/.test(band) && /ew-resize$/.test(band), "an edge band shows the outlined resize arrow in the arrow's fill and outline");
+  await page.evaluate(() => window.__flux.fig.selection.set(new Set()));
+  for (const [c, m] of checksBefore) checks.push([c, m]);
+}
+// --- the crosshair family, chosen in Settings: the rest of this gate -----------------
+await page.evaluateOnNewDocument(() => { try { const s = JSON.parse(localStorage.getItem("flux.settings") || "{}"); s.cursorStyle = "crosshair"; localStorage.setItem("flux.settings", JSON.stringify(s)); } catch {} });
+await page.evaluate(() => { try { const s = JSON.parse(localStorage.getItem("flux.settings") || "{}"); s.cursorStyle = "crosshair"; localStorage.setItem("flux.settings", JSON.stringify(s)); } catch {} });
 await gotoApp(page, { url: APP_URL + "?fixture=demo", settle: 2500 });
 await clickMode(page, "Figure").catch(() => {});
 await waitFor(page, () => !!document.querySelector(".canvas-host") && !!document.querySelector("[data-editor-element-id]"), null, { timeout: 15000, label: "figure canvas" });
 
-const checks = [];
 const ok = (cond, msg) => { checks.push([!!cond, msg]); console.log(`${cond ? "✓" : "✗"} ${msg}`); };
 const cursorOf = (sel = ".canvas-host") => page.$eval(sel, (el) => getComputedStyle(el).cursor);
 const isCross = (c) => /data:image\/svg\+xml/.test(c) && /crosshair$/.test(c);

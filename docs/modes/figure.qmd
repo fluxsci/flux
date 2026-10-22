@@ -316,23 +316,20 @@ folder.
 
 # Everyday editing
 
-Everywhere in Flux the pointer is a **crosshair** that takes its colour from what is under it —
-dark ink over a figure's paper, a PDF page or any other light surface, paper-white over the dark
-canvas and chrome, and it flips again over a dark-filled shape or a dark-theme plot — with a
-small gap at the centre so the exact pixel you are pointing at is never covered. Over anything
-you can click or select — a button, a layer, a swatch, an object — it gains an accent dot, and
-it tightens while you press. It is one mark
-that changes form rather than a set of unrelated arrows: over an object's edge or corner its
-two arms along that axis grow arrowheads and the other two disappear; just outside a corner
-it becomes a curved rotate arrow; while you drag it shows four heads (with a small **+** when
-**Alt** is duplicating); and it keeps that form for the whole drag. Text fields keep the
-I-beam and pan keeps the hand. **Settings → General → Cursor** shapes the family — the
-crosshair's two colours (over light and over dark surfaces, or one colour everywhere) and stroke
-width, an optional halo (an outline under the mark; off by default, give it a width to bring the
-outlined look back), the dot's colour, with Adaptive, Outlined and Accent presets or your own
-colours; the size, the centre gap and what sits in it, the hover dot and the press — with a
-two-tone live preview, or switches the resize, rotate and move states back to the system's own
-cursors.
+In the Figure and Slide editors the pointer is Flux's own: by default a **classic arrow** in
+Figma's style — a dark, slightly leaning arrowhead under a light outline with a faint lift — and
+it is one mark that changes form rather than a set of unrelated system arrows: over an object's
+edge or corner it becomes a double-headed resize arrow drawn in the same fill and outline, just
+outside a corner a curved rotate arrow, with a small **+** while **Alt** is duplicating, and it
+keeps that form for the whole drag. Paper, Reader and Library keep the system's cursors; text
+fields keep the I-beam and pan keeps the hand. **Settings → General → Cursor** tunes the arrow —
+its fill and outline colours, size, outline width, corner rounding, shadow and tilt — with a live
+preview, or switches to the **crosshair**: a precise cross with a gap at the centre so the pixel
+you point at is never covered, whose colour follows the surface (dark ink over paper and other
+light surfaces, paper-white over the dark canvas and chrome, flipping over dark fills and
+dark-theme plots), with its own colours, stroke, optional halo, centre mark, hover dot and press
+contraction, and Adaptive, Outlined and Accent presets. Either style can hand the resize, rotate
+and move states back to the system's own cursors.
 
 **Selecting and moving.** Click an object to select it; a path, line or hollow shape is
 selected by clicking on or near its stroke. Once selected, its **bounding box is the handle**:

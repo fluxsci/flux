@@ -15,13 +15,13 @@ const only = onlyIdx > 0 ? new Set(process.argv[onlyIdx + 1].split(",")) : null;
 const scaleIdx = process.argv.indexOf("--scales");
 const scales = scaleIdx > 0 ? process.argv[scaleIdx + 1].split(",").map(Number) : [1, 2, 4];
 const states = only ? CURSOR_STATES.filter((s) => only.has(s)) : CURSOR_STATES;
-const schemes = only ? (["ink"] as const) : (Object.keys(CURSOR_PRESETS) as (keyof typeof CURSOR_PRESETS)[]);
+const schemes = only ? (["classic"] as const) : (["classic", ...Object.keys(CURSOR_PRESETS)] as string[]);
 const out = path.resolve(only ? "test-results/cursor-sheet-detail.png" : "test-results/cursor-sheet.png");
 mkdirSync(path.dirname(out), { recursive: true });
 
 const rows: string[] = [];
 for (const scheme of schemes) {
-  const params = { ...CURSOR_PRESETS[scheme], ...extra }; // --params colours win over the preset
+  const params = { ...(scheme === "classic" ? {} : { style: "crosshair" as const, ...CURSOR_PRESETS[scheme as keyof typeof CURSOR_PRESETS] }), ...extra }; // --params win
   const famLight = buildCursorFamily(params);
   const famDark = buildCursorFamilyDark(params);
   for (const bg of ["#1c1b1a", "#fffcf0", "#4385be"]) {

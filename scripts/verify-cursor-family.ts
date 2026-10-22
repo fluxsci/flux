@@ -18,9 +18,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  ARROW_HOTSPOT,
+  ARROW_UNIT,
+  arrowCanvas,
+  arrowPoints,
   buildCursorFamily,
   buildCursorFamilyDark,
   clampCursorParams,
+  roundedPolygonPath,
   cursorCssBlock,
   cursorGeometry,
   cursorVar,
@@ -58,13 +63,56 @@ assert(block.includes(".cursor-on-light {") && block.includes(".cursor-on-dark {
 const legacy = {
   cross: `url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><line x1='12' y1='1.5' x2='12' y2='9' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='12' y1='15' x2='12' y2='22.5' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='1.5' y1='12' x2='9' y2='12' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='15' y1='12' x2='22.5' y2='12' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-opacity='.92'/><line x1='12' y1='1.5' x2='12' y2='9' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/><line x1='12' y1='15' x2='12' y2='22.5' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/><line x1='1.5' y1='12' x2='9' y2='12' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/><line x1='15' y1='12' x2='22.5' y2='12' stroke='%23151515' stroke-width='1.3' stroke-linecap='round'/></svg>") 12 12, crosshair`,
 };
-const fam = buildCursorFamily(); // the default: adaptive, no halo (light-surface drawing)
-const famO = buildCursorFamily(CURSOR_PRESETS.outlined); // the 2026-09-15 look
-assert(famO.cross.css === legacy.cross, "the OUTLINED preset is the 2026-09-15 drawing byte for byte");
-assert(lines(fam.cross.svg).length === 4 && fam.cross.svg.includes("stroke='%23151515'") && !fam.cross.svg.includes("%23fff"), "the default resting crosshair has no halo: four dark-ink arms for light surfaces");
-const famD = buildCursorFamilyDark();
+const CROSS = { style: "crosshair" as const };
+const fam = buildCursorFamily(CROSS); // the crosshair: adaptive, no halo (light-surface drawing)
+const famO = buildCursorFamily({ ...CROSS, ...CURSOR_PRESETS.outlined }); // the 2026-09-15 look
+assert(famO.cross.css === legacy.cross, "the crosshair's OUTLINED preset is the 2026-09-15 drawing byte for byte");
+assert(lines(fam.cross.svg).length === 4 && fam.cross.svg.includes("stroke='%23151515'") && !fam.cross.svg.includes("%23fff"), "the adaptive resting crosshair has no halo: four dark-ink arms for light surfaces");
+const famD = buildCursorFamilyDark(CROSS);
 assert(lines(famD.cross.svg).length === 4 && famD.cross.svg.includes("stroke='%23fffcf0'"), "…and its dark-surface twin is the same drawing in paper-white");
 assert(famD.cross.svg.replace(/%23fffcf0/g, "%23151515") === fam.cross.svg, "the two tones differ ONLY in the core colour");
+
+// --- 2b. the DEFAULT family is the classic arrow (owner, 2026-10-21) --------------
+{
+  const arrow = buildCursorFamily();
+  const arrowD = buildCursorFamilyDark();
+  const ARROW_STATES: CursorState[] = ["cross", "cross-hover", "cross-press", "move", "move-copy"];
+  for (const st of ARROW_STATES) {
+    const d = arrow[st];
+    assert(/<path d='M[^']*Z'/.test(d.svg) && d.svg.includes("paint-order='stroke'") && d.svg.includes("fill='%23151515'") && d.svg.includes("stroke='%23fff'"), `${st}: a dark-filled arrow with the outline painted underneath`);
+    assert(d.hotspot[0] === ARROW_HOTSPOT[0] && d.hotspot[1] === ARROW_HOTSPOT[1] && d.css.endsWith(st === "move-copy" ? ", copy" : ", default"), `${st}: the hotspot is the tip and the fallback the system arrow`);
+    assert(d.svg.includes("<feDropShadow") && d.svg.includes("filter='url(%23s)'"), `${st}: the drop shadow is applied`);
+    assert(arrowD[st].svg === d.svg, `${st}: identical in both tones (the outline provides the contrast)`);
+  }
+  assert(arrow.cross.svg === arrow["cross-hover"].svg && arrow.cross.svg === arrow["cross-press"].svg && arrow.cross.svg === arrow.move.svg, "rest, hover, press and move are the same arrow (Figma keeps its pointer)");
+  assert(arrow["move-copy"].svg.includes("<circle") && arrow["move-copy"].svg.includes("fill='%234385be'"), "move-copy adds the dot-coloured badge");
+  for (const st of ["resize-ns", "resize-nwse", "rotate-se"] as CursorState[]) {
+    const d = arrow[st];
+    const strokes = [...d.svg.matchAll(/stroke='([^']+)' stroke-width='([\d.]+)'/g)].map((m) => ({ c: m[1], w: +m[2] }));
+    assert(strokes[0].c === "%23fff" && strokes[0].w === 3.9 && strokes[strokes.length - 1].c === "%23151515" && !/stroke-opacity='0?\.\d/.test(d.svg), `${st}: drawn in the arrow's fill under its outline (1.3 + 2 × 1.3 wide, opaque)`);
+    assert(d.hotspot[0] === 12 && d.hotspot[1] === 12, `${st}: keeps the centred hotspot`);
+  }
+  const c = arrowCanvas(clampCursorParams(CURSOR_DEFAULTS));
+  assert(c.w <= 32 && c.h <= 32 && c.w >= 24, `the arrow canvas is tight and within Chromium's 32 px rule (${c.w} × ${c.h})`);
+  for (const size of [16, 20, 23]) {
+    const cc = arrowCanvas(clampCursorParams({ ...CURSOR_DEFAULTS, arrowSize: size, arrowShadow: 1, arrowOutlineWidth: 2.5 }));
+    assert(cc.w <= 32 && cc.h <= 32, `size ${size} with the strongest shadow and outline still fits 32 px (${cc.w} × ${cc.h})`);
+  }
+  const pts = arrowPoints(clampCursorParams(CURSOR_DEFAULTS), 0, 0);
+  assert(pts.length === 4 && pts[0][0] === 0 && pts[0][1] === 0 && pts[3][1] === 22 && Math.abs(pts[1][0] - 0.885 * 22) < 1e-9, "the arrow's vertices are the unit geometry × its height, tip at the origin");
+  assert(ARROW_UNIT.length === 4 && ARROW_UNIT[0][0] === 0 && ARROW_UNIT[3][1] === 1, "the unit arrow: tip, right point, notch, tail");
+  const sharp = roundedPolygonPath([[0, 0], [10, 0], [10, 10]], 0);
+  const round = roundedPolygonPath([[0, 0], [10, 0], [10, 10]], 1);
+  assert(sharp === "M0 0L10 0L10 10Z" && round.startsWith("M") && (round.match(/Q/g) || []).length === 3 && round.endsWith("Z"), "rounding 0 is the sharp polygon; a radius fillets every corner with a quadratic");
+  const tilted = buildCursorFamily({ arrowTilt: 15 });
+  assert(tilted.cross.svg !== arrow.cross.svg, "tilt rotates the arrow about its tip");
+  const noShadow = buildCursorFamily({ arrowShadow: 0 });
+  assert(!noShadow.cross.svg.includes("feDropShadow") && !noShadow.cross.svg.includes("filter="), "shadow 0 draws no filter at all");
+  const noOutline = buildCursorFamily({ arrowOutlineWidth: 0 });
+  assert(!noOutline.cross.svg.includes("stroke="), "outline width 0 draws the bare fill");
+  const custom = buildCursorFamily({ arrowFill: "#aa2200", arrowOutline: "#ffee00" });
+  assert(custom.cross.svg.includes("fill='%23a20'") && custom.cross.svg.includes("stroke='%23fe0'"), "fill and outline take the user's colours");
+}
 assert(/y1='4'/.test(fam["cross-press"].css) && /<circle/.test(fam["cross-press"].css), "press: contracted arms (y1='4') + dot — the tokens verify-cursor-gui keys on");
 assert(/<circle/.test(fam["cross-hover"].css) && !/y1='4'/.test(fam["cross-hover"].css), "hover: the dot without contraction");
 assert(!/<circle/.test(fam.cross.css), "rest: no dot");
@@ -78,12 +126,15 @@ function numbersIn(svg: string): number[] {
 }
 const extremes: Partial<CursorParams>[] = [
   {},
-  { size: CURSOR_SIZE_RANGE.min, stroke: 2.5, gap: 6 },
-  { size: CURSOR_SIZE_RANGE.max, stroke: 0.8, gap: 0, haloWidth: 0 },
-  { size: 30, stroke: 3, gap: 6, haloWidth: 6, ...CURSOR_PRESETS.outlined },
-  { size: 32, ...CURSOR_PRESETS.outlined, centre: "ring", hoverDot: false, pressContract: false },
-  { ...CURSOR_PRESETS.accent, centre: "dot", haloWidth: 2.3 },
-  { coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" },
+  { style: "crosshair" },
+  { arrowSize: 23, arrowShadow: 1, arrowOutlineWidth: 2.5, arrowRounding: 3, arrowTilt: 30 },
+  { arrowSize: 16, arrowShadow: 0, arrowOutlineWidth: 0, arrowRounding: 0, arrowTilt: -30 },
+  { style: "crosshair", size: CURSOR_SIZE_RANGE.min, stroke: 2.5, gap: 6 },
+  { style: "crosshair", size: CURSOR_SIZE_RANGE.max, stroke: 0.8, gap: 0, haloWidth: 0 },
+  { style: "crosshair", size: 30, stroke: 3, gap: 6, haloWidth: 6, ...CURSOR_PRESETS.outlined },
+  { style: "crosshair", size: 32, ...CURSOR_PRESETS.outlined, centre: "ring", hoverDot: false, pressContract: false },
+  { style: "crosshair", ...CURSOR_PRESETS.accent, centre: "dot", haloWidth: 2.3 },
+  { style: "crosshair", coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" },
 ];
 for (const params of extremes) {
   const p = clampCursorParams({ ...CURSOR_DEFAULTS, ...params });
@@ -92,9 +143,11 @@ for (const params of extremes) {
   for (const s of CURSOR_STATES) {
     const d = f[s];
     const svgOk = d.svg.startsWith("<svg xmlns='http://www.w3.org/2000/svg'") && d.svg.endsWith("</svg>") && !/["\n]/.test(d.svg);
-    const hot = d.hotspot[0] === p.size / 2 && d.hotspot[1] === p.size / 2;
-    const fb = d.css.endsWith(`, ${CURSOR_FALLBACK[s]}`) || d.css === CURSOR_FALLBACK[s];
-    const inBounds = numbersIn(d.svg).every((n) => n >= -0.01 && n <= p.size + 0.01);
+    const arrowState = p.style === "classic" && ["cross", "cross-hover", "cross-press", "move", "move-copy"].includes(s);
+    const hot = arrowState ? d.hotspot[0] === ARROW_HOTSPOT[0] && d.hotspot[1] === ARROW_HOTSPOT[1] : d.hotspot[0] === p.size / 2 && d.hotspot[1] === p.size / 2;
+    const fb = arrowState ? d.css.endsWith(s === "move-copy" ? ", copy" : ", default") : d.css.endsWith(`, ${CURSOR_FALLBACK[s]}`) || d.css === CURSOR_FALLBACK[s];
+    const canvas = arrowState ? Math.max(arrowCanvas(p).w, arrowCanvas(p).h) : p.size;
+    const inBounds = numbersIn(d.svg).every((n) => n >= -0.01 && n <= canvas + 0.01);
     const sizeOk = p.size <= 32 && p.size % 2 === 0; // Chromium shows >32 px custom cursors only when they fit the viewport; even = integer hotspot
     if (!(svgOk && hot && fb && inBounds && sizeOk)) {
       allOk = false;
@@ -138,8 +191,8 @@ for (const params of extremes) {
 
 // --- 5. the presets; halo under core when drawn; explicit colours and widths ----
 for (const [preset, colours] of Object.entries(CURSOR_PRESETS)) {
-  const f = buildCursorFamily(colours);
-  const fd = buildCursorFamilyDark(colours);
+  const f = buildCursorFamily({ ...CROSS, ...colours });
+  const fd = buildCursorFamilyDark({ ...CROSS, ...colours });
   const svg = f.cross.svg;
   const strokes = [...svg.matchAll(/stroke='([^']+)' stroke-width='([\d.]+)'/g)].map((m) => ({ c: m[1], w: +m[2] }));
   if (colours.haloWidth > 0) {
@@ -156,10 +209,10 @@ for (const [preset, colours] of Object.entries(CURSOR_PRESETS)) {
 }
 assert(cursorPresetOf({ ...CURSOR_PRESETS.adaptive, haloColor: "#123456", haloOpacity: 0.5 }) === "adaptive", "a halo colour or opacity does not count while the halo is off");
 assert(cursorPresetOf({ ...CURSOR_PRESETS.adaptive, coreColorDark: "#ffffff" }) === "custom", "a different dark-surface colour is custom");
-assert(lines(buildCursorFamily({ haloWidth: 0 }).cross.svg).length === 4, "halo width 0 paints only the four core arms");
-assert(/stroke-width='2\.3'/.test(buildCursorFamily({ haloWidth: 2.3 }).cross.svg), "the halo width is the user's number");
+assert(lines(buildCursorFamily({ ...CROSS, haloWidth: 0 }).cross.svg).length === 4, "halo width 0 paints only the four core arms");
+assert(/stroke-width='2\.3'/.test(buildCursorFamily({ ...CROSS, haloWidth: 2.3 }).cross.svg), "the halo width is the user's number");
 {
-  const custom = { coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" };
+  const custom = { ...CROSS, coreColor: "#aa2200", haloColor: "#ffee00", haloWidth: 1.5, haloOpacity: 0.6, dotColor: "#00aa00" };
   const f = buildCursorFamily(custom);
   assert(cursorPresetOf({ ...CURSOR_DEFAULTS, ...custom }) === "custom", "colours off every preset read as custom");
   // (#aa2200 → %23a20, #ffee00 → %23fe0, #00aa00 → %230a0: svgColor compresses doubled pairs)
@@ -172,14 +225,16 @@ assert(/stroke-width='2\.3'/.test(buildCursorFamily({ haloWidth: 2.3 }).cross.sv
 
 // --- 6. system resize style, defaults predicate, clamping ---------------------
 {
-  const f = buildCursorFamily({ resizeStyle: "system" });
+  const f = buildCursorFamily({ ...CROSS, resizeStyle: "system" });
   assert(f["resize-ns"].css === "ns-resize" && f["rotate-se"].css === "grab" && f.move.css === "move" && f["move-copy"].css === "copy", "system style resolves the transform states to the OS cursors");
   assert(f.cross.css.startsWith('url("data:') && f["cross-hover"].css.startsWith('url("data:'), "…and keeps the cross states drawn");
+  const fa = buildCursorFamily({ resizeStyle: "system" });
+  assert(fa["resize-ns"].css === "ns-resize" && fa.cross.css.startsWith('url("data:') && fa.move.css.startsWith('url("data:'), "under the classic arrow, system style keeps the arrow for rest/hover/press/move and hands the resize/rotate states to the OS");
   assert(isDefaultCursorParams({}) && isDefaultCursorParams({ size: 24 }) && !isDefaultCursorParams({ size: 28 }) && !isDefaultCursorParams({ hoverDot: false }) && !isDefaultCursorParams({ coreColorDark: "#ffffff" }), "isDefaultCursorParams tells the theme writer when to clear :root");
   const c = clampCursorParams({ size: 999, stroke: -1, gap: 99, centre: "neon" as never, dotColor: "red" });
   assert(c.size === CURSOR_SIZE_RANGE.max && c.stroke === 0.8 && c.gap === 6 && c.centre === "none" && c.dotColor === "#4385be", "clampCursorParams bounds numbers and falls back on unknown enums / colours");
   assert(clampCursorParams({ size: 27 }).size === 28 && clampCursorParams({ size: 21 }).size === 22 && clampCursorParams({ size: 23 }).size === 24 && clampCursorParams({ size: 40 }).size === 32 && CURSOR_SIZE_RANGE.max === 32, "sizes round to even and cap at 32 (Chromium's large-cursor viewport rule)");
-  assert(drawCursor("cross", { gap: 0 }).svg.includes("y2='12'") || drawCursor("cross", { gap: 0 }).svg.includes("y2='9'"), "gap 0 still draws (arms meet the centre)");
+  assert(drawCursor("cross", { ...CROSS, gap: 0 }).svg.includes("y2='12'") || drawCursor("cross", { ...CROSS, gap: 0 }).svg.includes("y2='9'"), "gap 0 still draws (arms meet the centre)");
 }
 
 // --- 7. the tone law (cursor/cursorTone.ts) -------------------------------------

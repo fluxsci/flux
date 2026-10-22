@@ -16,8 +16,25 @@
 
 export type CursorCentre = "none" | "dot" | "ring";
 export type CursorResizeStyle = "crosshair" | "system";
+/** The family's basic mark: Figma's tilted arrow ("classic", the default since
+ *  2026-10-21) or the precise crosshair. Resize / rotate / move-copy states are
+ *  shared, drawn in the arrow's fill + outline under "classic". */
+export type CursorStyle = "classic" | "crosshair";
 
 export interface CursorParams {
+  style: CursorStyle;
+  /** Classic arrow: its height in px (the canvas stays ≤ 32 px with the shadow). */
+  arrowSize: number;
+  arrowFill: string;
+  arrowOutline: string;
+  /** Visible outline width each side, px. */
+  arrowOutlineWidth: number;
+  /** Corner rounding radius, px (0 = sharp). */
+  arrowRounding: number;
+  /** Drop-shadow amount 0–1 (blur, offset and opacity scale together). */
+  arrowShadow: number;
+  /** Extra rotation about the tip, degrees (the drawing already leans like Figma's). */
+  arrowTilt: number;
   /** Mark size in CSS px (square); the hotspot is its centre. */
   size: number;
   /** Core (crosshair) stroke width in px. */
@@ -50,6 +67,14 @@ export interface CursorParams {
 // surface instead (dark ink on a figure's paper, Flexoki paper-white on the
 // dark app and canvas). The 2026-09-15 outlined look is the "outlined" preset.
 export const CURSOR_DEFAULTS: CursorParams = {
+  style: "classic",
+  arrowSize: 22,
+  arrowFill: "#151515",
+  arrowOutline: "#ffffff",
+  arrowOutlineWidth: 1.3,
+  arrowRounding: 0.9,
+  arrowShadow: 0.6,
+  arrowTilt: 0,
   size: 24,
   stroke: 1.3,
   coreColor: "#151515",
@@ -93,6 +118,12 @@ export function cursorPresetOf(p: PresetFields): CursorPreset {
 // window edge otherwise — so 32 is the ceiling. Even sizes keep an integer
 // hotspot.
 export const CURSOR_SIZE_RANGE = { min: 20, max: 32 } as const;
+export const CURSOR_STYLES: readonly CursorStyle[] = ["classic", "crosshair"];
+export const ARROW_SIZE_RANGE = { min: 16, max: 23 } as const; // 23 + margins = a 32 px canvas
+export const ARROW_OUTLINE_RANGE = { min: 0, max: 2.5 } as const;
+export const ARROW_ROUNDING_RANGE = { min: 0, max: 3 } as const;
+export const ARROW_SHADOW_RANGE = { min: 0, max: 1 } as const;
+export const ARROW_TILT_RANGE = { min: -30, max: 30 } as const;
 export const CURSOR_STROKE_RANGE = { min: 0.8, max: 3 } as const;
 export const CURSOR_HALO_WIDTH_RANGE = { min: 0, max: 6 } as const;
 export const CURSOR_HALO_OPACITY_RANGE = { min: 0.2, max: 1 } as const;
@@ -161,6 +192,8 @@ export const CURSOR_FALLBACK: Record<CursorState, string> = {
  *  literal sets are `--cursor-<state>-light` (drawn for light backgrounds) and
  *  `--cursor-<state>-dark`. */
 export type CursorTone = "light" | "dark";
+/** Where the family applies: the Figure and Slide editors, nothing else. */
+export const CURSOR_SCOPE = ".figure-mode, .slide-mode";
 export function cursorVar(state: CursorState, tone?: CursorTone): string {
   return tone ? `--cursor-${state}-${tone}` : `--cursor-${state}`;
 }
@@ -196,6 +229,14 @@ export function clampCursorParams(p: Partial<CursorParams>): CursorParams {
   const even = (v: number) => Math.round(v / 2) * 2;
   const pick = <T extends string>(v: unknown, all: readonly T[], d: T): T => (all.includes(v as T) ? (v as T) : d);
   return {
+    style: pick(p.style, CURSOR_STYLES, CURSOR_DEFAULTS.style),
+    arrowSize: clamp(p.arrowSize, ARROW_SIZE_RANGE, CURSOR_DEFAULTS.arrowSize),
+    arrowFill: cursorHex(p.arrowFill, CURSOR_DEFAULTS.arrowFill),
+    arrowOutline: cursorHex(p.arrowOutline, CURSOR_DEFAULTS.arrowOutline),
+    arrowOutlineWidth: clamp(p.arrowOutlineWidth, ARROW_OUTLINE_RANGE, CURSOR_DEFAULTS.arrowOutlineWidth),
+    arrowRounding: clamp(p.arrowRounding, ARROW_ROUNDING_RANGE, CURSOR_DEFAULTS.arrowRounding),
+    arrowShadow: clamp(p.arrowShadow, ARROW_SHADOW_RANGE, CURSOR_DEFAULTS.arrowShadow),
+    arrowTilt: clamp(p.arrowTilt, ARROW_TILT_RANGE, CURSOR_DEFAULTS.arrowTilt),
     size: even(clamp(p.size, CURSOR_SIZE_RANGE, CURSOR_DEFAULTS.size)),
     stroke: clamp(p.stroke, CURSOR_STROKE_RANGE, CURSOR_DEFAULTS.stroke),
     coreColor: cursorHex(p.coreColor, CURSOR_DEFAULTS.coreColor),
@@ -365,9 +406,133 @@ function wrap(p: CursorParams, body: string, rotateDeg = 0): string {
   return `<svg xmlns='http://www.w3.org/2000/svg' width='${s}' height='${s}' viewBox='0 0 ${s} ${s}'>${inner}</svg>`;
 }
 
+// --- the classic arrow -----------------------------------------------------------
+// Figma's pointer: a stem-less arrow leaning to the right — tip at the top left,
+// a long left edge down to the tail, a notch, and the short right point — drawn
+// as a dark fill with a light outline (paint-order stroke, so the outline sits
+// OUTSIDE the fill and the fill's silhouette is exactly the geometry) and a
+// soft drop shadow for the slight lift. Unit geometry (height 1, tip at 0 0):
+export const ARROW_UNIT: readonly [number, number][] = [
+  [0, 0], // tip
+  [0.885, 0.525], // right point
+  [0.443, 0.639], // notch
+  [0.18, 1.0], // tail
+];
+/** The hotspot pixel of every arrow-shaped state (the visible tip). */
+export const ARROW_HOTSPOT: [number, number] = [3, 3];
+
+/** The canvas the arrow family draws on: tight to the arrow plus its outline
+ *  and the shadow's reach, never over 32 px (Chromium shows larger custom
+ *  cursors only while they fit the viewport). */
+export function arrowCanvas(p: CursorParams): { w: number; h: number; ox: number; oy: number } {
+  const ow = p.arrowOutlineWidth;
+  const blur = 1.6 * p.arrowShadow;
+  const reach = Math.ceil(ow + 3 * blur + 1.2 * p.arrowShadow + 1); // outline + 3σ + offset + a pixel
+  const ox = ARROW_HOTSPOT[0] + ow * 0.9; // the geometric tip sits just inside the hotspot pixel
+  const oy = ARROW_HOTSPOT[1] + ow * 0.9;
+  const pts = arrowPoints(p, ox, oy);
+  const maxX = Math.max(...pts.map((q) => q[0]));
+  const maxY = Math.max(...pts.map((q) => q[1]));
+  return { w: Math.min(32, Math.ceil(maxX + reach)), h: Math.min(32, Math.ceil(maxY + reach)), ox, oy };
+}
+
+/** The arrow's vertices in canvas px: unit geometry × height, tilted about the tip, translated. */
+export function arrowPoints(p: CursorParams, ox: number, oy: number): [number, number][] {
+  const s = p.arrowSize;
+  const a = (p.arrowTilt * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  return ARROW_UNIT.map(([ux, uy]) => {
+    const x = ux * s;
+    const y = uy * s;
+    return [ox + x * cos - y * sin, oy + x * sin + y * cos];
+  });
+}
+
+/** A closed polygon path with every corner filleted by a quadratic curve of
+ *  radius `r` (clamped to half of each adjacent edge), so the arrow reads as a
+ *  smooth object at any size; r = 0 is the sharp polygon. */
+export function roundedPolygonPath(pts: [number, number][], r: number): string {
+  const n = pts.length;
+  if (r <= 0) return pts.map((q, i) => `${i ? "L" : "M"}${fmt(q[0])} ${fmt(q[1])}`).join("") + "Z";
+  const segs: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i + n - 1) % n];
+    const v = pts[i];
+    const next = pts[(i + 1) % n];
+    const toPrev = [prev[0] - v[0], prev[1] - v[1]];
+    const toNext = [next[0] - v[0], next[1] - v[1]];
+    const lp = Math.hypot(toPrev[0], toPrev[1]);
+    const ln = Math.hypot(toNext[0], toNext[1]);
+    // the fillet's tangent distance for a circular arc of radius r in this corner,
+    // capped at half of either edge so neighbouring fillets never overlap
+    const cosA = (toPrev[0] * toNext[0] + toPrev[1] * toNext[1]) / (lp * ln);
+    const half = Math.acos(Math.max(-1, Math.min(1, cosA))) / 2;
+    const t = Math.min(r / Math.tan(half), lp / 2, ln / 2);
+    const a = [v[0] + (toPrev[0] / lp) * t, v[1] + (toPrev[1] / lp) * t];
+    const b = [v[0] + (toNext[0] / ln) * t, v[1] + (toNext[1] / ln) * t];
+    segs.push(`${i ? "L" : "M"}${fmt(a[0])} ${fmt(a[1])}Q${fmt(v[0])} ${fmt(v[1])} ${fmt(b[0])} ${fmt(b[1])}`);
+  }
+  return segs.join("") + "Z";
+}
+
+function arrowShadowFilter(p: CursorParams): { def: string; attr: string } {
+  if (p.arrowShadow <= 0) return { def: "", attr: "" };
+  const a = p.arrowShadow;
+  const def =
+    `<filter id='s' x='-40%' y='-40%' width='190%' height='190%' color-interpolation-filters='sRGB'>` +
+    `<feDropShadow dx='${fmt(0.5 * a)}' dy='${fmt(1.2 * a)}' stdDeviation='${fmt(1.6 * a)}' flood-color='%23000' flood-opacity='${fmt(0.45 * a)}'/></filter>`;
+  return { def, attr: " filter='url(%23s)'" };
+}
+
+/** The arrow body: outline (stroke, painted first) under the fill, with the shadow. */
+function arrowBody(p: CursorParams, ox: number, oy: number): { defs: string; body: string } {
+  const d = roundedPolygonPath(arrowPoints(p, ox, oy), p.arrowRounding);
+  const sh = arrowShadowFilter(p);
+  const stroke = p.arrowOutlineWidth > 0 ? ` stroke='${svgColor(p.arrowOutline)}' stroke-width='${fmt(p.arrowOutlineWidth * 2)}' stroke-linejoin='round' stroke-linecap='round' paint-order='stroke'` : "";
+  return { defs: sh.def, body: `<g${sh.attr}><path d='${d}' fill='${svgColor(p.arrowFill)}'${stroke}/></g>` };
+}
+
+function wrapArrow(p: CursorParams, body: string, defs: string): { svg: string; hotspot: [number, number] } {
+  const c = arrowCanvas(p);
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${c.w}' height='${c.h}' viewBox='0 0 ${c.w} ${c.h}'>${defs ? `<defs>${defs}</defs>` : ""}${body}</svg>`;
+  return { svg, hotspot: [ARROW_HOTSPOT[0], ARROW_HOTSPOT[1]] };
+}
+
+/** The classic family's arrow states: rest, hover, press and move are the arrow
+ *  itself (Figma keeps its pointer through all four); move-copy adds the badge. */
+function drawArrowState(state: CursorState, p: CursorParams): CursorDrawing | null {
+  if (state !== "cross" && state !== "cross-hover" && state !== "cross-press" && state !== "move" && state !== "move-copy") return null;
+  const c = arrowCanvas(p);
+  const { defs, body } = arrowBody(p, c.ox, c.oy);
+  let extra = "";
+  if (state === "move-copy") {
+    // the "+" badge beside the arrow's right point, in the dot colour over the outline colour
+    const r = 3.4;
+    const bx = c.w - r - 0.6;
+    const by = c.h - r - 0.6;
+    const arm = 1.8;
+    extra =
+      `<circle cx='${fmt(bx)}' cy='${fmt(by)}' r='${fmt(r)}' fill='${svgColor(p.dotColor)}' stroke='${svgColor(p.arrowOutline)}' stroke-width='1'/>` +
+      `<line x1='${fmt(bx - arm)}' y1='${fmt(by)}' x2='${fmt(bx + arm)}' y2='${fmt(by)}' stroke='%23fff' stroke-width='1.3' stroke-linecap='round'/>` +
+      `<line x1='${fmt(bx)}' y1='${fmt(by - arm)}' x2='${fmt(bx)}' y2='${fmt(by + arm)}' stroke='%23fff' stroke-width='1.3' stroke-linecap='round'/>`;
+  }
+  const w = wrapArrow(p, body + extra, defs);
+  const fallback = state === "move-copy" ? "copy" : "default";
+  return { state, svg: w.svg, css: `url("data:image/svg+xml,${w.svg}") ${w.hotspot[0]} ${w.hotspot[1]}, ${fallback}`, hotspot: w.hotspot };
+}
+
 /** Draw one state. Exported for the contact sheet and the gates. */
 export function drawCursor(state: CursorState, params: Partial<CursorParams> = {}): CursorDrawing {
-  const p = clampCursorParams({ ...CURSOR_DEFAULTS, ...params });
+  const p0 = clampCursorParams({ ...CURSOR_DEFAULTS, ...params });
+  if (p0.style === "classic") {
+    const arrow = drawArrowState(state, p0);
+    if (arrow) return arrow;
+  }
+  // Under "classic" the shared transform states are drawn in the arrow's fill and
+  // outline (Figma's outlined resize / rotate arrows); the crosshair's own colours
+  // and halo apply under "crosshair".
+  const p: CursorParams = p0.style === "classic" ? { ...p0, coreColor: p0.arrowFill, haloColor: p0.arrowOutline, haloWidth: p0.stroke + 2 * p0.arrowOutlineWidth, haloOpacity: 1 } : p0;
   const g = cursorGeometry(p);
   const hotspot: [number, number] = [p.size / 2, p.size / 2];
   const centreMark = p.centre === "dot" ? dot(p, g) : p.centre === "ring" ? ring(p, g) : "";
@@ -433,7 +598,8 @@ export function buildCursorFamily(params: Partial<CursorParams> = {}): CursorFam
   return out;
 }
 
-/** The family drawn for DARK backgrounds: the same drawing with `coreColorDark`. */
+/** The family drawn for DARK backgrounds: the same drawing with `coreColorDark`
+ *  (the classic arrow carries its own outline and is identical in both tones). */
 export function buildCursorFamilyDark(params: Partial<CursorParams> = {}): CursorFamily {
   const p = clampCursorParams({ ...CURSOR_DEFAULTS, ...params });
   return buildCursorFamily({ ...p, coreColor: p.coreColorDark });
@@ -448,9 +614,14 @@ export function cursorCssBlock(params: Partial<CursorParams> = {}): string {
   const light = buildCursorFamily(params);
   const dark = buildCursorFamilyDark(params);
   const lines = (f: (s: CursorState) => string) => CURSOR_STATES.map((s) => `  ${f(s)}`).join("\n");
+  // The literal sets live on :root (the theme writer overrides them there); the
+  // bare names consumers use exist ONLY inside the Figure and Slide mode roots,
+  // so every other surface (Paper, Reader, Library, Home, the shell) keeps the
+  // system's cursors (owner, 2026-10-21): an undefined `var()` makes `cursor`
+  // fall back to `auto`.
   return (
-    `:root {\n${lines((s) => `${cursorVar(s, "light")}: ${light[s].css};`)}\n${lines((s) => `${cursorVar(s, "dark")}: ${dark[s].css};`)}\n` +
-    `${lines((s) => `${cursorVar(s)}: var(${cursorVar(s, "dark")});`)}\n}\n` +
+    `:root {\n${lines((s) => `${cursorVar(s, "light")}: ${light[s].css};`)}\n${lines((s) => `${cursorVar(s, "dark")}: ${dark[s].css};`)}\n}\n` +
+    `${CURSOR_SCOPE} {\n${lines((s) => `${cursorVar(s)}: var(${cursorVar(s, "dark")});`)}\n}\n` +
     `.cursor-on-light {\n${lines((s) => `${cursorVar(s)}: var(${cursorVar(s, "light")});`)}\n}\n` +
     `.cursor-on-dark {\n${lines((s) => `${cursorVar(s)}: var(${cursorVar(s, "dark")});`)}\n}\n`
   );

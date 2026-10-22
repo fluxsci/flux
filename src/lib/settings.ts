@@ -2,8 +2,9 @@ import { decodePreferences } from "./preferences";
 import { writable } from "svelte/store";
 import { DEFAULT_PLOT_SEARCH_SCOPE, PLOT_SEARCH_SCOPE_IDS, type PlotSearchScope } from "./plot/galleryScope";
 import {
+  ARROW_OUTLINE_RANGE, ARROW_ROUNDING_RANGE, ARROW_SHADOW_RANGE, ARROW_SIZE_RANGE, ARROW_TILT_RANGE,
   CURSOR_CENTRES, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE, CURSOR_PRESETS, CURSOR_RESIZE_STYLES,
-  CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE, cursorHex, type CursorCentre, type CursorResizeStyle,
+  CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE, CURSOR_STYLES, cursorHex, type CursorCentre, type CursorResizeStyle, type CursorStyle,
 } from "./cursor/cursorFamily";
 
 // Paper caret motion model (src/shell/modes/paper/editing/caretFeel.ts):
@@ -38,7 +39,15 @@ export interface Settings {
   // The crosshair cursor family (2026-10-21, cursor/cursorFamily.ts): the one
   // drawing every pointer state is generated from. Defaults reproduce the
   // 2026-09-15 cursors byte for byte; cursorTheme.ts writes :root when they differ.
-  cursorSize: number; // mark size in px (20–32, even); hotspot = size/2
+  cursorStyle: CursorStyle; // classic (Figma's arrow, the default) | crosshair
+  arrowSize: number; // classic arrow height in px (16–23)
+  arrowFill: string; // classic arrow fill (6-digit hex)
+  arrowOutline: string; // classic arrow outline colour
+  arrowOutlineWidth: number; // outline width each side (0–2.5)
+  arrowRounding: number; // corner rounding radius (0–3)
+  arrowShadow: number; // drop-shadow amount (0–1)
+  arrowTilt: number; // extra rotation about the tip, degrees (−30–30)
+  cursorSize: number; // crosshair size in px (20–32, even); hotspot = size/2
   cursorStroke: number; // crosshair stroke width (0.8–3)
   cursorAdaptive: boolean; // the mark's colour follows the surface (dark ink on paper, light on dark)
   cursorCoreColor: string; // crosshair colour over light surfaces (6-digit hex)
@@ -83,6 +92,14 @@ const DEFAULTS: Settings = {
   captionFontSize: 16,
   plotSearchScope: DEFAULT_PLOT_SEARCH_SCOPE,
   galleryFolderClickExpands: false,
+  cursorStyle: CURSOR_DEFAULTS.style,
+  arrowSize: CURSOR_DEFAULTS.arrowSize,
+  arrowFill: CURSOR_DEFAULTS.arrowFill,
+  arrowOutline: CURSOR_DEFAULTS.arrowOutline,
+  arrowOutlineWidth: CURSOR_DEFAULTS.arrowOutlineWidth,
+  arrowRounding: CURSOR_DEFAULTS.arrowRounding,
+  arrowShadow: CURSOR_DEFAULTS.arrowShadow,
+  arrowTilt: CURSOR_DEFAULTS.arrowTilt,
   cursorSize: CURSOR_DEFAULTS.size,
   cursorStroke: CURSOR_DEFAULTS.stroke,
   cursorAdaptive: true,
@@ -159,6 +176,8 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   delete out.cursorHalo;
   if (out.cursorCoreColor !== undefined) out.cursorCoreColor = cursorHex(out.cursorCoreColor, CURSOR_DEFAULTS.coreColor);
   if (out.cursorCoreColorDark !== undefined) out.cursorCoreColorDark = cursorHex(out.cursorCoreColorDark, CURSOR_DEFAULTS.coreColorDark);
+  if (out.arrowFill !== undefined) out.arrowFill = cursorHex(out.arrowFill, CURSOR_DEFAULTS.arrowFill);
+  if (out.arrowOutline !== undefined) out.arrowOutline = cursorHex(out.arrowOutline, CURSOR_DEFAULTS.arrowOutline);
   if (out.cursorHaloColor !== undefined) out.cursorHaloColor = cursorHex(out.cursorHaloColor, CURSOR_DEFAULTS.haloColor);
   if (out.cursorDotColor !== undefined) out.cursorDotColor = cursorHex(out.cursorDotColor, CURSOR_DEFAULTS.dotColor);
   return out;
@@ -174,6 +193,8 @@ export function decodeSettings(value: unknown): Settings {
     cursorSize: { ...CURSOR_SIZE_RANGE }, cursorStroke: { ...CURSOR_STROKE_RANGE }, cursorGap: { ...CURSOR_GAP_RANGE },
     cursorHaloWidth: { ...CURSOR_HALO_WIDTH_RANGE }, cursorHaloOpacity: { ...CURSOR_HALO_OPACITY_RANGE },
     cursorCoreColor: { maxLength: 7 }, cursorCoreColorDark: { maxLength: 7 }, cursorHaloColor: { maxLength: 7 }, cursorDotColor: { maxLength: 7 },
+    cursorStyle: { enum: CURSOR_STYLES }, arrowSize: { ...ARROW_SIZE_RANGE }, arrowFill: { maxLength: 7 }, arrowOutline: { maxLength: 7 },
+    arrowOutlineWidth: { ...ARROW_OUTLINE_RANGE }, arrowRounding: { ...ARROW_ROUNDING_RANGE }, arrowShadow: { ...ARROW_SHADOW_RANGE }, arrowTilt: { ...ARROW_TILT_RANGE },
     cursorCentre: { enum: CURSOR_CENTRES }, cursorResizeStyle: { enum: CURSOR_RESIZE_STYLES },
     paperCaretFeel: { enum: ["chase", "smooth"] }, paperCorrectionProvider: { enum: ["flux", "ollama", "openai"] },
     paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },

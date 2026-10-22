@@ -16,6 +16,7 @@
   import {
     buildCursorFamily, buildCursorFamilyDark, cursorPresetOf, isDefaultCursorParams, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE,
     CURSOR_PRESETS, CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE,
+    ARROW_OUTLINE_RANGE, ARROW_ROUNDING_RANGE, ARROW_SHADOW_RANGE, ARROW_SIZE_RANGE, ARROW_TILT_RANGE,
     type CursorPreset, type CursorState,
   } from "./cursor/cursorFamily";
   import { cursorParamsFromSettings } from "./cursor/cursorTheme";
@@ -78,6 +79,8 @@
   function resetCursor() {
     settings.update((v) => ({
       ...v,
+      cursorStyle: CURSOR_DEFAULTS.style, arrowSize: CURSOR_DEFAULTS.arrowSize, arrowFill: CURSOR_DEFAULTS.arrowFill, arrowOutline: CURSOR_DEFAULTS.arrowOutline,
+      arrowOutlineWidth: CURSOR_DEFAULTS.arrowOutlineWidth, arrowRounding: CURSOR_DEFAULTS.arrowRounding, arrowShadow: CURSOR_DEFAULTS.arrowShadow, arrowTilt: CURSOR_DEFAULTS.arrowTilt,
       cursorSize: CURSOR_DEFAULTS.size, cursorStroke: CURSOR_DEFAULTS.stroke, cursorAdaptive: true, cursorCoreColor: CURSOR_DEFAULTS.coreColor, cursorCoreColorDark: CURSOR_DEFAULTS.coreColorDark,
       cursorHaloWidth: CURSOR_DEFAULTS.haloWidth, cursorHaloColor: CURSOR_DEFAULTS.haloColor, cursorHaloOpacity: CURSOR_DEFAULTS.haloOpacity,
       cursorDotColor: CURSOR_DEFAULTS.dotColor, cursorGap: CURSOR_DEFAULTS.gap,
@@ -492,7 +495,60 @@
                 </figure>
               {/each}
             </div>
-            <p class="hint">The crosshair is the pointer everywhere in Flux, and one mark that changes form: over a handle or edge its arms become the resize arrows, outside a corner the rotate arc, while dragging the pressed cross grows four heads. These knobs shape every state together; hover a tile to see the real cursor.</p>
+            <p class="hint">The pointer of the Figure and Slide editors (Paper, Reader and Library keep the system's). It is one mark that changes form: over a handle or edge it becomes the resize arrows, outside a corner the rotate arc, and it keeps that form for the whole drag. Hover a tile to see the real cursor.</p>
+            <label class="row">
+              <span>Style</span>
+              <select bind:value={$settings.cursorStyle} aria-label="Cursor style">
+                <option value="classic">Classic arrow</option>
+                <option value="crosshair">Crosshair</option>
+              </select>
+            </label>
+            {#if $settings.cursorStyle === "classic"}
+              <div class="row cursor-colour">
+                <span>Fill</span>
+                <ColorField value={$settings.arrowFill} fallback={CURSOR_DEFAULTS.arrowFill} label="Arrow fill colour" onchange={(hex) => settings.update((v) => ({ ...v, arrowFill: hex }))} />
+              </div>
+              <div class="row cursor-colour">
+                <span>Outline</span>
+                <ColorField value={$settings.arrowOutline} fallback={CURSOR_DEFAULTS.arrowOutline} label="Arrow outline colour" onchange={(hex) => settings.update((v) => ({ ...v, arrowOutline: hex }))} />
+              </div>
+              <label class="chk num">
+                Size
+                <input type="number" min={ARROW_SIZE_RANGE.min} max={ARROW_SIZE_RANGE.max} step="1" value={$settings.arrowSize} aria-label="Arrow size"
+                  onchange={(e) => settings.update((v) => ({ ...v, arrowSize: num(e.currentTarget.value, ARROW_SIZE_RANGE.min, ARROW_SIZE_RANGE.max, CURSOR_DEFAULTS.arrowSize, 1) }))} />
+                px
+              </label>
+              <label class="chk num">
+                Outline width
+                <input type="number" min={ARROW_OUTLINE_RANGE.min} max={ARROW_OUTLINE_RANGE.max} step="0.1" value={$settings.arrowOutlineWidth} aria-label="Arrow outline width"
+                  onchange={(e) => settings.update((v) => ({ ...v, arrowOutlineWidth: num(e.currentTarget.value, ARROW_OUTLINE_RANGE.min, ARROW_OUTLINE_RANGE.max, CURSOR_DEFAULTS.arrowOutlineWidth, 0.1) }))} />
+                px
+              </label>
+              <label class="chk num">
+                Corner rounding
+                <input type="number" min={ARROW_ROUNDING_RANGE.min} max={ARROW_ROUNDING_RANGE.max} step="0.1" value={$settings.arrowRounding} aria-label="Arrow corner rounding"
+                  onchange={(e) => settings.update((v) => ({ ...v, arrowRounding: num(e.currentTarget.value, ARROW_ROUNDING_RANGE.min, ARROW_ROUNDING_RANGE.max, CURSOR_DEFAULTS.arrowRounding, 0.1) }))} />
+                px
+              </label>
+              <label class="chk num">
+                Shadow
+                <input type="number" min={ARROW_SHADOW_RANGE.min} max={ARROW_SHADOW_RANGE.max} step="0.05" value={$settings.arrowShadow} aria-label="Arrow shadow amount"
+                  onchange={(e) => settings.update((v) => ({ ...v, arrowShadow: num(e.currentTarget.value, ARROW_SHADOW_RANGE.min, ARROW_SHADOW_RANGE.max, CURSOR_DEFAULTS.arrowShadow, 0.05) }))} />
+                (0 = none, 1 = strong)
+              </label>
+              <label class="chk num">
+                Tilt
+                <input type="number" min={ARROW_TILT_RANGE.min} max={ARROW_TILT_RANGE.max} step="1" value={$settings.arrowTilt} aria-label="Arrow tilt"
+                  onchange={(e) => settings.update((v) => ({ ...v, arrowTilt: num(e.currentTarget.value, ARROW_TILT_RANGE.min, ARROW_TILT_RANGE.max, CURSOR_DEFAULTS.arrowTilt, 1) }))} />
+                °
+              </label>
+              <div class="row cursor-colour">
+                <span>Dot colour</span>
+                <ColorField value={$settings.cursorDotColor} fallback={CURSOR_DEFAULTS.dotColor} label="Dot colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorDotColor: hex }))} />
+              </div>
+              <p class="hint">Figma's arrow: a dark fill under a light outline, with a slight lift. The resize and rotate arrows use the same fill and outline; the dot colour marks the rotate centre and the duplicate badge.</p>
+            {/if}
+            {#if $settings.cursorStyle === "crosshair"}
             <label class="row">
               <span>Colours</span>
               <select value={cursorPreset} onchange={(e) => applyCursorPreset(e.currentTarget.value)} aria-label="Cursor colour preset">
@@ -567,6 +623,7 @@
               <input type="checkbox" checked={$settings.cursorPressContract} onchange={(e) => settings.update((v) => ({ ...v, cursorPressContract: e.currentTarget.checked }))} />
               Arms pull in while pressing
             </label>
+            {/if}
             <label class="chk">
               <input type="checkbox" checked={$settings.cursorResizeStyle === "system"} onchange={(e) => settings.update((v) => ({ ...v, cursorResizeStyle: e.currentTarget.checked ? "system" : "crosshair" }))} />
               Use the system's resize, rotate and move cursors instead
