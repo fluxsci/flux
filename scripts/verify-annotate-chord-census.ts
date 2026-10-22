@@ -8,6 +8,7 @@ const exemptions: Record<string, string> = {
   'src/shell/agent/AnnotationSurface.svelte:onKey': 'The annotation modal owns this keymap.',
   'src/shell/modes/paper/margin/DynamicBackground.svelte:yieldToTyping': 'Passive animation observer: pauses background drawing; never consumes or edits input.',
   'src/shell/modes/figure/FigureMode.svelte:handleKey': 'Delegates to lib/keyboard.ts:handleKey, whose guard is checked below.',
+  'src/lib/cursor/cursorPress.ts:key': 'Passive cursor-press canceller: Escape only resets a finite hardware-cursor animation; never consumes or edits input.',
 };
 const local: Record<string, string> = {
   'src/lib/model3d/notebookViewer.ts:stage': 'Standalone notebook viewer stage; local axis/Home keys, deliberately no Flux app keymap.',

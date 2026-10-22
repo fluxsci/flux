@@ -1864,6 +1864,10 @@ Persistence invariants (all machine-checked — do not weaken):
     the chord to the opener; `win:capture {target:"sender"}` captures the sender window;
     `{target:"child"}` can capture only that opener's focused child. Surface z-index is
     2000, above Help, Settings and Present.
+    Every `window` keydown listener under `src/` must call `yieldsToShellModal(e)` first or carry
+    an entry in the census's `exemptions` map, reserved for passive observers that consume nothing
+    (e.g. `cursor/cursorPress.ts` resets a hardware-cursor animation on Escape); the census fails
+    closed on additions and on stale exemptions.
     Gates: `verify-annotate-chord-census.ts`, `verify-context-stamp.ts`,
     `verify-feedback-snapshot.ts`, `verify-annotation-core.ts` (pure);
     `verify-annotation-surface-gui.mjs`, `verify-scale-annotate-hover.mjs`,
@@ -2536,6 +2540,10 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   keyed by script name and `glob`) and keep each side's new pathMap rules anchored to their
   shared neighbours; appending one side's rules after the other's lets a broad rule shadow a
   specific one (`verify-changed-pathmap` catches it).
+  Adding a script to an EXISTING pathMap rule must also extend that path's pin in
+  `verify-changed-pathmap.mjs` (`actualCases` pins exact routes and fails closed): 2026-10-22,
+  `verify-cursor-press.mjs` joined four cursor routes on the Mac, the five pins stayed stale, and
+  main arrived red because the focused gates run there never included the pure tier.
   `group:paper-gate` is the paper editor's regression suite. `group:model3d` is the 3D suite;
   `group:model3d-pure` and `group:model3d-ui` are its pure and dev-server slices, and the
   native S8 cohort (`verify-model3d-s8.cjs`) and eight-model scale gate need a quiet display. Use
@@ -10419,3 +10427,7 @@ arrow, bands show the outlined resize arrows — then the crosshair legs under `
 ### 2026-10-22 01:36 CDT — Promote the tuned pink cursor and prepare main (Codex, main)
 **Work:** Read the live owner's Cursor panel and promoted its exact active appearance and motion: classic arrow, #ff60fc fill, #07043c outline, 22 px size, 1.3 px outline, 0.9 px corners, 0.6 shadow, 0° tilt, #4385be accent, family resize cursors, press enabled at 1.25× / 80 ms. Regenerated static first-paint cursors; fresh-profile and Reset checks pin the appearance and motion together. Reviewed the pending Figure/Slide fixes for this commit; corrected Figure-to-deck page sizing to use its invocation snapshot and added layout/snapshot, legend-swatch and set-handoff glyph coverage. The font fixture now uses macOS Supplemental faces and fixes the Windows fallback path escape, so the formerly blocked glyph gate passes here. Build, renderer/headless checks, all four cursor gates, player, conversion, marquee, model3d-core and glyph-outline gates pass. Main includes the fetched upstream tip; no push performed.
 **Learnings:** Updated the cursor defaults/timing and platform font-fixture guidance in the body. Existing stored preferences remain intact; defaults and Reset now reproduce the owner's tuned cursor.
+
+### 2026-10-22 10:55 CDT — Pull + verify the Mac's four commits on the Linux box (Claude Fable 5.1, main)
+**Work:** Fast-forwarded main 1056642e → 3464787f (sRGB live-view probe, exFAT `publishExclusive` fallback, upstream merge, pink cursor press). Merge resolutions clean. svelte-check 0/0; pure 388/388 after fixes; ui 154/154; build OK. Fixed: five stale `verify-changed-pathmap` pins for `verify-cursor-press.mjs`; census exemption for `cursorPress.ts`'s passive Escape listener; **packaging** — `electron/fsExclusive.cjs` (required by the unpacked `videoMedia.cjs`/`model3dImport.cjs`) and `workerCancel.cjs`/`slideAudioGraph.cjs` (required by the unpacked workers) were missing from `asarUnpack`, so packaged Node-mode CLI/MCP video and 3D-import commands would die with "Cannot find module './fsExclusive.cjs'" (`verify-slide-video-media-electron` caught it; its probe and the export probe copy lists updated). Electron tier NOT completed here: it opens real windows on the owner's seat (no Xvfb) and was stopped at 17/36; reds seen were environment (Xvfb, proxy fixtures, correction model) plus the packaging gap above.
+**Learnings:** Mac sessions run focused gates only — run the pure tier after every Mac pull. `verify-packaged-requires` checks npm packages, not the relative-require closure of `asarUnpack`; that closure check is still manual (python one-off this session) and worth a gate.

@@ -76,6 +76,12 @@ asarUnpack:
   - electron/videoMedia.cjs
   - electron/model3dImport.cjs
   - electron/fsRetry.cjs
+  # Node-mode children (the CLI/MCP bundles, the workers launched from app.asar.unpacked)
+  # have NO asar support, so every relative require of an unpacked module must be unpacked too:
+  # videoMedia/model3dImport → fsExclusive → fsRetry; slideVideoWorker → slideAudioGraph, workerCancel.
+  - electron/fsExclusive.cjs
+  - electron/slideAudioGraph.cjs
+  - electron/workerCancel.cjs
   - src/lib/model3d/importData.native.gen.mjs
   # fonts:lookup resolves system font files through the shared resolver.
   - src/lib/text/fontFiles.mjs
