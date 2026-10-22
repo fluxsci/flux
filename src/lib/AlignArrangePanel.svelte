@@ -45,7 +45,7 @@
     const signature = `${state.id}:${state.plot.units.map(u => `${u.id}:${u.choiceX}:${u.choiceY}:${u.optionsX.length}:${u.optionsY.length}`).join("|")}`;
     if (signature !== detailState.signature) {
       detailState.signature = signature;
-      if (state.plot.units.some(u => (!u.choiceX && u.optionsX.length > 1) || (!u.choiceY && u.optionsY.length > 1))) plotDetailsOpen = true;
+      if (state.plot.units.some(u => (!u.choiceX && u.optionsX.length > 0) || (!u.choiceY && u.optionsY.length > 0))) plotDetailsOpen = true;
     }
   }
   function focusSurface() { void tick().then(() => { if (state) panel?.focus({ preventScroll: true }); }); }
@@ -137,7 +137,7 @@
             {#if state.plot.units.length}<label class="select-row"><span>Reference</span><select aria-label="Plot alignment reference" value={state.plot.referenceId} on:change={(e) => setPlotAlignReference(e.currentTarget.value)}>{#each state.plot.units as unit}<option value={unit.id}>{unit.label}</option>{/each}</select></label>{/if}
             {#if state.plot.reasonX}<p class="hint">X: {state.plot.reasonX}</p>{/if}
             {#if state.plot.reasonY && state.plot.reasonY !== state.plot.reasonX}<p class="hint">Y: {state.plot.reasonY}</p>{/if}
-            {#if state.plot.units.some(u => u.optionsX.length > 1 || u.optionsY.length > 1)}
+            {#if state.plot.units.some(u => u.explicitChoice || u.optionsX.length > 1 || u.optionsY.length > 1 || (!u.choiceX && u.optionsX.length > 0) || (!u.choiceY && u.optionsY.length > 0))}
               <details bind:open={plotDetailsOpen}><summary>Plot, panel &amp; spine choices</summary>{#each state.plot.units as unit}<div class="plot-choice"><strong>{unit.label}</strong>{#each ["x","y"] as axis}<label class="select-row"><span>{axis.toUpperCase()} spine</span><select aria-label={`${unit.label} ${axis.toUpperCase()} spine`} value={axis === "x" ? unit.choiceX : unit.choiceY} on:change={(e) => setPlotAlignChoice(unit.id, axis as "x"|"y", e.currentTarget.value)}><option value="">Choose a spine</option>{#each axis === "x" ? unit.optionsX : unit.optionsY as option}<option value={option.value}>{option.label}</option>{/each}</select></label>{/each}</div>{/each}</details>
             {/if}
           {/if}

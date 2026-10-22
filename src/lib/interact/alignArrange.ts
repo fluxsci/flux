@@ -25,7 +25,7 @@ export interface AlignArrangeState {
   bounds: Rect | null; hover: AlignKind | 'plot-x' | 'plot-y' | 'gap-x' | 'gap-y' | null;
   referenceBounds?: Rect;
   plot?: { loading: boolean; reasonX?: string; reasonY?: string; referenceId: string;
-    units: { id: string; label: string; choiceX: string; choiceY: string; optionsX: {value:string;label:string}[]; optionsY: {value:string;label:string}[] }[] };
+    units: { id: string; label: string; choiceX: string; choiceY: string; explicitChoice: boolean; optionsX: {value:string;label:string}[]; optionsY: {value:string;label:string}[] }[] };
 }
 export const alignArrange = writable<AlignArrangeState | null>(null);
 export const arrangementPreview = writable<{figureId:string; plan:ArrangementPlan; transforms:Map<string,string>} | null>(null);
@@ -48,7 +48,9 @@ const visit = editSession({handoff:'finish', terminalOnConflict:true, onSettle:(
 function figure(): Figure | undefined { return captured ? get(project).figures.find(f=>f.id===captured!.figureId) : undefined; }
 function write(fn:()=>void) { ownWrite=true; try { fn(); } finally { ownWrite=false; } }
 function publish(state: AlignArrangeState) {
-  state={...state,referenceBounds:state.mode==='align'&&state.alignTarget==='reference'?snapshot?.units.find(u=>u.key===state.referenceId)?.bounds:undefined};
+  const scientific=state.hover==='plot-x'||state.hover==='plot-y';
+  const referenceId=scientific?state.plot?.referenceId:state.alignTarget==='reference'?state.referenceId:undefined;
+  state={...state,referenceBounds:state.mode==='align'&&referenceId?snapshot?.units.find(u=>u.key===referenceId)?.bounds:undefined};
   alignArrange.set(state);
   arrange.set(state.mode==='arrange' && !state.blockedReason && state.count>=2 ? {active:true,n:state.count,rows:state.rows,cols:state.cols}:null);
 }
@@ -271,9 +273,14 @@ function refreshPlotChoices() {
   const items=units.map(u=>{
     const resolutions={x:resolveUnitSpine(u,'x',ctx,choices.x[u.key]),y:resolveUnitSpine(u,'y',ctx,choices.y[u.key])};
     for(const axis of ['x','y'] as const)if(resolutions[axis].reason)reasons[axis]??=`${names.get(u.key)??u.key}: ${resolutions[axis].reason}`;
-    const options=(axis:Axis)=>resolutions[axis].candidates.filter(c=>c.eligible).map(c=>({value:JSON.stringify({plotId:c.plotId,panelId:c.panelId,spineId:c.spineId}),label:c.label}));
+    const plots=u.members.filter(e=>e.type==='plot'), assets=get(project).assets;
+    const plotNames=new Map(plots.map((e,i)=>{
+      const name=('name' in e&&e.name?String(e.name):assets.find(a=>a.id===e.assetId)?.name)||'Plot';
+      return [e.id,plots.length>1?`Plot ${i+1} · ${name}`:name];
+    }));
+    const options=(axis:Axis)=>resolutions[axis].candidates.filter(c=>c.eligible).map(c=>({value:JSON.stringify({plotId:c.plotId,panelId:c.panelId,spineId:c.spineId}),label:`${plotNames.get(c.plotId)??'Plot'} · ${c.label}`}));
     const choice=(axis:Axis)=>{const l=resolutions[axis].landmark;return choices[axis][u.key]?JSON.stringify(choices[axis][u.key]):l?JSON.stringify({plotId:l.plotId,panelId:l.panelId,spineId:l.spineId}):'';};
-    return {id:u.key,label:names.get(u.key)??u.key,choiceX:choice('x'),choiceY:choice('y'),optionsX:options('x'),optionsY:options('y')};
+    return {id:u.key,label:names.get(u.key)??u.key,choiceX:choice('x'),choiceY:choice('y'),explicitChoice:!!choices.x[u.key]||!!choices.y[u.key],optionsX:options('x'),optionsY:options('y')};
   });
   publish({...s,plot:{loading,referenceId,reasonX:s.blockedReason??reasons.x??(units.length<2?'Select two or more plot units':undefined),reasonY:s.blockedReason??reasons.y??(units.length<2?'Select two or more plot units':undefined),units:items}});
 }

@@ -27,8 +27,14 @@ async function seed(options = {}) {
         { id: 'spine-b', name: options.multi ? 'Multi' : 'Second plot', type: 'plot', assetId: options.multi ? 'spine-multi' : 'spine-box', x: 430, y: 240, width: options.multi ? 600 : 300, height: options.multi ? 400 : 180, rotation: 0, groupId: 'spine-group', overrides: options.hidden ? { 'axis.x.spine': { hidden: true } } : { 'axis.x.spine': { dy: -4 } }, ...(options.crop ? { crop: { x: 60, y: 36, width: 120, height: 72 } } : {}) },
         { id: 'spine-letter', type: 'text', text: 'B', x: 408, y: 230, width: 20, height: 22, rotation: 0, fontFamily: 'Arial', fontSize: 18, fontWeight: 700, fontStyle: 'normal', align: 'left', color: '#111111', groupId: 'spine-group', ...(options.locked ? { locked: true } : {}) },
       ];
+      if(options.singlePanel){
+        const overrides={};
+        const hide=node=>{if(node.ref?.includes('.spine.')&&!node.ref.startsWith('panel.fit.'))overrides[node.ref]={hidden:true};for(const child of node.children??[])hide(child);};
+        hide(data.multi.manifest.parts);figure.elements[1].overrides=overrides;
+      }
+      if(options.groupSecond)figure.elements.push({id:'spine-c',name:'Second plot',type:'plot',assetId:'spine-box',x:760,y:240,width:240,height:144,rotation:0,groupId:'spine-group',...(options.singleRepresentative?{overrides:{'axis.x.spine':{hidden:true},'axis.y.spine':{hidden:true}}}:{})});
     });
-    s.selection.set(new Set(['spine-a', 'spine-b', 'spine-letter']));
+    s.selection.set(new Set(['spine-a', 'spine-b', 'spine-letter',...(options.groupSecond?['spine-c']:[])]));
     s.viewport.set({ panX: 30, panY: 30, zoom: options.zoom ?? .8 });
     s.resetHistory(); s.dirty.set(false); document.activeElement?.blur();
   }, { data, options });
@@ -64,6 +70,8 @@ try {
   await page.hover('.spine-buttons button:first-child');
   await waitForFrame(page);
   h.ok(await page.evaluate(() => window.__flux.get(window.__flux.layout.alignmentGuides).length >= 2), 'hover previews actual spine guides');
+  h.eq((await read()).state.referenceBounds,{x:60,y:80,w:240,h:144},'scientific hover identifies its default reference independently of ordinary Selection target');
+  h.ok(await page.$eval('.reference-outline',r=>Math.abs(Number(r.getAttribute('x'))-(30+60*.8-3))<1e-9),'rendered reference outline surrounds the actual fixed plot');
   await page.click('.spine-buttons button:first-child');
   await waitForFrame(page);
   const after = await read();
@@ -83,11 +91,17 @@ try {
   h.eq((await read()).elements, after.elements, 'real Redo restores exact aligned positions');
   await open();
   await page.select('[aria-label="Plot alignment reference"]', 'g:spine-group');
+  await page.hover('.spine-buttons button:nth-child(2)');await waitForFrame(page);
   const beforeY = await read();
+  const groupOutline=await page.$eval('.reference-outline',r=>['x','y','width','height'].map(k=>r.getAttribute(k)));
+  h.eq(beforeY.state.referenceBounds.x,408,'scientific reference outline includes the grouped annotation');
   await page.click('.spine-buttons button:nth-child(2)'); await waitForFrame(page);
   const ay = await spine('spine-a', 'axis.y.spine'), by = await spine('spine-b', 'axis.y.spine');
   h.ok(Math.abs(ay.ends[0].x - by.ends[0].x) < .25, 'explicit second reference aligns actual Y spines');
   h.eq((await read()).elements.slice(1), beforeY.elements.slice(1), 'chosen group reference and its annotation stay fixed');
+  await page.hover('.spine-buttons button:first-child');await waitForFrame(page);
+  h.eq((await read()).state.plot.referenceId,'g:spine-group','scientific reference remains pinned after alignment');
+  h.eq(await page.$eval('.reference-outline',r=>['x','y','width','height'].map(k=>r.getAttribute(k))),groupOutline,'scientific reference outline remains fixed across successive axis actions');
 
   await seed({ multi: true }); await open();
   h.ok(await page.$eval('.spine-buttons button:first-child', b => b.disabled), 'multipanel plot is disabled until a panel is chosen');
@@ -107,6 +121,24 @@ try {
   await page.click('.spine-buttons button:first-child'); await waitForFrame(page);
   const multiA = await spine('spine-a', 'axis.x.spine'), multiB = await spine('spine-b', 'panel.fit.axis.x.spine.bottom');
   h.ok(Math.abs(multiA.ends[0].y - multiB.ends[0].y) < .25, 'explicit multipanel alignment agrees with rendered browser geometry');
+
+  for(const options of [{multi:true,singlePanel:true},{groupSecond:true,singleRepresentative:true}]){
+    await seed(options);await open();
+    const unit=(await read()).state.plot.units.find(u=>u.id==='g:spine-group');
+    h.eq(unit.optionsX.length,1,'ambiguous unit has exactly one eligible X candidate');
+    h.ok(await page.$eval('.plots-section details',d=>d.open),'single eligible ambiguous choice is visible and expanded');
+    h.ok(await page.$eval('.spine-buttons button:first-child',b=>b.disabled),'representative/panel choice remains explicit');
+    await page.select('.plot-choice:last-child select:first-of-type',unit.optionsX[0].value);await waitForFrame(page);
+    h.ok(await page.$eval('.spine-buttons button:first-child',b=>!b.disabled),'sole eligible representative/panel can be selected');
+    h.ok(!!await page.$('.plots-section details'),'explicit choice remains inspectable after selection');
+    const fixed=(await read()).elements[0];await page.click('.spine-buttons button:first-child');await waitForFrame(page);
+    h.eq((await read()).elements[0],fixed,'single eligible choice applies without moving its reference');
+  }
+  await seed({groupSecond:true});await open();
+  const representatives=(await read()).state.plot.units.find(u=>u.id==='g:spine-group').optionsX;
+  h.eq(new Set(representatives.map(o=>o.label)).size,2,'identically named plots retain distinct representative labels');
+  h.ok(representatives.some(o=>o.label.startsWith('Plot 1 · Second plot ·'))&&representatives.some(o=>o.label.startsWith('Plot 2 · Second plot ·')),'representative labels use stable readable ordinals for same-named plots');
+  h.ok(representatives.every(o=>!o.label.includes('spine-b')&&!o.label.includes('spine-c')),'raw plot IDs remain option values rather than visible labels');
 
   for (const options of [{ hidden: true }, { crop: true }, { locked: true }]) {
     await seed(options); const unchanged = (await read()).elements; await open();
