@@ -48,6 +48,7 @@ import { elementStageOutlines } from "../targetGeometry";
 import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type SampledPath } from "../correspondence";
 import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
+import { morphJoin } from "../../strokeStyle";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
@@ -303,6 +304,7 @@ export function createTransform(
     set(L.body, "stroke", paint.stroke);
     set(L.body, "stroke-width", String(el.strokeWidth));
     set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
+    set(L.body, "stroke-linejoin", morphJoin(pre, end, t));   // T7: inherit the resting join (rect miter / path round)
     const dash = dashAttr(el);
     if (dash) set(L.body, "stroke-dasharray", dash); else L.body.removeAttribute("stroke-dasharray");
     for (const [name, v] of [["fill-opacity", channelOpacity(el.fillOpacity)], ["stroke-opacity", channelOpacity(el.strokeOpacity)]] as const)

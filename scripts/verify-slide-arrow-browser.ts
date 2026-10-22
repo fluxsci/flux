@@ -6,7 +6,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createDeck } from "../src/lib/slide/ops";
+import { createDeck, becomeTransform } from "../src/lib/slide/ops";
+import { cornerJoinOf, morphJoin } from "../src/lib/strokeStyle";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { Slide } from "../src/lib/slide/types";
 import type { LineElement } from "../src/lib/types";
@@ -27,6 +28,19 @@ try {
     ] };
     deck.slides.push(slide);
   }
+  // WP 1.8 join law (src/lib/strokeStyle.ts): a stroked rect keeps its miter corners and a closed path its round ones, at rest AND in the
+  // live Become layer, so the layer swap never pops. Kinds without corners (ellipse, line) carry no preference and inherit the other side.
+  const joinFirst = deck.slides.length, joinCases = [["rect", "ellipse"], ["path", "ellipse"], ["rect", "path"]] as const;
+  for (const [src, dst] of joinCases) {
+    const shape = (type: string, id: string, x: number) => type === "rect" ? { id, type: "rect" as const, x, y: 110, width: 140, height: 140, rotation: 0, fill: "none", stroke: "#205ea6", strokeWidth: 12, cornerRadius: 0 }
+      : type === "ellipse" ? { id, type: "ellipse" as const, x, y: 110, width: 140, height: 140, rotation: 0, fill: "none", stroke: "#af3029", strokeWidth: 12 }
+      : { id, type: "path" as const, x, y: 110, width: 140, height: 140, rotation: 0, d: "M 0 0 L 140 0 L 140 140 L 0 140 Z", fill: "none", stroke: "#205ea6", strokeWidth: 12, closed: true };
+    const slide: Slide = { id: `join-${src}-${dst}`, elements: [shape(src, "a", 120), shape(dst, "b", 380)], beats: [{ id: "base", tracks: [] }] };
+    deck.slides.push(slide);
+    const beat = { id: "become", tracks: [] }; slide.beats.push(beat);
+    assert.ok(becomeTransform(deck, slide.id, beat.id, "a", "b"), `${slide.id}: Become authored`);
+    for (const t of beat.tracks) { t.duration = 1000; t.easing = "linear"; }
+  }
   const file = path.join(tmp, "arrows.html"); await fs.writeFile(file, (await exportDeckHtml({ deck })).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
   const errors: string[] = []; page.on("pageerror", (e: Error) => errors.push(String(e)));
@@ -41,7 +55,7 @@ try {
     const rect = line.getBoundingClientRect(), box = wrap.getBoundingClientRect();
     return { start, end, headEnd, gap: Math.hypot(end.x-headEnd.x,end.y-headEnd.y), length: Math.hypot(end.x-start.x,end.y-start.y), bounds: { x: (rect.x-box.x)/scale, y: (rect.y-box.y)/scale, right: (rect.right-box.right)/scale, bottom: (rect.bottom-box.bottom)/scale }, visibility: getComputedStyle(wrap).visibility };
   })()`);
-  for (let si=0;si<deck.slides.length;si++) {
+  for (let si=0;si<joinFirst;si++) {
     const label = deck.slides[si].id;
     for (const [beat,time] of [[1,400],[2,300],[1,200],[0,0],[1,0],[2,150],[1,400]] as const) {
       await page.evaluate((s,b,t) => (window as any).fluxDeck.seek(s,b,t), si,beat,time);
@@ -56,6 +70,17 @@ try {
   check(live.gap<.01 && Math.abs(live.length-111)<.01, "actual clock playback keeps the rotating zero-height arrow intact");
   await page.waitForFunction("!window.fluxDeck.state().playing");
   check((await inspect()).gap<.01, "actual playback reaches the negative-rotation endpoint without a stray shaft");
+  for (const [k, [src, dst]] of joinCases.entries()) {
+    const si = joinFirst + k, label = `${src} -> ${dst}`;
+    await page.evaluate((s) => (window as any).fluxDeck.seek(s, 0, 0), si);
+    const staticJoin = await page.evaluate(`(() => { const n = document.querySelector('[data-el-id="a"] ${src === "rect" ? "rect" : "path"}'); return n ? getComputedStyle(n).strokeLinejoin : null; })()`);
+    check(staticJoin === cornerJoinOf({ type: src }), `${label}: the resting ${src} draws stroke-linejoin ${cornerJoinOf({ type: src })} (got ${staticJoin})`);
+    for (const t of [0.2, 0.8]) {
+      await page.evaluate((s, ms) => (window as any).fluxDeck.seek(s, 1, ms), si, t * 1000);
+      const live = await page.evaluate(`(() => { const body = [...document.querySelector('[data-el-id="a"]').querySelectorAll("svg > path")].filter((p) => getComputedStyle(p).visibility !== "hidden"); return body.length === 1 ? getComputedStyle(body[0]).strokeLinejoin : "bodies:" + body.length; })()`);
+      check(live === morphJoin({ type: src }, { type: dst }, t), `${label} at t=${t}: the morph body draws stroke-linejoin ${morphJoin({ type: src }, { type: dst }, t)} (got ${live})`);
+    }
+  }
   check(errors.length===0, `arrow runtime console clean: ${errors.join("; ")}`);
 } finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 console.log(`ARROW BROWSER: PASS (${checks} assertions)`);
