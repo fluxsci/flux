@@ -12,6 +12,7 @@ import {exportSlideVideo} from '../../flux-core/slideVideo';
 import {exportSlideVideoHtml} from '../../src/lib/slide/export/exportDeck';
 import {launch} from './driver.mjs';
 const require=createRequire(import.meta.url);require('./nestedVideoTestLaunch.cjs').installNestedVideoTestLaunch();
+const {VIDEO_COLOR_FILTER,VIDEO_COLOR_TAGS}=require('../../electron/slideVideoWorker.cjs') as {VIDEO_COLOR_FILTER:string;VIDEO_COLOR_TAGS:string[]};
 const scratch=process.env.PROBE_SCRATCH!;assert.ok(scratch&&process.env.HOME?.startsWith(scratch));
 const root=path.join(scratch,'project'),out=path.resolve('test-results/model3d/video');await fs.mkdir(out,{recursive:true});await core.scaffold(root,{title:'3D video gate'});
 const {deckId}=await core.createDeck(root,{id:'model-video',theme:'flux-light'});
@@ -50,10 +51,10 @@ for(const [name,item]of [['turntable',turn],['morph',morph]] as const){
     r.view.render({...r.element,x:0,y:0,orbitAzimuth:r.element.orbitAzimuth-360*Math.min(1,frame/60)},c.width,c.height,{manifest:r.manifest});
    },frame);
    const png=await page.screenshot();
-   // Match the production codec/color conversion before pixel comparison:
-   // its ordinary RGB->YUV420->RGB roundtrip maps white255 to253 on this encoder.
-   // This control preserves the declared tolerance and isolates rendering/timing.
-   const referenceEncoded=spawnSync(encoder,['-hide_banner','-loglevel','error','-f','image2pipe','-vcodec','png','-framerate','60','-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-threads','2','-f','matroska','pipe:1'],{input:png,maxBuffer:8*1024*1024,timeout:10000});assert.equal(referenceEncoded.status,0,referenceEncoded.stderr.toString());
+   // Match the production codec/color conversion before pixel comparison: the worker's own BT.709 limited-range
+   // filter and tags (electron/slideVideoWorker.cjs VIDEO_COLOR_FILTER / VIDEO_COLOR_TAGS), so the RGB->YUV420->RGB
+   // roundtrip of the control is the production one. This control preserves the declared tolerance and isolates rendering/timing.
+   const referenceEncoded=spawnSync(encoder,['-hide_banner','-loglevel','error','-f','image2pipe','-vcodec','png','-framerate','60','-i','pipe:0','-an','-vf',VIDEO_COLOR_FILTER,'-c:v','libx264','-preset','fast','-crf','18',...VIDEO_COLOR_TAGS,'-threads','2','-f','matroska','pipe:1'],{input:png,maxBuffer:8*1024*1024,timeout:10000});assert.equal(referenceEncoded.status,0,referenceEncoded.stderr.toString());
    const expected=spawnSync(encoder,['-hide_banner','-loglevel','error','-i','pipe:0','-vf','scale=320:180','-pix_fmt','rgb24','-f','rawvideo','pipe:1'],{input:referenceEncoded.stdout,maxBuffer:2*1024*1024,timeout:10000});assert.equal(expected.status,0,expected.stderr.toString());assert.equal(expected.stdout.length,stride);
    const actual=decoded.stdout.subarray(frame*stride,(frame+1)*stride);let sum=0,bad=0;for(let i=0;i<stride;i++){const d=Math.abs(actual[i]-expected.stdout[i]);sum+=d;if(d>20)bad++;}
    const mae=sum/stride,fraction=bad/stride;if(mae>2||fraction>.01){await fs.writeFile(path.join(out,`${name}-mismatch-${frame}-expected.png`),png);await fs.writeFile(path.join(out,`${name}-mismatch-${frame}-actual.rgb`),actual);console.log('MISMATCH',JSON.stringify({name,frame,mae,fraction,actualCorner:[...actual.subarray(0,3)],expectedCorner:[...expected.stdout.subarray(0,3)]}));}assert.ok(mae<=2&&fraction<=.01,`${name} frame${frame}: encoded seek mismatch MAE${mae} fraction${fraction}`);measured.push({frame,mae,fraction});
