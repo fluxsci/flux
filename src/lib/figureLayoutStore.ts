@@ -25,17 +25,29 @@ const KEY = "flux.figure.layout";
 
 // Defaults match the values the panes shipped with as fixed widths.
 export const FIGURE_LAYOUT_DEFAULTS: FigureLayout = { sidebarW: 200, inspectorW: 248, leftView: "layers", plotsRailW: 320, plotsSplit: 0.62, galleryCollapsed: false, dissectCollapsed: false };
-/** Bounds for the Plots view width (the upper one also yields to half the window at drag time). */
+/** The Plots view's narrowest width. */
 export const PLOTS_RAIL_MIN = 220;
-export const PLOTS_RAIL_MAX = 720;
+/** The left rail has NO fixed widest width (owner, 2026-10-22): it may grow until the canvas keeps
+ *  CANVAS_MIN_W px beside the right rail (`leftRailMax`). A stored width beyond the current window
+ *  is kept and shown clamped, so widening the window brings it back. */
+export const CANVAS_MIN_W = 240;
+/** A sanity bound for the persisted value only (no screen is this wide). */
+export const LEFT_RAIL_STORED_MAX = 8000;
+export function leftRailMax(bodyWidth: number, rightRailW: number): number {
+  return Math.max(0, Math.round(bodyWidth - rightRailW - CANVAS_MIN_W));
+}
+/** The width to SHOW: the stored one, within [min, leftRailMax] (min wins on a tiny window). */
+export function shownLeftRailW(stored: number, min: number, bodyWidth: number, rightRailW: number): number {
+  return bodyWidth > 0 ? Math.max(min, Math.min(stored, leftRailMax(bodyWidth, rightRailW))) : stored;
+}
 
 function load(): FigureLayout {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const v = decodePreferences(JSON.parse(raw), FIGURE_LAYOUT_DEFAULTS, {
-        sidebarW: { min: 140, max: 420 }, inspectorW: { min: 200, max: 480 },
-        leftView: { enum: ["layers", "plots"] }, plotsRailW: { min: PLOTS_RAIL_MIN, max: PLOTS_RAIL_MAX },
+        sidebarW: { min: 140, max: LEFT_RAIL_STORED_MAX }, inspectorW: { min: 200, max: 480 },
+        leftView: { enum: ["layers", "plots"] }, plotsRailW: { min: PLOTS_RAIL_MIN, max: LEFT_RAIL_STORED_MAX },
         plotsSplit: { min: 0.05, max: 0.95 },
       });
       // Both panes collapsed is not a state the rail offers.

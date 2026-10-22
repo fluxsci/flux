@@ -10,7 +10,8 @@
 //     pre-warm path is gated in verify-plot-thumbs.ts, Slide's routing in -slide.mjs).
 //   Run: node scripts/run-verifies.mjs --tier pure --only verify-plots-rail-model
 import { harness } from "./lib/harness.mjs";
-import { applyFilters, anyFilter, inFolder, parentFolder, similarTo, variantKey, stackVariants, widthClass, formatMm, relativeTime, formatBytes, type ModelItem } from "../src/lib/plotsRail/galleryModel";
+import { applyFilters, anyFilter, inFolder, parentFolder, similarTo, variantKey, stackVariants, widthClass, relativeTime, formatBytes, type ModelItem } from "../src/lib/plotsRail/galleryModel";
+import { formatSizePx, formatSizeMm, formatWidthMm } from "../src/lib/figure/physicalUnits";
 import { tablePreview, CARD_ROWS } from "../src/lib/plotsRail/tableCard";
 
 const h = harness("verify-plots-rail-model");
@@ -77,7 +78,12 @@ h.section("width class and formatters");
   h.eq(widthClass([183, 90])?.label, "2c", "183 mm is the full page");
   h.eq(widthClass([240, 90])?.label, ">2c", "wider than a page");
   h.eq(widthClass(null), null, "no physical size, no badge");
-  h.eq(formatMm([89, 61.234]), "89.0 × 61.2 mm", "Peek's physical size");
+  h.eq(formatSizeMm([88.9, 61.234], "in"), "3.50 × 2.41 in", "physical size in inches (matplotlib figsize) — the default unit");
+  h.eq(formatSizeMm([89, 61.234], "mm"), "89.0 × 61.2 mm", "…or millimetres");
+  h.eq(formatSizePx(96 * 6.4, 96 * 4.8, "in"), "6.40 × 4.80 in", "from CSS px at 96/in (matplotlib's default figsize)");
+  h.eq(formatSizeMm(null, "in"), "", "no physical size, no text");
+  h.ok(/^3\.50 in wide/.test(widthClass([88.9, 60])!.title) && /^88\.9 mm wide/.test(widthClass([88.9, 60], "mm")!.title), "the width badge's tooltip speaks the chosen unit");
+  h.eq(formatWidthMm(183, "in"), "7.20 in", "a width alone");
   const now = Date.UTC(2026, 9, 22, 12);
   h.eq(relativeTime(now - 10_000, now), "just now", "seconds");
   h.eq(relativeTime(now - 12 * 60_000, now), "12 min ago", "minutes");
@@ -98,12 +104,17 @@ h.section("table previews");
 h.section("the slide layout decodes the left rail's view and width");
 {
   // slideLayoutStore reads localStorage at import: stub it with a hostile saved layout.
-  const saved: Record<string, string> = { "flux.slide.layout": JSON.stringify({ filmstripW: 200, leftView: "gallery", plotsRailW: 9999 }) };
+  const saved: Record<string, string> = { "flux.slide.layout": JSON.stringify({ filmstripW: 1400, leftView: "gallery", plotsRailW: 99999 }) };
   (globalThis as unknown as { localStorage: Storage }).localStorage = { getItem: (k: string) => saved[k] ?? null, setItem: (k: string, v: string) => { saved[k] = v; }, removeItem: () => {}, clear: () => {}, key: () => null, length: 0 } as Storage;
   const { slideLayout } = await import("../src/shell/modes/slide/slideLayoutStore");
   const { get } = await import("svelte/store");
   const v = get(slideLayout);
-  h.ok(v.leftView === "slides" && v.plotsRailW === 720 && v.filmstripW === 200, `an unknown view falls back to Slides, the width clamps to 720, other fields survive (${JSON.stringify(v)})`);
+  h.ok(v.leftView === "slides" && v.plotsRailW === 8000 && v.filmstripW === 1400, `an unknown view falls back to Slides; widths have no fixed cap (1400 survives), only a sanity bound on the stored value (${JSON.stringify(v)})`);
+  const { leftRailMax, shownLeftRailW } = await import("../src/lib/figureLayoutStore");
+  h.eq(leftRailMax(1500, 248), 1012, "the rail may grow until the canvas keeps 240 px beside the right rail");
+  h.eq(shownLeftRailW(1400, 220, 1500, 248), 1012, "a stored width wider than the window shows clamped (and is kept)");
+  h.eq(shownLeftRailW(1400, 220, 2600, 0), 1400, "…and comes back when the window is wide enough");
+  h.eq(shownLeftRailW(500, 220, 300, 248), 220, "on a tiny window the minimum wins");
   slideLayout.set({ ...v, leftView: "plots", plotsRailW: 360 });
   h.ok(/"leftView":"plots"/.test(saved["flux.slide.layout"]) && /"plotsRailW":360/.test(saved["flux.slide.layout"]), "the view and its width persist");
 }

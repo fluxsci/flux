@@ -5,6 +5,7 @@ import { decodePreferences } from "../../../lib/preferences";
 // single global store shared across the slide UI (MVP).
 
 import { writable } from "svelte/store";
+import { LEFT_RAIL_STORED_MAX } from "../../../lib/figureLayoutStore";
 
 export interface SlideLayout {
   /** Filmstrip (left rail) width in px. */
@@ -27,7 +28,7 @@ const DEFAULTS: SlideLayout = { filmstripW: 172, inspectorW: 248, animatorH: 360
 function load(): SlideLayout {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return decodePreferences(JSON.parse(raw), DEFAULTS, { filmstripW: {min:120,max: Math.max(172, typeof window === "undefined" ? 1920 : window.innerWidth * .5)}, inspectorW: {min:200,max:Math.max(248,typeof window === "undefined" ? 1536 : window.innerWidth * .4)}, animatorH: {min:120,max:typeof window === "undefined" ? 1080 : window.innerHeight}, leftView: { enum: ["slides", "plots"] }, plotsRailW: { min: 220, max: 720 } });
+    if (raw) return decodePreferences(JSON.parse(raw), DEFAULTS, { filmstripW: { min: 120, max: LEFT_RAIL_STORED_MAX }, inspectorW: {min:200,max:Math.max(248,typeof window === "undefined" ? 1536 : window.innerWidth * .4)}, animatorH: {min:120,max:typeof window === "undefined" ? 1080 : window.innerHeight}, leftView: { enum: ["slides", "plots"] }, plotsRailW: { min: 220, max: LEFT_RAIL_STORED_MAX } });
   } catch {
     /* ignore */
   }

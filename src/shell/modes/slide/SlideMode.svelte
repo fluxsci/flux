@@ -145,6 +145,7 @@
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
+  import { leftRailMax, shownLeftRailW } from "../../../lib/figureLayoutStore";
   import LeftRail from "../../../lib/plotsRail/LeftRail.svelte";
   import { createHitBridge } from "../../../lib/interact/canvasHitBridge";
   import { plotsRailOwnsKey } from "../../../lib/plotsRail/keyScope";
@@ -604,7 +605,8 @@
   let cancelRailResize: (() => void) | null = null;
   let filmEl = $state<HTMLElement | null>(null);
   const FILM_DEFAULT_W = 172;
-  const filmMaxW = () => Math.max(FILM_DEFAULT_W, Math.round(window.innerWidth * 0.5));
+  let slideBodyW = $state(0);
+  const shownFilmW = $derived(shownLeftRailW($slideLayout.filmstripW, 120, slideBodyW, $inspectorHidden ? 0 : $slideLayout.inspectorW));
   // The gutter sizes whichever view the left rail shows: the filmstrip, or the Plots rail
   // (each keeps its own width — a 320 px gallery must not leave a 320 px filmstrip behind).
   function startFilmDrag(e: PointerEvent) {
@@ -617,9 +619,11 @@
   }
   function moveFilmDrag(e: PointerEvent) {
     if (!filmResize || !slideBodyEl) return;
-    const x = e.clientX - slideBodyEl.getBoundingClientRect().left;
-    if (get(slideLayout).leftView === "plots") slideLayout.update((s) => ({ ...s, plotsRailW: Math.round(Math.max(220, Math.min(720, x))) }));
-    else slideLayout.update((s) => ({ ...s, filmstripW: Math.round(Math.max(120, Math.min(filmMaxW(), x))) }));
+    const r = slideBodyEl.getBoundingClientRect(), x = e.clientX - r.left;
+    // No fixed widest width: the rail may grow until the stage keeps CANVAS_MIN_W px.
+    const max = leftRailMax(r.width, get(inspectorHidden) ? 0 : get(slideLayout).inspectorW);
+    if (get(slideLayout).leftView === "plots") slideLayout.update((s) => ({ ...s, plotsRailW: Math.round(Math.max(220, Math.min(max, x))) }));
+    else slideLayout.update((s) => ({ ...s, filmstripW: Math.round(Math.max(120, Math.min(max, x))) }));
   }
   function endFilmDrag() {
     filmResize = false;
@@ -1719,7 +1723,7 @@
   <!-- the SHARED figure toolbar: tools, undo/redo, rulers, zoom -->
   <Toolbar saveStatus={$autosaveStatus} saveError={$autosaveError} retrySave={() => void autosave.flush()} />
 
-  <div class="body" bind:this={slideBodyEl} style={`--film-w:${$slideLayout.filmstripW}px; --sb-w:${$slideLayout.leftView === "plots" ? $slideLayout.plotsRailW : $slideLayout.filmstripW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
+  <div class="body" bind:this={slideBodyEl} bind:clientWidth={slideBodyW} style={`--film-w:${shownFilmW}px; --sb-w:${$slideLayout.leftView === "plots" ? shownLeftRailW($slideLayout.plotsRailW, 220, slideBodyW, $inspectorHidden ? 0 : $slideLayout.inspectorW) : shownFilmW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
     {#if $leftRailHidden}
       <button class="edgetab left" title={$slideLayout.leftView === "plots" ? "Show the Plots rail (Ctrl+B)" : "Show slides (Ctrl+B)"} onclick={() => leftRailHidden.set(false)}>›</button>
     {:else}

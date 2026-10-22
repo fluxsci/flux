@@ -89,6 +89,14 @@ h.section("Slide's left rail: [Slides | Plots]");
   await page.evaluate(() => { const n = document.querySelector(".film-gutter"); n.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
   await sleep(100);
   h.eq(await railW(), 320, "double-clicking the gutter resets the Plots rail's width");
+  // No fixed cap: the rail grows until the stage keeps 240 px beside the right rail.
+  const g2 = await page.evaluate(() => { const r = document.querySelector(".film-gutter").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 200 }; });
+  await page.mouse.move(g2.x, g2.y); await page.mouse.down(); await page.mouse.move(1450, g2.y, { steps: 8 }); await page.mouse.up();
+  await sleep(100);
+  const wide = await page.evaluate(() => { const b = document.querySelector(".slide-mode .body, .body").getBoundingClientRect(); const insp = document.querySelector(".slide-mode .inspector, .inspector")?.getBoundingClientRect().width ?? 0; return { rail: Math.round(document.querySelector("[data-left-rail]").getBoundingClientRect().width), max: Math.round(b.width - insp - 240) }; });
+  h.ok(wide.rail > 720 && Math.abs(wide.rail - wide.max) <= 12, `the Plots rail widens past the old 720 px cap, up to the stage's 240 px (${JSON.stringify(wide)})`);
+  await page.evaluate(() => { document.querySelector(".film-gutter").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+  await sleep(100);
   await alt("KeyG", true);
   await waitFor(page, () => window.__flux.get(window.__flux.fig.importerOpen) === true, null, { label: "full gallery" });
   await waitFor(page, () => window.__flux.get(window.__flux.fig.importerDetached) === true, null, { label: "pinned", timeout: 5000 });

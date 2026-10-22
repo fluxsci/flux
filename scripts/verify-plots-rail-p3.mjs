@@ -101,6 +101,22 @@ h.section("tile sizes");
   h.eq(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem("flux.plotsRail")); return `${p.tileH}/${p.dissectTileH}`; }), "112/84", "Reset sizes restores the defaults");
 }
 
+h.section("the left rail has no fixed widest width");
+{
+  const g = await page.evaluate(() => { const r = document.querySelector('.figure-mode .rail-gutter[aria-label^="Resize sidebar"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 300 }; });
+  await page.mouse.move(g.x, g.y); await page.mouse.down(); await page.mouse.move(1450, g.y, { steps: 8 }); await page.mouse.up();
+  await sleep(120);
+  const wide = await page.evaluate(() => {
+    const body = document.querySelector(".figure-mode .body").getBoundingClientRect();
+    const insp = document.querySelector('.figure-mode .rail-gutter[aria-label^="Resize inspector"]')?.nextElementSibling?.getBoundingClientRect().width ?? 0;
+    return { rail: Math.round(document.querySelector("[data-left-rail]").getBoundingClientRect().width), max: Math.round(body.width - insp - 240) };
+  });
+  h.ok(wide.rail > 720 && Math.abs(wide.rail - wide.max) <= 12, `the Plots view widens past the old 720 px cap, up to the canvas's last 240 px (${JSON.stringify(wide)})`);
+  await page.evaluate(() => document.querySelector('.figure-mode .rail-gutter[aria-label^="Resize sidebar"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  await sleep(120);
+  h.eq(await page.evaluate(() => Math.round(document.querySelector("[data-left-rail]").getBoundingClientRect().width)), 320, "double-clicking the edge resets it");
+}
+
 h.section("Peek");
 {
   // Place alpha once so Peek has a placement to report; then make the figure dark.
@@ -116,7 +132,8 @@ h.section("Peek");
     const rail = document.querySelector("[data-left-rail]").getBoundingClientRect();
     return { name: p.querySelector("[data-peek-name]").textContent, size: p.querySelector("[data-peek-size]")?.textContent, placed: p.querySelector("[data-peek-placements]")?.textContent.replace(/\s+/g, " ").trim(), dis: p.querySelector("[data-peek-dissections]")?.textContent.replace(/\s+/g, " ").trim(), backdrop: p.querySelector("[data-peek-backdrop]")?.getAttribute("data-peek-backdrop"), left: p.getBoundingClientRect().left - rail.right, img: !!p.querySelector(".img img")?.getAttribute("src"), pe: getComputedStyle(p).pointerEvents };
   });
-  h.ok(facts.name.startsWith("alpha.svg") && facts.size === "33.9 × 16.9 mm · 1c", `name, physical size and width class (${facts.name} · ${facts.size})`);
+  h.ok(facts.name.startsWith("alpha.svg") && facts.size === "1.33 × 0.67 in · 1c", `name, physical size in inches (matplotlib's figsize) and width class (${facts.name} · ${facts.size})`);
+  h.ok(await page.evaluate(() => !/journal column/.test(document.querySelector("[data-plots-peek]")?.textContent ?? "")), "no separate width-class sentence (the class sits beside the size)");
   h.ok(/^Placed in Growth curves/.test(facts.placed ?? ""), `where it is placed (${facts.placed})`);
   h.ok(/5 dissection files/.test(facts.dis ?? "") && /by_subject 4/.test(facts.dis ?? ""), `its dissection groups (${facts.dis})`);
   h.ok(facts.backdrop === "own" && facts.img && facts.left >= 4 && facts.left <= 16 && facts.pe === "none", `the backdrop law's choice, a picture at once, against the rail's edge, non-interactive (${JSON.stringify(facts)})`);
@@ -126,6 +143,11 @@ h.section("Peek");
   await sleep(60);
   h.ok((await peekName()).startsWith("dark.svg"), "moving to another tile switches Peek at once (no new dwell)");
   h.eq(await page.evaluate(() => document.querySelector("[data-plots-peek] [data-peek-backdrop]")?.textContent.trim()), "Light ink — dark backdrop", "the swatch explains the tile's backdrop");
+  const pf2 = await pagePoint("/panels/editable.svg");
+  await page.mouse.move(pf2.x + 40, pf2.y + 40); await page.mouse.move(pf2.x, pf2.y, { steps: 4 });
+  await waitFor(page, () => /editable\.svg/.test(document.querySelector("[data-plots-peek] [data-peek-name]")?.textContent ?? ""), null, { label: "fluxplot peek" }).catch(async (e) => { console.log(await page.evaluate((p) => ({ at: document.elementFromPoint(p.x, p.y)?.closest("[data-grid-id]")?.getAttribute("data-grid-id"), peek: document.querySelector("[data-plots-peek] [data-peek-name]")?.textContent }), pf2)); throw e; });
+  const fx = await page.evaluate(() => document.querySelector("[data-plots-peek] .facts")?.textContent ?? "");
+  h.ok(/◆ fluxplot/.test(fx) && !/editable parts/.test(fx), `a fluxplot reads “◆ fluxplot” (${fx.replace(/\s+/g, " ").trim()})`);
   // Leaving the rail hides it instantly.
   await page.mouse.move(800, 500);
   await sleep(30);
@@ -173,7 +195,14 @@ h.section("Peek");
   await page.mouse.move(panel.x, panel.y);
   await waitFor(page, () => /s01\.svg/.test(document.querySelector("[data-plots-peek] [data-peek-name]")?.textContent ?? ""), null, { label: "panel peek" });
   const pf = await page.evaluate(() => document.querySelector("[data-plots-peek] .facts")?.textContent.replace(/\s+/g, " ").trim() ?? "");
-  h.ok(/25\.4 × 16\.9 mm · 1c/.test(pf) && /modified/.test(pf), `a dissection panel peeks with its printed size and age (${pf})`);
+  h.ok(/1\.00 × 0\.67 in · 1c/.test(pf) && /modified/.test(pf), `a dissection panel peeks with its printed size and age (${pf})`);
+  // Settings → Figure → Physical sizes: millimetres.
+  await page.evaluate(async () => { const m = await import("/src/lib/settings.ts"); m.settings.update((v) => ({ ...v, physicalUnit: "mm" })); });
+  await page.mouse.move(800, 500);
+  await page.mouse.move(panel.x, panel.y - 30); await page.mouse.move(panel.x, panel.y);
+  await waitFor(page, () => /25\.4 × 16\.9 mm · 1c/.test(document.querySelector("[data-plots-peek] .facts")?.textContent ?? ""), null, { label: "mm peek" });
+  h.ok(true, "with millimetres chosen in Settings, Peek gives millimetres");
+  await page.evaluate(async () => { const m = await import("/src/lib/settings.ts"); m.settings.update((v) => ({ ...v, physicalUnit: "in" })); });
   await page.mouse.move(800, 500);
 }
 

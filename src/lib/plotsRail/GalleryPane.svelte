@@ -33,6 +33,7 @@
   import { project, activeFigureId, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
   import { pushToast } from "../toast";
   import { storeTenant } from "../tenancy";
+  import { settings } from "../settings";
   import type { HitBridgeHolder } from "../interact/canvasHitBridge";
 
   let {
@@ -603,7 +604,7 @@
     return {
       kind: "plot", abs: it.abs, stamp: it.stamp, name: it.name, folder: it.dir ? `${lib}/${it.dir}` : lib,
       aspect: aspectOf(it), physMm: it.physMm ?? null, size: it.size, mtimeMs: it.mtimeMs,
-      kindLabel: it.model3d ? "3D model" : isVideo(it) ? "▶ video clip" : it.snip ? "✂ paper snip" : it.semantic ? "◆ fluxplot — editable parts and data" : /\.png$/i.test(it.name) ? "PNG image" : "SVG",
+      kindLabel: it.model3d ? "3D model" : isVideo(it) ? "▶ video clip" : it.snip ? "✂ paper snip" : it.semantic ? "◆ fluxplot" : /\.png$/i.test(it.name) ? "PNG image" : "SVG",
       placements, dissectKey: key, dissections: key ? counts.get(key) ?? 0 : 0,
       stats: it.stats ?? null, paper: it.paper ?? null, fresh,
       placeholder: cellOf(it.abs)?.querySelector<HTMLImageElement>(".page img")?.src ?? "",
@@ -737,7 +738,7 @@
           glyph={glyphFor(it)}
           glyphTitle={glyphTitle(it)}
           fresh={$freshPlots.has(it.abs)}
-          badge={$railPrefs.widthBadge ? widthClass(it.physMm) : null}
+          badge={$railPrefs.widthBadge ? widthClass(it.physMm, $settings.physicalUnit) : null}
           stack={st ? st.members.length : 0}
           stackHead={head ? head.count : 0}
           onStackToggle={() => { const k = st?.key ?? head?.key; if (k) toggleStack(k); }}

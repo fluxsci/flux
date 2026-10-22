@@ -3,6 +3,7 @@
 // of a physical size, and Peek's small formatters. No DOM, no stores — GalleryPane composes them.
 
 import { galleryNameSimilarity } from "../plot/galleryNames";
+import { formatWidthMm, type PhysicalUnit } from "../figure/physicalUnits";
 
 /** The fields these rules read (a PlotItem satisfies it). */
 export interface ModelItem {
@@ -121,20 +122,16 @@ export function stackVariants<T extends ModelItem>(items: T[], expanded: Readonl
 
 // ------------------------------------------------------------------------------- physical size
 
-/** Journal width class of a physical width (single column ≈ 85–90 mm, double ≈ 170–183 mm). */
-export function widthClass(physMm: [number, number] | null | undefined): { label: string; title: string } | null {
+/** Journal width class of a physical width (single column ≈ 3.5 in / 89 mm, double ≈ 7.2 in /
+ *  183 mm); the title states the width in the user's unit. */
+export function widthClass(physMm: [number, number] | null | undefined, unit: PhysicalUnit = "in"): { label: string; title: string } | null {
   if (!physMm || !(physMm[0] > 0)) return null;
   const w = physMm[0];
-  const mm = `${w.toFixed(1)} mm wide`;
-  if (w <= 95) return { label: "1c", title: `${mm} — fits one journal column (≈ 85–90 mm)` };
-  if (w <= 150) return { label: "1.5c", title: `${mm} — a 1.5-column figure (≈ 110–140 mm)` };
-  if (w <= 190) return { label: "2c", title: `${mm} — full page width, two columns (≈ 170–183 mm)` };
-  return { label: ">2c", title: `${mm} — wider than a journal page (183 mm)` };
-}
-
-/** `89.0 × 61.2 mm`. */
-export function formatMm(physMm: [number, number] | null | undefined): string {
-  return physMm && physMm[0] > 0 && physMm[1] > 0 ? `${physMm[0].toFixed(1)} × ${physMm[1].toFixed(1)} mm` : "";
+  const wide = `${formatWidthMm(w, unit)} wide`;
+  if (w <= 95) return { label: "1c", title: `${wide} — fits one journal column (≈ 3.5 in / 89 mm)` };
+  if (w <= 150) return { label: "1.5c", title: `${wide} — a 1.5-column figure (≈ 4.5–5.5 in / 110–140 mm)` };
+  if (w <= 190) return { label: "2c", title: `${wide} — full page width, two columns (≈ 7.2 in / 183 mm)` };
+  return { label: ">2c", title: `${wide} — wider than a journal page (7.2 in / 183 mm)` };
 }
 
 /** "just now" · "12 min ago" · "3 h ago" · "yesterday" · "5 days ago" · a date. */

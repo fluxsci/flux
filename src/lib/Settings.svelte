@@ -701,6 +701,16 @@
             </label>
             <p class="hint">The typing size in Figure-Meta (<b>Alt+M</b>). Each field grows to fit its text; scroll the fields column to move between captions.</p>
 
+            <h3>Physical sizes</h3>
+            <label class="row">
+              <span>Show sizes in</span>
+              <select bind:value={$settings.physicalUnit} aria-label="Physical size unit" data-physical-unit>
+                <option value="in">Inches</option>
+                <option value="mm">Millimetres</option>
+              </select>
+            </label>
+            <p class="hint">How the Inspector and the Plots rail's Peek give a plot's or figure's printed size. Inches match matplotlib's <code>figsize</code>.</p>
+
             <h3>Plot gallery</h3>
             <label class="row">
               <span>Search reaches</span>

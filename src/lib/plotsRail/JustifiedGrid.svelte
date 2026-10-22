@@ -154,6 +154,8 @@
 
   function onScroll() {
     onScrolled?.();
+    // Content moved under the pointer (and Peek hid): the next pointer move re-dwells.
+    hovered = "";
     if (raf || !viewport) return;
     const view = viewport.ownerDocument.defaultView!;
     raf = view.requestAnimationFrame(() => { raf = 0; if (viewport) scrollTop = viewport.scrollTop; });
@@ -233,7 +235,8 @@
     onKeyDown?.(e, focused);
   }
 
-  // Hover, delegated: one listener for every cell.
+  // Hover, delegated: one listener for every cell. Pointer MOVES (not just `over`), so a pointer
+  // resting on a tile after a scroll starts a new dwell with its first nudge.
   let hovered = "";
   function pointerOver(e: PointerEvent) {
     if (!onItemHover || e.pointerType === "touch") return;
@@ -271,7 +274,7 @@
     onscroll={onScroll}
     onkeydown={keydown}
     onwheel={wheel}
-    onpointerover={pointerOver}
+    onpointermove={pointerOver}
     onpointerleave={pointerLeave}>
     <div class="spacer" style:height={`${layout.height + 8}px`}>
       {#each visibleSections as si (sections[si].key)}

@@ -10,7 +10,9 @@
   import { acquireThumb, type ThumbState } from "./thumbClient";
   import { chooseBackdrop, readsPoorlyOn, backdropTone, BACKDROPS, type BackdropChoice } from "./rules";
   import { railPrefs } from "./railPrefs";
-  import { widthClass, formatMm, relativeTime, formatBytes } from "./galleryModel";
+  import { widthClass, relativeTime, formatBytes } from "./galleryModel";
+  import { formatSizeMm } from "../figure/physicalUnits";
+  import { settings } from "../settings";
   import { listDissections } from "../dissect/loader";
   import { project, activeFigureId, embeddedProjectRoot, projectDir } from "../store";
 
@@ -64,6 +66,8 @@
   const choice = $derived(isVideoOr3d && $railPrefs.backdrop === "auto" ? MEDIA : chooseBackdrop(stats, { manifestPaper: paper, mode: $railPrefs.backdrop, destination: destBg }));
   const poor = $derived(!!c && !isVideoOr3d && !!destBg && readsPoorlyOn(stats, destBg));
   const wc = $derived(c?.kind === "plot" ? widthClass(c.physMm) : null);
+  // In the user's unit (inches by default — matplotlib's figsize).
+  const sizeText = $derived(c ? formatSizeMm(c.physMm, $settings.physicalUnit) : "");
 
   // ---- dissection groups (one listing per key and count)
   let groups = $state.raw<{ name: string; n: number }[] | null>(null);
@@ -111,12 +115,11 @@
       {#if c.kind === "plot"}
         <div class="folder">{c.folder}</div>
         <div class="facts">
-          {#if formatMm(c.physMm)}<span data-peek-size>{formatMm(c.physMm)}{#if wc}{" · "}<b>{wc.label}</b>{/if}</span>{/if}
+          {#if sizeText}<span data-peek-size>{sizeText}{#if wc}{" · "}<b>{wc.label}</b>{/if}</span>{/if}
           {#if c.mtimeMs}<span>modified {relativeTime(c.mtimeMs)}</span>{/if}
           {#if c.size}<span>{formatBytes(c.size)}</span>{/if}
           {#if kindRow(c)}<span class:accent={c.kind === "plot" && kindRow(c).startsWith("◆")}>{kindRow(c)}</span>{/if}
         </div>
-        {#if wc}<div class="sub">{wc.title}</div>{/if}
         <div class="row" data-peek-placements>
           {#if c.placements.length}
             {unit === "slide" ? "On" : "Placed in"} {#each c.placements.slice(0, 6) as p, i}{i ? ", " : ""}<span class:accent={p.active}>{p.name}</span>{/each}{#if c.placements.length > 6}, +{c.placements.length - 6}{/if}
@@ -129,9 +132,9 @@
         {/if}
       {:else}
         <div class="folder">{c.group ? `${c.group}/` : ""}{c.name}</div>
-        {#if formatMm(c.physMm) || c.mtimeMs}
+        {#if sizeText || c.mtimeMs}
           <div class="facts">
-            {#if formatMm(c.physMm)}<span data-peek-size>{formatMm(c.physMm)}{#if widthClass(c.physMm)}{" · "}<b>{widthClass(c.physMm)?.label}</b>{/if}</span>{/if}
+            {#if sizeText}<span data-peek-size>{sizeText}{#if widthClass(c.physMm)}{" · "}<b>{widthClass(c.physMm)?.label}</b>{/if}</span>{/if}
             {#if c.mtimeMs}<span>modified {relativeTime(c.mtimeMs)}</span>{/if}
           </div>
         {/if}
@@ -161,7 +164,6 @@
   .folder { color: var(--c-tx-muted); font: 10.5px var(--font-mono); word-break: break-all; }
   .facts { display: flex; flex-wrap: wrap; gap: 2px 10px; color: var(--c-tx-2); }
   .facts b { color: var(--c-tx-hi); }
-  .sub { color: var(--c-tx-muted); font-size: 10.5px; }
   .row { color: var(--c-tx-2); }
   .accent { color: var(--c-accent); }
   .muted { color: var(--c-tx-muted); }

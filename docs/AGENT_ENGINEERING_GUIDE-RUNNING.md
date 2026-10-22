@@ -1603,7 +1603,9 @@ Persistence invariants (all machine-checked — do not weaken):
   hosts a tab row (Figure [Layers | Plots], Slide [Slides | Plots] — `unit="slide"` renders the
   filmstrip from a snippet; the destination chip; the ⋯ view menu) over `Sidebar`/the filmstrip or
   `PlotsRail` (Gallery over Dissections, a splitter; layout in `figureLayoutStore`: `leftView`,
-  per-view widths `sidebarW`/`plotsRailW`, `plotsSplit`, collapse flags — FigureMode pans the
+  per-view widths `sidebarW`/`plotsRailW` with NO fixed widest width (owner, 2026-10-22: the
+  rail may grow until the canvas keeps `CANVAS_MIN_W` beside the right rail — `leftRailMax`;
+  a stored width wider than the window shows clamped via `shownLeftRailW` and is kept), `plotsSplit`, collapse flags — FigureMode pans the
   viewport by the width change so a view switch never moves the canvas; Slide keeps its view and
   widths in `slideLayout` `leftView`/`plotsRailW`, the film gutter sizing whichever shows). **Alt+G**
   (handled ABOVE `handleKey`'s `typing` return) asks the store tenant's RAIL HOST

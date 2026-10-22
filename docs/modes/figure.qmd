@@ -19,7 +19,8 @@ survives.
   to Plots — see [The Plots rail](#the-plots-rail)). **Layers** lists Canvases (pages — add, rename, delete), Figures on the active canvas
   (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and
   **Layers** — the z-ordered element tree, with per-row show/hide, lock, drag-to-reorder, and
-  collapsible groups. Drag its right edge to resize it; **Ctrl+B** hides it (bold still wins
+  collapsible groups. Drag its right edge to resize it — as wide as you like, the canvas always
+  keeps a strip beside the right rail — and double-click the edge to reset; **Ctrl+B** hides it (bold still wins
   when a text element is selected).
 - **Clicking a figure's name takes you to it** — the view centres on that figure at whatever
   zoom you are already working at, so a big canvas stays navigable without hunting. Your zoom
@@ -116,7 +117,9 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   them all. **⋯ → Width class badge** adds the journal width each plot will print at:
   **1c** (one column, up to about 90 mm), **1.5c**, **2c** (full page, about 180 mm).
 - **Rest the pointer on a plot** for a moment to **peek** at it: a larger picture beside the
-  rail with its full name and folder, its printed size and width class, when it changed,
+  rail with its full name and folder, its printed size (in inches, as for matplotlib's
+  `figsize`; **Settings → Figure → Physical sizes** switches Peek and the Inspector to
+  millimetres) and width class, when it changed,
   where it is placed, its dissection folders, and why its tile has the background it has.
   If the plot's ink would read poorly on the active figure's background, Peek says so.
   **Shift+Space** peeks at the selected tile from the keyboard (and closes it again). Peek
