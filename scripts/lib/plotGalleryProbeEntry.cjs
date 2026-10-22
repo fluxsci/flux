@@ -12,6 +12,8 @@ async function click(w,selector){console.log("PROBE click="+selector);const p=aw
 const key=(w,keyCode,modifiers=[])=>{w.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});w.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers})};
 const saved=()=>JSON.parse(fs.readFileSync(path.join(root,'fig/canvases/c.json'),'utf8')).figures.find(f=>f.id==='native-5');
 async function pin(){await click(win,'.pinbtn');child=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==win),'child window');child.show();child.focus();await wait(()=>js(child,"!!document.querySelector('.detached .importer')"),'mounted child gallery')}
+// Since 2026-10-22 Alt+G in Figure shows the Plots rail; the full gallery opens from the
+// toolbar's Gallery (data-open-gallery) — the same dialog, the user's other way in.
 async function main(){
  win=await wait(()=>BrowserWindow.getAllWindows()[0],'app window');win.show();win.focus();win.setAlwaysOnTop(true);
  win.webContents.on('console-message',(_e,details)=>{if(details.level==='error')console.log('PROBE renderer='+details.message)});
@@ -19,7 +21,7 @@ async function main(){
  check(app.getPath('userData').startsWith(scratch+path.sep),'isolated native config');
  check(win.webContents.getURL().startsWith('file:')&&await js(win,'!window.__flux'),'production file renderer');
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'Figure');
- await click(win,'.figrow[data-fig-id="native-5"] .item');await wait(()=>js(win,"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"),'small figure visible');key(win,'g',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
+ await click(win,'.figrow[data-fig-id="native-5"] .item');await wait(()=>js(win,"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"),'small figure visible');await click(win,'[data-open-gallery]');await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
  // Global scope through the real preload/prefs/fs guard: Alt+2, browse, insert, Alt+1.
  const library=process.env.PROBE_LIBRARY;
  const focused="document.activeElement===document.querySelector('.importer .search-in')";
@@ -33,7 +35,7 @@ async function main(){
  const badge=saved().elements.at(-1);
  check(badge.type==='plot'&&badge.source?.external===true&&badge.source.svgPath===path.join(library,'logos','badge.svg'),'native global insert is saved as an external library source');
  check(badge.width===48&&badge.height===48,'global plot keeps its physical size');
- key(win,'g',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[title=logos]')"),'gallery reopens on Global');
+ await click(win,'[data-open-gallery]');await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[title=logos]')"),'gallery reopens on Global');
  await wait(()=>js(win,focused),'reopened gallery search focused');
  key(win,'1',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='project'&&!!document.querySelector('.row[title=study]')"),'back to Project');
  check(true,'Alt+1 returns to the project plots');
@@ -74,7 +76,7 @@ async function main(){
  // Navigation has no route to turn this utility into an external/privileged page.
  await js(child,"location.href='https://example.com';void 0");await new Promise(r=>setTimeout(r,100));
  check(child.webContents.getURL().endsWith('/plot-gallery.html'),'utility navigation denied');
- child.close();await wait(()=>child.isDestroyed(),'native close');win.focus();key(win,'g',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'reopen after native close');
+ child.close();await wait(()=>child.isDestroyed(),'native close');win.focus();await click(win,'[data-open-gallery]');await wait(()=>js(win,"!!document.querySelector('.importer')"),'reopen after native close');
  await pin();win.destroy();await wait(()=>child.isDestroyed(),'owner closes child');check(true,'closing project owner closes utility');
  fs.writeFileSync(path.resolve(__dirname,'../../test-results/plot-gallery-native.json'),JSON.stringify(checks,null,2));
 }

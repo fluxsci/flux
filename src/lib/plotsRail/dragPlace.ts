@@ -9,6 +9,7 @@
 // The canvas host box is read once at drag start — no layout read per move.
 
 import type { HitBridgeHolder } from "../interact/canvasHitBridge";
+import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
 import type { Figure } from "../types";
 
 export const DRAG_THRESHOLD = 4;
@@ -127,6 +128,7 @@ export function beginPlotDrag(e: PointerEvent, source: () => DragSource | null, 
     finish();
   };
   const key = (ev: KeyboardEvent) => {
+    if (yieldsToShellModal(ev) || isAnnotateChord(ev)) return;
     if (ev.key === "Escape" && started) { ev.preventDefault(); ev.stopImmediatePropagation(); finish(); }
   };
   function finish() {

@@ -97,8 +97,9 @@ recipe to regenerate it. The two `series=` names are the handles everything down
 
 # Build the figure
 
-Open **Figure** mode and press **Alt+G** — the gallery lists `growth.svg` with a **◆
-semantic** badge. Insert it: it lands at its true printed size (6.4 × 4.8 inches, exactly).
+Open **Figure** mode and press **Alt+G** — the sidebar's Plots view lists `growth.svg`, marked
+**◆** (an editable fluxplot). Double-click it (or drag it onto the figure): it lands at its true
+printed size (6.4 × 4.8 inches, exactly).
 
 Now the trick that makes Flux Flux: **Ctrl+click** the control series' line. You've selected
 one *part* of the plot. Press **F** and change its stroke color. That restyle is keyed to the

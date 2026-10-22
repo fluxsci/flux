@@ -15,7 +15,8 @@ survives.
 
 - **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
   **R** rectangle, **O** ellipse, **L** line, **A** arrow, **P** pen.
-- The **sidebar** lists Canvases (pages — add, rename, delete), Figures on the active canvas
+- The **sidebar** has two views, **Layers** and **Plots** (the tabs at its top; **Alt+G** goes
+  to Plots — see [The Plots rail](#the-plots-rail)). **Layers** lists Canvases (pages — add, rename, delete), Figures on the active canvas
   (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and
   **Layers** — the z-ordered element tree, with per-row show/hide, lock, drag-to-reorder, and
   collapsible groups. Drag its right edge to resize it; **Ctrl+B** hides it (bold still wins
@@ -83,9 +84,51 @@ version; **Resume updates** links it again. These actions preserve the other fig
 referenced figure or canvas first shows these uses. Paper references then become unresolved;
 slide copies retain the assets they need. A slide copy has its own layout and annotations.
 
+# The Plots rail {#the-plots-rail}
+
+The sidebar's **Plots** view keeps your plots beside the canvas while you compose: the
+**gallery** on top, and below it the **dissections** of whichever plot you last clicked.
+
+- **Alt+G** shows it and puts the cursor in its search box — it also opens a hidden sidebar.
+  Press **Alt+G** again while you are in it to go back to **Layers**. The two views keep
+  their own widths (drag the sidebar's edge), and the canvas stays where it is when you switch.
+- **Folders are headings**, not places you go into: every folder of `plots/` is a section
+  you scroll through. Click a heading's arrow to fold it (deeper folders start folded);
+  **Alt+click** shows that folder alone. Type to search names and folders; **`_`** offers
+  the companion collections (`_dissections`, `_lighttable`) — **Enter** goes in,
+  **Backspace** in an empty search comes back out. **Proj** / **Glob** (**Alt+1** /
+  **Alt+2**) switch between this project and your global plot library.
+- Plots sit at their true shape, several to a row, and every one is drawn on a background
+  chosen so **all of it shows**: dark ink on paper, white ink (a plot made for a dark slide)
+  on dark, both on grey, and a plot's own paper colour when it declares one. The **⋯** menu
+  can set the background yourself (paper, dark, a checkerboard, or the figure's own), sort
+  **Recent first** (newest-changed plots on top), change the tile size (or **Ctrl+wheel**),
+  and hide names.
+- Small marks on a tile: **●** the plot is placed in the active figure (dimmer: placed
+  elsewhere in the project, with a count); **⧉ 12** it has 12 dissection files (click it to
+  show them); **◆** an editable fluxplot. A dashed outline marks the plot selected on the
+  canvas, and the rail scrolls to it (switch that off in **⋯**).
+- **Double-click** or **Enter** places the selected plots in the figure named at the top
+  (**→ Fig 3** — click it to pick another figure). **Drag** a plot onto any figure to place
+  it where you let go; over the canvas it shows at the size it will land. **Space** opens a
+  full-window preview. **Ctrl+Z** undoes a placement without leaving the rail. Typing
+  anywhere in the rail goes to its search box, so tool keys never change your tool by
+  accident.
+- **Dissections** follow your clicks — a plot clicked in the gallery or on the canvas. Tables
+  come first as small previews (a one-row statistics table reads as a list), then each folder
+  of panels; very large folders show a few and **Show all**. If you were looking at a file
+  (say `by_subject/s07`) and click another plot with the same file, it stays selected in the
+  same place, so you can compare subjects plot to plot. Clicking an empty spot keeps the last
+  plot showing; the **pin** keeps it while you click elsewhere. **Double-click**, **Enter** or
+  **Space** opens a file in the Dissect viewer; drag a panel onto a figure to place it.
+- Drag the line between the two parts to share the height; drag it to an edge to fold a
+  part away; double-click it to reset. Files that appear or change in `plots/` show up on
+  their own.
+
 # Getting plots in
 
-- **Alt+G** opens the **Plot gallery**, showing SVG and PNG previews in the current
+- The toolbar's **Gallery** opens the full **Plot gallery** (**Shift+Alt+G** opens it in its
+  own window), showing SVG and PNG previews in the current
   folder, including GLB meshes marked **3D**. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
   the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
   shows or collapses a directory tree; clicking a folder shows what is in it, and the **›**

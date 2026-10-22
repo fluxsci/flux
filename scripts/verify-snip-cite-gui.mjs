@@ -8,7 +8,7 @@
 // fig-save keeps the tEXt chunk byte-verbatim (what the load seam re-reads).
 //   Run (dev server on :1420 must be up): node scripts/verify-snip-cite-gui.mjs
 import { readFileSync } from "node:fs";
-import { launch, gotoApp, clickMode, shot, realErrors, sleep, waitFor } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, shot, realErrors, sleep, waitFor, openGalleryDialog } from "./lib/driver.mjs";
 
 const pdfB64 = readFileSync("scripts/fixtures/reader-sample.pdf").toString("base64");
 const KEY = "sniptest2026";
@@ -77,11 +77,10 @@ try {
       return orig(t).catch(() => {});
     };
   });
-  await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyG");
-  await page.keyboard.up("Alt");
+  // The full gallery opens from the toolbar (Alt+G in Figure shows the Plots rail since 2026-10-22).
+  await openGalleryDialog(page);
   await sleep(600); // open + rAF focus + background scan
-  ok("Alt+G opens the importer", !!(await page.$(".importer")));
+  ok("the toolbar's Gallery opens the importer", !!(await page.$(".importer")));
   await page.keyboard.type(KEY); // search across plots/ finds paper_snips/<key>-p1.png
   await sleep(400);
   const row = await page.evaluate(() => {

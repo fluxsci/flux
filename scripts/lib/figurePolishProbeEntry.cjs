@@ -41,6 +41,25 @@ async function main(){
   fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-native-metrics.json'),JSON.stringify(metrics,null,2));
   check(metrics[n].nudgeP95<=100,`${n}: native key-to-paint p95 ${metrics[n].nudgeP95.toFixed(1)}ms ≤100ms`);
   check(metrics[n].layers<=150,`${n}: virtualized Layers remain bounded`);
+  if(n===5000){
+   // The same measurement with the Plots rail open and rendering 24 dense plots (Alt+G): the
+   // rail must cost the editor nothing (stop-ship: ≤100 ms and within noise of rail-closed).
+   await key('G',['alt']);
+   await wait(()=>js("document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='plots'&&document.querySelectorAll('[data-plots-gallery] [data-tile*=\"/dense/\"] img').length>=4"),'Plots rail open with dense thumbnails');
+   await key('Escape'); // search box → canvas keyboard (the rail owns the unmodified key: no deselect)
+   const beforeRailX=await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)");
+   await js("window.__nativeTimes=[];window.__nativeKey=e=>{if(e.key!=='ArrowRight')return;const t=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>window.__nativeTimes.push(performance.now()-t)))};window.addEventListener('keydown',window.__nativeKey,true)");
+   for(let i=0;i<18;i++){win.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')}
+   const railTimes=await js("window.removeEventListener('keydown',window.__nativeKey,true);window.__nativeTimes");
+   check(await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)")===beforeRailX+18,'5000 + Plots rail: the measured keys moved the object');
+   metrics.railOpen={nudgeP95:p95(railTimes),samplesMs:railTimes,closedP95:metrics[n].nudgeP95};
+   console.log('PROBE metrics='+JSON.stringify({figure:'5000+rail',...metrics.railOpen}));
+   fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-native-metrics.json'),JSON.stringify(metrics,null,2));
+   check(metrics.railOpen.nudgeP95<=100,`5000 + Plots rail: key-to-paint p95 ${metrics.railOpen.nudgeP95.toFixed(1)}ms ≤100ms`);
+   check(metrics.railOpen.nudgeP95<=metrics[n].nudgeP95+25,`5000 + Plots rail within noise of rail-closed (${metrics.railOpen.nudgeP95.toFixed(1)} vs ${metrics[n].nudgeP95.toFixed(1)} ms)`);
+   await click('[data-rail-tab="layers"]'); // back to Layers for the rest of the probe
+   await wait(()=>js("document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='layers'"),'back to Layers');
+  }
  }
  await selectFigure(5);
  const savedFigure=()=>JSON.parse(fs.readFileSync(path.join(root,'fig/canvases/c.json'),'utf8')).figures.find(f=>f.id==='native-5');

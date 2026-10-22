@@ -2,11 +2,12 @@
 // insertion. All files live in the in-memory demo bridge, never user storage.
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { launch, gotoApp, clickMode, APP_URL, realErrors } from './lib/driver.mjs';
+import { launch, gotoApp, clickMode, APP_URL, realErrors, openGalleryDialog } from './lib/driver.mjs';
 const { browser, page } = await launch();
 const metrics = {};
 const frame = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
-const open = async () => { await page.keyboard.down('Alt'); await page.keyboard.press('KeyG'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer'); };
+// The full gallery opens from the toolbar (Alt+G in Figure shows the Plots rail since 2026-10-22).
+const open = async () => { await openGalleryDialog(page); };
 const query = async (p, value) => { await p.$eval('.search-in', (n, value) => { n.value = value; n.dispatchEvent(new Event('input', { bubbles:true })); }, value); await frame(p); };
 const pick = async (p, name) => { const button = await p.evaluateHandle(name => [...document.querySelectorAll('.importer .list .row')].find(n => n.querySelector('.nm')?.textContent === name), name); await button.click(); await frame(p); };
 const repickBatch = async p => { await query(p,'result-00'); await pick(p,'result-00'); await query(p,'control'); await pick(p,'control'); await query(p,''); };

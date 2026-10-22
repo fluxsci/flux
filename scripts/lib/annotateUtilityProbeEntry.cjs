@@ -16,7 +16,8 @@ async function main(){
  check(app.getPath('userData').startsWith(scratch+path.sep),'native state is isolated');
  check(win.webContents.getURL().startsWith('file:')&&await js(win,'!window.__flux'),'production renderer without dev hooks');
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.canvas-host')"),'Figure');
- key(win,'g',['alt']);await wait(()=>js(win,"!!document.querySelector('.pinbtn')"),'gallery');await click(win,'.pinbtn');
+ // The full gallery from the toolbar (Alt+G in Figure shows the Plots rail since 2026-10-22).
+ await click(win,'[data-open-gallery]');await wait(()=>js(win,"!!document.querySelector('.pinbtn')"),'gallery');await click(win,'.pinbtn');
  child=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==win),'utility');child.show();child.focus();
  await wait(()=>js(child,"!!document.querySelector('.detached .importer')"),'child gallery mounted');
  check(await js(child,'!window.fig'),'child has no independent project bridge');

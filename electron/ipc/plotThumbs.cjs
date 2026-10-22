@@ -23,7 +23,7 @@ const RESPAWN_WINDOW_MS = 10 * 60 * 1000;
 const BUCKETS = new Set([256, 512, 1024]);
 const ACCEPT_RE = /^[a-z0-9]{2,5}(,[a-z0-9]{2,5}){0,7}$/;
 
-function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, fontIndexFile, fsReadGuard, log = () => {} }) {
+function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, fontIndexFile, fsReadGuard, log = () => {}, thumbTimeoutMs = THUMB_TIMEOUT_MS }) {
   const here = path.join(appRoot, "electron");
   let engineMod = null, foldersMod = null, dissectMod = null;
   const loadEngine = () => (engineMod ??= import(pathToFileURL(path.join(here, "plotThumbEngine.mjs")).href));
@@ -91,7 +91,7 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
   function markStarted(id) {
     started = id;
     if (startedTimer) { clearTimeout(startedTimer); startedTimer = null; }
-    if (id != null) startedTimer = setTimeout(() => { if (started === id && child) child.kill("SIGKILL"); }, THUMB_TIMEOUT_MS);
+    if (id != null) startedTimer = setTimeout(() => { if (started === id && child) child.kill("SIGKILL"); }, thumbTimeoutMs);
   }
 
   function onDeath(culprit, reason) {
@@ -151,19 +151,22 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
   }
 
   // ------------------------------------------------------------------ containment
-  /** The base a path belongs to (project plots/ or the library), or null. */
-  function baseFor(e, abs) {
-    if (typeof abs !== "string" || !path.isAbsolute(abs) || abs.includes("\0") || path.resolve(abs) !== path.normalize(abs)) return null;
+  /** The canonical form of a requested path and the base it belongs to (this window's project
+   *  plots/ or the plot library), or null. A `..` segment is refused outright — a prefix check
+   *  on `plots/../project.json` would otherwise pass. */
+  function placeOf(e, abs) {
+    if (typeof abs !== "string" || !path.isAbsolute(abs) || abs.includes("\0") || abs.split(/[\\/]+/).includes("..")) return null;
+    const norm = path.resolve(abs);
     const root = rootFor(e);
     const bases = [root ? path.join(root, "plots") : "", libraryRoot() || ""].filter(Boolean);
-    for (const base of bases) if (abs === base || abs.startsWith(base + path.sep)) return base;
+    for (const base of bases) if (norm === base || norm.startsWith(base + path.sep)) return { base, abs: norm };
     return null;
   }
   function guard(e, abs) {
-    const base = baseFor(e, abs);
-    if (!base) throw new Error("Thumbnails are limited to this project's plots folder and the global plot library");
-    fsReadGuard(abs, e.sender.id);
-    return base;
+    const place = placeOf(e, abs);
+    if (!place) throw new Error("Thumbnails are limited to this project's plots folder and the global plot library");
+    fsReadGuard(place.abs, e.sender.id);
+    return place;
   }
 
   // ------------------------------------------------------------------ handlers
@@ -194,10 +197,10 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
       if (!Array.isArray(paths) || paths.length > 5000) throw new Error("Invalid probe request");
       const byBase = new Map();
       for (const p of paths) {
-        let base;
-        try { base = guard(e, p); } catch { continue; }
-        if (!byBase.has(base)) byBase.set(base, []);
-        byBase.get(base).push(p);
+        let place;
+        try { place = guard(e, p); } catch { continue; }
+        if (!byBase.has(place.base)) byBase.set(place.base, []);
+        byBase.get(place.base).push(place.abs);
       }
       const out = [];
       for (const [base, list] of byBase) {
@@ -208,9 +211,8 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
     });
 
     ipcMain.handle("thumbs:get", async (e, request) => {
-      const abs = request?.path;
       const bucket = BUCKETS.has(request?.bucket) ? request.bucket : 512;
-      const base = guard(e, abs);
+      const { base, abs } = guard(e, request?.path);
       const rid = typeof request?.rid === "string" && request.rid.length < 64 ? request.rid : null;
       // Warm: straight from the disk cache.
       try {

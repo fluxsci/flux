@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {launch, gotoApp, clickMode, waitFor, waitForFrame, APP_URL, OUT} from './lib/driver.mjs';
+import {launch, gotoApp, clickMode, waitFor, waitForFrame, APP_URL, OUT, openGalleryDialog} from './lib/driver.mjs';
 import {harness} from './lib/harness.mjs';
 
 const h=harness('verify-v020-svg-hosts'), requests=[], blocked=[], evidence={};
@@ -72,7 +72,7 @@ try{
   // Raw gallery SVG is an image-context blob, including in its actual detached
   // popup. This host deliberately retains original scientific source bytes.
   await page.evaluate(async sources=>{for(let i=0;i<sources.length;i++)await window.fig.writeText(`/demo/myc-growth-paper/plots/passive-host-${i}.svg`,sources[i]);},sources);
-  await page.keyboard.down('Alt');await page.keyboard.press('KeyG');await page.keyboard.up('Alt');await page.waitForSelector('.importer');
+  await openGalleryDialog(page); // the toolbar's Gallery (Alt+G in Figure shows the Plots rail since 2026-10-22)
   const popupEvent=new Promise(resolve=>page.once('popup',resolve));await page.click('.pinbtn');const gallery=await popupEvent;await guard(gallery);await gallery.waitForSelector('.detached .importer');await gallery.bringToFront();
   await gallery.$eval('.search-in',n=>{n.value='passive-host';n.dispatchEvent(new Event('input',{bubbles:true}))});
   const modifier=process.platform==='darwin'?'Meta':'Control';

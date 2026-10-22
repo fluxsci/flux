@@ -122,8 +122,9 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **v** on an X-ray axis row | Axis view… — focus that axis in the Inspector |
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
-| **Alt+G** / **Shift+Alt+G** | Open the Plot gallery / open it pinned |
-| **Alt+1** / **Alt+2** | In the Plot gallery: browse the project's plots / your global plot library |
+| **Alt+G** | Show the Plots view of the sidebar and search it (again, from inside it: back to Layers) |
+| **Shift+Alt+G** | Open the full Plot gallery in its own window (the toolbar's **Gallery** opens it in place) |
+| **Alt+1** / **Alt+2** | In the Plots view or the Plot gallery: this project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
 | **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **x** hides the pick, **Enter** or **F** opens their properties, **double-click** re-roots |

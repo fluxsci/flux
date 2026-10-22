@@ -9,6 +9,10 @@ const artifact=path.join(repo,'test-results/figure-polish-native.log');fs.mkdirS
 async function main(){try{
  const seed=spawnSync(process.execPath,['--import','tsx',path.join(__dirname,'lib/figurePolishFixture.ts'),root],{env,cwd:repo,encoding:'utf8'});
  if(seed.status!==0)throw Error(seed.stdout+seed.stderr);
+ // Dense plots for the Plots-rail-open measurement: 24 SVGs of 3,000 marks each, so the rail is
+ // busy rendering thumbnails while the editor is measured (the stop-ship rail-open budget).
+ fs.mkdirSync(path.join(root,'plots','dense'),{recursive:true});
+ for(let i=0;i<24;i++){let marks='';for(let k=0;k<3000;k++)marks+=`<circle cx="${(k*37+i*11)%400}" cy="${(k*53)%300}" r="1.6" fill="#${(0x205ea6+k*911+i*7).toString(16).slice(-6)}"/>`;fs.writeFileSync(path.join(root,'plots','dense',`d${i}.svg`),`<svg xmlns="http://www.w3.org/2000/svg" width="300pt" height="225pt" viewBox="0 0 400 300">${marks}</svg>`)}
  const result=await new Promise((resolve,reject)=>{
   const args=[path.join(__dirname,'lib/figurePolishProbeEntry.cjs'),root];if(process.platform==='linux')args.push('--no-sandbox','--ozone-platform=x11');
   const child=spawn(require('electron'),args,{env,cwd:repo,stdio:['ignore','pipe','pipe']});let output='';

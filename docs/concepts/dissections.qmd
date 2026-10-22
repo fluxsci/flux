@@ -44,7 +44,7 @@ Anything that explains the plot. Typical dissections:
   **csv**/**tsv** tables are first-class in the viewer; other files are listed by name.
 
 Dissections are deliberately **out of the way of composition**: nothing under `_dissections/`
-turns up in an ordinary plot-gallery search (**Alt+G**), lands in a figure by accident, or
+turns up in an ordinary plot-gallery search, lands in a figure by accident, or
 rides along into an export. They are context, not content.
 
 Out of the way is not locked away. In the importer, type **`_`** and the reserved folders
@@ -55,7 +55,15 @@ search.
 
 # Viewing them
 
-In the figure editor, select a plot and press **D** (or click **Dissections** in the
+**Beside the canvas, live.** The sidebar's **Plots** view ([The Plots rail](../modes/figure.qmd#the-plots-rail),
+**Alt+G**) shows the dissections of whichever plot you last clicked — in its gallery or on
+the canvas — and follows each new click. Tables come first as small previews, then each
+folder of panels. Clicking a placed per-subject panel shows its siblings (the folder it came
+from). With a file selected, clicking another plot that has a file of the same name keeps it
+selected in the same place, so you can flip between plots and compare one subject. The pin
+holds the pane on one plot while you work elsewhere.
+
+**Full screen.** In the figure editor, select a plot and press **D** (or click **Dissections** in the
 Inspector — it shows a count). The viewer opens full-screen, and the **⧉** button shrinks it
 to a floating window you can keep beside the canvas:
 
@@ -74,9 +82,11 @@ with no argument, every plot that has dissections) — see the
 
 # Troubleshooting
 
-- **Pressed D and got "select a plot"** — Dissect works on a single selected plot or image
-  (or a drilled part; the part's owning plot is used). Group selections don't map to one
-  dissection folder.
+- **Pressed D and got "select a plot"** — Dissect works on a selected plot or image (or a
+  drilled part; the part's owning plot is used; with several selected, the last plot you
+  added). Group selections don't map to one dissection folder.
+- **The Plots view says "Library plots have no dissections"** — plots from your global plot
+  library live outside the project; dissections belong to a project's `plots/_dissections`.
 - **The viewer says the folder doesn't exist** — nothing has created it yet. The empty state's
   **Create dissection folder** button does it, and shows the exact path.
 - **Renamed a plot?** Flux never renames files in `plots/`, so rename the matching folder

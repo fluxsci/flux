@@ -819,6 +819,9 @@ export function handleKey(e: KeyboardEvent) {
   //   keyboard inside the rail → back to Layers, keyboard back to the canvas.
   // Shift+Alt+G opens the full gallery, pinned (unchanged).
   if (e.altKey && !mod && e.code === "KeyG" && !e.shiftKey && storeTenant() === "figure") {
+    // With the full gallery pinned in its own window, Alt+G keeps focusing that window
+    // (PlotImporter's own listener does it).
+    if (get(importerOpen) && get(importerDetached)) return;
     e.preventDefault();
     if (!(get(embeddedProjectRoot) || get(projectDir))) return;
     const hidden = get(leftRailHidden), view = get(figureLayout).leftView;

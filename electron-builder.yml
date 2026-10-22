@@ -86,6 +86,12 @@ asarUnpack:
   # fonts:lookup resolves system font files through the shared resolver.
   - src/lib/text/fontFiles.mjs
   - src/lib/text/fontRequest.mjs
+  # The Plots rail's thumbnail worker (an ELECTRON_RUN_AS_NODE child) and its import closure:
+  # worker → engine → rules; the engine resolves fonts through fontFiles.mjs (above) and
+  # @resvg (above). verify-asar-unpack-closure.ts checks every such closure.
+  - electron/plotThumbWorker.mjs
+  - electron/plotThumbEngine.mjs
+  - electron/plotThumbRules.mjs
   - electron/entry.cjs
   # External agents launch the MCP server as a Node child too, so it needs
   # the same real-disk layout.

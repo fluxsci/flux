@@ -46,8 +46,8 @@ A collection can live anywhere, but the natural home for one belonging to a pape
 `plots/_lighttable/<collection>/` inside the Flux project — the `_lighttable` folder is
 [reserved](reference/project-layout.qmd) precisely so a sweep of ten thousand triage images
 never turns up in the plot importer's search. It stays reachable on purpose: type **`_`** in
-the gallery (**Alt+G**) to enter the folder and search inside it, which is how a triage image
-gets imported when you decide it belongs in a figure after all.
+the Plots view's search (**Alt+G**) or the Plot gallery to enter the folder and search inside
+it, which is how a triage image gets imported when you decide it belongs in a figure after all.
 
 # Running it
 

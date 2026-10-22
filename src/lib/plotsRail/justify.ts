@@ -39,7 +39,7 @@ export interface JustifyOpts {
   defaultAspect?: number;
   /** A row never gets shorter than this. */
   minRowH?: number;
-  /** A row never gets taller than rowHeight × this. */
+  /** A row never gets taller than rowHeight × this (1.5: a lone 4:3 plot fills a 220 px rail). */
   maxStretch?: number;
 }
 
@@ -92,7 +92,7 @@ export function layoutJustified(sections: JustifySectionIn[], o: JustifyOpts): J
   const maxA = o.maxAspect ?? 6;
   const defA = o.defaultAspect ?? 4 / 3;
   const minRowH = o.minRowH ?? 40;
-  const maxH = h * (o.maxStretch ?? 1.4);
+  const maxH = h * (o.maxStretch ?? 1.5);
   const sectionGap = o.sectionGap ?? 0;
   const rows: LaidRow[] = [];
   const out: LaidSection[] = [];

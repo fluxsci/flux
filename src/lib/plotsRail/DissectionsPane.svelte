@@ -13,7 +13,8 @@
   import { get } from "svelte/store";
   import JustifiedGrid, { type GridItem, type GridSection, type TileFlags } from "./JustifiedGrid.svelte";
   import Tile from "./Tile.svelte";
-  import TableCard, { tablePreview, tableCardHeight, type TablePreview } from "./TableCard.svelte";
+  import TableCard from "./TableCard.svelte";
+  import { tablePreview, tableCardHeight, type TablePreview } from "./tableCard";
   import RailMenu, { type RailMenuItem } from "./RailMenu.svelte";
   import { focusPlot, setPinned } from "./focusPlot";
   import { createDissectionsModel, type DissectionSection, type DissectionsState } from "./dissectionsModel";

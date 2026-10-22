@@ -389,7 +389,11 @@
       "verify-manifest-contracts.ts",
       "verify-install-script.ts",
       "verify-managed-tools.ts",
-      "verify-packaged-requires.ts"
+      "verify-packaged-requires.ts",
+      "verify-plots-rail-layout.ts",
+      "verify-plots-rail-backdrop.ts",
+      "verify-plots-rail-focus.ts",
+      "verify-plot-thumbs.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -550,7 +554,8 @@
       "verify-slide-model3d-morph-gui.mjs",
       "verify-slide-model3d-parts-gui.mjs",
       "verify-become-picker-gui.mjs",
-      "verify-setup-flux-gui.mjs"
+      "verify-setup-flux-gui.mjs",
+      "verify-plots-rail.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -1249,6 +1254,13 @@
       "verify-slide-tween.ts",
       "verify-slide-handoff-browser.ts",
       "verify-slide-export-transform.ts"
+    ],
+    "plots-rail": [
+      "verify-plots-rail-layout.ts",
+      "verify-plots-rail-backdrop.ts",
+      "verify-plots-rail-focus.ts",
+      "verify-plot-thumbs.ts",
+      "verify-plots-rail.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -2562,7 +2574,8 @@
       "run": [
         "verify-zoom-limits.ts",
         "verify-canvas-zoom-raster.mjs",
-        "verify-no-retired-agent-layer.ts"
+        "verify-no-retired-agent-layer.ts",
+        "group:plots-rail"
       ]
     },
     {
@@ -2608,7 +2621,8 @@
         "verify-text-arrange-gui.mjs",
         "verify-cross-figure-drag.mjs",
         "verify-model3d-snapshot-quiet.mjs",
-        "verify-become-picker-gui.mjs"
+        "verify-become-picker-gui.mjs",
+        "group:plots-rail"
       ]
     },
     {
@@ -2694,12 +2708,24 @@
       ]
     },
     {
+      "$why": "2026-10-22 the Plots rail: the thumbnail worker/engine/rules, its IPC family, the rail's renderer modules and the backdrop fixtures; the IPC contract and the window-key census ride along (new channels, new key listeners).",
+      "glob": "{electron/plotThumb*,electron/ipc/plotThumbs.cjs,src/lib/plotsRail/**,src/lib/interact/canvasHitBridge.ts,scripts/fixtures/plots-rail/**}",
+      "run": [
+        "group:plots-rail",
+        "verify-ipc-contract.ts",
+        "verify-annotate-chord-census.ts",
+        "tier:pure",
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
       "glob": "{electron/dissectRules.js,src/lib/dissect/**}",
       "run": [
         "verify-dissections.ts",
         "verify-dissect-gui.mjs",
         "verify-gallery-workflow.mjs",
-        "tier:pure"
+        "tier:pure",
+        "group:plots-rail"
       ]
     },
     {
@@ -2862,7 +2888,8 @@
       "glob": "src/lib/figureLayoutStore.ts",
       "run": [
         "verify-fig-namer.mjs",
-        "verify-m11-m14.mjs"
+        "verify-m11-m14.mjs",
+        "group:plots-rail"
       ]
     },
     {
@@ -3027,7 +3054,8 @@
       "run": [
         "verify-figure-center.mjs",
         "verify-fig-order-gui.mjs",
-        "tier:pure"
+        "tier:pure",
+        "group:plots-rail"
       ]
     },
     {
@@ -3037,7 +3065,8 @@
         "verify-fig-namer.mjs",
         "group:slide-stash",
         "tier:pure",
-        "verify-cross-figure-drag.mjs"
+        "verify-cross-figure-drag.mjs",
+        "group:plots-rail"
       ]
     },
     {
@@ -3286,7 +3315,8 @@
       "$why": "2026-09-24 Ctrl+S routes by store tenant: Slide mode saves the deck, Figure mode fig/.",
       "glob": "{src/lib/io.ts,src/lib/tenancy.ts,src/shell/lifecycle.ts}",
       "run": [
-        "verify-slide-save-shortcut.mjs"
+        "verify-slide-save-shortcut.mjs",
+        "group:plots-rail"
       ]
     },
     {
@@ -3303,6 +3333,14 @@
       "run": [
         "verify-setup-flux-gui.mjs",
         "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "$why": "2026-10-22 the Plots rail lives in FigureMode (LeftRail, per-view widths, the pan offset, the hit bridge); keeps the broad svelte rule it supersedes.",
+      "glob": "src/shell/modes/figure/FigureMode.svelte",
+      "run": [
+        "verify-no-retired-agent-layer.ts",
+        "group:plots-rail"
       ]
     },
     {
@@ -9971,6 +10009,53 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail-layout.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail-backdrop.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail-focus.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-thumbs.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
     }

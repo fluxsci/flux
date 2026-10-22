@@ -8,7 +8,7 @@
 // batch lands via io.importPlotsFromPaths: physical size, grid-packed without
 // overlap, ONE selection of all new elements, per-file failures → ONE error toast.
 //   Run (dev server on :1420 must be up): node scripts/verify-importer-multi.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, openGalleryDialog } from "./lib/driver.mjs";
 
 let fails = 0;
 const ok = (cond, msg, extra = "") =>
@@ -66,10 +66,9 @@ const snap = () =>
     };
   });
 
+// The full gallery opens from the toolbar (Alt+G in Figure shows the Plots rail since 2026-10-22).
 const altI = async () => {
-  await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyG");
-  await page.keyboard.up("Alt");
+  await openGalleryDialog(page);
   await sleep(450); // open() + rAF focus + background scan
 };
 const ctrlEnter = async () => {

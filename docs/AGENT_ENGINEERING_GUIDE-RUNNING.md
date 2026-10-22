@@ -1599,7 +1599,40 @@ Persistence invariants (all machine-checked — do not weaken):
   (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
   window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
   `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
-- **The Plot gallery (Alt+G) is an editor-owned utility view.** Gallery/list, preview size
+- **The Plots rail (2026-10-22) — the Figure left rail's second view.** `plotsRail/LeftRail.svelte`
+  hosts a tab row ([Layers | Plots], the destination chip, the ⋯ view menu) over `Sidebar` or
+  `PlotsRail` (Gallery over Dissections, a splitter; layout in `figureLayoutStore`: `leftView`,
+  per-view widths `sidebarW`/`plotsRailW`, `plotsSplit`, collapse flags — FigureMode pans the
+  viewport by the width change so a view switch never moves the canvas). **Alt+G** (Figure tenant
+  only, handled ABOVE `handleKey`'s `typing` return) shows Plots + focuses its search / from
+  inside the rail returns to Layers; with the full gallery pinned it still focuses that window.
+  The full gallery opens from the toolbar's Gallery (`data-open-gallery`) or **Shift+Alt+G**
+  (pinned); Slide keeps Alt+G. Keyboard: the rail is `data-command-scope="plots-rail"`;
+  `plotsRail/keyScope.ts` yields only UNMODIFIED keys to it (in `handleKey` and Canvas's own
+  `onKeyDown`), so Ctrl+Z/S/B still reach the editor — narrower than the `.animator` yield.
+  **Thumbnails** never rasterize in main or the renderer: `electron/ipc/plotThumbs.cjs`
+  supervises a long-lived ELECTRON_RUN_AS_NODE child (`plotThumbWorker.mjs` → `plotThumbEngine.mjs`
+  → `plotThumbRules.mjs`; all unpacked, `verify-asar-unpack-closure.ts`) that walks plots/
+  (`plots:list`, incremental `dirs`), probes placed size from headers (`plots:probe`; equals
+  io.ts's placed size: Chromium naturalWidth for SVG, pHYs for PNG), and renders resvg PNGs into
+  `userData/cache/plot-thumbs` keyed by path+size+mtime+bucket+GEN with a per-root index (analysis,
+  sizes, quarantine). Main serves cache hits itself (`cachedThumb`); crashes/timeouts quarantine the
+  file by stamp and respawn (>3 deaths/10 min → `{unavailable}` and the renderer draws tiles with
+  `browserThumb.ts`, SVG ≤ 2 MB). Paths are contained to this window's plots/ or the plot library
+  and `..` is refused. **Backdrop law** (`plotThumbRules.mjs`, one module for worker + renderer):
+  exposed thin ink vs halo rims vs region outlines, capped worst-case contrast + preference bias,
+  declared-paper knockouts — tuned on 695 real images (notes/plots_rail_2026-10-22/P0.md); Auto
+  never depends on the active figure. **Layout** `justify.ts` (pure justified rows, blocks for
+  table cards), `JustifiedGrid.svelte` windows rows AND section headers (gates must scroll to a
+  section; see `findSection` in verify-plots-rail.mjs). **Focus** `focusPlot.ts` owns the ONE
+  selection→plot ladder (`dissect/state.ts` imports it): last writer wins between the canvas
+  (selection changes + presses inside `.canvas-wrap`) and the gallery; sticky on deselect;
+  pinnable; a placed `_dissections` file focuses its OWNER. Live updates ride `fs:changedBatch`
+  (every plots/dissections path in the watcher window, `rescan` past 500) plus
+  `notifyPlotsWritten` for the app's own writes (the watcher skips them). Drag-to-place: a
+  per-FigureMode `interact/canvasHitBridge.ts` (never a singleton) + `placeIncoming(…, at)`.
+  Gates: `group:plots-rail` (four pure + `verify-plots-rail.mjs`), `verify-asar-unpack-closure.ts`.
+- **The Plot gallery (Shift+Alt+G pinned; the toolbar's Gallery) is an editor-owned utility view.** Gallery/list, preview size
   (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
   `GalleryTree` reads only expanded directories, windows its rows and includes explicit
   companion collection entries. The mounted Svelte subtree moves into an inert
@@ -1635,7 +1668,7 @@ Persistence invariants (all machine-checked — do not weaken):
   the exact bundle definition shown in the panel.
 - **Figure-Meta (2026-09-26)** replaces the Figure caption overlay and naming popup.
   Workspace lazy-loads `figure/FigureMeta.svelte` for Alt+M in Figure/Paper; Ctrl+R and
-  sidebar double-click open Name. Shift+Alt+M/G opens metadata/gallery pinned.
+  sidebar double-click open Name. Shift+Alt+M/G opens metadata/gallery pinned (plain Alt+G is the Plots rail).
   Metadata changes use pure `figure/metadata.ts` operations and field-level expected values.
   A resident Figure commits through its history/autosave owner; cold Paper reads a complete
   independent snapshot and publishes a recoverable generation under project/manifest leases.
@@ -1659,7 +1692,7 @@ Persistence invariants (all machine-checked — do not weaken):
   hairline dividers, accent-tint selection with an inset rail (never solid accent fills), no
   blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
   motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
-  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G plot gallery, Alt+T arrange,
+  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G the Plots rail (Figure) / plot gallery (Slide), Alt+T arrange,
   Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
@@ -3980,6 +4013,34 @@ outside this PNG packaging change.
   process); a real-display Electron launched from a sandboxed agent shell can silently fall back to software
   compositing (check `gpu_compositing` in runtime.json); on an idle X11-maximized window
   `requestIdleCallback` never fires (a snapshot scheduled through it waits for the next gesture).
+
+**resvg, thumbnails and the Plots rail (2026-10-22):**
+
+- **`new Resvg(svg)` with `loadSystemFonts` (the default) rebuilds the whole font database on
+  EVERY call** — 24 ms on a box with 869 fonts, against a 3 ms render. A loop of renders pays it
+  every time. Resolve the families an SVG names once (`src/lib/text/fontFiles.mjs`
+  `resolveFontFile`, memoized) and pass `fontFiles` + `loadSystemFonts: false` (ctor 0.3 ms).
+- **`RenderedImage.pixels` are PREMULTIPLIED.** An antialiased white glyph edge reads as grey
+  unless you demultiply (`analyzeInk(…, { premultiplied: true })`); Canvas `getImageData` is
+  straight. Analysing the wrong way made every white-text plot look grey-inked.
+- **resvg-js `imagesToResolve()` lists only REMOTE hrefs** — a local `<image href="x.png">`
+  never appears there. Wrap a raster in an SVG with a `data:` URI. resvg-js 2.6.2 decodes
+  PNG/JPEG/GIF but NOT WebP (renders nothing, no error).
+- **Svelte 5 `$state` deep-proxies whatever you assign it.** Assigning a store payload (a
+  20k-item plot index, a listing) to `$state` builds proxies over all of it; use `$state.raw`
+  for anything store-fed. A variable named `state` collides with the `$state` rune
+  ("Block-scoped variable '$state' used before its declaration").
+- **The `state_proxy_equality_mismatch` dev warning in the console is pdf.js's**
+  (`pdfjs-dist` polyfills call `Array.prototype.includes` through Svelte's dev array patch) —
+  not your component; capture the stack before chasing it.
+- **A windowed grid windows its section headers too** — a gate looking for
+  `[data-section=…]` far down must scroll to it (`findSection`), as a user would.
+- **puppeteer `mouse.click(…, { clickCount: 2 })` is deprecated and does not double-click** on
+  this version — use `{ count: 2 }`. A synthetic `dispatchEvent(new MouseEvent("dblclick"))`
+  proves the handler, not the gesture.
+- **Contain a requested path AFTER canonicalising it.** `plots/../project.json` passes a
+  prefix check on the raw string; refuse `..` segments, `path.resolve`, then compare
+  (`plotThumbs.cjs placeOf`, pinned in verify-plot-thumbs.ts).
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 

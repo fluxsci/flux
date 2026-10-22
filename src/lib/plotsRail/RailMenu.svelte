@@ -11,6 +11,7 @@
   // tile's context menu). Fixed-positioned at an anchor point, clamped to the window; closes on
   // Escape, an outside press, or after an action. Keyboard: ↑/↓ move, Enter runs.
   import { onMount, tick } from "svelte";
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
 
   let { items, x, y, onClose, label = "Menu", minWidth = 180 }: {
     items: RailMenuItem[];
@@ -32,6 +33,7 @@
     top = Math.max(4, Math.min(y, win.innerHeight - r.height - 4));
     const down = (e: PointerEvent) => { if (!el?.contains(e.target as Node)) onClose(); };
     const key = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
     };
     // Capture phase: the press that opened the menu has already been handled.

@@ -3,7 +3,7 @@
 // No native project, machine configuration or running app is accessed.
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { launch, gotoApp, clickMode, APP_URL, waitFor, realErrors, assertH264 } from './lib/driver.mjs';
+import { launch, gotoApp, clickMode, APP_URL, waitFor, realErrors, assertH264, openGalleryDialog } from './lib/driver.mjs';
 
 const { browser, page } = await launch({ width: 1600, height: 1100 });
 const ROOT = '/demo/myc-growth-paper';
@@ -68,7 +68,7 @@ try {
     window.__galleryDirReads = [];
     window.fig.readdir = async path => { window.__galleryDirReads.push(path); return readdir(path); };
   }, { root: ROOT, movie, poster });
-  await page.keyboard.down('Alt'); await page.keyboard.press('KeyG'); await page.keyboard.up('Alt'); await page.waitForSelector('.importer');
+  await openGalleryDialog(page); // the toolbar's Gallery (Alt+G in Figure shows the Plots rail since 2026-10-22)
   await page.waitForSelector(treeRow(PLOTS + '/study'));
   check(await page.$eval(treeRow(PLOTS + '/study'), el => el.getAttribute('aria-expanded') === 'false'), 'folder sidebar starts with nested folders collapsed');
   check(!(await page.$(treeRow(PLOTS + '/study/deep'))), 'collapsed descendants are absent from the tree');

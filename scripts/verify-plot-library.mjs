@@ -6,7 +6,7 @@
 // selected scope. A plot inserted from the library keeps its library file as an
 // external source; picks from both scopes can go in as one batch.
 //   Run (dev server on :1420 must be up): node scripts/verify-plot-library.mjs
-import { launch, gotoApp, clickMode, realErrors, waitFor, APP_URL } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, realErrors, waitFor, APP_URL, openGalleryDialog } from "./lib/driver.mjs";
 
 let fails = 0, checks = 0;
 const ok = (cond, msg, extra = "") => {
@@ -69,8 +69,9 @@ const chord = async (mod, key) => {
   await page.keyboard.press(key);
   await page.keyboard.up(mod);
 };
+// The full gallery opens from the toolbar (Alt+G in Figure shows the Plots rail since 2026-10-22).
 const openGallery = async () => {
-  await chord("Alt", "KeyG");
+  await openGalleryDialog(page);
   await waitFor(page, () => !!document.querySelector(".importer .scope-switch"), null, { label: "gallery open" });
   await scanned();
 };

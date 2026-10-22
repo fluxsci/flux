@@ -6,7 +6,7 @@
 // Stepping back out restores the ordinary plots/ scope. Material reached this deliberately is
 // importable like any plot.
 //   Run (dev server on :1420 must be up): node scripts/verify-importer-reserved.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, openGalleryDialog } from "./lib/driver.mjs";
 
 let fails = 0;
 const ok = (cond, msg, extra = "") =>
@@ -48,10 +48,9 @@ const snap = () =>
     };
   });
 
+// The full gallery opens from the toolbar (Alt+G in Figure shows the Plots rail since 2026-10-22).
 const altI = async () => {
-  await page.keyboard.down("Alt");
-  await page.keyboard.press("KeyG");
-  await page.keyboard.up("Alt");
+  await openGalleryDialog(page);
   await sleep(500); // open() + rAF focus + background scan
 };
 /** Replace the query: Escape clears a non-empty box (it only closes when already empty). */
