@@ -11,7 +11,7 @@ import { lerpDash } from "./tween";
 import { axisFit, projectWith } from "../plot/project";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
-  planOutlines, sampleNodes, type RingStrategy, type Outline,
+  planOutlines, sampleNodes, supportPoint, lerpGradientFill, type GradientLerp, type RingStrategy, type Outline,
 } from "./outline";
 
 export interface CorrespondencePair {
@@ -407,7 +407,9 @@ const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint
 
 /** Half a stage px of overlap between adjacent opaque fill pieces (device px
  *  ≥ 1 at any presentation scale), so no anti-aliased seam can show. */
-const SEAM_OVERLAP = 0.5;
+export const SEAM_OVERLAP = 0.5;
+/** expandPolygon's miter cap (× the offset): a thin triangle's tip can poke SEAM_OVERLAP × this past its rect. */
+export const EXPAND_MITER_LIMIT = 3;
 /** Whether a fill (with the outline's own alpha) paints fully opaque — only then
  *  may pieces overlap invisibly; a translucent fill would darken where it did. */
 export function opaque(paint: OutlinePaint): boolean {
@@ -438,7 +440,7 @@ export function expandPolygon(pts: { x: number; y: number }[], d: number): { x: 
     const dot = n1.x * n2.x + n1.y * n2.y;
     let mx = (n1.x + n2.x) / (1 + dot), my = (n1.y + n2.y) / (1 + dot);
     const len = Math.hypot(mx, my);
-    if (!Number.isFinite(len) || len > 3) { const k = 3 / (len || 1); mx = Number.isFinite(mx) ? mx * k : n1.x * 3; my = Number.isFinite(my) ? my * k : n1.y * 3; }
+    if (!Number.isFinite(len) || len > EXPAND_MITER_LIMIT) { const k = EXPAND_MITER_LIMIT / (len || 1); mx = Number.isFinite(mx) ? mx * k : n1.x * EXPAND_MITER_LIMIT; my = Number.isFinite(my) ? my * k : n1.y * EXPAND_MITER_LIMIT; }
     return { x: v.x + d * mx, y: v.y + d * my };
   });
 }
@@ -601,6 +603,9 @@ interface SampleBuffers {
   stroke: (t: number) => string;
   /** drain: the ring sampled as a polygon once; `morph` holds the clipped result. */
   ring?: { x: number; y: number }[];
+  /** prepared per-stop colour lerps of a gradient-filled / -stroked pair */
+  gfill?: GradientLerp;
+  gstroke?: GradientLerp;
 }
 const buffers = new WeakMap<SampledPath, SampleBuffers>();
 const smooth = (p: number) => p * p * (3 - 2 * p);
@@ -634,7 +639,7 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       const pa = (a ?? one).paint, pb = (b ?? one).paint;
       buf = {
         pair, a: (a?.nodes ?? []).map(copyNode), b: (b?.nodes ?? []).map(copyNode),
-        morph: aligned ? sampleNodes(aligned.a, aligned.b, 0, 1, 1) : [],
+        morph: aligned ? sampleNodes(aligned.a, aligned.b, 0, 1, 1, [], { wa: 1, ha: 1, wb: 1, hb: 1 }) : [],
         dash: lerpDash(pa.dash, pb.dash, 0.5) ?? [],
         aDash: lerpDash(pa.dash, pb.dash, 0), bDash: lerpDash(pa.dash, pb.dash, 1),
         fill: prepareColorLerp(pa.fill, pb.fill), stroke: prepareColorLerp(pa.stroke, pb.stroke),
@@ -689,7 +694,7 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       path.closed = end.closed;
     } else if (aligned) {
       const x = lerp(a.bbox.x, b.bbox.x, t), y = lerp(a.bbox.y, b.bbox.y, t);
-      path.nodes = sampleNodes(aligned.a, aligned.b, t, lerp(a.bbox.w, b.bbox.w, t), lerp(a.bbox.h, b.bbox.h, t), buf.morph);
+      path.nodes = sampleNodes(aligned.a, aligned.b, t, lerp(a.bbox.w, b.bbox.w, t), lerp(a.bbox.h, b.bbox.h, t), buf.morph, { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
       for (const n of path.nodes) { n.x += x; n.y += y; }
       path.closed = aligned.closed;
     }
@@ -700,6 +705,12 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
     paint.dash = t === 0 ? buf.aDash : t === 1 ? buf.bDash : lerpDash(pa.dash, pb.dash, t, buf.dash);
     paint.cap = t < 0.5 ? pa.cap : pb.cap;
     paint.opacity = lerp(pa.opacity ?? 1, pb.opacity ?? 1, t);
+    // per-channel alpha and colormap gradients ride t like every other channel
+    const fo = lerp(pa.fillOpacity ?? 1, pb.fillOpacity ?? 1, t), so = lerp(pa.strokeOpacity ?? 1, pb.strokeOpacity ?? 1, t);
+    if (fo < 1) paint.fillOpacity = fo; else delete paint.fillOpacity;
+    if (so < 1) paint.strokeOpacity = so; else delete paint.strokeOpacity;
+    if (pa.fillMap?.stops?.length || pb.fillMap?.stops?.length) paint.fillMap = lerpGradientFill(pa.fillMap, pb.fillMap, pa.fill, pb.fill, t, (buf.gfill ??= {})); else delete paint.fillMap;
+    if (pa.strokeMap?.stops?.length || pb.strokeMap?.stops?.length) paint.strokeMap = lerpGradientFill(pa.strokeMap, pb.strokeMap, pa.stroke, pb.stroke, t, (buf.gstroke ??= {})); else delete paint.strokeMap;
     const stepped = t < 0.5 ? pa : pb;
     paint.arrowStart = stepped.arrowStart; paint.arrowEnd = stepped.arrowEnd;
     paint.arrowStyle = stepped.arrowStyle; paint.arrowSize = stepped.arrowSize;
@@ -707,4 +718,25 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
   }
   out.length = plan.pairs.length;
   return out;
+}
+
+const headNodes = new WeakMap<CorrespondencePair, VectorNode[]>();
+/** Stage-space vertices of a FIXED head (a stroke side's authored arrowhead that
+ *  rides an inflating pair) at flight progress u: the authored points, translated
+ *  so the head's tip sits on the swelling chain's support point along the head's own
+ *  direction. Rigid, never scaled with the lerped box (dividing by a zero-extent box
+ *  of an axis-aligned arrow used to flatten the head). The same law as
+ *  `fixedHeadPoints` in the 1↔1 driver, in stage px. Pure in (pair, u): the WeakMap
+ *  only holds a reusable node buffer. */
+export function pairHeadPoints(pair: CorrespondencePair, points: number[][], anchor: [number, number], dir: [number, number], u: number): number[][] {
+  const plan = pair.plan, a = pair.a, b = pair.b;
+  if (!plan || !a || !b) return points;
+  // the intermediate chain in STAGE px at flight progress u (same law as sampleCorrespondence)
+  const buf = headNodes.get(pair) ?? (headNodes.set(pair, []), headNodes.get(pair)!);
+  const nodes = sampleNodes(plan.a, plan.b, u, lerp(a.bbox.w, b.bbox.w, u), lerp(a.bbox.h, b.bbox.h, u), buf, { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
+  const x = lerp(a.bbox.x, b.bbox.x, u), y = lerp(a.bbox.y, b.bbox.y, u);
+  for (const n of nodes) { n.x += x; n.y += y; }
+  const tip = supportPoint(nodes, true, dir);
+  const dx = tip[0] - anchor[0], dy = tip[1] - anchor[1];
+  return points.map(([px, py]) => [px + dx, py + dy]);
 }

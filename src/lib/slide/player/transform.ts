@@ -37,7 +37,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox, dashAttr, channelOpacity } from "../../geometry";
 import { pathRender, pathD } from "../../path";
 import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
-import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
+import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, fixedHeadPoints, type ElementMorphPlan } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
@@ -292,7 +292,10 @@ export function createTransform(
     const bodyGeom = pathRender({ ...el, arrowStart: both.start, arrowEnd: both.end });
     const headGeom = !el.closed && (L.heads.start || L.heads.end) ? pathRender(el) : null;
     set(L.body, "d", bodyGeom.d);
-    const paint = elementPaints(el);
+    // The A layer (the original markup, hidden but still in the document) owns
+    // `fxg-<id>-fill`; an `url(#same-id)` here would resolve to ITS stops (document
+    // order) and the gradient would sit frozen until the swap to B. Own namespace.
+    const paint = elementPaints(el.fillMap || el.strokeMap ? { ...el, id: el.id + "-morph" } : el);
     let defs = L.svg.querySelector("defs");
     const markup = paint.defs.map(gradientSvg).join("");
     if (markup) {
@@ -311,7 +314,7 @@ export function createTransform(
       const h = morphPlan!.fixedHeads[i], node = L.fixed[i];
       const w = Math.max(el.width, 1e-6), hh = Math.max(el.height, 1e-6);
       const side = h.side === "pre" ? morphPlan!.preStyle : morphPlan!.endStyle;
-      set(node, "points", h.pts.map(([u, v]) => `${u * w},${v * hh}`).join(" "));
+      set(node, "points", fixedHeadPoints(morphPlan!, h, t).map(([x, y]) => `${x},${y}`).join(" "));
       set(node, h.filled ? "fill" : "stroke", side.stroke);
       if (!h.filled) set(node, "stroke-width", String(side.strokeWidth));
       set(node, "opacity", String(fixedHeadOpacity(h, t)));

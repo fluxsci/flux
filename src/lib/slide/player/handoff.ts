@@ -2,10 +2,12 @@
 import type { BecomeSpec } from "../types";
 import type { StageOutline, OutlineOwner } from "../stageOutline";
 import type { CorrespondencePlan, CorrespondencePair, SampledPath } from "../correspondence";
-import { sampleCorrespondence } from "../correspondence";
+import { sampleCorrespondence, pairHeadPoints } from "../correspondence";
+import { strokeEndDirection } from "../outline";
 import type { MorphController } from "../../plot/project";
 import { prefixIds } from "../../plot/parse";
 import { pathD, pathRender } from "../../path";
+import { gradientDef, gradientId, gradientSvg } from "../../color/gradient";
 import { warmWhenIdle } from "./transform";
 import { createTextMorph, type TextMorph } from "./textMorph";
 import type { TextElement } from "../../types";
@@ -90,8 +92,9 @@ export interface HandoffMedia {
   ready(): Promise<void>;
   dispose(): void;
 }
-interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean }
-interface PathDrawing { node: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[] }
+interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean; anchor: [number, number]; dir: [number, number] }
+interface PathDrawing { node: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement }
+let gradientSerial = 0;
 interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; aBox: Box; bBox: Box }
 interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
 
@@ -267,7 +270,11 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
                   const head = document.createElementNS(NS, filled ? "polygon" : "polyline");
                   head.setAttribute("fill", filled ? p.stroke : "none"); head.setAttribute("stroke", filled ? "none" : p.stroke);
                   head.setAttribute("stroke-width", String(p.strokeWidth)); parent.appendChild(head);
-                  fixed.push({ node: head, side, start: side === pair.a, points: points.map(([x, y]) => [(x - side.bbox.x) / (side.bbox.w || 1), (y - side.bbox.y) / (side.bbox.h || 1)]) });
+                  // the head rides the stroke end it sits on (the nearer of the first / last node)
+                  const f = side.nodes[0], l = side.nodes[side.nodes.length - 1];
+                  const cx = points.reduce((m, q) => m + q[0] / points.length, 0), cy = points.reduce((m, q) => m + q[1] / points.length, 0);
+                  const at = (cx - f.x) ** 2 + (cy - f.y) ** 2 < (cx - l.x) ** 2 + (cy - l.y) ** 2 ? f : l;
+                  fixed.push({ node: head, side, start: side === pair.a, points, anchor: [at.x, at.y], dir: strokeEndDirection(side.nodes, at === f) });
                 }
               }
             } else {
@@ -296,15 +303,34 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     const { node, pair, heads, fixed } = drawing, p = sample.paint;
     const d = pathD(sample.nodes, sample.closed);
     if (!heads.length) set(node, "d", d);
-    set(node, "fill", p.fill); set(node, "stroke", p.stroke);
+    // colormap gradients (own `<defs>` per drawing; the main path used to drop them) and per-channel alpha
+    let fillPaint = p.fill, strokePaint = p.stroke;
+    if (p.fillMap?.stops?.length || p.strokeMap?.stops?.length) {
+      // userSpaceOnUse over the SOURCE ELEMENT's box (lerped to the destination's): a piece of a
+      // split/merged shape shows its slice of one ramp, and a zero-extent piece still paints
+      const ba = pair.a?.paint.gradBox ?? pair.a?.bbox ?? pair.b!.bbox, bb = pair.b?.paint.gradBox ?? pair.b?.bbox ?? ba;
+      const gradBox = { x: lerp(ba.x, bb.x, u), y: lerp(ba.y, bb.y, u), w: lerp(ba.w, bb.w, u), h: lerp(ba.h, bb.h, u) };
+      const gid = (which: "fill" | "stroke") => gradientId(drawing.id ??= "ho" + (gradientSerial++), which);
+      const defs: string[] = [];
+      for (const [which, g] of [["fill", p.fillMap], ["stroke", p.strokeMap]] as const) {
+        const def = g?.stops?.length ? gradientDef(gid(which), g, gradBox) : null;
+        if (!def) continue;
+        defs.push(gradientSvg(def));
+        if (which === "fill") fillPaint = `url(#${def.id})`; else strokePaint = `url(#${def.id})`;
+      }
+      const host = (drawing.defs ??= (() => { const d = document.createElementNS(NS, "defs"); node.parentNode?.insertBefore(d, node); return d; })());
+      const markup = defs.join("");
+      if (host.innerHTML !== markup) host.innerHTML = markup;
+    } else if (drawing.defs) { drawing.defs.remove(); drawing.defs = undefined; }
+    set(node, "fill", fillPaint); set(node, "stroke", strokePaint);
+    if (p.fillOpacity != null) set(node, "fill-opacity", String(p.fillOpacity)); else node.removeAttribute("fill-opacity");
+    if (p.strokeOpacity != null) set(node, "stroke-opacity", String(p.strokeOpacity)); else node.removeAttribute("stroke-opacity");
     set(node, "stroke-width", String(p.strokeWidth)); set(node, "stroke-linecap", p.cap);
     set(node, "stroke-dasharray", p.dash?.join(" ") || "none");
     set(node, "opacity", String(sample.opacity * (p.opacity ?? 1) * fade));
     for (const head of fixed) {
-      const a = pair.a?.bbox ?? pair.b!.bbox, b = pair.b?.bbox ?? a;
-      const x = lerp(a.x, b.x, u), y = lerp(a.y, b.y, u), w = lerp(a.w, b.w, u), h = lerp(a.h, b.h, u);
       let points = "";
-      for (const point of head.points) points += `${point[0] * w + x},${point[1] * h + y} `;
+      for (const point of pairHeadPoints(pair, head.points, head.anchor, head.dir, u)) points += `${point[0]},${point[1]} `;
       set(head.node, "points", points);
       set(head.node, "opacity", String((head.start ? clamp01(1 - u / .4) : clamp01((u - .6) / .4)) * (head.side.paint.opacity ?? 1)));
     }

@@ -45,6 +45,12 @@ function placement(el: SceneElement, flips: boolean): SvgMatrix {
     compose(scale(flips && el.flipX ? -1 : 1, flips && el.flipY ? -1 : 1), translate(-cx, -cy))));
 }
 
+/** Per-channel alpha, only when the element sets one below 1 (absent = byte-identical outlines). */
+function channelAlpha(el: SceneElement): { fillOpacity?: number; strokeOpacity?: number } {
+  const e = el as { fillOpacity?: number; strokeOpacity?: number };
+  return { ...(e.fillOpacity != null && e.fillOpacity < 1 ? { fillOpacity: e.fillOpacity } : {}), ...(e.strokeOpacity != null && e.strokeOpacity < 1 ? { strokeOpacity: e.strokeOpacity } : {}) };
+}
+
 function stage(outline: Outline, matrix: SvgMatrix, owner: OutlineOwner, paint: OutlinePaint): StageOutline {
   const nodes = applyToNodes(outline.nodes, matrix);
   // bbox = the TRUE curve extent (never the control hull, never stroke overhang): the box
@@ -63,8 +69,12 @@ export function elementStageOutlines(el: SceneElement, ctx?: Pick<GeometryCtx, "
       return letters.map((o) => { const nodes = applyToNodes(o.nodes, m); return { ...o, nodes, bbox: nodesExtent(nodes, true) }; });
     }
   }
-  if (outline) return [stage(outline, compose(placement(el, false), translate(b.x, b.y)),
-    { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1 })];
+  if (outline) {
+    const o = stage(outline, compose(placement(el, false), translate(b.x, b.y)),
+      { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1, ...channelAlpha(el) });
+    if (o.paint.fillMap?.stops?.length || o.paint.strokeMap?.stops?.length) o.paint.gradBox = o.bbox;
+    return [o];
+  }
   if (el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d") return [];
   return [stage({ nodes: boxNodes(b), closed: true }, placement(el, true), { elementId: el.id }, {
     fill: el.type === "text" ? el.color : "none", stroke: "none", strokeWidth: 0, cap: "butt",

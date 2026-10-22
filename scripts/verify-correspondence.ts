@@ -255,7 +255,7 @@ for (const [a, b] of [[rect, ellipse], [single, rect]]) {
   h.eq(out[0].nodes, b.nodes.map((n) => ({ ...n, hIn: n.hIn && { ...n.hIn }, hOut: n.hOut && { ...n.hOut } })), "(g) t=1 returns exact destination nodes and handles");
   sampleCorrespondence(p, 0.35, out);
   const ns = out[0].nodes, n0 = ns[0], hi = ns.find((n) => n.hIn)?.hIn, dash = out[0].paint.dash;
-  const expected = sampleNodes(pp.a, pp.b, 0.35, a.bbox.w + (b.bbox.w - a.bbox.w) * 0.35, a.bbox.h + (b.bbox.h - a.bbox.h) * 0.35);
+  const expected = sampleNodes(pp.a, pp.b, 0.35, a.bbox.w + (b.bbox.w - a.bbox.w) * 0.35, a.bbox.h + (b.bbox.h - a.bbox.h) * 0.35, [], { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
   h.ok(ns.every((n, i) => near(n.x, expected[i].x + a.bbox.x + (b.bbox.x - a.bbox.x) * 0.35) && near(n.y, expected[i].y + a.bbox.y + (b.bbox.y - a.bbox.y) * 0.35)), "unit correspondence is placed exactly in the interpolated stage bbox");
   h.eq(out[0].paint.fill, lerpColor(a.paint.fill, b.paint.fill, 0.35), "paint uses the shared OKLab interpolator");
   h.eq(dash, lerpDash(a.paint.dash, b.paint.dash, 0.35), "paint uses the shared dash interpolator");
@@ -293,7 +293,7 @@ for (const { name, a, b, expected } of coldOracle.cases) {
   let deviation = 0;
   for (const t of [0.125, 0.5, 0.875]) {
     sampleCorrespondence(p, t, out);
-    const oldNodes = sampleNodes(expected.a, expected.b, t, a.bbox.w + (b.bbox.w - a.bbox.w) * t, a.bbox.h + (b.bbox.h - a.bbox.h) * t);
+    const oldNodes = sampleNodes(expected.a, expected.b, t, a.bbox.w + (b.bbox.w - a.bbox.w) * t, a.bbox.h + (b.bbox.h - a.bbox.h) * t, [], { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
     for (const n of oldNodes) { n.x += a.bbox.x + (b.bbox.x - a.bbox.x) * t; n.y += a.bbox.y + (b.bbox.y - a.bbox.y) * t; }
     const oldPath = parameterize(oldNodes, expected.closed), newPath = parameterize(out[0].nodes, out[0].closed);
     for (let i = 0; i < 1000; i++) {

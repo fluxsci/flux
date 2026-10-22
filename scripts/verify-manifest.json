@@ -327,6 +327,8 @@
       "verify-background-run.ts",
       "verify-preset-catalog.ts",
       "verify-correspondence.ts",
+      "verify-slide-morph-geometry.ts",
+      "verify-slide-morph-geometry-browser.ts",
       "verify-target-geometry.ts",
       "verify-target-geometry-browser.ts",
       "verify-plot-view.ts",
@@ -884,6 +886,8 @@
     "slide-transforms": [
       "verify-slide-tween.ts",
       "verify-slide-outline.ts",
+      "verify-slide-morph-geometry.ts",
+      "verify-slide-morph-geometry-browser.ts",
       "verify-slide-become.ts",
       "verify-slide-become-browser.ts",
       "verify-slide-track-ops.ts",
@@ -1665,6 +1669,8 @@
       "glob": "src/lib/slide/correspondence.ts",
       "run": [
         "verify-correspondence.ts",
+        "verify-slide-morph-geometry.ts",
+        "verify-slide-morph-geometry-browser.ts",
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
         "tier:pure",
@@ -1701,6 +1707,8 @@
       "run": [
         "verify-target-geometry-browser.ts",
         "verify-target-geometry.ts",
+        "verify-slide-morph-geometry.ts",
+        "verify-slide-morph-geometry-browser.ts",
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
         "tier:pure",
@@ -6976,6 +6984,15 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-slide-morph-geometry.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-slide-playback.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -9165,6 +9182,15 @@
       "coverage": "behavior"
     },
     "verify-slide-handoff-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-morph-geometry-browser.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

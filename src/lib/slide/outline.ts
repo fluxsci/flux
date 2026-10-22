@@ -17,9 +17,9 @@
 
 import type { Element, PathElement, VectorNode, GradientFill } from "../types";
 import { elementBBox } from "../geometry";
-import { lerpColor } from "../color/interp";
+import { lerpColor, prepareColorLerp } from "../color/interp";
 import {
-  pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint,
+  pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent,
   type PathSeg,
 } from "../path";
 
@@ -412,6 +412,13 @@ export function planOutlines(A: Outline, aw: number, ah: number, B: Outline, bw:
   return built;
 }
 
+/** A box thinner than this (stage units) is a stroke, not a shape: its unit frame
+ *  is degenerate (a line's h = 0 maps every node to v = 0), so such a pair is
+ *  planned and sampled in PIXELS instead of in the two unit frames. */
+export const THIN_BOX = 1;
+export interface PlanBoxes { wa: number; ha: number; wb: number; hb: number }
+export const pixelLaw = (e: PlanBoxes): boolean => Math.min(e.wa, e.ha, e.wb, e.hb) < THIN_BOX;
+
 function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy): { a: VectorNode[]; b: VectorNode[]; closed: boolean } {
   let ua: Outline = { nodes: unit(A.nodes, aw, ah), closed: A.closed };
   let ub: Outline = { nodes: unit(B.nodes, bw, bh), closed: B.closed };
@@ -503,8 +510,52 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
 export interface FixedHead {
   side: "pre" | "end";
   filled: boolean;
-  /** Head vertices in the side's unit frame (u = x/w, v = y/h). */
+  /** Head vertices in PIXELS, local to the side's box origin. (They used to be in
+   *  the unit frame, which divides by 0 for an axis-aligned arrow's h = 0 and
+   *  flattened the head to a sliver on the first morph frame.) */
   pts: [number, number][];
+  /** The stroke end this head sits on (same local pixels): the head rides the
+   *  chain node there, rigidly. */
+  anchor: [number, number];
+  /** Unit direction the head points (the stroke's end tangent). */
+  dir: [number, number];
+}
+
+/** The point of a (closed) chain farthest along `dir` (a unit vector): the visible TIP of a
+ *  stroke's end while the stroke swells into a ring. Pure; 12 samples per segment. */
+export function supportPoint(nodes: VectorNode[], closed: boolean, dir: [number, number]): [number, number] {
+  let best = -Infinity, bx = 0, by = 0;
+  for (const s of segsFromNodes(nodes, closed)) {
+    for (let k = 0; k <= 12; k++) {
+      const p = segPoint(s, k / 12), d = p.x * dir[0] + p.y * dir[1];
+      if (d > best) { best = d; bx = p.x; by = p.y; }
+    }
+  }
+  return [bx, by];
+}
+
+/** Unit direction a stroke LEAVES its first node (negated: the way a head at the START points)
+ *  or ARRIVES at its last node (the way a head at the END points). */
+export function strokeEndDirection(nodes: VectorNode[], atFirst: boolean): [number, number] {
+  const segs = segsFromNodes(nodes, false);
+  if (!segs.length) return [1, 0];
+  const v = atFirst ? segTangent(segs[0], 0) : segTangent(segs[segs.length - 1], 1);
+  const len = Math.hypot(v.x, v.y) || 1;
+  return atFirst ? [-v.x / len, -v.y / len] : [v.x / len, v.y / len];
+}
+
+const headBuffers = new WeakMap<FixedHead, VectorNode[]>();
+/** A fixed head's vertices in the CURRENT box at time t: its authored shape (rigid, never
+ *  stretched with the box), translated so its tip sits on the swelling ring's extreme point
+ *  along the head's own direction — the visible end of the stroke while it inflates. At t = 0
+ *  that point IS the anchor (the stroke's end), so the head starts exactly where it was drawn. */
+export function fixedHeadPoints(plan: ElementMorphPlan, head: FixedHead, t: number): [number, number][] {
+  const pb = plan.preBox, eb = plan.endBox;
+  const buf = headBuffers.get(head) ?? (headBuffers.set(head, []), headBuffers.get(head)!);
+  const nodes = sampleNodes(plan.a, plan.b, t, lerp(pb.w, eb.w, t), lerp(pb.h, eb.h, t), buf, { wa: pb.w, ha: pb.h, wb: eb.w, hb: eb.h });
+  const tip = supportPoint(nodes, true, head.dir);
+  const dx = tip[0] - head.anchor[0], dy = tip[1] - head.anchor[1];
+  return head.pts.map(([x, y]) => [x + dx, y + dy]);
 }
 
 /** Opacity of a fixed (inflate) head at time t: a pre head melts away over the
@@ -513,14 +564,19 @@ export function fixedHeadOpacity(head: FixedHead, t: number): number {
   return head.side === "pre" ? Math.max(0, Math.min(1, 1 - t / 0.4)) : Math.max(0, Math.min(1, (t - 0.6) / 0.4));
 }
 
-/** The arrowheads a stroke side draws, in its unit frame. */
+/** The arrowheads a stroke side draws, in pixels local to its box. */
 function strokeHeads(el: Element, outline: Outline, box: { w: number; h: number }, side: "pre" | "end"): FixedHead[] {
   const st = styleOf(el);
   if (outline.closed || (!st.arrowStart && !st.arrowEnd) || outline.nodes.length < 2) return [];
   const pr = pathRender({ d: pathD(outline.nodes, false), nodes: outline.nodes, closed: false, strokeWidth: st.strokeWidth, arrowStart: st.arrowStart, arrowEnd: st.arrowEnd, arrowStyle: st.arrowStyle, arrowSize: st.arrowSize });
-  const sx = box.w > 1e-9 ? 1 / box.w : 0, sy = box.h > 1e-9 ? 1 / box.h : 0;
-  const map = (pts: number[][]): [number, number][] => pts.map(([x, y]) => [x * sx, y * sy]);
-  return [...pr.polys.map((pts) => ({ side, filled: true, pts: map(pts) })), ...pr.vees.map((pts) => ({ side, filled: false, pts: map(pts) }))];
+  const first = outline.nodes[0], last = outline.nodes[outline.nodes.length - 1];
+  const mk = (pts: number[][], filled: boolean): FixedHead => {
+    const tip = pts.reduce((m, p) => [m[0] + p[0] / pts.length, m[1] + p[1] / pts.length], [0, 0]);
+    const nearFirst = (tip[0] - first.x) ** 2 + (tip[1] - first.y) ** 2 < (tip[0] - last.x) ** 2 + (tip[1] - last.y) ** 2;
+    const at = nearFirst ? first : last;
+    return { side, filled, pts: pts.map(([x, y]) => [x, y] as [number, number]), anchor: [at.x, at.y], dir: strokeEndDirection(outline.nodes, nearFirst) };
+  };
+  return [...pr.polys.map((pts) => mk(pts, true)), ...pr.vees.map((pts) => mk(pts, false))];
 }
 
 interface OutlineStyle {
@@ -606,6 +662,33 @@ function isNoneColor(c: string): boolean {
   return t === "none" || t === "transparent" || t === "";
 }
 
+/** A colormap gradient between two states. Two gradients (or a gradient and a flat
+ *  colour, which is a gradient whose stops are all that colour) blend STOP BY STOP
+ *  in OKLab — the old behaviour stepped the whole map at t = .5, a visible pop for
+ *  every gradient-filled Become. Hard-banded (discrete) maps cannot blend and step
+ *  at .5 as before. `cache` holds the prepared per-stop lerps (parsed once). */
+export interface GradientLerp { prep?: ((t: number) => string)[] }
+export function lerpGradientFill(a: GradientFill | null | undefined, b: GradientFill | null | undefined, flatA: string, flatB: string, t: number, cache: GradientLerp): GradientFill | undefined {
+  const sa = a?.stops?.length ? a.stops : null, sb = b?.stops?.length ? b.stops : null;
+  if (!sa && !sb) return undefined;
+  const pick = t < 0.5 ? (sa ? a : b) : (sb ? b : a);
+  if ((a?.discrete && sa) || (b?.discrete && sb)) return structuredClone(pick ?? undefined);
+  if (!cache.prep) {
+    const n = Math.max(sa?.length ?? 1, sb?.length ?? 1);
+    const at = (s: string[] | null, flat: string, i: number) => (s ? s[Math.round((i * (s.length - 1)) / Math.max(1, n - 1))] : flat);
+    cache.prep = Array.from({ length: n }, (_, i) => prepareColorLerp(at(sa, flatA, i), at(sb, flatB, i)));
+  }
+  const g = pick ?? a ?? b!;
+  return { map: g.map, axis: g.axis, stops: cache.prep.map((f) => f(t)) };
+}
+const gradientCaches = new WeakMap<ElementMorphPlan, { fill: GradientLerp; stroke: GradientLerp }>();
+function lerpGradient(plan: ElementMorphPlan, which: "fill" | "stroke", t: number): GradientFill | undefined {
+  let c = gradientCaches.get(plan);
+  if (!c) gradientCaches.set(plan, c = { fill: {}, stroke: {} });
+  const A = plan.preStyle, B = plan.endStyle;
+  return which === "fill" ? lerpGradientFill(A.fillMap, B.fillMap, A.fill, B.fill, t, c.fill) : lerpGradientFill(A.strokeMap, B.strokeMap, A.stroke, B.stroke, t, c.stroke);
+}
+
 /** Per-frame arrowhead opacity for the intermediate: a head only one side
  *  draws fades out (pre-only) or in (end-only) instead of popping. */
 export function arrowFade(plan: ElementMorphPlan, which: "start" | "end", t: number): number {
@@ -623,7 +706,7 @@ export function arrowFade(plan: ElementMorphPlan, which: "start" | "end", t: num
 export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): PathElement {
   const { pre, end, preBox, endBox, preStyle, endStyle } = plan;
   const w = lerp(preBox.w, endBox.w, t), h = lerp(preBox.h, endBox.h, t);
-  const nodes = sampleNodes(plan.a, plan.b, t, w, h);
+  const nodes = sampleNodes(plan.a, plan.b, t, w, h, [], { wa: preBox.w, ha: preBox.h, wb: endBox.w, hb: endBox.h });
   const fill = lerpColor(preStyle.fill, endStyle.fill, t, undefined, raw);
   const stroke = lerpColor(preStyle.stroke, endStyle.stroke, t, undefined, raw);
   const out: PathElement = {
@@ -643,8 +726,8 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): 
     stroke,
     // Unlike gradients use a deterministic endpoint paint; solid-color
     // interpolation remains continuous and authored endpoints remain exact.
-    fillMap: structuredClone((t < 0.5 ? preStyle : endStyle).fillMap ?? (preStyle.fillMap || endStyle.fillMap)),
-    strokeMap: structuredClone((t < 0.5 ? preStyle : endStyle).strokeMap ?? (preStyle.strokeMap || endStyle.strokeMap)),
+    fillMap: lerpGradient(plan, "fill", t),
+    strokeMap: lerpGradient(plan, "stroke", t),
     strokeWidth: lerp(preStyle.strokeWidth, endStyle.strokeWidth, t),
     closed: plan.closed,
     nodes,
@@ -652,6 +735,13 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): 
   };
   const opA = pre.opacity ?? 1, opB = end.opacity ?? 1;
   if (opA !== 1 || opB !== 1) out.opacity = lerp(opA, opB, t);
+  // per-channel alpha (absent = 1) rides the same t as everything else
+  const chan = (k: "fillOpacity" | "strokeOpacity") => {
+    const a = (pre as { fillOpacity?: number; strokeOpacity?: number })[k] ?? 1, b = (end as { fillOpacity?: number; strokeOpacity?: number })[k] ?? 1;
+    const v = lerp(a, b, t);
+    if (a !== 1 || b !== 1) out[k] = v;
+  };
+  chan("fillOpacity"); chan("strokeOpacity");
   const dash = lerpDashLocal(preStyle.dash, endStyle.dash, t);
   if (dash) out.dash = dash;
   if (!plan.closed) {
@@ -670,24 +760,33 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): 
   return out;
 }
 
-/** Sample aligned UNIT chains into a box. An output buffer keeps node and
- *  handle identities stable; callers own placement of the box origin. */
-export function sampleNodes(a: VectorNode[], b: VectorNode[], t: number, w = 1, h = 1, out: VectorNode[] = []): VectorNode[] {
+/** Sample aligned UNIT chains into a box. Two laws, picked by `pixelLaw(ends)`:
+ *  - unit (the usual case): `lerp(ua, ub) · lerp(w)`, so an affine image of a convex
+ *    pairing stays exact (ellipse→ellipse is an ellipse at every t);
+ *  - pixel (a stroke-thin box on either side): `lerp(ua·wa, ub·wb)`, because a line's
+ *    unit frame is degenerate (h = 0 ⇒ v = 0) and the product would be quadratic in t
+ *    (the centre sagged 25 px at t = .5).
+ *  `ends` is REQUIRED: without the two boxes the law cannot be chosen. An output buffer
+ *  keeps node and handle identities stable; callers own placement of the box origin. */
+export function sampleNodes(a: VectorNode[], b: VectorNode[], t: number, w: number, h: number, out: VectorNode[], ends: PlanBoxes): VectorNode[] {
+  const px = pixelLaw(ends);
+  const X = px ? (va: number, vb: number) => lerp(va * ends.wa, vb * ends.wb, t) : (va: number, vb: number) => lerp(va, vb, t) * w;
+  const Y = px ? (va: number, vb: number) => lerp(va * ends.ha, vb * ends.hb, t) : (va: number, vb: number) => lerp(va, vb, t) * h;
   for (let i = 0; i < a.length; i++) {
     const na = a[i], nb = b[i];
     const node = out[i] ?? (out[i] = { x: 0, y: 0, type: nb.type });
-    node.x = lerp(na.x, nb.x, t) * w;
-    node.y = lerp(na.y, nb.y, t) * h;
+    node.x = X(na.x, nb.x);
+    node.y = Y(na.y, nb.y);
     node.type = nb.type;
     if (na.hIn || nb.hIn) {
       const v = node.hIn ?? (node.hIn = { dx: 0, dy: 0 });
-      v.dx = lerp(na.hIn?.dx ?? 0, nb.hIn?.dx ?? 0, t) * w;
-      v.dy = lerp(na.hIn?.dy ?? 0, nb.hIn?.dy ?? 0, t) * h;
+      v.dx = X(na.hIn?.dx ?? 0, nb.hIn?.dx ?? 0);
+      v.dy = Y(na.hIn?.dy ?? 0, nb.hIn?.dy ?? 0);
     } else delete node.hIn;
     if (na.hOut || nb.hOut) {
       const v = node.hOut ?? (node.hOut = { dx: 0, dy: 0 });
-      v.dx = lerp(na.hOut?.dx ?? 0, nb.hOut?.dx ?? 0, t) * w;
-      v.dy = lerp(na.hOut?.dy ?? 0, nb.hOut?.dy ?? 0, t) * h;
+      v.dx = X(na.hOut?.dx ?? 0, nb.hOut?.dx ?? 0);
+      v.dy = Y(na.hOut?.dy ?? 0, nb.hOut?.dy ?? 0);
     } else delete node.hOut;
   }
   out.length = a.length;

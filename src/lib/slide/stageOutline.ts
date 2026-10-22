@@ -41,6 +41,17 @@ export interface OutlinePaint {
   dash?: number[];
   cap: "butt" | "round" | "square";
   opacity?: number;
+  /** Per-channel alpha (absent = opaque) and colormap gradients of a DRAWN element:
+   *  the hand-off driver used to drop them, so a translucent or gradient-filled
+   *  source popped to opaque flat colour on its first flight frame. */
+  fillOpacity?: number;
+  strokeOpacity?: number;
+  fillMap?: import("../types").GradientFill | null;
+  strokeMap?: import("../types").GradientFill | null;
+  /** The ELEMENT's stage box a gradient is laid over (userSpaceOnUse). Pieces cut from one
+   *  element (arcs, fill triangles, strips) inherit it through `{...paint}`, so every piece
+   *  shows its slice of ONE ramp, not a whole ramp per piece. */
+  gradBox?: { x: number; y: number; w: number; h: number };
   arrowStart?: boolean;
   arrowEnd?: boolean;
   arrowStyle?: "filled" | "vee";
