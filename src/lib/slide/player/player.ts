@@ -7,7 +7,7 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
-import { beatDelayMs } from "../timing";
+import { beatDelayMs, settleTime, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
@@ -38,6 +38,9 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   reducedMotion?: boolean;
   /** Documents advance exactly one authored beat per explicit action. */
   manualSteps?: boolean;
+  /** false = a click mid-cue snaps that cue to its end (the pre-settle behaviour). Default true: the cue
+   *  finishes within SETTLE_MAX_MS by clock warp, then the next starts. `manualSteps` embeds always snap. */
+  settle?: boolean;
 }
 
 export { resolveEasing, resolveEasingFn } from "../easing";
@@ -676,6 +679,14 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let modelAppearance: CompiledSlide | undefined;
   let auto: ReturnType<typeof setTimeout> | undefined;
   let range: PlayRange | null = null;
+  // ONE clock mode (X14): "forward" = wall clock; "settling" = the interrupted cue finishes on the warped clock
+  // (timing.ts settleTime). WP 4.1 adds "rewinding" here and nowhere else: `clockTime` is the single time switch.
+  type ClockMode = "forward" | "settling";
+  let clockMode: ClockMode = "forward";
+  type SettleRun = { t0: number; start: number; span: number };
+  let settleRun: SettleRun | null = null, queuedClicks = 0;
+  // pause() parks the mode (and its run) so resume() restores it; any other clock change drops it (cancelClock).
+  let parked: { mode: ClockMode; run: SettleRun; queued: number; elapsed: number } | null = null;
   let transition: Animation | null = null;
   const ctx: SlideRenderCtx = { ...opts, deckBackground: deck.background, videoPlayback: true };
   const beats = () => Math.max(1, deck.slides[si]?.beats.length ?? 0);
@@ -684,7 +695,14 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function cancelClock(): void {
     generation++; if (raf) cancelAnimationFrame(raf); raf = 0;
     clearTimeout(auto); auto = undefined; playing = false;
+    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null;
     transition?.cancel(); transition = null;
+  }
+  /** Cue time for a frame at `ts`: the ONE place the clock mode picks its mapping (all sampling is a pure
+   *  function of `time`, natives included, so a warped clock is exact). */
+  function clockTime(ts: number): number {
+    if (clockMode === "settling" && settleRun) return settleTime(settleRun.t0, duration, settleRun.span, ts - settleRun.start);
+    return Math.min(duration, Math.max(0, ts - origin));
   }
   function build(index: number): void {
     if (index === si) return;
@@ -747,6 +765,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.tick(duration);
     playing = false; raf = 0; time = duration; paint(); emit("beatEnd"); emit("change");
     if (session !== generation) return; // a listener stopped/started another run
+    if (clockMode === "settling") {
+      // The interrupted cue has landed; start the click(s) that interrupted it (a burst plays each cue in turn).
+      const extra = queuedClicks - 1;
+      clockMode = "forward"; settleRun = null; queuedClicks = 0;
+      nextCue(); for (let i = 0; i < extra; i++) nextCue();
+      return;
+    }
     if (range) {
       const last = Math.min(beats() - 1, range.toBeat ?? beats() - 1);
       if (bi < last) { begin(bi + 1, bi + 1); return; }
@@ -758,7 +783,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function tick(timestamp: number): void {
     if (!playing) return;
     const session = generation;
-    time = Math.min(duration, Math.max(0, timestamp - origin));
+    time = clockTime(timestamp);
     paint(true);
     if (session !== generation) return;
     if (time >= duration) finish();
@@ -827,6 +852,17 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     range = null;
     if (opts.manualSteps && playing) { seek(si, bi, Infinity); return; }
     if (bi >= beats() - 1) { if (!opts.manualSteps) nextSlide(); return; }
+    // Interrupt settle: a click on a moving cue finishes it (<= SETTLE_MAX_MS, velocity-continuous) before the
+    // next cue starts; further clicks queue. Seek/video/prev/Animator preview never reach here.
+    if (!opts.manualSteps && opts.settle !== false && playing && !reduced) {
+      if (clockMode === "settling") { queuedClicks++; return; }
+      const remaining = duration - time;
+      if (clockMode === "forward" && remaining >= SETTLE_MIN_REMAINING_MS) {
+        clockMode = "settling"; settleRun = { t0: time, start: performance.now(), span: Math.min(SETTLE_MAX_MS, remaining) }; queuedClicks = 1;
+        clearTimeout(auto); auto = undefined;
+        return;
+      }
+    }
     let end = bi + 1;
     if (!opts.manualSteps) end = cueEnd(deck.slides[si], end);
     begin(bi + 1, end, config.animate === false);
@@ -846,11 +882,15 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.seek(from - 1, Infinity);
     begin(from, from);
   }
-  function pause(): void { cancelClock(); media?.pause(true); paint(); emit("change"); }
+  function pause(): void {
+    const park = clockMode === "forward" || !settleRun ? null : { mode: clockMode, run: settleRun, queued: queuedClicks, elapsed: performance.now() - settleRun.start };
+    cancelClock(); parked = park; media?.pause(true); paint(); emit("change");
+  }
   function resume(): void {
     media?.pause(false);
     if (playing || time >= duration) return;
     clearTimeout(auto); playing = true; origin = performance.now() - time;
+    if (parked) { clockMode = parked.mode; settleRun = { ...parked.run, start: performance.now() - parked.elapsed }; queuedClicks = parked.queued; parked = null; }
     const session = generation;
     emit("change"); if (session === generation) queueFrame();
   }

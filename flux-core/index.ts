@@ -99,7 +99,7 @@ export { exportSlideVideo } from "./slideVideo";
 export { addModel, modelInfo, setModelViewCommand, setModelFieldCommand, renderModelPosters } from './model3d';
 // animation v2 target vocabulary (pure; the family law's identity)
 export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef, PAIR_POLICIES, PAIR_POLICY_IDS, normalizeRef, composeDestination, isSetRef, refMembers, refElementIds, mergeResolved, setLabel } from "../src/lib/slide/targets";
-export { PRESET_CATALOG, presetDef, defaultEasingFor, defaultTimingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
+export { PRESET_CATALOG, presetDef, defaultEasingFor, defaultTimingFor, authoredTiming, authoredParams, authoredFields, autoBuildMs, withAuthoringTiming, QUICK_SMOOTH, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
 export { resolveCurve, parseCurve, formatCurve, springFn, bezierFn, stepsFn, catalogMatch, springStats, CURVE_CATALOG, EASING_TOKENS, SPRING_SETTLE, type Curve, type ResolvedCurve, type CurveCatalogEntry } from "../src/lib/slide/curves";
 export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
 export { planHandoff } from "../src/lib/slide/handoffPlan";

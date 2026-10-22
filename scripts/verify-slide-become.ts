@@ -43,7 +43,7 @@ console.log("── the op ──");
   const slide = deck.slides[0];
   ok(!!r && r.targetId === "tgt" && !slide.elements.some((e) => e.id === "tgt"), "the target is consumed");
   const track = slide.beats[1].tracks.find((t) => t.id === r.trackId)!;
-  ok(track.preset === "transform" && familyOf(track) === "transform" && track.target === "src" && track.duration === 600 && track.easing === "smooth", "the record is THE transform track of the source (transform family defaults)");
+  ok(track.preset === "transform" && familyOf(track) === "transform" && track.target === "src" && track.duration === 1200 && track.easing === "smooth", "the record is THE transform track of the source (transform family authoring pace: 1200 ms smooth)");
   const st = track.to!.state as Record<string, unknown>;
   ok(st.type === "ellipse" && st.fill === "#d14d41" && st.width === 180 && st.x === 360 && !("groupId" in st) && !("name" in st), "the endpoint carries the target's kind + properties, never its identity");
   ok(slide.beats[1].tracks.length === 1 && !("assetId" in (track.to ?? {})), "one track; a shape endpoint has no content half");
@@ -138,7 +138,7 @@ const compiledFor = (deck: Deck) => compileSlide(deck.slides[0], deck.stage, { p
   ok(JSON.stringify(compiledFor(deck).preState("src", 2)) === JSON.stringify(deck.slides[0].elements[0]), "hand-off never changes source model properties");
   const whole = ops.becomeTransform(deck, slideId, beats[2], "box", "plot", { compiled: compiledFor(deck) })!;
   const fresh = deck.slides[0].beats[2].tracks.find(t => t.id === whole.trackId)!;
-  ok(whole.ref?.element === "plot" && fresh.duration === 600 && fresh.start === 0 && fresh.easing === "smooth", "whole plot defaults to hand-off with 600 ms / smooth / 0 timing");
+  ok(whole.ref?.element === "plot" && fresh.duration === 1200 && fresh.start === 0 && fresh.easing === "smooth", "whole plot defaults to hand-off with 1200 ms / smooth / 0 timing");
   ok(validateDeckFile(structuredClone(deck)).length === 0, "hand-off records validate against the real deck schema");
   ops.clearTransformContent(t);
   ok(!t.to?.become && JSON.stringify(t.to?.state) === "{}", "clearing transform content also clears Become provenance");
@@ -431,7 +431,7 @@ console.log("── MERGE: many sources → one destination (Oct-2 stretch) ─�
   const dots = [ellipse("e1", { x: 458, y: 71, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 }), ellipse("e2", { x: 458, y: 124, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 }), ellipse("e3", { x: 458, y: 176, width: 21, height: 21, fill: "#d95f02", stroke: "none", strokeWidth: 0 })];
   const { deck, slideId, beats } = deckWith([rect("dest", { x: 161, y: 111, width: 135, height: 45, fill: "#d95f02", cornerRadius: 0 }), ...dots, rect("other", { x: 20, y: 300 })]);
   const before = structuredClone(deck);
-  const ids = ["e1", "e2", "e3"].map((id, i) => ops.appearFrom(deck, slideId, beats[1], { element: "dest" }, id, { compiled: compileSlide(deck.slides[0]), start: i * 100 })!.trackId);
+  const ids = ["e1", "e2", "e3"].map((id, i) => ops.appearFrom(deck, slideId, beats[1], { element: "dest" }, id, { compiled: compileSlide(deck.slides[0]), start: i * 100, duration: 600 })!.trackId);
   const tracks = deck.slides[0].beats[1].tracks;
   ok(ids.length === 3 && new Set(ids).size === 3 && tracks.every(t => t.to?.become?.mode === "handoff" && t.to.become.ref.element === "dest" && !t.to.become.ref.members) && deck.slides[0].elements.length === 5, "Appear from… ×3 writes three hand-offs into the SAME rect; the old 'already lands' refusal no longer applies to an identical destination");
   ok(validateDeckFile(structuredClone(deck)).length === 0, "the merge validates against the real deck schema");

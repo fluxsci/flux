@@ -37,6 +37,7 @@ import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
 import { normalizeRef, setLabel } from "../src/lib/slide/targets";
+import { withAuthoringTiming } from "../src/lib/slide/presetCatalog";
 import { alignTrackEdges, alignTargetMs, inheritTrack, type AlignEdge } from "../src/lib/slide/alignTracks";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel, mutateFigModel } from "./model";
@@ -398,7 +399,8 @@ export async function setAnimation(
 ): Promise<void> {
   await mutateDeck(root, deckId, "set_animation", (deck) => {
     mustSlide(deck, slideId);
-    const ok = opts.append ? slideOps.appendAnimation(deck, slideId, beatId, track) : slideOps.setAnimation(deck, slideId, beatId, track);
+    const authored = withAuthoringTiming(track);
+    const ok = opts.append ? slideOps.appendAnimation(deck, slideId, beatId, authored) : slideOps.setAnimation(deck, slideId, beatId, authored);
     if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
   });
 }

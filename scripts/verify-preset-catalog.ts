@@ -23,13 +23,13 @@ const h = harness("verify-preset-catalog");
 type Snapshot = readonly [label: string, colour: string, wrapperProps: readonly string[], duration: number,
   editable: boolean, family: string, phase: string, autoBuildDuration?: number];
 const EXPECTED = {
-  fade:         ["Fade in",     "#879a39", ["opacity"],              320, true,  "appearance", "enter", 300],
-  fadeRise:     ["Rise in",     "#879a39", ["opacity", "transform"], 320, true,  "appearance", "enter", 320],
-  popIn:        ["Pop in",      "#8b7ec8", ["opacity", "transform"], 320, true,  "appearance", "enter", 300],
-  drawOn:       ["Draw on",     "#4385be", [],                       320, true,  "appearance", "enter", 600],
-  growBaseline: ["Grow",        "#d0a215", ["transform"],            320, true,  "appearance", "enter", 500],
-  stagger:      ["Stagger in",  "#d14d41", ["opacity", "transform"], 320, true,  "appearance", "enter", 240],
-  writeOn:      ["Wipe in",     "#3aa99f", ["clipPath"],             320, true,  "appearance", "enter", 500],
+  fade:         ["Fade in",     "#879a39", ["opacity"],              320, true,  "appearance", "enter", 500],
+  fadeRise:     ["Rise in",     "#879a39", ["opacity", "transform"], 320, true,  "appearance", "enter", 600],
+  popIn:        ["Pop in",      "#8b7ec8", ["opacity", "transform"], 320, true,  "appearance", "enter", 500],
+  drawOn:       ["Draw on",     "#4385be", [],                       320, true,  "appearance", "enter", 800],
+  growBaseline: ["Grow",        "#d0a215", ["transform"],            320, true,  "appearance", "enter", 800],
+  stagger:      ["Stagger in",  "#d14d41", ["opacity", "transform"], 320, true,  "appearance", "enter", 600],
+  writeOn:      ["Wipe in",     "#3aa99f", ["clipPath"],             320, true,  "appearance", "enter", 700],
   fadeOut:      ["Fade out",    "#af3029", ["opacity"],              320, true,  "appearance", "exit"],
   popOut:       ["Pop out",     "#af3029", ["opacity", "transform"], 320, true,  "appearance", "exit"],
   drawOff:      ["Draw off",    "#af3029", [],                       320, true,  "appearance", "exit"],
@@ -92,7 +92,10 @@ for (const name of names) {
 h.eq(EDITABLE_PRESETS, names.filter(name => EXPECTED[name][4]), "editable preset order is byte-identical to the original select");
 h.eq(EDIT_PRESETS, EDITABLE_PRESETS, "Animator consumes the catalog's editable order");
 
-h.section("autobuild keeps its authored defaults, separate from playback defaults");
+// WP 1.7 raises the FLOORS (autoBuildDurationMs); the plot-part writers (`emit`/`planToTrack`/`suggestTrack`) are lane L4's
+// `choreograph` and are wired to `autoBuildMs` + `authoredFields` by the integrator, at which point the two assertions below
+// become "a manifest duration BELOW the floor is raised" and "the track carries the quick-smooth curve" (see R1_L5_report.md).
+h.section("autobuild: raised floors (T1), separate from the frozen playback defaults");
 for (const name of names.filter(name => EXPECTED[name][6] === "enter")) {
   const role = name === "stagger" ? "point" : "area";
   const animation = ({ fade: "fade-in", fadeRise: "rise", popIn: "pop-in", drawOn: "draw-on", growBaseline: "grow", stagger: "stagger-in", writeOn: "write-on" } as Record<string, string>)[name];
@@ -103,10 +106,10 @@ for (const name of names.filter(name => EXPECTED[name][6] === "enter")) {
   const pick = ({ id: _id, ...track }: Track) => track;
   const expected = { target: "plot1", part: "mark", preset: name, duration: (EXPECTED[name] as Snapshot)[7], start: 0,
     ...(name === "stagger" ? { stagger: { perMs: 40, by: "x", from: "start" }, params: { child: "fade" } } : {}) };
-  h.eq(pick(suggestTrack(manifest, "plot1", "mark")), expected, `${name}: suggested track bytes unchanged except generated ID`);
-  h.eq(pick(autoAnimatePlot(manifest, "plot1")[0].tracks[0]), { ...expected, generatedBy: "auto-reveal" }, `${name}: automatic build bytes unchanged except generated ID`);
+  h.eq(pick(suggestTrack(manifest, "plot1", "mark")), expected, `${name}: suggested track bytes = the raised floor, otherwise unchanged except generated ID`);
+  h.eq(pick(autoAnimatePlot(manifest, "plot1")[0].tracks[0]), { ...expected, generatedBy: "auto-reveal" }, `${name}: automatic build bytes = the same + generatedBy`);
   manifest.build!.presets![role].durationMs = 117;
-  h.eq(suggestTrack(manifest, "plot1", "mark").duration, 117, `${name}: manifest duration still wins`);
+  h.eq(suggestTrack(manifest, "plot1", "mark").duration, 117, `${name}: manifest duration still wins (until choreograph adopts autoBuildMs)`);
 }
 
 h.section("fallback and the headless export surface");
@@ -233,8 +236,10 @@ h.eq([...new Set([...slideUi, ...vocabularyFiles.map(f => path.join(repo, f))])]
 
 h.section("X1: shared defaults and semantic labels");
 h.eq(defaultTimingFor("camera"), { duration: 900, easing: "smooth" }, "camera commands retain their authored 900 ms / smooth policy");
-h.eq(defaultTimingFor("transform"), { duration: 600, easing: "smooth" }, "transform authoring derives the catalog default");
-h.eq(defaultTimingFor("fade"), { duration: 320, easing: "standard" }, "ordinary effects derive catalog timing");
+h.eq(defaultTimingFor("transform"), { duration: 1200, easing: "smooth" }, "transform authoring writes the T1 pace (1200 ms); the catalog fallback stays 600");
+h.eq(PRESET_CATALOG.transform.defaultDurationMs, 600, "transform playback fallback is FROZEN at 600 ms");
+h.eq(defaultTimingFor("fade"), { duration: 700, easing: "smooth" }, "ordinary effects author the T1 pace (700 ms; the quick-smooth curve rides authoredTiming)");
+h.eq([PRESET_CATALOG.fade.defaultDurationMs, PRESET_CATALOG.fade.defaultEasing], [320, "standard"], "ordinary effects with omitted timing play the FROZEN 320 ms standard");
 h.ok(core.defaultTimingFor === defaultTimingFor && core.beatDelayMs === beatDelayMs && core.isHandoff === isHandoff && core.canAutoAnimateRest === canAutoAnimateRest, "both engines expose the same helpers");
 const panel = readFileSync(path.join(repo, "src/shell/modes/slide/AnimatePanel.svelte"), "utf8");
 h.eq([...panel.matchAll(/\.\.\.defaultTimingFor\("camera"\)/g)].length, 2, "both real camera commands consume the catalog authoring policy");

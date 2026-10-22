@@ -141,7 +141,12 @@ try {
     const dur = document.querySelector('.props [data-fld="d"]');
     return dur ? Number(dur.value) : null;
   });
-  ok(propsBound === 300, `the Properties pane binds the selected track (duration ${propsBound})`);
+  // WP 1.7: ⌃⇧D authors the catalog pace (rect → popIn 700 ms, was 300): the pane must show the track's own stored duration.
+  const storedDuration = await page.evaluate(() => {
+    const f = window.__flux, o = f.get(f.slide.deckOverlay), sid = f.get(f.fig.activeFigureId);
+    return o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect").duration;
+  });
+  ok(propsBound === storedDuration && storedDuration === 700, `the Properties pane binds the selected track (duration ${propsBound}; stored ${storedDuration}; authored popIn pace 700)`);
   await page.evaluate(() => {
     const dur = document.querySelector('.props [data-fld="d"]');
     dur.value = "760";

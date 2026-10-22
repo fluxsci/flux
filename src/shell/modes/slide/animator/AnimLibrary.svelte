@@ -25,6 +25,7 @@
   import type { Slide, Track } from "../../../../lib/slide/types";
   import { resolveBeat } from "../../../../lib/slide/resolve";
   import { newId } from "../../../../lib/ids";
+  import { authoredParams } from "../../../../lib/slide/presetCatalog";
   import { PRESET_COLOR } from "./shared";
 
   let { slide, onClose }: { slide: Slide; onClose: () => void } = $props();
@@ -81,6 +82,18 @@
           ? suggestTrack($plotManifests[(el2 as { assetId?: string }).assetId ?? ""], id, ps.partId)
           : suggestElementTrack(el2);
         const track: Track = { ...base, ...structuredClone(p.track), target: id, ...(ps ? { part: ps.partId } : {}) };
+        // easing / influence / curve are ONE group: a preset that carries any of them replaces the base's whole group
+        // (the base now carries the quick-smooth `curve`, which would otherwise outrank a preset's easing token).
+        if (p.track.easing !== undefined || p.track.influence !== undefined || p.track.curve !== undefined) {
+          delete track.easing; delete track.influence; delete track.curve;
+          const { easing, influence, curve } = structuredClone(p.track);
+          Object.assign(track, { ...(easing !== undefined && { easing }), ...(influence !== undefined && { influence }), ...(curve !== undefined && { curve }) });
+        }
+        // authored params belong to the base's preset: a preset that switches effect and brings none gets its own
+        if (p.track.params === undefined && p.track.preset !== undefined && p.track.preset !== base.preset) {
+          const authored = authoredParams(p.track.preset);
+          if (authored) track.params = authored; else delete track.params;
+        }
         if (style) track.id = newId("track");
         if (setAnimation(d, sid, beatId, track) && track.id) { newIds.push(track.id); if (style) linkTrackStyle(d, sid, track.id, style.id); }
       }

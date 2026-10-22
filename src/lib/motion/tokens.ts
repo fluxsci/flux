@@ -12,7 +12,9 @@ export const EASE = {
   standard: "cubic-bezier(0.4, 0, 0.2, 1)",
   enter: "cubic-bezier(0.16, 1, 0.3, 1)",
   exit: "cubic-bezier(0.4, 0, 1, 1)",
-  smooth: "cubic-bezier(0.45, 0, 0.55, 1)",
+  /** The EXACT quintic (the same string the slide token `smooth` resolves to), not the old bezier look-alike:
+   *  its only consumers are the Home logo draw and `--ease-smooth` (T1 curve hygiene). */
+  smooth: smoothEasing(64),
 } as const;
 
 /** manim's "easy-ease": the 5th-order smoothstep S-curve, 6t⁵ − 15t⁴ + 10t³. */
@@ -69,12 +71,27 @@ export function cubicBezierFn([x1, y1, x2, y2]: Bezier): (x: number) => number {
   };
 }
 
+/** manim-community's `smooth` (sigmoid, inflection 10): the reference the `glide` catalog curve is fitted to
+ *  (max error 0.0058), and a parity check. Not a default. */
+export function ceSmooth(t: number, inflection = 10): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  const sig = (x: number) => 1 / (1 + Math.exp(-x)), err = sig(-inflection / 2);
+  return Math.min(1, Math.max(0, (sig(inflection * (t - 0.5)) - err) / (1 - 2 * err)));
+}
+/** manim's rush_into / rush_from: one half of a smoothstep, so a motion keeps its speed through a joint
+ *  (chain `rushInto` then `rushFrom` over two keyframes for a velocity-continuous midpoint). */
+export const rushInto = (t: number): number => 2 * smoothstep(t / 2);
+export const rushFrom = (t: number): number => 2 * smoothstep(t / 2 + 0.5) - 1;
+/** manim's double_smooth: two S-curves with a rest in the middle (rest -> peak -> rest reproduces `Indicate`). */
+export const doubleSmooth = (t: number): number => t < 0.5 ? 0.5 * smoothstep(2 * t) : 0.5 * (1 + smoothstep(2 * t - 1));
+
 /**
  * The true smoothstep sampled into a WAAPI `linear()` easing string (supported
  * in Chromium 113+, i.e. Electron 33). Use for the signature self-draw moments
  * where we want manim's exact curve rather than the bezier approximation.
  */
-export function smoothEasing(steps = 24): string {
+export function smoothEasing(steps = 64): string {
   const pts: string[] = [];
   for (let i = 0; i <= steps; i++) pts.push(smoothstep(i / steps).toFixed(4));
   return `linear(${pts.join(",")})`;

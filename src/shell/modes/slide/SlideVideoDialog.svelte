@@ -5,7 +5,9 @@
   import type { MediaTimingContext } from "../../../lib/slide/mediaTimeline";
   let { slide, stage, durations, timing, onExport, onClose }: { slide: Slide; stage: StageSize; durations: number[]; timing: MediaTimingContext; onExport: (options: SlideVideoOptions) => void; onClose: () => void } = $props();
   let dialog: HTMLDialogElement;
-  const saved = (() => { try { return videoOptions(JSON.parse(localStorage.getItem("flux.slide.videoOptions") || "{}")); } catch { return DEFAULT_VIDEO_OPTIONS; } })();
+  // Last-used options persist, but a record written before `v: 2` stored the OLD 500 ms step default on every
+  // export, so its step delay is dropped once and re-seeded from the current default.
+  const saved = (() => { try { const raw = JSON.parse(localStorage.getItem("flux.slide.videoOptions") || "{}"); if (raw.v !== 2) delete raw.stepDelayMs; return videoOptions(raw); } catch { return DEFAULT_VIDEO_OPTIONS; } })();
   let delay = $state(saved.stepDelayMs / 1000), start = $state(saved.startHoldMs / 1000), end = $state(saved.endHoldMs / 1000);
   let height = $state(saved.height), fps = $state(saved.fps);
   const settings = $derived.by(() => {
@@ -22,7 +24,7 @@
   });
   function submit(event: SubmitEvent) {
     event.preventDefault(); if (!settings) return;
-    try { localStorage.setItem("flux.slide.videoOptions", JSON.stringify(settings.options)); } catch { /* optional preference */ }
+    try { localStorage.setItem("flux.slide.videoOptions", JSON.stringify({ ...settings.options, v: 2 })); } catch { /* optional preference */ }
     onExport(settings.options);
   }
 </script>

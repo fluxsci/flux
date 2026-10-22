@@ -30,7 +30,8 @@ import type { Beat, Track, PresetName, Deck, Slide, TargetRef } from "./types";
 import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
-import { presetDef } from "./presetCatalog";
+import { authoredFields, presetDef } from "./presetCatalog";
+export { autoBuildMs } from "./presetCatalog";
 import { isHandoff, resolveTargetLeaves, targetPartIds, isWholeElementRef } from "./targets";
 import { resolveBeat } from "./resolve";
 
@@ -312,22 +313,12 @@ export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, man
 // per-kind enter defaults: what each element kind naturally does when it
 // appears. The union is the FIGURE element union (slides-are-figures): shapes
 // render as inline SVG geometry, so line/path self-draw and rect/ellipse pop.
-const ELEMENT_ENTER: Record<string, { preset: PresetName; duration: number }> = {
-  text: { preset: "fadeRise", duration: 380 },
-  image: { preset: "fade", duration: 350 },
-  rect: { preset: "popIn", duration: 300 },
-  ellipse: { preset: "popIn", duration: 300 },
-  line: { preset: "drawOn", duration: 500 },
-  path: { preset: "drawOn", duration: 600 },
-  plot: { preset: "fade", duration: 400 },
+const ELEMENT_ENTER: Record<string, PresetName> = {
+  text: "fadeRise", image: "fade", rect: "popIn", ellipse: "popIn", line: "drawOn", path: "drawOn", plot: "fade",
 };
-// per-kind exit defaults — the mirror family.
-const ELEMENT_EXIT: Record<string, { preset: PresetName; duration: number }> = {
-  line: { preset: "drawOff", duration: 450 },
-  path: { preset: "drawOff", duration: 500 },
-  rect: { preset: "popOut", duration: 260 },
-  ellipse: { preset: "popOut", duration: 260 },
-};
+// per-kind exit defaults — the mirror family. Durations, curve and params are the catalog's authored pace
+// (`authoredFields`, X1a); only the preset CHOICE per kind lives here.
+const ELEMENT_EXIT: Record<string, PresetName> = { line: "drawOff", path: "drawOff", rect: "popOut", ellipse: "popOut" };
 
 /** A sensible default Track for a WHOLE element (the analog of `suggestTrack`
  *  for non-plot rows in the animator tree). `exit` flips to the disappear
@@ -343,13 +334,13 @@ export function suggestElementTrack(
       target: el.id,
       part: opts.part,
       preset: opts.exit ? "fadeOut" : "fade",
-      duration: opts.exit ? 300 : 400,
+      ...authoredFields(opts.exit ? "fadeOut" : "fade"),
       start: 0,
     };
   }
   const kind = el.type;
-  const def = (opts.exit ? ELEMENT_EXIT[kind] : undefined) ?? (opts.exit ? { preset: "fadeOut" as PresetName, duration: 300 } : ELEMENT_ENTER[kind] ?? { preset: "fade" as PresetName, duration: 350 });
-  return { id: newId("track"), target: el.id, preset: def.preset, duration: def.duration, start: 0 };
+  const preset: PresetName = opts.exit ? ELEMENT_EXIT[kind] ?? "fadeOut" : ELEMENT_ENTER[kind] ?? "fade";
+  return { id: newId("track"), target: el.id, preset, ...authoredFields(preset), start: 0 };
 }
 
 /** Give ONE element an enter (or exit) animation on a build beat — the non-plot
@@ -373,7 +364,11 @@ export function animateElement(
     bi = slide.beats.length - 1;
   }
   const track = suggestElementTrack(found.el, opts);
-  if (opts.preset) track.preset = opts.preset;
+  if (opts.preset) {
+    // an override is a different effect: it gets ITS authored pace (it used to keep the old preset's duration)
+    delete track.easing; delete track.influence; delete track.curve; delete track.params;
+    Object.assign(track, { preset: opts.preset, ...authoredFields(opts.preset) });
+  }
   setAnimation(deck, slideId, slide.beats[bi].id, track);
   return { beatIndex: bi, trackId: track.id! };
 }

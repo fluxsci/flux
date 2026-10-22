@@ -176,13 +176,13 @@ const physical = parseCurve("spring(k=170,c=26,m=1)");
 h.ok(physical && typeof physical !== "string" && physical.kind === "spring" && near(physical.bounce, 1 - 26 / (2 * Math.sqrt(170))), "physical input converts damping ratio to bounce");
 h.eq(CURVE_CATALOG.map(c => [c.id, formatCurve(c.spec)]), [
   ["standard", "standard"], ["smooth", "smooth"], ["enter", "enter"], ["exit", "exit"], ["linear", "linear"],
-  ["gentle", "bezier(0.37, 0, 0.63, 1)"], ["overshoot", "bezier(0.34, 1.56, 0.64, 1)"],
+  ["gentle", "bezier(0.37, 0, 0.63, 1)"], ["quick smooth", "bezier(0.45, 0.12, 0.5, 1)"], ["glide", "bezier(0.627, 0, 0.373, 1)"], ["overshoot", "bezier(0.34, 1.56, 0.64, 1)"],
   ["anticipate", "bezier(0.36, 0, 0.66, -0.56)"], ["anticipate + overshoot", "bezier(0.68, -0.6, 0.32, 1.6)"],
   ["settle", "spring(0)"], ["snappy", "spring(0.2)"], ["bouncy", "spring(0.35)"], ["playful", "spring(0.5)"],
   ["steps", "steps(8)"], ["hold", "steps(1, end)"],
-], "catalog names and specs match Appendix B exactly");
-h.eq(CURVE_CATALOG.length, 15, "catalog contains exactly the Appendix B fifteen intents");
-h.eq(CURVE_CATALOG.map(c => c.group), [...Array(6).fill("Ease"), ...Array(3).fill("Overshoot"), ...Array(4).fill("Spring"), ...Array(2).fill("Discrete")], "catalog group ordering matches Appendix B");
+], "catalog names and specs match Appendix B plus T1 quick smooth + glide");
+h.eq(CURVE_CATALOG.length, 17, "catalog contains the Appendix B fifteen intents plus T1 quick smooth and glide");
+h.eq(CURVE_CATALOG.map(c => c.group), [...Array(8).fill("Ease"), ...Array(3).fill("Overshoot"), ...Array(4).fill("Spring"), ...Array(2).fill("Discrete")], "catalog group ordering matches Appendix B");
 for (const entry of CURVE_CATALOG) {
   h.eq(parseCurve(entry.id), entry.spec, `${entry.id}: name is sugar for its spec`);
   h.eq(catalogMatch(entry.spec), entry.id, `${entry.id}: catalog match`);
