@@ -7,6 +7,7 @@
 // Run: npx tsx scripts/verify-slide-player.ts
 import { parseHTML } from "linkedom";
 import { computeSlideAnims, applyStatic, applyAt, resolveEasing } from "../src/lib/slide/player/player";
+import { resolveCurve } from "../src/lib/slide/curves";
 import { PRESETS } from "../src/lib/slide/player/presets";
 import { FLUX_DARK } from "../src/lib/slide/theme";
 import type { Track } from "../src/lib/slide/types";
@@ -83,6 +84,35 @@ assert(opacity(title) === "1" && opacity(b3) === "1", "beat 2: title + all bulle
 // back-nav determinism: re-applying an earlier beat re-hides
 applyStatic(specs, 0);
 assert(opacity(b3) === "0", "back to beat 0 re-hides the bullets (reversible/O(1))");
+
+// Forward keyframe boundaries must not rewind an entire content chain. Dense
+// geometry tracks otherwise perform O(n²) writes and hitch at every boundary.
+{
+  const node = el("controller-chain"), writes: [number, number][] = [];
+  let painted = -1;
+  const chain = Array.from({ length: 16 }, (_, i) => ({
+    node, beatIndex: 1, keyframes: [], delay: i * 100, duration: 100,
+    ease: resolveCurve({ easing: "linear" }), enter: false, key: "controller-chain",
+    morph: { seek: (u: number) => { writes.push([i, u]); painted = i + u; } },
+  })) as Parameters<typeof applyAt>[0];
+  applyAt(chain, 1, 50);
+  writes.length = 0;
+  applyAt(chain, 1, 150);
+  assert(writes.length === 2 && writes[0][0] === 0 && writes[0][1] === 1 && painted === 1.5,
+    "forward boundary finishes only the previous controller and samples the next");
+  writes.length = 0;
+  applyAt(chain, 1, 650);
+  assert(writes.length === 6 && painted === 6.5,
+    "skipped forward keyframes establish every crossed endpoint exactly once");
+  applyAt(chain, 1, 250);
+  assert(painted === 2.5, "reverse seek reconstructs the earlier content state");
+  applyAt(chain, 1, 950);
+  assert(painted === 9.5, "forward seek after rewind retains deterministic state");
+  applyAt(chain, 0, 0);
+  assert(painted === 0, "seek before the chain restores the authored base");
+  applyAt(chain, 1, Infinity);
+  assert(painted === 16, "direct jump from base reaches the final chained endpoint");
+}
 
 // --- draw-on static-state regression (anim 0.3 / seam-proof compile) ---------
 // A draw-on part must rest UNDRAWN before its beat and SEAM-FREE after it.
@@ -218,7 +248,6 @@ assert(resolveEasing("linear") === "linear" && resolveEasing(undefined).startsWi
 // Curve is type-only until M3: these decks never pass through disk validation.
 const { createPlayer } = await import("../src/lib/slide/player/player");
 const { createDeck } = await import("../src/lib/slide/ops");
-const { resolveCurve } = await import("../src/lib/slide/curves");
 // Named colors have no numeric interpolation. Their fallback must use raw time,
 // even when the timing curve crosses the midpoint three times.
 {

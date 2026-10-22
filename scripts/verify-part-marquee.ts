@@ -51,7 +51,7 @@ const SCATTER = JSON.parse(fs.readFileSync(path.join(here, "fixtures", "pre-rege
 
 // (3) roles: the furniture list is the picker's; everything else is data.
 {
-  assert(!isDataRole("tick") && !isDataRole("tick-label") && !isDataRole("gridline") && !isDataRole("legend-entry"), "guide furniture roles are not data");
+  assert(!isDataRole("tick") && !isDataRole("tick-label") && !isDataRole("gridline") && !isDataRole("legend-entry") && !isDataRole("legend-swatch"), "guide furniture roles are not data");
   assert(isDataRole("point") && isDataRole("bar") && isDataRole("line") && isDataRole("hexagon"), "marks are data");
   assert(!isDataRole(undefined) && !isDataRole(""), "an unknown part is not a data mark");
 }

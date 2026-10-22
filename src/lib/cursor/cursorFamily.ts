@@ -12,7 +12,8 @@
 // scripts/gen-cursors.mjs from this module; `cursor/cursorTheme.ts` writes the
 // same variables on :root when the user's Settings differ from the defaults.
 // Hardware cursors stay hardware (`cursor: url()`): a DOM "software cursor"
-// would trail the pointer by a frame, so the morph is geometric, never tweened.
+// would trail the pointer by a frame. cursorPress.ts animates prebuilt hardware
+// images for the optional classic-arrow press, without moving the hotspot.
 
 export type CursorCentre = "none" | "dot" | "ring";
 export type CursorResizeStyle = "crosshair" | "system";
@@ -63,14 +64,14 @@ export interface CursorParams {
   resizeStyle: CursorResizeStyle;
 }
 
-// Defaults (2026-10-21, owner): no halo — the mark adapts its colour to the
-// surface instead (dark ink on a figure's paper, Flexoki paper-white on the
-// dark app and canvas). The 2026-09-15 outlined look is the "outlined" preset.
+// Defaults (2026-10-22, owner): the tuned pink arrow with a deep indigo
+// outline and floating shadow. The optional crosshair retains adaptive ink
+// colours with no halo; its "outlined" preset is the 2026-09-15 look.
 export const CURSOR_DEFAULTS: CursorParams = {
   style: "classic",
   arrowSize: 22,
-  arrowFill: "#151515",
-  arrowOutline: "#ffffff",
+  arrowFill: "#ff60fc",
+  arrowOutline: "#07043c",
   arrowOutlineWidth: 1.3,
   arrowRounding: 0.9,
   arrowShadow: 0.6,
@@ -124,6 +125,9 @@ export const ARROW_OUTLINE_RANGE = { min: 0, max: 2.5 } as const;
 export const ARROW_ROUNDING_RANGE = { min: 0, max: 3 } as const;
 export const ARROW_SHADOW_RANGE = { min: 0, max: 1 } as const;
 export const ARROW_TILT_RANGE = { min: -30, max: 30 } as const;
+export const CURSOR_PRESS_DEFAULTS = { enabled: true, depth: 1.25, returnMs: 80 } as const;
+export const CURSOR_PRESS_DEPTH_RANGE = { min: 0.25, max: 1.5 } as const;
+export const CURSOR_PRESS_RETURN_RANGE = { min: 60, max: 200 } as const;
 export const CURSOR_STROKE_RANGE = { min: 0.8, max: 3 } as const;
 export const CURSOR_HALO_WIDTH_RANGE = { min: 0, max: 6 } as const;
 export const CURSOR_HALO_OPACITY_RANGE = { min: 0.2, max: 1 } as const;
@@ -549,10 +553,11 @@ function wrapArrow(p: CursorParams, body: string, defs: string): { svg: string; 
 
 /** The classic family's arrow states: rest, hover, press and move are the arrow
  *  itself (Figma keeps its pointer through all four); move-copy adds the badge. */
-function drawArrowState(state: CursorState, p: CursorParams): CursorDrawing | null {
+function drawArrowState(state: CursorState, p: CursorParams, canvasParams = p): CursorDrawing | null {
   if (state !== "cross" && state !== "cross-hover" && state !== "cross-press" && state !== "move" && state !== "move-copy") return null;
-  const c = arrowCanvas(p);
-  const { defs, body } = arrowBody(p, c.ox, c.oy);
+  const c = arrowCanvas(canvasParams);
+  const origin = arrowOrigin(p);
+  const { defs, body } = arrowBody(p, origin.ox, origin.oy);
   let extra = "";
   if (state === "move-copy") {
     // the "+" badge beside the arrow's right point, in the dot colour over the outline colour
@@ -565,9 +570,26 @@ function drawArrowState(state: CursorState, p: CursorParams): CursorDrawing | nu
       `<line x1='${fmt(bx - arm)}' y1='${fmt(by)}' x2='${fmt(bx + arm)}' y2='${fmt(by)}' stroke='%23fff' stroke-width='1.3' stroke-linecap='round'/>` +
       `<line x1='${fmt(bx)}' y1='${fmt(by - arm)}' x2='${fmt(bx)}' y2='${fmt(by + arm)}' stroke='%23fff' stroke-width='1.3' stroke-linecap='round'/>`;
   }
-  const w = wrapArrow(p, body + extra, defs);
+  const w = wrapArrow(canvasParams, body + extra, defs);
   const fallback = state === "move-copy" ? "copy" : "default";
   return { state, svg: w.svg, css: `url("data:image/svg+xml,${w.svg}") ${w.hotspot[0]} ${w.hotspot[1]}, ${fallback}`, hotspot: w.hotspot };
+}
+
+/** A tiny tip-pivoted depression. The visible apex and hardware hotspot stay
+ * registered; the tail approaches the tip and the shadow loses height. Keep
+ * the resting canvas throughout, including the duplicate badge's position.
+ * Called only when preparing frames, never from the pointer/frame path. */
+export function drawArrowPress(params: Partial<CursorParams>, amount: number, depth = 1, copy = false): CursorDrawing {
+  const p = clampCursorParams(params);
+  const q = Math.max(0, Math.min(1, Number.isFinite(amount) ? amount : 0)) *
+    Math.max(0, Math.min(1.5, Number.isFinite(depth) ? depth : 1));
+  const pose = {
+    ...p,
+    arrowSize: p.arrowSize * (1 - 0.055 * q),
+    arrowTilt: p.arrowTilt + 0.75 * q,
+    arrowShadow: p.arrowShadow * Math.max(0, 1 - 0.65 * q),
+  };
+  return drawArrowState(copy ? "move-copy" : "cross", pose, p)!;
 }
 
 /** Draw one state. Exported for the contact sheet and the gates. */

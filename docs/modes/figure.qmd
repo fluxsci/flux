@@ -317,14 +317,18 @@ folder.
 # Everyday editing
 
 In the Figure and Slide editors the pointer is Flux's own: by default a **classic arrow** in
-Figma's style — a dark, slightly leaning arrowhead under a light outline with a faint lift — and
+Figma's style — a pink, slightly leaning arrowhead with a deep indigo outline and a faint lift — and
 it is one mark that changes form rather than a set of unrelated system arrows: over an object's
 edge or corner it becomes a double-headed resize arrow drawn in the same fill and outline, just
 outside a corner a curved rotate arrow, with a small **+** while **Alt** is duplicating, and it
 keeps that form for the whole drag. Paper, Reader and Library keep the system's cursors; text
 fields keep the I-beam and pan keeps the hand. **Settings → General → Cursor** tunes the arrow —
 its fill and outline colours, size, outline width, corner rounding, shadow and tilt — with a live
-preview, or switches to the **crosshair**: a precise cross with a gap at the centre so the pixel
+preview. **Press on click** adds a subtle tip-led depression on the canvas, holding while the
+button is down and returning on release. **Press depth** adjusts the travel and shadow compression;
+The default depth is **1.25×**. **Return time** adjusts how quickly it lifts back (80 ms by default). Use **Click to try the press**
+to feel changes in Settings, or turn **Press on click** off to keep the arrow still.
+The cursor style can also switch to the **crosshair**: a precise cross with a gap at the centre so the pixel
 you point at is never covered, whose colour follows the surface (dark ink over paper and other
 light surfaces, paper-white over the dark canvas and chrome, flipping over dark fills and
 dark-theme plots), with its own colours, stroke, optional halo, centre mark, hover dot and press

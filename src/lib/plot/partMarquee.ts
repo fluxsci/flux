@@ -33,7 +33,7 @@ export function boxFrom(a: { x: number; y: number }, b: { x: number; y: number }
 /** Leaf roles that are guide furniture rather than data (the marquee's preference). */
 export const FURNITURE_ROLES: ReadonlySet<string> = new Set([
   "tick", "tick-label", "spine", "gridline", "axis-title", "title", "subtitle", "label", "legend", "legend-entry",
-  "legend-label", "legend-handle", "colorbar", "colorbar-label", "colorbar-tick", "colorbar-tick-label", "colorbar-outline",
+  "legend-label", "legend-handle", "legend-swatch", "colorbar", "colorbar-label", "colorbar-tick", "colorbar-tick-label", "colorbar-outline",
   "annotation", "reference-line", "significance-bracket", "text",
 ]);
 export const isDataRole = (role: string | undefined): boolean => !!role && !FURNITURE_ROLES.has(role);

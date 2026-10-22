@@ -824,10 +824,11 @@ Persistence invariants (all machine-checked — do not weaken):
   rebuilds those children only when the segment key changes. **Measurement is run-aware**:
   `elementMeasure` cuts at run boundaries and measures each piece in its own font, which is why
   `wrapLine`/`wrapText` now thread a text OFFSET into the measure — a bold word is wider and
-  wrapping has to know. THE EDITING LIMIT: the inline editor is a `<textarea>`, which cannot
-  render mixed fonts, so runs are invisible while typing and appear on commit; Ctrl+B/I/U
-  formats the SELECTION, and a selection that is empty or covers everything means the element
-  (the editor opens with everything selected, so that case has to mean the element). Escape
+  wrapping has to know. THE EDITING LIMIT: the inline editor is a `<textarea>` over a painted
+  run preview. Formatting stays visible while `plainWrapMatches` holds; a run that changes
+  wrap points falls back to the plain editor until commit. Ctrl+B/I/U formats the selection;
+  a bare caret arms the style for subsequently typed characters, while selecting all formats
+  the element (the editor opens with everything selected). Escape
   discards the whole edit session, blur commits it. Agents cannot set runs yet — no verb
   exposes them.
   **Justification needs a wrap width, and the product has to hand the user one** (owner
@@ -1272,14 +1273,25 @@ Persistence invariants (all machine-checked — do not weaken):
   appearance compilation reads authored opacity. `applyAt` runs content controllers before
   keyframed appearances, independent of story order; content paint must not erase an entrance.
   Several transforms of ONE element share its content nodes, and the player materializes every
-  transform at its start when it binds a slide and resets every later one to its start on each
-  beat change before applying the past — so a transform's ENDPOINT repaints the complete state
+  transform at its start when it binds a slide. Initial/reverse seeks reset future layers
+  outside-in before applying the past; forward controller changes finish only the crossed
+  controllers, because future layers already rest at their starts. Rewinding the complete
+  chain at every forward keyframe causes O(n²) content writes and visible boundary hitches
+  (`verify-slide-player` pins write counts plus skipped-forward/reverse/reentry states). A
+  transform's ENDPOINT repaints the complete state
   through `updateStaticContent` (identity-preserving) whenever it reaches that endpoint afresh or
   another transform wrote the content since (`transform.ts contentWriter`); only frames in
   flight use the compiled per-binding updater, which writes just the attributes that differ
   between its own two ends (2026-10-06: a later geometry tween had baked its start position into
   the content's translate and an earlier geometry-only transform had no binding to repaint it;
   `verify-slide-player` "shared content" pins seven forward/back seeks).
+  **Authoring polish must inspect in-flight frames.** Endpoint/seek parity alone does not
+  prove smooth motion. When a nearly flat/vertical native path grows into a large shape,
+  retain a stable, generously sized SVG box across its poses; extreme frozen-wrapper scale
+  ratios can rasterize a skinny source into blurred intermediate strokes. Continuous motion
+  belongs on one playback clock (with-prev beats and explicit offsets), with matched segment
+  velocity. Axis labels changing statistical quantities should crossfade between exact texts,
+  rather than numerically interpolate unrelated scales.
   Custom vector pose bundles can use empty `axes`/`series` and an explicit parts tree:
   keep every semantic ID, SVG tag and numeric attribute template identical between poses
   for geometry/paint interpolation without residue fades. Zero-radius ellipses retain their
@@ -1865,10 +1877,10 @@ Persistence invariants (all machine-checked — do not weaken):
     system's cursors — an undefined `var()` makes `cursor` fall back to `auto`, which is why no
     component outside the editors needed touching. **The default mark is the "classic" arrow**
     (`CursorParams.style`): Figma's stem-less, right-leaning arrowhead (`ARROW_UNIT`, tip at the
-    origin), a dark fill under a light outline painted FIRST (`paint-order: stroke`, so the fill's
+    origin), a pink (`#ff60fc`) fill under a deep indigo (`#07043c`) outline painted FIRST (`paint-order: stroke`, so the fill's
     silhouette is exactly the geometry), corners filleted by `roundedPolygonPath`, a `feDropShadow`
     lift, the tip as hotspot (`ARROW_HOTSPOT` 3 3), `default` as the OS fallback; rest, hover,
-    press and move are the same arrow (Figma keeps its pointer) and the shared resize / rotate /
+    press and move retain that arrow, with optional tip-led depression (see below), and the shared resize / rotate /
     move-copy states are drawn in the arrow's fill and outline; the canvas stays ≤ 32 px
     (`arrowCanvas`). Knobs: `arrowSize`, `arrowFill`, `arrowOutline`, `arrowOutlineWidth`,
     `arrowRounding`, `arrowShadow`, `arrowTilt`. **Pixel law (audit, 2026-10-21):** every mark is
@@ -1924,13 +1936,25 @@ Persistence invariants (all machine-checked — do not weaken):
     Per-pixel adaptation was weighed and rejected: it needs either a DOM cursor (a frame of
     lag) or restyling the hovered plot's subtree (the 120 ms regression of 2026-09-16). A software (DOM) cursor was considered and
     rejected: it trails the pointer by a frame and dies at window edges / under capture; the
-    "morph" is geometric, not tweened. Look at the family with
+    state morphs remain geometric. Classic-arrow clicks optionally animate prebuilt hardware
+    images through `cursor/cursorPress.ts`: 36 ms down, hold, 80 ms return at 1.25× depth by default,
+    zero callbacks at rest or while held. The visible tip and hotspot stay registered; only
+    the body and shadow depress. Frames are prepared/decoded on settings changes. During
+    capture only the host cursor changes behind the `.el` firewall; on release the actual
+    hit leaf may carry the return, never an element/plot subtree. The action never owns
+    capture or delays input/commits. Motion cancels on movement after release, Escape, blur,
+    pointer cancellation or loss of capture, tool/style changes and teardown. Settings →
+    General → Cursor exposes Press on click, Press depth and Return time, plus a trial pad
+    using the same action. This finite cursor-only effect is the scoped exception to the
+    per-gesture-only host rule below; no custom property changes per frame.
+    `verify-cursor-press.mjs` covers input, cleanup, persistence and dense-scene cost.
+    Look at the family with
     `scripts/perf/cursor-sheet.mts` (CDP screenshots never include the pointer).
     **Two levels, load-bearing (2026-09-16):** the HOST value flips only for pan
     (grab/grabbing), tool (text I-beam) and — since 2026-10-21 — the GESTURE kind
     (`resize`/`figresize` → the handle's resize variant, `rotate` → its zone's arc, a `move`
     in flight → move / move-copy, any other press → the contracted cross), one flip per
-    gesture; every element wrapper `.el` carries the hover variant as an EXPLICIT constant, so
+    gesture (plus the finite classic press frames above); every element wrapper `.el` carries the hover variant as an EXPLICIT constant, so
     the dot needs no JS (the pointer over an object hits the wrapper's subtree) and — the
     point — the wrapper is a firewall: `cursor` inherits, and a host flip would otherwise
     restyle every mounted plot node (~120 ms per hover boundary at 15k nodes — the Linux
@@ -2153,10 +2177,11 @@ Persistence invariants (all machine-checked — do not weaken):
   - **Anchoring never lands on the thing:** when no side has full room, `anchorPanel` takes the
     side whose clamped placement overlaps the avoided box the LEAST (`overlapArea`), never
     the pointer (that put the menu on the selected path in Slide mode).
-  - **The crosshair is the app's cursor** (`app.css` policy + `verify-cursor-policy.ts`): body
-    plain, interactive elements dotted, `:active` contracted, text fields the I-beam; no
-    component may say `cursor: pointer` / `default` — 302 declarations were swapped for the
-    family in one pass, and the gate keeps it that way.
+  - **The custom cursor family belongs to Figure and Slide only** (`app.css` policy +
+    `verify-cursor-policy.ts`): classic arrow by default, optional crosshair, with hover/press
+    variants and I-beams in text fields. Other modes and shell chrome use system cursors.
+    Components use the cursor-family variables instead of literal `pointer` / `default`;
+    outside the two editors those variables fall back to `auto`.
   - **Colour collections come from fluxplot** (2026-09-16): `~/fluxplot/src/fluxplot/definitions/
     {colormaps,palettes}.json` are the ONE source — matplotlib's maps in their documented
     groups, Crameri, Paul Tol (maps + colour sets), cmasher, ColorBrewer (9-class sequential,
@@ -2940,14 +2965,15 @@ days (probe geometry like `width` instead).
   `FLUX_ELECTRON_NO_SANDBOX` does NOT help here: it reaches launches that go through
   `testProcess.mjs`, not the poster worker that product code spawns. The worker's error now names
   the signal and Electron's last stderr line, because callers keep only the first line.
-- **The glyph-outline gates need msttcorefonts** (`verify-glyph-outlines`,
+- **The glyph-outline gates need installed Arial/Georgia** (`verify-glyph-outlines`,
   `verify-text-morph-browser`, `verify-slide-export-transform`; 2026-10-03). They read the
   reference workstation's Arial/Georgia files; without them, letter flights fall back to
   glyph boxes (6 paths instead of 7 for "Optics"). The Linux CI/release jobs install
   `ttf-mscorefonts-installer` and fail the step if the download did. The EULA question is
   `msttcorefonts/accepted-mscorefonts-eula`; the widely copied `accept-…` key preseeds nothing,
   and the package then skips the download with only "user did not accept" in the log.
-  `verify-glyph-outlines` hardcodes the Debian paths, so it is still red on macOS/Windows.
+  `verify-glyph-outlines` selects Debian msttcorefonts, Windows Fonts or macOS Supplemental
+  paths; the macOS gate passes with native Arial/Georgia (2026-10-22).
 - **electron-builder `files` patterns apply in order; later ones win** (2026-10-04). An include
   placed above `"!**/node_modules/**/*"` is silently undone: `node_modules/js-yaml/**/*` sat
   there from 09-27, so every packaged Flux died at launch ("Cannot find module 'js-yaml'"). On
@@ -4053,15 +4079,16 @@ outside this PNG packaging change.
   Cross-type transforms (e.g. rect→text) are now implemented by `slide/tween.ts` retyping;
   preserve them and test reset/default semantics (September 20 review PS-06). Part-set
   transforms now support hand-off Become; part styling Changes continue to ride the whole
-  plot transform's `overrides` diff. Character-level text morph is the flagged Phase-8
-  enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
-  digit-tween).
+  plot transform's `overrides` diff. Text rewrites now use the content-matched text morph
+  described in §4 (`slide/textMatch.ts` and `player/textMorph.ts`); pure digit changes retain
+  the in-place count-up. Character matching is no longer a deferred Phase-8 feature.
 - **Plot data views (Animation v2 E1–E6):** `view` renders in all five plot hosts and
   tweens through the transform driver. Axis view controls and `set-plot-view` author the same
   shared prop; semantic binding preserves shared series across regenerated tick/point counts.
-  Filled and non-series marks remain unchanged; no new ticks are generated. Existing ticks
-  fade in the outer 4%, including exactly on new limits. Non-positive log data refuses that
-  series with a compiler issue. True regeneration/re-ticking remains a fluxplot follow-up.
+  Supported filled marks re-project vertex by vertex; images and rasterized layers remain
+  unchanged. Static views re-tick supported numeric locators/formatters; unsupported formats
+  and animated views retain the moving/fading ticks (see §4 F4 and `verify-plot-view-filled`).
+  Non-positive log data refuses that series with a compiler issue.
 - **Lazy-residency deferrals (2026-07-21):** slide-mode lazy asset loading (plan Phase 2 —
   `resolveDeckAssets` stays eager; the player/morph/thumbnail consumers have no mount-driven
   reload path, and scale-slide is green at 31 plot slides) and lazy `assetData` bytes (Phase 4
@@ -10136,6 +10163,14 @@ fix); probed on the real exFAT volume too.
 - flux-core scanners (CLI/MCP) still readdir directly; most skip dotfiles but `._*` filtering there
   is unaudited.
 
+### 2026-10-08 03:12 CDT — Eight native science originals for the demo (Codex, main)
+**Work:** Authored eight original animated slides in the external demo materials project with three parallel agents, then inserted them into Deck 6 through `mutateDeck` and `insertSlideSnapshot`; hashes preserve all 14 existing slides and original asset metadata. Iterated on real exported-player frames and sequential/seek playback, retained source/data provenance and a compact native-only HTML preview; no application source changes. The external project's portability checker exposed pre-existing recipe interpreter paths and AppleDouble sidecars, documented with the new materials rather than rewriting unrelated assets.
+
+
+### 2026-10-08 04:18 CDT — Scientific showcase and motion polish (Codex, main)
+**Work:** Refined the eight prior native showcases and added eight scientific data sequences to the external demo Deck6, preserving the original14 slides/assets and existing showcase slide IDs. Three agents cross-reviewed five visual/scientific passes; profiled and removed redundant protein mirror flights (final p95/p99 16.8ms), fixed path-frame raster blur and continuous cue timing, and made forward player boundaries finish only crossed controllers. Player75checks, export-transform, Ghost-browser, morph, check/build and68 source/installed frame comparisons passed; new scientific inputs and notes were independently recomputed.
+**Learnings:** Promoted forward-controller reset discipline, stable SVG frames, in-flight review and exact axis-label handoffs into the body. Final live-app controls were unavailable after macOS locked; the rebuilt runtime is included in self-contained exports and loads in the app on reload.
+
 ### 2026-10-19 — AI status: false "MCP registration differs" on source checkouts (Claude Opus 5.5, `main`)
 **Work:** The panel's file-only refresh (`probeAgents({ commands: false })`) resolved a source
 checkout's runtime executable to Electron's `execPath`, so `claude.mcp` compared the correct
@@ -10371,3 +10406,16 @@ arrow, bands show the outlined resize arrows — then the crosshair legs under `
 
 ### 2026-10-22 00:45 CDT — Sync recent upstream changes to the Mac (Codex, main)
 **Work:** Merged 20 upstream commits through `1056642e`, retaining the two local Mac commits and restoring all eight pre-existing modified files. Only appended guide notes conflicted; both histories are preserved. Production build, renderer check (0 errors/warnings), headless check and ten focused pure/UI gates pass. `verify-glyph-outlines` remains red on macOS because its fixture selects Linux font paths; actual font resolution returned the correct macOS files. A pre-sync branch and named stash retain recovery copies.
+
+### 2026-10-22 01:10 CDT — Figure product research against Figma (Codex, main)
+**Work:** Reviewed Figure/Slides documentation, shared editing and semantic-plot code, representative demo screens, and primary Figma design writing/documentation for a product-strategy review. Corrected stale body claims about live text formatting/caret styling, cursor scope, text morphs and plot-view re-ticking against the current implementation; no application code changed or regression results claimed.
+
+### 2026-10-22 01:26 CDT — Tip-led hardware cursor press (Codex, main)
+**Work:** Added optional classic-arrow press feedback with a fixed aiming tip, compressed shadow, fast downstroke and quiet return; Settings → General → Cursor exposes depth, return time and a shared trial pad. Prebuilt hardware images preserve native tracking; capture remains editor-owned, and release frames touch only the hit leaf. Build, both type checks, cursor family/policy/UI, new 27-check press gate, selection zones, Settings shell and manifest gates pass; the 30,520-node fixture measured 0.16 ms/click with motion off and 3.99 ms/click on, with no long tasks. Native macOS cursor-changed bitmaps confirm intermediate images and exact idle restoration (dev-renderer diagnostic, not production latency qualification).
+**Learnings:**
+- Promoted the finite hardware-frame exception and leaf-only release rule into §4. Svelte may apply a style directive after action.update; reassert the active cursor in a guarded microtask to preserve the held pose when a press becomes a drag.
+- Dev probes importing a store must use its actual loaded resource URL, including Vite’s HMR query; importing its bare path can create a second, disconnected store.
+
+### 2026-10-22 01:36 CDT — Promote the tuned pink cursor and prepare main (Codex, main)
+**Work:** Read the live owner's Cursor panel and promoted its exact active appearance and motion: classic arrow, #ff60fc fill, #07043c outline, 22 px size, 1.3 px outline, 0.9 px corners, 0.6 shadow, 0° tilt, #4385be accent, family resize cursors, press enabled at 1.25× / 80 ms. Regenerated static first-paint cursors; fresh-profile and Reset checks pin the appearance and motion together. Reviewed the pending Figure/Slide fixes for this commit; corrected Figure-to-deck page sizing to use its invocation snapshot and added layout/snapshot, legend-swatch and set-handoff glyph coverage. The font fixture now uses macOS Supplemental faces and fixes the Windows fallback path escape, so the formerly blocked glyph gate passes here. Build, renderer/headless checks, all four cursor gates, player, conversion, marquee, model3d-core and glyph-outline gates pass. Main includes the fetched upstream tip; no push performed.
+**Learnings:** Updated the cursor defaults/timing and platform font-fixture guidance in the body. Existing stored preferences remain intact; defaults and Reset now reproduce the owner's tuned cursor.

@@ -399,6 +399,7 @@
     "ui": [
       "verify-context-gui.mjs",
       "verify-cursor-gui.mjs",
+      "verify-cursor-press.mjs",
       "verify-selection-zones-gui.mjs",
       "verify-bbox-grab-gui.mjs",
       "verify-figure-input-hygiene.mjs",
@@ -2538,6 +2539,7 @@
         "verify-selection-zones-gui.mjs",
         "verify-bbox-grab-gui.mjs",
         "verify-cursor-gui.mjs",
+        "verify-cursor-press.mjs",
         "verify-crop.mjs",
         "verify-fig-esc.mjs",
         "figenh-16-groups-ui.mjs"
@@ -2570,6 +2572,7 @@
         "verify-cursor-family.ts",
         "verify-cursor-policy.ts",
         "verify-cursor-gui.mjs",
+        "verify-cursor-press.mjs",
         "verify-shell-complete.mjs"
       ]
     },
@@ -2580,6 +2583,7 @@
         "verify-cursor-family.ts",
         "verify-cursor-policy.ts",
         "verify-cursor-gui.mjs",
+        "verify-cursor-press.mjs",
         "verify-selection-zones-gui.mjs",
         "verify-bbox-grab-gui.mjs",
         "verify-interact-core.ts",
@@ -3274,7 +3278,8 @@
         "verify-live-view-electron.cjs",
         "verify-no-retired-agent-layer.ts",
         "verify-cursor-family.ts",
-        "verify-cursor-gui.mjs"
+        "verify-cursor-gui.mjs",
+        "verify-cursor-press.mjs"
       ]
     },
     {
@@ -9956,6 +9961,17 @@
       "isolation": "scratch",
       "timeoutMs": 60000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-cursor-press.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

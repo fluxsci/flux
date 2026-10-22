@@ -61,6 +61,19 @@ try {
  await assert.rejects(sendSlideToCanvas(root,slide,deck,'c'),/ENOSPC/);writeHook=undefined;await preserved(previous);assert.equal(await bridge.exists(root+'/.meta/figure-source-generation.json'),false);ok('manifest publication failure rolls back canonical Figure files and index exactly');
  await seed();await bridge.writeText(root+'/fig/assets/a.svg','different accepted bytes');let idx=JSON.parse(await fs.readFile(root+'/fig/index.json','utf8'));idx.assets.push({...asset,path:'assets/a.svg'});await fs.writeFile(root+'/fig/index.json',JSON.stringify(idx));writes.length=0;const collision=await snapshot();await assert.rejects(sendSlideToCanvas(root,slide,deck,'c'),/different bytes/);await preserved(collision);assert.equal(writes.length,0);ok('asset identity collision refuses rather than replacing scientific bytes');
  await seed();const cacheBefore=JSON.stringify(get(assets.assetData)),sourceBefore=JSON.stringify(get(store.project));const sent=await sendFigureToDeck(root,{name:'Unsaved plot',elements:[plot]},null);const savedDeck=await readDeck(root,sent.deckId);assert.ok(savedDeck);assert.equal(savedDeck!.slides.length,1);assert.equal(await fs.readFile(root+`/slides/${sent.deckId}/assets/a.svg`,'utf8'),svg);assert.equal(JSON.stringify(get(assets.assetData)),cacheBefore);assert.equal(JSON.stringify(get(store.project)),sourceBefore);ok('unsaved Figure assets become complete deck-owned copies without publishing target caches or baseline');
+ // A page fitting the stage preserves its authored coordinates, even if the live
+ // figure changes while asynchronous asset/snapshot preparation is underway.
+ await seed();
+ const sized = { name: 'Page-sized layout', width: 100, height: 80, elements: [structuredClone(plot)] };
+ const target = createDeck({ id: 'layout', withTitleSlide: false }); target.stage = { width: 100, height: 80 };
+ await writeDeckDirect(root, target);
+ let changedPage = false;
+ readHook = async () => { if (!changedPage) { changedPage = true; sized.width = 200; sized.height = 160; sized.elements[0].x = 70; } };
+ const pageSent = await sendFigureToDeck(root, sized, 'layout'); readHook = undefined;
+ const pageDeck = await readDeck(root, pageSent.deckId);
+ const placed = pageDeck!.slides.find(s => s.id === pageSent.slideId)!.elements[0];
+ assert.deepEqual({ x: placed.x, y: placed.y, width: placed.width, height: placed.height }, { x: 2, y: 3, width: 40, height: 20 });
+ ok('a stage-sized Figure keeps its original layout and invocation snapshot during conversion');
  await seed();let switched=false;readHook=async p=>{if(!switched&&p.endsWith('/fig/canvases/sibling.json')){switched=true;store.embeddedProjectRoot.set('/other')}};const original=await snapshot();await assert.rejects(sendSlideToCanvas(root,slide,deck,'c'),/Project changed/);readHook=undefined;await preserved(original);assert.equal(writes.length,0);ok('root change during preparation refuses all publication');
  await seed();const d=createDeck({id:'target',withTitleSlide:true});await writeDeckDirect(root,d);const read=await readDeck(root,'target');const file=root+'/slides/target/deck.json',external=JSON.parse(await fs.readFile(file,'utf8'));external.title='External';await fs.writeFile(file,JSON.stringify(external));read!.title='Stale';await assert.rejects(writeDeckDirect(root,read!),/changed/);assert.equal(JSON.parse(await fs.readFile(file,'utf8')).title,'External');ok('read-only deck evidence is checked without adopting a stale save baseline');
  console.log(`V020 CONVERSION: PASS (${checks} checks)`);

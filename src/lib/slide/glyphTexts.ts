@@ -18,6 +18,18 @@ export function glyphTextTracks(slide: Slide): { track: Track; beat: number; tex
       if (!pre) continue;
       if (isHandoff(track)) {
         const ref = track.to!.become!.ref;
+        // A destination SET (several things picked, e.g. shapes + a caption) from a
+        // non-text source: each whole TEXT member is a hand-off partner and flies as
+        // letter outlines. Present loads those fonts live; the export bake must list
+        // them or the exported letters only crossfade (FLUX-057).
+        if (ref.members?.length && pre.type !== "text") {
+          for (const member of ref.members) {
+            if (member.parts?.length || member.group || member.selector) continue;
+            const dest = transformPreState(slide, member.element, bi);
+            if (dest?.type === "text") out.push({ track, beat: bi, text: dest as TextElement });
+          }
+          continue;
+        }
         if (track.part || track.parts?.length || ref.parts?.length || ref.group) continue;
         const dest = transformPreState(slide, ref.element, bi);
         if (!dest || (pre.type === "text") === (dest.type === "text")) continue;

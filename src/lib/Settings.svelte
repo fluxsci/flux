@@ -17,9 +17,11 @@
     buildCursorFamily, buildCursorFamilyDark, cursorPresetOf, isDefaultCursorParams, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE,
     CURSOR_PRESETS, CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE,
     ARROW_OUTLINE_RANGE, ARROW_ROUNDING_RANGE, ARROW_SHADOW_RANGE, ARROW_SIZE_RANGE, ARROW_TILT_RANGE,
+    CURSOR_PRESS_DEFAULTS, CURSOR_PRESS_DEPTH_RANGE, CURSOR_PRESS_RETURN_RANGE,
     type CursorPreset, type CursorState,
   } from "./cursor/cursorFamily";
   import { cursorParamsFromSettings } from "./cursor/cursorTheme";
+  import { cursorPress } from "./cursor/cursorPress";
   import ColorField from "./ColorField.svelte";
   import { modalFocus } from "./ui/modalFocus";
   import { fileBridge } from "./project/types";
@@ -28,7 +30,7 @@
     LOCAL_CORRECTION_RESET_EVENT,
   } from "../shell/modes/paper/editing/localCorrectionProfile";
 
-  // --- Cursor (Settings → Figure → Cursor, 2026-10-21) -------------------------
+  // --- Cursor (Settings → General → Cursor, 2026-10-22) -------------------------
   // The preview strip draws the generated family itself (CDP/OS screenshots
   // never show the pointer), on a split dark/light swatch so the halo is judged.
   const CURSOR_PREVIEW: { state: CursorState; label: string }[] = [
@@ -43,7 +45,10 @@
   ];
   const cursorFamily = $derived(buildCursorFamily(cursorParamsFromSettings($settings)));
   const cursorFamilyDark = $derived(buildCursorFamilyDark(cursorParamsFromSettings($settings)));
-  const cursorIsDefault = $derived(isDefaultCursorParams(cursorParamsFromSettings($settings)));
+  const cursorIsDefault = $derived(isDefaultCursorParams(cursorParamsFromSettings($settings)) &&
+    $settings.cursorPressEnabled === CURSOR_PRESS_DEFAULTS.enabled &&
+    $settings.cursorPressDepth === CURSOR_PRESS_DEFAULTS.depth &&
+    $settings.cursorPressReturnMs === CURSOR_PRESS_DEFAULTS.returnMs);
   const cursorPreset = $derived(
     cursorPresetOf({
       coreColor: $settings.cursorCoreColor,
@@ -81,6 +86,7 @@
       ...v,
       cursorStyle: CURSOR_DEFAULTS.style, arrowSize: CURSOR_DEFAULTS.arrowSize, arrowFill: CURSOR_DEFAULTS.arrowFill, arrowOutline: CURSOR_DEFAULTS.arrowOutline,
       arrowOutlineWidth: CURSOR_DEFAULTS.arrowOutlineWidth, arrowRounding: CURSOR_DEFAULTS.arrowRounding, arrowShadow: CURSOR_DEFAULTS.arrowShadow, arrowTilt: CURSOR_DEFAULTS.arrowTilt,
+      cursorPressEnabled: CURSOR_PRESS_DEFAULTS.enabled, cursorPressDepth: CURSOR_PRESS_DEFAULTS.depth, cursorPressReturnMs: CURSOR_PRESS_DEFAULTS.returnMs,
       cursorSize: CURSOR_DEFAULTS.size, cursorStroke: CURSOR_DEFAULTS.stroke, cursorAdaptive: true, cursorCoreColor: CURSOR_DEFAULTS.coreColor, cursorCoreColorDark: CURSOR_DEFAULTS.coreColorDark,
       cursorHaloWidth: CURSOR_DEFAULTS.haloWidth, cursorHaloColor: CURSOR_DEFAULTS.haloColor, cursorHaloOpacity: CURSOR_DEFAULTS.haloOpacity,
       cursorDotColor: CURSOR_DEFAULTS.dotColor, cursorGap: CURSOR_DEFAULTS.gap,
@@ -504,6 +510,27 @@
               </select>
             </label>
             {#if $settings.cursorStyle === "classic"}
+              <label class="chk">
+                <input type="checkbox" bind:checked={$settings.cursorPressEnabled} aria-label="Cursor press animation" />
+                Press on click
+              </label>
+              <p class="hint">A small, tip-led press into the surface, then a quiet return. The tip stays on the point you click.</p>
+              {#if $settings.cursorPressEnabled}
+                <label class="chk num">
+                  Press depth
+                  <input type="number" min={CURSOR_PRESS_DEPTH_RANGE.min} max={CURSOR_PRESS_DEPTH_RANGE.max} step="0.05" value={$settings.cursorPressDepth} aria-label="Cursor press depth"
+                    onchange={(e) => settings.update((v) => ({ ...v, cursorPressDepth: num(e.currentTarget.value, CURSOR_PRESS_DEPTH_RANGE.min, CURSOR_PRESS_DEPTH_RANGE.max, CURSOR_PRESS_DEFAULTS.depth, 0.05) }))} />
+                  ×
+                </label>
+                <label class="chk num">
+                  Return time
+                  <input type="number" min={CURSOR_PRESS_RETURN_RANGE.min} max={CURSOR_PRESS_RETURN_RANGE.max} step="5" value={$settings.cursorPressReturnMs} aria-label="Cursor press return time"
+                    onchange={(e) => settings.update((v) => ({ ...v, cursorPressReturnMs: num(e.currentTarget.value, CURSOR_PRESS_RETURN_RANGE.min, CURSOR_PRESS_RETURN_RANGE.max, CURSOR_PRESS_DEFAULTS.returnMs, 5) }))} />
+                  ms
+                </label>
+                <p class="hint">Lower depth is subtler. A shorter return feels tighter; a longer one feels softer.</p>
+              {/if}
+              <button type="button" class="cursor-press-trial" style:cursor={cursorFamily.cross.css} use:cursorPress={cursorFamily.cross.css}>Click to try the press</button>
               <div class="row cursor-colour">
                 <span>Fill</span>
                 <ColorField value={$settings.arrowFill} fallback={CURSOR_DEFAULTS.arrowFill} label="Arrow fill colour" onchange={(hex) => settings.update((v) => ({ ...v, arrowFill: hex }))} />
@@ -546,7 +573,7 @@
                 <span>Dot colour</span>
                 <ColorField value={$settings.cursorDotColor} fallback={CURSOR_DEFAULTS.dotColor} label="Dot colour" onchange={(hex) => settings.update((v) => ({ ...v, cursorDotColor: hex }))} />
               </div>
-              <p class="hint">Figma's arrow: a dark fill under a light outline, with a slight lift. The resize and rotate arrows use the same fill and outline; the dot colour marks the rotate centre and the duplicate badge.</p>
+              <p class="hint">A slightly leaning arrow with a contrasting outline and a gentle shadow lift. The resize and rotate arrows use the same fill and outline; the dot colour marks the rotate centre and the duplicate badge.</p>
             {/if}
             {#if $settings.cursorStyle === "crosshair"}
             <label class="row">
@@ -1053,6 +1080,16 @@
   }
 
   /* ---- cursor preview ------------------------------------------------------- */
+  .cursor-press-trial {
+    width: 100%;
+    min-height: 48px;
+    margin: 4px 0 12px;
+    border: 1px solid var(--c-line);
+    border-radius: 3px;
+    background: var(--c-bg);
+    color: var(--c-tx-muted);
+    touch-action: manipulation;
+  }
   .cursor-preview {
     display: flex;
     flex-wrap: wrap;

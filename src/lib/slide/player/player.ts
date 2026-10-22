@@ -540,10 +540,18 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       let selected = -1;
       for (let i = 0; i < controllers.length; i++) if (progressAt(controllers[i], beat, time) >= 0) selected = i;
       if (selected !== group.lastController) {
-        // Reset future crossfade layers outside-in before applying the past.
-        // Their DOM is retained so inner-node animation bindings survive.
-        for (let i = controllers.length - 1; i >= 0; i--) controllers[i].morph!.seek(0, 0);
-        for (let i = 0; i < selected; i++) controllers[i].morph!.seek(1, 1);
+        if (group.lastController >= -1 && selected > group.lastController) {
+          // Forward playback already has every future layer at its start and
+          // every earlier layer at its end. Finish only the controllers crossed
+          // since the last frame (including skipped ones). Rewinding the entire
+          // chain here makes dense, continuous keyframes hitch at each boundary.
+          for (let i = Math.max(0, group.lastController); i < selected; i++) controllers[i].morph!.seek(1, 1);
+        } else {
+          // Initial/reverse seeks reset future crossfade layers outside-in
+          // before applying the past. Retain DOM so inner bindings survive.
+          for (let i = controllers.length - 1; i >= 0; i--) controllers[i].morph!.seek(0, 0);
+          for (let i = 0; i < selected; i++) controllers[i].morph!.seek(1, 1);
+        }
         group.lastController = selected;
       }
       if (selected >= 0) {

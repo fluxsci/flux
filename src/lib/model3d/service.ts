@@ -123,10 +123,12 @@ export function createModel3dService(options: ServiceOptions) {
         Promise.all([residents.get(job.spec.assetId)?.promise, destination ? residents.get(destination)?.promise : undefined]).then(() => resolve(), reject).finally(() => job.cancel.signal.removeEventListener('abort', abort));
       });
       if (job.stale || !job.waiters.size) return;
-      const scale = job.interactive && !job.full ? scales.get(job.channel) ?? 1 : 1;
+      // globalThis.__fluxModel3dFullRes (capture/debug switch): interactive renders keep full resolution (FLUX-058).
+      const adaptive = job.interactive && !job.full && !(globalThis as { __fluxModel3dFullRes?: boolean }).__fluxModel3dFullRes;
+      const scale = adaptive ? scales.get(job.channel) ?? 1 : 1;
       const spec = scale === 1 ? job.spec : { ...job.spec, w: Math.max(1, Math.round(job.spec.w * scale)), h: Math.max(1, Math.round(job.spec.h * scale)) };
       const reply = await rpc('render', { spec, format: job.format });
-      if (job.interactive && !job.full && reply.ms > 40) scales.set(job.channel, Math.max(0.25, scale / 2));
+      if (adaptive && reply.ms > 40) scales.set(job.channel, Math.max(0.25, scale / 2));
       const output: Output = reply.bitmap ?? reply.blob;
       if (job.stale || !job.waiters.size) { if (job.format === 'bitmap') (output as ImageBitmap).close(); return; }
       const waiters = [...job.waiters];

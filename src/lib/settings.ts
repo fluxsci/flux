@@ -3,6 +3,7 @@ import { writable } from "svelte/store";
 import { DEFAULT_PLOT_SEARCH_SCOPE, PLOT_SEARCH_SCOPE_IDS, type PlotSearchScope } from "./plot/galleryScope";
 import {
   ARROW_OUTLINE_RANGE, ARROW_ROUNDING_RANGE, ARROW_SHADOW_RANGE, ARROW_SIZE_RANGE, ARROW_TILT_RANGE,
+  CURSOR_PRESS_DEFAULTS, CURSOR_PRESS_DEPTH_RANGE, CURSOR_PRESS_RETURN_RANGE,
   CURSOR_CENTRES, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE, CURSOR_PRESETS, CURSOR_RESIZE_STYLES,
   CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE, CURSOR_STYLES, cursorHex, type CursorCentre, type CursorResizeStyle, type CursorStyle,
 } from "./cursor/cursorFamily";
@@ -47,6 +48,9 @@ export interface Settings {
   arrowRounding: number; // corner rounding radius (0–3)
   arrowShadow: number; // drop-shadow amount (0–1)
   arrowTilt: number; // extra rotation about the tip, degrees (−30–30)
+  cursorPressEnabled: boolean; // tip-led classic arrow click feedback
+  cursorPressDepth: number; // travel and shadow compression (0.25–1.5)
+  cursorPressReturnMs: number; // release duration (60–200 ms); press is 45% of this
   cursorSize: number; // crosshair size in px (20–32, even); hotspot = size/2
   cursorStroke: number; // crosshair stroke width (0.8–3)
   cursorAdaptive: boolean; // the mark's colour follows the surface (dark ink on paper, light on dark)
@@ -100,6 +104,9 @@ const DEFAULTS: Settings = {
   arrowRounding: CURSOR_DEFAULTS.arrowRounding,
   arrowShadow: CURSOR_DEFAULTS.arrowShadow,
   arrowTilt: CURSOR_DEFAULTS.arrowTilt,
+  cursorPressEnabled: CURSOR_PRESS_DEFAULTS.enabled,
+  cursorPressDepth: CURSOR_PRESS_DEFAULTS.depth,
+  cursorPressReturnMs: CURSOR_PRESS_DEFAULTS.returnMs,
   cursorSize: CURSOR_DEFAULTS.size,
   cursorStroke: CURSOR_DEFAULTS.stroke,
   cursorAdaptive: true,
@@ -195,6 +202,7 @@ export function decodeSettings(value: unknown): Settings {
     cursorCoreColor: { maxLength: 7 }, cursorCoreColorDark: { maxLength: 7 }, cursorHaloColor: { maxLength: 7 }, cursorDotColor: { maxLength: 7 },
     cursorStyle: { enum: CURSOR_STYLES }, arrowSize: { ...ARROW_SIZE_RANGE }, arrowFill: { maxLength: 7 }, arrowOutline: { maxLength: 7 },
     arrowOutlineWidth: { ...ARROW_OUTLINE_RANGE }, arrowRounding: { ...ARROW_ROUNDING_RANGE }, arrowShadow: { ...ARROW_SHADOW_RANGE }, arrowTilt: { ...ARROW_TILT_RANGE },
+    cursorPressDepth: { ...CURSOR_PRESS_DEPTH_RANGE }, cursorPressReturnMs: { ...CURSOR_PRESS_RETURN_RANGE },
     cursorCentre: { enum: CURSOR_CENTRES }, cursorResizeStyle: { enum: CURSOR_RESIZE_STYLES },
     paperCaretFeel: { enum: ["chase", "smooth"] }, paperCorrectionProvider: { enum: ["flux", "ollama", "openai"] },
     paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },

@@ -46,7 +46,7 @@ await gotoApp(page, { url: APP_URL + "?fixture=demo", settle: 2500 });
   await page.evaluate(() => { const F = window.__flux.fig; F.selection.set(new Set([window.__flux.figures()[0].elements[0].id])); });
   await sleep(200);
   const band = await cur('.overlay-svg .zone.edge[data-h="e"]');
-  okc(/data:image/.test(band) && /stroke='%23fff' stroke-width='3\.9'/.test(band) && /ew-resize$/.test(band), "an edge band shows the outlined resize arrow in the arrow's fill and outline");
+  okc(/data:image/.test(band) && /stroke='%2307043c' stroke-width='3\.9'/.test(band) && /ew-resize$/.test(band), "an edge band shows the outlined resize arrow in the arrow's fill and outline");
   await page.evaluate(() => window.__flux.fig.selection.set(new Set()));
   for (const [c, m] of checksBefore) checks.push([c, m]);
 }

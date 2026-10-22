@@ -156,7 +156,7 @@ async function prepareModelSidecars(fig: FileBridge, root: string, writes: Asset
 
 /** Figure → deck uses an immutable invocation snapshot. Saved figure assets
  * remain by-id references; unsaved assets are copied into the destination deck. */
-export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name" | "elements" | "groups">, deckId: string | null): Promise<{ deckId: string; slideId: string; title: string }> {
+export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name" | "elements" | "groups"> & Partial<Pick<Figure, "width" | "height">>, deckId: string | null): Promise<{ deckId: string; slideId: string; title: string }> {
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
   const captured = structuredClone(figure), source = sourceAssets(captured.elements), models = sourceModels(captured.elements), localOwner = captureOwner(root);
   const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset).concat(models), palette: [] });
@@ -205,7 +205,18 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
     }
     reconcileDeckExternalAssetSizes(deck, resolved.assets);
     const added = slideOps.addSlide(deck, { name: captured.name, layout: "full-bleed" });
-    slideOps.addFigureContentToSlide(deck, added.id, captured);
+    // A figure PAGE that fits the stage keeps its layout 1:1 (the page is centred on the stage,
+    // not the content's bounding box): a slide-sized figure lands exactly where it was authored,
+    // and later text added on the slide lines up with it (FLUX-060). Larger pages still fit-to-frame.
+    const pw = captured.width ?? 0, ph = captured.height ?? 0;
+    let at: { x?: number; y?: number } = {};
+    if (pw > 0 && ph > 0 && pw <= deck.stage.width && ph <= deck.stage.height && captured.elements.length) {
+      const x0 = Math.min(...captured.elements.map(e => e.x)), y0 = Math.min(...captured.elements.map(e => e.y));
+      const x1 = Math.max(...captured.elements.map(e => e.x + e.width)), y1 = Math.max(...captured.elements.map(e => e.y + e.height));
+      const ox = (deck.stage.width - pw) / 2, oy = (deck.stage.height - ph) / 2;
+      if (x0 + ox >= 0 && y0 + oy >= 0 && x1 + ox <= deck.stage.width && y1 + oy <= deck.stage.height) at = { x: x0 + ox, y: y0 + oy };
+    }
+    slideOps.addFigureContentToSlide(deck, added.id, captured, at);
     reconcileDeckExternalAssetSizes(deck, [...snapshot.project.assets, ...[...source.values()].map(v => v.asset), ...models]);
     const errors = validateDeckFile(deck); if (errors.length) throw new Error(errors.join("; "));
     await assertSnapshot(snapshot, io); await assertOwner();

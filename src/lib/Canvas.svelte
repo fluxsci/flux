@@ -68,6 +68,7 @@
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick, onDestroy } from "svelte";
+  import { cursorPress } from "./cursor/cursorPress";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
   import { modelPartOpacity } from './model3d/appearance';
@@ -3244,9 +3245,16 @@
       // box: auto-h at the dragged width, so typing wraps there. Anything less
       // is the click it always was — a hugging label at the press point.
       const drawn = textBox && textBox.w > 2 && textBox.h > 2 ? textBox : null;
+      // Capture/demo hook (FLUX-059): globalThis.__fluxDrawStyle overrides the T tool's style
+      // (e.g. { fontSize: 24 }) and a one-shot globalThis.__fluxTextAt pins the next label's
+      // anchor to exact figure coordinates. Both unset in normal use.
+      const hook = globalThis as { __fluxDrawStyle?: Partial<import("./store").DrawStyle>; __fluxTextAt?: { x: number; y: number } | null };
+      const style = { ...get(drawStyle), ...(hook.__fluxDrawStyle ?? {}) };
+      const at = !drawn && hook.__fluxTextAt ? hook.__fluxTextAt : null;
+      if (at) hook.__fluxTextAt = null;
       const el = drawn
-        ? createTextElement({ x: drawn.x, y: drawn.y }, get(drawStyle), { width: drawn.w, height: drawn.h })
-        : createTextElement({ x: g.x0, y: g.y0 }, get(drawStyle));
+        ? createTextElement({ x: drawn.x, y: drawn.y }, style, { width: drawn.w, height: drawn.h })
+        : createTextElement(at ?? { x: g.x0, y: g.y0 }, style);
       const figId = g.figId;
       textEdits.run(() => mutate((p) => p.figures.find((f) => f.id === figId)?.elements.push(el)));
       selectOnly(el.id);
@@ -4256,7 +4264,8 @@
   // The crosshair family (styles/cursors.css, owner request 2026-09-15): the
   // default over the canvas is the precise crosshair; something selectable
   // under it adds the dot; a pressed gesture contracts the arms. Hardware
-  // cursors switched by state — nothing per frame. Pan keeps grab/grabbing,
+  // cursors switched by state; cursorPress adds finite classic-arrow frames.
+  // Pan keeps grab/grabbing,
   // the text tool keeps the I-beam.
   //
   // TWO LEVELS, BY DESIGN (2026-09-16): `cursor` is an INHERITED property, so
@@ -4465,6 +4474,7 @@
 
 <div
   class="canvas-host"
+  use:cursorPress={hostCursor}
   use:canvasAnnotationTargets
   class:frame
   bind:this={hostEl}

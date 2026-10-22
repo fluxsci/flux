@@ -4,7 +4,7 @@
 // (text/glyphOutlines.ts), the glyph-box fallback, the area slicing a filled
 // shape uses to split into letters (correspondence.ts), the fonts:lookup IPC
 // handler, and the export bake — both engines' bytes pinned identical.
-// Uses this machine's msttcorefonts Arial/Georgia (the box the gate runs on).
+// Uses installed Arial/Georgia (msttcorefonts, Windows Fonts or macOS Supplemental).
 import * as fs from "node:fs/promises";
 import { readFileSync, existsSync } from "node:fs";
 import * as os from "node:os";
@@ -26,10 +26,13 @@ import type { TextElement, VectorNode } from "../src/lib/types";
 import type { StageOutline } from "../src/lib/slide/stageOutline";
 
 const h = harness("verify-glyph-outlines");
-// The Linux box has msttcorefonts; Windows ships the same faces under its own file names.
+// Each platform ships these fixture faces under its own directory and names.
 const WIN = process.platform === "win32";
-const FONTS = WIN ? path.join(process.env.SystemRoot || "C:\Windows", "Fonts") : "/usr/share/fonts/truetype/msttcorefonts";
-const FACE = WIN
+const MAC = process.platform === "darwin";
+const FONTS = MAC ? "/System/Library/Fonts/Supplemental" : WIN ? path.join(process.env.SystemRoot || "C:\\Windows", "Fonts") : "/usr/share/fonts/truetype/msttcorefonts";
+const FACE = MAC
+  ? { arial: "Arial.ttf", arialItalic: "Arial Italic.ttf", georgia: "Georgia.ttf", georgiaBold: "Georgia Bold.ttf" }
+  : WIN
   ? { arial: "arial.ttf", arialItalic: "ariali.ttf", georgia: "georgia.ttf", georgiaBold: "georgiab.ttf" }
   : { arial: "Arial.ttf", arialItalic: "Arial_Italic.ttf", georgia: "Georgia.ttf", georgiaBold: "Georgia_Bold.ttf" };
 const ARIAL = path.join(FONTS, FACE.arial), GEORGIA = path.join(FONTS, FACE.georgia);
@@ -47,14 +50,14 @@ const winding = (nodes: VectorNode[], p: { x: number; y: number }) => {
   return w;
 };
 try {
-  h.ok(existsSync(ARIAL) && existsSync(GEORGIA), "this machine has Arial and Georgia (msttcorefonts or Windows Fonts)");
+  h.ok(existsSync(ARIAL) && existsSync(GEORGIA), "this machine has Arial and Georgia (msttcorefonts, Windows Fonts or macOS Supplemental)");
 
   // --- request identity ----------------------------------------------------------
   h.eq(JSON.stringify(parseFamilyStack('Georgia, "Gelasio", \'Times New Roman\', serif')), JSON.stringify(["Georgia", "Gelasio", "Times New Roman", "serif"]), "family stacks parse with quotes removed");
   h.eq(fontRequestKey({ family: ' Georgia,"Gelasio" ', weight: 650, style: "oblique" }), "Georgia, Gelasio|700|italic", "request keys normalize stack, weight grid and style");
 
   // --- resolution ------------------------------------------------------------------------
-  h.eq((await resolveFontFile({ family: "Arial" }))?.file, ARIAL, "fontconfig resolves Arial to its file");
+  h.eq((await resolveFontFile({ family: "Arial" }))?.file, ARIAL, "the system resolver finds Arial at its installed path");
   h.eq((await resolveFontFile({ family: 'Georgia, "Gelasio", serif', weight: 700 }))?.file, path.join(FONTS, FACE.georgiaBold), "a stack takes its first installed family, at the requested weight");
   h.eq((await resolveFontFile({ family: "Arial", style: "italic" }))?.file, path.join(FONTS, FACE.arialItalic), "italic resolves to the italic face");
   const bundled = await resolveFontFile({ family: "Gelasio, serif" });
@@ -169,6 +172,12 @@ try {
   slideOps.setTransform(deck, sid, b1.id, "u", { state: { text: "other words" }, duration: 1000 });
   const slide = deck.slides[0];
   h.eq(glyphTextTracks(slide).map((g) => g.text.id).join(), "t", "only the text ↔ shape track needs letters (text ↔ text is the text morph)");
+  const setSlide = structuredClone(slide);
+  const setRef = setSlide.beats.find(b => b.id === b1.id)!.tracks[0].to!.become!;
+  setRef.ref = { element: "t", members: [{ element: "t" }, { element: "u" }, { element: "r" }] };
+  h.eq(glyphTextTracks(setSlide).map(g => g.text.id).join(), "t,u", "a shape-to-set handoff includes every whole text partner in the export bake");
+  setRef.ref.members![1].parts = ["part"];
+  h.eq(glyphTextTracks(setSlide).map(g => g.text.id).join(), "t", "part targets do not bake an unrelated whole text element");
   const issues = (status: "ready" | "missing" | "pending") => compileSlide(slide, deck.stage, { glyphStatus: () => status }).issues.filter((i) => /land as boxes/.test(i.reason));
   h.ok(issues("missing").length === 1 && issues("ready").length === 0 && issues("pending").length === 0, "a missing font is diagnosed as boxes (ready/pending are not)");
 

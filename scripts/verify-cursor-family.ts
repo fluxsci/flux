@@ -31,9 +31,9 @@ import {
   cursorGeometry,
   roundedPolygonPath,
   cursorCssBlock,
-  cursorGeometry,
   cursorVar,
   drawCursor,
+  drawArrowPress,
   isDefaultCursorParams,
   CURSOR_DEFAULTS,
   CURSOR_FALLBACK,
@@ -50,6 +50,25 @@ let failures = 0;
 const ok = (m: string) => console.log("  ok:", m);
 const assert = (c: unknown, m: string) => (c ? ok(m) : (console.error("  ✗ FAIL:", m), failures++));
 const root = path.join(import.meta.dirname, "..");
+
+// Press frames preserve the exact idle drawing and aiming point at every depth.
+for (const arrowSize of [16, 22, 23]) for (const arrowTilt of [-30, 0, 30]) {
+  const p = { ...CURSOR_DEFAULTS, arrowSize, arrowTilt, arrowFill: "#ef75ad" };
+  for (const copy of [false, true]) {
+    const idle = drawCursor(copy ? "move-copy" : "cross", p);
+    assert(drawArrowPress(p, 0, 1, copy).css === idle.css, "press starts at the exact user's idle drawing");
+    for (const depth of [0.25, 1, 1.5]) {
+      const held = drawArrowPress(p, 1, depth, copy);
+      assert(held.hotspot.join() === idle.hotspot.join() && held.svg.match(/viewBox='[^']+'/)?.[0] === idle.svg.match(/viewBox='[^']+'/)?.[0], "press keeps the hotspot and canvas fixed");
+      assert(held.css !== idle.css && held.svg.includes("%23ef75ad"), "press changes geometry while keeping the user's pink fill");
+      const pose = { ...p, arrowSize: arrowSize * (1 - 0.055 * depth), arrowTilt: arrowTilt + 0.75 * depth };
+      const origin = arrowOrigin(pose);
+      const angle = (pose.arrowTilt - ARROW_SHAPE.lean) * Math.PI / 180;
+      const inset = arrowTipInset(pose);
+      assert(Math.abs(origin.ox - Math.sin(angle) * inset - 3.5) < 1e-9 && Math.abs(origin.oy + Math.cos(angle) * inset - 3.5) < 1e-9, "the visible tip stays registered to the hot pixel through the depression");
+    }
+  }
+}
 
 // --- 1. cursors.css carries exactly the builder's defaults -------------------
 const css = readFileSync(path.join(root, "src/styles/cursors.css"), "utf8");
@@ -95,7 +114,7 @@ assert(famD.cross.svg.replace(/%23fffcf0/g, "%23151515") === fam.cross.svg, "the
   const ARROW_STATES: CursorState[] = ["cross", "cross-hover", "cross-press", "move", "move-copy"];
   for (const st of ARROW_STATES) {
     const d = arrow[st];
-    assert(/<path d='M[^']*Z'/.test(d.svg) && d.svg.includes("paint-order='stroke'") && d.svg.includes("fill='%23151515'") && d.svg.includes("stroke='%23fff'"), `${st}: a dark-filled arrow with the outline painted underneath`);
+    assert(/<path d='M[^']*Z'/.test(d.svg) && d.svg.includes("paint-order='stroke'") && d.svg.includes("fill='%23ff60fc'") && d.svg.includes("stroke='%2307043c'"), `${st}: the owner's pink arrow with the outline painted underneath`);
     assert(d.hotspot[0] === ARROW_HOTSPOT[0] && d.hotspot[1] === ARROW_HOTSPOT[1] && d.css.endsWith(st === "move-copy" ? ", copy" : ", default"), `${st}: the hotspot is the tip and the fallback the system arrow`);
     assert(d.svg.includes("<feDropShadow") && d.svg.includes("filter='url(%23s)'"), `${st}: the drop shadow is applied`);
     assert(arrowD[st].svg === d.svg, `${st}: identical in both tones (the outline provides the contrast)`);
@@ -105,7 +124,7 @@ assert(famD.cross.svg.replace(/%23fffcf0/g, "%23151515") === fam.cross.svg, "the
   for (const st of ["resize-ns", "resize-nwse", "rotate-se"] as CursorState[]) {
     const d = arrow[st];
     const strokes = [...d.svg.matchAll(/stroke='([^']+)' stroke-width='([\d.]+)'/g)].map((m) => ({ c: m[1], w: +m[2] }));
-    assert(strokes[0].c === "%23fff" && strokes[0].w === 3.9 && strokes[strokes.length - 1].c === "%23151515" && !/stroke-opacity='0?\.\d/.test(d.svg), `${st}: drawn in the arrow's fill under its outline (1.3 + 2 × 1.3 wide, opaque)`);
+    assert(strokes[0].c === "%2307043c" && strokes[0].w === 3.9 && strokes[strokes.length - 1].c === "%23ff60fc" && !/stroke-opacity='0?\.\d/.test(d.svg), `${st}: drawn in the arrow's fill under its outline (1.3 + 2 × 1.3 wide, opaque)`);
     assert(d.hotspot[0] === 12 && d.hotspot[1] === 12, `${st}: keeps the centred hotspot`);
   }
   const c = arrowCanvas(clampCursorParams(CURSOR_DEFAULTS));
