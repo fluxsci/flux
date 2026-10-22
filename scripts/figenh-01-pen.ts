@@ -240,8 +240,8 @@ try {
   // ---- RESIZE FIX: handle-resize rescales geometry + persists ----
   path = await firstPath();
   await page.evaluate((id: string) => (window as any).__flux.fig.selectOnly(id), path.id);
-  await waitFor(page, () => document.querySelectorAll(".overlay-svg .handle").length === 8, null, {
-    label: "resize handles mounted",
+  await waitFor(page, () => document.querySelectorAll(".overlay-svg .handle").length === 4, null, {
+    label: "resize handles mounted (four corners since 2026-10-21; edges are bands)",
   });
   await shot(page, "f1-04-resize-before");
   const wBefore = path.width;

@@ -1,6 +1,6 @@
 // Runtime/isolation is a script contract, independent of tier/group membership.
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
@@ -29,7 +29,10 @@ export function isolatedEnv(dir, parent = process.env, { native = false } = {}) 
   const cache = path.join(dir, 'cache');
   // Chromium's SingletonSocket is constrained by Unix sockaddr path length.
   // Keep scratch temp short even when the evidence directory is deeply nested.
-  const tmp = mkdtempSync(path.join(process.platform === 'win32' ? os.tmpdir() : '/tmp', 'fv-'));
+  // Windows: expand the 8.3 short tmpdir GitHub runners hand out (C:\Users\RUNNER~1) once, here, so
+  // every gate's tmpdir() already equals what realpath and the IPC resolvers return (guide §9).
+  const scratch = mkdtempSync(path.join(process.platform === 'win32' ? os.tmpdir() : '/tmp', 'fv-'));
+  const tmp = process.platform === 'win32' ? realpathSync.native(scratch) : scratch;
   writeFileSync(path.join(dir, 'temporary-root.txt'), tmp + '\n');
   const fluxConfig = path.join(home, 'FluxConfig');
   for (const p of [home, config, cache, tmp, path.join(fluxConfig, 'FluxLib'), path.join(config, 'flux')]) mkdirSync(p, { recursive: true });
@@ -132,7 +135,9 @@ export async function missingPrerequisites(spec, repo, env = process.env) {
       if (problem) missing.push(problem);
       if (!runs('uv', ['--version'])) missing.push('uv executable (uv --version)');
     } else if (p === 'chrome') {
-      if (!runs(env.FLUX_CHROME || '/usr/bin/google-chrome', ['--version'])) missing.push('Chrome executable (FLUX_CHROME or /usr/bin/google-chrome)');
+      // chrome.exe has no --version on Windows (it starts a browser), so there the file must exist.
+      const chrome = env.FLUX_CHROME || '/usr/bin/google-chrome';
+      if (!(process.platform === 'win32' ? !!env.FLUX_CHROME && existsSync(chrome) : runs(chrome, ['--version']))) missing.push('Chrome executable (FLUX_CHROME or /usr/bin/google-chrome)');
     } else if (p === 'latex') {
       if (!runs('pdflatex', ['--version']) || ['lmodern.sty', 'scrartcl.cls', 'bookmark.sty', 'longtable.sty'].some(name => !runs('kpsewhich', [name]))) missing.push('PDF TeX toolchain (pdflatex, lmodern, KOMA Script, bookmark, longtable)');
     } else if (p === 'native-encoder') {

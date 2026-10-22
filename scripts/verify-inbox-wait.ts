@@ -18,9 +18,11 @@ const project = async () => scratchProject(path.join(temp, `p${++count}`), "Wait
 try {
   {
     const root = await project();
-    const waiter = worker(scope, root, "wait", { session: heron, timeoutMs: 5000 }); await waiter.ready;
+    // Boot the writer first: a worker's tsx start-up takes seconds on Windows, and the waiter's
+    // clock must not run while its sibling boots (same rule as the reassignment case below).
     const event = makeNote("Immediate append", { surface: "figure" }, "human", "any");
     const writer = worker(scope, root, "append", { event }); await writer.ready;
+    const waiter = worker(scope, root, "wait", { session: heron, timeoutMs: 5000 }); await waiter.ready;
     const start = Date.now(); writer.child.stdin.write("GO\n");
     const [r] = await Promise.all([resultOf(waiter), resultOf(writer)]);
     h.eq(r.items.map(i => i.id), [event.id], "wait resolves on another process's append");
@@ -90,8 +92,9 @@ try {
     const root = await project(); const event = await note(root, "Human can pull this back");
     await claimItem(root, event.id, {}, { session: heron });
     const initial = await waitForInbox(root, { timeoutMs: 0 }, { session: heron });
-    const waiter = worker(scope, root, "wait", { session: heron, cursor: initial.cursor, timeoutMs: 2000 }); await waiter.ready;
-    const nextHolder = worker(scope, root, "wait", { session: wren, timeoutMs: 2000 }); await nextHolder.ready;
+    const waiter = worker(scope, root, "wait", { session: heron, cursor: initial.cursor, timeoutMs: 2000 });
+    const nextHolder = worker(scope, root, "wait", { session: wren, timeoutMs: 2000 });
+    await Promise.all([waiter.ready, nextHolder.ready]);
     await appendAnnotationEvent(root, makeRelease(event.id, "human", "human"));
     const [revoked, delivered] = await Promise.all([resultOf(waiter), resultOf(nextHolder)]);
     h.eq(revoked.revoked, [{ id: event.id, reason: "released by the user" }], "human release wakes with revoked notice");

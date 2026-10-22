@@ -1169,7 +1169,8 @@ function migration(opts) {
         } catch (error) { if (!['ENOENT', 'EACCES', 'ESRCH'].includes(error.code)) throw error; }
       }
     } else {
-      const command = process.platform === 'win32' ? 'tasklist' : 'ps';
+      // Absolute: a narrowed PATH (the e2e fixture's fake agent bin) must not turn this into ENOENT.
+      const command = process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tasklist.exe') : '/bin/ps';
       const args = process.platform === 'win32' ? ['/FO', 'CSV', '/NH'] : ['-A', '-o', 'pid=,comm='];
       const output = execFileSync(command, args, { encoding: 'utf8', timeout: 5000, windowsHide: true });
       for (const line of output.split(/\r?\n/))

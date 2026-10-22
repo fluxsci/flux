@@ -238,6 +238,7 @@
       "verify-feedback-snapshot.ts",
       "verify-color-space.ts",
       "verify-cursor-policy.ts",
+      "verify-cursor-family.ts",
       "verify-color-collections.ts",
       "verify-gradient-fill.ts",
       "verify-frame-oracle.ts",
@@ -398,6 +399,8 @@
     "ui": [
       "verify-context-gui.mjs",
       "verify-cursor-gui.mjs",
+      "verify-selection-zones-gui.mjs",
+      "verify-bbox-grab-gui.mjs",
       "verify-figure-input-hygiene.mjs",
       "verify-zoom-proxy.mjs",
       "verify-paper-textsize-gui.mjs",
@@ -2527,6 +2530,20 @@
       ]
     },
     {
+      "$why": "2026-10-21 the selection hit zones (edge grab, corner precedence, rotate L) and Alt-from-centre live in the pure interact cores; the GUI gates drive the real chrome.",
+      "glob": "{src/lib/interact/handles.ts,src/lib/interact/gestureMath.ts}",
+      "run": [
+        "verify-interact-core.ts",
+        "verify-fig-geometry.ts",
+        "verify-selection-zones-gui.mjs",
+        "verify-bbox-grab-gui.mjs",
+        "verify-cursor-gui.mjs",
+        "verify-crop.mjs",
+        "verify-fig-esc.mjs",
+        "figenh-16-groups-ui.mjs"
+      ]
+    },
+    {
       "$why": "2026-09-30 resize preview — plots follow a resize by a transient transform on their live scene group (resizePreview.ts through sceneTransforms.ts), rendered once at release; the pure gate proves the transform equals the committed geometry, the ui gates drive real resize/crop/Esc/move gestures.",
       "glob": "{src/lib/interact/resizePreview.ts,src/lib/interact/sceneTransforms.ts}",
       "run": [
@@ -2547,11 +2564,33 @@
       ]
     },
     {
+      "$why": "2026-10-21 the cursor family is ONE parametric drawing (cursorFamily.ts) — gen-cursors.mjs writes styles/cursors.css for the defaults, cursorTheme.ts writes :root for the user’s Settings; the family gate pins drift + registration, the policy gate the css, the gui gate the host/zone cursors and the firewall.",
+      "glob": "{src/lib/cursor/**,scripts/gen-cursors.mjs,scripts/perf/cursor-sheet.mts}",
+      "run": [
+        "verify-cursor-family.ts",
+        "verify-cursor-policy.ts",
+        "verify-cursor-gui.mjs",
+        "verify-shell-complete.mjs"
+      ]
+    },
+    {
       "$why": "2026-09-15 the crosshair cursor family — Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
       "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte,src/lib/interact/compositorDrive.ts,src/lib/interact/zoomProxy.ts}",
       "run": [
+        "verify-cursor-family.ts",
         "verify-cursor-policy.ts",
         "verify-cursor-gui.mjs",
+        "verify-selection-zones-gui.mjs",
+        "verify-bbox-grab-gui.mjs",
+        "verify-interact-core.ts",
+        "verify-fig-esc.mjs",
+        "figenh-16-groups-ui.mjs",
+        "verify-crop.mjs",
+        "verify-figure-editing-gui.mjs",
+        "verify-v020-geometry-gui.mjs",
+        "figenh-15-partmove.mjs",
+        "verify-line-pivot.mjs",
+        "verify-f5-drag.mjs",
         "verify-figure-input-hygiene.mjs",
         "verify-zoom-proxy.mjs",
         "group:figures-slides-overhaul",
@@ -3233,7 +3272,9 @@
         "verify-shell-complete.mjs",
         "verify-live-view.ts",
         "verify-live-view-electron.cjs",
-        "verify-no-retired-agent-layer.ts"
+        "verify-no-retired-agent-layer.ts",
+        "verify-cursor-family.ts",
+        "verify-cursor-gui.mjs"
       ]
     },
     {
@@ -3324,6 +3365,7 @@
   ],
   "timeouts": {
     "verify-scale-figure.mjs": 120000,
+    "verify-model3d-demo.ts": 150000,
     "verify-scale-paper.mjs": 120000,
     "verify-slide-export-parity.ts": 300000,
     "verify-slide-export-core.ts": 300000,
@@ -4151,7 +4193,38 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-selection-zones-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-bbox-grab-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-cursor-policy.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-cursor-family.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

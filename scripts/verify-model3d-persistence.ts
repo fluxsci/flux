@@ -108,7 +108,8 @@ try {
  h.eq(scene3dSidecarWrites('assets',asset.id,unknownSidecars).get('assets/neuron.fluxplot.json'),unknown,'Save As preserves raw unknown sidecar text');
  for(const kind of ['manifest','recipe'] as const) for(const method of ['exists','readText'] as const) {
    const suffix=kind==='manifest'?'fluxplot':'recipe',target=path.join(root,`fig/assets/neuron.${suffix}.json`);
-   const faulty={...bridge,exists:async(p:string)=>p===target?true:bridge.exists(p),[method]:async(p:string)=>{if(p===target)throw Object.assign(Error('permission denied'),{code:'EACCES'});return bridge[method](p);}};
+   const hit=(p:string)=>path.normalize(p)===target; // the renderer joins with '/', target is native
+   const faulty={...bridge,exists:async(p:string)=>hit(p)?true:bridge.exists(p),[method]:async(p:string)=>{if(hit(p))throw Object.assign(Error('permission denied'),{code:'EACCES'});return bridge[method](p);}};
    const sidecars=await readScene3dSidecars(faulty,path.join(root,'fig/assets'),asset.id);
    h.ok(!!sidecars.issues?.length,`${kind} ${method} IO failure is a localized warning`);
    h.ok(!scene3dSidecarWrites('assets',asset.id,sidecars).has(`assets/neuron.${suffix}.json`),'unreadable metadata is not deleted or overwritten');
@@ -263,7 +264,7 @@ try {
  bridge.copyFileVerified=nativeCopy;
  // A late edit after the final JSON write still forbids adoption of that snapshot.
  store.project.set({...model,assets:[asset]});store.projectDir.set(legacyRoot);const finalDest=path.join(root,'final-write-save');bridge.save=async()=>finalDest;
- const originalWrite=bridge.writeText;bridge.writeText=async(p,t,o)=>{await originalWrite(p,t,o);if(p===path.join(finalDest,'project.json'))store.commit(project=>{project.name='Edited during final write';});};
+ const originalWrite=bridge.writeText;bridge.writeText=async(p,t,o)=>{await originalWrite(p,t,o);if(path.normalize(p)===path.join(finalDest,'project.json'))store.commit(project=>{project.name='Edited during final write';});};
  await (await import('../src/lib/io')).saveProjectAs();h.eq(get(store.projectDir),legacyRoot,'edit during final JSON write prevents stale root adoption');h.ok(get(store.dirty),'final-write edit remains dirty');bridge.writeText=originalWrite;
  // Two overlapping saves must publish in request order, including a final
  // native write that is already in flight when a newer snapshot is requested.
@@ -280,7 +281,7 @@ try {
  bridge.readText=originalRead;bridge.copyFileVerified=nativeCopy;
  store.project.set(structuredClone({...model,assets:[asset]}));store.projectDir.set(legacyRoot);store.dirty.set(true);
  let releaseFirst!:()=>void,firstEntered!:()=>void;const held=new Promise<void>(r=>{releaseFirst=r;}),entered=new Promise<void>(r=>{firstEntered=r;});let canonicalWrites=0;
- bridge.writeText=async(p,t,o)=>{if(p===path.join(legacyRoot,'project.json')&&++canonicalWrites===1){firstEntered();await held;}await originalWrite(p,t,o);};
+ bridge.writeText=async(p,t,o)=>{if(path.normalize(p)===path.join(legacyRoot,'project.json')&&++canonicalWrites===1){firstEntered();await held;}await originalWrite(p,t,o);};
  const firstSave=saveProject();await entered;store.commit(p=>{p.name='Newest saved name';});const newerSave=saveProject();
  await new Promise(resolve=>setTimeout(resolve,30));h.eq(canonicalWrites,1,'newer final write waits for the already-issued older write');
  releaseFirst();await Promise.all([firstSave,newerSave]);
@@ -291,7 +292,7 @@ try {
  store.commit(p=>{p.name='Retry after failure';});await saveProject();h.ok(get(store.dirty),'failed queued save keeps dirty');await saveProject();
  h.eq(JSON.parse(await originalRead(path.join(legacyRoot,'project.json'))).name,'Retry after failure','later save runs after rejected queued batch');bridge.writeText=originalWrite;
  let releaseOwner!:()=>void,ownerEntered!:()=>void;const heldOwner=new Promise<void>(r=>{releaseOwner=r;}),enteredOwner=new Promise<void>(r=>{ownerEntered=r;});let ownerWrites=0;
- bridge.writeText=async(p,t,o)=>{if(p===path.join(legacyRoot,'project.json')&&++ownerWrites===1){ownerEntered();await heldOwner;}await originalWrite(p,t,o);};
+ bridge.writeText=async(p,t,o)=>{if(path.normalize(p)===path.join(legacyRoot,'project.json')&&++ownerWrites===1){ownerEntered();await heldOwner;}await originalWrite(p,t,o);};
  const oldOwnerSave=saveProject();await enteredOwner;const waitingOldSave=saveProject();
  store.project.set({...structuredClone(model),name:'Different project'});store.projectDir.set(path.join(root,'other-project'));store.dirty.set(true);
  releaseOwner();await Promise.all([oldOwnerSave,waitingOldSave]);

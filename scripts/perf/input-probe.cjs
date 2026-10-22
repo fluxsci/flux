@@ -147,6 +147,7 @@ require(path.join(repo, 'electron/main.cjs'));
 
 let win;
 let canvasModeRoot = ".figure-mode";
+const dumpedCursors = new Set();
 let cursorLog = [], phaseT0 = 0;
 const log = (k, v) => console.log('PROBE ' + k + ' ' + JSON.stringify(v));
 const js = (code) => win.webContents.executeJavaScript(code, true);
@@ -375,7 +376,10 @@ async function main() {
   win.setAlwaysOnTop(true); win.show(); win.focus();
   if (process.env.PROBE_MAXIMIZE === '1') { win.maximize(); await wait(() => win.isMaximized(), 'maximized native window'); }
   qualificationPolicy = configureWindow({ qualify, win, displays: screen.getAllDisplays() });
-  win.webContents.on('cursor-changed', (_e, type, image) => { let h = null; try { if (image && !image.isEmpty()) h = crypto.createHash('md5').update(image.toBitmap()).digest('hex').slice(0, 6); } catch {} cursorLog.push({ t: Date.now() - phaseT0, type, h }); });
+  win.webContents.on('cursor-changed', (_e, type, image, scale, size, hotspot) => { let h = null; try { if (image && !image.isEmpty()) { h = crypto.createHash('md5').update(image.toBitmap()).digest('hex').slice(0, 6);
+    // PROBE_CURSOR_DUMP=1: keep every distinct cursor bitmap Chromium actually hands the OS (the
+    // real rasterization at the window's scale) — the only way to LOOK at a hardware cursor.
+    if (process.env.PROBE_CURSOR_DUMP === '1' && !dumpedCursors.has(h)) { dumpedCursors.add(h); const dir = path.join(out, 'cursors'); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `cursor-${h}.png`), image.toPNG()); fs.writeFileSync(path.join(dir, `cursor-${h}.json`), JSON.stringify({ type, scale, size, hotspot, bitmapSize: image.getSize() })); } } } catch {} cursorLog.push({ t: Date.now() - phaseT0, type, h }); });
   log('boot', { windows: BrowserWindow.getAllWindows().length, title: win.getTitle(), url: win.webContents.getURL().slice(0, 60), argv: process.argv.filter((a) => a.startsWith('--')), chromiumSwitches: ['disable-features', 'enable-features', 'use-vulkan', 'use-angle'].map((k) => k + '=' + (app.commandLine.hasSwitch(k) ? app.commandLine.getSwitchValue(k) : '<unset>')) });
   await wait(() => js("!!document.querySelector('button[aria-label=Figure]')"), 'shell');
   try { win.webContents.debugger.attach('1.3'); await win.webContents.debugger.sendCommand('Performance.enable'); cdpOk = true; } catch (e) { log('cdp', { err: String(e) }); }

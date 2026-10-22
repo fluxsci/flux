@@ -25,40 +25,27 @@ body {
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
   user-select: none;
-  cursor: var(--cursor-cross);
 }
 
-/* The crosshair is the app's cursor (owner request 2026-09-15): the same precise
-   mark over chrome as over the canvas — never the pointing hand. Interactive
-   elements show the dotted variant, a press contracts it, text keeps the
-   I-beam, and drag affordances (grab, move, resize) keep their own cursors.
-   Component styles say `cursor: var(--cursor-cross-hover)` instead of `pointer`
-   (scripts/verify-cursor-policy.ts pins that). */
-button,
-[role="button"],
-a,
-label,
-summary,
-select,
-[role="tab"],
-[role="option"],
-[role="menuitem"],
-[role="treeitem"],
-[role="switch"],
-[role="checkbox"],
-input[type="checkbox"],
-input[type="radio"],
-input[type="range"],
-input[type="color"] {
+/* The cursor family belongs to the Figure and Slide editors ONLY (owner,
+   2026-10-21): inside `.figure-mode` / `.slide-mode` the mark — Figma's arrow
+   by default, the crosshair as an option — covers chrome and canvas alike, and
+   interactive elements take the hover variant; everywhere else (Paper, Reader,
+   Library, Home, the shell) the system's own cursors apply. Components still
+   write `cursor: var(--cursor-cross-hover)` rather than `pointer`
+   (scripts/verify-cursor-policy.ts pins that): outside the two editors those
+   variables are undefined and the declaration falls back to `auto`. */
+.figure-mode,
+.slide-mode {
+  cursor: var(--cursor-cross);
+}
+:is(.figure-mode, .slide-mode) :is(button, [role="button"], a, label, summary, select, [role="tab"], [role="option"], [role="menuitem"], [role="treeitem"], [role="switch"], [role="checkbox"], input[type="checkbox"], input[type="radio"], input[type="range"], input[type="color"]) {
   cursor: var(--cursor-cross-hover);
 }
-button:active,
-[role="button"]:active,
-a:active {
+:is(.figure-mode, .slide-mode) :is(button:active, [role="button"]:active, a:active) {
   cursor: var(--cursor-cross-press);
 }
-button:disabled,
-[aria-disabled="true"] {
+:is(.figure-mode, .slide-mode) :is(button:disabled, [aria-disabled="true"]) {
   cursor: var(--cursor-cross);
 }
 input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]),

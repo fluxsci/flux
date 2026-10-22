@@ -1857,26 +1857,147 @@ Persistence invariants (all machine-checked — do not weaken):
     `verify-annotation-surface-gui.mjs`, `verify-scale-annotate-hover.mjs`,
     `verify-annotate-utility-electron.cjs` (browser/scale/native). Retain `paper-gate`,
     `verify-scale-paper`, and the 800KB startup ceiling after context/keyboard changes.
-  - **The crosshair cursor family = `styles/cursors.css` + `Canvas.svelte hostCursor`** (owner
-    note, 2026-09-15): three hardware `cursor: url()` SVGs (24 px, hotspot 12 12; white halo
-    under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot) and press
-    (contracted arms). **Two levels, load-bearing (2026-09-16):** the HOST value flips only
-    for pan (grab/grabbing), tool (text I-beam) and press (`gesture || pressing`); every
-    element wrapper `.el` carries the hover variant as an EXPLICIT constant, so the dot needs
-    no JS (the pointer over an object hits the wrapper's subtree) and — the point — the
-    wrapper is a firewall: `cursor` inherits, and a host flip would otherwise restyle every
-    mounted plot node (~120 ms per hover boundary at 15k nodes — the Linux "laggy Figure"
-    regression, §9). The press variant still shows over objects because element presses
-    capture the pointer on the host and Chromium takes the cursor from the capture target.
-    Never feed `$hoverId` into `hostCursor`, never write `.el { cursor: inherit }`. Handles
-    keep their resize arrows, rulers keep the platform crosshair, text keeps the I-beam. There
-    is NO click ring (it shipped 2026-09-15, measured cost-free, and was retired 2026-09-16 at
-    the owner's request as distracting — the press feel is the cursor alone; nothing else may
-    bloom at a press, `verify-cursor-gui` pins it). Gate:
+  - **The cursor family = ONE parametric drawing, in the Figure and Slide editors ONLY**
+    (`src/lib/cursor/cursorFamily.ts`, 2026-10-21; owner note 2026-09-15 for the first three
+    states). **Scope (owner, 2026-10-21):** the bare `--cursor-*` names consumers write exist only
+    under `.figure-mode, .slide-mode` (`CURSOR_SCOPE`; app.css's policy block is scoped the same
+    way and `body` declares no cursor), so Paper, Reader, Library, Home and the shell keep the
+    system's cursors — an undefined `var()` makes `cursor` fall back to `auto`, which is why no
+    component outside the editors needed touching. **The default mark is the "classic" arrow**
+    (`CursorParams.style`): Figma's stem-less, right-leaning arrowhead (`ARROW_UNIT`, tip at the
+    origin), a dark fill under a light outline painted FIRST (`paint-order: stroke`, so the fill's
+    silhouette is exactly the geometry), corners filleted by `roundedPolygonPath`, a `feDropShadow`
+    lift, the tip as hotspot (`ARROW_HOTSPOT` 3 3), `default` as the OS fallback; rest, hover,
+    press and move are the same arrow (Figma keeps its pointer) and the shared resize / rotate /
+    move-copy states are drawn in the arrow's fill and outline; the canvas stays ≤ 32 px
+    (`arrowCanvas`). Knobs: `arrowSize`, `arrowFill`, `arrowOutline`, `arrowOutlineWidth`,
+    `arrowRounding`, `arrowShadow`, `arrowTilt`. **Pixel law (audit, 2026-10-21):** every mark is
+    built about the HOT PIXEL'S CENTRE, a half-integer — the crosshair's `cursorGeometry` centres on
+    `cursorHotspot(p) + 0.5` (12.5 for the 24 px default) so a 1 px arm fills one column and the
+    drawing is mirror-symmetric about the pixel the click lands on; the arrow is defined in its own
+    frame (`ARROW_SHAPE`: barbs exact mirrors, the notch on the axis) and only then rotated by the
+    lean, and `arrowOrigin` places the geometric tip so the OUTLINE's apex (`arrowTipInset`) lands on
+    the hot pixel's centre; the margin rule keeps every round cap inside the canvas (a halo shortens
+    the arms by its half width). Audit tools: `scripts/perf/cursor-audit-render.mjs` renders every
+    state at 1× and 2× plus a padded copy (anything in the padding ring is clipped) for a pixel
+    audit, `cursor-sheet.mts --out` the contact sheets, `PROBE_CURSOR_DUMP=1` on the input probe the
+    real `cursor-changed` bitmaps. The crosshair below is the other style. Fourteen hardware
+    `cursor: url()` SVGs are generated from one template — rest, hover (accent dot), press
+    (contracted arms), `resize-ns/ew/nwse/nesw` (the two arms along the axis grow arrowheads,
+    the other two vanish), `rotate-n/ne/se/sw/nw` (a quarter arc at arm radius + the dot),
+    `move` and `move-copy` (the PRESS cross with four heads, + a "+" badge for Alt-duplicate,
+    shown from the press on, so the arms never jump when a drag starts) — same hotspot
+    (size/2), stroke, halo and arm geometry, so a state change reads as the mark changing
+    form; `verify-cursor-family` (pure) pins that REGISTRATION (the resize arms are the rest
+    cross's own line endpoints) and that `styles/cursors.css`'s generated block equals the
+    builder's defaults (`scripts/gen-cursors.mjs` writes it; never by hand). The 2026-09-15
+    cursors are reproduced byte for byte (gates key on `y1='4'` for press, `<circle>` for
+    hover). Settings → General → Cursor (`cursor*` keys in settings.ts: size 20–32 even —
+    Chromium shows a custom cursor over 32 px only while it fits the viewport — the core's
+    stroke width and TWO colours (`coreColor` for light surfaces, `coreColorDark` for dark
+    ones; equal when "adapt to the surface" is off), the halo's width (0 = none, the
+    default since the owner dropped it), colour and opacity, the dot colour
+    (`CURSOR_PRESETS` adaptive/outlined/accent are presets over those fields — outlined IS
+    the 2026-09-15 look; `cursorPresetOf` reads them back, anything else is "custom"), gap,
+    centre none/dot/ring, hover dot, press contraction, resize style crosshair/system) feed
+    `cursor/cursorTheme.ts`, which writes the two literal sets `--cursor-<state>-light` /
+    `-dark` on `:root` ONCE per settings change (and clears them at the defaults) — never
+    per hover or frame.
+    **The TONE law (2026-10-21, `cursor/cursorTone.ts`, pure):** the cursor is a hardware
+    image and cannot sample pixels, so its colour follows the surface STRUCTURALLY: the bare
+    names (`--cursor-cross`…) are what every consumer uses; `:root` points them at the
+    dark-surface set (the app chrome and the canvas are dark), and the classes
+    `.cursor-on-light` / `.cursor-on-dark` repoint all fourteen for their subtree — the
+    figure group carries its paper's tone (`figureTone`: background luminance ≥ 0.4 is
+    light; `transparent` shows the dark canvas), each `.el` wrapper its own body's tone when
+    it has one (`elementTone`: a solid rect/ellipse/closed-path fill, a plot whose manifest
+    `style.tokens.paper` is dark; strokes, text, images and unfilled shapes inherit the
+    paper's), `.sel-chrome` the single selected element's or the figure's (`chromeTone`), and
+    known light surfaces outside the canvas opt in by class (the Reader's `.pdf-root`, the
+    Figure-Meta `.preview-sheet`, the gallery tiles). All of it is CSS inheritance decided at
+    render time from the model: nothing runs per pointer move and no host-level property
+    flips per hover, so the firewall holds. The one dynamic piece is the HOST while the
+    pointer is captured: it names the tone recorded at the press (`pressTone`, set in every
+    pointerdown route, reset with the gesture) in the variable itself
+    (`var(--cursor-resize-ns-light)`), because a `cursor` change on the host stops at the
+    `.el` firewalls while a custom-property change there would restyle the plot DOM beneath.
+    Per-pixel adaptation was weighed and rejected: it needs either a DOM cursor (a frame of
+    lag) or restyling the hovered plot's subtree (the 120 ms regression of 2026-09-16). A software (DOM) cursor was considered and
+    rejected: it trails the pointer by a frame and dies at window edges / under capture; the
+    "morph" is geometric, not tweened. Look at the family with
+    `scripts/perf/cursor-sheet.mts` (CDP screenshots never include the pointer).
+    **Two levels, load-bearing (2026-09-16):** the HOST value flips only for pan
+    (grab/grabbing), tool (text I-beam) and — since 2026-10-21 — the GESTURE kind
+    (`resize`/`figresize` → the handle's resize variant, `rotate` → its zone's arc, a `move`
+    in flight → move / move-copy, any other press → the contracted cross), one flip per
+    gesture; every element wrapper `.el` carries the hover variant as an EXPLICIT constant, so
+    the dot needs no JS (the pointer over an object hits the wrapper's subtree) and — the
+    point — the wrapper is a firewall: `cursor` inherits, and a host flip would otherwise
+    restyle every mounted plot node (~120 ms per hover boundary at 15k nodes — the Linux
+    "laggy Figure" regression, §9). The gesture variant shows over objects because element
+    presses capture the pointer on the host and Chromium takes the cursor from the capture
+    target (which is also why, before 2026-10-21, every resize drag snapped from the OS arrow
+    to the pressed cross — the incoherence the owner reported). Never feed `$hoverId` into
+    `hostCursor`, never write `.el { cursor: inherit }`. Handles, edge bands and rotate zones
+    carry the family variants through `interact/handles.ts resizeCursorVar / rotateCursorVar`
+    (OS names only as fallbacks, or as the values under `resizeStyle: "system"`); rulers keep
+    the platform crosshair, text the I-beam. There is NO click ring (it shipped 2026-09-15,
+    measured cost-free, and was retired 2026-09-16 at the owner's request as distracting — the
+    press feel is the cursor alone; nothing else may bloom at a press, `verify-cursor-gui` pins
+    it). Gates: `verify-cursor-family.ts`, `verify-cursor-policy.ts` (pure);
     `verify-cursor-gui.mjs` (ui) — family behavior plus the firewall leg on the dense
     lazy-assets fixture (30k plot nodes: RecalcStyleDuration per pointer transition < 8 ms,
     no long task, one computed cursor on a plot's inner nodes across rest / hover / press;
-    the pre-fix code reads 89 ms and 36 long tasks there).
+    the pre-fix code reads 89 ms and 36 long tasks there); `verify-selection-zones-gui.mjs`
+    (the zone cursors and the host-by-gesture cursor mid-drag).
+  - **Selection chrome = four corner handles + the zones law** (`interact/handles.ts
+    selectionHitZones`, 2026-10-21, owner note: "the whole edge is the handle", Figma). The
+    drawn `rect.handle`s are the four corners (pointer-events none); the HIT geometry is
+    `fill: none` rects inside `.sel-chrome` (no paint chunk; present only at rest — never
+    during a gesture or while the Become picker owns presses), painted rotate → edge → corner
+    so the topmost wins where they overlap: corner squares 13 px (6.5 px out, `cornerIn` 4 px
+    in), edge BANDS along each whole edge (6 px out, `bandIn` 4 px in — shallow on purpose so a
+    plot's margin or a photo's border near its edge is still a grab-and-move; the bands run
+    between the corner squares' inward extents, exist only when two squares fit along the edge
+    AND the box is ≥ 12 px deep across them), and an L-shaped ROTATE zone 16 px deep outside
+    each corner (the stem + knob stay; the knob is rotate zone `n`). Every zone is CLIPPED to the
+    active figure's frame plus the bands' outer reach — but only 3 px above the frame's top
+    (`zoneClipForFrame`): the figure title bar lives there, and an element flush with the top edge
+    once covered it with its rotate L (the native polish gate's title-bar click rotated instead). **Small sides
+    (`ZONE_SMALL_SIDE` 24 px): no inward reach at all on that axis**, so a 10 px label has no
+    bands, a 2 px scale bar and a zero-height row of lines are grabbable along their whole
+    length, and every box — 0 × N included — keeps a free centre (pure invariant). A press on a
+    band INSIDE a selected plot hands off to the plot when it means a part gesture (`bandHandOff`:
+    Ctrl/⌘ = deep select — a tick label flush at a tight-cropped edge must pierce, not crop — or
+    a press on an already-picked part); corners and the outer band keep crop. A resize keeps the
+    GRAB OFFSET (the edge moves by the drag, not to the pointer — the old knobs sat on the edge
+    and never needed one), SNAPS its driven edges to the smart-guide targets then the grid
+    (never under aspect lock or centre mode; the guide lines render), and applies Alt/Shift the
+    moment the key changes (`replayLastMove` re-dispatches the last pointermove). **Alt**
+    resizes about the centre (`gestureMath.resizeAboutCentre`, Shift+Alt keeps aspect about
+    it; crop keeps its own Alt); **Shift from an EDGE anchors the opposite edge's midpoint**
+    (`computeResizeBox`; the oracle battery's invariant was updated with it); a `size-tip`
+    ("W × H", the rot-tip's twin) rides the box during the drag. Moves and rotates start only
+    after `DRAG_SLOP` (3 screen px) — a shaky click moves nothing and writes no history.
+    **The bounding-box grab** (owner note, Figma): with the Select/Scale tool a primary press
+    that reached a BACKGROUND (`onFigureDown` / `onCanvasDown`) while the ACTIVE figure's
+    selection is movable (not a single line, not text-editing, not node-editing, not picking)
+    and its `overlayBox` contains the point starts the ordinary move (`selectionBoxGrab`); and
+    in `onElementDown` an unselected element BENEATH the topmost selected element (z-order),
+    pressed inside the box, also starts the selection's move, with the plain click deferred:
+    `pendingClickSelect` selects that element on a release that never dragged (the same
+    deferral reduces a multi-selection to the one member you click). Objects drawn ABOVE the
+    selection win their own press. A click inside the box keeps the selection; Shift there is
+    the axis-locked move (Shift-click a no-op); Ctrl keeps the deep routes; Alt duplicates
+    (beginMove's rule); a double-click in a selected path's empty box enters node edit. Gates:
+    `verify-interact-core.ts` (zones law, precedence, small sides, degenerate boxes, cursor
+    variables, centre and edge-aspect resize), `verify-selection-zones-gui.mjs`,
+    `verify-bbox-grab-gui.mjs`, `figenh-15-partmove` §7b (band hand-off), plus the updated
+    `verify-fig-esc`, `figenh-16-groups-ui`, `figenh-01-pen`, `verify-crop`,
+    `verify-figure-editing-gui`, `verify-v020-geometry-gui` (four handles; the E edge is a
+    band). `frameResize.ts frameHandleRect` (the FIGURE frame's outside-only bands) is
+    unchanged and keeps its 8 zones. Deliberately not Figma: the box never flips past its
+    opposite edge (sizes floor at 1 px).
   - **The scene pans on the compositor drive** (`interact/compositorDrive.ts`, 2026-09-16).
     Chromium re-layerizes the whole page (`PaintArtifactCompositor::Update`, O(paint chunks))
     after EVERY inline-style transform write, will-change or not — 4–7 ms per frame over a
@@ -3661,12 +3782,20 @@ outside this PNG packaging change.
   `npx`, replace-vs-unlink, separators, signals, symlinks) or a Windows product bug; it is
   never fixed by loosening the gate.
 
+- **An Electron main process cannot read stdin on Windows.** It emits `end` at once and never
+  delivers data, so a worker that treats stdin's end as "parent died" cancels itself on start:
+  every 3D poster and slide-video worker did, on every Windows machine, until 2026-10-19.
+  Workers take cancellation from `electron/workerCancel.cjs` (stdin on POSIX; parent-pid
+  liveness on win32, where the parent's taskkill delivers an explicit cancel).
 - **GitHub's Windows runners hand out an 8.3 SHORT temp path** (`C:\Users\RUNNER~1\…`), and
   anything that canonicalizes — `realpath`, the IPC asset resolver, every handler that answers
   in the form the filesystem resolves to — returns the LONG name. A gate that takes `tmpdir()`
   verbatim as its expected root fails every path equality on that host alone and nowhere else
   (`verify-native-boundaries`, 2026-09-25). Take the scratch root through `realpath` once, at
   creation; a developer's Windows laptop never shows this, which is why it reached CI first.
+  Since 2026-10-19 the runner does this for every gate: `isolatedEnv` expands its `fv-` root
+  with `realpathSync.native` (plain `realpathSync` does NOT expand 8.3 names), so TMP/TEMP and
+  `os.tmpdir()` are already long inside gates.
 - **An agent lock budget has to outlast the holder's BURST, not one cycle.** `withLock` polls
   every 250 ms and the holder re-acquires in the gap before the waiter's next poll, so a
   waiter only gets in when the holder pauses. On Linux a fig save cycle is ~100 ms and three
@@ -3685,7 +3814,7 @@ outside this PNG packaging change.
   build, so the Windows red on that gate was the ffmpeg version, not Windows — and users on
   different platforms got different HDR tone mapping. Now: ffmpeg **9.0.2** everywhere (BtbN's
   dated GPL release for Linux x64/arm64 + Windows, Martin Riedl's per-build directories for both
-  Macs), each target an immutable archive (URL + size + SHA-256), the executable's path inside
+  Macs), each target a pinned archive (URL + size + SHA-256), the executable's path inside
   it, and LICENSE/README each as an archive `member` or a pinned `url`. The fetcher reads zip
   in-process (`readZip`, only the pinned members) and tar.xz through the host's `tar`; the
   staged layout (`ffmpeg`, `LICENSE`, `README`, `NOTICE.md`, `manifest.json`) is unchanged, so
@@ -3695,7 +3824,10 @@ outside this PNG packaging change.
   oracle is calibrated against. Two traps met on the way: `raw.githubusercontent.com` and other
   text hosts gzip small files, so the downloader asks for `identity` encoding (the byte-size
   contract is about bytes on disk); and evermeet/gyan delete old versions, so only dated,
-  immutable release assets are pinnable.
+  immutable release assets are pinnable. BtbN's dated releases are **not** all kept: daily
+  autobuilds are pruned after about two weeks (the 09-25 pin 404'd and broke every CI job on
+  2026-10-19); only month-end releases (`autobuild-YYYY-MM-<last day>-…`) persist, so pin those.
+  Riedl's Linux builds use `--enable-nonfree` (not redistributable); its Mac builds do not.
 
 - **A dependency Vite's start-up crawl cannot see reloads every open page when it is first
   used.** The crawl follows index.html's import graph; a package imported only from a Web
@@ -10004,3 +10136,238 @@ fix); probed on the real exFAT volume too.
 - flux-core scanners (CLI/MCP) still readdir directly; most skip dotfiles but `._*` filtering there
   is unaudited.
 
+### 2026-10-19 — AI status: false "MCP registration differs" on source checkouts (Claude Opus 5.5, `main`)
+**Work:** The panel's file-only refresh (`probeAgents({ commands: false })`) resolved a source
+checkout's runtime executable to Electron's `execPath`, so `claude.mcp` compared the correct
+`node.exe` registration against an `electron.exe` one and always failed (and doctor's later
+refresh re-failed it). `resolveOwnCliCommandsSync` now reuses the Node pinned by this checkout's
+own managed launcher (`launcherNodeSync`, file read only), falling back to `execPath`. Second
+cause, same panel: status read the build from git refs (`2f11043`) while doctor read the bundle
+stamp (`2f110436-dirty`), so `installKey` differed and every refresh discarded doctor's `mcp`
+result ("MCP responds" stayed Not checked). The bundle stamp is now read first in both modes.
+Gate: `verify-launcher`. `verify-connect-doctor` times out at 120s on Windows with or without this change.
+**Learnings:**
+- A file-only status check must compare against the same facts setup wrote; when it cannot spawn
+  to rediscover them, read them back from the managed launcher, not from the running process.
+  Any field in the monitor's `installKey` must resolve identically in file-only and full mode.
+
+### 2026-10-19 — `verify-connect-doctor` hung 120s on Windows: taskkill not on the fixture's PATH (Claude Opus 5.5, `main`)
+**Work:** `agentFixture` narrows `PATH` to its fake-agent bin, so `TestProcessScope.kill` ran a bare
+`taskkill`, got ENOENT, swallowed it, and `mcp.close()` waited for the 120s deadline. The scope
+now calls `%SystemRoot%\System32\taskkill.exe` by absolute path; the gate passes in ~16s.
+**Learnings:**
+- Test-infrastructure kills must not resolve through `PATH`: fixtures rewrite it, and the
+  silent `catch {}` turns a missing binary into a deadline-length hang, not an error.
+
+### 2026-10-19 — Video encoder re-pinned: BtbN pruned the 09-25 release (Claude Opus 5.5, `main`)
+**Work:** CI's encoder fetch returned 404 on every job: BtbN deleted `autobuild-2026-09-25-15-37`.
+Linux x64/arm64 and Windows x64 now pin the month-end `autobuild-2026-09-30-13-08` (still 9.0.2,
+build `n9.0.2-17-g2a571b6068`); hashes match GitHub's asset digests, Windows fetch +
+`verify-runtime-assets` + `verify-v020-hdr-media` pass locally. Macs unchanged.
+**Learnings:**
+- Promoted to §9 (encoder pin): BtbN keeps only month-end releases; Riedl Linux builds are nonfree.
+
+### 2026-10-19 — Two more Windows-only pure-tier reds (Claude Opus 5.5, `main`)
+**Work:** `verify-connect`'s stdout-only case relied on `chmod 0o500` dirs, which Windows ignores;
+it now makes the bases unwritable by putting a regular file where a parent directory should be.
+`verify-connect-e2e`'s migrator ran a bare `tasklist` under the fixture's narrowed PATH (ENOENT →
+inspection error → exit 1); it now uses `%SystemRoot%\System32\tasklist.exe` (`/bin/ps` on macOS).
+**Learnings:**
+- `chmod` cannot make a Windows directory unwritable; a file in the parent's place fails on every OS.
+- Any OS tool a fixture-run process calls must be absolute: `agentFixture` sets PATH to fake bins only.
+
+### 2026-10-19 — `verify-model3d-cache-watch`: the last Linux red was a runner-image change (Claude Opus 5.5, `main`)
+**Work:** Green on every Linux run with ubuntu24 image 20260901, red on every run from 20261002
+on (same Node 22.23.3): after `rm -r fig/renders` the control watcher, whose root IS
+`fig/renders`, never reported `unlinkDir fig/renders`. The settle signal now waits for the
+deletions inside the watched root; the contract (`actual` stays empty) is unchanged.
+**Learnings:**
+- Never settle a watcher test on the watched root's own removal: whether chokidar reports it is
+  kernel-dependent. Settle on events for paths beneath the root.
+- When a gate flips red with no code change, compare the runner image line in the job log first.
+
+### 2026-10-19 — Windows pure-tier sweep, part 2 (Claude Opus 5.5, `main`)
+**Work:** `verify-fluxplot-recipe-ipc` used `URL.pathname` as a file path (`C:\D:\…` on Windows),
+now `fileURLToPath`. `verify-annotate-chord-census` walked `src` with `path.join`, so its
+`src/...`-keyed allowlists never matched on Windows; it walks with `path.posix.join`.
+`isolatedEnv` now expands the runner's 8.3 short temp root (see §9), aimed at the model3d
+family's "must be a child of the system temporary directory" / "real scratch" reds on CI.
+**Learnings:**
+- `new URL(...).pathname` is never a Windows file path; use `fileURLToPath`.
+- Source-census gates must key files with posix separators, or every allowlist misses on Windows.
+
+### 2026-10-19 — Fonts on the scan path; portable tar (Claude Opus 5.5, `main`)
+**Work:** `pickFace` let Arial Narrow (typographic family "Arial") stand in for Arial at equal
+weight; a +1 tie-break now prefers the face whose nameID 1 family is the request. The scan path
+(win32/darwin) skipped generic families outright; they now map to Chromium's defaults
+(Arial/Times New Roman/Consolas; Helvetica/Times/Menlo). `verify-glyph-outlines` reads the
+host's own font folder. The Quarto installer and `verify-managed-tools` pass `tar` relative
+operands from a `cwd` (Git Bash's GNU tar reads `C:\…` as a remote host); the rest of that
+gate's Windows red is its POSIX shell-script fakes.
+**Learnings:**
+- Typographic family (nameID 16) groups widths too: Arial Narrow is "Arial" there. Prefer an
+  exact nameID 1 match when weights tie.
+- Never pass an absolute Windows path to `tar`; use `cwd` + relative operands.
+
+### 2026-10-19 — Windows pure-tier sweep, part 3 (Claude Opus 5.5, `main`)
+**Work:** The `chrome` prerequisite ran `chrome.exe --version`, which on Windows starts a browser
+instead of printing a version, so six browser gates were "blocked" on windows-latest even with
+`FLUX_CHROME` set; on win32 the file must exist instead. model3d gates compared renderer paths
+(`/`-joined) or `endsWith('/x')` against native paths; they normalize or use `basename`.
+`verify-slide-model3d-scale`'s linux sandbox now gets `path.posix`. The background-run fake
+driver passed `resolveSpawn`'s verbatim cmd.exe line to the MCP SDK, whose cross-spawn re-quotes
+it (connection closed on Windows); it now hands the `.cmd` launcher to the SDK directly.
+**Learnings:**
+- `chrome.exe --version` is not a probe on Windows; check the file.
+- A path a renderer built with `/` never `===` a `path.join` path on Windows: normalize first.
+- `resolveSpawn` output needs `windowsVerbatimArguments`; never feed it to cross-spawn/the MCP SDK.
+
+### 2026-10-19 — `verify-inbox-wait`: a waiter's clock ran while its sibling booted (Claude Opus 5.5, `main`)
+**Work:** Two cases started a long-poll worker, awaited it, and only then spawned the next worker;
+a tsx worker boots in seconds on Windows, so the 2 s/5 s waits expired before the event arrived.
+The writer now boots before the waiter, and the release case awaits both waiters together (the
+pattern the reassignment case adopted 2026-10-04). Timeouts unchanged.
+**Learnings:**
+- In multi-process wait gates, boot every worker before any waiter's deadline starts.
+
+### 2026-10-19 — Windows: 3D posters and slide video cancelled themselves; ACL deny; rename retry (Claude Opus 5.5, `main`)
+**Work:** `verify-model3d-headless` reported "3D poster rendering cancelled" on Windows: the poster
+and video workers abort on stdin `end`, which an Electron main process on Windows emits at 1 ms
+(reproduced with a bare Electron script). New `electron/workerCancel.cjs` keeps stdin on POSIX
+and polls the parent pid on win32. `verify-model3d-verbs` denied GLB reads with `chmod 0`
+(a no-op on Windows); it now uses an `icacls` deny ACE there (reads then fail EPERM). The demo
+publisher retries a Windows directory rename on a transient sharing violation while the target
+is still absent.
+**Learnings:**
+- Promoted to §9: Electron main-process stdin on Windows.
+- To deny reads on Windows, hold the file open with libuv's `UV_FS_O_EXLOCK` (`0x10000000`,
+  no sharing): other readers get EBUSY, stat still works. (An `icacls` deny ACE does NOT bind
+  GitHub's elevated runner: libuv opens with backup semantics. Corrected later the same day.)
+
+### 2026-10-19 — Last Windows pure-tier reds: exclusive opens, empty-target rename, managed-tools fakes (Claude Opus 5.5, `main`)
+**Work:** `verify-model3d-verbs` now denies GLB reads by holding them with `UV_FS_O_EXLOCK`
+(the icacls ACE from earlier today did not bind the elevated runner). The demo publisher's
+Windows EPERM was not a lock: the CLI's `--out` folder already exists and Windows `rename`
+never replaces a directory, where POSIX replaces an empty one; it now removes the target only
+while it is still the original empty, non-link directory, so occupied/substituted targets
+still refuse. `verify-managed-tools` proves the Windows forms on a Windows host (no exec bit;
+`;` PATH + PATHEXT for TeX; a `quarto.exe` fake = node.exe + a NODE_OPTIONS preload).
+**Learnings:**
+- Windows `rename` onto an existing directory is EPERM even when it is empty.
+- A Windows stand-in executable: copy `node.exe` to `<name>.exe` and preload a script with
+  `NODE_OPTIONS=--require`; argv[1] arrives resolved to an absolute path.
+
+### 2026-10-19 — Windows: in-process read denial; text-morph counts in its message (Claude Opus 5.5, `main`)
+**Work:** Neither a deny ACE nor an exclusive `UV_FS_O_EXLOCK` open stopped GitHub's elevated
+Windows runner from reading the GLBs (both work on a non-elevated laptop), so
+`verify-model3d-verbs` injects the denial in-process on win32, patching `fs` open/readFile
+(async and sync) the way its publication-race checks already do; Linux keeps `chmod 0`.
+`verify-text-morph-browser`'s letter-wave check failed on 2 of 6 windows-latest runs and 0 of
+10 local runs; its message now carries the counts and texts so the next failure is diagnosable.
+**Learnings:**
+- Supersedes this morning's entries: on an elevated Windows runner no OS mechanism tried
+  (ACL, share mode) reliably denies a same-user read; inject the fault in-process.
+
+### 2026-10-19 — `verify-model3d-demo` gets a 150 s runner budget (Claude Opus 5.5, `main`)
+**Work:** With the Windows rename fixed, the gate runs to completion on windows-latest and passes
+every check it reaches, but takes just over the 60 s default (55–58 s already on earlier
+Windows runs; ~28 s on Linux CI), dying in its final CLI-generator step. Added a
+`timeouts` entry of 150 s; no assertion changed.
+
+### 2026-10-21 — Figure editor UX batch: one cursor family, Figma edge grab, the bounding-box grab (Claude Fable 5.1, `oct21/figure-ux`)
+**Work:** Three owner inbox notes (Feature_test_proj). (1) The crosshair became ONE parametric drawing
+(`src/lib/cursor/cursorFamily.ts`: rest, hover, press, four resize axes, five rotate arcs, move and
+move-copy — registered on the same arms, stroke, halo and hotspot), generated into `styles/cursors.css`
+by `scripts/gen-cursors.mjs` (the three 2026-09-15 cursors byte for byte) and overridden on `:root` from
+Settings → General → Cursor (size ≤ 32, stroke, halo, gap, centre mark, hover dot, press, scheme, system
+pointers; live preview tiles carry the real cursor). The host cursor now follows the GESTURE (a resize
+drag keeps the resize arrows, a rotate the arc, a move the press cross with heads) and every canvas
+cursor is the family (guides, rulers, nodes, title bar). (2) Figma selection chrome: four corner handles,
+whole-edge bands, rotate L-zones outside the corners, grab offset preserved, Alt-from-centre, Shift-edge
+about the opposite midpoint, resize snapping, live modifiers, a W × H tip, a 3 px drag slop, small-side
+and degenerate-box rules, band hand-off to plot parts. (3) The bounding-box grab: a selected object is
+moved from anywhere inside its box — background or an object beneath it — with the plain click deferred
+to the release (selects what is under the pointer; reduces a multi-selection to the clicked member).
+Two Opus 5.5 plan reviews drove most of the refinements (ledger: `notes/figure_ux_oct21/PLAN.md` §6).
+Gates: `verify-cursor-family` (pure, new), `verify-selection-zones-gui`, `verify-bbox-grab-gui` (new),
+`verify-interact-core` and `verify-cursor-policy` extended, seven handle gates updated; body §4 rewritten
+for the cursor family and the selection chrome; user docs, shortcuts and Help updated.
+**Learnings:**
+- A hardware cursor "morph" is geometric registration, not animation: generate every state from one
+  template so a switch only adds or removes strokes; a DOM cursor trails the pointer by a frame.
+- While the pointer is captured the HOST's `cursor` is what the user sees — a gesture must set the state
+  it means, or every drag snaps to the pressed glyph regardless of where it started.
+- A hit area wider than the thing it replaces needs a GRAB OFFSET (edge moves by the drag, not to the
+  pointer) and a drag SLOP, or presses jump and clicks nudge.
+- Zones over content must yield to the content's own gestures: give edge bands a shallow inward reach,
+  none on small sides, and hand modifier presses inside the box to the object beneath.
+- Chromium shows a custom cursor wider than 32 CSS px only while the whole image fits the viewport —
+  cap custom cursors at 32.
+- Gate fixtures that drag must land clear of smart-guide snap targets (edges AND centres of every
+  other box within 6 px), or exact-delta assertions flake; a marquee selects by box intersection, so a
+  "nothing selected" probe must click, not drag.
+- Inserting markup "before the next pane's comment" can land OUTSIDE the previous pane's closing tag:
+  anchor insertions on the enclosing element's end, and screenshot the result.
+
+### 2026-10-21 (evening) — Cursor follow-ups: direct colours, then no halo and a surface-adaptive tone (Claude Fable 5.1, `oct21/figure-ux`)
+**Work:** Owner asked first for direct crosshair/halo colour and width knobs (the scheme and halo enums
+became explicit fields with presets over them), then to drop the halo and let the colour follow the
+background. Per-pixel sampling is impossible for a hardware cursor, so the tone is decided
+structurally (`cursor/cursorTone.ts`): two literal cursor sets (`--cursor-<state>-light` / `-dark`),
+`:root` points the bare names at the dark set, and `.cursor-on-light` / `.cursor-on-dark` repoint them
+per subtree — the figure group from its paper's luminance, each `.el` from its own fill or a plot's
+`style.tokens.paper`, the chrome from the selection, PDF pages / gallery tiles / the Figure-Meta sheet by
+class; the host names the press tone in its gesture variable. Defaults: adaptive, halo 0; the
+2026-09-15 look is the Outlined preset. Gates: `verify-cursor-family` (tone law, presets, both sets),
+`verify-cursor-policy` (both sets + mapping), `verify-cursor-gui` (a tone leg). Body §4 updated.
+**Learnings:**
+- An element that INHERITS `cursor` gets the ancestor's already-resolved value, not the `var()`: a
+  region that should resolve the family in its own tone must declare `cursor: var(--cursor-…)` itself
+  (the figure's paper rect did not, and the tone leg caught it).
+- Changing a custom property on a host restyles every descendant that uses it (plot DOM included); the
+  host's captured-pointer cursor therefore names the tone in the variable name instead.
+- Puppeteer's triple-click does not select a number input's text; use Ctrl+A before typing.
+
+### 2026-10-21 (late) — The classic arrow is the default cursor; the family lives in Figure and Slide only (Claude Fable 5.1, `oct21/figure-ux`)
+**Work:** Owner asked for a Figma-style "classic" arrow as the default (crosshair stays a Settings
+choice), dark fill under a light outline, "PERFECTLY crisp", with every easy knob exposed for now, and
+the custom cursor removed from Paper entirely. `CursorParams.style` ("classic" | "crosshair");
+the arrow is a four-vertex polygon (`ARROW_UNIT`, tip at the origin, Figma's lean) filleted by
+`roundedPolygonPath`, painted `paint-order: stroke` so the outline sits UNDER the fill and the fill's
+edge is the true silhouette, a `feDropShadow` lift, the tip as hotspot (3 3), OS `default` as fallback,
+canvas ≤ 32 px (`arrowCanvas`); rest/hover/press/move are the same arrow (Figma keeps its pointer),
+resize/rotate/move-copy are drawn in the arrow's fill and outline. Scope: the bare `--cursor-*` names
+exist only under `.figure-mode, .slide-mode` (`CURSOR_SCOPE`), app.css's policy block is scoped the
+same way and `body` declares no cursor — every other mode falls back to `auto`. Settings: Style
+select; arrow fill/outline/size/outline width/rounding/shadow/tilt; the crosshair's knobs under its
+branch. Gates: family (arrow geometry, both tones identical, canvas rule, knobs), policy (scope, arrow
+hotspot/fallback), cursor-gui (a classic leg first — Paper keeps `auto`/`text`, the editor shows the
+arrow, bands show the outlined resize arrows — then the crosshair legs under `cursorStyle:
+"crosshair"`), selection-zones (style-agnostic rest/move checks). Body §4 updated; user docs
+(`modes/figure.qmd`).
+**Learnings:**
+- `paint-order: stroke` is what keeps an outlined glyph crisp at cursor sizes: the stroke is painted
+  first and the fill on top, so the fill keeps its exact geometry and the outline is purely outside it
+  (a stroke over the fill would eat 0.65 px of the arrow at a 1.3 px outline).
+- Chromium rasterises an SVG cursor at the display's device scale factor, so a vector cursor is crisp
+  on HiDPI for free; the only crispness decisions left are the hotspot (an integer) and NOT snapping
+  the tilted edges to pixels (which would make the lean jagged). Judge it in the contact sheet at 4×/8×
+  AND in the real `cursor-changed` bitmaps (`PROBE_CURSOR_DUMP=1` on the input probe) — a CDP screenshot
+  never includes the pointer.
+- Scoping a `var()`-based cursor family needs no per-component work: an undefined custom property
+  makes `cursor` compute to `auto`, so moving the bare-name mapping under the editors' classes removed
+  the cursor from every other mode at once (the `-light`/`-dark` literals stay on `:root` for Settings'
+  preview).
+- **Final pixel audit (same night).** Owner asked for a last check of symmetry and crispness. Two real
+  flaws, both invisible in a contact sheet and obvious in a pixel dump: the crosshair was centred on
+  the canvas midpoint (12), a pixel BOUNDARY, so every 1.3 px arm smeared across two columns at ~65 %
+  and the mark was asymmetric about the hot pixel; and the arrow's hot pixel (3 3) lay one pixel
+  up-left of its visible tip (the hot pixel had alpha 16). Law now: build about the hot pixel's
+  centre (half-integers), derive symmetric shapes in their own frame and rotate, place the OUTLINE's
+  apex on the hot pixel's centre. A border pixel with alpha is not proof of clipping (a round cap may
+  legitimately end inside the last pixel) — render a padded copy and look at the ring. A stroke that
+  is pixel-exact at every scale is an integer width (1 or 2 px); the crosshair's 1.3 px default
+  leaves ~15 % ghosts beside each arm at 1× (owner's knob, left as is).
+
+### 2026-10-22 00:45 CDT — Sync recent upstream changes to the Mac (Codex, main)
+**Work:** Merged 20 upstream commits through `1056642e`, retaining the two local Mac commits and restoring all eight pre-existing modified files. Only appended guide notes conflicted; both histories are preserved. Production build, renderer check (0 errors/warnings), headless check and ten focused pure/UI gates pass. `verify-glyph-outlines` remains red on macOS because its fixture selects Linux font paths; actual font resolution returned the correct macOS files. A pre-sync branch and named stash retain recovery copies.

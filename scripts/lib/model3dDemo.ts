@@ -71,7 +71,23 @@ async function publishScratchDirectory<T>(input: string, build: (stage: string, 
     // pathname is swapped between the check and rename. rename itself never
     // follows an existing target symlink or replaces a populated directory.
     const target = process.platform === 'linux' ? `/proc/self/fd/${directory.fd}/${path.basename(root)}` : root;
-    await fs.rename(stage, target); stage = undefined;
+    // POSIX rename replaces an existing EMPTY directory; Windows refuses (EPERM). There, an
+    // existing target is removed only while it is still the original empty, non-link directory,
+    // then the rename is retried; an occupied or substituted target stays a refusal. A missing
+    // target refused EPERM is a transient sharing violation (a scanner on fresh files): retry.
+    for (let attempt = 0; ; attempt++) {
+      try { await fs.rename(stage, target); break; }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (process.platform !== 'win32' || attempt >= 20 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '')) throw error;
+        const now = await fs.lstat(target).catch(() => undefined);
+        if (now) {
+          if (!original || now.isSymbolicLink() || !now.isDirectory() || !same(now, original)) throw error;
+          await fs.rmdir(target).catch(() => { throw error; }); // ENOTEMPTY: someone filled it
+        } else await new Promise(resolve => setTimeout(resolve, 50 + 50 * attempt));
+      }
+    }
+    stage = undefined;
     try { await assertParent(); }
     catch (error) {
       const published = await fs.lstat(target).catch(() => undefined);

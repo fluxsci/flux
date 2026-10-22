@@ -22,7 +22,7 @@
 //    (fully inside, data preferred); ctrl+shift-drag adds; Esc mid-drag
 //    leaves the pick alone; a ctrl-CLICK on whitespace still selects the whole plot.
 import { readFileSync } from "node:fs";
-import { launch, gotoApp, clickMode, shot, realErrors, waitFor, waitForFrame } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, shot, realErrors, waitFor, waitForFrame, sleep } from "./lib/driver.mjs";
 
 let fails = 0;
 function assert(cond, msg) {
@@ -326,6 +326,28 @@ try {
   const tAfter = await nodeTransform(PART);
   assert(tAfter === baseTransform, `Esc restored the node's original transform (${tAfter})`);
   await shot(page, "figenh15-02-escaped");
+
+  // ---- 7b. (2026-10-21) the selection's EDGE BANDS reach 4 px into a selected
+  //          plot: a Ctrl-press there is still a deep select (handed to the plot),
+  //          never a crop — a tick label flush at a tight-cropped edge must pierce.
+  {
+    await page.evaluate(() => window.__flux.fig.selectOnly("plot1"));
+    await waitFor(page, () => document.querySelectorAll(".overlay-svg .zone.edge").length === 4, null, { label: "edge bands mounted on the selected plot" });
+    const box = await page.$eval(".overlay-svg .sel-box", (b) => { const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+    const before = await model();
+    // 2 px inside the plot's left edge, mid-height: inside the w band, over the plot's own scaffold
+    await page.keyboard.down("Control");
+    await page.mouse.move(box.x + 2, box.y + box.h / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 2 + 20, box.y + box.h / 2, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.up("Control");
+    await sleep(150);
+    m = await model();
+    assert(!m.crop, "a Ctrl-press on the inner edge band of a selected plot does NOT crop");
+    assert(m.x === before.x && m.w === before.w, `…and does not resize it (x ${m.x}, w ${m.w})`);
+    assert(m.sel.length === 1 && m.sel[0] === "plot1", "…the plot stays selected (the press was handed to the plot: deep select of its scaffold)");
+  }
 
   // ---- 8. scaffold (background patch): plain drag moves the WHOLE plot;
   //         ctrl-click selects the whole plot WITHOUT drilling ------------------

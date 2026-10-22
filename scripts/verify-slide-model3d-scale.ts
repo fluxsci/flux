@@ -86,7 +86,7 @@ function finalizerProbe(ready: boolean) {
   const wc = { isDestroyed: () => false, executeJavaScript: () => { calls.push('js'); return stalled(); }, capturePage: () => { calls.push('capture'); return stalled(); } };
   const app = { whenReady: stalled, exit: (code: number) => exits.push(code) };
   const native = vm.runInNewContext(nativeEntry + '\n;({ finish, setup(w, ready) { win=w; rendererReady=ready; qualified=ready; runtime={ displaySnapshot:{displays:[]} }; } })', {
-    require: (name: string) => name === 'electron' ? { app } : name === 'node:path' ? path : name === 'node:fs/promises' ? {
+    require: (name: string) => name === 'electron' ? { app } : name === 'node:path' ? path.posix /* the sandbox is linux */ : name === 'node:fs/promises' ? {
       mkdir: async () => {}, writeFile: async (name: string, value: string) => { calls.push('write'); writes.push({ name: path.basename(name), value: JSON.parse(value) }); },
     } : {},
     process: { env: { MODEL3D_NATIVE_SCRATCH: '/tmp/owned-scale', MODEL3D_NATIVE_ROOT: '/tmp/owned-scale/project', MODEL3D_NATIVE_ARTIFACTS: '/tmp/owned-scale/out', FLUX_PRIVATE_DISPLAY: '1' }, platform: 'linux', argv: ['--ozone-platform=x11'], stdin: { resume() {}, on() {} } },

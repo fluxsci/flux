@@ -7,8 +7,8 @@
 // replace the old buggy outputs; every unaffected result stays byte-identical.
 //   npx tsx scripts/verify-interact-core.ts
 
-import { HANDLES, handlePos, cursorFor, type Handle } from "../src/lib/interact/handles";
-import { computeResizeBox } from "../src/lib/interact/gestureMath";
+import { HANDLES, handlePos, cursorFor, resizeAxisFor, resizeCursorVar, rotateCursorVar, selectionHitZones, hitZoneAt, clipZones, zoneClipForFrame, ZONE_DEFAULTS, ZONE_TITLEBAR_GAP, CORNERS, EDGES, type Handle } from "../src/lib/interact/handles";
+import { computeResizeBox, resizeAboutCentre } from "../src/lib/interact/gestureMath";
 import { snap, boxSnapTargets } from "../src/lib/interact/snap";
 import { nodeMoveAxes, constrainDelta } from "../src/lib/interact/nodeAxis";
 import { elementBBox, selectionBBox, rectIntersectsElement, rotatedAABB, type Rect } from "../src/lib/geometry";
@@ -126,8 +126,11 @@ for (const ob of boxes)
         const rh = h.includes("n") ? ob.y + ob.h - lp.y : h.includes("s") ? lp.y - ob.y : ob.h;
         const corrected = rw < 1 || rh < 1 || (shift && horizontal !== vertical);
         const near = (x: number, y: number) => Math.abs(x-y) < 1e-8;
-        const fixedX = h.includes("w") ? near(b.x+b.w, ob.x+ob.w) : near(b.x,ob.x);
-        const fixedY = h.includes("n") ? near(b.y+b.h, ob.y+ob.h) : near(b.y,ob.y);
+        // 2026-10-21: an EDGE drag that keeps the aspect centres the inactive axis
+        // (the opposite edge's midpoint is the anchor) instead of pinning top/left.
+        const edgeAspect = shift && horizontal !== vertical && ob.w > 0 && ob.h > 0;
+        const fixedX = edgeAspect && !horizontal ? near(b.x + b.w / 2, ob.x + ob.w / 2) : h.includes("w") ? near(b.x+b.w, ob.x+ob.w) : near(b.x,ob.x);
+        const fixedY = edgeAspect && !vertical ? near(b.y + b.h / 2, ob.y + ob.h / 2) : h.includes("n") ? near(b.y+b.h, ob.y+ob.h) : near(b.y,ob.y);
         const aspect = !shift || ob.w <= 0 || ob.h <= 0 || near(b.w/b.h,ob.w/ob.h);
         const valid = fixedX && fixedY && aspect && b.w >= 1 && b.h >= 1;
         if (!(corrected ? valid : eq(a,b))) {
@@ -234,6 +237,111 @@ assert(bad === 0, `computeResizeBox fixed anchors, proportions and unchanged leg
   assert(near(c3.dx + c3.dy, 0, 1e-6), "near-diagonal drag rides the incoming segment direction (dx = −dy)");
   const proj = Math.abs(c3.dx) * Math.SQRT2;
   assert(near(proj, Math.abs((40 - -38) / Math.SQRT2), 1e-6), "…with the exact scalar projection");
+}
+
+
+// ---- 2026-10-21: the selection's hit zones (Figma edge grab) + Alt-from-centre ----
+console.log("Selection hit zones (handles.ts selectionHitZones):");
+{
+  const box: Rect = { x: 100, y: 100, w: 200, h: 120 };
+  const z = selectionHitZones(box);
+  const kindAt = (x: number, y: number) => {
+    const h = hitZoneAt(z, x, y);
+    return h ? `${h.kind}:${"handle" in h ? h.handle : h.zone}` : "none";
+  };
+  assert(z.filter((a) => a.kind === "corner").length === 4 && z.filter((a) => a.kind === "edge").length === 4, "four corner squares and four edge bands");
+  assert(z.findIndex((a) => a.kind === "corner") > z.findIndex((a) => a.kind === "edge") && z.findIndex((a) => a.kind === "edge") > z.findIndex((a) => a.kind === "rotate"), "paint order rotate → edge → corner (the later zone wins where they overlap)");
+  // every point along the right edge resizes east — 10 %, 50 %, 90 % of its length, inside and outside
+  for (const f of [0.1, 0.5, 0.9]) {
+    const y = box.y + ZONE_DEFAULTS.cornerHit / 2 + (box.h - ZONE_DEFAULTS.cornerHit) * f;
+    assert(kindAt(300, y) === "edge:e" && kindAt(297, y) === "edge:e" && kindAt(305, y) === "edge:e", `the whole right edge is the e handle (${Math.round(f * 100)} %: on, 3 px inside, 5 px outside)`);
+  }
+  assert(kindAt(200, 100) === "edge:n" && kindAt(200, 220) === "edge:s" && kindAt(100, 160) === "edge:w", "the other three edges are their handles along their length");
+  assert(kindAt(100, 100) === "corner:nw" && kindAt(300, 220) === "corner:se" && kindAt(305, 95) === "corner:ne" && kindAt(95, 225) === "corner:sw", "the corner squares win at the corners, inside and outside");
+  assert(kindAt(100, 100 + ZONE_DEFAULTS.cornerIn - 0.1) === "corner:nw" && kindAt(100, 100 + ZONE_DEFAULTS.cornerIn + 0.1) === "edge:w" && kindAt(100, 100 + ZONE_DEFAULTS.cornerIn + 0.1 + 0) !== "none", "the band starts exactly where the corner square's inward reach ends (no dead strip)");
+  assert(kindAt(96, 103) === "edge:w" || kindAt(96, 103) === "corner:nw", "outside the box beside a corner square's foot something still resizes");
+  assert(kindAt(315, 235) === "rotate:se" && kindAt(315, 220) === "rotate:se" && kindAt(300, 240) === "rotate:se" && kindAt(85, 85) === "rotate:nw", "the L outside each corner rotates");
+  assert(kindAt(200, 160) === "none" && kindAt(106, 106) === "none" && kindAt(200, 108) === "none", "the interior (beyond the 4 px inner reach) hits nothing — it is the move area");
+  assert(kindAt(300, 150) === "edge:e" && kindAt(307, 150) === "none" && kindAt(295, 150) === "none" && kindAt(296, 150) === "edge:e", "the band reaches 6 px out and 4 px in, no further (the body near an edge still moves)");
+  assert(kindAt(103, 103) === "corner:nw" && kindAt(105, 105) === "none", "a corner square reaches 4 px in (a plot grabbed 6 px inside its corner still moves)");
+  // rotate zones never overlap the edge bands or the corner squares' own area
+  const rects = (k: string) => z.filter((a) => a.kind === k).map((a) => a.rect);
+  const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w - 1e-9 && a.x + a.w > b.x + 1e-9 && a.y < b.y + b.h - 1e-9 && a.y + a.h > b.y + 1e-9;
+  assert(!rects("rotate").some((r) => rects("edge").some((e) => overlap(r, e))), "rotate zones and edge bands are disjoint");
+  assert(!rects("rotate").some((r) => rects("corner").some((c) => overlap(r, c))), "rotate zones and corner squares are disjoint");
+  // bands and corner squares may share the strip outside the box beside a square's foot — the square (painted last) wins there
+  // tiny boxes keep a free interior and lose their bands
+  const tiny = selectionHitZones({ x: 0, y: 0, w: 8, h: 8 });
+  assert(tiny.filter((a) => a.kind === "edge").length === 0, "an 8 px box has no edge bands (under two outer reaches on both axes)");
+  assert(hitZoneAt(tiny, 4, 4) === null && hitZoneAt(tiny, 3, 3) === null && hitZoneAt(tiny, 5, 5) === null, "…and its middle half is free to move");
+  assert(hitZoneAt(tiny, 1, 1) === null && hitZoneAt(tiny, -3, -3)?.kind === "corner" && hitZoneAt(tiny, 9, 9)?.kind === "corner" && hitZoneAt(tiny, 0, 0)?.kind === "corner", "…while its corners still resize from OUTSIDE (a small side has no inward reach)");
+  const six = selectionHitZones({ x: 0, y: 0, w: 6, h: 6 });
+  assert(hitZoneAt(six, 3, 3) === null, "a 6 px box is still movable from its centre");
+  // a band's inner reach is a quarter of the side for thin boxes
+  const thin = selectionHitZones({ x: 0, y: 0, w: 200, h: 16 });
+  const sBand = thin.find((a) => a.kind === "edge" && a.handle === "s")!.rect;
+  assert(Math.abs(sBand.y - 16) < 1e-9 && thin.filter((a) => a.kind === "edge").length === 4, "a 16 px tall box (under the 24 px small side) keeps every band OUTSIDE only");
+  const oneLine = selectionHitZones({ x: 0, y: 0, w: 520, h: 20 });
+  assert(oneLine.some((a) => a.kind === "edge" && a.handle === "e") && hitZoneAt(oneLine, 520, 10)?.kind === "edge" && hitZoneAt(oneLine, 523, 10)?.kind === "edge", "a one-line text (20 px tall) keeps its e/w bands: dragging its right edge to wrap it is the everyday case");
+  assert(hitZoneAt(oneLine, 260, 10) === null && hitZoneAt(oneLine, 515, 10) === null && hitZoneAt(oneLine, 519, 10)?.kind === "edge", "…its e/w bands reach 4 px in along its long axis (the small-side rule is per axis), the body before that moves");
+  const label = selectionHitZones({ x: 0, y: 0, w: 200, h: 10 });
+  assert(label.filter((a) => a.kind === "edge" && (a.handle === "n" || a.handle === "s")).length === 0, "a 10 px label has no n/s bands (its height is under two outer reaches) — no accidental height resize");
+  assert(label.filter((a) => a.kind === "edge").length === 2, "…but keeps its e/w bands (width wraps it)");
+  assert(hitZoneAt(label, 100, 5) === null && hitZoneAt(label, 6, 5) === null && hitZoneAt(label, 2, 5)?.kind === "edge", "…and its body moves up to the e/w bands' 4 px inward reach");
+  // every box keeps a non-empty move region at its centre — including degenerate ones
+  for (const b of [
+    { x: 0, y: 0, w: 0, h: 200 }, { x: 0, y: 0, w: 200, h: 0 }, { x: 0, y: 0, w: 2, h: 200 }, { x: 0, y: 0, w: 200, h: 2 },
+    { x: 0, y: 0, w: 6, h: 6 }, { x: 0, y: 0, w: 1, h: 1 }, { x: 0, y: 0, w: 10, h: 200 }, { x: 0, y: 0, w: 500, h: 400 }, { x: 0, y: 0, w: 30, h: 30 },
+  ] as Rect[]) {
+    const zs = selectionHitZones(b);
+    assert(hitZoneAt(zs, b.x + b.w / 2, b.y + b.h / 2) === null, `the centre of a ${b.w} × ${b.h} box is free to move`);
+  }
+  const row = selectionHitZones({ x: 0, y: 0, w: 300, h: 0 });
+  assert([30, 150, 270].every((x) => hitZoneAt(row, x, 0) === null) && row.filter((a) => a.kind === "edge").length === 0, "a zero-height row of lines has no bands over its stroke; its length is the move area");
+  const bar = selectionHitZones({ x: 0, y: 0, w: 200, h: 2 });
+  assert([20, 100, 180].every((x) => hitZoneAt(bar, x, 1) === null), "a 2 px scale bar is grabbable along its whole length");
+  // the frame clip: an element flush with the frame's top keeps the title bar strip above it free
+  const frame: Rect = { x: 100, y: 100, w: 600, h: 400 };
+  const flush = selectionHitZones({ x: 300, y: 100, w: 200, h: 120 }, { clip: zoneClipForFrame(frame) });
+  assert(flush.every((a) => a.rect.y >= frame.y - ZONE_TITLEBAR_GAP - 1e-9), `with the frame clip no zone reaches more than ${ZONE_TITLEBAR_GAP} px above the frame (the title bar lives there)`);
+  assert(hitZoneAt(flush, 400, 100 - 13) === null && hitZoneAt(flush, 300 - 10, 100 - 10) === null, "…the title-bar strip and the space above the corners are free");
+  assert(hitZoneAt(flush, 400, 100 - 2)?.kind === "edge" && hitZoneAt(flush, 500 + 5, 100 + 60)?.kind === "edge" && hitZoneAt(flush, 500 + 12, 100 + 120 + 12)?.kind === "rotate", "…while the n band keeps its 3 px above the frame, and the right band / se rotate zone keep their full reach inside the clip");
+  const clipped = clipZones([{ kind: "edge", handle: "n", rect: { x: 0, y: -10, w: 100, h: 20 } }], { x: 10, y: 0, w: 50, h: 50 });
+  assert(clipped.length === 1 && JSON.stringify(clipped[0].rect) === JSON.stringify({ x: 10, y: 0, w: 50, h: 10 }), "clipZones intersects and keeps the zone identity");
+  assert(clipZones([{ kind: "edge", handle: "n", rect: { x: 0, y: -10, w: 100, h: 5 } }], { x: 0, y: 0, w: 50, h: 50 }).length === 0, "…and drops zones entirely outside the clip");
+  // zone geometry is screen px — independent of the box's world size (the caller converts)
+  assert(z.every((a) => Number.isFinite(a.rect.x + a.rect.y + a.rect.w + a.rect.h) && a.rect.w > 0 && a.rect.h > 0), "every zone rect is finite and positive");
+  assert(CORNERS.length === 4 && EDGES.length === 4 && [...CORNERS, ...EDGES].sort().join() === [...HANDLES].sort().join(), "CORNERS + EDGES partition HANDLES");
+}
+
+console.log("Cursor variables per handle (handles.ts resizeCursorVar / rotateCursorVar):");
+{
+  assert(resizeAxisFor("n") === "ns" && resizeAxisFor("s") === "ns" && resizeAxisFor("e") === "ew" && resizeAxisFor("w") === "ew", "edges map to ns / ew");
+  assert(resizeAxisFor("nw") === "nwse" && resizeAxisFor("se") === "nwse" && resizeAxisFor("ne") === "nesw" && resizeAxisFor("sw") === "nesw", "corners map to nwse / nesw");
+  assert(HANDLES.every((h) => resizeCursorVar(h) === `var(--cursor-resize-${resizeAxisFor(h)})` && cursorFor[h].startsWith(resizeAxisFor(h))), "every handle's family variable agrees with its OS fallback axis");
+  assert(rotateCursorVar("n") === "var(--cursor-rotate-n)" && rotateCursorVar("se") === "var(--cursor-rotate-se)", "rotate zones name their variable");
+}
+
+console.log("Alt = resize about the centre (gestureMath.ts resizeAboutCentre):");
+{
+  const ob: Rect = { x: 100, y: 100, w: 200, h: 100 };
+  const c = (b: Rect) => [b.x + b.w / 2, b.y + b.h / 2];
+  const r1 = computeResizeBox(ob, "e", { x: 320, y: 150 }, false, true);
+  assert(eq(r1, { x: 80, y: 100, w: 240, h: 100 }), "dragging e 20 px out grows both sides: x 80, w 240, centre fixed");
+  const r2 = computeResizeBox(ob, "n", { x: 200, y: 80 }, false, true);
+  assert(eq(r2, { x: 100, y: 80, w: 200, h: 140 }), "dragging n 20 px up grows top and bottom");
+  const r3 = computeResizeBox(ob, "se", { x: 320, y: 220 }, false, true);
+  assert(eq(r3, { x: 80, y: 80, w: 240, h: 140 }) && eq(c(r3), c(ob)), "a corner grows both axes about the centre (the dragged corner lands on the pointer, the opposite one mirrors)");
+  const r4 = computeResizeBox(ob, "se", { x: 320, y: 220 }, true, true);
+  assert(eq(c(r4), c(ob)) && Math.abs(r4.w / r4.h - 2) < 1e-9 && r4.w === 280, "Shift+Alt keeps the aspect about the centre (dominant axis: 70/50 beats 120/100)");
+  const r5 = computeResizeBox(ob, "e", { x: 320, y: 150 }, true, true);
+  assert(eq(c(r5), c(ob)) && Math.abs(r5.w / r5.h - 2) < 1e-9, "Shift+Alt from an edge scales both axes about the centre");
+  const r6 = computeResizeBox(ob, "e", { x: 150, y: 150 }, false, true);
+  assert(eq(r6, { x: 150, y: 100, w: 100, h: 100 }), "a drag past the centre mirrors (no flip): the box is the pointer's distance from the centre, both ways");
+  const r7 = computeResizeBox(ob, "w", { x: 200, y: 150 }, false, true);
+  assert(r7.w === 1 && eq(c(r7), c(ob)), "at the centre the box floors at 1 px, centred");
+  assert(eq(computeResizeBox(ob, "e", { x: 320, y: 150 }, false, false), computeResizeBox(ob, "e", { x: 320, y: 150 }, false)), "without the flag the plain law is unchanged (the oracle battery above)");
+  assert(eq(resizeAboutCentre(ob, "e", { x: 320, y: 150 }, false), r1), "resizeAboutCentre is the exported law computeResizeBox delegates to");
 }
 
 console.log(failures ? `\nINTERACT CORE: FAIL (${failures})` : "\nINTERACT CORE: PASS");

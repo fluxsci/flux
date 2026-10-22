@@ -154,7 +154,8 @@ async function installManagedQuarto({
     const staging = path.join(work, "x");
     await fsp.mkdir(staging);
     await new Promise((resolve, reject) => {
-      const child = spawnImpl("tar", ["-xzf", archive, "-C", staging], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+      // Relative to `work`: a GNU tar (Git Bash, MSYS) reads a "C:\..." operand as a remote host.
+      const child = spawnImpl("tar", ["-xzf", path.basename(archive), "-C", path.basename(staging)], { cwd: work, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
       let err = "";
       const onAbort = () => { try { child.kill("SIGKILL"); } catch {} };
       signal?.addEventListener("abort", onAbort, { once: true });

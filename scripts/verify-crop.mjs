@@ -112,20 +112,18 @@ try {
   const m0 = await model();
   assert(m0.x === 40 && m0.w === 672 && m0.crop === null, "seeded plot at physical size, uncropped");
 
-  // The E resize handle, measured from the real DOM (the overlay svg lives
-  // inside the canvas host — page coords include the left panel offset).
+  // The E edge, measured from the real DOM (the overlay svg lives inside the
+  // canvas host — page coords include the left panel offset). Since 2026-10-21
+  // the whole right edge is the handle (a transparent band); press its middle,
+  // ON the edge, so the gate's expected numbers stay those of the old E knob.
   const eHandle = () =>
     page.evaluate(() => {
-      const hs = [...document.querySelectorAll("svg.overlay-svg rect.handle")].map((h) => {
-        const r = h.getBoundingClientRect();
-        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      });
-      if (hs.length !== 8) return null;
-      const ys = hs.map((h) => h.y).sort((a, b) => a - b);
-      const midY = ys[3]; // the E/W handles sit at the middle row
-      const row = hs.filter((h) => Math.abs(h.y - midY) < 2);
-      row.sort((a, b) => b.x - a.x);
-      return row[0]; // rightmost = E
+      const band = document.querySelector('svg.overlay-svg .zone.edge[data-h="e"]');
+      const box = document.querySelector("svg.overlay-svg .sel-box");
+      if (!band || !box) return null;
+      const r = band.getBoundingClientRect();
+      const b = box.getBoundingClientRect();
+      return { x: b.x + b.width, y: r.y + r.height / 2 };
     });
 
   // ---- 1. ctrl+drag the E handle inward 200 px → crop, content pinned ----

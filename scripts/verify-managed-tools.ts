@@ -34,7 +34,12 @@ try {
   h.eq(tools.resolveQuartoSync({ env: { PATH: "" }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: localBin, origin: "system" },
     "a quarto in a common install folder (~/.local/bin) beats the managed copy, even off PATH — a Finder-launched app's PATH is launchd's");
   const onPath = exe(path.join(scratch, "pathbin", "quarto"));
-  h.eq(tools.resolveQuartoSync({ env: { PATH: path.dirname(onPath) }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: onPath, origin: "path" }, "PATH wins over the common folders");
+  // A drive-letter path cannot sit in a ':'-separated (simulated Linux) PATH, so a Windows host
+  // proves the Windows form instead: a ';' PATH and PATHEXT resolution. Linux CI runs the Linux form.
+  if (process.platform === "win32") {
+    const onWinPath = exe(path.join(scratch, "winpathbin", "quarto.cmd"), "@echo 1.7.32\r\n");
+    h.eq(tools.resolveQuartoSync({ env: { Path: `${path.join(scratch, "empty")};${path.dirname(onWinPath)}`, PATHEXT: ".EXE;.CMD" }, platform: "win32", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: onWinPath, origin: "path" }, "PATH (with PATHEXT) resolves the user's quarto on Windows");
+  } else h.eq(tools.resolveQuartoSync({ env: { PATH: path.dirname(onPath) }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: onPath, origin: "path" }, "PATH wins over the common folders");
   const pinned = exe(path.join(scratch, "pinned", "quarto"));
   h.eq(tools.resolveQuartoSync({ env: { PATH: path.dirname(onPath), FLUX_QUARTO: pinned }, platform: "linux", home, fluxConfigPath: cfg, isExecutable: onlyScratch }), { command: pinned, origin: "env" }, "FLUX_QUARTO wins over everything");
   h.ok(tools.commonToolDirs("darwin", home).includes("/opt/homebrew/bin") && tools.commonToolDirs("darwin", home).includes("/Applications/quarto/bin"), "macOS searches Homebrew and the Quarto .pkg's folder");
@@ -52,7 +57,8 @@ try {
     fs.mkdirSync(path.join(top, "share"), { recursive: true });
     fs.writeFileSync(path.join(top, "share", "marker.txt"), name);
     const tar = path.join(scratch, `${name}.tar.gz`);
-    execFileSync("tar", ["-czf", tar, "-C", src, "."]);
+    // Relative operands: Git Bash's GNU tar reads "C:\..." as a remote host.
+    execFileSync("tar", ["-czf", path.basename(tar), "-C", path.basename(src), "."], { cwd: scratch });
     const bytes = fs.readFileSync(tar);
     return { file: `${name}.tar.gz`, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), body: bytes };
   };
@@ -74,7 +80,8 @@ try {
     const final = tools.managedQuartoDir(cfg);
     h.eq(r1.command, path.join(final, "bin", "quarto"), "the nested Linux layout is flattened into <FluxConfig>/tools/quarto/<version>/bin/quarto");
     h.eq(fs.readFileSync(path.join(final, "share", "marker.txt"), "utf8"), "nested", "…with its share/ beside bin/");
-    h.ok(fs.statSync(r1.command).mode & 0o111, "…and the binary stays executable");
+    // Windows has no exec bit (Node reports one only for .exe/.cmd/.bat/.com names).
+    h.ok(process.platform === "win32" ? fs.statSync(r1.command).isFile() : fs.statSync(r1.command).mode & 0o111, "…and the binary stays executable");
     h.eq(phases.filter(p => p !== "download"), ["verify", "extract", "done"], "progress reports verify → extract → done after the download");
     h.eq(fs.readdirSync(tools.managedQuartoRoot(cfg)), ["1.7.32"], "no scratch directory is left behind");
     h.eq(tools.resolveQuartoSync({ env: { PATH: "" }, platform: "linux", home: path.join(scratch, "nohome"), fluxConfigPath: cfg, isExecutable: onlyScratch }).origin, "managed", "the resolver now finds the installed copy");
@@ -117,12 +124,23 @@ try {
   h.eq(tools.detectTexSync({ env: { PATH: "" }, platform: "linux", home: texHome, isExecutable: onlyScratch }), { installed: true, kind: "tinytex", path: tiny }, "Linux TinyTeX (~/.TinyTeX) is found");
   const macTiny = exe(path.join(texHome, "Library", "TinyTeX", "bin", "universal-darwin", "pdflatex"));
   h.eq(tools.detectTexSync({ env: { PATH: "" }, platform: "darwin", home: texHome, isExecutable: onlyScratch }).path, macTiny, "macOS TinyTeX (~/Library/TinyTeX) is found");
-  const sysTex = exe(path.join(scratch, "texbin", "xelatex"));
-  h.eq(tools.detectTexSync({ env: { PATH: path.dirname(sysTex) }, platform: "linux", home: path.join(scratch, "nohome"), isExecutable: onlyScratch }), { installed: true, kind: "system", path: sysTex }, "a system LaTeX on PATH counts");
+  // As with quarto above: a Windows host proves the ';' PATH + PATHEXT form; Linux CI the ':' form.
+  const win = process.platform === "win32";
+  const sysTex = exe(path.join(scratch, "texbin", win ? "xelatex.exe" : "xelatex"));
+  h.eq(tools.detectTexSync({ env: win ? { Path: path.dirname(sysTex), PATHEXT: ".EXE" } : { PATH: path.dirname(sysTex) }, platform: win ? "win32" : "linux", home: path.join(scratch, "nohome"), isExecutable: onlyScratch }), { installed: true, kind: "system", path: sysTex }, "a system LaTeX on PATH counts");
   const argsLog = path.join(scratch, "tinytex-args.txt");
-  const fakeQuarto = exe(path.join(scratch, "fq", "quarto"), `#!/bin/sh\necho "$@" > '${argsLog}'\necho "Installing TinyTeX"\necho "done"\n`);
+  // Windows runs only real executables: the fake is node.exe named quarto.exe, preloading a script
+  // (NODE_OPTIONS) that logs its argv and the progress lines, then exits before Node reads "install".
+  let fakeQuarto: string;
+  if (win) {
+    fakeQuarto = path.join(scratch, "fq", "quarto.exe"); fs.mkdirSync(path.dirname(fakeQuarto), { recursive: true }); fs.copyFileSync(process.execPath, fakeQuarto);
+    const preload = path.join(scratch, "fq", "fake-quarto.cjs");
+    fs.writeFileSync(preload, `require("fs").writeFileSync(${JSON.stringify(argsLog)}, [require("path").basename(process.argv[1]), ...process.argv.slice(2)].join(" ") + "\\n"); console.log("Installing TinyTeX"); console.log("done"); process.exit(0);\n`);
+    process.env.NODE_OPTIONS = `--require ${JSON.stringify(preload)}`;
+  } else fakeQuarto = exe(path.join(scratch, "fq", "quarto"), `#!/bin/sh\necho "$@" > '${argsLog}'\necho "Installing TinyTeX"\necho "done"\n`);
   const lines: string[] = [];
   const tt = await tools.installTinytex({ quarto: fakeQuarto, onLog: (c: string) => lines.push(c) });
+  delete process.env.NODE_OPTIONS;
   h.ok(tt.ok && fs.readFileSync(argsLog, "utf8").trim() === "install tinytex --no-prompt", "installTinytex runs `quarto install tinytex --no-prompt`");
   h.ok(lines.join("").includes("Installing TinyTeX"), "…streaming its output for the progress line");
   h.eq((await tools.installTinytex({ quarto: null })).ok, false, "no quarto → a clear failure, nothing spawned");

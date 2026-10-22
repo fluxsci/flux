@@ -17,17 +17,51 @@
 import { launch, gotoApp, clickMode, realErrors, waitFor, sleep, APP_URL } from "./lib/driver.mjs";
 import { installDenseProject } from "./lib/lazyFixture.mjs";
 
+const checks = [];
 const { browser, page } = await launch();
+// --- 0. the DEFAULT family is the classic arrow (owner, 2026-10-21): same arrow at
+// rest, hovered and pressed (Figma keeps its pointer), the tip as hotspot, outlined
+// resize arrows on the chrome, and NOTHING of it outside Figure/Slide.
+await gotoApp(page, { url: APP_URL + "?fixture=demo", settle: 2500 });
+{
+  const cur = (sel) => page.$eval(sel, (el) => getComputedStyle(el).cursor);
+  const checksBefore = [];
+  const okc = (c, m) => { checksBefore.push([!!c, m]); console.log(`${c ? "✓" : "✗"} ${m}`); };
+  const paperCur = await page.evaluate(() => getComputedStyle(document.body).cursor);
+  okc(paperCur === "auto" || paperCur === "default", `outside the editors the body keeps the system cursor (${paperCur})`);
+  await clickMode(page, "Paper").catch(() => {});
+  await sleep(600);
+  const cmCur = await page.$eval(".cm-editor .cm-content", (el) => getComputedStyle(el).cursor).catch(() => "n/a");
+  const paperBtn = await page.evaluate(() => { const b = document.querySelector(".paper button, .paper-mode button, .mc:not(.hidden) button"); return b ? getComputedStyle(b).cursor : "n/a"; });
+  okc(cmCur === "text" || cmCur === "n/a", `Paper's editor keeps the I-beam (${cmCur})`);
+  okc(!/data:image/.test(paperBtn), `Paper's buttons show no custom cursor (${paperBtn.slice(0, 20)})`);
+  await clickMode(page, "Figure").catch(() => {});
+  await waitFor(page, () => !!document.querySelector(".canvas-host") && !!document.querySelector("[data-editor-element-id]"), null, { timeout: 15000, label: "figure canvas" });
+  const host = await cur(".canvas-host");
+  okc(/data:image\/svg\+xml/.test(host) && /paint-order='stroke'/.test(host) && /<feDropShadow/.test(host) && / 3 3, default$/.test(host), "the canvas shows the classic arrow: a filled path outlined underneath, with its shadow, tip hotspot 3 3, system-arrow fallback");
+  const elCur = await cur("[data-editor-element-id]");
+  okc(elCur === host, "hovering an object shows the SAME arrow (no dot, no change — Figma)");
+  const toolbarBtn = await page.evaluate(() => { const b = document.querySelector(".figure-mode button"); return b ? getComputedStyle(b).cursor : "n/a"; });
+  okc(toolbarBtn === host, "the editor's own buttons carry the arrow too");
+  await page.evaluate(() => { const F = window.__flux.fig; F.selection.set(new Set([window.__flux.figures()[0].elements[0].id])); });
+  await sleep(200);
+  const band = await cur('.overlay-svg .zone.edge[data-h="e"]');
+  okc(/data:image/.test(band) && /stroke='%23fff' stroke-width='3\.9'/.test(band) && /ew-resize$/.test(band), "an edge band shows the outlined resize arrow in the arrow's fill and outline");
+  await page.evaluate(() => window.__flux.fig.selection.set(new Set()));
+  for (const [c, m] of checksBefore) checks.push([c, m]);
+}
+// --- the crosshair family, chosen in Settings: the rest of this gate -----------------
+await page.evaluateOnNewDocument(() => { try { const s = JSON.parse(localStorage.getItem("flux.settings") || "{}"); s.cursorStyle = "crosshair"; localStorage.setItem("flux.settings", JSON.stringify(s)); } catch {} });
+await page.evaluate(() => { try { const s = JSON.parse(localStorage.getItem("flux.settings") || "{}"); s.cursorStyle = "crosshair"; localStorage.setItem("flux.settings", JSON.stringify(s)); } catch {} });
 await gotoApp(page, { url: APP_URL + "?fixture=demo", settle: 2500 });
 await clickMode(page, "Figure").catch(() => {});
 await waitFor(page, () => !!document.querySelector(".canvas-host") && !!document.querySelector("[data-editor-element-id]"), null, { timeout: 15000, label: "figure canvas" });
 
-const checks = [];
 const ok = (cond, msg) => { checks.push([!!cond, msg]); console.log(`${cond ? "✓" : "✗"} ${msg}`); };
 const cursorOf = (sel = ".canvas-host") => page.$eval(sel, (el) => getComputedStyle(el).cursor);
 const isCross = (c) => /data:image\/svg\+xml/.test(c) && /crosshair$/.test(c);
-const isHover = (c) => isCross(c) && /circle/.test(c) && !/y1='4'/.test(c);
-const isPress = (c) => isCross(c) && /y1='4'/.test(c);
+const isPress = (c) => isCross(c) && /y1='4\.83'/.test(c); // contracted arms (the full arm starts at 2.5)
+const isHover = (c) => isCross(c) && /circle/.test(c) && !isPress(c);
 const host = await page.$eval(".canvas-host", (el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
 const empty = { x: host.x + host.w - 60, y: host.y + host.h - 60 };
 const el = await page.$eval("[data-editor-element-id]", (g) => { const r = g.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, id: g.getAttribute("data-editor-element-id") }; });
@@ -58,6 +92,51 @@ await page.mouse.up();
 await sleep(60);
 c = await cursorOf();
 ok(isCross(c) && !/circle/.test(c), "release returns to the plain crosshair");
+
+// --- 3b. the TONE follows the surface (2026-10-21): the dark canvas shows the
+// paper-white drawing, a figure's paper the dark-ink one, a dark-filled shape
+// flips back, a dark paper flips its whole figure — all by CSS inheritance,
+// nothing per hover (the host keeps ONE resting value).
+{
+  const LIGHT_CORE = "%23fffcf0"; // the drawing for dark surfaces
+  const DARK_CORE = "%23151515"; // the drawing for light surfaces
+  const hostCur = await cursorOf();
+  ok(hostCur.includes(LIGHT_CORE) && !hostCur.includes(DARK_CORE), "the dark canvas shows the paper-white crosshair");
+  const seeded = await page.evaluate(() => {
+    const F = window.__flux.fig;
+    const out = {};
+    F.commit((p) => {
+      const g = p.figures[0];
+      g.background = "#ffffff";
+      out.fig = g.id;
+      out.dark = F.newId("rect");
+      g.elements.push({ type: "rect", id: out.dark, x: 20, y: 20, width: 60, height: 40, rotation: 0, fill: "#101010", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+      out.light = F.newId("rect");
+      g.elements.push({ type: "rect", id: out.light, x: 100, y: 20, width: 60, height: 40, rotation: 0, fill: "#f4f1e8", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+      out.hollow = F.newId("rect");
+      g.elements.push({ type: "rect", id: out.hollow, x: 180, y: 20, width: 60, height: 40, rotation: 0, fill: "none", stroke: "#222", strokeWidth: 2, cornerRadius: 0 });
+    });
+    return out;
+  });
+  await sleep(150);
+  const curOf = (sel) => page.$eval(sel, (n) => getComputedStyle(n).cursor);
+  const bg = await curOf(`g[data-annotation-figure="${seeded.fig}"] rect.figure-bg`);
+  ok(bg.includes(DARK_CORE) && !bg.includes(LIGHT_CORE), "a white figure's paper shows the dark-ink crosshair");
+  const darkEl = await curOf(`[data-editor-element-id="${seeded.dark}"]`);
+  ok(darkEl.includes(LIGHT_CORE) && /circle/.test(darkEl), "a dark-filled rect flips to the paper-white hover cursor");
+  const lightEl = await curOf(`[data-editor-element-id="${seeded.light}"]`);
+  ok(lightEl.includes(DARK_CORE) && /circle/.test(lightEl), "a light-filled rect keeps the dark-ink hover cursor");
+  const hollowEl = await curOf(`[data-editor-element-id="${seeded.hollow}"]`);
+  ok(hollowEl.includes(DARK_CORE), "an unfilled rect shows its paper's tone");
+  ok((await cursorOf()).includes(LIGHT_CORE), "…while the HOST's resting value never changed (no per-hover flip)");
+  await page.evaluate((id) => window.__flux.fig.commit((p) => { p.figures.find((f) => f.id === id).background = "#202020"; }), seeded.fig);
+  await sleep(150);
+  const bgDark = await curOf(`g[data-annotation-figure="${seeded.fig}"] rect.figure-bg`);
+  ok(bgDark.includes(LIGHT_CORE), "a dark paper flips its figure to the paper-white crosshair");
+  ok((await curOf(`[data-editor-element-id="${seeded.hollow}"]`)).includes(LIGHT_CORE), "…and its unfilled shapes follow");
+  await page.evaluate((s) => window.__flux.fig.commit((p) => { const g = p.figures.find((f) => f.id === s.fig); g.background = "#ffffff"; g.elements = g.elements.filter((e) => ![s.dark, s.light, s.hollow].includes(e.id)); }), seeded);
+  await sleep(100);
+}
 
 // --- 4. tools: draw = plain cross, pan = grab, text = I-beam --------------------------
 await page.keyboard.press("r");

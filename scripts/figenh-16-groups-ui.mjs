@@ -166,7 +166,7 @@ try {
     handles: document.querySelectorAll(".overlay-svg .handle").length,
     rot: !!document.querySelector(".overlay-svg .rot-handle"),
   }));
-  ok(chrome.handles === 8 && chrome.rot, `selection chrome over the group (8 handles + rotate) (${chrome.handles})`);
+  ok(chrome.handles === 4 && chrome.rot, `selection chrome over the group (4 corner handles + rotate; edges are bands since 2026-10-21) (${chrome.handles})`);
   await drag(await scr(380, 160), 40, 30); // SE corner of the group bbox
   let gA = await geom(A);
   let gB = await geom(B);

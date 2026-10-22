@@ -14,8 +14,9 @@ difference on Windows; see the engineering guide, 2026-09-25.
 Pinned binaries and accompanying notices:
 
 - Linux x64 / arm64 and Windows x64: BtbN FFmpeg static auto-builds, release
-  `autobuild-2026-09-25-15-37`, build `n9.0.2-8-gb135b25c19`, GPL variant.
-  https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-09-25-15-37
+  `autobuild-2026-09-30-13-08`, build `n9.0.2-17-g2a571b6068`, GPL variant.
+  https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-09-30-13-08
+  (BtbN prunes daily releases after about two weeks but keeps month-end ones.)
   The archive's `LICENSE.txt` (GNU GPL v3) ships as `LICENSE`; the builder's
   README at the commit current when the release was published ships as `README`.
 - macOS arm64 / x64: static builds by Martin Riedl (`--enable-gpl
