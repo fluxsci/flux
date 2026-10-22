@@ -25,6 +25,7 @@ import { compileSlideFor, evaluateSlide, type EvaluatedSlide } from "../embedRen
 import type { ExportPayload } from "../payload";
 import { familyOf } from "../family";
 import { cueEnd } from "../video";
+import { presetParam } from "../presetCatalog";
 import { scaleRemap } from "../../editing";
 import type { Element } from "../../types";
 import { DUR } from "../../motion/tokens";
@@ -189,12 +190,12 @@ function twins(before: PptxPage, after: PptxPage, tracks: CompiledSlide["cues"][
     if (entering && (RISE.has(preset) || POP_IN.has(preset))) {
       const end = shown(after.ev, id)!;
       const twin = RISE.has(preset)
-        ? { ...structuredClone(end), y: end.y + Number(ct.track.params?.y ?? 14) }
-        : scaledAboutCentre(end, Number(ct.track.params?.from ?? 0.9));
+        ? { ...structuredClone(end), y: end.y + presetParam(ct.track, "y", "fadeRise") }
+        : scaledAboutCentre(end, presetParam(ct.track, "from", "popIn"));
       place(before, { ...twin, hidden: false, opacity: 0 } as Element, POP_IN.has(preset) ? end : undefined, after);
     } else if (leaving && POP_OUT.has(preset)) {
       const start = shown(before.ev, id)!;
-      place(after, { ...scaledAboutCentre(start, Number(ct.track.params?.to ?? 0.92)), hidden: false, opacity: 0 } as Element, start, before);
+      place(after, { ...scaledAboutCentre(start, presetParam(ct.track, "to", "popOut")), hidden: false, opacity: 0 } as Element, start, before);
     }
   }
 }

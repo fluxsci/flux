@@ -214,6 +214,8 @@
       "verify-slide-become-browser.ts",
       "verify-slide-stash.ts",
       "verify-slide-arrow-browser.ts",
+      "verify-preset-params.ts",
+      "verify-slide-part-origin.ts",
       "verify-figure-preservation.ts",
       "verify-figure-editing.ts",
       "verify-paper-files.ts",
@@ -820,6 +822,8 @@
       "verify-orphan-slide-sources-gui.mjs",
       "verify-mode-cold-switch.mjs",
       "verify-slide-arrow-browser.ts",
+      "verify-preset-params.ts",
+      "verify-slide-part-origin.ts",
       "verify-slide-marquee-gui.mjs"
     ],
     "slide-ghosts": [
@@ -890,6 +894,8 @@
       "verify-slide-ghost-runtime.ts",
       "verify-slide-ghost-browser.ts",
       "verify-slide-arrow-browser.ts",
+      "verify-preset-params.ts",
+      "verify-slide-part-origin.ts",
       "verify-slide-become-gui.mjs",
       "verify-slide-ghost-gui.mjs",
       "verify-slide-import-gui.mjs",
@@ -6566,6 +6572,24 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-part-origin.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-preset-params.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
       "exclusive": false,
       "coverage": "behavior"
     },
