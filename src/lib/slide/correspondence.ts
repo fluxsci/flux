@@ -18,7 +18,7 @@ export interface CorrespondencePair {
   a: StageOutline | null;
   b: StageOutline | null;
   /** Exact planOutlines UNIT chains; a/b.bbox place them in stage pixels. */
-  plan?: { a: VectorNode[]; b: VectorNode[]; closed: boolean; strategy: RingStrategy; prepare(): void };
+  plan?: { a: VectorNode[]; b: VectorNode[]; closed: boolean; strategy: RingStrategy; dashShift?: number; dashReversed?: boolean; prepare(): void };
   landing?: { x: number; y: number; scale: number };
   crossfade?: true;
   boxes?: { a: StageOutline["bbox"]; b: StageOutline["bbox"] };
@@ -527,7 +527,7 @@ function planPair(pair: CorrespondencePair): void {
     return p;
   };
   pair.plan = {
-    get a() { return prepare().a; }, get b() { return prepare().b; },
+    get a() { return prepare().a; }, get b() { return prepare().b; }, get dashShift() { return prepare().dashShift; }, get dashReversed() { return prepare().dashReversed; },
     closed: morphIsClosed(a, b, strategy), strategy,
     prepare() { prepare(); },
   };

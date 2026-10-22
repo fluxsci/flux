@@ -1,8 +1,9 @@
-// verify-slide-morph-geometry-browser — the DOM half of the morph bug floor (WP 1.5; headless Chrome via exportDeckHtml, no Electron):
+// verify-slide-morph-geometry-browser — the DOM half of the morph contract (WP 1.5 + 1.6; headless Chrome via exportDeckHtml, no Electron):
 //  - the 1↔1 morph layer's gradient `<defs>` never share an id with the hidden A layer's (a duplicate `fxg-<id>-fill`
 //    made `url(#…)` resolve to A's stops, so a gradient→flat Become sat frozen until the swap to B: a 68,541 px pop);
 //  - pieces of a split gradient shape paint ONE ramp (userSpaceOnUse over the shape's box), not one ramp per piece;
-//  - per-channel alpha survives a Become (a translucent source never snaps opaque on its first frame).
+//  - per-channel alpha survives a Become (a translucent source never snaps opaque on its first frame);
+//  - a dashed Become writes `stroke-dashoffset` on the live path (0 → −shift), in both drivers.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -28,7 +29,12 @@ try {
   sb.tracks[0].to!.become = { mode: "handoff", ref: { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] }, method: "shatter" } as any;
   const al = slide("alpha"); addElement(deck, al.id, R({ fillOpacity: 0.35 })); addElement(deck, al.id, E("b"));
   const alb = addBeat(deck, al.id, { id: "b1" })!; becomeTransform(deck, al.id, alb.id, "a", "b");
-  for (const sl of deck.slides) for (const b of sl.beats) for (const t of b.tracks) if (sl.id !== "set") { delete (t as any).duration; delete (t as any).easing; }
+  const d = slide("dash"); addElement(deck, d.id, R({ dash: [12, 8], width: 200, height: 174 })); addElement(deck, d.id, E("b", { dash: [12, 8], height: 174 }));
+  const db = addBeat(deck, d.id, { id: "b1" })!; becomeTransform(deck, d.id, db.id, "a", "b");
+  const dh = slide("dash_ho"); addElement(deck, dh.id, R({ id: "source", dash: [12, 8], width: 200, height: 174 })); addElement(deck, dh.id, E("dest", { dash: [12, 8], height: 174, x: 420, y: 100 }));
+  const dhb = addBeat(deck, dh.id, { id: "b1" })!; setTransform(deck, dh.id, dhb.id, "source", { state: {}, duration: 1000, easing: "linear" });
+  dhb.tracks[0].to!.become = { mode: "handoff", ref: { element: "dest" } } as any;
+  for (const sl of deck.slides) for (const b of sl.beats) for (const t of b.tracks) if (sl.id !== "set" && sl.id !== "dash_ho") { delete (t as any).duration; delete (t as any).easing; }
 
   const file = path.join(tmp, "morph.html"); await fs.writeFile(file, (await exportDeckHtml({ deck })).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
@@ -66,5 +72,16 @@ try {
   await seek(2, 0); await seek(2, 150); const f1 = await fo();
   await seek(2, 450); const f2 = await fo();
   h.ok(f1 !== null && f2 !== null && f1 > 0.35 && f1 < 1 && f2 > f1 && f2 < 1, `fill-opacity rises 0.35 → 1 through the morph (${f1?.toFixed(2)} → ${f2?.toFixed(2)}); the old driver dropped the channel and painted opaque from frame 1`);
+
+  h.section("dashed Become: the live path carries stroke-dashoffset 0 → −shift");
+  const off = async () => page.evaluate(() => { const p = Array.from(document.querySelectorAll("svg path")).find((q) => q.getAttribute("stroke-dasharray") && getComputedStyle(q).visibility !== "hidden"); return p ? { arr: p.getAttribute("stroke-dasharray"), off: p.getAttribute("stroke-dashoffset") } : null; });
+  await seek(3, 300); const o1 = await off();
+  await seek(3, 598); const o2 = await off();
+  h.ok(!!o1 && o1.off !== null && Number(o1.off) > 0 && Number(o1.off) < 20 && Number(o2!.off) > 0 && Number(o2!.off) < 20 && Number(o2!.off) !== Number(o1.off), `stroke-dashoffset is present and moving (${o1?.off} → ${o2?.off}) within one 20 px dash period`);
+
+  await seek(4, 500);
+  const hoDash = await page.evaluate(() => { const p = document.querySelector(".sl-flight .sl-handoff-path"); return p ? { arr: p.getAttribute("stroke-dasharray"), off: p.getAttribute("stroke-dashoffset") } : null; });
+  h.ok(!!hoDash && !!hoDash.arr && hoDash.off !== null && Number(hoDash.off) > 0 && Number(hoDash.off) < 20, `hand-off driver: the flying path of a dashed shape carries stroke-dashoffset (${hoDash?.off})`);
+
 } finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 await h.done();

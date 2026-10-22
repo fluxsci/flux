@@ -3,7 +3,7 @@ import type { BecomeSpec } from "../types";
 import type { StageOutline, OutlineOwner } from "../stageOutline";
 import type { CorrespondencePlan, CorrespondencePair, SampledPath } from "../correspondence";
 import { sampleCorrespondence, pairHeadPoints } from "../correspondence";
-import { strokeEndDirection } from "../outline";
+import { dashOffsetAt, strokeEndDirection } from "../outline";
 import type { MorphController } from "../../plot/project";
 import { prefixIds } from "../../plot/parse";
 import { pathD, pathRender } from "../../path";
@@ -327,6 +327,9 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     if (p.strokeOpacity != null) set(node, "stroke-opacity", String(p.strokeOpacity)); else node.removeAttribute("stroke-opacity");
     set(node, "stroke-width", String(p.strokeWidth)); set(node, "stroke-linecap", p.cap);
     set(node, "stroke-dasharray", p.dash?.join(" ") || "none");
+    const shift = pair.plan?.dashShift;
+    if (shift && pair.b?.paint.dash?.length) set(node, "stroke-dashoffset", String(dashOffsetAt(shift, pair.b.paint.dash, u, pair.plan?.dashReversed)));
+    else node.removeAttribute("stroke-dashoffset");
     set(node, "opacity", String(sample.opacity * (p.opacity ?? 1) * fade));
     for (const head of fixed) {
       let points = "";

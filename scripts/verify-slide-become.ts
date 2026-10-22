@@ -53,7 +53,7 @@ console.log("── the op ──");
   const start = compiled.sample(1, 0).elements.find((e) => e.id === "src")!;
   ok(start.type === "line", "before the step it is still the line");
   const mid = compiled.sample(1, 300).elements.find((e) => e.id === "src")!;
-  ok(mid.type === "path" && (mid as PathElement).nodes!.length > 8, "mid-flight the compiler samples the outline morph");
+  ok(mid.type === "path" && (mid as PathElement).nodes!.length >= 6 && (mid as PathElement).closed === true, "mid-flight the compiler samples the outline morph (a hairpin ring swelling into the ellipse)");
   ok(JSON.stringify(deck) !== before && slide.elements.length === 1, "one mutation: the deck holds exactly the surviving source");
   ok(validateDeckFile(structuredClone(deck)).length === 0, "the deck validates (a `type` in the patch is an ordinary state key)");
 }

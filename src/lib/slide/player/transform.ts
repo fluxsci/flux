@@ -37,7 +37,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox, dashAttr, channelOpacity } from "../../geometry";
 import { pathRender, pathD } from "../../path";
 import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
-import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, fixedHeadPoints, type ElementMorphPlan } from "../outline";
+import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, fixedHeadPoints, dashOffsetAt, type ElementMorphPlan } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
@@ -308,6 +308,8 @@ export function createTransform(
     set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
     const dash = dashAttr(el);
     if (dash) set(L.body, "stroke-dasharray", dash); else L.body.removeAttribute("stroke-dasharray");
+    const shift = morphPlan!.dashShift, endDash = morphPlan!.endStyle.dash;
+    if (dash && shift && endDash?.length) set(L.body, "stroke-dashoffset", String(dashOffsetAt(shift, endDash, t, morphPlan!.dashReversed))); else L.body.removeAttribute("stroke-dashoffset");
     for (const [name, v] of [["fill-opacity", channelOpacity(el.fillOpacity)], ["stroke-opacity", channelOpacity(el.strokeOpacity)]] as const)
       if (v != null) set(L.body, name, String(v)); else L.body.removeAttribute(name);
     for (let i = 0; i < L.fixed.length; i++) {

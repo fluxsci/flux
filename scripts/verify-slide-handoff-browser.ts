@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { createDeck, addSlide, addElement, addBeat, setTransform } from "../src/lib/slide/ops";
 import { compileSlide } from "../src/lib/slide/compile";
+import { SEAM_OVERLAP, EXPAND_MITER_LIMIT } from "../src/lib/slide/correspondence";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { Track, TargetRef, BecomeSpec, Slide } from "../src/lib/slide/types";
 import type { SemanticPlotElement } from "../src/lib/types";
@@ -338,7 +339,10 @@ try {
     }), "merge: each lander's layer holds its arc and its fill triangle, and the last lander's layer lies BENEATH the other landers'");
     await seek(G, 899.999); m = await merge();
     const onRect = (p: { x: number; y: number }) => Math.min(Math.abs(p.x - 161), Math.abs(p.x - 296), Math.abs(p.y - 111), Math.abs(p.y - 156));
-    const inRect = (p: { x: number; y: number }) => p.x > 161 - 0.6 && p.x < 296 + 0.6 && p.y > 111 - 0.6 && p.y < 156 + 0.6;
+    // a fill triangle's tip may poke out by the seam overlap's miter (SEAM_OVERLAP × EXPAND_MITER_LIMIT = 1.5 px,
+    // hidden under the arcs): which sampled point lands exactly on a tip depends on the chain's node count
+    const slack = SEAM_OVERLAP * EXPAND_MITER_LIMIT + 0.1;
+    const inRect = (p: { x: number; y: number }) => p.x > 161 - slack && p.x < 296 + slack && p.y > 111 - slack && p.y < 156 + slack;
     const arcPts = m.pts.filter((_, i) => !m.slice[i]), fillPts = m.pts.filter((_, i) => m.slice[i]);
     h.ok(arcPts.length === 3 && arcPts.every(points => points.every(p => onRect(p) < 0.5)), `merge: just before the reveal every arc piece lies on the rect's outline within 0.5 px (max ${Math.max(...arcPts.flat().map(onRect)).toFixed(3)})`);
     h.ok(fillPts.length === 3 && fillPts.every(points => points.every(inRect)), "merge: just before the reveal the three fill triangles lie inside the rect (its interior arrives with the pieces, never pops)");

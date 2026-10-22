@@ -67,7 +67,7 @@ h.section("correspondence");
 {
   const a = elementOutline(rect())!, b = elementOutline(ellipse())!;
   const plan = planOutlines(a, 200, 100, b, 120, 120);
-  h.ok(plan.a.length === plan.b.length && plan.a.length >= 32 && plan.closed, `rect↔ellipse: equal node counts (${plan.a.length}), closed`);
+  h.ok(plan.a.length === plan.b.length && plan.a.length >= 8 && plan.closed, `rect↔ellipse: equal node counts (${plan.a.length}), closed`);
   const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
   h.ok(corners.every(([u, v]) => plan.a.some((n) => near(n.x, u) && near(n.y, v))), "every rect corner is a node of the aligned rect chain (unit frame)");
   const same = planOutlines(b, 120, 120, elementOutline(ellipse({ id: "z" }))!, 120, 120);
@@ -148,7 +148,7 @@ h.section("the plan answers without the correspondence");
     "closed / arrowStart / arrowEnd are plain values — reading them cannot build the correspondence");
   h.ok(typeof own("a").get === "function" && typeof own("b").get === "function",
     "the corresponded chains stay behind getters, so nothing pays for them until a frame is drawn");
-  h.ok(plan.a.length === plan.b.length && plan.a.length >= 32, "...and asking for them still yields the matched chains");
+  h.ok(plan.a.length === plan.b.length && plan.a.length >= 8, "...and asking for them still yields the matched chains");
 }
 
 h.section("the retype law: applyState / diffState");

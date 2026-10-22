@@ -22,6 +22,7 @@ import {
   pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent,
   type PathSeg,
 } from "../path";
+import { normalMatchRings } from "./normalMatch";
 
 export type OutlineKind = "rect" | "ellipse" | "line" | "path";
 const OUTLINE_KINDS = new Set<string>(["rect", "ellipse", "line", "path"]);
@@ -352,6 +353,12 @@ export interface OutlineMorphPlan {
   /** Arrowhead presence on an OPEN intermediate (either side draws one). */
   arrowStart: boolean;
   arrowEnd: boolean;
+  /** Normal-matched rings only: arc length (px, along the chain) from the chain's
+   *  start to B's OWN start node. The driver lerps `stroke-dashoffset` from 0 to
+   *  −dashShift (mod the dash period), so a dashed B lands on its static pattern.
+   *  `dashReversed`: the chain runs against B's direction (see dashOffsetAt). */
+  dashShift?: number;
+  dashReversed?: boolean;
 }
 
 /** How a stroke and a ring meet. A stroke becoming a FILLED ring inflates: the
@@ -387,7 +394,8 @@ export function inflateChain(nodes: VectorNode[]): VectorNode[] {
  *  not copied. Bounded, oldest-out — a long editing session must not grow it
  *  without limit. */
 const CORRESPONDENCE_CACHE_MAX = 256;
-const correspondenceCache = new Map<string, { a: VectorNode[]; b: VectorNode[]; closed: boolean }>();
+export interface PlannedChains { a: VectorNode[]; b: VectorNode[]; closed: boolean; dashShift?: number; dashReversed?: boolean }
+const correspondenceCache = new Map<string, PlannedChains>();
 
 function outlineKey(o: Outline, w: number, h: number): string {
   let s = (o.closed ? "C" : "O") + w + ":" + h;
@@ -399,7 +407,7 @@ function outlineKey(o: Outline, w: number, h: number): string {
   return s;
 }
 
-export function planOutlines(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy = "cut"): { a: VectorNode[]; b: VectorNode[]; closed: boolean } {
+export function planOutlines(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy = "cut"): PlannedChains {
   const key = strategy + " " + outlineKey(A, aw, ah) + " " + outlineKey(B, bw, bh);
   const hit = correspondenceCache.get(key);
   if (hit) return hit;
@@ -419,13 +427,39 @@ export const THIN_BOX = 1;
 export interface PlanBoxes { wa: number; ha: number; wb: number; hb: number }
 export const pixelLaw = (e: PlanBoxes): boolean => Math.min(e.wa, e.ha, e.wb, e.hb) < THIN_BOX;
 
-function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy): { a: VectorNode[]; b: VectorNode[]; closed: boolean } {
-  let ua: Outline = { nodes: unit(A.nodes, aw, ah), closed: A.closed };
-  let ub: Outline = { nodes: unit(B.nodes, bw, bh), closed: B.closed };
-  if (ua.closed !== ub.closed && strategy === "inflate") {
-    if (!ua.closed) ua = { nodes: inflateChain(ua.nodes), closed: true };
-    else ub = { nodes: inflateChain(ub.nodes), closed: true };
+/** Arc length (px) along a unit chain from node 0 to node `j`, in a w×h box. */
+function chainLengthTo(chain: VectorNode[], j: number, w: number, h: number): number {
+  const px = chain.map((n) => ({
+    x: n.x * w, y: n.y * h, type: n.type,
+    hIn: n.hIn && { dx: n.hIn.dx * w, dy: n.hIn.dy * h }, hOut: n.hOut && { dx: n.hOut.dx * w, dy: n.hOut.dy * h },
+  }));
+  const segs = segsFromNodes(px, true);
+  let L = 0;
+  for (let i = 0; i < j && i < segs.length; i++) L += segLength(segs[i]);
+  return L;
+}
+
+function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy): PlannedChains {
+  // a stroke meeting a FILLED ring doubles back on itself first (a hairpin ring)
+  let oa = A, ob = B;
+  if (oa.closed !== ob.closed && strategy === "inflate") {
+    if (!oa.closed) oa = { nodes: inflateChain(oa.nodes), closed: true };
+    else ob = { nodes: inflateChain(ob.nodes), closed: true };
   }
+  // two CONVEX rings pair by tangent angle (the Minkowski blend): no pinched corners.
+  // The pairing runs in each ring's UNIT frame (an affine image of a convex ring is
+  // convex, ellipse→ellipse stays an exact ellipse, roundness scales with the box);
+  // only a stroke-thin box needs the pixel frame.
+  if (oa.closed && ob.closed) {
+    const px = pixelLaw({ wa: aw, ha: ah, wb: bw, hb: bh });
+    const nm = px ? normalMatchRings(oa.nodes, ob.nodes) : normalMatchRings(unit(oa.nodes, aw, ah), unit(ob.nodes, bw, bh));
+    if (nm) {
+      const a = px ? unit(nm.a, aw, ah) : nm.a, b = px ? unit(nm.b, bw, bh) : nm.b;
+      return { a, b, closed: true, ...(nm.bStart != null && nm.bStart > 0 ? { dashShift: chainLengthTo(b, nm.bStart, bw, bh), ...(nm.bReversed ? { dashReversed: true } : {}) } : {}) };
+    }
+  }
+  let ua: Outline = { nodes: unit(oa.nodes, aw, ah), closed: oa.closed };
+  let ub: Outline = { nodes: unit(ob.nodes, bw, bh), closed: ob.closed };
   if (ua.closed && ub.closed) {
     // rings: same winding, then the seam offset (+ direction) of B that best
     // overlays A — continuous candidates, not just B's own nodes.
@@ -474,7 +508,26 @@ function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, 
   // station — trim to the common length (never in practice; keeps sampling safe)
   const n = Math.min(a.length, b.length);
   a = a.slice(0, n); b = b.slice(0, n);
-  return { a, b, closed };
+  return { a: withImplicitHandles(a, closed), b: withImplicitHandles(b, closed), closed };
+}
+
+/** Give every straight segment its implicit 1/3-chord handles. A straight side
+ *  then lerps like every other cubic: with no handles the node tangent of a
+ *  half-way frame is the OTHER side's tangent, not a blend, and each segment
+ *  between two nodes becomes an S (convex start, concave end). */
+export function withImplicitHandles(chain: VectorNode[], closed: boolean): VectorNode[] {
+  const n = chain.length;
+  const out = chain.map(cp);
+  const count = closed ? n : n - 1;
+  for (let i = 0; i < count; i++) {
+    const a = chain[i], b = chain[(i + 1) % n];
+    if (a.hOut || b.hIn) continue; // already a curve
+    const dx = (b.x - a.x) / 3, dy = (b.y - a.y) / 3;
+    if (dx === 0 && dy === 0) continue;
+    out[i].hOut = { dx, dy };
+    out[(i + 1) % n].hIn = { dx: -dx, dy: -dy };
+  }
+  return out;
 }
 
 /** Whether the correspondence `planOutlines` builds will be a ring, decided
@@ -564,6 +617,21 @@ export function fixedHeadOpacity(head: FixedHead, t: number): number {
   return head.side === "pre" ? Math.max(0, Math.min(1, 1 - t / 0.4)) : Math.max(0, Math.min(1, (t - 0.6) / 0.4));
 }
 
+/** `stroke-dashoffset` of the live path at progress t: 0 at the start (A's dashes lie where
+ *  A's markup laid them), the offset that makes the pattern equal B's static one at t = 1.
+ *  Forward chain: −shift (mod period). Reversed chain (A and B wind oppositely): the pattern
+ *  [d, g] read backwards is [g, d], i.e. the same pattern shifted by d − shift; only a
+ *  two-entry (or odd, doubled) pattern is its own reversal up to a shift, so any other
+ *  reversed pattern keeps offset 0. Seek-pure. */
+export function dashOffsetAt(shift: number, endDash: number[], t: number, reversed = false): number {
+  const even = endDash.length % 2 ? [...endDash, ...endDash] : endDash;
+  const period = even.reduce((m, v) => m + v, 0);
+  if (!(period > 0) || !shift) return 0;
+  if (reversed && even.length !== 2) return 0;
+  const mod = (v: number) => ((v % period) + period) % period;
+  return lerp(0, mod(reversed ? even[0] - shift : -shift), t);
+}
+
 /** The arrowheads a stroke side draws, in pixels local to its box. */
 function strokeHeads(el: Element, outline: Outline, box: { w: number; h: number }, side: "pre" | "end"): FixedHead[] {
   const st = styleOf(el);
@@ -646,6 +714,8 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   return {
     get a() { return outlines().a; },
     get b() { return outlines().b; },
+    get dashShift() { return outlines().dashShift; },
+    get dashReversed() { return outlines().dashReversed; },
     closed,
     arrowStart: !closed && (preStyle.arrowStart || endStyle.arrowStart),
     arrowEnd: !closed && (preStyle.arrowEnd || endStyle.arrowEnd),
