@@ -6,6 +6,7 @@
 // watcher's dissections subsystem), so an external rewrite re-reads fresh bytes.
 
 import { DISSECT_TABLE_MAX_BYTES } from "./csv";
+import { notifyPlotsWritten } from "../plotsRail/plotIndex";
 import { fileBridge, joinPath, basename } from "../project/types";
 import { classifyDissectionFile, dissectionRootRelFor } from "./rules";
 import type { DissectFileKind } from "../../../electron/dissectRules.js";
@@ -90,6 +91,7 @@ export async function createDissectionRoot(projectRoot: string, key: string): Pr
   const root = dissectionRootAbs(projectRoot, key);
   try {
     await fb?.mkdir(root);
+    notifyPlotsWritten([root]); // the watcher skips the app's own writes (the rail's ⧉ counts)
     return root;
   } catch {
     return null;

@@ -1,4 +1,5 @@
 import { captureAppModelPosterSource, cachedModelPosterUrl } from './model3d/posterStore';
+import { notifyPlotsWritten } from "./plotsRail/plotIndex";
 import { model3dSvgContext, type Model3dSvgContext } from './model3d/static';
 import type { PosterSurface } from './model3d/poster';
 import { collectModel3dSourceBindings } from './model3d/sourceBinding';
@@ -414,10 +415,10 @@ export async function archivePastedImage(file: File, name: string): Promise<void
     );
     await fb.mkdir(joinPath(root, "plots"));
     await fb.mkdir(joinPath(root, PASTED_DIR));
-    await fb.writeFile(
-      joinPath(root, PASTED_DIR, `${unique}${ext}`),
-      new Uint8Array(await file.arrayBuffer()),
-    );
+    const archived = joinPath(root, PASTED_DIR, `${unique}${ext}`);
+    await fb.writeFile(archived, new Uint8Array(await file.arrayBuffer()));
+    // The watcher skips the app's own writes: tell the Plots rail directly.
+    notifyPlotsWritten([archived]);
   } catch (e) {
     pushToast("info", "Pasted image wasn't archived to plots/", { detail: errMsg(e) });
   }
@@ -541,7 +542,9 @@ export function placeIncoming(incoming: Incoming[], figId?: string, at?: PlaceAt
   const over = incoming.filter(
     (it) => it.el.x < 0 || it.el.y < 0 || it.el.x + it.el.width > fig.width || it.el.y + it.el.height > fig.height,
   );
-  if (over.length) {
+  // A drop places where you let go: hanging over the edge is your choice, not news — only a
+  // plot larger than the frame itself is worth a note.
+  if (over.length && !(at && !over.some((it) => it.el.width > fig.width || it.el.height > fig.height))) {
     // Slides have no print size to fix at the source; a slide is the "frame".
     const slide = storeTenant() === "slide", frame = slide ? "slide" : "frame";
     const frameMm = `${mm(fig.width)} × ${mm(fig.height)} mm`;

@@ -14,7 +14,7 @@
   import { figureLayout, FIGURE_LAYOUT_DEFAULTS } from "../figureLayoutStore";
   import { pointerDrag } from "../ui/pointerDrag";
   import { resolvePlotElement, offerElement, resetFocus } from "./focusPlot";
-  import { plotsRailFocusRequest } from "./railState";
+  import { plotsRailFocusRequest, railFocusPending } from "./railState";
   import { PLOTS_RAIL_SCOPE } from "./keyScope";
   import { project, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
   import type { HitBridgeHolder } from "../interact/canvasHitBridge";
@@ -76,8 +76,8 @@
   }
   // Alt+G must land in a visible search box.
   $effect(() => {
-    const n = $plotsRailFocusRequest;
-    if (n) untrack(() => { if (get(figureLayout).galleryCollapsed) figureLayout.update((l) => ({ ...l, galleryCollapsed: false })); });
+    void $plotsRailFocusRequest;
+    untrack(() => { if (railFocusPending() && get(figureLayout).galleryCollapsed) figureLayout.update((l) => ({ ...l, galleryCollapsed: false })); });
   });
 
   // ------------------------------------------------------------------ canvas → focus

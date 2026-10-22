@@ -184,9 +184,10 @@ export function createThumbEngine(o) {
       const files = [];
       for (const e of entries) {
         if (e.isDirectory()) continue;
-        if (e.isFile() && accept(e.name)) files.push(e.name);
+        // A symlinked plot counts (stat below follows it; a dangling link drops out there).
+        if ((e.isFile() || e.isSymbolicLink()) && accept(e.name)) files.push(e.name);
       }
-      const stats = await Promise.all(files.map((n) => fsp.stat(path.join(dir, n)).catch(() => null)));
+      const stats = await Promise.all(files.map((n) => fsp.stat(path.join(dir, n)).then((st) => (st.isFile() ? st : null)).catch(() => null)));
       files.forEach((name, i) => {
         const st = stats[i];
         if (!st || out.length >= maxFiles) { if (st) truncated = true; return; }
@@ -303,13 +304,14 @@ export function createThumbEngine(o) {
     }
   }
 
-  async function renderPng(src, abs, width, fonts, roots) {
+  async function renderPng(src, abs, width, fonts, roots, onRender) {
     const R = resvg();
     const tallFit = src.naturalWidth && src.naturalHeight && src.naturalHeight / src.naturalWidth > MAX_TALL;
     const nativeW = src.raster ? src.naturalWidth : 0;
     const fit = tallFit
       ? { mode: "height", value: Math.round(width * MAX_TALL) }
       : { mode: "width", value: nativeW ? Math.min(width, nativeW) : width };
+    onRender?.();
     const r = new R(src.svg, {
       fitTo: fit,
       font: { loadSystemFonts: false, fontFiles: fonts.files, defaultFontFamily: fonts.defaultFamily || undefined, sansSerifFamily: fonts.sans || undefined },
@@ -336,7 +338,7 @@ export function createThumbEngine(o) {
    * naturalWidth, naturalHeight } — or { error, quarantined?, tooLarge? }.
    * `roots` contains external <image> resolution; `indexRoot` names the per-root index.
    */
-  async function thumb(abs, bucket, { roots = [], indexRoot = null } = {}) {
+  async function thumb(abs, bucket, { roots = [], indexRoot = null, onRender = null } = {}) {
     if (!THUMB_BUCKETS.includes(bucket)) bucket = THUMB_BUCKETS[1];
     let st;
     try { st = await fsp.stat(abs); } catch { return { error: "missing" }; }
@@ -350,12 +352,12 @@ export function createThumbEngine(o) {
     try { src = await sourceFor(abs, st); }
     catch (e) { return { error: String(e?.message ?? e), tooLarge: !!e?.tooLarge, unsupported: !!e?.unsupported }; }
     const fonts = src.raster ? { files: [], defaultFamily: "" } : await fontsFor(src.svg);
-    const rendered = await renderPng(src, abs, bucket, fonts, roots);
+    const rendered = await renderPng(src, abs, bucket, fonts, roots, onRender);
     // The analysis always reads an ANALYSIS_WIDTH render, so a file's backdrop does not depend on
     // the bucket asked for first.
     let stats = entry?.stats ?? null;
     if (!stats) {
-      const a = bucket === ANALYSIS_WIDTH ? rendered : await renderPng(src, abs, ANALYSIS_WIDTH, fonts, roots);
+      const a = bucket === ANALYSIS_WIDTH ? rendered : await renderPng(src, abs, ANALYSIS_WIDTH, fonts, roots, onRender);
       stats = analyzeInk(a.pixels, a.width, a.height, { premultiplied: true });
     }
     const paper = await manifestPaper(abs);
@@ -397,8 +399,13 @@ export function createThumbEngine(o) {
       try { files = await fsp.readdir(dir); } catch { continue; }
       for (const f of files) {
         if (!f.endsWith(".png")) {
-          // Orphaned temp files from an interrupted write.
-          if (f.endsWith(".tmp")) await fsp.rm(path.join(dir, f), { force: true }).catch(() => {});
+          // Orphaned temp files from an interrupted write — only stale ones (a live writeAtomic
+          // renames within milliseconds; never race it).
+          if (f.endsWith(".tmp")) {
+            const tp = path.join(dir, f);
+            const st = await fsp.stat(tp).catch(() => null);
+            if (st && Date.now() - st.mtimeMs > 10 * 60 * 1000) await fsp.rm(tp, { force: true }).catch(() => {});
+          }
           continue;
         }
         const p = path.join(dir, f);

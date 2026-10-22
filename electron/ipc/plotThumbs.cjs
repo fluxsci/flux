@@ -25,6 +25,13 @@ const ACCEPT_RE = /^[a-z0-9]{2,5}(,[a-z0-9]{2,5}){0,7}$/;
 
 function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, fontIndexFile, fsReadGuard, log = () => {}, thumbTimeoutMs = THUMB_TIMEOUT_MS }) {
   const here = path.join(appRoot, "electron");
+  // The library path comes from preferences (a sync read in main); every thumbnail request
+  // checks containment against it, so keep it for a moment rather than re-reading per call.
+  let libCache = { at: 0, value: "" };
+  const library = () => {
+    if (Date.now() - libCache.at > 2000) libCache = { at: Date.now(), value: libraryRoot() || "" };
+    return libCache.value;
+  };
   let engineMod = null, foldersMod = null, dissectMod = null;
   const loadEngine = () => (engineMod ??= import(pathToFileURL(path.join(here, "plotThumbEngine.mjs")).href));
   const loadFolders = () => (foldersMod ??= import(pathToFileURL(path.join(here, "plotsFolders.js")).href));
@@ -142,6 +149,25 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
     });
   }
 
+  // Fallback for the IO-only ops once the worker is unavailable: the engine's list/probe in this
+  // process (no raster work — that never runs in main).
+  let localEngine = null;
+  async function inProcess(msg) {
+    try {
+      if (!localEngine) {
+        const { createThumbEngine } = await loadEngine();
+        localEngine = createThumbEngine({ cacheDir: cacheDir(), resvgFrom: pathToFileURL(path.join(appRoot, "package.json")).href });
+      }
+      if (msg.op === "list") {
+        const reserved = new Set(msg.reserved ?? []);
+        const exts = String(msg.accept).split(",").join("|");
+        return { result: await localEngine.list(msg.base, { skipDir: (n) => reserved.has(n), accept: (n) => new RegExp(`\\.(${exts})$`, "i").test(n), indexRoot: msg.indexRoot, dirs: msg.dirs }) };
+      }
+      if (msg.op === "probe") return { result: await localEngine.probe(msg.paths, msg.indexRoot) };
+      return { error: "unavailable", unavailable: true };
+    } catch (err) { return { error: String(err?.message ?? err) }; }
+  }
+
   function shutdown() {
     const proc = child;
     child = null;
@@ -158,7 +184,7 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
     if (typeof abs !== "string" || !path.isAbsolute(abs) || abs.includes("\0") || abs.split(/[\\/]+/).includes("..")) return null;
     const norm = path.resolve(abs);
     const root = rootFor(e);
-    const bases = [root ? path.join(root, "plots") : "", libraryRoot() || ""].filter(Boolean);
+    const bases = [root ? path.join(root, "plots") : "", library()].filter(Boolean);
     for (const base of bases) if (norm === base || norm.startsWith(base + path.sep)) return { base, abs: norm };
     return null;
   }
@@ -176,7 +202,7 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
     ipcMain.handle("plots:list", async (e, request) => {
       const scope = request?.scope === "global" ? "global" : "project";
       const root = rootFor(e);
-      const scopeBase = scope === "global" ? libraryRoot() : root ? path.join(root, "plots") : "";
+      const scopeBase = scope === "global" ? library() : root ? path.join(root, "plots") : "";
       if (!scopeBase) return { base: "", entries: [], truncated: false };
       const { RESERVED_PLOT_DIRNAMES } = await loadFolders();
       // A reserved collection (typing "_" in the rail): list INSIDE it, nothing pruned there.
@@ -185,8 +211,24 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
       const accept = typeof request?.accept === "string" && ACCEPT_RE.test(request.accept) ? request.accept : "svg,png";
       try { await fs.promises.access(base); } catch { return { base, entries: [], truncated: false }; }
       fsReadGuard(base, e.sender.id);
-      const dirs = Array.isArray(request?.dirs) ? request.dirs.filter((d) => typeof d === "string" && path.isAbsolute(d) && (d === base || d.startsWith(base + path.sep))).slice(0, 2000) : null;
-      const reply = await call({ op: "list", base, reserved: collection ? [] : RESERVED_PLOT_DIRNAMES, accept, indexRoot: scopeBase, dirs });
+      // Incremental folders: canonical, inside the listed base, through the read guard — the same
+      // containment as every other path here (a `..` must not walk out of plots/).
+      let dirs = null;
+      if (Array.isArray(request?.dirs)) {
+        dirs = [];
+        for (const d of request.dirs.slice(0, 2000)) {
+          if (typeof d !== "string" || !path.isAbsolute(d) || d.includes("\0") || d.split(/[\\/]+/).includes("..")) continue;
+          const norm = path.resolve(d);
+          if (norm !== base && !norm.startsWith(base + path.sep)) continue;
+          try { fsReadGuard(norm, e.sender.id); } catch { continue; }
+          dirs.push(norm);
+        }
+      }
+      const msg = { op: "list", base, reserved: collection ? [] : RESERVED_PLOT_DIRNAMES, accept, indexRoot: scopeBase, dirs };
+      let reply = await call(msg);
+      // In fallback mode the worker is gone, but listing is file IO only: do it here so the rail
+      // still shows every plot (the renderer then draws the tiles itself).
+      if (reply.unavailable) reply = await inProcess(msg);
       if (reply.error) return { base, entries: [], truncated: false, error: reply.error, unavailable: !!reply.unavailable };
       // The project may have changed while the walk ran.
       if (scope === "project" && rootFor(e) !== root) return { base, entries: [], truncated: false, stale: true };
@@ -204,7 +246,9 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
       }
       const out = [];
       for (const [base, list] of byBase) {
-        const reply = await call({ op: "probe", paths: list, indexRoot: base });
+        const msg = { op: "probe", paths: list, indexRoot: base };
+        let reply = await call(msg);
+        if (reply.unavailable) reply = await inProcess(msg);
         if (!reply.error) out.push(...reply.result);
       }
       return out;

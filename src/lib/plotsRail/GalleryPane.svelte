@@ -13,7 +13,7 @@
   import GalleryExpandedPreview from "../plot/GalleryExpandedPreview.svelte";
   import { createPlotIndex, type PlotIndex, type PlotItem, type IndexState } from "./plotIndex";
   import { railPrefs, toggledFolders, saveToggledFolders, isCollapsed, TILE_H_MIN, TILE_H_MAX } from "./railPrefs";
-  import { railQuickLook, plotsRailFocusRequest } from "./railState";
+  import { railQuickLook, plotsRailFocusRequest, takeRailFocus } from "./railState";
   import { offerFile, resolvePlotElement } from "./focusPlot";
   import { beginPlotDrag } from "./dragPlace";
   import { insertPlots } from "./insert";
@@ -40,7 +40,10 @@
 
   const root = $derived($embeddedProjectRoot || $projectDir || "");
   const scope = $derived($railPrefs.scope);
-  let collection = $state("");
+  let collectionState = $state({ key: "", owner: "" });
+  // A collection belongs to the project+scope it was entered in (switching either leaves it —
+  // derived, so the index is built once for the new place, never for the stale collection).
+  const collection = $derived(collectionState.owner === `${root}|${scope}` ? collectionState.key : "");
   let search = $state("");
   let searchEl = $state<HTMLInputElement>();
   let grid = $state<ReturnType<typeof JustifiedGrid>>();
@@ -64,7 +67,7 @@
     return () => { offState(); offCounts(); created.dispose(); };
   });
   // Leaving the project or scope resets the browsing state that belonged to it.
-  $effect(() => { root; scope; untrack(() => { collection = ""; selected = new Set(); focusId = ""; }); });
+  $effect(() => { root; scope; untrack(() => { selected = new Set(); focusId = ""; }); });
   $effect(() => {
     const k = refreshKey;
     if (k) untrack(() => void index?.refresh());
@@ -89,7 +92,8 @@
   // ------------------------------------------------------------------ what is shown
   const q = $derived(search.trim().toLowerCase());
   let toggled = $state.raw<Set<string>>(new Set());
-  $effect(() => { const r = ix.base; toggled = r ? toggledFolders(r) : new Set(); });
+  const base = $derived(ix.base);
+  $effect(() => { const r = base; toggled = r ? toggledFolders(r) : new Set(); });
 
   let reservedHere = $state.raw<{ name: string; hint: string }[]>([]);
   $effect(() => {
@@ -146,11 +150,15 @@
   const fileCount = $derived(ix.items.length);
 
   // ------------------------------------------------------------------ canvas linkage
-  const absOf = (p: string) => (/^([a-zA-Z]:)?[\\/]/.test(p) ? p : root ? joinPath(root, p) : p);
+  // Paths compare with forward slashes: the worker reports native paths (\\ on Windows), element
+  // sources and the renderer's joinPath use /.
+  const slash = (p: string) => p.replace(/\\/g, "/");
+  const absOf = (p: string) => slash(/^([a-zA-Z]:)?[\\/]/.test(p) ? p : root ? joinPath(root, p) : p);
+  const idBySlash = $derived.by(() => { void ix.version; const m = new Map<string, string>(); for (const it of ix.items) m.set(slash(it.abs), it.abs); return m; });
   const linkedId = $derived.by(() => {
     const el = resolvePlotElement($project, $selection, $partSelection);
     const src = el?.type === "plot" ? el.source?.svgPath : "";
-    return src ? absOf(src) : "";
+    return src ? idBySlash.get(absOf(src)) ?? "" : "";
   });
   let lastRevealed = "";
   $effect(() => {
@@ -313,10 +321,10 @@
     toggleFolder(dir);
   }
   function enterCollection(name: string) {
-    collection = name; search = "";
+    collectionState = { key: name, owner: `${root}|${scope}` }; search = "";
     void tick().then(() => grid?.scrollToTop());
   }
-  function leaveCollection() { collection = ""; void tick().then(() => searchEl?.focus()); }
+  function leaveCollection() { collectionState = { key: "", owner: "" }; void tick().then(() => searchEl?.focus()); }
 
   // ------------------------------------------------------------------ keyboard
   function onGridKey(e: KeyboardEvent, focused: GridItem | null) {
@@ -393,8 +401,8 @@
     railPrefs.update((p) => ({ ...p, scope: sc }));
   }
   $effect(() => {
-    const n = $plotsRailFocusRequest;
-    if (n && active) untrack(() => void tick().then(() => { searchEl?.focus(); searchEl?.select(); }));
+    void $plotsRailFocusRequest;
+    if (active) untrack(() => { if (takeRailFocus()) void tick().then(() => { searchEl?.focus(); searchEl?.select(); }); });
   });
 
   // ------------------------------------------------------------------ zoom + visible work
@@ -489,7 +497,7 @@
           focused={flags.focused}
           linked={flags.linked}
           priority={flags.priority}
-          inUse={usage.get(it.abs) ?? null}
+          inUse={usage.get(slash(it.abs)) ?? null}
           dissections={dissectionsFor(it)}
           glyph={glyphFor(it)}
           glyphTitle={glyphTitle(it)}

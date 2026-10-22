@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { notifyPlotsWritten } from "../../../lib/plotsRail/plotIndex";
   import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { readerContext } from "../../../lib/bridge/contextStamp";
@@ -481,6 +482,7 @@
     snipError = "";
     try {
       const {base,name,meta} = await snipController.save(req,rawName);
+      notifyPlotsWritten([`${root}/${SNIP_DIR}/${name}.png`]); // the watcher skips the app's own writes
       if (snipReq === req) { snipReq = null; snipPreview = null; }
       pushToast("info", `Snip saved${name !== base ? ` as ${name}` : ""}`, { detail: `${SNIP_DIR}/${name}.png · ${meta.citation}` });
     } catch (e) {

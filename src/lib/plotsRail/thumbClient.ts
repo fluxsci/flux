@@ -192,6 +192,13 @@ export function acquireThumb(path: string, stamp: string, cssWidth: number, dpr:
   };
 }
 
+/** Re-rank a QUEUED request (scrolling changes which tiles are nearest); never touches one
+ *  already sent — re-acquiring would cancel and resend it through IPC on every scroll step. */
+export function setThumbPriority(path: string, stamp: string, cssWidth: number, dpr: number, priority: number): void {
+  const e = entries.get(`${path}|${stamp}|${bucketFor(cssWidth, dpr)}`);
+  if (e && e.phase === "queued") e.priority = priority;
+}
+
 /** The analysis known for a file version, if any tile of it has loaded. */
 export function knownStats(path: string, stamp: string): { stats: InkStats | null; paper: string | null } | null {
   return statsMemo.get(`${path}|${stamp}`) ?? null;

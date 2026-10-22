@@ -70,6 +70,10 @@ try {
     const inc = await engine.list(P, { skipDir: (n: string) => reserved.has(n), dirs: [join(P, "figs"), join(P, "gone")] });
     h.eq(inc.entries.map((e: { rel: string }) => e.rel).join(","), "figs/b.svg", "an incremental re-list reads only the named folder's own files");
     h.eq(inc.missing.join(","), join(P, "gone"), "a vanished folder comes back in `missing`");
+    symlinkSync(join(P, "a.svg"), join(P, "figs", "linked.svg"));
+    const withLink = await engine.list(P, { skipDir: (n: string) => reserved.has(n) });
+    h.ok(withLink.entries.some((e: { rel: string }) => e.rel === "figs/linked.svg"), "a symlinked plot is listed");
+    rmSync(join(P, "figs", "linked.svg"));
     const insideReserved = await engine.list(join(P, "_dissections"), {});
     h.eq(insideReserved.entries.map((e: { rel: string }) => e.rel).sort().join(","), "a/group/s2.svg,a/s1.svg", "inside a collection nothing is pruned");
   }
@@ -106,6 +110,11 @@ try {
     put(join(P, "w.webp"), Buffer.from("RIFF\x10\x00\x00\x00WEBPVP8X", "latin1"));
     const webp = await engine.thumb(join(P, "w.webp"), 256, { roots: [P], indexRoot: P });
     h.ok(webp.unsupported, "WebP is declined (resvg-js 2.6 cannot decode it) → the renderer's fallback");
+    const order: string[] = [];
+    const later2 = new Date(Date.now() + 20000);
+    utimesSync(join(P, "figs", "b.svg"), later2, later2);
+    await engine.thumb(join(P, "figs", "b.svg"), 256, { roots: [P], indexRoot: P, onRender: () => order.push("render") });
+    h.ok(order.length >= 1, "the engine names the moment resvg runs (the supervisor times only that, not file reads)");
     const req = svgFontRequests(svg(10, 10) + '<text style="font-weight: bold; font-family: Arial">x</text>');
     h.ok(req.some((r: { weight: number }) => r.weight === 700) && req.some((r: { family: string }) => /DejaVu/.test(r.family)), "font requests: every family stack, bold when any text is bold");
   }
@@ -165,6 +174,8 @@ try {
       threw = false;
       try { await call("thumbs:get", { path: `${P}/../project.json`, bucket: 256 }); } catch { threw = true; }
       h.ok(threw, "a path that is not normalized (..) is refused");
+      const sneaky = await call("plots:list", { scope: "project", accept: "svg,png,json", dirs: [`${P}/../..`, join(P, "figs")] });
+      h.ok(sneaky.entries.every((e: { abs: string }) => e.abs.startsWith(P)) && sneaky.entries.some((e: { rel: string }) => e.rel === "figs/b.svg"), "incremental `dirs` with `..` are refused; in-root folders still list");
       const probes = await call("plots:probe", [join(P, "a.svg"), "/etc/passwd"]);
       h.eq(probes.length, 1, "probes outside the roots are dropped");
       const cold = await call("thumbs:get", { path: join(P, "a.svg"), bucket: 512, rid: "r1" });
@@ -225,6 +236,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       h.ok(fam._state().unavailable, "more than three deaths in ten minutes → fallback mode");
       const fb = await call("thumbs:get", { path: join(P, "a.svg"), bucket: 256 });
       h.ok(fb.unavailable, "in fallback mode thumbnails answer { unavailable } (the renderer draws them)");
+      const listed = await call("plots:list", { scope: "project", accept: "svg,png" });
+      h.ok(listed.entries.some((e: { rel: string }) => e.rel === "a.svg"), "…but listing still works (file IO in main): the gallery is never emptied by a dead worker");
+      const probed = await call("plots:probe", [join(P, "a.svg")]);
+      h.ok(probed[0]?.w > 0, "…and so do header probes");
     } finally { fam.shutdown(); }
   }
 } finally {

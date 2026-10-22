@@ -69,7 +69,7 @@ import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen, shellModalOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { dissectTarget, openDissectForSelection } from "./dissect/state";
 import { figureLayout } from "./figureLayoutStore";
-import { plotsRailFocusRequest, railQuickLook } from "./plotsRail/railState";
+import { requestRailFocus, railQuickLook } from "./plotsRail/railState";
 import { plotsRailOwnsKey, inPlotsRailScope } from "./plotsRail/keyScope";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
@@ -818,7 +818,7 @@ export function handleKey(e: KeyboardEvent) {
   //   Plots showing, keyboard elsewhere → focus its search;
   //   keyboard inside the rail → back to Layers, keyboard back to the canvas.
   // Shift+Alt+G opens the full gallery, pinned (unchanged).
-  if (e.altKey && !mod && e.code === "KeyG" && !e.shiftKey && storeTenant() === "figure") {
+  if (e.altKey && !mod && e.code === "KeyG" && !e.shiftKey && storeTenant() === "figure" && (!typing || inPlotsRailScope(e))) {
     // With the full gallery pinned in its own window, Alt+G keeps focusing that window
     // (PlotImporter's own listener does it).
     if (get(importerOpen) && get(importerDetached)) return;
@@ -832,7 +832,7 @@ export function handleKey(e: KeyboardEvent) {
     }
     if (hidden) leftRailHidden.set(false);
     if (view !== "plots") figureLayout.update((l) => ({ ...l, leftView: "plots" }));
-    plotsRailFocusRequest.update((n) => n + 1);
+    requestRailFocus();
     return;
   }
 

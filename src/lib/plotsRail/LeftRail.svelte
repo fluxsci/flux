@@ -79,11 +79,11 @@
 </script>
 
 <div class="left-rail" data-left-rail={view}>
-  <div class="tabs" role="tablist" aria-label="Left rail">
-    <button role="tab" class="tab" aria-selected={view === "layers"} class:chosen={view === "layers"} title="Canvases, figures and layers" onclick={() => setView("layers")} data-rail-tab="layers">
+  <div class="rail-tabs" role="tablist" aria-label="Left rail">
+    <button role="tab" class="rail-tab" aria-selected={view === "layers"} class:chosen={view === "layers"} title="Canvases, figures and layers" onclick={() => setView("layers")} data-rail-tab="layers">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2 14 5 8 8 2 5Z"/><path d="M2 8l6 3 6-3"/><path d="M2 11l6 3 6-3"/></svg><span class="lbl">Layers</span>
     </button>
-    <button role="tab" class="tab" aria-selected={view === "plots"} class:chosen={view === "plots"} title="Plot gallery and dissections (Alt+G)" onclick={() => setView("plots")} data-rail-tab="plots">
+    <button role="tab" class="rail-tab" aria-selected={view === "plots"} class:chosen={view === "plots"} title="Plot gallery and dissections (Alt+G)" onclick={() => setView("plots")} data-rail-tab="plots">
       <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg><span class="lbl">Plots</span>
     </button>
     {#if view === "plots"}
@@ -102,11 +102,11 @@
 
 <style>
   .left-rail { display: flex; flex-direction: column; width: var(--sb-w, 200px); flex: 0 0 var(--sb-w, 200px); min-height: 0; background: var(--c-bg-raised); border-right: 1px solid var(--c-line); }
-  .tabs { display: flex; align-items: center; gap: 2px; height: 28px; flex-shrink: 0; padding: 0 4px; border-bottom: 1px solid var(--c-line); }
-  .tab { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border: 0; border-radius: var(--r-ui); background: none; color: var(--c-tx-muted); font: 11.5px var(--font-ui); cursor: var(--cursor-cross-hover); }
-  .tab svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.2; }
-  .tab:hover { color: var(--c-tx-hi); }
-  .tab.chosen { color: var(--c-tx-hi); background: var(--c-accent-tint); box-shadow: inset 0 -2px 0 var(--c-accent); }
+  .rail-tabs { display: flex; align-items: center; gap: 2px; height: 28px; flex-shrink: 0; padding: 0 4px; border-bottom: 1px solid var(--c-line); }
+  .rail-tab { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border: 0; border-radius: var(--r-ui); background: none; color: var(--c-tx-muted); font: 11.5px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .rail-tab svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+  .rail-tab:hover { color: var(--c-tx-hi); }
+  .rail-tab.chosen { color: var(--c-tx-hi); background: var(--c-accent-tint); box-shadow: inset 0 -2px 0 var(--c-accent); }
   .grow { flex: 1; }
   .dest { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 55%; height: 20px; padding: 0 6px; border: 1px solid var(--c-line); border-radius: var(--r-ui); background: none; color: var(--c-tx-2); font: 11px var(--font-ui); white-space: nowrap; cursor: var(--cursor-cross-hover); transition: background-color 90ms linear; }
   .dest:hover:not(:disabled) { border-color: var(--c-line-strong); color: var(--c-tx-hi); }

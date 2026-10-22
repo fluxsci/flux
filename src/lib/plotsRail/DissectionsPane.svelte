@@ -70,8 +70,9 @@
     const fb = fileBridge();
     const off = fb?.onFsChangedBatch?.((info) => {
       if (info.subsystem !== "dissections" || !ds.key || !root) return;
-      const dir = dissectionRootAbs(root, ds.key);
-      if (info.rescan || info.paths.some((p) => p === dir || p.startsWith(dir + "/") || p.startsWith(dir + "\\"))) { rememberAnchor(); void model.refresh(); }
+      // Forward slashes on both sides: the watcher reports native paths (\\ on Windows).
+      const dir = dissectionRootAbs(root, ds.key).replace(/\\/g, "/");
+      if (info.rescan || info.paths.some((p) => { const q = p.replace(/\\/g, "/"); return q === dir || q.startsWith(dir + "/"); })) { rememberAnchor(); void model.refresh(); }
     });
     return () => off?.();
   });
@@ -83,8 +84,8 @@
   // until the next is complete — never a blank frame between two plots.
   let view = $state.raw<{ key: string; rev: number; sections: DissectionSection[] }>({ key: "", rev: -1, sections: [] });
   $effect(() => {
-    const st = ds;
-    const rev = st.rev;
+    const rev = ds.rev;
+    const st = untrack(() => ds);
     const files = st.sections.flatMap((s) => s.files);
     let alive = true;
     void (async () => {

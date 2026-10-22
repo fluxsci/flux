@@ -322,6 +322,46 @@ h.section("live gallery, Recent sort, Quick Look, the split, the library");
   await waitFor(page, () => !!document.querySelector('[data-plots-gallery] [data-tile$="/alpha.svg"]'), null, { label: "project again" });
 }
 
+h.section("review regressions: one-shot Alt+G, typing, the app's own writes");
+{
+  // Collapse the gallery, leave to Layers and come back by TAB: an old Alt+G must not replay
+  // (no forced un-collapse, no search focus).
+  await page.click("[data-plots-dissections] button[aria-label='Maximize dissections']");
+  await waitFor(page, () => !!document.querySelector("[data-gallery-collapsed]"), null, { label: "gallery collapsed" });
+  await page.click('[data-rail-tab="layers"]');
+  await page.click('[data-rail-tab="plots"]');
+  await sleep(250);
+  h.ok(!!(await page.$("[data-gallery-collapsed]")) && !(await activeIsSearch()), "re-opening Plots by its tab does not replay an old Alt+G");
+  await alt("KeyG"); // a FRESH Alt+G still lands in a visible search box
+  await waitFor(page, () => document.activeElement?.hasAttribute("data-plots-search"), null, { label: "fresh Alt+G" });
+  h.ok(!(await page.$("[data-gallery-collapsed]")), "a fresh Alt+G un-collapses the gallery to reach its search");
+  // Typing in a field outside the rail: Alt+G is not the rail's (Option+G types © on macOS).
+  await page.mouse.click(900, 600);
+  const field = await page.$(".inspector input");
+  if (field) {
+    await field.focus();
+    await alt("KeyG");
+    await sleep(150);
+    h.ok(!(await activeIsSearch()), "Alt+G while typing in an Inspector field leaves the keyboard there");
+  } else h.ok(true, "(no Inspector field to type in)");
+  // The app's own write under plots/ (a pasted image's archive) appears without a watcher event.
+  await page.evaluate(async () => {
+    const c = new OffscreenCanvas(40, 30); const x = c.getContext("2d"); x.fillStyle = "#da702c"; x.fillRect(0, 0, 40, 30);
+    const blob = await c.convertToBlob({ type: "image/png" });
+    await window.__flux.io.archivePastedImage(new File([blob], "pasted-rail.png", { type: "image/png" }), "pasted-rail.png");
+  });
+  await waitFor(page, async () => {
+    const vp = document.querySelector("[data-plots-gallery] .viewport");
+    for (let i = 0; i < 60; i++) {
+      if (document.querySelector('[data-plots-gallery] [data-tile$="/pasted/pasted-rail.png"]')) return true;
+      vp.scrollTop += 200; await new Promise((r) => setTimeout(r, 20));
+    }
+    vp.scrollTop = 0;
+    return false;
+  }, null, { label: "self-write appears", timeout: 8000 });
+  h.ok(true, "an image the app archives into plots/pasted appears in the gallery live");
+}
+
 h.section("the fallback renderer keeps the law; Slide keeps its Alt+G");
 {
   await page.evaluate(() => localStorage.setItem("flux.fixture.thumbsUnavailable", "1"));

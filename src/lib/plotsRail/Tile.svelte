@@ -13,7 +13,8 @@
   // edge), chosen per image by the backdrop law (electron/plotThumbRules.mjs) — every element of
   // a transparent plot stays visible. The raster comes from the shared thumbnail client
   // (bucketed by the tile's width × DPR); a tile that unmounts releases its request.
-  import { acquireThumb, type ThumbState } from "./thumbClient";
+  import { untrack, onDestroy } from "svelte";
+  import { acquireThumb, setThumbPriority, type ThumbState } from "./thumbClient";
   import { bucketFor, chooseBackdrop, backdropTone, type BackdropMode, type InkStats } from "./rules";
   import { middleEllipsis } from "./ellipsis";
 
@@ -71,14 +72,30 @@
   const bucket = $derived(bucketFor(w, dpr));
 
   let shownVersion = "";
+  // The request in use, and the previous one kept until its replacement has a picture (a zoom
+  // changes the bucket: the old raster stays on screen meanwhile — no skeleton flash).
+  let current: (() => void) | null = null;
+  let previous: (() => void) | null = null;
+  const dropPrevious = () => { previous?.(); previous = null; };
   $effect(() => {
-    const p = path, s = stamp, b = bucket, prio = priority;
-    // A new file version fades in; a bucket change (zoom) swaps in place, without a flash.
-    if (shownVersion !== `${p}|${s}`) { shownVersion = `${p}|${s}`; loaded = false; }
+    const p = path, s = stamp, b = bucket;
+    // Priority is read once here; later changes only re-rank (below) — never cancel + resend.
+    const prio = untrack(() => priority);
+    const newVersion = shownVersion !== `${p}|${s}`;
+    if (newVersion) { shownVersion = `${p}|${s}`; loaded = false; }
+    dropPrevious();
+    if (newVersion) { current?.(); current = null; } else { previous = current; current = null; }
     // `b` picks the cache bucket; the client is told the CSS width that produced it.
-    const release = acquireThumb(p, s, b / dpr, dpr, prio, (st) => { thumb = st; });
-    return release;
+    // Untracked: the client may answer synchronously, and the answer reads + writes `thumb` —
+    // tracked, that would make this effect depend on its own output.
+    current = untrack(() => acquireThumb(p, s, b / dpr, dpr, prio, (st) => {
+      if (!st.url && st.pending && previous && thumb.url) { thumb = { ...st, url: thumb.url }; return; }
+      thumb = st;
+      if (st.url || !st.pending) dropPrevious();
+    }));
   });
+  $effect(() => { const prio = priority; untrack(() => setThumbPriority(path, stamp, bucket / dpr, dpr, prio)); });
+  onDestroy(() => { dropPrevious(); current?.(); current = null; });
 
   // The page box: the true aspect contained in the tile box.
   const page = $derived.by(() => {

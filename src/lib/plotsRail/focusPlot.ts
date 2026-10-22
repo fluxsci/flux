@@ -65,6 +65,8 @@ export interface FocusTarget {
 }
 
 const norm = (p: string) => String(p || "").replace(/\\/g, "/");
+/** Absolute on any platform (`/x`, `C:/x`, `\\\\server` after norm). */
+const isAbs = (p: string) => /^([a-zA-Z]:)?\//.test(p);
 const baseName = (p: string) => norm(p).split("/").pop() ?? "";
 const stripExt = (p: string) => p.replace(/\.[^./]+$/, "");
 
@@ -85,10 +87,10 @@ export async function focusTargetFor(
   const src = el.type === "plot" ? norm(el.source?.svgPath ?? "") : "";
   const r = norm(root).replace(/\/+$/, "");
   if (src) {
-    const inside = !r ? !src.startsWith("/") : src.startsWith(r + "/") || !src.startsWith("/");
+    const inside = !r ? !isAbs(src) : src.startsWith(r + "/") || !isAbs(src);
     if (el.source?.external || !inside) return { key: "", kind: "external", name: stripExt(baseName(src)), abs: src };
     const rel = src.startsWith(r + "/") ? src.slice(r.length + 1) : src.replace(/^\.\//, "");
-    const abs = src.startsWith("/") ? src : r ? `${r}/${rel}` : rel;
+    const abs = isAbs(src) ? src : r ? `${r}/${rel}` : rel;
     if (rel.startsWith("plots/") && isDissectionPlotsRel(rel.slice("plots/".length))) {
       const owner = await dissectionOwner(rel.slice("plots/".length + DISSECT_DIRNAME.length + 1), r, exists);
       if (owner) return { key: owner.key, kind: "plot", name: baseName(owner.key), abs: owner.abs, file: { group: owner.group, name: owner.file } };

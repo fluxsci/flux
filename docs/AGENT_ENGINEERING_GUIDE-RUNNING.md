@@ -10492,3 +10492,19 @@ arrow, bands show the outlined resize arrows — then the crosshair legs under `
 ### 2026-10-22 10:55 CDT — Pull + verify the Mac's four commits on the Linux box (Claude Fable 5.1, main)
 **Work:** Fast-forwarded main 1056642e → 3464787f (sRGB live-view probe, exFAT `publishExclusive` fallback, upstream merge, pink cursor press). Merge resolutions clean. svelte-check 0/0; pure 388/388 after fixes; ui 154/154; build OK. Fixed: five stale `verify-changed-pathmap` pins for `verify-cursor-press.mjs`; census exemption for `cursorPress.ts`'s passive Escape listener; **packaging** — `electron/fsExclusive.cjs` (required by the unpacked `videoMedia.cjs`/`model3dImport.cjs`) and `workerCancel.cjs`/`slideAudioGraph.cjs` (required by the unpacked workers) were missing from `asarUnpack`, so packaged Node-mode CLI/MCP video and 3D-import commands would die with "Cannot find module './fsExclusive.cjs'" (`verify-slide-video-media-electron` caught it; its probe and the export probe copy lists updated). Electron tier NOT completed here: it opens real windows on the owner's seat (no Xvfb) and was stopped at 17/36; reds seen were environment (Xvfb, proxy fixtures, correction model) plus the packaging gap above.
 **Learnings:** Mac sessions run focused gates only — run the pure tier after every Mac pull. `verify-packaged-requires` checks npm packages, not the relative-require closure of `asarUnpack`; that closure check is still manual (python one-off this session) and worth a gate.
+
+### 2026-10-22 — The Plots rail: a gallery + live dissections in the Figure left rail (Claude Opus 5.5, `plots-rail` worktree)
+**Work:** Planned (notes/plots_rail_2026-10-22/PLAN.md, two subagent reviews folded in), spiked (P0.md:
+resvg fidelity/timing/size parity on 695 real images, backdrop law tuned on contact sheets) and built
+P0–P2: the left rail's [Layers | Plots] view — a justified-row gallery (folder sections, Recent sort,
+search, Project/Global, `_` collections, ⧉/in-use chips, linked ring + auto-reveal, Quick Look,
+double-click/Enter/drag-to-place at true size) over a Dissections pane that follows the focus plot
+(canvas or gallery; sticky; pin; summary-first table cards; aligned flipping; Show-all cap; live).
+Thumbnails come from a supervised resvg worker (ELECTRON_RUN_AS_NODE child) with a disk cache,
+per-root index, quarantine, respawn and a renderer fallback. Alt+G is now the rail in Figure (three
+states, tenant-gated); the full gallery is the toolbar's Gallery / Shift+Alt+G. Seven Figure gallery
+gates and two native probes migrated to the toolbar (the contract changed; Slide keeps Alt+G).
+**Learnings:** §4 "The Plots rail" + §9 "resvg, thumbnails and the Plots rail" (font DB per Resvg
+constructor, premultiplied pixels, local `<image>` hrefs, no WebP, `$state` deep proxies, windowed
+section headers in gates, puppeteer `count`, canonicalise-then-contain). New gate
+`verify-asar-unpack-closure.ts` closes the 10-22 "a gate is still owed" note.

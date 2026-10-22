@@ -12,7 +12,7 @@
 //   → { id, op: "quarantine", path, indexRoot, reason }
 //   → { id, op: "sweep" }
 //   ← { id, ok: true, result } | { id, ok: false, error }
-//   ← { started: id }   before each render, so the parent can name the culprit of a crash.
+//   ← { started: id }   just before resvg runs, so the parent can name (and time) the culprit.
 // Env: FLUX_RESVG_FROM (file URL resvg resolves from), FLUX_THUMB_CACHE (cache dir),
 //      FLUX_FONTFILES_MODULE (file URL of src/lib/text/fontFiles.mjs), FLUX_FONT_INDEX.
 // stdin closing ends the worker after the per-root indexes are flushed.
@@ -48,9 +48,13 @@ async function pump() {
     while (queue.length) {
       queue.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
       const job = queue.shift();
-      send({ started: job.id });
+      // `started` is sent right before resvg runs (the synchronous part that can hang or panic),
+      // not before the file reads and font lookups — a slow disk must not get an innocent plot
+      // killed and quarantined.
+      let named = false;
+      const onRender = () => { if (!named) { named = true; send({ started: job.id }); } };
       try {
-        const result = await engine.thumb(job.path, job.bucket, { roots: job.roots ?? [], indexRoot: job.indexRoot ?? null });
+        const result = await engine.thumb(job.path, job.bucket, { roots: job.roots ?? [], indexRoot: job.indexRoot ?? null, onRender });
         send({ id: job.id, ok: true, result });
       } catch (e) {
         send({ id: job.id, ok: false, error: String(e?.message ?? e) });

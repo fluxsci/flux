@@ -82,6 +82,12 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
   let generation = 0;
   let disposed = false;
   const probing = new Set<string>();
+  // abs|stamp already probed without a size (a GLB, an unreadable header): never re-probed.
+  const unsized = new Set<string>();
+  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+  // Changes that arrived while the first walk ran (no base yet): one re-walk after it.
+  let changedDuringLoad = false;
+  let loadingNow = false;
   const countsAsked = new Set<string>();
 
   function publish(patch: Partial<IndexState> = {}) {
@@ -94,13 +100,16 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
     const mine = ++generation;
     if (!fb?.plotsList) { state.update((s) => ({ ...s, loading: false, loaded: true, error: "Plot browsing needs the desktop app" })); return; }
     state.update((s) => ({ ...s, loading: true, error: "" }));
+    loadingNow = true; changedDuringLoad = false;
     let r;
     try { r = await fb.plotsList({ scope: opts.scope, accept: opts.accept, ...(opts.collection ? { collection: opts.collection } : {}) }); }
     catch (e) { if (mine === generation) state.update((s) => ({ ...s, loading: false, loaded: true, error: e instanceof Error ? e.message : String(e) })); return; }
+    loadingNow = false;
     if (mine !== generation || disposed || r.stale) return;
     byAbs.clear();
     for (const e of r.entries) byAbs.set(e.abs, toItem(e));
     publish({ base: r.base, loading: false, loaded: true, truncated: r.truncated, error: r.error && !r.unavailable ? r.error : "" });
+    if (changedDuringLoad) { changedDuringLoad = false; void load(); }
   }
 
   /** Re-list only these folders (a watcher batch / an app write named files in them). */
@@ -133,7 +142,7 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
   async function ensureSizes(abs: string[]) {
     const fb = fileBridge();
     if (!fb?.plotsProbe) return;
-    const want = abs.filter((a) => { const it = byAbs.get(a); return it && !it.w && !probing.has(a); });
+    const want = abs.filter((a) => { const it = byAbs.get(a); return it && !it.w && !probing.has(a) && !unsized.has(`${a}|${it.stamp}`); });
     if (!want.length) return;
     for (const a of want) probing.add(a);
     const mine = generation;
@@ -146,6 +155,7 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
         for (const p of res) {
           const it = byAbs.get(p.abs);
           if (it && p.w && p.h) { it.w = p.w; it.h = p.h; it.physMm = p.physMm ?? null; changed = true; }
+          else if (it) unsized.add(`${p.abs}|${it.stamp}`);
         }
         if (changed) state.update((s) => ({ ...s, version: s.version + 1 }));
       }
@@ -183,11 +193,11 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
     const fb = fileBridge();
     let pendingDirs = new Set<string>();
     let rescan = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
-      if (timer) return;
-      timer = setTimeout(() => {
-        timer = null;
+      if (batchTimer) return;
+      batchTimer = setTimeout(() => {
+        batchTimer = null;
+        if (disposed) return;
         if (rescan) { rescan = false; pendingDirs = new Set(); void load(); return; }
         const dirs = [...pendingDirs]; pendingDirs = new Set();
         void refreshDirs(dirs);
@@ -195,7 +205,7 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
     };
     const take = (paths: string[]) => {
       const base = get(state).base;
-      if (!base) return;
+      if (!base) { if (loadingNow) changedDuringLoad = true; return; }
       for (const p of paths) {
         if (p !== base && !p.startsWith(base + "/") && !p.startsWith(base + "\\")) continue;
         const cut = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
@@ -229,6 +239,6 @@ export function createPlotIndex(opts: { scope: PlotScope; collection?: string; a
     ensureSizes,
     ensureCounts,
     refresh: async () => { countsAsked.clear(); counts.set(new Map()); await load(); },
-    dispose() { disposed = true; generation++; for (const off of offs) off(); if (countTimer) clearTimeout(countTimer); },
+    dispose() { disposed = true; generation++; for (const off of offs) off(); if (countTimer) clearTimeout(countTimer); if (batchTimer) clearTimeout(batchTimer); },
   };
 }

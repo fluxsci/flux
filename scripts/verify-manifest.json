@@ -393,7 +393,8 @@
       "verify-plots-rail-layout.ts",
       "verify-plots-rail-backdrop.ts",
       "verify-plots-rail-focus.ts",
-      "verify-plot-thumbs.ts"
+      "verify-plot-thumbs.ts",
+      "verify-asar-unpack-closure.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -683,7 +684,8 @@
       "verify-scale-model3d-electron.cjs",
       "verify-model3d-s8.cjs",
       "verify-model3d-video-electron.cjs",
-      "verify-slide-model3d-scale-electron.cjs"
+      "verify-slide-model3d-scale-electron.cjs",
+      "verify-plots-rail-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -1261,6 +1263,10 @@
       "verify-plots-rail-focus.ts",
       "verify-plot-thumbs.ts",
       "verify-plots-rail.mjs"
+    ],
+    "plots-rail-native": [
+      "verify-plots-rail-electron.cjs",
+      "verify-figure-polish-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -2098,7 +2104,8 @@
       "run": [
         "tier:pure",
         "verify-w13-cli.mjs",
-        "verify-packaged-requires.ts"
+        "verify-packaged-requires.ts",
+        "verify-asar-unpack-closure.ts"
       ]
     },
     {
@@ -2715,7 +2722,9 @@
         "verify-ipc-contract.ts",
         "verify-annotate-chord-census.ts",
         "tier:pure",
-        "verify-no-retired-agent-layer.ts"
+        "verify-no-retired-agent-layer.ts",
+        "group:plots-rail-native",
+        "verify-asar-unpack-closure.ts"
       ]
     },
     {
@@ -10056,6 +10065,27 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-asar-unpack-closure.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plots-rail-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
       "exclusive": true,
       "coverage": "behavior"
     }

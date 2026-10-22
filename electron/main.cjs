@@ -1498,7 +1498,9 @@ const plotThumbsFamily = require("./ipc/plotThumbs.cjs").createPlotThumbsFamily(
   rootFor,
   libraryRoot: () => fluxPaths.plotLibraryPathSync(readPrefs()),
   cacheDir: () => path.join(fluxPaths.userDataDir(), "cache", "plot-thumbs"),
-  fontIndexFile: () => path.join(fluxPaths.userDataDir(), "fonts-index.json"),
+  // Its own face index: fonts.cjs writes fonts-index.json from this process; two writers of one
+  // non-atomic file could tear it.
+  fontIndexFile: () => path.join(fluxPaths.userDataDir(), "cache", "plot-thumbs-fonts.json"),
   fsReadGuard: fileCore.fsReadGuard,
   log: (msg, detail) => console.warn(`[plots] ${msg}${detail ? `: ${detail}` : ""}`),
 });
