@@ -10508,3 +10508,16 @@ gates and two native probes migrated to the toolbar (the contract changed; Slide
 constructor, premultiplied pixels, local `<image>` hrefs, no WebP, `$state` deep proxies, windowed
 section headers in gates, puppeteer `count`, canonicalise-then-contain). New gate
 `verify-asar-unpack-closure.ts` closes the 10-22 "a gate is still owed" note.
+**Verification:** svelte-check + headless 0/0; pure 393/393; ui 155/155 (fresh server); native on a
+private Xvfb (:87): `verify-plots-rail-electron` (17 checks: worker thumbnails + backdrops, cache,
+one worker, native insert, real-watcher live dissections + regenerated plot, worker kill/respawn,
+1,500-plot fling), `verify-figure-polish-electron` with the new rail-open phase (5,000 objects:
+51.1 ms p95 closed → 66.9 ms rail open with 24 dense plots rendering; one first-key outlier, the
+other 17 samples 39–47 ms), the migrated gallery/annotate/metadata native gates; packaged
+`electron-builder --linux dir` + `verify-packaged-app` PASS, the worker run from
+app.asar.unpacked, and the packaged app's rail showing worker thumbnails. An Opus code review's
+8 important findings were fixed (containment of incremental `dirs`, listing after worker
+fallback, one-shot Alt+G, ©-typing, tile re-rank vs cancel/resend, self-writes, Windows paths,
+gate registration) with regression checks. The one ui red on the way was a selector collision:
+the rail's tab row used `.tabs` and `verify-figure-metadata` clicks `.tabs button:first-child` —
+classes in an always-mounted rail must be specific (`.rail-tabs`).
