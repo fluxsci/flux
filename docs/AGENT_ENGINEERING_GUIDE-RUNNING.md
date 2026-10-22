@@ -1715,7 +1715,7 @@ Persistence invariants (all machine-checked — do not weaken):
     per visit; NumberField's opt-in externalOwner and canvas gap drags own inner baselines,
     preview through Canvas's existing sceneTransforms, and publish positions only on accept.
     Layout culling includes original and preview bounds; publish visible sets only when their
-    members/model identities change. Bulk primitive previews use direct transforms instead of
+    members/model identities change. Bulk primitive previews use disposable SVG translation attributes instead of
     thousands of compositor animations; dense artwork keeps its drive. Stop updating a primitive
     once its last rendered bounds and planned bounds are both offscreen; reset on baseline exit.
     Cancel inner edits before cancelling the visit; outside model/source conflicts finish
@@ -2944,7 +2944,10 @@ Run it through the hermetic runner; never validate a migration on real projects.
   recompute its figure's list — so each keystroke re-rendered every mounted element.
   `ElementSlot.svelte` (runes) is the scene's render boundary: it passes an element on only when
   its identity or JSON content changed; `perfCounters.elementRenders` + `verify-scale-figure`
-  pin one render per one-element nudge. Keep new per-element rendering behind it.
+  pin one render per one-element nudge. The wrapper, cursor tone and presentation action
+  also live inside this boundary; retain the content-change token through derived values,
+  since returning the same mutable element identity would suppress real in-place edits.
+  Keep new per-element rendering behind it.
 - **A store read in a per-element `$:` subscribes every instance.** `$: x = cond ? f($project) : null`
   lists `$project` as a dependency even when `cond` is false, and `legacy_pre_effect_reset`
   re-runs every `$:` dependency of the component when any of them changes: 3,760 elements ×
@@ -10547,3 +10550,6 @@ classes in an always-mounted rail must be specific (`.rail-tabs`).
 **Learnings:**
 - Native traces showed thousands of per-primitive compositor animations cost more than drawing those primitives. Preserve artwork drives, bound visual work to viewport coverage, and avoid scene publications when visible members and model identities are unchanged.
 - A pointer gesture must transfer focus from a previously focused button/input before claiming Space; consuming the document key alone does not suppress native button activation.
+
+### 2026-10-22 17:30 CDT — Large-selection rendering follow-up (Codex, `feat/align-arrange`)
+**Work:** Native tracing identified style/layer work across thousands of primitive wrappers. Bulk Arrange translations now use disposable SVG attributes while dense artwork retains compositor drives; ElementSlot also gates wrapper/presentation updates. Strengthened native probes verify every gap sample changes spacing and keyboard nudges move rendered bounds. Added transform ownership/cancellation/remount coverage; budgets remain unchanged. Final receipts and earlier timing failures are retained in the implementation report.

@@ -31,8 +31,9 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["src/lib/ElementSlot.svelte",["verify-render-optimizations.mjs","verify-figure-editing-gui.mjs","verify-v020-geometry-gui.mjs","verify-slide-canvas-presentation-gui.mjs","verify-cursor-gui.mjs","verify-cursor-press.mjs","verify-canvas-coverage.mjs","group:align-arrange","group:align-arrange-native"]],
   ["flux-core/plotAlignment.ts", ["verify-plot-landmarks.ts", "verify-plot-spines-gui.mjs", "verify-registry-parity.ts"]],
-  ["src/lib/interact/sceneTransforms.ts",["verify-resize-preview.ts","verify-crop.mjs","verify-fig-esc.mjs","verify-f5-drag.mjs","verify-v020-geometry-gui.mjs","group:align-arrange","group:align-arrange-native"]],
+  ["src/lib/interact/sceneTransforms.ts",["verify-resize-preview.ts","verify-crop.mjs","verify-fig-esc.mjs","verify-f5-drag.mjs","verify-v020-geometry-gui.mjs","group:align-arrange","group:align-arrange-native","verify-scene-transforms.ts"]],
   ["src/lib/AlignArrangePanel.svelte",["group:align-arrange","verify-fig-esc.mjs","verify-surface-anchor.ts","verify-annotate-chord-census.ts"]],
   ["src/lib/ArrangeGapOverlay.svelte",["group:align-arrange","verify-fig-esc.mjs","verify-surface-anchor.ts","verify-annotate-chord-census.ts"]],
   ["src/lib/interact/alignArrange.ts",["group:align-arrange","verify-fig-esc.mjs","verify-surface-anchor.ts","verify-annotate-chord-census.ts"]],

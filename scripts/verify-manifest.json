@@ -397,7 +397,8 @@
       "verify-asar-unpack-closure.ts",
       "verify-arrangement.ts",
       "verify-plot-landmarks.ts",
-      "verify-align-arrange-controller.ts"
+      "verify-align-arrange-controller.ts",
+      "verify-scene-transforms.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -1282,7 +1283,8 @@
       "verify-align-arrange-gui.mjs",
       "verify-arrange-gaps-gui.mjs",
       "verify-number-field-owner.mjs",
-      "verify-plot-spines-gui.mjs"
+      "verify-plot-spines-gui.mjs",
+      "verify-scene-transforms.ts"
     ],
     "align-arrange-native": [
       "verify-figure-polish-electron.cjs"
@@ -1290,6 +1292,20 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/ElementSlot.svelte",
+      "run": [
+        "verify-render-optimizations.mjs",
+        "verify-figure-editing-gui.mjs",
+        "verify-v020-geometry-gui.mjs",
+        "verify-slide-canvas-presentation-gui.mjs",
+        "verify-cursor-gui.mjs",
+        "verify-cursor-press.mjs",
+        "verify-canvas-coverage.mjs",
+        "group:align-arrange",
+        "group:align-arrange-native"
+      ]
+    },
     {
       "glob": "flux-core/plotAlignment.ts",
       "run": [
@@ -2636,7 +2652,8 @@
         "verify-f5-drag.mjs",
         "verify-v020-geometry-gui.mjs",
         "group:align-arrange",
-        "group:align-arrange-native"
+        "group:align-arrange-native",
+        "verify-scene-transforms.ts"
       ]
     },
     {
@@ -10223,6 +10240,15 @@
       "coverage": "behavior"
     },
     "verify-align-arrange-controller.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-scene-transforms.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

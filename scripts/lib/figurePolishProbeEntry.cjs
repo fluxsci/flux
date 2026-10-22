@@ -19,13 +19,13 @@ async function selectFigure(n){await click(`.figrow[data-fig-id="native-${n}"] .
 const p95=xs=>[...xs].sort((a,b)=>a-b)[Math.floor(xs.length*.95)];
 const command=process.platform==='darwin'?'meta':'control';
 const paint=()=>js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
-async function startProfile(label){
+async function startProfile(label,traceOnly=false){
  const trace=[];let tracingDone;
  const message=(_event,method,params)=>{if(method==='Tracing.dataCollected')trace.push(...params.value);if(method==='Tracing.tracingComplete')tracingDone?.();};
  win.webContents.debugger.attach('1.3');win.webContents.debugger.on('message',message);
- await win.webContents.debugger.sendCommand('Profiler.enable');await win.webContents.debugger.sendCommand('Profiler.start');
+ if(!traceOnly){await win.webContents.debugger.sendCommand('Profiler.enable');await win.webContents.debugger.sendCommand('Profiler.start');}
  await win.webContents.debugger.sendCommand('Tracing.start',{categories:'devtools.timeline,v8,blink.user_timing,disabled-by-default-devtools.timeline',transferMode:'ReportEvents'});
- return async()=>{const profile=await win.webContents.debugger.sendCommand('Profiler.stop');fs.writeFileSync(path.resolve(__dirname,`../../test-results/${label}-cpu.json`),JSON.stringify(profile));await new Promise(async resolve=>{tracingDone=resolve;await win.webContents.debugger.sendCommand('Tracing.end');});fs.writeFileSync(path.resolve(__dirname,`../../test-results/${label}-trace.json`),JSON.stringify({traceEvents:trace}));win.webContents.debugger.removeListener('message',message);win.webContents.debugger.detach();};
+ return async()=>{if(!traceOnly){const profile=await win.webContents.debugger.sendCommand('Profiler.stop');fs.writeFileSync(path.resolve(__dirname,`../../test-results/${label}-cpu.json`),JSON.stringify(profile));}await new Promise(async resolve=>{tracingDone=resolve;await win.webContents.debugger.sendCommand('Tracing.end');});fs.writeFileSync(path.resolve(__dirname,`../../test-results/${label}-trace.json`),JSON.stringify({traceEvents:trace}));win.webContents.debugger.removeListener('message',message);win.webContents.debugger.detach();};
 }
 async function timedKey(code,modifiers=[]){
  await js("window.__layoutTime=undefined;window.__layoutKey=()=>{const t=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>window.__layoutTime=performance.now()-t))};window.addEventListener('keydown',window.__layoutKey,{once:true,capture:true})");
@@ -44,11 +44,21 @@ async function arrangementCohort(n,count){
  if(!handle){console.log('PROBE gap-hit-diagnostic='+JSON.stringify(await js("[...document.querySelectorAll('[data-arrange-gap=\"x\"]')].slice(0,3).map(n=>{const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return {box:b.toJSON(),targets:document.elementsFromPoint(x,y).slice(0,4).map(n=>({tag:n.tagName,cls:n.getAttribute('class')}))}})")));throw Error('No exposed horizontal gap handle');}
  const profiling=process.env.FLUX_LAYOUT_PROFILE==='1'&&n===5000;
  const stopProfile=profiling?await startProfile('align-arrange-native'):null;
- await js("window.__layoutNodes=new Map([...document.querySelectorAll('[data-editor-element-id]')].map(n=>[n.dataset.editorElementId,{node:n,art:n.querySelector('svg')} ]));window.__layoutMoves=[];window.__layoutMove=e=>{if(!e.buttons)return;const t=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>window.__layoutMoves.push(performance.now()-t)))};window.addEventListener('pointermove',window.__layoutMove,true);void 0");
+ const gapBefore=await js("Number(document.querySelector('.align-arrange-panel .spacing .nf input').value)");
+ await js("window.__layoutNodes=new Map([...document.querySelectorAll('[data-editor-element-id]')].map(n=>[n.dataset.editorElementId,{node:n,art:n.querySelector('svg')} ]));window.__layoutMoves=[];window.__layoutSignals=[];window.__layoutSignal=e=>window.__layoutSignals.push({type:e.type,target:e.target?.getAttribute?.('class'),at:performance.now()});for(const name of ['blur','pointercancel','lostpointercapture'])window.addEventListener(name,window.__layoutSignal,true);window.__layoutMove=e=>{if(!e.buttons)return;const t=performance.now(),x=e.clientX;requestAnimationFrame(()=>requestAnimationFrame(()=>{const sample={x,ms:performance.now()-t,gap:Number(document.querySelector('.align-arrange-panel .spacing .nf input')?.value)};window.__layoutMoves.push(sample);window.__layoutSampleReady?.(sample)}))};window.addEventListener('pointermove',window.__layoutMove,true);void 0");
  win.webContents.sendInputEvent({type:'mouseMove',...handle});await paint();
  win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...handle});await paint();
- for(let i=1;i<=18;i++){win.webContents.sendInputEvent({type:'mouseMove',button:'left',modifiers:['leftButtonDown'],x:handle.x+i,y:handle.y});await paint();}
- const moves=await js("window.removeEventListener('pointermove',window.__layoutMove,true);window.__layoutMoves");
+ for(let i=1;i<=18;i++){
+  const x=handle.x+i;
+  win.webContents.sendInputEvent({type:'mouseMove',button:'left',modifiers:['leftButtonDown'],x,y:handle.y});
+  // Wait for this trusted input's own second animation frame, rather than a
+  // separately queued frame which can precede native event delivery.
+  await js(`new Promise(resolve=>{const sample=window.__layoutMoves.find(s=>s.x===${x});if(sample)resolve(sample);else window.__layoutSampleReady=s=>{if(s.x===${x}){window.__layoutSampleReady=null;resolve(s)}}})`);
+ }
+ const audit=await js("window.removeEventListener('pointermove',window.__layoutMove,true);for(const name of ['blur','pointercancel','lostpointercapture'])window.removeEventListener(name,window.__layoutSignal,true);({samples:window.__layoutMoves,signals:window.__layoutSignals})");
+ const moves=audit.samples.map(s=>s.ms);
+ fs.writeFileSync(path.resolve(__dirname,`../../test-results/align-arrange-native-${n}-samples.json`),JSON.stringify({gapBefore,...audit},null,2));
+ check(audit.samples.every((s,i)=>Number.isFinite(s.gap)&&s.gap>(i?audit.samples[i-1].gap:gapBefore)),`${n}: every measured pointer move increases horizontal spacing`);
  const scene=await js("({mounted:document.querySelectorAll('[data-editor-element-id]').length,drives:document.getAnimations().length,visible:[...document.querySelectorAll('[data-editor-element-id]')].filter(n=>{const b=n.getBoundingClientRect();return b.bottom>70&&b.top<innerHeight&&b.right>200&&b.left<1192}).length})");
  if(stopProfile)await stopProfile();
  check(await js("(()=>{const nodes=new Map([...document.querySelectorAll('[data-editor-element-id]')].map(n=>[n.dataset.editorElementId,n]));return [...window.__layoutNodes].every(([id,old])=>{const n=nodes.get(id);return n===old.node&&n?.querySelector('svg')===old.art})})()"),`${n}: selected wrappers and nested SVG artwork retain identity during gap scrub`);
@@ -77,6 +87,7 @@ async function main(){
  check(win.webContents.getURL().startsWith('file:')&&await js('!window.__flux'),'production bundle, no development handles');
  metrics.environment={display:process.env.DISPLAY??null,gpuFeatures:app.getGPUFeatureStatus(),privateDisplay:process.env.FLUX_PRIVATE_DISPLAY==='1',platform:process.platform,cpu:require('node:os').cpus()[0]?.model,versions:process.versions};
  await click('button[aria-label=Figure]');await wait(()=>js("!!document.querySelector('.figure-mode .canvas-host')"),'Figure');
+ const stopFullTrace=process.env.FLUX_LAYOUT_PROFILE==='trace'?await startProfile('align-arrange-native-full',true):null;
  for(const [n,count]of [[1600,1600],[5000,5000],['dense',12]])await arrangementCohort(n,count);
  for(const n of [1600,5000]){
   await selectFigure(n);
@@ -84,12 +95,15 @@ async function main(){
   await click('.sidebar .layer .item');win.webContents.sendInputEvent({type:'keyDown',keyCode:'End'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'End'});
   await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   const beforeX=await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)");
+  const screenBefore=await js(`(()=>{const id=document.querySelector('.sidebar .layer.active')?.dataset.layerKey?.slice(2);const node=id&&document.querySelector('[data-editor-element-id="'+CSS.escape(id)+'"]');return node?{id,x:node.getBoundingClientRect().x,scale:node.getScreenCTM().a}:null})()`);
   await js("window.__nativeTimes=[];window.__nativeKey=e=>{if(e.key!=='ArrowRight')return;const t=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>window.__nativeTimes.push(performance.now()-t)))};window.addEventListener('keydown',window.__nativeKey,true);void 0");
   const stopNudgeProfile=process.env.FLUX_LAYOUT_PROFILE==='nudge'&&n===5000?await startProfile('align-arrange-native-nudge'):null;
   for(let i=0;i<18;i++){win.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')}
   if(stopNudgeProfile)await stopNudgeProfile();
   const times=await js("window.removeEventListener('keydown',window.__nativeKey,true);window.__nativeTimes");
   check(await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)")===beforeX+18,`${n}: measured key events actually moved the selected object`);
+  const screenAfter=await js(`document.querySelector('[data-editor-element-id="'+CSS.escape(${JSON.stringify(screenBefore?.id)})+'"]')?.getBoundingClientRect().x`);
+  check(screenBefore&&Math.abs(screenAfter-screenBefore.x-18*screenBefore.scale)<0.5,`${n}: in-place nudge moves the rendered artwork by eighteen canvas pixels`);
   check(times.length===18,`${n}: actual native keyboard events measured`);metrics[n]={nudgeP95:p95(times),samplesMs:times,viewport:await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'),mounted:await js("document.querySelectorAll('[data-editor-element-id]').length"),layers:await js("document.querySelectorAll('.sidebar .layer').length")};
   console.log('PROBE metrics='+JSON.stringify({figure:n,...metrics[n]}));
   fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-native-metrics.json'),JSON.stringify(metrics,null,2));
@@ -171,6 +185,7 @@ async function main(){
  }
 
  await click('button[aria-label=Slide]');await wait(()=>js("!!document.querySelector('.slide-mode .canvas-host')"),'Slides');
+ if(stopFullTrace)await stopFullTrace();
  check(await js("!document.querySelector('.frame-resize-handle')"),'Slides retains deck-wide stage sizing');
  const out=path.resolve(__dirname,'../../test-results');fs.writeFileSync(path.join(out,'figure-polish-native.png'),(await win.webContents.capturePage()).toPNG());
  fs.writeFileSync(path.join(out,'figure-polish-native.json'),JSON.stringify({checks,metrics},null,2));

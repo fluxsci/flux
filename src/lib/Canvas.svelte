@@ -70,8 +70,6 @@
   import { onMount, tick, onDestroy } from "svelte";
   import { cursorPress } from "./cursor/cursorPress";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
-  import { presentEditorParts } from "./editorPresentationDom";
-  import { modelPartOpacity } from './model3d/appearance';
   import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
   import { remapRuns, normalizeRuns, elementFlags, rangeIsOn, rangeScript } from "./textRuns";
   import { publishTextRange, detachTextRange, registerLiveRangeToggle, typingStyle, type RangeStyle } from "./textEditRange";
@@ -4645,37 +4643,23 @@
                 </text>
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
-                {@const elTone = elementTone(el, el.type === "plot" ? $plotManifests[el.assetId] : null)}
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <g
-                  class="el"
-                  class:cursor-on-light={elTone === "light"}
-                  class:cursor-on-dark={elTone === "dark"}
-                  data-editor-element-id={el.id}
-                  use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : el.type === 'model3d' ? $model3dPosterRevision : 0 }}
-                  opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
-                  style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
-                  class:editing-hidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
-                  style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
-                  use:sceneTransforms.register={el.id}
-                  on:pointerdown={(e) => onElementDown(e, el, fig)}
-                  on:pointerenter={() => {
-                    if ($activeTool === "select" || $activeTool === "scale") hoverId.set(el.id);
-                  }}
-                  on:pointerleave={() => {
-                    if ($hoverId === el.id) hoverId.set(null);
-                  }}
-                  on:dblclick={(e) => onElementDblClick(e, el, fig)}
-                >
-                  <!-- WS-1 Fix 2: transient node-drag / line-pivot preview swaps
-                       into the element's own slot — z-order + clipping intact,
-                       model untouched until the single pointer-up commit. -->
-                  {#if sceneOverride && sceneOverride.id === el.id}
-                    <ElementView element={sceneOverride.el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
-                  {:else}
-                    <ElementSlot element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
-                  {/if}
-                </g>
+                <ElementSlot
+                  element={el}
+                  figure={fig}
+                  {sceneTransforms}
+                  onPointerDown={onElementDown}
+                  onDoubleClick={onElementDblClick}
+                  plotManifest={el.type === "plot" ? $plotManifests[el.assetId] : null}
+                  generation={el.type === "plot" ? $plotGen[el.assetId] : el.type === "model3d" ? $model3dPosterRevision : 0}
+                  partStates={presentation?.partStates?.[el.id]}
+                  ghost={presentation?.ghostHidden}
+                  hidden={hiddenPresentationIds.has(el.id)}
+                  opacity={presentation?.elementStates?.[el.id]?.opacity ?? 1}
+                  absent={absentPresentationIds.has(el.id)}
+                  editingHidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
+                  gestureHidden={gestureHiddenIds.has(el.id)}
+                  override={sceneOverride?.id === el.id ? sceneOverride.el : null}
+                />
               {/each}
             </g>
             {#if !frame}
@@ -5290,9 +5274,6 @@
     overflow: visible;
     pointer-events: none;
   }
-  .editing-hidden {
-    opacity: 0;
-  }
   /* The painted text is showing through: keep the caret and the selection
      highlight, hand the glyphs to the canvas. */
   /* The painted text shows through; the textarea keeps only caret + selection.
@@ -5353,15 +5334,6 @@
     fill: var(--c-tx-muted);
     text-anchor: middle;
     pointer-events: none;
-  }
-  .el {
-    /* The cursor FIREWALL (see the hostCursor rationale in the script): an
-       explicit constant on every element wrapper, so host cursor flips stop
-       here instead of restyling the mounted plot DOM beneath. The constant is
-       the hover-dot variant — hovering an object shows the dot with no JS. The
-       press variant over objects comes from the host's pointer capture. Never
-       `inherit` here. */
-    cursor: var(--cursor-cross-hover);
   }
   .sel-box {
     stroke: var(--c-accent);
