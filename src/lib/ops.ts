@@ -699,7 +699,7 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
   const modern=opts.mode!==undefined||opts.gapX!==undefined||opts.gapY!==undefined||opts.anchorX!==undefined||opts.anchorY!==undefined||opts.anchor!==undefined;
   if(modern){
     validateLayoutIds(f, opts.ids);
-    if(opts.gap!==undefined&&(!Number.isFinite(opts.gap)||opts.gap<0))throw new Error('Arrangement gap must be finite and nonnegative');
+    if(opts.gap!==undefined&&!Number.isFinite(opts.gap))throw new Error('Arrangement gap must be finite');
     const fraction=(value:ArrangeOpts['anchorX']):0|.5|1=>{
       if(value===undefined||value==='start')return 0;if(value==='center')return .5;if(value==='end')return 1;throw new Error('Invalid arrangement anchor');
     };

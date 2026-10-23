@@ -94,18 +94,24 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 | `render-canvas [canvasId] [--png] [--out f]` | `get_canvas_image` | render the WHOLE canvas (all figures at their x/y) — catches overlap/layout problems per-figure renders can't |
 | `sync-figure [figId]` | `sync_figure` | refresh `fig/assets` copies from regenerated `plots/` sources IN PLACE (captions/restyles survive); a changed intrinsic plot size resizes the element true-size + grows the figure frame — re-`arrange` if the grid should reflow |
 
-Figure/Slide's **A** tool opens Flux Align; **Space** switches to Flux Arrange;
-**Alt+T** enters Arrange directly. Arrow is **Shift+L** (Line stays L). The tool's
-pink guides edit gaps around a chosen fixed point; each visit is one Undo.
+Figure/Slide's **A** tool opens the combined Align & Arrange panel with Align active;
+**Space** switches the active keyboard pane while both stay visible, and **Alt+T**
+activates Arrange directly. Arrow is **Shift+L** (Line stays L). Evenly spaced
+selections show draggable pink guides without opening the panel. Gap edits use a
+chosen fixed point; hold **W/A/S/D** during a spacing drag or numeric scroll/scrub
+for temporary top/left/bottom/right anchors. Each Arrange visit or direct-guide
+drag is one Undo; individual Align actions are separate Undo steps.
 
 For reproducible file layout, `arrange <figId> --ids a,b,c --mode tidy --gap-x 16
 --anchor-x center --anchor-y center` infers a row/column/simple grid while preserving
 internal offsets. Omit gap overrides to preserve already uniform spacing exactly.
 `--mode reflow --rows N` or `--cols N` deliberately changes topology. Use `--gap-y`
-for row spacing; `--gap` sets both, axis flags take precedence. New-mode gaps must
-be finite and nonnegative, anchors are `start|center|end`, and `--scope` addresses
-children of an entered group. Legacy calls retain their old top-left defaults and
-signed-gap behavior. Tidy rejects rows/cols; in reflow, cols wins if both are given.
+for row spacing; `--gap` sets both, axis flags take precedence. All gaps accept
+finite signed values: negative values overlap tracks, with no lower floor. Extreme
+negative spacing may reverse physical positions while retaining logical track
+membership, dimensions and stacking order. Anchors are `start|center|end` and fix
+the actual selection bounds, including overlaps. `--scope` addresses children of
+an entered group. Legacy calls retain their old top-left defaults. Tidy rejects rows/cols; in reflow, cols wins if both are given.
 
 Ordinary `align` also accepts `--target selection|figure|reference`, `--reference
 <unit-key-or-member-id>`, and `--scope`. Scientific alignment uses `--reference`

@@ -1707,13 +1707,24 @@ Persistence invariants (all machine-checked — do not weaken):
     (palette rows + recent, hover previews through the session, click commits), `s` searches.
     Columns (1/2/3 by field count) replace vertical scroll.
   - **Align / Arrange (A / Alt+T) = `AlignArrangePanel.svelte` + `interact/alignArrange.ts`.**
-    Space switches views; Arrow is Shift+L in Figure/Slide (Annotate retains its own map).
+    Both panes remain visible; Space or a pane control switches keyboard ownership.
+    Arrow is Shift+L in Figure/Slide (Annotate retains its own map).
     `layout/arrangement.ts` owns inferred rows/columns/grids, immutable translation plans,
     per-axis gaps and fixed-point anchoring; `layout/layoutMath.ts` also serves legacy
     `arrangeGrid`. Old headless calls preserve their defaults. A regular inferred layout
-    returns exact identity; X-only gap edits preserve Y bytes. Arrange owns one editSession
+    returns exact identity; X-only gap edits preserve Y bytes. Signed gaps have no floor:
+    logical track/member and z-order stay fixed while extreme negative values can reverse
+    physical positions. Anchor the actual union of occupied boxes, never a nominal summed
+    track extent, which may be smaller or negative. Passive selection guides recognize only
+    exact regular rows/columns/grids (including confident aligned overlaps), with no tidy or
+    model mutation; dragging a passive guide owns its own hidden visit. Held W/A/S/D during
+    guide drag or numeric wheel/scrub temporarily pins an edge/corner at the current preview,
+    then restores the chosen anchor without a geometry jump. Arrange owns one editSession
     per visit; NumberField's opt-in externalOwner and canvas gap drags own inner baselines,
     preview through Canvas's existing sceneTransforms, and publish positions only on accept.
+    Gap overlays must explicitly depend on viewport/figure projection in legacy Svelte:
+    reading pan/zoom through a helper closure alone does not invalidate reactive guides,
+    bounds, badges or pins when geometry is unchanged.
     Layout culling includes original and preview bounds; publish visible sets only when their
     members/model identities change. Bulk primitive previews use disposable SVG translation attributes instead of
     thousands of compositor animations; dense artwork keeps its drive. Stop updating a primitive
@@ -10553,3 +10564,10 @@ classes in an always-mounted rail must be specific (`.rail-tabs`).
 
 ### 2026-10-22 17:30 CDT — Large-selection rendering follow-up (Codex, `feat/align-arrange`)
 **Work:** Native tracing identified style/layer work across thousands of primitive wrappers. Bulk Arrange translations now use disposable SVG attributes while dense artwork retains compositor drives; ElementSlot also gates wrapper/presentation updates. Strengthened native probes verify every gap sample changes spacing and keyboard nudges move rendered bounds. Added transform ownership/cancellation/remount coverage; budgets remain unchanged. Final receipts and earlier timing failures are retained in the implementation report.
+
+
+### 2026-10-22 18:58 CDT — Signed spacing and persistent layout controls (Codex, `feat/align-arrange`)
+**Work:** Refined Align & Arrange into two visible panes, added passive guides for exact regular selections, temporary held-key anchors, and unrestricted finite signed gaps for overlapping layouts. Updated shared planner/API behavior, user and stock agent docs, generated context, and registry parity; verification receipts remain in the implementation report.
+**Learnings:**
+- Negative spacing must anchor the actual occupied union; summed track sizes and gaps can describe a smaller or negative extent.
+- Legacy Svelte cannot discover viewport reads hidden in helper closures. Pass the projection explicitly to every reactive overlay calculation so pan/zoom moves unchanged layout chrome.

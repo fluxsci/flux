@@ -34,12 +34,15 @@
   export let optional = false;
   export let empty = false;
   export let live = false;
+  /** Display-only rounding; editing and model values retain full precision. */
+  export let displayPrecision: number | undefined = undefined;
   /** Opt-in keyboard flow (the property menu's armed axis view): Space accepts
    *  the value and emits `advance`; Enter accepts it and emits `done`. */
   export let advanceOnSpace = false;
   /** A surrounding tool may own all history and inner-edit cancellation. */
   export let externalOwner: {
-    begin: () => void;
+    begin: (kind?: 'typing'|'wheel'|'scrub') => void;
+    interaction?: (kind: 'typing'|'wheel'|'scrub'|null) => void;
     owns?: () => boolean;
     preview: (value: number | undefined) => void;
     accept: () => void;
@@ -48,13 +51,14 @@
   } | null = null;
   let externalActive = false;
   let invalid = false;
-  function beginExternal() {
+  function beginExternal(kind: 'typing'|'wheel'|'scrub'='typing') {
     if (!externalOwner || (externalActive && (externalOwner.owns?.() ?? true))) return;
     externalActive = true;
-    externalOwner.begin();
+    externalOwner.begin(kind);
   }
-  function externalValue(v: number | undefined) {
-    beginExternal();
+  function externalValue(v: number | undefined, kind: 'typing'|'wheel'|'scrub'='typing') {
+    beginExternal(kind);
+    externalOwner?.interaction?.(kind);
     invalid = false;
     externalOwner?.validity?.(true);
     externalOwner?.preview(v);
@@ -83,7 +87,7 @@
   // significant digits in the opt-in live mode instead of rounding to zero.
   const format = (v: number) => live && Number.isFinite(v) ? String(+v.toPrecision(12)) : fmtNum(v);
   const round = (v: number) => Number(format(v));
-  $: display = format(value);
+  $: display = displayPrecision === undefined || !Number.isFinite(value) ? format(value) : String(+value.toFixed(displayPrecision));
 
   function clamp(v: number): number {
     if (min != null) v = Math.max(min, v);
@@ -219,13 +223,13 @@
     }
     const v = clamp(round(numericStep(value, steps * mult, step, factor)));
     if (live && focused) draft = format(v);
-    if (v !== value) externalOwner ? externalValue(v) : (history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v));
+    if (v !== value) externalOwner ? externalValue(v, 'wheel') : (history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v));
     // The gesture ends when the wheel rests: one undo entry per roll.
     if (wheelTimer) clearTimeout(wheelTimer);
     wheelTimer = setTimeout(() => {
       wheelTimer = null;
       wheel.reset();
-      if (externalOwner) { if (!focused) endExternal(); } else session.finish();
+      if (externalOwner) { if (!focused) endExternal(); else if(externalOwner.owns?.() ?? true)externalOwner.interaction?.(null); } else session.finish();
     }, 220);
   }
 </script>
@@ -235,8 +239,8 @@
     <span
       class="lb"
       use:scrub={{ get: () => value, step, factor, min, max, disabled, owner: targetKey, round: live ? round : undefined,
-        onStart: () => { scrubBaseline = value; if (externalOwner) { if (wheelTimer) clearTimeout(wheelTimer); wheelTimer = null; wheel.reset(); endExternal(); beginExternal(); } else dispatch('scrubStart'); },
-        onStep: (v) => externalOwner ? externalValue(v) : history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
+        onStart: () => { scrubBaseline = value; if (externalOwner) { if (wheelTimer) clearTimeout(wheelTimer); wheelTimer = null; wheel.reset(); endExternal(); inputEl?.blur(); beginExternal('scrub'); externalOwner.interaction?.('scrub'); } else dispatch('scrubStart'); },
+        onStep: (v) => externalOwner ? externalValue(v, 'scrub') : history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
         onEnd: () => externalOwner ? endExternal() : session.finish(),
         onCancel: () => { if (externalOwner) endExternal(true); else if (history) session.cancel(); else dispatch("scrub", scrubBaseline); }
       }}
@@ -252,7 +256,7 @@
     placeholder={mixed ? mixedLabel : placeholder}
     aria-invalid={invalid || undefined}
     value={(live || externalOwner) && (focused || invalid) ? draft : mixed || empty ? "" : display}
-    on:focus={() => { focused = true; draft = inputEl.value; if (externalOwner) beginExternal(); }}
+    on:focus={() => { focused = true; draft = displayPrecision !== undefined && !mixed && !empty ? String(value) : inputEl.value; inputEl.value = draft; if (externalOwner) beginExternal(); }}
     on:input={preview}
     on:blur={blur}
     on:change={onChange}

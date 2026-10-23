@@ -55,6 +55,49 @@ for(const els of [
  const f=figure([rect('a',0,0),rect('b',20-1e-8,0),rect('c',40-2e-8,0)]),s=createArrangementSnapshot(f);
  eq(s.suggested,false);eq(s.gapX,0);eq(planArrangement(s).identity,true,'epsilon overlap at zero does not jump on open');
 }
+// Signed spacing keeps overlap usable, with conservative inference and exact
+// entry identity. An arbitrary diagonal pile must not become a passive layout.
+for(const axis of ['x','y'] as const){
+ const f=figure(Array.from({length:4},(_,i)=>rect('overlap'+i,axis==='x'?i*12:0,axis==='y'?i*12:0,20,20)));
+ const s=createArrangementSnapshot(f),before=structuredClone(s);
+ freezeDeep(s);
+ eq(s.suggested,false);eq(s.topology,axis==='x'?'row':'column');eq(axis==='x'?s.gapX:s.gapY,-8);
+ eq(planArrangement(s).identity,true,'regular overlapping row/column entry is exact identity');
+ for(const gap of [-4,-20,-45])for(const a of [0,.5,1] as const){
+  const anchor={x:a,y:a},pin={x:120,y:240},p=planArrangement(s,{[axis==='x'?'gapX':'gapY']:gap,anchor,pin});
+  near(axis==='x'?p.bounds.x+a*p.bounds.w:p.bounds.y+a*p.bounds.h,axis==='x'?pin.x:pin.y);
+  eq(p.cells.map(c=>c.key),s.cells.map(c=>c.key),'negative gaps preserve logical track order');
+  eq(p.units.map(u=>u.key),s.units.map(u=>u.key),'negative gaps preserve element order');
+  eq(planArrangement(snapshotAfterArrangement(s,p)).identity,true,'frozen negative/reversed topology reopens without drift');
+ }
+ eq(s,before,'signed planning leaves frozen baseline intact');
+}
+for(const [gx,gy] of [[-8,-5],[-8,5],[5,-5]]){
+ const f=figure(Array.from({length:8},(_,i)=>rect('grid'+i,(i%3)*(20+gx),Math.floor(i/3)*(20+gy))));
+ const s=createArrangementSnapshot(f);
+ eq(s.suggested,false);eq(s.topology,'grid');eq(s.cols,3);eq(s.rowCount,3);
+ eq(s.gapX,gx);eq(s.gapY,gy);eq(planArrangement(s).identity,true,'regular overlapping ragged grid is exact identity');
+}
+for(const els of [[rect('same-a',0,0),rect('same-b',0,0)], [rect('diag-a',0,0),rect('diag-b',5,5),rect('diag-c',10,10)]])
+ eq(createArrangementSnapshot(figure(els)).suggested,true,'coincident and diagonal overlaps stay ambiguous');
+// Actual union is wider than the nominal summed extent for nested or reversed
+// mixed-size tracks. Test inferred edits and explicit reflow at every anchor.
+for(const mode of ['inferred','reflow'] as const)for(const cols of [1,2,3])for(const gap of [-10,-40,-200])for(const ax of [0,.5,1] as const)for(const ay of [0,.5,1] as const){
+ const f=figure([rect('a',0,0,100,70),rect('b',130,0,20,30),rect('c',180,0,40,90),rect('d',0,140,15,20),rect('e',130,140,25,25)]);
+ const original=createArrangementSnapshot(f);
+ const baseline=planArrangement(original,{mode:'reflow',cols,gapX:10,gapY:10});
+ const s=snapshotAfterArrangement(original,baseline),anchor={x:ax,y:ay},pin={x:73,y:91};
+ const p=planArrangement(s,{...(mode==='reflow'?{mode:'reflow' as const,cols}:{}),gapX:gap,gapY:gap,anchor,pin});
+ if(p.cols>1)near(p.bounds.x+ax*p.bounds.w,pin.x);
+ if(p.rowCount>1)near(p.bounds.y+ay*p.bounds.h,pin.y);
+ eq(p.units.map(u=>[u.key,u.bounds.w,u.bounds.h]),s.units.map(u=>[u.key,u.bounds.w,u.bounds.h]));
+ for(const guide of p.gaps){assert.ok(guide.x2>=guide.x1&&guide.y2>=guide.y1);checks++;}
+}
+{
+ const f=figure([rect('signed-a',0,0),rect('signed-b',40,0),rect('signed-c',80,0)]),p=project(f);
+ arrangePanels(p,'f',{mode:'tidy',gap:-5,anchorX:'start'});
+ eq(f.elements.map(e=>e.x),[0,15,30],'modern common gap accepts negative spacing');
+}
 // All anchors, many mixed sizes, every ragged shape: verify actual bounds, not
 // only the formulas used to position the track origins.
 for(let n=2;n<=14;n++)for(let cols=1;cols<=n;cols++)for(const ax of [0,.5,1] as const)for(const ay of [0,.5,1] as const){
@@ -92,8 +135,8 @@ for(let n=2;n<=14;n++)for(let cols=1;cols<=n;cols++)for(const ax of [0,.5,1] as 
  const seed=figure([rect('a',15,30,30,40),rect('b',75,20,70,30),rect('c',180,110,10,50)]),a=structuredClone(seed),b=structuredClone(seed);
  arrangePanels(project(a),'f',{cols:2,rows:1,gap:-8});arrangeGrid(b.elements,2,{gap:-8},{figure:b});eq(a,b);
  const scoped=structuredClone(seed);arrangePanels(project(scoped),'f',{ids:['a','b','c'],scope:null,cols:2,gap:-8});eq(scoped,b);
- for(const opts of [{mode:'tidy' as const,rows:2},{mode:'reflow' as const,gap:-1},{gapX:Infinity},{anchorX:'center' as const,gap:-1}]){const before=structuredClone(seed);assert.throws(()=>arrangePanels(project(seed),'f',opts));checks++;eq(seed,before);}
- for(const gap of [-1,Infinity,NaN]){const before=structuredClone(seed);assert.throws(()=>arrangePanels(project(seed),'f',{mode:'tidy',gap,gapX:2,gapY:2}),/gap must be finite and nonnegative/);checks++;eq(seed,before,'overridden common gap is still validated atomically');}
+ for(const opts of [{mode:'tidy' as const,rows:2},{mode:'reflow' as const,gap:Infinity},{gapX:Infinity},{anchorX:'center' as const,gap:NaN}]){const before=structuredClone(seed);assert.throws(()=>arrangePanels(project(seed),'f',opts));checks++;eq(seed,before);}
+ for(const gap of [Infinity,NaN]){const before=structuredClone(seed);assert.throws(()=>arrangePanels(project(seed),'f',{mode:'tidy',gap,gapX:2,gapY:2}),/gap must be finite/);checks++;eq(seed,before,'overridden common gap is still validated atomically');}
 }
 {
  const seed=figure([rect('a',0,0),rect('b',100,100)]),p=project(seed),before=structuredClone(seed);
@@ -138,6 +181,10 @@ for(let n=2;n<=14;n++)for(let cols=1;cols<=n;cols++)for(const ax of [0,.5,1] as 
   const aligned=await run('align',['f','top'],{ids:'a,b,c',target:'reference',reference:'b'});
   eq(aligned.code,0,aligned.errors.join('\n'));
   eq((await loadFigModel(root)).project.figures[0].elements,expected.figures[0].elements,'reference alignment survives real save/reopen');
+  arrangePanels(expected,'f',{ids:['a','b','c'],mode:'tidy',gapX:-7,anchorX:'end'});
+  const overlap=await run('arrange',['f'],{mode:'tidy','gap-x':'-7','anchor-x':'end',ids:'a,b,c'});
+  eq(overlap.code,0,overlap.errors.join('\n'));
+  eq((await loadFigModel(root)).project.figures[0].elements,expected.figures[0].elements,'signed gaps survive CLI parsing and real save/reopen');
   const invalid=await run('arrange',['f'],{mode:'tidy',rows:'2'});assert.notEqual(invalid.code,0);checks++;
   eq((await loadFigModel(root)).project.figures[0].elements,expected.figures[0].elements,'invalid modern options do not change saved geometry');
  }finally{

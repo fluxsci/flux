@@ -67,7 +67,7 @@ function envelope(units:LayoutUnit[],axis:'x'|'y'):LayoutTrack {
   return {start,size:Math.max(...units.map(u=>u.bounds[axis]+u.bounds[size]))-start};
 }
 function gapOf(tracks:LayoutTrack[],eps:number,fallback:number) {
-  const gaps=tracks.slice(1).map((t,i)=>Math.max(0,t.start-tracks[i].start-tracks[i].size));
+  const gaps=tracks.slice(1).map((t,i)=>{const gap=t.start-tracks[i].start-tracks[i].size;return Math.abs(gap)<=eps?0:gap;});
   if(!gaps.length)return {value:fallback,regular:true};
   const regular=Math.max(...gaps)-Math.min(...gaps)<=eps;
   if(regular)return {value:layoutMedian(gaps),regular};
@@ -77,14 +77,54 @@ function gapOf(tracks:LayoutTrack[],eps:number,fallback:number) {
   const best=[...buckets].sort((a,b)=>b[1].length-a[1].length || Math.abs(a[0]-median)-Math.abs(b[0]-median) || a[0]-b[0])[0];
   return {value:layoutMedian(best[1]),regular:false};
 }
+/** Overlapping boxes alone do not identify a layout. Require a shared edge
+ * or center on the transverse axis before recognizing an overlapping row or
+ * column. Diagonal piles and coincident boxes remain ambiguous. */
+function aligned(units:LayoutUnit[],axis:'x'|'y',eps:number):boolean {
+  const size=axis==='x'?'w':'h';
+  return [0,.5,1].some(factor=>{
+    const first=units[0].bounds[axis]+factor*units[0].bounds[size];
+    return units.every(u=>Math.abs(u.bounds[axis]+factor*u.bounds[size]-first)<=eps);
+  });
+}
+function distinctProgression(units:LayoutUnit[],axis:'x'|'y',eps:number):boolean {
+  const size=axis==='x'?'w':'h';
+  return units.slice(1).every((u,i)=>u.bounds[axis]>units[i].bounds[axis]+eps &&
+    u.bounds[axis]+u.bounds[size]/2>units[i].bounds[axis]+units[i].bounds[size]/2+eps);
+}
+/** Existing regular overlapping grids have separable aligned rows/columns.
+ * Try top/center/bottom row alignment, then verify column correspondence and
+ * uniform signed track gaps. This intentionally refuses irregular collisions:
+ * explicit reflow remains available without guessing a new topology. */
+function overlappingGrid(units:LayoutUnit[],eps:number):LayoutUnit[][]|null {
+  for(const factor of [0,.5,1]){
+    const coordinate=(u:LayoutUnit)=>u.bounds.y+factor*u.bounds.h;
+    const sorted=[...units].sort((a,b)=>coordinate(a)-coordinate(b)||a.bounds.x-b.bounds.x||a.key.localeCompare(b.key));
+    const bands:LayoutUnit[][]=[];
+    for(const unit of sorted){const band=bands.at(-1);if(band&&coordinate(unit)-coordinate(band[0])<=eps)band.push(unit);else bands.push([unit]);}
+    const C=bands[0].length;
+    if(C<2||bands.length<2||bands.some((b,i)=>i<bands.length-1?b.length!==C:b.length>C))continue;
+    for(const band of bands)band.sort((a,b)=>a.bounds.x-b.bounds.x||a.key.localeCompare(b.key));
+    if(bands.some(b=>!distinctProgression(b,'x',eps)))continue;
+    const members=Array.from({length:C},(_,c)=>bands.flatMap(b=>b[c]?[b[c]]:[]));
+    if(members.some(c=>!aligned(c,'x',eps)||!distinctProgression(c,'y',eps)))continue;
+    const columns=members.map(c=>envelope(c,'x')),rows=bands.map(b=>envelope(b,'y'));
+    if(gapOf(columns,eps,0).regular&&gapOf(rows,eps,0).regular)return bands;
+  }
+  return null;
+}
 function detectedBands(units:LayoutUnit[],eps:number):LayoutUnit[][]|null {
   if(units.length<2||units.some(u=>u.bounds.w<=eps||u.bounds.h<=eps))return null;
   const x=[...units].sort((a,b)=>a.bounds.x-b.bounds.x||a.key.localeCompare(b.key));
   const y=[...units].sort((a,b)=>a.bounds.y-b.bounds.y||a.key.localeCompare(b.key));
-  const isRow=intersection(units,'y')>eps&&disjoint(x.map(u=>({start:u.bounds.x,size:u.bounds.w})),eps);
-  const isCol=intersection(units,'x')>eps&&disjoint(y.map(u=>({start:u.bounds.y,size:u.bounds.h})),eps);
+  const commonX=intersection(units,'x'),commonY=intersection(units,'y');
+  const isRow=commonY>eps&&disjoint(x.map(u=>({start:u.bounds.x,size:u.bounds.w})),eps);
+  const isCol=commonX>eps&&disjoint(y.map(u=>({start:u.bounds.y,size:u.bounds.h})),eps);
   if(isRow!==isCol)return isRow?[x]:y.map(u=>[u]);
   if(isRow)return null;
+  const overlapRow=commonY>eps&&aligned(units,'y',eps)&&distinctProgression(x,'x',eps);
+  const overlapCol=commonX>eps&&aligned(units,'x',eps)&&distinctProgression(y,'y',eps);
+  if(overlapRow!==overlapCol)return overlapRow?[x]:y.map(u=>[u]);
   const bands:LayoutUnit[][]=[];
   const byCenter=[...units].sort((a,b)=>(a.bounds.y+a.bounds.h/2)-(b.bounds.y+b.bounds.h/2)||a.bounds.x-b.bounds.x||a.key.localeCompare(b.key));
   // Maintain the current band's common interval in O(1) per unit. Re-scanning
@@ -96,11 +136,11 @@ function detectedBands(units:LayoutUnit[],eps:number):LayoutUnit[][]|null {
     else {bands.push([unit]);bandTop=top;bandBottom=bottom;}
   }
   const C=bands[0]?.length??0;
-  if(C<2||bands.length<2||bands.some((b,i)=>i<bands.length-1?b.length!==C:b.length>C))return null;
+  if(C<2||bands.length<2||bands.some((b,i)=>i<bands.length-1?b.length!==C:b.length>C))return overlappingGrid(units,eps);
   for(const band of bands)band.sort((a,b)=>a.bounds.x-b.bounds.x||a.key.localeCompare(b.key));
-  if(!disjoint(bands.map(b=>envelope(b,'y')),eps))return null;
+  if(!disjoint(bands.map(b=>envelope(b,'y')),eps))return overlappingGrid(units,eps);
   const columns=Array.from({length:C},(_,c)=>bands.flatMap(b=>b[c]?[b[c]]:[]));
-  if(columns.some(c=>intersection(c,'x')<=eps)||!disjoint(columns.map(c=>envelope(c,'x')),eps))return null;
+  if(columns.some(c=>intersection(c,'x')<=eps)||!disjoint(columns.map(c=>envelope(c,'x')),eps))return overlappingGrid(units,eps);
   return bands;
 }
 export function createArrangementSnapshot(figure:Figure, ids?:readonly Id[], options:LayoutTargetOptions={}):LayoutSnapshot {
@@ -120,7 +160,7 @@ function checkOptions(options:ArrangementOptions) {
   if(options.mode!==undefined&&options.mode!=='tidy'&&options.mode!=='reflow')throw new Error('Invalid arrangement mode');
   if(options.mode==='tidy'&&(options.cols!==undefined||options.rows!==undefined))throw new Error('Tidy does not accept rows or columns');
   for(const [key,value] of [['cols',options.cols],['rows',options.rows]] as const)if(value!==undefined&&(!Number.isInteger(value)||value<1))throw new Error(`${key} must be a positive integer`);
-  for(const value of [options.gapX,options.gapY])if(value!==undefined&&(!Number.isFinite(value)||value<0))throw new Error('Layout gaps must be finite and nonnegative');
+  for(const value of [options.gapX,options.gapY])if(value!==undefined&&!Number.isFinite(value))throw new Error('Layout gaps must be finite');
   if(options.anchor&&![options.anchor.x,options.anchor.y].every(v=>v===0||v===.5||v===1))throw new Error('Invalid layout anchor');
   if(options.pin&&![options.pin.x,options.pin.y].every(Number.isFinite))throw new Error('Invalid layout pin');
 }
@@ -131,18 +171,18 @@ function guides(columns:LayoutTrack[],rows:LayoutTrack[],cells:LayoutCell[],gapX
   const out:GapGuide[]=[],occupied=new Uint8Array(columns.length*rows.length);
   for(const cell of cells)occupied[cell.row*columns.length+cell.column]=1;
   for(let c=0;c<columns.length-1;c++){
-    let first=-1,last=-1;
-    for(let r=0;r<rows.length;r++)if(occupied[r*columns.length+c]&&occupied[r*columns.length+c+1]){if(first<0)first=r;last=r;}
-    if(first<0)continue;
+    let low=Infinity,high=-Infinity;
+    for(let r=0;r<rows.length;r++)if(occupied[r*columns.length+c]&&occupied[r*columns.length+c+1]){low=Math.min(low,rows[r].start);high=Math.max(high,rows[r].start+rows[r].size);}
+    if(!Number.isFinite(low))continue;
     const x=(columns[c].start+columns[c].size+columns[c+1].start)/2;
-    out.push({axis:'x',index:c,value:gapX,x1:x,x2:x,y1:rows[first].start,y2:rows[last].start+rows[last].size});
+    out.push({axis:'x',index:c,value:gapX,x1:x,x2:x,y1:low,y2:high});
   }
   for(let r=0;r<rows.length-1;r++){
-    let first=-1,last=-1;
-    for(let c=0;c<columns.length;c++)if(occupied[r*columns.length+c]&&occupied[(r+1)*columns.length+c]){if(first<0)first=c;last=c;}
-    if(first<0)continue;
+    let low=Infinity,high=-Infinity;
+    for(let c=0;c<columns.length;c++)if(occupied[r*columns.length+c]&&occupied[(r+1)*columns.length+c]){low=Math.min(low,columns[c].start);high=Math.max(high,columns[c].start+columns[c].size);}
+    if(!Number.isFinite(low))continue;
     const y=(rows[r].start+rows[r].size+rows[r+1].start)/2;
-    out.push({axis:'y',index:r,value:gapY,x1:columns[first].start,x2:columns[last].start+columns[last].size,y1:y,y2:y});
+    out.push({axis:'y',index:r,value:gapY,x1:low,x2:high,y1:y,y2:y});
   }
   return out;
 }
@@ -175,8 +215,13 @@ export function planArrangement(snapshot:LayoutSnapshot,options:ArrangementOptio
     const changeX=columns.length>1&&(options.gapX!==undefined||!snapshot.regularX);
     const changeY=rows.length>1&&(options.gapY!==undefined||!snapshot.regularY);
     const moveTracks=(tracks:LayoutTrack[],gap:number,p:number,a:number):LayoutTrack[]=>{
-      const total=tracks.reduce((sum,t)=>sum+t.size,0)+(tracks.length-1)*gap;
-      let start=p-a*total;return tracks.map(t=>{const result={start,size:t.size};start+=t.size+gap;return result;});
+      // Signed gaps can overlap or even reverse physical track positions.
+      // Preserve logical membership/order, and anchor the actual union instead
+      // of the nominal sum of sizes (which can be smaller or negative).
+      let start=0,low=Infinity,high=-Infinity;
+      const result=tracks.map(t=>{const next={start,size:t.size};low=Math.min(low,start);high=Math.max(high,start+t.size);start+=t.size+gap;return next;});
+      const shift=p-a*(high-low)-low;
+      return result.map(t=>({...t,start:t.start+shift}));
     };
     if(changeX)columns=moveTracks(columns,gapX,pin.x,anchor.x);
     if(changeY)rows=moveTracks(rows,gapY,pin.y,anchor.y);

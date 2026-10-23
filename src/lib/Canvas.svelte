@@ -64,7 +64,7 @@
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import ArrangeGapOverlay from "./ArrangeGapOverlay.svelte";
-  import { alignArrange, arrangementPreview } from "./interact/alignArrange";
+  import { alignArrange, arrangementPreview, passiveArrangement } from "./interact/alignArrange";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick, onDestroy } from "svelte";
@@ -5116,7 +5116,7 @@
       {/each}
       <rect class="ruler-corner" x="0" y="0" width={RULER} height={RULER} />
     {/if}
-    {#if af && $alignArrange?.figureId === af.id}
+    {#if paneActive && af && ($alignArrange?.figureId === af.id || ((!gesture || gesture.kind === "pan") && !nodeDrag && !bendDrag && $passiveArrangement?.figureId === af.id))}
       <ArrangeGapOverlay viewport={$viewport} figureX={af.x} figureY={af.y} width={hostW} height={hostH} />
     {/if}
   </svg>

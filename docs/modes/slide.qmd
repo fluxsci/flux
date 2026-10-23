@@ -75,8 +75,10 @@ same four phases for each panel in turn (an inset right after its host), with th
 first and its shared legend last.
 
 The slide canvas shares Figure's [alignment and arrangement tools](figure.qmd#alignment-and-arrangement).
-**A** opens Flux Align; **Alt+T** opens Flux Arrange, with pink gap guides and a fixed-edge or
-center anchor. **Space** switches the tool's views when its surface has focus. The Animator
+**A** opens Align & Arrange with Align active; **Alt+T** activates Arrange. Both panes remain
+visible, and **Space** switches keyboard ownership when the tool surface has focus. Regular
+selections show pink gap guides directly; signed spacing supports overlapping objects, and
+**W/A/S/D** held during spacing drags or scrubs temporarily fixes an edge or corner. The Animator
 keeps its own timing and playback shortcuts. **Shift+L** selects the Arrow drawing tool;
 **L** remains Line.
 

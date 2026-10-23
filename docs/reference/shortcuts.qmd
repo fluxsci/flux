@@ -130,9 +130,10 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **x** hides the pick, **Enter** or **F** opens their properties, **double-click** re-roots |
 | **Alt+M** / **Shift+Alt+M** | Figure-Meta / open it pinned (Figure and Paper) |
 | **Alt+L** | Mark selected text as a panel label |
-| **A** | Flux Align — **W/A/S/D** edges, **H/V** X/Y centers, **X/Y** plot spines |
-| **Space** | Switch Flux Align / Flux Arrange while the tool surface has focus |
-| **Alt+T** | Flux Arrange — **A** row/column, **G** grid, **D**/**F** rows, **Enter** apply, **Esc** cancel |
+| **A** | Open Align & Arrange with Align active — **W/A/S/D** edges, **H/V** X/Y centers, **X/Y** plot spines |
+| **Space** | Switch the active Align / Arrange pane while the tool surface has focus; both panes stay visible |
+| **Alt+T** | Open Align & Arrange with Arrange active — **A** row/column, **G** grid, **D**/**F** rows, **Enter** apply, **Esc** cancel |
+| **Hold W/A/S/D during spacing drag, scroll or scrub** | Temporarily fix the top/left/bottom/right edge; combine perpendicular keys for a corner |
 | **Ctrl+Shift+C** | Cascade a stepped delta across the selection |
 | **Ctrl+P** | Insert a design preset |
 | **Ctrl+G** / **Ctrl+Shift+G** | Group / ungroup |

@@ -1,6 +1,6 @@
 /** Transient layout owner. The model contains only settled positions; canvas
  * scrubs share Canvas's transform drive and never publish pointermove edits. */
-import { get, writable } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 import { project, selection, editorSelectionExclusions, partSelection, partSelections, activeFigureId, enteredGroupId, activeTool, projectDir, embeddedProjectRoot, arrange, lastArrangeRows, commit, mutateFigure, undo, redo, isEditorTargetExcluded } from '../store';
 import { storeTenantState } from '../tenancy';
 import { editSession } from './editSession';
@@ -24,6 +24,7 @@ export interface AlignArrangeState {
   gapX: number; gapY: number; anchor: Anchor; linkedGaps: boolean; dragging: boolean;
   bounds: Rect | null; hover: AlignKind | 'plot-x' | 'plot-y' | 'gap-x' | 'gap-y' | null;
   referenceBounds?: Rect;
+  panelVisible?: boolean;
   plot?: { loading: boolean; reasonX?: string; reasonY?: string; referenceId: string;
     units: { id: string; label: string; choiceX: string; choiceY: string; explicitChoice: boolean; optionsX: {value:string;label:string}[]; optionsY: {value:string;label:string}[] }[] };
 }
@@ -31,6 +32,21 @@ export const alignArrange = writable<AlignArrangeState | null>(null);
 export const arrangementPreview = writable<{figureId:string; plan:ArrangementPlan; transforms:Map<string,string>} | null>(null);
 export const arrangementLayout = writable<ArrangementPlan | null>(null);
 export const alignmentGuides = writable<{x1:number;y1:number;x2:number;y2:number}[]>([]);
+/** Recognition is read-only and independent of the panel. Never tidy an
+ * irregular selection merely because it was selected. */
+export const passiveArrangement = derived(
+  [project, selection, activeFigureId, enteredGroupId, editorSelectionExclusions, partSelection, partSelections, activeTool, alignArrange],
+  ([$project,$selection,$figureId,$scope,$excluded,$part,$parts,$tool,$owner]): ArrangementPlan|null => {
+    if($owner || $selection.size<2 || $part || $parts.length || ($tool!=='select'&&$tool!=='scale'))return null;
+    const figures=$project.figures.filter(f=>f.elements.some(e=>$selection.has(e.id)));
+    if(figures.length!==1 || figures[0].id!==$figureId)return null;
+    try {
+      const base=createArrangementSnapshot(figures[0],[...$selection],{scope:$scope,excluded:$excluded});
+      if(base.units.length<2 || base.suggested || !base.regularX || !base.regularY)return null;
+      const plan=planArrangement(base,{mode:'tidy'});
+      return plan.identity?plan:null;
+    } catch {return null;}
+  });
 let serial = 0;
 let captured: {figureId:string; ids:string[]; scope:string|null; excluded:ReadonlySet<string>} | null = null;
 let snapshot: LayoutSnapshot | null = null;
@@ -39,7 +55,9 @@ let ownWrite = false;
 let disposing = false;
 let changed = false;
 let fieldValid = true;
-let inner: {snapshot:LayoutSnapshot; state:AlignArrangeState; axis:Axis; plan:ArrangementPlan|null; kind:'field'|'drag'} | null = null;
+type FieldInteraction = 'typing'|'wheel'|'scrub';
+let inner: {snapshot:LayoutSnapshot; state:AlignArrangeState; axis:Axis; plan:ArrangementPlan|null; kind:'field'|'drag'; interaction:FieldInteraction|null; rebased:boolean} | null = null;
+const heldAnchors = new Set<string>();
 let choices: Record<Axis, Record<string, SpineChoice>> = {x:{},y:{}};
 let unsubscribers: (() => void)[] = [];
 const acceptedPlotSources = new Map<string,{root:SVGSVGElement|undefined;manifest:FluxPlotManifest|undefined}>();
@@ -55,6 +73,7 @@ function publish(state: AlignArrangeState) {
   arrange.set(state.mode==='arrange' && !state.blockedReason && state.count>=2 ? {active:true,n:state.count,rows:state.rows,cols:state.cols}:null);
 }
 function clearOwner() {
+  heldAnchors.clear();
   arrangementPreview.set(null); arrangementLayout.set(null); alignmentGuides.set([]); inner=null; snapshot=null; captured=null; changed=false;
   for (const unsub of unsubscribers.splice(0)) unsub();
   alignArrange.set(null); arrange.set(null); acceptedPlotSources.clear();
@@ -107,7 +126,7 @@ function label(f:Figure, ids:string[], key:string, elements?:Map<string,Element>
   const group=first && unitOf(f,first,captured?.scope).groupId;
   return (group ? f.groups?.[group]?.name : undefined) || (first && ('name' in first ? String(first.name || '') : '')) || `${first?.type ?? 'Object'} ${key.replace(/^[eg]:/,'').slice(0,8)}`;
 }
-export function openAlignArrange(mode:Mode='align') {
+export function openAlignArrange(mode:Mode='align', panelVisible=true) {
   closeAlignArrange();
   const p=get(project), sel=get(selection), f=p.figures.find(f=>f.id===get(activeFigureId));
   const across=p.figures.filter(f=>f.elements.some(e=>sel.has(e.id))).length>1;
@@ -121,7 +140,7 @@ export function openAlignArrange(mode:Mode='align') {
   const elements=new Map(f?.elements.map(e=>[e.id,e])??[]);
   const editable=new Set(units.flatMap(u=>u.memberIds));
   const blockedReason=across?'Select objects within one figure':drilled?'Select whole objects to align':!count?'Select objects to align':undefined;
-  const state:AlignArrangeState={id:++serial,mode:'align',figureId:f?.id ?? '',count,excludedCount:[...sel].filter(id=>!editable.has(id)).length,blockedReason,
+  const state:AlignArrangeState={id:++serial,panelVisible,mode:'align',figureId:f?.id ?? '',count,excludedCount:[...sel].filter(id=>!editable.has(id)).length,blockedReason,
     alignTarget:count===1?'figure':'selection',referenceId:ordered[0]??'',units:ordered.map(key=>{const u=unitMap.get(key)!;return {id:key,label:label(f!,u.memberIds,key,elements)};}),
     topology:snapshot?.topology??'row',rows:snapshot?.rowCount??0,cols:snapshot?.cols??0,status:'',gapX:snapshot?.gapX??0,gapY:snapshot?.gapY??0,anchor:{x:.5,y:.5},linkedGaps:false,dragging:false,bounds:snapshot?.bounds??null,hover:null};
   choices={x:{},y:{}}; changed=false; activeTool.set('select'); publish(state); watchOwner(); refreshPlotChoices();
@@ -186,19 +205,27 @@ export function setArrangementAnchor(x:Anchor['x'],y:Anchor['y']) {
   pin={x:s.bounds.x+x*s.bounds.w,y:s.bounds.y+y*s.bounds.h};publish({...s,anchor:{x,y}});
 }
 export function setArrangementLinked(linkedGaps:boolean) {if(inner)acceptArrangementField();const s=get(alignArrange);if(s)publish({...s,linkedGaps});}
-export function beginArrangementField(axis:Axis) {
+export function beginArrangementField(axis:Axis, interaction:FieldInteraction='typing') {
   if(inner)acceptArrangementField();
   const s=get(alignArrange);if(!s||!snapshot||s.mode!=='arrange')return;
-  fieldValid=true;inner={snapshot,state:s,axis,plan:null,kind:'field'};
+  heldAnchors.clear();fieldValid=true;inner={snapshot,state:s,axis,plan:null,kind:'field',interaction,rebased:false};
+}
+export function setArrangementFieldInteraction(axis:Axis, interaction:FieldInteraction|null) {
+  if(inner?.kind!=='field'||inner.axis!==axis)return;
+  inner.interaction=interaction;
+  if(!interaction||interaction==='typing')clearArrangementAnchorKeys();
 }
 export function ownsArrangementField(axis:Axis):boolean {return inner?.kind==='field' && inner.axis===axis;}
 export function setArrangementFieldValidity(valid:boolean){fieldValid=valid;}
 export function setArrangementGap(axis:Axis,value:number|undefined) {
   const s=get(alignArrange);if(!s||!snapshot||s.mode!=='arrange')return;
-  if(value===undefined||!Number.isFinite(value)||value<0){fieldValid=false;return;}
+  if(value===undefined||!Number.isFinite(value)){fieldValid=false;return;}
   fieldValid=true;
-  if(inner && value===(axis==='x'?inner.state.gapX:inner.state.gapY) && !s.linkedGaps) {
-    inner.plan=null; arrangementPreview.set(null);publish({...inner.state,dragging:s.dragging});
+  // A focused, unchanged field preserves exact regular-within-epsilon
+  // coordinates. Once a held anchor rebases the pin, that same numeric gap
+  // can legitimately describe a translated arrangement and must be planned.
+  if(inner && !inner.rebased && value===(axis==='x'?inner.state.gapX:inner.state.gapY) && !s.linkedGaps) {
+    inner.plan=null;arrangementPreview.set(null);publish({...inner.state,dragging:s.dragging});
     arrangementLayout.set(planArrangement(inner.snapshot,{mode:'tidy',anchor:s.anchor,pin}));return;
   }
   const base=inner?.snapshot??snapshot;
@@ -212,15 +239,48 @@ export function setArrangementGap(axis:Axis,value:number|undefined) {
 export function acceptArrangementField() {
   if(!inner)return;
   if(!fieldValid){cancelArrangementField();return;}
+  clearArrangementAnchorKeys();
   const plan=inner.plan;inner=null;arrangementPreview.set(null);
   if(plan){applyPlan(plan);showPlan(plan);}
   const s=get(alignArrange);if(s?.dragging)publish({...s,dragging:false});
 }
 export function cancelArrangementField() {
   if(!inner)return;
-  const old=inner;inner=null;fieldValid=true;arrangementPreview.set(null);snapshot=old.snapshot;publish({...old.state,dragging:false});arrangementLayout.set(planArrangement(snapshot,{mode:'tidy',anchor:old.state.anchor,pin}));
+  const old=inner;heldAnchors.clear();inner=null;fieldValid=true;
+  pin={x:old.snapshot.bounds.x+old.state.anchor.x*old.snapshot.bounds.w,y:old.snapshot.bounds.y+old.state.anchor.y*old.snapshot.bounds.h};arrangementPreview.set(null);snapshot=old.snapshot;publish({...old.state,dragging:false});arrangementLayout.set(planArrangement(snapshot,{mode:'tidy',anchor:old.state.anchor,pin}));
 }
-export function beginArrangementDrag(axis:Axis) {beginArrangementField(axis);if(inner)inner.kind='drag';const s=get(alignArrange);if(s)publish({...s,dragging:true});}
+export function beginArrangementDrag(axis:Axis) {
+  if(!get(alignArrange)) {if(!get(passiveArrangement))return;openAlignArrange('arrange',false);}
+  beginArrangementField(axis);if(inner)inner.kind='drag';const s=get(alignArrange);if(s)publish({...s,dragging:true});}
+/** Temporary anchors change the pin at the CURRENT preview bounds. The next
+ * sample therefore keeps its value and starts moving from the same geometry. */
+function updateHeldAnchor() {
+  const s=get(alignArrange);if(!inner||!s?.bounds)return;
+  const anchor={...inner.state.anchor};
+  for(const code of heldAnchors) {
+    if(code==='KeyA')anchor.x=0;else if(code==='KeyD')anchor.x=1;
+    else if(code==='KeyW')anchor.y=0;else if(code==='KeyS')anchor.y=1;
+  }
+  if(anchor.x===s.anchor.x&&anchor.y===s.anchor.y)return;
+  inner.rebased=true;
+  pin={x:s.bounds.x+anchor.x*s.bounds.w,y:s.bounds.y+anchor.y*s.bounds.h};
+  publish({...s,anchor});
+}
+export function clearArrangementAnchorKeys() {if(!heldAnchors.size)return;heldAnchors.clear();updateHeldAnchor();}
+export function handleArrangementAnchorKey(e:KeyboardEvent,down:boolean):boolean {
+  if(!['KeyW','KeyA','KeyS','KeyD'].includes(e.code))return false;
+  if(!down) {if(!heldAnchors.delete(e.code))return false;updateHeldAnchor();return true;}
+  const target=e.target instanceof HTMLElement?e.target:null;
+  if(!inner || (inner.kind!=='drag'&&inner.interaction!=='wheel'&&inner.interaction!=='scrub') || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || target?.matches('input,textarea,select') || target?.isContentEditable)return false;
+  e.preventDefault();e.stopPropagation();
+  if(!heldAnchors.has(e.code)){heldAnchors.add(e.code);updateHeldAnchor();}
+  return true;
+}
+export function endArrangementDrag(accept:boolean) {
+  const hidden=get(alignArrange)?.panelVisible===false;
+  if(accept)acceptArrangementField();else cancelArrangementField();
+  if(hidden)closeAlignArrange(!accept);
+}
 export function setAlignTarget(alignTarget:AlignArrangeState['alignTarget']){const s=get(alignArrange);if(s)publish({...s,alignTarget});}
 export function setAlignReference(referenceId:string){const s=get(alignArrange);if(s?.units.some(u=>u.id===referenceId))publish({...s,referenceId});}
 export function setAlignArrangeHover(hover:AlignArrangeState['hover']) {
@@ -237,7 +297,7 @@ export function setAlignArrangeHover(hover:AlignArrangeState['hover']) {
   if(hover==='left'||hover==='right'||hover==='centerH') {const x=b.x+(hover==='left'?0:hover==='right'?b.w:b.w/2);alignmentGuides.set([{x1:x,y1:b.y-12,x2:x,y2:b.y+b.h+12}]);}
   if(hover==='top'||hover==='bottom'||hover==='centerV') {const y=b.y+(hover==='top'?0:hover==='bottom'?b.h:b.h/2);alignmentGuides.set([{x1:b.x-12,y1:y,x2:b.x+b.w+12,y2:y}]);}
 }
-function afterAlign(){snapshot=makeSnapshot();const s=get(alignArrange);if(s)publish({...s,bounds:snapshot?.bounds??null});refreshPlotChoices();}
+function afterAlign(){snapshot=makeSnapshot();const s=get(alignArrange);if(s&&snapshot)publish({...s,bounds:snapshot.bounds,topology:snapshot.topology,rows:snapshot.rowCount,cols:snapshot.cols,gapX:snapshot.gapX,gapY:snapshot.gapY,status:snapshot.suggested?'Suggested grid':`Existing ${snapshot.topology}`});refreshPlotChoices();}
 export function alignSelection(kind:AlignKind) {
   const s=get(alignArrange), c=captured; if(!s||!c||s.blockedReason)return;
   write(()=>commit(p=>alignPanels(p,c.figureId,kind,c.ids,{scope:c.scope,excluded:c.excluded,target:s.alignTarget==='reference'?{unitKey:s.referenceId}:s.alignTarget})));afterAlign();
@@ -298,6 +358,7 @@ export function alignPlotSpines(axis:Axis) {
 /** Called after shell, typing, node-edit, rail and modal ownership checks. */
 export function handleAlignArrangeKey(e:KeyboardEvent):boolean {
   const s=get(alignArrange);if(!s)return false;
+  if(handleArrangementAnchorKey(e,true))return true;
   const target=e.target instanceof HTMLElement?e.target:null;
   if(e.isComposing||target?.matches('input,textarea,select')||target?.isContentEditable)return false;
   // These keys belong to the focused native control. Claim editor routing

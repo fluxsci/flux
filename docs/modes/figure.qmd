@@ -681,14 +681,15 @@ one gesture.
 - **Shift+Alt+M** opens Figure-Meta already pinned in a separate window; **Pin open** and
   **Dock** move the same view between windows. You can keep editing the workspace while
   it is pinned. **Shift+Alt+G** likewise opens the Plot gallery already pinned.
-- **A** opens **Flux Align**; **Space** switches to **Flux Arrange**. **Alt+T** opens Arrange directly.
+- **A** opens **Align & Arrange** with Align active; **Space** switches the active pane. **Alt+T** opens it with Arrange active.
   See [Alignment and arrangement](#alignment-and-arrangement) for spacing, anchors and plot spines.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.
 
 # Alignment and arrangement
 
-Select objects and press **A** to open **Flux Align** beside them. Click an alignment button
-or use **W/A/S/D** for top/left/bottom/right. **H** aligns X centers along a vertical line;
+Select objects and press **A** to open **Align & Arrange** beside them. Both panes stay
+visible; click a pane or one of its controls to activate it. With Align active, click an
+alignment button or use **W/A/S/D** for top/left/bottom/right. **H** aligns X centers along a vertical line;
 **V** aligns Y centers along a horizontal line. Choose **Selection bounds**, a named
 **Reference object**, or the **Figure** frame. One selected object aligns to the figure.
 Each alignment is one Undo step; the panel stays open for further adjustments.
@@ -699,25 +700,34 @@ annotations. For multi-panel plots, use the panel and spine choices to identify 
 axis. Unavailable spines are explained in the panel; ordinary alignment remains available.
 These commands move plots without changing their domains, sizes or internal geometry.
 
-Press **Space** on the tool surface to switch to **Flux Arrange**, or open it directly with
-**Alt+T**. An existing row, column or simple grid keeps its order and internal offsets while
+Press **Space** on the tool surface to switch the active pane to **Arrange**, or open it
+with Arrange already active using **Alt+T**. An existing row, column or simple grid keeps its order and internal offsets while
 uneven gaps are tidied. A regular arrangement stays where it is. An ambiguous selection gets
 a **Suggested grid** preview. Explicit **Row**, **Grid** and **Column** buttons reflow the
 selection into centered cells; **A** toggles row/column, **G** chooses a balanced grid, and
 **D/F** increases/decreases the row count.
 
-Drag a pink gap guide to adjust all gaps on that axis, or enter an exact value in the spacing
-field. Right/down increases spacing; left/up decreases it. **Shift** adjusts faster and
+Selecting an already evenly spaced row, column or simple grid shows pink gap guides without
+opening the panel. This recognition leaves the objects unchanged; ambiguous overlaps do not
+show guides. Drag a guide directly to edit spacing as one Undo step.
+
+Drag a pink gap guide to adjust all gaps on that axis, or enter, scroll or scrub a value in
+the spacing field. Negative gaps overlap objects, which is useful for stacked traces or
+waveforms. Values have no zero floor; very negative spacing can move successive tracks past
+one another while retaining their members, sizes and stacking order. Right/down increases spacing; left/up decreases it. **Shift** adjusts faster and
 **Alt** more finely. **Keep fixed** chooses which edge or center stays in place; a grid offers
-nine anchor points. Center is the default. Choosing a different anchor moves nothing until
-you change the spacing. Grid gaps measure the space between column/row tracks, so smaller
+nine anchor points. Center is the default. While dragging a guide or scrolling/scrubbing a
+spacing value, hold **W/A/S/D** to keep the top/left/bottom/right edge fixed temporarily.
+Combine perpendicular keys for a corner; releasing the keys restores your chosen anchor
+without moving the objects. Choosing a different anchor moves nothing until you change
+the spacing, and the fixed point always uses the actual selection bounds, including overlap. Grid gaps measure the space between column/row tracks, so smaller
 objects can have more visible clearance within their cells.
 
 **Enter** or **Apply** keeps the Arrange preview as one Undo step. **Escape** cancels the
 current drag or field edit first; another **Escape** restores the arrangement from when you
 entered. Switching back to Align keeps the arrangement. Input fields retain normal typing;
 **Enter** accepts a field, and keyboard-focused buttons retain normal **Enter/Space** activation.
-The panel's clickable tabs are always available. Middle-button and wheel navigation remain
+Both panes remain visible, and their headings select the active keyboard commands. Middle-button and wheel navigation remain
 available between edits. These tools set ordinary object positions; they do not create an
 automatic layout that later moves newly added objects.
 

@@ -1,5 +1,6 @@
 /** Shared, DOM-free track arithmetic. Legacy arrange and the interactive planner
- * use these same equations; signed gaps remain supported for legacy callers. */
+ * use these same equations; signed gaps overlap tracks without changing their
+ * logical membership or order. */
 export interface LayoutBox { x: number; y: number; w: number; h: number }
 export interface LayoutTrack { start: number; size: number }
 export function layoutMedian(values: readonly number[]): number {

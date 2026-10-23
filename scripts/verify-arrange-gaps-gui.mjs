@@ -5,13 +5,48 @@ const {browser,page}=await launch({width:1500,height:950});
 async function point(axis='x'){
  return page.evaluate(axis=>{
   const lines=[...document.querySelectorAll(`[data-arrange-gap="${axis}"]`)];
-  for(const node of lines){const b=node.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;if(document.elementFromPoint(x,y)===node)return{x,y};}
+  for(const node of lines){const b=node.getBoundingClientRect();for(const t of [.25,.75,.5]){const x=b.x+b.width*t,y=b.y+b.height*t;if(document.elementFromPoint(x,y)===node)return{x,y};}}
   throw new Error('No real hittable gap '+axis);
  },axis);
 }
 const nearly=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} ≈ ${b}`);
 try{
  await layoutFixture(page);const initial=(await readLayout(page)).elements;
+ // Exact selections expose passive guides without opening a panel or writing
+ // document/history. Their projection follows camera changes independently.
+ assert.equal(await page.$('.align-arrange-panel'),null);
+ assert.ok(await page.$('[data-arrange-gap="x"]'));
+ assert.equal((await readLayout(page)).history.past,0);assert.equal((await readLayout(page)).dirty,false);
+ async function projected(){return page.evaluate(()=>{const F=window.__flux,v=F.get(F.fig.viewport),plan=F.get(F.layout.arrangementLayout)??F.get(F.layout.passiveArrangement),g=plan.gaps.find(g=>g.axis==='x'),n=document.querySelector('[data-arrange-gap="x"]'),pin=document.querySelector('.gap-guides .pin'),f=F.get(F.fig.project).figures.find(f=>f.id===plan.figureId);return {actual:+n.getAttribute('x1'),expected:v.panX+(f.x+g.x1)*v.zoom,pin:+pin.getAttribute('cx'),expectedPin:v.panX+(f.x+plan.bounds.x+plan.bounds.w/2)*v.zoom};});}
+ for(const v of [{panX:65,panY:80,zoom:1},{panX:100,panY:50,zoom:.5},{panX:10,panY:20,zoom:1.5}]){await page.evaluate(v=>window.__flux.fig.viewport.set(v),v);await waitForFrame(page);const pos=await projected();nearly(pos.actual,pos.expected);nearly(pos.pin,pos.expectedPin);}
+ assert.deepEqual((await readLayout(page)).elements,initial);
+ // Passive chrome follows pan but disappears while ordinary geometry is a
+ // transient preview; cancellation restores guides at unchanged model bounds.
+ for(const selector of ['[data-editor-element-id="layout-0"] rect','.zone.corner[data-h="se"]','.zone.rotate[data-zone="se"]']){
+  await seedLayout(page);const target=await page.$eval(selector,n=>{const b=n.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2}});await page.mouse.move(target.x,target.y);await page.mouse.down();await page.mouse.move(target.x+18,target.y+13);await waitForFrame(page);assert.equal(await page.$('[data-arrange-gap]'),null,'passive guides hidden during '+selector);await page.keyboard.press('Escape');await page.mouse.up();await waitForFrame(page);assert.ok(await page.$('[data-arrange-gap]'),'passive guides restored after '+selector);assert.deepEqual((await readLayout(page)).elements,initial);
+ }
+ await seedLayout(page);const panStart=await point();await page.mouse.move(panStart.x,panStart.y);await page.mouse.down({button:'middle'});await page.mouse.move(panStart.x+30,panStart.y+20);await waitForFrame(page);assert.ok(await page.$('[data-arrange-gap]'),'passive guides stay live during pan');let panProjected=await projected();nearly(panProjected.actual,panProjected.expected);await page.mouse.up({button:'middle'});
+ await page.evaluate(()=>window.__flux.fig.viewport.set({panX:-10000,panY:0,zoom:1}));await waitForFrame(page);assert.equal(await page.$('[data-arrange-gap]'),null,'passive offscreen guides culled');
+ await seedLayout(page);let passivePoint=await point();await page.mouse.move(passivePoint.x,passivePoint.y);await page.mouse.down();await page.mouse.move(passivePoint.x+10,passivePoint.y);await waitForFrame(page);
+ assert.equal((await readLayout(page)).state.panelVisible,false);assert.equal(await page.$('.align-arrange-panel'),null);assert.deepEqual((await readLayout(page)).elements,initial);
+ const previewPositions=()=>page.evaluate(()=>window.__flux.get(window.__flux.layout.arrangementPreview)?.plan.positions);
+ const beforeHold=await previewPositions();await page.keyboard.down('KeyA');assert.deepEqual(await previewPositions(),beforeHold,'anchor press does not move geometry');assert.deepEqual((await readLayout(page)).state.anchor,{x:0,y:.5});
+ await page.mouse.move(passivePoint.x+20,passivePoint.y);let held=await previewPositions();nearly(held[0].x,beforeHold[0].x);nearly(held[2].x-beforeHold[2].x,20);
+ await page.keyboard.up('KeyA');assert.deepEqual(await previewPositions(),held,'anchor release does not move geometry');assert.deepEqual((await readLayout(page)).state.anchor,{x:.5,y:.5});
+ await page.mouse.move(passivePoint.x+30,passivePoint.y);const centered=await previewPositions();nearly(centered[0].x,held[0].x-10);nearly(centered[2].x,held[2].x+10);
+ await page.mouse.up();await waitForFrame(page);assert.equal((await readLayout(page)).state,null);assert.equal((await readLayout(page)).history.past,1);assert.ok(await page.$('[data-arrange-gap]'),'released gesture returns passive');
+ await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');assert.deepEqual((await readLayout(page)).elements,initial,'passive drag is one undo');
+ // A cancelled passive gesture never publishes positions or creates history.
+ await seedLayout(page);passivePoint=await point();await page.mouse.move(passivePoint.x,passivePoint.y);await page.mouse.down();await page.mouse.move(passivePoint.x-40,passivePoint.y);nearly((await readLayout(page)).state.gapX,-10);await page.keyboard.press('Escape');await page.mouse.up();await waitForFrame(page);assert.equal((await readLayout(page)).state,null);assert.deepEqual((await readLayout(page)).elements,initial);assert.equal((await readLayout(page)).history.past,0);
+ // Regular overlap recognizes signed gaps; irregular selection remains silent.
+ await seedLayout(page,[{x:50,y:100,width:60,height:40},{x:100,y:100,width:60,height:40},{x:150,y:100,width:60,height:40}]);assert.ok(await page.$('[data-arrange-gap]'));nearly(await page.evaluate(()=>window.__flux.get(window.__flux.layout.passiveArrangement).gapX),-10);
+ await seedLayout(page,[{x:50,y:100,width:60,height:40},{x:130,y:100,width:60,height:40},{x:250,y:100,width:60,height:40}]);assert.equal(await page.$('[data-arrange-gap]'),null);assert.equal((await readLayout(page)).history.past,0);
+ // Untouched numeric acceptance preserves exact coordinates even when the
+ // recognized regular gaps differ below the layout tolerance.
+ await seedLayout(page,[{x:50,y:100,width:60,height:40},{x:140,y:100,width:60,height:40},{x:230.0000001,y:100,width:60,height:40}]);const epsilonStart=await readLayout(page);await openArrange(page);await page.click('.align-arrange-panel .nf input');await page.keyboard.press('Enter');const epsilonEnd=await readLayout(page);assert.deepEqual(epsilonEnd.elements,epsilonStart.elements,'untouched spacing never normalizes tiny gap differences');assert.equal(epsilonEnd.history.past,0);await page.keyboard.press('Escape');
+ // Explicit Arrange guides track the same viewport while its plan is frozen.
+ await seedLayout(page);await openArrange(page);await page.evaluate(()=>window.__flux.fig.viewport.set({panX:70,panY:60,zoom:.75}));await waitForFrame(page);const activeProjection=await projected();nearly(activeProjection.actual,activeProjection.expected);nearly(activeProjection.pin,activeProjection.expectedPin);await page.keyboard.press('Escape');
+
  for(const zoom of [.5,1,2])for(const anchor of ['Left','Center','Right']){
   await seedLayout(page);await page.evaluate(z=>window.__flux.fig.viewport.set({panX:20,panY:40,zoom:z}),zoom);await openArrange(page);
   await page.click(`.anchor-choice[aria-label="${anchor}"]`);await waitForFrame(page);const start=await readLayout(page),p=await point();
@@ -94,6 +129,18 @@ try{
  // Y while X retains focus; later X typing must reacquire a transient edit.
  const crossGrid=[{x:50,y:60,width:60,height:40},{x:140,y:60,width:60,height:40},{x:50,y:130,width:60,height:40},{x:140,y:130,width:60,height:40}];
  const fieldX='.gap-fields > div:first-child input',fieldY='.gap-fields > div:nth-child(2) input';
+ // Grid holds change only their axis and restore the clicked persistent pin.
+ await seedLayout(page,crossGrid);await openArrange(page);await page.click('.anchor-choice[aria-label="Bottom right"]');p=await point('y');await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x,p.y+8);
+ const previewBounds=()=>page.evaluate(()=>window.__flux.get(window.__flux.layout.arrangementPreview)?.plan.bounds);
+ const preW=await previewBounds();await page.keyboard.down('KeyW');assert.deepEqual((await readLayout(page)).state.anchor,{x:1,y:0});assert.deepEqual(await previewBounds(),preW);
+ await page.mouse.move(p.x,p.y+16);const topHeld=await previewBounds();nearly(topHeld.y,preW.y);await page.keyboard.up('KeyW');assert.deepEqual((await readLayout(page)).state.anchor,{x:1,y:1});assert.deepEqual(await previewBounds(),topHeld);
+ await page.mouse.move(p.x,p.y+24);const bottomHeld=await previewBounds();nearly(bottomHeld.y+bottomHeld.h,topHeld.y+topHeld.h);await page.keyboard.press('Escape');await page.mouse.up();await page.keyboard.press('Escape');
+ // Numeric hover-wheel and label scrubs use the same temporary pin contract.
+ await seedLayout(page,crossGrid);await openArrange(page);const wheelPoint=await page.$eval(fieldX,n=>{const b=n.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2}});await page.mouse.move(wheelPoint.x,wheelPoint.y);await page.mouse.wheel({deltaY:-100});const preWheelHold=await previewBounds();
+ await page.keyboard.down('KeyA');assert.deepEqual((await readLayout(page)).state.anchor,{x:0,y:.5});await page.mouse.wheel({deltaY:-100});nearly((await previewBounds()).x,preWheelHold.x);await page.keyboard.up('KeyA');assert.deepEqual((await readLayout(page)).state.anchor,{x:.5,y:.5});await new Promise(r=>setTimeout(r,250));assert.equal((await readLayout(page)).preview,false);
+ const scrubLabel=await page.$eval('.gap-fields > div:first-child .lb',n=>{const b=n.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2}});await page.mouse.move(scrubLabel.x,scrubLabel.y);await page.mouse.down();await page.mouse.move(scrubLabel.x+10,scrubLabel.y);const preScrubHold=await previewBounds();await page.keyboard.down('KeyA');assert.equal((await readLayout(page)).state.anchor.x,0);await page.mouse.move(scrubLabel.x+20,scrubLabel.y);nearly((await previewBounds()).x,preScrubHold.x);await page.keyboard.up('KeyA');assert.equal((await readLayout(page)).state.anchor.x,.5);await page.mouse.up();await page.keyboard.press('Escape');
+ await seedLayout(page,crossGrid);await openArrange(page);await page.click(fieldX,{count:3});await page.keyboard.type('wasd');assert.equal(await page.$eval(fieldX,n=>n.value),'wasd');assert.deepEqual((await readLayout(page)).state.anchor,{x:.5,y:.5});assert.equal((await readLayout(page)).state.topology,'grid','typed WASD never invokes topology');await page.keyboard.press('Escape');await page.keyboard.press('Escape');
+
  async function crossWheel(){await seedLayout(page,crossGrid);await openArrange(page);await page.click(fieldX,{count:3});await page.keyboard.type('12');const b=await page.$eval(fieldY,n=>{const r=n.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}});await page.mouse.move(b.x,b.y);await page.mouse.wheel({deltaY:-100});}
  await crossWheel();await new Promise(r=>setTimeout(r,260));await waitForFrame(page);const settledWheel=await readLayout(page);assert.equal(await page.$eval(fieldX,n=>n===document.activeElement),true);
  await page.evaluate(()=>{window.__crossWrites=0;window.__crossStop=window.__flux.fig.project.subscribe(()=>window.__crossWrites++);window.__crossWrites=0;});
