@@ -65,25 +65,29 @@ const png = (f, file) => { if (f) fs.writeFileSync(file, nativeImage.createFromB
 app.whenReady().then(async () => {
   fs.mkdirSync(job.out, { recursive: true });
   if (job.dump) fs.mkdirSync(job.dump, { recursive: true });
-  const A = await open(job.html, job.width, job.height), B = await open(job.html, job.width, job.height);
+  let A = await open(job.html, job.width, job.height); const B = await open(job.html, job.width, job.height);
   const stageW = await A.ev(`(() => { const c = document.querySelector('.sl-camera'); return c.parentElement.getBoundingClientRect().width })()`);
   scale2 = (stageW / job.stageWidth) ** 2;
   const gpu = await app.getGPUFeatureStatus();
-  // main (hrtime) clock -> the page's performance.now(): the median of a few round trips
-  const offs = []; for (let i = 0; i < 9; i++) { const t1 = now(), p = await A.ev(`performance.now()`), t2 = now(); offs.push(p - (t1 + t2) / 2); }
-  offs.sort((a, b) => a - b); const offset = offs[4];
+  // main (hrtime) clock -> the page's performance.now(): the median of a few round trips (per window: each page has its own time origin)
+  let offset = 0;
+  const calibrate = async w => { const offs = []; for (let i = 0; i < 9; i++) { const t1 = now(), p = await w.ev(`performance.now()`), t2 = now(); offs.push(p - (t1 + t2) / 2); } offs.sort((a, b) => a - b); offset = offs[4]; };
+  await calibrate(A);
   const toPage = hr => hr + offset;
   const results = { gpu, stageWidth: stageW, cues: [] };
-  await A.ev(`(() => { window.__ticks = []; window.__click = 0; window.__starts = []; window.__endAt = 0;
+  const hook = w => w.ev(`(() => { window.__ticks = []; window.__click = 0; window.__starts = []; window.__endAt = 0;
     document.addEventListener('click', () => { window.__click = performance.now(); }, true);
     window.fluxDeck.on('beatStart', () => { window.__starts.push(performance.now()); });
     window.fluxDeck.on('frame', s => window.__ticks.push([performance.now(), s.time, s.playing, s.duration]));
     window.fluxDeck.on('beatEnd', () => { window.__endAt = performance.now(); }); })()`);
+  await hook(A);
   let n = 0;
   for (const cue of job.cues) {
     const res = { ...cue }; n++;
     const tag = String(n).padStart(3, "0");
     try {
+      // a FRESH page per cue when asked: cues of one deck must not inherit each other's layers / marks / rewritten text
+      if (job.fresh && n > 1) { A.win.destroy(); A = await open(job.html, job.width, job.height); await hook(A); await calibrate(A); }
       // the reference renders, in window B
       await gotoRest(B, cue.slide, cue.from - 1, true); await sleep(job.restMs); const restB = B.rec.last;
       await gotoRest(B, cue.slide, cue.to, true); await sleep(job.restMs); const ref = B.rec.last;
@@ -97,13 +101,22 @@ app.whenReady().then(async () => {
         A.wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
         A.wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
       } else await A.ev(`window.fluxDeck.goTo(${cue.slide}, ${cue.from - 1})`);
-      // wait for the landing, then the tail
-      const t0 = now(); let ended = 0;
-      while (now() - t0 < (job.maxMs || 8000)) { await sleep(25); ended = await A.ev(`window.__endAt || 0`); if (ended) break; }
+      // wait for the landing, then the tail. An INTERRUPT cue clicks again `interruptAtMs` into the cue: the cue then finishes on its warped
+      // clock (timing.ts settleTime), the click's own cue starts, and the recording runs until THAT cue has landed.
+      const t0 = now(); let ended = 0, clicked2 = false;
+      while (now() - t0 < (job.maxMs || 8000)) {
+        await sleep(cue.interruptAtMs ? 5 : 25);
+        if (cue.interruptAtMs && !clicked2 && now() - t0 >= cue.interruptAtMs) {
+          clicked2 = true;
+          A.wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 }); A.wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+        }
+        ended = await A.ev(cue.interruptAtMs ? `(window.__starts.length >= 2 && window.__endAt > window.__starts[1]) ? window.__endAt : 0` : `window.__endAt || 0`);
+        if (ended) break;
+      }
       await sleep(job.tailMs);
       A.rec.on = false;
       const log = await A.ev(`({ ticks: window.__ticks, click: window.__click, starts: window.__starts, endAt: window.__endAt })`);
-      const start = log.starts[0] ?? log.click, nextStart = log.starts[1] ?? Infinity;
+      const start = log.starts[0] ?? log.click, nextStart = cue.interruptAtMs ? Infinity : (log.starts[1] ?? Infinity);
       const rel = pt => pt - start;
       res.clickToBeatStart = cue.auto ? null : start - log.click;
       res.ticks = log.ticks.map(([t, time, playing, dur]) => ({ t: rel(t), time, playing, dur })).filter(t => t.t < rel(nextStart));
@@ -122,6 +135,8 @@ app.whenReady().then(async () => {
       const after = inCue.filter(f => res.landedAt != null && f.tp > res.landedAt + 20);
       res.postLanding = after.reduce((s, f) => s + f.d, 0);
       res.postLandingFrames = after.filter(f => f.d > 0.05).length;
+      // presented-frame continuity (an interrupt must settle velocity-continuously: no frame changes much more than the ones before it)
+      { let worst = 0; for (let i = 2; i < inCue.length; i++) { const prior = Math.max(inCue[i - 1].d, inCue[i - 2].d, 6); worst = Math.max(worst, inCue[i].d / prior); } res.jumpRatio = worst; }
       if (job.dump) {
         const land = [...inCue].reverse().find(f => res.landedAt != null && f.tp <= res.landedAt + 20);
         png(restBefore, `${job.dump}/${tag}_rest.png`); png(firstMoving, `${job.dump}/${tag}_first.png`); png(land, `${job.dump}/${tag}_land.png`); png(lastF, `${job.dump}/${tag}_last.png`); png(ref, `${job.dump}/${tag}_ref.png`);

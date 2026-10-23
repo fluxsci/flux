@@ -174,10 +174,11 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     b.become(s, b.beat(s), "txtA", { element: "txtB" });
     out.push({ name: "become", payload: { deck: b.deck } });
   }
-  if (!compact) {
+  {
     const b = new Builder("ghost"); const s = b.slide("ghost");
-    for (const k of ["rect", "text", "star"] as Kind[]) b.add(s, el(k, k, ...CELL[k]));
-    for (const k of ["rect", "text", "star"] as Kind[]) {
+    const gk: Kind[] = compact ? ["rect", "text"] : ["rect", "text", "star"];
+    for (const k of gk) b.add(s, el(k, k, ...CELL[k]));
+    for (const k of gk) {
       const beat = b.beat(s);
       addGhostTransform(b.deck, s, beat.id, k, { count: 2, original: "stay", duration: 1200, states: [{ x: CELL[k][0] + 120, y: CELL[k][1] + 30 }, { x: CELL[k][0] + 60, y: CELL[k][1] + 70, rotation: 20 }] });
     }
@@ -213,6 +214,15 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     const w1 = b.beat(s); b.anim(s, w1, "ellipse", "fade"); const w2 = b.beat(s, { advance: "with-prev" }); b.anim(s, w2, "text", "highlight", { start: 120 });
     const w3 = b.beat(s, { advance: "with-prev" }); b.anim(s, w3, "rect", "fadeOut", { start: 300 });
     out.push({ name: "chains", payload: { deck: b.deck } });
+  }
+  {
+    // a click during a moving step: the cue finishes on its warped clock, then the click's own cue plays (timing.ts settleTime)
+    const b = new Builder("interrupt"); const s = b.slide("int");
+    for (const k of ["rect", "text"] as Kind[]) b.add(s, el(k, k, ...CELL[k]));
+    b.change(s, b.beat(s), "rect", { x: CELL.rect[0] + 140.5, y: CELL.rect[1] + 31.25 });
+    b.change(s, b.beat(s), "rect", { x: CELL.rect[0] + 20, y: CELL.rect[1] + 90.5 });
+    b.anim(s, b.beat(s), "text", "fadeRise");
+    out.push({ name: "interrupt", payload: { deck: b.deck } });
   }
   if (!compact) {
     // old-pace decks as made: explicit classic timing must keep playing and still start/land clean

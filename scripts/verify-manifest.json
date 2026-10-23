@@ -342,6 +342,7 @@
       "verify-slide-handoff-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
+      "verify-slide-settle-sweep.ts",
       "verify-plot-binding.ts",
       "verify-plot-view-verb.ts",
       "verify-colorscale-parity.ts",
@@ -682,6 +683,7 @@
       "verify-slide-embed-electron.cjs",
       "verify-slide-video-electron.cjs",
       "verify-slide-raster-electron.cjs",
+      "verify-slide-settle-electron.cjs",
       "verify-slide-media-export.ts",
       "verify-slide-video-media-electron.cjs",
       "verify-slide-video-clips-electron.cjs",
@@ -910,6 +912,8 @@
     "slide-transforms": [
       "verify-slide-tween.ts",
       "verify-slide-raster-pure.ts",
+      "verify-slide-settle-sweep.ts",
+      "verify-slide-settle-electron.cjs",
       "verify-slide-outline.ts",
       "verify-slide-morph-geometry.ts",
       "verify-slide-morph-geometry-browser.ts",
@@ -1694,7 +1698,8 @@
         "verify-gallery-video-capability.ts",
         "group:slide-clips",
         "verify-ipc-contract.ts",
-        "verify-slide-raster-electron.cjs"
+        "verify-slide-raster-electron.cjs",
+        "verify-slide-settle-electron.cjs"
       ]
     },
     {
@@ -2384,6 +2389,13 @@
       ]
     },
     {
+      "glob": "scripts/lib/slideSettle*",
+      "run": [
+        "verify-slide-settle-sweep.ts",
+        "verify-slide-settle-electron.cjs"
+      ]
+    },
+    {
       "glob": "src/lib/strokeStyle.ts",
       "run": [
         "verify-slide-raster-pure.ts"
@@ -2413,7 +2425,8 @@
         "verify-gallery-video-capability.ts",
         "group:slide-clips",
         "verify-ipc-contract.ts",
-        "verify-slide-raster-electron.cjs"
+        "verify-slide-raster-electron.cjs",
+        "verify-slide-settle-electron.cjs"
       ]
     },
     {
@@ -3615,6 +3628,8 @@
     "verify-scale-slide-dense.mjs": 180000,
     "verify-slide-video-electron.cjs": 480000,
     "verify-slide-raster-electron.cjs": 480000,
+    "verify-slide-settle-sweep.ts": 300000,
+    "verify-slide-settle-electron.cjs": 600000,
     "verify-slide-media-export.ts": 300000,
     "verify-slide-video-clips-electron.cjs": 180000,
     "verify-slide-become.ts": 300000,
@@ -7382,6 +7397,15 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-slide-settle-sweep.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-slide-raster-electron.cjs": {
       "runtime": "node-electron",
       "prerequisites": [
@@ -7391,6 +7415,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 480000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-settle-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 600000,
       "exclusive": true,
       "coverage": "behavior"
     },

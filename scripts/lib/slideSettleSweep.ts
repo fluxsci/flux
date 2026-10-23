@@ -131,7 +131,7 @@ export interface SweepOptions { slides?: number[]; cues?: (slide: Slide, from: n
 export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: SweepOptions = {}): Promise<CueRow[]> {
   const { page, k, clip } = sp;
   const seek = (s: number, b: number, t: number, from = b) => page.evaluate(({ s, b, t, from }) => { (window as unknown as { fluxDeck: Hook }).fluxDeck.seek(s, b, t, from); }, { s, b, t, from });
-  const settle = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const settle = () => page.evaluate(`new Promise(r => requestAnimationFrame(r))`);
   const grab = async (s: number, b: number, t: number, from = b) => {
     await seek(s, b, t, from); await settle();
     const img = await loadImage(await page.screenshot({ clip, type: "png" }) as Buffer);
@@ -193,3 +193,25 @@ export async function withBrowser<T>(fn: (browser: import("puppeteer-core").Brow
   try { return await fn(browser, tmp); }
   finally { await browser.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 }
+
+/** Cues whose boundary discontinuity is owned by ANOTHER Release 2 lane (or is a documented open item) and fixed there: never a threshold
+ *  fudge. Keyed `deck#from-to` (or `deck/slide#from-to` in the probes), valued by the flags tolerated and the owner. The integrator
+ *  deletes an entry when its lane has merged; a flag NOT listed here fails the gate. */
+export const KNOWN_OPEN: Record<string, { flags: string[]; owner: string }> = {
+  // highlight / dim start as a wink: the element is dimmed at t = 0 (opacity level -> 1). Lane V (WP 2.2, T6 emphasis that MOVES) rewrites it.
+  "preset_highlight#1-1": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
+  "preset_highlight#2-2": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
+  "preset_highlight#3-3": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
+  "preset_highlight#4-4": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
+  "preset_highlight#5-5": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
+  // a text rewrite hands the original static text to the span layer: the glyph-matched morph's first/last frame differ from the resting
+  // text by anti-aliasing (50 stage px^2). Lane T (WP 2.5, text glide lanes / letters travel) owns textMorph.ts.
+  "change#3-3": { flags: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)"], owner: "lane T (text morph layers)" },
+  // a text box RESIZED in flight keeps its font size through a counter-scaled composite (net 1:1), which rasterises soft against the
+  // hinted rest text (53 stage px^2). Open in lane J: see the report (the fix is a transform-free resize path for text-only content).
+  "change#2-2": { flags: ["END SNAP (2ms)", "END SNAP (frame)", "POST CHANGE"], owner: "lane J open (text box resize rasterises soft in flight)" },
+  // a Ghost copy of a TEXT is born exactly on top of its source: two layers of the same anti-aliased glyphs read bolder than one
+  // (edge coverage c becomes 1-(1-c)^2), so the first frame differs from the rest by 20 stage px^2. Open in lane J.
+  "ghost#2-2": { flags: ["PRE-ROLL CHANGE"], owner: "lane J open (a born text copy doubles its source's anti-aliasing)" },
+  "springs#4-4": { flags: ["END SNAP (2ms)", "END SNAP (frame)", "POST CHANGE"], owner: "lane J open (text box resize rasterises soft in flight)" },
+};

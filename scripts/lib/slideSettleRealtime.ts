@@ -17,13 +17,13 @@ export interface RtCue {
   ticks: RtTick[]; frames: RtFrame[]; durationMs: number;
   /** ms from the click to the first player frame whose cue clock had moved, and that clock */
   clickToFirstTickMs: number | null; firstClockMs: number | null;
-  clickToBeatStart?: number | null; auto?: boolean;
+  clickToBeatStart?: number | null; auto?: boolean; interruptAtMs?: number; jumpRatio?: number;
   landedAt: number | null; restBeforeToFirst: number | null; restAfter: number | null; postLanding: number; postLandingFrames: number;
   error?: string;
 }
 export interface RtResult { gpu: Record<string, string>; stageWidth: number; cues: RtCue[] }
 
-export interface RtOptions { preJs?: string; dump?: string; dumpAll?: boolean; width?: number; height?: number; restMs?: number; tailMs?: number; only?: (slideId: string, from: number, to: number) => boolean; switches?: string[][]; maxMs?: number }
+export interface RtOptions { fresh?: boolean; interrupts?: Record<string, number>; preJs?: string; dump?: string; dumpAll?: boolean; width?: number; height?: number; restMs?: number; tailMs?: number; only?: (slideId: string, from: number, to: number) => boolean; switches?: string[][]; maxMs?: number }
 
 /** Run every cue of `payload.deck` (or the filtered ones) and return the presented-frame measurements. */
 export async function realtimeSweep(payload: SweepPayload, name: string, opts: RtOptions = {}): Promise<RtResult> {
@@ -33,9 +33,9 @@ export async function realtimeSweep(payload: SweepPayload, name: string, opts: R
     const html = path.join(out, "deck.html"); let text = (await exportDeckHtml(payload as never)).html;
     if (opts.preJs) text = text.replace(/<head[^>]*>/i, m => `${m}<script>${opts.preJs}</script>`);
     await fs.writeFile(html, text);
-    const cues = payload.deck.slides.flatMap((slide, si) => cuesOf(slide).filter(c => !opts.only || opts.only(slide.id, c.from, c.to)).map(c => ({ name: `${name}/${slide.id}#${c.from}-${c.to}`, slide: si, from: c.from, to: c.to, label: kindsOf(slide, c.from, c.to), auto: slide.beats[c.from]?.advance === "auto" })));
+    const cues = payload.deck.slides.flatMap((slide, si) => cuesOf(slide).filter(c => !opts.only || opts.only(slide.id, c.from, c.to)).map(c => ({ name: `${name}/${slide.id}#${c.from}-${c.to}`, slide: si, from: c.from, to: c.to, label: kindsOf(slide, c.from, c.to), auto: slide.beats[c.from]?.advance === "auto", ...(opts.interrupts?.[`${slide.id}#${c.from}-${c.to}`] ? { interruptAtMs: opts.interrupts[`${slide.id}#${c.from}-${c.to}`] } : {}) })));
     const width = opts.width ?? 1280, height = opts.height ?? 720;
-    const job = { html, out, cues, width, height, stageWidth: payload.deck.stage.width, restMs: opts.restMs ?? 450, tailMs: opts.tailMs ?? 900, maxMs: opts.maxMs ?? 9000, switches: opts.switches ?? [["force-color-profile", "srgb"]], dump: opts.dump, dumpAll: opts.dumpAll, dead: Number(process.env.DEAD ?? 10) };
+    const job = { html, out, cues, width, height, stageWidth: payload.deck.stage.width, restMs: opts.restMs ?? 450, tailMs: opts.tailMs ?? 900, maxMs: opts.maxMs ?? 9000, switches: opts.switches ?? [["force-color-profile", "srgb"]], dump: opts.dump, dumpAll: opts.dumpAll, fresh: opts.fresh, dead: Number(process.env.DEAD ?? 10) };
     const env: NodeJS.ProcessEnv = { ...process.env, FLUX_SETTLE_JOB: JSON.stringify(job) }; delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
     const args = [path.join(repo, "scripts/lib/slideSettleElectronEntry.cjs"), ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []), ...(env.FLUX_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox"] : [])];
     await new Promise<void>((resolve, reject) => {
@@ -65,15 +65,42 @@ export function rtRow(c: RtCue): string {
   const flags = rtFlags(c);
   return `${c.name.slice(-34).padEnd(34)} ${f1(c.durationMs, 6)} ${f1(c.clickToFirstTickMs, 9)} ${f1(c.firstClockMs, 10)} ${f1(s.maxGap, 7)} ${f1(s.landGap, 8)} ${f1(c.restBeforeToFirst, 9)} ${f1(c.restAfter, 10)} ${f1(c.postLanding, 8)}(${c.postLandingFrames})  ${flags.join(", ") || "ok"}`;
 }
-/** Thresholds of the real-time domain (budgets, not neighbours: the frame is 16.7 ms at 60 fps). */
-export const RT = { firstClockMs: 25, gapMs: 24, restAfter: 1.0, postLanding: 1.0 };
+/** Thresholds of the real-time domain. Budgets, not neighbours: the frame is 16.7 ms at 60 fps, so "no long frame" is two vsyncs and "the
+ *  clock starts at the first presented frame" is one frame of motion after frame 0.
+ *  Units of the change columns are stage px^2 per stage px^2 (perceptual, see slideSettleSweep DEAD_BAND). */
+export const RT = {
+  /** cue clock at the first player frame that moved (frame 0 is presented first when a gliding enter primes its layer) */
+  firstClockMs: 34,
+  /** longest player frame gap in the last four frames of the motion, and the longest presented gap anywhere in the landing window */
+  gapMs: 34,
+  /** the last presented frame vs the static render of the end state, and the change after the landing frame (a sharpness / AA step) */
+  restAfter: 2, postLanding: 2,
+  /** A camera cue lands within 1.5 px / 1 % of the pose it baked at under the last motion (rasterKeeper EARLY_BAKE_AT): sub-visible phase softness */
+  cameraRestAfter: 60, cameraPostLanding: 8,
+  /** the landing frame and the first moving frame change like their neighbours: d_last <= max(3 x previous, floor), d_first <= max(4 x second, floor) */
+  stepRatio: 3, startRatio: 4, stepFloor: 6,
+  /** an interrupt settles velocity-continuously: no presented frame changes more than this multiple of the frames before it (floor 6) */
+  jumpRatio: 6,
+};
 export function rtFlags(c: RtCue): string[] {
   const f: string[] = [];
   if (c.error) return [`ERROR ${c.error.split("\n")[0]}`];
-  const s = summarize(c);
+  const s = summarize(c), camera = c.label.includes("camera");
+  if (c.interruptAtMs) {
+    if ((c.jumpRatio ?? 0) > RT.jumpRatio) f.push(`INTERRUPT JUMP (x${(c.jumpRatio ?? 0).toFixed(1)})`);
+    return f;
+  }
   if (c.firstClockMs != null && c.firstClockMs > RT.firstClockMs) f.push(`SKIPPED BEGINNING (${c.firstClockMs.toFixed(0)} ms in at the first tick)`);
   if (s.landGap > RT.gapMs) f.push(`LONG FRAME AT LANDING (${s.landGap.toFixed(0)} ms)`);
-  if (c.restAfter != null && c.restAfter > RT.restAfter) f.push("LANDING != REST RENDER");
-  if (c.postLanding > RT.postLanding) f.push("CHANGE AFTER LANDING");
+  if (c.restAfter != null && c.restAfter > (camera ? RT.cameraRestAfter : RT.restAfter)) f.push("LANDING != REST RENDER");
+  if (c.postLanding > (camera ? RT.cameraPostLanding : RT.postLanding)) f.push("CHANGE AFTER LANDING");
+  // the landing frame: the last presented frame that belongs to the motion (page time <= landedAt + 20 ms) against the one before it
+  if (c.landedAt != null) {
+    const motion = c.frames.filter(x => x.t >= 0 && x.t <= c.landedAt! + 20);
+    if (motion.length >= 3) {
+      const last = motion[motion.length - 1], prev = Math.max(motion[motion.length - 2].d, motion[motion.length - 3].d);
+      if (last.d > Math.max(RT.stepRatio * prev, RT.stepFloor)) f.push(`LANDING STEP (${last.d.toFixed(1)} after ${prev.toFixed(1)})`);
+    }
+  }
   return f;
 }

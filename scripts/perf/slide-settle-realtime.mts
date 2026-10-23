@@ -27,7 +27,7 @@ const want = env.CUES?.split(",");
 const all: RtCue[] = [];
 console.log(RT_HEAD);
 for (const d of decks) {
-  const r = await realtimeSweep(d.payload, d.name, { restMs: env.RESTMS ? Number(env.RESTMS) : undefined, preJs: env.PREJS, dump: env.DUMP, dumpAll: !!env.DUMPALL, only: want ? (s, f, t) => want.includes(`${s}#${f}-${t}`) : undefined });
+  const r = await realtimeSweep(d.payload, d.name, { fresh: !!env.FRESH, restMs: env.RESTMS ? Number(env.RESTMS) : undefined, preJs: env.PREJS, dump: env.DUMP, dumpAll: !!env.DUMPALL, only: want ? (s, f, t) => want.includes(`${s}#${f}-${t}`) : undefined });
   if (!all.length) console.log(`# gpu: ${JSON.stringify(r.gpu)}`);
   for (const c of r.cues) { all.push(c); console.log(rtRow(c)); }
 }
