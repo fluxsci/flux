@@ -123,8 +123,8 @@ for (const [k, f] of inflight.entries()) {
 for (const slide of ["cam_zoom", "cam_zoom10", "cam_pan", "txt_cam"]) {
   const c = cap(slide), changes = c.states.filter((s, i) => i > 0 && s.transform !== c.states[i - 1].transform).length, bakes = c.states.at(-1)!.bakes ?? -1;
   probe(`R3 ${slide}: ${bakes} re-bakes for ${changes} pose changes in ${c.frames} frames`);
-  assert.ok(bakes >= 1 && bakes <= changes + 1, `${slide}: re-bakes (${bakes}) are bounded by pose changes (${changes}) and happen at all`);
-  assert.deepEqual([...new Set(c.states.map((s) => s.hint))], ["transform"], `${slide}: the camera layer's will-change hint is ON after every frame (a pan used to clear it)`);
+  assert.ok(bakes >= 1 && bakes <= changes, `${slide}: re-bakes (${bakes}) are bounded by pose changes (${changes}) and happen at all`);
+  assert.deepEqual([...new Set(c.states.map((s) => s.hint))], ["transform"], `${slide}: the camera layer's will-change hint is ON after every frame (the pan-clears-the-hint guard itself is pinned in verify-slide-raster-pure.ts, C1b)`);
 }
 
 // ---- R3b: a slide that zooms paints element flights IN PLACE in capture; slides that do not keep their held flight layers -------

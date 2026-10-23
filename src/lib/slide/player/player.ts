@@ -614,7 +614,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     if (applied.length) applyAccumulated(node, applied);
     // T7: the camera layer's compositor hint belongs to the raster keeper (player.ts), never to the flight
     // hygiene below — settleWrapper() used to CLEAR it after the first pure-pan camera flight.
-    if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList.contains("sl-camera")) {
+    if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
       else { settleWrapper(node as HTMLElement); if (glides) armFlightMark(node as HTMLElement); }
     }

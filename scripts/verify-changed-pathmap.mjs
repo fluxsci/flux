@@ -94,7 +94,7 @@ const actualCases = [
   // E2 adds view authoring and semantic content binding without dropping inherited gates.
   ["src/lib/plot/viewControls.ts", ["verify-plot-view-verb.ts", "verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/plot/AxisView.svelte", ["verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
-  ["src/lib/slide/player/render.ts", ["verify-plot-binding.ts", "tier:pure", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
+  ["src/lib/slide/player/render.ts", ["verify-plot-binding.ts", "tier:pure", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs"]],
   // Animation v2 E1: the projection kernel left slide/player/morph.ts for plot/. Its exact entry keeps
   // the superseded src/lib/plot/** set AND the slide-player set its old home selected.
   ["src/lib/plot/project.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
@@ -108,7 +108,7 @@ const actualCases = [
   ["src/lib/plot/paint.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/plot/svgMatrix.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/slide/resolve.ts", ["verify-slide-resolve.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
-  ["src/lib/slide/player/player.ts", ["verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
+  ["src/lib/slide/player/player.ts", ["verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/editorPresentation.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
@@ -133,6 +133,10 @@ const actualCases = [
 ];
 for (const [file, expected] of actualCases) {
   equal([...collectChangedRuns([file], manifest.pathMap)], expected, `actual manifest routes ${file}`);
+}
+// WP 1.8 review: the offscreen raster gate guards the files that decide the stage's raster (first match wins, so each route lists it).
+for (const file of ["src/lib/slide/player/rasterKeeper.ts", "src/lib/slide/player/player.ts", "src/lib/slide/player/render.ts", "src/lib/slide/camera.ts", "src/lib/slide/export/videoRuntime.ts", "electron/slideVideoWorker.cjs", "scripts/lib/slideRasterDecks.ts"]) {
+  equal(resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest).scripts.includes("verify-slide-raster-electron.cjs"), true, `${file} routes the offscreen raster gate`);
 }
 
 const figureSelection = resolveChangedRuns(collectChangedRuns(["src/lib/figureLayoutStore.ts"], manifest.pathMap), manifest);

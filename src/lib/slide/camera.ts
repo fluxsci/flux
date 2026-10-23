@@ -62,7 +62,7 @@ export function sampleCamera(a: CameraPose, b: CameraPose, u: number, stage: Sta
 export function slideZoomsCamera(slide: { camera?: { zoom?: number }; beats: readonly { tracks: readonly { target: string; preset?: string; to?: { zoom?: number; path?: string } }[] }[] }): boolean {
   let zoom = slide.camera?.zoom ?? 1;
   for (const beat of slide.beats) for (const track of beat.tracks) {
-    if (track.target !== "@camera") continue;
+    if (track.target !== "@camera" && track.target !== "@stage") continue;   // the player resolves both to the camera layer
     const to = track.to?.zoom ?? zoom;
     if (Math.abs(to - zoom) > 1e-9 || track.to?.path === "fly") return true;
     zoom = to;

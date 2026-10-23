@@ -49,6 +49,19 @@ h.ok(slideZoomsCamera(cam({ x: 320, y: 180, zoom: 2.5 })), "zoom detected");
 h.ok(slideZoomsCamera(cam({ x: 600, y: 230, zoom: 1, path: "fly" })), "Fly zooms out and in");
 h.ok(!slideZoomsCamera({ camera: { zoom: 2 }, ...cam({ x: 1, y: 1, zoom: 2 }) } as Slide), "same zoom as the base camera is a pan");
 h.ok(!slideZoomsCamera({ elements: [], beats: [{ id: "b0", tracks: [] }] } as unknown as Slide), "no camera track");
+h.ok(slideZoomsCamera({ id: "c", elements: [], beats: [{ id: "b0", tracks: [{ id: "t", target: "@stage", preset: "camera", to: { x: 320, y: 180, zoom: 2.5 }, duration: 900 } as Track] }] } as Slide), "@stage resolves to the camera layer, so its zoom counts too");
+
+h.section("C1b: a pure pan never clears the camera's compositor hint (the keeper is inert here, so only applyAt could)");
+{
+  const deck = createDeck({ stage, withTitleSlide: false });
+  deck.slides = [{ id: "s", camera: { x: 320, y: 180, zoom: 2 }, elements: [], beats: [{ id: "b0", tracks: [] },
+    { id: "b1", tracks: [{ id: "t", target: "@camera", preset: "camera", to: { x: 400, y: 200, zoom: 2 }, duration: 1000, easing: "linear" }] }] } as unknown as Slide];
+  const host = document.createElement("div") as unknown as HTMLElement, player = createPlayer(host, deck, opts);
+  const camLayer = host.querySelector(".sl-camera") as HTMLElement, seen = [camLayer.style.willChange];
+  for (const ms of [0, 300, 600, 999, 1000]) { player.seek(0, 1, ms); seen.push(camLayer.style.willChange); }
+  h.eq([...new Set(seen)], ["transform"], "will-change stays transform before, during and after a pure camera pan");
+  player.destroy();
+}
 
 h.section("exact camera sampling in capture at 10x (the 24-chord polyline was 5.5 stage px off)");
 {
@@ -95,6 +108,12 @@ h.section("raster keeper protocol (scripted frames)");
   const { createRasterKeeper, SETTLE_TIMEOUT_MS, BAKE_DEBOUNCE_MS } = await import("../src/lib/slide/player/rasterKeeper");
   h.eq([SETTLE_TIMEOUT_MS, BAKE_DEBOUNCE_MS], [1500, 80], "SETTLE_TIMEOUT_MS and BAKE_DEBOUNCE_MS pinned");
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  // Condition-based wait for every POSITIVE outcome (the Windows pure job runs --jobs 2 on a loaded host); the sleeps that remain
+  // are annotated: either a negative ("nothing happened yet / at all") or the first-look frame that has no observable.
+  const until = async (pred: () => boolean, label: string, timeoutMs = 5000) => {
+    const t0 = Date.now();
+    while (!pred()) { if (Date.now() - t0 > timeoutMs) throw new Error(`timed out after ${timeoutMs} ms: ${label}`); await sleep(5); }
+  };
   function rig(opts2: { capture?: boolean; debounceMs?: number } = {}) {
     const hints: string[] = [];
     let hint = "transform", nodes = 10, width = 100;
@@ -102,6 +121,17 @@ h.section("raster keeper protocol (scripted frames)");
     const mount = { offsetWidth: 100, getBoundingClientRect: () => ({ width }) };
     const keeper = createRasterKeeper(cam as unknown as HTMLElement, mount as unknown as HTMLElement, opts2);
     return { keeper, hints, cam, set nodes(n: number) { nodes = n; }, set width(w: number) { width = w; }, get hint() { return hint; } };
+  }
+  // inert guards beyond the missing rAF: no `window`, or a mount that cannot measure itself (SSR / linkedom hosts that fake rAF)
+  {
+    const fakeCam = { style: { transform: "translate(0px, 0px) scale(1)", willChange: "transform" }, getElementsByTagName: () => ({ length: 1 }) } as unknown as HTMLElement;
+    const noMeasure = createRasterKeeper(fakeCam, { offsetWidth: 100 } as unknown as HTMLElement, { capture: true });
+    fakeCam.style.transform = "translate(-5px, 0px) scale(2)"; noMeasure.rest(); await noMeasure.settle();
+    g.window = undefined;
+    const noWindow = createRasterKeeper(fakeCam, { offsetWidth: 100, getBoundingClientRect: () => ({ width: 100 }) } as unknown as HTMLElement, { capture: true });
+    noWindow.rest(); await noWindow.settle();
+    g.window = { devicePixelRatio: 1 };
+    h.eq([noMeasure.count(), noWindow.count(), fakeCam.style.willChange], [0, 0, "transform"], "a mount without getBoundingClientRect, or no window, is inert: no bake, no throw, hint untouched");
   }
   // capture
   {
@@ -121,27 +151,27 @@ h.section("raster keeper protocol (scripted frames)");
   // live (timer margins are wide: the gate runs in parallel on loaded CI hosts)
   {
     const r = rig({ debounceMs: 150 });
-    await sleep(60);                                       // the first frame records the first look
+    await sleep(60);                                       // first-look frame (rAF fires at +2 ms): no observable to poll
     r.cam.style.transform = "translate(-10px, -4px) scale(2)";
-    r.keeper.rest(false); await sleep(20);
+    r.keeper.rest(false); await sleep(20);                 // negative: the 150 ms debounce has not expired
     h.eq(r.keeper.count(), 0, "live: nothing before the debounce expires");
-    await sleep(500);
+    await until(() => r.keeper.count() === 1 && r.hints.length === 2, "the debounced re-bake");
     h.eq([r.keeper.count(), r.hints, r.hint], [1, ["auto", "transform"], "transform"], "live: one debounced re-bake after rest");
-    r.cam.style.transform = "translate(-20px, -4px) scale(2)"; r.keeper.rest(false); r.keeper.flying(); await sleep(450);
+    r.cam.style.transform = "translate(-20px, -4px) scale(2)"; r.keeper.rest(false); r.keeper.flying(); await sleep(450);   // negative: outlasts the 150 ms debounce 3x
     h.eq(r.keeper.count(), 1, "live: flying() cancels a pending re-bake");
-    r.keeper.rest(false); await sleep(500);
+    r.keeper.rest(false); await until(() => r.keeper.count() === 2 && r.hints.length === 4, "the re-bake after flying()");
     h.eq(r.keeper.count(), 2, "live: the next rest bakes the pose that flying() left behind");
     const slow = rig({ debounceMs: 5000 }); await sleep(60);
     slow.cam.style.transform = "translate(-1px, 0px) scale(2)"; slow.keeper.rest(true); slow.keeper.rest(false);   // natural flight end, then finish()'s own paint
-    await sleep(400);
+    await until(() => slow.keeper.count() === 1, "the immediate end-of-flight bake (debounce is 5000 ms)", 1500);
     h.eq(slow.keeper.count(), 1, "live: the end of a flight bakes immediately and the paint after it does not push it out");
     slow.keeper.dispose();
     const heavy = rig({ debounceMs: 5 }); await sleep(60);
-    heavy.nodes = 30001; heavy.cam.style.transform = "translate(-1px, 0px) scale(2)"; heavy.keeper.rest(false); await sleep(300);
+    heavy.nodes = 30001; heavy.cam.style.transform = "translate(-1px, 0px) scale(2)"; heavy.keeper.rest(false); await sleep(300);   // negative: 60x the 5 ms debounce
     h.eq([heavy.keeper.count(), heavy.hints], [0, []], "live: skipped above 30 000 nodes, and the hint is untouched");
     heavy.keeper.dispose();
     const light = rig({ debounceMs: 5 }); await sleep(60);
-    light.nodes = 30000; light.cam.style.transform = "translate(-1px, 0px) scale(2)"; light.keeper.rest(false); await sleep(300);
+    light.nodes = 30000; light.cam.style.transform = "translate(-1px, 0px) scale(2)"; light.keeper.rest(false); await until(() => light.keeper.count() === 1, "the 30 000-node re-bake");
     h.eq(light.keeper.count(), 1, "live: exactly 30 000 nodes still re-bakes");
     light.keeper.dispose(); r.keeper.dispose();
   }
@@ -158,7 +188,7 @@ h.section("raster keeper protocol (scripted frames)");
     stalled = true;                                        // a throttled / occluded host: no frame ever arrives
     const t0 = Date.now(); await s.keeper.settle(); const waited = Date.now() - t0;
     h.ok(waited >= SETTLE_TIMEOUT_MS - 50 && waited < SETTLE_TIMEOUT_MS + 2000, `settle() gives up after SETTLE_TIMEOUT_MS instead of hanging (${waited} ms)`);
-    stalled = false; drain(); await sleep(150);
+    stalled = false; drain(); await until(() => s.hint === "transform" && s.keeper.count() === 1, "the stalled bake completes once frames resume");
     h.eq([s.hint, s.keeper.count()], ["transform", 1], "frames resume: the stalled bake completes and the hint ends ON");
     s.keeper.dispose();
   }

@@ -1390,7 +1390,8 @@
         "tier:pure",
         "group:inline-slides",
         "group:slide-stash",
-        "group:slide-clips"
+        "group:slide-clips",
+        "verify-slide-raster-electron.cjs"
       ]
     },
     {
@@ -1580,7 +1581,8 @@
         "group:slide-stash",
         "verify-gallery-video-capability.ts",
         "group:slide-clips",
-        "verify-ipc-contract.ts"
+        "verify-ipc-contract.ts",
+        "verify-slide-raster-electron.cjs"
       ]
     },
     {
@@ -2277,7 +2279,8 @@
         "group:slide-stash",
         "verify-gallery-video-capability.ts",
         "group:slide-clips",
-        "verify-ipc-contract.ts"
+        "verify-ipc-contract.ts",
+        "verify-slide-raster-electron.cjs"
       ]
     },
     {
