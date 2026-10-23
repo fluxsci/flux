@@ -229,7 +229,6 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   [openKey("change", "change", 3, 3)]: { seek: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)"], owner: "lane T (text morph layers)" },
   // a with-previous highlight starts at its OWN delay (120 ms in) with a one-frame dim of 147 stage px^2 and then holds (the wink): the real-time
   // gate's first-changing-frame rule sees it where the seek gate's windows at t = 0 cannot (the boundary is not at t = 0). Lane V rewrites highlight.
-  [openKey("chains", "chains", 4, 6)]: { rt: ["START STEP"], owner: "lane V (highlight is a wink: a delayed highlight dims in one frame)" },
   // the count-up replaces the resting number with its digit slots one frame after t = 0 (frame 0 is the rest, the second frame is 201 units, a
   // frame of the motion's own scale): a content swap that lands late. Lane D (WP 2.3, count-up slots) owns it.
   [openKey("plot_scatter", "scatter", 4, 4)]: { seek: ["START POP (2nd frame)"], owner: "R2 follow-up (a scaleIn point child re-entering VISIBLE points shifts every point at t = 0 (pre 22.7) and again on the 2nd frame; fade / popIn re-entries do not; a fresh auto-built scatter is clean)" },
