@@ -227,6 +227,14 @@ export function createTransform(
     };
     layerA = mk();
     layerB = mk();
+    // A (1-t, t) opacity pair leaves an opaque box only 75 % covering at t = .5 (the content dips toward the
+    // backdrop). Added in premultiplied space (plus-lighter) inside contentHost's OWN stacking context the pair
+    // sums to full coverage; contentHost holds nothing but these two layers, so nothing else is blended. The
+    // blend is set once, with the layers, and never toggled: the resting render before, during and after the
+    // swap goes through the same compositing path, so no endpoint changes how the content is rasterized.
+    contentHost.style.setProperty("isolation", "isolate");
+    layerA.style.setProperty("mix-blend-mode", "plus-lighter");
+    layerB.style.setProperty("mix-blend-mode", "plus-lighter");
     // move (never clone) the existing content into layer A — inner-node
     // animations from earlier beats stay attached to their live targets.
     while (contentHost.firstChild) layerA.appendChild(contentHost.firstChild);

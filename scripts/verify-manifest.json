@@ -341,6 +341,7 @@
       "verify-slide-curves.ts",
       "verify-pace-defaults.ts",
       "verify-slide-handoff-browser.ts",
+      "verify-slide-xfade-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
       "verify-plot-binding.ts",
@@ -930,6 +931,7 @@
       "verify-v020-paper-contracts.ts",
       "verify-v020-morph-startup.mjs",
       "verify-slide-handoff-browser.ts",
+      "verify-slide-xfade-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
@@ -9433,6 +9435,15 @@
       "coverage": "behavior"
     },
     "verify-slide-handoff-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-xfade-browser.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
