@@ -119,6 +119,8 @@ async function plotDecks(compact: boolean): Promise<CorpusDeck[]> {
     };
     enter(s, children[0]);
     for (const child of children.slice(1)) { const slide = b.slide(`scatter_${child}`); place(b, slide, "pl", "scatter"); enter(slide, child); }
+    // ... and the second enter of the SAME points, kept as the pinned meaning of re-entering a shown part (KNOWN_OPEN, "by definition")
+    { const slide = b.slide("scatter_reenter"); place(b, slide, "pl", "scatter"); enter(slide, "scaleIn"); enter(slide, "scaleIn"); }
     out.push({ name: "plot_scatter", payload: { deck: b.deck, plots: { scatter: plots.scatter } } });
     void D;
   }

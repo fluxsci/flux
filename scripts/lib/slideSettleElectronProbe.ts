@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { corpus } from "./slideSettleCorpus";
 import { chromaShare, GRAYSCALE_MAX_SHARE, realtimeSweep, rtFlags, rtRow, RT_HEAD } from "./slideSettleRealtime";
-import { judge, KNOWN_OPEN } from "./slideSettleSweep";
+import { hops, judge, KNOWN_OPEN } from "./slideSettleSweep";
 
 const probe = (message: string) => console.log(`PROBE ${message}`);
 const decks = await corpus("compact");
@@ -20,13 +20,24 @@ export const PLAY: Record<string, string[]> = {
   preset_drawOn: ["p_drawOn#3-3", "p_drawOn#4-4", "p_drawOn#6-6"], preset_drawOff: ["p_drawOff#3-3", "p_drawOff#6-6"], preset_growBaseline: ["p_growBaseline#1-1"],
   preset_stagger: ["p_stagger#1-1"], preset_stagger_many: ["p_many#1-1"], preset_writeOn: ["p_writeOn#1-1", "p_writeOn#2-2"], preset_fadeOut: ["p_fadeOut#2-2"], preset_popOut: ["p_popOut#2-2"],
   preset_move: ["p_move#1-1"], preset_scale: ["p_scale#1-1"], preset_rotate: ["p_rotate#1-1"], preset_dim: ["p_dim#2-2"], preset_countUp: ["p_countUp#1-1"],
-  change: ["change#1-1", "change#3-3", "change#4-4", "change#5-5", "change#7-7", "change#9-9", "change#11-11", "change#13-13", "change#16-16", "change#17-17", "change#18-18"],
+  change: ["change#1-1", "change#3-3", "change#4-4", "change#5-5", "change#7-7", "change#9-9", "change#11-11", "change#13-13", "change#16-16", "change#17-17", "change#18-18", "change#19-19", "change#20-20"],
   become: ["become#1-1", "become#2-2", "become#3-3", "become#4-4"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"], camera: ["camera#1-1", "camera#2-2", "camera#3-3", "camera#4-4", "camera#5-5"],
   chains: ["chains#1-1", "chains#2-2", "chains#3-3", "chains#4-6"], plot_scatter: ["scatter#1-1", "scatter#2-2", "scatter_scaleIn#1-1"], plot_parts: ["parts_pulse#1-1", "parts_scaleOut#1-1"], plot_bars: ["bars#2-2"], plot_lines: ["lines#2-2"],
   interrupt: ["int#1-1"],
   // Release 2 vocabulary (lane V measured it headless only): scale in / scale out / pulse / encircle on a text and a shape, and the soft wipe on a text (its
   // leading edge is a mask-image, which forces its own raster layer while it plays: landing == rest render, nothing changes after it)
   preset_scaleIn: ["p_scaleIn#1-1", "p_scaleIn#2-2"], preset_scaleOut: ["p_scaleOut#1-1", "p_scaleOut#2-2"], preset_pulse: ["p_pulse#1-1", "p_pulse#2-2"], preset_encircle: ["p_encircle#1-1", "p_encircle#2-2"], become_stroked: ["line_shape#1-1", "corners#1-1"], ghost: ["ghost#2-2"],
+};
+/** Cues whose motion must be CONTINUOUS (a slow text glide): the presented frames inside the motion may not hop (slideSettleSweep `hops`). The stem edit
+ *  painted in place stair-stepped (a ~23 unit hop every fourth frame at 1200 ms); on a compositor layer it is smooth. */
+export const SMOOTH = ["change#19-19"];
+const flagsOf = (c: Parameters<typeof rtFlags>[0], deck: string) => {
+  const flags = rtFlags(c);
+  if (SMOOTH.includes(c.name.slice(deck.length + 1)) && c.landedAt != null) {
+    const motion = c.frames.filter(x => x.t >= 0 && x.t <= c.landedAt! + 20).map(x => x.d), at = hops(motion);
+    if (at.length) flags.push(`HOP (${at.length} frame${at.length > 1 ? "s" : ""}: ${at.slice(0, 3).map(i => `${motion[i].toFixed(1)} beside ${Math.max(motion[i - 1], motion[i + 1]).toFixed(1)}`).join(", ")})`);
+  }
+  return flags;
 };
 // A cue another lane owns (or a documented open item) is tolerated ONLY for the flags KNOWN_OPEN names for the real-time domain, and a REQUIRED
 // entry whose flag stopped firing fails the gate (the entry must be deleted).
@@ -54,14 +65,14 @@ for (const d of decks) {
     cues++; played.add(c.name);
     const open = KNOWN_OPEN[c.name];
     probe(rtRow(c));
-    const attempts = [judge(rtFlags(c), open, "rt")];
+    const attempts = [judge(flagsOf(c, d.name), open, "rt")];
     if (attempts[0].failing.length || attempts[0].stale.length) {
       const only = c.name.slice(d.name.length + 1);
       for (let i = 0; i < 2; i++) {
         const again = (await run((slide, from, to) => `${slide}#${from}-${to}` === only)).cues[0];
         if (!again) continue;
         probe(`retry ${i + 1} ${rtRow(again)}`);
-        attempts.push(judge(rtFlags(again), open, "rt"));
+        attempts.push(judge(flagsOf(again, d.name), open, "rt"));
       }
       retried.push(c.name);
     }
