@@ -174,7 +174,10 @@ h.section("authored text look (X1a rows)");
   const { resolveTextLook } = await import("../src/lib/slide/timing");
   const LOOK = { fadeStyle: "roll", letters: "travel" };
   h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringTextParams).map(([n, d]) => [n, d.authoringTextParams]), [["transform", LOOK]], "ONE text-look row: the transform preset { fadeStyle: roll, letters: travel }");
-  h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringParams).map(([n, d]) => [n, d.authoringParams]), [["fadeRise", { y: 24 }]], "...and the plain authoring rows are still only fadeRise { y: 24 }");
+  // Release 2 integration: lane V's X1a rows (WP 2.2 highlight lead, WP 2.4 soft text wipe) join Release 1's fadeRise lift
+  h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringParams).map(([n, d]) => [n, d.authoringParams]),
+    [["fadeRise", { y: 24 }], ["writeOn", { edge: "soft" }], ["highlight", { lead: 0.25 }]],
+    "...and the plain authoring rows are exactly fadeRise { y: 24 }, writeOn { edge: soft }, highlight { lead: 0.25 }");
   h.eq({ ...TEXT_TRANSFORM_PARAMS }, LOOK, "TEXT_TRANSFORM_PARAMS is the row");
   h.eq([authoredFields("transform").params, authoredFields("transform", undefined, false).params], [undefined, undefined], "a transform that does not rewrite text authors no params");
   h.eq(authoredFields("transform", undefined, true), { duration: 1200, easing: "smooth", params: LOOK }, "a text transform authors 1200 ms smooth + the look");

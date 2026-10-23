@@ -224,7 +224,6 @@ export const openKey = (deck: string, slideId: string, from: number, to: number)
  *  stops firing fails it too. */
 export const KNOWN_OPEN: Record<string, OpenCase> = {
   // highlight / dim start as a wink: the element is dimmed at t = 0 (opacity level -> 1). Lane V (WP 2.2, T6 emphasis that MOVES) rewrites it.
-  ...Object.fromEntries([1, 2, 3, 4, 5].map(n => [openKey("preset_highlight", "p_highlight", n, n), { seek: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" } as OpenCase])),
   // a text rewrite hands the original static text to the span layer: the glyph-matched morph's first/last frame differ from the resting
   // text by anti-aliasing (50 stage px^2). Lane T (WP 2.5, text glide lanes / letters travel) owns textMorph.ts.
   [openKey("change", "change", 3, 3)]: { seek: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)"], owner: "lane T (text morph layers)" },
@@ -233,6 +232,7 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   [openKey("chains", "chains", 4, 6)]: { rt: ["START STEP"], owner: "lane V (highlight is a wink: a delayed highlight dims in one frame)" },
   // the count-up replaces the resting number with its digit slots one frame after t = 0 (frame 0 is the rest, the second frame is 201 units, a
   // frame of the motion's own scale): a content swap that lands late. Lane D (WP 2.3, count-up slots) owns it.
+  [openKey("plot_scatter", "scatter", 4, 4)]: { seek: ["START POP (2nd frame)"], owner: "R2 follow-up (a scaleIn point child re-entering VISIBLE points shifts every point at t = 0 (pre 22.7) and again on the 2nd frame; fade / popIn re-entries do not; a fresh auto-built scatter is clean)" },
   [openKey("preset_countUp", "p_countUp", 1, 1)]: { seek: ["START POP (2nd frame)"], owner: "lane D (count-up digit slots replace the resting number one frame late)" },
   // TEXT that glides to a FRACTIONAL position rests on the gliding raster: a layer is rasterised once at its source phase and moved at float
   // precision (the only way text glides), so it lands up to half a device pixel soft against a render painted in place there (25 stage px^2

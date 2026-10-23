@@ -77,9 +77,10 @@ class Builder {
   }
 }
 
-const ENTER = ["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn"] as const;
-const EXIT = ["fadeOut", "popOut", "drawOff", "wipeOut"] as const;
-const EMPH = ["highlight", "dim"] as const;
+// WP 2.2 (Release 2) appended its fade-free vocabulary at the END of each family, so earlier decks keep their cue numbers
+const ENTER = ["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn", "scaleIn"] as const;
+const EXIT = ["fadeOut", "popOut", "drawOff", "wipeOut", "scaleOut"] as const;
+const EMPH = ["highlight", "dim", "pulse", "encircle"] as const;
 const LEGACY: Record<string, Partial<Track>> = { move: { to: { x: 60, y: 24 } }, scale: { to: { scale: 1.35 } }, rotate: { to: { rotation: 28 } } };
 
 /** Slides of one preset applied to `kinds`: one cue per kind. */
@@ -107,7 +108,7 @@ async function plotDecks(compact: boolean): Promise<CorpusDeck[]> {
     b.anim(s, axes, "pl", "drawOn", { part: "axis.x.ticks", stagger: { by: "x", from: "start", totalMs: 450 }, duration: 140 });
     b.anim(s, axes, "pl", "fade", { part: "axis.x.tick-labels", start: 40, duration: 200, stagger: { by: "x", from: "start", totalMs: 450 } });
     b.anim(s, axes, "pl", "fade", { part: "axis.y.tick-labels", start: 40, duration: 200, stagger: { by: "y", from: "start", totalMs: 450 } });
-    for (const child of compact ? ["fade", "popIn"] : ["fade", "fadeRise", "popIn", "growBaseline"]) {
+    for (const child of compact ? ["fade", "popIn", "scaleIn"] : ["fade", "fadeRise", "popIn", "growBaseline", "scaleIn"]) {  // scaleIn: the V2 point child (WP 2.2)
       const beat = b.beat(s);
       b.anim(s, beat, "pl", "stagger", { selector: { role: "point" }, stagger: { by: "index", from: "start", totalMs: 1200 }, params: { child }, duration: 400 });
     }
@@ -159,6 +160,9 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     // the compact set rotates a text (a hugging box re-lays its glyphs out per frame and is placed by its rest law, not a frozen box) and a rect
     // at the END of the deck, so the cues above keep their numbers
     if (compact) for (const k of ["text", "rect"]) b.change(s, b.beat(s), k, { rotation: 35 });
+    // an anagram rewrite (WP 2.5: a new text Change is authored with letters travel and roll leftovers), last so the cues above keep their numbers
+    b.add(s, el("text", "anagram", 40, 318, { text: "LISTEN", fontSize: 28 }));
+    b.change(s, b.beat(s), "anagram", { text: "SILENT" });
     out.push({ name: "change", payload: { deck: b.deck, assets: { img: pngDataUrl() }, assetSizes: { img: { width: 64, height: 48 } } } as SweepPayload });
   }
   {
