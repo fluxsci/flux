@@ -5,7 +5,7 @@ import { DOMParser, parseHTML } from "linkedom";
 import { harness } from "./lib/harness.mjs";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { PlotView, SemanticPlotElement, Project } from "../src/lib/types";
-import { viewFits, projectWith, dataOfPixel, blendFit, seriesVertices, projectSeries, guideData, seriesAxes, seriesTweenable, plotViewIssues, hasTweenableSeries } from "../src/lib/plot/project";
+import { viewFits, projectWith, dataOfPixel, blendFit, seriesVertices, projectSeries, guideData, seriesAxes, seriesTweenable, plotViewIssues, hasTweenableSeries, viewProjectsVertices } from "../src/lib/plot/project";
 import { applyPlotView, restoreProjection, preparePlotView } from "../src/lib/plot/projectDom";
 import { preparePlot, prefixIds } from "../src/lib/plot/parse";
 import { setPlotView } from "../src/lib/ops";
@@ -13,6 +13,7 @@ import { applyState, diffState, lerpElement, contentPlan } from "../src/lib/slid
 import { listMorphCandidates } from "../src/lib/slide/autobuild";
 import { compileSlide } from "../src/lib/slide/compile";
 import { compensatePtTrue, restorePtTrue, svgIntrinsicPx } from "../src/lib/plot/compensate";
+import { partStageOutlines, plotStageMapping } from "../src/lib/slide/targetGeometry";
 const { document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, DOMParser });
 const h = harness("verify-plot-view");
@@ -153,6 +154,45 @@ h.ok(barIds.every((id, i) => barRoot.querySelector(`[id="${id}"]`)!.toString() =
 h.ok(!plotViewIssues(bars.manifest, barView).some(x => x.includes("unchanged")), "no filled-mark limitation is reported for re-projectable bars");
 const imageLike = structuredClone(bars.manifest); imageLike.series[0].rasterized = true;
 h.ok(plotViewIssues(imageLike, barView).some(x => x.includes("remain unchanged")), "a rasterized layer is still called out");
+
+h.section("a band series carries its own line and markers: a view moves them with the band (inbox fbmvlg8rbhvfou)");
+// fluxplot writes a confidence band WITH its line and markers as ONE series (roles area + line + point, dataMorph false). The view
+// projection used to skip such a series for its line and points (a data-morph eligibility rule applied to a view), so the axes and
+// the band zoomed while the line and the dots kept their unzoomed pixels: 24 samples of hours 0-23 spread over a 8-16 window.
+const ts = load("ts_band_line_FLUXPLOT"), tsSeries = ts.manifest.series[0];
+const tsView: PlotView = { x: { domain: [8, 16] }, y: { domain: [0.5, 2.5] } }, tsRaw = viewFits(ts.manifest)!, tsFits = viewFits(ts.manifest, tsView)!;
+h.ok(ts.manifest.series.length === 1 && tsSeries.roles!.includes("area") && Boolean(tsSeries.svg?.line) && tsSeries.capabilities?.dataMorph === false,
+  "fixture: one series with area + line + point roles and dataMorph false (fluxplot's band with its line)");
+h.ok(viewProjectsVertices(tsSeries), "a view moves the line and points of a band series");
+h.ok(!seriesTweenable(tsSeries, tsSeries, seriesAxes(ts.manifest, tsSeries), seriesAxes(ts.manifest, tsSeries)), "...while a DATA morph still refuses it");
+const tsRoot = ts.root(), tsBytes = tsRoot.toString();
+applyPlotView(tsRoot, ts.manifest, tsView, "");
+const tsX = tsSeries.data!.x as number[], tsY = tsSeries.data!.y as number[], line = xy(tsRoot, "growth.line");
+h.ok(line.length === 2 * tsX.length, `the line keeps one vertex per sample (${line.length / 2})`);
+for (const k of [8, 12, 16]) {
+  near(line[2 * k], projectWith(tsFits.x, tsX[k]), `line vertex at hour ${k}: x follows the view`, 1e-2);
+  near(line[2 * k + 1], projectWith(tsFits.y, tsY[k]), `line vertex at hour ${k}: y follows the view`, 1e-2);
+  const pt = tsSeries.points!.find(q => q.index === k)!, node = tsRoot.querySelector(`[id="${pt.svgId}"]`)! as SVGElement;
+  const [dx, dy] = (node.style.getPropertyValue("translate") || "0px 0px").split(/\s+/).map(parseFloat);
+  near(projectWith(tsRaw.x, pt.x) + dx, projectWith(tsFits.x, pt.x), `marker at hour ${k}: x at the projected datum`, .00501);
+  near(projectWith(tsRaw.y, pt.y) + (dy || 0), projectWith(tsFits.y, pt.y), `marker at hour ${k}: y at the projected datum`, .00501);
+}
+// the band is y ± 0.22: at every in-view hour the line lies strictly between the band's projected edges
+const band = tsSeries.band as { lo: number[]; hi: number[] };
+h.ok([...Array(tsX.length).keys()].filter(k => tsX[k] >= 8 && tsX[k] <= 16).every(k => {
+  const yl = line[2 * k + 1], hi = projectWith(tsFits.y, band.hi[k]), lo = projectWith(tsFits.y, band.lo[k]);
+  return yl > Math.min(hi, lo) && yl < Math.max(hi, lo);
+}), "in view, the line runs inside its band at every sample");
+// the stage outlines a Become / Encircle reads agree with the DOM writer (targetGeometry's projection kernel used the same rule)
+const tsEl: SemanticPlotElement = { id: "tsp", type: "plot", assetId: "ts", x: 0, y: 0, width: 500, height: 300, rotation: 0, view: tsView };
+const tsCtx = { manifest: () => ts.manifest, plotRoot: () => ts.root() };
+const outline = partStageOutlines(tsEl, ["growth.line"], tsCtx)[0]?.paths?.[0]?.nodes ?? partStageOutlines(tsEl, ["growth.line"], tsCtx)[0]?.nodes;
+const toStage = plotStageMapping(tsEl, ts.root()).toStage;
+const want = toStage(projectWith(tsFits.x, tsX[12]), projectWith(tsFits.y, tsY[12]));
+h.ok(Array.isArray(outline) && outline.some((n: { x: number; y: number }) => Math.hypot(n.x - want.x, n.y - want.y) < 0.05),
+  "the line's stage outline under the view passes through the projected hour-12 sample (targetGeometry)");
+restoreProjection(tsRoot);
+h.ok(tsRoot.toString() === tsBytes, "restore puts the generated line, markers and band back");
 
 h.section("a filled mark STARTS from the start asset's own geometry, not the live node's (chained asset Changes)");
 {

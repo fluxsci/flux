@@ -1,0 +1,732 @@
+{
+  "artifact": {
+    "svgSha256": "17cfdfa5d90aff09d106f71d55fa09c2bb1e67207aff5196440e6cabda23f169"
+  },
+  "axes": [
+    {
+      "id": "plot-area",
+      "pixelBox": {
+        "x0": 45.0,
+        "x1": 324.0,
+        "y0": 25.919999999999998,
+        "y1": 192.24
+      },
+      "projection": "rectilinear",
+      "svgId": "plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 45.0
+          },
+          {
+            "data": 23.0,
+            "svg": 324.0
+          }
+        ],
+        "domain": [
+          0.0,
+          23.0
+        ],
+        "label": "Time (h)",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "5",
+            "value": 5.0
+          },
+          {
+            "label": "10",
+            "value": 10.0
+          },
+          {
+            "label": "15",
+            "value": 15.0
+          },
+          {
+            "label": "20",
+            "value": 20.0
+          },
+          {
+            "label": "25",
+            "value": 25.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 192.24
+          },
+          {
+            "data": 3.0,
+            "svg": 25.919999999999998
+          }
+        ],
+        "domain": [
+          0.0,
+          3.0
+        ],
+        "label": "OD600",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0.0",
+            "value": 0.0
+          },
+          {
+            "label": "0.5",
+            "value": 0.5
+          },
+          {
+            "label": "1.0",
+            "value": 1.0
+          },
+          {
+            "label": "1.5",
+            "value": 1.5
+          },
+          {
+            "label": "2.0",
+            "value": 2.0
+          },
+          {
+            "label": "2.5",
+            "value": 2.5
+          },
+          {
+            "label": "3.0",
+            "value": 3.0
+          }
+        ]
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "axis.x",
+      "axis.y",
+      "growth.line",
+      "growth.band",
+      "growth.points"
+    ],
+    "presets": {
+      "area": {
+        "animation": "fade-in",
+        "durationMs": 500
+      },
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "line": {
+        "animation": "draw-on",
+        "durationMs": 800
+      },
+      "point": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "index",
+        "staggerMs": 40
+      }
+    }
+  },
+  "figure": {
+    "background": "figure.background"
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.1.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "axis.x",
+      "role": "axis",
+      "svgId": "axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "axis.y",
+      "role": "axis",
+      "svgId": "axis.y"
+    }
+  ],
+  "idAliases": {
+    "axis.x.spine": "axis.x.spine.bottom",
+    "axis.x.spine-2": "axis.x.spine.top",
+    "axis.y.spine": "axis.y.spine.left",
+    "axis.y.spine-2": "axis.y.spine.right"
+  },
+  "overlays": [],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "kind": "shape",
+            "ref": "axes.background",
+            "role": "background"
+          },
+          {
+            "axis": "x",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.bottom",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.top",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.x.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.x.tick.0",
+                  "axis.x.tick.1",
+                  "axis.x.tick.2",
+                  "axis.x.tick.3",
+                  "axis.x.tick.4"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.x.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.x.ticklabel.0",
+                  "axis.x.ticklabel.1",
+                  "axis.x.ticklabel.2",
+                  "axis.x.ticklabel.3",
+                  "axis.x.ticklabel.4"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.x.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.x",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "axis": "y",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.left",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.right",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.y.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.y.tick.0",
+                  "axis.y.tick.1",
+                  "axis.y.tick.2",
+                  "axis.y.tick.3",
+                  "axis.y.tick.4",
+                  "axis.y.tick.5",
+                  "axis.y.tick.6"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.y.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.y.ticklabel.0",
+                  "axis.y.ticklabel.1",
+                  "axis.y.ticklabel.2",
+                  "axis.y.ticklabel.3",
+                  "axis.y.ticklabel.4",
+                  "axis.y.ticklabel.5",
+                  "axis.y.ticklabel.6"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.y.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.y",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "growth.band",
+                "role": "area"
+              },
+              {
+                "kind": "line",
+                "ref": "growth.line",
+                "role": "line"
+              },
+              {
+                "groupRole": "point",
+                "id": "growth.points",
+                "kind": "shape",
+                "memberRole": "point",
+                "members": [
+                  "growth.point.0",
+                  "growth.point.1",
+                  "growth.point.2",
+                  "growth.point.3",
+                  "growth.point.4",
+                  "growth.point.5",
+                  "growth.point.6",
+                  "growth.point.7",
+                  "growth.point.8",
+                  "growth.point.9",
+                  "growth.point.10",
+                  "growth.point.11",
+                  "growth.point.12",
+                  "growth.point.13",
+                  "growth.point.14",
+                  "growth.point.15",
+                  "growth.point.16",
+                  "growth.point.17",
+                  "growth.point.18",
+                  "growth.point.19",
+                  "growth.point.20",
+                  "growth.point.21",
+                  "growth.point.22",
+                  "growth.point.23"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "growth",
+            "kind": "container",
+            "label": "OD600",
+            "role": "series"
+          }
+        ],
+        "id": "plot-area",
+        "kind": "container",
+        "role": "plot-area"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "line",
+  "schemaVersion": "0.3.2",
+  "series": [
+    {
+      "band": {
+        "hi": [
+          0.77687969469291,
+          0.5679961788999555,
+          0.7452418633269359,
+          0.7345436917766645,
+          0.7918468252500063,
+          0.8714665702941703,
+          0.8685127242806508,
+          1.0673421412350894,
+          1.1684104732002423,
+          1.5324859645474465,
+          1.5496348764443038,
+          1.70236846028292,
+          1.8875900833095247,
+          2.0402616939793505,
+          2.175571345425755,
+          2.341521191020969,
+          2.494585238687326,
+          2.545825891222673,
+          2.67340864529246,
+          2.6670777214636106,
+          2.7168760572631867,
+          2.8215116120949766,
+          2.792421537510732,
+          2.7551689013026976
+        ],
+        "lo": [
+          0.33687969469291,
+          0.1279961788999555,
+          0.3052418633269359,
+          0.2945436917766645,
+          0.3518468252500063,
+          0.43146657029417035,
+          0.4285127242806509,
+          0.6273421412350895,
+          0.7284104732002423,
+          1.0924859645474465,
+          1.1096348764443038,
+          1.2623684602829202,
+          1.4475900833095248,
+          1.6002616939793504,
+          1.7355713454257546,
+          1.9015211910209688,
+          2.054585238687326,
+          2.105825891222673,
+          2.2334086452924597,
+          2.22707772146361,
+          2.2768760572631863,
+          2.381511612094976,
+          2.3524215375107316,
+          2.3151689013026973
+        ],
+        "what": "95% CI",
+        "x": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0,
+          12.0,
+          13.0,
+          14.0,
+          15.0,
+          16.0,
+          17.0,
+          18.0,
+          19.0,
+          20.0,
+          21.0,
+          22.0,
+          23.0
+        ]
+      },
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 0.25,
+        "hex": "#1f77b4",
+        "palette": {
+          "index": 0,
+          "name": "cycle"
+        }
+      },
+      "components": [
+        {
+          "role": "area",
+          "svgId": "growth.band"
+        },
+        {
+          "role": "line",
+          "svgId": "growth.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "growth.point.0",
+            "growth.point.1",
+            "growth.point.2",
+            "growth.point.3",
+            "growth.point.4",
+            "growth.point.5",
+            "growth.point.6",
+            "growth.point.7",
+            "growth.point.8",
+            "growth.point.9",
+            "growth.point.10",
+            "growth.point.11",
+            "growth.point.12",
+            "growth.point.13",
+            "growth.point.14",
+            "growth.point.15",
+            "growth.point.16",
+            "growth.point.17",
+            "growth.point.18",
+            "growth.point.19",
+            "growth.point.20",
+            "growth.point.21",
+            "growth.point.22",
+            "growth.point.23"
+          ],
+          "role": "point",
+          "svgId": "growth.points"
+        }
+      ],
+      "data": {
+        "x": [
+          0.0,
+          1.0,
+          2.0,
+          3.0,
+          4.0,
+          5.0,
+          6.0,
+          7.0,
+          8.0,
+          9.0,
+          10.0,
+          11.0,
+          12.0,
+          13.0,
+          14.0,
+          15.0,
+          16.0,
+          17.0,
+          18.0,
+          19.0,
+          20.0,
+          21.0,
+          22.0,
+          23.0
+        ],
+        "y": [
+          0.55687969469291,
+          0.3479961788999555,
+          0.5252418633269359,
+          0.5145436917766645,
+          0.5718468252500063,
+          0.6514665702941703,
+          0.6485127242806509,
+          0.8473421412350894,
+          0.9484104732002423,
+          1.3124859645474465,
+          1.3296348764443038,
+          1.4823684602829201,
+          1.6675900833095247,
+          1.8202616939793503,
+          1.9555713454257546,
+          2.121521191020969,
+          2.274585238687326,
+          2.325825891222673,
+          2.45340864529246,
+          2.4470777214636104,
+          2.4968760572631865,
+          2.6015116120949764,
+          2.5724215375107318,
+          2.5351689013026975
+        ]
+      },
+      "id": "growth",
+      "kind": "area",
+      "label": "OD600",
+      "name": "growth",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "growth.point.0",
+          "x": 0.0,
+          "y": 0.55687969469291
+        },
+        {
+          "index": 1,
+          "svgId": "growth.point.1",
+          "x": 1.0,
+          "y": 0.3479961788999555
+        },
+        {
+          "index": 2,
+          "svgId": "growth.point.2",
+          "x": 2.0,
+          "y": 0.5252418633269359
+        },
+        {
+          "index": 3,
+          "svgId": "growth.point.3",
+          "x": 3.0,
+          "y": 0.5145436917766645
+        },
+        {
+          "index": 4,
+          "svgId": "growth.point.4",
+          "x": 4.0,
+          "y": 0.5718468252500063
+        },
+        {
+          "index": 5,
+          "svgId": "growth.point.5",
+          "x": 5.0,
+          "y": 0.6514665702941703
+        },
+        {
+          "index": 6,
+          "svgId": "growth.point.6",
+          "x": 6.0,
+          "y": 0.6485127242806509
+        },
+        {
+          "index": 7,
+          "svgId": "growth.point.7",
+          "x": 7.0,
+          "y": 0.8473421412350894
+        },
+        {
+          "index": 8,
+          "svgId": "growth.point.8",
+          "x": 8.0,
+          "y": 0.9484104732002423
+        },
+        {
+          "index": 9,
+          "svgId": "growth.point.9",
+          "x": 9.0,
+          "y": 1.3124859645474465
+        },
+        {
+          "index": 10,
+          "svgId": "growth.point.10",
+          "x": 10.0,
+          "y": 1.3296348764443038
+        },
+        {
+          "index": 11,
+          "svgId": "growth.point.11",
+          "x": 11.0,
+          "y": 1.4823684602829201
+        },
+        {
+          "index": 12,
+          "svgId": "growth.point.12",
+          "x": 12.0,
+          "y": 1.6675900833095247
+        },
+        {
+          "index": 13,
+          "svgId": "growth.point.13",
+          "x": 13.0,
+          "y": 1.8202616939793503
+        },
+        {
+          "index": 14,
+          "svgId": "growth.point.14",
+          "x": 14.0,
+          "y": 1.9555713454257546
+        },
+        {
+          "index": 15,
+          "svgId": "growth.point.15",
+          "x": 15.0,
+          "y": 2.121521191020969
+        },
+        {
+          "index": 16,
+          "svgId": "growth.point.16",
+          "x": 16.0,
+          "y": 2.274585238687326
+        },
+        {
+          "index": 17,
+          "svgId": "growth.point.17",
+          "x": 17.0,
+          "y": 2.325825891222673
+        },
+        {
+          "index": 18,
+          "svgId": "growth.point.18",
+          "x": 18.0,
+          "y": 2.45340864529246
+        },
+        {
+          "index": 19,
+          "svgId": "growth.point.19",
+          "x": 19.0,
+          "y": 2.4470777214636104
+        },
+        {
+          "index": 20,
+          "svgId": "growth.point.20",
+          "x": 20.0,
+          "y": 2.4968760572631865
+        },
+        {
+          "index": 21,
+          "svgId": "growth.point.21",
+          "x": 21.0,
+          "y": 2.6015116120949764
+        },
+        {
+          "index": 22,
+          "svgId": "growth.point.22",
+          "x": 22.0,
+          "y": 2.5724215375107318
+        },
+        {
+          "index": 23,
+          "svgId": "growth.point.23",
+          "x": 23.0,
+          "y": 2.5351689013026975
+        }
+      ],
+      "roles": [
+        "area",
+        "line",
+        "point"
+      ],
+      "svg": {
+        "area": "growth.band",
+        "line": "growth.line",
+        "points": "growth.points"
+      }
+    }
+  ],
+  "size": {
+    "height": 216.0,
+    "unit": "pt",
+    "width": 360.0
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": null,
+    "tokens": {
+      "axis": "#000000",
+      "grid": "#b0b0b0",
+      "ink": "#000000",
+      "label": "#000000",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#000000"
+    }
+  },
+  "svg": "ts.svg"
+}

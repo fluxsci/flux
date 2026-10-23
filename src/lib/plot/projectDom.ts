@@ -3,7 +3,7 @@
 import type { PlotView, PlotAxisKey } from "../types";
 import type { FluxPlotManifest, FluxPlotSeries, FluxPlotAxis } from "./types";
 import { partDomId } from "./parse";
-import { axisFit, blendFit, guideAxes, guideData, matchTickSets, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, retickable, tickFlightLaw, type TickSpec,
+import { axisFit, blendFit, guideAxes, guideData, matchTickSets, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, viewProjectsVertices, retickable, tickFlightLaw, type TickSpec,
   seriesAxes, seriesVertices, seriesTweenable, viewFits, lerpData, type Fit, type Fits, type MorphPoint } from "./project";
 import { transformToAncestor } from "./svgMatrix";
 import { ticksFor, scalarLabels, formatTick } from "./ticks";
@@ -317,7 +317,9 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
   const series: SeriesBinding[] = [];
   for (const a of manifest.series ?? []) {
     const panel = panels.get(a.panelId), b = opts?.series?.(a) ?? null;
-    if (!panel || a.rasterized || a.capabilities?.dataMorph === false || a.roles?.some(r => !["line", "point"].includes(r))) continue;
+    // a view moves the line and points of every series that has them (a band series carries its own); a DATA morph between two
+    // versions additionally needs both to be morphable, which seriesTweenable checks below
+    if (!panel || !viewProjectsVertices(a)) continue;
     if (opts?.series && (!b || !seriesTweenable(a, b, seriesAxes(manifest, a), seriesAxes(opts.toManifest ?? manifest, b)))) continue;
     // a series on a twin's value axis projects through that axis' fit (C4)
     const axisKey = (a as { axis?: string }).axis;

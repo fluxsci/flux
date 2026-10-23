@@ -82,6 +82,14 @@ export function seriesVertices(s: FluxPlotSeries): MorphPoint[] {
   }
   return out;
 }
+/** Does a VIEW re-project this series' line and points? Any series that HAS them: fluxplot writes a band with its line and markers
+ *  as ONE series (roles area + line + point, `dataMorph: false`), and a view must move that line and those markers with the band and
+ *  the axes. Morphability is a different question, asked only of a DATA morph between two plot versions (`seriesTweenable`). */
+export function viewProjectsVertices(s: FluxPlotSeries): boolean {
+  if (s.rasterized) return false;
+  const points = (s.points?.length ?? 0) > 0 && (!s.roles || s.roles.includes("point"));
+  return (Boolean(s.svg?.line) || points) && seriesVertices(s).length > 0;
+}
 export function seriesAxes(manifest: FluxPlotManifest, series: FluxPlotSeries): SeriesAxes | undefined {
   if (!Array.isArray(manifest.axes)) return undefined;
   if (series.panelId) return manifest.axes.find((a) => a.panelId === series.panelId);

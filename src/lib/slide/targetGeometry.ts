@@ -15,7 +15,7 @@ import { resolveTargets } from "../plot/tree";
 import { svgIntrinsicPx, cropViewBoxValue, ptTrueFactors } from "../plot/compensate";
 import { parseStyleAttr, readPaint } from "../plot/paint";
 import { IDENTITY, compose, parseTransform, applyToNodes, applyToPoint, type SvgMatrix } from "../plot/svgMatrix";
-import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit, retickable } from "../plot/project";
+import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit, retickable, viewProjectsVertices } from "../plot/project";
 
 export interface GeometryCtx {
   manifest(assetId: string): FluxPlotManifest | undefined;
@@ -204,7 +204,7 @@ function projectedGeometry(plot: SemanticPlotElement, root: Element, manifest: F
   if (!plot.view || !manifest) return { outlines, offsets, opacities };
   for (const series of manifest.series ?? []) {
     const raw = viewFits(manifest, undefined, series.panelId), fits = viewFits(manifest, plot.view, series.panelId);
-    if (!raw || !fits || series.rasterized || series.capabilities?.dataMorph === false || series.roles?.some(r => !["line", "point"].includes(r))) continue;
+    if (!raw || !fits || !viewProjectsVertices(series)) continue;
     const vertices = projectSeries(series, null, raw, fits, 1);
     if (!vertices.length || vertices.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) continue;
     const part = series.svg?.line ? geo.ids.get(series.svg.line) : undefined;
