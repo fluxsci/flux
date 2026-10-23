@@ -352,7 +352,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration, glyphs: glyphProvider,
-          textLook: resolveTextLook(track.params), stage,
+          textLook: resolveTextLook(track.params), stage, ghost: track.ghostFrom != null,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         // A text ↔ shape retype flies letter outlines: play waits for their fonts.

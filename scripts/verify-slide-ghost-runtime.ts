@@ -38,6 +38,28 @@ check(node("child").style.transform.includes("translate(100px, 0px)"), "direct l
 player.seek(0, 2, 99); check(first.style.visibility === "hidden", "reverse seek before birth removes the copy");
 player.seek(0, 2, 1100); check(first.style.left === "310px", "reverse then forward seek restores exact endpoint");
 check(first === node("g1") && child === first.firstElementChild, "direct and reverse seeks retain the same result and content nodes");
+// R2 F2, the Ghost law: a copy's ink is not doubled while it coincides with its source. Two layers of the same anti-aliased glyphs read
+// 1 - (1 - c)^2 on an edge pixel (bolder: 22.6 stage px^2 on the compositor on the frame a text copy was born), so the copy's own ink EMERGES with its
+// separation from the source: invisible on the birth frame, fully drawn once it has left by a stroke width or so.
+{
+  const { ghostSeparation, ghostEmergeSpan, ghostEmergence } = await import("../src/lib/slide/ghost");
+  const rect = (x: number, y: number, extra: Record<string, unknown> = {}) => ({ id: "r", type: "rect", x, y, width: 60, height: 40, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0, ...extra }) as never;
+  check(ghostSeparation(rect(10, 20), rect(10, 20)) === 0 && near(ghostSeparation(rect(10, 20), rect(40, 60)), 50), "separation: the largest corner travel (a 30 x 40 move is 50)");
+  check(ghostSeparation(rect(10, 20), rect(10, 20, { rotation: 90 })) > 9, "separation: a turn in place separates the copy (a 60 x 40 box turned 90 degrees moves its corners 10 px)");
+  check(ghostEmergeSpan(rect(0, 0)) === 4 && ghostEmergeSpan(rect(0, 0, { width: 400, height: 300 })) === 12 && ghostEmergeSpan(rect(0, 0, { width: 20, height: 10 })) === 3, "the emerge span is a tenth of the smaller side, 3 to 12 stage px");
+  const travels = ghostEmergence(rect(10, 20), rect(110, 20));
+  check(travels(rect(10, 20), 0) === 0 && travels(rect(14, 20), 0.04) === 1 && travels(rect(12, 20), 0) > 0 && travels(rect(12, 20), 0) < 1, "a copy that travels emerges by separation: 0 at the source, 1 once it has left by the span, a soft ramp between");
+  check(travels(rect(13, 20), 0) > travels(rect(11, 20), 0) && travels(rect(110, 20), 1) === 1, "the ramp is monotone and the landing is the authored ink");
+  const stays = ghostEmergence(rect(10, 20), rect(10, 20, { fill: "#f00" }));
+  check(stays(rect(10, 20), 0) === 0 && stays(rect(10, 20), 0.25) === 1 && stays(rect(10, 20), 1) === 1, "a copy that never separates (the same place, another look) fades in over the first quarter of its flight instead");
+}
+player.seek(0, 2, 100);
+check(first.style.visibility === "visible" && Number(first.style.opacity) > 0 && Number(first.style.opacity) < .01, "the copy is born unseen: on its birth frame its ink is a thousandth of its authored .18 (never 0: an opacity-0 node is culled and first rasterises mid-flight)");
+player.seek(0, 2, 105);
+check(Number(first.style.opacity) > .001 && Number(first.style.opacity) < .15, "a few ms in (the copy has left its source by about a pixel) its ink is partly drawn");
+player.seek(0, 2, 250);
+check(near(Number(first.style.opacity), .18) || first.style.opacity === "", "once it has left by a stroke width it is the authored copy (opacity .18 and no emergence leftover)");
+player.seek(0, 2, 1100); check(first.style.left === "310px" && near(Number(first.style.opacity || .18), .18), "and it lands on the authored endpoint with the authored opacity");
 player.destroy();
 const disabled = structuredClone(slide); disabled.beats[2].tracks[0].disabled = true;
 check(compileSlide(disabled).sample(3).presentation.unbornElementIds?.includes("g1"), "disabled birth never makes its result available");

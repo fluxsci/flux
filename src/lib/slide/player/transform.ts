@@ -42,6 +42,7 @@ import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
+import { ghostEmergence } from "../ghost";
 import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
 import type { GlyphProvider } from "./glyphProvider";
 import type { TextLook } from "../timing";
@@ -75,6 +76,8 @@ export interface TransformCtx extends SlideRenderCtx {
   textLook?: TextLook;
   /** The stage size: text-morph glide lanes keep ink on stage. */
   stage?: { width: number; height: number };
+  /** This is a Ghost's BIRTH flight (the copy leaves its source): its ink emerges with its separation from the source (ghost.ts, the Ghost law). */
+  ghost?: boolean;
 }
 
 /** The wrapper's local CSS frame in stage px for a frame of state `el`: where its
@@ -562,6 +565,7 @@ export function createTransform(
     }
   }
 
+  const emerge = ctx.ghost ? ghostEmergence(pre, end) : undefined;
   let endpointPhase = -1; // 0 = at the start, 2 = at the end, 1 = in flight; -1 = never painted
   const self = {};        // this controller's identity as a content writer
   function seek(u: number, raw = clamp01(u)): void {
@@ -569,6 +573,10 @@ export function createTransform(
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw);
     const contentX = content.x, contentY = content.y;
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
+    // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched)
+    // never 0: an opacity-0 node is culled and first rasterises in flight, at a fractional offset it then keeps (render.ts primeFlightLayers)
+    const share = emerge ? Math.max(0.001, emerge(el, u)) : 1;
+    const wrapEl = share >= 1 ? el : { ...el, opacity: (el.opacity ?? 1) * share } as FigElement;
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
     // The text morph draws measured endpoints instead: its box simply lerps
@@ -579,11 +587,11 @@ export function createTransform(
     // rasterised the text softly in flight against the hinted rest text and snapped when the flight landed.
     const relayoutsText = staticUpdate && pre.type === "text";
     if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
-      applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
+      applyWrapperBoxComposite(wrap, wrapEl, baseBox, { skipOpacity: boxOpts.skipOpacity });
       // a text morph's box rides a layer only when the box itself travels (its spans decide for themselves)
       if (glide && (!textLayers || displaced)) promoteMovingWrapper(wrap);
     } else {
-      applyWrapperBox(wrap, el, boxOpts);
+      applyWrapperBox(wrap, wrapEl, boxOpts);
       if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)
     }
 
