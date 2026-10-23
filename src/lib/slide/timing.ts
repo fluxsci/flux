@@ -41,3 +41,7 @@ export function firstTickOrigin(origin: number, ts: number): number {
   const lag = ts - origin;
   return lag > FIRST_TICK_MAX_MS ? origin + (lag - FIRST_TICK_MAX_MS) : origin;
 }
+/** A cue that primes its flight layers presents frame 0 first (player `begin`): the first moving frame waits until a frame at least this
+ *  much later than frame 0 has arrived. A compositor catching up can deliver the next callback with frame 0's own timestamp; moving then
+ *  would raster the layers mid-flight again. Half a 60 Hz frame. */
+export const PREROLL_MIN_MS = 8;

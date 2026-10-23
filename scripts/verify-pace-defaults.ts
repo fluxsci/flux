@@ -177,6 +177,16 @@ h.section("the clock starts at the first presented frame (lane J)");
   const first = p.state().time; h.ok(first > 0 && first <= FIRST_TICK_MAX_MS + 0.5, `a first frame ${250} ms late advances the clock by ${first.toFixed(1)} ms (<= ${FIRST_TICK_MAX_MS}), not 250: the beginning is not skipped`);
   stepMs(16.7); h.ok(Math.abs(p.state().time - (first + 16.7)) < 0.5, "later frames keep the wall clock");
   p.destroy(); }
+{ // a gliding enter presents frame 0 first, with its layers primed, and moves only once a REAL later frame has arrived
+  const d = ops.createDeck({ id: "g", title: "g", withTitleSlide: false } as any); const sl = ops.addSlide(d, { id: "s", layout: "blank" } as any);
+  ops.addElement(d, sl.id, T("a", 0)); const bb = ops.addBeat(d, sl.id, {})!; ops.setAnimation(d, sl.id, bb.id, { target: "a", preset: "fadeRise", start: 0, duration: 700, easing: "smooth" } as any);
+  const p = createPlayer(document.createElement("div") as any, d, { theme: FLUX_DARK, plotManifest: () => undefined } as any);
+  p.seek(0, 0, Infinity); p.next();
+  h.eq([p.state().playing, p.state().time], [true, 0], "the click presents frame 0 and starts no motion yet");
+  stepMs(16.7); h.eq(p.state().time, 0, "the pre-roll frame only starts the clock (time 0)");
+  stepMs(0); h.eq(p.state().time, 0, "a catch-up callback with the SAME frame timestamp does not move the stage (the primed layers have not rasterised yet)");
+  stepMs(16.7); h.ok(Math.abs(p.state().time - 16.7) < 0.5, `the first moving frame is one frame of motion (${p.state().time.toFixed(1)} ms)`);
+  p.destroy(); }
 h.section("settle in the real player (clockMode)");
 function mkDeck() {
   const d = ops.createDeck({ id: "d", title: "d", withTitleSlide: false } as any);

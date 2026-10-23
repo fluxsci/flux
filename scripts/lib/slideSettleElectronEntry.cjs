@@ -46,6 +46,7 @@ async function open(html, w, h) {
   const win = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } });
   const wc = win.webContents;
   wc.setFrameRate(60);
+  if (process.env.FLUX_SETTLE_DEBUG_FILE) wc.on("console-message", (_e, _l, msg) => fs.appendFileSync(process.env.FLUX_SETTLE_DEBUG_FILE, `[${(now() % 100000).toFixed(1)}] ${msg}\n`));
   const rec = { frames: [], last: null, on: false, keep: !!job.dump };
   wc.on("paint", (_e, _dirty, image) => {
     const t = now(), size = image.getSize(), bmp = Buffer.from(image.toBitmap()); frameWidth = size.width;

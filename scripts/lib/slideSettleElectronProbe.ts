@@ -16,7 +16,7 @@ const decks = await corpus("compact");
 const PLAY: Record<string, string[]> = {
   preset_fadeRise: ["p_fadeRise#1-1", "p_fadeRise#2-2", "p_fadeRise#4-4"], preset_popIn: ["p_popIn#1-1", "p_popIn#2-2"], preset_fade: ["p_fade#1-1"],
   preset_drawOn: ["p_drawOn#3-3", "p_drawOn#4-4", "p_drawOn#6-6"], preset_drawOff: ["p_drawOff#3-3", "p_drawOff#6-6"], preset_growBaseline: ["p_growBaseline#1-1"],
-  preset_stagger: ["p_stagger#1-1"], preset_writeOn: ["p_writeOn#2-2"], preset_fadeOut: ["p_fadeOut#2-2"], preset_popOut: ["p_popOut#2-2"],
+  preset_stagger: ["p_stagger#1-1"], preset_stagger_many: ["p_many#1-1"], preset_writeOn: ["p_writeOn#2-2"], preset_fadeOut: ["p_fadeOut#2-2"], preset_popOut: ["p_popOut#2-2"],
   preset_move: ["p_move#1-1"], preset_scale: ["p_scale#1-1"], preset_rotate: ["p_rotate#1-1"], preset_dim: ["p_dim#2-2"], preset_countUp: ["p_countUp#1-1"],
   change: ["change#1-1", "change#4-4", "change#5-5", "change#7-7", "change#9-9", "change#11-11", "change#13-13"],
   become: ["become#1-1", "become#2-2", "become#3-3"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"], camera: ["camera#1-1", "camera#2-2", "camera#3-3"],
@@ -40,6 +40,6 @@ for (const d of decks) {
     if (flags.length) failures.push(`${c.name}: ${flags.join(", ")}`);
   }
 }
-assert.ok(cues >= 45, `the real-time sweep measured ${cues} cues`);
+assert.ok(cues >= 46, `the real-time sweep measured ${cues} cues`);
 assert.equal(failures.length, 0, `real-time start/settle failures:\n${failures.join("\n")}`);
 console.log(`SLIDE SETTLE ELECTRON: PASS (${cues} cues)`);

@@ -15,7 +15,7 @@ import type { SweepPayload } from "./slideSettleSweep";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.resolve(here, "../fixtures/plots");
-const NOTES = path.resolve(here, "../../../../notes/manim_exploration");
+const NOTES = process.env.FLUX_NOTES_DIR ?? path.resolve(here, "../../../../notes/manim_exploration");
 export interface CorpusDeck { name: string; payload: SweepPayload }
 
 const C = { blue: "#4385be", blueD: "#205ea6", red: "#d14d41", redD: "#af3029", green: "#879a39", yellow: "#d0a215", purple: "#8b7ec8", cyan: "#3aa99f", orange: "#da702c", ink: "#100f0f" };

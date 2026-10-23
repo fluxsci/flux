@@ -7,7 +7,7 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
-import { beatDelayMs, settleTime, firstTickOrigin, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
+import { beatDelayMs, settleTime, firstTickOrigin, PREROLL_MIN_MS, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
@@ -671,14 +671,10 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
       else {
-        // An ENTERING node keeps its flight mark only until its flight has landed: a landed node paints in place, so its rest is the
-        // fresh static render (a layer kept alive by the mark carried whatever phase it baked). Moving nodes keep theirs (the layer is
-        // baked at the phase they start from and moves like the frames before it, so the landing does not change).
+        // The node keeps its flight mark at rest (render.ts armFlightMark): the layer it makes was baked at REST (an entering node is
+        // primed there one frame before it flies, `begin`), so the rest it lands on is the fresh static render with nothing to demote.
         settleWrapper(node as HTMLElement);
-        if (glides) {
-          if (keyframed.some(s => s.enter && flights.get(s) === "translate") && !pendingEnterGlide(group, beat, time)) releaseFlightMark(node as HTMLElement);
-          else armFlightMark(node as HTMLElement);
-        }
+        if (glides) armFlightMark(node as HTMLElement);
       }
     }
   }
@@ -749,7 +745,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   mount.appendChild(cameraLayer);
   const keeper: RasterKeeper = createRasterKeeper(cameraLayer, mount, { capture: !!opts.captureMode });
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set(), frame: new Set() };
-  let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0, firstTick = false;
+  let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0, firstTick = false, prerolling = false;
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
   let media: ReturnType<typeof createVideoController> | undefined;
   let models: ReturnType<typeof createModel3dController> | undefined;
@@ -772,7 +768,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function cancelClock(): void {
     generation++; if (raf) cancelAnimationFrame(raf); raf = 0;
     clearTimeout(auto); auto = undefined; playing = false;
-    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null; firstTick = false;
+    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null; firstTick = false; prerolling = false;
     transition?.cancel(); transition = null;
   }
   /** Cue time for a frame at `ts`: the ONE place the clock mode picks its mapping (all sampling is a pure
@@ -865,6 +861,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function tick(timestamp: number): void {
     if (!playing) return;
     const session = generation;
+    // Frame 0 must really have been PRESENTED before the first moving frame (a catch-up frame can arrive with the same timestamp): the
+    // primed layers rasterise in it. Until a real frame (>= PREROLL_MIN_MS) has passed, wait.
+    if (prerolling) { if (timestamp - origin < PREROLL_MIN_MS) { queueFrame(); return; } prerolling = false; }
     if (firstTick) { firstTick = false; if (clockMode === "forward") origin = firstTickOrigin(origin, timestamp); }   // setup never eats the beginning (timing.ts)
     time = clockTime(timestamp);
     paint(true);
@@ -913,7 +912,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       // layer baked at the phase it lands on. (A mark only works a frame after it is attached; one attached in the very frame of the
       // first transform step left the first frames stepping.)
       primeFlightLayers(entering);
-      raf = requestAnimationFrame((ts) => { if (session !== generation) return; origin = ts; firstTick = true; queueFrame(); });
+      raf = requestAnimationFrame((ts) => { if (session !== generation) return; origin = ts; firstTick = true; prerolling = true; queueFrame(); });
       return;
     }
     origin = performance.now(); firstTick = true;
