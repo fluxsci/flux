@@ -10521,3 +10521,6 @@ fallback, one-shot Alt+G, ©-typing, tile re-rank vs cancel/resend, self-writes,
 gate registration) with regression checks. The one ui red on the way was a selector collision:
 the rail's tab row used `.tabs` and `verify-figure-metadata` clicks `.tabs button:first-child` —
 classes in an always-mounted rail must be specific (`.rail-tabs`).
+
+### 2026-10-22 15:50 CDT — Align / Arrange blueprint (Codex, main)
+**Work:** Produced `notes/align_arrange_2026-10-22/PLAN.md` with three independent mapping, critique and final-review passes covering the A-key Align panel, inferred tidy plus fixed-anchor gap manipulation, and actual scientific-spine alignment. Retained source references and executable arithmetic/SVG probes; existing ops, geometry and target-geometry gates pass. This is planning only; no application feature was implemented.
