@@ -15,7 +15,7 @@ import {
   SCAFFOLD_FRAME_SPINE_MS, SCAFFOLD_FRAME_SPINE_START_MS, SCAFFOLD_TITLE_MS, SCAFFOLD_TITLE_START_MS, SCAFFOLD_GRID_TOTAL_MS, SCAFFOLD_GRID_ANCHOR_MS,
   type AutoPace,
 } from "../src/lib/slide/autobuild";
-import { presetDef } from "../src/lib/slide/presetCatalog";
+import { authoredTiming, presetDef } from "../src/lib/slide/presetCatalog";
 import * as strokeGeometry from "../src/lib/slide/strokeGeometry";
 import { addAppearanceTracks, readingOrder } from "../src/lib/slide/animateSelection";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -190,11 +190,11 @@ for (const [name, m] of [["scatter", scatter], ["bars", bars], ["boxplot", boxes
   h.ok(oranges.anchor?.trackId === peaches[0].id && oranges.anchor.offsetMs === Math.round(0.5 * (peaches[0].duration ?? 0)), "v2: series k+1 starts as series k's box is half done");
 }
 { // pace tables
-  h.eq(DEFAULT_PACE, CLASSIC_PACE, "no pace passed = CLASSIC_PACE in this lane (the integrator flips DEFAULT_PACE to V2_PACE)");
+  h.eq(DEFAULT_PACE, V2_PACE, "no pace passed = V2_PACE (Release 1: the measured pace is what auto-build writes)");
   h.ok(AUTO_PACES.classic === CLASSIC_PACE && AUTO_PACES.v2 === V2_PACE && CLASSIC_PACE.id === "classic" && V2_PACE.id === "v2", "AUTO_PACES names both tables; there is no autoPaceOf and no motion option");
   const presets = ["fade", "fadeRise", "drawOn", "growBaseline", "stagger", "writeOn"] as const;
   h.ok(presets.every(p => V2_PACE.floor(p) === (presetDef(p).autoBuildDurationMs ?? 0) && CLASSIC_PACE.floor(p) === 0), "V2_PACE.floor READS the catalog (presetDef(p).autoBuildDurationMs), never a copied table; classic has no floor");
-  h.eq([paceUsesLengths(CLASSIC_PACE), paceUsesLengths(V2_PACE), paceUsesLengths()], [false, true, false], "only a length-scaling pace asks the host to measure the plot");
+  h.eq([paceUsesLengths(CLASSIC_PACE), paceUsesLengths(V2_PACE), paceUsesLengths()], [false, true, true], "only a length-scaling pace asks the host to measure the plot (the default V2 does)");
   h.eq([drawDuration(60, 800, V2_PACE), drawDuration(350, 800, V2_PACE), drawDuration(600, 800, V2_PACE), drawDuration(900, 800, V2_PACE), drawDuration(2000, 800, V2_PACE)], [600, 600, 1000, 1500, 1600], "drawDuration v2: len/600 px/s clamped 600..1600 on a 50 ms grid");
   h.eq([drawDuration(undefined, 800, V2_PACE), drawDuration(0, 800, V2_PACE), drawDuration(900, 800, CLASSIC_PACE)], [800, 800, 800], "no measure (or classic pace) -> the authored duration");
 }
@@ -228,14 +228,14 @@ h.section("D. re-animate merges cleanly; idempotent");
 // ---------------------------------------------------------------- E. suggestTrack (X-ray Animate on one part)
 h.section("E. suggestTrack follows the same planner");
 {
-  const cls = suggestTrack(scatter, "plot", "samples.points"), v2 = suggestTrack(scatter, "plot", "samples.points", { pace: V2_PACE });
+  const cls = suggestTrack(scatter, "plot", "samples.points", { pace: CLASSIC_PACE }), v2 = suggestTrack(scatter, "plot", "samples.points", { pace: V2_PACE });
   h.ok(cls.duration === 240 && cls.stagger?.perMs !== undefined && (cls.duration + cls.stagger.perMs * 59) <= 240 + 1200 + 1, "classic suggestTrack: Each, spread capped at 1200 (60 points)");
   const ref = Math.max(240, presetDef("stagger").autoBuildDurationMs ?? 0);
   h.ok(v2.stagger?.totalMs !== undefined && (v2.duration ?? 0) + v2.stagger.totalMs === lagTotal(60, ref, 0.1, 2000), "v2 suggestTrack: planner total == lagTotal(60, window, .1, 2000)");
-  h.eq({ ...suggestTrack(scatter, "plot", "samples.points", {}), id: "" }, { ...cls, id: "" }, "no pace option = CLASSIC_PACE (same track as the explicit classic pace)");
-  const lineV2 = suggestTrack(legacy, "plot", "fit.line", { pace: V2_PACE, lengths: { "fit.line": 600 } }), lineCls = suggestTrack(legacy, "plot", "fit.line", { lengths: { "fit.line": 600 } });
+  h.eq({ ...suggestTrack(scatter, "plot", "samples.points", {}), id: "" }, { ...v2, id: "" }, "no pace option = V2_PACE (same track as the explicit V2 pace)");
+  const lineV2 = suggestTrack(legacy, "plot", "fit.line", { pace: V2_PACE, lengths: { "fit.line": 600 } }), lineCls = suggestTrack(legacy, "plot", "fit.line", { pace: CLASSIC_PACE, lengths: { "fit.line": 600 } });
   h.ok(lineV2.preset === "drawOn" && lineV2.duration === 1000 && lineV2.easing === "linear", "v2 suggestTrack: a 600 px data line draws 1000 ms with linear easing");
-  h.ok(lineCls.preset === "drawOn" && lineCls.duration === suggestTrack(legacy, "plot", "fit.line").duration && lineCls.easing === undefined, "classic suggestTrack: authored window, no easing, lengths ignored");
+  h.ok(lineCls.preset === "drawOn" && lineCls.duration === suggestTrack(legacy, "plot", "fit.line", { pace: CLASSIC_PACE }).duration && lineCls.easing === undefined && lineCls.curve === undefined, "classic suggestTrack: authored window, no easing, lengths ignored");
   { // review F6: the X-ray toggle on a frame spine matches the Auto build under V2
     const fm = { schemaVersion: "0.3.2", parts: { id: "figure", role: "figure", children: [{ id: "axis.x", role: "axis", children: [
         { id: "axis.x.spine.bottom", role: "spine" }, { id: "axis.x.spine.top", role: "spine" }] }] },
@@ -243,7 +243,7 @@ h.section("E. suggestTrack follows the same planner");
     const top = suggestTrack(fm, "plot", "axis.x.spine.top", { pace: V2_PACE }), bottom = suggestTrack(fm, "plot", "axis.x.spine.bottom", { pace: V2_PACE });
     h.ok(top.preset === "fade" && top.duration === 200 && top.start === 420, `v2 suggestTrack: a top frame spine fades 200 @420 like the Auto build (${top.preset} ${top.duration} @${top.start})`);
     h.ok(bottom.preset === "drawOn" && bottom.duration === SCAFFOLD_SPINE_MS && bottom.start === 0, "v2 suggestTrack: a primary spine draws 520 from 0");
-    h.ok(suggestTrack(fm, "plot", "axis.x.spine.top").preset === "drawOn", "classic suggestTrack: a top frame spine keeps its authored drawOn");
+    h.ok(suggestTrack(fm, "plot", "axis.x.spine.top", { pace: CLASSIC_PACE }).preset === "drawOn", "classic suggestTrack: a top frame spine keeps its authored drawOn");
   }
 }
 
@@ -264,7 +264,7 @@ h.section("F. addAppearanceTracks: lag across >= 3 targets, reading order, cappe
   const starts = tr.map(t => t.start ?? 0);
   h.ok(starts[0] === 0 && starts.every((v, i) => !i || v > starts[i - 1]), "starts strictly increase by one step");
   h.ok(Math.max(...tr.map(t => (t.start ?? 0) + (t.duration ?? 0))) <= 1000 + 60, `group footprint stays inside ~1 s (${Math.max(...tr.map(t => (t.start ?? 0) + (t.duration ?? 0)))} ms)`);
-  h.ok(tr.every(t => (t.duration ?? 0) <= 300), "windows never grow beyond the track's own duration");
+  h.ok(tr.every(t => (t.duration ?? 0) <= authoredTiming("popIn").duration), `windows never grow beyond the track's own authored duration (${authoredTiming("popIn").duration} ms)`);
   h.eq(r.trackIds.length, 6, "six tracks created");
   const classic = slideOps.createDeck({ id: "c", title: "c" }); slideOps.addSlide(classic, { id: "s", layout: "blank" });
   ids.forEach((_, i) => slideOps.addElement(classic, "s", { id: `e${i}`, type: "rect", x: i * 70, y: 10, width: 60, height: 40, rotation: 0, fill: "#333", stroke: "none", strokeWidth: 0, cornerRadius: 0 }));

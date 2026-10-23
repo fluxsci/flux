@@ -8,7 +8,10 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as slideOps from "../src/lib/slide/ops";
-import { autoAnimatePlot, applyAutoAnimation, autoAnimateExcept } from "../src/lib/slide/autobuild";
+import { autoAnimatePlot, applyAutoAnimation, autoAnimateExcept, CLASSIC_PACE } from "../src/lib/slide/autobuild";
+// This gate pins the CLASSIC choreography numbers (explicit `pace: CLASSIC_PACE`); the measured default (V2_PACE, Release 1)
+// is pinned by verify-slide-choreo, verify-animate-plot and verify-preset-catalog. The STRUCTURE asserted here is pace-independent.
+const CLASSIC = { pace: CLASSIC_PACE };
 import { resolveBeat, resolveStart } from "../src/lib/slide/resolve";
 import { targetPartIds } from "../src/lib/slide/targets";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -26,7 +29,7 @@ function assert(cond: unknown, msg: string) {
 // read it from the author's ~/KDFLUX1 plot library, which no longer exists.
 const M = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "pre-regen", "06_scatter_regression.fluxplot.json");
 const manifest = JSON.parse(await fs.readFile(M, "utf8")) as FluxPlotManifest;
-const beats = autoAnimatePlot(manifest, "plot1");
+const beats = autoAnimatePlot(manifest, "plot1", CLASSIC);
 
 // --- phase structure ---------------------------------------------------------
 assert(beats.length === 3, "3 click beats produced (Axes & grid, Data, Legend): gridlines fold into the Axes click");
@@ -167,7 +170,7 @@ assert(new Set(hs.beats.map(b => b.id)).size === hs.beats.length, "retained auth
 const PM = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "fluxplot03", "presets.fluxplot.json");
 const pm = JSON.parse(await fs.readFile(PM, "utf8")) as FluxPlotManifest;
 assert(pm.build?.presets?.bar?.animation === "grow-from-baseline" && pm.build.presets.annotation?.delayMs === 150, "presets fixture carries the 0.3.1 hints");
-const pBeats = autoAnimatePlot(pm, "p");
+const pBeats = autoAnimatePlot(pm, "p", CLASSIC);
 const pTracks = pBeats.flatMap((b) => b.tracks);
 const bars = pTracks.find((t) => t.part === "panel.counts.counts.bars");
 assert(bars?.preset === "growBaseline" && !bars.stagger, "F1: bars grow from their baseline (grow-from-baseline → growBaseline), resolved from their member ids");
@@ -183,7 +186,7 @@ assert(key.length >= 2 && key.every((t) => t.preset === "fade" || t.preset === "
 assert(!pTracks.some((t) => /colorbar\.color\.(label|tick-labels)$/.test(t.part) && t.preset !== "fade"), "F1: colour-key text never draws on");
 const stagBars: FluxPlotManifest = structuredClone(pm);
 stagBars.build!.presets!.bar = { animation: "stagger-in", staggerMs: 30 };
-const sb = autoAnimatePlot(stagBars, "p").flatMap((b) => b.tracks).find((t) => t.part === "panel.counts.counts.bars");
+const sb = autoAnimatePlot(stagBars, "p", CLASSIC).flatMap((b) => b.tracks).find((t) => t.part === "panel.counts.counts.bars");
 assert(sb?.preset === "stagger" && sb.stagger?.perMs === 30, "F1: bars stagger only when the plot says stagger-in");
 
 // --- F2 (Flux half): roles and kinds come from the manifest — memberRole for member leaves,
@@ -202,7 +205,7 @@ const findNode = (n: XrayNode, id: string): XrayNode | undefined => n.id === id 
 assert(findNode(pTree, "panel.density.cloud.hexes")?.kind === "shape" && findNode(pTree, "panel.density.colorbar.color.tick-labels")?.kind === "text" && findNode(pTree, "panel.counts.axis.x")?.kind === "container", "F2: X-ray nodes carry their kind");
 const textish: FluxPlotManifest = structuredClone(pm);
 (function retag(n: { id?: string; ref?: string; role?: string; kind?: string; children?: unknown[] }) { if ((n.id ?? n.ref) === "panel.counts.significance-bracket.0") { n.role = "x-caption"; n.kind = "text"; } for (const c of (n.children ?? []) as { id?: string; ref?: string; role?: string; kind?: string; children?: unknown[] }[]) retag(c); })(textish.parts as { id?: string; children?: unknown[] });
-const capBeats = autoAnimatePlot(textish, "p"), cap = capBeats.flatMap((b) => b.tracks).find((t) => t.part === "panel.counts.significance-bracket.0");
+const capBeats = autoAnimatePlot(textish, "p", CLASSIC), cap = capBeats.flatMap((b) => b.tracks).find((t) => t.part === "panel.counts.significance-bracket.0");
 assert(cap?.preset === "fade" && capBeats.find((b) => b.tracks.includes(cap!))?.label === "Legend & annotations", "F2: an unknown role of kind text fades in with the annotations, never draws on");
 
 console.log("\nALL AUTOBUILD (anim 1.4) TESTS PASSED");

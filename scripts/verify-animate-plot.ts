@@ -72,9 +72,16 @@ try {
   h.ok(/unknown pace: motion/.test(badPace2), "animate-plot refuses an unknown --pace value");
   await animatePlotVerb(root, "d-default", "s", dp);
   const noPace = await loadDeck(root, "d-default");
+  // Release 1: the default is the measured pace (V2) — the same bytes as an explicit `--pace v2` run of the verb
+  const v2 = slideOps.createDeck({ id: "d-v2", title: "d" }); slideOps.addSlide(v2, { id: "s", layout: "blank" });
+  const vp = slideOps.addPlotToSlide(v2, "s", { assetId: "mpl_scatter", x: 20, y: 20, width: 520, height: 300 })!;
+  await saveDeck(root, v2);
+  await animatePlotVerb(root, "d-v2", "s", vp, { pace: "v2" });
+  const v2Deck = await loadDeck(root, "d-v2");
+  h.eq(strip(noPace.slides.find(s => s.id === "s")!.beats), strip(v2Deck.slides.find(s => s.id === "s")!.beats), "animate-plot without --pace builds the default (V2, measured) pace");
   const cls = slideOps.createDeck({ id: "d-cls", title: "d" }); slideOps.addSlide(cls, { id: "s", layout: "blank" });
   const cp = slideOps.addPlotToSlide(cls, "s", { assetId: "mpl_scatter", x: 20, y: 20, width: 520, height: 300 })!;
   applyAutoAnimation(cls, "s", cp, JSON.parse(await fs.readFile(fx("mpl_scatter_FLUXPLOT.fluxplot.json"), "utf8")), { pace: AUTO_PACES.classic });
-  h.eq(strip(noPace.slides.find(s => s.id === "s")!.beats), strip(cls.slides.find(s => s.id === "s")!.beats), "animate-plot without --pace builds the default (classic) pace");
+  h.ok(JSON.stringify(strip(noPace.slides.find(s => s.id === "s")!.beats)) !== JSON.stringify(strip(cls.slides.find(s => s.id === "s")!.beats)), "the default differs from --pace classic (the classic table stays reachable)");
 } finally { await fs.rm(root, { recursive: true, force: true }); }
 await h.done();

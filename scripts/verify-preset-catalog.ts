@@ -9,7 +9,8 @@ import { EASING_TOKENS } from "../src/lib/slide/curves";
 import { PRESETS, ENTER_PRESETS, EXIT_PRESETS, PRESET_WRAPPER_PROPS } from "../src/lib/slide/player/presets";
 import { familyOf } from "../src/lib/slide/family";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
-import { autoAnimatePlot, canAutoAnimateRest, suggestTrack } from "../src/lib/slide/autobuild";
+import { autoAnimatePlot, canAutoAnimateRest, suggestTrack, CLASSIC_PACE } from "../src/lib/slide/autobuild";
+import { QUICK_SMOOTH } from "../src/lib/slide/presetCatalog";
 import { isVideoCommand } from "../src/lib/slide/mediaTimeline";
 import { PRESET_COLOR, chipLabel, refLabel, EDIT_PRESETS, EASINGS, presetLabel } from "../src/shell/modes/slide/animator/shared";
 import * as core from "../flux-core/index";
@@ -92,9 +93,11 @@ for (const name of names) {
 h.eq(EDITABLE_PRESETS, names.filter(name => EXPECTED[name][4]), "editable preset order is byte-identical to the original select");
 h.eq(EDIT_PRESETS, EDITABLE_PRESETS, "Animator consumes the catalog's editable order");
 
-// WP 1.7 raises the FLOORS (autoBuildDurationMs); the plot-part writers (`emit`/`planToTrack`/`suggestTrack`) are lane L4's
-// `choreograph` and are wired to `autoBuildMs` + `authoredFields` by the integrator, at which point the two assertions below
-// become "a manifest duration BELOW the floor is raised" and "the track carries the quick-smooth curve" (see R1_L5_report.md).
+// WP 1.7 raises the FLOORS (autoBuildDurationMs) and the Release-1 integration makes the measured pace (V2_PACE) the
+// auto-build default: every plot-part track carries the authored curve (`quick smooth` on appearances) and params
+// (fadeRise y 24; a stagger over child "fade" gets none), a manifest duration BELOW the floor is raised to it and a
+// longer one wins. CLASSIC_PACE (explicit) keeps the pre-Release-1 shape: the manifest duration wins and no curve or
+// params are written (a part with no manifest duration still falls back to the catalog's autoBuildDurationMs).
 h.section("autobuild: raised floors (T1), separate from the frozen playback defaults");
 for (const name of names.filter(name => EXPECTED[name][6] === "enter")) {
   const role = name === "stagger" ? "point" : "area";
@@ -104,12 +107,20 @@ for (const name of names.filter(name => EXPECTED[name][6] === "enter")) {
     parts: { id: "plot", role: "plot", children: [{ id: "mark", role }] },
     build: { order: ["mark"], presets: { [role]: { animation } } } };
   const pick = ({ id: _id, ...track }: Track) => track;
-  const expected = { target: "plot1", part: "mark", preset: name, duration: (EXPECTED[name] as Snapshot)[7], start: 0,
-    ...(name === "stagger" ? { stagger: { perMs: 40, by: "x", from: "start" }, params: { child: "fade" } } : {}) };
-  h.eq(pick(suggestTrack(manifest, "plot1", "mark")), expected, `${name}: suggested track bytes = the raised floor, otherwise unchanged except generated ID`);
+  const floor = (EXPECTED[name] as Snapshot)[7];
+  const expected = { target: "plot1", part: "mark", preset: name, duration: floor, start: 0,
+    ...(name === "stagger" ? { stagger: { by: "x", from: "start", totalMs: 0 }, params: { child: "fade" } } : {}),
+    curve: QUICK_SMOOTH, ...(name === "fadeRise" ? { params: { y: 24 } } : {}) };
+  h.eq(pick(suggestTrack(manifest, "plot1", "mark")), expected, `${name}: suggested track bytes = the raised floor + the authored curve/params, otherwise unchanged except generated ID`);
   h.eq(pick(autoAnimatePlot(manifest, "plot1")[0].tracks[0]), { ...expected, generatedBy: "auto-reveal" }, `${name}: automatic build bytes = the same + generatedBy`);
+  const classic = { target: "plot1", part: "mark", preset: name, duration: floor, start: 0,
+    ...(name === "stagger" ? { stagger: { perMs: 40, by: "x", from: "start" }, params: { child: "fade" } } : {}) };
+  h.eq(pick(suggestTrack(manifest, "plot1", "mark", { pace: CLASSIC_PACE })), classic, `${name}: CLASSIC_PACE writes no curve or params (catalog window, classic stagger)`);
   manifest.build!.presets![role].durationMs = 117;
-  h.eq(suggestTrack(manifest, "plot1", "mark").duration, 117, `${name}: manifest duration still wins (until choreograph adopts autoBuildMs)`);
+  h.eq(suggestTrack(manifest, "plot1", "mark").duration, floor, `${name}: a manifest duration below the floor is raised to it`);
+  h.eq(suggestTrack(manifest, "plot1", "mark", { pace: CLASSIC_PACE }).duration, 117, `${name}: CLASSIC_PACE keeps the manifest duration`);
+  manifest.build!.presets![role].durationMs = 2000;
+  h.eq(suggestTrack(manifest, "plot1", "mark").duration, 2000, `${name}: a manifest duration above the floor wins`);
 }
 
 h.section("fallback and the headless export surface");

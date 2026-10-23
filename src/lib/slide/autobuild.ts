@@ -353,8 +353,26 @@ export const V2_PACE: AutoPace = {
 };
 /** Named lookup for hosts that take a pace by name (the `animate-plot` verb, `--pace classic|v2`). */
 export const AUTO_PACES: Readonly<Record<AutoPace["id"], AutoPace>> = { classic: CLASSIC_PACE, v2: V2_PACE };
-/** What an entry point uses when no `pace` is passed. Release 1 ships CLASSIC; the pace lane's integration flips it to V2. */
-export const DEFAULT_PACE: AutoPace = CLASSIC_PACE;
+/** What an entry point uses when no `pace` is passed: the measured (V2) pace. CLASSIC_PACE reproduces pre-Release-1
+ *  builds (gates, `animate-plot --pace classic`). Playback never reads a pace: the values are written into the tracks. */
+export const DEFAULT_PACE: AutoPace = V2_PACE;
+
+/** V2: every auto-built plot-part track carries the catalog's authored curve and params (X1a/X2: `quick smooth` on
+ *  appearances, `params.y` 24 on a fadeRise), never its DURATION (the choreography owns windows, floors, length
+ *  scaling and the scaffold constants). A track that already chose its timing curve (the data-series pen writes
+ *  `linear`) keeps it: easing / influence / curve are one group. A stagger over `child: "fade"` gets no fadeRise
+ *  params (authoredFields consults the child). CLASSIC_PACE writes nothing here: pre-Release-1 bytes. */
+function withPaceFields(track: Track, pace: AutoPace): Track {
+  if (pace.id !== "v2") return track;
+  const f = authoredFields(track.preset, track.params);
+  const out: Track = { ...track };
+  if (out.easing === undefined && out.influence === undefined && out.curve === undefined) {
+    if (f.easing) out.easing = f.easing;
+    if (f.curve) out.curve = f.curve;
+  }
+  if (f.params) out.params = { ...f.params, ...track.params };
+  return out;
+}
 
 /** Whether a build at `pace` reads pen lengths at all (so a host can skip measuring a plot that nothing will use). */
 export const paceUsesLengths = (pace: AutoPace = DEFAULT_PACE): boolean => pace.draw !== null;
@@ -508,7 +526,7 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
     return out;
   };
   const label = (ph: number, tracks: PlanTrack[]) => ph === 0 && tracks.some(t => t.role === "gridline" || t.role === "colorbar-gridline") ? "Axes & grid" : PHASE_LABELS[ph];
-  return { phases: moved, build, label };
+  return { phases: moved, build: (ph: number, tracks: PlanTrack[], ids: string[], elId: string) => build(ph, tracks, ids, elId).map(t => withPaceFields(t, pace)), label };
 }
 
 /** Find a node by id anywhere in an xray tree. */
@@ -548,7 +566,7 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
     track.duration = fit.duration; track.stagger = fit.stagger;
     track.params = { child: "fade" };
   }
-  return track;
+  return withPaceFields(track, pace);
 }
 
 /** Make ONE part "animate in" (the X-ray "Animate" toggle): clear any mask and
