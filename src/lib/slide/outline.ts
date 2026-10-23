@@ -19,10 +19,12 @@ import type { Element, PathElement, VectorNode, GradientFill } from "../types";
 import { elementBBox } from "../geometry";
 import { lerpColor, prepareColorLerp, parseColor, formatColor } from "../color/interp";
 import {
-  pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent,
+  pathD, pathToNodes, pathToSubpaths, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent, nodesExtent,
   type PathSeg,
 } from "../path";
 import { normalMatchRings } from "./normalMatch";
+import { ringBand, lineBand, type BandJoin, type BandCap, type BandRings } from "./strokeBand";
+import { cornerJoinOf } from "../strokeStyle";
 
 export type OutlineKind = "rect" | "ellipse" | "line" | "path";
 const OUTLINE_KINDS = new Set<string>(["rect", "ellipse", "line", "path"]);
@@ -86,19 +88,49 @@ export function elementOutline(el: Element): Outline | null {
     out = { nodes: el.cornerRadius && el.cornerRadius > 0 ? roundCorners(sharp, closed, el.cornerRadius) : sharp, closed };
   }
   if (!out || out.nodes.length < 2) return null;
-  if (el.flipX || el.flipY) {
-    // mirror about the box (the wrapper's scaleX/Y pivot is the box centre, so
-    // x ↦ w − x is the same picture); the planner re-aligns winding afterwards
-    const bb = elementBBox({ ...el, rotation: 0 });
-    const mx = el.flipX ? bb.w : 0, my = el.flipY ? bb.h : 0;
-    const sx = el.flipX ? -1 : 1, sy = el.flipY ? -1 : 1;
-    out.nodes = out.nodes.map((n) => ({
-      x: mx + n.x * sx, y: my + n.y * sy, type: n.type,
-      ...(n.hIn ? { hIn: { dx: n.hIn.dx * sx, dy: n.hIn.dy * sy } } : {}),
-      ...(n.hOut ? { hOut: { dx: n.hOut.dx * sx, dy: n.hOut.dy * sy } } : {}),
-    }));
-  }
+  out.nodes = flipNodes(out.nodes, el);
   return out;
+}
+
+/** Mirror nodes about the element's box (the wrapper's scaleX/Y pivot is the box centre, so x ↦ w − x is the same picture);
+ *  the planner re-aligns winding afterwards. The input when the element is not flipped. */
+function flipNodes(nodes: VectorNode[], el: Element): VectorNode[] {
+  if (!(el.flipX || el.flipY)) return nodes;
+  const bb = elementBBox({ ...el, rotation: 0 });
+  const mx = el.flipX ? bb.w : 0, my = el.flipY ? bb.h : 0;
+  const sx = el.flipX ? -1 : 1, sy = el.flipY ? -1 : 1;
+  return nodes.map((n) => ({
+    x: mx + n.x * sx, y: my + n.y * sy, type: n.type,
+    ...(n.hIn ? { hIn: { dx: n.hIn.dx * sx, dy: n.hIn.dy * sy } } : {}),
+    ...(n.hOut ? { hOut: { dx: n.hOut.dx * sx, dy: n.hOut.dy * sy } } : {}),
+  }));
+}
+
+// --- compound paths (a donut: outline + holes) ----------------------------------
+
+const shoelaceArea = (n: VectorNode[]) => { let a = 0; for (let i = 0; i < n.length; i++) { const p = n[i], q = n[(i + 1) % n.length]; a += p.x * q.y - q.x * p.y; } return a / 2; };
+const compoundCache = new Map<string, { outer: Outline; holes: Outline[] } | null>();
+/** A path whose `d` holds two or more CLOSED subpaths: its outline is the largest one, every other closed subpath is carried beside it (a hole when it
+ *  winds against the outline, an island or a solid same-wound extra when it does not: all of them close or open the same way) (null for any other element).
+ *  `elementOutline` flattens such a `d` into one chain joined by phantom bridge segments, which has no morph; a Become morphs the outer ring and
+ *  shrinks (or grows) the other subpaths about their own node mean, the way a same-kind Change does (tween.ts lerpCompoundD, which names it the centroid). */
+export function compoundRings(el: Element): { outer: Outline; holes: Outline[] } | null {
+  if (el.type !== "path" || typeof el.d !== "string") return null;
+  let moves = 0;
+  for (let i = 0; i < el.d.length && moves < 2; i++) { const c = el.d.charCodeAt(i); if (c === 77 || c === 109) moves++; }
+  if (moves < 2) return null;
+  let rings = compoundCache.get(el.d);
+  if (rings === undefined) {
+    const subs = pathToSubpaths(el.d);
+    if (subs.length < 2 || subs.some((x) => !x.closed || x.nodes.length < 2)) rings = null;
+    else {
+      const ranked = subs.map((x) => ({ nodes: x.nodes, area: Math.abs(shoelaceArea(x.nodes)) })).sort((p, q) => q.area - p.area);
+      rings = ranked[0].area > 1e-9 ? { outer: { nodes: ranked[0].nodes, closed: true }, holes: ranked.slice(1).map((x) => ({ nodes: x.nodes, closed: true })) } : null;
+    }
+    if (compoundCache.size >= 16) compoundCache.delete(compoundCache.keys().next().value!);
+    compoundCache.set(el.d, rings);
+  }
+  return rings && { outer: { nodes: flipNodes(rings.outer.nodes, el), closed: true }, holes: rings.holes.map((h) => ({ nodes: flipNodes(h.nodes, el), closed: true })) };
 }
 
 // --- arc-length parameterization + splitting ------------------------------------
@@ -680,6 +712,17 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
   /** Force the deferred node correspondence (see planElementMorph). Safe to
    *  call more than once; reading a/b/closed does it implicitly. */
   prepare?: () => void;
+  /** The stroke drawn as a BAND between two morphing contours (see `planStrokeBand`), or null when the pair keeps the centreline
+   *  law (no stroke, dashed, gradient stroke, non-convex, an inner contour that does not exist). Deferred like the correspondence. */
+  band?: () => StrokeBandPlan | null;
+  /** The holes of a compound end (a donut), in their end's UNIT frame: a source's shrink to their centroid as t runs 0 -> 1, a destination's grow from theirs. */
+  holes: HoleRing[];
+}
+export interface HoleRing {
+  /** The hole's nodes in its end's unit frame, as authored (`sign` = their winding), and the same ring reversed; `rel` is the authored winding of the hole
+   *  relative to its OUTLINE (-1: a hole, +1: a same-wound subpath that rests as solid). */
+  unit: VectorNode[]; unitRev: VectorNode[]; rel: 1 | -1; sign: 1 | -1;
+  centre: { x: number; y: number }; side: "pre" | "end";
 }
 
 export interface FixedHead {
@@ -811,10 +854,23 @@ const lerpRot = (a: number, b: number, t: number) => a + ((((b - a) % 360) + 540
  *  usable outline — the caller crossfades. */
 export function planElementMorph(pre: Element, end: Element): ElementMorphPlan | null {
   if (!outlineMorphable(pre, end)) return null;
-  const A = elementOutline(pre), B = elementOutline(end);
+  // a compound path (a donut) morphs its OUTER ring; its holes close (or open) at their own centroids while the ring morphs (`holes`, below)
+  const cpre = compoundRings(pre), cend = compoundRings(end);
+  const A = cpre ? cpre.outer : elementOutline(pre), B = cend ? cend.outer : elementOutline(end);
   if (!A || !B) return null;
   const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
   const preStyle = styleOf(pre), endStyle = styleOf(end);
+  const holes: HoleRing[] = [];
+  for (const [c, side, box] of [[cpre, "pre", pb], [cend, "end", eb]] as const) {
+    if (!c) continue;
+    // a hole keeps its AUTHORED winding relative to its own outline (Flux fills nonzero only: a donut's hole winds against its ring and is a hole, a
+    // same-wound extra subpath rests as solid, and lerpCompoundD keeps that relation too); the sampler winds it against the SAMPLED ring by that relation
+    const outerSign = Math.sign(shoelaceArea(c.outer.nodes)) || 1;
+    for (const ring of c.holes) {
+      const u = unit(ring.nodes, box.w, box.h), rel: 1 | -1 = (Math.sign(shoelaceArea(ring.nodes)) * outerSign || -1) as 1 | -1;
+      holes.push({ unit: u, unitRev: reverseNodes(u), rel, sign: (Math.sign(shoelaceArea(u)) || 1) as 1 | -1, centre: { x: u.reduce((m, n) => m + n.x, 0) / u.length, y: u.reduce((m, n) => m + n.y, 0) / u.length }, side });
+    }
+  }
   // a stroke meets a FILLED ring by inflating (no wedge); a stroke-only ring
   // opens up and unrolls instead
   const ringStyle = A.closed === B.closed ? null : A.closed ? preStyle : endStyle;
@@ -829,26 +885,32 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   // (2026-09-22: the first preview cost 113ms against a 100ms budget, and this
   // was almost all of it.)
   let corresponded: ReturnType<typeof planOutlines> | null = null;
-  const outlines = () => (corresponded ??= planOutlines(A, pb.w, pb.h, B, eb.w, eb.h, strategy));
+  // A stroke that inflates into a ring starts from the body it is DRAWN with: the end of the body stops inside a filled arrowhead
+  // (trimUnderHeads), so the swelling ring does not poke a round cap past the head's tip on its first frame.
+  const drawn = (o: Outline, st: OutlineStyle): Outline => (strategy === "inflate" && !o.closed ? { nodes: trimUnderHeads(o.nodes, st), closed: false } : o);
+  const outlines = () => (corresponded ??= planOutlines(drawn(A, preStyle), pb.w, pb.h, drawn(B, endStyle), eb.w, eb.h, strategy));
   const closed = morphIsClosed(A, B, strategy);
+  let band: StrokeBandPlan | null | undefined;
+  const bandPlan = () => (band === undefined ? (band = closed && !holes.length ? elementStrokeBand(pre, end, A, B, pb, eb, preStyle, endStyle) : null) : band);   // a hole's stroke is not in the band
   const fixedHeads = strategy === "inflate" ? [...strokeHeads(pre, A, pb, "pre"), ...strokeHeads(end, B, eb, "end")] : [];
   return {
     get a() { return outlines().a; },
     get b() { return outlines().b; },
     get dashShift() { return outlines().dashShift; },
     get dashReversed() { return outlines().dashReversed; },
-    closed,
+    closed, holes,
     arrowStart: !closed && (preStyle.arrowStart || endStyle.arrowStart),
     arrowEnd: !closed && (preStyle.arrowEnd || endStyle.arrowEnd),
     /** Force the correspondence now. The player calls this once the preview is
      *  on screen, so the first morph frame never pays for it. */
-    prepare() { outlines(); },
+    prepare() { outlines(); bandPlan(); },
+    band: bandPlan,
     pre, end, strategy, fixedHeads,
     preBox: pb, endBox: eb, preStyle, endStyle,
   };
 }
 
-function isNoneColor(c: string): boolean {
+export function isNoneColor(c: string): boolean {
   const t = c.trim().toLowerCase();
   return t === "none" || t === "transparent" || t === "";
 }
@@ -960,6 +1022,17 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): 
     }
   }
   out.d = pathD(nodes, plan.closed);
+  const ringSign = plan.holes.length ? Math.sign(shoelaceArea(nodes)) || 1 : 1;     // the sampled ring's own winding: a hole is wound against it (or with it, as authored)
+  for (const hole of plan.holes) {
+    const k = hole.side === "pre" ? 1 - t : t;
+    if (!(k > 1e-6)) continue;      // a hole that has not opened (or has closed) is not in the frame: a stroked point would paint a dot
+    const { centre: c } = hole;
+    out.d += " " + pathD((hole.sign === ringSign * hole.rel ? hole.unit : hole.unitRev).map((n) => ({
+      x: (c.x + (n.x - c.x) * k) * w, y: (c.y + (n.y - c.y) * k) * h, type: n.type,
+      ...(n.hIn ? { hIn: { dx: n.hIn.dx * k * w, dy: n.hIn.dy * k * h } } : {}),
+      ...(n.hOut ? { hOut: { dx: n.hOut.dx * k * w, dy: n.hOut.dy * k * h } } : {}),
+    })), true);
+  }
   return out;
 }
 
@@ -994,6 +1067,79 @@ export function sampleNodes(a: VectorNode[], b: VectorNode[], t: number, w: numb
   }
   out.length = a.length;
   return out;
+}
+
+// --- the stroke BAND (R2 follow-up F1) -----------------------------------------------------------------------------------------
+// A stroke is drawn as the band between its OUTER and INNER contour (strokeBand.ts), each normal-matched against the other side's
+// like the centreline is, so a sharp outer corner is exactly the source's at t = 0 and the destination's at t = 1 and rounds in
+// between (the centreline law rounded it by w/2 on the first frame). Both drivers (the 1-1 element driver here, the hand-off
+// driver in correspondence.ts) build the plan from one `BandSide` per end and draw `sampleStrokeBand` with fill-rule evenodd.
+
+/** One end of a stroked Become: its centreline outline in LOCAL px (origin = its own centreline box), that box in STAGE px, and the stroke. */
+export interface BandSide { outline: Outline; box: { x: number; y: number; w: number; h: number }; width: number; join: BandJoin; cap: BandCap }
+interface BandPair { a: VectorNode[]; b: VectorNode[]; boxA: { x: number; y: number; w: number; h: number }; boxB: { x: number; y: number; w: number; h: number } }
+export interface StrokeBandPlan { outer: BandPair; inner: BandPair; pre: { x: number; y: number }; end: { x: number; y: number } }
+export interface BandSample { outer: VectorNode[]; inner: VectorNode[] }
+
+function sideBand(s: BandSide): BandRings | null {
+  const { nodes, closed } = s.outline;
+  if (closed) return ringBand(nodes, s.width, s.join);
+  const straightLine = nodes.length === 2 && !nodes[0].hOut && !nodes[0].hIn && !nodes[1].hOut && !nodes[1].hIn;
+  return straightLine ? lineBand(nodes[0], nodes[1], s.width, s.cap) : null;
+}
+
+/** The band plan of two stroked sides, or null when the pair keeps the centreline law: an end with no band geometry (not a convex ring
+ *  or a straight line, a stroke thicker than the ring's smallest curvature radius), a pair that does not normal-match, or no stroke at all. */
+export function planStrokeBand(A: BandSide, B: BandSide): StrokeBandPlan | null {
+  if (!(A.width > 0 || B.width > 0)) return null;
+  const ra = sideBand(A), rb = sideBand(B);
+  if (!ra || !rb || !(ra.corners || rb.corners)) return null;
+  const pair = (ca: VectorNode[], cb: VectorNode[]): BandPair | null => {
+    const ea = nodesExtent(ca, true), eb = nodesExtent(cb, true);
+    const shift = (n: VectorNode[], e: { x: number; y: number }) => n.map(v => ({ ...v, x: v.x - e.x, y: v.y - e.y }));
+    const la = shift(ca, ea), lb = shift(cb, eb);
+    const px = pixelLaw({ wa: ea.w, ha: ea.h, wb: eb.w, hb: eb.h });
+    const nm = px ? normalMatchRings(la, lb) : normalMatchRings(unit(la, ea.w, ea.h), unit(lb, eb.w, eb.h));
+    if (!nm) return null;
+    return {
+      a: px ? unit(nm.a, ea.w, ea.h) : nm.a, b: px ? unit(nm.b, eb.w, eb.h) : nm.b,
+      boxA: { x: A.box.x + ea.x, y: A.box.y + ea.y, w: ea.w, h: ea.h }, boxB: { x: B.box.x + eb.x, y: B.box.y + eb.y, w: eb.w, h: eb.h },
+    };
+  };
+  const outer = pair(ra.outer, rb.outer), inner = pair(ra.inner, rb.inner);
+  return outer && inner ? { outer, inner, pre: { x: A.box.x, y: A.box.y }, end: { x: B.box.x, y: B.box.y } } : null;
+}
+
+/** The two contours at progress t, in nodes owned by `out` (reused frame to frame). `local` (default) places them relative to the
+ *  LERPED centreline box origin (what the 1-1 driver's svg frame wants); otherwise in stage px (the hand-off flight layer). */
+export function sampleStrokeBand(plan: StrokeBandPlan, t: number, out: BandSample = { outer: [], inner: [] }, local = true): BandSample {
+  const ox = local ? lerp(plan.pre.x, plan.end.x, t) : 0, oy = local ? lerp(plan.pre.y, plan.end.y, t) : 0;
+  for (const which of ["outer", "inner"] as const) {
+    const p = plan[which], w = lerp(p.boxA.w, p.boxB.w, t), h = lerp(p.boxA.h, p.boxB.h, t);
+    const nodes = sampleNodes(p.a, p.b, t, w, h, out[which], { wa: p.boxA.w, ha: p.boxA.h, wb: p.boxB.w, hb: p.boxB.h });
+    const x = lerp(p.boxA.x, p.boxB.x, t) - ox, y = lerp(p.boxA.y, p.boxB.y, t) - oy;
+    for (const n of nodes) { n.x += x; n.y += y; }
+    out[which] = nodes;
+  }
+  return out;
+}
+
+/** The band plan of an element pair (the 1-1 driver). The static look decides what a side is: undashed solid-colour strokes of a
+ *  rect / ellipse / convex path (its corner join) or a straight line (its cap). Everything else is the centreline law. */
+function elementStrokeBand(pre: Element, end: Element, A: Outline, B: Outline, pb: { x: number; y: number; w: number; h: number }, eb: { x: number; y: number; w: number; h: number }, ps: OutlineStyle, es: OutlineStyle): StrokeBandPlan | null {
+  const ok = (st: OutlineStyle) => !st.dash && !st.strokeMap?.stops?.length;
+  if (!ok(ps) || !ok(es)) return null;
+  const side = (el: Element, o: Outline, box: { x: number; y: number; w: number; h: number }, st: OutlineStyle): BandSide =>
+    ({ outline: o.closed ? o : { nodes: trimUnderHeads(o.nodes, st), closed: false }, box, width: isNoneColor(st.stroke) ? 0 : st.strokeWidth, join: cornerJoinOf(el) ?? "round", cap: st.cap });
+  return planStrokeBand(side(pre, A, pb, ps), side(end, B, eb, es));
+}
+
+/** The body of a stroke as it is DRAWN: a filled arrowhead sits over the end of the body, which stops inside it (path.ts `pathRender` trims it),
+ *  so a hand-off from the stroke starts from that body, not from one that pokes a round cap out past the head's tip. */
+export function trimUnderHeads(nodes: VectorNode[], st: { strokeWidth: number; arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: "filled" | "vee"; arrowSize?: number }): VectorNode[] {
+  if (!(st.arrowStart || st.arrowEnd) || (st.arrowStyle ?? "filled") !== "filled" || nodes.length !== 2) return nodes;
+  const trimmed = pathToNodes(pathRender({ d: "", nodes, closed: false, strokeWidth: st.strokeWidth, arrowStart: st.arrowStart, arrowEnd: st.arrowEnd, arrowStyle: st.arrowStyle, arrowSize: st.arrowSize }).d);
+  return trimmed.length === 2 ? trimmed : nodes;
 }
 
 // A local twin of tween.lerpDash (tween imports this module; no cycle).

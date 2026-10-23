@@ -37,7 +37,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox, dashAttr, channelOpacity } from "../../geometry";
 import { pathRender, pathD } from "../../path";
 import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
-import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, fixedHeadPoints, dashOffsetAt, type ElementMorphPlan } from "../outline";
+import { planElementMorph, sampleElementMorph, sampleStrokeBand, arrowFade, fixedHeadOpacity, fixedHeadPoints, dashOffsetAt, type ElementMorphPlan, type BandSample } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
@@ -54,6 +54,8 @@ import { barGrow, type BarGrow } from "../growOrigin";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
+/** Stage px an invisible stroke inflates a band's ink bounds by (see `bandNode`): enough for a device pixel at any presentation scale >= 1/4. */
+const BAND_INK_GUARD = 8;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export interface TransformCtx extends SlideRenderCtx {
@@ -296,7 +298,7 @@ export function createTransform(
   //     sampler — no serialization, parsing or selectors on the frame path.
   // B = the end markup through the ONE serializer; shown at t = 1 and the
   //     root later tracks bind to.
-  let morphLayers: { A: HTMLElement; M: HTMLElement; B: HTMLElement; svg: SVGSVGElement; body: SVGPathElement;
+  let morphLayers: { A: HTMLElement; M: HTMLElement; B: HTMLElement; svg: SVGSVGElement; body: SVGPathElement; band: SVGPathElement | null;
     heads: { start: { poly: SVGPolygonElement; vee: SVGPolylineElement } | null; end: { poly: SVGPolygonElement; vee: SVGPolylineElement } | null };
     fixed: (SVGPolygonElement | SVGPolylineElement)[] } | null = null;
   function ensureMorphLayers(): NonNullable<typeof morphLayers> {
@@ -317,6 +319,7 @@ export function createTransform(
     const body = document.createElementNS(SVG_NS, "path");
     body.setAttribute("stroke-linejoin", morphJoin(pre, end, 0));
     svg.appendChild(body);
+    // (the stroke band node, when the pair has one, is created on the first flight frame: `bandNode` below)
     const head = (): { poly: SVGPolygonElement; vee: SVGPolylineElement } => {
       const poly = document.createElementNS(SVG_NS, "polygon");
       const vee = document.createElementNS(SVG_NS, "polyline");
@@ -341,7 +344,7 @@ export function createTransform(
     contentHost.appendChild(A);
     contentHost.appendChild(M);
     contentHost.appendChild(B);
-    morphLayers = { A, M, B, svg, body, heads, fixed };
+    morphLayers = { A, M, B, svg, body, band: null, heads, fixed };
     return morphLayers;
   }
   function showMorphLayer(t: number): void {
@@ -352,6 +355,20 @@ export function createTransform(
   }
   // the last `<defs>` markup written (innerHTML never round-trips: SVG serializes `</stop>` end tags)
   let morphDefsMarkup = "";
+  let bandSamples: BandSample | undefined;   // the band's reusable contour nodes
+  let bandChecked = false;
+  /** The stroke drawn as a BAND between two morphing contours (outline.ts planStrokeBand), when the pair has one: the body then paints the fill only.
+   *  The band is a FILL, and a fill's ink bounds are tight: the compositor layer this driver promotes snaps its bounds to device pixels and clips the
+   *  half-covered anti-aliasing fringe of the band's outer edge (it lies outside the element's box by half the stroke), where the static stroke it
+   *  replaces is not clipped (a stroke's ink bounds are inflated by its width). An invisible stroke keeps the fringe inside (measured: a start pop of 72
+   *  stage px^2 without it, 0 with). Built on the first flight frame, so planning it never costs the first preview. */
+  function bandNode(L: NonNullable<typeof morphLayers>): SVGPathElement | null {
+    if (!morphPlan!.band?.()) return null;
+    const band = document.createElementNS(SVG_NS, "path");
+    band.setAttribute("fill-rule", "evenodd"); band.setAttribute("stroke", "transparent"); band.setAttribute("stroke-width", String(BAND_INK_GUARD));
+    L.body.after(band);
+    return band;
+  }
   function writeMorphFrame(el: FigElement, t: number): void {
     const L = ensureMorphLayers();
     if (el.type !== "path") return;
@@ -374,8 +391,10 @@ export function createTransform(
       if (morphDefsMarkup !== markup) { defs.innerHTML = markup; morphDefsMarkup = markup; }
     } else { defs?.remove(); morphDefsMarkup = ""; }
     set(L.body, "fill", paint.fill);
-    set(L.body, "stroke", paint.stroke);
-    set(L.body, "stroke-width", String(el.strokeWidth));
+    if (!bandChecked) { bandChecked = true; L.band = bandNode(L); }
+    // band: the stroke is the ring between two contours (below), not a stroke of the centreline
+    set(L.body, "stroke", L.band ? "none" : paint.stroke);
+    set(L.body, "stroke-width", L.band ? "0" : String(el.strokeWidth));
     set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
     set(L.body, "stroke-linejoin", morphJoin(pre, end, t));   // T7: inherit the resting join (rect miter / path round)
     const dash = dashAttr(el);
@@ -384,6 +403,14 @@ export function createTransform(
     if (dash && shift != null && endDash?.length) set(L.body, "stroke-dashoffset", String(dashOffsetAt(shift, endDash, t, morphPlan!.dashReversed))); else L.body.removeAttribute("stroke-dashoffset");
     for (const [name, v] of [["fill-opacity", channelOpacity(el.fillOpacity)], ["stroke-opacity", channelOpacity(el.strokeOpacity)]] as const)
       if (v != null) set(L.body, name, String(v)); else L.body.removeAttribute(name);
+    if (L.band) {
+      const bp = morphPlan!.band!()!, sample = (bandSamples ??= { outer: [], inner: [] });
+      sampleStrokeBand(bp, t, sample);
+      set(L.band, "d", pathD(sample.outer, true) + " " + pathD(sample.inner, true));
+      set(L.band, "fill", paint.stroke);
+      const so = channelOpacity(el.strokeOpacity);
+      if (so != null) set(L.band, "fill-opacity", String(so)); else L.band.removeAttribute("fill-opacity");
+    }
     for (let i = 0; i < L.fixed.length; i++) {
       const h = morphPlan!.fixedHeads[i], node = L.fixed[i];
       const side = h.side === "pre" ? morphPlan!.preStyle : morphPlan!.endStyle;

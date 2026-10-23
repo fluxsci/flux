@@ -11,7 +11,8 @@ import { lerpDash } from "./tween";
 import { axisFit, projectWith } from "../plot/project";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
-  planOutlines, sampleNodes, supportPoint, lerpGradientFill, type GradientLerp, type RingStrategy, type Outline,
+  planOutlines, sampleNodes, supportPoint, lerpGradientFill, planStrokeBand, sampleStrokeBand, trimUnderHeads, isNoneColor,
+  type GradientLerp, type RingStrategy, type Outline, type BandSide, type BandSample, type StrokeBandPlan,
 } from "./outline";
 
 export interface CorrespondencePair {
@@ -19,6 +20,9 @@ export interface CorrespondencePair {
   b: StageOutline | null;
   /** Exact planOutlines UNIT chains; a/b.bbox place them in stage pixels. */
   plan?: { a: VectorNode[]; b: VectorNode[]; closed: boolean; strategy: RingStrategy; dashShift?: number; dashReversed?: boolean; prepare(): void };
+  /** The stroke drawn as a BAND between two morphing contours (outline.ts `planStrokeBand`), deferred like the plan; null = this pair keeps the
+   *  centreline law (no stroke, dashed, gradient stroke, curved open piece, non-convex, an inner contour that does not exist). */
+  band?: () => StrokeBandPlan | null;
   landing?: { x: number; y: number; scale: number };
   crossfade?: true;
   boxes?: { a: StageOutline["bbox"]; b: StageOutline["bbox"] };
@@ -68,6 +72,9 @@ export interface SampledPath {
   paint: OutlinePaint;
   opacity: number;
   owner: { a?: OutlineOwner; b?: OutlineOwner };
+  /** The stroke's two contours in STAGE px while the pair is in flight and has a band plan: draw `nodes` as a FILL (no stroke) and the
+   *  band (outer + inner, fill-rule evenodd, filled with the pair's stroke paint) on top. Absent = stroke `nodes` as always. */
+  band?: BandSample;
 }
 /** The pair budget of the path driver (an outline morph per pair, the truest picture of
  *  any Become). A set of MORE marker-sized rings than this flies as glyphs instead (the
@@ -668,10 +675,12 @@ function planPair(pair: CorrespondencePair): void {
   const ring = a.closed === b.closed ? undefined : a.closed ? a : b;
   const strategy: RingStrategy = ring && !["", "none", "transparent"].includes(ring.paint.fill.trim().toLowerCase()) ? "inflate" : "cut";
   const local = (o: StageOutline): Outline => ({ closed: o.closed, nodes: o.nodes.map((n) => ({ ...n, x: n.x - o.bbox.x, y: n.y - o.bbox.y })) });
+  // a stroke that inflates into a ring starts from the body it is drawn with (it stops inside a filled arrowhead): see outline.ts planElementMorph
+  const drawn = (o: StageOutline): Outline => { const l = local(o); return strategy === "inflate" && !l.closed ? { nodes: trimUnderHeads(l.nodes, o.paint), closed: false } : l; };
   const prepare = () => {
     let p = ready.get(pair);
     if (!p) {
-      p = planOutlines(local(a), a.bbox.w, a.bbox.h, local(b), b.bbox.w, b.bbox.h, strategy);
+      p = planOutlines(drawn(a), a.bbox.w, a.bbox.h, drawn(b), b.bbox.w, b.bbox.h, strategy);
       ready.set(pair, p);
     }
     return p;
@@ -679,7 +688,19 @@ function planPair(pair: CorrespondencePair): void {
   pair.plan = {
     get a() { return prepare().a; }, get b() { return prepare().b; }, get dashShift() { return prepare().dashShift; }, get dashReversed() { return prepare().dashReversed; },
     closed: morphIsClosed(a, b, strategy), strategy,
-    prepare() { prepare(); },
+    prepare() { prepare(); pair.band?.(); },
+  };
+  let band: StrokeBandPlan | null | undefined;
+  const bandSide = (o: StageOutline): BandSide | null => {
+    const p = o.paint;
+    if (p.dash?.length || p.strokeMap?.stops?.length) return null;
+    const outline = local(o);
+    return { outline: outline.closed ? outline : { nodes: trimUnderHeads(outline.nodes, p), closed: false }, box: o.bbox, width: isNoneColor(p.stroke) ? 0 : p.strokeWidth, join: p.join ?? "round", cap: p.cap };
+  };
+  pair.band = () => {
+    if (band !== undefined) return band;
+    const sa = pair.plan!.closed ? bandSide(a) : null, sb = sa ? bandSide(b) : null;
+    return band = sa && sb ? planStrokeBand(sa, sb) : null;
   };
 }
 
@@ -756,6 +777,8 @@ interface SampleBuffers {
   /** prepared per-stop colour lerps of a gradient-filled / -stroked pair */
   gfill?: GradientLerp;
   gstroke?: GradientLerp;
+  /** the band's reusable contour nodes */
+  bandBuf?: BandSample;
 }
 const buffers = new WeakMap<SampledPath, SampleBuffers>();
 const smooth = (p: number) => p * p * (3 - 2 * p);
@@ -865,6 +888,9 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
     paint.arrowStart = stepped.arrowStart; paint.arrowEnd = stepped.arrowEnd;
     paint.arrowStyle = stepped.arrowStyle; paint.arrowSize = stepped.arrowSize;
     paint.text = stepped.text; paint.raster = stepped.raster;
+    // the stroke as a band between two contours (outline.ts planStrokeBand): the flight draws it, never a stroke of the centreline
+    const bp = aligned && a && b && t > 0 && t < 1 && !pair.crossfade && pair.band ? pair.band() : null;
+    if (bp) path.band = sampleStrokeBand(bp, t, buf.bandBuf ??= { outer: [], inner: [] }, false); else delete path.band;
   }
   out.length = plan.pairs.length;
   return out;

@@ -61,7 +61,7 @@ try {
     const heads = [...(visible[0]?.querySelectorAll("polygon, polyline") ?? [])].map((n) => ({ tag: n.tagName.toLowerCase(), opacity: n.getAttribute("opacity"), points: n.getAttribute("points") }));
     return {
       x: (rect.x - stage.x) / scale, y: (rect.y - stage.y) / scale, w: rect.width / scale, h: rect.height / scale,
-      layers: top.layers, visible: top.visible, tag: shown?.tagName.toLowerCase() ?? null,
+      layers: top.layers, visible: top.visible, tag: (shown?.getAttribute("data-shape") ?? shown?.tagName.toLowerCase()) ?? null,
       d: body?.getAttribute("d") ?? null, fill: body?.getAttribute("fill") ?? null, dashes: body?.getAttribute("stroke-dasharray") ?? null,
       heads, transform: el.style.transform, layerOpacity: top.opacity,
     };

@@ -343,6 +343,8 @@
       "verify-pace-defaults.ts",
       "verify-slide-handoff-browser.ts",
       "verify-slide-xfade-browser.ts",
+      "verify-slide-stroke-band.ts",
+      "verify-slide-stroke-band-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-settle-sweep.ts",
@@ -946,6 +948,8 @@
       "verify-v020-morph-startup.mjs",
       "verify-slide-handoff-browser.ts",
       "verify-slide-xfade-browser.ts",
+      "verify-slide-stroke-band.ts",
+      "verify-slide-stroke-band-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
@@ -1837,6 +1841,8 @@
         "verify-morph-path.ts",
         "verify-slide-morph-geometry.ts",
         "verify-slide-morph-geometry-browser.ts",
+        "verify-slide-stroke-band.ts",
+        "verify-slide-stroke-band-browser.ts",
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
         "tier:pure",
@@ -2442,7 +2448,7 @@
       ]
     },
     {
-      "glob": "{src/lib/slide/{outline,tween,normalMatch,stageOutline}.ts,src/lib/slide/player/**}",
+      "glob": "{src/lib/slide/{outline,tween,normalMatch,stageOutline,strokeBand}.ts,src/lib/slide/player/**}",
       "run": [
         "verify-draw.ts",
         "verify-slide-draw-browser.ts",
@@ -9520,6 +9526,24 @@
       "coverage": "behavior"
     },
     "verify-slide-handoff-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-stroke-band.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-stroke-band-browser.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

@@ -77,7 +77,7 @@ try {
     check(staticJoin === cornerJoinOf({ type: src }), `${label}: the resting ${src} draws stroke-linejoin ${cornerJoinOf({ type: src })} (got ${staticJoin})`);
     for (const t of [0.2, 0.8]) {
       await page.evaluate((s, ms) => (window as any).fluxDeck.seek(s, 1, ms), si, t * 1000);
-      const live = await page.evaluate(`(() => { const body = [...document.querySelector('[data-el-id="a"]').querySelectorAll("svg > path")].filter((p) => getComputedStyle(p).visibility !== "hidden"); return body.length === 1 ? getComputedStyle(body[0]).strokeLinejoin : "bodies:" + body.length; })()`);
+      const live = await page.evaluate(`(() => { const body = [...document.querySelector('[data-el-id="a"]').querySelectorAll("svg > path:not([fill-rule])")].filter((p) => getComputedStyle(p).visibility !== "hidden"); return body.length === 1 ? getComputedStyle(body[0]).strokeLinejoin : "bodies:" + body.length; })()`);
       check(live === morphJoin({ type: src }, { type: dst }, t), `${label} at t=${t}: the morph body draws stroke-linejoin ${morphJoin({ type: src }, { type: dst }, t)} (got ${live})`);
     }
   }

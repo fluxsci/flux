@@ -24,6 +24,11 @@ export const PLAY: Record<string, string[]> = {
   become: ["become#1-1", "become#2-2", "become#3-3"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"], camera: ["camera#1-1", "camera#2-2", "camera#3-3", "camera#4-4", "camera#5-5"],
   chains: ["chains#1-1", "chains#2-2", "chains#3-3", "chains#4-6"], plot_scatter: ["scatter#1-1", "scatter#2-2"], plot_bars: ["bars#2-2"], plot_lines: ["lines#2-2"],
   interrupt: ["int#1-1"], become_stroked: ["line_shape#1-1", "corners#1-1"], ghost: ["ghost#2-2"],
+  // R2 follow-up F1: round hand-offs (one rasteriser at both ends), stroked corners, a cornerRadius Change, compound holes
+  handoff_round: ["dot_int#1-1", "dot_grow#1-1", "ring_ring#1-1", "six_dots#1-1"],
+  become_corners: ["tri_circle#1-1", "rect_circle#1-1", "arrow_circle#1-1", "arrow_circle_ho#1-1", "butt_line_rect#1-1", "ell_rect#1-1", "ell_rect_ho#1-1", "translucent#1-1"],
+  set_flights: ["rect_3ellipses#1-1", "six_ring#1-1"],
+  corner_radius: ["path_20_0#1-1"], compound: ["hole_moves#1-1", "hole_fills#1-1", "hole_opens#1-1", "donut_circle#1-1", "donut_circle_ho#1-1", "donut_same_wind#1-1"],
 };
 // A cue another lane owns (or a documented open item) is tolerated ONLY for the flags KNOWN_OPEN names for the real-time domain, and a REQUIRED
 // entry whose flag stopped firing fails the gate (the entry must be deleted).

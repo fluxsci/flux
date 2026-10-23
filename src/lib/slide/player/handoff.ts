@@ -95,7 +95,7 @@ export interface HandoffMedia {
   dispose(): void;
 }
 interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean; dir: [number, number] }
-interface PathDrawing { node: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement; defsMarkup?: string }
+interface PathDrawing { node: SVGPathElement; /** the stroke as a band between two contours (correspondence `band`), drawn over `node` */ band?: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement; defsMarkup?: string }
 let gradientSerial = 0;
 interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; aBox: Box; bBox: Box }
 interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
@@ -272,6 +272,12 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           // a fill piece of a sliced shape (letter strip, interior triangle) — for probes and gates
           if (pair.a?.owner.role === "slice" || pair.b?.owner.role === "slice") node.setAttribute("data-piece", "slice");
           parent.appendChild(node);
+          let band: SVGPathElement | undefined;
+          if (pair.band?.()) {
+            band = document.createElementNS(NS, "path") as SVGPathElement;
+            band.setAttribute("class", "sl-handoff-band"); band.setAttribute("fill-rule", "evenodd"); band.setAttribute("stroke", "none");
+            parent.appendChild(band);
+          }
           const heads: SVGElement[] = [], fixed: FixedHead[] = [];
           if (pair.a?.paint.arrowStart || pair.a?.paint.arrowEnd || pair.b?.paint.arrowStart || pair.b?.paint.arrowEnd) {
             if (pair.plan?.closed) {
@@ -295,7 +301,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
               for (let i = 0; i < 4; i++) { const head = document.createElementNS(NS, i < 2 ? "polygon" : "polyline"); parent.appendChild(head); heads.push(head); }
             }
           }
-          paths.push({ node, pair, heads, fixed });
+          paths.push({ node, band, pair, heads, fixed });
         }
       }
       for (const side of ["a", "b"] as const) for (const role of ["glyph-box", "slice"] as const) {
@@ -342,6 +348,17 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     set(node, "stroke-width", String(p.strokeWidth)); set(node, "stroke-linecap", p.cap);
     set(node, "stroke-linejoin", pairJoin(pair.a?.paint.join, pair.b?.paint.join, u)); // T7: the side just left (no corner pop at the swap)
     set(node, "stroke-dasharray", p.dash?.join(" ") || "none");
+    // a pair with a band plan paints its stroke as the ring between two contours, over the fill
+    if (drawing.band) {
+      const b = sample.band;
+      if (b) {
+        set(node, "stroke", "none"); set(node, "stroke-width", "0");
+        set(drawing.band, "d", pathD(b.outer, true) + " " + pathD(b.inner, true));
+        set(drawing.band, "fill", strokePaint); drawing.band.removeAttribute("visibility");   // inherit the flight layer's own visibility (an explicit "visible" would show at rest)
+        if (p.strokeOpacity != null) set(drawing.band, "fill-opacity", String(p.strokeOpacity)); else drawing.band.removeAttribute("fill-opacity");
+        set(drawing.band, "opacity", String(sample.opacity * (p.opacity ?? 1) * fade));
+      } else set(drawing.band, "visibility", "hidden");
+    }
     const shift = pair.plan?.dashShift;
     if (shift != null && pair.b?.paint.dash?.length) set(node, "stroke-dashoffset", String(dashOffsetAt(shift, pair.b.paint.dash, u, pair.plan?.dashReversed)));
     else node.removeAttribute("stroke-dashoffset");

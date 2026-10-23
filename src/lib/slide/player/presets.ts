@@ -204,6 +204,12 @@ function geoLength(geo: SVGElement): number {
   }
 }
 
+/** The shape a stroke geometry node STANDS for: the stage draws an ellipse as a `<path>` (render.ts `stageMarkup`, `data-shape="ellipse"`), and a draw's
+ *  start / direction / named anchors / dash reach follow the ellipse conventions of SVG, not the path ones. */
+export function shapeTag(geo: Element): string {
+  return geo.getAttribute?.("data-shape") ?? geo.tagName.toLowerCase();
+}
+
 /** Is this geometry a closed loop (dash windows wrap)? */
 function geoClosed(geo: SVGElement): boolean {
   const tag = geo.tagName?.toLowerCase();
@@ -303,7 +309,7 @@ function drawUnits(node: TargetNode): Unit[] {
   const mk = (geo: SVGElement, role: Piece["role"]): Piece => {
     const len = geoLength(geo);
     const dash = readPaint(geo).dash;
-    return { geo, tag: geo.tagName.toLowerCase(), role, len, closed: geoClosed(geo), pen: explicitPathLength(geo) ? trueLength(geo, len) : len, ...(dash?.some((v) => v > 0) ? { pattern: dash } : {}) };
+    return { geo, tag: shapeTag(geo), role, len, closed: geoClosed(geo), pen: explicitPathLength(geo) ? trueLength(geo, len) : len, ...(dash?.some((v) => v > 0) ? { pattern: dash } : {}) };
   };
   // heads first: a head belongs to the stroked line/open-path sibling whose end it sits on
   const hosts = all.filter((g) => ["line", "path"].includes(g.tagName.toLowerCase()) && paint.get(g)!.stroked && !paint.get(g)!.filled && !geoClosed(g));
