@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
   import NumberField from "./NumberField.svelte";
+  import ArrangementAnchorPicker from "./ArrangementAnchorPicker.svelte";
   import Logomark from "../shell/Logomark.svelte";
   import { anchorPanel, reanchorPanel, unionRects, type Rect } from "./ui/anchor";
   import {
@@ -26,11 +27,7 @@
   $: state = active && $alignArrange?.panelVisible !== false ? $alignArrange : null;
   $: blocked = !state || !!state.blockedReason;
   $: arrangeDisabled = blocked || (state?.count ?? 0) < 2;
-  $: anchorChoices = state?.topology === "row"
-    ? [{ x: 0, y: state.anchor.y, label: "Left" }, { x: .5, y: state.anchor.y, label: "Center" }, { x: 1, y: state.anchor.y, label: "Right" }]
-    : state?.topology === "column"
-      ? [{ x: state.anchor.x, y: 0, label: "Top" }, { x: state.anchor.x, y: .5, label: "Center" }, { x: state.anchor.x, y: 1, label: "Bottom" }]
-      : [0, .5, 1].flatMap(y => [0, .5, 1].map(x => ({ x, y, label: y === .5 && x === .5 ? "Center" : `${y === 0 ? "Top" : y === 1 ? "Bottom" : "Middle"} ${x === 0 ? "left" : x === 1 ? "right" : "center"}` })));
+
 
   $: if (state && (!lifecycle.open || lifecycle.id !== state.id)) {
     lifecycle.open = true; lifecycle.id = state.id;
@@ -71,7 +68,7 @@
   function outside(e: PointerEvent) {
     if (!state || state.dragging || e.button !== 0) return;
     const target = e.target;
-    if (!(target instanceof Element) || target.closest(".align-arrange-panel, [data-arrange-gap]")) return;
+    if (!(target instanceof Element) || target.closest(".align-arrange-panel, [data-arrange-gap], .arrangement-anchor-control")) return;
     const consume = state.count > 0 && !!target.closest(".canvas-host");
     closeAlignArrange();
     if (consume) { e.preventDefault(); e.stopImmediatePropagation(); }
@@ -80,15 +77,6 @@
   function activate(mode: "align" | "arrange") { if (state?.mode !== mode) switchAlignArrange(mode); }
   function align(e: MouseEvent, kind: AlignKind) { action(e, () => { activate("align"); alignSelection(kind); }); }
   function hover(kind: Parameters<typeof setAlignArrangeHover>[0]) { setAlignArrangeHover(kind); }
-  function anchorKey(e: KeyboardEvent, i: number) {
-    const delta = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "ArrowDown" ? (anchorChoices.length === 9 ? 3 : 1) : e.key === "ArrowUp" ? (anchorChoices.length === 9 ? -3 : -1) : 0;
-    if (!delta) return;
-    e.preventDefault(); e.stopPropagation();
-    const next = (i + delta + anchorChoices.length) % anchorChoices.length;
-    const choice = anchorChoices[next];
-    setArrangementAnchor(choice.x as 0 | .5 | 1, choice.y as 0 | .5 | 1);
-    panel.querySelectorAll<HTMLButtonElement>(".anchor-choice")[next]?.focus();
-  }
   const fieldOwner = (axis: "x" | "y") => ({
     begin: (kind?: "typing" | "wheel" | "scrub") => { activate("arrange"); beginArrangementField(axis, kind); }, interaction: (kind: "typing" | "wheel" | "scrub" | null) => setArrangementFieldInteraction(axis, kind), owns: () => ownsArrangementField(axis),
     preview: (v: number | undefined) => { if (v !== undefined) setArrangementGap(axis, v); },
@@ -160,13 +148,11 @@
             ] as layout}<button class:current={state.topology===layout.id} aria-pressed={state.topology===layout.id} disabled={arrangeDisabled} title={`Reflow as ${layout.label.toLowerCase()} (${layout.key})`} on:click={(e)=>action(e,()=>reflowArrangement(layout.id as "row"|"grid"|"column"))}><svg viewBox="0 0 32 32" aria-hidden="true"><path d={layout.path}/></svg><span>{layout.label}</span><kbd>{layout.key}</kbd></button>{/each}
           </div>
           <div class="shape-row"><span><strong>{state.rows} × {state.cols}</strong></span><div class="stepper"><button disabled={arrangeDisabled || state.rows<=1} aria-label="Fewer rows" title="Fewer rows (F)" on:click={(e)=>action(e,()=>stepArrangementRows(-1))}>−<kbd>F</kbd></button><span>rows</span><button disabled={arrangeDisabled || state.rows>=state.count} aria-label="More rows" title="More rows (D)" on:click={(e)=>action(e,()=>stepArrangementRows(1))}>+<kbd>D</kbd></button></div></div>
-          <section class="spacing"><h3>Spacing<span class="section-note">Drag guides · negative overlaps</span></h3><div class="gap-fields">
+          <section class="spacing"><h3>Spacing</h3><div class="gap-fields">
             {#if state.topology!=="column"}<div on:focusin={()=>hover("gap-x")} on:focusout={()=>hover(null)}><NumberField label={state.topology==="grid"?"Column gap":"Horizontal gap"} value={state.gapX} displayPrecision={3} live disabled={arrangeDisabled} externalOwner={fieldOwner("x")} title="Horizontal spacing in canvas pixels; negative values overlap"/></div>{/if}
             {#if state.topology!=="row"}<div on:focusin={()=>hover("gap-y")} on:focusout={()=>hover(null)}><NumberField label={state.topology==="grid"?"Row gap":"Vertical gap"} value={state.gapY} displayPrecision={3} live disabled={arrangeDisabled} externalOwner={fieldOwner("y")} title="Vertical spacing in canvas pixels; negative values overlap"/></div>{/if}
           </div>{#if state.topology==="grid"}<label class="link-gaps"><input type="checkbox" checked={state.linkedGaps} on:change={(e)=>setArrangementLinked(e.currentTarget.checked)}/><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 14 4-4M9 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m0 10a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-1 1"/></svg>Link gaps</label>{/if}</section>
-          <section class="anchor-section"><div class="anchor-copy"><h3>Keep fixed</h3><p class="anchor-help" title="Hold W for top, A for left, S for bottom, D for right. Combine keys for a corner; release to return to the selected anchor.">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><br/>while dragging or scrolling</p></div><div class="anchor-options" class:grid={state.topology==="grid"} class:column={state.topology==="column"} role="radiogroup" aria-label="Keep fixed">
-            {#each anchorChoices as choice,i}<button class="anchor-choice" class:chosen={state.anchor.x===choice.x&&state.anchor.y===choice.y} role="radio" aria-checked={state.anchor.x===choice.x&&state.anchor.y===choice.y} tabindex={state.anchor.x===choice.x&&state.anchor.y===choice.y?0:-1} aria-label={choice.label} title={choice.label} disabled={arrangeDisabled} on:keydown={(e)=>anchorKey(e,i)} on:click={(e)=>action(e,()=>setArrangementAnchor(choice.x as 0|.5|1,choice.y as 0|.5|1))}><span aria-hidden="true"></span></button>{/each}
-          </div></section>
+          <section class="anchor-section" class:grid-anchor={state.topology==="grid"}><h3>Keep fixed</h3><ArrangementAnchorPicker topology={state.topology} anchor={state.anchor} disabled={arrangeDisabled} onchange={setArrangementAnchor}/></section>
           <p class="status" role="status">{state.status || `Existing ${state.topology}`}</p>
         </div>
       </div>
@@ -200,7 +186,6 @@
   kbd {font:10px var(--font-mono);color:var(--c-tx-muted)}.active kbd {color:var(--c-layout-gap)}
   section {margin-top:11px;padding-top:10px;border-top:1px solid var(--c-line)}
   h3 {margin:0 0 7px;font:600 12px var(--font-serif);color:var(--c-tx-hi)}
-  .section-note {display:block;margin-top:3px;color:var(--c-tx-muted);font:10px var(--font-ui)}
   .two,.spine-buttons {display:flex;gap:4px}
   .two button,.spine-buttons button {display:flex;align-items:center;justify-content:center;gap:5px;flex:1;min-width:0;height:33px;padding:2px 4px;background:var(--c-bg-raised);border-color:var(--c-line);font-size:10px}
   .two svg {width:23px;height:23px}.spine-buttons svg {width:32px;height:23px}.spine {stroke:var(--flx-green-400,var(--c-accent))}
@@ -215,11 +200,7 @@
   .stepper {display:flex;align-items:center;gap:5px}.stepper button {display:flex;align-items:center;gap:5px;height:23px;padding:0 5px;font-size:15px}.stepper kbd {font-size:8px}
   .gap-fields {display:flex;gap:9px}.gap-fields>div {flex:1;min-width:0}.gap-fields :global(.nf) {margin:0}.gap-fields :global(.nf .lb) {font-size:10px}.gap-fields :global(.nf input) {font-size:11px;height:26px}
   .link-gaps {display:flex;align-items:center;gap:5px;margin-top:8px;color:var(--c-tx-muted);font-size:10px}.link-gaps input {accent-color:var(--c-layout-gap);width:12px;height:12px;margin:0}.link-gaps svg {width:13px;height:13px}
-  .anchor-section {display:flex;align-items:center;justify-content:space-between;gap:8px}.anchor-copy h3 {margin-bottom:5px}.anchor-help {font:9px/1.5 var(--font-ui);color:var(--c-tx-muted);margin:0;white-space:nowrap}.anchor-help kbd {margin:0 2px;font-size:9px}
-  .anchor-options {display:flex;gap:0;padding:2px;border:1px solid var(--c-line-strong);border-radius:3px;background:var(--c-bg-raised)}
-  .anchor-options.grid {display:grid;grid-template-columns:repeat(3,20px);gap:0}.anchor-options.column {flex-direction:column}
-  .anchor-choice {display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:2px}
-  .anchor-choice span {width:3px;height:3px;border-radius:50%;background:var(--c-tx-muted)}.anchor-choice.chosen {background:var(--c-bg)}.anchor-choice.chosen span {width:7px;height:7px;background:var(--c-layout-gap)}
+  .anchor-section h3 {margin-bottom:7px}.anchor-section.grid-anchor {display:flex;align-items:center;justify-content:space-between}.anchor-section.grid-anchor h3 {margin:0}
   .status {font:9px var(--font-ui);color:var(--c-tx-muted);margin:8px 0 0;text-align:right}
   footer {display:flex;align-items:center;gap:12px;padding:7px 10px;border-top:1px solid var(--c-line);background:var(--c-bg-raised)}
   footer button {padding:0;font-size:10px;color:var(--c-tx-muted)}footer button:last-child {margin-left:auto}footer kbd {margin-right:3px;color:var(--c-layout-gap)}footer .apply {color:var(--c-tx-hi)}

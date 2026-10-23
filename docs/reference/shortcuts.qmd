@@ -133,7 +133,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **A** | Open Align & Arrange with Align active — **W/A/S/D** edges, **H/V** X/Y centers, **X/Y** plot spines |
 | **Space** | Switch the active Align / Arrange pane while the tool surface has focus; both panes stay visible |
 | **Alt+T** | Open Align & Arrange with Arrange active — **A** row/column, **G** grid, **D**/**F** rows, **Enter** apply, **Esc** cancel |
-| **Hold W/A/S/D during spacing drag, scroll or scrub** | Temporarily fix the top/left/bottom/right edge; combine perpendicular keys for a corner |
+| **1/2/3** while editing or hovering a gap | Choose start/center/end on that axis; choice persists across tool visits, and numeric inputs keep normal typing |
 | **Ctrl+Shift+C** | Cascade a stepped delta across the selection |
 | **Ctrl+P** | Insert a design preset |
 | **Ctrl+G** / **Ctrl+Shift+G** | Group / ungroup |

@@ -1323,7 +1323,7 @@
       ]
     },
     {
-      "glob": "{src/lib/AlignArrangePanel.svelte,src/lib/ArrangeGapOverlay.svelte,src/lib/interact/alignArrange.ts,scripts/lib/alignArrangeFixture.mjs}",
+      "glob": "{src/lib/AlignArrangePanel.svelte,src/lib/ArrangeGapOverlay.svelte,src/lib/ArrangementAnchorPicker.svelte,src/lib/interact/alignArrange.ts,scripts/lib/alignArrangeFixture.mjs}",
       "run": [
         "group:align-arrange",
         "verify-fig-esc.mjs",

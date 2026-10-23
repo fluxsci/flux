@@ -9,6 +9,7 @@ export async function layoutFixture(page,mode='Figure') {
 export async function seedLayout(page,items=[{x:50,y:100,width:60,height:60},{x:140,y:110,width:60,height:40},{x:230,y:90,width:60,height:80}]) {
   await page.evaluate(async items=>{
     window.__flux.layout.closeAlignArrange(true);
+    window.__flux.layout.setArrangementAnchor(.5,.5);
     const F=window.__flux,s=F.fig;
     s.commit(p=>{const f=p.figures.find(f=>f.id===F.get(s.activeFigureId))??p.figures[0];f.x=0;f.y=0;f.width=1000;f.height=700;f.elements=items.map((e,i)=>({id:`layout-${i}`,name:`Rectangle ${i+1}`,type:'rect',rotation:0,fill:'#4b8fc8',stroke:'none',strokeWidth:0,cornerRadius:0,...e}));s.activeFigureId.set(f.id);});
     const f=F.get(s.project).figures.find(f=>f.id===F.get(s.activeFigureId));s.selection.set(new Set(f.elements.map(e=>e.id)));s.viewport.set({panX:40,panY:50,zoom:1});s.resetHistory();s.dirty.set(false);document.activeElement?.blur();

@@ -14,7 +14,8 @@ import type { Element, Figure } from '../types';
 import type { FluxPlotManifest } from '../plot/types';
 
 type Axis = 'x' | 'y';
-type Anchor = { x: 0 | .5 | 1; y: 0 | .5 | 1 };
+export type ArrangementAnchor = { x: 0 | .5 | 1; y: 0 | .5 | 1 };
+type Anchor = ArrangementAnchor;
 type Mode = 'align' | 'arrange';
 export interface AlignArrangeState {
   id: number; mode: Mode; figureId: string; count: number; excludedCount: number; blockedReason?: string;
@@ -28,6 +29,10 @@ export interface AlignArrangeState {
   plot?: { loading: boolean; reasonX?: string; reasonY?: string; referenceId: string;
     units: { id: string; label: string; choiceX: string; choiceY: string; explicitChoice: boolean; optionsX: {value:string;label:string}[]; optionsY: {value:string;label:string}[] }[] };
 }
+// Session preference, independent of document/history and tool ownership.
+// All writes go through setArrangementAnchor so an active preview is rebased.
+const savedArrangementAnchor = writable<Anchor>({x:.5,y:.5});
+export const arrangementAnchor = {subscribe:savedArrangementAnchor.subscribe};
 export const alignArrange = writable<AlignArrangeState | null>(null);
 export const arrangementPreview = writable<{figureId:string; plan:ArrangementPlan; transforms:Map<string,string>} | null>(null);
 export const arrangementLayout = writable<ArrangementPlan | null>(null);
@@ -57,7 +62,6 @@ let changed = false;
 let fieldValid = true;
 type FieldInteraction = 'typing'|'wheel'|'scrub';
 let inner: {snapshot:LayoutSnapshot; state:AlignArrangeState; axis:Axis; plan:ArrangementPlan|null; kind:'field'|'drag'; interaction:FieldInteraction|null; rebased:boolean} | null = null;
-const heldAnchors = new Set<string>();
 let choices: Record<Axis, Record<string, SpineChoice>> = {x:{},y:{}};
 let unsubscribers: (() => void)[] = [];
 const acceptedPlotSources = new Map<string,{root:SVGSVGElement|undefined;manifest:FluxPlotManifest|undefined}>();
@@ -73,7 +77,6 @@ function publish(state: AlignArrangeState) {
   arrange.set(state.mode==='arrange' && !state.blockedReason && state.count>=2 ? {active:true,n:state.count,rows:state.rows,cols:state.cols}:null);
 }
 function clearOwner() {
-  heldAnchors.clear();
   arrangementPreview.set(null); arrangementLayout.set(null); alignmentGuides.set([]); inner=null; snapshot=null; captured=null; changed=false;
   for (const unsub of unsubscribers.splice(0)) unsub();
   alignArrange.set(null); arrange.set(null); acceptedPlotSources.clear();
@@ -142,7 +145,7 @@ export function openAlignArrange(mode:Mode='align', panelVisible=true) {
   const blockedReason=across?'Select objects within one figure':drilled?'Select whole objects to align':!count?'Select objects to align':undefined;
   const state:AlignArrangeState={id:++serial,panelVisible,mode:'align',figureId:f?.id ?? '',count,excludedCount:[...sel].filter(id=>!editable.has(id)).length,blockedReason,
     alignTarget:count===1?'figure':'selection',referenceId:ordered[0]??'',units:ordered.map(key=>{const u=unitMap.get(key)!;return {id:key,label:label(f!,u.memberIds,key,elements)};}),
-    topology:snapshot?.topology??'row',rows:snapshot?.rowCount??0,cols:snapshot?.cols??0,status:'',gapX:snapshot?.gapX??0,gapY:snapshot?.gapY??0,anchor:{x:.5,y:.5},linkedGaps:false,dragging:false,bounds:snapshot?.bounds??null,hover:null};
+    topology:snapshot?.topology??'row',rows:snapshot?.rowCount??0,cols:snapshot?.cols??0,status:'',gapX:snapshot?.gapX??0,gapY:snapshot?.gapY??0,anchor:{...get(arrangementAnchor)},linkedGaps:false,dragging:false,bounds:snapshot?.bounds??null,hover:null};
   choices={x:{},y:{}}; changed=false; activeTool.set('select'); publish(state); watchOwner(); refreshPlotChoices();
   if(mode==='arrange') switchAlignArrange('arrange');
 }
@@ -168,8 +171,8 @@ export function switchAlignArrange(mode:Mode) {
   // foreign model changes close the owner. Re-capturing it here duplicates the
   // entire selection walk on the direct Alt+T path.
   if(!snapshot)return;
-  s={...s,mode,anchor:{x:.5,y:.5},linkedGaps:false};
-  pin={x:snapshot.bounds.x+snapshot.bounds.w/2,y:snapshot.bounds.y+snapshot.bounds.h/2};
+  s={...s,mode,anchor:{...get(arrangementAnchor)},linkedGaps:false};
+  pin={x:snapshot.bounds.x+s.anchor.x*snapshot.bounds.w,y:snapshot.bounds.y+s.anchor.y*snapshot.bounds.h};
   publish(s); const plan=planArrangement(snapshot,{mode:'tidy',anchor:s.anchor,pin}); applyPlan(plan); showPlan(plan);
 }
 function showPlan(plan:ArrangementPlan) {
@@ -207,21 +210,26 @@ export function stepArrangementRows(dir:1|-1) {
   const s=get(alignArrange);if(!s)return;
   const rows=validRowCounts(s.count), i=Math.max(0,rows.indexOf(s.rows));reflowRows(rows[Math.max(0,Math.min(rows.length-1,i+dir))]);
 }
+/** Changing the session pin is UI state only. During an inner edit, pin the
+ * current preview bounds so the next gap sample starts without a jump. */
 export function setArrangementAnchor(x:Anchor['x'],y:Anchor['y']) {
-  if(inner)acceptArrangementField();
-  const s=get(alignArrange);if(!s?.bounds)return;
-  pin={x:s.bounds.x+x*s.bounds.w,y:s.bounds.y+y*s.bounds.h};publish({...s,anchor:{x,y}});
+  if(![0,.5,1].includes(x)||![0,.5,1].includes(y))return;
+  const anchor={x,y},saved=get(arrangementAnchor);
+  if(saved.x!==x||saved.y!==y)savedArrangementAnchor.set(anchor);
+  const s=get(alignArrange);if(!s || (s.anchor.x===x&&s.anchor.y===y))return;
+  if(s.bounds)pin={x:s.bounds.x+x*s.bounds.w,y:s.bounds.y+y*s.bounds.h};
+  if(inner)inner.rebased=true;
+  publish({...s,anchor});
 }
 export function setArrangementLinked(linkedGaps:boolean) {if(inner)acceptArrangementField();const s=get(alignArrange);if(s)publish({...s,linkedGaps});}
 export function beginArrangementField(axis:Axis, interaction:FieldInteraction='typing') {
   if(inner)acceptArrangementField();
   const s=get(alignArrange);if(!s||!snapshot||s.mode!=='arrange')return;
-  heldAnchors.clear();fieldValid=true;inner={snapshot,state:s,axis,plan:null,kind:'field',interaction,rebased:false};
+  fieldValid=true;inner={snapshot,state:s,axis,plan:null,kind:'field',interaction,rebased:false};
 }
 export function setArrangementFieldInteraction(axis:Axis, interaction:FieldInteraction|null) {
   if(inner?.kind!=='field'||inner.axis!==axis)return;
   inner.interaction=interaction;
-  if(!interaction||interaction==='typing')clearArrangementAnchorKeys();
 }
 export function ownsArrangementField(axis:Axis):boolean {return inner?.kind==='field' && inner.axis===axis;}
 export function setArrangementFieldValidity(valid:boolean){fieldValid=valid;}
@@ -230,7 +238,7 @@ export function setArrangementGap(axis:Axis,value:number|undefined) {
   if(value===undefined||!Number.isFinite(value)){fieldValid=false;return;}
   fieldValid=true;
   // A focused, unchanged field preserves exact regular-within-epsilon
-  // coordinates. Once a held anchor rebases the pin, that same numeric gap
+  // coordinates. Once an anchor change rebases the pin, that same numeric gap
   // can legitimately describe a translated arrangement and must be planned.
   if(inner && !inner.rebased && value===(axis==='x'?inner.state.gapX:inner.state.gapY) && !s.linkedGaps) {
     inner.plan=null;arrangementPreview.set(null);publish({...inner.state,dragging:s.dragging});
@@ -247,41 +255,31 @@ export function setArrangementGap(axis:Axis,value:number|undefined) {
 export function acceptArrangementField() {
   if(!inner)return;
   if(!fieldValid){cancelArrangementField();return;}
-  clearArrangementAnchorKeys();
   const plan=inner.plan;inner=null;arrangementPreview.set(null);
   if(plan){applyPlan(plan);showPlan(plan);}
   const s=get(alignArrange);if(s?.dragging)publish({...s,dragging:false});
 }
 export function cancelArrangementField() {
   if(!inner)return;
-  const old=inner;heldAnchors.clear();inner=null;fieldValid=true;
-  pin={x:old.snapshot.bounds.x+old.state.anchor.x*old.snapshot.bounds.w,y:old.snapshot.bounds.y+old.state.anchor.y*old.snapshot.bounds.h};arrangementPreview.set(null);snapshot=old.snapshot;publish({...old.state,dragging:false});arrangementLayout.set(planArrangement(snapshot,{mode:'tidy',anchor:old.state.anchor,pin}));
+  const old=inner,anchor={...get(arrangementAnchor)};inner=null;fieldValid=true;
+  pin={x:old.snapshot.bounds.x+anchor.x*old.snapshot.bounds.w,y:old.snapshot.bounds.y+anchor.y*old.snapshot.bounds.h};
+  arrangementPreview.set(null);snapshot=old.snapshot;publish({...old.state,anchor,dragging:false});
+  arrangementLayout.set(planArrangement(snapshot,{mode:'tidy',anchor,pin}));
 }
 export function beginArrangementDrag(axis:Axis) {
   if(!get(alignArrange)) {if(!get(passiveArrangement))return;openAlignArrange('arrange',false);}
   beginArrangementField(axis);if(inner)inner.kind='drag';const s=get(alignArrange);if(s)publish({...s,dragging:true});}
-/** Temporary anchors change the pin at the CURRENT preview bounds. The next
- * sample therefore keeps its value and starts moving from the same geometry. */
-function updateHeldAnchor() {
-  const s=get(alignArrange);if(!inner||!s?.bounds)return;
-  const anchor={...inner.state.anchor};
-  for(const code of heldAnchors) {
-    if(code==='KeyA')anchor.x=0;else if(code==='KeyD')anchor.x=1;
-    else if(code==='KeyW')anchor.y=0;else if(code==='KeyS')anchor.y=1;
-  }
-  if(anchor.x===s.anchor.x&&anchor.y===s.anchor.y)return;
-  inner.rebased=true;
-  pin={x:s.bounds.x+anchor.x*s.bounds.w,y:s.bounds.y+anchor.y*s.bounds.h};
-  publish({...s,anchor});
-}
-export function clearArrangementAnchorKeys() {if(!heldAnchors.size)return;heldAnchors.clear();updateHeldAnchor();}
-export function handleArrangementAnchorKey(e:KeyboardEvent,down:boolean):boolean {
-  if(!['KeyW','KeyA','KeyS','KeyD'].includes(e.code))return false;
-  if(!down) {if(!heldAnchors.delete(e.code))return false;updateHeldAnchor();return true;}
+/** Optional axis shortcut while editing a gap or hovering its passive guide.
+ * Native text entry always wins; the choice survives release and tool close. */
+export function handleArrangementAnchorKey(e:KeyboardEvent,axis?:Axis):boolean {
+  if(e.type!=='keydown'||!['1','2','3'].includes(e.key)||e.isComposing||e.ctrlKey||e.metaKey||e.altKey||e.shiftKey)return false;
   const target=e.target instanceof HTMLElement?e.target:null;
-  if(!inner || (inner.kind!=='drag'&&inner.interaction!=='wheel'&&inner.interaction!=='scrub') || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || target?.matches('input,textarea,select') || target?.isContentEditable)return false;
+  if(target?.matches('input,textarea,select')||target?.isContentEditable)return false;
+  const editedAxis=inner?.axis??axis;
+  if(!editedAxis || (!inner&&!get(passiveArrangement)&&get(alignArrange)?.mode!=='arrange'))return false;
   e.preventDefault();e.stopPropagation();
-  if(!heldAnchors.has(e.code)){heldAnchors.add(e.code);updateHeldAnchor();}
+  const anchor=get(arrangementAnchor),value=([0,.5,1] as const)[Number(e.key)-1];
+  setArrangementAnchor(editedAxis==='x'?value:anchor.x,editedAxis==='y'?value:anchor.y);
   return true;
 }
 export function endArrangementDrag(accept:boolean) {
@@ -366,7 +364,7 @@ export function alignPlotSpines(axis:Axis) {
 /** Called after shell, typing, node-edit, rail and modal ownership checks. */
 export function handleAlignArrangeKey(e:KeyboardEvent):boolean {
   const s=get(alignArrange);if(!s)return false;
-  if(handleArrangementAnchorKey(e,true))return true;
+  if(handleArrangementAnchorKey(e))return true;
   const target=e.target instanceof HTMLElement?e.target:null;
   if(e.isComposing||target?.matches('input,textarea,select')||target?.isContentEditable)return false;
   // These keys belong to the focused native control. Claim editor routing

@@ -1717,9 +1717,13 @@ Persistence invariants (all machine-checked — do not weaken):
     physical positions. Anchor the actual union of occupied boxes, never a nominal summed
     track extent, which may be smaller or negative. Passive selection guides recognize only
     exact regular rows/columns/grids (including confident aligned overlaps), with no tidy or
-    model mutation; dragging a passive guide owns its own hidden visit. Held W/A/S/D during
-    guide drag or numeric wheel/scrub temporarily pins an edge/corner at the current preview,
-    then restores the chosen anchor without a geometry jump. Arrange owns one editSession
+    model mutation; dragging a passive guide owns its own hidden visit. The shared
+    `ArrangementAnchorPicker` supplies row/column segments or a nine-point grid in the panel
+    and selection-pin popup. Anchor preference is session UI state independent of document
+    and tool ownership: opening/using a passive chooser must not create a visit, Undo or model
+    mutation. Choices persist across visits; 1/2/3 selects start/center/end on the edited or
+    hovered axis while input typing keeps priority. Mid-edit changes rebase the fixed point to
+    current preview bounds without a jump. Arrange owns one editSession
     per visit; NumberField's opt-in externalOwner and canvas gap drags own inner baselines,
     preview through Canvas's existing sceneTransforms, and publish positions only on accept.
     Gap overlays must explicitly depend on viewport/figure projection in legacy Svelte:
@@ -10582,3 +10586,9 @@ classes in an always-mounted rail must be specific (`.rail-tabs`).
 **Work:** Traced 5,000-selected-object entry to synchronous Svelte teardown and SVG layout, retained a normal-region/sticky culling policy, and removed duplicate snapshot/no-op allocations. Added direct Alt+T coverage without changing the 100 ms budget; the final isolated software-rendered native run passed 67/68 checks, including all functional/export checks, but direct entry remained 113.1 ms (A 62.0, Space 77.7, reflow 81.2, gap p95 97.0 ms). This is a documented stress limitation, not a passing responsiveness qualification; evidence is retained in `test-results/align-arrange-native-normal-mount-experiment` and the implementation report.
 **Learnings:**
 - An unconditional selected-node mount set cannot be reused as normal viewport hysteresis: it retains every offscreen selected object and shifts the cost into the next layout commit. The current policy and immutable identity-plan rules are promoted into the body.
+
+
+### 2026-10-22 19:40 CDT — Persistent arrangement anchor chooser (Codex, `feat/align-arrange`)
+**Work:** Replaced held-key anchor instructions with the shared persistent chooser in the panel and selection-pin popup, plus optional 1/2/3 axis shortcuts. Updated Figure/Slide/shortcut and stock agent docs, regenerated FluxContext, and passed the registered context-scheme gate (`2026-10-23T00-40-53-375Z-2`); prior native stress-limit evidence remains unchanged.
+**Learnings:**
+- A passive anchor choice is UI preference only: it must not create tool ownership, document edits or Undo history. The preference and input-priority contract are promoted into the body.

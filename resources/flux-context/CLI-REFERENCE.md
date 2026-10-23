@@ -98,8 +98,10 @@ Figure/Slide's **A** tool opens the combined Align & Arrange panel with Align ac
 **Space** switches the active keyboard pane while both stay visible, and **Alt+T**
 activates Arrange directly. Arrow is **Shift+L** (Line stays L). Evenly spaced
 selections show draggable pink guides without opening the panel. Gap edits use a
-chosen fixed point; hold **W/A/S/D** during a spacing drag or numeric scroll/scrub
-for temporary top/left/bottom/right anchors. Each Arrange visit or direct-guide
+chosen fixed point; click the selection pin or use **Keep fixed** in the panel.
+The anchor choice persists across selections/tool visits in the current app session.
+**1/2/3** chooses start/center/end on the edited or hovered gap axis, except while
+typing in an input. Each Arrange visit or direct-guide
 drag is one Undo; individual Align actions are separate Undo steps.
 
 For reproducible file layout, `arrange <figId> --ids a,b,c --mode tidy --gap-x 16

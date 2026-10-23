@@ -1,14 +1,20 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
+  import ArrangementAnchorPicker from './ArrangementAnchorPicker.svelte';
   import { yieldsToShellModal, isAnnotateChord } from '../shell/agent/annotationVisibility';
   import { resizeCursorVar } from './interact/handles';
-  import { alignArrange, arrangementLayout, passiveArrangement, alignmentGuides, beginArrangementDrag, setArrangementGap, endArrangementDrag, handleArrangementAnchorKey, clearArrangementAnchorKeys } from './interact/alignArrange';
+  import { alignArrange, arrangementLayout, passiveArrangement, alignmentGuides, beginArrangementDrag, setArrangementGap, endArrangementDrag, handleArrangementAnchorKey, arrangementAnchor, setArrangementAnchor } from './interact/alignArrange';
   import type { Viewport } from './types';
   export let viewport: Viewport;
   export let figureX=0;
   export let figureY=0;
   export let width=0;
   export let height=0;
+  let anchorOpen=false;
+  let popupOrigin={x:0,y:0};
+  let anchorPopup: HTMLDivElement;
+  let anchorToggle: SVGCircleElement;
+  const anchorWatch={layout:null as typeof layout};
   let hover: {axis:'x'|'y';index:number}|null=null;
   let drag: {ownerId:number;axis:'x'|'y';pointer:number;node:SVGElement;start:number;value:number;zoom:number;factor:number;clientX:number;clientY:number;originX:number;originY:number}|null=null;
   // Explicit projection dependencies: helper closure reads are invisible to
@@ -23,7 +29,27 @@
     .filter(g=>Math.max(g.x1,g.x2)>=0&&Math.min(g.x1,g.x2)<=width&&Math.max(g.y1,g.y2)>=0&&Math.min(g.y1,g.y2)<=height)
     .map(g=>({...g,x1:Math.max(0,Math.min(width,g.x1)),x2:Math.max(0,Math.min(width,g.x2)),y1:Math.max(0,Math.min(height,g.y1)),y2:Math.max(0,Math.min(height,g.y2))}));
   $: bounds=$alignArrange?.bounds??layout?.bounds;
-  $: anchor=$alignArrange?.anchor??{x:.5,y:.5};
+  $: anchor=$alignArrange?.anchor??$arrangementAnchor;
+  $: topology=layout?.topology??'row';
+  $: pinX=bounds?sx(bounds.x+bounds.w*anchor.x,projection):0;
+  $: pinY=bounds?sy(bounds.y+bounds.h*anchor.y,projection):0;
+  $: popupHeight=topology==='grid'?114:72;
+  $: popupX=Math.max(4,Math.min(width-182,popupOrigin.x+12));
+  $: popupY=Math.max(4,Math.min(height-popupHeight-4,popupOrigin.y+12));
+  $: {if(anchorWatch.layout!==layout)anchorOpen=false;anchorWatch.layout=layout;}
+  $: if(!showing || drag)anchorOpen=false;
+  async function toggleAnchor(e:Event) {
+    e.preventDefault();e.stopPropagation();popupOrigin={x:pinX,y:pinY};anchorOpen=!anchorOpen;
+    if(anchorOpen){await tick();anchorPopup?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus({preventScroll:true});}
+  }
+  function outsideAnchor(e:PointerEvent) {if(!(e.target instanceof Element)||!e.target.closest('.arrangement-anchor-control'))anchorOpen=false;}
+  function anchorKeys(e:KeyboardEvent) {
+    if(yieldsToShellModal(e)||isAnnotateChord(e))return;
+    if(anchorOpen && e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();anchorOpen=false;anchorToggle?.focus({preventScroll:true});return;}
+    if(!showing || !(e.target instanceof Element) || !e.target.closest('.canvas-host,.align-arrange-panel'))return;
+    const axis=drag?.axis??hover?.axis??(topology==='row'?'x':topology==='column'?'y':undefined);
+    if(handleArrangementAnchorKey(e,axis))e.stopImmediatePropagation();
+  }
   $: gapX=$alignArrange?.gapX??layout?.gapX??0;
   $: gapY=$alignArrange?.gapY??layout?.gapY??0;
   const factor=(e:Pick<PointerEvent,'shiftKey'|'altKey'>)=>e.shiftKey?10:e.altKey?.1:1;
@@ -38,9 +64,7 @@
     }).filter(v=>v.d<=6).sort((a,b)=>a.d-b.d||a.g.axis.localeCompare(b.g.axis)||a.g.index-b.g.index)[0]?.g;
   }
   function modifiers(e:KeyboardEvent) {
-    if (e.type==='keyup')handleArrangementAnchorKey(e,false);
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-    if(e.type==='keydown'&&handleArrangementAnchorKey(e,true))return;
     if(!drag||!$alignArrange?.dragging||(e.key!=='Shift'&&e.key!=='Alt'))return;
     const f=factor(e);if(f===drag.factor)return;
     drag={...drag,start:drag.axis==='x'?drag.clientX:drag.clientY,
@@ -48,7 +72,7 @@
   }
   function down(e:PointerEvent,axis:'x'|'y') {
     if(e.button!==0||!showing||drag)return;
-    e.preventDefault();e.stopPropagation();
+    e.preventDefault();e.stopPropagation();anchorOpen=false;
     // preventDefault preserves the previous native focus. End any numeric
     // draft and give the gesture keyboard ownership, so Space cannot activate
     // a previously focused anchor/button or type into the gap field mid-drag.
@@ -86,7 +110,7 @@
   onDestroy(()=>release(false));
 </script>
 
-<svelte:window on:blur={()=>{clearArrangementAnchorKeys();release(false);}} on:keydown={modifiers} on:keyup={modifiers} />
+<svelte:window on:blur={()=>{anchorOpen=false;release(false);}} on:pointerdown|capture={outsideAnchor} on:keydown|capture={anchorKeys} on:keydown={modifiers} on:keyup={modifiers} />
 {#if $alignArrange}
   <g class="align-guides" aria-hidden="true">
     {#if $alignArrange.referenceBounds}
@@ -97,7 +121,7 @@
   </g>
 {/if}
 {#if showing}
-  <g class="gap-guides" role="presentation" aria-hidden="true" on:pointermove={move} on:pointerup={up} on:pointercancel={cancel} on:lostpointercapture={cancel}>
+  <g class="gap-guides" role="presentation" on:pointermove={move} on:pointerup={up} on:pointercancel={cancel} on:lostpointercapture={cancel}>
     {#each guides as g (`${g.axis}-${g.index}`)}
       <g class:lit={(hover?.axis===g.axis&&hover.index===g.index)||$alignArrange?.hover===`gap-${g.axis}`}>
         <line class="gap-visible" x1={g.x1} y1={g.y1} x2={g.x2} y2={g.y2} />
@@ -108,7 +132,20 @@
       </g>
     {/each}
     {#if bounds}
-      <circle class="pin" cx={sx(bounds.x+bounds.w*anchor.x,projection)} cy={sy(bounds.y+bounds.h*anchor.y,projection)} r="4" />
+      <g class="arrangement-anchor-control">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <circle class="pin" cx={pinX} cy={pinY} r="4" aria-hidden="true"/>
+        <circle bind:this={anchorToggle} class="pin-hit" data-arrangement-anchor-toggle role="button" tabindex="0" aria-label="Choose fixed point" aria-haspopup="dialog" aria-expanded={anchorOpen} cx={pinX} cy={pinY} r="10" on:pointerdown|stopPropagation|preventDefault on:click={toggleAnchor} on:keydown={e=>{if(e.key==='Enter'||e.key===' ')toggleAnchor(e);}}><title>Keep fixed · click to choose</title></circle>
+        {#if anchorOpen}
+          <foreignObject x={popupX} y={popupY} width="178" height={popupHeight}>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div bind:this={anchorPopup} class="anchor-popover" role="dialog" tabindex="-1" aria-label="Keep fixed" on:pointerdown|stopPropagation on:click|stopPropagation on:keydown={e=>{if(!e.ctrlKey&&!e.metaKey)e.stopPropagation();}}>
+              <span class="anchor-title">Keep fixed</span>
+              <ArrangementAnchorPicker {topology} {anchor} onchange={setArrangementAnchor}/>
+            </div>
+          </foreignObject>
+        {/if}
+      </g>
     {/if}
     {#if drag || hover && guides.find(g=>g.axis===hover?.axis&&g.index===hover.index)}
       {@const axis=drag?.axis??hover!.axis}
@@ -134,6 +171,11 @@
   .lit .gap-visible{opacity:1;stroke-width:2}
   .gap-hit{stroke:transparent;stroke-width:12;pointer-events:stroke;touch-action:none}
   .pin{fill:var(--c-surface,#252523);stroke:var(--c-layout-gap,#ef83bd);stroke-width:2}
+  .pin-hit{pointer-events:all;cursor:var(--cursor-cross-hover);fill:transparent;stroke:none}
+  .pin-hit:focus-visible{outline:none;stroke:var(--c-layout-gap);stroke-width:1.5}
+  .arrangement-anchor-control foreignObject{overflow:visible}
+  .anchor-popover{pointer-events:auto;box-sizing:border-box;padding:8px;background:var(--c-surface);border:1px solid var(--c-line-strong);border-radius:4px;color:var(--c-tx);box-shadow:var(--elev-2);font:11px var(--font-ui)}
+  .anchor-title{display:block;margin-bottom:6px;font:600 11px var(--font-serif)}
   .gap-badge rect{fill:var(--flx-paper)}
   .gap-value{fill:var(--flx-magenta-600);font:600 12px var(--font-mono,monospace);stroke:none}
 </style>

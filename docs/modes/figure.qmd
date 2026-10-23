@@ -716,10 +716,11 @@ the spacing field. Negative gaps overlap objects, which is useful for stacked tr
 waveforms. Values have no zero floor; very negative spacing can move successive tracks past
 one another while retaining their members, sizes and stacking order. Right/down increases spacing; left/up decreases it. **Shift** adjusts faster and
 **Alt** more finely. **Keep fixed** chooses which edge or center stays in place; a grid offers
-nine anchor points. Center is the default. While dragging a guide or scrolling/scrubbing a
-spacing value, hold **W/A/S/D** to keep the top/left/bottom/right edge fixed temporarily.
-Combine perpendicular keys for a corner; releasing the keys restores your chosen anchor
-without moving the objects. Choosing a different anchor moves nothing until you change
+nine anchor points. Click the small pin on the selection to open the same chooser without
+opening the panel. Center is the initial default; your choice stays selected across selections
+and tool visits in the current app session. **1/2/3** chooses start/center/end on the gap axis
+you are editing or hovering; numeric fields retain normal typing. Choosing a different anchor
+moves nothing until you change
 the spacing, and the fixed point always uses the actual selection bounds, including overlap. Grid gaps measure the space between column/row tracks, so smaller
 objects can have more visible clearance within their cells.
 

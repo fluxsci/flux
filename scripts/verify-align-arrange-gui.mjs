@@ -38,7 +38,7 @@ try{
  // Compact panes stay present; inactive controls activate and act in one click.
  await seedLayout(page);await page.keyboard.press('KeyA');await waitForFrame(page);
  assert.equal(await page.$$eval('.tool-pane',nodes=>nodes.length),2,'both tools remain visible');
- await page.hover('.arrange-pane .anchor-copy');await page.mouse.wheel({deltaY:40});await waitForFrame(page);
+ await page.hover('.arrange-pane .anchor-section h3');await page.mouse.wheel({deltaY:40});await waitForFrame(page);
  assert.equal((await readLayout(page)).state.mode,'align','scrolling passive pane space never activates Arrange');assert.deepEqual((await readLayout(page)).elements,initial.elements);
  await page.click('.topologies button[title^="Reflow as column"]');await waitForFrame(page);
  state=await readLayout(page);assert.equal(state.state.mode,'arrange');assert.equal(state.state.topology,'column','one inactive-pane click performs column reflow');
