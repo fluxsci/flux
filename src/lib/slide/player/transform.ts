@@ -519,7 +519,11 @@ export function createTransform(
     // The text morph draws measured endpoints instead: its box simply lerps
     // (re-hugging a stepped text per frame made the box jump at t = 0.5).
     if (content.type === "text" && content.needsLayout && !textLayers && !glyphLayers) applyTextLayout(content);
-    if (raw > 0 && raw < 1 && !boxOpts.skipTransform) {
+    // A text tween re-lays its own glyphs out per frame (the compiled updater rewrites the viewBox), so its wrapper is placed by the same
+    // law as its rest, a whole-pixel layout box plus a residual (about 1:1) transform, not by a frozen box scaled up 1.4x: that scale
+    // rasterised the text softly in flight against the hinted rest text and snapped when the flight landed.
+    const relayoutsText = staticUpdate && pre.type === "text";
+    if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
       if (glide) promoteMovingWrapper(wrap);
     } else {
