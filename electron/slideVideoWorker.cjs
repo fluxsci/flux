@@ -6,6 +6,17 @@ const path = require("node:path");
 const { slideAudioGraph } = require("./slideAudioGraph.cjs");
 const { spawn } = require("node:child_process");
 
+// T7 C2: the captured PNGs are full-range sRGB. swscale's default RGB->YUV matrix is BT.601 and nothing is tagged,
+// while browsers, QuickTime and VLC decode untagged HD as BT.709: Flexoki accents came out up to 15/255 off. Convert with
+// the BT.709 matrix, limited range, and say so (matrix + primaries BT.709, transfer sRGB).
+const VIDEO_COLOR_FILTER = "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd+full_chroma_int,format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=iec61966-2-1:range=tv";
+const VIDEO_COLOR_TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "iec61966-2-1", "-color_range", "tv"];
+// The capture renderer's Chromium switches, one list shared with the raster gate's harness (scripts/lib/slideRasterElectronEntry.cjs).
+// `disable-lcd-text` is INSURANCE only (T7 C2): grayscale text AA in every capture. Today the permanent camera layer and a >1 host
+// scale already make it grayscale; an unpromoted stage at host scale exactly 1 (stage height == video height) would paint LCD text.
+// It is not a fix for anything measured.
+const VIDEO_CAPTURE_SWITCHES = [["enable-unsafe-swiftshader"], ["force-color-profile", "srgb"], ["disable-lcd-text"], ["disable-renderer-backgrounding"]];
+
 async function deadline(promise, label, ms = 30000) {
   let timer;
   try { return await Promise.race([promise, new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms); })]); }
@@ -44,7 +55,7 @@ async function renderVideo(job, { BrowserWindow, session }, signal, progress = (
     if (info.width !== job.width || info.height !== job.height || !Number.isInteger(info.frames) || info.frames < 1 || info.frames > 108000) throw new Error("Invalid capture plan");
     encoder = spawn(job.encoder, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y",
       "-f", "image2pipe", "-vcodec", "png", "-framerate", String(info.fps), "-i", "pipe:0",
-      "-an", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", "2",
+      "-an", "-vf", VIDEO_COLOR_FILTER, "-c:v", "libx264", "-preset", "fast", "-crf", "18", ...VIDEO_COLOR_TAGS, "-threads", "2",
       "-movflags", "+faststart", "-f", "mp4", job.output], { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
     closed = new Promise((resolve, reject) => {
       encoder.once("error", reject);
@@ -95,7 +106,7 @@ async function renderVideo(job, { BrowserWindow, session }, signal, progress = (
     await fs.rm(audioOutput, { force: true }).catch(() => {});
   }
 }
-module.exports = { renderVideo };
+module.exports = { renderVideo, VIDEO_COLOR_FILTER, VIDEO_COLOR_TAGS, VIDEO_CAPTURE_SWITCHES };
 
 // Electron's ESM bootstrap does not make a CJS entry require.main in Electron 43.
 if (process.env.FLUX_SLIDE_VIDEO_WORKER === "1") {
@@ -118,9 +129,7 @@ if (process.env.FLUX_SLIDE_VIDEO_WORKER === "1") {
   (async () => {
     const job = JSON.parse(require("node:fs").readFileSync(process.env.FLUX_VIDEO_JOB, "utf8"));
     app.setPath("userData", path.join(path.dirname(job.html), "profile"));
-    app.commandLine.appendSwitch("enable-unsafe-swiftshader");
-    app.commandLine.appendSwitch("force-color-profile", "srgb");
-    app.commandLine.appendSwitch("disable-renderer-backgrounding");
+    for (const [name, value] of VIDEO_CAPTURE_SWITCHES) app.commandLine.appendSwitch(name, value);
     await Promise.race([app.whenReady(), new Promise((_resolve, reject) => setTimeout(() => reject(new Error("Video renderer did not start")), 20000))]);
     app.dock?.hide();
     const watchdog = setTimeout(() => controller.abort(), 60 * 60 * 1000);

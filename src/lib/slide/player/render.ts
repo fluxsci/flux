@@ -840,6 +840,7 @@ const hotWrappers = new Map<HTMLElement, number>();
 const animatingMarks = new WeakMap<HTMLElement, Animation>();
 let coolTimer: ReturnType<typeof setTimeout> | null = null;
 let holdLayers = false;
+let flightsInPlace = false;
 function coolCheck(): void {
   coolTimer = null;
   if (holdLayers) return;
@@ -861,6 +862,7 @@ export function armFlightMark(w: HTMLElement): void {
 }
 /** Mid-flight frame of a pure move: keep the wrapper on its own layer. */
 export function promoteMovingWrapper(w: HTMLElement): void {
+  if (flightsInPlace) { settleWrapper(w); return; }   // T7: capture of a camera-zoom slide: no stale-scale layers
   if (!hotWrappers.has(w)) w.style.willChange = "transform";
   hotWrappers.set(w, performance.now());
   if (!coolTimer && !holdLayers) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
@@ -877,8 +879,8 @@ export function releaseFlightMark(w: HTMLElement): void {
 }
 /** Frame-by-frame capture: keep flight layers alive between frames however
  *  long a frame takes. Endpoints still demote; releasing the hold cools. */
-export function holdFlightLayers(on: boolean): void {
-  holdLayers = on;
+export function holdFlightLayers(on: boolean, inPlace = false): void {
+  holdLayers = on; flightsInPlace = on && inPlace;
   if (!on && hotWrappers.size && !coolTimer) coolTimer = setTimeout(coolCheck, LAYER_COOL_MS);
 }
 /** Whether a flight from `pre` to `end` is a pure move — same box size, no

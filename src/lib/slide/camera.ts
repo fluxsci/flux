@@ -56,3 +56,16 @@ export function sampleCamera(a: CameraPose, b: CameraPose, u: number, stage: Sta
   out.zoom = zoom;
   return out;
 }
+
+/** Pure: does any camera move of this slide change the SCALE (a zoom, or a Fly path)? A pure pan never does.
+ *  Capture uses it to decide, once per video, whether wrapper flights paint in place (T7 C1c). */
+export function slideZoomsCamera(slide: { camera?: { zoom?: number }; beats: readonly { tracks: readonly { target: string; preset?: string; to?: { zoom?: number; path?: string } }[] }[] }): boolean {
+  let zoom = slide.camera?.zoom ?? 1;
+  for (const beat of slide.beats) for (const track of beat.tracks) {
+    if (track.target !== "@camera" && track.target !== "@stage") continue;   // the player resolves both to the camera layer
+    const to = track.to?.zoom ?? zoom;
+    if (Math.abs(to - zoom) > 1e-9 || track.to?.path === "fly") return true;
+    zoom = to;
+  }
+  return false;
+}

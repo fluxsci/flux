@@ -15,6 +15,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
+import { createRasterKeeper, type RasterKeeper } from "./rasterKeeper";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { KNOWN_PRESETS } from "../presetCatalog";
@@ -38,6 +39,9 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   reducedMotion?: boolean;
   /** Documents advance exactly one authored beat per explicit action. */
   manualSteps?: boolean;
+  /** T7: frame-by-frame capture. The camera layer's raster is re-baked after every seek whose pose changed
+   *  (awaited via settleRaster()); live players (default) re-bake once the stage is at rest. */
+  captureMode?: boolean;
 }
 
 export { resolveEasing, resolveEasingFn } from "../easing";
@@ -117,6 +121,9 @@ interface Spec {
   refreshCamera?: (transform?: string) => boolean;
   /** Exact transform for eased progress outside [0,1] (the camera's geometric path). */
   transformAt?: (u: number) => string;
+  /** Capture only (PlayerOpts.captureMode): sample `transformAt` for EVERY eased progress, not just overshoot, so a video frame
+   *  sits exactly on the camera path (T7 D6). The live player keeps the 24-keyframe chords. */
+  exactPath?: boolean;
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
   handoff?: HandoffController;
@@ -353,6 +360,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           prep: na.prep,
           refreshCamera: na.refreshCamera,
           transformAt: na.transformAt,
+          exactPath: !!opts.captureMode,
           trackId: track.id, owner: track,
           preset: track.preset,
         });
@@ -465,7 +473,9 @@ function frameSampler(spec: Spec): (t: number) => Keyframe {
       const progress = channel.discrete ? raw : channel.box ? u : t;
       // Overshoot leaves the keyframed range: a spec that knows its exact path
       // (the camera) samples it instead of extrapolating the last segment.
-      if (channel.box && spec.transformAt && (u < 0 || u > 1)) { frame[channel.property] = spec.transformAt(u); continue; }
+      // T7 D6: in capture a spec that knows its exact path samples it for EVERY u: the 24-keyframe chord polyline is off by
+      // 1.2 px / 2.9 % per-frame zoom rate at 4x, 7.3 px / 4.9 % at 10x, ~70 px at 40x (stage units). Live keeps the chords.
+      if (channel.box && spec.transformAt && (spec.exactPath || u < 0 || u > 1)) { frame[channel.property] = spec.transformAt(u); continue; }
       const segments = channel.segments;
       if (!segments.length) { frame[channel.property] = channel.constant; continue; }
       let i = 0;
@@ -602,7 +612,9 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       }
     }
     if (applied.length) applyAccumulated(node, applied);
-    if (node.namespaceURI !== SVG_NS) {
+    // T7: the camera layer's compositor hint belongs to the raster keeper (player.ts), never to the flight
+    // hygiene below — settleWrapper() used to CLEAR it after the first pure-pan camera flight.
+    if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
       else { settleWrapper(node as HTMLElement); if (glides) armFlightMark(node as HTMLElement); }
     }
@@ -637,6 +649,10 @@ export interface Player {
   captureMedia(events: readonly VideoEvent[], timeMs: number): Promise<void>;
   /** Repaint at the current time after the host's stage fit/DPR changes. */
   refresh(): void;
+  /** Resolves once the camera layer's raster matches its pose (T7); capture awaits it after every seek. */
+  settleRaster(): Promise<void>;
+  /** Number of raster re-bakes so far (probes/gates). */
+  rasterBakes(): number;
   play(range: PlayRange): void;
   pause(): void;
   resume(): void;
@@ -668,6 +684,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   // renders the way it already did mid-flight, and nothing changes at the ends.
   cameraLayer.style.cssText = "position:absolute;inset:0;transform-origin:0 0;will-change:transform;";
   mount.appendChild(cameraLayer);
+  const keeper: RasterKeeper = createRasterKeeper(cameraLayer, mount, { capture: !!opts.captureMode });
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set(), frame: new Set() };
   let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0;
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
@@ -720,6 +737,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
     if (playing) media?.tick(time);
+    if (playing && time < duration) keeper.flying(); else keeper.rest(playing);   // playing && time >= duration = a flight just ended by itself
     emit("frame");
   }
   let runSpecs: Spec[] | null = null;
@@ -859,7 +877,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); unsubscribeFonts(); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { keeper.dispose(); cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); unsubscribeFonts(); for (const set of Object.values(listeners)) set.clear(); }
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
   // A letter font that lands while a scrub is parked mid-flight repaints that
@@ -867,7 +885,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let fontsSeen = -1;
   const unsubscribeFonts = glyphFontsRevision.subscribe((rev) => { if (fontsSeen >= 0 && !playing && si >= 0 && specs.length) paint(); fontsSeen = rev; });
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, refresh: () => paint(), settleRaster: () => keeper.settle(), rasterBakes: () => keeper.count(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */
