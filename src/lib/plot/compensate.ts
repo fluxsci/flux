@@ -25,6 +25,7 @@
 // linkedom-safe: attribute/inline-style access only.
 
 import { insideDefs } from "./derive";
+import { applyToPoint, parseTransform } from "./svgMatrix";
 
 export interface CompensateOpts {
   elW: number; // element box, canvas px
@@ -247,9 +248,16 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts, bindings?: Pt
     if (!bindings && insideDefs(el)) return;
 
     if (tag === "text") {
-      // Anchor = the text's own x/y (matplotlib's rotate() pivots there too).
-      const ax = parseFloat(el.getAttribute("x") ?? "0") || 0;
-      const ay = parseFloat(el.getAttribute("y") ?? "0") || 0;
+      // Anchor = where the text's origin LANDS in its parent's space: its own x/y through
+      // its own transform. C is prepended (applied in the parent's space), so the anchor
+      // must be there too. For `x y rotate(θ x y)` (matplotlib's rotated labels) that is
+      // x/y itself; for `translate(tx ty)` with no x/y (matplotlib's multi-line labels,
+      // "Quiet\nwake") it is (tx, ty) — anchoring at the bare 0,0 slid such labels toward
+      // the plot's corner on every resize.
+      const local = { x: parseFloat(el.getAttribute("x") ?? "0") || 0, y: parseFloat(el.getAttribute("y") ?? "0") || 0 };
+      const at = applyToPoint(local, parseTransform(el.getAttribute("transform")));
+      const ax = Number.isFinite(at.x) ? at.x : local.x;
+      const ay = Number.isFinite(at.y) ? at.y : local.y;
       prependAnchored(el, ax, ay);
       return; // descendants (tspans) ride the transform
     }

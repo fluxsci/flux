@@ -4107,6 +4107,18 @@ outside this PNG packaging change.
   (re-exported by ops); editor-only needs bind late via `editorLink.ts`, linked by the
   `editorCore.ts` side-effect import every editor surface carries. `verify-startup` catches a
   regression only when someone runs the startup tier — CI does not.
+- **Saved projects are full of stale `hidden: false` part keys** — every show toggle before
+  2026-10-23 wrote `false` instead of clearing. applyOverrides applies keys IN ORDER (the later
+  wins), and that order is what old documents were drawn with: a "most specific flag wins" rule
+  redrew them (tick labels floating over an axis hidden later). Never change how override keys
+  combine; mirror the rule (plot/tree `hiddenLeaves`) and route eye toggles through
+  `ops.setPartHidden` (normalises the subtree, moves a key only for an exception).
+- **A part group, series or container has NO DOM node** (`axis.x.tick-labels`, a series id):
+  outline / measure / read text through its leaves (`resolveTargets`), scoped to that plot's
+  `[data-editor-element-id]` wrapper — never a walk of every id on the canvas.
+- **X-ray context rides BESIDE the label.** `XRow.label` / `.rlabel` stay the canonical part label
+  (gates, the `a` sibling rule and commonPartIds compare it); path, preview, swatch and state are
+  their own fields (xray/rowContext.ts), memoised per manifest object.
 - **A surface keyed on the WHOLE `plotGen` map invalidates on every plot anywhere.** Each
   filmstrip thumbnail's signature carried `JSON.stringify($plotGen)`: caching one plot re-rendered
   every thumbnail (twice — a poster `settle()` with nothing requested re-rendered anyway), chained
@@ -10727,3 +10739,24 @@ re-rendered (twice) on any plot cache (whole-`plotGen` signature), per-id queryS
 the player, a css-tree parse per glyph clone's url-free inline style. Fixed all three; dense gate
 10/10 at p95 16.7–16.8 (was 6/10); verify-slide-filmstrip-gui now asserts plot-scoped
 thumbnail invalidation (red on the old code). pure/ui/ui-extra/scale re-run green after.
+
+### 2026-10-23 — X-ray context: rows say what they are (Claude Opus 5.5, `xray/context`)
+**Work:** Owner: "I can't tell if a 'Tick marks' result is for the x or y ticks — or which plot";
+wants rich, immediately visible context like the plots rail, plus "open family in X-ray". Three
+brainstorm agents (information design / workflows / data audit) + a critic + a code review and a
+UX review; plan + decisions in notes/xray_context/PLAN.md. New pure layer xray/rowContext.ts:
+context paths ("X axis", "Panel twin › Y2 axis", "Colorbar"), manifest-first previews (tick
+texts, axis titles, series kind/size/colour, mathtext → Unicode), plot keys (shared file-name
+prefix dimmed, ordinals for copies), override state, word-start AND search over own text + context,
+partFamily. buildXrayTree: context fields, group MEMBERS as rows (capped 60 + more), nested common
+rows. Xray.svelte: path prefixes where hierarchy is lost, previews, ● restyled / ◐ partly hidden /
+ghosted inherited, grouped search under per-plot headers, a fixed detail strip (hovered else
+primary row: path, values/readout, kind, style, state, id), ←/→ family navigation, ⇧A every plot,
+Ctrl+Z inside, row index map. Canvas: group/series picks outline their leaves, the hovered row
+outlines on the drawing. keyboard: Shift+Alt+R opens on the family (and the Become picker's own
+Alt+R), Ctrl+A + Alt+R x-rays the plots. Property menu header names the part's place. Found +
+fixed: a ctrl-clicked tick label opened the X-ray with NOTHING picked (members had no rows); group
+picks drew no canvas outline; undo was dead while the X-ray was open; x/v ignored modifiers.
+**Verification:** verify-xray-context (pure, 78) + verify-xray-context-gui (new); the 13 X-ray GUI
+gates; verify-xray-tree's mirror extended to members; two gates moved from the stored
+`hidden: false` to the cleared flag (shown is now a cleared key) — tier results in the commit log.

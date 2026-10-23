@@ -57,6 +57,7 @@
   import { buildXrayTree, partRowId, commonPartRows, nestCommonRows, targetLabel, widenToSiblings, type XRow, type XrayTarget } from "./xray/buildXrayTree";
   import { queryTokens, matchesQuery, highlightSegments, manifestIndex, rowSearchFields } from "./xray/rowContext";
   import { xrayHover } from "./xray/hoverHook";
+  import { middleEllipsis, createMeasurer } from "./plotsRail/ellipsis";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
@@ -80,6 +81,27 @@
   // search and selection, nested as the first plot nests them for display.
   $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests, $scene3dManifests, Object.fromEntries($project.assets.filter(a => a.model).map(a => [a.id, a.model!])), domOf) : [];
   $: commonTree = nestCommonRows(common, firstPlotManifest($project, root, $plotManifests));
+  // Where each plot SITS — a 16×12 locator per plot row / search header (the owner reads
+  // figures by position: "the bottom-left one"). Every plot of the figure, this one filled.
+  $: several = !!tree && (tree.kind === "set" || tree.kind === "group");
+  $: locator = several && root ? figureLocator($project, root.figId) : null;
+  function figureLocator(p: typeof $project, figId: string): { w: number; h: number; boxes: { id: string; x: number; y: number; w: number; h: number }[] } | null {
+    const f = p.figures.find((ff) => ff.id === figId);
+    if (!f) return null;
+    const boxes = f.elements.filter((e) => e.type === "plot" || e.type === "model3d").map((e) => ({ id: e.id, x: e.x, y: e.y, w: e.width, h: e.height }));
+    if (boxes.length < 2) return null;
+    const x0 = Math.min(0, ...boxes.map((b) => b.x)), y0 = Math.min(0, ...boxes.map((b) => b.y));
+    const x1 = Math.max(f.width, ...boxes.map((b) => b.x + b.w)), y1 = Math.max(f.height, ...boxes.map((b) => b.y + b.h));
+    return { w: x1 - x0, h: y1 - y0, boxes: boxes.map((b) => ({ ...b, x: b.x - x0, y: b.y - y0 })) };
+  }
+  // A name too long for the breadcrumb loses its MIDDLE, not the end that tells plots apart.
+  let crumbMeasure: ((s: string) => number) | null = null;
+  function crumbText(label: string): string {
+    if (label.length <= 22) return label;
+    crumbMeasure ??= createMeasurer(`11px ${getComputedStyle(document.documentElement).getPropertyValue("--font-mono") || "monospace"}`);
+    return middleEllipsis(label, 160, crumbMeasure);
+  }
+
   // id → row + parent, once per tree (a pick never walks the tree per row). The
   // common rows' top level hangs off a synthetic root so `a` widens among them.
   $: rowIndex = indexRows(tree, commonTree);
@@ -354,7 +376,7 @@
     /** "+ N more" controls, by the row they follow */
     more: Map<string, { groupId: string; rest: number }>;
     /** search: a plot (or Common) header, by the row it precedes */
-    heads: Map<string, { label: string; prefix?: string; hint?: string; count: number }>;
+    heads: Map<string, { label: string; prefix?: string; hint?: string; count: number; plotId?: string }>;
     /** rows from the Common section, in tree mode */
     commonShown: number;
     info: { hits: number; plots: number } | null;
@@ -400,7 +422,7 @@
       for (const c of n.children) walk(c, here);
     };
     walk(t, null);
-    for (const { plot, first, count } of perPlot.values()) b.heads.set(first, { label: plot.keyParts?.key ?? plot.label, prefix: plot.keyParts?.prefix, hint: plot.preview, count });
+    for (const { plot, first, count } of perPlot.values()) b.heads.set(first, { label: (plot.keyParts?.key ?? plot.label) + (plot.keyParts?.ordinal ? ` #${plot.keyParts.ordinal}` : ""), prefix: plot.keyParts?.prefix, hint: plot.preview, count, plotId: plot.elementId });
     b.info = { hits: b.rows.length, plots: perPlot.size };
     return b;
   }
@@ -628,8 +650,14 @@
   function toggleExpand(n: XRow) {
     if (!n.children.length) return;
     if (expanded.has(n.id)) expanded.delete(n.id);
-    else expanded.add(n.id);
+    else { expanded.add(n.id); void revealChildren(n); }
     expanded = expanded;
+  }
+  /** Opening a row brings its first few children into view (nearest: no jump if visible). */
+  async function revealChildren(n: XRow) {
+    await tick();
+    const last = n.children[Math.min(n.children.length, 3) - 1];
+    panelEl?.querySelector<HTMLElement>(`.row[data-rid="${CSS.escape(last.id)}"]`)?.scrollIntoView({ block: "nearest" });
   }
 
   // --- eye / 'x': per-row-kind hide dispatch, over the whole pick -------------------------
@@ -757,7 +785,7 @@
   /** → opens a closed row; on an open one it steps to the first child. */
   function toChild() {
     if (!selRow?.children.length) return;
-    if (!expanded.has(selRow.id)) { expanded.add(selRow.id); expanded = expanded; return; }
+    if (!expanded.has(selRow.id)) { expanded.add(selRow.id); expanded = expanded; void revealChildren(selRow); return; }
     pick(selRow.children[0]);
     void revealPrimary();
   }
@@ -857,13 +885,19 @@
       const read = readoutText(partReadout(m, n.partId));
       if (read) values = values ? `${values} · ${read}` : read;
       const st = readPartStyle(el, n.partId, m);
-      const paint = st.fontSize != null ? [`${+st.fontSize.toFixed(1)}px`, st.fontFamily, st.fill] : st.strokeWidth != null && st.fill == null ? [st.stroke, `${+st.strokeWidth.toFixed(2)}px`] : [st.fill && st.fill !== "none" ? `fill ${st.fill}` : "", st.stroke && st.stroke !== "none" ? `stroke ${st.stroke}` : ""];
+      const paint = st.fontSize != null ? [`size ${+st.fontSize.toFixed(1)}`, st.fontFamily, st.fill] : st.strokeWidth != null && st.fill == null ? [st.stroke, `${+st.strokeWidth.toFixed(2)}px`] : [st.fill && st.fill !== "none" ? `fill ${st.fill}` : "", st.stroke && st.stroke !== "none" ? `stroke ${st.stroke}` : ""];
       const shown = paint.filter(Boolean).join(" ");
       if (shown) meta.push(shown);
       swatch ??= st.fontSize != null ? st.fill : st.stroke && st.stroke !== "none" && st.fill == null ? st.stroke : st.fill && st.fill !== "none" ? st.fill : undefined;
     } else if (n.kind === "part" && el?.type === "plot" && n.partId && (n.role === "series" || n.role === "legend-entry")) {
       const read = readoutText(partReadout(ms[el.assetId], n.partId));
       if (read && !values.includes(read)) values = values ? `${values} · ${read}` : read;
+    }
+    // A group with no value of its own: what its owner says (a series' points → the series).
+    if (!values && n.kind === "part" && el?.type === "plot" && n.partId && n.children[0]?.member) {
+      const up = ix.get(n.id)?.parent;
+      const read = up?.partId ? readoutText(partReadout(ms[el.assetId], up.partId)) : "";
+      if (read) values = read.replace(/\n/g, " · ");
     }
     if (n.kind === "element" && el?.type === "plot" && el.source?.svgPath) values = values ? `${values} · ${el.source.svgPath.split(/[\\/]/).pop()}` : el.source.svgPath.split(/[\\/]/).pop() ?? "";
     return { path, title: n.label, values, meta, swatch: swatch && /^#|^rgb|^hsl/i.test(swatch) ? swatch : undefined, id: n.partId ?? n.elementId ?? n.groupId ?? "" };
@@ -1028,7 +1062,7 @@
     }
   }
   // ◉ drawn · ○ hidden · ◐ partly hidden (some plots of a common row, some leaves of a part)
-  const eyeGlyph = (n: XRow) => ((n.kind === "common" && n.hiddenCount && n.hiddenCount < (n.elementIds?.length ?? 0)) || (!n.hidden && n.hiddenParts) ? "◐" : n.hidden ? "○" : "◉");
+  const eyeGlyph = (n: XRow) => ((n.kind === "common" && n.hiddenCount && n.hiddenCount < (n.elementIds?.length ?? 0)) || (!n.hidden && (n.hiddenParts || (n.kind === "element" && n.hiddenBeneath))) ? "◐" : n.hidden ? "○" : "◉");
 </script>
 
 <svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:pointerup={onSweepEnd} on:pointercancel={onSweepEnd} />
@@ -1054,7 +1088,7 @@
           <span class="crumbs">
             {#each crumbs as c, i}
               {#if i > 0}<span class="csep">›</span>{/if}
-              <button class="crumb" class:cur={i === crumbs.length - 1} on:click={() => popTo(i)}>{c}</button>
+              <button class="crumb" class:cur={i === crumbs.length - 1} title={c} on:click={() => popTo(i)}>{crumbText(c)}</button>
             {/each}
             {#if !crumbs.length}<span class="csub">no target</span>{/if}
           </span>
@@ -1067,7 +1101,7 @@
           <button class="xbtn" on:click={close} aria-label="Close X-ray">×</button>
         </div>
         {#if srcLabel}
-          <div class="srcline">{srcLabel}</div>
+          <div class="srcline" title={srcLabel}><bdi>{srcLabel}</bdi></div>
         {/if}
 
         {#if !tree}
@@ -1101,7 +1135,7 @@
               {/if}
               {#if q && built.heads.has(r.node.id)}
                 {@const h = built.heads.get(r.node.id)}
-                <div class="shead">{#if h?.prefix}<span class="hpre">{h.prefix}</span>{/if}<span class="hkey">{h?.label}</span>{#if h?.hint}<span class="hhint">{h.hint}</span>{/if}<span class="hcount">{h?.count}</span></div>
+                <div class="shead">{#if locator && h?.plotId}<svg class="loc" viewBox={`0 0 ${locator.w} ${locator.h}`} aria-hidden="true">{#each locator.boxes as b (b.id)}<rect x={b.x} y={b.y} width={b.w} height={b.h} class:me={b.id === h.plotId} />{/each}</svg>{/if}<span class="hkey">{h?.label}</span>{#if h?.hint}<span class="hhint">{h.hint}</span>{/if}<span class="hcount">{h?.count}</span></div>
               {/if}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
@@ -1129,18 +1163,19 @@
                 <button
                   class="eye"
                   class:off={r.node.hidden}
-                  class:part-off={(r.node.kind === "common" && !!r.node.hiddenCount && !r.node.hidden) || (!!r.node.hiddenParts && !r.node.hidden)}
+                  class:part-off={(r.node.kind === "common" && !!r.node.hiddenCount && !r.node.hidden) || (!r.node.hidden && (!!r.node.hiddenParts || (r.node.kind === "element" && !!r.node.hiddenBeneath)))}
                   class:ghost={r.node.inheritedHidden}
                   disabled={hideBlocked(r.node, $editorSelectionExclusions)}
                   title={hideBlocked(r.node, $editorSelectionExclusions) ? "Enable Show hidden to edit this target" : r.node.inheritedHidden ? "Hidden with its parent — show / hide this part itself (x)" : "Show / hide (x)"}
                   on:click|stopPropagation={() => toggleHidden(r.node)}>{eyeGlyph(r.node)}</button
                 >
                 <span class="rmain">
+                  {#if locator && r.node.kind === "element" && r.node.elementId}<svg class="loc" viewBox={`0 0 ${locator.w} ${locator.h}`} aria-hidden="true">{#each locator.boxes as b (b.id)}<rect x={b.x} y={b.y} width={b.w} height={b.h} class:me={b.id === r.node.elementId} />{/each}</svg>{/if}
                   {#if q && r.node.path?.length}<span class="rpath">{#each hl(r.node.path.join(" › "), tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}<span class="psep">›</span></span>{/if}
                   <span class="rlabel" class:dim={r.node.hidden}>{#if q}{#each hl(r.node.label, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else if r.node.keyParts?.prefix && r.node.label.startsWith(r.node.keyParts.prefix)}<span class="kpre">{r.node.keyParts.prefix}</span><span class="kkey">{r.node.label.slice(r.node.keyParts.prefix.length)}</span>{:else}{r.node.label}{/if}</span>
                   {#if r.node.keyParts?.ordinal}<span class="ord" title="The same plot placed more than once">#{r.node.keyParts.ordinal}</span>{/if}
+                  {#if r.node.styled}<span class="sdot" title="Restyled"></span>{:else if r.node.styledBeneath && !(expanded.has(r.node.id) && !q)}<span class="sdot inside" title="Something inside is restyled"></span>{/if}
                 </span>
-                {#if r.node.styled}<span class="sdot" title="Restyled">●</span>{:else if r.node.styledBeneath && !(expanded.has(r.node.id) && !q)}<span class="sdot inside" title="Something inside is restyled">●</span>{/if}
                 {#if r.node.preview}<span class="rprev" class:varies={r.node.preview === "varies"} title={r.node.preview === "varies" ? "Differs between the plots" : undefined}>{#if r.node.swatch}<span class="sw" style={`background:${r.node.swatch}`}></span>{/if}<span class="ptext">{#if q}{#each hl(r.node.preview, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else}{r.node.preview}{/if}</span></span>{:else if r.node.swatch}<span class="rprev"><span class="sw" style={`background:${r.node.swatch}`}></span></span>{/if}
                 {#if r.node.kind === "group"}<span class="tag">grp</span>{/if}
                 {#if r.node.kind === "common"}<span class="tag">×{r.node.elementIds?.length ?? 0}</span>{/if}
@@ -1159,10 +1194,10 @@
           <div class="xdetail" class:none={!detail}>
             {#if detail}
               <div class="dline dpath" title={[detail.path, detail.title].filter(Boolean).join(" › ")}>{#if detail.path}<span class="dctx">{detail.path} ›</span>{/if}<b>{detail.title}</b></div>
-              <div class="dline dval" title={detail.values || undefined}>{detail.values || "—"}</div>
+              <div class="dline dval" class:none={!detail.values} title={detail.values || undefined}>{detail.values || "no value of its own"}</div>
               <div class="dline dmeta">{#if detail.swatch}<span class="sw" style={`background:${detail.swatch}`}></span>{/if}<span class="dfacts">{detail.meta.join(" · ")}</span><span class="did" title={detail.id}>{detail.id}</span></div>
             {:else}
-              <div class="dline dhint">Hover or pick a row: what it is, its values and its state show here.</div>
+              <div class="dline dhint">Hover a row for its full context.</div>
             {/if}
           </div>
 
@@ -1200,7 +1235,7 @@
           <span><b class="hk">dbl-click</b> re-root</span>
           <span><b class="hk">⌫</b> back</span>
           <span><b class="hk">⌃z</b> undo</span>
-          <span><b class="hk">r</b>/esc close</span>
+          <span><b class="hk">r</b> <b class="hk">esc</b> close</span>
         </div>
       </div>
     </div>
@@ -1257,7 +1292,8 @@
   .csub { color: var(--xr-tx-dim); }
   .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--xr-tx-dim); font-size: 16px; cursor: var(--cursor-cross-hover); border-radius: var(--r-ui); font-family: var(--font-ui); }
   .xbtn:hover { color: var(--xr-tx); background: var(--xr-tint-2); }
-  .srcline { padding: 4px 10px; font-size: 10.5px; color: var(--xr-tx-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--xr-line); }
+  /* the file path loses its START, never the file name */
+  .srcline { padding: 4px 10px; font-size: 10.5px; color: var(--xr-tx-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--xr-line); direction: rtl; text-align: left; }
   .regen { flex: 0 0 auto; height: 22px; background: transparent; color: var(--xr-phos-hi); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 8px; font: inherit; font-size: 11px; cursor: var(--cursor-cross-hover); }
   .regen:hover:not(:disabled) { border-color: var(--xr-phos); background: var(--xr-tint-2); }
   .regen:disabled { opacity: 0.6; cursor: var(--cursor-cross); }
@@ -1278,7 +1314,9 @@
   .row.sel.primary { box-shadow: inset 2px 0 0 var(--xr-phos); }
   .tw { width: 14px; flex: 0 0 14px; background: none; border: none; color: var(--xr-tx-dim); cursor: var(--cursor-cross-hover); font-size: 9px; padding: 0; font-family: inherit; }
   .row.sel .tw { color: var(--xr-phos-hi); }
-  .eye { width: 16px; flex: 0 0 16px; background: none; border: none; color: var(--xr-phos-hi); cursor: var(--cursor-cross-hover); padding: 0; font-size: 12px; font-family: inherit; }
+  /* Shown is the norm, so it is quiet; partly hidden / hidden / the picked rows stand out. */
+  .eye { width: 16px; flex: 0 0 16px; background: none; border: none; color: color-mix(in oklab, var(--xr-phos) 60%, transparent); cursor: var(--cursor-cross-hover); padding: 0; font-size: 12px; font-family: inherit; }
+  .row:hover .eye, .row.sel .eye { color: var(--xr-phos-hi); }
   .eye.off { color: var(--xr-tx-dim); }
   .eye.part-off { color: var(--xr-phos); }
   .eye:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
@@ -1293,16 +1331,25 @@
   .rlabel:has(.kpre) { display: flex; min-width: 0; }
   .kpre { color: var(--xr-tx-dim); flex: 0 1 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .kkey { flex: 0 0 auto; }
+  /* Plot rows among plots show only their key (the shared prefix is said once, on the set row). */
+  .row[data-kind="element"] .kpre { display: none; }
+  /* The locator: every plot of the figure, this one lit — "which plot" read spatially. */
+  .loc { flex: 0 0 16px; width: 16px; height: 12px; align-self: center; overflow: visible; }
+  .loc rect { fill: none; stroke: color-mix(in oklab, var(--xr-tx) 40%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .loc rect.me { fill: var(--xr-phos); stroke: var(--xr-phos-hi); }
   .ord { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-phos); }
-  .sdot { flex: 0 0 auto; font-size: 7px; line-height: 1; color: var(--xr-phos-hi); transform: translateY(-1px); }
-  .sdot.inside { color: transparent; -webkit-text-stroke: 1px var(--xr-phos); }
+  /* restyled: a filled dot hugging the label; hollow = something inside is restyled */
+  .sdot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--xr-phos-hi); align-self: center; }
+  .sdot.inside { background: none; box-shadow: inset 0 0 0 1px var(--xr-phos); }
   .rprev { flex: 0 8 auto; max-width: 50%; min-width: 0; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; color: var(--xr-tx-dim); font-size: 11px; margin-left: auto; }
   .rprev :global(mark), .rpath :global(mark), .rlabel :global(mark) { background: none; color: var(--xr-phos-hi); font-weight: 600; }
   .ptext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rprev.varies { font-style: italic; }
-  .sw { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 2px; box-shadow: 0 0 0 1px color-mix(in oklab, var(--xr-tx) 35%, transparent); }
+  .sw { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 2px; box-shadow: 0 0 0 1px color-mix(in oklab, var(--xr-tx) 70%, transparent); }
+  /* A member reads by its VALUE ("SWS"); its index label steps back. */
   .row.member { font-size: 11.5px; }
-  .row.member .rlabel { color: color-mix(in oklab, var(--xr-tx) 80%, transparent); }
+  .row.member .rlabel { color: var(--xr-tx-dim); }
+  .row.member .rprev { color: var(--xr-tx); }
   .eye.ghost { opacity: 0.5; }
   .xmore { display: block; width: 100%; height: 22px; text-align: left; background: none; border: none; color: var(--xr-phos); font: 11px var(--font-mono); cursor: var(--cursor-cross-hover); border-radius: var(--r-0); }
   .xmore:hover { background: var(--xr-tint-2); color: var(--xr-phos-hi); }
@@ -1310,8 +1357,7 @@
   .sres { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-tx-dim); font-variant-numeric: tabular-nums; }
   /* Search: a plot header over its hits (sticky while they scroll), dim shared prefix. */
   .shead { position: sticky; top: -4px; z-index: 1; display: flex; align-items: baseline; gap: 6px; padding: 7px 6px 3px; background: var(--xr-bg-2); font-size: 10.5px; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; white-space: nowrap; overflow: hidden; }
-  .hpre { flex: 0 3 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .hkey { flex: 0 0 auto; color: var(--xr-tx); letter-spacing: 0.04em; }
+  .hkey { flex: 0 0 auto; color: var(--xr-tx); font-size: 11.5px; font-weight: 600; }
   .hhint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .hcount { margin-left: auto; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
   /* The detail strip: fixed height, so the panel never jumps as rows are hovered. */
@@ -1320,12 +1366,14 @@
   .dpath b { color: var(--xr-tx); font-weight: 600; }
   .dctx { color: var(--xr-tx-dim); margin-right: 5px; }
   .dval { color: var(--xr-tx); }
+  .dval.none { color: var(--xr-tx-dim); font-style: italic; }
   .dmeta { display: flex; align-items: center; gap: 6px; color: var(--xr-tx-dim); }
   .dfacts { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .did { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: right; font-size: 10px; opacity: 0.8; }
   .dhint { color: var(--xr-tx-dim); white-space: normal; }
   .tag { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-phos); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 4px; }
-  .count { font-size: 10.5px; color: var(--xr-tx-dim); font-variant-numeric: tabular-nums; }
+  /* one trailing slot, so counts never read as part of a value and previews share a right edge */
+  .count { flex: 0 0 auto; min-width: 3ch; margin-left: 6px; text-align: right; font-size: 10.5px; color: color-mix(in oklab, var(--xr-tx) 38%, transparent); font-variant-numeric: tabular-nums; }
   .actions { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px; border-top: 1px solid var(--xr-line); }
   .pickinfo { flex: 1; font-size: 10.5px; color: var(--xr-tx-dim); }
   .showprops, .animbtn { display: inline-flex; align-items: center; gap: 6px; height: 24px; background: transparent; color: var(--xr-phos-hi); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 8px; font: inherit; font-size: 11px; cursor: var(--cursor-cross-hover); }
@@ -1338,5 +1386,6 @@
   .am.ghost { color: var(--xr-tx-dim); }
   .empty { color: var(--xr-tx-dim); padding: 12px 4px; }
   .empty.big { padding: 30px 16px; text-align: center; }
-  .foot { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; min-height: 26px; padding: 2px 10px; border-top: 1px solid var(--xr-line); font-size: 10.5px; color: var(--xr-tx-dim); background: var(--xr-bg); }
+  .foot { display: grid; grid-template-columns: repeat(4, max-content); column-gap: 14px; row-gap: 3px; align-items: center; min-height: 26px; padding: 5px 10px; border-top: 1px solid var(--xr-line); font-size: 10.5px; color: var(--xr-tx-dim); background: var(--xr-bg); }
+  .foot span { white-space: nowrap; }
 </style>

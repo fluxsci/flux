@@ -16,6 +16,7 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 const { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue, hasContentScaleTargets } = await import("../src/lib/plot/compensate");
 const { parsePlotSvg } = await import("../src/lib/plot/parse");
 const { normalizeSvgForParts } = await import("../src/lib/plot/derive");
+const { applyToPoint, parseTransform } = await import("../src/lib/plot/svgMatrix");
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -34,6 +35,8 @@ const SVG = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
   </g>
   <g id="xlabel"><text style="font-size: 5px; fill: #100f0f" x="180" y="210">time</text></g>
   <g id="ylabel"><text style="font-size: 5px; fill: #100f0f" x="8" y="108" transform="rotate(-90 8 108)">volts</text></g>
+  <g id="catlabel"><text style="font-size: 5px; fill: #100f0f" transform="translate(33.4 206.4)">Quiet</text><text style="font-size: 5px; fill: #100f0f" transform="translate(33.5 211.7)">wake</text></g>
+  <g id="ytitle"><text style="font-size: 5px; fill: #100f0f" transform="translate(4.5 120) rotate(-90)">power</text></g>
  </g>
 </svg>`;
 
@@ -86,6 +89,18 @@ assert(
   "inlined tick glyph: scale APPENDED after its translate anchor (pt-true length, anchored position)",
 );
 assert(!(glyph as unknown as SVGElement).style.strokeWidth, "glyph stroke NOT double-compensated (transform already scales it)");
+
+// matplotlib writes multi-line labels ("Quiet\nwake") and some titles with NO x/y — only a
+// translate(…) (+ rotate) — so their anchor is where that transform puts the origin. Anchoring
+// at a bare 0,0 slid them toward the plot's corner on every resize (2026-10-23).
+const origin = (t: Element) => applyToPoint({ x: 0, y: 0 }, parseTransform(t.getAttribute("transform")));
+for (const [id, i, x, y] of [["catlabel", 0, 33.4, 206.4], ["catlabel", 1, 33.5, 211.7], ["ytitle", 0, 4.5, 120]] as const) {
+  const t = rHalf.querySelectorAll(`[id="${id}"] text`)[i] as Element;
+  const o = origin(t);
+  assert(Math.abs(o.x - x) < 1e-9 && Math.abs(o.y - y) < 1e-9, `translate-positioned text (${id} #${i}) keeps its origin at (${x}, ${y}) — the geometry scale alone moves it`);
+}
+const yt3 = rHalf.querySelector('[id="ytitle"] text') as Element;
+assert((yt3.getAttribute("transform") ?? "").endsWith("translate(4.5 120) rotate(-90)"), "…its own transform kept after the prepended counter-scale");
 
 // ---------------------------------------------------------------------------
 // 3. Anisotropic resize: width-only shrink (fx=2, fy=1)

@@ -204,8 +204,11 @@ function partRow(el: SemanticElement, n: XrayNode, models: Models = {}, index?: 
     children: [],
   };
   withContext(row, n.id, n.targets, pc, inherited);
+  // The count column already says how many: "scatter · 23 pts  23" says it twice.
+  if (row.preview && row.count) row.preview = row.preview.replace(new RegExp(`(?:^| · )${row.count} pts$`), "") || undefined;
   const below = inherited || !!pc?.state.ownHidden.has(n.id);
   row.children = n.children.map((c) => partRow(el, c, models, index, pc, below));
+  markSeriesKeys(row.children);
   // A group's MEMBERS (one tick label, one point …) are rows of their own under it,
   // so a single drilled member can be revealed and picked (and its family is one ←).
   if (pc && !n.children.length && n.isGroup) {
@@ -268,6 +271,7 @@ function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlot
     if (tree) {
       const pc = plotCtx(plot, manifests, doms);
       row.children = tree.children.map((c) => partRow(plot, c, {}, undefined, pc, !!el.hidden));
+      markSeriesKeys(row.children);
       row.isGroup = true;
       const hint = pc ? plotHint(pc.manifest, pc.dom) : undefined;
       if (hint) row.preview = hint;
@@ -285,11 +289,20 @@ function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlot
 
 /** Side by side, plots are told apart by what their labels do NOT share (and
  *  copies of one plot by an ordinal). Applies to the plot rows among `rows`. */
-function markPlotKeys(rows: XRow[]): void {
+function markPlotKeys(rows: XRow[]): string {
   const plots = rows.filter((r) => r.kind === "element" && (r.role === "figure" || r.role === "model3d"));
-  if (plots.length < 2) return;
+  if (plots.length < 2) return "";
   const split = distinctiveParts(plots.map((r) => r.label));
   plots.forEach((r, i) => { if (split[i].prefix || split[i].ordinal) r.keyParts = split[i]; });
+  return split[0].prefix;
+}
+/** Sibling series read alike ("Series: acquisition-alkaid-…", "Series: acquisition-alnair-…"):
+ *  their shared prefix is drawn dim (and gives way first), so what differs reads. */
+function markSeriesKeys(rows: XRow[]): void {
+  const series = rows.filter((r) => r.kind === "part" && r.role === "series");
+  if (series.length < 3) return;
+  const split = distinctiveParts(series.map((r) => r.label));
+  series.forEach((r, i) => { if (split[i].prefix.length > 8) r.keyParts = split[i]; });
 }
 
 // --- group rows ---------------------------------------------------------------
@@ -481,7 +494,8 @@ export function buildXrayTree(
       count: els.length,
       children: ordered.map((e) => elementRow(fig, e, manifests, models, info, doms)),
     };
-    markPlotKeys(set.children);
+    const prefix = markPlotKeys(set.children);
+    if (prefix) set.preview = prefix + "…"; // the shared name, once — each plot row shows only its key
     return set;
   }
   if (!groupDefs(fig)[target.groupId]) return null;

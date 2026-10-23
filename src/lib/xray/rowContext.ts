@@ -159,6 +159,28 @@ export function domTextLookup(root: Element | null | undefined): TextOf {
   return (id) => m.get(id);
 }
 
+const paintMemo = new WeakMap<Element, Map<string, string | null>>();
+/** The paint a part is DRAWN with (its first drawable's fill, else stroke; "none" skipped),
+ *  read from inline style / attributes of the pristine drawing — the fallback swatch for
+ *  manifests that carry no colour (older fluxplot). Never computed style: no layout. */
+export function domPaint(root: Element | null | undefined, id: string, prefer: "fill" | "stroke" = "fill"): string | undefined {
+  if (!root) return undefined;
+  let memo = paintMemo.get(root);
+  if (!memo) { memo = new Map(); paintMemo.set(root, memo); }
+  const key = prefer + "|" + id;
+  if (memo.has(key)) return memo.get(key) ?? undefined;
+  const node = root.querySelector(`[id="${id.replace(/["\\]/g, "\\$&")}"]`);
+  const d = node ? (node.matches("path,circle,ellipse,rect,line,polyline,polygon,use,text") ? node : node.querySelector("path,circle,ellipse,rect,line,polyline,polygon,use,text")) : null;
+  const read = (prop: string) => {
+    const inline = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(d?.getAttribute("style") ?? "")?.[1]?.trim();
+    const v = inline ?? d?.getAttribute(prop) ?? undefined;
+    return v && v !== "none" && !/^url\(/.test(v) ? v : undefined;
+  };
+  const out = prefer === "stroke" ? read("stroke") ?? read("fill") : read("fill") ?? read("stroke");
+  memo.set(key, out ?? null);
+  return out;
+}
+
 const ctxMemo = new WeakMap<ManifestIndex, WeakMap<object, Map<string, PartCtx>>>();
 const NO_DOM = {};
 
@@ -179,12 +201,12 @@ export function partContext(manifest: FluxPlotManifest, partId: string, dom: Ele
   const id = aliasPartId(manifest, partId);
   const hit = memo.get(id);
   if (hit) return hit;
-  const ctx = computeContext(index, id, domTextLookup(dom));
+  const ctx = computeContext(index, id, domTextLookup(dom), dom);
   memo.set(id, ctx);
   return ctx;
 }
 
-function computeContext(index: ManifestIndex, id: string, textOf: TextOf): PartCtx {
+function computeContext(index: ManifestIndex, id: string, textOf: TextOf, dom: Element | null): PartCtx {
   const { manifest, entries, memberOf } = index;
   const e = entries.get(id);
   if (!e) {
@@ -200,6 +222,13 @@ function computeContext(index: ManifestIndex, id: string, textOf: TextOf): PartC
   const preview = previewOf(index, e, textOf);
   if (preview.text) out.preview = preview.text;
   if (preview.swatch) out.swatch = preview.swatch;
+  // A series the manifest gives no colour: the paint of its first drawn mark.
+  else if (role(e) === "series" && dom) {
+    const leaf = resolveTargets(index.manifest, e.id)[0];
+    const line = (e.node.children ?? []).some((c) => keyOf(c)?.endsWith(".line"));
+    const paint = leaf ? domPaint(dom, leaf, line ? "stroke" : "fill") : undefined;
+    if (paint && /^#[0-9a-f]{3,8}$|^rgb/i.test(paint)) out.swatch = paint;
+  }
   return out;
 }
 
@@ -243,6 +272,7 @@ function firstText(index: ManifestIndex, e: Entry, textOf: TextOf, depth = 0): s
 
 const HEX = /^#[0-9a-f]{3,8}$/i;
 
+const role = (e: Entry) => e.role;
 function previewOf(index: ManifestIndex, e: Entry, textOf: TextOf): { text?: string; swatch?: string } {
   const m = index.manifest;
   const role = e.role;

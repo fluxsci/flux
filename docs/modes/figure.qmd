@@ -374,12 +374,15 @@ still belongs to the plot you regenerated.
 Every row says what it is without a hover. Search results and common parts carry their place —
 *X axis › Tick labels*, *Y axis › Tick marks*, *Panel b › Colorbar* — and, on the right, what
 they show: tick values (*0 · 800 · 1600 · 2400*), an axis's title, a series' kind, size and
-colour. A common part whose value differs between the plots reads *varies*. With several plots,
-search results gather under a header per plot, named by what sets it apart (the shared part of
-the file names is dimmed: *…bandpower-* **low-gamma**) beside its title. Search matches words
+colour. A common part whose value differs between the plots reads *varies*. With several plots, each
+plot row and search header is named by what sets it apart (the part of the file names they all
+share is shown once, on the *N plots* row: *…bandpower-* → **low-gamma**), beside its title and a
+tiny map of the figure with that plot lit, so you can tell "the bottom-left one" at a glance;
+search results gather under those headers. Search matches words
 anywhere in a row's place and value: *x tick* finds only the x axes' ticks, *y lab* the y tick
 labels, *sigma tick* that plot's ticks, *SWS* the tick label that reads it. A small dot marks a
-restyled part (hollow: something inside it), **◐** a partly hidden one. The strip above the
+restyled part (hollow: something inside it), **◐** a partly hidden one, and a series shows its
+colour. The strip above the
 buttons describes the row under the pointer (else the picked one) in full: its whole path,
 its values or data readout, its kind, effective style, what is restyled or hidden and its part id.
 Hovering a row outlines its parts on the canvas — on every plot, for a common part.

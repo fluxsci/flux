@@ -5438,7 +5438,8 @@
   .part-readout-bg { fill: var(--surface-2, #1c1b1a); fill-opacity: 0.94; stroke: var(--line, #8884); stroke-width: 1; }
   .part-readout-text { font: 11px var(--font-mono, ui-monospace, monospace); fill: var(--tx, #cecdc3); pointer-events: none; }
   .part-readout-text.title { fill: var(--accent, #4385be); }
-  .xray-hover { stroke-dasharray: 3 2; opacity: 0.85; }
+  /* the X-ray's hovered row: dotted, lighter than a pick's dashed .part-box */
+  .xray-hover { stroke-dasharray: 1 2.5; stroke-linecap: round; opacity: 0.95; }
   .part-hover,
   .part-preview {
     stroke: var(--c-accent-bright);
