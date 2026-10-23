@@ -4,6 +4,7 @@
 //
 //  • barGrow()        — which axis a bar scales along and which EDGE of its own fill box is its baseline.
 //  • isManifestBar()  — does the manifest list this part id as a bar?
+//  • barGrowWeight()  — the scale of a bar that exists in only ONE version of a plot Change (WP 2.3, D8a).
 // ---------------------------------------------------------------------------
 import type { FluxPlotManifest } from "../plot/types";
 
@@ -55,4 +56,13 @@ export function barGrow(manifest: FluxPlotManifest | undefined, partId: string, 
   return horizontal
     ? { fn: "scaleX", origin: negative ? "100% 50%" : "0% 50%" }
     : { fn: "scaleY", origin: negative ? "50% 0%" : "50% 100%" };
+}
+
+/** Scale (0..1) of a keyed bar that exists in only one version of a plot Change, at Change progress `t`: an entering
+ *  bar grows over the later part of the Change (t .45 -> 1), a leaving bar shrinks over the earlier part (t 0 -> .55),
+ *  both on a smoothstep, so the two windows overlap the narrowing/widening of the paired bars and nothing fades
+ *  (manim: shapes grow, they do not fade). 0 = flat on its baseline, 1 = at rest. */
+export function barGrowWeight(entering: boolean, t: number): number {
+  const u = entering ? (t - .45) / .55 : 1 - t / .55, c = Math.max(0, Math.min(1, u));
+  return c * c * (3 - 2 * c);
 }

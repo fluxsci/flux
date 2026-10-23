@@ -31,6 +31,7 @@ import { isDerivedManifest } from "../../plot/derive";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
+import { barGrowWeight, type BarGrow } from "../growOrigin";
 import { prepareColorLerp } from "../../color/interp";
 import type { Slide, StageSize, DeckTheme } from "../types";
 import { themeCssVars } from "../theme";
@@ -211,7 +212,12 @@ export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRe
   return true;
 }
 
-type DataGeometry = { circles: ReadonlySet<string>; lines: ReadonlySet<string> };
+type DataGeometry = {
+  circles: ReadonlySet<string>; lines: ReadonlySet<string>;
+  /** Keyed bars present in only ONE plot version, by DOM id: they grow from / shrink to their own baseline edge
+   *  (`barGrow`) instead of fading. */
+  growFrom?: ReadonlyMap<string, BarGrow>;
+};
 
 /** Shared attribute compiler for structural shapes and semantic plot parts.
  * A binding exists only where a frame can change something: a value equal at
@@ -361,9 +367,12 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
   const ai = index(a), bi = index(b), li = index(live);
   if (!ai.size && !bi.size) return null;
   const bindings = contentBindings("plot", dataGeometry);
-  const fades: { node: Element; opacity: string | null; style: string; display: string; entering: boolean; hidden: boolean }[] = [];
+  const fades: { node: Element; opacity: string | null; style: string; display: string; entering: boolean; hidden: boolean; grow?: BarGrow }[] = [];
   const fade = (node: Element, entering: boolean, source = node) => {
-    fades.push({ node, opacity: source.getAttribute("opacity"), style: (source as SVGElement).style.getPropertyValue("opacity") || "", display: (source as SVGElement).style.getPropertyValue("display") || "", entering, hidden: entering });
+    // A keyed bar with no counterpart scales on its baseline instead of fading. A CSS `transform` replaces the node's own
+    // `transform` attribute, so a bar that carries one keeps the fade (fluxplot bars do not).
+    const grow = node.hasAttribute("transform") ? undefined : dataGeometry?.growFrom?.get(node.getAttribute("id") ?? source.getAttribute("id") ?? "");
+    fades.push({ node, opacity: source.getAttribute("opacity"), style: (source as SVGElement).style.getPropertyValue("opacity") || "", display: (source as SVGElement).style.getPropertyValue("display") || "", entering, hidden: entering, grow });
     // Hide before the first seek without turning the authored opacity into
     // zero when later appearance tracks compile their baseline.
     if (entering) (node as SVGElement).style.display = "none";
@@ -371,12 +380,22 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
   const update = (_el: FigElement, t: number, raw = t) => {
     bindings.update(t, raw);
     for (const f of fades) {
-      const weight = f.entering ? Math.max(0, Math.min(1, (t - .6) / .4)) : Math.max(0, Math.min(1, 1 - t / .4));
       const st = (f.node as SVGElement).style;
       if (f.hidden) {
         if (f.display) st.display = f.display; else st.removeProperty("display");
         f.hidden = false;
       }
+      if (f.grow) {
+        const w = barGrowWeight(f.entering, t);
+        if (w >= 1) { for (const name of ["transform", "transform-box", "transform-origin"]) if (st.getPropertyValue(name)) st.removeProperty(name); }
+        else {
+          const value = `${f.grow.fn}(${w.toFixed(5)})`;
+          if (st.getPropertyValue("transform-origin") !== f.grow.origin) { st.setProperty("transform-box", "fill-box"); st.setProperty("transform-origin", f.grow.origin); }
+          if (st.getPropertyValue("transform") !== value) st.setProperty("transform", value);
+        }
+        continue;
+      }
+      const weight = f.entering ? Math.max(0, Math.min(1, (t - .6) / .4)) : Math.max(0, Math.min(1, 1 - t / .4));
       // Compare first: a repeated frame writes nothing.
       if (weight === 1) {
         if (f.opacity === null) { if (f.node.hasAttribute("opacity")) f.node.removeAttribute("opacity"); }

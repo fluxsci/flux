@@ -7,7 +7,7 @@ import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./t
 import { lerpElement, overshootBox, arcBox, transformEndState, transformPreState } from "./tween";
 import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
-import { seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
+import { seriesAxes, seriesTweenable, keyedMorphable, plotViewIssues } from "../plot/project";
 import { staggerRanks, staggerSpan, staggerDelay, staggerSeed } from "./stagger";
 import { staggerKey, manifestCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
@@ -116,7 +116,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
           if (a && b) for (const id of new Set([...(a.series ?? []).map(s => s.id), ...(b.series ?? []).map(s => s.id)])) {
             const sa = a.series?.find(s => s.id === id), sb = b.series?.find(s => s.id === id);
             if (!sa || !sb) issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no counterpart and fades.` });
-            else if (!seriesTweenable(sa, sb, seriesAxes(a, sa), seriesAxes(b, sb)))
+            else if (!seriesTweenable(sa, sb, seriesAxes(a, sa), seriesAxes(b, sb)) && !keyedMorphable(sa, sb))
               issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no tweenable counterpart and fades.` });
           }
         }

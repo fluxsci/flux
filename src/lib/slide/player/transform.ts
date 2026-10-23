@@ -49,6 +49,7 @@ import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type
 import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
+import { barGrow, type BarGrow } from "../growOrigin";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
@@ -115,6 +116,17 @@ function namespaceGradients(host: Element, suffix: string): void {
     const m = /^url\(#([^)]+)\)$/.exec(n.getAttribute(attr) ?? "");
     if (m && ids.has(m[1])) n.setAttribute(attr, `url(#${ids.get(m[1])})`);
   }
+}
+
+/** Keyed bars present in only ONE of the two plot versions, by DOM id -> the baseline edge they grow from / shrink to
+ *  (WP 2.3, D8a). Bars paired by key keep morphing in place. A bar's baseline is read through `barGrow` from the manifest
+ *  that lists it, so a Change grows a bar exactly as the `growBaseline` entrance would. */
+function unpairedBars(elId: string, a?: FluxPlotManifest, b?: FluxPlotManifest): Map<string, BarGrow> {
+  const out = new Map<string, BarGrow>();
+  const ids = (m?: FluxPlotManifest) => new Set((m?.series ?? []).flatMap(s => s.svg?.bars ?? []));
+  const inA = ids(a), inB = ids(b);
+  for (const [m, other] of [[a, inB], [b, inA]] as const) for (const id of ids(m)) if (!other.has(id)) out.set(partDomId(elId, id), barGrow(m, id));
+  return out;
 }
 
 export function createTransform(
@@ -187,6 +199,7 @@ export function createTransform(
     neutralPlot(pre as SemanticPlotElement, sourceRoot), neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
       circles: new Set(dataSeries.flatMap(s => (s.points ?? []).map(p => partDomId(pre.id, p.svgId)))),
       lines: new Set(dataSeries.flatMap(s => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
+      growFrom: assetChange ? unpairedBars(pre.id, manifestA, manifestB) : undefined,
     }) : null;
   // Only unaddressable (raster/id-less) plots need a whole-content crossfade.
   if (project && !plotUpdate) plan.mode = "crossfade";
