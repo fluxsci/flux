@@ -30,7 +30,7 @@ export const PLAY: Record<string, string[]> = {
   // R2 follow-up F1: round hand-offs (one rasteriser at both ends), stroked corners, a cornerRadius Change, compound holes
   handoff_round: ["dot_int#1-1", "dot_grow#1-1", "ring_ring#1-1", "six_dots#1-1"],
   become_corners: ["tri_circle#1-1", "rect_circle#1-1", "arrow_circle#1-1", "arrow_circle_ho#1-1", "butt_line_rect#1-1", "ell_rect#1-1", "ell_rect_ho#1-1", "translucent#1-1"],
-  set_flights: ["rect_3ellipses#1-1", "six_ring#1-1"],
+  set_flights: ["rect_3ellipses#1-1", "six_ring#1-1"], become_depth: ["dest_under#1-1"],
   corner_radius: ["path_20_0#1-1"], compound: ["hole_moves#1-1", "hole_fills#1-1", "hole_opens#1-1", "donut_circle#1-1", "donut_circle_ho#1-1", "donut_same_wind#1-1"],
 };
 /** Cues whose motion must be CONTINUOUS (a slow text glide): the presented frames inside the motion may not hop (slideSettleSweep `hops`). The stem edit

@@ -497,6 +497,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       if (disposed) return;
       disposed = true; custom?.dispose(); opts.media?.dispose(); layer.remove();
       textMorph?.dispose(); textLayer?.remove();
+      if (flight.hasAttribute("data-depth") && !flight.childElementCount) flight.remove();   // a depth surface nothing flies on any more
       for (const entry of claims) {
         entry.state.claims.delete(entry.claim); paintVisibility(entry.node, entry.state);
         if (!entry.state.claims.size) visibility.delete(entry.node);

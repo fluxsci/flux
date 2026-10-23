@@ -221,6 +221,20 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     out.push({ name: "become", payload: { deck: b.deck } });
   }
   {
+    // R2 follow-up F3: a hand-off flies at the DEPTH its destination rests at. The flight surface used to be the top of the stack, so a flight that
+    // crossed an element ABOVE the destination covered it all the way, and the landing frame (the destination appearing under that element) flipped
+    // the paint order of the overlap (the synthetic `become#1-1`: END SNAP 59.8). `dest_under` lands an ellipse under an element drawn after it, `dest_over`
+    // lands one OVER an element drawn before it (the control: nothing covers the landing, the flight is the top of the stack either way).
+    const b = new Builder("become_depth");
+    { const s = b.slide("dest_under"); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80 }));
+      b.add(s, el("ellipse", "b", 330, 100, { width: 160, height: 100 })); b.add(s, el("rectS", "x", 420, 130, { width: 140, height: 90, fill: "#f2f0e5" }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("dest_over"); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80 }));
+      b.add(s, el("rectS", "x", 420, 130, { width: 140, height: 90, fill: "#f2f0e5" })); b.add(s, el("ellipse", "b", 330, 100, { width: 160, height: 100 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    out.push({ name: "become_depth", payload: { deck: b.deck } });
+  }
+  {
     // The Release 1 review deck's two hardest hand-offs, authored the way that deck is (a state Become, mode "consume"): a THICK-stroked
     // line and arrow becoming an ellipse and a rect (slide 11), and a 12 px stroked, unfilled rect becoming an ellipse (slide 13). Their first
     // frame stepped 20 to 30 stage px^2 on BOTH domains until R2 follow-up F1 (the stroke band, the trimmed arrow body, the stage's ellipse path).
