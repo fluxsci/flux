@@ -52,7 +52,10 @@
   let savingPreset = $state(false);
   let presetName = $state("");
   async function doSavePreset() {
-    const t = curTrack;
+    // a saved preset is STORAGE: read the raw timing (X13: the compensated tick view must not become data)
+    const rawId = rawTrack?.id;
+    const t = editingStyle || !rawId ? curTrack
+      : slide.beats.flatMap((b, index) => resolveBeat(b, deck, target => manifestAt(target, index), "raw").tracks).find(r => r.id === rawId) ?? curTrack;
     const name = presetName.trim();
     if (!t || !name) return;
     if (await saveAnimPreset(makeAnimPreset(name, t))) {

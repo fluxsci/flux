@@ -179,6 +179,34 @@ try {
   assert(pl.plotText > 0 && pl.plotMasks === 0 && pl.plotClip.startsWith("inset("), `writeOn on a plot (${pl.plotText} <text>s + geometry): clip-path ${pl.plotClip}, ${pl.plotMasks} masked nodes — a text-only mask would leave every line and marker visible`);
   await pc.close();
 
+  // ---------------------------------------------------------------- writeOn on rotated / flipped text (review F1)
+  // The ink measure reads screen rects, the clip lives in the element's local frame: under rotation the fractions are
+  // wrong and the text showed before its beat. Rotated targets sweep the whole box (the pre-T3 behaviour).
+  {
+    const rot = slideOps.createDeck({ id: "rotwrite", title: "rotwrite", withTitleSlide: false });
+    const rs = slideOps.addSlide(rot, { name: "R", layout: "blank" }).id;
+    const rids: string[] = [];
+    for (const [i, deg] of [0, 90, 30, 180].entries()) {
+      slideOps.addSlideText(rot, rs, { text: "Write me on please", x: 100 + (i % 2) * 400, y: 80 + Math.floor(i / 2) * 250, width: 300, height: 40, fontSize: 24 });
+      const el = slideOps.slideById(rot, rs)!.elements.at(-1)! as unknown as { id: string; rotation: number };
+      el.rotation = deg; rids.push(el.id);
+    }
+    const rb = slideOps.addBeat(rot, rs, { label: "w" })!;
+    for (const id of rids) slideOps.setAnimation(rot, rs, rb.id, { target: id, preset: "writeOn", duration: 1000, easing: "linear" } as never);
+    await slides.saveDeck(root, rot);
+    const prot = await open("rotwrite");
+    const clips = await prot.evaluate(([ids]) => {
+      const fd = (window as unknown as { fluxDeck: { goTo(s: number, b: number): void; seek(s: number, b: number, ms: number): void } }).fluxDeck;
+      const at = (ms: number) => { if (ms < 0) fd.goTo(0, 0); else fd.seek(0, 1, ms); return (ids as string[]).map((id) => { const w = document.querySelector(`[data-el-id="${id}"]`) as HTMLElement; return ((w.querySelector(".sl-effects") as HTMLElement) ?? w).style.clipPath; }); };
+      return { pre: at(-1), mid: at(500), end: at(1000) };
+    }, [rids] as [string[]]);
+    assert(clips.pre.every((c) => /^inset\(-20% 100% -20% -20%\)$/.test(c)), `rotated writeOn (0/90/30/180 deg): every target is fully hidden before its beat (${clips.pre.join(" | ")})`);
+    const rIn = (c: string) => parseFloat((/inset\(\s*-?[\d.]+%\s+([-\d.]+)%/.exec(c) ?? [])[1] ?? "NaN");
+    assert([1, 2, 3].every((i) => near(rIn(clips.mid[i]), 100 * (1 - 0.5 / 0.95), 0.2)), `rotated writeOn sweeps the whole box: right inset ${clips.mid.slice(1).map((c) => rIn(c).toFixed(1)).join(" / ")} % at half clock (90 / 30 / 180 deg; the whole-box edge sits at 50 % / WIPE_BOX_AT of the box)`);
+    assert(clips.end.every((c) => c.includes("-20%") && !c.includes("100%")), "rotated writeOn rests fully revealed");
+    await prot.close();
+  }
+
   // ---------------------------------------------------------------- X12: pathLength honoured by the dash math
   const ppl = await open("pathlen");
   const penState = (ms: number) => ppl.evaluate((ms) => {

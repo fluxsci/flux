@@ -537,6 +537,11 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
   const penMs = role === "spine" && pace.scaffold.spineMs !== null ? pace.scaffold.spineMs : drawDuration(options.lengths?.[part], window, pace);
   const track: Track = { id: newId("track"), target: elId, part, preset, duration: preset === "drawOn" ? penMs : window, start: cfg?.delayMs ?? 0 };
   if (preset === "drawOn" && role === "line" && pace.lineEasing) track.easing = pace.lineEasing;
+  // the frame spines (top/right) are not axes: under a scaffold pace the X-ray toggle gives them the same fade as the Auto build (review F6)
+  if (role === "spine" && pace.scaffold.spineMs !== null && isFrameSpine({ role, part } as PlanTrack)) {
+    const fs = pace.scaffold.frameSpine;
+    track.preset = fs.preset; track.duration = fs.ms ?? penMs; track.start = fs.startMs;
+  }
   if (preset === "stagger") {
     const fit = groupStagger(pace, node?.targets.length ?? 1, window, cfg?.staggerMs ?? 40, staggerAxis(cfg?.staggerBy));
     track.duration = fit.duration; track.stagger = fit.stagger;

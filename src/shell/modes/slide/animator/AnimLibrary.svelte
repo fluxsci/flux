@@ -148,10 +148,11 @@
       pushToast("info", "Select the lanes to bundle (in the rail), then save.");
       return;
     }
+    // templates are STORAGE: raw timing (X13: the compensated tick view must not become data)
     const tracks = slide.beats.flatMap(b => resolveBeat(b, get(deckOverlay) ?? {}, id => {
       const e = slide.elements.find(x => x.id === id);
       return e && "assetId" in e ? $plotManifests[e.assetId] : undefined;
-    }).tracks).filter(t => t.id && ids.includes(t.id));
+    }, "raw").tracks).filter(t => t.id && ids.includes(t.id));
     const { slots, skipped } = deriveTemplateSlots(tracks, {
       elements: slide.elements,
       manifestFor: (id: string) => {

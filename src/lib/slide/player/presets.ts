@@ -73,6 +73,22 @@ function wipeInsets(direction: string): [string, string] {
   return [hidden, `inset(${M} ${M} ${M} ${M})`];
 }
 
+/** True when the node or any ancestor carries a computed transform that rotates, skews or flips (anything but
+ *  translate + positive scale). The ink measure reads SCREEN rects and turns them into fractions of the box along the
+ *  wipe axis; the clip-path lives in the element's LOCAL frame, so under rotation or a flip the two disagree (a 90-degree
+ *  text showed 27 % of itself before its beat). Such targets sweep the whole box, the pre-T3 behaviour (review F1). */
+function axesNotPreserved(node: Element): boolean {
+  for (let el: Element | null = node; el; el = el.parentElement) {
+    const t = getComputedStyle(el).transform;
+    if (!t || t === "none") continue;
+    const v = (/\(([^)]*)\)/.exec(t)?.[1] ?? "").split(",").map(Number);
+    const [a, b, c, d] = t.startsWith("matrix3d") ? [v[0], v[1], v[4], v[5]] : v;
+    if (![a, b, c, d].every(Number.isFinite)) continue;
+    if (Math.abs(b) > 1e-6 || Math.abs(c) > 1e-6 || a < 0 || d < 0) return true;
+  }
+  return false;
+}
+
 /** T3: the INK extent of a target along the wipe axis, as fractions of its box ([0,1] = the box edge to edge) along
  *  the SWEEP direction. A fixed-width, centred text box is mostly empty: sweeping the whole box leaves a quarter of
  *  the duration revealing nothing before the first glyph and after the last. SVG nodes use their geometry boxes;
@@ -80,6 +96,7 @@ function wipeInsets(direction: string): [string, string] {
 function inkFractions(node: TargetNode, direction: string): [number, number] {
   const horiz = direction === "ltr" || direction === "rtl";
   try {
+    if (axesNotPreserved(node)) return [0, 1];
     const box = node.getBoundingClientRect();
     const size = horiz ? box.width : box.height;
     if (!(size > 1)) return [0, 1];
@@ -188,6 +205,12 @@ function strokeEnd(geo: SVGElement, which: "start" | "end"): [number, number] | 
     return m ? [m.a * pt.x + m.c * pt.y + m.e, m.b * pt.x + m.d * pt.y + m.f] : [pt.x, pt.y];
   } catch { return null; }
 }
+/** Does the node carry an explicit positive `pathLength` (so `geoLength` is NOT its geometric length)? Without one the
+ *  dash length IS the true length: one `getTotalLength` per piece, not two (review F7). */
+function explicitPathLength(geo: SVGElement): boolean {
+  const pl = Number(geo.getAttribute?.("pathLength"));
+  return Number.isFinite(pl) && pl > 0;
+}
 /** The TRUE geometric length (never the `pathLength` attribute, whose units are dash units): the pen-clock weight. */
 function trueLength(geo: SVGElement, fallback: number): number {
   try { return (geo as unknown as SVGGeometryElement).getTotalLength?.() || fallback; } catch { return fallback; }
@@ -218,7 +241,7 @@ function drawUnits(node: TargetNode): Unit[] {
   const mk = (geo: SVGElement, role: Piece["role"]): Piece => {
     const len = geoLength(geo);
     const dash = readPaint(geo).dash;
-    return { geo, tag: geo.tagName.toLowerCase(), role, len, closed: geoClosed(geo), pen: trueLength(geo, len), ...(dash?.some((v) => v > 0) ? { pattern: dash } : {}) };
+    return { geo, tag: geo.tagName.toLowerCase(), role, len, closed: geoClosed(geo), pen: explicitPathLength(geo) ? trueLength(geo, len) : len, ...(dash?.some((v) => v > 0) ? { pattern: dash } : {}) };
   };
   // heads first: a head belongs to the stroked line/open-path sibling whose end it sits on
   const hosts = all.filter((g) => ["line", "path"].includes(g.tagName.toLowerCase()) && paint.get(g)!.stroked && !paint.get(g)!.filled && !geoClosed(g));

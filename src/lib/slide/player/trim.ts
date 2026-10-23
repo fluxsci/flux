@@ -268,8 +268,11 @@ export function windowsDash(spec: WindowSpec, windows: [number, number][]): Dash
   const L = Math.max(1e-6, spec.len);
   const ws = windows.map(([a, b]) => [Math.max(0, a), Math.min(L, b)] as [number, number]).filter(([a, b]) => b - a > 1e-4);
   if (!ws.length) return null;
-  const pat = spec.pattern && spec.pattern.length && spec.pattern.some((v) => v > 0)
+  // a pattern with a ZERO dash (a round-cap dotted line, `0 6`) has no dash length to window: it draws solid during
+  // the draw and takes its dots at rest, as before T3 (review F4; dropping the dots would paint nothing at all)
+  const pat0 = spec.pattern && spec.pattern.length && spec.pattern.some((v) => v > 0)
     ? (spec.pattern.length % 2 ? [...spec.pattern, ...spec.pattern] : spec.pattern) : null;
+  const pat = pat0 && pat0.every((v, i) => i % 2 || v > 1e-4) ? pat0 : null;
   // 1. clip the dash pattern (or solid) to the windows → visible intervals
   const vis: [number, number][] = [];
   if (!pat) for (const w of ws) vis.push(w);

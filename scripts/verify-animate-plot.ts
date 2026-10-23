@@ -50,6 +50,19 @@ try {
   h.eq(plotPenLengths(parseHTML(svg).document.querySelector("svg")!, manifest, 520), L, "the same measure from the cached <svg> element (the GUI's plotDom) as from a parsed document");
   h.ok(!Object.keys(L).some(k => /title|tick-label/.test(k)), "no length for text parts");
   h.eq(partPenLengths(parseHTML("<svg viewBox='0 0 10 10'><path id='a' d='M0 0 L3 4' stroke='#000' fill='none'/></svg>").document, ["a", "missing"], 2), { a: 10 }, "unit check: a 3-4-5 path at 2 stage px per unit is 10 px; an absent id is simply absent");
+  { // review F3: the measure indexes ids once (O(nodes)), not one attribute query per id (O(parts x nodes))
+    const N = 5000;
+    const dense = parseHTML(`<svg viewBox='0 0 100 100'><g id='pts'>${Array.from({ length: N }, (_, i) => `<circle id='p${i}' cx='${i % 100}' cy='${(i / 100) | 0}' r='1' fill='#000'/>`).join("")}</g><path id='ln' d='M0 0 L3 4' stroke='#000' fill='none'/></svg>`).document.querySelector("svg")!; // the GUI hands the cached <svg> element (no getElementById)
+    let queries = 0;
+    const qs = dense.querySelector.bind(dense);
+    dense.querySelector = ((sel: string) => { queries++; return qs(sel); }) as typeof dense.querySelector;
+    const t0 = performance.now();
+    const out = partPenLengths(dense, [...Array.from({ length: N }, (_, i) => `p${i}`), "pts", "ln"], 1);
+    const dt = performance.now() - t0;
+    h.eq(out, { ln: 5 }, "dense plot: only the stroked line has a pen length (filled points have none)");
+    h.ok(queries === 0, `dense plot: ${queries} per-id attribute queries (the ids are indexed in one querySelectorAll pass)`);
+    h.ok(dt < 1500, `dense plot (${N} leaf ids) measured in ${Math.round(dt)} ms (< 1500; per-id attribute queries were O(parts x nodes))`);
+  }
   const bad = await animatePlotVerb(root, "d-mpl_bars-v2", "s", "nope").then(() => "ok", e => String(e.message));
   h.ok(/plot element not found/.test(bad), "a non-plot element is refused cleanly");
   const dflt = slideOps.createDeck({ id: "d-default", title: "d" }); slideOps.addSlide(dflt, { id: "s", layout: "blank" });

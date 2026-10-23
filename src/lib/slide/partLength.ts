@@ -48,8 +48,11 @@ export function partPenLength(node: Element | null | undefined): number {
  *  A group id that has no DOM node of its own sums nothing and is simply absent. */
 export function partPenLengths(root: ParentNode, ids: readonly string[], stagePerUnit: number): Record<string, number> {
   const out: Record<string, number> = {};
-  const find = (id: string): Element | null => (root as Document).getElementById?.(id) ?? root.querySelector?.(`[id="${id.replace(/"/g, '\\"')}"]`) ?? null;
-  for (const id of ids) { const len = partPenLength(find(id)) * stagePerUnit; if (len > 0) out[id] = Math.round(len * 10) / 10; }
+  // ONE pass indexes every id (first wins, as getElementById does): a per-id attribute query over a dense plot is
+  // O(parts x nodes) and froze the Animate click for seconds on 100k-node scatters (review F3).
+  const index = new Map<string, Element>();
+  for (const el of Array.from(root.querySelectorAll?.("[id]") ?? [])) { const id = el.getAttribute("id"); if (id && !index.has(id)) index.set(id, el); }
+  for (const id of ids) { const len = partPenLength(index.get(id)) * stagePerUnit; if (len > 0) out[id] = Math.round(len * 10) / 10; }
   return out;
 }
 

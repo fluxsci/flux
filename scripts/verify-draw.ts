@@ -18,11 +18,12 @@ import { hiddenDash, drawReach, DRAW_REACH_EPS, windowsDash, traceDash, passingF
 import { PRESETS } from "../src/lib/slide/player/presets";
 import { computeSlideAnims } from "../src/lib/slide/player/player";
 import { compileSlide } from "../src/lib/slide/compile";
-import { resolveTrack, resolveTrackRaw, tickCompensation, TICK_WINDOW_SHARE } from "../src/lib/slide/resolve";
+import { resolveTrack, resolveTrackRaw, resolveBeat, tickCompensation, TICK_WINDOW_SHARE } from "../src/lib/slide/resolve";
 import { staggerDelay } from "../src/lib/slide/stagger";
 import { partDomId } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
 import { alignTrackEdges, inheritTrack } from "../src/lib/slide/alignTracks";
+import { makeAnimPreset, deriveTemplateSlots } from "../src/lib/slide/animTemplates";
 import { cascadeTracks } from "../src/lib/slide/ops";
 import { FLUX_DARK } from "../src/lib/slide/theme";
 import type { Track, Slide, Deck, StageSize } from "../src/lib/slide/types";
@@ -73,6 +74,8 @@ const mismatch = (a: boolean[], b: boolean[]) => a.reduce((n, v, i) => n + (v !=
   assert(drawReach(3.5, "line") < 3.6 && drawReach(3.5, "line") > 3.5, "a 3.5-unit tick reaches 3.557 (the old slack len+max(4,5 %) reached 7.5, i.e. the tick was complete at 47 % of the clock)");
   const w = windowsDash({ len: 100, pattern: [10, 6] }, [[0, 35]])!;
   assert(w.strokeDasharray === "10 6 10 6 3 101" && w.strokeDashoffset === 0, "windowsDash dashed [0,35] = '10 6 10 6 3 101' @ 0 (dashes intact, clipped at the window end, one huge closing gap)");
+  const dots = windowsDash({ len: 100, pattern: [0, 6] }, [[0, 50]]);
+  assert(dots !== null && dots.strokeDasharray === "50 101" && dots.strokeDashoffset === 0, `a round-cap dotted pattern (0 6) draws SOLID during the draw instead of painting nothing (${dots?.strokeDasharray ?? "null"})`);
   const w2 = windowsDash({ len: 100 }, [[20, 50]])!;
   assert(w2.strokeDasharray === "30 101" && w2.strokeDashoffset === -20, "windowsDash solid [20,50] = '30 101' @ -20");
   assert(windowsDash({ len: 100 }, [[50, 50]]) === null && windowsDash({ len: 100 }, []) === null, "an empty window is null (caller emits hiddenDash)");
@@ -330,6 +333,22 @@ h.section("X13 audit: no write-back site stores the resolved stagger / duration"
     inheritTrack(m.deck, m.sid, "tick1", ["line1"], { manifestFor });
     const line = slideOps.slideById(m.deck, m.sid)!.beats[1].tracks.find((x) => x.id === "line1")!;
     assert(line.duration === 800 && line.stagger === undefined, "inherit copies the stored how onto another track (800 ms, no stagger)"); }
+  { // saved presets / templates are STORAGE (review F2): the GUI save sites read the raw beat (PropertiesPane.doSavePreset, AnimLibrary.saveTemplateFromSelection)
+    const m = mkDeck();
+    const slide = slideOps.slideById(m.deck, m.sid)!;
+    const tracksOf = (mode: "view" | "raw") => slide.beats.flatMap((b) => resolveBeat(b, m.deck, manifestFor, mode).tracks).filter((t) => t.id === "tick1");
+    const viewT = tracksOf("view")[0], rawT = tracksOf("raw")[0];
+    assert(viewT.stagger !== undefined && viewT.duration === 320, "control: the VIEW beat carries the compensated 320 ms + stagger (so a save from it would leak)");
+    const preset = makeAnimPreset("ticks", rawT);
+    assert(preset.track.duration === 800 && preset.track.stagger === undefined, "a preset saved from the RAW beat holds the stored 800 ms and no stagger");
+    const tpl = deriveTemplateSlots(tracksOf("raw"), { elements: slide.elements, manifestFor });
+    assert(tpl.slots.length === 1 && tpl.slots[0].track.duration === 800 && tpl.slots[0].track.stagger === undefined, "a template slot derived from the RAW beat holds the stored 800 ms and no stagger");
+    const leak = deriveTemplateSlots(tracksOf("view"), { elements: slide.elements, manifestFor });
+    assert(leak.slots[0]?.track.stagger !== undefined, "control: deriving from the VIEW beat WOULD store the stagger (the audit has teeth)");
+    const src = (f: string) => fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src/shell/modes/slide/animator", f), "utf8");
+    assert(/resolveBeat\([^]*?"raw"\)\.tracks\)\.filter\(t => t\.id && ids\.includes/.test(src("AnimLibrary.svelte")), "AnimLibrary.saveTemplateFromSelection reads resolveBeat(..., \"raw\")");
+    assert(/doSavePreset[^]*?"raw"\)\.tracks/.test(src("PropertiesPane.svelte")), "PropertiesPane.doSavePreset reads resolveBeat(..., \"raw\")");
+  }
   { const m = mkDeck({ stagger: { perMs: 0 } }); slideOps.setTrack(m.deck, m.sid, "tick1", { duration: 700 }, manifestFor);
     assert(m.track().duration === 700 && m.track().stagger?.perMs === 0, "an opted-out track keeps its { perMs: 0 } through an edit"); }
   { const m = mkDeck(); slideOps.setTrack(m.deck, m.sid, "tick1", { stagger: { totalMs: 300 } }, manifestFor);

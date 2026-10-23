@@ -236,6 +236,15 @@ h.section("E. suggestTrack follows the same planner");
   const lineV2 = suggestTrack(legacy, "plot", "fit.line", { pace: V2_PACE, lengths: { "fit.line": 600 } }), lineCls = suggestTrack(legacy, "plot", "fit.line", { lengths: { "fit.line": 600 } });
   h.ok(lineV2.preset === "drawOn" && lineV2.duration === 1000 && lineV2.easing === "linear", "v2 suggestTrack: a 600 px data line draws 1000 ms with linear easing");
   h.ok(lineCls.preset === "drawOn" && lineCls.duration === suggestTrack(legacy, "plot", "fit.line").duration && lineCls.easing === undefined, "classic suggestTrack: authored window, no easing, lengths ignored");
+  { // review F6: the X-ray toggle on a frame spine matches the Auto build under V2
+    const fm = { schemaVersion: "0.3.2", parts: { id: "figure", role: "figure", children: [{ id: "axis.x", role: "axis", children: [
+        { id: "axis.x.spine.bottom", role: "spine" }, { id: "axis.x.spine.top", role: "spine" }] }] },
+      build: { order: ["axis.x"], presets: { axis: { animation: "draw-on", durationMs: 400 } } } } as unknown as FluxPlotManifest;
+    const top = suggestTrack(fm, "plot", "axis.x.spine.top", { pace: V2_PACE }), bottom = suggestTrack(fm, "plot", "axis.x.spine.bottom", { pace: V2_PACE });
+    h.ok(top.preset === "fade" && top.duration === 200 && top.start === 420, `v2 suggestTrack: a top frame spine fades 200 @420 like the Auto build (${top.preset} ${top.duration} @${top.start})`);
+    h.ok(bottom.preset === "drawOn" && bottom.duration === SCAFFOLD_SPINE_MS && bottom.start === 0, "v2 suggestTrack: a primary spine draws 520 from 0");
+    h.ok(suggestTrack(fm, "plot", "axis.x.spine.top").preset === "drawOn", "classic suggestTrack: a top frame spine keeps its authored drawOn");
+  }
 }
 
 // ---------------------------------------------------------------- F. multi-target lag (authoring)
