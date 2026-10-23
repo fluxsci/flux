@@ -6,6 +6,7 @@ import type { SlideFrame } from "./compile";
 import type { TargetRef } from "./types";
 import type { StageOutline, OutlineOwner, OutlinePaint } from "./stageOutline";
 import { elementOutline, elementPaint, type Outline } from "./outline";
+import { cornerJoinOf } from "../strokeStyle";
 import { elementBBox, type Rect } from "../geometry";
 import { pathToSubpaths, nodesExtent } from "../path";
 import { resolveTargetLeaves, leavesOf } from "./targets";
@@ -45,6 +46,13 @@ function placement(el: SceneElement, flips: boolean): SvgMatrix {
     compose(scale(flips && el.flipX ? -1 : 1, flips && el.flipY ? -1 : 1), translate(-cx, -cy))));
 }
 
+/** The resting corner join of a drawn element (rect miter, path round); absent for kinds with no corners, so their
+ *  outlines stay byte-identical. The flight layers draw with `pairJoin` of the two sides (T7 join law). */
+function cornerJoin(el: SceneElement): { join?: "miter" | "round" } {
+  const j = cornerJoinOf(el);
+  return j ? { join: j } : {};
+}
+
 /** Per-channel alpha, only when the element sets one below 1 (absent = byte-identical outlines). */
 function channelAlpha(el: SceneElement): { fillOpacity?: number; strokeOpacity?: number } {
   const e = el as { fillOpacity?: number; strokeOpacity?: number };
@@ -71,7 +79,7 @@ export function elementStageOutlines(el: SceneElement, ctx?: Pick<GeometryCtx, "
   }
   if (outline) {
     const o = stage(outline, compose(placement(el, false), translate(b.x, b.y)),
-      { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1, ...channelAlpha(el) });
+      { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1, ...channelAlpha(el), ...cornerJoin(el) });
     if (o.paint.fillMap?.stops?.length || o.paint.strokeMap?.stops?.length) o.paint.gradBox = o.bbox;
     return [o];
   }

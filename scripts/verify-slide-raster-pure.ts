@@ -8,7 +8,8 @@ const h = harness("verify-slide-raster-pure");
 const { document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document });
 const { needsBake, bakeKey, shouldBake, MAX_BAKE_NODES } = await import("../src/lib/slide/player/rasterKeeper");
-const { cornerJoinOf, morphJoin } = await import("../src/lib/strokeStyle");
+const { cornerJoinOf, morphJoin, pairJoin } = await import("../src/lib/strokeStyle");
+const { elementStageOutlines } = await import("../src/lib/slide/targetGeometry");
 const { slideZoomsCamera, sampleCamera } = await import("../src/lib/slide/camera");
 const { createPlayer } = await import("../src/lib/slide/player/player");
 const { createDeck } = await import("../src/lib/slide/ops");
@@ -41,6 +42,16 @@ h.eq([cornerJoinOf({ type: "rect" }), cornerJoinOf({ type: "path" }), cornerJoin
 h.eq([morphJoin({ type: "rect" }, { type: "ellipse" }, 0), morphJoin({ type: "rect" }, { type: "ellipse" }, 0.49), morphJoin({ type: "rect" }, { type: "ellipse" }, 0.5), morphJoin({ type: "rect" }, { type: "ellipse" }, 1)], ["miter", "miter", "miter", "miter"], "rect -> ellipse never switches (ellipse inherits)");
 h.eq([morphJoin({ type: "rect" }, { type: "path" }, 0.49), morphJoin({ type: "rect" }, { type: "path" }, 0.5)], ["miter", "round"], "rect -> path switches once at the midpoint");
 h.eq([morphJoin({ type: "ellipse" }, { type: "line" }, 0.2), morphJoin({ type: "text" }, { type: "ellipse" }, 0.9)], ["round", "round"], "no corners on either side falls back to round");
+// Release-1 integration: the hand-off / glyph flights read the resting join from the outline paint (pairJoin, same law)
+h.eq([pairJoin("miter", undefined, 0.2), pairJoin("miter", undefined, 0.8), pairJoin("miter", "round", 0.49), pairJoin("miter", "round", 0.5), pairJoin(undefined, undefined, 0.3)],
+  ["miter", "miter", "miter", "round", "round"], "pairJoin: the side just left wins, a side without corners inherits, round if neither");
+{
+  const base = { x: 10, y: 10, width: 80, height: 40, rotation: 0, stroke: "#100f0f", strokeWidth: 4, fill: "none" };
+  const join = (el: Record<string, unknown>) => elementStageOutlines(el as never)[0]?.paint.join;
+  h.eq([join({ ...base, id: "r", type: "rect", cornerRadius: 0 }), join({ ...base, id: "e", type: "ellipse" }),
+    join({ ...base, id: "p", type: "path", d: "M 0 0 L 80 40", closed: false })], ["miter", undefined, "round"],
+    "stage outlines carry the resting join of corner kinds only (ellipse outlines stay byte-identical)");
+}
 
 h.section("camera zoom detection");
 const cam = (to: Track["to"]): Slide => ({ id: "c", elements: [], beats: [{ id: "b0", tracks: [] }, { id: "b1", tracks: [{ id: "t", target: "@camera", preset: "camera", to, duration: 900 } as Track] }] }) as Slide;

@@ -48,7 +48,7 @@ import { elementStageOutlines } from "../targetGeometry";
 import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type SampledPath } from "../correspondence";
 import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
-import { morphJoin } from "../../strokeStyle";
+import { morphJoin, pairJoin } from "../../strokeStyle";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
@@ -266,7 +266,7 @@ export function createTransform(
     svg.style.overflow = "visible";
     svg.style.display = "block";
     const body = document.createElementNS(SVG_NS, "path");
-    body.setAttribute("stroke-linejoin", "round");
+    body.setAttribute("stroke-linejoin", morphJoin(pre, end, 0));
     svg.appendChild(body);
     const head = (): { poly: SVGPolygonElement; vee: SVGPolylineElement } => {
       const poly = document.createElementNS(SVG_NS, "polygon");
@@ -452,7 +452,7 @@ export function createTransform(
     L.plan = plan; L.rev = ctx.glyphs!.revision(); L.out = []; L.failed = false;
     L.boxes = letters.some((o) => o.owner.role === "glyph-box");
     for (const p of L.paths) p.remove();
-    L.paths = plan.pairs.map(() => { const n = document.createElementNS(SVG_NS, "path"); n.setAttribute("stroke-linejoin", "round"); L.svg.appendChild(n); return n; });
+    L.paths = plan.pairs.map((pair) => { const n = document.createElementNS(SVG_NS, "path"); n.setAttribute("stroke-linejoin", pairJoin(pair.a?.paint.join, pair.b?.paint.join, 0)); L.svg.appendChild(n); return n; });
     return plan;
   }
   function writeGlyphMorph(el: FigElement, u: number, raw: number): void {
@@ -494,6 +494,7 @@ export function createTransform(
       const set = (name: string, value: string) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
       set("d", pathD(sample.nodes, sample.closed));
       set("fill", p.fill); set("stroke", p.stroke); set("stroke-width", String(p.strokeWidth)); set("stroke-linecap", p.cap);
+      set("stroke-linejoin", pairJoin(plan.pairs[i]?.a?.paint.join, plan.pairs[i]?.b?.paint.join, t)); // T7: the side just left
       if (p.fillOpacity != null) set("fill-opacity", String(p.fillOpacity)); else node.removeAttribute("fill-opacity");
       if (p.strokeOpacity != null) set("stroke-opacity", String(p.strokeOpacity)); else node.removeAttribute("stroke-opacity");
       set("opacity", String(sample.opacity * (p.opacity ?? 1) * (1 - textFade)));

@@ -12,6 +12,7 @@ import { warmWhenIdle } from "./transform";
 import { createTextMorph, type TextMorph } from "./textMorph";
 import type { TextElement } from "../../types";
 import type { SlideRenderCtx } from "./render";
+import { pairJoin } from "../../strokeStyle";
 
 const NS = "http://www.w3.org/2000/svg";
 const clamp01 = (u: number) => Math.max(0, Math.min(1, u));
@@ -254,7 +255,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           crosses.push({ a, b, pair, aBox: aBox ?? bBox!, bBox: bBox ?? aBox! });
         } else if (plan.driver === "path" || !pair.a) {
           const node = document.createElementNS(NS, "path");
-          node.setAttribute("class", "sl-handoff-path"); node.setAttribute("stroke-linejoin", "round");
+          node.setAttribute("class", "sl-handoff-path"); node.setAttribute("stroke-linejoin", pairJoin(pair.a?.paint.join, pair.b?.paint.join, 0));
           // a fill piece of a sliced shape (letter strip, interior triangle) — for probes and gates
           if (pair.a?.owner.role === "slice" || pair.b?.owner.role === "slice") node.setAttribute("data-piece", "slice");
           parent.appendChild(node);
@@ -326,6 +327,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     if (p.fillOpacity != null) set(node, "fill-opacity", String(p.fillOpacity)); else node.removeAttribute("fill-opacity");
     if (p.strokeOpacity != null) set(node, "stroke-opacity", String(p.strokeOpacity)); else node.removeAttribute("stroke-opacity");
     set(node, "stroke-width", String(p.strokeWidth)); set(node, "stroke-linecap", p.cap);
+    set(node, "stroke-linejoin", pairJoin(pair.a?.paint.join, pair.b?.paint.join, u)); // T7: the side just left (no corner pop at the swap)
     set(node, "stroke-dasharray", p.dash?.join(" ") || "none");
     const shift = pair.plan?.dashShift;
     if (shift != null && pair.b?.paint.dash?.length) set(node, "stroke-dashoffset", String(dashOffsetAt(shift, pair.b.paint.dash, u, pair.plan?.dashReversed)));

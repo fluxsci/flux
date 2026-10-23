@@ -52,6 +52,9 @@ export interface OutlinePaint {
    *  element (arcs, fill triangles, strips) inherit it through `{...paint}`, so every piece
    *  shows its slice of ONE ramp, not a whole ramp per piece. */
   gradBox?: { x: number; y: number; w: number; h: number };
+  /** The resting corner join of a DRAWN element (`cornerJoinOf`: rect miter, path round; absent = no corners or
+   *  a plot part). Flight layers draw with `pairJoin` of the two sides so no corner pops at a layer swap. */
+  join?: "miter" | "round";
   arrowStart?: boolean;
   arrowEnd?: boolean;
   arrowStyle?: "filled" | "vee";
