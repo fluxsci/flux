@@ -99,6 +99,11 @@ try {
   change(s16, "t", { text: "Microscopy images" });
   const s17 = add("stem-old"); addElement(deck, s17.id, text("t", 100, 200, "Microscope images", { fontSize: 44, width: 700, height: 60 }));
   old(change(s17, "t", { text: "Microscopy images" }));
+  // 18 — a text -> text hand-off whose source is unmappable (legacy whole-line justification): the box crossfade draws it, and the flight's own
+  // copies of A and B (the text layer, R2 F2) stay hidden: two renders of one text must never show at once.
+  const s18 = add("handoff-legacy"); addElement(deck, s18.id, text("a", 100, 100, "one two three four five six", { align: "justify", sizing: "fixed", width: 200, height: 80, lines: ["one two three", "four five six"] }));
+  addElement(deck, s18.id, text("b", 400, 300, "seven eight nine ten", { sizing: "fixed", width: 260, height: 40 }));
+  change(s18, "a", {}).to!.become = { mode: "handoff", ref: { element: "b" } };
   // The real bake (payload.ts) through the shared resolver, as export-deck does.
   const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p) };
   const baked = (await gatherPayload(tmp, deck, { ...io, glyphFont: async (style) => (await lookupFont(style)).bytes })).payload;
@@ -401,6 +406,12 @@ try {
     h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden", "mid-flight the span layer alone shows (A and B hold no weight)");
     await seek(0, 0.2); st = await state();
     h.ok(st.layers[0] === "visible" && st.morphVisible === "visible" && st.spans.every((s) => !s.promoted), "a fraction of a ms in, A still shows and the span layer is added over it with its own weight (no span is promoted)");
+  }
+
+  {
+    await seek(18, 500);
+    const fb = await page.evaluate(() => { const l = document.querySelector<HTMLElement>(".sl-flight-text"); return { copies: l ? Array.from(l.children).filter((c) => !c.classList.contains("sl-text-morph") && c.querySelector("text")).map((c) => getComputedStyle(c).visibility) : [], spans: Array.from(document.querySelectorAll<HTMLElement>(".sl-tm-span")).filter((s) => getComputedStyle(s).visibility === "visible").length }; });
+    h.ok(fb.copies.length === 2 && fb.copies.every((v) => v === "hidden") && fb.spans === 0, `hand-off, unmappable source: the box crossfade draws the texts and the flight's copies of A and B stay hidden (${fb.copies.join("/")}, ${fb.spans} spans showing)`);
   }
 
   // --- the glyph-box fallback (an export without baked fonts) -----------------------------

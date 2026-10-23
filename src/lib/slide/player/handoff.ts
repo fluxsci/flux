@@ -131,7 +131,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) textLayer.style.setProperty(k, v);
     const copy = (el: TextElement): HTMLElement => {
       const d = document.createElement("div");
-      d.style.cssText = "position:absolute;box-sizing:border-box;";
+      // hidden until the text morph owns the flight (the box crossfade draws the texts when it cannot be mapped)
+      d.style.cssText = "position:absolute;box-sizing:border-box;visibility:hidden;";
       for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) d.style.setProperty(k, v);
       const laid = layoutForMorph(el);
       fillContent(d, laid, opts.text!.render); applyWrapperBox(d, { ...laid, rotation: 0 } as TextElement);
