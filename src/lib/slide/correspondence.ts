@@ -11,14 +11,14 @@ import { lerpDash } from "./tween";
 import { axisFit, projectWith } from "../plot/project";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
-  planOutlines, sampleNodes, type RingStrategy, type Outline,
+  planOutlines, sampleNodes, supportPoint, lerpGradientFill, type GradientLerp, type RingStrategy, type Outline,
 } from "./outline";
 
 export interface CorrespondencePair {
   a: StageOutline | null;
   b: StageOutline | null;
   /** Exact planOutlines UNIT chains; a/b.bbox place them in stage pixels. */
-  plan?: { a: VectorNode[]; b: VectorNode[]; closed: boolean; strategy: RingStrategy; prepare(): void };
+  plan?: { a: VectorNode[]; b: VectorNode[]; closed: boolean; strategy: RingStrategy; dashShift?: number; dashReversed?: boolean; prepare(): void };
   landing?: { x: number; y: number; scale: number };
   crossfade?: true;
   boxes?: { a: StageOutline["bbox"]; b: StageOutline["bbox"] };
@@ -353,7 +353,7 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean, m
   // Under every method but shatter the arcs carry the STROKE only: the interior is
   // one fill-only ring the sampler fades, shrinks or drains (below), never a set
   // of chord-filled segments flying apart.
-  if (interior && method !== "shatter") tiles = tiles.map((t) => ({ ...t, paint: { ...t.paint, fill: "none" } }));
+  if (interior && method !== "shatter") tiles = tiles.map((t) => ({ ...t, paint: { ...t.paint, fill: "none", fillMap: undefined } }));
   const pairs: CorrespondencePair[] = ordered.map((p, i) => ({ a: source ? tiles[i] : p.o, b: source ? p.o : tiles[i] }));
   if (interior && method !== "shatter") {
     const ring = fillOnly(single);
@@ -403,15 +403,17 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean, m
 }
 
 /** The outline's fill alone: no stroke, dash or heads. */
-const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint, stroke: "none", strokeWidth: 0, dash: undefined, arrowStart: false, arrowEnd: false } });
+const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint, stroke: "none", strokeWidth: 0, strokeMap: undefined, dash: undefined, arrowStart: false, arrowEnd: false } });
 
 /** Half a stage px of overlap between adjacent opaque fill pieces (device px
  *  ≥ 1 at any presentation scale), so no anti-aliased seam can show. */
-const SEAM_OVERLAP = 0.5;
+export const SEAM_OVERLAP = 0.5;
+/** expandPolygon's miter cap (× the offset): a thin triangle's tip can poke SEAM_OVERLAP × this past its rect. */
+export const EXPAND_MITER_LIMIT = 3;
 /** Whether a fill (with the outline's own alpha) paints fully opaque — only then
  *  may pieces overlap invisibly; a translucent fill would darken where it did. */
 export function opaque(paint: OutlinePaint): boolean {
-  if ((paint.opacity ?? 1) < 1) return false;
+  if ((paint.opacity ?? 1) < 1 || (paint.fillOpacity ?? 1) < 1) return false;
   const c = paint.fill.trim().toLowerCase();
   if (["", "none", "transparent"].includes(c)) return false;
   if (c.startsWith("#")) return c.length === 7 || c.length === 4 || /ff$/.test(c) && (c.length === 9) || (c.length === 5 && c.endsWith("f"));
@@ -438,7 +440,7 @@ export function expandPolygon(pts: { x: number; y: number }[], d: number): { x: 
     const dot = n1.x * n2.x + n1.y * n2.y;
     let mx = (n1.x + n2.x) / (1 + dot), my = (n1.y + n2.y) / (1 + dot);
     const len = Math.hypot(mx, my);
-    if (!Number.isFinite(len) || len > 3) { const k = 3 / (len || 1); mx = Number.isFinite(mx) ? mx * k : n1.x * 3; my = Number.isFinite(my) ? my * k : n1.y * 3; }
+    if (!Number.isFinite(len) || len > EXPAND_MITER_LIMIT) { const k = EXPAND_MITER_LIMIT / (len || 1); mx = Number.isFinite(mx) ? mx * k : n1.x * EXPAND_MITER_LIMIT; my = Number.isFinite(my) ? my * k : n1.y * EXPAND_MITER_LIMIT; }
     return { x: v.x + d * mx, y: v.y + d * my };
   });
 }
@@ -525,7 +527,7 @@ function planPair(pair: CorrespondencePair): void {
     return p;
   };
   pair.plan = {
-    get a() { return prepare().a; }, get b() { return prepare().b; },
+    get a() { return prepare().a; }, get b() { return prepare().b; }, get dashShift() { return prepare().dashShift; }, get dashReversed() { return prepare().dashReversed; },
     closed: morphIsClosed(a, b, strategy), strategy,
     prepare() { prepare(); },
   };
@@ -601,6 +603,9 @@ interface SampleBuffers {
   stroke: (t: number) => string;
   /** drain: the ring sampled as a polygon once; `morph` holds the clipped result. */
   ring?: { x: number; y: number }[];
+  /** prepared per-stop colour lerps of a gradient-filled / -stroked pair */
+  gfill?: GradientLerp;
+  gstroke?: GradientLerp;
 }
 const buffers = new WeakMap<SampledPath, SampleBuffers>();
 const smooth = (p: number) => p * p * (3 - 2 * p);
@@ -634,7 +639,7 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       const pa = (a ?? one).paint, pb = (b ?? one).paint;
       buf = {
         pair, a: (a?.nodes ?? []).map(copyNode), b: (b?.nodes ?? []).map(copyNode),
-        morph: aligned ? sampleNodes(aligned.a, aligned.b, 0, 1, 1) : [],
+        morph: aligned ? sampleNodes(aligned.a, aligned.b, 0, 1, 1, [], { wa: 1, ha: 1, wb: 1, hb: 1 }) : [],
         dash: lerpDash(pa.dash, pb.dash, 0.5) ?? [],
         aDash: lerpDash(pa.dash, pb.dash, 0), bDash: lerpDash(pa.dash, pb.dash, 1),
         fill: prepareColorLerp(pa.fill, pb.fill), stroke: prepareColorLerp(pa.stroke, pb.stroke),
@@ -689,7 +694,7 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       path.closed = end.closed;
     } else if (aligned) {
       const x = lerp(a.bbox.x, b.bbox.x, t), y = lerp(a.bbox.y, b.bbox.y, t);
-      path.nodes = sampleNodes(aligned.a, aligned.b, t, lerp(a.bbox.w, b.bbox.w, t), lerp(a.bbox.h, b.bbox.h, t), buf.morph);
+      path.nodes = sampleNodes(aligned.a, aligned.b, t, lerp(a.bbox.w, b.bbox.w, t), lerp(a.bbox.h, b.bbox.h, t), buf.morph, { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
       for (const n of path.nodes) { n.x += x; n.y += y; }
       path.closed = aligned.closed;
     }
@@ -700,6 +705,12 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
     paint.dash = t === 0 ? buf.aDash : t === 1 ? buf.bDash : lerpDash(pa.dash, pb.dash, t, buf.dash);
     paint.cap = t < 0.5 ? pa.cap : pb.cap;
     paint.opacity = lerp(pa.opacity ?? 1, pb.opacity ?? 1, t);
+    // per-channel alpha and colormap gradients ride t like every other channel
+    const fo = lerp(pa.fillOpacity ?? 1, pb.fillOpacity ?? 1, t), so = lerp(pa.strokeOpacity ?? 1, pb.strokeOpacity ?? 1, t);
+    if (fo < 1) paint.fillOpacity = fo; else delete paint.fillOpacity;
+    if (so < 1) paint.strokeOpacity = so; else delete paint.strokeOpacity;
+    if (pa.fillMap?.stops?.length || pb.fillMap?.stops?.length) paint.fillMap = lerpGradientFill(pa.fillMap, pb.fillMap, pa.fill, pb.fill, t, (buf.gfill ??= {})); else delete paint.fillMap;
+    if (pa.strokeMap?.stops?.length || pb.strokeMap?.stops?.length) paint.strokeMap = lerpGradientFill(pa.strokeMap, pb.strokeMap, pa.stroke, pb.stroke, t, (buf.gstroke ??= {})); else delete paint.strokeMap;
     const stepped = t < 0.5 ? pa : pb;
     paint.arrowStart = stepped.arrowStart; paint.arrowEnd = stepped.arrowEnd;
     paint.arrowStyle = stepped.arrowStyle; paint.arrowSize = stepped.arrowSize;
@@ -707,4 +718,33 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
   }
   out.length = plan.pairs.length;
   return out;
+}
+
+const headNodes = new WeakMap<CorrespondencePair, { buf: VectorNode[]; ref: Map<string, [number, number]> }>();
+/** Stage-space vertices of a FIXED head (a stroke side's authored arrowhead that
+ *  rides an inflating pair) at flight progress u: the authored points (already in stage
+ *  px), carried by the displacement of the swelling chain's support point along the
+ *  head's own direction from that point on the head's OWN state (u = 0 for a head of
+ *  the source side, u = 1 for the destination's), so it is exactly where it was drawn
+ *  there even on a hooked stroke. Rigid, never scaled with the lerped box (dividing by a
+ *  zero-extent box of an axis-aligned arrow used to flatten the head). The same law as
+ *  `fixedHeadPoints` in the 1↔1 driver, in stage px. Pure in (pair, u): the WeakMap
+ *  only holds a reusable node buffer and the t-independent reference point. */
+export function pairHeadPoints(pair: CorrespondencePair, points: number[][], dir: [number, number], u: number, landing: boolean): number[][] {
+  const plan = pair.plan, a = pair.a, b = pair.b;
+  if (!plan || !a || !b) return points;
+  const st = headNodes.get(pair) ?? (headNodes.set(pair, { buf: [], ref: new Map() }), headNodes.get(pair)!);
+  // the support point of the intermediate chain in STAGE px at flight progress v (same law as sampleCorrespondence)
+  const tipAt = (v: number): [number, number] => {
+    const nodes = sampleNodes(plan.a, plan.b, v, lerp(a.bbox.w, b.bbox.w, v), lerp(a.bbox.h, b.bbox.h, v), st.buf, { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
+    const x = lerp(a.bbox.x, b.bbox.x, v), y = lerp(a.bbox.y, b.bbox.y, v);
+    for (const n of nodes) { n.x += x; n.y += y; }
+    return supportPoint(nodes, true, dir);
+  };
+  const k = landing ? 1 : 0, key = k + ":" + dir[0] + "," + dir[1]; // a pair can carry a head at each stroke end
+  let ref = st.ref.get(key);
+  if (!ref) st.ref.set(key, ref = tipAt(k));
+  const tip = tipAt(u);
+  const dx = tip[0] - ref[0], dy = tip[1] - ref[1];
+  return points.map(([px, py]) => [px + dx, py + dy]);
 }
