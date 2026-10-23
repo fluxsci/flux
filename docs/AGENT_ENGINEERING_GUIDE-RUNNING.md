@@ -10554,3 +10554,28 @@ classes in an always-mounted rail must be specific (`.rail-tabs`).
 
 ### 2026-10-22 15:50 CDT — Align / Arrange blueprint (Codex, main)
 **Work:** Produced `notes/align_arrange_2026-10-22/PLAN.md` with three independent mapping, critique and final-review passes covering the A-key Align panel, inferred tidy plus fixed-anchor gap manipulation, and actual scientific-spine alignment. Retained source references and executable arithmetic/SVG probes; existing ops, geometry and target-geometry gates pass. This is planning only; no application feature was implemented.
+
+### 2026-10-22 — Plots rail P3 + the Slide rail (Claude Opus 5.5, `plots-rail-p3` worktree)
+**Work:** P3 per PLAN §13 — Peek (350 ms dwell / Shift+Space; 1024 px raster, printed size + width
+class, placements, dissection groups, the backdrop law's reason, the reads-poorly warning), Unused /
+Fluxplots / Has-dissections filters with a chip line, Show only this folder, Similar names, session
+Fresh dots, the width-class badge, variant stacks (off by default), idle pre-warm into the disk cache,
+separate gallery / dissections size sliders. P4: Slide's left rail is [Slides | Plots] (Alt+G via
+the per-tenant rail host; Slide's import route incl. clips with progress/Cancel; Become-pick Add-mode
+interplay; drop-at-pointer on the frame canvas). Owner tweaks: physical sizes in INCHES by default
+(Settings → Figure → Physical sizes → mm), Peek trims, no fixed left-rail width cap. An Opus review
+(no critical findings; 3 important + 9 minor) fixed with a regression check each.
+**Learnings:** §9 (never mutate an item a view memoises on; Slide's import job self-cancels when the
+dialog is closed; Shift+Alt+G = a popup in the browser harness; RailMenu labels start with ✓). Never
+edit `src/` while a ui tier runs against the same dev server: HMR re-stamps modules and gates that
+`import('/src/…')` get a second instance (background-run, model3d-source went red); restart the
+server. A timing-ratio gate needs equal-work samples of several ms — a 1 ms run is CI noise.
+**Verification:** svelte-check + headless 0/0; pure 394/394 (after the last change); ui 157/157 on a
+fresh server before the review fixes, the rail gates (P2 67, P3 56, Slide 36, model 45) plus crop,
+filmstrip, slide-editor and video-clips after them; native on :87: plots-rail-electron (Peek's
+worker raster, pre-warm into the cache, the Slide rail), figure-polish (rail open with pre-warm
+rendering: 62.6 vs ~51 ms p95), figure-metadata, gallery-preview, plot-gallery. OPEN for tonight's
+full run: the final ui tier after the review fixes; `verify-slide-video-clips-electron` ("native
+resize handle hit") and `verify-annotate-utility-electron` (win:capture pixels) fail on this Xvfb —
+the clips one identically on pre-merge main; CI-only reds seen on main (text-morph letter counts,
+model3d-gui, model3d-snapshot-quiet, a 101 ms morph-startup seek) predate the rail.
