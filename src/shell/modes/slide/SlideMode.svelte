@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "../../../lib/editorCore"; // links the editor core into the store (./editorLink)
   import { captureOpen, yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { slideContext } from "../../../lib/bridge/contextStamp";

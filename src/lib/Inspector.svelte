@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./editorCore"; // links the editor core into the store (./editorLink)
   import { openFigureMeta } from "./figure/metadataState";
   import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./interact/elementProperties";
   import { editSession } from "./interact/editSession";

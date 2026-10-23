@@ -7,8 +7,10 @@ import { migrateProject, DEFAULT_TEXT_STYLES } from "./migrate";
 import { ensureFigureReferenceKeys } from "./project/figureIdentity";
 import { unitOf } from "./groups";
 import type { XrayTarget } from "./xray/buildXrayTree";
-import * as ops from "./ops";
-import { applySourceUpdates } from "./plot/sourceSync";
+// The light figure lifecycle only — the shell imports this store; ops (the whole editor core) is
+// bound late through ./editorLink for the two editor-only needs below.
+import { BLANK_FIGURE, createFigure, duplicateFigure as duplicateFigureOp, deleteCanvas as deleteCanvasOp } from "./figureLifecycle";
+import { editorCore } from "./editorLink";
 import { storeTenant } from "./tenancy";
 
 // ---------------------------------------------------------------------------
@@ -68,9 +70,9 @@ export function blankFigure(canvasId: Id, name = "Figure 1"): Figure {
     canvasId,
     x: 0,
     y: 0,
-    width: ops.BLANK_FIGURE.width,
-    height: ops.BLANK_FIGURE.height,
-    background: ops.BLANK_FIGURE.background,
+    width: BLANK_FIGURE.width,
+    height: BLANK_FIGURE.height,
+    background: BLANK_FIGURE.background,
     elements: [],
   };
 }
@@ -88,7 +90,7 @@ function blankProject(): Project {
     colorGroups: get(settings).flexokiDefault ? structuredClone(FLEXOKI) : [],
     textStyles: structuredClone(DEFAULT_TEXT_STYLES),
   };
-  ops.createFigure(p, { canvasId }); // stamps family identity ("Figure 1")
+  createFigure(p, { canvasId }); // stamps family identity ("Figure 1")
   return p;
 }
 
@@ -428,7 +430,7 @@ export function acceptFigureSourceSizes(updates: readonly { assetId: string; wid
 export function publishAcceptedFigureSources(updates: readonly { assetId: string; width: number; height: number }[]): void {
   if (!figureSourceHistory || storeTenant() !== "figure") throw new Error("Figure source publication requires its editor owner");
   const next = structuredClone(get(project));
-  applySourceUpdates(next, updates);
+  editorCore().applySourceUpdates(next, updates);
   acceptFigureSourceSizes(updates);
   project.set(next);
   markEdited();
@@ -495,7 +497,7 @@ function restore(e: HistEntry) {
       const accepted = acceptedFigureSourceSizes.get(asset.id);
       return accepted && (accepted.width !== asset.naturalWidth || accepted.height !== asset.naturalHeight) ? [accepted] : [];
     });
-    if (updates.length) applySourceUpdates(e.snap, updates);
+    if (updates.length) editorCore().applySourceUpdates(e.snap, updates);
   }
   project.set(e.snap);
   if (companion && "comp" in e) companion.restore(e.comp);
@@ -793,7 +795,7 @@ export function selectFrame(id: Id) {
 export function duplicateFigure(id: Id) {
   let newFigId: Id | null = null;
   commit((p) => {
-    newFigId = ops.duplicateFigure(p, id);
+    newFigId = duplicateFigureOp(p, id);
   });
   if (newFigId) {
     activeFigureId.set(newFigId);
@@ -805,7 +807,7 @@ export function duplicateFigure(id: Id) {
 // reading order (top-to-bottom, then left-to-right) so @fig-x-a refs stay valid
 // and follow arrangement. Call after laying panels out. (Shared via ops.)
 export function autoLetterPanels(figId: Id) {
-  commit((p) => ops.autoLetterPanels(p, figId));
+  commit((p) => editorCore().autoLetterPanels(p, figId));
 }
 
 // Drop ids that no longer exist (after undo/redo/delete).
@@ -992,7 +994,7 @@ export function addCanvas() {
     p.canvases.push({ id: cid, name: `Canvas ${p.canvases.length + 1}` });
     // Through the ops core so the new figure APPENDS to the figure family
     // (a raw blankFigure would claim "Figure 1" and collide across canvases).
-    ops.createFigure(p, { canvasId: cid });
+    createFigure(p, { canvasId: cid });
   });
   setActiveCanvas(cid);
 }
@@ -1009,7 +1011,7 @@ export function deleteCanvas(id: Id) {
   if (get(project).canvases.length <= 1) return;
   const wasActive = get(activeCanvasId) === id;
   commit((p) => {
-    ops.deleteCanvas(p, id);
+    deleteCanvasOp(p, id);
   });
   if (wasActive) {
     const first = get(project).canvases[0]?.id;

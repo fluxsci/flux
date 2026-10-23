@@ -65,8 +65,12 @@ async function main() {
   // The earlier bare mouseDown could miss after a native window focus change;
   // an actual pointer move also establishes hover before the button press.
   await focusInput();
-  const handleSelector='.mc:not([inert]) .slide-mode .overlay-svg .handle:last-of-type';
-  const handle = await wait(()=>js(`(()=>{const n=document.querySelector(${JSON.stringify(handleSelector)});if(!n)return;const b=n.getBoundingClientRect(),x=Math.round(b.x+b.width/2),y=Math.round(b.y+b.height/2);if(document.elementFromPoint(x,y)!==n)return;return{x,y}})()`),'native resize handle hit');
+  // The drawn corner square is paint only (pointer-events: none since the 2026-10-21 Figma hit
+  // zones); the corner ZONE beneath it takes the press. Aim at the visible square, demand that the
+  // hit there is that corner's zone.
+  const cornerSelector='.mc:not([inert]) .slide-mode .overlay-svg .handle:last-of-type';
+  const handleSelector='.mc:not([inert]) .slide-mode .overlay-svg .zone.corner';
+  const handle = await wait(()=>js(`(()=>{const n=document.querySelector(${JSON.stringify(cornerSelector)});if(!n)return;const b=n.getBoundingClientRect(),x=Math.round(b.x+b.width/2),y=Math.round(b.y+b.height/2),hit=document.elementFromPoint(x,y);if(!hit||!hit.matches(${JSON.stringify(handleSelector)})||hit.getAttribute('data-h')!==n.getAttribute('data-h'))return;return{x,y}})()`),'native resize handle hit');
   win.webContents.sendInputEvent({type:'mouseMove',...handle}); await paint();
   await js(`window.__videoResizeDown=null;window.addEventListener('pointerdown',event=>{window.__videoResizeDown={handle:event.target.matches(${JSON.stringify(handleSelector)}),trusted:event.isTrusted,buttons:event.buttons};},{once:true,capture:true});void 0`);
   win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...handle });
