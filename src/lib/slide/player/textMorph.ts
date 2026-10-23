@@ -291,7 +291,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
     const bounds: LaneBounds | undefined = opts.stage ? { x0: -Math.min(A.x, B.x), y0: -Math.min(A.y, B.y), x1: opts.stage.width - Math.max(A.x, B.x), y1: opts.stage.height - Math.max(A.y, B.y) } : undefined;
     const lanes = glideLanes(glides.map((n) => n.geom!), bounds);
     glides.forEach((n, i) => { n.lane = lanes[i]; });
-    // Roll fades: free-standing exits and enters (not the ones riding a glide) lean toward the other side's centroid.
+    // Roll fades: free-standing exits and enters lean toward the other side's centroid; riders roll in place (below).
     if (look.fadeStyle === "roll") {
       const ctr = (n: SpanNode) => { const p = n.a ?? n.b!; return { x: p.x + n.centre.x, y: p.y + n.centre.y }; };
       const mean = (ns: SpanNode[]) => ns.length ? { x: ns.reduce((q, n) => q + ctr(n).x, 0) / ns.length, y: ns.reduce((q, n) => q + ctr(n).y, 0) / ns.length } : null;
@@ -299,6 +299,9 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
       const cEx = mean(ex), cEn = mean(en);
       for (const n of ex) n.pull = cEn ? { x: cEn.x - ctr(n).x, y: cEn.y - ctr(n).y } : { x: 0, y: 0 };
       for (const n of en) n.pull = cEx ? { x: cEx.x - ctr(n).x, y: cEx.y - ctr(n).y } : { x: 0, y: 0 };
+      // Riders (the `e` of Microscope -> Microscopy, glued to their word's glide) roll in place: the same look with no
+      // pull, so a stem edit never shows a shrinking letter beside a rolling word. Their glide's position is added in frame().
+      for (const n of built) if (n.ride && n.span.kind !== "glide") n.pull = { x: 0, y: 0 };
     }
     // Paint order: exits under glides under enters. Arm every node at REST, before
     // its first promotion (render.ts: a mark attached in the promoting frame is inert).

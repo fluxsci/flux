@@ -33,6 +33,9 @@ export const LANE_POLICY = Object.freeze({
   engage: 0.1,
   /** more active glides than this: leave the classic arcs alone (cost is quadratic) */
   maxActive: 16,
+  /** work bound: each active glide is scored against at most this many obstacles (the deepest by the wide band), so a
+   *  dense page (48 glides: a long reversal between two static paragraphs) costs the same as a dozen-word one */
+  maxObstacles: 12,
   /** lane ladder in em (the sign is tried both ways, the travel-preferred side first) */
   ladderEm: Object.freeze([0.3, 0.6, 0.9, 1.2]),
   sweeps: 4,
@@ -42,12 +45,11 @@ export const LANE_POLICY = Object.freeze({
 export const LEFT_OF_TRAVEL = -1;
 
 export interface LaneOffset { dx: number; dy: number }
-const ZERO: LaneOffset = { dx: 0, dy: 0 };
 
 /** The offset a bow adds at progress t (zero at both ends): (−dy, dx)/d · bow · 4t(1−t), the same normal as
  *  `arcBox` (tween.ts). Positive bow = clockwise of travel (down for a rightward glide). */
 export function bowOffset(g: GlideGeom, bow: number, t: number): LaneOffset {
-  if (!bow) return ZERO;
+  if (!bow) return { dx: 0, dy: 0 };
   const dx = g.bx - g.ax, dy = g.by - g.ay, d = Math.hypot(dx, dy) || 1, k = bow * 4 * t * (1 - t);
   return { dx: (-dy / d) * k, dy: (dx / d) * k };
 }
@@ -115,9 +117,16 @@ export function glideLanes(gs: GlideGeom[], bounds?: LaneBounds): (number | unde
   const size = Math.max(...gs.map((g) => g.size));
   // obstacles for glide i: every other glide that can come within the widest lane + a band
   const reach = (P.ladderEm[P.ladderEm.length - 1] + P.bandEm) * size;
-  const wide = (g: GlideGeom, h: GlideGeom, pg: Path, ph: Path) => depth(g, h, pg, ph, reach / ((g.size + h.size) / 2)) > 0;
+  const wide = (g: GlideGeom, h: GlideGeom, pg: Path, ph: Path) => depth(g, h, pg, ph, reach / ((g.size + h.size) / 2));
   const straight = gs.map((g) => pathOf(g, 0));
-  const nbr = new Map<number, number[]>(active.map((i) => [i, gs.map((_, j) => j).filter((j) => j !== i && wide(gs[i], gs[j], straight[i], straight[j]))]));
+  // the deepest `maxObstacles` neighbours of each active glide (stable: ties keep the lower index)
+  const obstacles = (i: number): number[] => {
+    const near: { j: number; d: number }[] = [];
+    for (let j = 0; j < n; j++) { if (j === i) continue; const d = wide(gs[i], gs[j], straight[i], straight[j]); if (d > 0) near.push({ j, d }); }
+    if (near.length > P.maxObstacles) near.sort((p, q) => q.d - p.d || p.j - q.j).splice(P.maxObstacles);
+    return near.map((o) => o.j).sort((p, q) => p - q);
+  };
+  const nbr = new Map<number, number[]>(active.map((i) => [i, obstacles(i)]));
   const cur = new Array<number | undefined>(n).fill(undefined); // current lane per glide (undefined = classic)
   const pathNow = (j: number) => pathOf(gs[j], cur[j]);
   const cost = (i: number, bow: number | undefined) => { const pi = pathOf(gs[i], bow); return nbr.get(i)!.reduce((c, j) => c + overlapCost(gs[i], gs[j], pi, pathNow(j)), 0); };

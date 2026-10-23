@@ -34,7 +34,7 @@ export interface PresetDef {
   authoringParams?: Readonly<Record<string, number | string | boolean>>;
   /** Authored `params` written ONLY when the track's target is text (X1a): a text rewrite is the one place the
    *  look depends on what the target IS, so the table cannot be keyed by preset alone. Merged over `authoringParams`
-   *  by `authoredFields(preset, params, target)`. Absent keys keep today's playback (drift / fade). */
+   *  by `authoredFields(preset, params, rewrites)`. Absent keys keep today's playback (drift / fade). */
   authoringTextParams?: Readonly<Record<string, number | string | boolean>>;
   /** A symmetric there-and-back preset (pulse, encircle: not built yet): its landing must have zero
    *  velocity, so it is authored with `smooth`, never QUICK_SMOOTH (X2; verify-pace-defaults pins it). */

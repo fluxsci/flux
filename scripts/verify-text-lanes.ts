@@ -34,7 +34,7 @@ function worstOverlap(gs: GlideGeom[], lanes?: (number | undefined)[]): number {
 }
 
 h.section("pinned policies");
-h.eq(JSON.stringify(LANE_POLICY), JSON.stringify({ marginEm: 0.08, bandEm: 0.6, steps: 24, engage: 0.1, maxActive: 16, ladderEm: [0.3, 0.6, 0.9, 1.2], sweeps: 4 }), "LANE_POLICY pinned");
+h.eq(JSON.stringify(LANE_POLICY), JSON.stringify({ marginEm: 0.08, bandEm: 0.6, steps: 24, engage: 0.1, maxActive: 16, maxObstacles: 12, ladderEm: [0.3, 0.6, 0.9, 1.2], sweeps: 4 }), "LANE_POLICY pinned");
 h.eq(JSON.stringify(LETTER_BAG_POLICY), JSON.stringify({ maxLetters: 30, minLetters: 5, minOverlap: 0.8, minMovers: 2 }), "LETTER_BAG_POLICY pinned");
 h.eq(JSON.stringify(LEFTOVER_ROLL), JSON.stringify({ rollEm: 0.35, travelEm: 1.5, maxEm: 0.9, frac: 0.3 }), "LEFTOVER_ROLL pinned");
 
@@ -92,6 +92,20 @@ h.section("lanes: measured quality (ink overlap, px^2, smootherstep 55 frames)")
   const ts: number[] = []; const g16 = glides(Array.from({ length: 16 }, (_, i) => "w" + i + "x".repeat(i % 4)).join(" "), Array.from({ length: 16 }, (_, i) => "w" + (15 - i) + "x".repeat((15 - i) % 4)).join(" "), 28, 520);
   for (let k = 0; k < 7; k++) { const t0 = performance.now(); glideLanes(g16); ts.push(performance.now() - t0); } ts.sort((x, y) => x - y);
   h.ok(ts[3] < 25, `planning 16 glides: median ${ts[3].toFixed(1)} ms (< 25; measured ~9 warm, runs in the idle warm-up, not in a frame)`);
+  // the dense corner (review #2): a 16-word reversal between two static 16-word rows = 48 glides, ~14 active. The work is
+  // bounded by maxObstacles per active glide, not by the glide count (uncapped this took ~38 ms warm, over the 35 ms budget).
+  const dense: GlideGeom[] = [];
+  for (const [y, rev, tag] of [[20, false, "a"], [44, true, "b"], [68, false, "c"]] as const) {
+    const ws = Array.from({ length: 16 }, (_, i) => tag + i), order = rev ? ws.slice().reverse() : ws, wd = (t: string) => t.length * 10;
+    const at = (list: string[]) => { const m = new Map<string, number>(); let x = 0; for (const t of list) { m.set(t, x); x += wd(t) + 5; } return m; };
+    const from = at(ws), to = at(order);
+    for (const t of ws) dense.push({ ax: from.get(t)!, ay: y, bx: to.get(t)!, by: y, w: wd(t), size: 20 });
+  }
+  const dts: number[] = []; let dl: (number | undefined)[] = [];
+  for (let k = 0; k < 7; k++) { const t0 = performance.now(); dl = glideLanes(dense); dts.push(performance.now() - t0); } dts.sort((x, y) => x - y);
+  h.ok(dense.length === 48 && dl.some((v) => v !== undefined), "48 glides (16-word reversal between two static rows): still planned");
+  h.ok(worstOverlap(dense, dl) < worstOverlap(dense) * 0.6, `…and better than the classic arcs (${worstOverlap(dense)} -> ${worstOverlap(dense, dl)} px^2)`);
+  h.ok(dts[3] < 25 && dts[3] < 1.4 * ts[3], `planning 48 glides: median ${dts[3].toFixed(1)} ms vs ${ts[3].toFixed(1)} ms for 16 (< 25 and < 1.4x: the work is bounded by maxObstacles; ~2x and growing without it)`);
 }
 
 h.section("letter bag: near-permutations only");

@@ -13,7 +13,7 @@
 //   4. CHARACTER blocks inside a leftover gap, only when the two gap strings are
 //      "close" (similarity ≥ 0.4, both ≤ 60 chars) — a lone letter flying across
 //      a rewrite reads as noise, a word stem gliding into its plural reads as magic.
-// A fifth, opt-in pass (the LETTER BAG, authored `params.letters: "travel"`)
+// A further, opt-in pass (pass 6 of `matchTokens`: the LETTER BAG, authored `params.letters: "travel"`)
 // lets the leftover LETTERS of a near-permutation (an anagram) fly to their places.
 // Runs are maximal spans that move as ONE unit; exits/enters are whole words.
 // `planTextMorph` cuts runs at visual-line (and style-segment) boundaries,
@@ -512,7 +512,6 @@ export function crossArc(dx: number, dy: number, size: number, t: number): numbe
   const lift = Math.min(0.3 * size, 0.1 * Math.abs(dx));
   return -Math.sign(dx) * lift * 4 * t * (1 - t);
 }
-
 
 // --- the leftover ROLL (authored `params.fadeStyle: "roll"`; `fadeLook` stays the classic look) -----------------------
 
