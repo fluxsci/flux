@@ -56,6 +56,7 @@
       "verify-compensate.ts",
       "verify-crisp-source.ts",
       "verify-xray-tree.ts",
+      "verify-xray-context.ts",
       "verify-fetchflow.ts",
       "verify-figfamily.ts",
       "verify-ops.ts",
@@ -513,6 +514,7 @@
       "verify-gallery-workflow.mjs",
       "verify-fmenu-surface.mjs",
       "verify-xray-multi-gui.mjs",
+      "verify-xray-context-gui.mjs",
       "verify-render-optimizations.mjs",
       "verify-canvas-coverage.mjs",
       "verify-shell-fortification.mjs",
@@ -2717,7 +2719,8 @@
         "verify-model3d-snapshot-quiet.mjs",
         "verify-become-picker-gui.mjs",
         "group:plots-rail",
-        "group:align-arrange"
+        "group:align-arrange",
+        "verify-xray-context-gui.mjs"
       ]
     },
     {
@@ -3171,6 +3174,7 @@
     {
       "glob": "src/lib/keyboard.ts",
       "run": [
+        "verify-xray-context-gui.mjs",
         "verify-fig-order-gui.mjs",
         "verify-fig-namer.mjs",
         "group:slide-stash",
@@ -3373,8 +3377,10 @@
         "verify-animate-selection.ts",
         "verify-wheel-law.ts",
         "verify-xray-tree.ts",
+        "verify-xray-context.ts",
         "verify-fmenu-surface.mjs",
         "verify-xray-multi-gui.mjs",
+        "verify-xray-context-gui.mjs",
         "verify-xray-theme.mjs",
         "figenh-18-xray.mjs",
         "figenh-14-partui.mjs",
@@ -7854,6 +7860,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-xray-context-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-xray-multi.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -7875,6 +7892,15 @@
       "coverage": "behavior"
     },
     "verify-xray-tree.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-xray-context.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

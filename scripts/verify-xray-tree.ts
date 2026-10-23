@@ -21,7 +21,7 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
 
 const { buildXrayTree, targetLabel } = await import("../src/lib/xray/buildXrayTree");
-const { buildPartTree } = await import("../src/lib/plot/tree");
+const { buildPartTree, labelForPart } = await import("../src/lib/plot/tree");
 const { parsePlotSvg } = await import("../src/lib/plot/parse");
 const { normalizeSvgForParts, deriveManifestFromSvg } = await import("../src/lib/plot/derive");
 import type { XRow } from "../src/lib/xray/buildXrayTree";
@@ -97,10 +97,20 @@ console.log("(a) fluxplot element root:");
   assert(root!.label === "scatter", "…labeled by the svg basename (no user name set)");
   assert(root!.children.length === ref.children.length, `part fan-out mirrors buildPartTree (${root!.children.length})`);
 
-  // Deep structural mirror: id/label/role/order identical to buildPartTree.
-  let mirrored = 0;
+  // Deep structural mirror: id/label/role/order identical to buildPartTree. A
+  // group's MEMBERS (2026-10-23) are rows too — exactly its targets, in order,
+  // labelled like the part index labels them, flagged `member`, leaf rows.
+  let mirrored = 0, memberRows = 0;
   const same = (a: XRow, b: XrayNode): boolean => {
     if (a.partId !== b.id || a.label !== b.label || a.role !== b.role) return false;
+    if (b.isGroup && !b.children.length) {
+      const want = b.targets.length === 1 && b.targets[0] === b.id ? [] : b.targets; // a group of itself has no member rows
+      const ok = a.children.length === want.length && a.children.every((m, i) =>
+        m.member === true && m.kind === "part" && m.partId === want[i] && m.children.length === 0 && m.label === labelForPart({ id: m.partId, role: m.role }));
+      memberRows += a.children.length;
+      if (ok) mirrored++;
+      return ok;
+    }
     if (a.children.length !== b.children.length) return false;
     mirrored++;
     return a.children.every((c, i) => same(c, b.children[i]));
@@ -109,6 +119,7 @@ console.log("(a) fluxplot element root:");
     root!.children.every((c, i) => same(c, ref.children[i])),
     `every part row mirrors its XrayNode (id+label+role+order, ${mirrored} nodes)`,
   );
+  assert(memberRows > 0, `group members are rows of their own (${memberRows})`);
   const flat: XRow[] = [];
   const walk = (n: XRow) => (flat.push(n), n.children.forEach(walk));
   walk(root!);

@@ -43,14 +43,20 @@
     xrayRoot,
     selectOnly,
     commit,
+    undo,
+    redo,
     embeddedProjectRoot,
     projectDir,
   } from "./store";
   import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
-  import { plotManifests, plotRecipes } from "./plot/store";
+  import { plotManifests, plotRecipes, plotDom, plotGen, requestPlotDom } from "./plot/store";
   import { partReadout, readoutText } from "./plot/readout";
-  import { buildXrayTree, partRowId, commonPartRows, targetLabel, rowParents, widenToSiblings, type XRow, type XrayTarget } from "./xray/buildXrayTree";
+  import { readPartStyle } from "./plot/partStyle";
+  import { kindForRole } from "./plot/tree";
+  import { buildXrayTree, partRowId, commonPartRows, nestCommonRows, targetLabel, widenToSiblings, type XRow, type XrayTarget } from "./xray/buildXrayTree";
+  import { queryTokens, matchesQuery, highlightSegments, manifestIndex, rowSearchFields } from "./xray/rowContext";
+  import { xrayHover } from "./xray/hoverHook";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
@@ -66,9 +72,39 @@
   // below gates the DOM but not $: blocks, so a closed X-ray never pays a
   // rebuild on every commit.
   $: root = $xrayRoot;
-  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests, $scene3dManifests) : null;
-  // A multi-plot root's SHARED parts (one row hides a part everywhere).
-  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests, $scene3dManifests, Object.fromEntries($project.assets.filter(a => a.model).map(a => [a.id, a.model!]))) : [];
+  // Text previews read the plot's drawing only where the manifest has none (a
+  // title); `$plotGen` bumps when a drawing (re)loads, so the rows re-read it.
+  $: domOf = (void $plotGen, (assetId: string) => plotDom.get(assetId) ?? null);
+  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests, $scene3dManifests, domOf) : null;
+  // A multi-plot root's SHARED parts (one row hides a part everywhere): flat for
+  // search and selection, nested as the first plot nests them for display.
+  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests, $scene3dManifests, Object.fromEntries($project.assets.filter(a => a.model).map(a => [a.id, a.model!])), domOf) : [];
+  $: commonTree = nestCommonRows(common, firstPlotManifest($project, root, $plotManifests));
+  // id → row + parent, once per tree (a pick never walks the tree per row). The
+  // common rows' top level hangs off a synthetic root so `a` widens among them.
+  $: rowIndex = indexRows(tree, commonTree);
+  $: parents = new Map([...rowIndex].filter(([, v]) => v.parent).map(([k, v]) => [k, v.parent!]));
+  function indexRows(t: XRow | null, c: XRow[]): Map<string, { row: XRow; parent: XRow | null }> {
+    const m = new Map<string, { row: XRow; parent: XRow | null }>();
+    const walk = (n: XRow, parent: XRow | null) => { m.set(n.id, { row: n, parent }); for (const ch of n.children) walk(ch, n); };
+    const commonRoot: XRow = { id: "common-root", kind: "set", role: "set", label: "", isGroup: true, children: c };
+    for (const r of c) walk(r, commonRoot);
+    if (t) walk(t, null);
+    return m;
+  }
+  function firstPlotManifest(p: typeof $project, r: XrayTarget | null, ms: Record<string, FluxPlotManifest>): FluxPlotManifest | undefined {
+    const first = rootPlots(p, r)[0];
+    return first?.type === "plot" ? ms[first.assetId] : undefined;
+  }
+  // The plots under the X-ray parse their drawing now (Figure mode loads it lazily):
+  // the few previews read from it then hold steady while the panel is up.
+  $: if ($xrayOpen && root) for (const id of rootPlotAssetIds($project, root)) requestPlotDom(id);
+  function rootPlotAssetIds(p: typeof $project, r: XrayTarget): string[] {
+    const f = p.figures.find((ff) => ff.id === r.figId);
+    if (!f) return [];
+    const ids = r.kind === "element" ? [r.elementId] : r.kind === "elements" ? r.elementIds : membersDeep(f, r.groupId).map((e) => e.id);
+    return ids.map((id) => f.elements.find((e) => e.id === id)).filter((e): e is SemanticPlotElement => e?.type === "plot").map((e) => e.assetId);
+  }
   function rootPlots(p: typeof $project, r: XrayTarget | null): (SemanticPlotElement | Model3dElement)[] {
     if (!r || r.kind !== "elements") return [];
     const f = p.figures.find((ff) => ff.id === r.figId);
@@ -182,15 +218,8 @@
   let mode: "tree" | "search" = "tree";
   let animMenu = false;
   let panelEl: HTMLDivElement;
-  // plan F6: the hovered row's data readout (a point's x/y, a bar's height, a hexagon's count …)
-  let rowReadout: { id: string; text: string } | null = null;
-  function readoutForRow(n: XRow): { id: string; text: string } | null {
-    if (n.kind !== "part" || !n.partId) return null;
-    const el = n.elementId ? findEl(n.elementId) : rootPlot;
-    if (!el || el.type !== "plot") return null;
-    const text = readoutText(partReadout($plotManifests[el.assetId], n.partId));
-    return text ? { id: n.id, text } : null;
-  }
+  // The row under the pointer (the detail strip shows it, else the primary row).
+  let hoverRowId: string | null = null;
   function findEl(id: string) {
     for (const f of get(project).figures) for (const e of f.elements) if (e.id === id) return e;
     return undefined;
@@ -258,11 +287,23 @@
     if ($xrayOpen && prevMenu && !$fluxFigMenuOpen) requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
     prevMenu = $fluxFigMenuOpen;
   }
+  // Expansion is remembered per root for the session: reopening the X-ray on the
+  // same plot (or set) lands where you left it.
+  const expansionMemory = new Map<string, Set<string>>();
+  const rootKey = (t: XrayTarget | null) => (t ? JSON.stringify(t) : "");
+  function rememberExpansion() {
+    if (root) expansionMemory.set(rootKey(root), new Set(expanded));
+  }
   function seedExpanded(t: XRow | null) {
+    const kept = expansionMemory.get(rootKey(root));
+    if (kept) { expanded = new Set(kept); return; }
     const exp = new Set<string>();
+    // The shared axes open: what a multi-plot X-ray is mostly for (all y tick labels …).
+    for (const c of commonTree) if (c.role === "axis") exp.add(c.id);
     if (t) {
       const seed = (n: XRow, d: number) => {
-        if (d < 2 && n.children.length) exp.add(n.id);
+        // A group's members are many and alike: never opened unasked.
+        if (d < 2 && n.children.length && !n.children[0].member) exp.add(n.id);
         n.children.forEach((c) => seed(c, d + 1));
       };
       seed(t, 0);
@@ -274,14 +315,22 @@
     mode = "tree";
     animMenu = false;
     rootStack = [];
+    showMore = new Map();
+    hoverRowId = null;
     seedExpanded(tree);
-    // The drilled parts carry into the opened tree pre-selected + revealed.
+    // The drilled parts carry into the opened tree pre-selected + revealed — a
+    // group MEMBER (one tick label) included: members are rows of their own.
     const parts = get(partSelections);
     selectedId = null;
     selectedIds = new Set();
     anchorId = null;
     if (parts.length && root && (root.kind === "element" || root.kind === "elements")) {
-      for (const ps of parts) revealRow(partRowId(ps.elementId, ps.partId), true);
+      // The same part on EVERY plot of a multi-plot root lands on its common row.
+      const plots = root.kind === "elements" ? root.elementIds : [];
+      const on = new Map<string, Set<string>>();
+      for (const ps of parts) { if (!on.has(ps.partId)) on.set(ps.partId, new Set()); on.get(ps.partId)!.add(ps.elementId); }
+      const everywhere = (partId: string) => plots.length > 1 && plots.every((id) => on.get(partId)?.has(id)) && rowIndex.has("common:" + partId);
+      for (const ps of parts) revealRow(everywhere(ps.partId) ? "common:" + ps.partId : partRowId(ps.elementId, ps.partId), true);
     }
     requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
@@ -290,66 +339,84 @@
     node: XRow;
     depth: number;
   }
-  function flatten(n: XRow, depth: number, out: Row[], exp: Set<string>) {
-    out.push({ node: n, depth });
-    if (n.children.length && exp.has(n.id)) for (const c of n.children) flatten(c, depth + 1, out, exp);
+  // A group's members render capped: the first MEMBER_CAP, then a "+ N more"
+  // control (not a row — never picked, ranged or navigated). Picked members
+  // always render, wherever they sit.
+  const MEMBER_CAP = 60, MEMBER_STEP = 200;
+  let showMore = new Map<string, number>();
+  interface Built {
+    rows: Row[];
+    /** "+ N more" controls, by the row they follow */
+    more: Map<string, { groupId: string; rest: number }>;
+    /** search: a plot (or Common) header, by the row it precedes */
+    heads: Map<string, { label: string; prefix?: string; hint?: string; count: number }>;
+    /** rows from the Common section, in tree mode */
+    commonShown: number;
+    info: { hits: number; plots: number } | null;
   }
-  function searchRows(n: XRow, out: Row[], query: string) {
-    if (n.label.toLowerCase().includes(query)) out.push({ node: n, depth: 0 });
-    for (const c of n.children) searchRows(c, out, query);
+  function flatten(n: XRow, depth: number, b: Built, exp: Set<string>, sel: Set<string>, shown: Map<string, number>) {
+    b.rows.push({ node: n, depth });
+    if (!n.children.length || !exp.has(n.id)) return;
+    const cap = n.children[0].member ? (shown.get(n.id) ?? MEMBER_CAP) : Infinity;
+    let last: XRow | null = null, drawn = 0;
+    n.children.forEach((c, i) => {
+      if (i >= cap && !sel.has(c.id)) return;
+      flatten(c, depth + 1, b, exp, sel, shown);
+      last = c; drawn++;
+    });
+    if (last && drawn < n.children.length) b.more.set((last as XRow).id, { groupId: n.id, rest: n.children.length - drawn });
+  }
+  const fieldsOf = (n: XRow, plot: XRow | null) => rowSearchFields(n, plot && plot !== n ? plot.label : undefined);
+  function buildRows(t: XRow | null, cTree: XRow[], cFlat: XRow[], tokens: string[], exp: Set<string>, sel: Set<string>, shown: Map<string, number>): Built {
+    const b: Built = { rows: [], more: new Map(), heads: new Map(), commonShown: 0, info: null };
+    if (!t) return b;
+    if (!tokens.length) {
+      for (const r of cTree) flatten(r, 0, b, exp, sel, shown);
+      b.commonShown = b.rows.length;
+      flatten(t, 0, b, exp, sel, shown);
+      return b;
+    }
+    // Search: Common first, then the tree's hits — grouped under their plot when
+    // several plots are listed, each hit carrying its path ("X axis ›").
+    const commonHits = cFlat.filter((r) => matchesQuery(fieldsOf(r, null), tokens));
+    if (commonHits.length) b.heads.set(commonHits[0].id, { label: "Common", hint: `shared by all ${commonHits[0].elementIds?.length ?? 0}`, count: commonHits.length });
+    for (const r of commonHits) b.rows.push({ node: r, depth: 0 });
+    const several = t.kind === "set" || t.kind === "group";
+    const perPlot = new Map<string, { plot: XRow; first: string; count: number }>();
+    const walk = (n: XRow, plot: XRow | null) => {
+      const here = n.kind === "element" ? n : plot;
+      if (n.kind !== "set" && matchesQuery(fieldsOf(n, here), tokens)) {
+        b.rows.push({ node: n, depth: 0 });
+        if (several && here) {
+          const g = perPlot.get(here.id);
+          if (g) g.count++; else perPlot.set(here.id, { plot: here, first: n.id, count: 1 });
+        }
+      }
+      for (const c of n.children) walk(c, here);
+    };
+    walk(t, null);
+    for (const { plot, first, count } of perPlot.values()) b.heads.set(first, { label: plot.keyParts?.key ?? plot.label, prefix: plot.keyParts?.prefix, hint: plot.preview, count });
+    b.info = { hits: b.rows.length, plots: perPlot.size };
+    return b;
   }
   $: q = search.trim().toLowerCase();
-  // NOTE: `tree`, `common`, `q`, and `expanded` are passed as ARGUMENTS (not
-  // read inside the helpers) so Svelte's `$:` dependency analysis tracks them.
-  $: rows = buildRows(tree, common, q, expanded);
-  function buildRows(t: XRow | null, c: XRow[], query: string, exp: Set<string>): Row[] {
-    if (!t) return [];
-    const out: Row[] = [];
-    if (query) {
-      for (const r of c) if (r.label.toLowerCase().includes(query)) out.push({ node: r, depth: 0 });
-      searchRows(t, out, query);
-    } else {
-      for (const r of c) out.push({ node: r, depth: 0 });
-      flatten(t, 0, out, exp);
-    }
-    return out;
-  }
-  $: commonCount = common.length;
+  $: tokens = queryTokens(q);
+  // NOTE: everything the build reads is passed as an ARGUMENT so Svelte's `$:`
+  // dependency analysis tracks it.
+  $: built = buildRows(tree, commonTree, common, tokens, expanded, selectedIds, showMore);
+  $: rows = built.rows;
+  $: commonCount = built.commonShown;
 
-  function findRow(n: XRow | null, cs: XRow[], id: string | null): XRow | null {
-    if (!id) return null;
-    for (const c of cs) if (c.id === id) return c;
-    const dfs = (x: XRow | null): XRow | null => {
-      if (!x) return null;
-      if (x.id === id) return x;
-      for (const ch of x.children) {
-        const r = dfs(ch);
-        if (r) return r;
-      }
-      return null;
-    };
-    return dfs(n);
-  }
-  $: selRow = findRow(tree, common, selectedId);
-  $: pickedRows = [...selectedIds].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r);
+  $: selRow = selectedId ? rowIndex.get(selectedId)?.row ?? null : null;
+  $: pickedRows = [...selectedIds].map((id) => rowIndex.get(id)?.row).filter((r): r is XRow => !!r);
+  const rowsOf = (ids: Iterable<string>) => [...ids].map((id) => rowIndex.get(id)?.row).filter((r): r is XRow => !!r);
 
   /** Expand every ancestor of a row id and select it (re-root landing / open
    *  with drilled parts). Row ids are stable across re-roots. */
   function revealRow(rowId: string, additive = false) {
-    const path: string[] = [];
-    const dfs = (n: XRow | null): boolean => {
-      if (!n) return false;
-      if (n.id === rowId) return true;
-      for (const c of n.children) {
-        if (dfs(c)) {
-          path.push(n.id);
-          return true;
-        }
-      }
-      return false;
-    };
-    if (!dfs(tree) && !common.some((c) => c.id === rowId)) return;
-    for (const id of path) expanded.add(id);
+    const hit = rowIndex.get(rowId);
+    if (!hit) return;
+    for (let p = hit.parent; p; p = rowIndex.get(p.id)?.parent ?? null) expanded.add(p.id);
     expanded = expanded;
     selectedId = rowId;
     const next = additive ? new Set(selectedIds) : new Set<string>();
@@ -431,7 +498,7 @@
     }
     selectedIds = next;
     selectedId = n.id;
-    applySelection([...next].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r));
+    applySelection(rowsOf(next));
   }
   function pickAll() {
     const ids = rows.map((r) => r.node.id).filter((id) => !id.startsWith("set:"));
@@ -445,13 +512,12 @@
    *  of its parent, then — when that adds nothing — every row under the same parent. */
   function pickSiblings() {
     const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
-    const parent = rowParents(tree);
-    const next = widenToSiblings(tree, picked, parent);
+    const next = widenToSiblings(tree, picked, parents);
     if (!next) return;
-    for (const id of next) revealAncestors(id, parent);
+    for (const id of next) revealAncestors(id, parents);
     selectedIds = next;
     selectedId ??= picked[0].id;
-    applySelection([...next].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r));
+    applySelection(rowsOf(next));
   }
   function revealAncestors(id: string, parent: Map<string, XRow>) {
     for (let p = parent.get(id); p; p = parent.get(p.id)) expanded.add(p.id);
@@ -479,7 +545,7 @@
     selectedIds = next;
     selectedId = n.id;
     anchorId = sweep.startId;
-    applySelection([...next].map((id) => findRow(tree, common, id)).filter((r): r is XRow => !!r));
+    applySelection(rowsOf(next));
   }
   function onSweepEnd() {
     // The click that ends a sweep must not re-pick one row. It fires in this same
@@ -515,6 +581,7 @@
       if (n.kind === "part") revealRow(n.id); // already rooted here — just land on the part
       return;
     }
+    rememberExpansion();
     rootStack = [...rootStack, root];
     xrayRoot.set(target);
     // After the tree re-derives: land on the part (pre-expanded/selected), or
@@ -532,6 +599,7 @@
   function popRoot() {
     if (!rootStack.length) return;
     const t = rootStack[rootStack.length - 1];
+    rememberExpansion();
     rootStack = rootStack.slice(0, -1);
     xrayRoot.set(t);
     requestAnimationFrame(() => seedExpanded(tree));
@@ -539,6 +607,7 @@
   function popTo(i: number) {
     if (i >= rootStack.length) return;
     const t = rootStack[i];
+    rememberExpansion();
     rootStack = rootStack.slice(0, i);
     xrayRoot.set(t);
     requestAnimationFrame(() => seedExpanded(tree));
@@ -564,7 +633,8 @@
         // member (Show hidden off) must neither change nor reverse this action.
         const hidden = elementIds.every((id) => {
           const el = fig?.elements.find((e) => e.id === id);
-          return el?.type === "model3d" ? !!resolveScene3dPartStyle(get(scene3dManifests)[el.assetId], el.overrides, n.partId!).hidden : el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
+          // as DRAWN on each plot: that plot's own row carries the rendering rule's answer
+          return el?.type === "model3d" ? !!resolveScene3dPartStyle(get(scene3dManifests)[el.assetId], el.overrides, n.partId!).hidden : el?.type === "plot" && !!rowIndex.get(partRowId(id, n.partId!))?.row.hidden;
         });
         return { ...n, elementIds, hidden };
       });
@@ -574,12 +644,18 @@
     const hide = anyShown;
     commit((p) => {
       for (const n of targets) {
-        if (n.kind === "part" && n.elementId && n.partId) ops.setPartOverride(p, n.elementId, n.partId, { hidden: hide });
-        else if (n.kind === "common" && n.partId) for (const id of n.elementIds ?? []) ops.setPartOverride(p, id, n.partId, { hidden: hide });
+        if (n.kind === "part" && n.elementId && n.partId) writeHidden(p, n.elementId, n.partId, hide);
+        else if (n.kind === "common" && n.partId) for (const id of n.elementIds ?? []) writeHidden(p, id, n.partId, hide);
         else if (n.kind === "element" && n.elementId) ops.setElementStyle(p, [n.elementId], { hidden: hide });
         else if (n.kind === "group" && n.groupId) ops.setGroupState(p, n.groupId, { hidden: hide });
       }
     });
+  }
+  /** One part's eye on one plot. A plot part's toggle NORMALISES its subtree (rowContext
+   *  hiddenToggleWrites): "x" on Tick labels shows or hides every tick label, and showing one
+   *  tick label inside hidden tick labels draws it (the most specific flag wins). */
+  function writeHidden(p: typeof $project, elementId: string, partId: string, hide: boolean) {
+    ops.setPartHidden(p, elementId, partId, hide);
   }
   function toggleHidden(n: XRow) {
     // The eye acts on the pick when the row is part of it, else on the row.
@@ -616,7 +692,12 @@
     sink({ rootElementIds: ids, targets: animateTargets("become-destination", picked) });
   }
   function animateTargets(kind?: XrayAnimateKind, rows?: XRow[]): XrayAnimateTarget[] {
-    const picked = rows ?? (pickedRows.length ? pickedRows : selRow ? [selRow] : []);
+    const all = rows ?? (pickedRows.length ? pickedRows : selRow ? [selRow] : []);
+    // A picked group covers its picked MEMBERS (Tick labels + one tick label → one track
+    // for the family, never the glyph animated twice). Containers and their children stay
+    // separate targets, as before: "X axis appears, its ticks emphasize" is two tracks.
+    const pickedIds = new Set(all.map((n) => n.id));
+    const picked = all.filter((n) => !(n.member && pickedIds.has(rowIndex.get(n.id)?.parent?.id ?? "")));
     const exclusions = get(editorSelectionExclusions);
     const out: XrayAnimateTarget[] = [];
     const fig = root ? get(project).figures.find((f) => f.id === root.figId) : null;
@@ -649,6 +730,145 @@
     close(); // the timeline takes over — adjust from there
   }
 
+  // --- family: ← walks up a level, → down ------------------------------------------------
+  /** ← on an open row folds it; otherwise it moves to (and picks) the row's parent —
+   *  its FAMILY: one tick label → Tick labels → X axis. Shift keeps the pick and adds. */
+  function toParent(additive: boolean) {
+    if (!selRow) return;
+    if (selRow.children.length && expanded.has(selRow.id)) { expanded.delete(selRow.id); expanded = expanded; return; }
+    const up = parents.get(selRow.id);
+    if (!up || !rowIndex.has(up.id)) return;
+    pick(up, additive ? { ctrlKey: true } : undefined);
+    void revealPrimary();
+  }
+  /** → opens a closed row; on an open one it steps to the first child. */
+  function toChild() {
+    if (!selRow?.children.length) return;
+    if (!expanded.has(selRow.id)) { expanded.add(selRow.id); expanded = expanded; return; }
+    pick(selRow.children[0]);
+    void revealPrimary();
+  }
+
+  // --- ⇧A: the same part in EVERY plot of the figure -----------------------------------
+  /** Widen the picked parts to every plot in this figure that has them: the X-ray
+   *  re-roots on those plots together (⌫ returns) with the part picked on all of them —
+   *  its common row where every plot has it. "This y tick label style, everywhere." */
+  function pickEverywhere() {
+    if (!root) return;
+    const picked = (pickedRows.length ? pickedRows : selRow ? [selRow] : []).filter((n) => (n.kind === "part" || n.kind === "common") && n.partId);
+    if (!picked.length) return;
+    const fig = get(project).figures.find((f) => f.id === root.figId);
+    if (!fig) return;
+    const ms = get(plotManifests);
+    const partIds = [...new Set(picked.map((n) => n.partId!))];
+    const has = (e: (typeof fig.elements)[number], id: string) => {
+      if (e.type !== "plot" || isEditorTargetExcluded(e.id, id)) return false;
+      const m = ms[e.assetId];
+      if (!m) return false;
+      const ix = manifestIndex(m);
+      return ix.entries.has(id) || ix.memberOf.has(id);
+    };
+    // top-z first, like every listing
+    const plots = [...fig.elements].reverse().filter((e) => partIds.some((id) => has(e, id)));
+    const current = new Set(root.kind === "element" ? [root.elementId] : root.kind === "elements" ? root.elementIds : []);
+    const parts = plots.flatMap((e) => partIds.filter((id) => has(e, id)).map((partId) => ({ elementId: e.id, partId })));
+    const sameRoot = plots.length === current.size && plots.every((e) => current.has(e.id));
+    if (!sameRoot) {
+      if (plots.length < 2) return; // no other plot has it
+      rememberExpansion();
+      rootStack = [...rootStack, root];
+      xrayRoot.set({ kind: "elements", figId: fig.id, elementIds: plots.map((e) => e.id) });
+    }
+    requestAnimationFrame(() => {
+      if (!sameRoot) seedExpanded(tree);
+      selectedId = null; selectedIds = new Set(); anchorId = null;
+      for (const id of partIds) {
+        if (rowIndex.has("common:" + id)) revealRow("common:" + id, true);
+        else for (const ps of parts.filter((x) => x.partId === id)) revealRow(partRowId(ps.elementId, id), true);
+      }
+      applySelection(rowsOf(selectedIds)); // not pickedRows: its `$:` has not re-run yet this frame
+    });
+  }
+
+  // --- the detail strip: the hovered row, else the primary row ------------------------------
+  // Fixed, three lines, never a popover: the row's whole context and the facts a row has no
+  // room for — values in full, data readout, state, effective style, the part id.
+  interface Detail { path: string; title: string; values: string; meta: string[]; swatch?: string; id: string }
+  $: detailRow = (hoverRowId ? rowIndex.get(hoverRowId)?.row : null) ?? selRow;
+  $: detail = detailRow ? describeRow(detailRow, rowIndex, $project, $plotManifests) : null;
+  function plotOf(n: XRow, ix: typeof rowIndex): XRow | null {
+    for (let p: XRow | null = n; p; p = ix.get(p.id)?.parent ?? null) if (p.kind === "element") return p;
+    return null;
+  }
+  const plotName = (r: XRow | null) => (r ? (r.keyParts ? r.keyParts.key + (r.keyParts.ordinal ? ` #${r.keyParts.ordinal}` : "") : r.label) : "");
+  function describeRow(n: XRow, ix: typeof rowIndex, proj: typeof $project, ms: Record<string, FluxPlotManifest>): Detail {
+    const plot = n.kind === "part" ? plotOf(n, ix) : null;
+    const several = !!tree && (tree.kind === "set" || tree.kind === "group");
+    const path = [...(n.kind === "common" ? [`every plot (${n.elementIds?.length ?? 0})`] : plot && several ? [plotName(plot)] : []), ...(n.path ?? [])].join(" › ");
+    const meta: string[] = [];
+    let values = n.preview ?? "", swatch = n.swatch;
+    const el = n.elementId ? proj.figures.flatMap((f) => f.elements).find((e) => e.id === n.elementId) : undefined;
+    // kind + size
+    if (n.kind === "part" || n.kind === "common") meta.push(n.children.length && !n.children[0].member && n.kind === "part" ? "container" : kindForRole(n.role));
+    if (n.kind === "part") {
+      const members = n.children.length && n.children[0].member ? n.children.length : 0;
+      if (members) meta.push(`${members} ${members === 1 ? "member" : "members"}`);
+      else if (n.children.length) meta.push(`${n.children.length} parts`);
+      else if (n.count) meta.push(`${n.count} marks`);
+    } else if (n.kind === "element") meta.push(n.role === "figure" ? "plot" : n.role);
+    else if (n.kind === "group") meta.push(`group · ${n.count ?? 0} objects`);
+    else if (n.kind === "set") meta.push(`${n.children.length} plots`);
+    // state
+    if (n.kind === "common") {
+      const hiddenIn = (n.elementIds ?? []).filter((id) => ix.get(partRowId(id, n.partId!))?.row.hidden);
+      if (hiddenIn.length) meta.push(hiddenIn.length === (n.elementIds?.length ?? 0) ? "hidden everywhere" : `hidden in ${hiddenIn.map((id) => plotName(ix.get("el:" + id)?.row ?? null)).join(", ")}`);
+      if (n.preview === "varies") {
+        values = (n.elementIds ?? []).map((id) => `${plotName(ix.get("el:" + id)?.row ?? null)}: ${ix.get(partRowId(id, n.partId!))?.row.preview ?? "—"}`).join("  ·  ");
+      }
+    } else if (n.hidden) {
+      if (n.inheritedHidden) {
+        let by: XRow | null = null;
+        for (let p = ix.get(n.id)?.parent ?? null; p; p = ix.get(p.id)?.parent ?? null) if (p.hidden && !p.inheritedHidden) { by = p; break; }
+        meta.push(by ? `hidden by ${by.label}` : "hidden");
+      } else meta.push("hidden");
+    } else if (n.hiddenParts) meta.push(`${n.hiddenParts} hidden`);
+    if (el && (el.type === "plot" || el.type === "model3d") && n.partId) {
+      const ov = el.overrides?.[n.partId] as Record<string, unknown> | undefined;
+      const keys = Object.keys(ov ?? {}).filter((k) => k !== "hidden" && ov![k] != null);
+      if (keys.length) meta.push(`restyled: ${keys.join(", ")}`);
+      else if (n.styledBeneath) meta.push("restyled inside");
+    } else if (n.styled || n.styledBeneath) meta.push("restyled inside");
+    // data readout + effective style: a part with its own drawing (a leaf or a member)
+    if (n.kind === "part" && el?.type === "plot" && n.partId && !n.children.length) {
+      const m = ms[el.assetId];
+      const read = readoutText(partReadout(m, n.partId));
+      if (read) values = values ? `${values} · ${read}` : read;
+      const st = readPartStyle(el, n.partId, m);
+      const paint = st.fontSize != null ? [`${+st.fontSize.toFixed(1)}px`, st.fontFamily, st.fill] : st.strokeWidth != null && st.fill == null ? [st.stroke, `${+st.strokeWidth.toFixed(2)}px`] : [st.fill && st.fill !== "none" ? `fill ${st.fill}` : "", st.stroke && st.stroke !== "none" ? `stroke ${st.stroke}` : ""];
+      const shown = paint.filter(Boolean).join(" ");
+      if (shown) meta.push(shown);
+      swatch ??= st.fontSize != null ? st.fill : st.stroke && st.stroke !== "none" && st.fill == null ? st.stroke : st.fill && st.fill !== "none" ? st.fill : undefined;
+    } else if (n.kind === "part" && el?.type === "plot" && n.partId && (n.role === "series" || n.role === "legend-entry")) {
+      const read = readoutText(partReadout(ms[el.assetId], n.partId));
+      if (read && !values.includes(read)) values = values ? `${values} · ${read}` : read;
+    }
+    if (n.kind === "element" && el?.type === "plot" && el.source?.svgPath) values = values ? `${values} · ${el.source.svgPath.split(/[\\/]/).pop()}` : el.source.svgPath.split(/[\\/]/).pop() ?? "";
+    return { path, title: n.label, values, meta, swatch: swatch && /^#|^rgb|^hsl/i.test(swatch) ? swatch : undefined, id: n.partId ?? n.elementId ?? n.groupId ?? "" };
+  }
+  /** Rows under the pointer → the canvas outlines their parts (xray/hoverHook). */
+  function hoverRow(n: XRow | null) {
+    hoverRowId = n?.id ?? null;
+    const t: { elementId: string; partId: string }[] = [];
+    if (n?.kind === "part" && n.elementId && n.partId) t.push({ elementId: n.elementId, partId: n.partId });
+    else if (n?.kind === "common" && n.partId) for (const id of n.elementIds ?? []) t.push({ elementId: id, partId: n.partId });
+    xrayHover.set(t.length ? t.filter((x) => !isEditorTargetExcluded(x.elementId, x.partId)) : null);
+  }
+  function showMoreOf(groupId: string) {
+    showMore.set(groupId, (showMore.get(groupId) ?? MEMBER_CAP) + MEMBER_STEP);
+    showMore = showMore;
+  }
+  const hl = (text: string, t: string[]) => highlightSegments(text, t);
+
   function enterSearch() {
     mode = "search";
     requestAnimationFrame(() => searchEl?.focus());
@@ -658,6 +878,8 @@
     requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
   function close() {
+    rememberExpansion();
+    xrayHover.set(null);
     xrayOpen.set(false);
   }
 
@@ -682,6 +904,14 @@
     const k = e.key;
     const lk = k.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
+    // Undo / redo stay live while the X-ray is up (the editor's keymap yields to it):
+    // a mistaken x is one Ctrl+Z away, and the tree keeps its place.
+    if (mod && !e.altKey && (lk === "z" || lk === "y")) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (lk === "y" || e.shiftKey) redo(); else undo();
+      return;
+    }
     // Space confirms the waiting pick, as in the canvas picker (b still does).
     if ((lk === "b" || e.code === "Space") && !mod && !e.altKey && !e.shiftKey && $xrayBecomeSource && canAnimate) {
       e.preventDefault(); e.stopImmediatePropagation(); animate("become-destination"); return;
@@ -717,7 +947,7 @@
     if (lk === "a" && !mod && !e.altKey) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      pickSiblings();
+      if (e.shiftKey) pickEverywhere(); else pickSiblings();
       return;
     }
     if (lk === "m" && !mod && !e.altKey && canAnimate) {
@@ -727,13 +957,13 @@
       return;
     }
     // F opens the property menu for the pick, exactly like Enter (the F-menu's own key).
-    if (lk === "f" && !mod && !e.altKey) {
+    if (lk === "f" && !mod && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       e.stopImmediatePropagation();
       showProperties();
       return;
     }
-    if (lk === "v" && axisFor(selRow)) { e.preventDefault(); e.stopImmediatePropagation(); showAxisView(selRow); return; }
+    if (lk === "v" && !mod && !e.altKey && axisFor(selRow)) { e.preventDefault(); e.stopImmediatePropagation(); showAxisView(selRow); return; }
     if (k === "Enter") {
       e.preventDefault();
       if (mod) reRoot(selRow);
@@ -751,13 +981,13 @@
       const i = rows.findIndex((r) => r.node.id === selectedId);
       const ni = k === "ArrowDown" ? Math.min(rows.length - 1, i + 1) : Math.max(0, i - 1);
       if (rows[ni]) { pick(rows[ni].node, { shiftKey: e.shiftKey }); void revealPrimary(); }
-    } else if (k === "ArrowRight" && selRow) {
-      expanded.add(selRow.id);
-      expanded = expanded;
-    } else if (k === "ArrowLeft" && selRow) {
-      expanded.delete(selRow.id);
-      expanded = expanded;
-    } else if (lk === "x" && (pickedRows.length || selRow)) {
+    } else if (k === "ArrowRight" && selRow && !mod) {
+      e.preventDefault();
+      toChild();
+    } else if (k === "ArrowLeft" && selRow && !mod) {
+      e.preventDefault();
+      toParent(e.shiftKey);
+    } else if (lk === "x" && !mod && !e.altKey && (pickedRows.length || selRow)) {
       e.preventDefault();
       toggleHiddenRows(pickedRows.length ? pickedRows : [selRow!]);
     }
@@ -783,7 +1013,8 @@
       if (rows[ni]) { selectedId = rows[ni].node.id; void revealPrimary(); }
     }
   }
-  const eyeGlyph = (n: XRow) => (n.kind === "common" && n.hiddenCount && n.hiddenCount < (n.elementIds?.length ?? 0) ? "◐" : n.hidden ? "○" : "◉");
+  // ◉ drawn · ○ hidden · ◐ partly hidden (some plots of a common row, some leaves of a part)
+  const eyeGlyph = (n: XRow) => ((n.kind === "common" && n.hiddenCount && n.hiddenCount < (n.elementIds?.length ?? 0)) || (!n.hidden && n.hiddenParts) ? "◐" : n.hidden ? "○" : "◉");
 </script>
 
 <svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:pointerup={onSweepEnd} on:pointercancel={onSweepEnd} />
@@ -839,9 +1070,11 @@
               on:focus={() => (mode = "search")}
               on:keydown={onSearchKey}
             />
+            {#if q && built.info}<span class="sres">{built.info.hits}{built.info.plots > 1 ? ` in ${built.info.plots} plots` : ""}</span>{/if}
           </div>
 
-          <div class="tree">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="tree" on:mouseleave={() => hoverRow(null)}>
             {#if rootPlot && recipePath}
               <ColorScaleControls elementId={rootPlot.id} />
             {/if}
@@ -852,16 +1085,20 @@
               {:else if commonCount && !q && ri === commonCount}
                 <div class="section">{rootPlots($project, root).some(e => e.type === "model3d") ? "Objects" : "Plots"}</div>
               {/if}
+              {#if q && built.heads.has(r.node.id)}
+                {@const h = built.heads.get(r.node.id)}
+                <div class="shead">{#if h?.prefix}<span class="hpre">{h.prefix}</span>{/if}<span class="hkey">{h?.label}</span>{#if h?.hint}<span class="hhint">{h.hint}</span>{/if}<span class="hcount">{h?.count}</span></div>
+              {/if}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
                 class="row"
                 class:sel={selectedIds.has(r.node.id)}
                 class:primary={selectedId === r.node.id}
+                class:member={r.node.member}
                 data-kind={r.node.kind}
                 data-rid={r.node.id}
                 style={`padding-left:${6 + r.depth * 14}px`}
-                title={rowReadout?.id === r.node.id ? rowReadout.text : undefined}
-                on:mouseenter={() => (rowReadout = readoutForRow(r.node))}
+                on:mouseenter={() => hoverRow(r.node)}
                 on:pointerdown={(e) => onRowPointerDown(e, r.node)}
                 on:pointerenter={(e) => onRowPointerEnter(e, r.node)}
                 on:click={(e) => onRowClick(e, r.node)}
@@ -878,17 +1115,41 @@
                 <button
                   class="eye"
                   class:off={r.node.hidden}
-                  class:part-off={r.node.kind === "common" && !!r.node.hiddenCount && !r.node.hidden}
+                  class:part-off={(r.node.kind === "common" && !!r.node.hiddenCount && !r.node.hidden) || (!!r.node.hiddenParts && !r.node.hidden)}
+                  class:ghost={r.node.inheritedHidden}
                   disabled={hideBlocked(r.node, $editorSelectionExclusions)}
-                  title={hideBlocked(r.node, $editorSelectionExclusions) ? "Enable Show hidden to edit this target" : "Show / hide (x)"}
+                  title={hideBlocked(r.node, $editorSelectionExclusions) ? "Enable Show hidden to edit this target" : r.node.inheritedHidden ? "Hidden with its parent — show / hide this part itself (x)" : "Show / hide (x)"}
                   on:click|stopPropagation={() => toggleHidden(r.node)}>{eyeGlyph(r.node)}</button
                 >
-                <span class="rlabel" class:dim={r.node.hidden}>{r.node.label}</span>
+                <span class="rmain">
+                  {#if q && r.node.path?.length}<span class="rpath">{#each hl(r.node.path.join(" › "), tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}<span class="psep">›</span></span>{/if}
+                  <span class="rlabel" class:dim={r.node.hidden}>{#if q}{#each hl(r.node.label, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else if r.node.keyParts?.prefix && r.node.label.startsWith(r.node.keyParts.prefix)}<span class="kpre">{r.node.keyParts.prefix}</span>{r.node.label.slice(r.node.keyParts.prefix.length)}{:else}{r.node.label}{/if}</span>
+                  {#if r.node.keyParts?.ordinal}<span class="ord" title="The same plot placed more than once">#{r.node.keyParts.ordinal}</span>{/if}
+                </span>
+                {#if r.node.styled}<span class="sdot" title="Restyled">●</span>{:else if r.node.styledBeneath && !(expanded.has(r.node.id) && !q)}<span class="sdot inside" title="Something inside is restyled">●</span>{/if}
+                {#if r.node.preview}<span class="rprev" class:varies={r.node.preview === "varies"} title={r.node.preview === "varies" ? "Differs between the plots" : undefined}>{#if r.node.swatch}<span class="sw" style={`background:${r.node.swatch}`}></span>{/if}<span class="ptext">{#if q}{#each hl(r.node.preview, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else}{r.node.preview}{/if}</span></span>{:else if r.node.swatch}<span class="rprev"><span class="sw" style={`background:${r.node.swatch}`}></span></span>{/if}
                 {#if r.node.kind === "group"}<span class="tag">grp</span>{/if}
                 {#if r.node.kind === "common"}<span class="tag">×{r.node.elementIds?.length ?? 0}</span>{/if}
                 {#if r.node.count && r.node.kind !== "common"}<span class="count">{r.node.count}</span>{/if}
               </div>
+              {#if built.more.has(r.node.id)}
+                {@const m = built.more.get(r.node.id)}
+                <button class="xmore" style={`padding-left:${26 + r.depth * 14}px`} on:click={() => m && showMoreOf(m.groupId)}>+ {m?.rest.toLocaleString()} more <span class="xmore-hint">show {Math.min(MEMBER_STEP, m?.rest ?? 0)}</span></button>
+              {/if}
             {/each}
+            {#if q && !rows.length}
+              <div class="empty">No parts match “{search.trim()}”{#if !/\s/.test(search.trim()) && search.trim().length > 4} — words are matched separately: try “x tick”, “y labels”, a plot name or a value{/if}.</div>
+            {/if}
+          </div>
+
+          <div class="xdetail" class:none={!detail}>
+            {#if detail}
+              <div class="dline dpath" title={[detail.path, detail.title].filter(Boolean).join(" › ")}>{#if detail.path}<span class="dctx">{detail.path} ›</span>{/if}<b>{detail.title}</b></div>
+              <div class="dline dval" title={detail.values || undefined}>{detail.values || "—"}</div>
+              <div class="dline dmeta">{#if detail.swatch}<span class="sw" style={`background:${detail.swatch}`}></span>{/if}<span class="dfacts">{detail.meta.join(" · ")}</span><span class="did" title={detail.id}>{detail.id}</span></div>
+            {:else}
+              <div class="dline dhint">Hover or pick a row: what it is, its values and its state show here.</div>
+            {/if}
           </div>
 
           {#if animMenu}
@@ -915,14 +1176,16 @@
 
         <div class="foot">
           <span><b class="hk">↑↓</b> navigate</span>
+          <span><b class="hk">←</b> family</span>
           <span><b class="hk">⇧/⌃ click</b> multi</span>
-          <span><b class="hk">drag</b> sweep</span>
           <span><b class="hk">a</b> siblings</span>
-          <span><b class="hk">alt+a</b> all results</span>
+          <span><b class="hk">⇧a</b> every plot</span>
           <span><b class="hk">x</b> hide</span>
+          <span><b class="hk">s</b> search</span>
+          {#if q}<span><b class="hk">alt+a</b> all results</span>{:else}<span><b class="hk">drag</b> sweep</span>{/if}
           <span><b class="hk">dbl-click</b> re-root</span>
           <span><b class="hk">⌫</b> back</span>
-          <span><b class="hk">s</b> search</span>
+          <span><b class="hk">⌃z</b> undo</span>
           <span><b class="hk">r</b>/esc close</span>
         </div>
       </div>
@@ -991,7 +1254,7 @@
   .tree { overflow-y: auto; padding: 4px 6px 6px; min-height: 0; flex: 1 1 auto; }
   /* Only the tree yields height: the header, source line, search row, actions
      and footer keep theirs however tall the colour-scale block grows. */
-  .xhead, .srcline, .search-row, .actions, .foot { flex-shrink: 0; }
+  .xhead, .srcline, .search-row, .xdetail, .actions, .foot { flex-shrink: 0; }
   .section { display: flex; align-items: baseline; gap: 8px; padding: 8px 6px 3px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; }
   .scount { text-transform: none; letter-spacing: 0; }
   .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; scroll-margin-block: 4px; border-radius: var(--r-0); cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none; }
@@ -1005,8 +1268,45 @@
   .eye.off { color: var(--xr-tx-dim); }
   .eye.part-off { color: var(--xr-phos); }
   .eye:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
-  .rlabel { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Row anatomy: [path ›] LABEL [#n] · state dot · preview (right, dim) · count.
+     The path shrinks first, then the preview; the label keeps its room. */
+  .rmain { display: flex; align-items: baseline; gap: 5px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .rpath { flex: 0 6 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--xr-tx-dim); direction: ltr; }
+  .psep { padding-left: 5px; color: var(--xr-tx-dim); }
+  .rlabel { flex: 0 1 auto; min-width: 6ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rlabel.dim { opacity: 0.45; text-decoration: line-through; }
+  .kpre { color: var(--xr-tx-dim); }
+  .ord { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-phos); }
+  .sdot { flex: 0 0 auto; font-size: 7px; line-height: 1; color: var(--xr-phos-hi); transform: translateY(-1px); }
+  .sdot.inside { color: transparent; -webkit-text-stroke: 1px var(--xr-phos); }
+  .rprev { flex: 0 8 auto; max-width: 50%; min-width: 0; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; color: var(--xr-tx-dim); font-size: 11px; margin-left: auto; }
+  .rprev :global(mark), .rpath :global(mark), .rlabel :global(mark) { background: none; color: var(--xr-phos-hi); font-weight: 600; }
+  .ptext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rprev.varies { font-style: italic; }
+  .sw { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 2px; box-shadow: 0 0 0 1px color-mix(in oklab, var(--xr-tx) 35%, transparent); }
+  .row.member { font-size: 11.5px; }
+  .row.member .rlabel { color: color-mix(in oklab, var(--xr-tx) 80%, transparent); }
+  .eye.ghost { opacity: 0.5; }
+  .xmore { display: block; width: 100%; height: 22px; text-align: left; background: none; border: none; color: var(--xr-phos); font: 11px var(--font-mono); cursor: var(--cursor-cross-hover); border-radius: var(--r-0); }
+  .xmore:hover { background: var(--xr-tint-2); color: var(--xr-phos-hi); }
+  .xmore-hint { color: var(--xr-tx-dim); margin-left: 6px; }
+  .sres { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-tx-dim); font-variant-numeric: tabular-nums; }
+  /* Search: a plot header over its hits (sticky while they scroll), dim shared prefix. */
+  .shead { position: sticky; top: -4px; z-index: 1; display: flex; align-items: baseline; gap: 6px; padding: 7px 6px 3px; background: var(--xr-bg-2); font-size: 10.5px; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; white-space: nowrap; overflow: hidden; }
+  .hpre { flex: 0 3 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .hkey { flex: 0 0 auto; color: var(--xr-tx); letter-spacing: 0.04em; }
+  .hhint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .hcount { margin-left: auto; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+  /* The detail strip: fixed height, so the panel never jumps as rows are hovered. */
+  .xdetail { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 58px; padding: 0 10px; border-top: 1px solid var(--xr-line); background: var(--xr-bg); font-size: 11px; }
+  .dline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .dpath b { color: var(--xr-tx); font-weight: 600; }
+  .dctx { color: var(--xr-tx-dim); margin-right: 5px; }
+  .dval { color: var(--xr-tx); }
+  .dmeta { display: flex; align-items: center; gap: 6px; color: var(--xr-tx-dim); }
+  .dfacts { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .did { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: right; font-size: 10px; opacity: 0.8; }
+  .dhint { color: var(--xr-tx-dim); white-space: normal; }
   .tag { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-phos); border: 1px solid var(--xr-line); border-radius: var(--r-ui); padding: 0 4px; }
   .count { font-size: 10.5px; color: var(--xr-tx-dim); font-variant-numeric: tabular-nums; }
   .actions { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px; border-top: 1px solid var(--xr-line); }

@@ -20,6 +20,7 @@ import type { Model3dElement } from './model3d/types';
 export { setModelField, setModelStates, setModelFrame, modelFrame, modelDefaultStates, modelStateWeight } from './model3d/semanticOps';
 export type { ModelFieldPatch } from './model3d/semanticOps';
 
+import { hiddenToggleWrites } from "./xray/rowContext";
 import type { ColorScaleView,
   Project,
   Figure,
@@ -1687,6 +1688,22 @@ export function setPartOverride(p: Project, elementId: Id, partId: string, patch
       const series = seriesPrimaryOf(m, partId);
       if (!series) continue;
       for (const swatch of legendSwatchesOf(m, series)) if (swatch !== partId) mergePartOverride(e, swatch, mirror);
+    }
+}
+
+/** Show or hide one plot part — THE eye toggle (the X-ray's eyes, the canvas's `x` on a
+ *  drilled part). It normalises the part's subtree (rowContext.hiddenToggleWrites): hiding
+ *  or showing Tick labels hides or shows every tick label, and showing one tick label inside
+ *  hidden tick labels draws it (the most specific hidden flag wins — plot/tree hiddenLeaves).
+ *  Models keep their own lineage rule (a plain override). */
+export function setPartHidden(p: Project, elementId: Id, partId: string, hide: boolean, manifest?: FluxPlotManifest): void {
+  for (const f of p.figures)
+    for (const e of f.elements) {
+      if (e.id !== elementId) continue;
+      if (e.type === "model3d") { mergePartOverride(e, partId, { hidden: hide }); continue; }
+      if (e.type !== "plot") continue;
+      const m = manifest ?? readStore(plotManifests)[e.assetId];
+      for (const [key, hidden] of Object.entries(hiddenToggleWrites(m, e.overrides, partId, hide))) mergePartOverride(e, key, { hidden });
     }
 }
 

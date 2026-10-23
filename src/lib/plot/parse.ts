@@ -10,7 +10,7 @@ import { rewriteLocalUrls, rewriteCssReferences, passivePaint, svgNamespace } fr
 
 import type { FluxPlotManifest, PartInfo, PartNode } from "./types";
 import type { PartOverride } from "../types";
-import { resolveTargets, inferRole, labelForPart } from "./tree";
+import { resolveTargets, inferRole, labelForPart, hiddenLeaves } from "./tree";
 import { normalizeSvgForParts, deriveManifestFromSvg, isDrawableTag, insideDefs } from "./derive";
 
 const XLINK = "http://www.w3.org/1999/xlink";
@@ -401,9 +401,8 @@ export function applyOverrides(
       const el = root.querySelector(`[id="${cssEscape(p + tid)}"]`) as SVGElement | null;
       if (!el) continue;
 
-      // Wrapper-level: visibility, compositing opacity, translation.
+      // Wrapper-level: compositing opacity, translation (visibility: below, by specificity).
       const s = el.style;
-      if (ov.hidden != null) s.display = ov.hidden ? "none" : "";
       if (ov.opacity != null) s.opacity = String(ov.opacity);
       if (ov.dx != null || ov.dy != null) {
         restorePlotClip(el);
@@ -458,6 +457,12 @@ export function applyOverrides(
         }
       }
     }
+  }
+  // Visibility: the most specific hidden flag wins (plot/tree.ts hiddenLeaves —
+  // the X-ray's eyes read the same rule, so a row never disagrees with the drawing).
+  for (const [tid, hidden] of hiddenLeaves(manifest, overrides)) {
+    const el = root.querySelector(`[id="${cssEscape(p + tid)}"]`) as SVGElement | null;
+    if (el) el.style.display = hidden ? "none" : "";
   }
 }
 
