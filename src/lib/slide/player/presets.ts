@@ -10,7 +10,7 @@
 // builds while the scene is otherwise still. `transform`/`countUp` live elsewhere.
 // ---------------------------------------------------------------------------
 
-import { inDefs, paintOf, GEO_TAGS } from "../strokeGeometry";
+import { drawable, paintOf, GEO_TAGS, SWEEP_PEN_ATTR } from "../strokeGeometry";
 import { readPaint, parseStyleAttr } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
 import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf, legacyRotationOf, type PointParam } from "../presetCatalog";
@@ -22,6 +22,7 @@ import type { Element as SceneElement } from "../../types";
 import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, penWidth, penSlices, type TrimSpec } from "./trim";
 import { trackDuration } from "../timing";
 import { seamOffCorners } from "../../path";
+import { parsePolyline, sweepSamples, decimateSweep, sweepKeys, sweepAt, unionFrame, darken, type SweepSample, type SweepKeys, type SweepFrame, type XY } from "../sweep";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
 
@@ -55,6 +56,9 @@ export interface NodeAnim {
   index: number;
   enter: boolean;
   prep?: () => void;
+  /** Nodes this preset inserted into the slide's DOM (the sweep's lead dot): they live exactly as long as the plan, so
+   *  disposeSlideAnims removes them. */
+  created?: Element[];
   /** The `transform-origin` this node's transform is about. DATA, not a side effect: the player
    *  writes ONE origin per node per frame (that of the spec in flight) and none at rest, so two
    *  transform effects on one node can never corrupt each other. On an SVG node the player also
@@ -231,10 +235,9 @@ interface TrimParams {
 // ---------------------------------------------------------------------------
 // T3 — the draw plan. One compiler for drawOn/drawOff: classify the target's geometry into pen UNITS, give every
 // piece of a unit a slice of ONE eased pen clock, and emit a per-frame sampler (`NodeAnim.sample`) whose frames
-// are exact dash windows (trim.ts `windowsDash`). Contract for a later clock mode (WP 3.1, T8's x-clock): a sweep
-// that is pure keyframes returns NodeAnims WITHOUT `sample` (built on `hiddenDash(len)`, ending at
-// `drawReach(len, tag)`, declaring `transient: ["strokeDashoffset", "strokeDasharray"]`); `drawPlan` offers those
-// keyframes before it chooses `sample`.
+// are exact dash windows (trim.ts `windowsDash`). The x-clock sweep (WP 3.1, `clock: "x"`) is a CLOCK of this same plan,
+// not a second path: a swept line's sampler maps the eased progress (the front's normalised x) to the share of its own
+// length laid so far and hands that to the same dash window, touch-down and exit reversal (`sweepSampler`).
 // ---------------------------------------------------------------------------
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 /** A filled piece: the outline runs over the first DRAW_OUTLINE of the clock, the fill ramps over the last (1 - DRAW_FILL_FROM). */
@@ -331,8 +334,8 @@ function drawSeam(geo: SVGElement, closed: boolean, pattern: number[] | undefine
 function drawUnits(node: TargetNode): Unit[] {
   const el = node as Element, tag = el.tagName?.toLowerCase();
   const all: SVGElement[] = [];
-  if (tag && new RegExp(`^(${GEO_TAGS.replace(/,/g, "|")})$`).test(tag)) { if (!inDefs(el)) all.push(el as SVGElement); }
-  else for (const g of Array.from(el.querySelectorAll?.(GEO_TAGS) ?? []) as SVGElement[]) if (!inDefs(g)) all.push(g);
+  if (tag && new RegExp(`^(${GEO_TAGS.replace(/,/g, "|")})$`).test(tag)) { if (drawable(el)) all.push(el as SVGElement); }
+  else for (const g of Array.from(el.querySelectorAll?.(GEO_TAGS) ?? []) as SVGElement[]) if (drawable(g)) all.push(g);
   const paint = new Map(all.map((g) => [g, paintOf(g)] as const));
   const used = new Set<SVGElement>();
   const units: Unit[] = [];
@@ -479,24 +482,34 @@ function drawPlan(node: TargetNode, index: number, t: Track, enter: boolean): No
   const duration = trackDuration(t);
   const slots = units.length > 1 && presetParam<string>(t, "order", preset) === "sequence"
     ? penSlices(units.map((u) => u.pen), presetParam<number>(t, "lag", preset), false, duration > 0 ? Math.min(1, 150 / duration) : 0) : null;
+  // THE X-CLOCK (WP 3.1): the lines that sweep, and their lead dots
+  const sweeps = !trim && presetParam<string>(t, "clock", preset) === "x" ? sweepPlan(node, units, !!slots) : null;
+  const dots = sweeps?.size && presetParam<boolean>(t, "pen", preset) === true;
   const out: NodeAnim[] = [];
+  const emit = (geo: SVGElement, own: Forward, slot: [number, number] | undefined, transient: readonly string[], created?: Element[]) => {
+    const forward: Forward = slot ? (raw, ease) => own(win(raw, slot[0], slot[1]), ease) : own;
+    // exit = the enter sampled backwards in time with the MIRRORED curve (1 - e(1 - v)): the retreat eases in
+    // exit time exactly as the legacy offset reversal did, for any curve
+    const sample = enter
+      ? (raw: number, ease: (x: number) => number) => forward(clamp01(raw), ease)
+      : (raw: number, ease: (x: number) => number) => forward(1 - clamp01(raw), (v) => 1 - ease(1 - v));
+    out.push({
+      node: geo, index, enter, sample,
+      keyframes: enter ? [forward(0, IDENT), forward(1, IDENT)] : [forward(1, IDENT), forward(0, IDENT)],
+      ...(enter ? { transient } : {}), ...(created ? { created } : {}),
+    });
+  };
   units.forEach((unit, ui) => {
     // pieces of one unit share the unit's EASED clock: shaft -> head with no stall (penSlices at lag 1, the pen continuous)
     const inner = unit.pieces.length > 1 ? penSlices(unit.pieces.map((p) => p.pen), 1, false, 0) : [[0, 1] as [number, number]];
     const slot = slots?.[ui];
     unit.pieces.forEach((piece, pi) => {
-      const own: Forward = trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, preset) : pieceSampler(piece, inner[pi]);
-      const forward: Forward = slot ? (raw, ease) => own(win(raw, slot[0], slot[1]), ease) : own;
-      // exit = the enter sampled backwards in time with the MIRRORED curve (1 - e(1 - v)): the retreat eases in
-      // exit time exactly as the legacy offset reversal did, for any curve
-      const sample = enter
-        ? (raw: number, ease: (x: number) => number) => forward(clamp01(raw), ease)
-        : (raw: number, ease: (x: number) => number) => forward(1 - clamp01(raw), (v) => 1 - ease(1 - v));
-      out.push({
-        node: piece.geo, index, enter, sample,
-        keyframes: enter ? [forward(0, IDENT), forward(1, IDENT)] : [forward(1, IDENT), forward(0, IDENT)],
-        ...(enter ? { transient: DRAW_TRANSIENT } : {}),
-      });
+      const keys = sweeps?.get(piece);
+      const own: Forward = keys ? sweepSampler(piece, keys) : trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, preset) : pieceSampler(piece, inner[pi]);
+      emit(piece.geo, own, slot, DRAW_TRANSIENT);
+      const dot = keys && dots ? sweepPen(piece, keys, t, preset, `${t.id ?? t.target}:${index}:${ui}`) : null;
+      // the dot's resting state is its authored display="none": nothing of it is transient
+      if (dot) emit(dot.node, dot.forward, slot, [], [dot.host]);
     });
   });
   return out;
@@ -524,6 +537,101 @@ function trimSampler(piece: Piece, [a, b]: [number, number], t: Track, preset: "
     const c = clamp01((ease(clamp01(raw)) - a) / Math.max(1e-9, b - a));
     return { ...(trimDashAt(spec, c, piece.pattern) ?? hiddenDash(len)), ...(pen == null ? {} : { strokeWidth: penWidth(pen, c * span) }) } as unknown as Keyframe;
   };
+}
+
+// ---------------------------------------------------------------------------
+// WP 3.1 — the x-clock SWEEP (T8, manim's Create on a plotted graph: the graph is built from samples at uniform x steps, so
+// its pen advances at a constant x rate). `drawOn`/`drawOff` with `params.clock: "x"`: the eased progress IS the front's
+// normalised x, and a line shows exactly the part of itself left of the front. Its vertices come from `d` (fluxplot lines are
+// one absolute M/L polyline: exact, O(N), no getPointAtLength); a curve falls back to a capped arc-length sampling. A line
+// x does not traverse monotonically (a loop, a reversal) has no x clock and draws by length, as does every other piece (an
+// arrow's shaft and heads, a fill): the autobuild planner (`sweepable`) only emits a sweep for a series the runtime accepts.
+// ---------------------------------------------------------------------------
+const sweepCache = new WeakMap<Element, { d: string | null; samples: SweepSample[] | null }>();
+/** The x-clock samples of a line, null when it has none. Cached per node while its `d` is unchanged (a re-plan of an unchanged
+ *  20 000-vertex line reuses the 18 ms parse). */
+function xSamples(geo: SVGElement): SweepSample[] | null {
+  const d = geo.getAttribute("d"), hit = sweepCache.get(geo);
+  if (hit && hit.d === d) return hit.samples;
+  let pts: XY[] | null = geo.tagName.toLowerCase() === "path" ? parsePolyline(d) : null;
+  if (!pts && geo.tagName.toLowerCase() === "line") pts = [{ x: Number(geo.getAttribute("x1")), y: Number(geo.getAttribute("y1")) }, { x: Number(geo.getAttribute("x2")), y: Number(geo.getAttribute("y2")) }];
+  if (!pts && geo.tagName.toLowerCase() === "polyline") { const q = pts_(geo); pts = q.length >= 2 ? q : null; }
+  if (!pts) {
+    const g = geo as unknown as SVGGeometryElement;
+    try {
+      const len = typeof g.getPointAtLength === "function" ? g.getTotalLength() : 0;
+      if (len > 0) { const n = Math.min(600, Math.max(32, Math.round(len))); pts = Array.from({ length: n + 1 }, (_, i) => { const p = g.getPointAtLength(len * i / n); return { x: p.x, y: p.y }; }); }
+    } catch { pts = null; }
+  }
+  const raw = pts && pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) ? sweepSamples(pts) : null;
+  const samples = raw ? decimateSweep(raw) : null;
+  sweepCache.set(geo, { d, samples });
+  return samples;
+}
+const pts_ = (el: Element): XY[] => pts(el).map(([x, y]) => ({ x, y }));
+/** The lines of one draw that sweep, keyed by piece: an open, solid-or-dashed STROKE that is a whole pen unit (no heads), with an x clock.
+ *  Lines that share their target's coordinate space (no `transform` between them and the target) and run the same way share ONE frame,
+ *  the union of their x ranges, so one front crosses them all; a sequence (`order`) gives each line its own slot and its own frame. */
+function sweepPlan(node: TargetNode, units: Unit[], sequence: boolean): Map<Piece, SweepKeys[]> {
+  const lines = new Map<Piece, SweepSample[]>();
+  for (const u of units) {
+    const p = u.pieces[0];
+    if (u.pieces.length !== 1 || p.role !== "stroke" || p.closed) continue;
+    const s = xSamples(p.geo); if (s) lines.set(p, s);
+  }
+  const plain = (geo: Element) => { for (let e: Element | null = geo; e && e !== node; e = e.parentElement) if (e.hasAttribute("transform")) return false; return true; };
+  const shared = !sequence && lines.size > 1 && [...lines.keys()].every((p) => plain(p.geo)) ? unionFrame([...lines.values()]) : null;
+  return new Map([...lines].map(([p, s]) => [p, shared ? sweepKeys(s, shared as SweepFrame) : sweepKeys(s)]));
+}
+/** A swept stroke: the share of its own length left of the front, through the SAME dash window and touch-down as a length-clock draw. */
+function sweepSampler(piece: Piece, keys: SweepKeys[]): Forward {
+  const { geo, len, closed, pattern } = piece, reach = drawReach(len, piece.tag), spec = { len: reach, closed, pattern }, hid = hiddenDash(reach);
+  const total = keys[keys.length - 1].s || 1, pen = penOf(geo);
+  return (raw, ease) => {
+    const f = clamp01(sweepAt(keys, clamp01(ease(clamp01(raw)))).s / total);
+    // dash units: the share f of `len` (geoLength, which honours an explicit pathLength; X12), so the visible end sits ON the front; the
+    // whole line is the reach
+    return { ...(windowsDash(spec, [[0, f >= 1 ? reach : f * len]]) ?? hid), ...(pen == null ? {} : { strokeWidth: penWidth(pen, f * piece.pen) }) } as unknown as Keyframe;
+  };
+}
+/** The lead dot (`params.pen`): a circle the player inserts beside the line, riding the front. It exists only while the slide's plan does
+ *  (`NodeAnim.created`; disposeSlideAnims removes it) and is DISPLAYED only while it rides: its authored `display="none"` is the state
+ *  before and after, so no box, measure or still ever sees it. The plot SVG may stretch non-uniformly (preserveAspectRatio none): the dot
+ *  is counter-scaled to stay round (read at plan time; a plot resized later in the slide is a new plan). */
+function sweepPen(piece: Piece, keys: SweepKeys[], t: Track, preset: "drawOn" | "drawOff", key: string): { node: SVGElement; host: Element; forward: Forward } | null {
+  const geo = piece.geo, parent = geo.parentNode as Element | null, doc = geo.ownerDocument;
+  if (!parent || !doc) return null;
+  // one dot per line per plan: a dot a superseded plan left behind is replaced, never doubled
+  for (const old of Array.from(parent.children)) if (old.getAttribute(SWEEP_PEN_ATTR) === key) old.remove();
+  const sw = parseFloat(rawPaintVal(geo, "stroke-width")), r = presetParam<number | null>(t, "penRadius", preset) ?? Math.max(3.5, 2.8 * (sw > 0 ? sw : 1));
+  const stroke = rawPaintVal(geo, "stroke"), base = !stroke || /^(none|url\()/i.test(stroke) ? "currentColor" : stroke;
+  const node = doc.createElementNS(SVG_NS, "circle") as SVGElement;
+  node.setAttribute(SWEEP_PEN_ATTR, key); node.setAttribute("display", "none"); node.setAttribute("pointer-events", "none");
+  node.setAttribute("cx", "0"); node.setAttribute("cy", "0"); node.setAttribute("r", String(r));
+  node.setAttribute("fill", presetParam<string | null>(t, "penColor", preset) ?? darken(base));
+  node.setAttribute("stroke", "#ffffff"); node.setAttribute("stroke-opacity", "0.85"); node.setAttribute("stroke-width", String(Math.max(1, r * 0.3)));
+  // the dot rides in the line's own user space: a line with a transform of its own gets the dot inside a group carrying it (the dot's CSS
+  // transform would replace the attribute)
+  const own = geo.getAttribute("transform");
+  const host = own ? doc.createElementNS(SVG_NS, "g") as Element : node;
+  if (own) { host.setAttribute(SWEEP_PEN_ATTR, key); host.setAttribute("transform", own); host.appendChild(node); }
+  parent.insertBefore(host, geo.nextSibling);
+  let fx = 1, fy = 1;
+  try {
+    const m = (geo as unknown as SVGGraphicsElement).getScreenCTM?.();
+    if (m) { const sx = Math.hypot(m.a, m.b), sy = Math.hypot(m.c, m.d), mean = (sx + sy) / 2; if (sx > 0 && sy > 0) { fx = mean / sx; fy = mean / sy; } }
+  } catch { /* not laid out: round in its own units */ }
+  const scale = Math.abs(fx - 1) + Math.abs(fy - 1) > 1e-3 ? ` scale(${fx.toFixed(4)}, ${fy.toFixed(4)})` : "";
+  const k0 = keys[0].offset, k1 = keys[keys.length - 1].offset, FADE = 0.03;
+  const at = (c: number) => { const k = sweepAt(keys, c); return `translate(${k.x.toFixed(3)}px, ${k.y.toFixed(3)}px)${scale}`; };
+  // the endpoints: hidden (display none, opacity 0) at the line's start and end, so the declared property set is display/opacity/transform
+  const forward: Forward = (raw, ease) => {
+    const c = clamp01(ease(clamp01(raw))), u = (c - k0) / Math.max(1e-9, k1 - k0);
+    if (raw <= 0 || raw >= 1 || u <= 0 || u >= 1) return { display: "none", opacity: 0, transform: at(c) } as unknown as Keyframe;
+    // it fades in over the first and out over the last 3 % of its own line, so it never pops on or off
+    return { display: "inline", opacity: clamp01(Math.min(u, 1 - u) / FADE), transform: at(c) } as unknown as Keyframe;
+  };
+  return { node, host, forward };
 }
 
 export const PRESETS: Record<string, Preset> = {
@@ -593,7 +701,10 @@ export const PRESETS: Record<string, Preset> = {
       sample: (raw, ease) => ({ maskImage: gradient(-feather + (100 + feather) * clamp01(ease(raw))) }),
     }));
     const shown = wipeInsets(dir)[1], [a, b] = inkFractions(node, dir);
-    return [{ node, index, enter: true, keyframes: [{ clipPath: wipeAt(dir, a) }, { clipPath: wipeAt(dir, b), offset: WIPE_BOX_AT }, { clipPath: shown }] }];
+    // `tight` (an x-clock sweep's band, WP 3.1): the ink's edge runs the WHOLE eased clock, so it sits on the line's pen at every frame
+    // (the margin tail is empty space: the band's ink ends at b)
+    const boxAt = presetParam<boolean>(t, "tight", "writeOn") === true ? 1 : WIPE_BOX_AT;
+    return [{ node, index, enter: true, keyframes: [{ clipPath: wipeAt(dir, a) }, { clipPath: wipeAt(dir, b), offset: boxAt }, { clipPath: shown }] }];
   }),
 
   // Tier-2: the SVG self-draw — Flux's Trim Paths (T3 draw plan, see drawPlan()).

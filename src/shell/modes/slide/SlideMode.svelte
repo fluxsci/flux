@@ -43,7 +43,7 @@
   import { hasPartBinding, isWholeElementRef, sameRef, trackRef, composeDestination, refElementIds } from "../../../lib/slide/targets";
   import { membersDeep } from "../../../lib/groups";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../lib/slide/autobuild";
-  import { guiPenLengths } from "../../../lib/slide/partLengthGui";
+  import { guiPlotMeasures } from "../../../lib/slide/partLengthGui";
   import { buildPartTree } from "../../../lib/plot/tree";
   import { isExitPreset } from "../../../lib/slide/presetCatalog";
   import { addAppearanceTracks } from "../../../lib/slide/animateSelection";
@@ -1292,7 +1292,7 @@
           if (activeDeckId !== deckId || $activeFigureId !== s.id) return;
           const current = composedSlide(s.id)?.beats.flatMap(b => b.tracks).find(t => t.id === result.trackId)?.to?.become;
           if (current?.mode !== "handoff" || !sameRef(current.ref, dest)) return;
-          commitDeckLive(d => autoAnimateExcept(d, s.id, plot.id, get(plotManifests)[plot.assetId], leaves, { lengths: guiPenLengths(plot.assetId, get(plotManifests)[plot.assetId], plot.width) }));
+          commitDeckLive(d => autoAnimateExcept(d, s.id, plot.id, get(plotManifests)[plot.assetId], leaves, guiPlotMeasures(plot.assetId, get(plotManifests)[plot.assetId], plot.width)));
           const bi = composedSlide(s.id)?.beats.findIndex(b => b.id === beatId) ?? -1;
           if (bi >= 0) { activeBeat.set(bi); enterEndpointEdit([result.trackId], "t2"); }
         }}} : {})});

@@ -143,6 +143,7 @@
       "verify-slide-morph.ts",
       "verify-trim.ts",
       "verify-draw.ts",
+      "verify-slide-sweep.ts",
       "verify-slide-draw-browser.ts",
       "verify-color-interp.ts",
       "verify-slide-multiplot.ts",
@@ -959,6 +960,7 @@
       "verify-slide-choreo.ts",
       "verify-animate-plot.ts",
       "verify-draw.ts",
+      "verify-slide-sweep.ts",
       "verify-slide-draw-browser.ts",
       "verify-text-match.ts",
       "verify-text-lanes.ts",
@@ -1441,6 +1443,7 @@
         "verify-pace-defaults.ts",
         "verify-preset-catalog.ts",
         "verify-draw.ts",
+        "verify-slide-sweep.ts",
         "verify-slide-draw-browser.ts"
       ]
     },
@@ -1830,6 +1833,7 @@
       "glob": "src/lib/slide/player/presets.ts",
       "run": [
         "verify-draw.ts",
+        "verify-slide-sweep.ts",
         "verify-slide-draw-browser.ts",
         "verify-preset-catalog.ts",
         "verify-v020-morph-startup.mjs",
@@ -3658,7 +3662,8 @@
       ]
     },
     { "glob": "src/lib/slide/schemaStamp.ts", "run": ["verify-schema-stamp.ts", "verify-deck-schema.ts", "verify-fwdguard.ts", "verify-figfiles-parity.ts", "verify-loadgate.ts", "verify-model3d-import.ts"] },
-    { "glob": "electron/deckSchemaSupport.cjs", "run": ["verify-schema-stamp.ts", "verify-model3d-import.ts"] }
+    { "glob": "electron/deckSchemaSupport.cjs", "run": ["verify-schema-stamp.ts", "verify-model3d-import.ts"] },
+    { "$why": "WP 3.1: the x-clock sweep's pure geometry, its draw plan and lead dot, the marker spacing and the auto-build / draw-along-x writers.", "glob": "{src/lib/slide/sweep.ts,src/lib/slide/staggerData.ts}", "run": ["verify-slide-sweep.ts", "verify-slide-stagger.ts", "verify-animate-plot.ts"] }
   ],
   "retryOnce": [
     "verify-crop.mjs",
@@ -7817,6 +7822,15 @@
       "coverage": "behavior"
     },
     "verify-draw.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-sweep.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

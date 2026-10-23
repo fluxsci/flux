@@ -229,6 +229,14 @@ const TRIM_PARAMS: ParamRow = {
   // (1 = back to back, 0 = together); it only applies to a sequence.
   order: { default: "together", hostOnly: true },
   lag: { default: 0.3, range: [0, 1], requires: { key: "order", equals: "sequence" }, hostOnly: true },
+  // the x-CLOCK sweep (WP 3.1): "x" reveals a data line at a constant x rate (eased progress = the pen's normalised x; slide/sweep.ts),
+  // "length" (absent) is today's constant arc length. `pen` adds a lead dot riding the front (on a drawOff it rides the retreating end),
+  // `penRadius` / `penColor` override its radius in the line's own units (default max(3.5, 2.8 x its stroke width)) and its colour
+  // (default the stroke, darkened).
+  clock: { default: "length", hostOnly: true },
+  pen: { default: false, requires: { key: "clock", equals: "x" }, hostOnly: true },
+  penRadius: { default: null, types: ["number"], range: [0.5, 40], requires: { key: "pen", equals: true }, hostOnly: true },
+  penColor: { default: null, types: ["string"], requires: { key: "pen", equals: true }, hostOnly: true },
 };
 
 export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
@@ -239,7 +247,9 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   growBaseline: {},
   scaleIn: { from: { default: "auto", types: ["string", "point"] }, spin: GROW_SPIN },
   stagger: { child: { default: "fadeRise" } },
-  writeOn: WIPE_PARAMS,
+  // `tight` (WP 3.1, the band of an x-clock sweep): the ink's reveal edge runs on the eased clock exactly (front fraction == progress, no
+  // margin tail), so a confidence band's edge stays on its line's pen; absent = today's ink-fitted wipe
+  writeOn: { ...WIPE_PARAMS, tight: { default: false, hostOnly: true } },
   fadeOut: {},
   popOut: { to: { default: 0.92 } },
   scaleOut: { to: { default: "auto", types: ["string", "point"] }, spin: GROW_SPIN },

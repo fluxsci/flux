@@ -28,7 +28,7 @@ import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
 import { authoredFields, defaultEasingFor, defaultTimingFor, isExitPreset, rewritesText } from "./presetCatalog";
 import { AUTO_DELAY_AUTHORED_MS } from "./timing";
-import { EASING_TOKENS } from "./curves";
+import { EASING_TOKENS, resolveCurve } from "./curves";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
 import { targetOutlines } from "./targetGeometry";
 import { diffState, transformPreState } from "./tween";
@@ -770,8 +770,20 @@ function patchTimingCurve(track: Pick<Track, "curve" | "influence" | "easing">, 
 export function setTrackCurve(deck: Deck, slideId: Id, trackId: Id, curve: Curve | EasingToken | { influence: Influence } | null): TrackEditResult {
   const found = findTrack(deck, trackId);
   if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  const saved = structuredClone(found.track);
   patchTimingCurve(found.track, curve && typeof curve === "object" && "influence" in curve ? curve : { curve });
+  const refused = sweepClockRefusal(found.track, deck);
+  if (refused) { for (const key of Object.keys(found.track)) delete (found.track as unknown as Record<string, unknown>)[key]; Object.assign(found.track, saved); return { ok: false, reason: refused }; }
   return { ok: true };
+}
+
+/** WP 3.1: the curve of an along-x draw (`params.clock: "x"`) IS its front's x, which may neither leave the line (a spring, an overshooting
+ *  curve) nor jump (steps); the series' markers are timed on its inverse. Null when the track is no sweep or its curve is fine. */
+export function sweepClockRefusal(track: Track, deck: Deck): string | null {
+  const r = resolveTrack(track, deck);
+  if (r.preset !== "drawOn" && r.preset !== "drawOff" || r.params?.clock !== "x") return null;
+  const c = resolveCurve(r, familyOf(r));
+  return c.overshoots || c.key.startsWith("steps:") ? "A draw along x needs a curve that stays between its ends (no spring, overshoot or steps)" : null;
 }
 
 function styleValid(style: Omit<AnimStyle, "id">): void {
@@ -924,7 +936,8 @@ export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
     if (patch.arc !== undefined) setTrackArc(found.track, patch.arc);
   } catch (error) { return restore({ ok: false, reason: (error as Error).message }); }
   patchTimingCurve(found.track, patch);
-  return { ok: true };
+  const refused = sweepClockRefusal(found.track, deck);
+  return refused ? restore({ ok: false, reason: refused }) : { ok: true };
 }
 
 /** Move a track into another beat on the same slide (drag a chip across

@@ -93,7 +93,9 @@ effects; successive effects on the same target start after its existing effects 
 hints, in three clicks: **Axes & grid** (the axes and their colour key, with each gridline
 fading in alongside its own axis's ticks, which arrive one by one along the axis), then
 **Data** (lines draw on, bars grow from their baseline, points and hexagons stagger in, however
-many there are), and last **Legend & annotations** (the legend's frame, then its entries, then
+many there are; a data line draws **along x**, at an even pace from left to right, with its confidence band
+opening behind the same front and its markers growing in as the line reaches each one, and a line
+without markers is led by a small dot), and last **Legend & annotations** (the legend's frame, then its entries, then
 annotations and brackets), each after the short delay the plot suggests. A multi-panel plot offers
 **panel by panel**: the same three clicks for each panel in turn (an inset right after its host),
 with the figure's title first and its shared legend last. The same build is available from the
@@ -359,6 +361,13 @@ object is, and Dim starts from the object's current opacity. Wipe in feathers it
 (a Soft/Hard choice in the Animator), and **Trace strokes in order** (a toggle on Draw, written for an
 imported drawing with several strokes, never for a plot) draws the strokes of a multi-path drawing one
 after another at one pen speed, each weighted by its length (a Draw out takes the last stroke first).
+**Draw along x** (a toggle on the Draw of a plot's data line) draws the line at an even pace along its x
+axis instead of along its length, so a steep stretch no longer rushes past; its band, error bars and
+markers ride the same front, and **Lead dot** adds a dot at the tip. A line that doubles back in x, or is
+closed, keeps drawing along its length. A draw along x takes a curve that stays between its ends (no
+spring, overshoot or steps). From the command line:
+`flux draw-along-x talk slide1 plot1 growth [--pen on|off|auto] [--duration 1400]` (`--off` turns it off,
+keeping the timing).
 Every animation starts and lands without a pop: a draw grows from nothing (a round-capped line no longer
 blinks a dot in), and text that glides lands on the crisp resting text.
 
@@ -374,7 +383,10 @@ build's points now grow in (up to 150 points) instead of fading.
 **by** orders the ramp: **order** (target order), **x →** or **y ↑** (data position), **value**
 (each part's own value — a hexagon's mean, a cell's value, a bar's height — low to high),
 **count** (observations per hexagon) or **data index** (the generator's index). The order comes
-from the plot's data, so a hexmatrix can fill from its emptiest hexagon to its fullest.
+from the plot's data, so a hexmatrix can fill from its emptiest hexagon to its fullest. With **x →**
+or **y ↑** from the start or the end, **spacing** chooses **even** (one step per item) or **true**
+(each item waits in proportion to its distance along the axis, so markers that sit unevenly appear
+exactly as a line drawn along x reaches them).
 
 Use **Stagger → Each** for the delay between ranks, or **Total** for the time between the
 first and last item starting. Switching modes preserves the current span. **From → Random**

@@ -23,18 +23,22 @@ import { familyOf } from "./family";
 // ---------------------------------------------------------------------------
 
 import { buildPartTree, kindForRole, type PartKind, type XrayNode } from "../plot/tree";
-import type { FluxPlotManifest } from "../plot/types";
+import type { FluxPlotManifest, FluxPlotSeries } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
-import { hasTweenableSeries } from "../plot/project";
+import { hasTweenableSeries, seriesVertices, seriesFits, viewFits, projectWith, type Fits } from "../plot/project";
+import { sweepSamples, sweepDuration, sweepSpacingNeeded } from "./sweep";
+import { manifestCoordinates } from "./staggerData";
 import type { Beat, Track, PresetName, Deck, Slide, TargetRef, Stagger } from "./types";
+import type { Curve } from "./curves";
 import { planStagger, staggerFields, lagTotal, lagStarts } from "./stagger";
 import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
-import { authoredFields, presetDef } from "./presetCatalog";
+import { authoredFields, presetDef, isExitPreset } from "./presetCatalog";
+import { trackDuration } from "./timing";
 export { autoBuildMs } from "./presetCatalog";
 import { isHandoff, resolveTargetLeaves, targetPartIds, isWholeElementRef } from "./targets";
-import { resolveBeat } from "./resolve";
+import { resolveBeat, resolveStart } from "./resolve";
 
 // manifest animation name → player preset name. fluxplot's closed vocabulary
 // (presets.PRESET_NAMES, enumerated in its schema since 0.3.1) is the first
@@ -131,6 +135,9 @@ export interface AutoBuildOptions {
   /** Pen length per plot part id, in STAGE units (`partPenLengths`, one pure measure for GUI and CLI). Absent = no
    *  length scaling (the manifest/pace duration is used). */
   lengths?: Record<string, number>;
+  /** Stage units per plot SVG unit (the placed width over the viewBox width; `plotMeasures`): sizes an x-clock sweep by its x extent
+   *  on the slide. Absent = the sweep's unmeasured duration. */
+  stagePerUnit?: number;
 }
 
 export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: string, options: AutoBuildOptions = {}): Beat[] {
@@ -141,7 +148,8 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
 
   const phases = planPhases(manifest!, xray, manifest?.build?.order ?? [], null);
   const beats: Beat[] = [];
-  const plan = choreograph(phases, options.pace ?? DEFAULT_PACE, options.lengths ?? {});
+  const pace = options.pace ?? DEFAULT_PACE;
+  const plan = choreograph(phases, pace, options.lengths ?? {}, planSweeps(manifest!, pace, options.stagePerUnit));
   plan.phases.forEach((tracks, ph) => {
     if (!tracks.length) return;
     const ids = tracks.map(() => newId("track"));
@@ -239,8 +247,9 @@ function autoAnimatePanels(manifest: FluxPlotManifest, elId: string, panels: { i
   for (const p of ordered) groups.push({ label: p.label ?? p.id, entries: order.filter((e) => e.startsWith(p.id + ".") || e === "gridlines"), prefix: p.id + "." });
   if (figureTail.length) groups.push({ label: "Figure", entries: figureTail, prefix: null });
   const beats: Beat[] = [];
+  const pace = options.pace ?? DEFAULT_PACE, sweeps = planSweeps(manifest, pace, options.stagePerUnit);
   groups.forEach((g, gi) => {
-    const plan = choreograph(planPhases(manifest, xray, g.entries, g.prefix), options.pace ?? DEFAULT_PACE, options.lengths ?? {});
+    const plan = choreograph(planPhases(manifest, xray, g.entries, g.prefix), pace, options.lengths ?? {}, sweeps);
     plan.phases.forEach((tracks, ph) => {
       if (!tracks.length) return;
       const ids = tracks.map(() => newId("track"));
@@ -322,6 +331,9 @@ export interface AutoPace {
   lineOverlap: number;
   /** data-series line draws carry an explicit easing (V2: the pen moves at constant speed); undefined = the preset default */
   lineEasing?: "linear";
+  /** the x-clock SWEEP (WP 3.1): a line series whose x runs one way draws on the x clock, its band and markers revealed at the pen
+   *  (`markerMs` = each marker's window); null = no sweep (classic: pre-Release-1 bytes) */
+  sweep: { markerMs: number } | null;
 }
 
 /** The catalog's authored window for a preset (0 when the preset has none). One helper, no copied table. */
@@ -343,7 +355,7 @@ export const CLASSIC_PACE: AutoPace = {
     otherStartMs: 80,
     grid: { totalMs: 340, lag: 0.3, anchorOffsetMs: 160 },
   },
-  pointLag: null, pointCap: 1200, barLag: null, barCap: 1500, draw: null, lineOverlap: 0.5,
+  pointLag: null, pointCap: 1200, barLag: null, barCap: 1500, draw: null, lineOverlap: 0.5, sweep: null,
 };
 export const V2_PACE: AutoPace = {
   id: "v2", unit: SCAFFOLD_MS, floor: catalogFloor,
@@ -358,7 +370,7 @@ export const V2_PACE: AutoPace = {
     grid: { totalMs: SCAFFOLD_GRID_TOTAL_MS, lag: 0.3, anchorOffsetMs: SCAFFOLD_GRID_ANCHOR_MS },
   },
   pointLag: 0.1, pointCap: 2000, barLag: 0.25, barCap: 1500, draw: { pxPerSec: 600, minMs: 600, maxMs: 1600 }, lineOverlap: 0.55,
-  lineEasing: "linear",
+  lineEasing: "linear", sweep: { markerMs: 120 },
 };
 /** Named lookup for hosts that take a pace by name (the `animate-plot` verb, `--pace classic|v2`). */
 export const AUTO_PACES: Readonly<Record<AutoPace["id"], AutoPace>> = { classic: CLASSIC_PACE, v2: V2_PACE };
@@ -383,13 +395,140 @@ function withPaceFields(track: Track, pace: AutoPace): Track {
   return out;
 }
 
-/** Whether a build at `pace` reads pen lengths at all (so a host can skip measuring a plot that nothing will use). */
-export const paceUsesLengths = (pace: AutoPace = DEFAULT_PACE): boolean => pace.draw !== null;
+/** Whether a build at `pace` reads the plot's measures at all (pen lengths, the sweep's stage scale), so a host can skip measuring a
+ *  plot that nothing will use. */
+export const paceUsesLengths = (pace: AutoPace = DEFAULT_PACE): boolean => pace.draw !== null || pace.sweep !== null;
 
 /** Draw duration from the pen length (stage px): `len / v` clamped, on a 50 ms grid; no measure -> `fallback`. */
 export function drawDuration(len: number | undefined, fallback: number, pace: AutoPace): number {
   if (!pace.draw || !(len && len > 0)) return fallback;
   return Math.round(Math.max(pace.draw.minMs, Math.min(pace.draw.maxMs, len / pace.draw.pxPerSec * 1000)) / 50) * 50;
+}
+
+// ---------------------------------------------------------------------------
+// THE X-CLOCK SWEEP (WP 3.1, T8). A line series whose projected x runs one way draws on the x clock (`drawOn params.clock "x"`): its
+// band and its other marks (error bars, caps) are wiped open by the same front (`writeOn params.tight`) and its markers grow in as the
+// front reaches each one (a stagger by x on the inverse of the clock's curve; `spacing: "true"` when their x is irregular), so line,
+// band and markers are ONE gesture. One clock per panel: every swept series of a panel shares its duration and starts with the Data click.
+// A bare line (no markers) gets the lead dot.
+// ---------------------------------------------------------------------------
+/** The sweep's clock: "Gentle", bezier(.37,0,.63,1) (an ease in and out, no dead tail), and its exact inverse, which times each marker to
+ *  the moment the front reaches its x. */
+export const SWEEP_CURVE: Curve = { kind: "bezier", p: [0.37, 0, 0.63, 1] };
+export const SWEEP_MARKER_CURVE: Curve = { kind: "bezier", p: [0, 0.37, 1, 0.63] };
+
+/** The series' own x / y fits (its panel's, its twin axis' where it reads one). */
+const fitsOf = (manifest: FluxPlotManifest, s: FluxPlotSeries): Fits | null => {
+  const fits = viewFits(manifest, undefined, s.panelId);
+  return fits ? seriesFits(fits, (s as { axis?: string }).axis) : null;
+};
+/** The series' line vertices projected to plot SVG units (non-finite projections, a log axis' non-positive values, dropped). */
+function projectedLine(manifest: FluxPlotManifest, s: FluxPlotSeries): { x: number; y: number }[] {
+  const fits = fitsOf(manifest, s);
+  if (!fits?.x || !fits.y) return [];
+  return seriesVertices(s).map(p => ({ x: projectWith(fits.x, p.x), y: projectWith(fits.y, p.y) })).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+}
+/** Can this series ride the x clock? A vector line over >= 3 vertices whose PROJECTED x runs one way: the runtime's own rule
+ *  (`sweepSamples`) on the manifest's vertices, so the planner never writes a sweep the player would draw by length instead. */
+export function sweepable(manifest: FluxPlotManifest, s: FluxPlotSeries): boolean {
+  if (typeof s.svg?.line !== "string" || s.rasterized) return false;
+  const v = projectedLine(manifest, s);
+  return v.length >= 3 && sweepSamples(v) !== null;
+}
+/** One swept series: its parts and what its tracks take. */
+export interface SweepSeries {
+  line: string; points?: string;
+  /** its other marks (band, error bars, caps ...): wiped open by the front */
+  others: string[];
+  /** the pen runs in vertex (data) order: markers rank by data x, so a series written in descending x counts from the end */
+  from: "start" | "end";
+  /** the screen direction the front travels (a band's wipe) */
+  direction: "ltr" | "rtl";
+  /** the markers' x strays from even spacing (`sweepSpacingNeeded`): they need `Stagger.spacing: "true"` */
+  spacing: boolean;
+}
+/** The sweep of one sweepable series (null for any other). */
+export function sweepSeries(manifest: FluxPlotManifest, s: FluxPlotSeries): SweepSeries | null {
+  if (!sweepable(manifest, s)) return null;
+  const v = projectedLine(manifest, s), data = seriesVertices(s);
+  const points = typeof s.svg.points === "string" ? s.svg.points : undefined;
+  return {
+    line: s.svg.line as string, ...(points ? { points } : {}),
+    others: Object.entries(s.svg).flatMap(([k, id]) => typeof id === "string" && k !== "line" && k !== "points" ? [id] : []),
+    from: data[data.length - 1].x >= data[0].x ? "start" : "end", direction: v[v.length - 1].x >= v[0].x ? "ltr" : "rtl",
+    spacing: !!points && sweepSpacingNeeded(manifestCoordinates(manifest, (s.points ?? []).map(p => p.svgId), "x", "pixel")),
+  };
+}
+/** Every sweepable series of the manifest with its clock (one duration per panel: the longest of its series'), keyed by each of its part ids. */
+export function planSweeps(manifest: FluxPlotManifest, pace: AutoPace, stagePerUnit?: number): Map<string, SweepSeries & { durationMs: number }> {
+  const out = new Map<string, SweepSeries & { durationMs: number }>();
+  if (!pace.sweep) return out;
+  const swept = (manifest.series ?? []).flatMap(s => { const sw = sweepSeries(manifest, s); return sw ? [{ s, sw }] : []; });
+  const extent = (s: FluxPlotSeries) => { const xs = projectedLine(manifest, s).map(p => p.x); return (Math.max(...xs) - Math.min(...xs)) * (stagePerUnit ?? NaN); };
+  const perPanel = new Map<string | undefined, number>();
+  for (const { s } of swept) perPanel.set(s.panelId, Math.max(perPanel.get(s.panelId) ?? 0, sweepDuration(extent(s), pace.floor("drawOn"))));
+  for (const { s, sw } of swept) {
+    const planned = { ...sw, durationMs: perPanel.get(s.panelId)! };
+    for (const id of [sw.line, ...(sw.points ? [sw.points] : []), ...sw.others]) out.set(id, planned);
+  }
+  return out;
+}
+
+/** THE writer of a swept series' tracks, shared by the auto-build and `drawAlongX`. The line draws on the x clock over `durationMs` on
+ *  SWEEP_CURVE (keeping its start / anchor); its other tracks (`others`, the same beat) ride it, anchored to its start: a marker stagger
+ *  grows each marker as the front reaches it, everything else is wiped open by the front (`writeOn` tight). */
+export function sweepSeriesTracks(line: Track, others: readonly Track[], sw: SweepSeries, o: { durationMs: number; pen: boolean; markerMs: number }): void {
+  line.duration = o.durationMs; delete line.easing; delete line.influence; line.curve = structuredClone(SWEEP_CURVE);
+  // the x clock replaces a trim window (a trimmed draw runs by length) and decides the dot afresh
+  const rest = Object.fromEntries(Object.entries(line.params ?? {}).filter(([k]) => !["pen", "penRadius", "penColor", "anchor", "direction", "mode", "from", "to"].includes(k)));
+  line.params = { ...rest, clock: "x", ...(o.pen ? { pen: true } : {}) };
+  for (const t of others) {
+    t.start = 0; t.anchor = { trackId: line.id!, edge: "start", offsetMs: 0 };
+    if (t.part === sw.points && t.preset === "stagger") {
+      // each marker's window centred on the moment the front reaches it: starts spread over D - window/2 on the clock's inverse
+      t.duration = o.markerMs;
+      t.stagger = { totalMs: Math.max(0, o.durationMs - o.markerMs / 2), by: "x", from: sw.from, ...(sw.spacing ? { spacing: "true" as const } : {}), curve: structuredClone(SWEEP_MARKER_CURVE) };
+    } else {
+      t.preset = "writeOn"; t.duration = o.durationMs; delete t.easing; delete t.influence; delete t.stagger; t.curve = structuredClone(SWEEP_CURVE);
+      t.params = { direction: sw.direction, tight: true };
+    }
+  }
+}
+/** WP 3.1: draw ONE series of a plot along x (`draw-along-x`, the Animator's "Draw along x"), or stop (`off`). Finds the series' line
+ *  draw-on on the slide (the first, in story order) and, in the same beat, its markers and other marks, and writes them with the
+ *  auto-build's own writer: the line keeps its start (an anchor on one of its own marks is resolved first, so the marks can ride it),
+ *  its duration unless `durationMs` is given; `pen` "auto" = a lead dot when no marker stagger rides along. Throws when the series has no
+ *  x clock or no line draw. Returns the tracks written. */
+export function drawAlongX(deck: Deck, slideId: Id, elId: Id, manifest: FluxPlotManifest | undefined, seriesId: string,
+  opts: { off?: boolean; pen?: "auto" | boolean; durationMs?: number } = {}, manifestFor?: Parameters<typeof resolveStart>[3]): { line: Id; tracks: number } {
+  const slide = slideById(deck, slideId);
+  if (!slide) throw new Error(`slide not found: ${slideId}`);
+  const s = manifest?.series?.find(x => x.id === seriesId);
+  if (!manifest || !s) throw new Error(`series not found: ${seriesId}`);
+  const sw = sweepSeries(manifest, s);
+  if (!sw) throw new Error(`series ${seriesId} cannot draw along x (it needs a vector line whose x runs one way)`);
+  const at = slide.beats.flatMap(beat => beat.tracks.filter(t => t.target === elId && t.part === sw.line && t.preset === "drawOn").map(track => ({ beat, track })))[0];
+  if (!at) throw new Error(`no draw-on track for ${sw.line} on this slide`);
+  const { beat, track: line } = at;
+  line.id ??= newId("track");
+  const others = beat.tracks.filter(t => t !== line && t.target === elId && t.part !== undefined && (t.part === sw.points || sw.others.includes(t.part)) && !isExitPreset(t.preset));
+  if (opts.off) { unsweepSeriesTracks(line, others); return { line: line.id, tracks: 1 + others.length }; }
+  if (opts.durationMs !== undefined && !(Number.isFinite(opts.durationMs) && opts.durationMs > 0)) throw new Error("durationMs must be a positive number");
+  // the marks ride the line: a line anchored on one of them resolves to its start first (no cycle)
+  if (line.anchor && others.some(t => t.id === line.anchor!.trackId)) { line.start = resolveStart(line, beat, deck, manifestFor).start; delete line.anchor; }
+  const markers = others.some(t => t.part === sw.points && t.preset === "stagger");
+  sweepSeriesTracks(line, others, sw, { durationMs: opts.durationMs ?? trackDuration(line), pen: opts.pen === "auto" || opts.pen === undefined ? !markers : opts.pen, markerMs: V2_PACE.sweep!.markerMs });
+  return { line: line.id, tracks: 1 + others.length };
+}
+
+/** Undo a sweep's fields on a series' tracks (`drawAlongX --off`): the line draws by length again, a band wipes as before, markers rank
+ *  evenly; the timing stays. */
+function unsweepSeriesTracks(line: Track, others: readonly Track[]): void {
+  if (line.params) { for (const k of ["clock", "pen", "penRadius", "penColor"]) delete line.params[k]; if (!Object.keys(line.params).length) delete line.params; }
+  for (const t of others) {
+    if (t.params && "tight" in t.params) { delete t.params.tight; if (!Object.keys(t.params).length) delete t.params; }
+    if (t.stagger?.spacing) delete t.stagger.spacing;
+  }
 }
 
 /** The fields of ONE staggered group of `n` targets whose own authored window is `window`. */
@@ -416,7 +555,7 @@ const isFrameSpine = (pt: PlanTrack) => pt.role === "spine" && /\.(top|right)$/.
 // order, which already runs left to right and bottom to top, the direction each spine's pen travels (see resolve.ts
 // `tickCompensation` for the measurement).
 
-function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<string, number>) {
+function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<string, number>, sweeps: ReadonlyMap<string, SweepSeries & { durationMs: number }> = new Map()) {
   // gridlines fold into the Axes click; the legend frame/background belongs with the legend, not the Data phase it landed in
   const moved: PlanTrack[][] = [[], [], [], []];
   phases.forEach((list, ph) => list.forEach(pt => {
@@ -426,7 +565,8 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
   const sc = pace.scaffold;
   const build = (ph: number, tracks: PlanTrack[], ids: string[], elId: string): Track[] => {
     const out: Track[] = [];
-    const idOf = (pt: PlanTrack) => ids[tracks.indexOf(pt)];
+    const planned = tracks; // ids are by the plan's own order (the Data phase sets its swept series aside)
+    const idOf = (pt: PlanTrack) => ids[planned.indexOf(pt)];
     const mk = (pt: PlanTrack, extra: Partial<Track>): Track => ({ id: idOf(pt), target: elId, part: pt.part, preset: pt.preset, duration: win(pt, pace), start: pt.delayMs ?? 0, ...extra });
     /** a scaffold stagger group along its own axis */
     const scaffoldGroup = (pt: PlanTrack, spec: ScaffoldStagger): Track => {
@@ -461,6 +601,22 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
       return out;
     }
     if (ph === 2) {
+      // a swept series is ONE gesture on its own clock (see planSweeps): its line starts with the click, its markers and other marks ride
+      // it, and nothing else anchors to them. A bare line beside a scatter of another series (a fit line) is not swept: it keeps drawing
+      // while those points arrive (the line anchored on them, below)
+      const lineOf = (sw: SweepSeries) => tracks.find(l => l.part === sw.line && l.preset === "drawOn");
+      const scatter = tracks.some(t => t.preset === "stagger" && t.role !== "bar" && !sweeps.has(t.part));
+      const rides = (sw: SweepSeries) => !!lineOf(sw) && (!scatter || tracks.some(t => t.part !== sw.line && sweeps.get(t.part) === sw));
+      const swept = tracks.filter(t => { const sw = sweeps.get(t.part); return !!sw && rides(sw) && (t.part !== sw.line || t.preset === "drawOn"); });
+      for (const sw of new Set(swept.map(t => sweeps.get(t.part)!))) {
+        const linePt = lineOf(sw)!, line = mk(linePt, { start: 0 });
+        const others = swept.filter(t => t !== linePt && sweeps.get(t.part) === sw).map(pt => mk(pt, pt.part === sw.points && pt.preset === "stagger" ? { params: { child: pace.pointChild(pt.nLeaves) } } : {}));
+        sweepSeriesTracks(line, others, sw, { durationMs: sw.durationMs, pen: !others.some(t => t.part === sw.points && t.preset === "stagger"), markerMs: pace.sweep!.markerMs });
+        out.push(line, ...others);
+      }
+      tracks = tracks.filter(t => !swept.includes(t));
+      // the swept tracks keep their place in the plan's order (the Animator lists a beat's tracks as built)
+      const inOrder = (list: Track[]) => list.sort((x, y) => ids.indexOf(x.id!) - ids.indexOf(y.id!));
       const pointTracks = tracks.filter(t => t.preset === "stagger" && t.role !== "bar"); // points, hexagons, any authored stagger group
       const pointsPt = pointTracks[0]; // the line, area and annotations anchor to the FIRST series' group
       const pointFit = new Map(pointTracks.map(pt => [pt, groupStagger(pace, pt.nLeaves, pointWin(pt, pace), pt.staggerMs ?? 40, staggerAxis(pt.staggerBy))] as const));
@@ -499,7 +655,7 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
           }
         }
         for (const pt of tracks) if (!comp.has(pt)) out.push(mk(pt, {}));
-        return out;
+        return inOrder(out);
       }
       for (const pt of tracks) {
         const fit = pointFit.get(pt);
@@ -523,7 +679,7 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
           out.push(mk(pt, { anchor: { trackId: idOf(pointsPt), edge: "start", offsetMs: (pt.delayMs ?? 0) + lineLead }, start: 0 }));
         } else out.push(mk(pt, {}));
       }
-      return out;
+      return inOrder(out);
     }
     // phase 3 — legend & annotations: the frame first, then the entries lag
     const entries = tracks.filter(t => /legend-entry/.test(t.role));

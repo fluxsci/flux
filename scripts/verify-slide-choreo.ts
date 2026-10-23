@@ -22,7 +22,7 @@ import { addAppearanceTracks, readingOrder } from "../src/lib/slide/animateSelec
 import { compileSlide } from "../src/lib/slide/compile";
 import { resolveBeat } from "../src/lib/slide/resolve";
 import { validateDeckFile } from "../src/lib/project/validate";
-import { DECK_SCHEMA_VERSION, type Track, type Beat } from "../src/lib/slide/types";
+import { DECK_BASE_SCHEMA_VERSION, type Track, type Beat } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { harness } from "./lib/harness.mjs";
 const h = harness("verify-slide-choreo");
@@ -176,9 +176,11 @@ for (const [name, m] of [["scatter", scatter], ["bars", bars], ["boxplot", boxes
   h.ok(line(cls).anchor!.offsetMs === Math.round(0.5 * Math.min(50 * 40, 1200)) || line(cls).anchor!.offsetMs > 0, "classic: the line keeps today's half-spread anchor (capped)");
   h.eq(line(v2).easing, "linear", "v2: a data-series line draw carries an explicit linear easing (constant-speed pen)");
   h.eq(line(cls).easing, undefined, "classic: the line draw carries no authored easing");
+  // WP 3.1 supersedes the constant-speed pen for a plot of bare lines: they draw ALONG X (verify-slide-sweep.ts), on the Gentle clock; a fit
+  // line beside a scatter (above) keeps the linear pen
   const sw = autoAnimatePlot(sine, "plot", { pace: V2_PACE }).flatMap(b => b.tracks).filter(t => /\.line$/.test(t.part ?? ""));
-  h.ok(sw.length >= 2 && sw.every(t => t.easing === "linear"), "v2: every series line of a multi-line plot draws linearly");
-  h.ok(autoAnimatePlot(sine, "plot", { pace: V2_PACE }).flatMap(b => b.tracks).filter(t => t.easing !== undefined).every(t => /\.line$/.test(t.part ?? "")), "v2: only data-series lines carry an easing (not spines, ticks, areas, annotations)");
+  h.ok(sw.length >= 2 && sw.every(t => t.params?.clock === "x" && t.easing === undefined && t.curve !== undefined), "v2: every series line of a multi-line plot draws along x (WP 3.1)");
+  h.ok(autoAnimatePlot(legacy, "plot", { pace: V2_PACE }).flatMap(b => b.tracks).filter(t => t.easing !== undefined).every(t => /\.line$/.test(t.part ?? "")), "v2: only data-series lines carry an easing (not spines, ticks, areas, annotations)");
 }
 { // bars: together on classic (plot authors grow-from-baseline), one after another on v2; composite chains
   const cb = autoAnimatePlot(bars, "plot", { pace: CLASSIC_PACE }), vb = autoAnimatePlot(bars, "plot", { pace: V2_PACE });
@@ -207,7 +209,8 @@ for (const [name, m] of [["scatter", scatter], ["bars", bars], ["boxplot", boxes
   const pid = slideOps.addPlotToSlide(deck, sid, { assetId: "a", x: 0, y: 0, width: 400, height: 300 })!;
   applyAutoAnimation(deck, sid, pid, scatter, { pace: V2_PACE });
   h.eq(validateDeckFile(deck), [], "a v2-built deck validates against the UNCHANGED deck schema");
-  h.eq((deck as unknown as { schemaVersion: string }).schemaVersion, DECK_SCHEMA_VERSION, "no schema bump: the deck keeps the current version stamp");
+  // WP 3.0: a deck is written at the base format unless it holds a stamped feature (verify-schema-stamp.ts); an auto-build adds none
+  h.eq((deck as unknown as { schemaVersion: string }).schemaVersion, DECK_BASE_SCHEMA_VERSION, "no schema bump: the deck keeps the base version stamp");
 }
 
 // ---------------------------------------------------------------- D. re-animation: classic -> v2 == v2 from scratch (R3 F1)

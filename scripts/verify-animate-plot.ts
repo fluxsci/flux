@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { parseHTML } from "linkedom";
 import * as slideOps from "../src/lib/slide/ops";
 import { applyAutoAnimation, AUTO_PACES } from "../src/lib/slide/autobuild";
-import { plotPenLengths, partPenLengths } from "../src/lib/slide/partLength";
+import { plotPenLengths, partPenLengths, plotMeasures } from "../src/lib/slide/partLength";
 import { scaffold } from "../flux-core/index";
 import { saveDeck, loadDeck, animatePlotVerb } from "../flux-core/slides";
 import type { Beat } from "../src/lib/slide/types";
@@ -18,10 +18,10 @@ const h = harness("verify-animate-plot");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fx = (n: string) => path.join(here, "fixtures", "plots", n);
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-animate-plot-"));
-const strip = (beats: Beat[]) => JSON.stringify(beats.map(b => [b.label, b.advance ?? "", b.tracks.map((t, i) => [t.part, t.preset, t.duration, t.start ?? 0, t.anchor ? [t.anchor.edge, t.anchor.offsetMs, b.tracks.findIndex(x => x.id === t.anchor!.trackId)] : null, t.stagger ?? null, t.params ?? null])]));
+const strip = (beats: Beat[]) => JSON.stringify(beats.map(b => [b.label, b.advance ?? "", b.tracks.map((t, i) => [t.part, t.preset, t.duration, t.start ?? 0, t.anchor ? [t.anchor.edge, t.anchor.offsetMs, b.tracks.findIndex(x => x.id === t.anchor!.trackId)] : null, t.stagger ?? null, t.params ?? null, t.curve ?? null])]));
 try {
   await scaffold(root, { title: "animate-plot" });
-  for (const name of ["mpl_scatter", "mpl_sine_waves", "mpl_bars"]) {
+  for (const name of ["mpl_scatter", "mpl_sine_waves", "mpl_bars", "ts_band_line"]) {
     const svg = await fs.readFile(fx(`${name}_FLUXPLOT.svg`), "utf8");
     const manifest = JSON.parse(await fs.readFile(fx(`${name}_FLUXPLOT.fluxplot.json`), "utf8"));
     await fs.mkdir(path.join(root, "plots"), { recursive: true });
@@ -31,14 +31,14 @@ try {
       const make = () => { const d = slideOps.createDeck({ id: `d-${name}-${pace}`, title: name }); const s = slideOps.addSlide(d, { id: "s", layout: "blank" }); const p = slideOps.addPlotToSlide(d, s.id, { assetId: name, x: 20, y: 20, width: 520, height: 300 })!; return { d, s, p }; };
       // the GUI path: parse the SVG it already holds, measure with the shared function, call the shared build
       const gui = make();
-      const lengths = plotPenLengths(parseHTML(svg).document, manifest, 520);
-      applyAutoAnimation(gui.d, "s", gui.p, manifest, { pace: AUTO_PACES[pace], lengths });
+      const measures = plotMeasures(parseHTML(svg).document, manifest, 520);
+      applyAutoAnimation(gui.d, "s", gui.p, manifest, { pace: AUTO_PACES[pace], ...measures });
       // the headless path: the verb reads the plot files itself
       const cli = make();
       await saveDeck(root, cli.d);
       const r = await animatePlotVerb(root, cli.d.id, "s", cli.p, { pace });
       const after = await loadDeck(root, cli.d.id);
-      h.eq(strip(after.slides.find(s => s.id === "s")!.beats), strip(gui.d.slides.find(s => s.id === "s")!.beats), `${name}/${pace}: animate-plot tracks == the GUI auto-build tracks (lengths included)`);
+      h.eq(strip(after.slides.find(s => s.id === "s")!.beats), strip(gui.d.slides.find(s => s.id === "s")!.beats), `${name}/${pace}: animate-plot tracks == the GUI auto-build tracks (pen lengths and the sweep's stage scale included)`);
       h.ok(r.beats >= 2 && r.beats <= 3, `${name}/${pace}: ${r.beats} click beats`);
     }
   }

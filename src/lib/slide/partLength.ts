@@ -56,18 +56,30 @@ export function partPenLengths(root: ParentNode, ids: readonly string[], stagePe
   return out;
 }
 
-/** Every build-part id of a plot (tree nodes, groups and leaves) -> pen length in STAGE units. `root` = the plot SVG parsed
- *  by whoever holds it (GUI: the cached `plotDom` <svg> element; CLI: linkedom on the file text); `elWidth` = the placed element's width in stage
- *  units. The ONE call the Animate button and `flux animate-plot` both make, so the two builds cannot disagree. */
-export function plotPenLengths(root: ParentNode, manifest: FluxPlotManifest | undefined, elWidth: number): Record<string, number> {
-  const tree = buildPartTree(manifest);
-  // the GUI holds the pristine <svg> element (plotDom), a parse of the text gives a document: accept both
+/** Stage units per plot SVG unit for a plot placed `elWidth` stage units wide: the placed width over the viewBox width (else the
+ *  `width` attribute). Undefined when either is unknown. `root` = the cached `<svg>` element (GUI) or a parsed document (CLI). */
+export function plotStagePerUnit(root: ParentNode, elWidth: number): number | undefined {
   const svg = (root as Element).tagName?.toLowerCase() === "svg" ? (root as Element) : (root as Document).querySelector?.("svg");
   const vb = (svg?.getAttribute("viewBox") ?? "").split(/[\s,]+/).map(Number);
   const vbWidth = vb.length === 4 && vb[2] > 0 ? vb[2] : Number(svg?.getAttribute("width")) || 0;
-  if (!tree || !(vbWidth > 0) || !(elWidth > 0)) return {};
+  return vbWidth > 0 && elWidth > 0 ? elWidth / vbWidth : undefined;
+}
+
+/** Every build-part id of a plot (tree nodes, groups and leaves) -> pen length in STAGE units. `root` = the plot SVG parsed
+ *  by whoever holds it (GUI: the cached `plotDom` <svg> element; CLI: linkedom on the file text); `elWidth` = the placed element's width in stage
+ *  units. */
+export function plotPenLengths(root: ParentNode, manifest: FluxPlotManifest | undefined, elWidth: number): Record<string, number> {
+  const tree = buildPartTree(manifest), scale = plotStagePerUnit(root, elWidth);
+  if (!tree || scale === undefined) return {};
   const ids: string[] = [];
   const walk = (n: XrayNode) => { ids.push(n.id); n.children.forEach(walk); };
   walk(tree);
-  return partPenLengths(root, ids, elWidth / vbWidth);
+  return partPenLengths(root, ids, scale);
+}
+
+/** What an auto-build measures on the plot's own SVG (`AutoBuildOptions.lengths` and `.stagePerUnit`): the ONE call the Animate button
+ *  and `flux animate-plot` both make, so the two builds cannot disagree. */
+export function plotMeasures(root: ParentNode, manifest: FluxPlotManifest | undefined, elWidth: number): { lengths: Record<string, number>; stagePerUnit?: number } {
+  const stagePerUnit = plotStagePerUnit(root, elWidth);
+  return { lengths: plotPenLengths(root, manifest, elWidth), ...(stagePerUnit !== undefined ? { stagePerUnit } : {}) };
 }

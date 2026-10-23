@@ -19,7 +19,7 @@
   import { selection, partSelection, partSelections, xrayOpen } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
-  import { guiPenLengths } from "../../../lib/slide/partLengthGui";
+  import { guiPlotMeasures } from "../../../lib/slide/partLengthGui";
   import { scene3dManifests } from "../../../lib/model3d/store";
   import { transformPreState } from "../../../lib/slide/tween";
   import { plotManifests, plotDom } from "../../../lib/plot/store";
@@ -243,7 +243,7 @@
     // Held in an object so TS keeps the union type across the commitDeck closure.
     const hold: { fb: { beatIndex: number; trackId: string } | null } = { fb: null };
     commitDeckLive((d) => {
-      added = applyAutoAnimation(d, sid, plot.id, manifest, { perPanel: buildPerPanel, lengths: guiPenLengths(plot.assetId, manifest, plot.width) });
+      added = applyAutoAnimation(d, sid, plot.id, manifest, { perPanel: buildPerPanel, ...guiPlotMeasures(plot.assetId, manifest, plot.width) });
       // Pre-0.2.0 plots have no parts tree → applyAutoAnimation adds nothing.
       // Fall back to a whole-element fade so the button always animates something.
       if (!added) hold.fb = animateElement(d, sid, plot.id, {});

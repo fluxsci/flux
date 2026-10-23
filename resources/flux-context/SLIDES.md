@@ -55,6 +55,7 @@ flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--p
 flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default (rect/ellipse/arrow scaleIn / scaleOut, text/image/plot fadeRise, line/path drawOn / drawOff; a Draw on a multi-stroke imported drawing, not a fluxplot, traces the strokes in order)
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 flux animate-plot <deck> <slideId> <elId> [--per-panel] [--pace classic|v2]           # (animate_plot)     the whole plot build, as Animate > Auto: three clicks (axes + grid, data, legend + annotations); --pace classic keeps the older numbers
+flux draw-along-x <deck> <slideId> <elId> <seriesId> [--pen auto|on|off] [--duration ms] [--off]  # (draw_along_x) one series draws along x: line at a constant x rate (Gentle curve), band and error bars wiped open by the same front, markers grow in as it reaches them; --off = by length again (timing kept)
 
 flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
      [--x-scale linear|log --y-scale linear|log --y2-min N --y2-max N --y2-scale linear|log --reset] [--beat beatId]  # (set_plot_view) data view (a twin axis by --y2-*/--x2-*), or a Change at a deck beat
@@ -94,7 +95,7 @@ flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (anima
 flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
      [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
      [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
-     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index] [--seed uint32]
+     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index] [--stagger-spacing even|true] [--seed uint32]
 flux align-tracks <deck> <slideId> --tracks t1,t2 --edge start|end --to ms|t3[:start|end]
      [--beat beatId|index] [--resize]                             # (align_tracks) Alt+A / Alt+D: land resolved edges on a time/edge
 flux inherit-track <deck> <slideId> --from t1 --to t2,t3 [--beat beatId|index] [--include-start] # (inherit_track) exact animation of t1
@@ -163,6 +164,15 @@ to place multiple appearance effects on the same object in one step.
   of one multi-path drawing one after another at one pen speed, weighted by length (a retreat takes the
   last stroke first); the Animator writes it for a Draw on an imported drawing with several strokes (never
   for a fluxplot chart).
+- **Draw along x** (`drawOn`/`drawOff` `params.clock: "x"`, + `pen`, `penRadius`, `penColor`): a plot's data line draws at
+  a constant x rate (manim's Create on a graph): the eased progress IS the front's x, so a sine reveals evenly left to right
+  instead of racing through its steep parts. `pen: true` adds a lead dot riding the front (it exists only while it rides).
+  `writeOn` `params.tight: true` runs the ink's edge on the whole clock, so a band wiped with the same curve and timing stays
+  on the line's pen; `Stagger.spacing: "true"` (by x|y, from start|end) spaces a ramp by each part's pixel distance along
+  the axis, so markers appear as the pen reaches them. The auto-build writes all of this for a line series (its band, error
+  bars and markers ride the line; a bare line gets the dot; a fit line beside a scatter keeps drawing as the points arrive);
+  `flux draw-along-x` / the Animator's **Draw along x** do it for one series. A sweep refuses a spring, an overshooting curve
+  or steps; a closed or backwards-running stroke, or a trimmed one, draws by length.
 - **Soft wipe**: `writeOn`/`wipeOut` `params.edge: "soft"` feathers a text's leading edge (0.9 x font size);
   new Wipe ins carry it; `"hard"` or an absent edge is the plain clip.
 - **`params` keys the player knows** (frozen defaults): `fadeRise.y` 14, `popIn.from` 0.9,
@@ -171,6 +181,7 @@ to place multiple appearance effects on the same object in one step.
   `dim.level` 0.3 (0..1), `scaleIn.from` auto, `scaleOut.to` auto, `scaleIn`/`scaleOut` `spin` 0 (+-720),
   `pulse.scale` (auto, 1-3) / `about`, `encircle` `gap` 6, `radius` 6, `width` 3.5, `window` 0.3, `color`,
   `highlight.lead` 0, `drawOn`/`drawOff` `order` together / `lag` 0.3, `writeOn`/`wipeOut` `edge` hard,
+  `drawOn`/`drawOff` `clock` length / `pen` false / `penRadius` / `penColor` (auto), `writeOn.tight` false,
   `countUp.steadyDigits` true (SVG text only; digits sit in place-value slots), and on a text-rewrite
   `transform` `fadeStyle` drift / `letters` fade. A key outside this list is kept in the deck and reported as an issue; it
   has no effect.

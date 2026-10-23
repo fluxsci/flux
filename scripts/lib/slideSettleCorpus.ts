@@ -11,6 +11,9 @@ import { createCanvas } from "@napi-rs/canvas";
 import { createDeck, addSlide, addElement, addBeat, setAnimation, setTransform, addGhostTransform } from "../../src/lib/slide/ops";
 import { pathD } from "../../src/lib/path";
 import { authoredFields } from "../../src/lib/slide/presetCatalog";
+import { applyAutoAnimation, SWEEP_CURVE, V2_PACE } from "../../src/lib/slide/autobuild";
+import { plotMeasures } from "../../src/lib/slide/partLength";
+import { parseHTML } from "linkedom";
 import type { Deck, Track, TargetRef, BecomeSpec } from "../../src/lib/slide/types";
 import type { SweepPayload } from "./slideSettleSweep";
 
@@ -156,6 +159,16 @@ async function plotDecks(compact: boolean): Promise<CorpusDeck[]> {
       const off = b.beat(s); b.anim(s, off, "pl", "drawOff", { part: "1hz.line" });
     }
     out.push({ name: "plot_lines", payload: { deck: b.deck, plots: { sine: plots.sine } } });
+  }
+  {
+    // WP 3.1: the x-clock sweep exactly as the auto-build writes it (a line, its band and its markers on one front; bare lines with the lead
+    // dot), and a retreat along x with the dot riding the retreating end
+    const b = new Builder("plot_sweep"), band = await readPlot("ts_band_line");
+    const auto = (slide: string, plot: { svg: string; manifest: never }) => applyAutoAnimation(b.deck, slide, "pl", plot.manifest, { pace: V2_PACE, ...plotMeasures(parseHTML(plot.svg).document, plot.manifest, 520) });
+    const s = b.slide("sweep"); place(b, s, "pl", "band"); auto(s, band as never);
+    const w = b.slide("sweep_pen"); place(b, w, "pl", "sine"); auto(w, plots.sine as never);
+    b.anim(w, b.beat(w), "pl", "drawOff", { part: "1hz.line", duration: 1100, curve: SWEEP_CURVE, params: { clock: "x", pen: true } });
+    out.push({ name: "plot_sweep", payload: { deck: b.deck, plots: { band, sine: plots.sine } } });
   }
   {
     // CHAINED plot Changes (R2 F3): every step starts from the plot the step before it left, whatever it changed. The fixtures are the same plot with

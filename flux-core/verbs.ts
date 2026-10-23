@@ -29,6 +29,7 @@ const staggerSchema = z.object({
   perMs: z.number().nonnegative().optional(), totalMs: z.number().nonnegative().optional(),
   by: z.union([z.enum(["index", "x", "y", "data"]), z.object({ key: z.enum(["value", "count", "index"]) }).strict()]).optional(),
   from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+  spacing: z.enum(["even", "true"]).optional(),
   seed: z.number().int().min(0).max(0xffffffff).optional(),
   curve: z.union([
     z.enum(EASING_TOKENS),
@@ -3104,12 +3105,13 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
-    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index.",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index. staggerSpacing true (with staggerBy x|y, from start|end) waits each part in proportion to its distance along the axis (an x sweep's markers); even is one step per part.",
     params: {
       deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
       staggerEach: z.number().nonnegative().optional(), staggerTotal: z.number().nonnegative().optional(),
       staggerCurve: z.string().optional(), staggerFrom: z.enum(["start", "end", "center", "edges", "random"]).optional(),
       staggerBy: z.enum(["index", "x", "y", "data", "value", "count", "data-index"]).optional(),
+      staggerSpacing: z.enum(["even", "true"]).optional(),
       seed: z.number().int().min(0).max(0xffffffff).optional(),
       styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
       start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
@@ -3122,6 +3124,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "stagger-curve", into: "staggerCurve" },
       { kind: "flag", at: "stagger-from", into: "staggerFrom" },
       { kind: "flag", at: "stagger-by", into: "staggerBy" },
+      { kind: "flag", at: "stagger-spacing", into: "staggerSpacing" },
       { kind: "flag", at: "seed", into: "seed", as: "number" },
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
       { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
@@ -3132,7 +3135,7 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => {
       if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
       const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration"]), ...timingCurveArgs(a) };
-      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "staggerBy", "seed"].some(k => a[k] !== undefined)) {
+      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "staggerBy", "staggerSpacing", "seed"].some(k => a[k] !== undefined)) {
         const stagger: NonNullable<typeof patch.stagger> = {};
         if (a.staggerEach !== undefined) stagger.perMs = n(a.staggerEach);
         if (a.staggerTotal !== undefined) stagger.totalMs = n(a.staggerTotal);
@@ -3141,6 +3144,10 @@ export const VERBS: VerbDef[] = [
           // the CLI spelling: value / count / data-index name the data keys, the rest are the axes
           const by = s(a.staggerBy);
           stagger.by = by === "value" ? { key: "value" } : by === "count" ? { key: "count" } : by === "data-index" ? { key: "index" } : by as "index" | "x" | "y" | "data";
+        }
+        if (a.staggerSpacing !== undefined) {
+          if (a.staggerSpacing !== "even" && a.staggerSpacing !== "true") throw new ValidationError("stagger spacing must be even or true");
+          stagger.spacing = a.staggerSpacing;
         }
         if (a.seed !== undefined) stagger.seed = n(a.seed);
         if (a.staggerCurve !== undefined) {
@@ -3652,6 +3659,30 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (r, a) => ({ err: `✓ ${a.elementId} builds in ${(r as { beats: number }).beats} click(s)` }),
       mcp: (r, a) => text(`${a.elementId} builds in ${(r as { beats: number }).beats} click(s)`),
+    },
+  },
+  {
+    name: "draw_along_x",
+    scope: "project",
+    cli: "draw-along-x",
+    cliRoot: "flags",
+    summary:
+      "Draw ONE series of a plot along x (the Animator's Draw along x): its line draws at a constant x rate on the Gentle curve, its band and other marks are wiped open by the same front and its markers grow in as the front reaches each one (all in the line's beat, riding the line's start). pen: auto (a lead dot when no markers ride along) | on | off. duration: the sweep in ms (default: the line's own). off: back to a draw by length (timing kept). Refused for a series whose x does not run one way or that has no line draw on the slide.",
+    params: { deckId: z.string(), slideId: z.string(), elementId: z.string(), series: z.string(), pen: z.enum(["auto", "on", "off"]).optional(), duration: z.number().positive().optional(), off: z.boolean().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "elementId", required: true },
+      { kind: "pos", at: 3, into: "series", required: true },
+      { kind: "flag", at: "pen", into: "pen" },
+      { kind: "flag", at: "duration", into: "duration", as: "number" },
+      { kind: "flag", at: "off", into: "off", as: "boolean" },
+    ],
+    handler: (ctx, a) =>
+      core.drawAlongXVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.elementId), s(a.series), { pen: a.pen as "auto" | "on" | "off" | undefined, durationMs: a.duration as number | undefined, off: a.off as boolean | undefined }),
+    render: {
+      human: (r, a) => ({ err: a.off ? `✓ ${a.series} draws by length again (${(r as { tracks: number }).tracks} track(s))` : `✓ ${a.series} draws along x (${(r as { tracks: number }).tracks} track(s))` }),
+      mcp: (r, a) => text(a.off ? `${a.series} draws by length again (${(r as { tracks: number }).tracks} track(s))` : `${a.series} draws along x (${(r as { tracks: number }).tracks} track(s))`),
     },
   },
   {

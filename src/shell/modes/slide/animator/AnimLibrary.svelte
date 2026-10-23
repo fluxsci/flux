@@ -14,7 +14,7 @@
   import { plotManifests } from "../../../../lib/plot/store";
   import { slideById, addBeat as addBeatOp, setAnimation, setTransform, groupTracks, addAnimStyle, linkTrackStyle } from "../../../../lib/slide/ops";
   import { suggestElementTrack, suggestTrack, animatePart } from "../../../../lib/slide/autobuild";
-  import { guiPenLengths } from "../../../../lib/slide/partLengthGui";
+  import { guiPlotMeasures } from "../../../../lib/slide/partLengthGui";
   import {
     applyTemplate, deriveTemplateSlots, makeAnimPreset,
     type AnimPreset, type AnimTemplate, type TemplateScope,
@@ -80,7 +80,7 @@
         if (!el2) continue;
         // smart target defaults under the preset's settings (preset wins)
         const base: Track = ps
-          ? suggestTrack($plotManifests[(el2 as { assetId?: string }).assetId ?? ""], id, ps.partId, { lengths: el2.type === "plot" ? guiPenLengths(el2.assetId, $plotManifests[el2.assetId], el2.width) : undefined })
+          ? suggestTrack($plotManifests[(el2 as { assetId?: string }).assetId ?? ""], id, ps.partId, { lengths: el2.type === "plot" ? guiPlotMeasures(el2.assetId, $plotManifests[el2.assetId], el2.width).lengths : undefined })
           : suggestElementTrack(el2);
         const track: Track = { ...base, ...structuredClone(p.track), target: id, ...(ps ? { part: ps.partId } : {}) };
         // easing / influence / curve are ONE group: a preset that carries any of them replaces the base's whole group

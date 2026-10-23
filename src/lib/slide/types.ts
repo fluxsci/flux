@@ -300,6 +300,10 @@ export interface Stagger {
    *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.) */
   by?: "index" | "x" | "y" | "data" | { key: "value" | "count" | "index" };
   from?: "start" | "end" | "center" | "edges" | "random";
+  /** "true" spaces the delays by the targets' NORMALISED pixel-space coordinate (a point 30 % of the way along x starts at
+   *  30 % of the span) instead of by ordinal rank; needs `by` x|y and `from` start|end. The marker clock of an x-clock sweep
+   *  (WP 3.1), written only when the x spacing is irregular. Absent = "even". Not stamped (an older build plays it evenly). */
+  spacing?: "even" | "true";
 }
 
 /** The destination of a `transform` (a sparse element-state patch plus, for

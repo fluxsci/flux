@@ -29,6 +29,8 @@ export const PLAY: Record<string, string[]> = {
   preset_scaleIn: ["p_scaleIn#1-1", "p_scaleIn#2-2"], preset_scaleOut: ["p_scaleOut#1-1", "p_scaleOut#2-2"], preset_pulse: ["p_pulse#1-1", "p_pulse#2-2"], preset_encircle: ["p_encircle#1-1", "p_encircle#2-2"], become_stroked: ["line_shape#1-1", "corners#1-1"], ghost: ["ghost#2-2"],
   // the draw seam: thick closed strokes drawn on and off (the corner closing at the landing is GPU-only)
   draw_seam: ["seam#1-1", "seam#2-2", "seam#3-3", "seam#4-4", "seam#5-5", "seam#6-6"],
+  // WP 3.1: the x-clock sweep (line + band + markers on one front), bare lines with the lead dot, and a retreat along x
+  plot_sweep: ["sweep#2-2", "sweep_pen#2-2", "sweep_pen#3-3"],
   // R2 follow-up F1: round hand-offs (one rasteriser at both ends), stroked corners, a cornerRadius Change, compound holes
   handoff_round: ["dot_int#1-1", "dot_grow#1-1", "ring_ring#1-1", "six_dots#1-1"],
   become_corners: ["tri_circle#1-1", "rect_circle#1-1", "arrow_circle#1-1", "arrow_circle_ho#1-1", "butt_line_rect#1-1", "ell_rect#1-1", "ell_rect_ho#1-1", "translucent#1-1", "rect_line_round#1-1", "line_rect_round#1-1", "circ_diamond_ho#1-1", "diamond_circ_ho#1-1"],

@@ -46,8 +46,8 @@ import { planSourceUpdates, writeSourceUpdates, hasCompleteSvgStructure } from "
 import { svgIntrinsicSize } from "../src/lib/plot/svgGeometry";
 import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../src/lib/slide/sourceSync";
 import { plotSourceCandidates } from "../src/lib/plot/source";
-import { animateElement, animatePart, applyAutoAnimation, AUTO_PACES, paceUsesLengths, type AutoBuildOptions, type AutoPace } from "../src/lib/slide/autobuild";
-import { plotPenLengths } from "../src/lib/slide/partLength";
+import { animateElement, animatePart, applyAutoAnimation, drawAlongX, AUTO_PACES, paceUsesLengths, type AutoBuildOptions, type AutoPace } from "../src/lib/slide/autobuild";
+import { plotMeasures } from "../src/lib/slide/partLength";
 import { multiStroke } from "../src/lib/slide/strokeGeometry";
 import { parseHTML } from "linkedom";
 import { hasTweenableSeries } from "../src/lib/plot/project";
@@ -1148,7 +1148,7 @@ async function readPlotSvg(
 }
 
 /** animate-plot: the plot AUTO-BUILD (what the Animate > Auto button does) for the headless host. ONE implementation of the build
- *  (`applyAutoAnimation`) and ONE pen measure (`plotPenLengths`, on a parse of the plot's own SVG), so a CLI/MCP build and the
+ *  (`applyAutoAnimation`) and ONE plot measure (`plotMeasures`, on a parse of the plot's own SVG), so a CLI/MCP build and the
  *  GUI button write identical tracks. `pace` picks the AutoPace table (default: the build's default pace). Returns the click beats added. */
 export async function animatePlotVerb(
   root: string,
@@ -1169,10 +1169,30 @@ export async function animatePlotVerb(
       if (!Object.hasOwn(AUTO_PACES, opts.pace)) throw new Error(`unknown pace: ${opts.pace} (classic | v2)`);
       options.pace = AUTO_PACES[opts.pace];
     }
-    if (svg && paceUsesLengths(options.pace)) options.lengths = plotPenLengths(parseHTML(svg).document, manifest, found.el.width);
+    if (svg && paceUsesLengths(options.pace)) Object.assign(options, plotMeasures(parseHTML(svg).document, manifest, found.el.width));
     const beats = applyAutoAnimation(deck, slideId, elementId, manifest, options);
     if (!beats) throw new Error(`the plot ${found.el.assetId} has no parts tree to build from`);
     return { beats };
+  });
+}
+
+/** draw-along-x (WP 3.1): ONE series of a plot draws along x, or stops (`off`); the op is `drawAlongX` (the Animator's checkbox runs the
+ *  same). Returns the line track and how many tracks were written. */
+export async function drawAlongXVerb(
+  root: string,
+  deckId: string,
+  slideId: string,
+  elementId: string,
+  seriesId: string,
+  opts: { pen?: "auto" | "on" | "off"; durationMs?: number; off?: boolean } = {},
+): Promise<{ line: string; tracks: number }> {
+  if (opts.pen !== undefined && !["auto", "on", "off"].includes(opts.pen)) throw new Error(`unknown --pen value: ${opts.pen} (auto | on | off)`);
+  return mutateDeck(root, deckId, "draw_along_x", async (deck) => {
+    mustSlide(deck, slideId);
+    const found = slideOps.findElement(deck, elementId);
+    if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
+    const manifest = await readPlotManifest(root, found.el, deckId);
+    return drawAlongX(deck, slideId, elementId, manifest, seriesId, { off: opts.off, durationMs: opts.durationMs, pen: opts.pen === "on" ? true : opts.pen === "off" ? false : "auto" });
   });
 }
 

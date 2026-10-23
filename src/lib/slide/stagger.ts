@@ -23,7 +23,17 @@ export function reshuffleSeed(track: Track, count: number): number {
 /** One ordering policy for semantic targets, timeline footprints and playback.
  * Geometry children of one target share a rank. Missing spatial coordinates
  * retain their input order, after targets with a data-space coordinate. */
-export function staggerRanks(count: number, from = "start", coordinates?: readonly (number | null)[], seed = 0, totalSpan = false): number[] {
+export function staggerRanks(count: number, from = "start", coordinates?: readonly (number | null)[], seed = 0, totalSpan = false, spacing: "even" | "true" = "even"): number[] {
+  if (spacing === "true" && coordinates && count > 1 && (from === "start" || from === "end")) {
+    // spacing "true": FRACTIONAL ranks. rank / maxRank is the target's normalised coordinate (callers pass PIXEL-space coordinates from
+    // manifestCoordinates(..., "pixel"), so a log axis is right), hence staggerDelay's span * curve(rank / maxRank) places each target on
+    // the coordinate axis, and evenly spaced coordinates reproduce "even". The max rank stays count - 1 (footprints and spans survive).
+    const known = coordinates.filter((c): c is number => c != null), lo = Math.min(...known), hi = Math.max(...known);
+    if (known.length > 1 && hi > lo) return Array.from({ length: count }, (_, i) => {
+      const c = coordinates[i], f = c == null ? 1 : (c - lo) / (hi - lo);
+      return (from === "end" ? 1 - f : f) * (count - 1);
+    });
+  }
   const order = Array.from({ length: count }, (_, i) => i);
   if (coordinates) order.sort((a, b) => {
     const ca = coordinates[a], cb = coordinates[b];
@@ -85,7 +95,15 @@ export function patchStagger(current: Stagger | undefined, patch: Partial<Stagge
   if (patch.seed !== undefined && (!Number.isInteger(patch.seed) || patch.seed < 0 || patch.seed > 0xffffffff)) throw new Error("Stagger seed must be an unsigned 32-bit integer");
   if (patch.by !== undefined && !(typeof patch.by === "string" ? ["index", "x", "y", "data"].includes(patch.by) : ["value", "count", "index"].includes(patch.by?.key ?? ""))) throw new Error("Unknown stagger ordering key");
   if (patch.from !== undefined && !["start", "end", "center", "edges", "random"].includes(patch.from)) throw new Error("Unknown stagger origin");
+  if (patch.spacing !== undefined && !["even", "true"].includes(patch.spacing)) throw new Error("Unknown stagger spacing");
   const next = { ...(current ?? { perMs: 40 }), ...patch };
+  // "true" spacing needs a spatial key and a one-ended origin: asking for it otherwise is refused; changing the key or the origin of a
+  // stagger that has it returns it to even
+  if (next.spacing === "true" && (!(next.by === "x" || next.by === "y") || (next.from ?? "start") !== "start" && next.from !== "end")) {
+    if (patch.spacing === "true") throw new Error("Stagger spacing \"true\" needs by x or y and from start or end");
+    delete next.spacing;
+  }
+  if (next.spacing === "even") delete next.spacing;
   if (patch.totalMs !== undefined) delete next.perMs;
   else if (patch.perMs !== undefined) delete next.totalMs;
   if (patch.curve !== undefined) {

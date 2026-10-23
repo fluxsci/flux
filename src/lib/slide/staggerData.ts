@@ -7,6 +7,7 @@
 // same targets the same way.
 import type { Stagger } from "./types";
 import type { FluxPlotManifest } from "../plot/types";
+import { projectWith, seriesFits, viewFits } from "../plot/project";
 
 export type StaggerKey = "x" | "y" | "value" | "count" | "index";
 
@@ -37,13 +38,20 @@ export function nodeCoordinate(node: { getAttribute?: (n: string) => string | nu
 /** The same coordinates from the manifest, for the compiler: points (x, y, colour value,
  *  index), hexagons (centre, value, count), heatmap cells (value by row / column), bars (height
  *  by position). Unknown parts are null and keep their input order after the ranked ones. */
-export function manifestCoordinates(manifest: FluxPlotManifest | undefined, partIds: readonly string[], key: StaggerKey): (number | null)[] {
+export function manifestCoordinates(manifest: FluxPlotManifest | undefined, partIds: readonly string[], key: StaggerKey, space: "data" | "pixel" = "data"): (number | null)[] {
   const out = new Map<string, number | null>();
   for (const s of manifest?.series ?? []) {
+    // "pixel": x / y of points and bars through the axis fit (a log axis is right), the clock an x-clock sweep draws on (WP 3.1),
+    // ORIENTED like the data (a screen y grows downwards: the sign flips, so ascending still means ascending data and `from` keeps its
+    // meaning). Hexbins and cells keep their data space.
+    const fits = space === "pixel" && (key === "x" || key === "y") && manifest ? viewFits(manifest, undefined, s.panelId) : null;
+    const fit = fits ? seriesFits(fits, (s as { axis?: string }).axis)?.[key as "x" | "y"] : undefined;
+    const dir = fit ? Math.sign(projectWith(fit, 2) - projectWith(fit, 1)) || 1 : 1;
+    const px = (v: number | null | undefined): number | null | undefined => fit && typeof v === "number" && Number.isFinite(v) ? dir * projectWith(fit, v) : v;
     const rec = s as unknown as Record<string, unknown>;
     const data = rec.data as { x?: (number | null)[]; y?: (number | null)[]; c?: (number | null)[] } | undefined;
     for (const p of s.points ?? []) {
-      const v = key === "x" ? p.x : key === "y" ? p.y : key === "index" ? p.index : key === "value" ? data?.c?.[p.index] ?? p.y : null;
+      const v = px(key === "x" ? p.x : key === "y" ? p.y : key === "index" ? p.index : key === "value" ? data?.c?.[p.index] ?? p.y : null);
       out.set(p.svgId, typeof v === "number" && Number.isFinite(v) ? v : null);
     }
     const bins = (rec.hexmatrix as { bins?: { svgId?: string; x: number; y: number; value: number | null; count: number | null }[] } | undefined)?.bins;
@@ -55,7 +63,7 @@ export function manifestCoordinates(manifest: FluxPlotManifest | undefined, part
         const horizontal = bar?.orientation === "horizontal";
         const pos = bar?.center?.[i] ?? (horizontal ? data?.y?.[i] : data?.x?.[i]) ?? null;
         const len = bar?.length?.[i] ?? (horizontal ? data?.x?.[i] : data?.y?.[i]) ?? null;
-        const v = key === "index" ? i : key === "value" ? len : horizontal ? (key === "y" ? pos : len) : (key === "x" ? pos : len);
+        const v = px(key === "index" ? i : key === "value" ? len : horizontal ? (key === "y" ? pos : len) : (key === "x" ? pos : len));
         out.set(id, typeof v === "number" && Number.isFinite(v) ? v : null);
       });
     }

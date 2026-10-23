@@ -138,6 +138,8 @@ interface Spec {
   sample?: (raw: number, ease: (x: number) => number) => Keyframe;
   /** Props dropped at progress 1 (the authored attributes are the rest state). */
   transient?: readonly string[];
+  /** Nodes the preset inserted (the sweep's lead dot), removed with the plan (disposeSlideAnims). */
+  created?: Element[];
   /** Rebuild all camera frames from live FROM at play time, or restore on seek. */
   refreshCamera?: (transform?: string) => boolean;
   /** Exact transform for eased progress outside [0,1] (the camera's geometric path). */
@@ -361,7 +363,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
             const draw = { ...track, preset: "drawOn" as const, params: undefined };
             for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
               node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
-              key: `handoff-draw:${track.id}`, prep: na.prep, sample: na.sample, transient: na.transient, preset: "drawOn", trackId: track.id, owner: track,
+              key: `handoff-draw:${track.id}`, prep: na.prep, sample: na.sample, transient: na.transient, created: na.created, preset: "drawOn", trackId: track.id, owner: track,
               delay: ct.start + hold, duration: DUR.gentle,
               ease: resolveCurve(draw),
             });
@@ -463,9 +465,14 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const by = staggerKey(track.stagger?.by);
       // the node's own fluxplot attributes first (data-x / data-value / data-count / data-index),
       // the manifest for a node that lacks them, so player and compiler rank alike
-      const fallbackManifest = by && by !== "x" && by !== "y" ? manifestFor(track.target, slide, opts, bi) : undefined;
-      const fallback = fallbackManifest && "series" in fallbackManifest ? manifestCoordinates(fallbackManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), by!) : undefined;
-      const ranks = track.stagger ? staggerRanks(n, from, by ? nodes.map((node, i) => (by === "x" || by === "y" ? spatialCoord(node, by) : nodeCoordinate(node as unknown as Parameters<typeof nodeCoordinate>[0], by)) ?? fallback?.[i] ?? null) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined) : [];
+      // spacing "true" (an x-clock sweep's markers, WP 3.1): the PIXEL-space coordinate from the manifest ONLY (never a DOM data-x), so the
+      // player and the compiler rank alike and a log axis is right
+      const trueSpacing = track.stagger?.spacing === "true" && (by === "x" || by === "y");
+      const fallbackManifest = by && (trueSpacing || by !== "x" && by !== "y") ? manifestFor(track.target, slide, opts, bi) : undefined;
+      const fallback = fallbackManifest && "series" in fallbackManifest ? manifestCoordinates(fallbackManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), by!, trueSpacing ? "pixel" : "data") : undefined;
+      const coordinates = !by ? undefined : trueSpacing ? nodes.map((_, i) => fallback?.[i] ?? null)
+        : nodes.map((node, i) => (by === "x" || by === "y" ? spatialCoord(node, by) : nodeCoordinate(node as unknown as Parameters<typeof nodeCoordinate>[0], by)) ?? fallback?.[i] ?? null);
+      const ranks = track.stagger ? staggerRanks(n, from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined, trueSpacing ? "true" : "even") : [];
       // Mesh targets have no DOM nodes. Furniture in the same binding keeps
       // its rank among ALL semantic leaves, exactly as the mesh sampler does.
       const modelParts = hasPartBinding(track) && transformPreState(slide, track.target, bi)?.type === 'model3d';
@@ -481,7 +488,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           ease: ct.ease,
           enter: na.enter,
           key,
-          prep: na.prep, sample: na.sample, transient: na.transient,
+          prep: na.prep, sample: na.sample, transient: na.transient, created: na.created,
           origin: na.origin,
           refreshCamera: na.refreshCamera,
           transformAt: na.transformAt,
@@ -671,7 +678,7 @@ export function disposeSlideAnims(specs: Spec[], releaseControllers = true): voi
     for (const group of plan.nodes) if (group.node.namespaceURI !== SVG_NS) releaseFlightMark(group.node as HTMLElement);
   }
   if (releaseControllers) {
-    for (const spec of specs) spec.morph?.dispose?.();
+    for (const spec of specs) { spec.morph?.dispose?.(); for (const node of spec.created ?? []) node.remove(); }
     flightLayers.get(specs)?.replaceChildren();
     flightLayers.delete(specs);
   }

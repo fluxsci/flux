@@ -151,8 +151,10 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const start = Math.max(0, track.start ?? 0), duration = trackDuration(track);
       const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
       const staggerBy = staggerKey(track.stagger?.by);
-      const coordinates = staggerBy && manifest ? manifestCoordinates(manifest, parts, staggerBy) : undefined;
-      const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined);
+      // spacing "true" (an x-clock sweep's markers) ranks by the PIXEL-space coordinate, from the manifest alone (the player does the same)
+      const spacing = track.stagger?.spacing === "true" && (staggerBy === "x" || staggerBy === "y") ? "true" : "even";
+      const coordinates = staggerBy && manifest ? manifestCoordinates(manifest, parts, staggerBy, spacing === "true" ? "pixel" : "data") : undefined;
+      const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined, spacing);
       tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, maxRank: Math.max(0, ...ranks), ease: resolveCurve(track, familyOf(track)) });
     }
     // Same target/property concurrent effects are visible diagnostics, never a

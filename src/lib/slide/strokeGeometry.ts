@@ -14,6 +14,11 @@ export function inDefs(el: Element): boolean {
   }
   return false;
 }
+/** The attribute of the lead dot an x-clock sweep inserts beside its line while the slide plays (presets.ts `sweepPen`): player-made,
+ *  never geometry of the target, so no draw, measure or later track ever selects it. */
+export const SWEEP_PEN_ATTR = "data-flux-sweep-pen";
+/** Geometry a draw may select: not a shared <defs> template, not a player-made lead dot. */
+export const drawable = (el: Element): boolean => !inDefs(el) && !el.hasAttribute?.(SWEEP_PEN_ATTR);
 
 /** The drawable geometry under a target, SPLIT by how it paints. Dash windows
  *  hide the STROKE alone, so only stroke-rendered geometry (stroke set, fill
@@ -35,10 +40,10 @@ export function drawGeometry(node: Element): { strokes: SVGElement[]; fills: SVG
   const tag = el.tagName?.toLowerCase();
   const all: SVGElement[] = [];
   if (tag && new RegExp(`^(${GEO_TAGS.replace(/,/g, "|")})$`).test(tag)) {
-    if (!inDefs(el)) all.push(el as SVGElement);
+    if (drawable(el)) all.push(el as SVGElement);
   } else {
     for (const g of Array.from(el.querySelectorAll?.(GEO_TAGS) ?? []) as SVGElement[]) {
-      if (!inDefs(g)) all.push(g);
+      if (drawable(g)) all.push(g);
     }
   }
   const strokes: SVGElement[] = [];

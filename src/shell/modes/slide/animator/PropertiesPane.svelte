@@ -28,8 +28,8 @@
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
   import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
-  import { autoAnimateExcept, canAutoAnimateRest } from "../../../../lib/slide/autobuild";
-  import { guiPenLengths } from "../../../../lib/slide/partLengthGui";
+  import { autoAnimateExcept, canAutoAnimateRest, drawAlongX, sweepSeries } from "../../../../lib/slide/autobuild";
+  import { guiPlotMeasures } from "../../../../lib/slide/partLengthGui";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import CurveField, { type CurveEdit } from "./CurveField.svelte";
@@ -429,7 +429,7 @@
     commitDeckLive(d => {
       const s = d.slides.find(s => s.id === slide.id)!;
       const leaves = compile(d, s).resolveTarget(handoff.ref, curBeatIndex).flatMap(t => t.partIds ?? buildPartTree($plotManifests[destinationEl.assetId])?.targets ?? []);
-      autoAnimateExcept(d, s.id, destinationEl.id, $plotManifests[destinationEl.assetId], leaves, { lengths: guiPenLengths(destinationEl.assetId, $plotManifests[destinationEl.assetId], destinationEl.width) });
+      autoAnimateExcept(d, s.id, destinationEl.id, $plotManifests[destinationEl.assetId], leaves, guiPlotMeasures(destinationEl.assetId, $plotManifests[destinationEl.assetId], destinationEl.width));
     });
     const bi = currentDeck()?.slides.find(s => s.id === slide.id)?.beats.findIndex(b => b.id === beatId);
     if (bi != null && bi >= 0) activeBeat.set(bi);
@@ -515,6 +515,20 @@
   const aboutChoice = $derived(pulseAbout === "group" ? "group" : pulseAbout ? "custom" : "");
   /** A param the track authors explicitly, or "" (shown as the placeholder): the table's default is not the author's number. */
   const authored = (key: string, preset: string): number | "" => curTrack && curTrack.params?.[key] !== undefined ? presetParam<number>(curTrack, key, preset) : "";
+  // WP 3.1: the series whose LINE this one draw-on draws, when that line can draw along x (the checkbox writes the whole series: drawAlongX)
+  const alongXSeries = $derived.by(() => {
+    if (!curTrack || editingStyle || selTracks.length !== 1 || curTrack.preset !== "drawOn" || !curTrack.part) return null;
+    const el = slide.elements.find(e => e.id === curTrack.target);
+    const manifest = el?.type === "plot" ? $plotManifests[el.assetId] : undefined;
+    const series = manifest?.series?.find(s => s.svg?.line === curTrack.part);
+    return manifest && series && sweepSeries(manifest, series) ? { manifest, id: series.id } : null;
+  });
+  const alongX = $derived(!!curTrack && isTrim && presetParam<string>(curTrack, "clock", curTrack.preset as string) === "x");
+  function setAlongX(on: boolean) {
+    const at = alongXSeries, target = curTrack?.target;
+    if (!at || !target) return;
+    commitDeckLive(d => { drawAlongX(d, slide.id, target, at.manifest, at.id, on ? {} : { off: true }, manifestFor); });
+  }
   const trimP = $derived((curTrack?.params ?? {}) as { anchor?: number | string; direction?: string; mode?: string; from?: number; to?: number });
   /** Write one trim param; a value equal to its default DELETES the key so
    *  default decks keep the legacy byte-identical compile path. */
@@ -801,6 +815,13 @@
             <option value="start">start</option><option value="end">end</option><option value="center">center</option><option value="edges">edges</option><option value="random">Random</option>
           </select>
         </label>
+        {#if (curTrack.stagger?.by === "x" || curTrack.stagger?.by === "y") && (curTrack.stagger?.from ?? "start") !== "center" && curTrack.stagger?.from !== "edges" && curTrack.stagger?.from !== "random"}
+          <label class="f" title="Even: one step per part, in order. True: each part waits in proportion to its distance along the axis (an x sweep's markers appear as the pen reaches them)">spacing
+            <select aria-label="Stagger spacing" value={curTrack.stagger?.spacing ?? "even"} onchange={(e) => patchStagger({ spacing: e.currentTarget.value as Stagger["spacing"] })}>
+              <option value="even">even</option><option value="true">true</option>
+            </select>
+          </label>
+        {/if}
         {#if curTrack.stagger?.from === "random"}
           <label class="f">seed<span class="unit">
             <input class="seed" aria-label="Stagger seed" type="number" min="0" max="4294967295" step="1" value={staggerSeed(curTrack)} onchange={e => patchStagger({ seed: Math.max(0, Math.min(0xffffffff, Math.round(+e.currentTarget.value))) })}/>
@@ -883,53 +904,69 @@
             onchange={(e) => setParam("order", e.currentTarget.checked ? "sequence" : undefined, PRESET_PARAMS.drawOn.order.default)} />
           <span>Trace strokes in order</span>
         </label>
-        <div class="f seg2" role="group" aria-label="Trim mode">
-          <button class="sg2" class:on={(trimP.mode ?? "single") === "single"} title="One window grows from the anchor" onclick={() => setTrim("mode", "single")}>single</button>
-          <button class="sg2" class:on={trimP.mode === "both-ends"} title="Draw from both ends, meet in the middle" onclick={() => setTrim("mode", "both-ends")}>both ends</button>
-          <button class="sg2" class:on={trimP.mode === "middle-out"} title="Grow outward from the anchor symmetrically" onclick={() => setTrim("mode", "middle-out")}>middle out</button>
-        </div>
-        <div class="f">
-          <span class="fl">direction</span>
-          <button class="dirb" class:on={(trimP.direction ?? "forward") === "forward"} title="Along the stroke direction" onclick={() => setTrim("direction", "forward")}>⟳ fwd</button>
-          <button class="dirb" class:on={trimP.direction === "reverse"} title="Against the stroke direction" onclick={() => setTrim("direction", "reverse")}>⟲ rev</button>
-        </div>
-        <div class="f anch">
-          <span class="fl">anchor</span>
-          {#if trimGeoKind === "shape"}
-            <span class="pad" role="group" aria-label="Draw anchor">
-              {#each PAD as p, i (i)}
-                {#if p}
-                  <button class="pb" class:on={trimP.anchor === p} title={`Draw from ${p.replace("corner-", "the ")} ${p.startsWith("corner") ? "corner" : "edge midpoint"}`}
-                    onclick={() => setTrim("anchor", p)}>{PAD_GLYPH[p]}</button>
-                {:else}
-                  <span class="pb void"></span>
-                {/if}
-              {/each}
-            </span>
-          {:else}
-            <span class="unit">
-              <button class="dirb" class:on={trimP.anchor == null || trimP.anchor === 0 || trimP.anchor === "start"} onclick={() => setTrim("anchor", 0)}>start</button>
-              <button class="dirb" class:on={trimP.anchor === "middle" || trimP.anchor === 0.5} onclick={() => setTrim("anchor", "middle")}>mid</button>
-              <button class="dirb" class:on={trimP.anchor === "end" || trimP.anchor === 1} onclick={() => setTrim("anchor", "end")}>end</button>
-            </span>
+        {#if alongXSeries || alongX}
+          <label class="f" title="Draw this data line at a constant x rate (manim's Create on a graph): its band and other marks are wiped open by the same front, its markers grow in as the front reaches each one">
+            <input type="checkbox" aria-label="Draw along x" checked={alongX} disabled={!alongXSeries}
+              onchange={(e) => setAlongX(e.currentTarget.checked)} />
+            <span>Draw along x</span>
+          </label>
+          {#if alongX}
+            <label class="f" title="A dot riding the front of the line">
+              <input type="checkbox" aria-label="Lead dot" checked={presetParam<boolean>(curTrack!, "pen", curTrack!.preset as string) === true}
+                onchange={(e) => setParam("pen", e.currentTarget.checked ? true : undefined, PRESET_PARAMS.drawOn.pen.default)} />
+              <span>Lead dot</span>
+            </label>
           {/if}
-        </div>
-        <div class="f">
-          <span class="fl" title="Fine anchor position along the stroke, 0–1 (overrides the pad)">at</span>
-          <span class="unit">
-            <input type="number" min="0" max="1" step="0.05" value={typeof trimP.anchor === "number" ? trimP.anchor : ""}
-              placeholder={anchorIsNamed ? String(trimP.anchor) : "0"}
-              onchange={(e) => { const v = e.currentTarget.value; setTrim("anchor", v === "" ? 0 : Math.max(0, Math.min(1, Number(v)))); }} />
-          </span>
-        </div>
-        <div class="f">
-          <span class="fl" title="Partial trim: the final drawn window of the stroke (fractions 0–1)">window</span>
-          <span class="unit">
-            <input type="number" min="0" max="1" step="0.05" value={trimP.from ?? 0} title="from" onchange={(e) => setTrim("from", Math.max(0, Math.min(1, Number(e.currentTarget.value))))} />
-            <small>→</small>
-            <input type="number" min="0" max="1" step="0.05" value={trimP.to ?? 1} title="to" onchange={(e) => setTrim("to", Math.max(0, Math.min(1, Number(e.currentTarget.value))))} />
-          </span>
-        </div>
+        {/if}
+        {#if !alongX}
+          <div class="f seg2" role="group" aria-label="Trim mode">
+            <button class="sg2" class:on={(trimP.mode ?? "single") === "single"} title="One window grows from the anchor" onclick={() => setTrim("mode", "single")}>single</button>
+            <button class="sg2" class:on={trimP.mode === "both-ends"} title="Draw from both ends, meet in the middle" onclick={() => setTrim("mode", "both-ends")}>both ends</button>
+            <button class="sg2" class:on={trimP.mode === "middle-out"} title="Grow outward from the anchor symmetrically" onclick={() => setTrim("mode", "middle-out")}>middle out</button>
+          </div>
+          <div class="f">
+            <span class="fl">direction</span>
+            <button class="dirb" class:on={(trimP.direction ?? "forward") === "forward"} title="Along the stroke direction" onclick={() => setTrim("direction", "forward")}>⟳ fwd</button>
+            <button class="dirb" class:on={trimP.direction === "reverse"} title="Against the stroke direction" onclick={() => setTrim("direction", "reverse")}>⟲ rev</button>
+          </div>
+          <div class="f anch">
+            <span class="fl">anchor</span>
+            {#if trimGeoKind === "shape"}
+              <span class="pad" role="group" aria-label="Draw anchor">
+                {#each PAD as p, i (i)}
+                  {#if p}
+                    <button class="pb" class:on={trimP.anchor === p} title={`Draw from ${p.replace("corner-", "the ")} ${p.startsWith("corner") ? "corner" : "edge midpoint"}`}
+                      onclick={() => setTrim("anchor", p)}>{PAD_GLYPH[p]}</button>
+                  {:else}
+                    <span class="pb void"></span>
+                  {/if}
+                {/each}
+              </span>
+            {:else}
+              <span class="unit">
+                <button class="dirb" class:on={trimP.anchor == null || trimP.anchor === 0 || trimP.anchor === "start"} onclick={() => setTrim("anchor", 0)}>start</button>
+                <button class="dirb" class:on={trimP.anchor === "middle" || trimP.anchor === 0.5} onclick={() => setTrim("anchor", "middle")}>mid</button>
+                <button class="dirb" class:on={trimP.anchor === "end" || trimP.anchor === 1} onclick={() => setTrim("anchor", "end")}>end</button>
+              </span>
+            {/if}
+          </div>
+          <div class="f">
+            <span class="fl" title="Fine anchor position along the stroke, 0–1 (overrides the pad)">at</span>
+            <span class="unit">
+              <input type="number" min="0" max="1" step="0.05" value={typeof trimP.anchor === "number" ? trimP.anchor : ""}
+                placeholder={anchorIsNamed ? String(trimP.anchor) : "0"}
+                onchange={(e) => { const v = e.currentTarget.value; setTrim("anchor", v === "" ? 0 : Math.max(0, Math.min(1, Number(v)))); }} />
+            </span>
+          </div>
+          <div class="f">
+            <span class="fl" title="Partial trim: the final drawn window of the stroke (fractions 0–1)">window</span>
+            <span class="unit">
+              <input type="number" min="0" max="1" step="0.05" value={trimP.from ?? 0} title="from" onchange={(e) => setTrim("from", Math.max(0, Math.min(1, Number(e.currentTarget.value))))} />
+              <small>→</small>
+              <input type="number" min="0" max="1" step="0.05" value={trimP.to ?? 1} title="to" onchange={(e) => setTrim("to", Math.max(0, Math.min(1, Number(e.currentTarget.value))))} />
+            </span>
+          </div>
+        {/if}
       </div>
     {/if}
     {#if isTrim || isWipe || isGrow || isPulse || isEncircle}{@render overrideRow("params")}{/if}

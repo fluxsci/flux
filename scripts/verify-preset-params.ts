@@ -33,9 +33,10 @@ h.section("1. the table");
 const FROZEN: Record<string, Record<string, unknown>> = {
   fadeRise: { y: 14 }, popIn: { from: 0.9 }, popOut: { to: 0.92 }, scale: { scale: 1.15 }, rotate: { deg: 15 },
   // WP 2.4: writeOn / wipeOut gain `edge` (absent = the hard clip), drawOn / drawOff gain `order` (absent = together) and `lag`
-  stagger: { child: "fadeRise" }, writeOn: { direction: "ltr", edge: "hard" }, wipeOut: { direction: "ltr", edge: "hard" },
-  drawOn: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3 },
-  drawOff: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3 },
+  // WP 3.1: writeOn gains `tight` (absent = the ink-fitted wipe), the draws gain the x clock (`clock` absent = by length) and its lead dot
+  stagger: { child: "fadeRise" }, writeOn: { direction: "ltr", edge: "hard", tight: false }, wipeOut: { direction: "ltr", edge: "hard" },
+  drawOn: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3, clock: "length", pen: false, penRadius: null, penColor: null },
+  drawOff: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3, clock: "length", pen: false, penRadius: null, penColor: null },
   highlight: { level: 0.4, lead: 0 }, dim: { level: 0.3 },
   // WP 2.2: the fade-free vocabulary. Their defaults are the playback fallbacks of a track that omits the key (authoring writes none of them).
   scaleIn: { from: "auto", spin: 0 }, scaleOut: { to: "auto", spin: 0 }, pulse: { scale: null, about: null },
@@ -56,8 +57,8 @@ for (const [preset, row] of Object.entries(PRESET_PARAMS)) for (const [key, spec
 }
 h.ok(true, "every range is ordered and holds its default, every `requires` names a sibling key");
 h.eq(Object.entries(PRESET_PARAMS).flatMap(([p, row]) => Object.entries(row).filter(([, s]) => s.range).map(([k, s]) => `${p}.${k}:${s.range}`)).sort(),
-  ["dim.level:0,1", "drawOff.lag:0,1", "drawOn.lag:0,1", "encircle.gap:0,60", "encircle.radius:0,60", "encircle.width:0.5,12", "encircle.window:0.05,1", "highlight.lead:0,0.9", "highlight.level:0,1", "pulse.scale:1,3", "scaleIn.spin:-720,720", "scaleOut.spin:-720,720"],
-  "only the NEW keys (levels, lead, the WP 2.2 vocabulary) are clamped; every legacy key stays unclamped");
+  ["dim.level:0,1", "drawOff.lag:0,1", "drawOff.penRadius:0.5,40", "drawOn.lag:0,1", "drawOn.penRadius:0.5,40", "encircle.gap:0,60", "encircle.radius:0,60", "encircle.width:0.5,12", "encircle.window:0.05,1", "highlight.lead:0,0.9", "highlight.level:0,1", "pulse.scale:1,3", "scaleIn.spin:-720,720", "scaleOut.spin:-720,720"],
+  "only the NEW keys (levels, lead, the WP 2.2 vocabulary, the lead dot's radius) are clamped; every legacy key stays unclamped");
 
 // ---------------------------------------------------------------------------------------------------------------
 h.section("2. the census: the engines (presets, player, compile, pptx) read params through the table only");

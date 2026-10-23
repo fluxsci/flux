@@ -171,7 +171,8 @@ The established shared cores — extend these, don't duplicate them:
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability, `PresetDef.ephemeral`, `highlightOpacityAt` / `dimOpacityAt` (the one formula for the player and `compile.sample`), point-typed params, authored pace, `PRESET_PARAMS` / `presetParam` / `paramDiagnostics`: the ONE table of every `track.params` key with its frozen classic default) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**), `verify-pace-defaults.ts` (frozen fallbacks vs authored table, settle, onset-exempt rule), `verify-preset-params.ts` (frozen defaults; a grep census that presets.ts / compile.ts / pptxBuilds.ts / player.ts read params ONLY through `presetParam`; player == compile == PPTX for authored / absent / malformed values; unknown keys kept + reported), `verify-appear-emphasis.ts` (the fade-free vocabulary: catalog and authored rows, pulse identity / size / clamp, highlight + dim parity, the param table, origins, encircle geometry, ephemeral compile, PPTX twins, authoring) |
 | Grow / pulse / encircle geometry (bar baselines and `barGrowWeight`, grow origins, group centre, pulse peak, the circle band) and the part-origin / leaf-wrapper law | `src/lib/slide/growOrigin.ts`, `src/lib/slide/encircleGeometry.ts`, `player/overlay.ts`, `player/presets.ts`, `player/player.ts` | `verify-appear-emphasis.ts` (pure), `verify-slide-part-origin.ts` (Chromium via the exported player; each bar keeps its zero-line edge, markers keep their centres, scaleIn / pulse origins, encircle ink), `verify-bar-grow.ts` |
 | Count-up digit slots (place-value slots on SVG text, `steadyDigits`) | `src/lib/slide/player/countup.ts` | `verify-count-up-slots.ts` (Chrome) |
-| Plot auto-build choreography (planner, paces, scaffold, pen lengths) | `src/lib/slide/autobuild.ts` (`choreograph`, `V2_PACE`, `CLASSIC_PACE`, `V2_STAGGER_CHILD` / `AutoPace.pointChild(n)`, `elementEnterPreset` / `elementExitPreset`), `stagger.ts` (`planStagger`), `partLength.ts` | `verify-slide-choreo.ts`, `verify-animate-plot.ts` (real CLI), `verify-slide-autobuild.ts`, `verify-slide-scatter-showcase.ts` |
+| Plot auto-build choreography (planner, paces, scaffold, pen lengths) | `src/lib/slide/autobuild.ts` (`choreograph`, `V2_PACE`, `CLASSIC_PACE`, `V2_STAGGER_CHILD` / `AutoPace.pointChild(n)`, `elementEnterPreset` / `elementExitPreset`), `stagger.ts` (`planStagger`), `partLength.ts` (`plotMeasures`) | `verify-slide-choreo.ts`, `verify-animate-plot.ts` (real CLI), `verify-slide-autobuild.ts`, `verify-slide-scatter-showcase.ts` |
+| The x-clock sweep (WP 3.1: draw along x, lead dot, tight band, true marker spacing, `draw-along-x`) | `src/lib/slide/sweep.ts`, `player/presets.ts` (`sweepPlan`, `sweepSampler`, `sweepPen`), `autobuild.ts` (`planSweeps`, `sweepSeriesTracks`, `drawAlongX`), `stagger.ts` / `staggerData.ts` (`spacing`) | `verify-slide-sweep.ts`, the `plot_sweep` settle corpus deck |
 | Stroke corner joins (`cornerJoinOf`, `morphJoin`, `pairJoin`) and the stage raster keeper | `src/lib/strokeStyle.ts`; `player/rasterKeeper.ts` | `verify-slide-raster-pure.ts`, `verify-slide-raster-electron.cjs` (offscreen Electron), `verify-slide-arrow-browser.ts` (DOM joins) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Timeline align and Inherit (candidate law, edge alignment, exact-HOW inheritance) | `src/lib/slide/alignTracks.ts` | `verify-slide-timeline.ts` (law + ops field by field), `verify-slide-resolve.ts` (REAL CLI `align-tracks` / `inherit-track` write the GUI op's bytes), `verify-slide-animator-gui.mjs` via `scripts/lib/animatorAlignChecks.mjs` (real keys and Ctrl+Alt drags) |
@@ -1312,10 +1313,30 @@ Persistence invariants (all machine-checked — do not weaken):
   size, clamped 3–60 % of the text extent, a `sample` spec, `transient: ["maskImage"]`, `maskImage` in
   `ANIM_PROPS`); plots, mixed targets, SVG parts and engines without `mask-image` always take the clip, and
   `axesNotPreserved(node)` (the node or an ancestor has a computed transform that is not
-  translate + positive scale) still forces the whole-box sweep. The T3 → T8 contract (X12): a sweep
-  that is pure keyframes returns NodeAnims without `sample`, built on `hiddenDash`, ending at
-  `drawReach`, declaring `transient: [strokeDashoffset, strokeDasharray]` (the generic
-  `frameSampler` filter drops them at rest); `trimKeyframes` stays only as the gate oracle.
+  translate + positive scale) still forces the whole-box sweep. `trimKeyframes` stays only as the gate oracle.
+  **The x-clock sweep (WP 3.1, `params.clock: "x"`)** is a CLOCK of this same plan, not a second path (it
+  supersedes X12's "pure keyframes" letter, keeping its dash maths: `geoLength` honours `pathLength`, the full
+  frame is `drawReach`, the dash is transient): `sweepPlan` picks the target's open, single-piece STROKES whose
+  x runs one way (`slide/sweep.ts`: an absolute M/L polyline parsed from `d`, a NaN gap's later `M` a pen lift
+  that lays no length; else a 600-sample curve fallback; else null = by length), and `sweepSampler` maps the
+  eased progress (the front's normalised x) to the share of the line left of it, `f · len`, through the same
+  `windowsDash` + touch-down + exit reversal. Lines of one target in its own coordinate space share the UNION
+  frame (one front crosses them all); a `sequence` gives each its own slot and frame; trim params win (by
+  length). The lead dot (`params.pen`, `sweepPen`) is a circle the player inserts beside the line, tagged
+  `SWEEP_PEN_ATTR`, authored `display="none"` (frames write `display: inline` only while it rides, so no box,
+  measure, still or later draw ever sees it; `strokeGeometry.drawable` excludes it), listed in
+  `NodeAnim.created` → `Spec.created` → removed by `disposeSlideAnims` (and replaced, never doubled, by a
+  re-plan). `writeOn params.tight` puts the ink edge's last keyframe at offset 1 (not `WIPE_BOX_AT`).
+  `Stagger.spacing: "true"` gives FRACTIONAL ranks = normalised pixel coordinate × (n − 1) (max rank and
+  footprints unchanged), from `manifestCoordinates(..., "pixel")` ONLY (player and compiler alike; oriented
+  like the data, the series' own twin-axis fit). Authoring: `autobuild.ts` `planSweeps` / `sweepSeries` /
+  `sweepable` (the runtime's rule on the manifest's projected vertices) and ONE writer `sweepSeriesTracks`
+  shared by `choreograph` (V2 only: `AutoPace.sweep`) and `drawAlongX` (verb `draw-along-x`, the Animator's
+  Draw along x / Lead dot): the line on `SWEEP_CURVE` (Gentle) over the panel clock (`sweepDuration`, from the
+  host's `plotMeasures` stage scale), its other marks anchored to its start (band / error bars `writeOn`
+  tight, markers a 120 ms stagger by x over D − 60 on `SWEEP_MARKER_CURVE`, the exact inverse; `spacing`
+  only past 3 % irregularity). A bare line beside another series' scatter (a fit line) is not swept.
+  `ops.sweepClockRefusal`: a sweep's curve may not overshoot or step (`setTrackCurve`, `setTrack`).
   **Pen touch-down (`trim.ts penWidth`).** A round or square cap paints a full disc at the head of the
   smallest dash, so a draw's first frame blinked a dot in and a drawOff ended on one. Every stroke piece,
   arrowhead vee and trim-path frame emits `strokeWidth = w · min(1, ink / w)` (`strokeWidth` is already

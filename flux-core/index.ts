@@ -145,6 +145,7 @@ export {
   setPartStyle,
   animatePartVerb,
   animatePlotVerb,
+  drawAlongXVerb,
   animateElementVerb,
   become,
   appearFrom,
