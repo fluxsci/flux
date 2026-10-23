@@ -16,7 +16,18 @@
 // ---------------------------------------------------------------------------
 
 /** Pure: does the raster need to be re-baked? `baked` is null until the first look. */
-export function needsBake(baked: string | null, now: string): boolean { return baked !== null && baked !== now; }
+export function needsBake(baked: string | null, now: string, tolerant = false): boolean { return baked !== null && baked !== now && !(tolerant && withinBakeTolerance(baked, now)); }
+/** LIVE keepers only (needsBake `tolerant`). A raster baked this close to the pose it now sits at is the same raster: same host scale and dpr, zoom within 1 %, and the camera
+ *  offset within half a stage pixel (the early bake of a flight that is 97 % home lands here; re-baking it would be a second sharpening
+ *  step on a still frame for a 1 % scale error). Pure. */
+export function withinBakeTolerance(a: string, b: string): boolean {
+  const [pa, ha, da] = a.split("|"), [pb, hb, db] = b.split("|");
+  if (ha !== hb || da !== db) return false;
+  const num = (s: string) => s.match(/-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)?.map(Number);
+  const x = num(pa), y = num(pb);
+  if (!x || !y || x.length !== 3 || y.length !== 3) return false;
+  return Math.abs(x[2] / y[2] - 1) < 0.01 && Math.abs(x[0] - y[0]) < 1.5 && Math.abs(x[1] - y[1]) < 1.5;
+}
 /** Pure: the key of everything a will-change layer freezes at its first raster. */
 export function bakeKey(pose: string, hostScale: number, dpr: number): string { return `${pose}|${hostScale.toFixed(4)}|${dpr}`; }
 /** Live re-bakes are skipped above this many DOM nodes under the camera layer: the display-list record is
@@ -25,13 +36,14 @@ export function bakeKey(pose: string, hostScale: number, dpr: number): string { 
 export const MAX_BAKE_NODES = 30000;
 /** Pure: bake iff the key changed and (capture, or the layer is light enough for an interactive re-bake). */
 export function shouldBake(baked: string | null, now: string, nodes: number, capture: boolean, maxNodes = MAX_BAKE_NODES): boolean {
-  return needsBake(baked, now) && (capture || nodes <= maxNodes);
+  // Capture is exact (every pose change re-bakes); only a LIVE keeper accepts a raster within tolerance of the pose.
+  return needsBake(baked, now, !capture) && (capture || nodes <= maxNodes);
 }
 /** Capture waits at most this long for a bake (a throttled/occluded host would otherwise hit the worker's 30 s deadline). */
 export const SETTLE_TIMEOUT_MS = 1500;
 /** A camera flight bakes when its eased progress passes this (the remaining 10 % of the pose change is slow, and softness <= 10 % of the
  *  scale step; the bake at rest then finds the key within EARLY_BAKE_TOLERANCE and skips). */
-export const EARLY_BAKE_AT = 0.9;
+export const EARLY_BAKE_AT = 0.995;
 /** Idle debounce after a scrub/refresh/resize. */
 export const BAKE_DEBOUNCE_MS = 80;
 
@@ -84,7 +96,7 @@ export function createRasterKeeper(cam: HTMLElement, mount: HTMLElement, opts: {
       const now = key();
       // The re-bake records the layer's display list on the main thread: skip it on a heavy slide (live only; the count is
       // taken only when the key changed, ~1 ms per 100k nodes).
-      if (!needsBake(baked, now) || !shouldBake(baked, now, capture ? 0 : cam.getElementsByTagName("*").length, capture, maxNodes)) return running ?? Promise.resolve();
+      if (!needsBake(baked, now, !capture) || !shouldBake(baked, now, capture ? 0 : cam.getElementsByTagName("*").length, capture, maxNodes)) return running ?? Promise.resolve();
     } catch { return running ?? Promise.resolve(); }
     const next = (running ?? Promise.resolve()).then(bake).catch(() => {}).finally(() => { if (running === next) running = null; });
     running = next;

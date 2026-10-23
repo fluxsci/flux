@@ -7,7 +7,7 @@ import type { Camera, Slide, Track } from "../src/lib/slide/types";
 const h = harness("verify-slide-raster-pure");
 const { document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document });
-const { needsBake, bakeKey, shouldBake, MAX_BAKE_NODES } = await import("../src/lib/slide/player/rasterKeeper");
+const { needsBake, bakeKey, shouldBake, MAX_BAKE_NODES, withinBakeTolerance } = await import("../src/lib/slide/player/rasterKeeper");
 const { cornerJoinOf, morphJoin, pairJoin } = await import("../src/lib/strokeStyle");
 const { elementStageOutlines } = await import("../src/lib/slide/targetGeometry");
 const { slideZoomsCamera, sampleCamera } = await import("../src/lib/slide/camera");
@@ -22,6 +22,15 @@ h.ok(!needsBake("a", "a") && needsBake("a", "b"), "bake iff the key changed");
 const k0 = bakeKey("translate(0px, 0px) scale(1)", 2, 1);
 h.ok(k0 !== bakeKey("translate(1px, 0px) scale(1)", 2, 1) && k0 !== bakeKey("translate(0px, 0px) scale(1)", 2.0001, 1) && k0 !== bakeKey("translate(0px, 0px) scale(1)", 2, 2), "key covers pose, host scale (1e-4) and dpr");
 h.ok(MAX_BAKE_NODES === 30000, "live node ceiling pinned");
+{
+  const k = (pose: string, host = 2, dpr = 1) => bakeKey(pose, host, dpr);
+  h.ok(withinBakeTolerance(k("translate(-910px, -345px) scale(3)"), k("translate(-910.8px, -345.9px) scale(2.99)")), "a raster baked within 1 % zoom and 1.5 px of the pose is the same raster (the early bake of a flight 99.5 % home)");
+  h.ok(!withinBakeTolerance(k("translate(-910px, -345px) scale(3)"), k("translate(-880px, -345px) scale(3)")), "a 30 px camera offset is a different raster");
+  h.ok(!withinBakeTolerance(k("translate(0px, 0px) scale(3)"), k("translate(0px, 0px) scale(2.5)")), "a 17 % zoom is a different raster");
+  h.ok(!withinBakeTolerance(k("translate(0px, 0px) scale(3)", 2), k("translate(0px, 0px) scale(3)", 2.5)) && !withinBakeTolerance(k("translate(0px, 0px) scale(3)", 2, 1), k("translate(0px, 0px) scale(3)", 2, 2)), "host scale and dpr changes always re-bake");
+  h.ok(!needsBake(k("translate(-910px, -345px) scale(3)"), k("translate(-910.4px, -345.2px) scale(3.001)"), true) && needsBake(k("translate(-910px, -345px) scale(3)"), k("translate(-900px, -345px) scale(3)"), true), "needsBake honours the tolerance when asked (live)");
+  h.ok(needsBake(k("translate(-910px, -345px) scale(3)"), k("translate(-910.4px, -345.2px) scale(3.001)")) && shouldBake(k("translate(-910px, -345px) scale(3)"), k("translate(-910.4px, -345.2px) scale(3.001)"), 10, true), "capture is exact: any pose change re-bakes");
+}
 h.ok(shouldBake("a", "b", 30000, false) && !shouldBake("a", "b", 30001, false), "live re-bake refused above 30 000 nodes");
 h.ok(shouldBake("a", "b", 1e6, true) && !shouldBake("a", "a", 0, true), "capture ignores the ceiling, still needs a changed key");
 
