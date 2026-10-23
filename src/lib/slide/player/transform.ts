@@ -42,7 +42,7 @@ import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
-import { createTextMorph, layoutForMorph, type TextMorph } from "./textMorph";
+import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
 import type { GlyphProvider } from "./glyphProvider";
 import type { TextLook } from "../timing";
 import { elementStageOutlines } from "../targetGeometry";
@@ -416,11 +416,14 @@ export function createTransform(
 
   // --- the glyph-matched text morph (a text rewrite; textMatch.ts) ---------
   // A = the ORIGINAL nodes (moved), shown at raw ≤ 0; M = the span layer
-  // (player/textMorph.ts), counter-scaled so its local px are stage px whatever
-  // the wrapper's composite scale; B = the end markup through the ONE
-  // serializer, shown at raw ≥ 1 and the root later tracks bind to. Unmappable
-  // texts (and a host that cannot measure) crossfade A and B at their natural
-  // size — the text never stretches with a changing box.
+  // (player/textMorph.ts: spans paint in place, each side under its own endpoint's
+  // residual scale whatever the wrapper's composite scale); B = the end markup
+  // through the ONE serializer, shown at raw ≥ 1 and the root later tracks bind
+  // to. A, M and B are ADDED (plus-lighter) with the hand-over weights over the
+  // first and last stage pixels of change, so the first moving frame is A and the
+  // landing frame is B. Unmappable texts (and a host that cannot measure)
+  // crossfade A and B at their natural size — the text never stretches with a
+  // changing box.
   let textLayers: { A: HTMLElement; M: HTMLElement; B: HTMLElement; morph: TextMorph; preBox: { w: number; h: number }; endBox: { w: number; h: number } } | null = null;
   if (plan.mode === "textMorph") {
     const mk = (): HTMLElement => {
@@ -431,11 +434,16 @@ export function createTransform(
     const A = mk(), M = mk(), B = mk();
     M.className = "sl-text-morph";
     M.style.pointerEvents = "none";
+    // The static renders and the span layer are handed over to each other in premultiplied space (textMorph HANDOVER_EPS), so the layers are
+    // ADDED, never laid over each other (two coverages c would read 1 - (1 - c)^2, bolder), inside contentHost's own stacking context. Set
+    // once, with the layers, and never toggled, like the crossfade layers (ensureLayers): a lone layer renders as it would anywhere.
+    for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) contentHost.style.setProperty(k, v);
+    for (const layer of [A, M, B]) for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) layer.style.setProperty(k, v);
     while (contentHost.firstChild) A.appendChild(contentHost.firstChild);
     fillContent(B, layoutForMorph(end as TextElement), ctx);
     contentHost.append(A, M, B);
     const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
-    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600, textLook: ctx.textLook, stage: ctx.stage }),
+    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600, textLook: ctx.textLook, stage: ctx.stage, residual: !boxOpts.skipTransform }),
       preBox: { w: Math.max(pb.w, 1), h: Math.max(pb.h, 1) }, endBox: { w: Math.max(eb.w, 1), h: Math.max(eb.h, 1) } };
   }
   function writeTextMorph(el: FigElement, u: number, raw: number): void {
@@ -445,16 +453,20 @@ export function createTransform(
       L.morph.hide();
       style(L.A, { visibility: raw <= 0 ? "" : "hidden", opacity: "", transform: "" });
       style(L.B, { visibility: raw >= 1 ? "" : "hidden", opacity: "", transform: "" });
-      style(L.M, { visibility: "hidden", transform: "" });
+      style(L.M, { visibility: "hidden", opacity: "", transform: "" });
       return;
     }
     const f = wrapperFrame(el, baseBox, !boxOpts.skipTransform);
     const n = (v: number) => Math.round(v * 1e6) / 1e6;
     if (L.morph.ensure()) {
-      style(L.A, { visibility: "hidden", opacity: "", transform: "" });
-      style(L.B, { visibility: "hidden", opacity: "", transform: "" });
-      style(L.M, { visibility: "", transform: f.sx === 1 && f.sy === 1 ? "" : `scale(${n(1 / f.sx)}, ${n(1 / f.sy)})` });
-      L.morph.frame(u, raw, { x: f.bb.x - f.ox, y: f.bb.y - f.oy });
+      // A fades into the span layer as the spans leave it, the span layer into B as they settle onto it (textMorph HANDOVER_EPS)
+      const h = L.morph.frame(u, raw, { x: f.bb.x - f.ox, y: f.bb.y - f.oy }, { x: f.sx, y: f.sy });
+      const { a: wa, b: wb, m: wm } = handoverWeights(h);
+      const weight = (w: number) => w >= 1 ? "" : String(n(w));
+      style(L.A, { visibility: wa > 0 ? "" : "hidden", opacity: wa > 0 ? weight(wa) : "", transform: "" });
+      style(L.B, { visibility: wb > 0 ? "" : "hidden", opacity: wb > 0 ? weight(wb) : "", transform: "" });
+      // the span layer is hidden by its OPACITY, never `visibility`: a span sets its own, which a hidden parent does not override
+      style(L.M, { visibility: "", opacity: weight(wm), transform: "" });
       return;
     }
     // Fallback: both endpoint renders at their own natural size, anchored to the
@@ -568,7 +580,8 @@ export function createTransform(
     const relayoutsText = staticUpdate && pre.type === "text";
     if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
-      if (glide) promoteMovingWrapper(wrap);
+      // a text morph's box rides a layer only when the box itself travels (its spans decide for themselves)
+      if (glide && (!textLayers || displaced)) promoteMovingWrapper(wrap);
     } else {
       applyWrapperBox(wrap, el, boxOpts);
       if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)

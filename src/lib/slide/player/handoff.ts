@@ -9,10 +9,10 @@ import { prefixIds } from "../../plot/parse";
 import { pathD, pathRender } from "../../path";
 import { gradientDef, gradientId, gradientSvg } from "../../color/gradient";
 import { warmWhenIdle } from "./transform";
-import { createTextMorph, type TextMorph } from "./textMorph";
+import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
 import type { TextLook } from "../timing";
 import type { TextElement } from "../../types";
-import type { SlideRenderCtx } from "./render";
+import { applyWrapperBox, fillContent, type SlideRenderCtx } from "./render";
 import { pairJoin } from "../../strokeStyle";
 
 const NS = "http://www.w3.org/2000/svg";
@@ -120,13 +120,30 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   // The text-morph layer: camera-local, stage px, BEFORE the flight svg so the
   // flight stays the camera's last child.
   let textLayer: HTMLElement | null = null, textMorph: TextMorph | null = null;
+  // The flight's own copies of the two endpoint renders (placed by the resting law, exactly as their wrappers are) and the span layer, handed
+  // over to each other at both ends (textMorph HANDOVER_EPS): the real source and destination stay hidden for the whole flight.
+  let textStatic: { a: HTMLElement; m: HTMLElement; b: HTMLElement } | null = null;
   if (opts.text) {
     textLayer = document.createElement("div");
     textLayer.className = "sl-flight-text";
     textLayer.dataset.handoff = id;
     textLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:visible;visibility:hidden;";
+    for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) textLayer.style.setProperty(k, v);
+    const copy = (el: TextElement): HTMLElement => {
+      const d = document.createElement("div");
+      d.style.cssText = "position:absolute;box-sizing:border-box;";
+      for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) d.style.setProperty(k, v);
+      const laid = layoutForMorph(el);
+      fillContent(d, laid, opts.text!.render); applyWrapperBox(d, { ...laid, rotation: 0 } as TextElement);
+      return d;
+    };
+    const m = document.createElement("div");
+    m.style.cssText = "position:absolute;inset:0;";
+    for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) m.style.setProperty(k, v);
+    textStatic = { a: copy(opts.text.a), m, b: copy(opts.text.b) };
+    textLayer.append(textStatic.a, m, textStatic.b);
     flight.parentNode?.insertBefore(textLayer, flight);
-    textMorph = createTextMorph(opts.text.a, opts.text.b, { layer: textLayer, ctx: opts.text.render, durationMs: opts.text.durationMs, textLook: opts.text.textLook, stage: opts.text.stage });
+    textMorph = createTextMorph(opts.text.a, opts.text.b, { layer: m, ctx: opts.text.render, durationMs: opts.text.durationMs, textLook: opts.text.textLook, stage: opts.text.stage });
   }
   /** True while the text morph owns this flight (it never falls back mid-way:
    *  the box crossfade below takes over only if the texts cannot be mapped). */
@@ -391,7 +408,14 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       // Anything the box fallback drew while the host could not measure yet stays hidden.
       set(layer, "visibility", "hidden");
       const a = opts.text!.a, b = opts.text!.b;
-      textMorph.frame(u, raw, { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) });
+      const h = textMorph.frame(u, raw, { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) });
+      const w = handoverWeights(h), layers = textStatic!;
+      for (const [node, weight] of [[layers.a, w.a], [layers.m, w.m], [layers.b, w.b]] as const) {
+        const v = weight > 0 ? "" : "hidden", o = weight >= 1 ? "" : String(Math.round(weight * 1e6) / 1e6);
+        // the span layer is hidden by its opacity: a span sets its own `visibility`, which a hidden parent does not override
+        if (node !== layers.m && node.style.visibility !== v) node.style.visibility = v;
+        if (node.style.opacity !== o) node.style.opacity = o;
+      }
       return;
     }
     invalidateIfStale();

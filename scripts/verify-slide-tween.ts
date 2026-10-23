@@ -109,6 +109,14 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
   const c = numericTextTween("n = 1,000", "n = 2,000")!;
   assert(c(0.5) === "n = 1,500", "thousands separators inferred");
   assert(numericTextTween("hello", "world") === null, "a rewrite is not tweenable");
+  // R2 F2: the shown precision moves from the start text's to the end text's, never to the larger of the two at once. "42" -> "4.2" read "42.0" on
+  // its first frame (a ".0" out of nowhere, a 53 stage px^2 start pop on the Release 2 corpus); the first frame is the start text, digit for digit.
+  const p = numericTextTween("Flux 42", "Flux 4.2")!;
+  assert(p(1e-9) === "Flux 42" && p(0.25) === "Flux 33" && p(0.45) === "Flux 25" && p(0.55) === "Flux 21.2" && p(0.999) === "Flux 4.2" && p(1) === "Flux 4.2", "42 -> 4.2: whole numbers until the count is half way, one decimal after, the end text at 1 (no '42.0' on the first frame)");
+  const q = numericTextTween("3.50 s", "4 s")!;
+  assert(q(1e-9) === "3.50 s" && q(0.2) === "3.60 s" && q(0.4) === "3.7 s" && q(0.999) === "4 s" && q(1) === "4 s", "3.50 -> 4: the precision runs down with the count (two decimals, one, none), the start text exactly at the first frame, no trailing zero kept to the end");
+  const same = numericTextTween("1,000 cells", "2,500 cells")!;
+  assert(same(0.001) === "1,002 cells" && same(0.5) === "1,750 cells", "equal precision keeps its separators and its single format");
   // Superseded 2026-10-02 (oct2 W3): a rewrite plays the glyph-matched text
   // morph (shared words glide, the rest fades staggered), never the flat crossfade.
   assert(contentPlan(text({ text: "hello" }), text({ text: "world" })).mode === "textMorph", "contentPlan sends text rewrites to the text morph");

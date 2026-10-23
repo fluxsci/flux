@@ -224,20 +224,21 @@ export function numericTextTween(preText: string, endText: string): ((t: number)
   const va = Number(ma[0].replace(/,/g, ""));
   const vb = Number(mb[0].replace(/,/g, ""));
   if (!Number.isFinite(va) || !Number.isFinite(vb)) return null;
-  const decimals = Math.max(
-    ma[0].includes(".") ? (ma[0].split(".")[1]?.length ?? 0) : 0,
-    mb[0].includes(".") ? (mb[0].split(".")[1]?.length ?? 0) : 0,
-  );
+  const places = (m: string) => m.includes(".") ? (m.split(".")[1]?.length ?? 0) : 0;
+  const decA = places(ma[0]), decB = places(mb[0]);
+  // The shown precision moves from the start text's to the end text's at the half way point, never to the larger of the two at once: a count
+  // from "42" to "4.2" read "42.0" on its first frame (a ".0" appearing out of nowhere), and the other way round kept a trailing zero to the
+  // very end. The first frame is the start text and the last the end text, digit for digit.
   const separator = ma[0].includes(",") || mb[0].includes(",");
-  const fmt = (v: number): string => {
-    let s = v.toFixed(decimals);
+  const fmt = (v: number, t: number): string => {
+    let s = v.toFixed(Math.round(decA + (decB - decA) * t));
     if (separator) {
       const [i, d] = s.split(".");
       s = i.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (d ? "." + d : "");
     }
     return preA + s + sufA;
   };
-  return (t: number) => (t <= 0 ? preText : t >= 1 ? endText : fmt(va + (vb - va) * t));
+  return (t: number) => (t <= 0 ? preText : t >= 1 ? endText : fmt(va + (vb - va) * t, t));
 }
 
 // --- geometry -----------------------------------------------------------------

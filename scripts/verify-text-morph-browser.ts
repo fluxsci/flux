@@ -17,8 +17,10 @@ import { lookupFont } from "../src/lib/text/fontFiles.mjs";
 import type { Slide } from "../src/lib/slide/types";
 import type { TextElement } from "../src/lib/types";
 import { crossArc as crossArcOf } from "../src/lib/slide/textMatch";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { harness } from "./lib/harness.mjs";
 import { launch } from "./lib/driver.mjs";
+import { perceptualDiff } from "./lib/slideSettleSweep";
 
 const h = harness("verify-text-morph-browser");
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-text-morph-"));
@@ -172,7 +174,9 @@ try {
   await seek(0, 500); st = await state();
   const glides = st.spans.filter((s) => s.kind === "glide");
   h.eq(new Set(glides.map((s) => s.text!.toLowerCase())).size, 3, "mid-flight: all three words glide (a reorder by content)");
-  h.ok(glides.filter((s) => s.promoted && s.role === "main").length === 3, "mid-flight: the three gliding spans ride promoted layers");
+  // F2: spans paint IN PLACE. A layer bakes the sub-pixel phase of its first raster, so its picture is not the in-place picture the two endpoints
+  // are (a step on the first and the last moving frame, measured 10 to 90 stage px² on a line of text in both headless and the GPU compositor).
+  h.ok(glides.filter((s) => !s.promoted && s.role === "main").length === 3 && st.spans.every((s) => !s.promoted), "mid-flight: the three gliding spans paint in place (no compositor layer)");
   h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden" && st.morphVisible === "visible", "mid-flight: A and B are hidden, the span layer shows");
   const mono = (v: number[]) => v.every((x, i) => !i || x > v[i - 1]) || v.every((x, i) => !i || x < v[i - 1]);
   h.ok(Object.keys(xs).length === 3 && Object.values(xs).every(mono), `glide translates move monotonically (${Object.entries(xs).map(([k, v]) => `${k}:${v.map((x) => x.toFixed(1)).join(">")}`).join(" ")})`);
@@ -204,7 +208,7 @@ try {
   // --- 2: a font-size change ---------------------------------------------------------
   await seek(2, 500); st = await state();
   const grow = st.spans.find((s) => s.kind === "glide" && s.text === "Grow");
-  h.ok(!!grow && grow.m.sx > 1.2 && grow.m.sx < 1.3 && grow.promoted, `size change: the glide scales mid-flight (×${grow?.m.sx.toFixed(3)}) on its own layer`);
+  h.ok(!!grow && grow.m.sx > 1.2 && grow.m.sx < 1.3 && !grow.promoted, `size change: the glide scales mid-flight (×${grow?.m.sx.toFixed(3)}), painted in place`);
   await seek(2, 1000); st = await state();
   h.ok(st.spans.every((s) => !s.promoted && !s.visible), "size change: demoted and hidden at rest");
 
@@ -371,6 +375,33 @@ try {
   // the hand-off driver plans lanes and reads the look too
   const ovh = await worstOverlap(15);
   h.ok(ovh <= 400, `hand-off: the same reversal as a text -> text Become overprints ${ovh} px^2 (<= 400)`);
+
+  // --- R2 F2: the first moving frame is the rest render, the last is the static render ---------------------------------------------------------
+  // A span run is shaped and rasterised a few hundredths of a device pixel differently from the whole line it was cut from (a quarter-pixel
+  // glyph bucket flips for a glyph or two), which read 15 to 130 stage px^2 on the first moving frame and the landing frame of every rewrite
+  // (R2 settle sweep: START POP / END SNAP on the text decks, change#3). Measured in the pixels the page paints (the perceptual comparison of the
+  // settle sweep, stage px^2 per stage px^2), through the real player: spans are drawn by their endpoint's own svg mapping, paint in place, and
+  // hand over to the static renders over the first and the last 0.75 stage px of change.
+  {
+    const box = await page.evaluate(() => { const r = document.querySelector<HTMLElement>(".sl-camera")!.parentElement!.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    const grab = async (slide: number, time: number, beat = 1) => {
+      await seek(slide, time, beat); await page.evaluate("new Promise(r => requestAnimationFrame(r))");
+      const img = await loadImage(await page.screenshot({ clip: box, type: "png" }) as Buffer);
+      const c = createCanvas(img.width, img.height).getContext("2d"); c.drawImage(img, 0, 0);
+      return c.getImageData(0, 0, img.width, img.height).data;
+    };
+    const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => perceptualDiff(a, b, Math.round(box.width), scale);
+    for (const [slide, label] of [[0, "reorder + move"], [7, "4-word reversal"], [16, "stem edit"], [3, "text -> text Become"], [15, "Become reversal"]] as const) {
+      const rest = await grab(slide, 0), first = await grab(slide, 0.05), near = await grab(slide, 999.95), end = await grab(slide, 1000);
+      const d0 = diff(rest, first), d1 = diff(near, end);
+      h.ok(d0 < 2, `${label}: the first moving frame (0.05 ms of a linear move) is the rest render (Δ ${d0.toFixed(2)} stage px² < 2; base 15 to 130)`);
+      h.ok(d1 < 2, `${label}: the last frame (0.05 ms before the end) is the static render (Δ ${d1.toFixed(2)} stage px² < 2; base 10 to 90)`);
+    }
+    await seek(0, 500); st = await state();
+    h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden", "mid-flight the span layer alone shows (A and B hold no weight)");
+    await seek(0, 0.2); st = await state();
+    h.ok(st.layers[0] === "visible" && st.morphVisible === "visible" && st.spans.every((s) => !s.promoted), "a fraction of a ms in, A still shows and the span layer is added over it with its own weight (no span is promoted)");
+  }
 
   // --- the glyph-box fallback (an export without baked fonts) -----------------------------
   await page.goto(pathToFileURL(boxesFile).href); await page.waitForFunction("!!window.fluxDeck?.seek");
