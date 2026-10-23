@@ -27,8 +27,20 @@ app.on("window-all-closed", () => {});
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const now = () => Number(process.hrtime.bigint()) / 1e6;
 let scale2 = 1;
-const DEAD = job.dead ?? 6;   // per-channel dead band, see scripts/lib/slideSettleSweep.ts DEAD_BAND
-function diff(a, b) { let d = 0; for (let i = 0; i < a.length; i += 4) for (let c = 0; c < 3; c++) { const v = Math.abs(a[i + c] - b[i + c]) - DEAD; if (v > 0) d += v; } return d / 765 / scale2; }
+// PERCEPTUAL change (scripts/lib/slideSettleSweep.ts DEAD_BAND): 2x2 box average, per-channel dead band of 10 levels (4 %).
+const DEAD = job.dead ?? 10;
+let frameWidth = 0;
+function diff(a, b) {
+  const w = frameWidth, h = Math.floor(a.length / 4 / w); let d = 0;
+  for (let y = 0; y + 1 < h; y += 2) for (let x = 0; x + 1 < w; x += 2) {
+    const i = (y * w + x) * 4, j = i + w * 4;
+    for (let c = 0; c < 3; c++) {
+      const v = Math.abs((a[i + c] + a[i + 4 + c] + a[j + c] + a[j + 4 + c]) - (b[i + c] + b[i + 4 + c] + b[j + c] + b[j + 4 + c])) / 4 - DEAD;
+      if (v > 0) d += v * 4;
+    }
+  }
+  return d / 765 / scale2;
+}
 
 async function open(html, w, h) {
   const win = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } });
@@ -36,7 +48,7 @@ async function open(html, w, h) {
   wc.setFrameRate(60);
   const rec = { frames: [], last: null, on: false, keep: !!job.dump };
   wc.on("paint", (_e, _dirty, image) => {
-    const t = now(), size = image.getSize(), bmp = Buffer.from(image.toBitmap());
+    const t = now(), size = image.getSize(), bmp = Buffer.from(image.toBitmap()); frameWidth = size.width;
     const f = { t, bmp, size, d: 0 };
     if (rec.last && rec.last.bmp.length === bmp.length) f.d = diff(rec.last.bmp, bmp);
     rec.last = f;

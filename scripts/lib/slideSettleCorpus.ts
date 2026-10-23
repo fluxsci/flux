@@ -146,7 +146,8 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
   {
     const b = new Builder("change"); const s = b.slide("change");
     const kinds: readonly Kind[] = compact ? ["text", "rect", "rectS", "line", "path", "star"] : KINDS;
-    for (const k of kinds) b.add(s, el(k, k, ...CELL[k]));
+    // a text that is RESIZED is a fixed box (the GUI turns a hugging text fixed the moment its box is dragged)
+    for (const k of kinds) b.add(s, el(k, k, ...CELL[k], k === "text" ? { sizing: "fixed", width: 150, height: 30 } : {}));
     for (const k of kinds) {
       const [x, y] = CELL[k], bx = x + 33.37, by = y - 11.21;
       b.change(s, b.beat(s), k, { x: bx, y: by });                                  // pure move (rides a compositor layer)
@@ -186,7 +187,7 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     // springs and overshooting curves: the landing must still converge
     const b = new Builder("springs"); const s = b.slide("springs");
     const ks: Kind[] = compact ? ["rect", "text"] : ["rect", "text", "star", "path"];
-    for (const k of ks) b.add(s, el(k, k, ...CELL[k]));
+    for (const k of ks) b.add(s, el(k, k, ...CELL[k], k === "text" ? { sizing: "fixed", width: 150, height: 30 } : {}));
     for (const k of ks) {
       b.change(s, b.beat(s), k, { x: CELL[k][0] + 90.3, y: CELL[k][1] + 22.6 }, { curve: { kind: "spring", bounce: 0.35 }, easing: undefined });
       b.change(s, b.beat(s), k, { width: (el(k, k, 0, 0).width as number) * 1.3, height: (el(k, k, 0, 0).height as number) * 1.3 }, { curve: { kind: "bezier", p: [0.34, 1.56, 0.64, 1] } });

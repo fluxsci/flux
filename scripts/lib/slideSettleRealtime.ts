@@ -35,7 +35,7 @@ export async function realtimeSweep(payload: SweepPayload, name: string, opts: R
     await fs.writeFile(html, text);
     const cues = payload.deck.slides.flatMap((slide, si) => cuesOf(slide).filter(c => !opts.only || opts.only(slide.id, c.from, c.to)).map(c => ({ name: `${name}/${slide.id}#${c.from}-${c.to}`, slide: si, from: c.from, to: c.to, label: kindsOf(slide, c.from, c.to), auto: slide.beats[c.from]?.advance === "auto" })));
     const width = opts.width ?? 1280, height = opts.height ?? 720;
-    const job = { html, out, cues, width, height, stageWidth: payload.deck.stage.width, restMs: opts.restMs ?? 450, tailMs: opts.tailMs ?? 900, maxMs: opts.maxMs ?? 9000, switches: opts.switches ?? [["force-color-profile", "srgb"]], dump: opts.dump, dumpAll: opts.dumpAll, dead: Number(process.env.DEAD ?? 6) };
+    const job = { html, out, cues, width, height, stageWidth: payload.deck.stage.width, restMs: opts.restMs ?? 450, tailMs: opts.tailMs ?? 900, maxMs: opts.maxMs ?? 9000, switches: opts.switches ?? [["force-color-profile", "srgb"]], dump: opts.dump, dumpAll: opts.dumpAll, dead: Number(process.env.DEAD ?? 10) };
     const env: NodeJS.ProcessEnv = { ...process.env, FLUX_SETTLE_JOB: JSON.stringify(job) }; delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
     const args = [path.join(repo, "scripts/lib/slideSettleElectronEntry.cjs"), ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []), ...(env.FLUX_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox"] : [])];
     await new Promise<void>((resolve, reject) => {

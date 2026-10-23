@@ -25,13 +25,14 @@ import type { Deck, Slide } from "../../src/lib/slide/types";
 export const FRAME_MS = 1000 / 60;
 /** Tiny windows (ms): wide enough that an eased start still moves < 1/255 of a level, narrow enough that a pop is a spike. */
 export const TINY_MS = 2;
-/** Per-channel dead band (levels of 255) under which two pixels count as equal: about the just-noticeable step of an anti-aliased edge
- *  (2.4 %). A bezier ring against the browser's own ellipse differs by 0.03 % of its radius, a headless raster steps slow edges by 1/4 px:
- *  neither is something a viewer can see, but each would otherwise read as a boundary "change". A dot, a stroke that thickens, text that
- *  re-rasterises (bolder/softer) are all far above it. The probes print the raw (dead band 0) numbers too when asked (DEAD=0). */
-export const DEAD_BAND = Number(process.env.DEAD ?? 6);
 /** "Seek to the end" (page.evaluate would serialise Infinity to null): the player clamps a seek to the cue length. */
 const REST = 1e9;
+/** The comparison is PERCEPTUAL: both images are averaged 2x2 (a 1 device-pixel box filter) and a per-channel difference under
+ *  `DEAD_BAND` levels (4 %) counts as equal. A bezier ring against the browser's own ellipse differs by 0.03 % of its radius, a resized
+ *  rect's edge by 0.15 device px, a headless raster steps slow edges by 1/4 px: sub-visible all, but each would read as a boundary
+ *  "change" at 1:1. A dot, a stroke that thickens, text that re-rasterises (bolder/softer), a corner that pops, a colour step are far
+ *  above it. DEAD=0 prints the raw numbers (the probes accept it). */
+export const DEAD_BAND = Number(process.env.DEAD ?? 10);
 
 export interface SweepPayload { deck: Deck; plots?: Record<string, unknown>; assets?: Record<string, string>; [k: string]: unknown }
 export interface CueRow {
@@ -59,7 +60,11 @@ export interface Thresholds {
   /** pre-roll and post-landing changes must stay under this (they should be exactly 0). */
   rest: number;
 }
-export const THRESHOLDS: Thresholds = { floorTiny: 1.0, floorFrame: 2.5, ratioTiny: 4, ratioFrame: 3, rest: 0.75 };
+/** The floors are physical: 6 units is a 0.1 stage px shift of a 60 px edge (a 3 px round-cap dot is 7). Under it sits the residue of
+ *  device-pixel snapping: a wrapper's layout box is whole STAGE px, which at a fractional fit scale (2.5x here) the browser snaps to the
+ *  device grid at rest but not in flight, so a resized stroked shape lands up to ~0.15 device px off its last frame. Nobody can see that;
+ *  a dot, a thickened stroke, re-rasterised text, a popped corner are all well above it. */
+export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, rest: 2 };
 
 const spike = (a: number, b: number, floor: number, ratio: number) => a > floor && a > ratio * Math.max(b, 0.25);
 
@@ -101,6 +106,21 @@ export function cuesOf(slide: Slide): { from: number; to: number }[] {
   return out;
 }
 
+/** Perceptual change between two RGBA screenshots (see DEAD_BAND), in stage px^2 per stage px^2 (scale `k`). */
+export function perceptualDiff(a: ArrayLike<number>, b: ArrayLike<number>, width: number, k: number, dead = DEAD_BAND): number {
+  const h = Math.floor(a.length / 4 / width);
+  let d = 0;
+  for (let y = 0; y + 1 < h; y += 2) for (let x = 0; x + 1 < width; x += 2) {
+    const i = (y * width + x) * 4, j = i + width * 4;
+    for (let c = 0; c < 3; c++) {
+      const va = (a[i + c] + a[i + 4 + c] + a[j + c] + a[j + 4 + c]) / 4, vb = (b[i + c] + b[i + 4 + c] + b[j + c] + b[j + 4 + c]) / 4;
+      const v = Math.abs(va - vb) - dead;
+      if (v > 0) d += v * 4;      // one averaged pixel stands for four
+    }
+  }
+  return d / 765 / (k * k);
+}
+
 export function kindsOf(slide: Slide, from: number, to: number): string {
   const tracks = slide.beats.slice(from, to + 1).flatMap(b => b.tracks);
   return [...new Set(tracks.map(t => (t.to as { become?: unknown } | undefined)?.become ? "handoff" : t.preset ?? "?"))].join("+");
@@ -118,7 +138,8 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
     const c = createCanvas(img.width, img.height).getContext("2d"); c.drawImage(img, 0, 0);
     return c.getImageData(0, 0, img.width, img.height).data;
   };
-  const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => { let d = 0; for (let i = 0; i < a.length; i += 4) for (let c = 0; c < 3; c++) { const v = Math.abs(a[i + c] - b[i + c]) - DEAD_BAND; if (v > 0) d += v; } return d / 765 / (k * k); };
+  const W = Math.round(clip.width);
+  const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => perceptualDiff(a, b, W, k);
   const rows: CueRow[] = [];
   const slides = opts.slides ?? payload.deck.slides.map((_, i) => i);
   for (const s of slides) {
