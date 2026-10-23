@@ -15,6 +15,7 @@
 //     restBeforeToFirst  first presented frame after the start vs the rest before
 //     restAfter          the last presented frame vs window B's static render of the end state
 //     postLanding        sum of presented-frame change after the landing frame (until the next cue starts)
+//     refChroma / landChroma  { ink, chromatic } pixel counts of the static end render and of the last presented frame (LCD vs grayscale text)
 //   job.dump = <dir>: also writes <dir>/<n>_{rest,first,land,last,ref}.png for each cue (and all frames with job.dumpAll).
 // Frame differences are computed here from BGRA buffers (no image libraries); stage scale k = width / stage width.
 const fs = require("node:fs"), path = require("node:path");
@@ -40,6 +41,18 @@ function diff(a, b) {
     }
   }
   return d / 765 / scale2;
+}
+
+// LCD (sub-pixel) anti-aliasing leaves colour fringes on black text: ink = a pixel that differs from the page's corner pixel, chromatic = its
+// R-B difference departs from the background's. A grayscale-antialiased stage reads ~0 %, a plain LCD-antialiased page ~60 % (scripts/perf/slide-lcd-probe.cjs).
+function chroma(f) {
+  if (!f) return null;
+  const b = f.bmp, bgB = b[0], bgR = b[2]; let ink = 0, chromatic = 0;
+  for (let i = 0; i < b.length; i += 4) {
+    if (Math.abs(b[i] - bgB) + Math.abs(b[i + 1] - b[1]) + Math.abs(b[i + 2] - bgR) <= 60) continue;
+    ink++; if (Math.abs((b[i + 2] - b[i]) - (bgR - bgB)) > 14) chromatic++;
+  }
+  return { ink, chromatic };
 }
 
 async function open(html, w, h) {
@@ -133,6 +146,7 @@ app.whenReady().then(async () => {
       const firstMoving = frames.find(f => f.tp >= 0);
       res.restBeforeToFirst = firstMoving && restBefore ? diff(restBefore.bmp, firstMoving.bmp) : null;
       res.restAfter = lastF && ref ? diff(lastF.bmp, ref.bmp) : null;
+      res.refChroma = chroma(ref); res.landChroma = chroma(lastF);
       const after = inCue.filter(f => res.landedAt != null && f.tp > res.landedAt + 20);
       res.postLanding = after.reduce((s, f) => s + f.d, 0);
       res.postLandingFrames = after.filter(f => f.d > 0.05).length;

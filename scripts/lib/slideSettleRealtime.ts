@@ -19,6 +19,8 @@ export interface RtCue {
   clickToFirstTickMs: number | null; firstClockMs: number | null;
   clickToBeatStart?: number | null; auto?: boolean; interruptAtMs?: number; jumpRatio?: number;
   landedAt: number | null; restBeforeToFirst: number | null; restAfter: number | null; postLanding: number; postLandingFrames: number;
+  /** ink / chromatic-ink pixel counts of the static end render and of the last presented frame (LCD fringes vs grayscale anti-aliasing) */
+  refChroma?: { ink: number; chromatic: number } | null; landChroma?: { ink: number; chromatic: number } | null;
   error?: string;
 }
 export interface RtResult { gpu: Record<string, string>; stageWidth: number; cues: RtCue[] }
@@ -69,36 +71,51 @@ export function rtRow(c: RtCue): string {
  *  clock starts at the first presented frame" is one frame of motion after frame 0.
  *  Units of the change columns are stage px^2 per stage px^2 (perceptual, see slideSettleSweep DEAD_BAND). */
 export const RT = {
-  /** cue clock at the first player frame that moved (frame 0 is presented first when a gliding enter primes its layer) */
+  /** START HITCH: the click (or the cue's start) to the first player frame whose cue clock moved. The Nielsen budget for "instantaneous"; the
+   *  measured value is 0.3 to 18 ms, one presented frame later for a cue that primes a gliding layer (frame 0 first). */
+  clickToFirstTickMs: 100,
+  /** SKIPPED BEGINNING: the cue clock at the first player frame that moved. The player clamps the first tick to FIRST_TICK_MAX_MS (20), so
+   *  this asserts the clamp is in force: a setup delay is a hitch, never progress. */
   firstClockMs: 34,
-  /** longest player frame gap in the last four frames of the motion, and the longest presented gap anywhere in the landing window */
-  gapMs: 34,
-  /** the last presented frame vs the static render of the end state, and the change after the landing frame (a sharpness / AA step) */
+  /** UNEVEN PACING: the longest gap between two player frames anywhere in the motion, and (LONG FRAME AT LANDING) in the last four frames */
+  maxGapMs: 34, gapMs: 34,
+  /** the last presented frame vs the static render of the end state, and the change after the landing frame (a sharpness / AA step).
+   *  The same 2 units for a camera cue: its raster is baked at the landing pose (rasterKeeper EARLY_BAKE_LEAD_FRAMES), so both are 0.0. */
   restAfter: 2, postLanding: 2,
-  /** A camera cue lands within 1.5 px / 1 % of the pose it baked at under the last motion (rasterKeeper EARLY_BAKE_AT): sub-visible phase softness */
-  cameraRestAfter: 60, cameraPostLanding: 8,
-  /** the landing frame and the first moving frame change like their neighbours: d_last <= max(3 x previous, floor), d_first <= max(4 x second, floor) */
+  /** the landing frame and the first changing frame change like their neighbours: d_last <= max(3 x previous, floor), d_first <= max(4 x next, floor) */
   stepRatio: 3, startRatio: 4, stepFloor: 6,
-  /** the first presented frame of the cue (frame 0 when the cue primes layers) vs the rest before it: d <= max(4 x the next frame, floor) */
+  /** a presented frame whose change from its predecessor exceeds this has moved (the rest frames before the motion read exactly 0) */
+  moveEps: 0.05,
   /** an interrupt settles velocity-continuously: no presented frame changes more than this multiple of the frames before it (floor 6) */
   jumpRatio: 6,
 };
+/** The share of ink pixels that carry colour fringes. The slide stage is a will-change layer (the camera layer), which disables LCD text, so slide
+ *  text is grayscale-antialiased end to end and a promotion or demotion of a sub-layer cannot flip LCD <-> grayscale. A text-only deck reads ~0.5 %
+ *  (the few coloured pixels are the theme's); LCD text would read ~60 %. */
+export const GRAYSCALE_MAX_SHARE = 0.02;
+export const chromaShare = (c?: { ink: number; chromatic: number } | null): number | null => (c && c.ink > 0 ? c.chromatic / c.ink : null);
 export function rtFlags(c: RtCue): string[] {
   const f: string[] = [];
   if (c.error) return [`ERROR ${c.error.split("\n")[0]}`];
-  const s = summarize(c), camera = c.label.includes("camera");
+  const s = summarize(c);
   if (c.interruptAtMs) {
     if ((c.jumpRatio ?? 0) > RT.jumpRatio) f.push(`INTERRUPT JUMP (x${(c.jumpRatio ?? 0).toFixed(1)})`);
     return f;
   }
+  if (c.clickToFirstTickMs != null && c.clickToFirstTickMs > RT.clickToFirstTickMs) f.push(`START HITCH (${c.clickToFirstTickMs.toFixed(0)} ms to the first moving frame)`);
   if (c.firstClockMs != null && c.firstClockMs > RT.firstClockMs) f.push(`SKIPPED BEGINNING (${c.firstClockMs.toFixed(0)} ms in at the first tick)`);
+  if (s.maxGap > RT.maxGapMs) f.push(`UNEVEN PACING (${s.maxGap.toFixed(0)} ms between player frames)`);
   if (s.landGap > RT.gapMs) f.push(`LONG FRAME AT LANDING (${s.landGap.toFixed(0)} ms)`);
-  if (c.restAfter != null && c.restAfter > (camera ? RT.cameraRestAfter : RT.restAfter)) f.push("LANDING != REST RENDER");
-  if (c.postLanding > (camera ? RT.cameraPostLanding : RT.postLanding)) f.push("CHANGE AFTER LANDING");
-  // the first frame: what the viewer sees first after the click equals the rest before it, or changes like the frame after it
+  if (c.restAfter != null && c.restAfter > RT.restAfter) f.push("LANDING != REST RENDER");
+  if (c.postLanding > RT.postLanding) f.push("CHANGE AFTER LANDING");
+  // the start: the first frame that CHANGED (a cue that primes a gliding layer presents frame 0 first, identical to the rest) against the frame
+  // after it, and the first presented frame against the rest before it
   {
-    const moving = c.frames.filter(x => x.t >= 0);
-    if (moving.length >= 2 && moving[0].d > Math.max(RT.startRatio * moving[1].d, RT.stepFloor)) f.push(`START STEP (${moving[0].d.toFixed(1)} before ${moving[1].d.toFixed(1)})`);
+    const frames = c.frames.filter(x => x.t >= 0), at = frames.findIndex(x => x.d > RT.moveEps);
+    const next = at >= 0 ? frames[at + 1]?.d ?? 0 : 0;
+    if (at >= 0 && frames[at].d > Math.max(RT.startRatio * next, RT.stepFloor)) f.push(`START STEP (${frames[at].d.toFixed(1)} before ${next.toFixed(1)})`);
+    const after = Math.max(frames[1]?.d ?? 0, frames[2]?.d ?? 0);
+    if (c.restBeforeToFirst != null && c.restBeforeToFirst > Math.max(RT.startRatio * after, RT.stepFloor)) f.push(`FIRST FRAME != REST (${c.restBeforeToFirst.toFixed(1)} against ${after.toFixed(1)} after it)`);
   }
   // the landing frame: the last presented frame that belongs to the motion (page time <= landedAt + 20 ms) against the one before it
   if (c.landedAt != null) {

@@ -4,10 +4,10 @@
 // presented frame and the static render of the end state, and the change AFTER the landing (a re-bake, a sharpness step, an
 // anti-aliasing flip). Columns and thresholds: scripts/lib/slideSettleRealtime.ts.
 //   ROOT=<project> DECK=<deckId> | DECKFILE=<deck.json> [PLOTS=<plots.json>] | CORPUS=synthetic|compact|rig|all [ONLY=<name part>]
-//   [CUES=slideId#from-to,...] [JSON=<file>]   node --import tsx scripts/perf/slide-settle-realtime.mts
+//   [CUES=slideId#from-to,...] [JSON=<file>] [REPEAT=<n>: n fresh runs per cue and the rate of every flag]   node --import tsx scripts/perf/slide-settle-realtime.mts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { realtimeSweep, rtRow, RT_HEAD, type RtCue } from "../lib/slideSettleRealtime";
+import { realtimeSweep, rtFlags, rtRow, RT_HEAD, type RtCue } from "../lib/slideSettleRealtime";
 import type { SweepPayload } from "../lib/slideSettleSweep";
 
 const env = process.env;
@@ -24,11 +24,25 @@ if (env.ROOT && env.DECK) {
   for (const d of await corpus(env.CORPUS as "synthetic")) if (!env.ONLY || d.name.includes(env.ONLY)) decks.push(d);
 } else throw new Error("ROOT+DECK, DECKFILE or CORPUS is required (see the header)");
 const want = env.CUES?.split(",");
+const repeat = Math.max(1, Number(env.REPEAT ?? 1));
 const all: RtCue[] = [];
 console.log(RT_HEAD);
 for (const d of decks) {
-  const r = await realtimeSweep(d.payload, d.name, { fresh: !!env.FRESH, restMs: env.RESTMS ? Number(env.RESTMS) : undefined, preJs: env.PREJS, dump: env.DUMP, dumpAll: !!env.DUMPALL, only: want ? (s, f, t) => want.includes(`${s}#${f}-${t}`) : undefined });
-  if (!all.length) console.log(`# gpu: ${JSON.stringify(r.gpu)}`);
-  for (const c of r.cues) { all.push(c); console.log(rtRow(c)); }
+  for (let rep = 0; rep < repeat; rep++) {
+    const r = await realtimeSweep(d.payload, d.name, { fresh: !!env.FRESH || repeat > 1, restMs: env.RESTMS ? Number(env.RESTMS) : undefined, preJs: env.PREJS, dump: env.DUMP, dumpAll: !!env.DUMPALL, only: want ? (s, f, t) => want.includes(`${s}#${f}-${t}`) : undefined });
+    if (!all.length) console.log(`# gpu: ${JSON.stringify(r.gpu)}`);
+    for (const c of r.cues) { all.push(c); console.log(rtRow(c)); }
+  }
+}
+if (repeat > 1) {
+  // the RATE of every flag per cue: an intermittent defect (a priming race of 1 run in 16) is invisible to a single run and to the gate's majority rule
+  const byCue = new Map<string, RtCue[]>();
+  for (const c of all) byCue.set(c.name, [...(byCue.get(c.name) ?? []), c]);
+  console.log(`\nflag rates over ${repeat} runs per cue`);
+  for (const [name, runs] of byCue) {
+    const rate = new Map<string, number>();
+    for (const c of runs) for (const f of new Set(rtFlags(c).map(x => x.split(" (")[0]))) rate.set(f, (rate.get(f) ?? 0) + 1);
+    console.log(`${name.padEnd(40)} ${[...rate].map(([f, n]) => `${f} ${n}/${runs.length}`).join(", ") || "clean"}`);
+  }
 }
 if (env.JSON) await fs.writeFile(env.JSON, JSON.stringify(all));

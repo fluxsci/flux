@@ -9,18 +9,22 @@
 // Headless Chrome quantizes slowly moving straight edges to 1/4 px: the neighbour-relative thresholds absorb it.
 import { PRESET_CATALOG } from "../src/lib/slide/presetCatalog";
 import { harness } from "./lib/harness.mjs";
-import { classify, KNOWN_OPEN, openDeck, sweepDeck, tableRow, TABLE_HEAD, THRESHOLDS, withBrowser, type CueRow } from "./lib/slideSettleSweep";
-import { corpus, KINDS } from "./lib/slideSettleCorpus";
+import { classify, judge, KNOWN_OPEN, openDeck, openKey, sweepDeck, tableRow, TABLE_HEAD, THRESHOLDS, withBrowser, type CueRow } from "./lib/slideSettleSweep";
+import { corpus } from "./lib/slideSettleCorpus";
 
 const h = harness("verify-slide-settle-sweep");
 
 // -- 1. the verdict function (pure) ------------------------------------------------------------------------------------------
 {
   h.section("verdict function");
-  const calm = { slide: 0, slideId: "s", from: 1, to: 1, label: "x", dur: 700, dPre: 0, s02: 0, s24: 0, sF: 3, sF2: 6, mid: 10, e42: 0, e20: 0, eF2: 6, eF: 2, dRun: 0 };
+  const calm = { slide: 0, slideId: "s", from: 1, to: 1, label: "x", dur: 700, dPre: 0, s02: 0, s24: 0, sF: 3, sF2: 6, mid: 10, midF: 80, e42: 0, e20: 0, eF2: 6, eF: 2, dRun: 0 };
   h.eq(classify(calm), [], "a smooth ease-in / ease-out step has no verdict");
   h.eq(classify({ ...calm, s02: 7, s24: 0.1 }), ["START POP (2ms)"], "an instant jump in the first 2 ms beside a quiet window is a start pop");
   h.eq(classify({ ...calm, sF: 20, sF2: 2 }), ["START POP (frame)"], "a first frame that moves 10x the next one is a one-frame start pop");
+  h.eq(classify({ ...calm, sF: 0, sF2: 201, midF: 432 }), ["START POP (2nd frame)"], "a second frame that jumps from nothing to a frame of the cue's own motion is a late start pop (the count-up's digit slots replacing the number)");
+  h.eq(classify({ ...calm, sF: 0.5, sF2: 12, midF: 90 }), [], "a quadratic-ish start whose second frame is ~10 % of a mid-flight frame is not a pop");
+  h.eq(classify({ ...calm, sF: 0, sF2: 17, midF: 5600 }), [], "a headless 1/4 px quantisation step on a huge camera move (sF 0, sF2 17 of 5600) is not a pop");
+  h.eq(classify({ ...calm, sF: 4, sF2: 30, midF: 90 }), [], "a start that grows 7x (cubic ease) is smooth");
   h.eq(classify({ ...calm, e20: 14, e42: 0 }), ["END SNAP (2ms)"], "a jump in the last 2 ms beside a quiet window is an end snap");
   h.eq(classify({ ...calm, eF: 12, eF2: 2 }), ["END SNAP (frame)"], "a last frame that moves 6x the one before is a one-frame end snap");
   h.eq(classify({ ...calm, dPre: 5 }), [], "a promoted layer re-rastered at the first frame is under the pre-roll floor");
@@ -29,6 +33,14 @@ const h = harness("verify-slide-settle-sweep");
   h.eq(classify({ ...calm, dRun: 120 }), ["POST CHANGE"], "the landing depends on how it was reached (a stale style)");
   h.eq(classify({ ...calm, s02: 0.6, s24: 0, e20: 0.8, e42: 0, sF: 1.2, sF2: 0.1, eF: 1.9, eF2: 0.2 }), [], "sub-visible boundary change is below the floor");
   h.eq(classify({ ...calm, s02: 30, s24: 29 }), [], "a fast start whose neighbour moves as much is not a pop");
+  {
+    const open = { seek: ["START POP (frame)"], rt: ["START STEP"], rtMay: ["LANDING STEP"], owner: "x" };
+    h.eq(judge(["START POP (frame)"], open, "seek"), { failing: [], tolerated: ["START POP (frame)"], stale: [] }, "a listed flag is tolerated");
+    h.eq(judge(["START POP (frame)", "END SNAP (2ms)"], open, "seek").failing, ["END SNAP (2ms)"], "a flag that is not listed still fails");
+    h.eq(judge([], open, "seek").stale, ["START POP (frame)"], "a REQUIRED entry whose flag stopped firing is stale (fails: delete it)");
+    h.eq(judge(["START STEP (20.4 before 0.0)", "LANDING STEP (30.4 after 9.4)"], open, "rt"), { failing: [], tolerated: ["START STEP (20.4 before 0.0)", "LANDING STEP (30.4 after 9.4)"], stale: [] }, "real-time flags match by prefix; rtMay is tolerated without being required");
+    h.eq(judge(["START STEP (1 before 0)"], { ...open, rt: undefined }, "seek"), { failing: ["START STEP (1 before 0)"], tolerated: [], stale: ["START POP (frame)"] }, "domains do not leak into each other");
+  }
   h.ok(THRESHOLDS.floorTiny > 0 && THRESHOLDS.ratioTiny >= 3 && THRESHOLDS.ratioFrame >= 2, "thresholds are relative (a ratio to the neighbour) with an absolute floor");
 }
 
@@ -51,7 +63,6 @@ const decks = await corpus("compact");
   h.ok(presets.has("become") && presets.has("ghost"), "corpus exercises Become (hand-off) and Ghost");
   for (const k of ["text", "rect", "ellipse", "line", "arrow", "path", "image"]) h.ok(kinds.has(k), `corpus animates element kind ${k}`);
   for (const p of ["role:point", "role:bar", "axis.x.spine", "axis.x.ticks", "axis.x.tick-labels", "line"]) h.ok(parts.has(p), `corpus animates plot part ${p}`);
-  void KINDS;
 }
 
 // -- 3. the sweep --------------------------------------------------------------------------------------------------------------
@@ -73,11 +84,13 @@ let cues = 0;
 for (const { name, rows } of results) for (const r of rows) {
   cues++;
   console.log(tableRow(r, name));
-  const key = `${name}#${r.from}-${r.to}`;
-  const open = KNOWN_OPEN[key];
-  const flags = r.flags.filter(f => !open?.flags.includes(f));
-  const tolerated = r.flags.filter(f => open?.flags.includes(f));
-  h.ok(flags.length === 0, `${key} (${r.label}, ${Math.round(r.dur)} ms): ${flags.join(", ") || "clean start, clean landing"}${tolerated.length ? ` [known open: ${tolerated.join(", ")} - ${open!.owner}]` : ""}`);
+  const key = openKey(name, r.slideId, r.from, r.to), open = KNOWN_OPEN[key];
+  const { failing, tolerated, stale } = judge(r.flags, open, "seek");
+  h.ok(failing.length === 0 && stale.length === 0, `${key} (${r.label}, ${Math.round(r.dur)} ms): ${failing.join(", ") || (stale.length ? `STALE KNOWN_OPEN entry (${stale.join(", ")} no longer fires: delete it from scripts/lib/slideSettleSweep.ts)` : "clean start, clean landing")}${tolerated.length ? ` [known open: ${tolerated.join(", ")} - ${open!.owner}]` : ""}`);
+}
+{
+  const measured = new Set(results.flatMap(({ name, rows }) => rows.map(r => openKey(name, r.slideId, r.from, r.to))));
+  for (const [key, open] of Object.entries(KNOWN_OPEN)) if (open.seek) h.ok(measured.has(key), `KNOWN_OPEN ${key} names a cue the sweep measures`);
 }
 h.ok(cues >= 80, `the sweep measured ${cues} cues (a corpus that shrinks fails)`);
 await h.done();

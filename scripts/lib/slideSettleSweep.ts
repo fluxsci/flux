@@ -43,8 +43,8 @@ export interface CueRow {
   dPre: number;
   /** Δ t=0 → t=2 ms, 2 → 4 ms, 0 → 1 frame, 1 → 2 frames. */
   s02: number; s24: number; sF: number; sF2: number;
-  /** mid-flight Δ over 2 ms (the cue's own motion scale). */
-  mid: number;
+  /** mid-flight Δ over 2 ms and over one frame (the cue's own motion scale). */
+  mid: number; midF: number;
   /** Δ D-4 → D-2, D-2 → D, D-2F → D-F, D-F → D. */
   e42: number; e20: number; eF2: number; eF: number;
   /** landing reached by seeking forward frame by frame vs seeked directly (a controller crossing must leave the same pixels). */
@@ -57,6 +57,10 @@ export interface Thresholds {
   floorTiny: number; floorFrame: number;
   /** a boundary window must exceed this many times its neighbour to count as a spike. */
   ratioTiny: number; ratioFrame: number;
+  /** the SECOND frame of a start: a smooth start grows 3x (t^2) to 7x (t^3) from its first frame to its second, never from nothing to a sizeable
+   *  part of the cue's own motion. It is a pop when it exceeds `ratioSecond` x the first frame AND `secondOfMid` of a mid-flight frame
+   *  (a content swap that lands one frame late, e.g. the count-up's digit slots replacing the resting number). */
+  ratioSecond: number; secondOfMid: number;
   /** a post-landing change must stay under this (it should be exactly 0). */
   rest: number;
   /** the landing reached frame by frame vs seeked directly: a seek has no priming frame, so headless Chrome bakes a gliding layer
@@ -70,7 +74,7 @@ export interface Thresholds {
  *  device-pixel snapping: a wrapper's layout box is whole STAGE px, which at a fractional fit scale (2.5x here) the browser snaps to the
  *  device grid at rest but not in flight, so a resized stroked shape lands up to ~0.15 device px off its last frame. Nobody can see that;
  *  a dot, a thickened stroke, re-rasterised text, a popped corner are all well above it. */
-export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, rest: 2, run: 30, pre: 25 };
+export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, ratioSecond: 10, secondOfMid: 0.25, rest: 2, run: 30, pre: 25 };
 
 const spike = (a: number, b: number, floor: number, ratio: number) => a > floor && a > ratio * Math.max(b, 0.25);
 
@@ -80,6 +84,7 @@ export function classify(r: Omit<CueRow, "flags">, t: Thresholds = THRESHOLDS): 
   if (Number.isFinite(r.dPre) && r.dPre > t.pre) flags.push("PRE-ROLL CHANGE");
   if (spike(r.s02, r.s24, t.floorTiny, t.ratioTiny)) flags.push("START POP (2ms)");
   if (spike(r.sF, r.sF2, t.floorFrame, t.ratioFrame)) flags.push("START POP (frame)");
+  if (r.sF2 > t.floorFrame && r.sF2 > t.ratioSecond * Math.max(r.sF, 0.25) && r.sF2 > t.secondOfMid * r.midF) flags.push("START POP (2nd frame)");
   if (spike(r.e20, r.e42, t.floorTiny, t.ratioTiny)) flags.push("END SNAP (2ms)");
   if (spike(r.eF, r.eF2, t.floorFrame, t.ratioFrame)) flags.push("END SNAP (frame)");
   if (r.dRun > t.run) flags.push("POST CHANGE");
@@ -161,7 +166,7 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
       const f = {
         p0: await grab(s, to, 0, from), p2: await grab(s, to, TINY_MS, from), p4: await grab(s, to, 2 * TINY_MS, from),
         pF: await grab(s, to, Math.min(F, D), from), p2F: await grab(s, to, Math.min(2 * F, D), from),
-        mid: await grab(s, to, D / 2, from), mid2: await grab(s, to, D / 2 + TINY_MS, from),
+        mid: await grab(s, to, D / 2, from), mid2: await grab(s, to, D / 2 + TINY_MS, from), midF: await grab(s, to, D / 2 + F, from),
         e2F: await grab(s, to, Math.max(0, D - 2 * F), from), eF: await grab(s, to, Math.max(0, D - F), from),
         e4: await grab(s, to, Math.max(0, D - 2 * TINY_MS), from), e2: await grab(s, to, Math.max(0, D - TINY_MS), from), e0: await grab(s, to, D, from),
       };
@@ -175,7 +180,7 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
         slide: s, slideId: slide.id, from, to, label: kindsOf(slide, from, to), dur: D,
         dPre: pre ? diff(pre, f.p0) : NaN,
         s02: diff(f.p0, f.p2), s24: diff(f.p2, f.p4), sF: diff(f.p0, f.pF), sF2: diff(f.pF, f.p2F),
-        mid: diff(f.mid, f.mid2),
+        mid: diff(f.mid, f.mid2), midF: diff(f.mid, f.midF),
         e42: diff(f.e4, f.e2), e20: diff(f.e2, f.e0), eF2: diff(f.e2F, f.eF), eF: diff(f.eF, f.e0),
         dRun: diff(f.e0, run),
       };
@@ -186,10 +191,10 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
 }
 
 const n = (v: number, w = 6) => (Number.isFinite(v) ? v.toFixed(1) : "  -").padStart(w);
-export const TABLE_HEAD = "slide beat   dur(ms) tracks    pre   s0-2   s2-4  s0-F  sF-2F    mid  e-4-2  e-2-0 e-2F-F  e-F-0   run  verdict";
+export const TABLE_HEAD = "slide beat   dur(ms) tracks    pre   s0-2   s2-4  s0-F  sF-2F    mid   midF  e-4-2  e-2-0 e-2F-F  e-F-0   run  verdict";
 export function tableRow(r: CueRow, name = ""): string {
   const beat = r.from === r.to ? String(r.from) : `${r.from}-${r.to}`;
-  return `${(name || String(r.slide)).slice(0, 18).padStart(5)} ${beat.padStart(4)}  ${String(Math.round(r.dur)).padStart(7)} ${r.label.slice(0, 9).padEnd(9)} ${n(r.dPre)} ${n(r.s02)} ${n(r.s24)} ${n(r.sF)} ${n(r.sF2, 6)} ${n(r.mid)} ${n(r.e42)} ${n(r.e20)} ${n(r.eF2, 7)} ${n(r.eF)} ${n(r.dRun)}  ${r.flags.join(", ") || "ok"}`;
+  return `${(name || String(r.slide)).slice(0, 18).padStart(5)} ${beat.padStart(4)}  ${String(Math.round(r.dur)).padStart(7)} ${r.label.slice(0, 9).padEnd(9)} ${n(r.dPre)} ${n(r.s02)} ${n(r.s24)} ${n(r.sF)} ${n(r.sF2, 6)} ${n(r.mid)} ${n(r.midF, 7)} ${n(r.e42)} ${n(r.e20)} ${n(r.eF2, 7)} ${n(r.eF)} ${n(r.dRun)}  ${r.flags.join(", ") || "ok"}`;
 }
 
 export async function withBrowser<T>(fn: (browser: import("puppeteer-core").Browser, tmp: string) => Promise<T>): Promise<T> {
@@ -200,30 +205,56 @@ export async function withBrowser<T>(fn: (browser: import("puppeteer-core").Brow
   finally { await browser.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 }
 
+/** One tolerated cue. `seek` = flags it MUST show in the seek-domain sweep, `rt` = flags it MUST show in the real-time gate, `rtMay` = flags the real-time
+ *  gate tolerates without requiring (a ratio test that straddles its threshold from run to run). A REQUIRED flag that no longer fires fails
+ *  the gate ("stale entry: delete it"), so an entry can never outlive its defect and silently allow a regression of exactly that class. Flags
+ *  are matched by prefix (the real-time flags carry their numbers). */
+export interface OpenCase { seek?: string[]; rt?: string[]; rtMay?: string[]; owner: string }
+/** Key of a cue in KNOWN_OPEN: `deck/slideId#from-to`. */
+export const openKey = (deck: string, slideId: string, from: number, to: number) => `${deck}/${slideId}#${from}-${to}`;
 /** Cues whose boundary discontinuity is owned by ANOTHER Release 2 lane (or is a documented open item) and fixed there: never a threshold
- *  fudge. Keyed `deck#from-to` (or `deck/slide#from-to` in the probes), valued by the flags tolerated and the owner. The integrator
- *  deletes an entry when its lane has merged; a flag NOT listed here fails the gate. */
-export const KNOWN_OPEN: Record<string, { flags: string[]; owner: string }> = {
+ *  fudge. The integrator deletes an entry when its lane has merged; a flag NOT listed here fails the gate, and a listed (required) flag that
+ *  stops firing fails it too. */
+export const KNOWN_OPEN: Record<string, OpenCase> = {
   // highlight / dim start as a wink: the element is dimmed at t = 0 (opacity level -> 1). Lane V (WP 2.2, T6 emphasis that MOVES) rewrites it.
-  "preset_highlight#1-1": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
-  "preset_highlight#2-2": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
-  "preset_highlight#3-3": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
-  "preset_highlight#4-4": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
-  "preset_highlight#5-5": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
+  ...Object.fromEntries([1, 2, 3, 4, 5].map(n => [openKey("preset_highlight", "p_highlight", n, n), { seek: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" } as OpenCase])),
   // a text rewrite hands the original static text to the span layer: the glyph-matched morph's first/last frame differ from the resting
   // text by anti-aliasing (50 stage px^2). Lane T (WP 2.5, text glide lanes / letters travel) owns textMorph.ts.
-  "change#3-3": { flags: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)", "LANDING != REST RENDER", "LANDING STEP"], owner: "lane T (text morph layers)" },
-  // a Ghost copy of a TEXT is born exactly on top of its source: two layers of the same anti-aliased glyphs read bolder than one
-  // (edge coverage c becomes 1-(1-c)^2), so the first frame differs from the rest by 20 stage px^2. Open in lane J.
-  "ghost#2-2": { flags: ["PRE-ROLL CHANGE"], owner: "lane J open (a born text copy doubles its source's anti-aliasing)" },
+  [openKey("change", "change", 3, 3)]: { seek: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)"], owner: "lane T (text morph layers)" },
+  // a with-previous highlight starts at its OWN delay (120 ms in) with a one-frame dim of 147 stage px^2 and then holds (the wink): the real-time
+  // gate's first-changing-frame rule sees it where the seek gate's windows at t = 0 cannot (the boundary is not at t = 0). Lane V rewrites highlight.
+  [openKey("chains", "chains", 4, 6)]: { rt: ["START STEP"], owner: "lane V (highlight is a wink: a delayed highlight dims in one frame)" },
+  // the count-up replaces the resting number with its digit slots one frame after t = 0 (frame 0 is the rest, the second frame is 201 units, a
+  // frame of the motion's own scale): a content swap that lands late. Lane D (WP 2.3, count-up slots) owns it.
+  [openKey("preset_countUp", "p_countUp", 1, 1)]: { seek: ["START POP (2nd frame)"], owner: "lane D (count-up digit slots replace the resting number one frame late)" },
   // TEXT that glides to a FRACTIONAL position rests on the gliding raster: a layer is rasterised once at its source phase and moved at float
   // precision (the only way text glides), so it lands up to half a device pixel soft against a render painted in place there (25 stage px^2
   // for a 22 px word). The alternative, demoting the layer at landing, measured a 44 stage px^2 sharpening STEP on the landing frame; manim's
   // rule is that nothing pops, so the landing keeps the raster. Inherent to the glide (docs: layer hygiene), recorded here, not hidden.
-  "change#1-1": { flags: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
-  "springs#3-3": { flags: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
-  // a text box RESIZED with an overshooting curve: the wrapper's whole-pixel layout box steps by one pixel as the size crosses .5, and the
-  // glyphs re-rasterise at each step (about 10 stage px^2; 38 on the first). Before lane J the frozen-box composite shimmered at ~50 per
-  // frame for the whole resize and landed soft; this is what is left. Open in lane J.
-  "springs#4-4": { flags: ["START POP (frame)", "POST CHANGE", "LANDING != REST RENDER"], owner: "lane J open (a resized text box re-rasterises at each layout-pixel step)" },
+  [openKey("change", "change", 1, 1)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
+  [openKey("springs", "springs", 3, 3)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
+  // The Release 1 review deck's two hardest hand-offs (slide 11 a thick-stroked line becoming a shape, slide 13 a 12 px unfilled rect becoming an
+  // ellipse). Measured on BOTH domains (the first lane report called the pop headless-only: it compared the presented frame at t = 0, which is
+  // still the rest, not the first frame that moved). Two causes: (1) GEOMETRY: the morph rounds the centreline from the first frame by
+  // t x R_B, and a stroke's OUTER corner is round with radius w/2 + r the moment r > 0, so a sharp 12 px rect corner jumps from radius 0 to 6
+  // (4 corners x (1 - pi/4) x 36 = 31 stage px^2: the measured 27); (2) the DOM rect / line / ellipse and the flight's PATH rasterise the
+  // same edge differently by a fraction of a pixel (the line's 20, the corners' landing 30). Fixes (hand-off lane S/L, not this lane):
+  // morph the stroke's OUTLINE (outer and inner contours, mitred offsets) for a thick-stroked convex Become, and serialise stroked rect /
+  // ellipse / line as <path> in the player's static markup so both sides share a rasteriser.
+  [openKey("become_stroked", "line_shape", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], rt: ["START STEP"], rtMay: ["FIRST FRAME"], owner: "lane S (hand-off stroke geometry + rasteriser)" },
+  [openKey("become_stroked", "corners", 1, 1)]: { seek: ["START POP (frame)"], rt: ["START STEP"], rtMay: ["LANDING STEP", "FIRST FRAME"], owner: "lane S (hand-off stroke geometry + rasteriser)" },
+  // A turning TEXT rides the flight mark (a layer baked at rest): it turns smoothly from a clean first frame and lands without a step, but on its
+  // layer's raster, the hinted glyphs rotated by the compositor, which differs from a fresh render painted at the final angle (42 stage px^2 for a
+  // 210 px line; 0.0 to 16 elsewhere). Unpromoted it is exact at the end and ragged all along with a 9 to 66 jump at the start.
+  [openKey("change", "change", 16, 16)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a turning text lands on its layer's raster (the alternative is a start flip and a ragged turn)" },
+  // A Ghost copy of a TEXT is born exactly on top of its source: two layers of the same anti-aliased glyphs read bolder than one (edge coverage c
+  // becomes 1-(1-c)^2), a first frame 22.6 stage px^2 from the rest. A copy that fades in as it separates, or a source that hides under it for the
+  // first frame, fixes it; both change the Ghost vocabulary (not this lane's brief). Unassigned: the integrator.
+  [openKey("ghost", "ghost", 2, 2)]: { rt: ["START STEP"], rtMay: ["FIRST FRAME"], owner: "unassigned (Ghost birth: a text copy doubles its source's anti-aliasing for one frame)" },
 };
+/** What this cue's flags leave over once its tolerated ones are removed, plus the stale entries (a required flag that did not fire). */
+export function judge(flags: string[], open: OpenCase | undefined, domain: "seek" | "rt"): { failing: string[]; tolerated: string[]; stale: string[] } {
+  const required = (domain === "seek" ? open?.seek : open?.rt) ?? [], allowed = [...required, ...(domain === "rt" ? open?.rtMay ?? [] : [])];
+  const is = (flag: string, list: string[]) => list.some(g => flag.startsWith(g));
+  return { failing: flags.filter(x => !is(x, allowed)), tolerated: flags.filter(x => is(x, allowed)), stale: required.filter(g => !flags.some(x => x.startsWith(g))) };
+}

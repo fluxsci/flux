@@ -156,12 +156,15 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
       if (k === "rect" || k === "ellipse" || k === "star") b.change(s, b.beat(s), k, { fill: C.green });  // recolour
       if (k === "text") b.change(s, b.beat(s), k, { text: "Flux 4.2 rewritten" });  // text rewrite
     }
+    // the compact set rotates a text (a hugging box re-lays its glyphs out per frame and is placed by its rest law, not a frozen box) and a rect
+    // at the END of the deck, so the cues above keep their numbers
+    if (compact) for (const k of ["text", "rect"]) b.change(s, b.beat(s), k, { rotation: 35 });
     out.push({ name: "change", payload: { deck: b.deck, assets: { img: pngDataUrl() }, assetSizes: { img: { width: 64, height: 48 } } } as SweepPayload });
   }
   {
     // Become (hand-off): shape <-> shape, line -> shape, path -> path, text -> shape, set morph (text -> text)
     const b = new Builder("become"); const s = b.slide("become");
-    const pairs: [Kind, Kind][] = compact ? [["rect", "ellipse"], ["line", "star"], ["text", "ellipse"]] : [["rect", "ellipse"], ["rectS", "ellipse"], ["ellipse", "star"], ["line", "star"], ["arrow", "ellipse"], ["path", "star"], ["text", "ellipse"], ["star", "rect"]];
+        const pairs: [Kind, Kind][] = compact ? [["rect", "ellipse"], ["line", "star"], ["text", "ellipse"]] : [["rect", "ellipse"], ["rectS", "ellipse"], ["ellipse", "star"], ["line", "star"], ["arrow", "ellipse"], ["path", "star"], ["text", "ellipse"], ["star", "rect"]];
     const used = new Set<string>();
     pairs.forEach(([from, to], i) => {
       const src = `s_${from}_${i}`, dst = `d_${to}_${i}`, [x, y] = CELL[(["text", "rect", "ellipse", "line", "path", "star", "arrow", "rectS", "image"] as Kind[])[i % 9]];
@@ -173,6 +176,23 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     b.add(s, el("text", "txtA", 40, 335, { text: "Mycelial growth" })); b.add(s, el("text", "txtB", 320, 335, { text: "growth Mycelial" }));
     b.become(s, b.beat(s), "txtA", { element: "txtB" });
     out.push({ name: "become", payload: { deck: b.deck } });
+  }
+  {
+    // The Release 1 review deck's two hardest hand-offs, authored the way that deck is (a state Become, mode "consume"): a THICK-stroked
+    // line and arrow becoming an ellipse and a rect (slide 11), and a 12 px stroked, unfilled rect becoming an ellipse (slide 13). In
+    // HEADLESS Chrome their first frame differs from the rest by a half-pixel edge snap of the DOM rect against the flight's path
+    // (KNOWN_OPEN, seek domain); on the GPU compositor it is 0.0 and the real-time gate pins that.
+    const b = new Builder("become_stroked");
+    const l = b.slide("line_shape");
+    b.add(l, el("line", "l1", 60, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.blueD, strokeWidth: 6 }));
+    b.add(l, el("arrow", "l2", 360, 180, { width: 220, height: 10, x1: 0, y1: 5, x2: 220, y2: 5, stroke: C.redD, strokeWidth: 6 }));
+    { const beat = b.beat(l);
+      b.become(l, beat, "l1", { element: "e1" }, { mode: "consume" }, { state: { type: "ellipse", x: 90, y: 110, width: 140, height: 140, stroke: C.blueD, strokeWidth: 6, fill: C.blue } });
+      b.become(l, beat, "l2", { element: "r2" }, { mode: "consume" }, { state: { type: "rect", x: 380, y: 120, width: 180, height: 120, stroke: C.redD, strokeWidth: 6, fill: C.red, cornerRadius: 0 } }); }
+    const c = b.slide("corners");
+    b.add(c, el("rectS", "r1", 200, 110, { width: 240, height: 160, fill: "none", stroke: C.ink, strokeWidth: 12 }));
+    b.become(c, b.beat(c), "r1", { element: "e3" }, { mode: "consume" }, { state: { type: "ellipse", x: 220, y: 100, width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12 } });
+    out.push({ name: "become_stroked", payload: { deck: b.deck } });
   }
   {
     const b = new Builder("ghost"); const s = b.slide("ghost");
@@ -201,7 +221,12 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     const b = new Builder("camera"); const s = b.slide("camera");
     for (const k of ["text", "rect", "line", "star"] as Kind[]) b.add(s, el(k, k, ...CELL[k]));
     const cam = (to: Record<string, unknown>) => { const beat = b.beat(s); b.anim(s, beat, "@camera", "camera", { to } as Partial<Track>); };
-    cam({ x: 420, y: 180, zoom: 1 }); cam({ x: 420, y: 180, zoom: 2 }); cam({ x: 200, y: 120, zoom: 2.5 }); if (!compact) cam({ x: 320, y: 180, zoom: 1 });
+    cam({ x: 420, y: 180, zoom: 1 }); cam({ x: 420, y: 180, zoom: 2 }); cam({ x: 200, y: 120, zoom: 2.5 });
+    // a 4x zoom toward the stage corner: the longest travel (the early re-bake is taken at the landing pose whatever the distance), and
+    // ONE cue with two camera flights (each flight early-bakes; the later one lands on its own raster, not the first one's)
+    cam({ x: 60, y: 50, zoom: 4 });
+    { const beat = b.beat(s); b.anim(s, beat, "@camera", "camera", { to: { x: 480, y: 300, zoom: 2 } } as Partial<Track>); b.anim(s, beat, "@camera", "camera", { to: { x: 150, y: 90, zoom: 3 }, start: 1000 } as Partial<Track>); }
+    if (!compact) cam({ x: 320, y: 180, zoom: 1 });
     out.push({ name: "camera", payload: { deck: b.deck } });
   }
   {
