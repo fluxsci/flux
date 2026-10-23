@@ -1137,7 +1137,7 @@
                 >
                 <span class="rmain">
                   {#if q && r.node.path?.length}<span class="rpath">{#each hl(r.node.path.join(" › "), tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}<span class="psep">›</span></span>{/if}
-                  <span class="rlabel" class:dim={r.node.hidden}>{#if q}{#each hl(r.node.label, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else if r.node.keyParts?.prefix && r.node.label.startsWith(r.node.keyParts.prefix)}<span class="kpre">{r.node.keyParts.prefix}</span>{r.node.label.slice(r.node.keyParts.prefix.length)}{:else}{r.node.label}{/if}</span>
+                  <span class="rlabel" class:dim={r.node.hidden}>{#if q}{#each hl(r.node.label, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else if r.node.keyParts?.prefix && r.node.label.startsWith(r.node.keyParts.prefix)}<span class="kpre">{r.node.keyParts.prefix}</span><span class="kkey">{r.node.label.slice(r.node.keyParts.prefix.length)}</span>{:else}{r.node.label}{/if}</span>
                   {#if r.node.keyParts?.ordinal}<span class="ord" title="The same plot placed more than once">#{r.node.keyParts.ordinal}</span>{/if}
                 </span>
                 {#if r.node.styled}<span class="sdot" title="Restyled">●</span>{:else if r.node.styledBeneath && !(expanded.has(r.node.id) && !q)}<span class="sdot inside" title="Something inside is restyled">●</span>{/if}
@@ -1289,7 +1289,10 @@
   .psep { padding-left: 5px; color: var(--xr-tx-dim); }
   .rlabel { flex: 0 1 auto; min-width: 6ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rlabel.dim { opacity: 0.45; text-decoration: line-through; }
-  .kpre { color: var(--xr-tx-dim); }
+  /* A plot row among plots: the shared prefix (dim) gives way first, the key never. */
+  .rlabel:has(.kpre) { display: flex; min-width: 0; }
+  .kpre { color: var(--xr-tx-dim); flex: 0 1 auto; min-width: 2ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kkey { flex: 0 0 auto; }
   .ord { flex: 0 0 auto; font-size: 10.5px; color: var(--xr-phos); }
   .sdot { flex: 0 0 auto; font-size: 7px; line-height: 1; color: var(--xr-phos-hi); transform: translateY(-1px); }
   .sdot.inside { color: transparent; -webkit-text-stroke: 1px var(--xr-phos); }
