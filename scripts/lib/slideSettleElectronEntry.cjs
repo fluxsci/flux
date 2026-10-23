@@ -87,7 +87,7 @@ app.whenReady().then(async () => {
     const tag = String(n).padStart(3, "0");
     try {
       // a FRESH page per cue when asked: cues of one deck must not inherit each other's layers / marks / rewritten text
-      if (job.fresh && n > 1) { A.win.destroy(); A = await open(job.html, job.width, job.height); await hook(A); await calibrate(A); }
+      if (job.fresh) { A.win.destroy(); A = await open(job.html, job.width, job.height); await hook(A); await calibrate(A); }
       // the reference renders, in window B
       await gotoRest(B, cue.slide, cue.from - 1, true); await sleep(job.restMs); const restB = B.rec.last;
       await gotoRest(B, cue.slide, cue.to, true); await sleep(job.restMs); const ref = B.rec.last;

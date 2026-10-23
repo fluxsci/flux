@@ -7,7 +7,7 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
-import { beatDelayMs, settleTime, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
+import { beatDelayMs, settleTime, firstTickOrigin, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
@@ -749,7 +749,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   mount.appendChild(cameraLayer);
   const keeper: RasterKeeper = createRasterKeeper(cameraLayer, mount, { capture: !!opts.captureMode });
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set(), frame: new Set() };
-  let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0;
+  let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0, firstTick = false;
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
   let media: ReturnType<typeof createVideoController> | undefined;
   let models: ReturnType<typeof createModel3dController> | undefined;
@@ -772,7 +772,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function cancelClock(): void {
     generation++; if (raf) cancelAnimationFrame(raf); raf = 0;
     clearTimeout(auto); auto = undefined; playing = false;
-    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null;
+    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null; firstTick = false;
     transition?.cancel(); transition = null;
   }
   /** Cue time for a frame at `ts`: the ONE place the clock mode picks its mapping (all sampling is a pure
@@ -865,6 +865,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function tick(timestamp: number): void {
     if (!playing) return;
     const session = generation;
+    if (firstTick) { firstTick = false; if (clockMode === "forward") origin = firstTickOrigin(origin, timestamp); }   // setup never eats the beginning (timing.ts)
     time = clockTime(timestamp);
     paint(true);
     if (session !== generation) return;
@@ -912,10 +913,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       // layer baked at the phase it lands on. (A mark only works a frame after it is attached; one attached in the very frame of the
       // first transform step left the first frames stepping.)
       primeFlightLayers(entering);
-      raf = requestAnimationFrame((ts) => { if (session !== generation) return; origin = ts; queueFrame(); });
+      raf = requestAnimationFrame((ts) => { if (session !== generation) return; origin = ts; firstTick = true; queueFrame(); });
       return;
     }
-    origin = performance.now();
+    origin = performance.now(); firstTick = true;
     queueFrame();
   }
   function seek(index: number, beat: number, ms: number, fromBeat = beat, sampleMedia = true): void {

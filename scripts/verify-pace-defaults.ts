@@ -18,7 +18,7 @@ const stepMs = (ms: number) => { now += ms; const cbs = [...q.values()]; q.clear
 const { PRESET_CATALOG, defaultTimingFor, authoredTiming, authoredParams, authoredFields, autoBuildMs, withAuthoringTiming, QUICK_SMOOTH } = await import("../src/lib/slide/presetCatalog");
 const { resolveCurve, CURVE_CATALOG } = await import("../src/lib/slide/curves");
 const { smoothstep, smoothEasing, EASE, ceSmooth, rushInto, rushFrom, doubleSmooth } = await import("../src/lib/motion/tokens");
-const { trackDuration, beatDelayMs, settleTime, AUTO_DELAY_AUTHORED_MS, AUTO_DELAY_FALLBACK_MS, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } = await import("../src/lib/slide/timing");
+const { trackDuration, beatDelayMs, settleTime, firstTickOrigin, FIRST_TICK_MAX_MS, AUTO_DELAY_AUTHORED_MS, AUTO_DELAY_FALLBACK_MS, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } = await import("../src/lib/slide/timing");
 const ops = await import("../src/lib/slide/ops");
 const ab = await import("../src/lib/slide/autobuild");
 const { DEFAULT_VIDEO_OPTIONS } = await import("../src/lib/slide/video");
@@ -169,6 +169,14 @@ h.section("settle clock (pure)");
     h.ok(snap > 0.4 && step < 0.5 * snap, `a settled click moves at most ${(step * 100).toFixed(0)}% of the progress in one frame vs the ${(snap * 100).toFixed(0)}% snap jump (R4_T1 measured 11% at its click point)`); }
   h.eq([settleTime(700, 700, 120, 10), settleTime(0, 700, 0, 10), settleTime(150, 700, 120, -5)], [700, 700, 150], "degenerate inputs: nothing remaining / zero span snap to the end; negative elapsed clamps to the click time"); }
 h.ok(SETTLE_MAX_MS === 120 && SETTLE_MIN_REMAINING_MS === 60, "SETTLE_MAX_MS 120, SETTLE_MIN_REMAINING_MS 60");
+h.section("the clock starts at the first presented frame (lane J)");
+{ h.eq([FIRST_TICK_MAX_MS, firstTickOrigin(1000, 1016.7), firstTickOrigin(1000, 1020), firstTickOrigin(1000, 1200), firstTickOrigin(1000, 990)], [20, 1000, 1000, 1180, 1000], "firstTickOrigin: a first frame within 20 ms keeps the origin; a later one is a hitch and is not progress; a frame before the origin changes nothing");
+  const mk = () => createPlayer(document.createElement("div") as any, (() => { const d = ops.createDeck({ id: "f", title: "f", withTitleSlide: false } as any); const sl = ops.addSlide(d, { id: "s", layout: "blank" } as any); ops.addElement(d, sl.id, { id: "r", type: "rect", x: 10, y: 10, width: 50, height: 50, rotation: 0, fill: "#f00", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as any); const bb = ops.addBeat(d, sl.id, {})!; ops.setAnimation(d, sl.id, bb.id, { target: "r", preset: "popIn", start: 0, duration: 700, easing: "smooth" } as any); return d; })(), { theme: FLUX_DARK, plotManifest: () => undefined } as any);
+  const p = mk(); p.seek(0, 0, Infinity); p.next();
+  stepMs(250);   // the first frame arrives 250 ms after the click: flight build, layer promotion and a first raster ate it
+  const first = p.state().time; h.ok(first > 0 && first <= FIRST_TICK_MAX_MS + 0.5, `a first frame ${250} ms late advances the clock by ${first.toFixed(1)} ms (<= ${FIRST_TICK_MAX_MS}), not 250: the beginning is not skipped`);
+  stepMs(16.7); h.ok(Math.abs(p.state().time - (first + 16.7)) < 0.5, "later frames keep the wall clock");
+  p.destroy(); }
 h.section("settle in the real player (clockMode)");
 function mkDeck() {
   const d = ops.createDeck({ id: "d", title: "d", withTitleSlide: false } as any);
