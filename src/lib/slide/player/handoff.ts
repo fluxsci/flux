@@ -250,9 +250,21 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           const land = pair.landing ?? { x, y, scale: 1 };
           glyphs.push({ node: c.node, x, y, dx: land.x - x, dy: land.y - y, scale: land.scale - 1, opacity: c.opacity });
         } else if (pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) {
-          const a = pair.a ? clone(pair.a, parent) : undefined, b = pair.b ? clone(pair.b, parent) : undefined;
+          // A (1-t, t) opacity pair leaves two opaque boxes only 75 % covering at t = .5 (the content dips
+          // toward the backdrop). Added in premultiplied space (`plus-lighter`) the pair sums to full
+          // coverage. The blend is confined to the PAIR: each two-sided pair gets its own isolated group,
+          // so its clones add only to each other, never to a flight path or another pair beneath them.
+          // One-sided crossfades (a plain fade in or out) and glyph / piece flights keep plain opacity.
+          let host: SVGElement = parent;
+          if (pair.a && pair.b) {
+            host = document.createElementNS(NS, "g");
+            host.setAttribute("data-xfade", ""); host.style.setProperty("isolation", "isolate");
+            parent.appendChild(host);
+          }
+          const a = pair.a ? clone(pair.a, host) : undefined, b = pair.b ? clone(pair.b, host) : undefined;
           const aBox = pair.a?.paint.text ? a?.box : pair.a?.bbox, bBox = pair.b?.paint.text ? b?.box : pair.b?.bbox;
           crosses.push({ a, b, pair, aBox: aBox ?? bBox!, bBox: bBox ?? aBox! });
+          if (a && b) for (const c of [a, b]) c.node.style.setProperty("mix-blend-mode", "plus-lighter");
         } else if (plan.driver === "path" || !pair.a) {
           const node = document.createElementNS(NS, "path");
           node.setAttribute("class", "sl-handoff-path"); node.setAttribute("stroke-linejoin", pairJoin(pair.a?.paint.join, pair.b?.paint.join, 0));

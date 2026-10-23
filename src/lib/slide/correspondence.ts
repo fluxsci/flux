@@ -155,22 +155,74 @@ function spatial(A: StageOutline[], B: StageOutline[], method: TransformMethod =
       if (as[i] && bs[i]) matched.push({ a: as[i], b: bs[i] }); else if (as[i]) unusedA.push(as[i]); else unusedB.push(bs[i]);
     }
   } else {
+    // MINIMUM-COST assignment on squared centre distance (T5/M3). Greedy-nearest paired the closest
+    // couple first and left the rest to whatever remained: A = {0, 3}, B = {2, 5} sent 3 -> 2 and
+    // 0 -> 5, flights that cross and collide. The optimal transport plan under squared distance never
+    // lets two uniformly-moving centres meet, so no pair crosses. `matched` keeps the old nearest-first
+    // ORDER (it is the flights' paint order).
     const ac = A.map(center), bc = B.map(center);
-    const edges: { a: number; b: number; distance: number }[] = [];
-    for (let a = 0; a < A.length; a++) for (let b = 0; b < B.length; b++) edges.push({ a, b, distance: (ac[a].x - bc[b].x) ** 2 + (ac[a].y - bc[b].y) ** 2 });
-    edges.sort((a, b) => a.distance - b.distance || a.a - b.a || a.b - b.b);
+    const pairing = assignMinCost(ac, bc).map(([a, b]) => ({ a, b, d: (ac[a].x - bc[b].x) ** 2 + (ac[a].y - bc[b].y) ** 2 }));
+    pairing.sort((p, q) => p.d - q.d || p.a - q.a || p.b - q.b);
     const usedA = new Set<number>(), usedB = new Set<number>();
-    for (const e of edges) if (!usedA.has(e.a) && !usedB.has(e.b)) {
-      matched.push({ a: A[e.a], b: B[e.b] }); usedA.add(e.a); usedB.add(e.b);
-    }
+    for (const { a, b } of pairing) { matched.push({ a: A[a], b: B[b] }); usedA.add(a); usedB.add(b); }
     A.forEach((a, i) => { if (!usedA.has(i)) unusedA.push(a); });
     B.forEach((b, i) => { if (!usedB.has(i)) unusedB.push(b); });
   }
   return complete(matched, unusedA, unusedB, method);
 }
 
+/** Min-sum-of-squared-distance assignment of min(|a|,|b|) pairs (Hungarian / Jonker-Volgenant
+ *  potentials, O(n²m) with n <= m). Deterministic: rows in order, strict `<` ties. Returns [aIndex, bIndex][]
+ *  sorted by aIndex. Callers keep n·m <= 4096 (spatial's bound). A non-finite centre (a path with an infinite
+ *  or NaN extent) makes every cost NaN/infinite and the potentials loop never advance, so any non-finite
+ *  input answers with the old greedy pairing, which tolerates anything. */
+export function assignMinCost(a: { x: number; y: number }[], b: { x: number; y: number }[]): [number, number][] {
+  const finite = (p: { x: number; y: number }) => Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) < 1e150 && Math.abs(p.y) < 1e150;
+  return (a.every(finite) && b.every(finite) ? hungarian(a, b) : null) ?? greedyAssign(a, b);
+}
+
+/** The pre-T5 pairing: nearest couple first, whatever is left over takes the remaining pairs. */
+export function greedyAssign(a: { x: number; y: number }[], b: { x: number; y: number }[]): [number, number][] {
+  const edges: { a: number; b: number; d: number }[] = [];
+  for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) edges.push({ a: i, b: j, d: (a[i].x - b[j].x) ** 2 + (a[i].y - b[j].y) ** 2 });
+  edges.sort((p, q) => p.d - q.d || p.a - q.a || p.b - q.b);
+  const usedA = new Set<number>(), usedB = new Set<number>(), out: [number, number][] = [];
+  for (const e of edges) if (!usedA.has(e.a) && !usedB.has(e.b)) { out.push([e.a, e.b]); usedA.add(e.a); usedB.add(e.b); }
+  return out.sort((p, q) => p[0] - q[0]);
+}
+
+function hungarian(a: { x: number; y: number }[], b: { x: number; y: number }[]): [number, number][] | null {
+  const swap = a.length > b.length;
+  const rows = swap ? b : a, cols = swap ? a : b, n = rows.length, m = cols.length;
+  if (!n) return [];
+  const cost = (i: number, j: number) => (rows[i].x - cols[j].x) ** 2 + (rows[i].y - cols[j].y) ** 2;
+  const u = new Float64Array(n + 1), v = new Float64Array(m + 1), way = new Int32Array(m + 1), match = new Int32Array(m + 1);
+  for (let i = 1; i <= n; i++) {
+    match[0] = i;
+    let j0 = 0;
+    const minv = new Float64Array(m + 1).fill(Infinity), used = new Uint8Array(m + 1);
+    do {
+      used[j0] = 1;
+      const i0 = match[j0];
+      let delta = Infinity, j1 = 0;
+      for (let j = 1; j <= m; j++) if (!used[j]) {
+        const cur = cost(i0 - 1, j - 1) - u[i0] - v[j];
+        if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+        if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+      }
+      if (j1 === 0) return null; // every remaining cost non-finite (overflow): no augmenting step exists
+      for (let j = 0; j <= m; j++) { if (used[j]) { u[match[j]] += delta; v[j] -= delta; } else minv[j] -= delta; }
+      j0 = j1;
+    } while (match[j0] !== 0);
+    do { const j1 = way[j0]; match[j0] = match[j1]; j0 = j1; } while (j0);
+  }
+  const out: [number, number][] = [];
+  for (let j = 1; j <= m; j++) if (match[j]) out.push(swap ? [j - 1, match[j] - 1] : [match[j] - 1, j - 1]);
+  return out.sort((p, q) => p[0] - q[0]);
+}
+
 /** COMPLETION (2026-10-05): once both sides have outlines, nothing on either side merely
- *  fades. A destination the greedy match left over joins the partner set of its NEAREST
+ *  fades. A destination the pairing (`assignMinCost`) left over joins the partner set of its NEAREST
  *  matched source, which then tiles across all of them (one dot splits into two pieces that
  *  become two ellipses); a leftover source joins its nearest matched destination, which
  *  tiles into pieces the sources merge into. Only a side with nothing at all opposite it —
@@ -319,6 +371,95 @@ export function sliceIntoLetters(single: StageOutline, letters: StageOutline[]):
   return strips;
 }
 
+/** T5/M3: which partner takes which stretch of a RING that tiles among them. The legacy rule ranks
+ *  partners by the nearest station of their centre on the seam-opened ring and hands out equal-length
+ *  shares in that order: three dots in a row over a rectangle all sit near the top edge, so the rightmost
+ *  dot got the leftmost piece and the flights crossed. Here the candidates are every cyclic rotation of
+ *  the partners' polar order about the ring (both ways round) at every seam offset (48 uniform + the
+ *  ring's corners); the winner minimises the sum of |piece centre - partner centre|² (the squared travel
+ *  of the whole flight; the optimal CENTRE assignment cannot cross, the layout search is a heuristic
+ *  beyond a few partners: 30 dots in a column still leave crossings). Never worse than the legacy layout:
+ *  it is a candidate, and a new layout needs cost < 0.98 x legacy AND no more crossing flights than the legacy
+ *  one. Null keeps the legacy layout (also for a degenerate or non-finite ring, centre or length). */
+function betterRingLayout(single: StageOutline, partners: StageOutline[], legacy: { seam: number; order: number[] }): { seam: number; order: number[] } | null {
+  const k = partners.length;
+  if (k < 2 || k > 96) return null;
+  const param = paramOf(single);
+  if (!(param.total >= 1e-9) || !Number.isFinite(param.total)) return null;
+  const M = 192;
+  const ring = Array.from({ length: M }, (_, j) => pointAt(param, j / M));
+  const at = (u: number) => {
+    const f = (((u % 1) + 1) % 1) * M, j = Math.floor(f), w = f - j, p = ring[j % M], q = ring[(j + 1) % M];
+    return { x: p.x + (q.x - p.x) * w, y: p.y + (q.y - p.y) * w };
+  };
+  const cs = partners.map(center), lens = partners.map(length);
+  if (!cs.every((c) => Number.isFinite(c.x) && Number.isFinite(c.y)) || !lens.every(Number.isFinite) || !ring.every((q) => Number.isFinite(q.x) && Number.isFinite(q.y))) return null;
+  const total = lens.reduce((a, b) => a + b, 0) || 1;
+  const pieceCentre = (u0: number, u1: number) => {
+    const p0 = at(u0), p1 = at(u1);
+    let x0 = Math.min(p0.x, p1.x), x1 = Math.max(p0.x, p1.x), y0 = Math.min(p0.y, p1.y), y1 = Math.max(p0.y, p1.y);
+    for (let j = Math.floor(u0 * M) + 1, end = Math.floor(u1 * M); j <= end; j++) {
+      const q = ring[((j % M) + M) % M];
+      if (q.x < x0) x0 = q.x; if (q.x > x1) x1 = q.x; if (q.y < y0) y0 = q.y; if (q.y > y1) y1 = q.y;
+    }
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+  };
+  const cost = (seam: number, order: number[]) => {
+    let sum = 0, u0 = seam;
+    for (const idx of order) {
+      const u1 = u0 + lens[idx] / total, q = pieceCentre(u0, u1);
+      sum += (q.x - cs[idx].x) ** 2 + (q.y - cs[idx].y) ** 2;
+      u0 = u1;
+    }
+    return sum;
+  };
+  /** Pairs of partner-to-piece flights (centre to centre) that properly cross: the defect a viewer sees. */
+  const crossings = (seam: number, order: number[]) => {
+    const flights: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    let u0 = seam;
+    for (const idx of order) { const u1 = u0 + lens[idx] / total, q = pieceCentre(u0, u1); flights.push({ x0: cs[idx].x, y0: cs[idx].y, x1: q.x, y1: q.y }); u0 = u1; }
+    const side = (a: typeof flights[0], x: number, y: number) => (a.x1 - a.x0) * (y - a.y0) - (a.y1 - a.y0) * (x - a.x0);
+    let n = 0;
+    for (let i = 0; i < flights.length; i++) for (let j = i + 1; j < flights.length; j++) {
+      const p = flights[i], q = flights[j];
+      if (side(p, q.x0, q.y0) * side(p, q.x1, q.y1) < 0 && side(q, p.x0, p.y0) * side(q, p.x1, p.y1) < 0) n++;
+    }
+    return n;
+  };
+  const c0 = center(single);
+  const ang = cs.map((c) => Math.atan2(c.y - c0.y, c.x - c0.x));
+  const asc = partners.map((_, i) => i).sort((a, b) => ang[a] - ang[b] || a - b);
+  const seams = [...new Set([...Array.from({ length: 48 }, (_, i) => i / 48), ...boundaryParams(param, true)])];
+  let best = { seam: legacy.seam, order: legacy.order, cost: cost(legacy.seam, legacy.order) };
+  const floor = best.cost * 0.98; // switch only for a clear win
+  const perSeam = new Map<number, number>(); // best cyclic cost found at each seam offset
+  const rotations = k <= 24 ? k : 1; // every cyclic rotation while k is small; the optimal assignment below does the rest
+  for (const list of [asc, asc.slice().reverse()]) for (let r = 0; r < rotations; r++) {
+    const order = [...list.slice(r), ...list.slice(0, r)];
+    for (const seam of seams) {
+      const c = cost(seam, order);
+      if (c < (perSeam.get(seam) ?? Infinity)) perSeam.set(seam, c);
+      if (c < best.cost) best = { seam, order, cost: c };
+    }
+  }
+  // Any permutation is a legal tiling (each piece is a stretch of the ring that flies to ITS partner), so
+  // the cyclic orders above are only a heuristic: at a seam, lay the pieces out with the best order's
+  // shares and let the optimal assignment pick who takes which (exact when the partners are the same
+  // length). O(k³) each, so only the few most promising seams (all of them while k is small).
+  const promising = [...perSeam.entries()].sort((a, b) => a[1] - b[1] || a[0] - b[0]).slice(0, k <= 8 ? seams.length : 4).map(([seam]) => seam);
+  for (const seam of promising) {
+    const shares = best.order.map((idx) => lens[idx] / total);
+    const centres: { x: number; y: number }[] = [];
+    let u0 = seam;
+    for (const w of shares) { centres.push(pieceCentre(u0, u0 + w)); u0 += w; }
+    const order = assignMinCost(centres, cs).map(([, idx]) => idx);
+    if (order.length === k) { const c = cost(seam, order); if (c < best.cost) best = { seam, order, cost: c }; }
+  }
+  // The squared travel is the planner's proxy; crossings are what the eye reads. A layout that is cheaper but
+  // crosses more flights than the legacy one (three dots: 0 -> 1) is not an improvement.
+  return best.cost < floor && crossings(best.seam, best.order) <= crossings(legacy.seam, legacy.order) ? { seam: best.seam, order: best.order } : null;
+}
+
 function tile(single: StageOutline, partners: StageOutline[], source: boolean, method: TransformMethod = DEFAULT_TRANSFORM_METHOD): CorrespondencePair[] {
   if (!partners.length) return [{ a: source ? single : null, b: source ? null : single }];
   if (partners.length === 1) return [{ a: source ? single : partners[0], b: source ? partners[0] : single }];
@@ -336,13 +477,22 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean, m
   }
   // Rings start beside the first partner, then all partners rank along that seam.
   const seam = single.closed ? nearest(single, center(partners[0])).station : 0;
-  const splitSide = single.closed ? { ...single, ...openRing(single, seam, false) } : single;
-  const ordered = partners.map((o, index) => ({ o, index, s: nearest(splitSide, center(o)).station, len: length(o) }));
+  let splitSide = single.closed ? { ...single, ...openRing(single, seam, false) } : single;
+  let ordered = partners.map((o, index) => ({ o, index, s: nearest(splitSide, center(o)).station, len: length(o) }));
   // Letters (text glyph outlines) take their pieces in READING order — the
   // shape pours into the word left to right — rather than around the seam.
   const letters = partners.every((o) => (o.owner.role === "glyph" || o.owner.role === "glyph-box") && Number.isFinite(o.owner.index));
   if (letters) ordered.sort((a, b) => a.o.owner.index! - b.o.owner.index!);
-  else ordered.sort((a, b) => a.s - b.s || a.index - b.index);
+  else {
+    ordered.sort((a, b) => a.s - b.s || a.index - b.index);
+    if (single.closed) {
+      const better = betterRingLayout(single, partners, { seam, order: ordered.map((p) => p.index) });
+      if (better) {
+        splitSide = { ...single, ...openRing(single, better.seam, false) };
+        ordered = better.order.map((index) => ({ o: partners[index], index, s: 0, len: length(partners[index]) }));
+      }
+    }
+  }
   const total = ordered.reduce((sum, p) => sum + p.len, 0);
   let acc = 0;
   const cuts = [0];

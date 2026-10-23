@@ -175,11 +175,11 @@ try {
   await seek(1, 2000); h.eq(await page.$eval('[id="dest__2hz.line"] path', el => (el as SVGElement).style.strokeDashoffset), "", "draw completion removes temporary dash styling");
 
   await seek(2, 500);
-  const text = await page.evaluate(() => { const f = document.querySelector(".sl-flight")!; return { texts: f.querySelectorAll("text").length, paths: f.querySelectorAll(".sl-handoff-path").length, boxes: Array.from(f.querySelectorAll(".sl-handoff > g")).map(g => { const b=(g as SVGGraphicsElement).getBBox(); return [b.width,b.height]; }) }; });
+  const text = await page.evaluate(() => { const f = document.querySelector(".sl-flight")!; return { texts: f.querySelectorAll("text").length, paths: f.querySelectorAll(".sl-handoff-path").length, boxes: Array.from(f.querySelectorAll(".sl-handoff > g[data-xfade] > g, .sl-handoff > g:not([data-xfade])")).map(g => { const b=(g as SVGGraphicsElement).getBBox(); return [b.width,b.height]; }) }; });
   h.ok(text.texts >= 2 && text.paths === 0 && text.boxes.every(b => b[0] > 0 && b[1] > 0), `text uses two measured, non-zero crossfade clones (${JSON.stringify(text)})`);
   // A text element ↔ a plot's text part has no drawn side, so it stays a box
   // crossfade — but its clones scale uniformly: glyphs never stretch (oct2 W3).
-  const scales = await page.evaluate(() => Array.from(document.querySelectorAll(".sl-flight .sl-handoff > g")).map(g => { const m = (g as SVGGraphicsElement).transform.baseVal.consolidate()?.matrix; return m ? [m.a, m.d] : [1, 1]; }));
+  const scales = await page.evaluate(() => Array.from(document.querySelectorAll(".sl-flight .sl-handoff > g[data-xfade] > g, .sl-flight .sl-handoff > g:not([data-xfade])")).map(g => { const m = (g as SVGGraphicsElement).transform.baseVal.consolidate()?.matrix; return m ? [m.a, m.d] : [1, 1]; }));
   h.ok(scales.length >= 2 && scales.every(([sx, sy]) => Math.abs(sx - sy) < 1e-6), `text crossfade clones scale uniformly (${JSON.stringify(scales)})`);
   await seek(3, 250); const early = await inspect(); await seek(3, 750); const late = await inspect();
   h.ok(early.driver === "glyph" && early.glyphs.length === 420 && early.count === 0, "420 actual marker groups (over the 400 budget) use the glyph driver with no pair paths");

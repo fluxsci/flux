@@ -112,7 +112,7 @@ const actualCases = [
   ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   // 2026-09-27 animation v2: an exact-path gate entry keeps the regression groups of the broad
   // src/lib/slide entry it supersedes (first match wins; guide §7, the --changed paragraph).
-  ["src/lib/slide/correspondence.ts", ["verify-correspondence.ts", "verify-slide-morph-geometry.ts", "verify-slide-morph-geometry-browser.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/slide/correspondence.ts", ["verify-correspondence.ts", "verify-morph-path.ts", "verify-slide-morph-geometry.ts", "verify-slide-morph-geometry-browser.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   // B1's exact entries keep the broad src/lib/slide and src/lib/plot routes they supersede.
   ["src/lib/slide/targetGeometry.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "verify-slide-morph-geometry.ts", "verify-slide-morph-geometry-browser.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/plot/paint.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],

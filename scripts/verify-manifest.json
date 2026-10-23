@@ -154,6 +154,7 @@
       "verify-slide-track-ops.ts",
       "verify-cascade.ts",
       "verify-slide-tween.ts",
+      "verify-morph-path.ts",
       "verify-anim-presets.ts",
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
@@ -340,6 +341,7 @@
       "verify-slide-curves.ts",
       "verify-pace-defaults.ts",
       "verify-slide-handoff-browser.ts",
+      "verify-slide-xfade-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-settle-sweep.ts",
@@ -911,6 +913,7 @@
     ],
     "slide-transforms": [
       "verify-slide-tween.ts",
+      "verify-morph-path.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-settle-sweep.ts",
       "verify-slide-settle-electron.cjs",
@@ -932,6 +935,7 @@
       "verify-v020-paper-contracts.ts",
       "verify-v020-morph-startup.mjs",
       "verify-slide-handoff-browser.ts",
+      "verify-slide-xfade-browser.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
@@ -1804,6 +1808,7 @@
       "glob": "src/lib/slide/correspondence.ts",
       "run": [
         "verify-correspondence.ts",
+        "verify-morph-path.ts",
         "verify-slide-morph-geometry.ts",
         "verify-slide-morph-geometry-browser.ts",
         "group:figures-slides-overhaul",
@@ -7365,6 +7370,15 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-morph-path.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-slide-video-clips-electron.cjs": {
       "runtime": "node-electron",
       "prerequisites": [
@@ -9456,6 +9470,15 @@
       "coverage": "behavior"
     },
     "verify-slide-handoff-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-xfade-browser.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
