@@ -239,7 +239,7 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 
-const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState, renderStaticAt } = await import("../src/lib/slide/player/player");
+const { computeSlideAnims, applyAt, applyStatic, disposeSlideAnims, transformPreState, renderStaticAt } = await import("../src/lib/slide/player/player");
 const { renderSlide } = await import("../src/lib/slide/player/render");
 const { FLUX_DARK } = await import("../src/lib/slide/theme");
 type Slide = import("../src/lib/slide/types").Slide;
@@ -404,6 +404,7 @@ function build(slide: Slide) {
         { id: "b", target: "grow", preset: "transform", to: { state: { x: 350, width: 150 } } },
         { id: "c", target: "spin", preset: "transform", to: { state: { rotation: 45 } } },
       ] },
+      { id: "b2", tracks: [] },
     ],
   };
   const { rendered, specs } = build(slide);
@@ -421,8 +422,10 @@ function build(slide: Slide) {
   const ctrl = (id: string) => (specs.find((s) => (s as { trackId?: string }).trackId === id) as unknown as { morph: { seek(t: number): void } }).morph;
   applyStatic(specs, 0);
   assert(!mv.style.willChange && !grow.style.willChange, "at rest nothing is promoted");
+  assert(marks.length === 0, "the flight mark follows the BEAT (lane J): a node whose glide is in a later beat has none yet (no layer kept for a flight that is not coming)");
+  applyAt(specs, 1, 0);
   assert(marks.length === 1 && marks[0].node === mv && marks[0].paused && marks[0].opts.composite === "add" && marks[0].frames.every((f) => f.transform === "translate(0px, 0px)"),
-    "…but the pure mover is ARMED at rest: one paused additive no-op transform animation (a scaling/rotating flight gets none)");
+    "…armed at the first frame of the beat in which the pure mover glides: one paused additive no-op transform animation (a scaling/rotating flight gets none)");
   ctrl("a").seek(0.5); ctrl("b").seek(0.5); ctrl("c").seek(0.5);
   assert(mv.style.willChange === "transform", "mid-flight a pure move (even one that recolors) rides its own layer");
   assert(!grow.style.willChange && !spin.style.willChange, "a scaling or rotating flight paints in place every frame (no resampled raster, no sharpen pop on settle)");
@@ -430,9 +433,14 @@ function build(slide: Slide) {
   assert(!mv.style.willChange && mv.style.left === "200px", "the endpoint demotes the wrapper (crisp at rest)");
   ctrl("a").seek(0.25); ctrl("a").seek(0);
   assert(!mv.style.willChange && mv.style.left === "10px", "…and so does a seek back to the start");
-  assert(marks.length === 1 && !marks[0].cancelled, "the mark outlives the flight (armed once per node, inert at rest, ready for the next flight)");
+  applyStatic(specs, 1);
+  assert(marks.length === 1 && !marks[0].cancelled, "the mark outlives the flight and its landing (the layer is baked at the phase it lands on: nothing to demote)");
+  applyStatic(specs, 2);
+  assert(marks[0].cancelled, "…and is released at the first frame of a later beat in which the node does not glide (a kept layer re-rasters a resize at fractional transforms and lands soft)");
+  applyAt(specs, 1, 0);
+  assert(marks.length === 2 && !marks[1].cancelled, "the beat that glides again arms a fresh mark");
   disposeSlideAnims(specs);
-  assert(marks[0].cancelled, "tearing the slide down cancels the mark (a paused animation would pin its detached node alive)");
+  assert(marks[1].cancelled, "tearing the slide down cancels the mark (a paused animation would pin its detached node alive)");
   delete (Object.getPrototypeOf(mv) as { animate?: unknown }).animate;
 }
 

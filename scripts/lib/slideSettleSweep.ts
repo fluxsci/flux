@@ -59,6 +59,9 @@ export interface Thresholds {
   ratioTiny: number; ratioFrame: number;
   /** a post-landing change must stay under this (it should be exactly 0). */
   rest: number;
+  /** the landing reached frame by frame vs seeked directly: a seek has no priming frame, so headless Chrome bakes a gliding layer
+   *  mid-flight at a fractional phase (up to ~20 units for a staggered word); a controller residue (a stale style) is >= 100. */
+  run: number;
   /** the frame before the cue vs its t=0 frame: a cue that promotes a layer (a gliding or recolouring node) is re-rastered by headless Chrome
    *  at its first frame, which moves sub-pixel edges of the whole stage by up to ~17 units; a real pre-roll pop (a dimmed highlight) is >= 100. */
   pre: number;
@@ -67,7 +70,7 @@ export interface Thresholds {
  *  device-pixel snapping: a wrapper's layout box is whole STAGE px, which at a fractional fit scale (2.5x here) the browser snaps to the
  *  device grid at rest but not in flight, so a resized stroked shape lands up to ~0.15 device px off its last frame. Nobody can see that;
  *  a dot, a thickened stroke, re-rasterised text, a popped corner are all well above it. */
-export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, rest: 2, pre: 25 };
+export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, rest: 2, run: 30, pre: 25 };
 
 const spike = (a: number, b: number, floor: number, ratio: number) => a > floor && a > ratio * Math.max(b, 0.25);
 
@@ -79,7 +82,7 @@ export function classify(r: Omit<CueRow, "flags">, t: Thresholds = THRESHOLDS): 
   if (spike(r.sF, r.sF2, t.floorFrame, t.ratioFrame)) flags.push("START POP (frame)");
   if (spike(r.e20, r.e42, t.floorTiny, t.ratioTiny)) flags.push("END SNAP (2ms)");
   if (spike(r.eF, r.eF2, t.floorFrame, t.ratioFrame)) flags.push("END SNAP (frame)");
-  if (r.dRun > t.rest) flags.push("POST CHANGE");
+  if (r.dRun > t.run) flags.push("POST CHANGE");
   return flags;
 }
 
