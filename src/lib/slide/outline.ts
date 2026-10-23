@@ -540,6 +540,103 @@ export function morphIsClosed(a: Outline, b: Outline, strategy: RingStrategy): b
   return strategy === "inflate" ? a.closed || b.closed : a.closed && b.closed;
 }
 
+// --- same-kind path alignment (T5 / H2) ------------------------------------
+// A same-kind path -> path Change lerps node positions in element-local px
+// (tween.lerpNodes). Index pairing is the right law for an authored edit (the
+// dragged corner moves) but collapses a RING whose start or winding differs (a
+// reversed-start square passes through zero area). alignChains keeps the authored
+// pairing unless another start/direction beats it by a clear margin.
+//
+// Scope: this is NOT the Become pairing. A Become between drawn kinds, or a path
+// changing closedness, goes through `correspond` above (normal matching for convex
+// pairs, its own seam search for the rest); alignChains only governs what
+// `outlineMorphable` leaves to the per-property tween.
+//
+// OPEN chains are never re-paired: an open 2-node stick is a bond or a rung that
+// shares its end points with neighbouring elements (a per-element re-pairing
+// decouples the shared vertex, measured on the owner's DNA and Beckmann decks), and
+// its arrowhead / dash / gradient direction belongs to the end element.
+
+/** An alternative pairing is taken only when it costs less than ALIGN_GAIN x the authored one. */
+export const ALIGN_GAIN = 0.8;
+const ALIGN_GRID = 128, ALIGN_STATIONS = 32;
+
+export interface AlignedChains { a: VectorNode[]; b: VectorNode[]; reversed: boolean }
+
+export interface AlignOptions {
+  /** Pin the direction (true = B reversed, false = B forward) while still allowing a start-node shift: a
+   *  compound path's holes follow the direction decision of their outer ring so their relative winding
+   *  never changes mid-flight. */
+  force?: boolean;
+  /** Keep the authored pairing even for a ring. A dash pattern runs from the path's FIRST node and cannot
+   *  be re-phased per frame, so a dashed ring that were re-seamed or reversed would land (or start) with
+   *  its dashes in another place: a snap at the boundary. A dashed ring keeps the pairing it was authored
+   *  with (and a reversed one still collapses mid-flight, as before) until the Change carries a dash offset. */
+  authored?: boolean;
+}
+
+/** The two chains as `lerpNodes` should pair them (see `AlignOptions`). */
+export function alignChains(a: VectorNode[], b: VectorNode[], closed: boolean, opts: AlignOptions = {}): AlignedChains {
+  const { force, authored } = opts;
+  if (!closed || authored) return { ...splitPair(a, b, closed), reversed: false };
+  if (a.length === b.length && a.length >= 2) {
+    const n = a.length, bRev = reverseNodes(b);
+    const cost = (src: VectorNode[], k: number) => {
+      let c = 0;
+      for (let i = 0; i < n; i++) c += dist2(a[i], src[(i + k) % n]);
+      return c;
+    };
+    const base = force ?? false;
+    const c0 = cost(base ? bRev : b, 0);
+    let best = { rev: base, k: 0, c: c0 };
+    for (let k = 0; k < n; k++) for (const rev of force === undefined ? [false, true] : [force]) {
+      const c = cost(rev ? bRev : b, k);
+      if (c < best.c) best = { rev, k, c };
+    }
+    const pick = best.c < c0 * ALIGN_GAIN - 1e-9 ? best : { rev: base, k: 0 };
+    const src = pick.rev ? bRev : b;
+    return { a, b: pick.k ? [...src.slice(pick.k), ...src.slice(0, pick.k)] : src, reversed: pick.rev };
+  }
+  const pa = parameterize(a, true), pb = parameterize(b, true);
+  if (!(pa.total > 1e-9 && pb.total > 1e-9)) return { ...splitPair(a, b, true), reversed: false };
+  // rings of different node counts: pair stations along the arc length. One sampling of each ring
+  // (A at 33 stations, B at 128), then every seam / direction is a rotation of the table, O(grid)
+  // per candidate, so a 300-node ring costs about a millisecond cold instead of 30.
+  const S = ALIGN_STATIONS, G = ALIGN_GRID, step = G / S;
+  const pointsA = Array.from({ length: S + 1 }, (_, i) => pointAt(pa, i / S));
+  const pointsB = Array.from({ length: G }, (_, j) => pointAt(pb, j / G));
+  const costAt = (k: number, rev: boolean) => {
+    let c = 0;
+    for (let i = 0; i <= S; i++) c += dist2(pointsA[i], pointsB[((rev ? k - step * i : k + step * i) % G + G) % G]);
+    return c;
+  };
+  // winding decides the free direction: opposite windings only line up reversed
+  const flip = Math.sign(signedArea(pa)) * Math.sign(signedArea(pb)) < 0;
+  const base = force ?? flip;
+  const c0 = costAt(0, base);
+  let best = { rev: base, k: 0, c: c0 };
+  for (let k = 0; k < G; k++) for (const rev of force === undefined ? [false, true] : [force]) {
+    const c = costAt(k, rev);
+    if (c < best.c) best = { rev, k, c };
+  }
+  const pick = best.c < c0 * ALIGN_GAIN - 1e-9 ? best : { rev: base, k: 0 };
+  let ub = b;
+  if (pick.rev || pick.k) ub = reseam({ nodes: b, closed: true }, pick.k / G, pick.rev).nodes;
+  const pu = ub === b ? pb : parameterize(ub, true);
+  const stations = [...boundaryParams(pa, true), ...boundaryParams(pu, true)];
+  return { a: splitOutline({ nodes: a, closed: true }, stations), b: splitOutline({ nodes: ub, closed: true }, stations), reversed: pick.rev };
+}
+
+/** Today's pairing for chains the aligner leaves alone: equal counts index-paired, unequal counts both
+ *  split at the union of their normalized arc-length node stations (every corner survives). */
+function splitPair(a: VectorNode[], b: VectorNode[], closed: boolean): { a: VectorNode[]; b: VectorNode[] } {
+  if (a.length === b.length) return { a, b };
+  const pa = parameterize(a, closed), pb = parameterize(b, closed);
+  if (!(pa.total > 1e-9 && pb.total > 1e-9)) return { a, b };
+  const stations = [...boundaryParams(pa, closed), ...boundaryParams(pb, closed)];
+  return { a: splitOutline({ nodes: a, closed }, stations), b: splitOutline({ nodes: b, closed }, stations) };
+}
+
 // --- the element-level plan + sampler --------------------------------------
 
 export interface ElementMorphPlan extends OutlineMorphPlan {

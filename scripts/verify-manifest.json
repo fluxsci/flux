@@ -154,6 +154,7 @@
       "verify-slide-track-ops.ts",
       "verify-cascade.ts",
       "verify-slide-tween.ts",
+      "verify-morph-path.ts",
       "verify-anim-presets.ts",
       "verify-slide-trackid.ts",
       "verify-slide-w7.ts",
@@ -909,6 +910,7 @@
     ],
     "slide-transforms": [
       "verify-slide-tween.ts",
+      "verify-morph-path.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-outline.ts",
       "verify-slide-morph-geometry.ts",
@@ -1799,6 +1801,7 @@
       "glob": "src/lib/slide/correspondence.ts",
       "run": [
         "verify-correspondence.ts",
+        "verify-morph-path.ts",
         "verify-slide-morph-geometry.ts",
         "verify-slide-morph-geometry-browser.ts",
         "group:figures-slides-overhaul",
@@ -7342,6 +7345,15 @@
       "coverage": "behavior"
     },
     "verify-slide-tween.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-morph-path.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

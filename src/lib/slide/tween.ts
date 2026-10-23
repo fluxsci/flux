@@ -26,8 +26,8 @@ import type { Slide } from "./types";
 import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
 import { elementBBox } from "../geometry";
-import { pathD, pathToNodes, resampleNodes } from "../path";
-import { parameterize, boundaryParams, splitOutline } from "./outline";
+import { pathD, pathToNodes, pathToSubpaths, resampleNodes } from "../path";
+import { alignChains, type AlignOptions } from "./outline";
 import { outlineMorphable, planElementMorph, sampleElementMorph } from "./outline";
 import { compileSlide } from "./compile";
 import { planHandoff } from "./handoffPlan";
@@ -242,8 +242,17 @@ export function numericTextTween(preText: string, endText: string): ((t: number)
 
 // --- geometry -----------------------------------------------------------------
 
+const parsedD = new Map<string, VectorNode[]>();
+/** The element's chain; one parse per distinct `d` (callers never mutate it), so a per-frame lerp is not a per-frame parse. */
 function nodesOf(el: { nodes?: VectorNode[]; d: string }): VectorNode[] {
-  return el.nodes?.length ? el.nodes : pathToNodes(el.d);
+  if (el.nodes?.length) return el.nodes;
+  let nodes = parsedD.get(el.d);
+  if (!nodes) {
+    nodes = pathToNodes(el.d);
+    if (parsedD.size >= 64) parsedD.delete(parsedD.keys().next().value!);
+    parsedD.set(el.d, nodes);
+  }
+  return nodes;
 }
 
 function lerpHandle(
@@ -256,7 +265,71 @@ function lerpHandle(
   return { dx: lerp(ax, bx, t), dy: lerp(ay, by, t) };
 }
 
-/** Tween two node lists (same closedness). Unequal counts split BOTH chains at
+// The aligned pair is a pure function of the two chains and is asked once per FRAME (the player, the
+// video seek, `compile.sample` and the warm hook each build their own `pre`/`end` clones), so the memo is
+// keyed by CONTENT: a hash picks the entry, a full coordinate compare confirms it (a hash collision or
+// an editor mutating a node in place can therefore never read a stale alignment). Entries own their node
+// arrays (copies, never the caller's chains), so a later in-place edit cannot reach into them either.
+// 48 entries, FIFO.
+type Pair = { a: VectorNode[]; b: VectorNode[]; reversed: boolean };
+interface MemoEntry { h: number; closed: boolean; force: boolean | undefined; authored: boolean; fa: Float64Array; fb: Float64Array; pair: Pair }
+const alignMemo: MemoEntry[] = [];
+const ALIGN_MEMO_MAX = 48;
+const STRIDE = 6;
+function hashNodes(nodes: VectorNode[], seed: number): number {
+  let h = seed + nodes.length;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    h = (h * 31 + n.x * 7.31 + n.y * 13.17 + (n.hIn ? n.hIn.dx * 3.7 + n.hIn.dy * 5.3 : 0) + (n.hOut ? n.hOut.dx * 2.9 + n.hOut.dy * 11.1 : 0)) % 1e15;
+  }
+  return h;
+}
+function flatten(nodes: VectorNode[]): Float64Array {
+  const f = new Float64Array(nodes.length * STRIDE).fill(NaN);
+  nodes.forEach((n, i) => {
+    f[i * STRIDE] = n.x; f[i * STRIDE + 1] = n.y;
+    if (n.hIn) { f[i * STRIDE + 2] = n.hIn.dx; f[i * STRIDE + 3] = n.hIn.dy; }
+    if (n.hOut) { f[i * STRIDE + 4] = n.hOut.dx; f[i * STRIDE + 5] = n.hOut.dy; }
+  });
+  return f;
+}
+const same = (v: number, w: number) => v === w || (v !== v && w !== w);
+function sameNodes(nodes: VectorNode[], f: Float64Array): boolean {
+  if (f.length !== nodes.length * STRIDE) return false;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i], o = i * STRIDE;
+    if (!same(n.x, f[o]) || !same(n.y, f[o + 1]) || !same(n.hIn ? n.hIn.dx : NaN, f[o + 2]) || !same(n.hIn ? n.hIn.dy : NaN, f[o + 3])
+      || !same(n.hOut ? n.hOut.dx : NaN, f[o + 4]) || !same(n.hOut ? n.hOut.dy : NaN, f[o + 5])) return false;
+  }
+  return true;
+}
+const copyNodes = (nodes: VectorNode[]): VectorNode[] => nodes.map((n) => ({ ...n, hIn: n.hIn && { ...n.hIn }, hOut: n.hOut && { ...n.hOut } }));
+/** The two chains as `lerpPair` pairs them. A chain of equal node count that is open (or `authored`) is
+ *  index-paired, the authored pairing: nothing to compute, nothing to remember. */
+function alignedPair(a: VectorNode[], b: VectorNode[], closed: boolean, opts: AlignOptions = {}): Pair {
+  const { force } = opts, authored = Boolean(opts.authored);
+  if ((!closed || authored) && a.length === b.length) return { a, b, reversed: false };
+  const h = hashNodes(a, 0) * 0.37 + hashNodes(b, 17);
+  for (const e of alignMemo) if (e.h === h && e.closed === closed && e.force === force && e.authored === authored && sameNodes(a, e.fa) && sameNodes(b, e.fb)) return e.pair;
+  const al = alignChains(a, b, closed, opts);
+  let { a: na, b: nb } = al;
+  if (na.length !== nb.length) {
+    // degenerate (zero-length chain, or two stations of one side within the
+    // splitter's tolerance): the classic equal-station resample
+    const n = Math.max(a.length, b.length, closed ? 3 : 2);
+    na = resampleNodes(a, closed, n);
+    nb = resampleNodes(b, closed, n);
+  }
+  const pair = { a: na === a ? copyNodes(na) : na, b: nb === b ? copyNodes(nb) : nb, reversed: al.reversed };
+  if (alignMemo.length >= ALIGN_MEMO_MAX) alignMemo.shift();
+  alignMemo.push({ h, closed, force, authored, fa: flatten(a), fb: flatten(b), pair });
+  return pair;
+}
+
+/** Tween two node lists (same closedness). RINGS are first ALIGNED (`alignedPair`): the authored
+ *  index pairing stays unless a different start or direction costs under 80 % of it, so a ring that
+ *  merely starts elsewhere or winds the other way no longer collapses through zero area (T5/H2).
+ *  Open chains keep their authored pairing. Unequal counts split BOTH chains at
  *  the union of their normalized arc-length node stations (de Casteljau cuts:
  *  every original corner and curve survives on its own side), so the frame at
  *  t = 0 is exactly the pre chain and the frame at t = 1 exactly the end chain
@@ -264,23 +337,11 @@ function lerpHandle(
  *  off its place, and the real render then "twitched" in at either end
  *  (2026-10-03). Then lerp positions + handles; node type follows the END
  *  side's classification intent (types are editing metadata, not render state). */
-export function lerpNodes(a: VectorNode[], b: VectorNode[], closed: boolean, t: number): VectorNode[] {
-  let na = a, nb = b;
-  if (a.length !== b.length) {
-    const pa = parameterize(a, closed), pb = parameterize(b, closed);
-    if (pa.total > 1e-9 && pb.total > 1e-9) {
-      const stations = [...boundaryParams(pa, closed), ...boundaryParams(pb, closed)];
-      na = splitOutline({ nodes: a, closed }, stations);
-      nb = splitOutline({ nodes: b, closed }, stations);
-    }
-    if (na.length !== nb.length) {
-      // degenerate (zero-length chain, or two stations of one side within the
-      // splitter's tolerance): the classic equal-station resample
-      const n = Math.max(a.length, b.length, closed ? 3 : 2);
-      na = resampleNodes(a, closed, n);
-      nb = resampleNodes(b, closed, n);
-    }
-  }
+export function lerpNodes(a: VectorNode[], b: VectorNode[], closed: boolean, t: number, opts?: AlignOptions): VectorNode[] {
+  return lerpPair(alignedPair(a, b, closed, opts), t);
+}
+
+function lerpPair({ a: na, b: nb }: Pair, t: number): VectorNode[] {
   const len = Math.min(na.length, nb.length);
   const out: VectorNode[] = [];
   for (let i = 0; i < len; i++) {
@@ -293,6 +354,63 @@ export function lerpNodes(a: VectorNode[], b: VectorNode[], closed: boolean, t: 
     out.push(node);
   }
   return out;
+}
+
+// --- compound paths (T5) ---------------------------------------------------------
+// A path ELEMENT is one chain of nodes, but a `d` may carry several subpaths (a donut: outer ring + hole).
+// `pathToNodes` flattens them into one chain joined by phantom bridge segments, so a Change used to
+// merge the hole into the outline. Subpaths are paired instead: largest area first (manimgl's rule),
+// each pair aligned and lerped like a plain path; a subpath with no partner shrinks to, or grows
+// from, a point at its OWN centroid (a collapsed twin: zero area under any fill rule, so a hole opens
+// in place; manimgl's mirrored copy of the largest subpath would blank the shape under nonzero).
+
+const shoelace = (n: VectorNode[]) => { let a = 0; for (let i = 0; i < n.length; i++) { const p = n[i], q = n[(i + 1) % n.length]; a += p.x * q.y - q.x * p.y; } return a / 2; };
+const collapsed = (n: VectorNode[]): VectorNode[] => {
+  const cx = n.reduce((s, p) => s + p.x, 0) / n.length, cy = n.reduce((s, p) => s + p.y, 0) / n.length;
+  return n.map((p) => ({ x: cx, y: cy, type: p.type }));
+};
+
+/** Whether `d` holds two or more movetos (a necessary condition for a compound path). */
+function movesTwice(d: string): boolean {
+  let seen = 0;
+  for (let i = 0; i < d.length; i++) { const c = d.charCodeAt(i); if ((c === 77 || c === 109) && ++seen === 2) return true; }
+  return false;
+}
+
+/** One subpath of a `d`; `index` is its place in the authored string, `twin` its collapsed copy (made on demand). */
+interface Ranked { nodes: VectorNode[]; closed: boolean; index: number; twin?: VectorNode[] }
+const rankedSubpaths = new Map<string, Ranked[]>();
+/** The `d`'s subpaths, largest area first, parsed once per distinct string (a frame must not re-parse). */
+function ranked(d: string): Ranked[] {
+  let r = rankedSubpaths.get(d);
+  if (!r) {
+    r = pathToSubpaths(d).map((s, index) => ({ ...s, index, area: Math.abs(shoelace(s.nodes)) }))
+      .sort((p, q) => q.area - p.area || p.index - q.index).map(({ nodes, closed, index }) => ({ nodes, closed, index }));
+    if (rankedSubpaths.size >= 16) rankedSubpaths.delete(rankedSubpaths.keys().next().value!);
+    rankedSubpaths.set(d, r);
+  }
+  return r;
+}
+/** The frame's `d` for two `d`-only path strings when either is compound (>= 2 subpaths), else null.
+ *  The largest pair picks its own direction; every other pair is pinned to that decision (shift only),
+ *  so a hole keeps its winding relative to its outline for the whole flight (nonzero fill: a hole that
+ *  flipped relative to the outer would fill in). A collapsed twin never aligns (force = forward).
+ *  The subpaths are written in the END's authored order (pre-only extras last): a dash pattern runs on
+ *  through a path's subpaths in `d` order, so the frame before the landing must agree with the resting `d`. */
+export function lerpCompoundD(a: string, b: string, t: number, cornerRadius?: number, authored = false): string | null {
+  if (!movesTwice(a) && !movesTwice(b)) return null; // the common case costs two string scans, never a parse
+  const ra = ranked(a), rb = ranked(b);
+  if (ra.length < 2 && rb.length < 2) return null;
+  const parts: { order: number; d: string }[] = [];
+  let reversed: boolean | undefined;
+  for (let i = 0; i < Math.max(ra.length, rb.length); i++) {
+    const x = ra[i], y = rb[i];
+    const A = x ?? { nodes: (y.twin ??= collapsed(y.nodes)), closed: y.closed }, B = y ?? { nodes: (x.twin ??= collapsed(x.nodes)), closed: x.closed };
+    const pair = alignedPair(A.nodes, B.nodes, B.closed, { force: !x || !y ? false : reversed, authored });
+    if (reversed === undefined && x && y) reversed = pair.reversed;
+    parts.push({ order: y ? y.index : rb.length + x.index, d: pathD(lerpPair(pair, t), B.closed, cornerRadius) });
+  }
+  return parts.sort((p, q) => p.order - q.order).map((p) => p.d).join(" ");
 }
 
 // --- dash ---------------------------------------------------------------------
@@ -486,8 +604,15 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t): Ele
   // path geometry, wholesale (same closedness — a closedness change morphed above)
   if (pre.type === "path" && end.type === "path") {
     const closedB = Boolean(end.closed);
-    if (pre.d !== end.d || JSON.stringify(pre.nodes) !== JSON.stringify(end.nodes)) {
-      const nodes = lerpNodes(nodesOf(pre), nodesOf(end), closedB, t);
+    // a compound `d` (donut: outline + hole) pairs its subpaths instead of flattening them into one chain
+    // (a dashed ring keeps its authored pairing: its dashes start at the first node, see AlignOptions.authored)
+    const authored = Boolean(pre.dash?.length || end.dash?.length);
+    const compound = pre.d !== end.d ? lerpCompoundD(pre.d, end.d, t, (out as { cornerRadius?: number }).cornerRadius, authored) : null;
+    if (compound) {
+      (out as unknown as { d: string }).d = compound;
+      delete (out as unknown as { nodes?: VectorNode[] }).nodes; // a flattened chain would re-bridge the subpaths
+    } else if (pre.d !== end.d || JSON.stringify(pre.nodes) !== JSON.stringify(end.nodes)) {
+      const nodes = lerpNodes(nodesOf(pre), nodesOf(end), closedB, t, { authored });
       (out as unknown as { nodes: VectorNode[]; d: string; closed: boolean }).nodes = nodes;
       // cornerRadius was already lerped above (NUM_PROPS) — the frame's d
       // fillets with the interpolated radius over the interpolated skeleton.
@@ -777,7 +902,12 @@ export function warmSlideMorphs(slide: Slide, geometry?: GeometryCtx): void {
       const pre = transformPreState(slide, track.target, bi);
       if (!pre) continue;
       const end = transformEndState(pre, track);
-      if (!outlineMorphable(pre, end)) continue;
+      if (!outlineMorphable(pre, end)) {
+        // a same-kind path Change: its aligned pairing (ring seam/direction search, subpath ranking) is the one
+        // cold cost left in the tween; one mid-flight sample fills the content-keyed memo the player will read
+        if (pre.type === "path" && end.type === "path") lerpElement(pre, end, 0.5, 0.5);
+        continue;
+      }
       planElementMorph(pre, end)?.prepare?.();
     }
   }
