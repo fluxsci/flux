@@ -18,7 +18,12 @@ import { plotDom, plotManifests } from "../../plot/store";
 import { createRasterKeeper, type RasterKeeper } from "./rasterKeeper";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
-import { KNOWN_PRESETS, presetParam } from "../presetCatalog";
+import { KNOWN_PRESETS, presetParam, isExitPreset, type PointParam } from "../presetCatalog";
+import { createEncircle, measureTextInk, type OverlayHandle } from "./overlay";
+import { encircleShape, encircleParams } from "../encircleGeometry";
+import { elementStageOutlines, partStageOutlines } from "../targetGeometry";
+import { groupPoint, type GrowElement } from "../growOrigin";
+import { unionRect } from "../../geometry";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
@@ -157,6 +162,29 @@ function holdCurve(curve: ResolvedCurve, k: number): ResolvedCurve {
 }
 const flightLayers = new WeakMap<Spec[], SVGSVGElement>();
 
+/** The `"group"` key of a scaleIn / scaleOut / pulse track: its origin word (`from` / `to` / `about`), or undefined for any other preset. */
+const groupWord = (t: Track): string | PointParam | null | undefined =>
+  t.preset === "scaleIn" ? presetParam<string | PointParam>(t, "from", "scaleIn") : t.preset === "scaleOut" ? presetParam<string | PointParam>(t, "to", "scaleOut")
+    : t.preset === "pulse" ? presetParam<string | PointParam | null>(t, "about", "pulse") : undefined;
+
+/** encircle: fit the band at the track's start sample. Pure `encircleShape` does the geometry; the only DOM read is the text ink. */
+function encircleFor(track: Track, ct: { start: number }, bi: number, nodes: TargetNode[], rendered: RenderedSlide, compiled: CompiledSlide, opts: PlayerOpts, geometry: Parameters<typeof partStageOutlines>[2], host: HTMLElement): OverlayHandle | undefined {
+  const el = compiled.sample(bi, ct.start).elements.find(e => e.id === track.target);
+  if (!el) return undefined;
+  const p = encircleParams(track.params), color = presetParam<string | null>(track, "color", "encircle") ?? opts.theme.accent;
+  let boxes: { x: number; y: number; w: number; h: number }[] | undefined, ink;
+  if (hasPartBinding(track) && el.type === "plot") {
+    const ids = nodes.map(n => ((n as unknown as { id?: string }).id ?? "").slice(partDomId(track.target, "").length));
+    boxes = partStageOutlines(el as never, ids, geometry).map(o => o.bbox);
+  } else if (el.type === "line" || el.type === "path") boxes = elementStageOutlines(el).map(o => o.bbox);
+  else if (el.type === "text") {
+    const wrap = rendered.elements.get(track.target) as HTMLElement | undefined;
+    if (wrap) ink = measureTextInk(wrap, { w: el.width, h: el.height }, host);
+  }
+  const shape = encircleShape({ el: el as never, boxes, ink }, p);
+  return shape ? createEncircle(rendered.flight, shape, color, p) : undefined;
+}
+
 /** The node a transform effect animates. A CSS `transform` REPLACES an SVG node's own `transform`
  *  attribute, and fluxplot's markers and ticks carry one (`translate(x y) scale(s)`): animating such a
  *  leaf directly would throw it to the SVG origin. The leaf is therefore wrapped ONCE in a neutral
@@ -194,6 +222,11 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   const handoffs: HandoffRecord[] = compiled.handoffs;
   const mergeLayers = new Map<string, SVGGElement>();
   const ctx: PresetCtx = { theme: opts.theme, stage };
+  // Overlay effects (encircle) and the opacity a highlight / dim starts FROM are playback-only: stills (thumbnails, next-slide views,
+  // static export) never build them, so a still costs nothing and shows the rest state.
+  const live = opts.videoPlayback !== false;
+  const frames = new Map<string, ReturnType<typeof compiled.sample>>();
+  const frameAt = (bi: number, t: number) => { const k = `${bi}:${t}`; let f = frames.get(k); if (!f) frames.set(k, f = compiled.sample(bi, t)); return f; };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent
   // position change or an authored rotation/translucency.
@@ -356,9 +389,43 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       }
       const nodes = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots);
       if (!nodes.length) continue;
+      // encircle: a synthetic overlay (a rounded band traced round the target), a controller in the stage-space flight layer
+      if (track.preset === "encircle") {
+        if (live) {
+          const handle = encircleFor(track, ct, bi, nodes, rendered, compiled, opts, geometry, cameraLayer);
+          if (handle) specs.push({ node: handle.anchor as unknown as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track, delay: ct.start, duration: ct.duration, ease: ct.ease, morph: handle.controller });
+        }
+        continue;
+      }
       const preset = PRESETS[track.preset ?? "fade"] ?? PRESETS.fade;
-      const growsBars = track.preset === "growBaseline" || track.preset === "stagger" && presetParam<string>(track, "child", "stagger") === "growBaseline";
-      const trackCtx: PresetCtx = growsBars ? { ...ctx, manifest: manifestFor(track.target, slide, opts, bi) as FluxPlotManifest | undefined } : ctx;
+      // what the preset reads besides the nodes: the plot manifest (bar orientation), the target's element at the beat's start (grow origins,
+      // the pulse's stage clamp), the shared point of a "group" origin, and the opacity a highlight / dim starts from. A stagger's CHILD decides.
+      const effective = track.preset === "stagger" ? presetParam<string>(track, "child", "stagger") : track.preset;
+      const trackCtx: PresetCtx = { ...ctx };
+      if (effective === "growBaseline") trackCtx.manifest = manifestFor(track.target, slide, opts, bi) as FluxPlotManifest | undefined;
+      if (effective === "scaleIn" || effective === "scaleOut" || effective === "pulse") {
+        trackCtx.element = transformPreState(slide, track.target, bi) ?? undefined;
+        if (live && effective === "pulse" && trackCtx.element?.type === "plot" && hasPartBinding(track)) {
+          // each part is sized by its OWN stage box (one outline pass for the whole track; the same geometry encircle fits to)
+          const prefix = partDomId(track.target, "");
+          const ids = nodes.map(n => ((n as unknown as { id?: string }).id ?? "").slice(prefix.length));
+          const boxes = new Map<string, { x: number; y: number; w: number; h: number }[]>();
+          for (const o of partStageOutlines(trackCtx.element as never, ids, geometry)) if (o.owner.partId) boxes.set(o.owner.partId, [...(boxes.get(o.owner.partId) ?? []), o.bbox]);
+          trackCtx.partBox = (node) => { const found = boxes.get(((node as unknown as { id?: string }).id ?? "").slice(prefix.length)); return found && unionRect(found) || undefined; };
+        }
+        if (groupWord(track) === "group") {
+          // the tracks of this cue that start together on whole elements with the same word move about ONE point (manim animates a VGroup about its centre)
+          const together = cue.tracks.filter(o => !o.track.disabled && o.track.preset === track.preset && !hasPartBinding(o.track) && groupWord(o.track) === "group" && Math.abs(o.start - ct.start) < 0.5);
+          if (together.length > 1) trackCtx.group = groupPoint(together.flatMap(o => { const e = transformPreState(slide, o.track.target, bi); return e ? [e] : []; }) as unknown as GrowElement[]);
+        }
+      }
+      // a highlight RESTS at 1 and a dim at its level whatever they started from, so only a live play reads the prior (stills show the rest state)
+      if (live && (track.preset === "dim" || track.preset === "highlight" && presetParam(track, "lead", "highlight") > 0)) {
+        const presentation = frameAt(bi, ct.start - 1e-3).presentation, partPrefix = partDomId(track.target, "");
+        trackCtx.priorOpacity = (node) => hasPartBinding(track)
+          ? presentation.partStates[track.target]?.[(node as unknown as { id?: string }).id?.slice(partPrefix.length) ?? ""]?.opacity ?? 1
+          : presentation.elementStates[track.target]?.opacity ?? 1;
+      }
       const nodeAnims = preset(nodes, track, track.preset === "camera" ? {
         ...trackCtx, cameraFrom: compiled.sample(bi, ct.start).camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 },
       } : trackCtx);
@@ -453,6 +520,11 @@ function applyAccumulated(node: TargetNode, past: Spec[]) {
     const parts = [...tfns.values()].filter((t) => !IDENTITY_FN.test(t));
     s.transform = parts.length ? parts.join(" ") : "none";
   }
+}
+/** Does this (rest) frame leave a non-identity transform on its node? Then the node keeps its origin at rest. */
+function restKeepsTransform(frame: Keyframe): boolean {
+  const t = (frame as { transform?: unknown }).transform;
+  return typeof t === "string" && [...t.matchAll(/([\w-]+)\(([^)]*)\)/g)].some(m => !IDENTITY_FN.test(m[0]));
 }
 /** Apply the deterministic static (resting) look at `beatIndex`: every node gets
  *  the cumulative END state of all specs ≤ beatIndex; nodes whose first spec is
@@ -622,7 +694,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     const applied: Spec[] = [];
     // transform flights in progress on this node: all translation-only → the
     // node rides its own layer this frame (render.ts layer hygiene)
-    let moving = 0, pureMoves = 0, origin: string | undefined;
+    let moving = 0, pureMoves = 0, origin: string | undefined, restOrigin: string | undefined;
     for (const spec of keyframed) {
       const p = progressAt(spec, beat, time);
       if (superseded(spec)) continue;
@@ -633,8 +705,12 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
         if (!applied.length && spec === keyframed[0] && spec.enter) applied.push({ ...spec, keyframes: [spec.keyframes[0]] });
         continue;
       }
-      applied.push({ ...spec, keyframes: [plan.samplers.get(spec)!(p)] });
-      if (spec.origin && p < 1) origin = spec.origin; // ONE origin per node per frame: the spec in flight (the later one if two overlap)
+      const frame = plan.samplers.get(spec)!(p);
+      applied.push({ ...spec, keyframes: [frame] });
+      // ONE origin per node per frame: the spec in flight (the later one if two overlap). A COMPLETED spec whose transform survives at
+      // rest (the legacy `scale` / `rotate` emphasis) keeps pivoting about its origin; an identity rest (popIn, scaleIn, pulse ...) and
+      // an exit (the node is gone) carry none.
+      if (spec.origin) { if (p < 1) origin = spec.origin; else if (restKeepsTransform(frame) && !isExitPreset(spec.preset)) restOrigin = spec.origin; }
       const flight = p > 0 && p < 1 ? flights.get(spec) : undefined;
       if (flight) { moving++; if (flight === "translate") pureMoves++; }
       // Use native effects for active frames when available. Their time is
@@ -652,10 +728,11 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       }
     }
     if (applied.length) applyAccumulated(node, applied);
-    if (origin) { // after the accumulated rest look; fill-box makes percentages refer to an SVG part's own box
+    const pivot = origin ?? restOrigin;
+    if (pivot) { // after the accumulated rest look; fill-box makes percentages refer to an SVG part's own box
       const style = (node as HTMLElement).style;
       if (node.namespaceURI === SVG_NS) style.transformBox = "fill-box";
-      style.transformOrigin = origin;
+      style.transformOrigin = pivot;
     }
     // T7: the camera layer's compositor hint belongs to the raster keeper (player.ts), never to the flight
     // hygiene below — settleWrapper() used to CLEAR it after the first pure-pan camera flight.

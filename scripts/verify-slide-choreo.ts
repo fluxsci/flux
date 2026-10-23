@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import * as slideOps from "../src/lib/slide/ops";
 import { planStagger, staggerFields, lagTotal, lagStarts, writeTiming, trackFootprint, staggerDelay, staggerRanks, staggerSpan, LAG_MIN_CHILD_MS, LAG_MIN_CHILD_FRAC } from "../src/lib/slide/stagger";
 import {
-  autoAnimatePlot, applyAutoAnimation, suggestTrack, drawDuration, paceUsesLengths, CLASSIC_PACE, V2_PACE, DEFAULT_PACE, AUTO_PACES,
+  autoAnimatePlot, applyAutoAnimation, suggestTrack, drawDuration, paceUsesLengths, CLASSIC_PACE, V2_PACE, DEFAULT_PACE, AUTO_PACES, V2_STAGGER_CHILD,
   SCAFFOLD_MS, SCAFFOLD_SPINE_MS, SCAFFOLD_TICK_WINDOW_MS, SCAFFOLD_TICK_SPREAD_MS, SCAFFOLD_LABEL_START_MS, SCAFFOLD_LABEL_WINDOW_MS,
   SCAFFOLD_FRAME_SPINE_MS, SCAFFOLD_FRAME_SPINE_START_MS, SCAFFOLD_TITLE_MS, SCAFFOLD_TITLE_START_MS, SCAFFOLD_GRID_TOTAL_MS, SCAFFOLD_GRID_ANCHOR_MS,
   type AutoPace,
@@ -162,9 +162,10 @@ for (const [name, m] of [["scatter", scatter], ["bars", bars], ["boxplot", boxes
   const cp = find(cls, "samples.points")!, vp = find(v2, "samples.points")!;
   const n = 60; // mpl_scatter fixture
   h.ok(cp.duration === 240 && cp.stagger?.perMs === Math.min(40, Math.floor(1200 / (n - 1) * 100) / 100) && cp.stagger.totalMs === undefined, "classic: window 240, Each step 40 ms lowered only to keep the spread <= 1200");
-  const ref = Math.max(240, presetDef("stagger").autoBuildDurationMs ?? 0); // the V2 floor READS the catalog
+  const ref = Math.max(240, presetDef(vp.params?.child as string).autoBuildDurationMs ?? 0); // the V2 floor READS the catalog (the CHILD's: scaleIn 500, X1c)
   h.ok((vp.duration ?? 0) + (vp.stagger?.totalMs ?? 0) === lagTotal(n, ref, 0.1, 2000) && vp.stagger?.perMs === undefined, `v2: window + spread == lagTotal(60, ${ref}, .1, 2000) == ${lagTotal(n, ref, 0.1, 2000)}`);
-  h.eq(vp.params?.child, "fade", "v2: points enter by fade until T6's grow child lands (hard ordering dependency, see R4 section 2)");
+  // WP 2.2 (X9.1: origins landed in 1.2, so the grow child may land): a small point group grows in about each marker's centre
+  h.eq([vp.params?.child, cp.params?.child, V2_STAGGER_CHILD], ["scaleIn", "fade", "scaleIn"], "v2: points grow in (child V2_STAGGER_CHILD = scaleIn); classic points keep the fade");
 }
 { // the line starts while the points arrive: anchor == overlap x footprint
   const v2 = autoAnimatePlot(legacy, "plot", { pace: V2_PACE }), cls = autoAnimatePlot(legacy, "plot", { pace: CLASSIC_PACE });

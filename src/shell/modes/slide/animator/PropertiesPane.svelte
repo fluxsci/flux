@@ -38,6 +38,7 @@
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
   import { resolveBeat, resolveTrackRaw, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
+  import { presetParam, PRESET_PARAMS, type PointParam } from "../../../../lib/slide/presetCatalog";
   import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
@@ -470,6 +471,29 @@
   // --- trim-path params (drawOn/drawOff — rework §5) -------------------------
   const isTrim = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "drawOn" || curTrack?.preset === "drawOff"));
   const isWipe = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "writeOn" || curTrack?.preset === "wipeOut"));
+  // --- scale in / scale out / pulse / circle it (WP 2.2) -----------------------------------------------------------
+  const isGrow = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "scaleIn" || curTrack?.preset === "scaleOut"));
+  const isPulse = $derived(!anyGhost && curFamily === "appearance" && curTrack?.preset === "pulse");
+  const isEncircle = $derived(!anyGhost && curFamily === "appearance" && curTrack?.preset === "encircle");
+  /** Write one free param; a value equal to its table default (or blank) DELETES the key so decks stay byte-minimal. */
+  function setParam(key: string, value: unknown, def: unknown) {
+    editFields((t, resolved) => {
+      const p = { ...(resolved.params ?? {}) } as Record<string, unknown>;
+      if (value === def || value === "" || value == null || (typeof value === "number" && !Number.isFinite(value))) delete p[key];
+      else p[key] = value;
+      t.params = Object.keys(p).length || t.styleId ? p : undefined;
+    });
+  }
+  // The origin word of a scale in / out. The UI offers auto, the centre, the four edge midpoints and the group centre; a stored
+  // diagonal or stage point (schema-only) shows as a disabled "Custom" so opening the pane never rewrites it.
+  const growKey = $derived(curTrack?.preset === "scaleOut" ? "to" : "from");
+  const growWord = $derived(curTrack && (isGrow) ? presetParam<string | PointParam>(curTrack, growKey, curTrack.preset as string) : "auto");
+  const GROW_CHOICES = ["auto", "center", "n", "e", "s", "w", "group"];
+  const growChoice = $derived(typeof growWord === "string" && GROW_CHOICES.includes(growWord) ? growWord : "custom");
+  const pulseAbout = $derived(curTrack && isPulse ? presetParam<string | PointParam | null>(curTrack, "about", "pulse") : null);
+  const aboutChoice = $derived(pulseAbout === "group" ? "group" : pulseAbout ? "custom" : "");
+  /** A param the track authors explicitly, or "" (shown as the placeholder): the table's default is not the author's number. */
+  const authored = (key: string, preset: string): number | "" => curTrack && curTrack.params?.[key] !== undefined ? presetParam<number>(curTrack, key, preset) : "";
   const trimP = $derived((curTrack?.params ?? {}) as { anchor?: number | string; direction?: string; mode?: string; from?: number; to?: number });
   /** Write one trim param; a value equal to its default DELETES the key so
    *  default decks keep the legacy byte-identical compile path. */
@@ -743,6 +767,48 @@
         </select>
       </label>
     {/if}
+    {#if isGrow}
+      <label class="f">{curTrack?.preset === "scaleOut" ? "shrink to" : "grow from"}
+        <select aria-label="Grow origin" value={growChoice} title="The point the shape scales about. Auto: an arrow grows from its tail, everything else from its centre."
+          onchange={(e) => setParam(growKey, e.currentTarget.value, "auto")}>
+          <option value="auto">auto (arrow tail / centre)</option>
+          <option value="center">centre</option>
+          <option value="n">top</option><option value="e">right</option><option value="s">bottom</option><option value="w">left</option>
+          <option value="group" title="The centre of the objects that start together: a label stays inside its card">group centre</option>
+          {#if growChoice === "custom"}<option value="custom" disabled>custom</option>{/if}
+        </select>
+      </label>
+    {/if}
+    {#if isPulse}
+      <label class="f">peak
+        <span class="unit"><input aria-label="Pulse peak" type="number" min="1.01" max="3" step="0.05" placeholder="auto"
+          value={authored("scale", "pulse")}
+          title="How large it grows, as a multiple of its size. Blank: sized to the object (1.12 to 1.3×), never past the slide edge."
+          onchange={(e) => { const v = e.currentTarget.value; setParam("scale", v === "" ? undefined : Math.max(1.01, Math.min(3, Number(v))), null); }} /><small>×</small></span>
+      </label>
+      <label class="f">about
+        <select aria-label="Pulse origin" value={aboutChoice}
+          onchange={(e) => setParam("about", e.currentTarget.value, null)}>
+          <option value="">its own centre</option>
+          <option value="group" title="The centre of the objects that pulse together">group centre</option>
+          {#if aboutChoice === "custom"}<option value="custom" disabled>custom</option>{/if}
+        </select>
+      </label>
+    {/if}
+    {#if isEncircle}
+      <label class="f">gap
+        <span class="unit"><input aria-label="Circle gap" type="number" min="0" max="60" step="1" placeholder={String(PRESET_PARAMS.encircle.gap.default)}
+          value={authored("gap", "encircle")}
+          title="Space between the object and the band, in slide units"
+          onchange={(e) => { const v = e.currentTarget.value; setParam("gap", v === "" ? undefined : Number(v), PRESET_PARAMS.encircle.gap.default); }} /><small>st</small></span>
+      </label>
+      <label class="f">width
+        <span class="unit"><input aria-label="Circle width" type="number" min="0.5" max="12" step="0.5" placeholder={String(PRESET_PARAMS.encircle.width.default)}
+          value={authored("width", "encircle")}
+          title="Stroke width of the band, in slide units"
+          onchange={(e) => { const v = e.currentTarget.value; setParam("width", v === "" ? undefined : Number(v), PRESET_PARAMS.encircle.width.default); }} /><small>st</small></span>
+      </label>
+    {/if}
     {#if isTrim}
       <!-- TRIM PATHS (rework §5) — the featured draw controls: where the draw
            anchors, which way it runs, single/both-ends/middle-out, and the
@@ -798,7 +864,7 @@
         </div>
       </div>
     {/if}
-    {#if isTrim || isWipe}{@render overrideRow("params")}{/if}
+    {#if isTrim || isWipe || isGrow || isPulse || isEncircle}{@render overrideRow("params")}{/if}
     {#if !anyMedia}
       <CurveField tracks={editingStyle ? [curTrack] : selTracks} contextKey={`${slide.id}:${$selTrackIds.join(",")}:${editingStyleId ?? ""}`} onChange={changeCurve} />
       {#if ["easing", "influence", "curve"].some(k => overridden(k as StyleField))}

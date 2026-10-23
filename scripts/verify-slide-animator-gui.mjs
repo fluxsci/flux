@@ -64,7 +64,7 @@ try {
   ok(await page.evaluate(() => !!document.querySelector(".rail .props")), "the Properties mini-pane renders");
   ok(await page.evaluate(() => !!document.querySelector(".animator .beatrail")), "…beside the beats rail");
 
-  // ⌃⇧A on a CANVAS selection authors the per-kind default (rect → popIn)
+  // ⌃⇧A on a CANVAS selection authors the per-kind default (rect → scaleIn: a shape grows in, WP 2.2)
   await page.evaluate(() => window.__flux.fig.selectOnly("anim-rect"));
   await chord(page, "KeyA");
   const a1 = await page.evaluate(() => {
@@ -79,8 +79,8 @@ try {
       lanes: [...document.querySelectorAll(".beatrail .lane-row[data-track-id]")].length,
     };
   });
-  ok(a1.beats === 2 && a1.tracks.some((t) => t.target === "anim-rect" && t.preset === "popIn"),
-    "⌃⇧A authored the per-kind default (rect → popIn) on an auto-created build beat (re-homes the old quick-action assertion)");
+  ok(a1.beats === 2 && a1.tracks.some((t) => t.target === "anim-rect" && t.preset === "scaleIn"),
+    "⌃⇧A authored the per-kind default (rect → scaleIn) on an auto-created build beat (re-homes the old quick-action assertion)");
   ok(a1.activeBeat === 1 && a1.lanes >= 1, "…the beat expanded and the track renders as a lane");
 
   // ⌃⇧A on an X-RAY-equivalent selection (the X-ray writes the same store)
@@ -93,7 +93,7 @@ try {
     const f = window.__flux;
     const sid = f.get(f.fig.activeFigureId);
     const o = f.get(f.slide.deckOverlay);
-    return o.slides.find((x) => x.id === sid).beats.flatMap((b) => b.tracks).some((t) => t.target === "anim-ell" && t.preset === "popIn");
+    return o.slides.find((x) => x.id === sid).beats.flatMap((b) => b.tracks).some((t) => t.target === "anim-ell" && t.preset === "scaleIn");
   });
   ok(a2, "⌃⇧A works from a store-written selection identically (the X-ray path writes the same store)");
 
@@ -116,8 +116,8 @@ try {
     const s = o.slides.find((x) => x.id === sid);
     return { b2: s.beats[2].tracks.map((t) => t.preset), all: s.beats.flatMap((b) => b.tracks).filter((t) => t.target === "anim-rect").map((t) => t.preset) };
   });
-  ok(d1.b2.includes("popOut"), `⌃⇧D added the per-kind exit (rect → popOut) into the active beat (${d1.b2.join(",")})`);
-  ok(d1.all.includes("popIn") && d1.all.includes("popOut"), `…coexisting with the enter across beats (${d1.all.join(",")})`);
+  ok(d1.b2.includes("scaleOut"), `⌃⇧D added the per-kind exit (rect → scaleOut) into the active beat (${d1.b2.join(",")})`);
+  ok(d1.all.includes("scaleIn") && d1.all.includes("scaleOut"), `…coexisting with the enter across beats (${d1.all.join(",")})`);
   await page.evaluate(() => window.__flux.slide.activeBeat.set(1));
   await sleep(200);
   const strip = await page.evaluate(() => [...document.querySelectorAll(".beatrail .step")].map(e=>({index:+e.dataset.stepIndex,label:e.textContent,active:e.classList.contains("active")})));
@@ -141,12 +141,12 @@ try {
     const dur = document.querySelector('.props [data-fld="d"]');
     return dur ? Number(dur.value) : null;
   });
-  // WP 1.7: ⌃⇧D authors the catalog pace (rect → popIn 700 ms, was 300): the pane must show the track's own stored duration.
+  // WP 1.7 / 2.2: ⌃⇧A authors the catalog pace (rect → scaleIn 600 ms): the pane must show the track's own stored duration.
   const storedDuration = await page.evaluate(() => {
     const f = window.__flux, o = f.get(f.slide.deckOverlay), sid = f.get(f.fig.activeFigureId);
     return o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect").duration;
   });
-  ok(propsBound === storedDuration && storedDuration === 700, `the Properties pane binds the selected track (duration ${propsBound}; stored ${storedDuration}; authored popIn pace 700)`);
+  ok(propsBound === storedDuration && storedDuration === 600, `the Properties pane binds the selected track (duration ${propsBound}; stored ${storedDuration}; authored scaleIn pace 600)`);
   await page.evaluate(() => {
     const dur = document.querySelector('.props [data-fld="d"]');
     dur.value = "760";
@@ -160,6 +160,32 @@ try {
     return o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect")?.duration;
   });
   ok(propsWrote === 760, "…and edits write back to the track (duration 760)");
+
+  // --- WP 2.2 rows: the origin of a scale-in, the peak of a pulse, the band of a circle (a default DELETES its key) ---
+  {
+    const track = () => page.evaluate(() => { const f = window.__flux, o = f.get(f.slide.deckOverlay), sid = f.get(f.fig.activeFigureId); const t = o.slides.find((x) => x.id === sid).beats[1].tracks.find((tk) => tk.target === "anim-rect"); return { preset: t.preset, params: t.params ?? null }; });
+    const setSel = async (css, value) => { await page.evaluate((q, v) => { const el = document.querySelector(q); el.value = v; el.dispatchEvent(new Event("change", { bubbles: true })); }, css, value); await sleep(150); };
+    const setNum = async (css, value) => { await page.evaluate((q, v) => { const el = document.querySelector(q); el.value = v; el.dispatchEvent(new Event("change", { bubbles: true })); }, css, value); await sleep(150); };
+    ok(await page.evaluate(() => document.querySelector('.props select[aria-label="Grow origin"]')?.value === "auto"), "a scale-in track shows its origin row, defaulting to auto (arrow tail / centre)");
+    await setSel('.props select[aria-label="Grow origin"]', "group");
+    ok((await track()).params?.from === "group", "choosing the group centre writes params.from = group");
+    await setSel('.props select[aria-label="Grow origin"]', "auto");
+    ok((await track()).params === null, "choosing auto again DELETES the key (decks stay byte-minimal)");
+    await setSel('.props [data-fld="p"]', "pulse");
+    ok(await page.evaluate(() => !!document.querySelector('.props input[aria-label="Pulse peak"]') && !!document.querySelector('.props select[aria-label="Pulse origin"]')), "switching to Pulse shows the peak and origin rows");
+    await setNum('.props input[aria-label="Pulse peak"]', "1.4");
+    ok((await track()).params?.scale === 1.4, "a pulse peak of 1.4 is written");
+    await setNum('.props input[aria-label="Pulse peak"]', "");
+    ok((await track()).params === null, "a blank peak deletes the key (auto, size-aware)");
+    await setSel('.props [data-fld="p"]', "encircle");
+    ok(await page.evaluate(() => !!document.querySelector('.props input[aria-label="Circle gap"]') && !!document.querySelector('.props input[aria-label="Circle width"]')), "switching to Circle it shows the gap and width rows");
+    await setNum('.props input[aria-label="Circle gap"]', "10");
+    ok((await track()).params?.gap === 10, "a band gap of 10 is written");
+    await setNum('.props input[aria-label="Circle gap"]', "6");
+    ok((await track()).params === null, "the default gap (6) deletes the key");
+    await setSel('.props [data-fld="p"]', "scaleIn");
+    ok((await track()).preset === "scaleIn", "…and back to scale in");
+  }
 
   // group / ungroup + deck-persisted collapse
   const gState = await page.evaluate(() => {

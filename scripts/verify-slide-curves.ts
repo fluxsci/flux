@@ -204,7 +204,10 @@ h.ok(resolveCurve({ easing: "linear", preset: "transform" }) === resolveCurve({ 
 h.ok(resolveCurve({ influence: { in: 0, out: 0 }, preset: "transform" }) === resolveCurve({ easing: "smooth" }), "inactive influence preserves default");
 for (const def of Object.values(PRESET_CATALOG)) {
   h.ok(resolveCurve({ preset: def.name }) === resolveCurve({ easing: defaultEasingFor(def.name) }), `${def.name}: resolver reads catalog default`);
-  h.ok(resolveCurve({}, def.family) === resolveCurve({ easing: def.defaultEasing }), `${def.family}: absent preset uses explicit family default`);
+  // the FAMILY default (a track with no preset) is the family's first preset's: the appearance family's presets differ on purpose
+  // since WP 2.2 (the onset-exempt there-and-back emphasis, pulse / encircle, default to `smooth`), so "every preset of the family" no longer holds
+  const familyFirst = Object.values(PRESET_CATALOG).find(d => d.family === def.family)!;
+  h.ok(resolveCurve({}, def.family) === resolveCurve({ easing: familyFirst.defaultEasing }), `${def.name}: absent preset uses the explicit ${def.family} family default`);
 }
 h.eq([defaultEasingFor(), defaultEasingFor("transform"), defaultEasingFor("countUp"), defaultEasingFor("videoPause")], ["standard", "smooth", "standard", "linear"], "default easing values preserve historical families");
 h.ok(resolveCurve({ curve: { kind: "spring", bounce: 9 } }) === resolveCurve({ curve: { kind: "spring", bounce: 0.8, velocity: 0 } }), "clamped springs share a cache entry");

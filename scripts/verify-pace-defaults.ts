@@ -28,10 +28,12 @@ const { FLUX_DARK } = await import("../src/lib/slide/theme");
 
 // ---- 1. the authored pace table (explicit numbers; five classes) ----------------------------------
 h.section("authoring table");
-const AUTHORED: Record<string, number> = { fade: 700, fadeRise: 700, popIn: 700, stagger: 700, highlight: 700, dim: 700, drawOn: 900, growBaseline: 900, writeOn: 900, countUp: 900, fadeOut: 500, popOut: 500, drawOff: 500, wipeOut: 500, camera: 900, transform: 1200 };
+const AUTHORED: Record<string, number> = { fade: 700, fadeRise: 700, popIn: 700, stagger: 700, highlight: 700, dim: 700, drawOn: 900, growBaseline: 900, writeOn: 900, countUp: 900, fadeOut: 500, popOut: 500, drawOff: 500, wipeOut: 500, camera: 900, transform: 1200,
+  // WP 2.2 (X1): the fade-free vocabulary. scaleIn / scaleOut are onset-curved like every enter / exit; pulse / encircle are onset-exempt.
+  scaleIn: 600, scaleOut: 500, pulse: 700, encircle: 900 };
 for (const [p, d] of Object.entries(AUTHORED)) h.eq([authoredTiming(p).duration, defaultTimingFor(p).duration], [d, d], `${p} authors ${d} ms`);
-// X2 (the onset rule): "quick smooth for every enter/exit/emphasis row except onsetExempt rows (pulse, encircle: not built
-// yet)". The symmetric there-and-back presets land with zero velocity, so they author the plain `smooth` token instead.
+// X2 (the onset rule): "quick smooth for every enter/exit/emphasis row except onsetExempt rows (pulse, encircle)". The symmetric
+// there-and-back presets land with zero velocity, so they author the plain `smooth` token instead.
 const ONSET_EXEMPT = new Set(["pulse", "encircle"]);
 for (const [name, def] of Object.entries(PRESET_CATALOG)) {
   const t = authoredTiming(name), f = authoredFields(name);
@@ -48,18 +50,21 @@ for (const [name, def] of Object.entries(PRESET_CATALOG)) {
 for (const p of ["transform", "camera", "countUp"]) h.ok(authoredTiming(p).easing === "smooth" && !authoredTiming(p).curve, `${p} stays on the plain smooth token`);
 // X1a: authored params. Release 1 has exactly one row (fadeRise y 24), also inherited by a stagger whose child is fadeRise or absent.
 h.section("authored params (X1a)");
-h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringParams).map(([n, d]) => [n, d.authoringParams]), [["fadeRise", { y: 24 }]], "Release 1 params rows: fadeRise { y: 24 } and nothing else");
+h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringParams).map(([n, d]) => [n, d.authoringParams]), [["fadeRise", { y: 24 }], ["highlight", { lead: 0.25 }]], "params rows: fadeRise { y: 24 } and (WP 2.2) highlight { lead: 0.25 }, nothing else");
+h.eq(authoredFields("highlight").params, { lead: 0.25 }, "authoredFields(highlight) carries lead 0.25 (the ramp into the dip, X1a)");
+h.eq(["scaleIn", "scaleOut", "pulse", "encircle"].map(p => authoredFields(p).params), Array(4).fill(undefined), "the new presets author NO params: auto origin, auto peak, the table's band");
 h.eq(authoredFields("fadeRise").params, { y: 24 }, "authoredFields(fadeRise) carries y 24");
 h.eq(authoredFields("stagger").params, { y: 24 }, "a stagger with no child plays fadeRise (player default): y 24");
 h.eq(authoredFields("stagger", { child: "fadeRise" }).params, { y: 24 }, "a stagger whose child is fadeRise: y 24");
 h.eq([authoredFields("stagger", { child: "fade" }).params, authoredFields("stagger", { child: "popIn" }).params], [undefined, undefined], "a stagger with another child gets no params");
-h.eq(["fade", "popIn", "drawOn", "highlight", "fadeOut", "transform", "camera", "countUp"].map(p => authoredFields(p).params), Array(8).fill(undefined), "no other preset authors params yet");
+h.eq(["fade", "popIn", "drawOn", "fadeOut", "transform", "camera", "countUp"].map(p => authoredFields(p).params), Array(7).fill(undefined), "no other preset authors params yet");
 h.eq([authoredParams("videoStart"), authoredParams(undefined), authoredParams("nonsense")], [undefined, undefined, undefined], "media / unknown names author no params");
 { const a = authoredFields("fadeRise"), b = authoredFields("fadeRise"); a.params!.y = 1; (a.curve as any).p[0] = 9;
   h.eq([b.params, b.curve], [{ y: 24 }, QUICK_SMOOTH], "every call returns fresh params and curve objects (no shared mutable constant)"); }
 // ---- 2. classic playback is FROZEN ---------------------------------------------------------------
 h.section("frozen classic fallback");
-const CLASSIC: Record<string, [number, string]> = { fade: [320, "standard"], fadeRise: [320, "standard"], popIn: [320, "standard"], drawOn: [320, "standard"], growBaseline: [320, "standard"], stagger: [320, "standard"], writeOn: [320, "standard"], fadeOut: [320, "standard"], popOut: [320, "standard"], drawOff: [320, "standard"], wipeOut: [320, "standard"], highlight: [320, "standard"], dim: [320, "standard"], countUp: [800, "standard"], camera: [320, "standard"], transform: [600, "smooth"] };
+const CLASSIC: Record<string, [number, string]> = { fade: [320, "standard"], fadeRise: [320, "standard"], popIn: [320, "standard"], drawOn: [320, "standard"], growBaseline: [320, "standard"], stagger: [320, "standard"], writeOn: [320, "standard"], fadeOut: [320, "standard"], popOut: [320, "standard"], drawOff: [320, "standard"], wipeOut: [320, "standard"], highlight: [320, "standard"], dim: [320, "standard"], countUp: [800, "standard"], camera: [320, "standard"], transform: [600, "smooth"],
+  scaleIn: [320, "standard"], scaleOut: [320, "standard"], pulse: [700, "smooth"], encircle: [900, "smooth"] };
 for (const [p, [d, e]] of Object.entries(CLASSIC)) h.eq([PRESET_CATALOG[p as keyof typeof PRESET_CATALOG].defaultDurationMs, PRESET_CATALOG[p as keyof typeof PRESET_CATALOG].defaultEasing, trackDuration({ preset: p as any })], [d, e, d], `${p}: omitted timing still plays ${d} ms ${e}`);
 h.eq(beatDelayMs({}), AUTO_DELAY_FALLBACK_MS, "omitted autoDelayMs still plays 600 ms");
 h.eq(beatDelayMs({ autoDelayMs: 0 }), 0, "an explicit 0 is honoured");
@@ -77,9 +82,16 @@ const trimmed = (t: number) => { const L = 0.08; return (smoothstep(L + (1 - L) 
 for (const [p, d] of Object.entries(AUTHORED)) {
   const def = PRESET_CATALOG[p as keyof typeof PRESET_CATALOG]; if (def.family === "media") continue;
   const s = curveStats(resolveCurve({ ...authoredTiming(p) as any, preset: p }).fn, d);
-  const cap = def.phase === "exit" ? 7 : def.family === "transform" || def.family === "camera" ? 3.6 : 5.5;
+  // scaleIn is the owner's 600 ms row (X1 / Q3a): 600 ms quick-smooth peaks at 5.6 %/frame, a hair over the 700 ms enters' 5.5 (the
+  // budget was measured at 700); 6.0 still holds it 2.4x under classic popIn's 14.2 and under manim-CE's 4.2 + the quick onset's margin
+  const cap = def.phase === "exit" ? 7 : def.family === "transform" || def.family === "camera" ? 3.6 : p === "scaleIn" ? 6.0 : 5.5;
   h.ok(s.peak <= cap, `${p} ${d} ms: peak ${s.peak.toFixed(2)} %/frame <= ${cap} (classic standard@320 = 13.9)`);
-  if (def.family === "appearance" && def.phase !== "count") h.ok(s.t05 <= 20 && s.t2 <= 70, `${p}: click onset t0.5% ${s.t05.toFixed(0)} ms <= 20, t2% ${s.t2.toFixed(0)} ms <= 70`);
+  // the click-onset budget is the quick-smooth curve's job; an onset-exempt there-and-back (pulse, encircle) is the symmetric smooth
+  // token instead, which must leave AND land at rest (X2): zero velocity at both ends, so its landing never snaps
+  if (def.onsetExempt) {
+    const f = resolveCurve({ ...authoredTiming(p) as any, preset: p }).fn, e = 1e-4;
+    h.ok(Math.abs(f(e) / e) < 1e-6 && Math.abs((1 - f(1 - e)) / e) < 1e-6, `${p}: onset-exempt curve starts and lands with zero velocity (smooth)`);
+  } else if (def.family === "appearance" && def.phase !== "count") h.ok(s.t05 <= 20 && s.t2 <= 70, `${p}: click onset t0.5% ${s.t05.toFixed(0)} ms <= 20, t2% ${s.t2.toFixed(0)} ms <= 70`);
 }
 h.ok(curveStats(resolveCurve({ easing: "standard" }).fn, 320).peak > 13, "classic standard@320 reference is 13.9 %/frame");
 // ---- 4. authoring writers write explicit pace -----------------------------------------------------
@@ -92,15 +104,20 @@ ops.addElement(deck, s.id, { type: "rect", id: "r", x: 0, y: 50, width: 50, heig
 ops.addElement(deck, s.id, { type: "line", id: "l", x: 0, y: 120, width: 80, height: 0, rotation: 0, x1: 0, y1: 0, x2: 80, y2: 0, stroke: "#000", strokeWidth: 3 } as any);
 const want = (tr: any, preset: string, dur: number, params?: any) => h.eq([tr.preset, tr.duration, tr.easing, tr.curve, tr.params], [preset, dur, undefined, QUICK_SMOOTH, params], `animate ${tr.target}: ${preset} ${dur} ms quick-smooth${params ? " + params" : ""}`);
 want(ab.suggestElementTrack({ id: "t", type: "text" } as any), "fadeRise", 700, { y: 24 });
-want(ab.suggestElementTrack({ id: "i", type: "image" } as any), "fade", 700);
-want(ab.suggestElementTrack({ id: "r", type: "rect" } as any), "popIn", 700);
-want(ab.suggestElementTrack({ id: "e", type: "ellipse" } as any), "popIn", 700);
-want(ab.suggestElementTrack({ id: "l", type: "line" } as any), "drawOn", 900);
+// WP 2.2 (Q3a): shapes and arrows GROW in (scaleIn 600), images and plots rise in; the exits mirror (scaleOut 500).
+want(ab.suggestElementTrack({ id: "i", type: "image" } as any), "fadeRise", 700, { y: 24 });
+want(ab.suggestElementTrack({ id: "r", type: "rect" } as any), "scaleIn", 600);
+want(ab.suggestElementTrack({ id: "e", type: "ellipse" } as any), "scaleIn", 600);
+want(ab.suggestElementTrack({ id: "l", type: "line", arrowStart: false, arrowEnd: false } as any), "drawOn", 900);
+want(ab.suggestElementTrack({ id: "a", type: "line", arrowStart: false, arrowEnd: true } as any), "scaleIn", 600);
+want(ab.suggestElementTrack({ id: "a2", type: "line", arrowStart: true, arrowEnd: false } as any), "scaleIn", 600);
 want(ab.suggestElementTrack({ id: "p", type: "path" } as any), "drawOn", 900);
-want(ab.suggestElementTrack({ id: "g", type: "plot" } as any), "fade", 700);
+want(ab.suggestElementTrack({ id: "g", type: "plot" } as any), "fadeRise", 700, { y: 24 });
 want(ab.suggestElementTrack({ id: "t", type: "text" } as any, { exit: true }), "fadeOut", 500);
-want(ab.suggestElementTrack({ id: "l", type: "line" } as any, { exit: true }), "drawOff", 500);
-want(ab.suggestElementTrack({ id: "r", type: "rect" } as any, { exit: true }), "popOut", 500);
+want(ab.suggestElementTrack({ id: "l", type: "line", arrowStart: false, arrowEnd: false } as any, { exit: true }), "drawOff", 500);
+want(ab.suggestElementTrack({ id: "a", type: "line", arrowStart: false, arrowEnd: true } as any, { exit: true }), "scaleOut", 500);
+want(ab.suggestElementTrack({ id: "r", type: "rect" } as any, { exit: true }), "scaleOut", 500);
+h.eq([ab.elementEnterPreset({ type: "model3d" } as any), ab.elementExitPreset({ type: "image" } as any), ab.elementEnterPreset({ type: "video" } as any)], ["fade", "fadeOut", "fade"], "kinds without a rule keep fade / fadeOut");
 want(ab.suggestElementTrack({ id: "t", type: "text" } as any, { part: "p" }), "fade", 700);
 want(ab.suggestElementTrack({ id: "t", type: "text" } as any, { part: "p", exit: true }), "fadeOut", 500);
 // animateElement: an explicit preset override re-authors the track as THAT preset (no stale curve/params of the kind default)
@@ -113,13 +130,22 @@ h.eq([ab.autoBuildMs === autoBuildMs, core.autoBuildMs === autoBuildMs, core.aut
 h.eq(autoBuildMs("fade", 240), 500, "plot part: a short manifest duration is raised to the preset floor");
 h.eq(autoBuildMs("drawOn", 1200), 1200, "plot part: a longer manifest duration wins");
 h.eq(autoBuildMs("fadeOut"), 500, "plot part without a floor uses the authoring duration");
-h.eq(Object.fromEntries(["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn"].map(p => [p, autoBuildMs(p as any)])), { fade: 500, fadeRise: 600, popIn: 500, drawOn: 800, growBaseline: 800, stagger: 600, writeOn: 700 }, "plot-part floors");
+h.eq(Object.fromEntries(["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "scaleIn", "stagger", "writeOn"].map(p => [p, autoBuildMs(p as any)])), { fade: 500, fadeRise: 600, popIn: 500, drawOn: 800, growBaseline: 800, scaleIn: 500, stagger: 600, writeOn: 700 }, "plot-part floors (scaleIn 500 for the V2 point child, X1c)");
+// X1c: V2_PACE reads the catalog's floors (it gained scaleIn 500 by the catalog row, not by a copy); CLASSIC_PACE has none and still fades.
+h.eq([ab.V2_PACE.floor("scaleIn"), ab.V2_PACE.floor("stagger"), ab.CLASSIC_PACE.floor("scaleIn")], [500, 600, 0], "V2_PACE.floor reads the catalog (scaleIn 500, stagger 600); CLASSIC_PACE has no floors");
+h.eq([ab.V2_STAGGER_CHILD, ab.V2_PACE.pointChild(1), ab.V2_PACE.pointChild(150), ab.V2_PACE.pointChild(151), ab.V2_PACE.pointChild(1200), ab.CLASSIC_PACE.pointChild(1), ab.CLASSIC_PACE.pointChild(40)],
+  ["scaleIn", "scaleIn", "scaleIn", "fade", "fade", "fade", "fade"], "V2 grows a point group of n <= 150 in (V2_STAGGER_CHILD scaleIn); a denser one and every CLASSIC build fade");
+h.eq(ab.V2_PACE.barLag, 0.25, "V2_PACE enables the bar lag (bars ripple, each growing from its own zero line: origins landed in WP 1.2)");
 h.eq(autoBuildMs("drawOn", undefined), 800, "no manifest duration = the floor");
 const m = ops.addBeat(deck, s.id, { advance: "auto" })!; h.eq(m.autoDelayMs, AUTO_DELAY_AUTHORED_MS, "a new auto beat writes 150 ms");
 const m2 = ops.addBeat(deck, s.id, { advance: "auto", autoDelayMs: 0 })!; h.eq(m2.autoDelayMs, 0, "an explicit delay wins");
 const m3 = ops.addBeat(deck, s.id, {})!; ops.setBeat(deck, s.id, m3.id, { advance: "auto" }); h.eq(m3.autoDelayMs, 150, "switching a beat to After previous writes 150 ms");
 h.eq(withAuthoringTiming({ preset: "fade" } as any), { preset: "fade", duration: 700, curve: QUICK_SMOOTH }, "headless set-animation fills omitted timing");
 h.eq(withAuthoringTiming({ preset: "fadeRise" } as any), { preset: "fadeRise", duration: 700, curve: QUICK_SMOOTH, params: { y: 24 } }, "headless set-animation fills fadeRise's authored y");
+h.eq(withAuthoringTiming({ preset: "highlight" } as any), { preset: "highlight", duration: 700, curve: QUICK_SMOOTH, params: { lead: 0.25 } }, "headless set-animation fills highlight's authored lead");
+h.eq(withAuthoringTiming({ preset: "highlight", params: { lead: 0 } } as any).params, { lead: 0 }, "a supplied lead 0 (the legacy jump) wins");
+h.eq(withAuthoringTiming({ preset: "pulse" } as any), { preset: "pulse", duration: 700, easing: "smooth" }, "headless set-animation fills pulse's plain-smooth pace (onset-exempt, no curve)");
+h.eq(withAuthoringTiming({ preset: "scaleIn" } as any), { preset: "scaleIn", duration: 600, curve: QUICK_SMOOTH }, "headless set-animation fills scaleIn's pace");
 h.eq(withAuthoringTiming({ preset: "fadeRise", params: { y: 8 } } as any).params, { y: 8 }, "a supplied param wins, key by key");
 h.eq(withAuthoringTiming({ preset: "fadeRise", params: { dx: 3 } } as any).params, { y: 24, dx: 3 }, "authored params fill only the keys the caller omitted");
 h.eq(withAuthoringTiming({ preset: "stagger" } as any).params, { y: 24 }, "a bare stagger gets the fadeRise child's y");

@@ -61,25 +61,31 @@ assert(specs.length > 100, `pipeline produced specs for the whole scene (${specs
 // (drawOn dashes the path, not the group; the group comes first in doc order).
 const spinePath = () => host.querySelector(`[id="${elId}__axis.x.spine"] path`);
 const aPoint = () => host.querySelector(`[id="${elId}__setosa.point.0"]`);
+// WP 2.2: the V2 build GROWS its points in (stagger child scaleIn: a transform, never an opacity), so a point is "hidden" at
+// scale(0) and "shown" at rest (identity dropped). A marker that carries its own transform attribute is animated through its
+// `data-sl-fx` wrapper (the CSS transform would REPLACE the attribute), so the style lives on that wrapper.
+const fx = (el: Element | null): Element | null => el?.parentElement?.getAttribute("data-sl-fx") === "1" ? el.parentElement : el;
+const pointHidden = () => style(fx(aPoint()), "transform") === "scale(0)";
+const pointShown = () => ["none", ""].includes(style(fx(aPoint()), "transform")) && style(fx(aPoint()), "opacity") === "";
 const fitLine = () => host.querySelector(`[id="${elId}__fit.line"] path`);
 
 // 4. the acceptance: scrub each beat, assert the resting state -----------------
 applyStatic(specs, 0); // Start — everything hidden
 assert(style(spinePath(), "strokeDashoffset") !== "0" && style(spinePath(), "strokeDashoffset") !== "", "Start: the x-axis spine rests UNDRAWN");
-assert(style(aPoint(), "opacity") === "0", "Start: the scatter points are hidden");
+assert(pointHidden(), "Start: the scatter points are hidden (scale 0: they grow in, never fade)");
 assert(style(fitLine(), "strokeDashoffset") !== "0", "Start: the fit line rests undrawn");
 
 applyStatic(specs, 1); // Axes — spines/ticks draw on
 assert(!style(spinePath(), "strokeDashoffset") && !style(spinePath(), "strokeDasharray"), "Axes beat: the x-axis spine is DRAWN ON");
-assert(style(aPoint(), "opacity") === "0", "Axes beat: the points are still hidden (their beat is later)");
+assert(pointHidden(), "Axes beat: the points are still hidden (their beat is later)");
 
 applyStatic(specs, 2); // Data — points stagger in, line draws on
-assert(style(aPoint(), "opacity") === "1", "Data beat: the scatter points are SHOWN");
+assert(pointShown(), "Data beat: the scatter points are SHOWN (identity transform, no opacity channel touched)");
 assert(!style(fitLine(), "strokeDashoffset") && !style(fitLine(), "strokeDasharray"), "Data beat: the fit line is DRAWN ON");
 
 // 5. reversibility (the scrubber/export substrate) ----------------------------
 applyStatic(specs, 0);
-assert(style(aPoint(), "opacity") === "0", "scrub back to Start re-hides the points (deterministic)");
+assert(pointHidden(), "scrub back to Start re-hides the points (deterministic)");
 
 // The same real scatter can change its data view after its ordinary build.
 const { createPlayer } = await import("../src/lib/slide/player/player");

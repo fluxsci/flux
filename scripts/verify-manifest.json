@@ -218,6 +218,7 @@
       "verify-slide-arrow-browser.ts",
       "verify-preset-params.ts",
       "verify-slide-part-origin.ts",
+      "verify-appear-emphasis.ts",
       "verify-figure-preservation.ts",
       "verify-figure-editing.ts",
       "verify-paper-files.ts",
@@ -844,6 +845,7 @@
       "verify-slide-arrow-browser.ts",
       "verify-preset-params.ts",
       "verify-slide-part-origin.ts",
+      "verify-appear-emphasis.ts",
       "verify-slide-marquee-gui.mjs"
     ],
     "slide-ghosts": [
@@ -921,6 +923,7 @@
       "verify-slide-arrow-browser.ts",
       "verify-preset-params.ts",
       "verify-slide-part-origin.ts",
+      "verify-appear-emphasis.ts",
       "verify-slide-become-gui.mjs",
       "verify-slide-ghost-gui.mjs",
       "verify-slide-import-gui.mjs",
@@ -6756,6 +6759,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-appear-emphasis.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
       "exclusive": false,
       "coverage": "behavior"
     },

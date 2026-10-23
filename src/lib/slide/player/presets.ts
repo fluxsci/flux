@@ -13,10 +13,12 @@
 import { inDefs, paintOf, GEO_TAGS } from "../strokeGeometry";
 import { readPaint, parseStyleAttr } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
-import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf, legacyRotationOf } from "../presetCatalog";
+import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf, legacyRotationOf, type PointParam } from "../presetCatalog";
 import { partDomId } from "../../plot/parse";
-import { barGrow, isManifestBar } from "../growOrigin";
+import { barGrow, isManifestBar, growOrigin, pulsePeak, isCompass, compassOrigin, type StagePoint } from "../growOrigin";
+import { rotatedAABB } from "../../geometry";
 import type { FluxPlotManifest } from "../../plot/types";
+import type { Element as SceneElement } from "../../types";
 import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, type TrimSpec } from "./trim";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
@@ -29,6 +31,16 @@ export interface PresetCtx {
   cameraFrom?: CameraPose;
   /** The target's plot manifest (bar orientation and sign for growBaseline). */
   manifest?: FluxPlotManifest;
+  /** The track target's element as the beat starts (`transformPreState`): scaleIn / scaleOut / pulse origins and the pulse's
+   *  stage clamp. Set by the player for those presets. */
+  element?: SceneElement;
+  /** The shared stage point of a `"group"` origin (the union centre of the tracks that start together). */
+  group?: StagePoint;
+  /** The presentation opacity of a node just before the track starts: highlight and dim start FROM it (X7). */
+  priorOpacity?: (node: TargetNode) => number;
+  /** The stage box of ONE plot part: a pulse sizes its peak to the part it swells (a 6-unit marker grows to 1.3x, a bar to 1.12x), not to
+   *  the whole plot it sits in. Set by the player for a live pulse on plot parts. */
+  partBox?: (node: TargetNode) => { x: number; y: number; w: number; h: number } | undefined;
 }
 
 /** One node's animation within a track. `enter` marks an intro (the node is
@@ -69,6 +81,14 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const num = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 const each = (nodes: TargetNode[], fn: (node: TargetNode, index: number) => NodeAnim): NodeAnim[] =>
   nodes.map(fn);
+
+/** The pivot of a scaleIn / scaleOut / pulse on `node`. A plot part (SVG) scales about a point of its OWN fill-box: a compass
+ *  word picks the point, everything else (tail, a stage point, group) falls back to the part's centre. A whole element
+ *  (the HTML effects layer) takes the full vocabulary through `growOrigin`, in the element's unrotated local frame. */
+function growPivot(node: TargetNode, word: string | PointParam | null, ctx: PresetCtx, count: number): string {
+  if (node.namespaceURI === SVG_NS) return isCompass(word) ? compassOrigin(word) : "50% 50%";
+  return growOrigin(word ?? undefined, count === 1 ? ctx.element : undefined, ctx.group);
+}
 
 /** [hidden, shown] clip-path insets for a writeOn/wipeOut direction. The
  *  non-animating edges use a NEGATIVE margin: any clip-path clips the border
@@ -463,6 +483,17 @@ export const PRESETS: Record<string, Preset> = {
     });
   },
 
+  // scaleIn — manim's GrowFromCenter / GrowFromPoint / GrowArrow / SpinInFromNothing: scale(0) -> scale(1) about an origin,
+  // NEVER an opacity channel (a shape grows, it does not fade). params.from: a compass word (center, n..nw) | "tail" | "auto"
+  // (the default: an arrow's tail, everything else its centre) | "group" (the centre of the scaleIn tracks that start together) |
+  // {x, y} (a stage point). params.spin (degrees; schema only, no UI): the node also unwinds from -spin to 0 (manim's
+  // spiral_path). A plot part takes a compass word (a point of its own fill-box); the other forms fall back to its centre.
+  scaleIn: (nodes, t, ctx) => {
+    const spin = presetParam(t, "spin", "scaleIn"), from = presetParam<string | PointParam>(t, "from", "scaleIn");
+    const start = spin ? `scale(0) rotate(${-spin}deg)` : "scale(0)", end = spin ? "scale(1) rotate(0deg)" : "scale(1)";
+    return each(nodes, (node, index) => ({ node, index, enter: true, origin: growPivot(node, from, ctx, nodes.length), keyframes: [{ transform: start }, { transform: end }] }));
+  },
+
   // Tier-2: directional reveal via a clip-path inset (math / axis labels /
   // text). params.direction: ltr (default) | rtl | ttb | btt. The sweep is fitted
   // to the INK: hidden exactly at the first ink, covering the last ink at
@@ -491,6 +522,14 @@ export const PRESETS: Record<string, Preset> = {
     }));
   },
 
+  // scaleOut — scaleIn run backwards (manim ShrinkToCenter): scale(1) -> scale(0) about params.to (the scaleIn.from vocabulary),
+  // no opacity channel. An exit: the node rests at scale(0) (not rendered) and the compiled presentation hides it.
+  scaleOut: (nodes, t, ctx) => {
+    const spin = presetParam(t, "spin", "scaleOut"), to = presetParam<string | PointParam>(t, "to", "scaleOut");
+    const start = spin ? "scale(1) rotate(0deg)" : "scale(1)", end = spin ? `scale(0) rotate(${spin}deg)` : "scale(0)";
+    return each(nodes, (node, index) => ({ node, index, enter: false, origin: growPivot(node, to, ctx, nodes.length), keyframes: [{ transform: start }, { transform: end }] }));
+  },
+
   // Tier-2: writeOn's mirror — a directional wipe via clip-path, ink-fitted.
   wipeOut: (nodes, t) => nodes.flatMap((node, index): NodeAnim[] => {
     const dir = presetParam<string>(t, "direction", "wipeOut");
@@ -511,10 +550,12 @@ export const PRESETS: Record<string, Preset> = {
     }));
   },
 
+  // scale / rotate pivot about the node's own centre (a part's fill-box centre): the origin persists at rest, where the
+  // transform persists, so an SVG part never turns about the view-box corner.
   scale: (nodes, t) => {
     const s = legacyScaleOf(t);
     return each(nodes, (node, index) => ({
-      node, index, enter: false,
+      node, index, enter: false, origin: "50% 50%",
       keyframes: [{ transform: "scale(1)" }, { transform: `scale(${s})` }],
     }));
   },
@@ -522,20 +563,57 @@ export const PRESETS: Record<string, Preset> = {
   rotate: (nodes, t) => {
     const deg = legacyRotationOf(t);
     return each(nodes, (node, index) => ({
-      node, index, enter: false,
+      node, index, enter: false, origin: "50% 50%",
       keyframes: [{ transform: "rotate(0deg)" }, { transform: `rotate(${deg}deg)` }],
     }));
   },
 
-  highlight: (nodes, t) => {
-    const level = presetParam(t, "level", "highlight");
-    return each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: level }, { opacity: 1 }] }));
+  // highlight — the dip-and-recover wink, started FROM the node's presentation opacity (a dimmed node climbs from its dim
+  // level instead of jumping). `lead` is the share of eased progress spent easing into the dip: 0 (every saved track) is the
+  // historical jump, bit-exact; new tracks author 0.25. Same formula as compile.sample (`highlightOpacityAt`).
+  highlight: (nodes, t, ctx) => {
+    const level = presetParam(t, "level", "highlight"), lead = presetParam(t, "lead", "highlight");
+    return each(nodes, (node, index) => {
+      if (!(lead > 0)) return { node, index, enter: false, keyframes: [{ opacity: level }, { opacity: 1 }] };
+      const prior = Math.max(0, Math.min(1, ctx.priorOpacity?.(node) ?? 1));
+      return { node, index, enter: false, keyframes: [{ opacity: prior }, { opacity: Math.min(prior, level), offset: lead }, { opacity: 1 }] };
+    });
   },
 
-  dim: (nodes, t) => {
+  // dim starts FROM the node's presentation opacity too (X7) and ends at `level`: [prior, level] (prior 1 = the legacy [1, level]).
+  dim: (nodes, t, ctx) => {
     const level = presetParam(t, "level", "dim");
-    return each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: level }] }));
+    return each(nodes, (node, index) => {
+      const prior = Math.max(0, Math.min(1, ctx.priorOpacity?.(node) ?? 1));
+      return { node, index, enter: false, keyframes: [{ opacity: prior }, { opacity: level }] };
+    });
   },
+
+  // pulse — manim's Indicate: scale(1) -> scale(k) -> scale(1), the track's own easing applied to the triangle wave
+  // there_and_back(u) = ease(1 - |2u - 1|). With the default `smooth` that is manimgl's `there_and_back` exactly (gated to 1e-12).
+  // Token-free: `sample` is a pure function of raw progress, so forward / reverse / shuffled seeks, video and the HTML player agree.
+  // The keyframes still declare the flight kind (scale = paints in place) and the rest pose (scale(1): nothing left behind).
+  // k is size-aware and stage-clamped (`pulsePeak`); params.about: "group" | a stage point moves the pivot of a whole element.
+  pulse: (nodes, t, ctx) => {
+    const about = presetParam<string | PointParam | null>(t, "about", "pulse"), authored = presetParam<number | null>(t, "scale", "pulse");
+    const point: StagePoint | undefined = about === "group" ? ctx.group : about && typeof about === "object" ? about : undefined;
+    const whole = ctx.element ? rotatedAABB(ctx.element) : undefined;
+    return each(nodes, (node, index) => {
+      // a plot part swells about its OWN fill-box centre and is sized by its own box; a whole element about `about` (default its centre)
+      const part = node.namespaceURI === SVG_NS;
+      const k = pulsePeak(authored, part ? ctx.partBox?.(node) ?? whole : whole, ctx.stage, part ? undefined : point);
+      return {
+        node, index, enter: false,
+        origin: point ? growPivot(node, point, ctx, nodes.length) : "50% 50%",
+        keyframes: [{ transform: "scale(1)" }, { transform: `scale(${k})`, offset: 0.5 }, { transform: "scale(1)" }],
+        sample: (raw, ease) => ({ transform: `scale(${1 + (k - 1) * ease(1 - Math.abs(2 * raw - 1))})` }),
+      };
+    });
+  },
+
+  // encircle is a synthetic overlay: the player builds its MorphController in the flight layer (player/overlay.ts), so the
+  // preset itself animates no node.
+  encircle: () => [],
 
   // --- the stage camera (target = the camera layer) ------------------------
   camera: (nodes, t, ctx) => {

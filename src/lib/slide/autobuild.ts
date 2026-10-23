@@ -310,6 +310,9 @@ export interface AutoPace {
   pointLag: number | null;
   /** classic: cap on the SPREAD (first-to-last start); v2: cap on the whole group (first start to last end) */
   pointCap: number;
+  /** the CHILD preset of a staggered point (marker / cell) group of `n` parts: classic and V2-beyond-the-cap fade, V2 grows
+   *  small groups in (`V2_STAGGER_CHILD`, manim GrowFromCenter: a marker scales, it does not fade) */
+  pointChild: (n: number) => PresetName;
   /** bars of one series enter one after another (child growBaseline) at this ratio; null = together, unless the plot authors `stagger-in` */
   barLag: number | null;
   barCap: number;
@@ -324,8 +327,13 @@ export interface AutoPace {
 /** The catalog's authored window for a preset (0 when the preset has none). One helper, no copied table. */
 const catalogFloor = (preset: PresetName): number => presetDef(preset).autoBuildDurationMs ?? 0;
 
+/** The child of a V2 point build (WP 2.2; T8's marker child uses it too). Up to `V2_STAGGER_CHILD_MAX` parts a marker grows in about its own
+ *  centre; a denser cloud keeps the cheaper fade (hundreds of simultaneous transforms are not worth it). */
+export const V2_STAGGER_CHILD: PresetName = "scaleIn";
+export const V2_STAGGER_CHILD_MAX = 150;
+
 export const CLASSIC_PACE: AutoPace = {
-  id: "classic", unit: 400, floor: () => 0,
+  id: "classic", unit: 400, floor: () => 0, pointChild: () => "fade",
   scaffold: {
     spineMs: null,
     frameSpine: { preset: "drawOn", ms: null, startMs: 80 },
@@ -339,6 +347,7 @@ export const CLASSIC_PACE: AutoPace = {
 };
 export const V2_PACE: AutoPace = {
   id: "v2", unit: SCAFFOLD_MS, floor: catalogFloor,
+  pointChild: n => n <= V2_STAGGER_CHILD_MAX ? V2_STAGGER_CHILD : "fade",
   scaffold: {
     spineMs: SCAFFOLD_SPINE_MS,
     frameSpine: { preset: "fade", ms: SCAFFOLD_FRAME_SPINE_MS, startMs: SCAFFOLD_FRAME_SPINE_START_MS },
@@ -398,6 +407,9 @@ function groupStagger(pace: AutoPace, n: number, window: number, perMsHint: numb
 const COMPOSITE = ["box", "whisker", "cap", "median", "mean", "flier"];
 const isSecondary = (role: string) => /^(errorbar|whisker|cap|median|mean|flier|segment)(-\d+)?$/.test(role);
 const win = (pt: PlanTrack, pace: AutoPace) => Math.max(pt.durationMs, pace.floor(pt.preset));
+/** The window of a staggered point group: the floor of the CHILD it plays (scaleIn 500, X1c), not of the `stagger` host (600, which
+ *  is the fade child's). */
+const pointWin = (pt: PlanTrack, pace: AutoPace) => Math.max(pt.durationMs, pace.floor(pace.pointChild(pt.nLeaves) === "fade" ? pt.preset : pace.pointChild(pt.nLeaves)));
 /** A frame spine is the top/right one; the primary spines (bottom/left, or the pre-0.3.2 bare `axis.<x|y>.spine`) are the axes. */
 const isFrameSpine = (pt: PlanTrack) => pt.role === "spine" && /\.(top|right)$/.test(pt.part);
 // Both axes lag `from: "start"`: fluxplot's tick/label/gridline nodes carry no data-x / data-y, so the ranks follow DOM
@@ -451,7 +463,7 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
     if (ph === 2) {
       const pointTracks = tracks.filter(t => t.preset === "stagger" && t.role !== "bar"); // points, hexagons, any authored stagger group
       const pointsPt = pointTracks[0]; // the line, area and annotations anchor to the FIRST series' group
-      const pointFit = new Map(pointTracks.map(pt => [pt, groupStagger(pace, pt.nLeaves, win(pt, pace), pt.staggerMs ?? 40, staggerAxis(pt.staggerBy))] as const));
+      const pointFit = new Map(pointTracks.map(pt => [pt, groupStagger(pace, pt.nLeaves, pointWin(pt, pace), pt.staggerMs ?? 40, staggerAxis(pt.staggerBy))] as const));
       const pointsFit = pointsPt ? pointFit.get(pointsPt) : undefined;
       const barsPt = tracks.find(t => t.role === "bar" && (t.preset === "growBaseline" || t.preset === "stagger"));
       const barsWin = barsPt ? win({ ...barsPt, preset: "growBaseline" }, pace) : 0;
@@ -492,12 +504,12 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
       for (const pt of tracks) {
         const fit = pointFit.get(pt);
         if (fit) {
-          out.push(mk(pt, { duration: fit.duration, stagger: fit.stagger, params: { child: "fade" } })); // child -> "scaleIn" once WP 2.2 lands it
+          out.push(mk(pt, { duration: fit.duration, stagger: fit.stagger, params: { child: pace.pointChild(pt.nLeaves) } }));
         } else if (pt === barsPt) {
           out.push(barsFit ? mk(pt, { preset: "stagger", duration: barsFit.duration, stagger: barsFit.stagger, params: { child: "growBaseline" } }) : mk(pt, { preset: "growBaseline", duration: barsWin }));
         } else if (isSecondary(pt.role) && (barsPt || pointsPt)) {
           // secondary marks (error bars, whiskers, caps...) enter as their primary is half done and share its pacing
-          const tr = mk(pt, { start: 0, anchor: { trackId: idOf((barsPt ?? pointsPt)!), edge: "start", offsetMs: Math.round(0.5 * (barsPt ? barsWin : win(pointsPt!, pace))) } });
+          const tr = mk(pt, { start: 0, anchor: { trackId: idOf((barsPt ?? pointsPt)!), edge: "start", offsetMs: Math.round(0.5 * (barsPt ? barsWin : pointWin(pointsPt!, pace))) } });
           if (pt.nLeaves > 1 && barsFit) Object.assign(tr, { duration: barsFit.duration, stagger: barsFit.stagger });
           out.push(tr);
         } else if (pt.preset === "drawOn") {
@@ -551,7 +563,9 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
   const preset = presetForRole(role, anim);
   const cfg = presets[role] ?? presets[highLevelKey(role)];
   const pace = options.pace ?? DEFAULT_PACE;
-  const window = Math.max(cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, pace.floor(preset));
+  // a staggered point group plays its CHILD (V2: scaleIn for a small group), so the child's floor sets the window
+  const nParts = node?.targets.length ?? 1, child = preset === "stagger" ? pace.pointChild(nParts) : undefined;
+  const window = Math.max(cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, pace.floor(child && child !== "fade" ? child : preset));
   // a primary spine's draw is the scaffold's fixed constant (V2), exempt from the floor and the length scaling
   const penMs = role === "spine" && pace.scaffold.spineMs !== null ? pace.scaffold.spineMs : drawDuration(options.lengths?.[part], window, pace);
   const track: Track = { id: newId("track"), target: elId, part, preset, duration: preset === "drawOn" ? penMs : window, start: cfg?.delayMs ?? 0 };
@@ -562,9 +576,9 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
     track.preset = fs.preset; track.duration = fs.ms ?? penMs; track.start = fs.startMs;
   }
   if (preset === "stagger") {
-    const fit = groupStagger(pace, node?.targets.length ?? 1, window, cfg?.staggerMs ?? 40, staggerAxis(cfg?.staggerBy));
+    const fit = groupStagger(pace, nParts, window, cfg?.staggerMs ?? 40, staggerAxis(cfg?.staggerBy));
     track.duration = fit.duration; track.stagger = fit.stagger;
-    track.params = { child: "fade" };
+    track.params = { child: pace.pointChild(nParts) };
   }
   return withPaceFields(track, pace);
 }
@@ -597,15 +611,31 @@ export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, man
 // Non-plot elements — the same one-click "animate this" for text/shapes/media
 // ---------------------------------------------------------------------------
 
-// per-kind enter defaults: what each element kind naturally does when it
-// appears. The union is the FIGURE element union (slides-are-figures): shapes
-// render as inline SVG geometry, so line/path self-draw and rect/ellipse pop.
-const ELEMENT_ENTER: Record<string, PresetName> = {
-  text: "fadeRise", image: "fade", rect: "popIn", ellipse: "popIn", line: "drawOn", path: "drawOn", plot: "fade",
-};
-// per-kind exit defaults — the mirror family. Durations, curve and params are the catalog's authored pace
-// (`authoredFields`, X1a); only the preset CHOICE per kind lives here.
-const ELEMENT_EXIT: Record<string, PresetName> = { line: "drawOff", path: "drawOff", rect: "popOut", ellipse: "popOut" };
+// What each element kind naturally does when it appears (Q3a, manim's vocabulary: a shape GROWS, it does not fade). The union is
+// the FIGURE element union (slides-are-figures): shapes render as inline SVG geometry. ONE function per direction, taking the
+// ELEMENT (an arrow is a line with a head: `el.arrowStart` / `el.arrowEnd`, X1b). Durations, curve and params are the catalog's
+// authored pace (`authoredFields`, X1a); only the preset CHOICE per kind lives here.
+const isArrow = (el: Pick<Element, "type">): boolean => el.type === "line" && !!((el as { arrowStart?: boolean }).arrowStart || (el as { arrowEnd?: boolean }).arrowEnd);
+/** The Appear default of an element: rect / ellipse / arrow scaleIn (an arrow grows from its tail: `from` "auto"), a plain line or path
+ *  draws on, text / image / plot rise in (`fadeRise`, y 24 authored), anything else fades. */
+export function elementEnterPreset(el: Pick<Element, "type">): PresetName {
+  switch (el.type) {
+    case "text": case "image": case "plot": return "fadeRise";
+    case "rect": case "ellipse": return "scaleIn";
+    case "line": return isArrow(el) ? "scaleIn" : "drawOn";
+    case "path": return "drawOn";
+    default: return "fade";
+  }
+}
+/** The Disappear default: the mirror family (scaleOut for shapes and arrows, drawOff for a plain line or path, fadeOut otherwise). */
+export function elementExitPreset(el: Pick<Element, "type">): PresetName {
+  switch (el.type) {
+    case "rect": case "ellipse": return "scaleOut";
+    case "line": return isArrow(el) ? "scaleOut" : "drawOff";
+    case "path": return "drawOff";
+    default: return "fadeOut";
+  }
+}
 
 /** A sensible default Track for a WHOLE element (the analog of `suggestTrack`
  *  for non-plot rows in the animator tree). `exit` flips to the disappear
@@ -625,8 +655,7 @@ export function suggestElementTrack(
       start: 0,
     };
   }
-  const kind = el.type;
-  const preset: PresetName = opts.exit ? ELEMENT_EXIT[kind] ?? "fadeOut" : ELEMENT_ENTER[kind] ?? "fade";
+  const preset: PresetName = opts.exit ? elementExitPreset(el) : elementEnterPreset(el);
   return { id: newId("track"), target: el.id, preset, ...authoredFields(preset), start: 0 };
 }
 

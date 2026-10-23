@@ -25,7 +25,8 @@ import { compileSlideFor, evaluateSlide, type EvaluatedSlide } from "../embedRen
 import type { ExportPayload } from "../payload";
 import { familyOf } from "../family";
 import { cueEnd } from "../video";
-import { presetParam } from "../presetCatalog";
+import { presetParam, presetDef, type PointParam } from "../presetCatalog";
+import { growStage, groupPoint, type GrowElement } from "../growOrigin";
 import { scaleRemap } from "../../editing";
 import type { Element } from "../../types";
 import { DUR } from "../../motion/tokens";
@@ -47,7 +48,9 @@ export interface PptxPage {
   stills?: Map<string, { element: Element; partStates?: EvaluatedSlide["partStates"][string] }>;
 }
 
-const RISE = new Set(["fadeRise"]), POP_IN = new Set(["popIn"]), POP_OUT = new Set(["popOut"]);
+const RISE = new Set(["fadeRise"]), POP_IN = new Set(["popIn"]), POP_OUT = new Set(["popOut"]), SCALE_IN = new Set(["scaleIn"]), SCALE_OUT = new Set(["scaleOut"]);
+/** The twin of a scaleIn / scaleOut is the shape at this fraction of its size: a zero-size twin would be degenerate in PowerPoint. */
+const SCALE_TWIN = 0.02;
 
 function slideTransition(payload: ExportPayload): PptxTransition {
   const kind = payload.deck.slides[0].transition ?? payload.deck.defaults?.transition ?? "none";
@@ -65,14 +68,16 @@ function uniqueNames(elements: Element[], morph: boolean): Map<string, string> {
   }));
 }
 
-/** An element scaled about its centre by `f` (a pop's start or end pose). */
-function scaledAboutCentre(el: Element, f: number): Element {
+/** An element scaled by `f` about a stage point (default its centre): a pop's / scaleIn's start or end pose. */
+function scaledAbout(el: Element, f: number, about?: { x: number; y: number }): Element {
   const out = structuredClone(el);
   const ob = { x: el.x, y: el.y, w: el.width, h: el.height };
-  const nb = { x: el.x + el.width * (1 - f) / 2, y: el.y + el.height * (1 - f) / 2, w: el.width * f, h: el.height * f };
+  const ax = about?.x ?? el.x + el.width / 2, ay = about?.y ?? el.y + el.height / 2;
+  const nb = { x: ax + (el.x - ax) * f, y: ay + (el.y - ay) * f, w: el.width * f, h: el.height * f };
   scaleRemap(out, el, ob, nb);
   return out;
 }
+const scaledAboutCentre = (el: Element, f: number): Element => scaledAbout(el, f);
 
 /** One click (or automatic step): beats `from..to` play together. */
 interface Run { from: number; to: number; auto: boolean; autoDelayMs: number }
@@ -90,7 +95,7 @@ function runsOf(payload: ExportPayload): Run[] {
  *  together; a later, disjoint span is a phase of its own. */
 function phasesOf(compiled: CompiledSlide, run: Run) {
   const spans = compiled.cues.slice(run.from, run.to + 1).flatMap((c) => c.tracks)
-    .filter((ct) => familyOf(ct.track) !== "media")
+    .filter((ct) => familyOf(ct.track) !== "media" && !presetDef(ct.track.preset).ephemeral) // pulse / encircle leave no resting trace: no phase
     .map((ct) => ({ start: ct.start, end: ct.end, ct }))
     .sort((a, b) => a.start - b.start);
   const phases: { start: number; end: number; tracks: typeof spans }[] = [];
@@ -131,6 +136,9 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
   const pages: PptxPage[] = [{ ev: at(0), enter: slideTransition(payload), names, label: title }];
   let step = 0;
   for (const run of runs) {
+    // A click that only pulses / circles (ephemeral effects) changes nothing a page could show: no page, no step.
+    const runTracks = compiled.cues.slice(run.from, run.to + 1).flatMap((c) => c.tracks).filter((ct) => familyOf(ct.track) !== "media");
+    if (runTracks.length && runTracks.every((ct) => presetDef(ct.track.preset).ephemeral) && !compiled.handoffs.some((h) => h.beat >= run.from && h.beat <= run.to)) continue;
     const phases = phasesOf(compiled, run);
     // Which beat of the run moves each target: its state at a phase's end is
     // that beat sampled at that time (earlier beats of the chain count as
@@ -169,6 +177,17 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
   return pages;
 }
 
+/** The `"group"` origin of a scaleIn / scaleOut track: the centre of the whole-element tracks of the same preset that start with it
+ *  (the player's rule), measured on the page where the shapes are visible (`page`). undefined for any other origin word. */
+function groupOf(tracks: CompiledSlide["cues"][number]["tracks"], ct: CompiledSlide["cues"][number]["tracks"][number], preset: "scaleIn" | "scaleOut", page: PptxPage): { x: number; y: number } | undefined {
+  const word = (t: CompiledSlide["cues"][number]["tracks"][number]["track"]) => presetParam<string | PointParam>(t, preset === "scaleIn" ? "from" : "to", preset);
+  if (word(ct.track) !== "group") return undefined;
+  const together = tracks.filter((o) => o.track.preset === preset && !o.track.part && !o.track.selector && word(o.track) === "group" && Math.abs(o.start - ct.start) < 0.5);
+  return together.length > 1
+    ? groupPoint(together.flatMap((o) => { const e = page.ev.elements.find((x) => x.id === o.track.target); return e ? [e as unknown as GrowElement] : []; }))
+    : undefined;
+}
+
 /** Invisible twins for the entrances and exits Morph would otherwise only
  *  fade: the rising/popping object starts, on the page before, at its offset
  *  or scaled pose at zero opacity (and a popping exit ends so on its page). */
@@ -193,6 +212,16 @@ function twins(before: PptxPage, after: PptxPage, tracks: CompiledSlide["cues"][
         ? { ...structuredClone(end), y: end.y + presetParam(ct.track, "y", "fadeRise") }
         : scaledAboutCentre(end, presetParam(ct.track, "from", "popIn"));
       place(before, { ...twin, hidden: false, opacity: 0 } as Element, POP_IN.has(preset) ? end : undefined, after);
+    } else if (entering && SCALE_IN.has(preset)) {
+      // scaleIn = scale 0 -> 1 about the origin, no fade: Morph tweens the invisible twin (SCALE_TWIN at the origin, spun back by
+      // params.spin) up to the shape.
+      const end = shown(after.ev, id)!, spin = presetParam(ct.track, "spin", "scaleIn"), from = presetParam<string | PointParam>(ct.track, "from", "scaleIn");
+      const twin = scaledAbout(end, SCALE_TWIN, growStage(from, end as unknown as GrowElement, groupOf(tracks, ct, "scaleIn", after)));
+      place(before, { ...twin, rotation: ((twin as { rotation?: number }).rotation ?? 0) - spin, hidden: false, opacity: 0 } as Element, undefined, after);
+    } else if (leaving && SCALE_OUT.has(preset)) {
+      const start = shown(before.ev, id)!, spin = presetParam(ct.track, "spin", "scaleOut"), to = presetParam<string | PointParam>(ct.track, "to", "scaleOut");
+      const twin = scaledAbout(start, SCALE_TWIN, growStage(to, start as unknown as GrowElement, groupOf(tracks, ct, "scaleOut", before)));
+      place(after, { ...twin, rotation: ((twin as { rotation?: number }).rotation ?? 0) + spin, hidden: false, opacity: 0 } as Element, undefined, before);
     } else if (leaving && POP_OUT.has(preset)) {
       const start = shown(before.ev, id)!;
       place(after, { ...scaledAboutCentre(start, presetParam(ct.track, "to", "popOut")), hidden: false, opacity: 0 } as Element, start, before);
