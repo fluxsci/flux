@@ -399,6 +399,7 @@
       "verify-slide-model3d-parts-browser.ts",
       "verify-slide-model3d-scale.ts",
       "verify-text-match.ts",
+      "verify-text-lanes.ts",
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
       "verify-become-picker.ts",
@@ -953,6 +954,7 @@
       "verify-draw.ts",
       "verify-slide-draw-browser.ts",
       "verify-text-match.ts",
+      "verify-text-lanes.ts",
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
       "verify-become-picker.ts",
@@ -1303,6 +1305,7 @@
     ],
     "text-morph": [
       "verify-text-match.ts",
+      "verify-text-lanes.ts",
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
       "verify-slide-tween.ts",
@@ -1693,8 +1696,8 @@
       ]
     },
     {
-      "$why": "2026-10-02 glyph-matched text morph (oct2 W3): textMatch.ts is the pure matcher/plan/timeline core, player/textMorph.ts its browser driver inside the transform driver and the hand-off player; keep the broader slide-player regression groups (pathMap is first-match).",
-      "glob": "{src/lib/slide/textMatch.ts,src/lib/slide/player/textMorph.ts}",
+      "$why": "2026-10-02 glyph-matched text morph (oct2 W3): textMatch.ts is the pure matcher/plan/timeline core, player/textMorph.ts its browser driver inside the transform driver and the hand-off player; keep the broader slide-player regression groups (pathMap is first-match). 2026-10-23 WP 2.5: lanes.ts (glide lanes, neutral pure module) rides the same rule.",
+      "glob": "{src/lib/slide/textMatch.ts,src/lib/slide/lanes.ts,src/lib/slide/player/textMorph.ts}",
       "run": [
         "group:text-morph",
         "verify-transform-gui.mjs",
@@ -10352,6 +10355,15 @@
       "coverage": "behavior"
     },
     "verify-text-match.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-text-lanes.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

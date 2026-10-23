@@ -339,6 +339,42 @@ try {
   }, deltaSetup);
   ok(afterClear && Object.keys(afterClear).length === 0, "clear t₂ resets the patch (t₂ ≡ t₁)");
 
+  // --- WP 2.5: the text-rewrite look (Letters travel / Fade style) ------------------------------------------------
+  const lookSetup = await page.evaluate(() => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    let tid = "", shape = "";
+    f.slide.commitDeckLive((d) => {
+      const b = f.slideOps.slideById(d, sid).beats[1];
+      f.slideOps.addElement(d, sid, { type: "text", id: "anim-txt", name: "Words", x: 100, y: 300, width: 300, height: 40, rotation: 0, text: "the morse code", fontFamily: "Arial", fontSize: 28, fontWeight: 400, fontStyle: "normal", align: "left", color: "#222222", sizing: "auto" });
+      tid = f.slideOps.setTransform(d, sid, b.id, "anim-txt", { state: { text: "here come dots" } })?.id ?? "";
+      shape = f.slideOps.setTransform(d, sid, b.id, "anim-ell", { state: { x: 520 } })?.id ?? "";
+    });
+    f.slide.selTrackIds.set([shape]);
+    return { tid, shape };
+  });
+  await sleep(250);
+  ok(!(await page.$('.props [aria-label="Text rewrite look"]')), "a transform of a shape shows no text-look controls");
+  await page.evaluate((tid) => window.__flux.slide.selTrackIds.set([tid]), lookSetup.tid);
+  await sleep(250);
+  const lookState = () => page.evaluate((tid) => {
+    const f = window.__flux;
+    const sid = f.get(f.fig.activeFigureId);
+    const o = f.get(f.slide.deckOverlay);
+    const t = o.slides.find((x) => x.id === sid).beats.flatMap((b) => b.tracks).find((x) => x.id === tid);
+    const pressed = (label) => [...document.querySelectorAll(`.props [aria-label="${label}"] .sg`)].filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent.trim());
+    return { params: t?.params, letters: pressed("Letters travel"), fade: pressed("Text fade style"), shown: !!document.querySelector('.props [aria-label="Text rewrite look"]') };
+  }, lookSetup.tid);
+  const clickLook = (label, text) => page.evaluate(({ label, text }) => { [...document.querySelectorAll(`.props [aria-label="${label}"] .sg`)].find((b) => b.textContent.trim() === text)?.click(); }, { label, text });
+  let look = await lookState();
+  ok(look.shown && JSON.stringify(look.params) === JSON.stringify({ fadeStyle: "roll", letters: "travel" }) && look.letters[0] === "Letters travel" && look.fade[0] === "Roll", `a NEW text Change is authored with roll + travel and the controls show them (${JSON.stringify(look.params)})`);
+  await clickLook("Letters travel", "Fade"); await sleep(200); look = await lookState();
+  ok(JSON.stringify(look.params) === JSON.stringify({ fadeStyle: "roll" }) && look.letters[0] === "Fade", "Letters: Fade deletes the key (the playback default)");
+  await clickLook("Text fade style", "Drift"); await sleep(200); look = await lookState();
+  ok(look.params === undefined && look.fade[0] === "Drift", "Fade style: Drift deletes the key; no params left");
+  await clickLook("Letters travel", "Letters travel"); await clickLook("Text fade style", "Roll"); await sleep(250); look = await lookState();
+  ok(JSON.stringify(look.params) === JSON.stringify({ letters: "travel", fadeStyle: "roll" }) || JSON.stringify(look.params) === JSON.stringify({ fadeStyle: "roll", letters: "travel" }), "the toggles write travel + roll back");
+
   // --- Phase-5: preset save → library apply -------------------------------------
   await page.evaluate(() => {
     const f = window.__flux;

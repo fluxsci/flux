@@ -151,6 +151,11 @@ for (const [file, expected] of actualCases) {
 for (const file of ["src/lib/slide/player/rasterKeeper.ts", "src/lib/slide/player/player.ts", "src/lib/slide/player/render.ts", "src/lib/slide/camera.ts", "src/lib/slide/export/videoRuntime.ts", "electron/slideVideoWorker.cjs", "scripts/lib/slideRasterDecks.ts"]) {
   equal(resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest).scripts.includes("verify-slide-raster-electron.cjs"), true, `${file} routes the offscreen raster gate`);
 }
+// WP 2.5: the glide-lane planner, the text matcher and the text driver all select the pure lane gate and the real-player text gate.
+for (const file of ["src/lib/slide/lanes.ts", "src/lib/slide/textMatch.ts", "src/lib/slide/player/textMorph.ts"]) {
+  const scripts = resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest).scripts;
+  equal(["verify-text-lanes.ts", "verify-text-match.ts", "verify-text-morph-browser.ts"].every((g) => scripts.includes(g)), true, `${file} routes the text-lane, text-match and text-morph gates`);
+}
 
 // lane J: the settle gates guard the files that decide how a step starts and lands
 for (const file of ["src/lib/slide/player/player.ts", "src/lib/slide/player/render.ts", "src/lib/slide/player/rasterKeeper.ts", "src/lib/slide/player/presets.ts", "src/lib/slide/player/trim.ts", "src/lib/slide/player/transform.ts", "src/lib/slide/player/handoff.ts"]) {

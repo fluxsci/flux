@@ -40,6 +40,8 @@ const FROZEN: Record<string, Record<string, unknown>> = {
   // WP 2.2: the fade-free vocabulary. Their defaults are the playback fallbacks of a track that omits the key (authoring writes none of them).
   scaleIn: { from: "auto", spin: 0 }, scaleOut: { to: "auto", spin: 0 }, pulse: { scale: null, about: null },
   encircle: { gap: 6, radius: 6, width: 3.5, window: 0.3, color: null },
+  // WP 2.5: the text-rewrite look. An absent key plays the classic look (drift fades, letters fade): old decks play as made.
+  transform: { fadeStyle: "drift", letters: "fade" },
 };
 h.eq(Object.keys(PRESET_PARAMS).sort(), Object.keys(PRESET_CATALOG).sort(), "one row per catalog preset (a new preset forces its row)");
 for (const [preset, keys] of Object.entries(FROZEN)) {
@@ -63,7 +65,7 @@ h.section("2. the census: the engines (presets, player, compile, pptx) read para
 const CALL = /presetParam(?:<[^>]*>)?\(\s*[^,()]+,\s*"(\w+)"\s*,\s*(?:"(\w+)"|(preset))\s*\)/g;
 const owners = (literal: string | undefined, variable: string | undefined): string[] => literal ? [literal] : variable ? ["drawOn", "drawOff"] : [];
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
-for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/encircleGeometry.ts"]) {
+for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts"]) {
   const src = strip(readFileSync(file, "utf8"));
   const direct = [...src.matchAll(/\bparams\??\.\w+/g)].map((m) => m[0]);
   h.eq(direct, [], `${file}: no direct params.<key> read`);
@@ -74,7 +76,7 @@ for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/pla
 {
   // every table key a compiler reads is read through the table: the keys the three files name == the table's keys (minus countUp's, read by countup.ts)
   const named = new Set<string>();
-  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/encircleGeometry.ts"]) {
+  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/encircleGeometry.ts", "src/lib/slide/timing.ts"]) {
     for (const m of strip(readFileSync(file, "utf8")).matchAll(CALL)) for (const p of owners(m[2], m[3])) named.add(`${p}.${m[1]}`);
   }
   const declared = Object.entries(PRESET_PARAMS).filter(([p]) => p !== "countUp").flatMap(([p, row]) => Object.keys(row).map((k) => `${p}.${k}`));
@@ -98,6 +100,10 @@ h.eq(presetParam(T("writeOn", { direction: "rtl" }), "direction", "writeOn"), "r
 h.eq(presetParam(T("drawOn", { anchor: 0.5 }), "anchor", "drawOn"), 0.5, "trim anchor accepts a number");
 h.eq(presetParam(T("drawOn", { anchor: "middle" }), "anchor", "drawOn"), "middle", "trim anchor accepts a name");
 h.eq(presetParam(T("drawOn", { anchor: {} }), "anchor", "drawOn"), "start", "trim anchor of another type -> start");
+h.eq([presetParam(T("transform"), "letters", "transform"), presetParam(T("transform"), "fadeStyle", "transform")], ["fade", "drift"], "text look: absent -> the classic look (fade letters, drift fades)");
+h.eq([presetParam(T("transform", { letters: "travel", fadeStyle: "roll" }), "letters", "transform"), presetParam(T("transform", { letters: "travel", fadeStyle: "roll" }), "fadeStyle", "transform")], ["travel", "roll"], "text look: authored values read through the table");
+h.eq(presetParam(T("transform", { letters: 3 }), "letters", "transform"), "fade", "text look: a malformed value -> the default");
+h.eq([paramDiagnostics(T("transform", { letters: "travel", fadeStyle: "roll" })), paramDiagnostics(T("transform", { wobble: 1 })).length], [[], 1], "text look keys are known; a stray transform key is still reported");
 h.eq(presetParam(T("highlight", { level: 2 }), "level", "highlight"), 1, "highlight.level clamps to 1");
 h.eq(presetParam(T("highlight", { level: -1 }), "level", "highlight"), 0, "highlight.level clamps to 0");
 h.eq(presetParam(T("dim", { level: 0.5 }), "level", "dim"), 0.5, "dim.level authored in range");

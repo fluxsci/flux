@@ -26,7 +26,7 @@ import { resolveTrack, resolveTrackRaw, resolveStart, ANIM_STYLE_FIELDS, INHERIT
 import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
-import { defaultEasingFor, defaultTimingFor, isExitPreset } from "./presetCatalog";
+import { authoredFields, defaultEasingFor, defaultTimingFor, isExitPreset, rewritesText } from "./presetCatalog";
 import { AUTO_DELAY_AUTHORED_MS } from "./timing";
 import { EASING_TOKENS } from "./curves";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
@@ -1088,8 +1088,11 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     delete copy.groupId; delete copy.locked;
     delete (copy as unknown as Record<string, unknown>).panelLabel;
     slide.elements.push(copy);
+    // A text copy that rewrites its text plays the authored text look (X1a), like any new text transform.
+    const authored = authoredFields("transform", undefined, rewritesText(copy));
     const track: Track = { id: newId("track"), target: copy.id, ghostFrom: sourceId, preset: "transform", groupId,
       duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0,
+      ...(authored.params ? { params: authored.params } : {}),
       to: { state: structuredClone(opts.states?.[i] ?? {}) } };
     patchTimingCurve(track, opts);
     beat.tracks.push(track); out.elementIds.push(copy.id); out.trackIds.push(track.id!);
@@ -1233,6 +1236,9 @@ export function setTransform(
     glbPath?: string;
     manifestPath?: string;
     source?: SemanticPlotElement["source"] | Model3dElement["source"] | null;
+    /** A NEW track of a Become: what the target becomes. Omitted for a Change (the element rewrites itself). The authored
+     *  text look is written only when text becomes text (`rewritesText`); an existing track is never touched. */
+    become?: { type: string };
   } & TimingCurvePatch = {},
 ): Track | null {
   if (opts.arc !== undefined && (!Number.isFinite(opts.arc) || opts.arc < -1 || opts.arc > 1)) throw new Error("Arc must be between -1 and 1");
@@ -1242,7 +1248,10 @@ export function setTransform(
   const want = targetKey({ element: targetId, ...(opts.ref?.parts?.length ? { parts: opts.ref.parts } : {}), ...(opts.ref?.selector ? { selector: opts.ref.selector } : {}) });
   let t = b.tracks.find((x) => familyOf(x) === "transform" && trackKey(x) === want);
   if (!t) {
-    t = { id: newId("track"), target: targetId, preset: "transform", ...defaultTimingFor("transform"), to: { state: {} } };
+    // X1a: a transform born on text carries the authored text look (roll fades, letters travel); anything else only timing.
+    const whole = !opts.ref?.parts?.length && !opts.ref?.selector;
+    t = { id: newId("track"), target: targetId, preset: "transform",
+      ...authoredFields("transform", undefined, whole && rewritesText(s!.elements.find(e => e.id === targetId), opts.become)), to: { state: {} } };
     if (opts.ref?.parts?.length) {
       if (opts.ref.parts.length === 1) t.part = opts.ref.parts[0];
       else t.parts = [...opts.ref.parts];
@@ -1398,7 +1407,8 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
       if (handoffTargetsOverlap(destination, compiled.resolveTarget(other.to.become.ref, bi)))
         throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
     }
-    const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...timing })!;
+    // Only a whole object handing off to a whole object is a text morph; a set / part / group destination is not.
+    const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...(isWholeElementRef(ref) ? { become: target } : { become: { type: "set" } }), ...timing })!;
     track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== DEFAULT_TRANSFORM_METHOD ? { method: opts.method } : {}) }, state: {} };
     delete track.disabled;
     return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
@@ -1414,7 +1424,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   const endEl = withGhostIdentity(sourceAt(compiled.resolvedSlide, targetId, bi + 1, evaluated), source);
   const state = diffState(pre, endEl) ?? {};
   const track = setTransform(deck, slideId, beatId, sourceId, {
-    state, replaceState: true, ...timing,
+    state, replaceState: true, become: endEl, ...timing,
   })!;
   delete track.disabled;
   if (endEl.type === "plot" || endEl.type === "image" || endEl.type === "model3d") {

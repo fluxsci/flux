@@ -3,6 +3,9 @@
 // two Deck-3 examples, a font-size change, a text→text hand-off, the unmappable
 // fallback, and (P2) a shape → text Become flying glyph outlines plus the
 // glyph-box fallback.
+// WP 2.5 (R4_T9 §3.1-3.4): glide lanes (crossing words take separate lanes, stage-bounded), the roll fade and the letter
+// bag, all resolved from the track's AUTHORED params (new text transforms carry roll + travel; an old track plays
+// exactly as made: its glides are the straight line + crossArc to 1e-3 px, asserted below through the real DOM).
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +16,7 @@ import { gatherPayload } from "../src/lib/slide/payload";
 import { lookupFont } from "../src/lib/text/fontFiles.mjs";
 import type { Slide } from "../src/lib/slide/types";
 import type { TextElement } from "../src/lib/types";
+import { crossArc as crossArcOf } from "../src/lib/slide/textMatch";
 import { harness } from "./lib/harness.mjs";
 import { launch } from "./lib/driver.mjs";
 
@@ -61,6 +65,38 @@ try {
   const s6 = add("consume"); addElement(deck, s6.id, rect("r", 60, 200));
   change(s6, "r", { type: "text", x: 420, y: 230, width: 300, height: 56, text: "Optics", fontFamily: "Arial", fontSize: 48, fontWeight: 400, fontStyle: "normal", align: "left", color: "#1f3a93", sizing: "auto" });
 
+  // WP 2.5 — lanes, roll, letters. `old(track)` strips the authored look: what a deck made before WP 2.5 stores.
+  const old = (t: { params?: unknown }) => { delete t.params; };
+  // 7 — a 4-word reversal that overprints under today's arcs (new track: roll + travel + lanes).
+  const s7 = add("rev4"); addElement(deck, s7.id, text("t", 100, 200, "alpha beta gamma delta", { fontSize: 44, width: 700, height: 60 }));
+  change(s7, "t", { text: "delta gamma beta alpha" });
+  // 8 — the same reversal on the stage's top edge: no lane may lift ink off the stage.
+  const s8 = add("rev4top"); addElement(deck, s8.id, text("t", 100, 8, "alpha beta gamma delta", { fontSize: 44, width: 700, height: 60 }));
+  change(s8, "t", { text: "delta gamma beta alpha" });
+  // 9 — identity for OLD tracks (params stripped): a pure insert (every word shifts right, a visible crossArc lift) and the owner's Deck-3 Change.
+  const s9 = add("insert"); addElement(deck, s9.id, text("t", 100, 200, "red blue green", { fontSize: 56, width: 700, height: 70 }));
+  old(change(s9, "t", { text: "the red blue green" }));
+  const s10 = add("deck3"); addElement(deck, s10.id, text("t", 100, 200, "Some text to change", { fontSize: 40, width: 700, height: 56 }));
+  old(change(s10, "t", { text: "Subtextual Context" }));
+  // 11 / 12 — an anagram: new track (travel) vs old track (fade).
+  const s11 = add("anagram"); addElement(deck, s11.id, text("t", 100, 200, "the morse code", { fontSize: 56, width: 700, height: 70 }));
+  change(s11, "t", { text: "here come dots" });
+  const s12 = add("anagram-old"); addElement(deck, s12.id, text("t", 100, 200, "the morse code", { fontSize: 56, width: 700, height: 70 }));
+  old(change(s12, "t", { text: "here come dots" }));
+  // 13 / 14 — an in-place word swap: new track (roll) vs old track (drift).
+  const s13 = add("roll"); addElement(deck, s13.id, text("t", 100, 200, "The signal is noisy", { fontSize: 44, width: 700, height: 60 }));
+  change(s13, "t", { text: "The signal is bursty" });
+  const s14 = add("roll-old"); addElement(deck, s14.id, text("t", 100, 200, "The signal is noisy", { fontSize: 44, width: 700, height: 60 }));
+  old(change(s14, "t", { text: "The signal is bursty" }));
+  // 15 — a text -> text hand-off whose destination is a reversal (the hand-off driver plans lanes too).
+  const s15 = add("handoff-rev"); addElement(deck, s15.id, text("a", 100, 150, "alpha beta gamma delta", { fontSize: 44, width: 700, height: 60 }));
+  addElement(deck, s15.id, text("b", 100, 150, "delta gamma beta alpha", { fontSize: 44, width: 700, height: 60 }));
+  change(s15, "a", {}).to!.become = { mode: "handoff", ref: { element: "b" } };
+  // 16 / 17 — a stem edit (the changed letters ride the word's glide): new track (roll) vs old track (drift).
+  const s16 = add("stem"); addElement(deck, s16.id, text("t", 100, 200, "Microscope images", { fontSize: 44, width: 700, height: 60 }));
+  change(s16, "t", { text: "Microscopy images" });
+  const s17 = add("stem-old"); addElement(deck, s17.id, text("t", 100, 200, "Microscope images", { fontSize: 44, width: 700, height: 60 }));
+  old(change(s17, "t", { text: "Microscopy images" }));
   // The real bake (payload.ts) through the shared resolver, as export-deck does.
   const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p) };
   const baked = (await gatherPayload(tmp, deck, { ...io, glyphFont: async (style) => (await lookupFont(style)).bytes })).payload;
@@ -244,6 +280,97 @@ try {
   h.ok(cs.paths >= 6 && cs.layers[1]?.vis === "visible", `consume mid-flight: the element's own morph layer pours the rect into ${cs.paths} letter rings`);
   await seek(6, 1000); cs = await consume();
   h.ok(cs.layers[1]?.vis === "hidden" && cs.layers[2]?.vis === "visible" && cs.width === "300px", `consume at rest: the end text shows in the AUTHORED box (width ${cs.width}, never re-hugged)`);
+
+  // --- 7-15: WP 2.5 — lanes, roll, letters (all from authored params) ----------------------------------------------------------
+  /** Worst frame of summed pairwise ink overlap (stage px^2): visible spans above 35 % opacity, central 60 % of their height; the
+   *  two clones of one crossfading word are not a collision (probes/dom_overlap.mts, the number R4_T9 quotes: 9 015 -> 607). */
+  const worstOverlap = async (slide: number, frames = 54) => {
+    let worst = 0;
+    for (let f = 0; f <= frames; f++) {
+      await seek(slide, (f / frames) * 1000);
+      const rects = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>(".sl-tm-span")).filter((d) => d.style.visibility !== "hidden" && Number(d.style.opacity) > 0.35).map((d) => { const r = d.querySelector("text")!.getBoundingClientRect(); return { s: d.textContent, x: r.x, y: r.y + r.height * 0.2, w: r.width, h: r.height * 0.6 }; }));
+      let area = 0;
+      for (let a = 0; a < rects.length; a++) for (let b = a + 1; b < rects.length; b++) {
+        if (rects[a].s === rects[b].s) continue;
+        const ox = Math.min(rects[a].x + rects[a].w, rects[b].x + rects[b].w) - Math.max(rects[a].x, rects[b].x), oy = Math.min(rects[a].y + rects[a].h, rects[b].y + rects[b].h) - Math.max(rects[a].y, rects[b].y);
+        if (ox > 0 && oy > 0) area += ox * oy;
+      }
+      worst = Math.max(worst, area / (scale * scale));
+    }
+    return Math.round(worst);
+  };
+  // lanes: the reversal no longer overprints (base: crossArc alone, worst frame 6 698 px^2 on this deck)
+  const ov = await worstOverlap(7);
+  h.ok(ov <= 400, `lanes: a 4-word reversal's worst frame overprints ${ov} px^2 (<= 400, measured ~293; today's arcs alone: 6 698 on this deck)`);
+  await seek(7, 500); st = await state();
+  const reversed = st.spans.filter((s) => s.kind === "glide" && s.role === "main");
+  h.eq(reversed.length, 4, "lanes: all four words glide");
+  // seek purity with lanes: forward == reverse == shuffled
+  // a hidden span keeps its last (invisible) style, so only visible spans are compared
+  const frameAt = async (t: number) => { await seek(7, t); return JSON.stringify((await state()).spans.map((s) => s.visible ? [s.m, s.opacity] : null)); };
+  const times = [0, 130, 260, 390, 520, 650, 780, 910, 1000], fwd = [] as string[], rev = [] as string[];
+  for (const t of times) fwd.push(await frameAt(t));
+  for (const t of [...times].reverse()) rev.unshift(await frameAt(t));
+  const order = [4, 1, 8, 0, 6, 3, 7, 2, 5], shuf = [] as string[]; for (const i of order) shuf[i] = await frameAt(times[i]);
+  h.ok(fwd.every((v, i) => v === rev[i] && v === shuf[i]), "lanes: forward == reverse == shuffled seeks, frame for frame (9 times)");
+  // landing: the flying glyphs land exactly on B's own text with lanes + roll + travel authored
+  await seek(7, 999.9); const lf = await spanBox("beta");
+  await seek(7, 1000); const ll = await liveBox("t", "beta");
+  const dl = ll ? Math.max(Math.abs(lf.x - ll.x), Math.abs(lf.y - ll.y), Math.abs(lf.w - ll.w)) / scale : Infinity;
+  h.ok(dl <= 0.5, `lanes: 'beta' lands on B's own glyphs (Δ ${dl.toFixed(3)} stage px ≤ 0.5)`);
+  // stage bounds: a title on the top edge keeps every glyph's ink on the stage (the lane planner refuses classic arcs that leave it too)
+  let topMin = Infinity;
+  for (let f = 0; f <= 54; f++) { await seek(8, (f / 54) * 1000); for (const sp of (await state()).spans.filter((s) => s.kind === "glide" && s.visible)) topMin = Math.min(topMin, sp.m.y - 44); }
+  h.ok(topMin >= -0.5, `bounds: no glide's ink rises above the stage top on a top-edge title (min ink top ${topMin.toFixed(2)} stage px >= 0)`);
+  // identity: an OLD track (no params) over paths that never collide plays today's look EXACTLY. Portable form of the base-player
+  // hash pin (no absolute font geometry): every glide is its straight line plus crossArc, to the rounding the frame writes (1e-6 px),
+  // so no lane, bow or roll leaked in. (Measured once: at the base commit and on the branch the per-frame span-style sha1 of these two old-track decks is identical.)
+  const classicOnly = async (slide: number, size: number) => {
+    const at = async (u: number) => { await seek(slide, u * 1000); return (await state()).spans.filter((sp) => sp.kind === "glide" && sp.role === "main" && sp.visible).map((sp) => sp.m); };
+    const f25 = await at(0.25), f75 = await at(0.75), f50 = await at(0.5);
+    let worst = 0, lifted = 0, n = 0;
+    for (const u of [0.1, 0.4, 0.6, 0.9]) {
+      const fu = await at(u);
+      fu.forEach((m, k) => {
+        const dx = (f75[k].x - f25[k].x) / 0.5;
+        worst = Math.max(worst, Math.abs((m.x - f50[k].x) - dx * (u - 0.5)));                                           // x is the straight line
+        const arc = (t: number) => crossArcOf(dx, 0, size, t);
+        worst = Math.max(worst, Math.abs((m.y - f50[k].y) - (arc(u) - arc(0.5))));                                      // y is the classic arc
+        lifted = Math.max(lifted, Math.abs(arc(0.5))); n++;
+      });
+    }
+    return { worst, lifted, n };
+  };
+  const c9 = await classicOnly(9, 56), c10 = await classicOnly(10, 40);
+  h.ok(c9.n >= 4 && c9.worst < 2e-3 && c9.lifted > 2, `old track, pure insert: glides are straight line + crossArc only (worst Δ ${c9.worst.toExponential(1)} px; arc lift ${c9.lifted.toFixed(1)} px)`);
+  h.ok(c10.n >= 4 && c10.worst < 2e-3, `old track, owner Deck-3 Change: glides are straight line + crossArc only (worst Δ ${c10.worst.toExponential(1)} px)`);
+  // letters travel: authored -> the letters of the anagram fly (no leftover fades); absent -> today's plan (two shared blocks, the rest fades)
+  await seek(11, 500); st = await state();
+  const flyers = st.spans.filter((s) => s.kind === "glide" && s.role === "main" && s.visible);
+  h.ok(flyers.length === 10 && st.spans.every((s) => s.kind === "glide"), `letters travel (authored): all ${st.spans.length} spans of "the morse code" -> "here come dots" are glides (letters fly), none fades`);
+  h.ok(flyers.filter((s) => s.text!.length === 1).length >= 8, "letters travel (authored): single letters fly");
+  await seek(12, 500); st = await state();
+  h.eq([st.spans.filter((s) => s.kind === "glide").map((s) => s.text), st.spans.filter((s) => s.kind === "exit").length, st.spans.filter((s) => s.kind === "enter").length], [["he", "co"], 8, 8], "letters travel (absent): the old track plays today's plan (he / co glide, 8 letters out, 8 in)");
+  await seek(11, 1000); st = await state();
+  h.ok(st.spans.every((s) => !s.visible && !s.promoted) && st.layers[2] === "visible", "letters travel: raw 1 shows B only, nothing promoted");
+  // roll: authored -> leftovers lift 0.35 em without a scale change; absent -> today's drift (scale < 1)
+  await seek(13, 330); st = await state();
+  const exits = st.spans.filter((s) => s.kind === "exit" && s.visible), enters = st.spans.filter((s) => s.kind === "enter" && s.visible);
+  h.ok(exits.length > 0 && exits.every((s) => s.m.sx === 1 && s.m.sy === 1) && enters.every((s) => s.m.sx === 1 && s.m.sy === 1), "roll (authored): leftover letters never change scale");
+  await seek(14, 330); st = await state();
+  h.ok(st.spans.filter((s) => (s.kind === "exit" || s.kind === "enter") && s.visible).some((s) => s.m.sx !== 1), "roll (absent): the old track still shrinks / grows its leftovers (fadeLook)");
+  await seek(13, 1000); st = await state();
+  h.ok(st.spans.every((s) => !s.visible && !s.promoted), "roll: raw 1 leaves no span showing");
+  // roll reaches the riders: the `e` / `y` glued to the Microscop glide roll in place (no scale change); the old track still shrinks them
+  const ridersAt = async (slide: number) => { const seen: { kind: string; sx: number; sy: number }[] = []; for (const t of [200, 330, 500, 670, 800]) { await seek(slide, t); seen.push(...(await state()).spans.filter((s) => (s.kind === "exit" || s.kind === "enter") && s.visible).map((s) => ({ kind: s.kind, sx: s.m.sx, sy: s.m.sy }))); } return seen; };
+  const rd = await ridersAt(16);
+  h.ok(rd.some((r) => r.kind === "exit") && rd.some((r) => r.kind === "enter") && rd.every((r) => r.sx === 1 && r.sy === 1), `roll (authored) reaches riders: the leaving e and the entering y of Microscope -> Microscopy keep their scale (${rd.length} samples)`);
+  h.ok((await ridersAt(17)).some((r) => r.sx !== 1), "roll (absent): the old track's riders still shrink / grow (fadeLook)");
+  await seek(16, 1000); st = await state();
+  h.ok(st.spans.every((s) => !s.visible && !s.promoted), "riders: raw 1 leaves no span showing");
+  // the hand-off driver plans lanes and reads the look too
+  const ovh = await worstOverlap(15);
+  h.ok(ovh <= 400, `hand-off: the same reversal as a text -> text Become overprints ${ovh} px^2 (<= 400)`);
 
   // --- the glyph-box fallback (an export without baked fonts) -----------------------------
   await page.goto(pathToFileURL(boxesFile).href); await page.waitForFunction("!!window.fluxDeck?.seek");

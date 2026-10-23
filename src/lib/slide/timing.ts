@@ -1,5 +1,5 @@
 import type { Track, Beat } from "./types";
-import { presetDef } from "./presetCatalog";
+import { presetDef, presetParam, type ParamSource } from "./presetCatalog";
 
 /** Duration of a resolved track (media commands are instantaneous). */
 export function trackDuration(track: Track): number {
@@ -45,3 +45,21 @@ export function firstTickOrigin(origin: number, ts: number): number {
  *  much later than frame 0 has arrived. A compositor catching up can deliver the next callback with frame 0's own timestamp; moving then
  *  would raster the layers mid-flight again. Half a 60 Hz frame. */
 export const PREROLL_MIN_MS = 8;
+/** How a text rewrite (the glyph-matched text morph) paints its leftovers and anagram letters. */
+export interface TextLook {
+  /** `travel`: the letters of a near-permutation (an anagram) fly to their places; `fade`: they cross-fade like any word. */
+  letters: "travel" | "fade";
+  /** `roll`: leftover words lift / rise 0.35 em (and drift toward the other side when far); `drift`: today's 6 % / 8 % drift with the 0.92 / 0.96 scale. */
+  fadeStyle: "drift" | "roll";
+}
+/** The text look a transform track plays with: its authored params, nothing else (X1d: NO profile argument; playback
+ *  never reads a default, the writers put the values into the track). Absent, malformed or unknown values read as
+ *  today's look, so a deck made before these params existed plays exactly as made. Pure; the editor, Present, exported
+ *  HTML and video all call this one function. */
+export function resolveTextLook(params?: ParamSource["params"]): TextLook {
+  const track: ParamSource = { preset: "transform", params };
+  return {
+    letters: presetParam<string>(track, "letters", "transform") === "travel" ? "travel" : "fade",
+    fadeStyle: presetParam<string>(track, "fadeStyle", "transform") === "roll" ? "roll" : "drift",
+  };
+}
