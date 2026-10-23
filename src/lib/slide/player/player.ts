@@ -15,7 +15,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
-import { createRasterKeeper, type RasterKeeper } from "./rasterKeeper";
+import { createRasterKeeper, EARLY_BAKE_AT, type RasterKeeper } from "./rasterKeeper";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, takeFreshMarks, primeFlightLayers, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { KNOWN_PRESETS, presetParam } from "../presetCatalog";
@@ -815,7 +815,11 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
     if (playing) media?.tick(time);
-    if (playing && time < duration) keeper.flying(); else keeper.rest(playing);   // playing && time >= duration = a flight just ended by itself
+    if (playing && time < duration) {
+      keeper.flying();
+      // a camera flight that is nearly home re-bakes now (rasterKeeper EARLY_BAKE_AT): the sharpening lands inside the last of the motion
+      for (const s of runSpecs ?? specs) if (s.refreshCamera && s.beatIndex === bi && time > s.delay && (s.ease.fn(Math.min(1, (time - s.delay) / s.duration))) >= EARLY_BAKE_AT) keeper.early();
+    } else keeper.rest(playing);   // playing && time >= duration = a flight just ended by itself
     emit("frame");
   }
   let runSpecs: Spec[] | null = null;

@@ -144,6 +144,12 @@ export function createTransform(
   const morphPlan: ElementMorphPlan | null = plan.mode === "morph" ? planElementMorph(pre, end) : null;
   if (plan.mode === "morph" && !morphPlan) plan.mode = "crossfade";
   const contentHost = ctx.contentHost ?? (wrap as HTMLElement & { __slideEffects?: HTMLElement }).__slideEffects ?? wrap;
+  // This driver's OWN content node, taken before any later driver of the same element exists. A later Change that rewrites the text
+  // (or any layered driver) moves these nodes into its A layer, after which `contentHost.firstElementChild` is that layer: an endpoint
+  // repaint through the host would then wipe the later driver's layers and detach this driver's compiled updater (a resize whose text
+  // stretched in flight and snapped at landing, and a later rewrite that started from a different picture than the rest it followed).
+  const ownContent = contentHost.firstElementChild;
+  const ownHost = (): HTMLElement => (ownContent && ownContent.parentElement as HTMLElement | null) || contentHost;
   const staticUpdate = pre.type !== "plot" && plan.contentDirty && plan.mode === "tween"
     ? compileStaticContent(contentHost, pre, end, ctx) : null;
   // Text wrapping can change node topology as metrics change. Keep that
@@ -617,7 +623,7 @@ export function createTransform(
     const phase = raw <= 0 ? 0 : raw >= 1 ? 2 : 1;
     const owned = contentWriter.get(contentHost) === self;
     if (staticUpdate && phase === 1) staticUpdate(content, t, raw);
-    else if (!staticUpdate || !owned || phase !== endpointPhase) updateStaticContent(contentHost, content, ctx);
+    else if (!staticUpdate || !owned || phase !== endpointPhase) updateStaticContent(ownHost(), content, ctx);
     contentWriter.set(contentHost, self);
     endpointPhase = phase;
   }

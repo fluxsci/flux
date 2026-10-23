@@ -367,7 +367,8 @@ try {
         const raw = i / 21;
         player.seek(0, 1, raw * 1000);
         const seek = Number(fade.style.opacity);
-        player.play({ slide: 0, fromBeat: 1, toBeat: 1 }); clock += raw * 1000; callback(clock);
+        // a cue that enters a gliding node (rise) presents frame 0 first and starts its clock AT that frame (lane J), so the first rAF only starts the clock
+        player.play({ slide: 0, fromBeat: 1, toBeat: 1 }); callback(clock); clock += raw * 1000; callback(clock);
         frames.push({ raw, native: Number(getComputedStyle(fade).opacity), sampled: Number(rise.style.opacity), seek,
           easing: fade.getAnimations()[0]?.effect?.getTiming().easing ?? "", transform: rise.style.transform, paintedX: document.querySelector('[data-el-id="plain"] rect').getBoundingClientRect().left - document.getElementById("host").getBoundingClientRect().left });
         player.pause();

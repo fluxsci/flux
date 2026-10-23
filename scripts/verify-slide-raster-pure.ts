@@ -186,6 +186,32 @@ h.section("raster keeper protocol (scripted frames)");
     h.eq(light.keeper.count(), 1, "live: exactly 30 000 nodes still re-bakes");
     light.keeper.dispose(); r.keeper.dispose();
   }
+  // early(): a camera flight that is nearly home bakes UNDER the motion that is left (lane J), once per flight, and flying() keeps it
+  {
+    const { EARLY_BAKE_AT } = await import("../src/lib/slide/player/rasterKeeper");
+    h.ok(EARLY_BAKE_AT > 0.5 && EARLY_BAKE_AT < 1, "EARLY_BAKE_AT is inside the flight");
+    const r = rig({ debounceMs: 5000 }); await sleep(60);
+    r.cam.style.transform = "translate(-30px, -12px) scale(3)";
+    r.keeper.flying(); r.keeper.early(); r.keeper.flying(); r.keeper.early();      // the flight's frames keep calling flying(); early() bakes once
+    await until(() => r.keeper.count() === 1 && r.hints.length === 2, "the early bake");
+    h.eq([r.keeper.count(), r.hints, r.hint], [1, ["auto", "transform"], "transform"], "early(): one bake mid-flight (hint auto, then transform), not cancelled by flying()");
+    r.keeper.early(); await sleep(60);
+    h.eq(r.keeper.count(), 1, "early(): once per flight");
+    r.keeper.rest(true); await sleep(60);
+    h.eq(r.keeper.count(), 1, "early(): the landing at the baked pose does not bake again");
+    r.keeper.rest(false); r.keeper.flying(); r.keeper.rest(false);             // the next flight re-arms early()
+    r.cam.style.transform = "translate(-60px, -12px) scale(3)"; r.keeper.flying(); r.keeper.early();
+    await until(() => r.keeper.count() === 2, "the next flight's early bake");
+    r.keeper.dispose();
+    const heavy = rig({ debounceMs: 5 }); await sleep(60);
+    heavy.nodes = 30001; heavy.cam.style.transform = "translate(-1px, 0px) scale(2)"; heavy.keeper.early(); await sleep(120);   // negative
+    h.eq([heavy.keeper.count(), heavy.hints], [0, []], "early(): skipped above 30 000 nodes like every live bake");
+    heavy.keeper.dispose();
+    const cap = rig({ capture: true }); await sleep(60);
+    cap.cam.style.transform = "translate(-1px, 0px) scale(2)"; cap.keeper.early(); await sleep(120);
+    h.eq(cap.keeper.count(), 0, "early(): capture never bakes early (it settles after every sampled frame)");
+    cap.keeper.dispose();
+  }
   // dispose mid-bake and the settle timeout
   {
     const r = rig({ capture: true });

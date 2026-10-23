@@ -29,21 +29,27 @@ export function shouldBake(baked: string | null, now: string, nodes: number, cap
 }
 /** Capture waits at most this long for a bake (a throttled/occluded host would otherwise hit the worker's 30 s deadline). */
 export const SETTLE_TIMEOUT_MS = 1500;
+/** A camera flight bakes when its eased progress passes this (the remaining 10 % of the pose change is slow, and softness <= 10 % of the
+ *  scale step; the bake at rest then finds the key within EARLY_BAKE_TOLERANCE and skips). */
+export const EARLY_BAKE_AT = 0.9;
 /** Idle debounce after a scrub/refresh/resize. */
 export const BAKE_DEBOUNCE_MS = 80;
 
 export interface RasterKeeper {
   /** The stage is at rest (a paint with no flight running). `end` = a flight just finished by itself: bake now, no debounce. */
   rest(end?: boolean): void;
-  /** A flight is running: cancel any pending re-bake. */
+  /** A flight is running: cancel any pending re-bake (an `early()` bake in progress is kept). */
   flying(): void;
+  /** A zoom/pan flight is nearly home (its eased progress passed EARLY_BAKE_AT): re-bake NOW, under the motion that is left, so the
+   *  sharpening step is hidden in it instead of landing on a still frame. Once per flight. */
+  early(): void;
   /** Capture: re-bake now if the pose/scale changed. Resolves when done (or after SETTLE_TIMEOUT_MS). */
   settle(): Promise<void>;
   /** Re-bakes performed (probes and gates). */
   count(): number;
   dispose(): void;
 }
-const NOOP: RasterKeeper = { rest() {}, flying() {}, settle: () => Promise.resolve(), count: () => 0, dispose() {} };
+const NOOP: RasterKeeper = { rest() {}, flying() {}, early() {}, settle: () => Promise.resolve(), count: () => 0, dispose() {} };
 const RAF = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
 export function createRasterKeeper(cam: HTMLElement, mount: HTMLElement, opts: { capture?: boolean; debounceMs?: number; maxNodes?: number } = {}): RasterKeeper {
@@ -51,7 +57,7 @@ export function createRasterKeeper(cam: HTMLElement, mount: HTMLElement, opts: {
   if (typeof requestAnimationFrame !== "function" || typeof window === "undefined" || typeof mount.getBoundingClientRect !== "function") return NOOP;
   const capture = !!opts.capture, debounceMs = opts.debounceMs ?? BAKE_DEBOUNCE_MS, maxNodes = opts.maxNodes ?? MAX_BAKE_NODES;
   let baked: string | null = null, timer: ReturnType<typeof setTimeout> | undefined, running: Promise<void> | null = null;
-  let dirty = false, disposed = false, done = 0, token = 0, endPending = false;
+  let dirty = false, disposed = false, done = 0, token = 0, endPending = false, earlyBaking = false, earlyDone = false;
   const key = (): string => bakeKey(cam.style.transform, mount.getBoundingClientRect().width / (mount.offsetWidth || 1), window.devicePixelRatio || 1);
   const clear = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
   async function bake(): Promise<void> {
@@ -89,6 +95,7 @@ export function createRasterKeeper(cam: HTMLElement, mount: HTMLElement, opts: {
   void RAF().then(() => { if (baked === null && !disposed) { try { baked = key(); } catch { /* run() records it */ } } });
   return {
     rest(end = false) {
+      earlyDone = false;
       dirty = true;
       if (capture) return;
       if (endPending) return;                     // the paint that follows a natural flight end must not push the bake out
@@ -96,7 +103,15 @@ export function createRasterKeeper(cam: HTMLElement, mount: HTMLElement, opts: {
       if (end) endPending = true;
       timer = setTimeout(() => { timer = undefined; void run(); }, end ? 0 : debounceMs);
     },
-    flying() { dirty = false; endPending = false; token++; clear(); },
+    flying() { dirty = false; endPending = false; if (!earlyBaking) token++; clear(); },
+    early() {
+      if (earlyDone || earlyBaking || disposed || capture) return;
+      earlyDone = true;
+      try { if (baked === null || !shouldBake(baked, key(), cam.getElementsByTagName("*").length, false, maxNodes)) return; } catch { return; }
+      earlyBaking = true; dirty = true;
+      const next = (running ?? Promise.resolve()).then(bake).catch(() => {}).finally(() => { earlyBaking = false; if (running === next) running = null; });
+      running = next;
+    },
     settle: () => new Promise<void>((resolve) => { const t = setTimeout(resolve, SETTLE_TIMEOUT_MS); void run().then(() => { clearTimeout(t); resolve(); }); }),
     count: () => done,
     dispose() { disposed = true; token++; clear(); cam.style.willChange = "transform"; },
