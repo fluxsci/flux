@@ -31,6 +31,8 @@ import { isDerivedManifest } from "../../plot/derive";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
+import { pathD } from "../../path";
+import { elementOutline } from "../outline";
 import { barGrowWeight, type BarGrow } from "../growOrigin";
 import { prepareColorLerp } from "../../color/interp";
 import type { Slide, StageSize, DeckTheme } from "../types";
@@ -107,6 +109,22 @@ export function layoutBoxOf(bb: { x: number; y: number; w: number; h: number }):
 
 const RESIDUAL_EPS = 1e-4;
 
+/** The slide stage's markup of one element: the ONE figure serializer's, except that an ELLIPSE is drawn as the `<path>` of its outline
+ *  (4 cubic arcs, starting at 3 o'clock and running clockwise like the SVG ellipse, so dashes and draws start where they always did).
+ *  Why: Chromium rasterises an `<ellipse>` through its own oval primitive, with anti-aliasing no path shares, and every Become, hand-off and
+ *  set flight draws PATHS: the flight and the resting ellipse differed on their first and last frame by that rasteriser alone (12 small
+ *  dots 8.6 stage px^2 on the GPU, a stroked ring 30; measured, R2 follow-up F1). A rect and a line already rasterise like their paths
+ *  (measured identical), so only the ellipse needs it. `data-shape` keeps the draw presets' ellipse conventions (presets.ts `shapeTag`).
+ *  The figure serializer itself, the editor canvas and every export are unchanged. */
+function stageMarkup(neutral: FigElement, ctx: SlideRenderCtx): string {
+  const plain = () => elementToSvg(neutral, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize);
+  if (neutral.type !== "ellipse" || !(neutral.width > 0) || !(neutral.height > 0)) return plain();
+  const outline = elementOutline(neutral);
+  if (!outline) return plain();
+  const asPath = { ...neutral, type: "path", nodes: outline.nodes, d: pathD(outline.nodes, true), closed: true } as unknown as FigElement;
+  return elementToSvg(asPath, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize).replace("<path ", '<path data-shape="ellipse" ');
+}
+
 /** Static markup fill: the element serialized by the ONE figure serializer
  *  (rotation/flips/opacity stripped — the wrapper owns them), viewBoxed to the
  *  wrapper's box. Strokes may overhang (overflow visible). */
@@ -116,7 +134,7 @@ function fillStatic(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   delete neutral.flipY;
   delete neutral.opacity;
   const bb = elementBBox(neutral);
-  const markup = elementToSvg(neutral, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize);
+  const markup = stageMarkup(neutral, ctx);
   if (!markup) {
     w.classList.add("sl-missing");
     w.textContent = el.type === "image" ? "missing image" : el.type;
@@ -160,7 +178,7 @@ export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRe
   delete neutral.opacity;
   const bb = elementBBox(neutral);
   svg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
-  const markup = elementToSvg(neutral, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize);
+  const markup = stageMarkup(neutral, ctx);
   const tpl = document.createElementNS(SVG_NS, "svg");
   tpl.innerHTML = markup;
   const walk = (a: Element, b: Element): boolean => {

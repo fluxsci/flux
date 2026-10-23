@@ -188,7 +188,7 @@ try {
   await page2.waitForFunction("!!window.fluxDeck");
   await page2.evaluate(() => (window as never as { fluxDeck: { goTo(s: number, b: number): void } }).fluxDeck.goTo(0, 0));
   const pre = await page2.evaluate(() => {
-    const ell = document.querySelector('[data-el-id="e_ring"] ellipse') as SVGGeometryElement;
+    const ell = document.querySelector('[data-el-id="e_ring"] [data-shape=ellipse]') as SVGGeometryElement;
     const poly = document.querySelector('[data-el-id="l_arrow"] polygon') as SVGElement;
     const line = document.querySelector('[data-el-id="l_arrow"] line') as SVGElement;
     const svgs = [...document.querySelectorAll('[data-el-id] svg')] as SVGElement[];
@@ -207,7 +207,7 @@ try {
   assert(pre.displays.length === 1 && pre.displays[0] === "block", "content svgs are display:block (no host-baseline offset — the 12px-low arrow bug)");
   await page2.evaluate(() => (window as never as { fluxDeck: { goTo(s: number, b: number): void } }).fluxDeck.goTo(0, 1));
   const post = await page2.evaluate(() => {
-    const ell = document.querySelector('[data-el-id="e_ring"] ellipse') as SVGGeometryElement;
+    const ell = document.querySelector('[data-el-id="e_ring"] [data-shape=ellipse]') as SVGGeometryElement;
     const poly = document.querySelector('[data-el-id="l_arrow"] polygon') as SVGElement;
     const wt = [...document.querySelectorAll("[data-el-id]")].find((w) => w.querySelector("text")?.textContent?.includes("Write me on")) as HTMLElement;
     return {

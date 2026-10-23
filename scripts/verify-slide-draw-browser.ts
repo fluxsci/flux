@@ -131,7 +131,7 @@ try {
   const sample = (page: Awaited<ReturnType<typeof open>>, ms: number, tid: string) => page.evaluate(([ms, tid]) => {
     (window as unknown as { fluxDeck: { seek(s: number, b: number, ms: number): void } }).fluxDeck.seek(0, 1, ms as number);
     const num = (v: string) => (v === "" ? NaN : parseFloat(v));
-    const disc = document.querySelector('[data-el-id="e_disc"] ellipse') as SVGGeometryElement;
+    const disc = document.querySelector('[data-el-id="e_disc"] [data-shape=ellipse]') as SVGGeometryElement;
     const poly = document.querySelector('[data-el-id="l_arrow"] polygon') as SVGElement;
     const arrowLine = document.querySelector('[data-el-id="l_arrow"] line') as SVGElement;
     const dashed = document.querySelector('[data-el-id="l_dash"] line') as SVGElement;
@@ -389,7 +389,7 @@ try {
   const cycleState = (beat: number, ms?: number) => pcy.evaluate(([beat, ms]) => {
     const fd = (window as never as { fluxDeck: { goTo(s: number, b: number): void; seek(s: number, b: number, ms: number): void } }).fluxDeck;
     if (ms == null) fd.goTo(0, beat as number); else fd.seek(0, beat as number, ms as number);
-    const e = document.querySelector('[data-el-id="e_cyc"] ellipse') as SVGElement;
+    const e = document.querySelector('[data-el-id="e_cyc"] [data-shape=ellipse]') as SVGElement;
     return { dash: e.style.strokeDasharray, fill: e.style.fillOpacity, first: parseFloat(e.style.strokeDasharray.split(/[\s,]+/)[0] || "NaN"), width: e.style.strokeWidth };
   }, [beat, ms] as [number, number | undefined]);
   const c1 = await cycleState(1), c2 = await cycleState(2), c3 = await cycleState(3), c1b = await cycleState(1), c2b = await cycleState(2);

@@ -125,20 +125,23 @@ h.section("H1 + hairpin: a stroke swells into a ring as a stadium (no sag, no ea
   h.ok(!!nm && nm.a.length === nm.b.length && nm.a.length <= 8, `normalMatchRings: a hairpin (zero-area out-and-back ring) pairs with a circle (${nm?.a.length} nodes)`);
 }
 
-h.section("H3: an arrowhead rides the swelling stroke end, rigid, tip on the outline at every t");
+h.section("H3: an arrowhead rides the swelling stroke end, rigid, holding the overhang it is drawn with at every t");
 {
   const a = line({ arrowEnd: true }), b = circle({ x: 220, y: 80, width: 200, height: 200, strokeWidth: 6 });
   const plan = planElementMorph(a, b)!; plan.prepare?.();
   h.ok(plan.fixedHeads.length === 1, "arrow→circle: one fixed head");
-  let thickMin = 1e9, gapMax = 0;
+  let thickMin = 1e9, gapMax = 0, gapMin = 1e9;
   for (const t of [0.02, 0.1, 0.2, 0.3, 0.4]) {
     const s = sampleElementMorph(plan, t), outline = poly(s.nodes!, true).map((p) => ({ x: p.x, y: p.y }));
     const pts = fixedHeadPoints(plan, plan.fixedHeads[0], t).map(([x, y]) => ({ x, y }));
     const tip = pts.reduce((m, p) => (p.x > m.x ? p : m), pts[0]);
     thickMin = Math.min(thickMin, Math.max(...pts.map((p) => p.y)) - Math.min(...pts.map((p) => p.y)));
-    gapMax = Math.max(gapMax, dist(tip, outline));
+    gapMax = Math.max(gapMax, dist(tip, outline)); gapMin = Math.min(gapMin, dist(tip, outline));
   }
-  h.ok(thickMin >= 20 && gapMax <= 0.5, `head thickness ≥ 20 px at t=.02…0.4 (min ${thickMin.toFixed(1)}; was 0.0) and tip gap ≤ 0.5 px (max ${gapMax.toFixed(2)}; was 17.5 at t=.4)`);
+  // R2 F1: the swelling ring starts from the body the arrow is DRAWN with, which stops inside its filled head (outline.ts `trimUnderHeads`), so the
+  // head's tip overhangs the ring's end by the trim (0.65 head) exactly as the static arrow's does, and keeps that overhang while it rides the ring.
+  // (Before: the untrimmed ring ran to the tip and poked a round cap out past it on the first frame, 19-20 stage px^2 on both domains.)
+  h.ok(thickMin >= 20 && gapMax - gapMin <= 0.5 && gapMin >= 10, `head thickness ≥ 20 px at t=.02…0.4 (min ${thickMin.toFixed(1)}; was 0.0) and the tip overhang is the drawn one, constant (${gapMin.toFixed(2)}…${gapMax.toFixed(2)} px; was 0 with a round cap poking past the tip)`);
   // twin-engine parity: the hand-off law gives the same head for the same geometry
   const A = elementStageOutlines(a)[0], B = elementStageOutlines(b)[0];
   const cp = planCorrespondence([A], [B], { pair: "spatial" }); cp.prepare();

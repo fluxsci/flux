@@ -19,10 +19,12 @@ import type { Element, PathElement, VectorNode, GradientFill } from "../types";
 import { elementBBox } from "../geometry";
 import { lerpColor, prepareColorLerp, parseColor, formatColor } from "../color/interp";
 import {
-  pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent,
+  pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent, nodesExtent,
   type PathSeg,
 } from "../path";
 import { normalMatchRings } from "./normalMatch";
+import { ringBand, lineBand, type BandJoin, type BandCap, type BandRings } from "./strokeBand";
+import { cornerJoinOf } from "../strokeStyle";
 
 export type OutlineKind = "rect" | "ellipse" | "line" | "path";
 const OUTLINE_KINDS = new Set<string>(["rect", "ellipse", "line", "path"]);
@@ -680,6 +682,9 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
   /** Force the deferred node correspondence (see planElementMorph). Safe to
    *  call more than once; reading a/b/closed does it implicitly. */
   prepare?: () => void;
+  /** The stroke drawn as a BAND between two morphing contours (see `planStrokeBand`), or null when the pair keeps the centreline
+   *  law (no stroke, dashed, gradient stroke, non-convex, an inner contour that does not exist). Deferred like the correspondence. */
+  band?: () => StrokeBandPlan | null;
 }
 
 export interface FixedHead {
@@ -829,8 +834,13 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   // (2026-09-22: the first preview cost 113ms against a 100ms budget, and this
   // was almost all of it.)
   let corresponded: ReturnType<typeof planOutlines> | null = null;
-  const outlines = () => (corresponded ??= planOutlines(A, pb.w, pb.h, B, eb.w, eb.h, strategy));
+  // A stroke that inflates into a ring starts from the body it is DRAWN with: the end of the body stops inside a filled arrowhead
+  // (trimUnderHeads), so the swelling ring does not poke a round cap past the head's tip on its first frame.
+  const drawn = (o: Outline, st: OutlineStyle): Outline => (strategy === "inflate" && !o.closed ? { nodes: trimUnderHeads(o.nodes, st), closed: false } : o);
+  const outlines = () => (corresponded ??= planOutlines(drawn(A, preStyle), pb.w, pb.h, drawn(B, endStyle), eb.w, eb.h, strategy));
   const closed = morphIsClosed(A, B, strategy);
+  let band: StrokeBandPlan | null | undefined;
+  const bandPlan = () => (band === undefined ? (band = closed ? elementStrokeBand(pre, end, A, B, pb, eb, preStyle, endStyle) : null) : band);
   const fixedHeads = strategy === "inflate" ? [...strokeHeads(pre, A, pb, "pre"), ...strokeHeads(end, B, eb, "end")] : [];
   return {
     get a() { return outlines().a; },
@@ -842,7 +852,8 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
     arrowEnd: !closed && (preStyle.arrowEnd || endStyle.arrowEnd),
     /** Force the correspondence now. The player calls this once the preview is
      *  on screen, so the first morph frame never pays for it. */
-    prepare() { outlines(); },
+    prepare() { outlines(); bandPlan(); },
+    band: bandPlan,
     pre, end, strategy, fixedHeads,
     preBox: pb, endBox: eb, preStyle, endStyle,
   };
@@ -994,6 +1005,79 @@ export function sampleNodes(a: VectorNode[], b: VectorNode[], t: number, w: numb
   }
   out.length = a.length;
   return out;
+}
+
+// --- the stroke BAND (R2 follow-up F1) -----------------------------------------------------------------------------------------
+// A stroke is drawn as the band between its OUTER and INNER contour (strokeBand.ts), each normal-matched against the other side's
+// like the centreline is, so a sharp outer corner is exactly the source's at t = 0 and the destination's at t = 1 and rounds in
+// between (the centreline law rounded it by w/2 on the first frame). Both drivers (the 1-1 element driver here, the hand-off
+// driver in correspondence.ts) build the plan from one `BandSide` per end and draw `sampleStrokeBand` with fill-rule evenodd.
+
+/** One end of a stroked Become: its centreline outline in LOCAL px (origin = its own centreline box), that box in STAGE px, and the stroke. */
+export interface BandSide { outline: Outline; box: { x: number; y: number; w: number; h: number }; width: number; join: BandJoin; cap: BandCap }
+interface BandPair { a: VectorNode[]; b: VectorNode[]; boxA: { x: number; y: number; w: number; h: number }; boxB: { x: number; y: number; w: number; h: number } }
+export interface StrokeBandPlan { outer: BandPair; inner: BandPair; pre: { x: number; y: number }; end: { x: number; y: number } }
+export interface BandSample { outer: VectorNode[]; inner: VectorNode[] }
+
+function sideBand(s: BandSide): BandRings | null {
+  const { nodes, closed } = s.outline;
+  if (closed) return ringBand(nodes, s.width, s.join);
+  const straightLine = nodes.length === 2 && !nodes[0].hOut && !nodes[0].hIn && !nodes[1].hOut && !nodes[1].hIn;
+  return straightLine ? lineBand(nodes[0], nodes[1], s.width, s.cap) : null;
+}
+
+/** The band plan of two stroked sides, or null when the pair keeps the centreline law: an end with no band geometry (not a convex ring
+ *  or a straight line, a stroke thicker than the ring's smallest curvature radius), a pair that does not normal-match, or no stroke at all. */
+export function planStrokeBand(A: BandSide, B: BandSide): StrokeBandPlan | null {
+  if (!(A.width > 0 || B.width > 0)) return null;
+  const ra = sideBand(A), rb = sideBand(B);
+  if (!ra || !rb || !(ra.corners || rb.corners)) return null;
+  const pair = (ca: VectorNode[], cb: VectorNode[]): BandPair | null => {
+    const ea = nodesExtent(ca, true), eb = nodesExtent(cb, true);
+    const shift = (n: VectorNode[], e: { x: number; y: number }) => n.map(v => ({ ...v, x: v.x - e.x, y: v.y - e.y }));
+    const la = shift(ca, ea), lb = shift(cb, eb);
+    const px = pixelLaw({ wa: ea.w, ha: ea.h, wb: eb.w, hb: eb.h });
+    const nm = px ? normalMatchRings(la, lb) : normalMatchRings(unit(la, ea.w, ea.h), unit(lb, eb.w, eb.h));
+    if (!nm) return null;
+    return {
+      a: px ? unit(nm.a, ea.w, ea.h) : nm.a, b: px ? unit(nm.b, eb.w, eb.h) : nm.b,
+      boxA: { x: A.box.x + ea.x, y: A.box.y + ea.y, w: ea.w, h: ea.h }, boxB: { x: B.box.x + eb.x, y: B.box.y + eb.y, w: eb.w, h: eb.h },
+    };
+  };
+  const outer = pair(ra.outer, rb.outer), inner = pair(ra.inner, rb.inner);
+  return outer && inner ? { outer, inner, pre: { x: A.box.x, y: A.box.y }, end: { x: B.box.x, y: B.box.y } } : null;
+}
+
+/** The two contours at progress t, in nodes owned by `out` (reused frame to frame). `local` (default) places them relative to the
+ *  LERPED centreline box origin (what the 1-1 driver's svg frame wants); otherwise in stage px (the hand-off flight layer). */
+export function sampleStrokeBand(plan: StrokeBandPlan, t: number, out: BandSample = { outer: [], inner: [] }, local = true): BandSample {
+  const ox = local ? lerp(plan.pre.x, plan.end.x, t) : 0, oy = local ? lerp(plan.pre.y, plan.end.y, t) : 0;
+  for (const which of ["outer", "inner"] as const) {
+    const p = plan[which], w = lerp(p.boxA.w, p.boxB.w, t), h = lerp(p.boxA.h, p.boxB.h, t);
+    const nodes = sampleNodes(p.a, p.b, t, w, h, out[which], { wa: p.boxA.w, ha: p.boxA.h, wb: p.boxB.w, hb: p.boxB.h });
+    const x = lerp(p.boxA.x, p.boxB.x, t) - ox, y = lerp(p.boxA.y, p.boxB.y, t) - oy;
+    for (const n of nodes) { n.x += x; n.y += y; }
+    out[which] = nodes;
+  }
+  return out;
+}
+
+/** The band plan of an element pair (the 1-1 driver). The static look decides what a side is: undashed solid-colour strokes of a
+ *  rect / ellipse / convex path (its corner join) or a straight line (its cap). Everything else is the centreline law. */
+function elementStrokeBand(pre: Element, end: Element, A: Outline, B: Outline, pb: { x: number; y: number; w: number; h: number }, eb: { x: number; y: number; w: number; h: number }, ps: OutlineStyle, es: OutlineStyle): StrokeBandPlan | null {
+  const ok = (st: OutlineStyle) => !st.dash && !st.strokeMap?.stops?.length;
+  if (!ok(ps) || !ok(es)) return null;
+  const side = (el: Element, o: Outline, box: { x: number; y: number; w: number; h: number }, st: OutlineStyle): BandSide =>
+    ({ outline: o.closed ? o : { nodes: trimUnderHeads(o.nodes, st), closed: false }, box, width: isNoneColor(st.stroke) ? 0 : st.strokeWidth, join: cornerJoinOf(el) ?? "round", cap: st.cap });
+  return planStrokeBand(side(pre, A, pb, ps), side(end, B, eb, es));
+}
+
+/** The body of a stroke as it is DRAWN: a filled arrowhead sits over the end of the body, which stops inside it (path.ts `pathRender` trims it),
+ *  so a hand-off from the stroke starts from that body, not from one that pokes a round cap out past the head's tip. */
+export function trimUnderHeads(nodes: VectorNode[], st: { strokeWidth: number; arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: "filled" | "vee"; arrowSize?: number }): VectorNode[] {
+  if (!(st.arrowStart || st.arrowEnd) || (st.arrowStyle ?? "filled") !== "filled" || nodes.length !== 2) return nodes;
+  const trimmed = pathToNodes(pathRender({ d: "", nodes, closed: false, strokeWidth: st.strokeWidth, arrowStart: st.arrowStart, arrowEnd: st.arrowEnd, arrowStyle: st.arrowStyle, arrowSize: st.arrowSize }).d);
+  return trimmed.length === 2 ? trimmed : nodes;
 }
 
 // A local twin of tween.lerpDash (tween imports this module; no cycle).
