@@ -560,6 +560,8 @@ export function morphIsClosed(a: Outline, b: Outline, strategy: RingStrategy): b
 /** An alternative pairing is taken only when it costs less than ALIGN_GAIN x the authored one. */
 export const ALIGN_GAIN = 0.8;
 const ALIGN_GRID = 128, ALIGN_STATIONS = 32;
+/** Equal-count rings up to this many nodes try every one of the 2n exact pairings; bigger ones sample the seam. */
+const ALIGN_EXACT_MAX = 128;
 
 export interface AlignedChains { a: VectorNode[]; b: VectorNode[]; reversed: boolean }
 
@@ -589,9 +591,32 @@ export function alignChains(a: VectorNode[], b: VectorNode[], closed: boolean, o
     const base = force ?? false;
     const c0 = cost(base ? bRev : b, 0);
     let best = { rev: base, k: 0, c: c0 };
-    for (let k = 0; k < n; k++) for (const rev of force === undefined ? [false, true] : [force]) {
-      const c = cost(rev ? bRev : b, k);
-      if (c < best.c) best = { rev, k, c };
+    const dirs = force === undefined ? [false, true] : [force];
+    if (n <= ALIGN_EXACT_MAX) {
+      for (let k = 0; k < n; k++) for (const rev of dirs) {
+        const c = cost(rev ? bRev : b, k);
+        if (c < best.c) best = { rev, k, c };
+      }
+    } else {
+      // A big ring cannot afford all 2n exact pairings (O(n^2): 214 ms at 5000 nodes, 1 s at 10000, on the
+      // first frame). Pick the seam on ALIGN_STATIONS evenly spaced nodes of A (every candidate is an index
+      // rotation of B, O(stations) each), then refine on the exact cost within one station step of that
+      // winner; the 0.8x gate below still compares against the exact identity cost.
+      const step = Math.max(1, Math.floor(n / ALIGN_STATIONS)), idx = Array.from({ length: ALIGN_STATIONS }, (_, i) => i * step);
+      const coarse = (src: VectorNode[], k: number) => {
+        let c = 0;
+        for (const i of idx) c += dist2(a[i], src[(i + k) % n]);
+        return c;
+      };
+      let seed = { rev: base, k: 0, c: coarse(base ? bRev : b, 0) };
+      for (let k = 0; k < n; k++) for (const rev of dirs) {
+        const c = coarse(rev ? bRev : b, k);
+        if (c < seed.c) seed = { rev, k, c };
+      }
+      for (let dk = -step; dk <= step; dk++) {
+        const k = ((seed.k + dk) % n + n) % n, c = cost(seed.rev ? bRev : b, k);
+        if (c < best.c) best = { rev: seed.rev, k, c };
+      }
     }
     const pick = best.c < c0 * ALIGN_GAIN - 1e-9 ? best : { rev: base, k: 0 };
     const src = pick.rev ? bRev : b;

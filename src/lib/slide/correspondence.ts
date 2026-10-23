@@ -222,7 +222,7 @@ function hungarian(a: { x: number; y: number }[], b: { x: number; y: number }[])
 }
 
 /** COMPLETION (2026-10-05): once both sides have outlines, nothing on either side merely
- *  fades. A destination the greedy match left over joins the partner set of its NEAREST
+ *  fades. A destination the pairing (`assignMinCost`) left over joins the partner set of its NEAREST
  *  matched source, which then tiles across all of them (one dot splits into two pieces that
  *  become two ellipses); a leftover source joins its nearest matched destination, which
  *  tiles into pieces the sources merge into. Only a side with nothing at all opposite it —

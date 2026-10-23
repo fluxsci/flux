@@ -100,9 +100,24 @@ h.section("H2d: unequal-count rings align cheaply and the memo is content-keyed"
   h.ok(afterMut !== before, "a ring edited in place gets a fresh alignment, never the stale memo entry");
   b[0].x += 40; b[3].y -= 25; // mutate the ORIGINAL arrays the first call saw
   h.eq(JSON.stringify(lerpNodes(a, b, true, .5)), afterMut, "mutating the first call's own arrays in place cannot poison the memo (same content as bMut -> same frame)");
+  // a re-seamed (shifted, equal-count) pair is a new ARRAY of the caller's node OBJECTS: the memo must copy those too
+  const sa = hex(), sb = shift(hex(), 2), frame0 = JSON.stringify(lerpNodes(sa, sb, true, .5));
+  for (const p of sb) { p.x += 77; p.y -= 31; } // in-place edit of the very objects the memo was filled from
+  h.eq(JSON.stringify(lerpNodes(hex(), shift(hex(), 2), true, .5)), frame0, "mutating the node OBJECTS of a re-seamed (shift-only) equal-count ring in place cannot poison the memo");
   const back = structuredClone(hex()), again = lerpNodes(hex(), shift(hex(true), 2), true, .5);
   h.eq(JSON.stringify(again), before, "the original content still answers with the original frame after the edits");
   void back;
+}
+
+h.section("H2g: a big equal-count ring aligns in bounded time (no O(n^2) first frame)");
+{ const A = ring(5000, 100, .1), B = shift(A.slice().reverse(), 1234).map((p) => ({ ...p }));
+  const t0 = performance.now(); const al = alignChains(A, B, true); const cold = performance.now() - t0;
+  h.ok(cold < 30, `5000-node equal ring cold align ${cold.toFixed(1)} ms < 30 ms (the exhaustive 2n x n search took ~214 ms)`);
+  h.ok(al.reversed && al.b.every((p, i) => Math.abs(p.x - A[i].x) < 1e-9 && Math.abs(p.y - A[i].y) < 1e-9), "and it still finds the exact seam and direction of a shifted + reversed ring");
+  const C = shift(A, 1234).map((p) => ({ ...p })), al2 = alignChains(A, C, true);
+  h.ok(!al2.reversed && al2.b.every((p, i) => Math.abs(p.x - A[i].x) < 1e-9 && Math.abs(p.y - A[i].y) < 1e-9), "a 5000-node ring started 1234 nodes later is re-seamed back onto the identity pairing");
+  const near = A.map((p, i) => (i === 0 ? { ...p, x: p.x + 5 } : { ...p })), al3 = alignChains(A, near, true);
+  h.ok(!al3.reversed && al3.b.every((p, i) => p.x === near[i].x && p.y === near[i].y), "a big ring with one mildly dragged node keeps its authored pairing (0.8x gate against the exact identity cost)");
 }
 
 h.section("H2e: seek purity (forward == reverse == shuffled)");
@@ -134,6 +149,11 @@ h.section("H2b: compound paths keep their subpaths");
   const mid = areas((lerpElement(mk(holeFirst), mk(holeFirst2), .5, .5) as any).d);
   h.ok(Math.abs(mid[0] - 3600) < 1 && Math.abs(mid[1] - 25600) < 1, `subpaths pair by area, not by position in the string (hole ${mid[0].toFixed(0)}, outline ${mid[1].toFixed(0)})`);
   h.ok(Math.abs(areas((lerpElement(mk(D(40)), mk(D(80)), .999999, .999999) as any).d)[0] - 25600) < 1, "the frame just before the landing keeps the END's subpath order (a dash pattern runs on through subpaths in `d` order)");
+  // a partnerless subpath is a collapsed point at ITS end of the flight: at that end it is not in the resting d, so not in the frame
+  const donut = D(40), plain = "M 0 0 L 160 0 L 160 160 L 0 160 Z";
+  h.eq((lerpCompoundD(donut, plain, 1) ?? "").match(/M/g)?.length, 1, "a hole that shrinks away is gone at t = 1 (a stroked point would paint a dot that vanishes at the landing)");
+  h.eq((lerpCompoundD(plain, donut, 0) ?? "").match(/M/g)?.length, 1, "a hole that opens is absent at t = 0 (no dot before the move starts)");
+  h.eq((lerpCompoundD(donut, plain, .999) ?? "").match(/M/g)?.length, 2, "and present just inside the flight (it still collapses in place)");
   h.eq(lerpCompoundD("M 0 0 L 10 0 L 10 10 Z", "M 0 0 L 20 0 L 20 20 Z", .5), null, "a single-subpath `d` is not compound (the ordinary node lerp keeps it)");
   // purity
   const f = [.1, .4, .8].map((t) => (lerpElement(mk(holeRev), mk(holeRev2), t, t) as any).d), g = [.8, .4, .1].map((t) => (lerpElement(mk(holeRev), mk(holeRev2), t, t) as any).d).reverse();
@@ -156,11 +176,12 @@ h.eq(crossings([ell("a", 100, 100, 20), ell("b", 300, 100, 20), ell("c", 500, 10
 h.eq(crossings([100, 200, 300, 400, 500].map((x, i) => ell("d" + i, x, 100, 16)), [rct("r", 120, 260, 360, 120)]).crossings, 0, "5 dots -> 1 rect: no crossings (was 5)");
 h.eq(crossings([[100, 100], [200, 100], [100, 200], [200, 200]].map(([x, y], i) => ell("d" + i, x, y, 16)), [ell("e", 450, 260, 90)]).crossings, 0, "2x2 dots -> 1 ellipse: no crossings (was 2)");
 h.eq(crossings([rct("r", 120, 260, 360, 120)], [ell("a", 100, 100, 20), ell("b", 300, 100, 20), ell("c", 500, 100, 20)]).crossings, 0, "1 rect -> 3 dots: the reverse split is the same layout");
-{ let seed = 3; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
-  const A = Array.from({ length: 12 }, (_, i) => ell("a" + i, 60 + rnd() * 500, 60 + rnd() * 200, 8)), B = Array.from({ length: 12 }, (_, i) => ell("b" + i, 60 + rnd() * 500, 300 + rnd() * 200, 8));
-  const got = crossings(A, B).crossings;
-  h.ok(got <= 3, `12 random dots -> 12 random dots: the minimum-cost pairing leaves ${got} crossings (greedy-nearest left ~10 on the T5 sample)`);
+{ // the spec's own T5 sample (seed 7, two halves): the pre-WP-2.1 greedy-nearest pairing left 10 crossings (measured on 2c95341d)
+  let seed = 7; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const A = Array.from({ length: 12 }, (_, i) => ell("a" + i, 20 + rnd() * 280, 20 + rnd() * 320, 12)), B = Array.from({ length: 12 }, (_, i) => ell("b" + i, 340 + rnd() * 280, 20 + rnd() * 320, 12));
+  h.eq(crossings(A, B).crossings, 1, "12 random dots -> 12 random dots: the minimum-cost pairing leaves 1 crossing (greedy-nearest left 10)");
 }
+h.ok(crossings(Array.from({ length: 8 }, (_, i) => ell("a" + i, 160 + 100 * Math.cos(i * Math.PI / 4), 140 + 100 * Math.sin(i * Math.PI / 4), 14)), [rct("r", 380, 90, 200, 120)]).crossings <= 1, "8 dots on a circle -> 1 rect: at most 1 crossing (was 6)");
 { // never worse than the legacy layout: 60 seeded set Becomes (k dots <-> one rect, both directions); LEGACY holds the flight
   // crossings the pre-WP-2.1 planner left on exactly these instances (measured on 2c95341d)
   const LEGACY = [8,7,14,14,8,10,3,1,2,5,4,8,4,14,4,2,11,35,10,7,12,4,27,3,18,1,1,2,3,6,16,9,15,18,0,1,5,4,11,6,4,27,4,1,2,30,24,0,3,3,1,3,1,6,20,11,20,5,11,6];

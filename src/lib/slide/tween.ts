@@ -270,11 +270,13 @@ function lerpHandle(
 // keyed by CONTENT: a hash picks the entry, a full coordinate compare confirms it (a hash collision or
 // an editor mutating a node in place can therefore never read a stale alignment). Entries own their node
 // arrays (copies, never the caller's chains), so a later in-place edit cannot reach into them either.
-// 48 entries, FIFO.
+// FIFO, bounded by entry count AND total node count (a slide of many ring pairs keeps its warmed entries; a
+// few huge rings cannot hold the memory).
 type Pair = { a: VectorNode[]; b: VectorNode[]; reversed: boolean };
 interface MemoEntry { h: number; closed: boolean; force: boolean | undefined; authored: boolean; fa: Float64Array; fb: Float64Array; pair: Pair }
 const alignMemo: MemoEntry[] = [];
-const ALIGN_MEMO_MAX = 48;
+const ALIGN_MEMO_MAX = 128, ALIGN_MEMO_NODES = 60000;
+let memoNodes = 0;
 const STRIDE = 6;
 function hashNodes(nodes: VectorNode[], seed: number): number {
   let h = seed + nodes.length;
@@ -320,9 +322,12 @@ function alignedPair(a: VectorNode[], b: VectorNode[], closed: boolean, opts: Al
     na = resampleNodes(a, closed, n);
     nb = resampleNodes(b, closed, n);
   }
-  const pair = { a: na === a ? copyNodes(na) : na, b: nb === b ? copyNodes(nb) : nb, reversed: al.reversed };
-  if (alignMemo.length >= ALIGN_MEMO_MAX) alignMemo.shift();
+  // always owned copies: even a re-seamed chain is a new ARRAY of the caller's node OBJECTS (a slice of them),
+  // and an in-place edit of those would reach into the memoised pair. The fill is the cold path.
+  const pair = { a: copyNodes(na), b: copyNodes(nb), reversed: al.reversed };
   alignMemo.push({ h, closed, force, authored, fa: flatten(a), fb: flatten(b), pair });
+  memoNodes += (a.length + b.length);
+  while (alignMemo.length > 1 && (alignMemo.length > ALIGN_MEMO_MAX || memoNodes > ALIGN_MEMO_NODES)) { const old = alignMemo.shift()!; memoNodes -= (old.fa.length + old.fb.length) / STRIDE; }
   return pair;
 }
 
@@ -405,6 +410,9 @@ export function lerpCompoundD(a: string, b: string, t: number, cornerRadius?: nu
   let reversed: boolean | undefined;
   for (let i = 0; i < Math.max(ra.length, rb.length); i++) {
     const x = ra[i], y = rb[i];
+    // a subpath with no partner is a collapsed point at its own end of the flight: at that end it is not in
+    // the resting `d`, so it is not in the frame either (a stroked point would paint a dot that vanishes)
+    if ((!y && t >= 1) || (!x && t <= 0)) continue;
     const A = x ?? { nodes: (y.twin ??= collapsed(y.nodes)), closed: y.closed }, B = y ?? { nodes: (x.twin ??= collapsed(x.nodes)), closed: x.closed };
     const pair = alignedPair(A.nodes, B.nodes, B.closed, { force: !x || !y ? false : reversed, authored });
     if (reversed === undefined && x && y) reversed = pair.reversed;
