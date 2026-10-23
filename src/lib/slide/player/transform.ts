@@ -234,9 +234,10 @@ export function createTransform(
     to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
     fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
     sourceRoot, targetRoot, geometryInterpolated: true, assetChange,
-    // a view-only Change hands the generated ticks off to the nice ones in flight (projectDom buildFlight); an asset Change
-    // keeps the guide pairing of its own two manifests
-    tickHandoff: !assetChange,
+    // a Change whose start or end view re-ticks an axis hands the generated ticks off to the nice ones in flight (projectDom buildFlight),
+    // an asset Change included (each side's set is read from its own version); an axis no view re-ticks keeps the guide pairing of the
+    // two manifests
+    tickHandoff: true,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
   const intrinsic = (() => {

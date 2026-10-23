@@ -157,6 +157,19 @@ async function plotDecks(compact: boolean): Promise<CorpusDeck[]> {
     }
     out.push({ name: "plot_lines", payload: { deck: b.deck, plots: { sine: plots.sine } } });
   }
+  {
+    // CHAINED plot Changes (R2 F3): every step starts from the plot the step before it left, whatever it changed. The fixtures are the same plot with
+    // five and with ten bars (same size, so the asset Change is a value morph). A chain compiled against the element's BASE asset began its second
+    // Change on the merged wide bars (PRE-ROLL CHANGE 4,558).
+    const bars5 = await readPlot("mpl_bars_5"), bars10 = await readPlot("mpl_bars_10");
+    const b = new Builder("plot_chain"); const to = (id: string) => ({ toAssetId: id, duration: 1200 });
+    const chain = (slide: string, steps: Record<string, unknown>[]) => { for (const o of steps) b.change(slide, b.beat(slide), "pl", (o.state as Record<string, unknown>) ?? {}, o); };
+    const zoom = { view: { y: { domain: [2, 8] } } };
+    { const s = b.slide("bars_chain"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [to("bars10"), to("bars5"), to("bars10")]); }
+    { const s = b.slide("asset_then_view"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [to("bars10"), { state: zoom }]); }
+    { const s = b.slide("view_then_asset"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [{ state: zoom }, to("bars10")]); }
+    out.push({ name: "plot_chain", payload: { deck: b.deck, plots: { bars5, bars10 } } });
+  }
   return out;
 }
 

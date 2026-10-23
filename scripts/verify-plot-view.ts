@@ -154,6 +154,28 @@ h.ok(!plotViewIssues(bars.manifest, barView).some(x => x.includes("unchanged")),
 const imageLike = structuredClone(bars.manifest); imageLike.series[0].rasterized = true;
 h.ok(plotViewIssues(imageLike, barView).some(x => x.includes("remain unchanged")), "a rasterized layer is still called out");
 
+h.section("a filled mark STARTS from the start asset's own geometry, not the live node's (chained asset Changes)");
+{
+  // A transform is compiled while the live content still shows the element's BASE asset, so the second Change of a chain
+  // (bars5 -> bars10 -> bars5) binds its marks against bars5's bytes while its own start is bars10: it began from the merged wide bars.
+  const five = load("mpl_bars_5_FLUXPLOT"), ten = load("mpl_bars_10_FLUXPLOT");
+  const live = five.root(), source = ten.root(), target = five.root();
+  const dOf = (root: Element, id: string) => (root.querySelector(`[id="${id}"] path`)?.getAttribute("d") ?? "").match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)!.map(Number);
+  const opts = { t: 0, assetChange: true, geometryInterpolated: true, toManifest: five.manifest, sourceRoot: source, targetRoot: target,
+    from: viewFits(ten.manifest) ?? undefined, to: viewFits(five.manifest) ?? undefined,
+    series: (a: import("../src/lib/plot/types").FluxPlotSeries) => five.manifest.series.find(s => s.id === a.id) ?? null } as import("../src/lib/plot/projectDom").PlotViewOptions;
+  preparePlotView(live, ten.manifest, undefined, "", opts);
+  const paired = ten.manifest.series[0].svg.bars!.filter(id => live.querySelector(`[id="${id}"]`));
+  h.ok(paired.length === 5, `the live bars5 root holds the five paired bars (${paired.length})`);
+  for (const [t, from, label] of [[0, ten, "t = 0: bars10's own bars"], [1, five, "t = 1: bars5's own bars"]] as const) {
+    applyPlotView(live, ten.manifest, undefined, "", { ...opts, t, raw: t });
+    for (const id of paired) {
+      const got = dOf(live, id), want = dOf(from.root(), id);
+      h.ok(got.length === want.length && got.every((v, i) => Math.abs(v - want[i]) < 1e-3), `${id} at ${label}`);
+    }
+  }
+}
+
 h.section("model merge/delete, shallow state capture and interpolation");
 const el: SemanticPlotElement = { id: "p", type: "plot", assetId: "sine", x: 0, y: 0, width: 480, height: 144, rotation: 0 };
 const project = { figures: [{ elements: [el] }] } as Project;

@@ -139,6 +139,50 @@ section("a bar with its own transform attribute keeps the fade");
   c.destroy();
 }
 
+section("a chained asset Change starts where the previous one left the plot (bars5 -> bars10 -> bars5)");
+{
+  // The second Change of a chain was compiled against the element's BASE asset, so at its t = 0 the ten bars it rests on had become the five
+  // wide bars of the base (22,154 px differed on the owner's review deck; measured as PRE-ROLL CHANGE 4,558 by the settle sweep).
+  const A = read("mpl_bars_5_FLUXPLOT"), B = read("mpl_bars_10_FLUXPLOT");
+  const tag = "chain", manifests: Record<string, FluxPlotManifest> = { [`${tag}5`]: A.manifest, [`${tag}10`]: B.manifest };
+  cachePlot(`${tag}5`, A.svg, A.manifest); cachePlot(`${tag}10`, B.svg, B.manifest);
+  const to = (id: string) => ({ assetId: id, svgPath: `plots/${id}.svg`, manifestPath: `plots/${id}.json`, frozen: true });
+  const step = (id: string, asset: string) => ({ id, tracks: [{ target: "p", preset: "transform", duration: 1000, easing: "linear", to: to(asset) }] });
+  const slide = { id: "s-chain", elements: [{ id: "p", type: "plot", assetId: `${tag}5`, x: 0, y: 0, width: 360, height: 260, rotation: 0, source: { svgPath: `plots/${tag}5.svg` } }],
+    beats: [{ id: "base", tracks: [] }, step("up", `${tag}10`), step("down", `${tag}5`), step("up2", `${tag}10`)] } as unknown as Slide;
+  const options = { theme: FLUX_DARK, reducedMotion: true, plotManifest: (id: string) => manifests[id] };
+  const deck = createDeck({ withTitleSlide: false }); deck.slides = [slide]; deck.defaults.transition = "none";
+  const host = document.createElement("div") as unknown as HTMLElement;
+  const player = createPlayer(host, deck, options);
+  const numbers = (d: string) => d.match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)!.map(Number);
+  /** the bars the viewer sees: path bytes of every bar that is not collapsed onto its baseline */
+  const seen = (beat: number, ms: number) => {
+    player.seek(0, beat, ms);
+    const out: Record<string, number[]> = {};
+    for (const id of B.manifest.series[0].svg.bars!) {
+      const g = host.querySelector(`[id="p__${id}"]`) as unknown as { style: { getPropertyValue(n: string): string; display: string }; querySelector(s: string): { getAttribute(n: string): string | null } | null } | null;
+      const d = g?.querySelector("path")?.getAttribute("d");
+      if (!g || !d || g.style.display === "none" || /scaleY\(0(\.0+)?\)/.test(g.style.getPropertyValue("transform"))) continue;
+      out[id] = numbers(d);
+    }
+    return out;
+  };
+  const same = (a: Record<string, number[]>, b: Record<string, number[]>) => Object.keys(a).join() === Object.keys(b).join() &&
+    Object.keys(a).every(id => a[id].length === b[id].length && a[id].every((v, i) => Math.abs(v - b[id][i]) < 1e-3));
+  const rest5 = seen(0, 1000);
+  check(Object.keys(rest5).length === 5, `the base slide rests on five bars (${Object.keys(rest5).length})`);
+  const end1 = seen(1, 1000), start2 = seen(2, 0), end2 = seen(2, 1000), start3 = seen(3, 0);
+  check(Object.keys(end1).length === 10, `step 1 ends on ten bars (${Object.keys(end1).length})`);
+  check(same(start2, end1), "step 2 starts on exactly the bars step 1 left (ten bars, none merged)");
+  check(same(end2, rest5), "step 2 ends on the base's five bars");
+  check(same(start3, end2), "step 3 starts on exactly the bars step 2 left");
+  check(same(seen(1, 0), rest5), "step 1 still starts on the base's five bars");
+  // purity: the boundary frames do not depend on the order they are reached in
+  const back = [seen(3, 0), seen(2, 0), seen(1, 1000)];
+  check(same(back[0], end2) && same(back[1], end1) && same(back[2], end1), "a reverse seek reproduces every boundary of the chain");
+  player.destroy();
+}
+
 section("barGrowWeight: one law for growing and shrinking");
 check(barGrowWeight(true, 0) === 0 && barGrowWeight(true, .45) === 0 && barGrowWeight(true, 1) === 1, "an entering bar is flat until t = .45 and at rest at t = 1");
 check(barGrowWeight(false, 0) === 1 && barGrowWeight(false, .55) === 0 && barGrowWeight(false, 1) === 0, "a leaving bar is at rest at t = 0 and flat from t = .55");
