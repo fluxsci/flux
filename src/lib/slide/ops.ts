@@ -778,12 +778,13 @@ export function setTrackCurve(deck: Deck, slideId: Id, trackId: Id, curve: Curve
   return { ok: true };
 }
 
+/** Does this track draw along x (WP 3.1)? */
+const sweeps = (track: Track, deck: Deck): boolean => { const r = resolveTrack(track, deck); return (r.preset === "drawOn" || r.preset === "drawOff") && r.params?.clock === "x"; };
 /** WP 3.1: the curve of an along-x draw (`params.clock: "x"`) IS its front's x, which may neither leave the line (a spring, an overshooting
  *  curve) nor jump (steps); the series' markers are timed on its inverse. Null when the track is no sweep or its curve is fine. */
 export function sweepClockRefusal(track: Track, deck: Deck): string | null {
-  const r = resolveTrack(track, deck);
-  if (r.preset !== "drawOn" && r.preset !== "drawOff" || r.params?.clock !== "x") return null;
-  const c = resolveCurve(r, familyOf(r));
+  if (!sweeps(track, deck)) return null;
+  const r = resolveTrack(track, deck), c = resolveCurve(r, familyOf(r));
   return c.overshoots || c.key.startsWith("steps:") ? "A draw along x needs a curve that stays between its ends (no spring, overshoot or steps)" : null;
 }
 
@@ -810,9 +811,13 @@ export function setAnimStyle(deck: Deck, id: Id, patch: Partial<Omit<AnimStyle, 
   const linked = deck.slides.flatMap(s => s.beats.flatMap(b => b.tracks.filter(t => t.styleId === id)));
   if (next.family !== style.family && linked.length)
     throw new Error("Detach linked tracks before changing a style's family");
+  const saved = structuredClone(style), presets = linked.map(t => t.preset);
   Object.assign(style, next);
   // The one field that propagates by write: linked tracks keep their own preset.
   if (patch.track?.preset !== undefined) for (const track of linked) track.preset = style.track.preset;
+  // a linked draw along x may not inherit a curve its front cannot follow (WP 3.1)
+  const refused = linked.map(t => sweepClockRefusal(t, deck)).find(Boolean);
+  if (refused) { Object.assign(style, saved); linked.forEach((t, i) => { t.preset = presets[i]; }); throw new Error(refused); }
   return true;
 }
 
@@ -841,10 +846,15 @@ export function linkTrackStyle(deck: Deck, slideId: Id, trackId: Id, styleId: Id
   if (!style) return { ok: false, reason: "Animation style not found" };
   const family = familyOf(found.track);
   if (family !== style.family) return { ok: false, reason: `Family mismatch: ${family} track cannot link to ${style.family} style` };
+  const saved = structuredClone(found.track), swept = sweeps(found.track, deck);
   for (const key of INHERITED_STYLE_FIELDS) delete found.track[key];
   // The preset stays on the track; a same-family style's differing preset is written once.
   if (style.track.preset != null) found.track.preset = style.track.preset;
   found.track.styleId = styleId;
+  // a draw along x keeps drawing along x (its markers and band are timed by it): a style that would end it, or give it a curve its front
+  // cannot follow, is refused (WP 3.1)
+  const refused = swept && !sweeps(found.track, deck) ? "This line draws along x: turn Draw along x off first, or link a style that draws along x" : sweepClockRefusal(found.track, deck);
+  if (refused) { for (const key of Object.keys(found.track)) delete (found.track as unknown as Record<string, unknown>)[key]; Object.assign(found.track, saved); return { ok: false, reason: refused }; }
   return { ok: true };
 }
 

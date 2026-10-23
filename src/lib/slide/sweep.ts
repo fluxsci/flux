@@ -28,22 +28,30 @@ export function parsePolyline(d: string | null | undefined): XY[] | null {
   return pts.length >= 2 ? pts : null;
 }
 
-/** Cumulative arc length per vertex (a subpath jump lays none: the dash runs on the drawn length only), x made monotone by a running max/min. Returns null when x runs backwards by more
- *  than `tol` of the span (a loop or a reversing line has no x clock) or the line has no x extent. */
+/** A line whose VERTICAL runs (segments with no x extent: the risers of a step or ECDF line) are more than this share of its length has no
+ *  useful x clock: an x clock climbs a riser in an instant, so such a line would draw in jumps. It draws by length instead. */
+export const SWEEP_MAX_VERTICAL = 0.05;
+/** Cumulative arc length per vertex (a subpath jump lays none), x made monotone by a running max/min. Returns null when the line has no
+ *  x clock: x runs backwards by more than `tol` of the span (a loop, a reversal), it has no x extent, or its vertical runs exceed
+ *  SWEEP_MAX_VERTICAL of its length. */
 export function sweepSamples(pts: readonly XY[], tol = 0.003): SweepSample[] | null {
   if (pts.length < 2) return null;
   const x0 = pts[0].x, span = pts[pts.length - 1].x - x0;
   if (!(Math.abs(span) > 1e-6)) return null;
-  const dir = Math.sign(span), slack = Math.abs(span) * tol;
-  let run = x0, s = 0;
+  const dir = Math.sign(span), slack = Math.abs(span) * tol, flat = Math.abs(span) * 1e-6;
+  let run = x0, s = 0, vertical = 0;
   const out: SweepSample[] = [];
   for (let i = 0; i < pts.length; i++) {
-    if (i && !pts[i].move) s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (i && !pts[i].move) {
+      const seg = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      s += seg;
+      if (Math.abs(pts[i].x - pts[i - 1].x) <= flat) vertical += seg;
+    }
     if ((pts[i].x - run) * dir < -slack) return null;
     run = dir > 0 ? Math.max(run, pts[i].x) : Math.min(run, pts[i].x);
     out.push({ x: run, y: pts[i].y, s });
   }
-  return out;
+  return vertical > SWEEP_MAX_VERTICAL * s ? null : out;
 }
 
 /** Bound the keyframe count: past `max` samples keep, per x bucket, the first, last, min-y and max-y vertex (so spikes
@@ -62,7 +70,7 @@ export function decimateSweep(samples: readonly SweepSample[], max = 4000, bucke
   return [...keep].sort((a, c) => a - c).map(i => samples[i]);
 }
 
-export interface SweepKeys { offset: number; s: number; x: number; y: number }
+export interface SweepKeys { offset: number; s: number; x: number; y: number; /** the DEPARTURE key of a vertical run (see sweepKeys) */ departs?: true }
 /** The x range a sweep's clock runs over: by default the line's own [first x, last x]; several lines drawn by ONE track share the union
  *  of theirs, so one front crosses them all at one x rate (a line that starts later is untouched until the front reaches it). */
 export interface SweepFrame { x0: number; span: number }
@@ -74,17 +82,37 @@ export function unionFrame(lines: readonly (readonly SweepSample[])[]): SweepFra
   const ends = frames.flatMap((f) => [f.x0, f.x0 + f.span]), lo = Math.min(...ends), hi = Math.max(...ends);
   return dir > 0 ? { x0: lo, span: hi - lo } : { x0: hi, span: lo - hi };
 }
-/** Strictly increasing offsets (normalised x in `frame`). A vertical run (same x, longer s) keeps its LONGEST s at that x, and the
- *  pen keeps its LAST y there; the pen never goes backwards. In its own frame a line's keys run 0..1 exactly. */
+/** The width (normalised x) of a vertical run's climb: the pen takes it in an instant AT its x. */
+export const RUN_EPS = 1e-6;
+/** Strictly increasing offsets (normalised x in `frame`). A vertical run (points at one x; or the part of a line outside the frame, clamped
+ *  to its end) is climbed in an instant AT its x: an ARRIVAL key (its first point) and a DEPARTURE key RUN_EPS later (its last), so the pen
+ *  neither starts it early (a stub before the line's beat) nor finishes it late (a corner cut across the step). The pen never goes
+ *  backwards. In its own frame a line's keys run 0..1 exactly. */
 export function sweepKeys(samples: readonly SweepSample[], frame: SweepFrame = ownFrame(samples)): SweepKeys[] {
   const own = frame.x0 === samples[0].x && frame.span === samples[samples.length - 1].x - samples[0].x;
   const { x0, span } = frame, out: SweepKeys[] = [];
-  for (const p of samples) {
-    const at = Math.max(0, Math.min(1, (p.x - x0) / span));
-    if (out.length && at <= out[out.length - 1].offset + 1e-6) { Object.assign(out[out.length - 1], { s: p.s, y: p.y }); continue; }
+  // a frame that cuts the line (a clip, a shared frame) gets a sample exactly where the line crosses each of its ends, so the length laid
+  // at the frame's start and end is exact (the clamped part before / after becomes an instant climb there)
+  const ends = own ? [] : [x0, x0 + span];
+  const pts: SweepSample[] = [];
+  samples.forEach((p, i) => {
+    const q = samples[i - 1];
+    if (q) for (const e of ends) if ((q.x - e) * (p.x - e) < 0) { const u = (e - q.x) / (p.x - q.x); pts.push({ x: e, y: q.y + (p.y - q.y) * u, s: q.s + (p.s - q.s) * u }); }
+    pts.push(p);
+  });
+  for (const p of pts) {
+    const at = Math.max(0, Math.min(1, (p.x - x0) / span)), last = out[out.length - 1];
+    if (last && at <= last.offset + RUN_EPS) {
+      if (last.departs) Object.assign(last, { s: p.s, x: p.x, y: p.y });
+      else out.push({ offset: last.offset + RUN_EPS, s: p.s, x: p.x, y: p.y, departs: true });
+      continue;
+    }
     out.push({ offset: at, s: p.s, x: p.x, y: p.y });
   }
-  if (own) { out[0].offset = 0; out[out.length - 1].offset = 1; }
+  // a run at the very end: its climb ends AT the end (the arrival steps back by RUN_EPS)
+  const end = out[out.length - 1];
+  if (end.offset > 1 && out.length > 1) { out[out.length - 2].offset = Math.max(out[out.length - 2].offset - RUN_EPS, out.length > 2 ? out[out.length - 3].offset + RUN_EPS / 2 : 0); end.offset = 1; }
+  if (own) { out[0].offset = 0; end.offset = 1; }
   return out;
 }
 

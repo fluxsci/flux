@@ -363,11 +363,11 @@ imported drawing with several strokes, never for a plot) draws the strokes of a 
 after another at one pen speed, each weighted by its length (a Draw out takes the last stroke first).
 **Draw along x** (a toggle on the Draw of a plot's data line) draws the line at an even pace along its x
 axis instead of along its length, so a steep stretch no longer rushes past; its band, error bars and
-markers ride the same front, and **Lead dot** adds a dot at the tip. A line that doubles back in x, or is
-closed, keeps drawing along its length. A draw along x takes a curve that stays between its ends (no
-spring, overshoot or steps). From the command line:
-`flux draw-along-x talk slide1 plot1 growth [--pen on|off|auto] [--duration 1400]` (`--off` turns it off,
-keeping the timing).
+markers ride the same front, and **Lead dot** adds a dot at the tip. A line that doubles back in x, a step
+or ECDF line, a closed line or one that runs outside its axes keeps drawing along its length. A draw along
+x takes a curve that stays between its ends (no spring, overshoot or steps). From the command line:
+`flux draw-along-x talk slide1 plot1 growth [--pen on|off|auto] [--duration 1400]`; `--off` (or unticking
+the box) turns the x clock off and leaves the effects and their timing as they are.
 Every animation starts and lands without a pop: a draw grows from nothing (a round-capped line no longer
 blinks a dot in), and text that glides lands on the crisp resting text.
 

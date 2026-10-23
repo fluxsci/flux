@@ -55,7 +55,7 @@ flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--p
 flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default (rect/ellipse/arrow scaleIn / scaleOut, text/image/plot fadeRise, line/path drawOn / drawOff; a Draw on a multi-stroke imported drawing, not a fluxplot, traces the strokes in order)
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 flux animate-plot <deck> <slideId> <elId> [--per-panel] [--pace classic|v2]           # (animate_plot)     the whole plot build, as Animate > Auto: three clicks (axes + grid, data, legend + annotations); --pace classic keeps the older numbers
-flux draw-along-x <deck> <slideId> <elId> <seriesId> [--pen auto|on|off] [--duration ms] [--off]  # (draw_along_x) one series draws along x: line at a constant x rate (Gentle curve), band and error bars wiped open by the same front, markers grow in as it reaches them; --off = by length again (timing kept)
+flux draw-along-x <deck> <slideId> <elId> <seriesId> [--pen auto|on|off] [--duration ms] [--off]  # (draw_along_x) one series draws along x: line at a constant x rate (Gentle curve), band and error bars wiped open by the same front, markers grow in as it reaches them; --off removes the x clock and keeps effects and timing as they are
 
 flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
      [--x-scale linear|log --y-scale linear|log --y2-min N --y2-max N --y2-scale linear|log --reset] [--beat beatId]  # (set_plot_view) data view (a twin axis by --y2-*/--x2-*), or a Change at a deck beat
@@ -172,7 +172,9 @@ to place multiple appearance effects on the same object in one step.
   the axis, so markers appear as the pen reaches them. The auto-build writes all of this for a line series (its band, error
   bars and markers ride the line; a bare line gets the dot; a fit line beside a scatter keeps drawing as the points arrive);
   `flux draw-along-x` / the Animator's **Draw along x** do it for one series. A sweep refuses a spring, an overshooting curve
-  or steps; a closed or backwards-running stroke, or a trimmed one, draws by length.
+  or steps; a closed or backwards-running stroke, a step / ECDF line (mostly vertical runs), a line running outside its axes,
+  or a trimmed one, draws by length. Every series of a panel gets one duration; each line's front crosses its own x range
+  (narrowed to its axes' clip), and the lead dot is clipped like its line.
 - **Soft wipe**: `writeOn`/`wipeOut` `params.edge: "soft"` feathers a text's leading edge (0.9 x font size);
   new Wipe ins carry it; `"hard"` or an absent edge is the plain clip.
 - **`params` keys the player knows** (frozen defaults): `fadeRise.y` 14, `popIn.from` 0.9,

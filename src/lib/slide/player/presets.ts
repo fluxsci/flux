@@ -22,7 +22,7 @@ import type { Element as SceneElement } from "../../types";
 import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, penWidth, penSlices, type TrimSpec } from "./trim";
 import { trackDuration } from "../timing";
 import { seamOffCorners } from "../../path";
-import { parsePolyline, sweepSamples, decimateSweep, sweepKeys, sweepAt, unionFrame, darken, type SweepSample, type SweepKeys, type SweepFrame, type XY } from "../sweep";
+import { parsePolyline, sweepSamples, decimateSweep, sweepKeys, sweepAt, unionFrame, ownFrame, darken, type SweepSample, type SweepKeys, type SweepFrame, type XY } from "../sweep";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
 
@@ -504,10 +504,10 @@ function drawPlan(node: TargetNode, index: number, t: Track, enter: boolean): No
     const inner = unit.pieces.length > 1 ? penSlices(unit.pieces.map((p) => p.pen), 1, false, 0) : [[0, 1] as [number, number]];
     const slot = slots?.[ui];
     unit.pieces.forEach((piece, pi) => {
-      const keys = sweeps?.get(piece);
-      const own: Forward = keys ? sweepSampler(piece, keys) : trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, preset) : pieceSampler(piece, inner[pi]);
+      const sweep = sweeps?.get(piece);
+      const own: Forward = sweep ? sweepSampler(piece, sweep) : trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, preset) : pieceSampler(piece, inner[pi]);
       emit(piece.geo, own, slot, DRAW_TRANSIENT);
-      const dot = keys && dots ? sweepPen(piece, keys, t, preset, `${t.id ?? t.target}:${index}:${ui}`) : null;
+      const dot = sweep && dots ? sweepPen(piece, sweep.keys, t, preset, `${t.id ?? t.target}:${index}:${ui}`) : null;
       // the dot's resting state is its authored display="none": nothing of it is transient
       if (dot) emit(dot.node, dot.forward, slot, [], [dot.host]);
     });
@@ -547,57 +547,136 @@ function trimSampler(piece: Piece, [a, b]: [number, number], t: Track, preset: "
 // x does not traverse monotonically (a loop, a reversal) has no x clock and draws by length, as does every other piece (an
 // arrow's shaft and heads, a fill): the autobuild planner (`sweepable`) only emits a sweep for a series the runtime accepts.
 // ---------------------------------------------------------------------------
-const sweepCache = new WeakMap<Element, { d: string | null; samples: SweepSample[] | null }>();
-/** The x-clock samples of a line, null when it has none. Cached per node while its `d` is unchanged (a re-plan of an unchanged
+/** A line the x clock can draw: its own vertices (an M/L polyline, pen lifts marked; null for a curve sampled by length) and its x-clock
+ *  samples (decimated). */
+interface SweepLine { poly: XY[] | null; samples: SweepSample[] }
+const sweepCache = new WeakMap<Element, { key: string; line: SweepLine | null }>();
+/** What a line's geometry is made of, per tag (a cached parse is reused while it is unchanged). */
+const geometryKey = (geo: SVGElement): string => {
+  const tag = geo.tagName.toLowerCase();
+  return tag === "line" ? ["x1", "y1", "x2", "y2"].map((k) => geo.getAttribute(k)).join(",") : tag === "polyline" ? `p:${geo.getAttribute("points")}` : `d:${geo.getAttribute("d")}`;
+};
+/** The x-clock line of a stroke, null when it has none. Cached per node while its geometry is unchanged (a re-plan of an unchanged
  *  20 000-vertex line reuses the 18 ms parse). */
-function xSamples(geo: SVGElement): SweepSample[] | null {
-  const d = geo.getAttribute("d"), hit = sweepCache.get(geo);
-  if (hit && hit.d === d) return hit.samples;
-  let pts: XY[] | null = geo.tagName.toLowerCase() === "path" ? parsePolyline(d) : null;
-  if (!pts && geo.tagName.toLowerCase() === "line") pts = [{ x: Number(geo.getAttribute("x1")), y: Number(geo.getAttribute("y1")) }, { x: Number(geo.getAttribute("x2")), y: Number(geo.getAttribute("y2")) }];
-  if (!pts && geo.tagName.toLowerCase() === "polyline") { const q = pts_(geo); pts = q.length >= 2 ? q : null; }
-  if (!pts) {
+function sweepLine(geo: SVGElement): SweepLine | null {
+  const key = geometryKey(geo), hit = sweepCache.get(geo);
+  if (hit && hit.key === key) return hit.line;
+  const tag = geo.tagName.toLowerCase();
+  let vs: XY[] | null = tag === "path" ? parsePolyline(geo.getAttribute("d")) : tag === "line"
+    ? [{ x: Number(geo.getAttribute("x1")), y: Number(geo.getAttribute("y1")) }, { x: Number(geo.getAttribute("x2")), y: Number(geo.getAttribute("y2")) }]
+    : tag === "polyline" ? pts(geo).map(([x, y]) => ({ x, y })) : null;
+  const poly = tag === "path" ? vs : null;
+  if (!vs || vs.length < 2) {
     const g = geo as unknown as SVGGeometryElement;
+    vs = null;
     try {
-      const len = typeof g.getPointAtLength === "function" ? g.getTotalLength() : 0;
-      if (len > 0) { const n = Math.min(600, Math.max(32, Math.round(len))); pts = Array.from({ length: n + 1 }, (_, i) => { const p = g.getPointAtLength(len * i / n); return { x: p.x, y: p.y }; }); }
-    } catch { pts = null; }
+      const len = tag === "path" && typeof g.getPointAtLength === "function" ? g.getTotalLength() : 0;
+      if (len > 0) { const n = Math.min(600, Math.max(32, Math.round(len))); vs = Array.from({ length: n + 1 }, (_, i) => { const p = g.getPointAtLength(len * i / n); return { x: p.x, y: p.y }; }); }
+    } catch { vs = null; }
   }
-  const raw = pts && pts.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) ? sweepSamples(pts) : null;
-  const samples = raw ? decimateSweep(raw) : null;
-  sweepCache.set(geo, { d, samples });
-  return samples;
+  const raw = vs && vs.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) ? sweepSamples(vs) : null;
+  const line = raw ? { poly, samples: decimateSweep(raw) } : null;
+  sweepCache.set(geo, { key, line });
+  return line;
 }
-const pts_ = (el: Element): XY[] => pts(el).map(([x, y]) => ({ x, y }));
+/** The x range of the rect that clips a stroke (matplotlib clips every line to its axes) in the stroke's own user space, or null when there
+ *  is none or it is not that simple (a clip in another user space, a non-rect clip). */
+function clipRange(geo: SVGElement, root: TargetNode): [number, number] | null {
+  for (let e: Element | null = geo; e; e = e.parentElement) {
+    const ref = e.getAttribute("clip-path") ?? parseStyleAttr(e.getAttribute("style")).get("clip-path");
+    const id = ref ? /url\(\s*["']?#([^"')]+)["']?\s*\)/.exec(ref)?.[1] : undefined;
+    if (id) {
+      const clip = geo.ownerDocument?.getElementById(id), kids = clip ? Array.from(clip.children) : [];
+      const rect = kids.length === 1 && kids[0].tagName.toLowerCase() === "rect" && !kids[0].hasAttribute("transform") ? kids[0] : null;
+      if (!rect || clip!.getAttribute("clipPathUnits") === "objectBoundingBox") return null;
+      // the clip lies in the user space of the element carrying it: exact when no transform sits between the stroke and that element
+      for (let t: Element | null = geo; t && t !== e; t = t.parentElement) if (t.hasAttribute("transform")) return null;
+      const x = Number(rect.getAttribute("x") ?? 0), w = Number(rect.getAttribute("width"));
+      return Number.isFinite(x) && w > 0 ? [x, x + w] : null;
+    }
+    if (e === (root as unknown as Element)) break;
+  }
+  return null;
+}
+/** The frame narrowed to what the stroke's clip shows: the front crosses the visible part only (no dead lead or tail while it sweeps
+ *  through clipped-off data). Unchanged when the clip leaves nothing of it. */
+function clipFrame(frame: SweepFrame, clip: [number, number] | null): SweepFrame {
+  if (!clip) return frame;
+  const a = frame.x0, b = frame.x0 + frame.span, lo = Math.max(Math.min(a, b), clip[0]), hi = Math.min(Math.max(a, b), clip[1]);
+  if (!(hi - lo > 1e-6)) return frame;
+  return frame.span > 0 ? { x0: lo, span: hi - lo } : { x0: hi, span: lo - hi };
+}
+/** One swept stroke: its line, the frame its clock runs over and its keys in that frame. */
+interface Sweep { line: SweepLine; frame: SweepFrame; keys: SweepKeys[] }
 /** The lines of one draw that sweep, keyed by piece: an open, solid-or-dashed STROKE that is a whole pen unit (no heads), with an x clock.
  *  Lines that share their target's coordinate space (no `transform` between them and the target) and run the same way share ONE frame,
- *  the union of their x ranges, so one front crosses them all; a sequence (`order`) gives each line its own slot and its own frame. */
-function sweepPlan(node: TargetNode, units: Unit[], sequence: boolean): Map<Piece, SweepKeys[]> {
-  const lines = new Map<Piece, SweepSample[]>();
+ *  the union of their x ranges, so one front crosses them all; a sequence (`order`) gives each line its own slot and its own frame. Each
+ *  frame is narrowed to the line's clip (its axes). */
+function sweepPlan(node: TargetNode, units: Unit[], sequence: boolean): Map<Piece, Sweep> {
+  const lines = new Map<Piece, SweepLine>();
   for (const u of units) {
     const p = u.pieces[0];
     if (u.pieces.length !== 1 || p.role !== "stroke" || p.closed) continue;
-    const s = xSamples(p.geo); if (s) lines.set(p, s);
+    const line = sweepLine(p.geo); if (line) lines.set(p, line);
   }
   const plain = (geo: Element) => { for (let e: Element | null = geo; e && e !== node; e = e.parentElement) if (e.hasAttribute("transform")) return false; return true; };
-  const shared = !sequence && lines.size > 1 && [...lines.keys()].every((p) => plain(p.geo)) ? unionFrame([...lines.values()]) : null;
-  return new Map([...lines].map(([p, s]) => [p, shared ? sweepKeys(s, shared as SweepFrame) : sweepKeys(s)]));
+  const shared = !sequence && lines.size > 1 && [...lines.keys()].every((p) => plain(p.geo)) ? unionFrame([...lines.values()].map((l) => l.samples)) : null;
+  return new Map([...lines].map(([p, line]) => {
+    const frame = clipFrame(shared ?? ownFrame(line.samples), clipRange(p.geo, node));
+    return [p, { line, frame, keys: sweepKeys(line.samples, frame) }];
+  }));
 }
-/** A swept stroke: the share of its own length left of the front, through the SAME dash window and touch-down as a length-clock draw. */
-function sweepSampler(piece: Piece, keys: SweepKeys[]): Forward {
-  const { geo, len, closed, pattern } = piece, reach = drawReach(len, piece.tag), spec = { len: reach, closed, pattern }, hid = hiddenDash(reach);
-  const total = keys[keys.length - 1].s || 1, pen = penOf(geo);
+/** Can this engine take a path's geometry from the CSS `d` property (Chromium, Firefox)? */
+const cssD = (): boolean => typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("d", 'path("M 0 0")');
+/** A swept stroke. One subpath: the share of its own length left of the front, through the SAME dash window and touch-down as a length-clock
+ *  draw. Several subpaths (a NaN gap, a line cut at the figure edge): Chromium restarts a dash at every subpath, so one dash window cannot
+ *  reveal them in turn; the frames carry the line's OWN geometry cut at the front instead (`d`, transient: the authored attribute is the rest
+ *  state; an authored dash pattern keeps its phase). An engine without CSS `d` keeps the dash. */
+function sweepSampler(piece: Piece, sweep: Sweep): Forward {
+  const { geo, len, closed, pattern } = piece, { keys, frame, line } = sweep, total = keys[keys.length - 1].s || 1, pen = penOf(geo);
+  const touch = (f: number) => (pen == null ? {} : { strokeWidth: penWidth(pen, f * piece.pen) });
+  const poly = line.poly;
+  if (poly && poly.some((p) => p.move) && cssD()) {
+    const n = poly.length, dir = Math.sign(frame.span) || 1, run: number[] = [];
+    let m = poly[0].x;
+    for (const p of poly) { m = dir > 0 ? Math.max(m, p.x) : Math.min(m, p.x); run.push(m); }
+    const tok = poly.map((p, i) => `${i === 0 || p.move ? "M" : "L"} ${p.x} ${p.y}`);
+    // the front only moves forward while a cue plays: each frame appends to the previous prefix (a seek backwards rebuilds it)
+    let cachedK = 0, prefix = "";
+    const head = (k: number) => {
+      if (k < cachedK) prefix = tok.slice(0, k).join(" ");
+      else if (k > cachedK) prefix = cachedK ? `${prefix} ${tok.slice(cachedK, k).join(" ")}` : tok.slice(0, k).join(" ");
+      cachedK = k;
+      return prefix;
+    };
+    return (raw, ease) => {
+      const c = clamp01(ease(clamp01(raw))), xf = frame.x0 + c * frame.span;
+      // the vertices strictly behind the front (the first always; all of them at the end, so the last frame IS the line)
+      let k = n;
+      if (c < 1) { let lo = 0, hi = n; while (lo < hi) { const mid = (lo + hi) >> 1; if ((run[mid] - xf) * dir < 0) lo = mid + 1; else hi = mid; } k = Math.max(1, lo); }
+      let d = head(k);
+      if (k < n && !poly[k].move) {
+        const a = poly[k - 1], b = poly[k], dx = b.x - a.x;
+        const u = Math.abs(dx) > 1e-12 ? clamp01((xf - a.x) / dx) : 0;
+        if (u > 0) d += ` L ${a.x + dx * u} ${a.y + (b.y - a.y) * u}`;
+      }
+      return { d: `path("${d}")`, ...touch(clamp01(sweepAt(keys, c).s / total)) } as unknown as Keyframe;
+    };
+  }
+  const reach = drawReach(len, piece.tag), spec = { len: reach, closed, pattern }, hid = hiddenDash(reach);
   return (raw, ease) => {
     const f = clamp01(sweepAt(keys, clamp01(ease(clamp01(raw)))).s / total);
     // dash units: the share f of `len` (geoLength, which honours an explicit pathLength; X12), so the visible end sits ON the front; the
     // whole line is the reach
-    return { ...(windowsDash(spec, [[0, f >= 1 ? reach : f * len]]) ?? hid), ...(pen == null ? {} : { strokeWidth: penWidth(pen, f * piece.pen) }) } as unknown as Keyframe;
+    return { ...(windowsDash(spec, [[0, f >= 1 ? reach : f * len]]) ?? hid), ...touch(f) } as unknown as Keyframe;
   };
 }
 /** The lead dot (`params.pen`): a circle the player inserts beside the line, riding the front. It exists only while the slide's plan does
  *  (`NodeAnim.created`; disposeSlideAnims removes it) and is DISPLAYED only while it rides: its authored `display="none"` is the state
- *  before and after, so no box, measure or still ever sees it. The plot SVG may stretch non-uniformly (preserveAspectRatio none): the dot
- *  is counter-scaled to stay round (read at plan time; a plot resized later in the slide is a new plan). */
+ *  before and after, so no box, measure or still ever sees it. It rides in the line's own user space and under the line's own clip (a host
+ *  group carries the line's `transform` and `clip-path`: on the moving circle a clip would travel with it). The plot SVG may stretch
+ *  non-uniformly (preserveAspectRatio none): the dot is counter-scaled to stay round (read at plan time; a plot resized later in the slide
+ *  is a new plan). */
 function sweepPen(piece: Piece, keys: SweepKeys[], t: Track, preset: "drawOn" | "drawOff", key: string): { node: SVGElement; host: Element; forward: Forward } | null {
   const geo = piece.geo, parent = geo.parentNode as Element | null, doc = geo.ownerDocument;
   if (!parent || !doc) return null;
@@ -610,11 +689,14 @@ function sweepPen(piece: Piece, keys: SweepKeys[], t: Track, preset: "drawOn" | 
   node.setAttribute("cx", "0"); node.setAttribute("cy", "0"); node.setAttribute("r", String(r));
   node.setAttribute("fill", presetParam<string | null>(t, "penColor", preset) ?? darken(base));
   node.setAttribute("stroke", "#ffffff"); node.setAttribute("stroke-opacity", "0.85"); node.setAttribute("stroke-width", String(Math.max(1, r * 0.3)));
-  // the dot rides in the line's own user space: a line with a transform of its own gets the dot inside a group carrying it (the dot's CSS
-  // transform would replace the attribute)
-  const own = geo.getAttribute("transform");
-  const host = own ? doc.createElementNS(SVG_NS, "g") as Element : node;
-  if (own) { host.setAttribute(SWEEP_PEN_ATTR, key); host.setAttribute("transform", own); host.appendChild(node); }
+  const own = geo.getAttribute("transform"), clip = geo.getAttribute("clip-path") ?? parseStyleAttr(geo.getAttribute("style")).get("clip-path");
+  const host = own || clip ? doc.createElementNS(SVG_NS, "g") as Element : node;
+  if (host !== node) {
+    host.setAttribute(SWEEP_PEN_ATTR, key);
+    if (own) host.setAttribute("transform", own);
+    if (clip) host.setAttribute("clip-path", clip);
+    host.appendChild(node);
+  }
   parent.insertBefore(host, geo.nextSibling);
   let fx = 1, fy = 1;
   try {

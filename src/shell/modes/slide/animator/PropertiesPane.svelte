@@ -118,15 +118,18 @@
   function editFields(fn: (t: Track, resolved: Track) => void, coalesce?: string) {
     if (editingStyle) {
       const id = editingStyle.id;
-      commitDeckLive(d => {
-        const style = d.animStyles?.find(s => s.id === id); if (!style) return;
-        const t: Track = { target: rawTrack?.target ?? "", ...structuredClone(style.track) };
-        fn(t, t);
-        // Send only changed fields: resending preset would erase local preset overrides.
-        const keys = [...INHERITED_STYLE_FIELDS, "preset"] as const;
-        const patch = Object.fromEntries(keys.filter(k => JSON.stringify(t[k]) !== JSON.stringify(style.track[k])).map(k => [k, t[k]]));
-        setAnimStyle(d, id, { track: patch });
-      }, coalesce ? { coalesce } : undefined);
+      // a style edit its linked tracks cannot take (a spring on a draw along x) is refused by the op: say why, change nothing
+      try {
+        commitDeckLive(d => {
+          const style = d.animStyles?.find(s => s.id === id); if (!style) return;
+          const t: Track = { target: rawTrack?.target ?? "", ...structuredClone(style.track) };
+          fn(t, t);
+          // Send only changed fields: resending preset would erase local preset overrides.
+          const keys = [...INHERITED_STYLE_FIELDS, "preset"] as const;
+          const patch = Object.fromEntries(keys.filter(k => JSON.stringify(t[k]) !== JSON.stringify(style.track[k])).map(k => [k, t[k]]));
+          setAnimStyle(d, id, { track: patch });
+        }, coalesce ? { coalesce } : undefined);
+      } catch (e) { pushToast("info", e instanceof Error ? e.message : String(e)); }
     } else withSelectedTracks(fn, coalesce);
   }
   type StyleField = typeof INHERITED_STYLE_FIELDS[number] | "preset";
@@ -301,7 +304,8 @@
     if (editingStyle && curTrack) {
       const id = editingStyle.id, duration = durationFor(curTrack);
       const stylePatch: Partial<Track> = typeof value === "string" ? { easing: value } : "influence" in value ? { influence: value.influence } : { curve: value };
-      commitDeckLive(d => setAnimStyle(d, id, { track: { ...stylePatch, ...(keepArrival ? { duration } : {}) } }));
+      try { commitDeckLive(d => setAnimStyle(d, id, { track: { ...stylePatch, ...(keepArrival ? { duration } : {}) } })); }
+      catch (e) { pushToast("info", e instanceof Error ? e.message : String(e)); }
     } else withSelectedTracks((t, resolved, d, sid) => {
       if (!t.id || familyOf(t) === "media") return;
       const duration = trackDuration(resolved), arrival = resolveCurve(resolved, familyOf(resolved)).arrival;

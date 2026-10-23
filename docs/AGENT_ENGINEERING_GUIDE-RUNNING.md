@@ -1322,15 +1322,22 @@ Persistence invariants (all machine-checked — do not weaken):
   supersedes X12's "pure keyframes" letter, keeping its dash maths: `geoLength` honours `pathLength`, the full
   frame is `drawReach`, the dash is transient): `sweepPlan` picks the target's open, single-piece STROKES whose
   x runs one way (`slide/sweep.ts`: an absolute M/L polyline parsed from `d`, a NaN gap's later `M` a pen lift
-  that lays no length; else a 600-sample curve fallback; else null = by length), and `sweepSampler` maps the
-  eased progress (the front's normalised x) to the share of the line left of it, `f · len`, through the same
-  `windowsDash` + touch-down + exit reversal. Lines of one target in its own coordinate space share the UNION
-  frame (one front crosses them all); a `sequence` gives each its own slot and frame; trim params win (by
+  that lays no length; else a 600-sample curve fallback; else null = by length; a line whose exactly-vertical
+  runs exceed `SWEEP_MAX_VERTICAL` = 5 % of its length, a step / ECDF line, has no x clock), and `sweepSampler`
+  maps the eased progress (the front's normalised x) to the share of the line left of it, `f · len`, through the
+  same `windowsDash` + touch-down + exit reversal. A vertical run is climbed in an instant AT its x (an arrival
+  and a departure key `RUN_EPS` apart: no stub before the beat, no cut corner). A line of SEVERAL subpaths cannot
+  use one dash window (Chromium restarts a dash on every subpath, measured): its frames carry its own geometry
+  cut at the front (CSS `d`, transient; an amortised prefix cache), and an engine without CSS `d` keeps the dash.
+  Lines of one target in its own coordinate space share the UNION frame (one front crosses them all); a
+  `sequence` gives each its own slot and frame; every frame is narrowed to the line's clip rect (`clipRange`:
+  matplotlib clips each line to its axes; `sweepKeys` inserts the exact crossing samples); trim params win (by
   length). The lead dot (`params.pen`, `sweepPen`) is a circle the player inserts beside the line, tagged
   `SWEEP_PEN_ATTR`, authored `display="none"` (frames write `display: inline` only while it rides, so no box,
   measure, still or later draw ever sees it; `strokeGeometry.drawable` excludes it), listed in
   `NodeAnim.created` → `Spec.created` → removed by `disposeSlideAnims` (and replaced, never doubled, by a
-  re-plan). `writeOn params.tight` puts the ink edge's last keyframe at offset 1 (not `WIPE_BOX_AT`).
+  re-plan); a host `<g>` carries the line's `transform` and `clip-path` (a clip on the moving circle would
+  travel with it). `writeOn params.tight` puts the ink edge's last keyframe at offset 1 (not `WIPE_BOX_AT`).
   `Stagger.spacing: "true"` gives FRACTIONAL ranks = normalised pixel coordinate × (n − 1) (max rank and
   footprints unchanged), from `manifestCoordinates(..., "pixel")` ONLY (player and compiler alike; oriented
   like the data, the series' own twin-axis fit). Authoring: `autobuild.ts` `planSweeps` / `sweepSeries` /
@@ -1339,8 +1346,12 @@ Persistence invariants (all machine-checked — do not weaken):
   Draw along x / Lead dot): the line on `SWEEP_CURVE` (Gentle) over the panel clock (`sweepDuration`, from the
   host's `plotMeasures` stage scale), its other marks anchored to its start (band / error bars `writeOn`
   tight, markers a 120 ms stagger by x over D − 60 on `SWEEP_MARKER_CURVE`, the exact inverse; `spacing`
-  only past 3 % irregularity). A bare line beside another series' scatter (a fit line) is not swept.
-  `ops.sweepClockRefusal`: a sweep's curve may not overshoot or step (`setTrackCurve`, `setTrack`).
+  only past 3 % irregularity). The planner refuses what the player would draw by length plus a step series
+  (risers drawn, not in its data) and a line running outside its axes' x view; a line without markers of its own
+  beside another series' scatter IN ITS PANEL (a fit line) is not swept. `drawAlongX` resolves a line whose
+  anchor CHAIN reaches its own marks before anchoring them on it; its `off` removes the x-clock fields only.
+  `ops.sweepClockRefusal`: a sweep's curve may not overshoot or step (`setTrackCurve`, `setTrack`,
+  `setAnimStyle` on a linked style); `linkTrackStyle` refuses a style that would end a sweep or break its curve.
   **Pen touch-down (`trim.ts penWidth`).** A round or square cap paints a full disc at the head of the
   smallest dash, so a draw's first frame blinked a dot in and a drawOff ended on one. Every stroke piece,
   arrowhead vee and trim-path frame emits `strokeWidth = w · min(1, ink / w)` (`strokeWidth` is already

@@ -18,7 +18,7 @@ import { harness } from "./lib/harness.mjs";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { Track, Deck } from "../src/lib/slide/types";
 import { preparePlot } from "../src/lib/plot/parse";
-import { parsePolyline, sweepSamples, decimateSweep, sweepKeys, sweepAt, sweepDuration, sweepSpacingNeeded, unionFrame, darken, type XY } from "../src/lib/slide/sweep";
+import { parsePolyline, sweepSamples, decimateSweep, sweepKeys, sweepAt, sweepDuration, sweepSpacingNeeded, unionFrame, darken, SWEEP_MAX_VERTICAL, type XY } from "../src/lib/slide/sweep";
 import { PRESETS, WIPE_BOX_AT } from "../src/lib/slide/player/presets";
 import { disposeSlideAnims } from "../src/lib/slide/player/player";
 import { drawReach } from "../src/lib/slide/player/trim";
@@ -73,6 +73,17 @@ h.ok(sweepSamples([{ x: 3, y: 0 }, { x: 3, y: 9 }]) === null, "a vertical line h
   h.eq(gap.map(p => p.s), [0, 5, 5, 10], "a pen lift lays no length: the dash runs on the drawn length only");
   const keys = sweepKeys(gap);
   h.ok(near(sweepAt(keys, 0.5).s, 5) && near(sweepAt(keys, 0.45).s, 5), "the front crossing the gap draws nothing more");
+}
+{
+  // vertical runs (review: a step's riser drew before the click and the pen cut the step's corner): an ARRIVAL and a DEPARTURE key
+  const step = sweepSamples([{ x: 0, y: 0 }, { x: 0, y: 2 }, { x: 50, y: 2 }, { x: 50, y: 4 }, { x: 100, y: 4 }])!;
+  const keys = sweepKeys(step);
+  h.ok(keys.every((k, i) => i === 0 || k.offset > keys[i - 1].offset) && keys[0].offset === 0 && keys[keys.length - 1].offset === 1, "offsets stay strictly increasing through vertical runs, 0..1");
+  const sAt = [0, 0.01, 0.4999, 0.5001].map(c => sweepAt(keys, c).s);
+  h.ok([0, 3, 51.99, 54.01].every((v, i) => near(sAt[i], v, 1e-3)), `a riser at the start is not drawn before the line starts, and the pen climbs a riser exactly AT its x (${sAt.map(v => v.toFixed(2))})`);
+  h.ok(near(sweepAt(keys, 0.25).y, 2, 1e-9) && near(sweepAt(keys, 0.75).y, 4, 1e-9), "the pen follows the step's flats (it never cuts across a step)");
+  const ecdf = sweepSamples(Array.from({ length: 40 }, (_, i) => ({ x: Math.floor(i / 2) * 5, y: Math.ceil(i / 2) * 3 })));
+  h.eq(ecdf, null, `a line that is mostly vertical runs (a step / ECDF line: ${SWEEP_MAX_VERTICAL * 100} % or more of its length) has no x clock: it draws by length`);
 }
 h.ok(sweepSamples([{ x: 10, y: 0 }, { x: 5, y: 1 }, { x: 0, y: 0 }]) !== null, "a line written right to left has a clock too (its own direction)");
 
@@ -164,15 +175,49 @@ const sine = fixture("mpl_sine_waves");
   h.ok(seq.every(x => near(shown(x.sample!(0.5, IDENT)), 0, 1e-6) || near(shown(x.sample!(0.5, IDENT)), drawReach(50, "path"), 0.05)), "in sequence each line takes its own slot and its own frame");
 }
 
+h.section("a line of several subpaths, a clipped line, a changed line");
+{
+  const g = mk({}, "g"), gap = mk({ d: "M 0 0 L 50 0 M 60 0 L 100 0", stroke: "#000", fill: "none" }, "path", g as unknown as Element);
+  const t = { id: "t", target: "p", preset: "drawOn", params: { clock: "x" } } as Track;
+  const dashed = PRESETS.drawOn([gap as never], t, ctx)[0];
+  h.ok("strokeDasharray" in (dashed.sample!(0.5, IDENT) as object), "an engine without CSS `d` keeps the dash window (graceful)");
+  (globalThis as { CSS?: unknown }).CSS = { supports: (p: string) => p === "d" };
+  try {
+    const cut = PRESETS.drawOn([gap as never], t, ctx)[0], d = (c: number) => String((cut.sample!(c, IDENT) as { d: string }).d);
+    h.eq([d(0.3), d(0.55), d(0.8)], ['path("M 0 0 L 30 0")', 'path("M 0 0 L 50 0")', 'path("M 0 0 L 50 0 M 60 0 L 80 0")'], "several subpaths (Chromium restarts a dash on each): the frames carry the line's own geometry cut at the front, each subpath in turn");
+    h.ok(!("strokeDasharray" in (cut.sample!(0.5, IDENT) as object)) && cut.transient?.includes("d") && d(0) === 'path("M 0 0")' && d(1) === 'path("M 0 0 L 50 0 M 60 0 L 100 0")', "no dash at all (an authored pattern keeps its phase); nothing before the beat, the whole line at its end; `d` is transient (the attribute is the rest)");
+    h.ok([0.1, 0.3, 0.55, 0.8, 0.3, 0.9].map(d).join() === [0.1, 0.3, 0.55, 0.8, 0.3, 0.9].map(c => PRESETS.drawOn([gap as never], t, ctx)[0].sample!(c, IDENT)).map(f => String((f as { d: string }).d)).join(), "the prefix cache is seek-pure (forward, back and fresh plans agree)");
+  } finally { delete (globalThis as { CSS?: unknown }).CSS; }
+  // a clipped line (matplotlib clips each line to its axes; a zoomed view leaves data outside): the front crosses the visible part only
+  const svg = mk({}, "svg"), defs = mk({}, "defs", svg as unknown as Element), clip = mk({ id: "axclip" }, "clipPath", defs as unknown as Element);
+  mk({ x: "20", y: "-10", width: "60", height: "40" }, "rect", clip as unknown as Element);
+  (document.body as unknown as Element).appendChild(svg as unknown as Element);
+  const clipped = mk({ d: "M 0 0 L 100 0", stroke: "#000", fill: "none", "clip-path": "url(#axclip)" }, "path", svg as unknown as Element);
+  const at = PRESETS.drawOn([clipped as never], t, ctx)[0], f = (c: number) => shown(at.sample!(c, IDENT));
+  h.ok(near(f(0.001), 20, 0.1) && near(f(0.5), 50, 0.01) && near(f(0.999), 80, 0.1), `a clipped line's front crosses the clip's x range only (no dead lead or tail): ${[0.001, 0.5, 0.999].map(f).map(v => v.toFixed(1))}`);
+  const [, pen] = PRESETS.drawOn([clipped as never], { ...t, params: { clock: "x", pen: true } } as Track, ctx);
+  h.eq(pen.created![0].getAttribute("clip-path"), "url(#axclip)", "its dot rides under the same clip");
+  svg.remove();
+  // a <line> whose geometry changes is re-parsed (the cache keys every tag's own geometry)
+  const ln = mk({ x1: "0", y1: "0", x2: "100", y2: "0", stroke: "#000" }, "line");
+  const lt = { id: "l", target: "p", preset: "drawOn", params: { clock: "x" } } as Track;
+  const before = shown(PRESETS.drawOn([ln as never], lt, ctx)[0].sample!(0.5, IDENT));
+  ln.setAttribute("x2", "200");
+  const after = shown(PRESETS.drawOn([ln as never], lt, ctx)[0].sample!(0.5, IDENT));
+  h.ok(near(before, 50, 0.01) && near(after, 100, 0.01), "a <line> whose end moved draws its new geometry (the parse is keyed by x1..y2, not by a `d` it lacks)");
+}
+
 h.section("the lead dot");
 {
   const root = plotRoot(sine.svg, sine.manifest);
   const node = root.querySelector('[id="2hz.line"]')!, parent = node.querySelector("path")!.parentNode as Element;
   const track = { id: "tp", target: "p", preset: "drawOn", params: { clock: "x", pen: true } } as Track;
   const anims = PRESETS.drawOn([node as never], track, ctx);
-  const dot = anims.find(a => a.created?.length)!;
-  h.ok(anims.length === 2 && !!dot && dot.created![0] === dot.node && dot.node.getAttribute(SWEEP_PEN_ATTR) === "tp:0:0", "params.pen adds ONE dot per line, listed in NodeAnim.created and tagged with its track");
-  h.ok(dot.node.getAttribute("display") === "none" && dot.node.parentNode === parent && dot.node.getAttribute("pointer-events") === "none", "it is authored display=none beside its line (no box, measure or still ever sees it at rest)");
+  const dot = anims.find(a => a.created?.length)!, host = dot?.created?.[0] as Element, linePath = node.querySelector("path")!;
+  const hosts = () => Array.from(parent.children).filter(c => c.hasAttribute(SWEEP_PEN_ATTR));
+  h.ok(anims.length === 2 && !!dot && host.getAttribute(SWEEP_PEN_ATTR) === "tp:0:0" && dot.node.getAttribute(SWEEP_PEN_ATTR) === "tp:0:0", "params.pen adds ONE dot per line, its host listed in NodeAnim.created and tagged with its track");
+  h.ok(dot.node.getAttribute("display") === "none" && host.parentNode === parent && host.previousElementSibling === linePath && dot.node.getAttribute("pointer-events") === "none", "it is authored display=none right after its line (no box, measure or still ever sees it at rest)");
+  h.ok(!!linePath.getAttribute("clip-path") && host !== dot.node && host.getAttribute("clip-path") === linePath.getAttribute("clip-path") && dot.node.parentNode === host, "it rides under its line's own clip (a host group carries the clip: on the moving circle the clip would travel with it)");
   const kf = dot.keyframes as { display?: string; opacity?: number }[];
   h.ok(kf.length === 2 && kf.every(k => k.display === "none" && k.opacity === 0) && !dot.transient?.length, "both declared endpoints hide it (before and after the draw); nothing of it is transient");
   const keys = sweepKeys(decimateSweep(sweepSamples(parsePolyline(node.querySelector("path")!.getAttribute("d"))!)!));
@@ -182,11 +227,11 @@ h.section("the lead dot");
   h.ok(near((dot.sample!(0.015, IDENT) as { opacity: number }).opacity, 0.5, 0.02) && near((dot.sample!(0.985, IDENT) as { opacity: number }).opacity, 0.5, 0.02), "it fades in over the first and out over the last 3 % of its line (no pop)");
   h.eq(darken(node.querySelector("path")!.getAttribute("stroke") ?? (node.querySelector("path") as unknown as { style: CSSStyleDeclaration }).style?.stroke ?? ""), dot.node.getAttribute("fill"), "its fill is the line's stroke, darkened");
   PRESETS.drawOn([node as never], track, ctx);
-  h.eq(parent.querySelectorAll(`[${SWEEP_PEN_ATTR}]`).length, 1, "a re-plan replaces the dot, never doubles it");
+  h.eq(hosts().length, 1, "a re-plan replaces the dot, never doubles it");
   h.ok(PRESETS.drawOn([node as never], { ...track, params: { clock: "x" } }, ctx).every(a => !a.created) && drawGeometry(node).strokes.length === 1, "no dot without params.pen; a dot in the DOM is never draw geometry");
   const custom = PRESETS.drawOn([node as never], { ...track, params: { clock: "x", pen: true, penRadius: 9, penColor: "#ff0000" } } as Track, ctx).find(a => a.created)!;
   h.ok(custom.node.getAttribute("r") === "9" && custom.node.getAttribute("fill") === "#ff0000", "penRadius / penColor override the size and colour");
-  h.ok(custom.node.parentNode === parent && !dot.node.parentNode, "(the re-plan's dot replaced the first plan's)");
+  h.ok(hosts().length === 1 && hosts()[0] === custom.created![0] && !host.parentNode, "(the re-plan's dot replaced the first plan's)");
   {
     const g = mk({}, "g"), moved = mk({ d: "M 0 0 L 40 20 L 80 0", stroke: "#000", fill: "none", transform: "translate(10 5) scale(2)" }, "path", g as unknown as Element);
     const [, d2] = PRESETS.drawOn([g as never], { id: "tt", target: "p", preset: "drawOn", params: { clock: "x", pen: true } } as Track, ctx);
@@ -195,7 +240,7 @@ h.section("the lead dot");
   }
   const specs = [{ node: custom.node, created: custom.created, keyframes: [], beatIndex: 0, delay: 0, duration: 1, ease: resolveCurve({}), enter: true, key: "k" }];
   disposeSlideAnims(specs as never);
-  h.ok(!custom.node.parentNode && parent.querySelectorAll(`[${SWEEP_PEN_ATTR}]`).length === 0, "disposing a plan removes the nodes it created");
+  h.ok(!custom.created![0].parentNode && hosts().length === 0, "disposing a plan removes the nodes it created");
 }
 
 h.section("writeOn tight");
@@ -253,7 +298,7 @@ const build = (manifest: FluxPlotManifest, opts: Record<string, unknown> = {}, s
   const classic = build(band.manifest, { pace: CLASSIC_PACE });
   h.ok(classic.tracks.every(t => t.params?.clock === undefined && t.params?.tight === undefined && t.stagger?.spacing === undefined && t.curve === undefined), "the classic pace writes no sweep (pre-Release-1 bytes)");
   const irregular = clone(band.manifest), s = irregular.series[0] as unknown as { data: { x: number[] }; band: { x: number[] }; points: { x: number }[] };
-  s.data.x.forEach((_, i) => { const x = i < 12 ? i * 0.25 : 3 + (i - 11) * 1.8; s.data.x[i] = x; s.band.x[i] = x; s.points[i].x = x; });
+  s.data.x.forEach((_, i) => { const x = i < 12 ? i * 0.25 : 3 + (i - 11) * 1.6; s.data.x[i] = x; s.band.x[i] = x; s.points[i].x = x; });
   h.eq(build(irregular).by("growth.points").stagger?.spacing, "true", "irregular x: the markers take spacing \"true\"");
   const backwards = clone(band.manifest), b = backwards.series[0] as unknown as { data: { x: number[] } };
   b.data.x[10] = b.data.x[10] - 5;
@@ -261,6 +306,11 @@ const build = (manifest: FluxPlotManifest, opts: Record<string, unknown> = {}, s
   h.ok(build(backwards).by("growth.line").params?.clock === undefined, "...and keeps the length-clock Data beat");
   const raster = clone(band.manifest); (raster.series[0] as { rasterized?: boolean }).rasterized = true;
   h.ok(!sweepable(raster, raster.series[0]), "a rasterized series has no vector line to sweep");
+  const ecdf = JSON.parse(readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "pre-regen", "08_ecdf.fluxplot.json"), "utf8")) as FluxPlotManifest;
+  const stepped = clone(band.manifest); (stepped.series[0] as unknown as { kind: string }).kind = "step";
+  h.ok(ecdf.series.every(s => !sweepable(ecdf, s)) && !sweepable(stepped, stepped.series[0]), "an ECDF (mostly vertical runs) and a step line (its risers are drawn, not in its data) draw by length");
+  const zoomed = clone(band.manifest); (zoomed.axes[0] as unknown as { x: { domain: number[] } }).x.domain = [4, 19];
+  h.ok(!sweepable(zoomed, zoomed.series[0]), "a line that runs outside its axes' x view is not swept (its clipped-off markers would hold the visible ones back)");
   const waves = build(sine.manifest, {}, sine.svg);
   h.ok(["2hz.line", "1hz.line"].every(id => waves.by(id).params?.clock === "x" && waves.by(id).params?.pen === true && waves.by(id).start === 0) && waves.by("2hz.line").duration === waves.by("1hz.line").duration, "bare lines get the lead dot; the series of one panel share ONE clock, together");
   const c = compileSlide(build(irregular).slide, { width: 640, height: 360 }, { plotManifest: () => irregular });
@@ -296,6 +346,16 @@ h.section("drawAlongX: one series on or off, on any deck");
   h.ok(/series not found/.test(err(() => drawAlongX(deck, base.slide.id, base.p, band.manifest, "nope"))), "an unknown series is refused");
   const backwards = clone(band.manifest); (backwards.series[0] as unknown as { data: { x: number[] } }).data.x[10] -= 5;
   h.ok(/cannot draw along x/.test(err(() => drawAlongX(deck, base.slide.id, base.p, backwards, "growth"))), "a series without an x clock is refused");
+  {
+    // review: the line anchored on another track that is anchored on the line's own markers (a chain, not a direct anchor)
+    const chain = build(band.manifest, { pace: CLASSIC_PACE }), beat = chain.slide.beats.find(b => b.tracks.some(t => t.part === "growth.line"))!;
+    const ln = chain.by("growth.line"), pts = chain.by("growth.points"), x: Track = { id: "x-chain", target: chain.p, preset: "fade", start: 0, duration: 300, anchor: { trackId: pts.id!, edge: "start", offsetMs: 100 } };
+    beat.tracks.push(x); ln.anchor = { trackId: x.id!, edge: "start", offsetMs: 50 }; ln.start = 0;
+    const startBefore = compileSlide(chain.slide, { width: 640, height: 360 }, { plotManifest: () => band.manifest }).cues.flatMap(q => q.tracks).find(t => t.track.part === "growth.line")!.start;
+    drawAlongX(chain.deck, chain.slide.id, chain.p, band.manifest, "growth");
+    const c = compileSlide(chain.slide, { width: 640, height: 360 }, { plotManifest: () => band.manifest });
+    h.ok(!ln.anchor && !c.issues.some(i => /cycle/i.test(i.reason)) && c.cues.flatMap(q => q.tracks).find(t => t.track.part === "growth.line")!.start === startBefore, "a line whose anchor CHAIN reaches its own markers is resolved to its start first: no anchor cycle, same start");
+  }
   const bare = build(band.manifest); for (const b of bare.slide.beats) b.tracks = b.tracks.filter(t => t.part !== "growth.line");
   h.ok(/no draw-on track/.test(err(() => drawAlongX(bare.deck, bare.slide.id, bare.p, band.manifest, "growth"))), "a series with no line draw on the slide is refused");
   h.ok(/positive/.test(err(() => drawAlongX(deck, base.slide.id, base.p, band.manifest, "growth", { durationMs: -1 }))), "a bad duration is refused");
@@ -308,6 +368,20 @@ h.section("curves, params, schema");
   h.ok(!slideOps.setTrackCurve(v2.deck, sid, line.id!, { kind: "steps", n: 4 }).ok && !slideOps.setTrackCurve(v2.deck, sid, line.id!, { kind: "bezier", p: [0.34, 1.56, 0.64, 1] }).ok, "steps and an overshooting bezier are refused (the front may neither jump nor leave the line)");
   h.ok(!slideOps.setTrack(v2.deck, sid, line.id!, { curve: { kind: "spring", bounce: 0.2 } }).ok && JSON.stringify(line.curve) === JSON.stringify(SWEEP_CURVE), "setTrack refuses it too, restoring the track");
   h.ok(slideOps.setTrackCurve(v2.deck, sid, line.id!, "linear").ok && slideOps.setTrackCurve(v2.deck, sid, v2.by("axis.x.spine")?.id ?? v2.tracks[0].id!, { kind: "spring", bounce: 0.3 }).ok, "a linear sweep is fine; a spring on any other track still is");
+  {
+    // review: a style could hand a sweep the curve the track itself refuses
+    const deck = v2.deck as Deck;
+    deck.animStyles = [{ id: "plain", name: "plain", family: "appearance", track: { preset: "drawOn", curve: { kind: "bezier", p: [0.37, 0, 0.63, 1] } } } as never,
+      { id: "springy", name: "springy", family: "appearance", track: { preset: "drawOn", curve: { kind: "spring", bounce: 0.4 }, params: { clock: "x" } } } as never,
+      { id: "calm", name: "calm", family: "appearance", track: { preset: "drawOn", curve: { kind: "bezier", p: [0.37, 0, 0.63, 1] }, params: { clock: "x" } } } as never];
+    const bytes = JSON.stringify(line);
+    const plain = slideOps.linkTrackStyle(deck, sid, line.id!, "plain"), springy = slideOps.linkTrackStyle(deck, sid, line.id!, "springy");
+    h.ok(!plain.ok && /Draw along x off/.test(plain.reason ?? "") && !springy.ok && /along x needs/.test(springy.reason ?? "") && JSON.stringify(line) === bytes,
+      "a sweep refuses a style that would end it (its marks are timed by it) or give it a spring; the track is untouched");
+    h.ok(slideOps.linkTrackStyle(deck, sid, line.id!, "calm").ok && line.styleId === "calm", "a style with a curve the front can follow links");
+    let threw = ""; try { slideOps.setAnimStyle(deck, "calm", { track: { curve: { kind: "spring", bounce: 0.4 } } as never }); } catch (e) { threw = (e as Error).message; }
+    h.ok(/along x/.test(threw) && JSON.stringify(deck.animStyles!.find(s => s.id === "calm")!.track.curve) === JSON.stringify({ kind: "bezier", p: [0.37, 0, 0.63, 1] }), "editing a linked style to a spring is refused too (the style is untouched)");
+  }
   h.ok(PRESET_PARAMS.drawOn.clock.default === "length" && PRESET_PARAMS.drawOff.clock.default === "length" && PRESET_PARAMS.writeOn.tight.default === false && !("tight" in PRESET_PARAMS.wipeOut), "the params: clock / pen / penRadius / penColor on the draws, tight on Wipe in only");
   h.eq([paramDiagnostics({ preset: "drawOn", params: { clock: "x", pen: true } }).length, paramDiagnostics({ preset: "fade", params: { clock: "x" } }).length > 0], [0, true], "a sweep's params are clean on a draw; on any other preset they are reported");
   const deck = v2.deck;

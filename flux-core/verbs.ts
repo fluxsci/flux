@@ -3695,7 +3695,7 @@ export const VERBS: VerbDef[] = [
     cli: "draw-along-x",
     cliRoot: "flags",
     summary:
-      "Draw ONE series of a plot along x (the Animator's Draw along x): its line draws at a constant x rate on the Gentle curve, its band and other marks are wiped open by the same front and its markers grow in as the front reaches each one (all in the line's beat, riding the line's start). pen: auto (a lead dot when no markers ride along) | on | off. duration: the sweep in ms (default: the line's own). off: back to a draw by length (timing kept). Refused for a series whose x does not run one way or that has no line draw on the slide.",
+      "Draw ONE series of a plot along x (the Animator's Draw along x): its line draws at a constant x rate on the Gentle curve, its band and other marks are wiped open by the same front and its markers grow in as the front reaches each one (all in the line's beat, riding the line's start). pen: auto (a lead dot when no markers ride along) | on | off. duration: the sweep in ms (default: the line's own). off: removes the x clock (the line draws by length, a wipe is no longer tight, markers rank evenly); every effect and timing stays as it is now. Refused for a series with no x clock (x not running one way, a step line, a line running outside its axes) or with no line draw on the slide.",
     params: { deckId: z.string(), slideId: z.string(), elementId: z.string(), series: z.string(), pen: z.enum(["auto", "on", "off"]).optional(), duration: z.number().positive().optional(), off: z.boolean().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
