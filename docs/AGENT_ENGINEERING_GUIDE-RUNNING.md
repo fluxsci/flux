@@ -4098,6 +4098,15 @@ outside this PNG packaging change.
 - **puppeteer `mouse.click(…, { clickCount: 2 })` is deprecated and does not double-click** on
   this version — use `{ count: 2 }`. A synthetic `dispatchEvent(new MouseEvent("dblclick"))`
   proves the handler, not the gesture.
+- **An `import()` issued at mount is NOT off the critical path.** It fetches — with every static
+  dependency Vite preloads for it — before Home paints. main.ts's agent-bridge and glyph-provider
+  imports did exactly that and dragged the whole editor core into the eager shell (918 KB vs the
+  800 KB budget). Optional boot work starts from an idle callback (≤ 2 s; `warmModes`' pattern).
+- **`store.ts` is shell-eager — it must never statically import `ops`** (or anything that reaches
+  plot parsing / css-tree / text layout). Light figure lifecycle lives in `figureLifecycle.ts`
+  (re-exported by ops); editor-only needs bind late via `editorLink.ts`, linked by the
+  `editorCore.ts` side-effect import every editor surface carries. `verify-startup` catches a
+  regression only when someone runs the startup tier — CI does not.
 - **Never mutate an item a view memoises on.** `plotIndex.ensureSizes` once wrote `it.w`/`it.physMm`
   in place and bumped a version: the layout (which reads a new GridItem each pass) updated, but
   a `{@const it = …}` → Tile prop chain memoised on the SAME object never re-read `physMm` —
@@ -10687,3 +10696,20 @@ No behaviour changed; every selector and aria label the gates use was kept.
 **Verification:** svelte-check 0/0; pure 398/398; align-arrange 8/8; cross-figure drag, selection
 zones, plots rail, figure controls; screenshots of passive guides, gap hover, pin picker, Align,
 Arrange (row/grid), overlapping waveforms, compact DPR2 and plot spines inspected.
+
+### 2026-10-23 — Overnight full verification + startup budget (Claude Opus 5.5, `overnight/2026-10-23`)
+**Work:** Ran every tier on main @ df5e795f in a fresh worktree; the only real red was
+`verify-startup` (eager shell 917.8 KB vs 800 — red since before the Plots rail: 892 KB at
+6b84e88a; the startup tier is not in CI). Fixed: boot imports idle-started; `store.ts` off `ops`
+(figureLifecycle.ts + editorLink/editorCore). Eager shell **296.5 KB**, Home first paint ~55 →
+~42 ms. Stale gate fixed: `verify-slide-video-clips-electron` aimed at the paint-only corner
+`.handle`. Direct Alt+T on 5,000 objects profiled (forced layout + Svelte flush over thousands of
+wrappers + culling teardown); three fixes tried, none a dependable gain without gaming the metric
+(one only moved the panel a frame later) — all reverted; the limitation stands as accepted.
+Log with every judgment call: notes/overnight_2026-10-23/NOTES.md.
+**Verification:** pure 398/398; ui 161/161 (twice, fresh servers); ui-extra 62/62; scale 14/14;
+bundle 5/5; startup PASS; electron 27/37 on a private Xvfb + the four WebGL gates PASS on the real
+RTX display (model3d 92, scale 25, slide-scale 28, poster worker); blocked = explicit opt-ins
+(institutional proxy/network — deliberately not run unattended — Wayland portal, fluxplot
+worktree); figure-polish red only on direct Alt+T 5,000 (97.7–102.4 ms vs 100). Packaged
+`electron-builder --linux dir` + `verify-packaged-app` PASS.
