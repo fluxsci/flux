@@ -87,6 +87,11 @@ export function prefixIds(root: Element, elementId: string): void {
         if (v) {
           // Memoized per call (same map → same output): a hexmatrix has ~3k style
           // attributes but only ~300 distinct strings.
+          // An inline style has no selectors, so only a url(…) can name an id: without one
+          // the value is left exactly as written (css-tree would only reformat it). Glyph
+          // clones in a dense hand-off carry ~1,200 such styles — one css-tree parse each was
+          // ~40 ms of the flight's first frame.
+          if (!/url\(/i.test(v)) continue;
           let out = styleMemo.get(v);
           if (out === undefined) { out = rewriteCssReferences(`x{${v}}`, map).replace(/^x\{|\}$/g, ""); styleMemo.set(v, out); }
           el.setAttribute("style", out);

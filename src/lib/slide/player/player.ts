@@ -89,9 +89,16 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
   // parts tree, not the series part-index).
   if (hasPartBinding(track)) {
     const ids = targetPartIds(track, manifestFor(track.target, slide, opts, beatIndex));
-    return ids
-      .map((id) => content.querySelector<SVGElement>(`[id="${partDomId(track.target, id)}"]`))
-      .filter((n): n is SVGElement => !!n);
+    const domIds = ids.map((id) => partDomId(track.target, id));
+    if (domIds.length <= 16) {
+      return domIds.map((id) => content.querySelector<SVGElement>(`[id="${id}"]`)).filter((n): n is SVGElement => !!n);
+    }
+    // A part SET (1,200 scatter points): one query per id scanned the whole plot each time —
+    // ~80 ms of the frame that starts a dense hand-off. Index the id-bearing nodes once;
+    // first in document order wins, exactly as querySelector would.
+    const byId = new Map<string, SVGElement>();
+    for (const n of content.querySelectorAll<SVGElement>("[id]")) if (!byId.has(n.id)) byId.set(n.id, n);
+    return domIds.map((id) => byId.get(id)).filter((n): n is SVGElement => !!n);
   }
 
   // whole element
@@ -197,11 +204,27 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const preFrame = compiled.sample(bi, track.start ?? 0);
           const roots = new Map(contentRoots);
           const rootFor = (id: string) => roots.get(id) ?? rendered.elements.get(id);
+          // Part nodes by id, indexed once per root for this hand-off: a dense one asks for
+          // 1,200 of them (its source/destination sets, then again while it builds its glyph flight), and one querySelector each scanned
+          // the whole plot (~85 ms of the flight's first frame). A detached cached node or an
+          // id the index lacks falls back to the live query, so it is never staler than before.
+          const partIndex = new Map<Element, Map<string, Element>>();
+          const partNode = (root: Element, domId: string): Element | undefined => {
+            let index = partIndex.get(root);
+            if (!index) {
+              index = new Map();
+              for (const n of root.querySelectorAll("[id]")) if (!index.has(n.id)) index.set(n.id, n);
+              partIndex.set(root, index);
+            }
+            const hit = index.get(domId);
+            if (hit?.isConnected) return hit;
+            return root.querySelector(`[id="${domId.replace(/["\\]/g, "\\$&")}"]`) ?? undefined;
+          };
           const nodesFor = (targets: ResolvedTarget[]): Element[] => targets.flatMap<Element>(target => {
             const root = rootFor(target.elementId), wrapper = rendered.elements.get(target.elementId);
             if (!root || !wrapper) return [];
             return target.partIds === null ? [wrapper] : target.partIds.flatMap(id => {
-              const node = root.querySelector<SVGElement>(`[id="${partDomId(target.elementId, id).replace(/["\\]/g, "\\$&")}"]`);
+              const node = partNode(root, partDomId(target.elementId, id));
               return node ? [node] : [];
             });
           });
@@ -246,7 +269,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
               order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId), glyphs,
-              node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),
+              node: owner => { if (!owner.partId) return rootFor(owner.elementId); const root = rootFor(owner.elementId); return root ? partNode(root, partDomId(owner.elementId, owner.partId)) : undefined; },
               crop: owner => {
                 const el = preFrame.elements.find(e => e.id === owner.elementId);
                 return el?.type === "plot" && el.crop ? el : undefined;

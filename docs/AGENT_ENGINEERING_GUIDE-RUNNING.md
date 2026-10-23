@@ -4107,6 +4107,14 @@ outside this PNG packaging change.
   (re-exported by ops); editor-only needs bind late via `editorLink.ts`, linked by the
   `editorCore.ts` side-effect import every editor surface carries. `verify-startup` catches a
   regression only when someone runs the startup tier — CI does not.
+- **A surface keyed on the WHOLE `plotGen` map invalidates on every plot anywhere.** Each
+  filmstrip thumbnail's signature carried `JSON.stringify($plotGen)`: caching one plot re-rendered
+  every thumbnail (twice — a poster `settle()` with nothing requested re-rendered anyway), chained
+  on timers with no frame between them — the ~200 ms start of every dense hand-off. Key on the
+  generations of the assets the surface names; `settle()` now reports whether it fetched.
+- **Per-id `querySelector` in a loop is O(ids × DOM).** 1,200 part ids against a plot DOM was most
+  of a hand-off's first frame. Index `[id]` once (first in document order wins, as querySelector
+  does) and fall back to the live query on a miss or a detached hit.
 - **Never mutate an item a view memoises on.** `plotIndex.ensureSizes` once wrote `it.w`/`it.physMm`
   in place and bumped a version: the layout (which reads a new GridItem each pass) updated, but
   a `{@const it = …}` → Tile prop chain memoised on the SAME object never re-read `physMm` —
@@ -10713,3 +10721,9 @@ RTX display (model3d 92, scale 25, slide-scale 28, poster worker); blocked = exp
 (institutional proxy/network — deliberately not run unattended — Wayland portal, fluxplot
 worktree); figure-polish red only on direct Alt+T 5,000 (97.7–102.4 ms vs 100). Packaged
 `electron-builder --linux dir` + `verify-packaged-app` PASS.
+**Dense hand-off hitch (the `verify-scale-slide-dense` ~50 % flake, pre-existing):** first 2–3
+frames of a 1,200-glyph hand-off took 167–233 ms. Root causes: every filmstrip thumbnail
+re-rendered (twice) on any plot cache (whole-`plotGen` signature), per-id querySelector loops in
+the player, a css-tree parse per glyph clone's url-free inline style. Fixed all three; dense gate
+10/10 at p95 16.7–16.8 (was 6/10); verify-slide-filmstrip-gui now asserts plot-scoped
+thumbnail invalidation (red on the old code). pure/ui/ui-extra/scale re-run green after.
