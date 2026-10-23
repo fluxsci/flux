@@ -54,6 +54,7 @@ import { scene3dManifests } from '../model3d/store';
 import { diffState } from "./tween";
 import { applyTextLayout } from "../text";
 import { deckToProject, projectIntoDeck, DECK_CANVAS_ID, slideDefaultBackground } from "./deckProject";
+import { userDiff } from "./attach";
 
 /** The live presentation overlay (null before a deck is loaded). Slides in
  *  here always have `elements: []` and no groups/guides/background — those
@@ -521,7 +522,8 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
       const bi = destination.kind === "after" ? slide.beats.findIndex(b => b.id === destination.beatId) : 0;
       let changed = false;
       // Structural metadata belongs to the original object, not a transform.
-      const structural = ["name", "groupId", "locked", "hidden", "lockAspect", "styleId", "panelLabel", "source", "manifestRef"] as const;
+      // (an attachment is whole-slide too: set while viewing a step, it attaches from Design on; the write point re-solves the base)
+      const structural = ["name", "groupId", "locked", "hidden", "lockAspect", "styleId", "panelLabel", "source", "manifestRef", "attach"] as const;
       let compiled: ReturnType<typeof compileSlide> | null = null;
       for (const el of fig.elements) {
         const previous = previousElements.get(el.id);
@@ -545,10 +547,11 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
           if (key in rec) dest[key] = structuredClone(rec[key]); else delete dest[key];
         }
         if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
-        if (bi < 1 || unborn.has(el.id) || !diffState(previous, el)) continue;
+        // WP 3.2: a dependent's solved geometry is never captured (userDiff): dragging its driver at a step writes no track for it
+        if (bi < 1 || unborn.has(el.id) || !userDiff(diffState(previous, el), el)) continue;
         compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id], modelManifest: id => get(scene3dManifests)[id]});
         const pre = compiled.preState(el.id, bi) ?? base;
-        const patch = diffState(pre, el) ?? {};
+        const patch = userDiff(diffState(pre, el), el) ?? {};
         setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });
         changed = true;
       }

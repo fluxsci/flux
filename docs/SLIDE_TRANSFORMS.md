@@ -154,6 +154,19 @@ the tracks of one step whose flights collide, judged on their real clocks; more 
 moves are refused with a reason, and it never touches a track whose resolved arc is set (an
 authored 0 is a decision).
 
+**Attachments (WP 3.2).** `ElementBase.attach` makes an element's geometry a PURE function of other
+elements' boxes (`slide/attach.ts`): a line's ends stick to drivers (`boundaryToward` along the ray
+toward the other end, or a side point), anything else sits beside one driver (`solveBox`). The solve runs
+in `compile.sample` after every Change, arc and overshoot and before appearance offsets (`resolveAttachments`),
+and in the player as ONE controller registered last (`player/attach.ts`): connectors re-serialised in place
+on their own tight box (the rest law, undashed strokes on `pathLength` 1000 so a draw stays length-free),
+labels composited over their Design layout box while anything they hang on moves (a per-beat marker
+controller carries their flight mark). Stored geometry is the Design solve: the editor store re-solves after
+every edit (`settleAttachments`; a dependent moved by hand while its drivers stayed is detached first,
+`detachHandMoved`), the deck and canvas write points re-solve on copies, `userDiff` keeps a dependent's solved
+geometry out of captured Changes. Clone sites remap or drop attachments (`reattachClones`); gaps scale with
+content. Schema: a deck with an attachment is 0.7.0, a canvas 0.3.0 (`schemaStamp.ts`).
+
 `params.turn = "rigid"` (CLI `set-transform --turn rigid`; absent = `shrink`) makes a `line`
 or a straight 2-node path turn without shrinking (`tween.rigidSegment`: the centre lerps, the
 angle takes the shortest turn, the length lerps; a stationary end is a pivot). The player

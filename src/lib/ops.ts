@@ -962,16 +962,18 @@ export function duplicateElements(
       f.groups = f.groups ?? {};
       Object.assign(f.groups, cloned);
     }
-    const stamp: Id[] = [];
+    const stamp: Id[] = [], ids = new Map<Id, Id>();
     const copies = originals.map((e) => {
       const c = structuredClone(e);
       c.id = newId(c.type);
+      ids.set(e.id, c.id);
       if (c.groupId) c.groupId = grpRemap.get(c.groupId) ?? c.groupId;
       c.x += dx * k;
       c.y += dy * k;
       stamp.push(c.id);
       return c;
     });
+    reattachClones(copies, ids); // a copy follows copied drivers; one whose driver stayed behind becomes free geometry
     f.elements.push(...copies);
     lastStamp = stamp;
   }
@@ -1206,7 +1208,11 @@ export function moveElementsToFigure(
     dst.elements.push(...moving);
     moved.push(...movingIds);
   }
-  if (moved.length) enforceZContiguity(dst);
+  if (moved.length) {
+    // an attachment never spans figures: an end whose driver stayed behind (or left) becomes free geometry
+    for (const f of [dst, ...p.figures.filter((x) => x !== dst)]) detachMissing(f.elements, new Set(f.elements.map((e) => e.id)));
+    enforceZContiguity(dst);
+  }
   return moved;
 }
 
@@ -2027,4 +2033,19 @@ export function resizeFigureFrame(p: Project, id: Id, box: { x: number; y: numbe
 }
 
 import { setModelView } from './model3d/viewOps';
+import { reattachClones, detachMissing, attachProblem, settleAttachments, type Attach } from "./slide/attach";
+
+/** WP 3.2: attach (or with null detach) an element of a figure (a Figure canvas or a slide's projected figure): the check every surface shares
+ *  (`attachProblem`); the figure is re-solved. Returns the reason it was refused, or null. */
+export function setElementAttach(p: Project, elementId: Id, attach: Attach | null): string | null {
+  const f = p.figures.find((x) => x.elements.some((e) => e.id === elementId));
+  const el = f?.elements.find((e) => e.id === elementId);
+  if (!f || !el) return `element not found: ${elementId}`;
+  if (attach === null) { delete el.attach; return null; }
+  const problem = attachProblem(f.elements, elementId, attach);
+  if (problem) return problem;
+  el.attach = structuredClone(attach);
+  settleAttachments(f.elements);
+  return null;
+}
 export { setModelView };

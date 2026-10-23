@@ -30,6 +30,7 @@ import { authoredFields, defaultEasingFor, defaultTimingFor, isExitPreset, rewri
 import { AUTO_DELAY_AUTHORED_MS } from "./timing";
 import { EASING_TOKENS, resolveCurve } from "./curves";
 import { suggestBeatArcs } from "./arcSuggest";
+import { attachProblem, settleAttachments, type Attach } from "./attach";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
 import { targetOutlines } from "./targetGeometry";
 import { diffState, transformPreState } from "./tween";
@@ -1132,7 +1133,7 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
   for (let i = 0; i < count; i++) {
     const copy = structuredClone(snapshot);
     copy.id = newId(copy.type); copy.name = nextGhostName(names); names.add(copy.name);
-    delete copy.groupId; delete copy.locked;
+    delete copy.groupId; delete copy.locked; delete copy.attach; // a ghost is a SNAPSHOT: it never follows the source's drivers
     delete (copy as unknown as Record<string, unknown>).panelLabel;
     slide.elements.push(copy);
     // A text copy that rewrites its text plays the authored text look (X1a), like any new text transform.
@@ -1263,6 +1264,22 @@ export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Trac
  *  patch (a key of undefined is skipped; an explicit null persists as "delete
  *  this prop at t2"); `replaceState` swaps the whole patch. Timing/easing patch
  *  only when given. Returns the track (created or updated), or null. */
+/** WP 3.2: attach an element of a slide (a line's ends to shapes, anything else beside one element), or detach it (`null`). Whole-slide (from
+ *  Design on). Refused with a reason when the attachment does not fit (`attachProblem`); the slide's stored geometry is re-solved, so it is the
+ *  Design solve (every non-solving reader sees it right). */
+export function setAttach(deck: Deck, slideId: Id, elementId: Id, attach: Attach | null): TrackEditResult {
+  const slide = slideById(deck, slideId);
+  if (!slide) return { ok: false, reason: "Slide not found" };
+  const el = slide.elements.find((e) => e.id === elementId);
+  if (!el) return { ok: false, reason: `Element not found: ${elementId}` };
+  if (attach === null) { delete el.attach; return { ok: true }; }
+  const problem = attachProblem(slide.elements, elementId, attach);
+  if (problem) return { ok: false, reason: problem };
+  el.attach = structuredClone(attach);
+  settleAttachments(slide.elements);
+  return { ok: true };
+}
+
 export function setTransform(
   deck: Deck,
   slideId: Id,

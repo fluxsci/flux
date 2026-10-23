@@ -12,6 +12,7 @@ import type { XrayTarget } from "./xray/buildXrayTree";
 import { BLANK_FIGURE, createFigure, duplicateFigure as duplicateFigureOp, deleteCanvas as deleteCanvasOp } from "./figureLifecycle";
 import { editorCore } from "./editorLink";
 import { storeTenant } from "./tenancy";
+import { settleAttachments, snapshotAttachments, detachHandMoved, type AttachSnapshot } from "./slide/attach";
 
 // ---------------------------------------------------------------------------
 // Ids — the generator now lives in the dependency-free ./ids leaf so the pure
@@ -189,13 +190,30 @@ export function registerEditorTransactionAdapter(adapter: EditorTransactionAdapt
     if (editorTransactionAdapter === adapter) editorTransactionAdapter = null;
   };
 }
+/** WP 3.2: attached connectors and labels follow their drivers on EVERY edit (a commit, a mutate, a per-pointer-move mutateFigure, the
+ *  CLI's bridge): the touched figure (else every figure) is re-solved right after the edit, so the stored geometry is always the solve.
+ *  The whole cost when nothing is attached is one `some` scan per figure. */
+/** Before the edit: what it may move (the hand-move rule's reference), per figure that has attachments. */
+function attachSnapshots(p: Project, context: EditorTransactionContext): Map<string, AttachSnapshot> {
+  const out = new Map<string, AttachSnapshot>();
+  for (const f of context.figureId ? p.figures.filter((x) => x.id === context.figureId) : p.figures) { const s = snapshotAttachments(f.elements); if (s) out.set(f.id, s); }
+  return out;
+}
+function settleAfter(p: Project, context: EditorTransactionContext, before: Map<string, AttachSnapshot>): void {
+  const one = context.figureId ? p.figures.find((x) => x.id === context.figureId) : undefined;
+  // an attached element the user moved by hand (its drivers did not move) is detached first: the move is the user's word
+  for (const f of one ? [one] : p.figures) { detachHandMoved(f.elements, before.get(f.id) ?? null); settleAttachments(f.elements); }
+}
 function applyEditorMutation(p: Project, fn: (p: Project) => void, context: EditorTransactionContext) {
   const adapter = adaptingEditorTransaction ? null : editorTransactionAdapter;
-  if (!adapter) return fn(p);
+  const before = attachSnapshots(p, context);
+  if (!adapter) { fn(p); settleAfter(p, context, before); return; }
   adaptingEditorTransaction = true;
   try {
     const token = adapter.before(p, context);
     fn(p);
+    // before the adapter's capture: a dependent's solved geometry is the state the adapter sees (and userDiff keeps out of Change tracks)
+    settleAfter(p, context, before);
     adapter.after(p, token, context);
   } finally {
     adaptingEditorTransaction = false;

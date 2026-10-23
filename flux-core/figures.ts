@@ -21,6 +21,7 @@ import * as ops from "../src/lib/ops";
 import { BUILTIN_FAMILIES } from "../src/lib/figfamily";
 import type { CascadeSpec } from "../src/lib/cascade";
 import * as slideOps from "../src/lib/slide/ops";
+import { attachFromArgs, attachProblem, settleAttachments, type AttachArgs } from "../src/lib/slide/attach";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import * as fluxlib from "./fluxlib";
 import { atomicWrite } from "./fsx";
@@ -98,6 +99,24 @@ async function importPlotAsset(
 
 /** set-caption: store the caption in the figure's canvas model (its true home) and
  *  emit the derived fig/captions/<id>.md + index cache. */
+/** figure-attach (WP 3.2): attach an element of a Figure canvas (a line's ends to shapes, anything else beside one element), or detach it; the
+ *  Figure twin of slide-attach (same arguments, same check). The canvas is re-solved, so its stored geometry is the solve. */
+export async function figureAttachVerb(root: string, figId: string, elementId: string, args: AttachArgs): Promise<{ attached: boolean }> {
+  return mutateFigModel(root, "figure_attach", async ({ project }) => {
+    const fig = project.figures.find((f) => f.id === figId);
+    if (!fig) throw new Error(`no figure "${figId}"`);
+    const el = fig.elements.find((e) => e.id === elementId);
+    if (!el) throw new Error(`element not found: ${elementId}`);
+    const attach = attachFromArgs(el, args);
+    if (attach === null) { delete el.attach; return { attached: false }; }
+    const problem = attachProblem(fig.elements, elementId, attach);
+    if (problem) throw new Error(problem);
+    el.attach = attach;
+    settleAttachments(fig.elements);
+    return { attached: true };
+  });
+}
+
 export async function setCaption(
   root: string,
   figId: string,

@@ -175,6 +175,14 @@ to place multiple appearance effects on the same object in one step.
   or steps; a closed or backwards-running stroke, a step / ECDF line (mostly vertical runs), a line running outside its axes,
   or a trimmed one, draws by length. Every series of a panel gets one duration; each line's front crosses its own x range
   (narrowed to its axes' clip), and the lead dot is clipped like its line.
+- **Attachments** (`ElementBase.attach`, WP 3.2): a line's ends stick to shapes (`{ start?, end? }`, each
+  `{ to, anchor?: auto|center|n|e|s|w|{fx,fy}, gap? }`; auto aims at the other end) and anything else can sit
+  beside one element (`{ to, side: n|e|s|w, gap?, align? }`). Whole-slide; the stored geometry is always the
+  Design solve; drivers' Changes, arcs and springs carry the dependents in playback and every export; a Change
+  of a dependent's own position is ignored (an issue says so); a hand-off Become driver keeps them at its
+  resting place. `flux slide-attach <deck> <slideId> <elId> [--start id[:anchor[:gap]]] [--end ...] [--to id
+  --side n|e|s|w --gap px --align center|start|end] [--detach]` (`slide_attach`); `figure-attach <figureId>
+  <elId> ...` (`figure_attach`) on a canvas. A deck holding one is 0.7.0, a canvas 0.3.0.
 - **Soft wipe**: `writeOn`/`wipeOut` `params.edge: "soft"` feathers a text's leading edge (0.9 x font size);
   new Wipe ins carry it; `"hard"` or an absent edge is the plain clip.
 - **`params` keys the player knows** (frozen defaults): `fadeRise.y` 14, `popIn.from` 0.9,

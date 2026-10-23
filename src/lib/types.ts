@@ -202,6 +202,9 @@ export interface ElementBase {
   // are kept z-contiguous in Figure.elements (see Figure.groups invariant),
   // and are selected / moved together.
   groupId?: Id;
+  // WP 3.2: this element's geometry FOLLOWS other elements: a line's ends stick to shapes (a connector), anything else
+  // sits beside one (a label). The stored geometry always equals the solve at the Design state (slide/attach.ts).
+  attach?: import("./slide/attach").Attach;
 }
 
 // Crop window in INTRINSIC content px (assetDisplaySize units: SVG natural px,

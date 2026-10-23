@@ -86,6 +86,7 @@
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
+  import { reattachClones, resolveAttachments, hasAttach, attachTargetAt, detachEnd, isLineAttach, CONNECTOR_GAP } from "./slide/attach";
   import { nodesToPath, pathD, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment, mergeNodeChains, reverseNodes } from "./path";
   import { nodeMoveAxes, constrainDelta, type Axis } from "./interact/nodeAxis";
   import { penSnap, type PenSnapResult, type PenAnchor } from "./interact/penSnap";
@@ -2476,13 +2477,16 @@
         f.groups = f.groups ?? {};
         Object.assign(f.groups, cloned);
       }
+      const ids = new Map<string, string>();
       const copies = originals.map((el) => {
         const c = structuredClone(el);
         c.id = newId(c.type);
+        ids.set(el.id, c.id);
         if (c.groupId) c.groupId = grpRemap.get(c.groupId) ?? c.groupId;
         newIds.push(c.id);
         return c;
       });
+      reattachClones(copies, ids); // copies follow copied drivers; one whose driver stayed behind becomes free geometry
       f.elements.push(...copies);
     });
     selection.set(new Set(newIds));
@@ -3273,7 +3277,17 @@
       const el = preview;
       if (b.w > 2 || b.h > 2) {
         beginGesture();
-        mutateFigure(g.figId, (p) => p.figures.find((f) => f.id === g.figId)?.elements.push(el));
+        mutateFigure(g.figId, (p) => {
+          const f = p.figures.find((ff) => ff.id === g.figId);
+          if (!f) return;
+          // WP 3.2: a line drawn from one shape to another is a connector: each end released on a (different) shape sticks to it
+          if (el.type === "line" && stickConnectors) {
+            const { p1, p2 } = lineWorldEndpoints(el), a = attachTargetAt(f.elements, p1), z = attachTargetAt(f.elements, p2);
+            const start = a && a !== z ? { to: a, anchor: "auto" as const, gap: CONNECTOR_GAP } : undefined, end = z && z !== a ? { to: z, anchor: "auto" as const, gap: CONNECTOR_GAP } : undefined;
+            if (start || end) el.attach = { ...(start ? { start } : {}), ...(end ? { end } : {}) };
+          }
+          f.elements.push(el);
+        });
         selectOnly(el.id);
       }
       activeTool.set("select");
@@ -3377,6 +3391,12 @@
         el.rotation = live.rotation;
         delete el.flipX;
         delete el.flipY;
+        // WP 3.2: the dragged end is free, or sticks to the shape it was released on (Settings: Connectors stick)
+        const which = g.which === 1 ? "start" : "end", other = isLineAttach(el.attach) ? el.attach[which === "start" ? "end" : "start"] : undefined;
+        detachEnd(el, which);
+        const tip = lineWorldEndpoints(el)[g.which === 1 ? "p1" : "p2"];
+        const to = stickConnectors ? attachTargetAt(f!.elements, tip, { exclude: el.id }) : null;
+        if (to && to !== other?.to) el.attach = { ...(isLineAttach(el.attach) ? el.attach : {}), [which]: { to, anchor: "auto", gap: CONNECTOR_GAP } };
       });
     } else if (g.kind === "marquee") {
       // P7: a plain background CLICK (no real marquee — the box never grew past
@@ -3845,6 +3865,24 @@
     };
   })();
 
+  // WP 3.2: the shapes a dragged or drawn line end would stick to, outlined while the end is held over them (screen px)
+  $: attachCandidates = (() => {
+    const g = gesture;
+    if (!stickConnectors || !g || (g.kind !== "lineEnd" && g.kind !== "draw")) return [];
+    const fig = $project.figures.find((f) => f.id === g.figId);
+    if (!fig) return [];
+    const tips: { x: number; y: number }[] = [];
+    let exclude: string | undefined;
+    if (g.kind === "lineEnd" && lineEndLive && dragging) { tips.push(lineWorldEndpoints(lineEndLive)[g.which === 1 ? "p1" : "p2"]); exclude = lineEndLive.id; }
+    else if (g.kind === "draw" && preview?.type === "line") { const e = lineWorldEndpoints(preview); tips.push(e.p1, e.p2); }
+    const ids = [...new Set(tips.map((p) => attachTargetAt(fig.elements, p, { exclude })).filter((x): x is string => !!x))];
+    if (g.kind === "draw" && ids.length === 1 && tips.every((p) => attachTargetAt(fig.elements, p) === ids[0])) return []; // both ends on one shape: not a connector
+    return ids.flatMap((id) => {
+      const el = fig.elements.find((e) => e.id === id), b = el ? selectionBBox([el]) : null;
+      return b ? [{ x: $viewport.panX + (fig.x + b.x) * $viewport.zoom - 3, y: $viewport.panY + (fig.y + b.y) * $viewport.zoom - 3, w: b.w * $viewport.zoom + 6, h: b.h * $viewport.zoom + 6 }] : [];
+    });
+  })();
+
   // Overlay geometry in SCREEN px. These must reference $viewport directly so
   // Svelte recomputes them on pan/zoom (a helper that reads $viewport inside
   // would hide the dependency and the overlay would desync).
@@ -4033,13 +4071,36 @@
       ? ({ ...editInfo.el, nodes: editNodes, d: pathD(editNodes, editClosed, editInfo.el.cornerRadius) } as PathElement)
       : null;
 
-  // Single transient scene-slot override (node drag OR line-endpoint pivot —
-  // they cannot be simultaneously active).
-  $: sceneOverride = nodeDragLive
-    ? { id: editPathId as string, el: nodeDragLive as Element }
-    : lineEndLive
-      ? { id: lineEndLive.id, el: lineEndLive as Element }
-      : null;
+  // WP 3.2: what is attached to a shape being dragged follows it LIVE. The model stays frozen until the single pointer-up commit (which
+  // the store re-solves the same way): the dependents' solved frames ride the transient scene-slot overrides. A connector whose end is
+  // being dragged is drawn with that end free (released on a shape, it sticks again).
+  $: attachLive = liveAttachFrames(gesture, gestureFig, dragging, gDX, gDY, lineEndLive);
+  // (a setting saved before WP 3.2 has no key: connectors stick)
+  $: stickConnectors = $settings.connectorsStick !== false;
+  function liveAttachFrames(g: Gesture, fig: Figure | null, dragging: boolean, dx: number, dy: number, lineLive: LineElement | null): Map<string, Element> | null {
+    if (!fig || !dragging || !fig.elements.some(hasAttach)) return null;
+    let live: Element[];
+    if (g?.kind === "move" && (dx || dy)) live = fig.elements.map((e) => g.origs.has(e.id) ? ({ ...e, x: e.x + dx, y: e.y + dy } as Element) : e);
+    else if (g?.kind === "lineEnd" && lineLive) {
+      const line = structuredClone(lineLive) as Element;
+      detachEnd(line, g.which === 1 ? "start" : "end");
+      live = fig.elements.map((e) => (e.id === line.id ? line : e));
+    } else return null;
+    const carried = g.kind === "move" ? g.origs : null; // the selection itself rides the composited drag
+    const frame = live.map((e) => (hasAttach(e) && !carried?.has(e.id) ? structuredClone(e) : e));
+    resolveAttachments(frame);
+    const out = new Map<string, Element>();
+    for (const e of frame) if ((hasAttach(e) && !carried?.has(e.id)) || (g.kind === "lineEnd" && e.id === g.id)) out.set(e.id, e);
+    return out;
+  }
+  // The transient scene-slot overrides: a node drag or a line-endpoint pivot (they cannot be simultaneously active), and the live
+  // attachments of a drag.
+  $: sceneOverrides = (() => {
+    const m = new Map<string, Element>(attachLive ?? []);
+    if (nodeDragLive) m.set(editPathId as string, nodeDragLive as Element);
+    else if (lineEndLive && !m.has(lineEndLive.id)) m.set(lineEndLive.id, lineEndLive as Element);
+    return m;
+  })();
 
   // group transform mapping the edited path's local space → screen (for the
   // highlighted outline), incl. the element's rotation/flip. Uses el.x/y which
@@ -4663,7 +4724,7 @@
                   absent={absentPresentationIds.has(el.id)}
                   editingHidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
                   gestureHidden={gestureHiddenIds.has(el.id)}
-                  override={sceneOverride?.id === el.id ? sceneOverride.el : null}
+                  override={sceneOverrides.get(el.id) ?? null}
                 />
               {/each}
             </g>
@@ -4792,6 +4853,11 @@
       {/if}
     {/each}
 
+    <!-- WP 3.2: what a connector end would stick to -->
+    {#each attachCandidates as c}
+      <rect class="attach-candidate" x={c.x} y={c.y} width={c.w} height={c.h} rx="3" />
+    {/each}
+
     <!-- marquee -->
     {#if marqueeScreen}
       <rect class="marquee" x={marqueeScreen.x} y={marqueeScreen.y} width={marqueeScreen.w} height={marqueeScreen.h} />
@@ -4854,8 +4920,10 @@
            (drag one to pivot about the other) — no bbox, no rotate handle
            (endpoints subsume rotation; the bbox degenerates for h/v lines). -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- an end stuck to a shape (WP 3.2) is drawn filled -->
       <circle
         class="endpoint-handle"
+        class:attached={!!(selLine && isLineAttach(selLine.attach) && selLine.attach.start)}
         cx={lineEndsScreen.a.x}
         cy={lineEndsScreen.a.y}
         r="5"
@@ -4864,6 +4932,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <circle
         class="endpoint-handle"
+        class:attached={!!(selLine && isLineAttach(selLine.attach) && selLine.attach.end)}
         cx={lineEndsScreen.b.x}
         cy={lineEndsScreen.b.y}
         r="5"
@@ -5343,6 +5412,16 @@
   .sel-box {
     stroke: var(--c-accent);
     stroke-width: 1.5;
+    pointer-events: none;
+  }
+  .endpoint-handle.attached {
+    fill: var(--c-accent-bright);
+  }
+  .attach-candidate {
+    fill: none;
+    stroke: var(--c-accent-bright);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
     pointer-events: none;
   }
   .hover-box {

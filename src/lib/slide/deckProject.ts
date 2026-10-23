@@ -22,6 +22,7 @@ import { cloneGroupsFor } from "../groups";
 import { nodesToPath, pathToNodes } from "../path";
 import { resolveTheme } from "./theme";
 import { newId } from "../ids";
+import { reattachClones, scaleAttach } from "./attach";
 
 /** The synthetic canvas id every projected slide-figure lives on. */
 export const DECK_CANVAS_ID = "deck";
@@ -208,6 +209,7 @@ export function cloneContentWithFreshIds(
     if (el.groupId) el.groupId = groupRemap.get(el.groupId) ?? el.groupId;
     return el;
   });
+  reattachClones(out, idRemap);
   return { elements: out, groups: cloned, idRemap, groupRemap };
 }
 
@@ -242,6 +244,7 @@ export function placeContentOnStage(elements: Element[], stage: StageSize): void
 function scaleElementInPlace(e: Element, s: number): void {
   e.width *= s;
   e.height *= s;
+  scaleAttach(e, s); // an attachment's gap is in stage px: it scales with the content
   if (e.type === "text") {
     e.fontSize *= s;
     // Tracking and paragraph gaps are stored in canvas px, so they scale with

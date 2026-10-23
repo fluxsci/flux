@@ -79,6 +79,7 @@ import type { ColorScaleView } from "../src/lib/types";
 import { plotViewIssues } from "../src/lib/plot/project";
 import type { Asset, Project, SemanticPlotElement } from "../src/lib/types";
 import type { Model3dElement, Scene3dManifest } from "../src/lib/model3d/types";
+import { attachFromArgs, type AttachArgs } from "../src/lib/slide/attach";
 
 // POSIX, not the platform: these are PROJECT-RELATIVE paths, and one of them
 // (the derived `svgPath`) is PERSISTED into deck.json. `path.join` on Windows
@@ -1203,6 +1204,17 @@ export async function drawAlongXVerb(
     if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${elementId}`);
     const manifest = await readPlotManifest(root, found.el, deckId);
     return drawAlongX(deck, slideId, elementId, manifest, seriesId, { off: opts.off, durationMs: opts.durationMs, pen: opts.pen === "on" ? true : opts.pen === "off" ? false : "auto" });
+  });
+}
+
+/** slide-attach (WP 3.2): attach an element of a slide, or detach it; the op is `setAttach` (the Inspector runs the same). */
+export async function slideAttachVerb(root: string, deckId: string, slideId: string, elementId: string, args: AttachArgs): Promise<{ attached: boolean }> {
+  return mutateDeck(root, deckId, "slide_attach", async (deck) => {
+    const slide = mustSlide(deck, slideId), el = slide.elements.find(e => e.id === elementId);
+    if (!el) throw new Error(`element not found: ${elementId}`);
+    const r = slideOps.setAttach(deck, slideId, elementId, attachFromArgs(el, args));
+    if (!r.ok) throw new Error(r.reason);
+    return { attached: !args.detach };
   });
 }
 

@@ -45,6 +45,7 @@ const NEVER_CAPTURED = new Set([
   "id", "name", "groupId", "locked", "hidden", "lockAspect",
   "assetId", "styleId", "panelLabel", "lines", "needsLayout",
   "source", "manifestRef", "posterAssetId", "durationMs", "muted", "loop",
+  "attach",
 ]);
 
 /** The props every kind shares — what survives a RETYPE (a patch whose `type`
@@ -52,7 +53,7 @@ const NEVER_CAPTURED = new Set([
  *  a line that became an ellipse carries no stray endpoints. */
 const BASE_PROPS = new Set([
   "id", "name", "groupId", "locked", "hidden", "lockAspect",
-  "x", "y", "width", "height", "rotation", "flipX", "flipY", "opacity",
+  "x", "y", "width", "height", "rotation", "flipX", "flipY", "opacity", "attach",
 ]);
 
 /** Minimum props a retyped element needs to render/edit when the patch left

@@ -146,6 +146,7 @@ export {
   animatePartVerb,
   animatePlotVerb,
   drawAlongXVerb,
+  slideAttachVerb,
   animateElementVerb,
   become,
   appearFrom,

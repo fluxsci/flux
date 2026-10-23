@@ -685,6 +685,10 @@
               <input type="checkbox" checked={$settings.snapPixel} onchange={(e) => settings.update((v) => ({ ...v, snapPixel: e.currentTarget.checked }))} />
               Snap to pixel (round coords on commit — crisp export)
             </label>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.connectorsStick} onchange={(e) => settings.update((v) => ({ ...v, connectorsStick: e.currentTarget.checked }))} />
+              Connectors stick to shapes (a line end released on a shape follows it)
+            </label>
 
             <h3>Figure-Meta captions</h3>
             <label class="chk num">

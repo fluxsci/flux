@@ -104,6 +104,11 @@ const OVERRIDES = { type: "object", additionalProperties: { type: "object", prop
 // 3D parts are new, so their overrides are typed from the start.
 const MODEL_OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: { ...OVERRIDE_NUMBERS, fill: { type: "string" }, hidden: { type: "boolean" } } } };
 const GEO_REQ = ["id", "type", "x", "y", "width", "height", "rotation"];
+// WP 3.2: ElementBase.attach (LineAttach { start?, end? } for a line, BoxAttach { to, side, gap?, align? } for any other element). Only
+// the object envelope lives here: the full shape (anchors, sides, finite gaps, self references) is checked once in TS by
+// slide/attach.attachIssues (validateModel / validateDeckFile), because a nested oneOf in GEO_PROPS is inlined into every element branch
+// of every schema by Ajv standalone (+433 KB of validators.gen.js, measured in the T9 prototype).
+const ATTACH = { type: "object" };
 const GEO_PROPS = {
   id: { type: "string" },
   x: { type: "number" },
@@ -121,6 +126,7 @@ const GEO_PROPS = {
   flipY: { type: "boolean" },
   fillMap: GRADIENT,
   strokeMap: GRADIENT,
+  attach: ATTACH,
 };
 const COLOR_SCALE_VIEW = {
   type: "object",

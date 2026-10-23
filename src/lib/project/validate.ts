@@ -18,7 +18,8 @@
 // seam, not the mutation seam).
 // ---------------------------------------------------------------------------
 
-import type { Project } from "../types";
+import type { Project, Element } from "../types";
+import { attachIssues } from "../slide/attach";
 // WS-9.1: PRE-GENERATED validators (Ajv standalone codegen — see
 // scripts/gen-validators.mjs). Runtime Ajv compiles schemas via new Function,
 // which the renderer CSP refuses (script-src has no 'unsafe-eval'); the
@@ -48,16 +49,29 @@ function validateAgainst(key: "model" | "canvas" | "figIndex" | "deck" | "projec
 
 /** The assembled in-memory figure model (post-migration). */
 export function validateModel(p: unknown): string[] {
-  return [...validateAgainst("model", p), ...validateFigureIdentities(p), ...nonFinite(p)];
+  return [...validateAgainst("model", p), ...validateFigureIdentities(p), ...nonFinite(p), ...attachErrors(figureElements(p))];
 }
 export function validateCanvasFile(raw: unknown): string[] {
-  return validateAgainst("canvas", raw);
+  return [...validateAgainst("canvas", raw), ...attachErrors(figureElements(raw))];
+}
+/** The element lists of a model / canvas file's figures, labelled by their path. */
+function figureElements(raw: unknown): (readonly [string, Element[]])[] {
+  const figures = (raw as { figures?: { elements?: unknown }[] } | null)?.figures;
+  return Array.isArray(figures) ? figures.flatMap((f, i) => Array.isArray(f?.elements) ? [[`figures[${i}]`, f.elements as Element[]] as const] : []) : [];
+}
+/** WP 3.2: the deep `attach` shape (malformed / wrong-shape / self) the envelope schema leaves open. Dangling ends and cycles are tolerated
+ *  (like dangling tracks: the element keeps its stored geometry) and surface as compile issues. */
+function attachErrors(groups: (readonly [string, Element[]])[]): string[] {
+  const out: string[] = [];
+  for (const [where, els] of groups) for (const i of attachIssues(els)) if (i.code === "malformed" || i.code === "wrong-shape" || i.code === "self") out.push(`${where}/${i.id}: attach ${i.code} (${i.detail})`);
+  return out;
 }
 export function validateFigIndexFile(raw: unknown): string[] {
   return validateAgainst("figIndex", raw);
 }
 export function validateDeckFile(raw: unknown): string[] {
-  return validateAgainst("deck", raw);
+  const slides = (raw as { slides?: { elements?: unknown }[] } | null)?.slides;
+  return [...validateAgainst("deck", raw), ...attachErrors(Array.isArray(slides) ? slides.flatMap((s, i) => Array.isArray(s?.elements) ? [[`slides[${i}]`, s.elements as Element[]] as const] : []) : [])];
 }
 export function validateProjectManifest(raw: unknown): string[] {
   return validateAgainst("project", raw);

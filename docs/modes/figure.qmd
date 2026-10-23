@@ -15,6 +15,17 @@ survives.
 
 - **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
   **R** rectangle, **O** ellipse, **L** line, **Shift+L** arrow, **P** pen.
+- **Connectors and labels stick.** A line or arrow drawn from one shape to another sticks to
+  both (a dashed outline shows the shape an end will stick to), and dragging one of its ends onto a
+  shape sticks that end; a filled end handle marks a stuck end. Move a shape and its connectors and
+  labels follow it, live while you drag. Any element can sit beside another: in the Inspector,
+  **Sticks to** picks the element, the side, the gap and the alignment (a line shows **Connector**
+  with its two ends instead). Moving a stuck element by hand frees it; **Settings → Connectors stick
+  to shapes** turns the sticking off. From the command line:
+  `flux figure-attach <figure> <element> --start A --end B:e:4` (a connector's ends,
+  `<id>[:anchor[:gap]]`) or `--to A --side n --gap 8` (beside an element), `--detach` to free it.
+  A canvas that holds a stuck element is saved in a newer format, which older Flux versions do not
+  open.
 - The **sidebar** has two views, **Layers** and **Plots** (the tabs at its top; **Alt+G** goes
   to Plots — see [The Plots rail](#the-plots-rail)). **Layers** lists Canvases (pages — add, rename, delete), Figures on the active canvas
   (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and

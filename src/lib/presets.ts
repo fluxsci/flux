@@ -23,6 +23,7 @@ import { ancestorsOf, cloneGroupsFor, groupDefs } from "./groups";
 import * as ops from "./ops";
 import { elementToSvg } from "./export";
 import { elementBBox, unionRect, type Rect } from "./geometry";
+import { reattachClones } from "./slide/attach";
 
 export interface DesignPreset {
   fluxPreset: 1;
@@ -198,14 +199,17 @@ export function insertPreset(entry: PresetEntry, viewportPx?: { w: number; h: nu
   // fresh identity: new element ids; group ids remapped via the paste core
   const remap = new Map<Id, Id>();
   const clonedDefs = cloneGroupsFor(entry.preset.groups, src, remap);
-  const newIds: Id[] = [];
+  const newIds: Id[] = [], ids = new Map<Id, Id>();
   for (const el of src) {
+    const old = el.id;
     (el as { id: Id }).id = newId(el.type);
+    ids.set(old, el.id);
     el.x += dx;
     el.y += dy;
     if (el.groupId) el.groupId = remap.get(el.groupId) ?? el.groupId;
     newIds.push(el.id);
   }
+  reattachClones(src, ids);
   commit((proj) => {
     const f = proj.figures.find((ff) => ff.id === fig.id);
     if (!f) return;

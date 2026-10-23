@@ -72,6 +72,7 @@ import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
 import { modelOrbit } from "./model3d/orbitSession";
 import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey } from "./interact/alignArrange";
+import { reattachClones } from "./slide/attach";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -465,15 +466,19 @@ function paste() {
       f.groups = f.groups ?? {};
       Object.assign(f.groups, cloned);
     }
+    const pasted: Element[] = [], ids = new Map<string, string>();
     for (const e of clipboard) {
       const c = structuredClone(e);
       c.id = newId(c.type);
+      ids.set(e.id, c.id);
       c.x += 20;
       c.y += 20;
       if (c.groupId) c.groupId = remap.get(c.groupId) ?? c.groupId;
       newIds.push(c.id);
-      f.elements.push(c);
+      pasted.push(c);
     }
+    reattachClones(pasted, ids);
+    f.elements.push(...pasted);
   });
   selection.set(new Set(newIds));
 }

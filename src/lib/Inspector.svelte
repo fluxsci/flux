@@ -23,6 +23,7 @@
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle, openCascade } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
+  import { isLineAttach, isBoxAttach, CONNECTOR_GAP, type Attach, type AttachEnd, type LineAttach, type BoxAttach, type Anchor } from "./slide/attach";
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
   import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize } from "./figure/journalSizing";
   import { applyTextLayout, reflowTexts } from "./text";
@@ -511,6 +512,28 @@
     const id = single?.id;
     if (!id) return;
     commit((p) => ops.setPlotFollowTheme(p, id, on ? null : false));
+  }
+  // WP 3.2: the selected element's attachment (a connector's ends, a label's place beside one element)
+  const ANCHORS = ["auto", "center", "n", "e", "s", "w"] as const, CONNECTOR_ENDS = ["start", "end"] as const;
+  $: attachTargets = single && modelFigure ? modelFigure.elements.filter((e) => e.id !== single.id && !e.hidden).map((e) => ({ id: e.id, label: e.name?.trim() || `${e.type} ${e.id.slice(-4)}` })) : [];
+  $: lineAttach = single?.type === "line" && single.attach && isLineAttach(single.attach) ? single.attach : null;
+  $: boxAttach = single && single.type !== "line" && single.attach && isBoxAttach(single.attach) ? single.attach : null;
+  function setAttach(next: Attach | null) {
+    const id = single?.id;
+    if (!id) return;
+    let problem: string | null = null;
+    commit((p) => { problem = ops.setElementAttach(p, id, next); });
+    if (problem) pushToast("error", problem);
+  }
+  function setEnd(which: "start" | "end", patch: Partial<AttachEnd> | null) {
+    const cur: LineAttach = { ...(lineAttach ?? {}) };
+    if (patch === null) delete cur[which];
+    else { const to = patch.to ?? cur[which]?.to; if (!to) return; cur[which] = { ...(cur[which] ?? { to, anchor: "auto", gap: CONNECTOR_GAP }), ...patch, to }; }
+    setAttach(cur.start || cur.end ? cur : null);
+  }
+  function setBox(patch: Partial<BoxAttach> | null) {
+    const to = patch?.to ?? boxAttach?.to;
+    setAttach(patch === null || !to ? null : { side: "n", gap: 6, ...(boxAttach ?? {}), ...patch, to } as BoxAttach);
   }
   const arrowOf = (e: Element | undefined) => (e && (e.type === "line" || (e.type === "path" && !e.closed)) ? (e as Element & { arrowStart?: boolean; arrowEnd?: boolean; arrowStyle?: "filled" | "vee"; arrowSize?: number }) : null);
   function setArrow(patch: Partial<{ arrowStart: boolean; arrowEnd: boolean; arrowStyle: "filled" | "vee"; arrowSize: number }>) {
@@ -1052,6 +1075,59 @@
           <label class="chk"><input type="checkbox" checked={single.closed} on:change={(e) => { const closed = e.currentTarget.checked; const id = single.id; commit((p) => ops.updatePath(p, id, { closed })); }} />Closed path</label>
         </div>
       {/if}
+      </div>
+    </section>
+  {/if}
+
+  <!-- WP 3.2: ATTACHMENT. A connector's ends stick to shapes; anything else can sit beside one element. Either follows what it is attached
+       to (moves, Changes, arcs) in the editor and in playback; moving it by hand frees it. -->
+  {#if single && modelFigure && !selectionReadOnly && single.type !== "model3d"}
+    <section>
+      <h4>{single.type === "line" ? "Connector" : "Sticks to"}</h4>
+      <div class="secbody">
+        {#if single.type === "line"}
+          {#each CONNECTOR_ENDS as which (which)}
+            {@const end = lineAttach?.[which]}
+            <div class="row">
+              <label title="The shape this end sticks to: it follows the shape wherever it moves">{which === "start" ? "Start" : "End"}
+                <select aria-label={`Connector ${which}`} value={end?.to ?? ""} on:change={(e) => setEnd(which, e.currentTarget.value ? { to: e.currentTarget.value } : null)}>
+                  <option value="">free</option>
+                  {#each attachTargets as t (t.id)}<option value={t.id}>{t.label}</option>{/each}
+                </select>
+              </label>
+              {#if end}
+                <select aria-label={`Connector ${which} anchor`} title="Where on the shape: auto aims at the other end; or a side, or the centre" value={typeof end.anchor === "string" ? end.anchor : "auto"} on:change={(e) => setEnd(which, { anchor: e.currentTarget.value as Anchor })}>
+                  {#each ANCHORS as a}<option value={a}>{a}</option>{/each}
+                </select>
+                <NumberField label="Gap" value={end.gap ?? 0} min={0} step={1} title="Space between the end and the shape (stage px)" on:commit={(e) => setEnd(which, { gap: Math.max(0, e.detail) })} />
+              {/if}
+            </div>
+          {/each}
+        {:else}
+          <div class="row">
+            <label title="The element this one sits beside: it follows that element wherever it moves">Element
+              <select aria-label="Sticks to" value={boxAttach?.to ?? ""} on:change={(e) => setBox(e.currentTarget.value ? { to: e.currentTarget.value } : null)}>
+                <option value="">none</option>
+                {#each attachTargets as t (t.id)}<option value={t.id}>{t.label}</option>{/each}
+              </select>
+            </label>
+          </div>
+          {#if boxAttach}
+            <div class="row">
+              <label>Side
+                <select aria-label="Side" value={boxAttach.side} on:change={(e) => setBox({ side: e.currentTarget.value as BoxAttach["side"] })}>
+                  <option value="n">above</option><option value="s">below</option><option value="w">left</option><option value="e">right</option>
+                </select>
+              </label>
+              <label>Align
+                <select aria-label="Align" value={boxAttach.align ?? "center"} on:change={(e) => setBox({ align: e.currentTarget.value as BoxAttach["align"] })}>
+                  <option value="start">start</option><option value="center">center</option><option value="end">end</option>
+                </select>
+              </label>
+              <NumberField label="Gap" value={boxAttach.gap ?? 0} min={0} step={1} title="Space between this element and the one it sits beside (stage px)" on:commit={(e) => setBox({ gap: Math.max(0, e.detail) })} />
+            </div>
+          {/if}
+        {/if}
       </div>
     </section>
   {/if}

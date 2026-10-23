@@ -22,6 +22,8 @@
 import type { Project, Figure, Asset, TextStyle, FigureFamilyDef } from "../types";
 import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION } from "./types";
 import { canvasSchemaFor } from "../slide/schemaStamp";
+import { hasAttach, settleAttachments } from "../slide/attach";
+const settled = <T extends Parameters<typeof settleAttachments>[0]>(els: T): T => { settleAttachments(els); return els; };
 import { composeCaption } from "../captions";
 import { deriveFigureReferenceKey, ensureFigureReferenceKeys } from "./figureIdentity";
 import {
@@ -189,7 +191,8 @@ export function planFigSave(model: Project, prev: FigIndexFile | null, previousF
   if (model.assets.some(a => a.kind === "mp4") || model.figures.some(f => f.elements.some(e => e.type === "video")))
     throw new Error("Video clips belong to slide decks and cannot be saved as Figure content");
   // Keep the planner pure while stamping canonical keys into canvas files.
-  model = { ...model, figures: model.figures.map((f) => ({ ...f })) };
+  // WP 3.2: what is written holds stored == solved (an attached connector at its drivers' Design solve), on copies: the model is not mutated
+  model = { ...model, figures: model.figures.map((f) => f.elements.some(hasAttach) ? { ...f, elements: settled(structuredClone(f.elements)) } : { ...f }) };
   ensureFigureReferenceKeys(model, prev);
   const canvases = canvasesForSave(model, prev);
 

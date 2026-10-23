@@ -31,6 +31,8 @@ export interface Settings {
   gridSize: number; // world units
   snapGrid: boolean; // snap moves/resizes to the grid
   snapPixel: boolean; // round committed coords to whole pixels (crisp export)
+  // WP 3.2: a line end released on a shape (drawn or dragged) sticks to it: a connector that follows the shape
+  connectorsStick: boolean;
   // Figure — the caption editor (Alt+C).
   captionFontSize: number; // Figure-Meta caption typing size in screen px
   // Figure — what a Plot gallery (Alt+G) search reaches (plot/galleryScope.ts).
@@ -97,6 +99,7 @@ const DEFAULTS: Settings = {
   gridSize: 8,
   snapGrid: false,
   snapPixel: false,
+  connectorsStick: true,
   captionFontSize: 16,
   plotSearchScope: DEFAULT_PLOT_SEARCH_SCOPE,
   galleryFolderClickExpands: false,

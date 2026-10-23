@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
-import { createDeck, addSlide, addElement, addBeat, setAnimation, setTransform, addGhostTransform } from "../../src/lib/slide/ops";
+import { createDeck, addSlide, addElement, addBeat, setAnimation, setTransform, addGhostTransform, setAttach } from "../../src/lib/slide/ops";
 import { pathD } from "../../src/lib/path";
 import { authoredFields } from "../../src/lib/slide/presetCatalog";
 import { applyAutoAnimation, SWEEP_CURVE, V2_PACE } from "../../src/lib/slide/autobuild";
@@ -349,6 +349,19 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     { const s = b.slide("turn_rigid"); b.add(s, el("arrow", "l", 200, 180, { width: 240, height: 0, x1: 0, y1: 0, x2: 240, y2: 0, stroke: C.blueD, strokeWidth: 6 }));
       b.change(s, b.beat(s), "l", { x1: 180, y1: -103.92, x2: 60, y2: 103.92 }, { turn: "rigid" }); }
     out.push({ name: "arcs_turns", payload: { deck: b.deck } });
+  }
+  {
+    // WP 3.2: a connector and a label stuck to a box that moves (an arc), to a circle that springs, and a text label riding a slow move
+    const b = new Builder("attach");
+    const s = b.slide("follow");
+    b.add(s, el("rect", "A", 80, 160, { width: 140, height: 90, fill: C.blue, stroke: C.blueD, strokeWidth: 4 }));
+    b.add(s, { id: "B", type: "ellipse", x: 470, y: 120, width: 110, height: 110, rotation: 0, fill: C.red, stroke: C.redD, strokeWidth: 4 });
+    b.add(s, { id: "L", type: "line", x: 0, y: 0, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2: 10, y2: 0, stroke: C.ink, strokeWidth: 4, arrowEnd: true });
+    b.add(s, el("text", "T", 0, 0, { width: 140, height: 30 }));
+    setAttach(b.deck, s, "L", { start: { to: "A", gap: 4 }, end: { to: "B", gap: 4 } }); setAttach(b.deck, s, "T", { to: "A", side: "n", gap: 8 });
+    const beat = b.beat(s); b.change(s, beat, "A", { x: 260, y: 240 }, { arc: 0.6 }); b.change(s, beat, "B", { x: 430, y: 40 }, { curve: { kind: "spring", bounce: 0.4 } });
+    const slow = b.beat(s); b.change(s, slow, "A", { x: 120, y: 200 }, { duration: 2400, easing: "linear" });
+    out.push({ name: "attach", payload: { deck: b.deck } });
   }
   {
     // R2 follow-up F1: a Change of cornerRadius with REAL element data (the sharp `nodes` skeleton plus the rounded `d` the app writes). Lane S measured

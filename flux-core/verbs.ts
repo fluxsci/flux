@@ -19,6 +19,7 @@ import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { 
 import { text } from "./registry";
 import { renderLogEntries } from "../src/lib/project/contextTemplates";
 import * as core from "./index";
+import type { AttachArgs } from "../src/lib/slide/attach";
 import * as model from "./model";
 import * as references from "./references";
 import { ELEMENT_CASCADE_PROPS, TRACK_CASCADE_PROPS, type CascadeSpec, type TrackCascadeSpec } from "../src/lib/cascade";
@@ -38,6 +39,9 @@ const staggerSchema = z.object({
     z.object({ kind: z.literal("steps"), n: z.number().int().min(1).max(60), jump: z.enum(["start", "end"]).optional() }).strict(),
   ]).optional(),
 }).refine(s => s.perMs !== undefined || s.totalMs !== undefined, "Stagger needs perMs or totalMs");
+
+/** The attach verbs' arguments (slide_attach / figure_attach), only the ones given. */
+const attachArgsOf = (a: Record<string, unknown>): AttachArgs => pick(a, ["start", "end", "to", "side", "gap", "align", "detach"]) as unknown as AttachArgs;
 
 /** Copy the defined keys of `a` listed in `keys` into a fresh patch object —
  *  the "only the fields you pass change" contract every patch verb keeps. */
@@ -3711,6 +3715,57 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (r, a) => ({ err: a.off ? `✓ ${a.series} draws by length again (${(r as { tracks: number }).tracks} track(s))` : `✓ ${a.series} draws along x (${(r as { tracks: number }).tracks} track(s))` }),
       mcp: (r, a) => text(a.off ? `${a.series} draws by length again (${(r as { tracks: number }).tracks} track(s))` : `${a.series} draws along x (${(r as { tracks: number }).tracks} track(s))`),
+    },
+  },
+  {
+    name: "slide_attach",
+    scope: "project",
+    cli: "slide-attach",
+    cliRoot: "flags",
+    summary: "Attach an element of a slide (whole-slide, from Design on). A line's ends stick to shapes (a connector: --start / --end <id>[:anchor[:gap]], anchor auto | center | n | e | s | w | fx,fy; auto aims at the other end), anything else sits beside one element (a label: --to <id> --side n|e|s|w [--gap px] [--align center|start|end]); --detach frees it. From then on it follows: moves, Changes, arcs and springs of what it is attached to carry it, live in the editors and in playback; its stored geometry is kept equal to the solve. Refused (with the reason) for a missing element, a self or circular attachment, or the wrong shape for the element.",
+    params: { deckId: z.string(), slideId: z.string(), elementId: z.string(), start: z.string().optional(), end: z.string().optional(), to: z.string().optional(), side: z.enum(["n", "e", "s", "w"]).optional(),
+      gap: z.number().optional(), align: z.enum(["center", "start", "end"]).optional(), detach: z.boolean().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "elementId", required: true },
+      { kind: "flag", at: "start", into: "start" },
+      { kind: "flag", at: "end", into: "end" },
+      { kind: "flag", at: "to", into: "to" },
+      { kind: "flag", at: "side", into: "side" },
+      { kind: "flag", at: "gap", into: "gap", as: "number" },
+      { kind: "flag", at: "align", into: "align" },
+      { kind: "flag", at: "detach", into: "detach", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.slideAttachVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.elementId), attachArgsOf(a)),
+    render: {
+      human: (r, a) => ({ err: (r as { attached: boolean }).attached ? `✓ ${a.elementId} follows what it is attached to` : `✓ ${a.elementId} detached` }),
+      mcp: (r, a) => text((r as { attached: boolean }).attached ? `${a.elementId} is attached` : `${a.elementId} is detached`),
+    },
+  },
+  {
+    name: "figure_attach",
+    scope: "project",
+    cli: "figure-attach",
+    cliRoot: "flags",
+    summary: "Attach an element of a Figure canvas (the Figure twin of slide_attach). A line's ends stick to shapes (a connector: --start / --end <id>[:anchor[:gap]], anchor auto | center | n | e | s | w | fx,fy; auto aims at the other end), anything else sits beside one element (a label: --to <id> --side n|e|s|w [--gap px] [--align center|start|end]); --detach frees it. From then on it follows: moves, Changes, arcs and springs of what it is attached to carry it, live in the editors and in playback; its stored geometry is kept equal to the solve. Refused (with the reason) for a missing element, a self or circular attachment, or the wrong shape for the element.",
+    params: { figureId: z.string(), elementId: z.string(), start: z.string().optional(), end: z.string().optional(), to: z.string().optional(), side: z.enum(["n", "e", "s", "w"]).optional(),
+      gap: z.number().optional(), align: z.enum(["center", "start", "end"]).optional(), detach: z.boolean().optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "figureId", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "flag", at: "start", into: "start" },
+      { kind: "flag", at: "end", into: "end" },
+      { kind: "flag", at: "to", into: "to" },
+      { kind: "flag", at: "side", into: "side" },
+      { kind: "flag", at: "gap", into: "gap", as: "number" },
+      { kind: "flag", at: "align", into: "align" },
+      { kind: "flag", at: "detach", into: "detach", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.figureAttachVerb(ctx.root, s(a.figureId), s(a.elementId), attachArgsOf(a)),
+    render: {
+      human: (r, a) => ({ err: (r as { attached: boolean }).attached ? `✓ ${a.elementId} follows what it is attached to` : `✓ ${a.elementId} detached` }),
+      mcp: (r, a) => text((r as { attached: boolean }).attached ? `${a.elementId} is attached` : `${a.elementId} is detached`),
     },
   },
   {

@@ -13,6 +13,7 @@ import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
+import { familyOf } from "../family";
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
 import { createRasterKeeper, earlyBakeDue, type RasterKeeper } from "./rasterKeeper";
@@ -27,6 +28,8 @@ import { unionRect } from "../../geometry";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
+import { createAttachDriver, type BoxRec } from "./attach";
+import { attachRefs, hasAttach } from "../attach";
 import { modelHandoffMedia } from "./model3dHandoff";
 import { createHandoff, type HandoffController } from "./handoff";
 import { createGlyphProvider, glyphFontsRevision } from "./glyphProvider";
@@ -230,6 +233,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups, glyphs: (el: TextElement) => glyphProvider.outlines(el) };
   const handoffs: HandoffRecord[] = compiled.handoffs;
   const mergeLayers = new Map<string, SVGGElement>();
+  // WP 3.2: a slide with attachments collects every transform controller's frame state for the attachment pass (pushed last, below)
+  const boxes = slide.elements.some(hasAttach) ? new Map<string, BoxRec>() : undefined;
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Overlay effects (encircle) and the opacity a highlight / dim starts FROM are playback-only: stills (thumbnails, next-slide views,
   // static export) never build them, so a still costs nothing and shows the rest state.
@@ -380,7 +385,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration, glyphs: glyphProvider,
-          textLook: resolveTextLook(track.params), stage, ghost: track.ghostFrom != null,
+          textLook: resolveTextLook(track.params), stage, ghost: track.ghostFrom != null, boxes,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         // A text ↔ shape retype flies letter outlines: play waits for their fonts.
@@ -499,6 +504,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       });
     }
   });
+  if (boxes) specs.push(...attachSpecs(slide, compiled, rendered, boxes, opts));
   for (const spec of specs) {
     spec.baseStyle = Object.fromEntries(ANIM_PROPS.map((p) => [p, (spec.node as HTMLElement).style[p] ?? ""]));
     if (spec.keyframes.some((frame) => "opacity" in frame)) {
@@ -513,6 +519,37 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   }
   flightLayers.set(specs, rendered.flight);
   return specs;
+}
+
+/** WP 3.2: the attachment pass of a slide: the attach driver (its own node, so its group is the LAST of the frame: it runs after every
+ *  transform controller) and, for each attached label, a MARKER controller (`glide`, no-op seek) in every beat in which what it hangs on
+ *  moves, spanning that motion, so the player arms and releases the label's flight mark as for any gliding element. A beat in which the
+ *  label plays a transform of its own keeps that controller alone (one controller per node per frame is seeked). */
+function attachSpecs(slide: Slide, compiled: CompiledSlide, rendered: RenderedSlide, boxes: Map<string, BoxRec>, opts: PlayerOpts): Spec[] {
+  const linear = resolveCurve({ easing: "linear" });
+  const moves = (ct: CompiledSlide["cues"][number]["tracks"][number]) => !ct.track.disabled && familyOf(ct.track) === "transform" && !isHandoff(ct.track) && !hasPartBinding(ct.track);
+  const selfDriven = new Set(compiled.cues.flatMap((cue) => cue.tracks.filter(moves).map((ct) => ct.track.target)).filter((id) => slide.elements.some((e) => e.id === id && hasAttach(e))));
+  const out: Spec[] = [{ node: document.createElement("span") as unknown as TargetNode, beatIndex: 0, keyframes: [], delay: 0, duration: 0, ease: linear, enter: false, key: "attach",
+    morph: createAttachDriver(slide.elements, rendered.elements, boxes, opts as SlideRenderCtx, selfDriven) }];
+  const byId = new Map(slide.elements.map((e) => [e.id, e]));
+  /** everything an element hangs on, transitively */
+  const hangsOn = (id: string, seen = new Set<string>()): Set<string> => {
+    for (const r of byId.get(id) ? attachRefs(byId.get(id)!) : []) if (!seen.has(r)) { seen.add(r); hangsOn(r, seen); }
+    return seen;
+  };
+  for (const label of slide.elements) {
+    const wrap = rendered.elements.get(label.id);
+    if (!wrap || label.type === "line" || !hasAttach(label)) continue;
+    const drivers = hangsOn(label.id);
+    compiled.cues.forEach((cue, bi) => {
+      const flights = cue.tracks.filter((ct) => moves(ct) && drivers.has(ct.track.target));
+      if (!flights.length || cue.tracks.some((ct) => moves(ct) && ct.track.target === label.id)) return;
+      const start = Math.min(...flights.map((ct) => ct.start)), end = Math.max(...flights.map((ct) => ct.start + ct.duration));
+      out.push({ node: wrap, beatIndex: bi, keyframes: [], delay: start, duration: end - start, ease: linear, enter: false, key: `attach-mark:${label.id}`,
+        morph: { seek() { /* the attach driver places the label; this controller only carries its flight mark */ }, glide: true } as MorphController });
+    });
+  }
+  return out;
 }
 
 const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin", "transformBox", "fillOpacity", "stroke", "strokeWidth", "maskImage", "d"] as const;

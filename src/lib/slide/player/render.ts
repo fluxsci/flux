@@ -653,6 +653,17 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
   };
 }
 
+/** An ATTACHED connector's length changes every frame its drivers move, so a draw's dash windows measured at build would go stale. A fixed
+ *  `pathLength` on its stroke puts every window in that scale (presets.ts `geoLength` honours it): draw progress is length-independent.
+ *  Only an UNDASHED stroke: `pathLength` rescales an authored dash pattern too (a dashed connector keeps its pattern and its draw is
+ *  measured at build, which only matters while it draws AND moves). Re-applied after every repaint (`updateStaticContent` drops attributes
+ *  the serializer does not write). */
+export const ATTACH_PATH_LENGTH = 1000;
+export function normalizeAttachedDash(w: Element, el: FigElement): void {
+  if (el.type !== "line" || (el.dash?.length ?? 0) > 0) return;
+  for (const g of Array.from(w.querySelectorAll("line, path"))) if (g.getAttribute("pathLength") !== String(ATTACH_PATH_LENGTH)) g.setAttribute("pathLength", String(ATTACH_PATH_LENGTH));
+}
+
 /** The ONE content dispatch — a plot mounts live inline SVG, everything else
  *  the serialized static markup. renderSlide and the transform driver share
  *  this entry so there is never a second renderer. */
@@ -800,6 +811,7 @@ export function renderSlide(
     if (el.hidden || groupHidden(el)) continue;
     const w = wrapper(el);
     fillContent(w, el, ctx);
+    if (el.type === "line" && el.attach) normalizeAttachedDash(w, el);
     host.appendChild(w);
     elements.set(el.id, w);
   }

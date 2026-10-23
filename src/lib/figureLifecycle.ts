@@ -9,6 +9,7 @@ import { newId } from "./ids";
 import { ensureFigureReferenceKeys, mintFigureReferenceKey } from "./project/figureIdentity";
 import { DEFAULT_FAMILY, assignFamilyNumber, derivedFigureName, familyById, parseLegacyName } from "./figfamily";
 import { cloneGroupsFor } from "./groups";
+import { reattachClones } from "./slide/attach";
 
 // Default frame size — a full-page journal figure, 180 × 225 mm (the Nature-family
 // maximum figure size), expressed in the canvas's 96 dpi design px: 180/25.4×96 ≈ 680,
@@ -146,6 +147,7 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
     if (el.groupId) el.groupId = grpRemap.get(el.groupId) ?? el.groupId;
     return el;
   });
+  reattachClones(elements, idRemap);
   let captions: Record<Id, string> | undefined;
   if (src.captions) {
     captions = {};

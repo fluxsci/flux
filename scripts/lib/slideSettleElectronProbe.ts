@@ -33,6 +33,8 @@ export const PLAY: Record<string, string[]> = {
   plot_sweep: ["sweep#2-2", "sweep_pen#2-2", "sweep_pen#3-3"],
   // WP 3.3: a hand-off and a swap bent by an arc, a rigid turn
   arcs_turns: ["arc_handoff#1-1", "arc_swap#1-1", "turn_rigid#1-1"],
+  // WP 3.2: a connector and a label following a box (arc) and a circle (spring), and a label riding a slow move
+  attach: ["follow#1-1", "follow#2-2"],
   // R2 follow-up F1: round hand-offs (one rasteriser at both ends), stroked corners, a cornerRadius Change, compound holes
   handoff_round: ["dot_int#1-1", "dot_grow#1-1", "ring_ring#1-1", "six_dots#1-1"],
   become_corners: ["tri_circle#1-1", "rect_circle#1-1", "arrow_circle#1-1", "arrow_circle_ho#1-1", "butt_line_rect#1-1", "ell_rect#1-1", "ell_rect_ho#1-1", "translucent#1-1", "rect_line_round#1-1", "line_rect_round#1-1", "circ_diamond_ho#1-1", "diamond_circ_ho#1-1"],

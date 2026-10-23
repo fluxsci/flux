@@ -4,6 +4,7 @@ import { newId } from "./ids";
 import { elementBBox, lineWorldEndpoints, rotatePoint, type Rect } from "./geometry";
 import { applyTextLayout } from "./text";
 import { scaleNodes, pathD, pathToNodes, constrain45 } from "./path";
+import { scaleAttach } from "./slide/attach";
 
 export interface Pt {
   x: number;
@@ -329,6 +330,7 @@ export function scaleRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
     resizeRemap(e, orig, ob, nb);
   }
   if ("strokeWidth" in e && "strokeWidth" in orig) e.strokeWidth = Math.max(0, orig.strokeWidth * s);
+  if (orig.attach) { e.attach = structuredClone(orig.attach); scaleAttach(e, s); } // gaps are stage px: they scale with the content
   if (e.type === "rect" && orig.type === "rect") e.cornerRadius = Math.max(0, orig.cornerRadius * s);
   if (e.type === "path" && orig.type === "path" && orig.cornerRadius) {
     // resizeRemap (above) already emitted `d` with the ORIGINAL radius — the

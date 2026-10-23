@@ -434,6 +434,14 @@ options on the Change in the Animator, **Letters travel** and **Fade style** (Dr
 on for every new text Change; saved decks play as they were made. The line is the crisp resting text at
 both ends of the move.
 
+**Connectors and labels follow what they stick to** (drawn and set exactly as in
+[Figure](figure.qmd)): when a shape moves at a step, by a Change, an arc or a spring, the arrows and
+labels stuck to it move with it, in the editor, in Present and in every export, and a moving label
+glides without stepping. Dragging a shape at a step writes the shape's Change only. A connector stuck
+to a shape that hands off in a Become stays where it rests; plot parts and groups are not things to
+stick to. `flux slide-attach <deck> <slide> <element> …` takes the same arguments as `figure-attach`.
+A deck that holds a stuck element is saved in a newer format, which older Flux versions do not open.
+
 For a box move, the **Arc** slider bends the path to either side of the straight line.
 Zero keeps it straight; the endpoints stay fixed. The small path preview shows the bend.
 Arc shares the transform's easing and can be inherited from an animation style. A Become's

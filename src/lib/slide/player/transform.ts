@@ -64,6 +64,9 @@ export interface TransformCtx extends SlideRenderCtx {
   arc?: number;
   /** The track's turn law (`params.turn`, WP 3.3): "rigid" keeps a turning line's length (tween.rigidSegment). */
   turn?: TurnMode;
+  /** WP 3.2: this frame's element states for the attachment pass (player/attach.ts), on a slide that has attachments: this controller's
+   *  final sampled element (arc and overshoot included) and whether it is in flight. */
+  boxes?: Map<string, { el: FigElement; moving: boolean }>;
   /** Effective source content after earlier cues (may be a crossfade layer). */
   contentHost?: HTMLElement;
   /** assetId → manifest (plot frame updates + the content-morph half). */
@@ -649,6 +652,7 @@ export function createTransform(
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw, { turn: ctx.turn });
     const contentX = content.x, contentY = content.y;
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
+    ctx.boxes?.set(pre.id, { el: { ...el } as FigElement, moving: raw > 0 && raw < 1 });
     // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched).
     // Two limits, both deliberate: the separation is measured from the source's BIRTH pose (a source that moves in the same beat keeps the overlap
     // longer: no gate pins that case), and a same-beat appearance that owns the wrapper's opacity (`skipOpacity`) takes the law's share with it.

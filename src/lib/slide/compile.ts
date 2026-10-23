@@ -5,6 +5,7 @@ import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
 import { lerpElement, overshootBox, arcBox, turnOf, transformEndState, transformPreState } from "./tween";
+import { resolveAttachments, attachIssues, attachRefs, hasAttach, DEPENDENT_GEOMETRY } from "./attach";
 import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
 import { seriesAxes, seriesTweenable, keyedMorphable, plotViewIssues } from "../plot/project";
@@ -94,6 +95,18 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
   const resolveTarget = handoffTargetResolver(slide, opts.plotManifest ?? (() => undefined), opts.modelManifest);
   for (const el of slide.elements) if (el.type === "plot") {
     for (const reason of plotViewIssues(opts.plotManifest?.(el.assetId), el.view)) issues.push({ target: el.id, reason });
+  }
+  // WP 3.2: attachments. A dependent owns the geometry its attachment solves (a connector its ends and box, a label its position): a Change
+  // of those keys is ignored and said so; a hand-off Become has no moving box, so what is attached to it stays at its resting place.
+  if (slide.elements.some(hasAttach)) {
+    for (const i of attachIssues(slide.elements)) issues.push({ target: i.id, reason: `Attachment ${i.code}: ${i.detail}` });
+    const owned = new Map(slide.elements.filter(hasAttach).map((e) => [e.id, e.type === "line" ? DEPENDENT_GEOMETRY : ["x", "y"]] as const));
+    const drivers = new Set(slide.elements.flatMap(attachRefs));
+    for (const beat of slide.beats) for (const t of beat.tracks) {
+      if (t.disabled || familyOf(t) !== "transform") continue;
+      if (owned.get(t.target)?.some((k) => k in (t.to?.state ?? {}))) issues.push({ trackId: t.id, target: t.target, reason: "This object follows its attachment: the Change's position is ignored." });
+      if (drivers.has(t.target) && isHandoff(t)) issues.push({ trackId: t.id, target: t.target, reason: "Objects attached to a hand-off Become stay at its resting position (a hand-off has no moving box)." });
+    }
   }
   const cues = slide.beats.map((beat, bi) => {
     const tracks: CompiledTrack[] = [];
@@ -346,6 +359,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         if (preset === "scale") effects.set("scale", [1 + (legacyScaleOf(track) - 1) * u]);
       }
     }
+    // WP 3.2: dependents are a pure function of the frame's final driver boxes (transform + arc + overshoot), BEFORE appearance offsets
+    // fold in (the live DOM keeps those on an inner effects layer: an attached label does not follow a driver's rise-in lift)
+    resolveAttachments(elements);
     // Appearance offsets are a child of authored/changed geometry at runtime.
     // Fold them after Changes, in CSS function order, so an unrelated Change
     // cannot erase a move and repeated legacy effects replace their channel.
