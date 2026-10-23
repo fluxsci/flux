@@ -370,11 +370,10 @@ export const hoverId = writable<Id | null>(null);
 // the global shortcut handler yields, like it does for the caption editor.
 export const nodeEditId = writable<Id | null>(null);
 
-// Keyboard-driven grid arrangement ("Arrange mode", Alt+T). While `active`, the
-// selection is being live-reflowed into a grid; `rows`/`cols` are the current
-// shape and `n` the number of layout cells (a group counts once). The HUD reads
-// this; `null` when the mode is off. `lastArrangeRows` drives the Inspector's
-// rows stepper (and remembers the last applied shape between one-shot arranges).
+// Compact compatibility status for Inspector/existing integrations. The full
+// Align / Arrange owner and gesture state live in interact/alignArrange.ts;
+// nothing here is serialized into a project. lastArrangeRows also drives the
+// Inspector's one-shot reflow stepper.
 export interface ArrangeState {
   active: boolean;
   n: number;

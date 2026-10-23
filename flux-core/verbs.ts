@@ -566,18 +566,58 @@ export const VERBS: VerbDef[] = [
       figureId: z.string(),
       kind: z.enum(["left", "right", "top", "bottom", "centerH", "centerV"]),
       ids: z.array(z.string()).optional(),
+      scope: z.string().optional(),
+      target: z.enum(["selection", "figure", "reference"]).optional(),
+      referenceId: z.string().optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "figureId", required: true },
       { kind: "pos", at: 1, into: "kind" },
       { kind: "flag", at: "kind", into: "kind" },
       { kind: "flag", at: "ids", into: "ids", as: "csv" },
+      { kind: "flag", at: "scope", into: "scope" },
+      { kind: "flag", at: "target", into: "target" },
+      { kind: "flag", at: "reference", into: "referenceId" },
     ],
-    handler: (ctx, a) =>
-      core.alignFigure(ctx.root, s(a.figureId), a.kind as Parameters<typeof core.alignFigure>[2], a.ids as string[] | undefined),
+    handler: (ctx, a) => {
+      if (a.target === "reference" && !a.referenceId) throw new Error("Reference alignment requires referenceId");
+      if (a.referenceId && a.target !== "reference") throw new Error("referenceId requires target:reference");
+      const options = a.target !== undefined || a.scope !== undefined ? {
+        scope: a.scope as string | undefined,
+        target: a.target === "reference" ? { unitKey: s(a.referenceId) } : a.target as "selection" | "figure" | undefined,
+      } : undefined;
+      return core.alignFigure(ctx.root, s(a.figureId), a.kind as Parameters<typeof core.alignFigure>[2], a.ids as string[] | undefined, options);
+    },
     render: {
       human: (_r, a) => ({ err: `✓ aligned ${a.figureId} (${a.kind})` }),
       mcp: (_r, a) => text(`aligned ${a.figureId} (${a.kind})`),
+    },
+  },
+  {
+    name: "align_plot_spines",
+    scope: "project",
+    cli: "align-plot-spines",
+    cliRoot: "flags",
+    summary: "Align actual semantic plot X spines vertically or Y spines horizontally to a fixed reference unit. Whole plot groups move rigidly. All units must have eligible visible spines; unavailable/ambiguous targets refuse atomically. Reference and choice keys are e:<element-id> or g:<group-id>.",
+    params: {
+      figureId: z.string(), ids: z.array(z.string()).min(1), axis: z.enum(["x", "y"]), referenceKey: z.string(), scope: z.string().optional(),
+      choices: z.record(z.string(), z.object({ plotId: z.string().optional(), panelId: z.string().optional(), spineId: z.string().optional() })).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "figureId", required: true },
+      { kind: "flag", at: "ids", into: "ids", as: "csv", required: true },
+      { kind: "flag", at: "axis", into: "axis", required: true },
+      { kind: "flag", at: "reference", into: "referenceKey", required: true },
+      { kind: "flag", at: "scope", into: "scope" },
+      { kind: "flag", at: "choices", into: "choices", as: "json" },
+    ],
+    handler: (ctx, a) => core.alignPlotSpines(ctx.root, s(a.figureId), {
+      ids: sArr(a.ids), axis: a.axis as "x" | "y", referenceKey: s(a.referenceKey),
+      scope: a.scope as string | undefined, choices: a.choices as Parameters<typeof core.alignPlotSpines>[2]["choices"],
+    }),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+      mcp: (r) => text(JSON.stringify(r)),
     },
   },
   {
@@ -664,24 +704,45 @@ export const VERBS: VerbDef[] = [
     scope: "project",
     cli: "arrange",
     cliRoot: "flags",
-    summary: "Grid-arrange a figure's existing panels (give rows OR cols; gap optional).",
+    summary: "Arrange editable units. Legacy defaults reflow a top-left grid (cols wins over rows; signed gap supported). mode:tidy recognizes existing tracks, mode:reflow explicitly reshapes; gapX/gapY accept signed spacing (negative overlaps); start/center/end anchors fix the actual selection bounds. Logical track/member and z-order remain fixed even when extreme negative spacing reverses physical positions. ids and scope select whole units.",
     params: {
       figureId: z.string(),
       rows: z.number().optional(),
       cols: z.number().optional(),
       gap: z.number().optional(),
+      ids: z.array(z.string()).optional(),
+      scope: z.string().optional(),
+      mode: z.enum(["reflow", "tidy"]).optional(),
+      gapX: z.number().finite().optional(),
+      gapY: z.number().finite().optional(),
+      anchorX: z.enum(["start", "center", "end"]).optional(),
+      anchorY: z.enum(["start", "center", "end"]).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "figureId", required: true },
       { kind: "flag", at: "rows", into: "rows", as: "number" },
       { kind: "flag", at: "cols", into: "cols", as: "number" },
       { kind: "flag", at: "gap", into: "gap", as: "number" },
+      { kind: "flag", at: "ids", into: "ids", as: "csv" },
+      { kind: "flag", at: "scope", into: "scope" },
+      { kind: "flag", at: "mode", into: "mode" },
+      { kind: "flag", at: "gap-x", into: "gapX", as: "number" },
+      { kind: "flag", at: "gap-y", into: "gapY", as: "number" },
+      { kind: "flag", at: "anchor-x", into: "anchorX" },
+      { kind: "flag", at: "anchor-y", into: "anchorY" },
     ],
     handler: (ctx, a) =>
       core.arrangeFigure(ctx.root, s(a.figureId), {
         rows: a.rows as number | undefined,
         cols: a.cols as number | undefined,
         gap: a.gap as number | undefined,
+        ids: a.ids as string[] | undefined,
+        scope: a.scope as string | undefined,
+        mode: a.mode as "reflow" | "tidy" | undefined,
+        gapX: a.gapX as number | undefined,
+        gapY: a.gapY as number | undefined,
+        anchorX: a.anchorX as "start" | "center" | "end" | undefined,
+        anchorY: a.anchorY as "start" | "center" | "end" | undefined,
       }),
     render: {
       human: (_r, a) => ({ err: `✓ arranged ${a.figureId}` }),

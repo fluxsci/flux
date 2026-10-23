@@ -108,7 +108,7 @@
   import Canvas from "../../../lib/Canvas.svelte";
   import { plotTheme } from "../../../lib/plot/themeDom";
   import Inspector from "../../../lib/Inspector.svelte";
-  import ArrangeHud from "../../../lib/ArrangeHud.svelte";
+  import AlignArrangePanel from "../../../lib/AlignArrangePanel.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
   import { trackCascadeAdapter, openTrackCascade } from "./animator/cascadeTracks";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
@@ -1803,7 +1803,7 @@
         {#if ready && overlay}
           <Canvas frame paneActive={active} presentation={canvasPresentation} hitBridge={railHitBridge} />
           <PickOverlay {picker} wrap={canvasWrapEl} slideId={$activeFigureId} presentation={canvasPresentation} refLabel={refLabel} describe={describePick} />
-          <ArrangeHud />
+          <AlignArrangePanel active={active && focused} />
           <CascadePopover tracks={trackCascadeAdapter} />
           {#if previewing}
             <div class="preview-overlay">

@@ -16,6 +16,7 @@
   "add_to_library",
   "add_turntable",
   "align_figure",
+  "align_plot_spines",
   "align_tracks",
   "anim_style",
   "animate_element",

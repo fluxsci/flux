@@ -1907,6 +1907,45 @@ Persistence invariants (all machine-checked — do not weaken):
     selects expand inline (`.opts .opt`; wheel, w·a·s·d, 1–9), `c` opens `ColorPicker.svelte`
     (palette rows + recent, hover previews through the session, click commits), `s` searches.
     Columns (1/2/3 by field count) replace vertical scroll.
+  - **Align / Arrange (A / Alt+T) = `AlignArrangePanel.svelte` + `interact/alignArrange.ts`.**
+    Both panes remain visible; Space or a pane control switches keyboard ownership.
+    Arrow is Shift+L in Figure/Slide (Annotate retains its own map).
+    `layout/arrangement.ts` owns inferred rows/columns/grids, immutable translation plans,
+    per-axis gaps and fixed-point anchoring; `layout/layoutMath.ts` also serves legacy
+    `arrangeGrid`. Old headless calls preserve their defaults. A regular inferred layout
+    returns exact identity; X-only gap edits preserve Y bytes. Signed gaps have no floor:
+    logical track/member and z-order stay fixed while extreme negative values can reverse
+    physical positions. Anchor the actual union of occupied boxes, never a nominal summed
+    track extent, which may be smaller or negative. Passive selection guides recognize only
+    exact regular rows/columns/grids (including confident aligned overlaps), with no tidy or
+    model mutation; dragging a passive guide owns its own hidden visit. The shared
+    `ArrangementAnchorPicker` supplies row/column segments or a nine-point grid in the panel
+    and selection-pin popup. Anchor preference is session UI state independent of document
+    and tool ownership: opening/using a passive chooser must not create a visit, Undo or model
+    mutation. Choices persist across visits; 1/2/3 selects start/center/end on the edited or
+    hovered axis while input typing keeps priority. Mid-edit changes rebase the fixed point to
+    current preview bounds without a jump. Arrange owns one editSession
+    per visit; NumberField's opt-in externalOwner and canvas gap drags own inner baselines,
+    preview through Canvas's existing sceneTransforms, and publish positions only on accept.
+    Gap overlays must explicitly depend on viewport/figure projection in legacy Svelte:
+    reading pan/zoom through a helper closure alone does not invalidate reactive guides,
+    bounds, badges or pins when geometry is unchanged.
+    Opening Align preserves the ordinary selected-wrapper policy. The first Arrange entry
+    enables layout culling for that visit and keeps it enabled across pane switches. Selected
+    layout objects use the normal 600-screen-pixel mount region against original AND preview
+    bounds, without inheriting the previous unconditional selection set as hysteresis. Publish
+    visible sets only when their members/model identities change. Exact no-edit plans reuse the
+    captured immutable arrays; explicit gap edits still normalize geometry, even at the same value.
+    Bulk primitive previews use disposable SVG translation attributes instead of
+    thousands of compositor animations; dense artwork keeps its drive. Stop updating a primitive
+    once its last rendered bounds and planned bounds are both offscreen; reset on baseline exit.
+    Cancel inner edits before cancelling the visit; outside model/source conflicts finish
+    already-owned settled work and discard transient drafts, never restore stale snapshots.
+    `plot/landmarks.ts` resolves actual semantic spine centerlines through shared prepared
+    SVG geometry, with strict visibility/crop/orientation preflight and rigid group movement.
+    `align_plot_spines` exposes the same policy to file/live agents. New GUI, numeric-owner,
+    controller, layout and spine gates live in `group:align-arrange`; native coverage extends
+    the existing isolated Figure polish harness (`group:align-arrange-native`).
   - **Anchoring law = `ui/anchor.ts` (pure, `verify-surface-anchor.ts`).** Every popover that
     opens "at the selection" (menu, X-ray) avoids the selection's union rect: right → left →
     below → above → pointer → centre, aligned to the pointer on the free axis, re-clamped on
@@ -3126,7 +3165,10 @@ Run it through the hermetic runner; never validate a migration on real projects.
   recompute its figure's list — so each keystroke re-rendered every mounted element.
   `ElementSlot.svelte` (runes) is the scene's render boundary: it passes an element on only when
   its identity or JSON content changed; `perfCounters.elementRenders` + `verify-scale-figure`
-  pin one render per one-element nudge. Keep new per-element rendering behind it.
+  pin one render per one-element nudge. The wrapper, cursor tone and presentation action
+  also live inside this boundary; retain the content-change token through derived values,
+  since returning the same mutable element identity would suppress real in-place edits.
+  Keep new per-element rendering behind it.
 - **A store read in a per-element `$:` subscribes every instance.** `$: x = cond ? f($project) : null`
   lists `$project` as a dependency even when `cond` is false, and `legacy_pre_effect_reset`
   re-runs every `$:` dependency of the component when any of them changes: 3,760 elements ×
@@ -10798,6 +10840,55 @@ full run: the final ui tier after the review fixes; `verify-slide-video-clips-el
 resize handle hit") and `verify-annotate-utility-electron` (win:capture pixels) fail on this Xvfb —
 the clips one identically on pre-merge main; CI-only reds seen on main (text-morph letter counts,
 model3d-gui, model3d-snapshot-quiet, a 101 ms morph-startup seek) predate the rail.
+
+### 2026-10-22 17:08 CDT — Flux Align and Arrange (Codex, `feat/align-arrange`)
+**Work:** Implemented the reviewed Align/Arrange blueprint in an isolated worktree: shared anchored layout plans, dedicated keyboard/click panels, transient pink gap scrubbing, strict semantic plot-spine alignment, CLI/live parity, and registered regression/native coverage. Updated user/agent docs and the architecture guidance above; detailed validation and design decisions are in `notes/align_arrange_2026-10-22/IMPLEMENTATION.md`. Main checkout and the running user application were preserved.
+**Learnings:**
+- Native traces showed thousands of per-primitive compositor animations cost more than drawing those primitives. Preserve artwork drives, bound visual work to viewport coverage, and avoid scene publications when visible members and model identities are unchanged.
+- A pointer gesture must transfer focus from a previously focused button/input before claiming Space; consuming the document key alone does not suppress native button activation.
+
+### 2026-10-22 17:30 CDT — Large-selection rendering follow-up (Codex, `feat/align-arrange`)
+**Work:** Native tracing identified style/layer work across thousands of primitive wrappers. Bulk Arrange translations now use disposable SVG attributes while dense artwork retains compositor drives; ElementSlot also gates wrapper/presentation updates. Strengthened native probes verify every gap sample changes spacing and keyboard nudges move rendered bounds. Added transform ownership/cancellation/remount coverage; budgets remain unchanged. Final receipts and earlier timing failures are retained in the implementation report.
+
+
+### 2026-10-22 18:58 CDT — Signed spacing and persistent layout controls (Codex, `feat/align-arrange`)
+**Work:** Refined Align & Arrange into two visible panes, added passive guides for exact regular selections, temporary held-key anchors, and unrestricted finite signed gaps for overlapping layouts. Updated shared planner/API behavior, user and stock agent docs, generated context, and registry parity; verification receipts remain in the implementation report.
+**Learnings:**
+- Negative spacing must anchor the actual occupied union; summed track sizes and gaps can describe a smaller or negative extent.
+- Legacy Svelte cannot discover viewport reads hidden in helper closures. Pass the projection explicitly to every reactive overlay calculation so pan/zoom moves unchanged layout chrome.
+
+
+### 2026-10-22 19:18 CDT — Direct Arrange entry stress qualification (Codex, `feat/align-arrange`)
+**Work:** Traced 5,000-selected-object entry to synchronous Svelte teardown and SVG layout, retained a normal-region/sticky culling policy, and removed duplicate snapshot/no-op allocations. Added direct Alt+T coverage without changing the 100 ms budget; the final isolated software-rendered native run passed 67/68 checks, including all functional/export checks, but direct entry remained 113.1 ms (A 62.0, Space 77.7, reflow 81.2, gap p95 97.0 ms). This is a documented stress limitation, not a passing responsiveness qualification; evidence is retained in `test-results/align-arrange-native-normal-mount-experiment` and the implementation report.
+**Learnings:**
+- An unconditional selected-node mount set cannot be reused as normal viewport hysteresis: it retains every offscreen selected object and shifts the cost into the next layout commit. The current policy and immutable identity-plan rules are promoted into the body.
+
+
+### 2026-10-22 19:40 CDT — Persistent arrangement anchor chooser (Codex, `feat/align-arrange`)
+**Work:** Replaced held-key anchor instructions with the shared persistent chooser in the panel and selection-pin popup, plus optional 1/2/3 axis shortcuts. Updated Figure/Slide/shortcut and stock agent docs, regenerated FluxContext, and passed the registered context-scheme gate (`2026-10-23T00-40-53-375Z-2`); prior native stress-limit evidence remains unchanged.
+**Learnings:**
+- A passive anchor choice is UI preference only: it must not create tool ownership, document edits or Undo history. The preference and input-priority contract are promoted into the body.
+
+### 2026-10-22 — Merge of feat/align-arrange into main (Claude Opus 5.5)
+**Work:** Merged Codex's six Align/Arrange commits (16d20c16..decd7be5) over the Plots rail P3
+work. Manifest merged structurally (every gate/group/contract/pathMap entry of both sides kept),
+guide log entries of both kept; keyboard order is rail yield → Alt+G host → typing → Align.
+`verify-cross-figure-drag` was red on the branch itself (main green): the passive anchor pin
+sits on the fixed point — the selection's centre by default, where people grab a selection —
+and swallowed the press. Fix (`ArrangeGapOverlay.svelte` pinDown/pinClick): a click still opens
+the picker; a press that moves ≥4 px is replayed onto whatever lies beneath the pin, so the
+ordinary drag (and a drop onto another figure) runs as if the pin were not there. A band hover
+handler that could run on a just-detached guide (no owner SVG) now returns nothing.
+**Learnings:** a canvas control placed ON content must hand moving presses through — a click
+target over the grab point of a selection silently breaks dragging. When replaying a press,
+the "as if absent" target is the topmost non-control element; gap guides are part of the same
+layer, so a pin over a gap band hands off a GAP drag (correct), which is why the gate's pin case
+uses a layout whose centre lies on an object.
+**Verification:** svelte-check + headless 0/0; build; pure 398/398 (model3d-headless after a
+build); groups align-arrange 8/8 + plots-rail 8/8; cross-figure drag 31/31, selection zones,
+bbox grab, figure controls, Become picker, slide editor, filmstrip, crop, input hygiene,
+metadata, video clips, gallery workflow, dissect. Native + full ui tier owed (tonight's run);
+Codex's accepted limitation stands: direct Alt+T with 5,000 selected ≈103–113 ms vs 100 ms.
 
 ### 2026-10-22 — Release 1 of the manim study: pace, choreography, drawing, convex morphs, crisp stage (Claude Opus 5.5 orchestrating Sonnet 5.5 lanes, `manim/release1`)
 **Work:** Five parallel lanes (render, origin, morph, choreo-draw, pace; each with an adversarial review and a fixer pass), merged and integrated on `manim/release1` (plan: notes/manim_exploration/FINAL_PLAN.md §4 and Appendix D; lane reports: notes/manim_exploration/impl/R1_L*_report.md). Shipped per WP: **1.1** video frames encode as tagged BT.709 limited range (Flexoki swatch error 15 → 2). **1.2** origins are data: bars grow from their own zero line (horizontal and negative included), scatter points exist under popIn/fadeRise/stagger (a leaf-transform `data-sl-fx` wrapper), and the open `PRESET_PARAMS` table. **1.3** `choreograph()` + `planStagger`: three clicks, scaffold-first, capped lag totals, `animate-plot` verb, `--pace classic|v2`. **1.4** the draw plan: border-then-fill, heads on the pen clock, dash lists that keep the pattern, exact reach, ink-fitted wipes, X13 tick compensation. **1.5** morph bug floor: per-transform gradient ids, per-channel alpha, pixel law, rigid heads. **1.6** Pillow-free convex morphs (`normalMatch.ts`), implicit handles, dash phase. **1.7** the measured pace (700/900/500/1200), `quick smooth`, authored params, interrupt settle. **1.8** the raster keeper keeps the stage crisp after resize/zoom/pan (0.30 → 1.000), exact capture camera, the T7 join law. Integrator's own changes: auto-build now DEFAULTS to `V2_PACE` with the authored curve and params on every plot-part track; the join law reaches the hand-off and glyph flight layers (`OutlinePaint.join`, `pairJoin`). Owner-facing release-note order: resize/fullscreen crispness, video colours, zoom sharpness. Docs: slide.qmd, SLIDE_TRANSFORMS.md, flux-context SLIDES.md/CLI-REFERENCE (and the regenerated `fluxContextDocs.gen.cjs`), plot fixtures README, and this guide's body (§2 table, §4 catalog/pace, auto-build + draw plan, origins, convex morphs, join law, layer hygiene + raster keeper, video colour, §9 traps).

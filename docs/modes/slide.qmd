@@ -99,6 +99,15 @@ annotations and brackets), each after the short delay the plot suggests. A multi
 with the figure's title first and its shared legend last. The same build is available from the
 command line as `flux animate-plot`.
 
+The slide canvas shares Figure's [alignment and arrangement tools](figure.qmd#alignment-and-arrangement).
+**A** opens Align & Arrange with Align active; **Alt+T** activates Arrange. Both panes remain
+visible, and **Space** switches keyboard ownership when the tool surface has focus. Regular
+selections show pink gap guides directly; signed spacing supports overlapping objects, and
+the selection pin opens a persistent **Keep fixed** chooser. **1/2/3** chooses start/center/end
+on the edited or hovered gap axis. The Animator
+keeps its own timing and playback shortcuts. **Shift+L** selects the Arrow drawing tool;
+**L** remains Line.
+
 Drag a box from empty timing-grid space to select the effects it intersects. Hold **Shift**
 (or Ctrl/Cmd) to add to the selection. Crossing a collapsed group span selects its members.
 Scroll while dragging, or hold near the grid edge to scroll; **Escape** cancels the selection.

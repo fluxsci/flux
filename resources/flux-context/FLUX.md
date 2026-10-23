@@ -236,6 +236,7 @@ CLI-REFERENCE.md gives flags; `flux_verbs {query:"<name>"}` gives schemas.
 | See a saved figure / canvas | `render-figure --png` / `render-canvas --png` | `get_figure_image`, `get_canvas_image` |
 | Restyle a plot part | `restyle` | `restyle_part` |
 | Regenerate / refresh plots | `rerun-plot` / `sync-figure` | `rerun_plot`, `sync_figure` |
+| Align scientific axes | `align-plot-spines` | `align_plot_spines` |
 | Arrange / label panels | `arrange` / `auto-label` | `arrange_figure`, `auto_label` |
 | Edit captions | `set-caption` | `set_caption` |
 | List / create documents | `docs` / `new-doc` | `list_documents`, `create_document` |

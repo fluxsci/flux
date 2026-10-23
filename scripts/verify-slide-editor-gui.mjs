@@ -57,7 +57,7 @@ try {
   await page.keyboard.press("Escape");
   await sleep(300);
   async function drag(tool, x0, y0, x1, y1) {
-    await page.keyboard.press(tool);
+    if (tool) await page.keyboard.press(tool);
     await sleep(120);
     await page.mouse.move(x0, y0);
     await page.mouse.down();
@@ -76,7 +76,10 @@ try {
   await drag("r", cx - 200, cy - 100, cx - 120, cy - 40);
   await drag("o", cx - 90, cy - 100, cx - 20, cy - 30);
   await drag("l", cx + 10, cy - 90, cx + 90, cy - 40);
-  await drag("a", cx + 110, cy - 90, cx + 190, cy - 40);
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("l");
+  await page.keyboard.up("Shift");
+  await drag(null, cx + 110, cy - 90, cx + 190, cy - 40);
   // pen: 3 clicks + Enter finishes an open path
   await page.keyboard.press("p");
   await sleep(120);
