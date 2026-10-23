@@ -82,15 +82,16 @@ const decks = await corpus("compact");
 
 // -- 3. the sweep --------------------------------------------------------------------------------------------------------------
 const results: { name: string; rows: CueRow[] }[] = [];
+// ONE page in ONE browser, deck after deck. Two traps behind this: (1) a headless browser runs requestAnimationFrame only in its foreground
+// tab, so several pages in one browser starve each other (the frame waits of the background pages stalled until the 180 s protocol
+// timeout once the corpus grew); (2) several browsers in parallel load the CPU enough that a seek to a high camera zoom is still on
+// Chrome's low-resolution tiles two frames later (the 4x corner zoom read END SNAP 330 in parallel, 0.0 alone). The probe CLI
+// (slide-twitch-sweep.mts) sweeps the same way, so the gate and the probe read the same numbers.
 await withBrowser(async (browser, tmp) => {
-  const queue = [...decks];
-  const worker = async () => {
-    for (let d = queue.shift(); d; d = queue.shift()) {
-      const sp = await openDeck(browser, d.payload, tmp, d.name);
-      try { results.push({ name: d.name, rows: await sweepDeck(sp, d.payload) }); } finally { await sp.close(); }
-    }
-  };
-  await Promise.all(Array.from({ length: 3 }, worker));
+  for (const d of decks) {
+    const sp = await openDeck(browser, d.payload, tmp, d.name);
+    try { results.push({ name: d.name, rows: await sweepDeck(sp, d.payload) }); } finally { await sp.close(); }
+  }
 });
 results.sort((a, b) => a.name.localeCompare(b.name));
 h.section("boundaries");
