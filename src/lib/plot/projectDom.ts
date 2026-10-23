@@ -462,7 +462,7 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     g.anchorEnd = tickEndAt.get(g.panel)?.get(key) ?? g.end;
   }
   const flightNodes: Element[] = [];
-  const flight = opts?.tickHandoff && (view || opts.fromView) ? buildFlight(manifest, view, opts, panels, guides, nodes, flightNodes) : [];
+  const flight = opts?.tickHandoff && (view || opts.fromView) ? buildFlight(manifest, view, opts, panels, guides, nodes, flightNodes, targetIndex) : [];
   return { series, guides, panels: [...panels.values()], shapes, interpolated: opts?.geometryInterpolated ?? false, axesInfo, flight, flightNodes };
 }
 
@@ -483,7 +483,7 @@ let flightSerial = 0;
 const labelHtml = (l: { text: string; base?: string; exponent?: string }) =>
   l.exponent !== undefined ? `${l.base}<tspan baseline-shift="super" style="font-size: 70%">${l.exponent}</tspan>` : l.text;
 function buildFlight(manifest: FluxPlotManifest, view: PlotView | undefined, opts: PlotViewOptions, panels: Map<string | undefined, Panel>,
-  guides: GuideBinding[], nodes: Set<Element>, created: Element[]): FlightAxis[] {
+  guides: GuideBinding[], nodes: Set<Element>, created: Element[], targetIndex: Map<string, Element> | null): FlightAxis[] {
   const out: FlightAxis[] = [];
   for (const [panelId, panel] of panels) for (const axis of ["x", "y", "y2", "x2"] as PlotAxisKey[]) {
     const mine = guides.filter(g => g.panel === panel && g.axis === axis);
@@ -511,7 +511,7 @@ function buildFlight(manifest: FluxPlotManifest, view: PlotView | undefined, opt
       const valueOf = (g: GuideBinding) => side === "a" ? g.value : g.endValue;
       // a label's exact string comes from the version it belongs to: the live node holds the START's, so an asset Change reads the end's
       // from the end's own pristine render
-      const labelNode = (g: GuideBinding): Element => (side === "b" && opts.assetChange ? opts.targetRoot && Array.from(opts.targetRoot.querySelectorAll("[id]")).find(n => n.getAttribute("id") === g.leaf) : null) || g.node;
+      const labelNode = (g: GuideBinding): Element => (side === "b" && opts.assetChange ? targetIndex?.get(g.leaf) : null) || g.node;
       for (const g of mine) {
         if (!(side === "a" ? g.inA : g.inB)) continue;
         const key = guideIndexKey(g.leaf);

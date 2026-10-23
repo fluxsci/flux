@@ -15,19 +15,16 @@
 //
 // Pure: the weights are a function of the frame alone, so forward, reverse and shuffled seeks are identical.
 // ---------------------------------------------------------------------------
-import { HANDOVER_EPS, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE } from "./textMorph";
+import type { VectorNode } from "../../types";
+import { HANDOVER_EPS, handoverEase, handoverWeights } from "./textMorph";
 
-export { HANDOVER_EPS, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE };
-const smooth = (distance: number) => { const q = Math.max(0, Math.min(1, distance / HANDOVER_EPS)); return q * q * (3 - 2 * q); };
+export { HANDOVER_EPS };
 
 /** The opacity of the three layers while the flight shows: A (the start render), M (the flight), B (the end render). They sum to 1 and are ADDED.
  *  `away` / `settle` = how far the flight has travelled from A / still has to travel to B (stage px). A flight whose whole travel is shorter than the
- *  window crossfades A into B directly (the two windows overlap: the weights are normalised). */
+ *  window crossfades A into B directly (the two windows overlap: the weights are normalised). The same law as the text hand-over (textMorph.ts). */
 export function shapeWeights(away: number, settle: number): { a: number; m: number; b: number } {
-  const entry = smooth(away), landing = 1 - smooth(settle);
-  const a = 1 - entry, b = landing, m = Math.max(0, entry - landing);
-  const sum = a + m + b;
-  return { a: a / sum, m: m / sum, b: b / sum };
+  return handoverWeights({ entry: handoverEase(away), landing: 1 - handoverEase(settle) });
 }
 
 /** A layer whose weight is a thousandth short of 1 is drawn as an effect layer (group opacity), and the browser rounds gradients and translucent fills
@@ -40,7 +37,19 @@ export function snapWeights(w: { a: number; m: number; b: number }): { a: number
   return { a: w.a < SNAP ? 0 : w.a, m: w.m < SNAP ? 0 : w.m, b: w.b < SNAP ? 0 : w.b };
 }
 
-/** The furthest any anchor has moved: two flat [x0, y0, x1, y1, ...] arrays of equal length (stage px). */
+/** The points of a path that make its shape, flat [x0, y0, x1, y1, ...] in stage px: every node's anchor, then the end points of its two handles
+ *  (a handle that is absent sits on its anchor). A change that lives in the handles alone (a circle's round handles becoming a diamond's none, the
+ *  anchors staying put) is a change of shape: measuring anchors only left the picture on A until an anchor finally moved, then jumped to the flight. */
+export function pathPoints(nodes: readonly VectorNode[], dx = 0, dy = 0): number[] {
+  const out: number[] = [];
+  for (const n of nodes) {
+    const x = dx + n.x, y = dy + n.y;
+    out.push(x, y, x + (n.hIn?.dx ?? 0), y + (n.hIn?.dy ?? 0), x + (n.hOut?.dx ?? 0), y + (n.hOut?.dy ?? 0));
+  }
+  return out;
+}
+
+/** The furthest any point has moved: two flat [x0, y0, x1, y1, ...] arrays (stage px; `pathPoints`). Only the points both lists hold are compared. */
 export function maxShift(cur: ArrayLike<number>, ref: ArrayLike<number>): number {
   let d = 0;
   const n = Math.min(cur.length, ref.length);

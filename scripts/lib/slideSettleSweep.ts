@@ -286,11 +286,22 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // `ell_rect_ho` starts, `set_flights/rect_3ellipses` landing. They were a rasteriser seam (the exact stroke band, or pieces cut at other stations, against the
   // resting path stroker) plus a raster step of the wrapper itself; a Become with a band or a flight made of pieces now hands over to the real renders at both
   // ends, and a morph that keeps its box no longer promotes its layer. See shapeHandover.ts and the F3 report.)
-  // The stroked rect -> ellipse Become (the owner's Release 1 slide 13, Release 2 slide 25) reads START STEP in about one run in five (3 of 14 after F3,
-  // 1 of 7 on the base): the compositor presents a DUPLICATE frame right after the first changed one (series `... 0, 0, 20, 0, 72, 49 ...`), so the first
-  // motion frame (19 to 48 units, the cue's own motion scale) is compared with a frame that did not move. Presentation cadence, not a step of the picture
-  // (the frames around it are the same on every run); tolerated, not required, magnitude pinned at the largest first-frame motion seen.
-  [openKey("become_stroked", "corners", 1, 1)]: { rtMay: ["START STEP"], max: { "START STEP": 60 }, owner: "inherent: a duplicate presented frame after the first moving frame (presentation cadence; 1 in 7 runs on the base too)" },
+  // The FLIGHT DEPTH law (RenderedSlide.flightAt: a hand-off flies on a surface right above its DESTINATION) puts the paint-order flip of a hand-off whose source and
+  // destination sit on different sides of a covering element X at the START instead of the landing (it used to be the landing: END SNAP 5,413 on the base). The
+  // source was above X (`src_over`) and the flight is under X from its first moving frame, or the source was under X (`src_under`) and the flight appears above it:
+  // 3,651 stage px^2 either way, where the landing is exact (0.0). A paint order cannot be crossfaded (two copies added across a covering element cannot be summed:
+  // coverage dips to 75 % where they overlap) and a surface switch needs a moment when the flight is clear of X, which a source drawn INSIDE X's area never has.
+  // Recorded with both numbers, required, so the entry fails the moment either end is fixed. The reverse pairing (`dest_under`, the owner's slide-style case where
+  // the destination sits under a later element and the source does not) is fixed and gated as a clean cue.
+  [openKey("become_depth", "src_over", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], owner: "inherent: source and destination on different sides of a covering element: the paint order flips once, here at the start (the base flipped it at the landing, END SNAP 5,413)" },
+  [openKey("become_depth", "src_under", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], owner: "inherent: source and destination on different sides of a covering element: the paint order flips once, here at the start (3,651 on the base too)" },
+  // An asset Change between plots of DIFFERENT intrinsic size (sine 360x108 pt -> scatter 180x108 pt) is not yet one law: the controller reads the pt-true
+  // compensation (`intrinsic`, `naturalViewBox`, transform.ts) from the START asset for the whole flight, so its last frame is not the static render of the
+  // end plot (END SNAP, 8.0) and the next step of a chain starts from the picture the controller left, not from the rest state (PRE-ROLL CHANGE 4,154; 132,822 px
+  // in the browser). Same-size chains (bars5 <-> bars10) are exact. Found by the F3 review (pre-existing, the same on the base); recorded, required: the entry
+  // fails when the per-frame intrinsic / viewBox of the asset a frame belongs to lands.
+  [openKey("plot_chain", "sine_scatter_sine", 1, 1)]: { seek: ["END SNAP (2ms)"], max: { "END SNAP": 12 }, owner: "open: an asset Change between plots of different intrinsic size reads its compensation from the start asset (the end is not the static render)" },
+  [openKey("plot_chain", "sine_scatter_sine", 2, 2)]: { seek: ["PRE-ROLL CHANGE"], owner: "open: a chained asset Change between plots of different intrinsic size starts from the picture the step before it left, not from the rest state" },
   // A compound Change whose hole fills in (lerpCompoundD): the crisp, pixel-aligned hole edge leaves the pixel grid on the first frame whose 8-bit pixels
   // change (9.3 against 0.0, then the next frames are sub-quantum); the same on the base. Physical, not a pop of the motion; tolerated with its magnitude.
   [openKey("compound", "hole_fills", 1, 1)]: { rtMay: ["START STEP"], max: { "START STEP": 15 }, owner: "inherent: a pixel-aligned hole edge leaves the pixel grid on the first changed frame (9.3 then 0.0; same on the base)" },

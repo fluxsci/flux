@@ -44,7 +44,7 @@ import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { ghostEmergence } from "../ghost";
 import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
-import { shapeWeights, snapWeights, maxShift, LOOK_TRAVEL } from "./shapeHandover";
+import { shapeWeights, snapWeights, maxShift, pathPoints, LOOK_TRAVEL } from "./shapeHandover";
 import type { GlyphProvider } from "./glyphProvider";
 import type { TextLook } from "../timing";
 import { elementStageOutlines } from "../targetGeometry";
@@ -359,6 +359,8 @@ export function createTransform(
   function showMorphLayer(raw: number, w = { a: 0, m: 1, b: 0 }): void {
     const L = ensureMorphLayers();
     if (raw <= 0) w = { a: 1, m: 0, b: 0 }; else if (raw >= 1) w = { a: 0, m: 0, b: 1 };
+    // (A, M and B are HTML layers hidden by `visibility`, unlike the hand-off's SVG pieces, which are `display: none` at weight 0: the invisible-child raster shift
+    // belongs to an isolated SVG group holding a hidden path. Measured: the 20 become cues of the settle corpus read the same numbers with either.)
     for (const [node, weight] of [[L.A, w.a], [L.M, w.m], [L.B, w.b]] as const) {
       const v = weight > 0 ? "" : "hidden", o = weight >= 1 || weight <= 0 ? "" : String(Math.round(weight * 1e6) / 1e6);
       if (node.style.visibility !== v) node.style.visibility = v;
@@ -383,13 +385,9 @@ export function createTransform(
     }
     return handoverOn;
   }
-  /** The stage-px anchors of the flight's own two ends (sampled once), for the hand-over distances. */
+  /** The stage-px points (anchors and handle ends) of the flight's own two ends (sampled once), for the hand-over distances. */
   let morphEnds: { a: number[]; b: number[]; look: number; turn: number } | null = null;
-  const anchorsOf = (el: FigElement): number[] => {
-    const out: number[] = [];
-    if (el.type === "path") for (const n of el.nodes ?? []) out.push(el.x + n.x, el.y + n.y);
-    return out;
-  };
+  const anchorsOf = (el: FigElement): number[] => (el.type === "path" ? pathPoints(el.nodes ?? [], el.x, el.y) : []);
   /** How far this flight frame is from its start render and from its end render (stage px; every term of change counts). */
   function morphDistances(frame: FigElement, t: number): { away: number; settle: number } {
     const plan = morphPlan!;

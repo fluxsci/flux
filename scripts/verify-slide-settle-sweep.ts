@@ -9,6 +9,7 @@
 // Headless Chrome quantizes slowly moving straight edges to 1/4 px: the neighbour-relative thresholds absorb it.
 import { PRESET_CATALOG } from "../src/lib/slide/presetCatalog";
 import { harness } from "./lib/harness.mjs";
+import { rtFlags, type RtCue } from "./lib/slideSettleRealtime";
 import { classify, hops, judge, KNOWN_OPEN, openDeck, openKey, seekFlagValue, sweepDeck, tableRow, TABLE_HEAD, THRESHOLDS, withBrowser, type CueRow } from "./lib/slideSettleSweep";
 import { corpus } from "./lib/slideSettleCorpus";
 
@@ -53,6 +54,17 @@ const h = harness("verify-slide-settle-sweep");
   h.eq(hops([0, 0, 0.2, 0.5, 0.5, 1.1, 1.3, 0.8, 23.4, 0.3, 0.8, 1.1, 22.7, 1.0, 1.1]), [8, 12], "a presented frame that steps 20x its neighbours inside a glide is a hop (the stem edit painted in place: a ~23 unit hop every fourth frame)");
   h.eq(hops([0, 0, 0.2, 0.5, 0.9, 1.2, 2.5, 2.6, 3.8, 4.0, 5.2, 5.9, 10.7, 10.0, 9.7, 8.2, 8.9, 7.4, 3.6, 2.6, 2.0, 0.9, 0.2]), [], "a smooth glide (a ramp up, a ramp down, a layer moving at float precision) has no hop");
   h.eq(hops([0, 0, 0.1, 9.9, 10.5, 11.2, 12]), [], "a first changing frame is START STEP's, a fast start is not a hop (its neighbour moves as much)");
+  {
+    // the real-time start rule: the first frame that CHANGED against the next frame that CHANGED (a duplicate presented frame is cadence, not picture)
+    const series = (d: number[]): RtCue => ({ name: "x", slide: 0, from: 1, to: 1, label: "x", ticks: [], durationMs: 600, clickToFirstTickMs: 5, firstClockMs: 5, landedAt: null, restBeforeToFirst: 0, restAfter: 0, postLanding: 0, postLandingFrames: 0,
+      frames: d.map((v, i) => ({ t: 17.5 * i, d: v })) });
+    const start = (d: number[]) => rtFlags(series(d)).filter(f => f.startsWith("START STEP"));
+    h.eq(start([0, 0, 0, 0, 20, 0.1, 72, 49, 40]), [], "a duplicate presented frame right after the first moving frame (20, 0.1, 72) is not a start step");
+    h.eq(start([0, 0, 0, 20, 0, 0, 72, 49]), [], "a duplicate of any length is skipped");
+    h.eq(start([0, 0, 0, 0, 20, 3, 4, 5]).length, 1, "a genuine first-frame step (20 before 3) is still a start step");
+    h.eq(start([0, 0, 0, 0, 40, 0, 0, 0]).length, 1, "a step with nothing after it (a pop that holds) is still a start step");
+    h.eq(start([0, 0, 0, 0, 8, 12, 15, 20]), [], "a ramp is not a start step");
+  }
   h.ok(THRESHOLDS.floorTiny > 0 && THRESHOLDS.ratioTiny >= 3 && THRESHOLDS.ratioFrame >= 2, "thresholds are relative (a ratio to the neighbour) with an absolute floor");
 }
 

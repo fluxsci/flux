@@ -10,7 +10,7 @@ import { pathD, pathRender } from "../../path";
 import { gradientDef, gradientId, gradientSvg } from "../../color/gradient";
 import { warmWhenIdle } from "./transform";
 import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
-import { shapeWeights, snapWeights, maxShift, LOOK_TRAVEL } from "./shapeHandover";
+import { shapeWeights, snapWeights, maxShift, pathPoints, LOOK_TRAVEL } from "./shapeHandover";
 import type { TextLook } from "../timing";
 import type { TextElement } from "../../types";
 import { applyWrapperBox, fillContent, type SlideRenderCtx } from "./render";
@@ -183,7 +183,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     if (mediaClone) return mediaClone;
     const bound = ctx.node(outline.owner);
     const original = bound?.namespaceURI === NS ? bound as SVGGraphicsElement : bound?.querySelector<SVGGraphicsElement>("svg");
-    if (!original) return undefined;
+    // (no layout engine, e.g. a headless linkedom player: nothing to measure, so no copy; the callers fall back to their plain law)
+    if (!original || typeof original.getBBox !== "function" || typeof original.getScreenCTM !== "function") return undefined;
     const g = document.createElementNS(NS, "g"), content = document.createElementNS(NS, "g");
     // Read layout once, before the first flight frame. Text anchors supplied by
     // the pure bridge may have no size; the actual glyph run supplies its box.
@@ -285,13 +286,13 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         // the end renders: one copy per source and per destination (each placed by the live render's own matrix, the resting law), ADDED to the
         // flight's group in an isolated host
         const host = document.createElementNS(NS, "g"), flightGroup = document.createElementNS(NS, "g");
-        host.setAttribute("class", "sl-handover"); host.style.setProperty("isolation", "isolate");
+        host.setAttribute("class", "sl-handover"); for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) host.style.setProperty(k, v);
         // an isolated group is rasterised into a buffer sized to the union of its children, and that union moves with the flight (a piece a hundredth of a
         // pixel outside the copies shifts the buffer's origin off the pixel grid and softens the copies' edges, measured as a 10 stage px^2 step when the flight
         // leaves): a transparent rect over the whole stage pins the bounds
         const [vx, vy, vw, vh] = (flight.getAttribute("viewBox") ?? "0 0 0 0").split(/\s+/).map(Number);
         if (vw > 0 && vh > 0) { const pin = document.createElementNS(NS, "rect"); for (const [k, v] of [["x", vx], ["y", vy], ["width", vw], ["height", vh]] as const) pin.setAttribute(k, String(v)); pin.setAttribute("fill", "none"); pin.setAttribute("pointer-events", "none"); host.appendChild(pin); }
-        flightGroup.setAttribute("class", "sl-handover-flight"); flightGroup.style.setProperty("mix-blend-mode", "plus-lighter");
+        flightGroup.setAttribute("class", "sl-handover-flight"); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) flightGroup.style.setProperty(k, v);
         const ends: { a: HandoffClone[]; b: HandoffClone[] } = { a: [], b: [] };
         let whole = true;
         for (const side of ["a", "b"] as const) {
@@ -304,7 +305,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
             seen.add(key);
             const copy = clone({ ...outline, paint: { ...outline.paint, text: true } }, host);
             if (!copy) { whole = false; break; }
-            copy.node.setAttribute("class", `sl-handover-${side}`); copy.node.style.setProperty("mix-blend-mode", "plus-lighter");
+            copy.node.setAttribute("class", `sl-handover-${side}`); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) copy.node.style.setProperty(k, v);
             set(copy.node, "transform", `translate(${copy.box.x} ${copy.box.y})`);
             ends[side].push(copy);
           }
@@ -396,8 +397,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         const tmp0: SampledPath[] = [], tmp1: SampledPath[] = [];
         // (just inside the flight: the exact endpoints sample the pair's ORIGINAL chains, which have other node counts than the aligned flight chains)
         sampleCorrespondence(sampled, 1e-9, tmp0, { raw: 1e-9, durationMs: opts.durationMs ?? 600 }); sampleCorrespondence(sampled, 1 - 1e-9, tmp1, { raw: 1 - 1e-9, durationMs: opts.durationMs ?? 600 });
-        const anchors = (sp: SampledPath) => { const o: number[] = []; for (const n of sp.nodes) o.push(n.x, n.y); return o; };
-        handover.refA = tmp0.map(anchors); handover.refB = tmp1.map(anchors);
+        handover.refA = tmp0.map(sp => pathPoints(sp.nodes)); handover.refB = tmp1.map(sp => pathPoints(sp.nodes));
         let look = 0;
         for (const pair of plan.pairs) {
           const pa = pair.a?.paint, pb = pair.b?.paint;
@@ -537,8 +537,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       if (handover) {
         // how far the flight has come from its start render and has still to go to its end render (stage px; a change in place counts too)
         let away = t * handover.look, settle = (1 - t) * handover.look;
-        const shift = (nodes: readonly { x: number; y: number }[], ref: number[]) => { let d = 0; for (let k = 0; k < nodes.length && 2 * k + 1 < ref.length; k++) d = Math.max(d, Math.hypot(nodes[k].x - ref[2 * k], nodes[k].y - ref[2 * k + 1])); return d; };
-        for (let i = 0; i < out.length; i++) { away = Math.max(away, shift(out[i].nodes, handover.refA[i])); settle = Math.max(settle, shift(out[i].nodes, handover.refB[i])); }
+        for (let i = 0; i < out.length; i++) { const cur = pathPoints(out[i].nodes); away = Math.max(away, maxShift(cur, handover.refA[i])); settle = Math.max(settle, maxShift(cur, handover.refB[i])); }
         const w = snapWeights(shapeWeights(away, settle));
         const put = (node: SVGElement, weight: number, factor = 1) => {
           const o = Math.round(weight * factor * 1e6) / 1e6;   // a weight under a millionth is none: hidden, never an invisible layer that still composites
