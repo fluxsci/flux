@@ -79,6 +79,7 @@ export const RT = {
   cameraRestAfter: 60, cameraPostLanding: 8,
   /** the landing frame and the first moving frame change like their neighbours: d_last <= max(3 x previous, floor), d_first <= max(4 x second, floor) */
   stepRatio: 3, startRatio: 4, stepFloor: 6,
+  /** the first presented frame of the cue (frame 0 when the cue primes layers) vs the rest before it: d <= max(4 x the next frame, floor) */
   /** an interrupt settles velocity-continuously: no presented frame changes more than this multiple of the frames before it (floor 6) */
   jumpRatio: 6,
 };
@@ -94,6 +95,11 @@ export function rtFlags(c: RtCue): string[] {
   if (s.landGap > RT.gapMs) f.push(`LONG FRAME AT LANDING (${s.landGap.toFixed(0)} ms)`);
   if (c.restAfter != null && c.restAfter > (camera ? RT.cameraRestAfter : RT.restAfter)) f.push("LANDING != REST RENDER");
   if (c.postLanding > (camera ? RT.cameraPostLanding : RT.postLanding)) f.push("CHANGE AFTER LANDING");
+  // the first frame: what the viewer sees first after the click equals the rest before it, or changes like the frame after it
+  {
+    const moving = c.frames.filter(x => x.t >= 0);
+    if (moving.length >= 2 && moving[0].d > Math.max(RT.startRatio * moving[1].d, RT.stepFloor)) f.push(`START STEP (${moving[0].d.toFixed(1)} before ${moving[1].d.toFixed(1)})`);
+  }
   // the landing frame: the last presented frame that belongs to the motion (page time <= landedAt + 20 ms) against the one before it
   if (c.landedAt != null) {
     const motion = c.frames.filter(x => x.t >= 0 && x.t <= c.landedAt! + 20);

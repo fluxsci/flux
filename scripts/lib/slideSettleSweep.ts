@@ -57,21 +57,24 @@ export interface Thresholds {
   floorTiny: number; floorFrame: number;
   /** a boundary window must exceed this many times its neighbour to count as a spike. */
   ratioTiny: number; ratioFrame: number;
-  /** pre-roll and post-landing changes must stay under this (they should be exactly 0). */
+  /** a post-landing change must stay under this (it should be exactly 0). */
   rest: number;
+  /** the frame before the cue vs its t=0 frame: a cue that promotes a layer (a gliding or recolouring node) is re-rastered by headless Chrome
+   *  at its first frame, which moves sub-pixel edges of the whole stage by up to ~17 units; a real pre-roll pop (a dimmed highlight) is >= 100. */
+  pre: number;
 }
 /** The floors are physical: 6 units is a 0.1 stage px shift of a 60 px edge (a 3 px round-cap dot is 7). Under it sits the residue of
  *  device-pixel snapping: a wrapper's layout box is whole STAGE px, which at a fractional fit scale (2.5x here) the browser snaps to the
  *  device grid at rest but not in flight, so a resized stroked shape lands up to ~0.15 device px off its last frame. Nobody can see that;
  *  a dot, a thickened stroke, re-rasterised text, a popped corner are all well above it. */
-export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, rest: 2 };
+export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, rest: 2, pre: 25 };
 
 const spike = (a: number, b: number, floor: number, ratio: number) => a > floor && a > ratio * Math.max(b, 0.25);
 
 /** The verdict for one measured cue, from its windows alone (pure; the gate pins it). */
 export function classify(r: Omit<CueRow, "flags">, t: Thresholds = THRESHOLDS): string[] {
   const flags: string[] = [];
-  if (Number.isFinite(r.dPre) && r.dPre > t.rest) flags.push("PRE-ROLL CHANGE");
+  if (Number.isFinite(r.dPre) && r.dPre > t.pre) flags.push("PRE-ROLL CHANGE");
   if (spike(r.s02, r.s24, t.floorTiny, t.ratioTiny)) flags.push("START POP (2ms)");
   if (spike(r.sF, r.sF2, t.floorFrame, t.ratioFrame)) flags.push("START POP (frame)");
   if (spike(r.e20, r.e42, t.floorTiny, t.ratioTiny)) flags.push("END SNAP (2ms)");
