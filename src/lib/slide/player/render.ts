@@ -916,6 +916,12 @@ export function holdFlightLayers(on: boolean, inPlace = false): void {
  *  rotation or flips at either end — the only flights that ride a layer. */
 export function pureMove(pre: FigElement, end: FigElement): boolean {
   if (pre.rotation || end.rotation || pre.flipX || end.flipX || pre.flipY || end.flipY) return false;
+  return rigidFlight(pre, end);
+}
+
+/** Whether a flight from `pre` to `end` leaves the box unchanged: the same size, whatever the position, rotation or flips (a move, a turn, or
+ *  both). `pureMove` is the stricter question (no rotation, no flips): does it ride a layer as a translation. */
+export function rigidFlight(pre: FigElement, end: FigElement): boolean {
   const a = elementBBox({ ...pre, rotation: 0 }), b = elementBBox({ ...end, rotation: 0 });
   return Math.abs(a.w - b.w) < 1e-6 && Math.abs(a.h - b.h) < 1e-6;
 }

@@ -187,6 +187,13 @@ h.section("the clock starts at the first presented frame (lane J)");
   stepMs(0); h.eq(p.state().time, 0, "a catch-up callback with the SAME frame timestamp does not move the stage (the primed layers have not rasterised yet)");
   stepMs(16.7); h.ok(Math.abs(p.state().time - 16.7) < 0.5, `the first moving frame is one frame of motion (${p.state().time.toFixed(1)} ms)`);
   p.destroy(); }
+{ // a glider whose delay is shorter than one frame is primed at frame 0 too (it would be neither pending at frame 0 nor still pending at the first tick)
+  const d = ops.createDeck({ id: "g2", title: "g2", withTitleSlide: false } as any); const sl = ops.addSlide(d, { id: "s", layout: "blank" } as any);
+  ops.addElement(d, sl.id, T("a", 0)); const bb = ops.addBeat(d, sl.id, {})!; ops.setAnimation(d, sl.id, bb.id, { target: "a", preset: "fadeRise", start: 10, duration: 700, easing: "smooth" } as any);
+  const p = createPlayer(document.createElement("div") as any, d, { theme: FLUX_DARK, plotManifest: () => undefined } as any);
+  p.seek(0, 0, Infinity); p.next(); stepMs(16.7);
+  h.eq(p.state().time, 0, "a gliding enter delayed by 10 ms (inside the first tick) also presents frame 0 first: the pre-roll frame only starts the clock");
+  p.destroy(); }
 h.section("settle in the real player (clockMode)");
 function mkDeck() {
   const d = ops.createDeck({ id: "d", title: "d", withTitleSlide: false } as any);

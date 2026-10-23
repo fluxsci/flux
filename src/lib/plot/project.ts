@@ -24,7 +24,7 @@ export interface MorphPoint { index: number; x: number; y: number }
 export interface MorphController {
   seek(u: number, raw?: number): void;
   targetRoot?: HTMLElement;
-  /** The driver moves its wrapper as a pure translation (it rides a compositor layer in flight): the PLAYER owns that layer's flight mark. */
+  /** The driver's wrapper rides a compositor layer this beat (a pure translation; a turn of a TEXT): the PLAYER owns that layer's flight mark. */
   glide?: boolean;
   dispose?(): void;
 }
