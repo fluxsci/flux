@@ -16,7 +16,7 @@ import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
 import { createRasterKeeper, type RasterKeeper } from "./rasterKeeper";
-import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
+import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, takeFreshMarks, primeFlightLayers, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { KNOWN_PRESETS, presetParam } from "../presetCatalog";
 import type { MorphController } from "../../plot/project";
@@ -574,6 +574,15 @@ function progressAt(spec: Spec, beat: number, time: number): number {
   if (spec.beatIndex > beat || time < spec.delay) return -1;
   return spec.duration <= 0 ? 1 : Math.min(1, (time - spec.delay) / spec.duration);
 }
+/** An ENTERING translate flight (fadeRise's lift, a stagger child) of THIS cue is still to come at (beat, time): progress <= 0, so not
+ *  started or at its very first frame. */
+function pendingEnterGlide(node: BoundNode, beat: number, time: number): boolean {
+  return node.keyframed.some(s => s.enter && node.flights.get(s) === "translate" && s.beatIndex === beat && progressAt(s, beat, time) <= 0);
+}
+/** The hidden gliders a cue is about to reveal (render.ts primeFlightLayers). */
+export function pendingEnterGlides(specs: Spec[], beat: number, time: number): HTMLElement[] {
+  return boundPlan(specs).nodes.filter(n => n.node.namespaceURI !== SVG_NS && pendingEnterGlide(n, beat, time)).map(n => n.node as HTMLElement);
+}
 /** Seek any frame, including reverse/random seeks. Native effects and custom
  * geometry use the same time; a stopped frame has no running animation loop. */
 export function applyAt(specs: Spec[], beat: number, time = Infinity, native = false): void {
@@ -661,7 +670,16 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     // hygiene below — settleWrapper() used to CLEAR it after the first pure-pan camera flight.
     if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
-      else { settleWrapper(node as HTMLElement); if (glides) armFlightMark(node as HTMLElement); }
+      else {
+        // An ENTERING node keeps its flight mark only until its flight has landed: a landed node paints in place, so its rest is the
+        // fresh static render (a layer kept alive by the mark carried whatever phase it baked). Moving nodes keep theirs (the layer is
+        // baked at the phase they start from and moves like the frames before it, so the landing does not change).
+        settleWrapper(node as HTMLElement);
+        if (glides) {
+          if (keyframed.some(s => s.enter && flights.get(s) === "translate") && !pendingEnterGlide(group, beat, time)) releaseFlightMark(node as HTMLElement);
+          else armFlightMark(node as HTMLElement);
+        }
+      }
     }
   }
   for (const [spec, animation] of plan.natives) if (!activeNatives.has(spec)) { animation.cancel(); plan.natives.delete(spec); }
@@ -879,9 +897,20 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     time = 0;
     playing = true;
     media?.begin(from, bi);
+    takeFreshMarks();
     paint(); emit("beatStart"); emit("change");
     if (session !== generation) return;
     if (reduced || instant || !duration) { finish(); return; }
+    const entering = pendingEnterGlides(runSpecs ?? specs, bi, 0);
+    if (takeFreshMarks() > 0 || entering.length) {
+      // Frame 0 presents the rest state with the flight marks in place and the hidden gliders primed at rest (render.ts
+      // primeFlightLayers); the clock starts AT that frame, so the first moving frame is exactly one frame of motion and rides a
+      // layer baked at the phase it lands on. (A mark only works a frame after it is attached; one attached in the very frame of the
+      // first transform step left the first frames stepping.)
+      primeFlightLayers(entering);
+      raf = requestAnimationFrame((ts) => { if (session !== generation) return; origin = ts; queueFrame(); });
+      return;
+    }
     origin = performance.now();
     queueFrame();
   }

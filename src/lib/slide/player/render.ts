@@ -851,6 +851,7 @@ function compositeTransform(el: FigElement, bb: { x: number; y: number; w: numbe
 const LAYER_COOL_MS = 250;
 const hotWrappers = new Map<HTMLElement, number>();
 const animatingMarks = new WeakMap<HTMLElement, Animation>();
+let freshMarks = 0;
 let coolTimer: ReturnType<typeof setTimeout> | null = null;
 let holdLayers = false;
 let flightsInPlace = false;
@@ -872,6 +873,21 @@ export function armFlightMark(w: HTMLElement): void {
   mark.pause();
   mark.finished.catch(() => { /* cancelled with the node */ });
   animatingMarks.set(w, mark);
+  freshMarks++;
+}
+/** Marks attached since the last call. A mark only takes effect a FRAME after it is attached (player `begin` holds the clock one
+ *  presented frame when one was attached for the cue it is starting). */
+export function takeFreshMarks(): number { const n = freshMarks; freshMarks = 0; return n; }
+/** A layer bakes the fractional offset of its FIRST raster. A node that is still hidden (an enter) would first raster in flight, at a
+ *  fractional offset, and keep that phase for good (text 0.4 px off the device grid, soft). Render the hidden node ONCE at rest, one
+ *  frame before it flies (opacity 0 is culled and never rastered, so 0.001: drawn, invisible), so its layer is baked at the phase it
+ *  lands on. */
+export function primeFlightLayers(nodes: readonly HTMLElement[]): void {
+  for (const w of nodes) {
+    if (!(w.isConnected && parseFloat(w.style.opacity) === 0)) continue;
+    w.style.opacity = "0.001";
+    w.style.transform = "";
+  }
 }
 /** Mid-flight frame of a pure move: keep the wrapper on its own layer. */
 export function promoteMovingWrapper(w: HTMLElement): void {

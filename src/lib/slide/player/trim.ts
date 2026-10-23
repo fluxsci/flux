@@ -322,6 +322,15 @@ export function traceDash(spec: WindowSpec, tail: number, head: number): DashFra
   return windowsDash(spec, end > L ? [[0, end - L], [start, L]] : [[start, end]]);
 }
 
+/** PEN TOUCH-DOWN (lane J: "a draw's first frame shows no ink the pen has not reached"). A round or square cap paints a full disc at the
+ *  head of the smallest dash, so the first frame of a draw used to blink a dot of one stroke width in at once. The stroke width therefore
+ *  ramps with the ink laid down: `width * min(1, ink / width)`, i.e. the pen puts down over its first stroke-width of travel and the
+ *  disc GROWS from nothing. Beyond that the stroke is the authored one, so the last frame is exactly the resting stroke (and, played
+ *  backwards, a drawOff shrinks to nothing instead of ending on a dot). Pure: `ink` is in the stroke's own user units. */
+export function penWidth(width: number, ink: number): number {
+  return width > 0 ? width * Math.min(1, Math.max(0, ink) / width) : width;
+}
+
 /** manim ShowPassingFlash's window (time_width w): head = lerp(0, 1+w, p), tail = head − w. */
 export function passingFlash(width: number, p: number): { tail: number; head: number } {
   const head = p * (1 + width);

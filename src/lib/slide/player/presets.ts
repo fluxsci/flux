@@ -17,7 +17,7 @@ import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf
 import { partDomId } from "../../plot/parse";
 import { barGrow, isManifestBar } from "../growOrigin";
 import type { FluxPlotManifest } from "../../plot/types";
-import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, type TrimSpec } from "./trim";
+import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, penWidth, type TrimSpec } from "./trim";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
 
@@ -329,6 +329,16 @@ function unitSlices(weights: readonly number[]): [number, number][] {
 type Forward = (raw: number, ease: (x: number) => number) => Keyframe;
 const win = (raw: number, w0: number, w1: number) => clamp01((raw - w0) / Math.max(1e-9, w1 - w0));
 
+/** The authored pen of a stroked piece when its caps put a disc at the head of a dash (round / square): its stroke width in user units.
+ *  Null for a butt cap (a zero-length dash paints nothing, nothing to ramp) or a width we cannot read in user units. */
+function penOf(geo: SVGElement): number | null {
+  const cap = rawPaintVal(geo, "stroke-linecap");
+  if (cap !== "round" && cap !== "square") return null;
+  const m = /^\s*([+-]?(?:\d*\.)?\d+(?:e[-+]?\d+)?)(px)?\s*$/i.exec(rawPaintVal(geo, "stroke-width"));
+  const w = m ? Number(m[1]) : NaN;
+  return w > 0 ? w : null;
+}
+
 /** Frame builders: every frame of one piece carries the SAME key set. `[a,b]` = this piece's slice of the unit's
  *  EASED pen clock. */
 function pieceSampler(piece: Piece, [a, b]: [number, number]): Forward {
@@ -341,22 +351,25 @@ function pieceSampler(piece: Piece, [a, b]: [number, number]): Forward {
   const hid = hiddenDash(reach);
   const clock = (raw: number, ease: (x: number) => number) => ease(clamp01(raw));
   const slice = (c: number) => clamp01((c - a) / Math.max(1e-9, b - a));
-  if (piece.role === "stroke") return (raw, ease) => (windowsDash(spec, [[0, slice(clock(raw, ease)) * reach]]) ?? hid) as unknown as Keyframe;
+  const pen = penOf(geo);
+  /** the touch-down width of a frame that has laid `frac` of this piece's pen length (see penWidth) */
+  const touch = (frac: number) => (pen == null ? {} : { strokeWidth: penWidth(pen, frac * piece.pen) });
+  if (piece.role === "stroke") return (raw, ease) => { const c = slice(clock(raw, ease)); return { ...(windowsDash(spec, [[0, c * reach]]) ?? hid), ...touch(c) } as unknown as Keyframe; };
   if (piece.role === "headFill") {
     const [ox, oy] = piece.origin!;
     return (raw, ease) => ({ transform: `scale(${Math.max(1e-4, slice(clock(raw, ease)))})`, transformOrigin: `${ox}px ${oy}px` });
   }
   if (piece.role === "headVee") return (raw, ease) => {
-    const k = slice(clock(raw, ease)) * len, mid = len / 2; // grows out of the tip (the polyline's mid-length)
-    return (windowsDash({ len, closed: false }, [[mid - k / 2, mid + k / 2]]) ?? hiddenDash(len)) as unknown as Keyframe;
+    const c = slice(clock(raw, ease)), k = c * len, mid = len / 2; // grows out of the tip (the polyline's mid-length)
+    return { ...(windowsDash({ len, closed: false }, [[mid - k / 2, mid + k / 2]]) ?? hiddenDash(len)), ...(pen == null ? {} : { strokeWidth: penWidth(pen, k) }) } as unknown as Keyframe;
   };
   // filled pieces: the OUTLINE runs in its own window (the first DRAW_OUTLINE of the clock) and the FILL in its own
   // (the last 1 - DRAW_FILL_FROM), each eased by the track's curve (manim's double_smooth, overlapped, no plateau).
   const outline = (raw: number, ease: (x: number) => number) => clamp01(ease(win(raw, 0, DRAW_OUTLINE)));
   const fillRamp = (raw: number, ease: (x: number) => number) => clamp01(ease(win(raw, DRAW_FILL_FROM, 1)));
   if (piece.role === "strokeFill") return (raw, ease) => {
-    const f = windowsDash(spec, [[0, outline(raw, ease) * reach]]) ?? hid;
-    return { ...f, fillOpacity: restFillOp * fillRamp(raw, ease) } as unknown as Keyframe;
+    const o = outline(raw, ease), f = windowsDash(spec, [[0, o * reach]]) ?? hid;
+    return { ...f, ...touch(o), fillOpacity: restFillOp * fillRamp(raw, ease) } as unknown as Keyframe;
   };
   // fill only: a hairline border in the fill colour is drawn first, then fades into the fill
   const colourOK = fillCol && !/^(none|url\(|transparent)/i.test(fillCol);
@@ -416,9 +429,10 @@ function trimSampler(piece: Piece, [a, b]: [number, number], t: Track, preset: "
     from: presetParam(t, "from", preset),
     to: presetParam(t, "to", preset),
   };
+  const pen = penOf(geo), span = Math.abs(spec.to - spec.from) * piece.pen;   // the final window's pen length (user units)
   return (raw, ease) => {
     const c = clamp01((ease(clamp01(raw)) - a) / Math.max(1e-9, b - a));
-    return (trimDashAt(spec, c, piece.pattern) ?? hiddenDash(len)) as unknown as Keyframe;
+    return { ...(trimDashAt(spec, c, piece.pattern) ?? hiddenDash(len)), ...(pen == null ? {} : { strokeWidth: penWidth(pen, c * span) }) } as unknown as Keyframe;
   };
 }
 
