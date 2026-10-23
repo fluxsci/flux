@@ -239,7 +239,7 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 
-const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState, renderStaticAt } = await import("../src/lib/slide/player/player");
+const { computeSlideAnims, applyAt, applyStatic, disposeSlideAnims, transformPreState, renderStaticAt } = await import("../src/lib/slide/player/player");
 const { renderSlide } = await import("../src/lib/slide/player/render");
 const { FLUX_DARK } = await import("../src/lib/slide/theme");
 type Slide = import("../src/lib/slide/types").Slide;
@@ -396,18 +396,22 @@ function build(slide: Slide) {
 {
   const slide: Slide = {
     id: "s7",
-    elements: [rect({ id: "mv" }), rect({ id: "grow", x: 300 }), rect({ id: "spin", x: 500 })],
+    elements: [rect({ id: "mv" }), rect({ id: "grow", x: 300 }), rect({ id: "spin", x: 500 }), rect({ id: "tint", x: 100, y: 200 }), text({ id: "turn", x: 300, y: 250 })],
     beats: [
       { id: "b0", tracks: [] },
       { id: "b1", tracks: [
         { id: "a", target: "mv", preset: "transform", to: { state: { x: 200, y: 80, fill: "#00ff00" } } },
         { id: "b", target: "grow", preset: "transform", to: { state: { x: 350, width: 150 } } },
         { id: "c", target: "spin", preset: "transform", to: { state: { rotation: 45 } } },
+        { id: "d", target: "tint", preset: "transform", to: { state: { fill: "#ff0000" } } },
+        { id: "e", target: "turn", preset: "transform", to: { state: { rotation: 30 } } },
       ] },
+      { id: "b2", tracks: [] },
+      { id: "b3", tracks: [{ id: "f", target: "mv", preset: "transform", to: { state: { width: 150 } } }] },
     ],
   };
   const { rendered, specs } = build(slide);
-  const mv = rendered.elements.get("mv")!, grow = rendered.elements.get("grow")!, spin = rendered.elements.get("spin")!;
+  const mv = rendered.elements.get("mv")!, grow = rendered.elements.get("grow")!, spin = rendered.elements.get("spin")!, tint = rendered.elements.get("tint")!, turn = rendered.elements.get("turn")!;
   // linkedom has no Web Animations: stub `animate` to observe the flight MARK —
   // the paused, additive, no-op transform animation that tells the compositor
   // the transform is animating (without it a promoted node that also repaints
@@ -421,8 +425,12 @@ function build(slide: Slide) {
   const ctrl = (id: string) => (specs.find((s) => (s as { trackId?: string }).trackId === id) as unknown as { morph: { seek(t: number): void } }).morph;
   applyStatic(specs, 0);
   assert(!mv.style.willChange && !grow.style.willChange, "at rest nothing is promoted");
-  assert(marks.length === 1 && marks[0].node === mv && marks[0].paused && marks[0].opts.composite === "add" && marks[0].frames.every((f) => f.transform === "translate(0px, 0px)"),
-    "…but the pure mover is ARMED at rest: one paused additive no-op transform animation (a scaling/rotating flight gets none)");
+  assert(marks.length === 0, "the flight mark follows the BEAT (lane J): a node whose glide is in a later beat has none yet (no layer kept for a flight that is not coming)");
+  applyAt(specs, 1, 0);
+  assert(marks.some((m) => m.node === mv && m.paused && m.opts.composite === "add" && m.frames.every((f) => f.transform === "translate(0px, 0px)")),
+    "…armed at the first frame of the beat in which the pure mover glides: one paused additive no-op transform animation");
+  assert(!marks.some((m) => m.node === grow || m.node === spin || m.node === tint), "a scaling flight, a turning SHAPE and a recolour that goes nowhere get none (a mark on a shape only adds a first-frame step; a recolour has nothing to carry)");
+  assert(marks.some((m) => m.node === turn) && marks.length === 2, "a TURNING TEXT rides the mark (unpromoted it flips between a hinted and a rotated raster: a 9 to 66 stage px^2 jump at the first frames, ragged all along)");
   ctrl("a").seek(0.5); ctrl("b").seek(0.5); ctrl("c").seek(0.5);
   assert(mv.style.willChange === "transform", "mid-flight a pure move (even one that recolors) rides its own layer");
   assert(!grow.style.willChange && !spin.style.willChange, "a scaling or rotating flight paints in place every frame (no resampled raster, no sharpen pop on settle)");
@@ -430,9 +438,17 @@ function build(slide: Slide) {
   assert(!mv.style.willChange && mv.style.left === "200px", "the endpoint demotes the wrapper (crisp at rest)");
   ctrl("a").seek(0.25); ctrl("a").seek(0);
   assert(!mv.style.willChange && mv.style.left === "10px", "…and so does a seek back to the start");
-  assert(marks.length === 1 && !marks[0].cancelled, "the mark outlives the flight (armed once per node, inert at rest, ready for the next flight)");
+  applyStatic(specs, 1);
+  const mvMark = marks.find((m) => m.node === mv)!;
+  assert(marks.length === 2 && !mvMark.cancelled, "the mark outlives the flight and its landing (the layer is baked at the phase it lands on: nothing to demote)");
+  applyStatic(specs, 2);
+  assert(!mvMark.cancelled, "…and a beat the node sits out leaves it alone (releasing it at the first frame of an UNRELATED cue stepped the node's picture while something else began to move)");
+  applyAt(specs, 3, 0);
+  assert(mvMark.cancelled, "…and it is released at the first frame of a beat in which the node plays something that changes its picture (a kept layer re-rasters a resize at fractional transforms and lands soft)");
+  applyAt(specs, 1, 0);
+  assert(marks.length === 3 && marks[2].node === mv && !marks[2].cancelled, "a seek back to the beat that glides arms a fresh mark (the mark is a function of the beat, not of history)");
   disposeSlideAnims(specs);
-  assert(marks[0].cancelled, "tearing the slide down cancels the mark (a paused animation would pin its detached node alive)");
+  assert(marks[2].cancelled && marks.find((m) => m.node === turn)!.cancelled, "tearing the slide down cancels every mark (a paused animation would pin its detached node alive)");
   delete (Object.getPrototypeOf(mv) as { animate?: unknown }).animate;
 }
 

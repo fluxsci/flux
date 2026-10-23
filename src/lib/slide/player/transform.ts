@@ -49,7 +49,7 @@ import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type
 import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -144,6 +144,12 @@ export function createTransform(
   const morphPlan: ElementMorphPlan | null = plan.mode === "morph" ? planElementMorph(pre, end) : null;
   if (plan.mode === "morph" && !morphPlan) plan.mode = "crossfade";
   const contentHost = ctx.contentHost ?? (wrap as HTMLElement & { __slideEffects?: HTMLElement }).__slideEffects ?? wrap;
+  // This driver's OWN content node, taken before any later driver of the same element exists. A later Change that rewrites the text
+  // (or any layered driver) moves these nodes into its A layer, after which `contentHost.firstElementChild` is that layer: an endpoint
+  // repaint through the host would then wipe the later driver's layers and detach this driver's compiled updater (a resize whose text
+  // stretched in flight and snapped at landing, and a later rewrite that started from a different picture than the rest it followed).
+  const ownContent = contentHost.firstElementChild;
+  const ownHost = (): HTMLElement => (ownContent && ownContent.parentElement as HTMLElement | null) || contentHost;
   const staticUpdate = pre.type !== "plot" && plan.contentDirty && plan.mode === "tween"
     ? compileStaticContent(contentHost, pre, end, ctx) : null;
   // Text wrapping can change node topology as metrics change. Keep that
@@ -167,6 +173,14 @@ export function createTransform(
   // instead of stepping, heavy content moves without repainting. Demoted at
   // the endpoints, so rest is always painted in place.
   const glide = !boxOpts.skipTransform && pureMove(pre, end);
+  // The player gives a driver's wrapper a flight MARK (a compositor layer baked at rest) for a beat in which it really MOVES: a recolour of the same
+  // box is a pure move with no displacement, and a layer for it only costs a step later. A TEXT also rides the mark for a TURN (alone, or with a move:
+  // same box, nothing rewritten): unpromoted, a turning text flips between its hinted axis-aligned raster and an unhinted rotated one (a 9 to 66
+  // stage px^2 jump at the first frames, ragged all along); on the mark it turns smoothly and lands on the fresh render. Vector shapes rasterise
+  // the same either way (a mark on them only adds a first-frame step and a bitmap-soft landing), so they paint in place.
+  const displaced = (() => { const a = elementBBox({ ...pre, rotation: 0 }), b = elementBBox({ ...end, rotation: 0 }); return a.x !== b.x || a.y !== b.y; })();
+  const turned = pre.rotation !== end.rotation || !!pre.flipX !== !!end.flipX || !!pre.flipY !== !!end.flipY;
+  const marks = (glide && displaced) || (pre.type === "text" && !boxOpts.skipTransform && !plan.contentDirty && rigidFlight(pre, end) && (displaced || turned));
 
   // --- plot half: one projection writer for new data, a new view, or both --
   const sourceRoot = pre.type === "plot" ? (ctx.plotRoot ? ctx.plotRoot(pre.assetId) : plotDom.get(pre.assetId)) : undefined;
@@ -513,12 +527,16 @@ export function createTransform(
     // The text morph draws measured endpoints instead: its box simply lerps
     // (re-hugging a stepped text per frame made the box jump at t = 0.5).
     if (content.type === "text" && content.needsLayout && !textLayers && !glyphLayers) applyTextLayout(content);
-    if (raw > 0 && raw < 1 && !boxOpts.skipTransform) {
+    // A text tween re-lays its own glyphs out per frame (the compiled updater rewrites the viewBox), so its wrapper is placed by the same
+    // law as its rest, a whole-pixel layout box plus a residual (about 1:1) transform, not by a frozen box scaled up 1.4x: that scale
+    // rasterised the text softly in flight against the hinted rest text and snapped when the flight landed.
+    const relayoutsText = staticUpdate && pre.type === "text";
+    if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
       if (glide) promoteMovingWrapper(wrap);
     } else {
       applyWrapperBox(wrap, el, boxOpts);
-      if (glide) { settleWrapper(wrap); armFlightMark(wrap); }
+      if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)
     }
 
     // The frozen content frame must not counter-translate the curved wrapper.
@@ -617,7 +635,7 @@ export function createTransform(
     const phase = raw <= 0 ? 0 : raw >= 1 ? 2 : 1;
     const owned = contentWriter.get(contentHost) === self;
     if (staticUpdate && phase === 1) staticUpdate(content, t, raw);
-    else if (!staticUpdate || !owned || phase !== endpointPhase) updateStaticContent(contentHost, content, ctx);
+    else if (!staticUpdate || !owned || phase !== endpointPhase) updateStaticContent(ownHost(), content, ctx);
     contentWriter.set(contentHost, self);
     endpointPhase = phase;
   }
@@ -631,7 +649,7 @@ export function createTransform(
     // Warm only an UNPLANNED morph: a replan (a font that arrived) belongs to the
     // next frame, which draws it — rebuilt off-frame, the paths would sit blank.
     warmWhenIdle(() => { if (wrap.isConnected && !L.failed && !L.plan) glyphPlan(); });
-    return { seek, targetRoot: L.B } as MorphController;
+    return { seek, targetRoot: L.B, glide: marks } as MorphController;
   }
   if (textLayers) {
     writeTextMorph(pre, 0, 0);
@@ -639,7 +657,7 @@ export function createTransform(
     // spans built; a seek that arrives first builds them on the spot.
     const L = textLayers;
     warmWhenIdle(() => { if (wrap.isConnected) L.morph.ensure(); });
-    return { seek, targetRoot: L.B, dispose: () => L.morph.dispose() } as MorphController;
+    return { seek, targetRoot: L.B, glide: marks, dispose: () => L.morph.dispose() } as MorphController;
   }
   if (morphPlan) {
     showMorphLayer(0);
@@ -651,7 +669,7 @@ export function createTransform(
     // a transform per slide, and a warm for one already off the document is
     // pure waste at exactly the moment the machine is busiest.
     warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
-    return { seek, targetRoot: ensureMorphLayers().B };
+    return { seek, targetRoot: ensureMorphLayers().B, glide: marks };
   }
-  return { seek, targetRoot: layerB ?? contentHost };
+  return { seek, targetRoot: layerB ?? contentHost, glide: marks };
 }

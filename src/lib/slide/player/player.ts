@@ -7,7 +7,7 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
-import { beatDelayMs, settleTime, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
+import { beatDelayMs, settleTime, firstTickOrigin, FIRST_TICK_MAX_MS, PREROLL_MIN_MS, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
@@ -15,8 +15,8 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
-import { createRasterKeeper, type RasterKeeper } from "./rasterKeeper";
-import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
+import { createRasterKeeper, earlyBakeDue, type RasterKeeper } from "./rasterKeeper";
+import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, takeFreshMarks, primeFlightLayers, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { KNOWN_PRESETS, presetParam } from "../presetCatalog";
 import type { MorphController } from "../../plot/project";
@@ -574,6 +574,49 @@ function progressAt(spec: Spec, beat: number, time: number): number {
   if (spec.beatIndex > beat || time < spec.delay) return -1;
   return spec.duration <= 0 ? 1 : Math.min(1, (time - spec.delay) / spec.duration);
 }
+/** An ENTERING translate flight (fadeRise's lift, a stagger child) of THIS cue is still to come at (beat, time): progress <= 0, so not
+ *  started or at its very first frame, and starting within `ahead` ms. */
+function pendingEnterGlide(node: BoundNode, beat: number, time: number, ahead: number): boolean {
+  return node.keyframed.some(s => s.enter && node.flights.get(s) === "translate" && s.beatIndex === beat && progressAt(s, beat, time) <= 0 && s.delay - time <= ahead);
+}
+/** Does this node glide in `beat` (a pure-translation flight, or a turn of a text: it rides a compositor layer)? The flight mark exists exactly
+ *  for the cues in which it does: armed at the cue's first frame (with a pre-roll frame, `begin`), kept through the landing (the layer was baked at
+ *  the phase it lands on), released at the first frame of a later cue in which the node plays something that changes its picture (`markFor`). A
+ *  mark kept on through a resize or a rewrite made the layer re-raster at fractional transforms the browser then did not snap: text that
+ *  landed soft. */
+function glidesIn(node: BoundNode, beat: number): boolean {
+  return node.keyframed.some(s => node.flights.get(s) === "translate" && s.beatIndex === beat) || node.controllers.some(c => c.morph!.glide && c.beatIndex === beat);
+}
+/** The latest beat up to `beat` in which this node plays something (-1: none). A node's flight mark is a function of THAT beat: the beats in
+ *  which it does nothing leave it as it is (releasing it at the first frame of an UNRELATED cue stepped the node's picture while something
+ *  else began to move), and a seek lands on the state playback would have left. */
+function lastBeatOf(node: BoundNode, beat: number): number {
+  let last = -1;
+  for (const s of node.keyframed) if (s.beatIndex <= beat && s.beatIndex > last) last = s.beatIndex;
+  for (const c of node.controllers) if (c.beatIndex <= beat && c.beatIndex > last) last = c.beatIndex;
+  return last;
+}
+/** The node's flight mark at (beat): armed while it glides (or is flying now), kept through the landing and through every beat it sits out,
+ *  released when a beat that changes its picture begins. */
+function markFor(group: BoundNode, beat: number, flying: boolean): void {
+  const wrapper = group.node as HTMLElement, last = lastBeatOf(group, beat);
+  if (flying || (last >= 0 && glidesIn(group, last))) armFlightMark(wrapper);
+  else releaseFlightMark(wrapper);
+}
+/** The HTML nodes that have an entering translate flight in `beat` (computed once per cue: a dense build has thousands of nodes and the
+ *  per-frame scan is then over these only). */
+function enterGliders(specs: Spec[], beat: number): BoundNode[] {
+  return boundPlan(specs).nodes.filter(n => n.node.namespaceURI !== SVG_NS && n.keyframed.some(s => s.enter && n.flights.get(s) === "translate" && s.beatIndex === beat));
+}
+/** The hidden gliders of a cue that are about to reveal (render.ts primeFlightLayers): `ahead` ms from `time`. At frame 0 that is every glider
+ *  that starts within the FIRST TICK (FIRST_TICK_MAX_MS: the first moving frame is at most that far in, so a glider with a sub-frame delay
+ *  would otherwise be neither pending at frame 0 nor still pending at the first tick), and during playback those within PRIME_AHEAD_MS (a delayed
+ *  or staggered enter is primed just before its own start: a layer of an invisible node does not keep its raster, so priming it at frame 0
+ *  would be lost by then). */
+function pendingGliders(gliders: BoundNode[], beat: number, time: number, ahead: number): HTMLElement[] {
+  return gliders.filter(n => pendingEnterGlide(n, beat, time, ahead)).map(n => n.node as HTMLElement);
+}
+const PRIME_AHEAD_MS = 50;
 /** Seek any frame, including reverse/random seeks. Native effects and custom
  * geometry use the same time; a stopped frame has no running animation loop. */
 export function applyAt(specs: Spec[], beat: number, time = Infinity, native = false): void {
@@ -611,6 +654,11 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
         const spec = controllers[selected], p = progressAt(spec, beat, time);
         spec.morph!.seek(spec.ease.fn(p), p);
       } else controllers[0].morph!.seek(0, 0);
+      // a gliding driver's wrapper: the mark follows the beat (a node with keyframed specs too is handled in the flight loop below)
+      if (!group.keyframed.length && group.node.namespaceURI !== SVG_NS && controllers.some(c => c.morph!.glide)) {
+        const cur = selected >= 0 ? controllers[selected] : undefined, p = cur ? progressAt(cur, beat, time) : -1;
+        markFor(group, beat, !!cur?.morph!.glide && p > 0 && p < 1);
+      }
     }
   }
   for (const group of plan.nodes) {
@@ -661,7 +709,10 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     // hygiene below — settleWrapper() used to CLEAR it after the first pure-pan camera flight.
     if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
-      else { settleWrapper(node as HTMLElement); if (glides) armFlightMark(node as HTMLElement); }
+      else {
+        settleWrapper(node as HTMLElement);
+        markFor(group, beat, false);
+      }
     }
   }
   for (const [spec, animation] of plan.natives) if (!activeNatives.has(spec)) { animation.cancel(); plan.natives.delete(spec); }
@@ -731,7 +782,11 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   mount.appendChild(cameraLayer);
   const keeper: RasterKeeper = createRasterKeeper(cameraLayer, mount, { capture: !!opts.captureMode });
   const listeners: Record<Ev, Set<(s: PlayerState) => void>> = { change: new Set(), beatStart: new Set(), beatEnd: new Set(), frame: new Set() };
-  let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0;
+  let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0, firstTick = false, prerolling = false;
+  /** cue ms the clock advanced in the last presented frame (the camera's early re-bake lead is a number of these) */
+  let frameDt = 17;
+  /** the nodes with an entering translate flight in the cue that is playing (begin) */
+  let gliders: BoundNode[] = [];
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
   let media: ReturnType<typeof createVideoController> | undefined;
   let models: ReturnType<typeof createModel3dController> | undefined;
@@ -754,7 +809,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function cancelClock(): void {
     generation++; if (raf) cancelAnimationFrame(raf); raf = 0;
     clearTimeout(auto); auto = undefined; playing = false;
-    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null;
+    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null; firstTick = false; prerolling = false;
     transition?.cancel(); transition = null;
   }
   /** Cue time for a frame at `ts`: the ONE place the clock mode picks its mapping (all sampling is a pure
@@ -797,7 +852,12 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
     if (playing) media?.tick(time);
-    if (playing && time < duration) keeper.flying(); else keeper.rest(playing);   // playing && time >= duration = a flight just ended by itself
+    if (playing && time < duration) {
+      keeper.flying();
+      // a camera flight EARLY_BAKE_LEAD_FRAMES from landing re-bakes now: the fresh layer rasterises the pose the flight lands on, under the
+      // last of the motion (rasterKeeper). The lead is measured in cue time per presented frame (a settling clock runs faster than the wall).
+      for (const s of runSpecs ?? specs) if (s.refreshCamera && s.beatIndex === bi && time > s.delay && earlyBakeDue(s.delay + s.duration - time, frameDt)) keeper.early(s);
+    } else keeper.rest(playing);   // playing && time >= duration = a flight just ended by itself
     emit("frame");
   }
   let runSpecs: Spec[] | null = null;
@@ -843,9 +903,17 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function tick(timestamp: number): void {
     if (!playing) return;
     const session = generation;
+    // Frame 0 must really have been PRESENTED before the first moving frame (a catch-up frame can arrive with the same timestamp): the
+    // primed layers rasterise in it. Until a real frame (>= PREROLL_MIN_MS) has passed, wait.
+    if (prerolling) { if (timestamp - origin < PREROLL_MIN_MS) { queueFrame(); return; } prerolling = false; }
+    if (firstTick) { firstTick = false; if (clockMode === "forward") origin = firstTickOrigin(origin, timestamp); }   // setup never eats the beginning (timing.ts)
+    const before = time;
     time = clockTime(timestamp);
+    frameDt = Math.min(60, Math.max(8, time - before));
     paint(true);
     if (session !== generation) return;
+    // the next frame is the first of a delayed / staggered enter: present its node primed at rest (render.ts primeFlightLayers)
+    if (time < duration && clockMode === "forward") primeFlightLayers(pendingGliders(gliders, bi, time, PRIME_AHEAD_MS));
     if (time >= duration) finish();
     else queueFrame();
   }
@@ -879,10 +947,22 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     time = 0;
     playing = true;
     media?.begin(from, bi);
+    takeFreshMarks();
     paint(); emit("beatStart"); emit("change");
     if (session !== generation) return;
     if (reduced || instant || !duration) { finish(); return; }
-    origin = performance.now();
+    gliders = enterGliders(runSpecs ?? specs, bi);
+    const entering = pendingGliders(gliders, bi, 0, FIRST_TICK_MAX_MS);
+    if (takeFreshMarks() > 0 || entering.length) {
+      // Frame 0 presents the rest state with the flight marks in place and the hidden gliders primed at rest (render.ts
+      // primeFlightLayers); the clock starts AT that frame, so the first moving frame is exactly one frame of motion and rides a
+      // layer baked at the phase it lands on. (A mark only works a frame after it is attached; one attached in the very frame of the
+      // first transform step left the first frames stepping.)
+      primeFlightLayers(entering);
+      raf = requestAnimationFrame((ts) => { if (session !== generation) return; origin = ts; firstTick = true; prerolling = true; queueFrame(); });
+      return;
+    }
+    origin = performance.now(); firstTick = true;
     queueFrame();
   }
   function seek(index: number, beat: number, ms: number, fromBeat = beat, sampleMedia = true): void {

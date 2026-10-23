@@ -14,7 +14,7 @@ import { parseHTML } from "linkedom";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { hiddenDash, drawReach, DRAW_REACH_EPS, windowsDash, traceDash, passingFlash, trimDashAt, trimKeyframes, type TrimSpec, type DashFrame } from "../src/lib/slide/player/trim";
+import { penWidth, hiddenDash, drawReach, DRAW_REACH_EPS, windowsDash, traceDash, passingFlash, trimDashAt, trimKeyframes, type TrimSpec, type DashFrame } from "../src/lib/slide/player/trim";
 import { PRESETS } from "../src/lib/slide/player/presets";
 import { computeSlideAnims } from "../src/lib/slide/player/player";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -216,6 +216,20 @@ h.section("the draw plan: pathLength (X12), exit == enter backwards, transient l
   const fr = (r: number) => fa.sample!(r, linear) as unknown as DashFrame & { fillOpacity: number };
   assert(fr(0.03).strokeDasharray.includes(",") === false && parseFloat(fr(0.03).strokeDasharray) > 0 && fr(0.03).strokeDasharray.split(" ").length === 2, "a filled+stroked shape shows ink at 3 % of the clock (the old plan showed nothing for 58 %)");
   assert(fr(0.3).fillOpacity === 0 && fr(0.6).fillOpacity > 0.05 && fr(0.6).fillOpacity < 0.5 && near(fr(0.999).fillOpacity, 1, 0.02), "the fill stays 0 until 45 % of the clock, ramps after the outline, and lands at 1");
+  // pen touch-down (lane J): a round or square cap paints a full disc at the head of the smallest dash, so a draw's first frame used to blink a
+  // dot in and a drawOff ended on one. The stroke width ramps with the ink laid down.
+  assert(penWidth(6, 0) === 0 && penWidth(6, 3) === 3 && penWidth(6, 6) === 6 && penWidth(6, 600) === 6 && penWidth(6, -2) === 0 && penWidth(0, 5) === 0, "penWidth: 0 at no ink, the stroke width after one stroke-width of travel, never above it, a zero width untouched");
+  {
+    const wOf = (f: unknown) => (f as { strokeWidth?: number }).strokeWidth;
+    const round = mk({ x1: "0", y1: "0", x2: "100", y2: "0", stroke: "#000", fill: "none", "stroke-width": "6", "stroke-linecap": "round" }, "line");
+    const butt = mk({ x1: "0", y1: "0", x2: "100", y2: "0", stroke: "#000", fill: "none", "stroke-width": "6", "stroke-linecap": "butt" }, "line");
+    for (const n of [round, butt]) (n as unknown as { getTotalLength: () => number }).getTotalLength = () => 100;   // linkedom measures nothing: a 100-unit shaft
+    const [on] = PRESETS.drawOn([round as never], track, ctx), [offA] = PRESETS.drawOff([round as never], { ...track, preset: "drawOff" } as Track, ctx), [bt] = PRESETS.drawOn([butt as never], track, ctx);
+    assert(wOf(on.sample!(0, linear)) === 0 && wOf(on.sample!(0.01, linear))! < 6 && wOf(on.sample!(0.5, linear)) === 6 && wOf(on.sample!(1, linear)) === 6, "a round-cap draw starts with a zero-width pen, grows over the first stroke-width of ink and lands on the authored stroke");
+    assert(wOf(offA.sample!(0, linear)) === 6 && wOf(offA.sample!(1, linear)) === 0, "a drawOff is the same pen backwards: it ends on nothing, not on a dot");
+    assert(wOf(bt.sample!(0, linear)) === undefined && wOf(bt.sample!(0.5, linear)) === undefined, "a butt cap paints nothing for a zero dash: no width ramp is written");
+    assert(on.transient?.includes("strokeWidth"), "strokeWidth is in the draw's transient set, so the resting stroke is the authored one");
+  }
   void dummy;
 }
 

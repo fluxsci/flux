@@ -43,6 +43,7 @@ const actualCases = [
   ["scripts/lib/model3dS8Fixture.ts", ["group:model3d-s8", "tier:pure"]],
   // WP 1.8: the raster keeper's harness files run only the offscreen raster gate; the join law runs the pure raster gate.
   ["scripts/lib/slideRasterElectronProbe.ts", ["verify-slide-raster-electron.cjs"]],
+  ["scripts/lib/slideSettleSweep.ts", ["verify-slide-settle-sweep.ts", "verify-slide-settle-electron.cjs"]],
   ["src/lib/strokeStyle.ts", ["verify-slide-raster-pure.ts"]],
   ["scripts/perf/input-probe-model3d.cjs", ["group:model3d-s8", "tier:pure"]],
   ["scripts/lib/nativeWindowQualification.cjs", ["group:model3d-native", "verify-input-probe-policy.cjs", "verify-slide-embed-electron.cjs", "group:model3d-native-scale", "tier:pure"]],
@@ -103,7 +104,7 @@ const actualCases = [
   // E2 adds view authoring and semantic content binding without dropping inherited gates.
   ["src/lib/plot/viewControls.ts", ["verify-plot-view-verb.ts", "verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/plot/AxisView.svelte", ["verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
-  ["src/lib/slide/player/render.ts", ["verify-plot-binding.ts", "tier:pure", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs"]],
+  ["src/lib/slide/player/render.ts", ["verify-plot-binding.ts", "tier:pure", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs", "verify-slide-settle-electron.cjs"]],
   // Animation v2 E1: the projection kernel left slide/player/morph.ts for plot/. Its exact entry keeps
   // the superseded src/lib/plot/** set AND the slide-player set its old home selected.
   ["src/lib/plot/project.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
@@ -118,9 +119,9 @@ const actualCases = [
   ["src/lib/plot/svgMatrix.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/slide/resolve.ts", ["verify-draw.ts", "verify-slide-draw-browser.ts", "verify-slide-resolve.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   // 2026-10-22 morph geometry: the pairing module and the paint carrier route with outline.ts (the slide-transforms group holds the morph-geometry gates).
-  ["src/lib/slide/normalMatch.ts", ["verify-draw.ts", "verify-slide-draw-browser.ts", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs"]],
-  ["src/lib/slide/stageOutline.ts", ["verify-draw.ts", "verify-slide-draw-browser.ts", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs"]],
-  ["src/lib/slide/player/player.ts", ["verify-draw.ts", "verify-slide-draw-browser.ts", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs"]],
+  ["src/lib/slide/normalMatch.ts", ["verify-draw.ts", "verify-slide-draw-browser.ts", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs", "verify-slide-settle-electron.cjs"]],
+  ["src/lib/slide/stageOutline.ts", ["verify-draw.ts", "verify-slide-draw-browser.ts", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs", "verify-slide-settle-electron.cjs"]],
+  ["src/lib/slide/player/player.ts", ["verify-draw.ts", "verify-slide-draw-browser.ts", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-slide-raster-electron.cjs", "verify-slide-settle-electron.cjs"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/editorPresentation.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
@@ -151,6 +152,11 @@ for (const file of ["src/lib/slide/player/rasterKeeper.ts", "src/lib/slide/playe
   equal(resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest).scripts.includes("verify-slide-raster-electron.cjs"), true, `${file} routes the offscreen raster gate`);
 }
 
+// lane J: the settle gates guard the files that decide how a step starts and lands
+for (const file of ["src/lib/slide/player/player.ts", "src/lib/slide/player/render.ts", "src/lib/slide/player/rasterKeeper.ts", "src/lib/slide/player/presets.ts", "src/lib/slide/player/trim.ts", "src/lib/slide/player/transform.ts", "src/lib/slide/player/handoff.ts"]) {
+  const scripts = resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest).scripts;
+  equal(scripts.includes("verify-slide-settle-sweep.ts") && scripts.includes("verify-slide-settle-electron.cjs"), true, `${file} routes the settle gates`);
+}
 const figureSelection = resolveChangedRuns(collectChangedRuns(["src/lib/figureLayoutStore.ts"], manifest.pathMap), manifest);
 equal(figureSelection, { scripts: ["verify-fig-namer.mjs", "verify-m11-m14.mjs", "verify-plots-rail-layout.ts", "verify-plots-rail-backdrop.ts", "verify-plots-rail-focus.ts", "verify-plots-rail-model.ts", "verify-plot-thumbs.ts", "verify-plots-rail.mjs", "verify-plots-rail-p3.mjs", "verify-plots-rail-slide.mjs"], diagnostics: [] }, "literal filenames resolve to the actual GUI gates (and the Plots rail group, which owns the rail's widths and split)");
 const slideSelection = resolveChangedRuns(collectChangedRuns(["src/lib/slide/player/player.ts"], manifest.pathMap), manifest);

@@ -7,7 +7,7 @@ import type { Camera, Slide, Track } from "../src/lib/slide/types";
 const h = harness("verify-slide-raster-pure");
 const { document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document });
-const { needsBake, bakeKey, shouldBake, MAX_BAKE_NODES } = await import("../src/lib/slide/player/rasterKeeper");
+const { needsBake, bakeKey, shouldBake, MAX_BAKE_NODES, withinBakeTolerance, earlyBakeDue, EARLY_BAKE_LEAD_FRAMES } = await import("../src/lib/slide/player/rasterKeeper");
 const { cornerJoinOf, morphJoin, pairJoin } = await import("../src/lib/strokeStyle");
 const { elementStageOutlines } = await import("../src/lib/slide/targetGeometry");
 const { slideZoomsCamera, sampleCamera } = await import("../src/lib/slide/camera");
@@ -22,6 +22,19 @@ h.ok(!needsBake("a", "a") && needsBake("a", "b"), "bake iff the key changed");
 const k0 = bakeKey("translate(0px, 0px) scale(1)", 2, 1);
 h.ok(k0 !== bakeKey("translate(1px, 0px) scale(1)", 2, 1) && k0 !== bakeKey("translate(0px, 0px) scale(1)", 2.0001, 1) && k0 !== bakeKey("translate(0px, 0px) scale(1)", 2, 2), "key covers pose, host scale (1e-4) and dpr");
 h.ok(MAX_BAKE_NODES === 30000, "live node ceiling pinned");
+{
+  const k = (pose: string, host = 2, dpr = 1) => bakeKey(pose, host, dpr);
+  h.ok(withinBakeTolerance(k("translate(-910px, -345px) scale(3)"), k("translate(-910.05px, -345.08px) scale(3.0002)")), "a raster baked within 0.01 % zoom and 0.1 px of the pose is the same raster (rounding, a frame a little early or late)");
+  h.ok(!withinBakeTolerance(k("translate(-910px, -345px) scale(3)"), k("translate(-910.8px, -345.9px) scale(2.99)")), "0.3 % zoom and 0.9 px is a different raster (the old 1 % / 1.5 px tolerance left a 3x zoom visibly soft: 438 stage px^2 against a fresh render)");
+  h.ok(withinBakeTolerance(k("translate(-99.98px, 0px)"), k("translate(-100px, 0px)")) && !withinBakeTolerance(k("translate(-99px, 0px)"), k("translate(-100px, 0px)")), "a pure pan (no scale in the pose) is compared too");
+  h.ok(withinBakeTolerance(k(""), k("translate(0.02px, 0px) scale(1)")) && !withinBakeTolerance(k(""), k("translate(5px, 0px) scale(1)")), "the identity pose reads as translate(0, 0) scale(1)");
+  h.ok(!withinBakeTolerance(k("translate(1px, 0px) scale(0)"), k("translate(1px, 0px) scale(1)")) && !withinBakeTolerance(k("matrix(1,2,3,4,5,6)"), k("matrix(1,2,3,4,5,6.0)")) , "an unreadable pose is never the same raster");
+  h.ok(!withinBakeTolerance(k("translate(-910px, -345px) scale(3)"), k("translate(-880px, -345px) scale(3)")), "a 30 px camera offset is a different raster");
+  h.ok(!withinBakeTolerance(k("translate(0px, 0px) scale(3)"), k("translate(0px, 0px) scale(2.5)")), "a 17 % zoom is a different raster");
+  h.ok(!withinBakeTolerance(k("translate(0px, 0px) scale(3)", 2), k("translate(0px, 0px) scale(3)", 2.5)) && !withinBakeTolerance(k("translate(0px, 0px) scale(3)", 2, 1), k("translate(0px, 0px) scale(3)", 2, 2)), "host scale and dpr changes always re-bake");
+  h.ok(!needsBake(k("translate(-910px, -345px) scale(3)"), k("translate(-910.04px, -345.02px) scale(3.0001)"), true) && needsBake(k("translate(-910px, -345px) scale(3)"), k("translate(-900px, -345px) scale(3)"), true), "needsBake honours the tolerance when asked (live)");
+  h.ok(needsBake(k("translate(-910px, -345px) scale(3)"), k("translate(-910.04px, -345.02px) scale(3.0001)")) && shouldBake(k("translate(-910px, -345px) scale(3)"), k("translate(-910.04px, -345.02px) scale(3.0001)"), 10, true), "capture is exact: any pose change re-bakes");
+}
 h.ok(shouldBake("a", "b", 30000, false) && !shouldBake("a", "b", 30001, false), "live re-bake refused above 30 000 nodes");
 h.ok(shouldBake("a", "b", 1e6, true) && !shouldBake("a", "a", 0, true), "capture ignores the ceiling, still needs a changed key");
 
@@ -185,6 +198,71 @@ h.section("raster keeper protocol (scripted frames)");
     light.nodes = 30000; light.cam.style.transform = "translate(-1px, 0px) scale(2)"; light.keeper.rest(false); await until(() => light.keeper.count() === 1, "the 30 000-node re-bake");
     h.eq(light.keeper.count(), 1, "live: exactly 30 000 nodes still re-bakes");
     light.keeper.dispose(); r.keeper.dispose();
+  }
+  // early(): a camera flight that is nearly home bakes UNDER the motion that is left (lane J), once per flight, and flying() keeps it
+  {
+    h.ok(EARLY_BAKE_LEAD_FRAMES === 2, "a re-bake is two frame hops, so the early bake leads the landing by two frames");
+    // The trigger is TIME based: whatever the travel and the curve, the fresh layer rasterises the pose of the landing frame. (The old
+    // trigger, eased progress >= 99.5 %, is 0.5 % of the travel: 5 px of a 1000 px pan, a second bake at rest and a 3x zoom left soft.)
+    {
+      const ease = (t: number) => t * t * (3 - 2 * t), FRAME = 1000 / 60, DUR = 900;
+      for (const travel of [60, 300, 1000, 1800]) {
+        let t = 0, baked: number | null = null;
+        for (; t <= DUR + 2 * FRAME; t += FRAME) if (baked === null && earlyBakeDue(DUR - Math.min(t, DUR), FRAME)) baked = Math.min(DUR, t + 2 * FRAME);
+        const pose = (ms: number) => travel * ease(Math.min(1, ms / DUR));
+        h.ok(baked !== null && Math.abs(pose(baked) - travel) < 0.1 && baked >= DUR - 3 * FRAME, `a ${travel} px pan bakes the pose it lands on (error ${(Math.abs(pose(baked ?? 0) - travel)).toFixed(3)} px, trigger ${(DUR - (baked ?? 0) + 2 * FRAME).toFixed(0)} ms before the end)`);
+      }
+      h.ok(!earlyBakeDue(200, FRAME) && earlyBakeDue(2 * FRAME, FRAME) && earlyBakeDue(0, FRAME) && earlyBakeDue(60, 33), "earlyBakeDue: two frames from landing at the clock's own frame time (slower frames lead earlier)");
+    }
+    const r = rig({ debounceMs: 5000 }); await sleep(60);
+    r.cam.style.transform = "translate(-30px, -12px) scale(3)";
+    r.keeper.flying(); r.keeper.early(); r.keeper.flying(); r.keeper.early();      // the flight's frames keep calling flying(); early() bakes once
+    await until(() => r.keeper.count() === 1 && r.hints.length === 2, "the early bake");
+    h.eq([r.keeper.count(), r.hints, r.hint], [1, ["auto", "transform"], "transform"], "early(): one bake mid-flight (hint auto, then transform), not cancelled by flying()");
+    r.keeper.early(); await sleep(60);
+    h.eq(r.keeper.count(), 1, "early(): once per flight");
+    r.keeper.rest(true); await sleep(60);
+    h.eq(r.keeper.count(), 1, "early(): the landing at the baked pose does not bake again");
+    r.keeper.rest(false); r.keeper.flying(); r.keeper.rest(false);             // the next flight re-arms early()
+    r.cam.style.transform = "translate(-60px, -12px) scale(3)"; r.keeper.flying(); r.keeper.early();
+    await until(() => r.keeper.count() === 2, "the next flight's early bake");
+    r.keeper.dispose();
+    // a LONG pan (2,000 px): the early bake is taken at the landing pose, so the landing finds the key equal and never bakes again
+    {
+      const pan = rig({ debounceMs: 5000 }); await sleep(60);
+      pan.cam.style.transform = "translate(-2000px, 0px)";
+      pan.keeper.flying(); pan.keeper.early("pan");
+      await until(() => pan.keeper.count() === 1, "the long pan's early bake");
+      pan.keeper.rest(true); await sleep(80);       // negative: the landing's own bake would be due within ~5 ms
+      h.eq([pan.keeper.count(), pan.hints], [1, ["auto", "transform"]], "a 2,000 px pan baked at its landing pose bakes ONCE (no second bake at rest)");
+      // a hitch: the flight lands one frame after the early bake began, while the bake is still in flight
+      pan.cam.style.transform = "translate(-2500px, 0px)"; pan.keeper.flying(); pan.keeper.early("pan2");
+      pan.keeper.rest(true);
+      await until(() => pan.keeper.count() === 2, "the second flight's early bake");
+      await sleep(80);
+      h.eq(pan.keeper.count(), 2, "a landing that arrives while the early bake is in flight queues no second bake for the pose it already took");
+      pan.keeper.rest(true); pan.cam.style.transform = "translate(-2600px, 0px)"; pan.keeper.rest(true);
+      await until(() => pan.keeper.count() === 3, "a landing at a different pose than the early bake took");
+      h.eq(pan.keeper.count(), 3, "a landing OUTSIDE the tolerance of the early bake's pose still re-bakes once (the fallback)");
+      pan.keeper.dispose();
+      const two = rig({ debounceMs: 5000 }); await sleep(60);
+      two.cam.style.transform = "translate(-100px, 0px)"; two.keeper.flying(); two.keeper.early("a"); two.keeper.early("a");
+      await until(() => two.keeper.count() === 1, "the first flight's early bake");
+      two.cam.style.transform = "translate(-300px, 0px) scale(2)"; two.keeper.flying(); two.keeper.early("a"); await sleep(60);
+      h.eq(two.keeper.count(), 1, "early(): the same flight asks once");
+      two.keeper.early("b");
+      await until(() => two.keeper.count() === 2, "the second camera flight of the cue bakes again");
+      h.eq(two.keeper.count(), 2, "early(): a cue with two camera flights early-bakes each");
+      two.keeper.dispose();
+    }
+    const heavy = rig({ debounceMs: 5 }); await sleep(60);
+    heavy.nodes = 30001; heavy.cam.style.transform = "translate(-1px, 0px) scale(2)"; heavy.keeper.early(); await sleep(120);   // negative
+    h.eq([heavy.keeper.count(), heavy.hints], [0, []], "early(): skipped above 30 000 nodes like every live bake");
+    heavy.keeper.dispose();
+    const cap = rig({ capture: true }); await sleep(60);
+    cap.cam.style.transform = "translate(-1px, 0px) scale(2)"; cap.keeper.early(); await sleep(120);
+    h.eq(cap.keeper.count(), 0, "early(): capture never bakes early (it settles after every sampled frame)");
+    cap.keeper.dispose();
   }
   // dispose mid-bake and the settle timeout
   {

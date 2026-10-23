@@ -30,3 +30,18 @@ export const AUTO_DELAY_AUTHORED_MS = 150;
 export function beatDelayMs(beat: Pick<Beat, "autoDelayMs">): number {
   return Math.max(0, beat.autoDelayMs ?? AUTO_DELAY_FALLBACK_MS);
 }
+
+/** The clock of a step starts at its first PRESENTED frame, not at the input event: whatever delays that frame (a flight built on the
+ *  click, layers promoted, a first raster) must never eat the beginning of the motion. The first tick of a cue therefore advances the
+ *  clock by at most this long (one 60 Hz frame plus jitter); a longer first frame is a hitch, not progress. Later ticks keep the wall
+ *  clock (a long frame mid-flight skips ahead, as any renderer on a real clock does). */
+export const FIRST_TICK_MAX_MS = 20;
+/** The origin the first tick of a cue should measure from: `origin` itself unless the first frame arrived later than FIRST_TICK_MAX_MS. Pure. */
+export function firstTickOrigin(origin: number, ts: number): number {
+  const lag = ts - origin;
+  return lag > FIRST_TICK_MAX_MS ? origin + (lag - FIRST_TICK_MAX_MS) : origin;
+}
+/** A cue that primes its flight layers presents frame 0 first (player `begin`): the first moving frame waits until a frame at least this
+ *  much later than frame 0 has arrived. A compositor catching up can deliver the next callback with frame 0's own timestamp; moving then
+ *  would raster the layers mid-flight again. Half a 60 Hz frame. */
+export const PREROLL_MIN_MS = 8;
