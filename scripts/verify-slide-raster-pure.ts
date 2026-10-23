@@ -51,7 +51,9 @@ h.section("headless players: the keeper is inert (linkedom has no rAF/window)");
 }
 
 h.section("join policy");
-h.eq([cornerJoinOf({ type: "rect" }), cornerJoinOf({ type: "path" }), cornerJoinOf({ type: "ellipse" }), cornerJoinOf({ type: "line" }), cornerJoinOf({ type: "text" })], ["miter", "round", null, null, null], "only corner-bearing kinds carry a join");
+// (R2 F3: a ROUND-capped line, the default, ends in half discs, so it carries a round join into the law: a ring collapsing into it lands on them; a butt or square line stays null)
+h.eq([cornerJoinOf({ type: "rect" }), cornerJoinOf({ type: "path" }), cornerJoinOf({ type: "ellipse" }), cornerJoinOf({ type: "line" }), cornerJoinOf({ type: "text" })], ["miter", "round", null, "round", null], "only corner-bearing kinds (and a round-capped line's round ends) carry a join");
+h.eq([cornerJoinOf({ type: "line", cap: "butt" }), cornerJoinOf({ type: "line", cap: "square" })], [null, null], "a butt or square line carries no join");
 h.eq([morphJoin({ type: "rect" }, { type: "ellipse" }, 0), morphJoin({ type: "rect" }, { type: "ellipse" }, 0.49), morphJoin({ type: "rect" }, { type: "ellipse" }, 0.5), morphJoin({ type: "rect" }, { type: "ellipse" }, 1)], ["miter", "miter", "miter", "miter"], "rect -> ellipse never switches (ellipse inherits)");
 h.eq([morphJoin({ type: "rect" }, { type: "path" }, 0.49), morphJoin({ type: "rect" }, { type: "path" }, 0.5)], ["miter", "round"], "rect -> path switches once at the midpoint");
 h.eq([morphJoin({ type: "ellipse" }, { type: "line" }, 0.2), morphJoin({ type: "text" }, { type: "ellipse" }, 0.9)], ["round", "round"], "no corners on either side falls back to round");

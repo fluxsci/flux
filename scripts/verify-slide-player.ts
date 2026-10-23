@@ -308,7 +308,10 @@ for (const raw of samples) {
   player.seek(0, 1, raw * 1000);
   const dx = /translate\(([-\d.]+)px/.exec(wrapper.style.transform ?? "");
   peakX = Math.max(peakX, parseFloat(wrapper.style.left) + Number(dx?.[1] ?? 0));
-  layersStable &&= layers.length === 3 && layers.every((layer, i) => (layer.style.visibility !== "hidden") === (raw <= 0 ? i === 0 : raw >= 1 ? i === 2 : i === 1));
+  // The endpoints are exact (A alone at raw <= 0, B alone at raw >= 1) whatever the eased value does. A Become with a stroke band (this rect -> ellipse) hands the
+  // start / end render and the flight over to each other by DISTANCE (shapeHandover.ts, R2 F3), so in flight any of the three may show, one at least always: a
+  // spring that lands on its target early shows B alone before raw 1 (the picture is B within HANDOVER_EPS px), and never a blank wrapper.
+  layersStable &&= layers.length === 3 && (raw <= 0 ? layers.map(l => l.style.visibility !== "hidden").join() === "true,false,false" : raw >= 1 ? layers.map(l => l.style.visibility !== "hidden").join() === "false,false,true" : layers.some(l => l.style.visibility !== "hidden"));
   bounded &&= Number(wrapper.style.opacity) >= .2 && Number(wrapper.style.opacity) <= .8;
   if (raw > 0 && raw < 1) {
     const fill = layers[1].querySelector("path")!.getAttribute("fill")!;

@@ -287,6 +287,17 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "rect", x: 220, y: 90, width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 } }); }
     { const s = b.slide("ell_rect_ho"); b.add(s, { id: "a", type: "ellipse", x: 60, y: 90, width: 200, height: 180, rotation: 0, fill: "none", stroke: C.ink, strokeWidth: 12 }); b.add(s, el("rect", "b", 380, 90, { width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 }));
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    // the REVERSE of line -> shape: a rect becomes a butt-capped line (the other half of the hairpin stadium; 8.9 seek / 9.5 GPU at the start before F3)
+    { const s = b.slide("rect_line"); b.add(s, el("rect", "a", 100, 110, { width: 200, height: 140, fill: C.blue, stroke: C.blueD, strokeWidth: 8 })); b.add(s, el("line", "b", 340, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.redD, strokeWidth: 8, cap: "butt" }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    // ... into a ROUND-capped line, and the forward direction from one: the hairpin tips carry the line's own round join (cornerJoinOf), so the round caps do not appear at
+    // the landing (END SNAP 18.4 before F3) and a round-capped line does not start from square tips
+    { const s = b.slide("rect_line_round"); b.add(s, el("rect", "a", 100, 110, { width: 200, height: 140, fill: C.blue, stroke: C.blueD, strokeWidth: 8 })); b.add(s, el("line", "b", 340, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.redD, strokeWidth: 8, cap: "round" }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("line_rect_round"); b.add(s, el("line", "a", 100, 175, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.blueD, strokeWidth: 8, cap: "round" })); b.add(s, el("rect", "b", 340, 110, { width: 200, height: 140, fill: C.red, stroke: C.redD, strokeWidth: 8 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("rect_line_consume"); b.add(s, el("rect", "a", 100, 110, { width: 200, height: 140, fill: C.blue, stroke: C.blueD, strokeWidth: 8 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "line", x: 100, y: 175, width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.redD, strokeWidth: 8, cap: "butt" } }); }
     { const s = b.slide("translucent"); b.add(s, el("rect", "a", 220, 90, { width: 200, height: 180, fill: C.blue, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 })); circle("b", { x: 220, y: 90, width: 200, height: 180, fill: C.red, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 });
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", x: 220, y: 90, width: 200, height: 180, fill: C.red, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 } }); }
     out.push({ name: "become_corners", payload: { deck: b.deck } });

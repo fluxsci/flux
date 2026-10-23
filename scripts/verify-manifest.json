@@ -345,6 +345,7 @@
       "verify-slide-xfade-browser.ts",
       "verify-slide-stroke-band.ts",
       "verify-slide-stroke-band-browser.ts",
+      "verify-slide-shape-handover.ts",
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-settle-sweep.ts",
@@ -950,6 +951,7 @@
       "verify-slide-xfade-browser.ts",
       "verify-slide-stroke-band.ts",
       "verify-slide-stroke-band-browser.ts",
+      "verify-slide-shape-handover.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
@@ -1792,6 +1794,24 @@
       "glob": "src/lib/slide/player/handoff.ts",
       "run": [
         "verify-slide-handoff-browser.ts",
+        "verify-slide-shape-handover.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/player/shapeHandover.ts",
+      "run": [
+        "verify-slide-handoff-browser.ts",
+        "verify-slide-shape-handover.ts",
         "verify-v020-morph-startup.mjs",
         "group:slide-transforms",
         "group:figures-slides-overhaul",
@@ -9544,6 +9564,15 @@
       "coverage": "behavior"
     },
     "verify-slide-stroke-band-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-shape-handover.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

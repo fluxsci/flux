@@ -309,7 +309,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // The flight draws at the DEPTH the destination rests at, so it is covered by exactly what covers the destination and the landing does not
           // flip the paint order of anything it overlaps (an element above the destination that the flight crossed).
           const flightSurface = rendered.flightAt?.(handoff.destination.flatMap(t => { const w = rendered.elements.get(t.elementId); return w ? [w] : []; })) ?? rendered.flight;
-          const driver = createHandoff({ flight: flightSurface, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration,
+          const driver = createHandoff({ flight: flightSurface, handover: group.length <= 1, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration,
             beneath: lastLander ? group.map(c => mergeLayers.get(c.track.id ?? "")).find(Boolean) : undefined,
             plan: () => planHandoff(track, planFrame, geometry, group.length > 1 ? group.map(c => c.track) : undefined),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
