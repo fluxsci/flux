@@ -43,6 +43,9 @@ export interface CueRow {
   dPre: number;
   /** Δ t=0 → t=2 ms, 2 → 4 ms, 0 → 1 frame, 1 → 2 frames. */
   s02: number; s24: number; sF: number; sF2: number;
+  /** the same two frame windows WITHOUT the dead band: a smooth start grows from nothing (t^2 .. t^3), and the dead band reads every sub-4 % early
+   *  frame as exactly 0, so the second-frame test needs the raw numbers or a slow start (a growing bar) looks like a late pop. */
+  sFr: number; sF2r: number;
   /** mid-flight Δ over 2 ms and over one frame (the cue's own motion scale). */
   mid: number; midF: number;
   /** Δ D-4 → D-2, D-2 → D, D-2F → D-F, D-F → D. */
@@ -58,9 +61,12 @@ export interface Thresholds {
   /** a boundary window must exceed this many times its neighbour to count as a spike. */
   ratioTiny: number; ratioFrame: number;
   /** the SECOND frame of a start: a smooth start grows 3x (t^2) to 7x (t^3) from its first frame to its second, never from nothing to a sizeable
-   *  part of the cue's own motion. It is a pop when it exceeds `ratioSecond` x the first frame AND `secondOfMid` of a mid-flight frame
+   *  part of the cue's own motion (judged on the RAW frame windows, sFr / sF2r). It is a pop when it exceeds `ratioSecond` x the first frame AND `secondOfMid` of a mid-flight frame
    *  (a content swap that lands one frame late, e.g. the count-up's digit slots replacing the resting number). */
   ratioSecond: number; secondOfMid: number;
+  /** ... and above this many units (3x floorFrame): a quick curve (dim, quick smooth) moves most of a small element's change in its second frame while
+   *  the first reads ~0 and nothing moves at mid-flight, so a low floor would call every quick start a pop. */
+  floorSecond: number;
   /** a post-landing change must stay under this (it should be exactly 0). */
   rest: number;
   /** the landing reached frame by frame vs seeked directly: a seek has no priming frame, so headless Chrome bakes a gliding layer
@@ -74,7 +80,7 @@ export interface Thresholds {
  *  device-pixel snapping: a wrapper's layout box is whole STAGE px, which at a fractional fit scale (2.5x here) the browser snaps to the
  *  device grid at rest but not in flight, so a resized stroked shape lands up to ~0.15 device px off its last frame. Nobody can see that;
  *  a dot, a thickened stroke, re-rasterised text, a popped corner are all well above it. */
-export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, ratioSecond: 10, secondOfMid: 0.25, rest: 2, run: 30, pre: 25 };
+export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, ratioSecond: 10, secondOfMid: 0.25, floorSecond: 24, rest: 2, run: 30, pre: 25 };
 
 const spike = (a: number, b: number, floor: number, ratio: number) => a > floor && a > ratio * Math.max(b, 0.25);
 
@@ -84,7 +90,7 @@ export function classify(r: Omit<CueRow, "flags">, t: Thresholds = THRESHOLDS): 
   if (Number.isFinite(r.dPre) && r.dPre > t.pre) flags.push("PRE-ROLL CHANGE");
   if (spike(r.s02, r.s24, t.floorTiny, t.ratioTiny)) flags.push("START POP (2ms)");
   if (spike(r.sF, r.sF2, t.floorFrame, t.ratioFrame)) flags.push("START POP (frame)");
-  if (r.sF2 > t.floorFrame && r.sF2 > t.ratioSecond * Math.max(r.sF, 0.25) && r.sF2 > t.secondOfMid * r.midF) flags.push("START POP (2nd frame)");
+  if (r.sF2r > t.floorSecond && r.sF2r > t.ratioSecond * Math.max(r.sFr, 0.25) && r.sF2r > t.secondOfMid * r.midF) flags.push("START POP (2nd frame)");
   if (spike(r.e20, r.e42, t.floorTiny, t.ratioTiny)) flags.push("END SNAP (2ms)");
   if (spike(r.eF, r.eF2, t.floorFrame, t.ratioFrame)) flags.push("END SNAP (frame)");
   if (r.dRun > t.run) flags.push("POST CHANGE");
@@ -151,6 +157,7 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
   };
   const W = Math.round(clip.width);
   const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => perceptualDiff(a, b, W, k);
+  const raw = (a: Uint8ClampedArray, b: Uint8ClampedArray) => perceptualDiff(a, b, W, k, 0);
   const rows: CueRow[] = [];
   const slides = opts.slides ?? payload.deck.slides.map((_, i) => i);
   for (const s of slides) {
@@ -179,7 +186,7 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
       const row: Omit<CueRow, "flags"> = {
         slide: s, slideId: slide.id, from, to, label: kindsOf(slide, from, to), dur: D,
         dPre: pre ? diff(pre, f.p0) : NaN,
-        s02: diff(f.p0, f.p2), s24: diff(f.p2, f.p4), sF: diff(f.p0, f.pF), sF2: diff(f.pF, f.p2F),
+        s02: diff(f.p0, f.p2), s24: diff(f.p2, f.p4), sF: diff(f.p0, f.pF), sF2: diff(f.pF, f.p2F), sFr: raw(f.p0, f.pF), sF2r: raw(f.pF, f.p2F),
         mid: diff(f.mid, f.mid2), midF: diff(f.mid, f.midF),
         e42: diff(f.e4, f.e2), e20: diff(f.e2, f.e0), eF2: diff(f.e2F, f.eF), eF: diff(f.eF, f.e0),
         dRun: diff(f.e0, run),
@@ -191,10 +198,10 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
 }
 
 const n = (v: number, w = 6) => (Number.isFinite(v) ? v.toFixed(1) : "  -").padStart(w);
-export const TABLE_HEAD = "slide beat   dur(ms) tracks    pre   s0-2   s2-4  s0-F  sF-2F    mid   midF  e-4-2  e-2-0 e-2F-F  e-F-0   run  verdict";
+export const TABLE_HEAD = "slide beat   dur(ms) tracks    pre   s0-2   s2-4  s0-F  sF-2F  s0-Fr sF-2Fr    mid   midF  e-4-2  e-2-0 e-2F-F  e-F-0   run  verdict";
 export function tableRow(r: CueRow, name = ""): string {
   const beat = r.from === r.to ? String(r.from) : `${r.from}-${r.to}`;
-  return `${(name || String(r.slide)).slice(0, 18).padStart(5)} ${beat.padStart(4)}  ${String(Math.round(r.dur)).padStart(7)} ${r.label.slice(0, 9).padEnd(9)} ${n(r.dPre)} ${n(r.s02)} ${n(r.s24)} ${n(r.sF)} ${n(r.sF2, 6)} ${n(r.mid)} ${n(r.midF, 7)} ${n(r.e42)} ${n(r.e20)} ${n(r.eF2, 7)} ${n(r.eF)} ${n(r.dRun)}  ${r.flags.join(", ") || "ok"}`;
+  return `${(name || String(r.slide)).slice(0, 18).padStart(5)} ${beat.padStart(4)}  ${String(Math.round(r.dur)).padStart(7)} ${r.label.slice(0, 9).padEnd(9)} ${n(r.dPre)} ${n(r.s02)} ${n(r.s24)} ${n(r.sF)} ${n(r.sF2, 6)} ${n(r.sFr)} ${n(r.sF2r, 7)} ${n(r.mid)} ${n(r.midF, 7)} ${n(r.e42)} ${n(r.e20)} ${n(r.eF2, 7)} ${n(r.eF)} ${n(r.dRun)}  ${r.flags.join(", ") || "ok"}`;
 }
 
 export async function withBrowser<T>(fn: (browser: import("puppeteer-core").Browser, tmp: string) => Promise<T>): Promise<T> {

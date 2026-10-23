@@ -17,14 +17,16 @@ const h = harness("verify-slide-settle-sweep");
 // -- 1. the verdict function (pure) ------------------------------------------------------------------------------------------
 {
   h.section("verdict function");
-  const calm = { slide: 0, slideId: "s", from: 1, to: 1, label: "x", dur: 700, dPre: 0, s02: 0, s24: 0, sF: 3, sF2: 6, mid: 10, midF: 80, e42: 0, e20: 0, eF2: 6, eF: 2, dRun: 0 };
+  const calm = { slide: 0, slideId: "s", from: 1, to: 1, label: "x", dur: 700, dPre: 0, s02: 0, s24: 0, sF: 3, sF2: 6, sFr: 3, sF2r: 6, mid: 10, midF: 80, e42: 0, e20: 0, eF2: 6, eF: 2, dRun: 0 };
   h.eq(classify(calm), [], "a smooth ease-in / ease-out step has no verdict");
   h.eq(classify({ ...calm, s02: 7, s24: 0.1 }), ["START POP (2ms)"], "an instant jump in the first 2 ms beside a quiet window is a start pop");
   h.eq(classify({ ...calm, sF: 20, sF2: 2 }), ["START POP (frame)"], "a first frame that moves 10x the next one is a one-frame start pop");
-  h.eq(classify({ ...calm, sF: 0, sF2: 201, midF: 432 }), ["START POP (2nd frame)"], "a second frame that jumps from nothing to a frame of the cue's own motion is a late start pop (the count-up's digit slots replacing the number)");
-  h.eq(classify({ ...calm, sF: 0.5, sF2: 12, midF: 90 }), [], "a quadratic-ish start whose second frame is ~10 % of a mid-flight frame is not a pop");
-  h.eq(classify({ ...calm, sF: 0, sF2: 17, midF: 5600 }), [], "a headless 1/4 px quantisation step on a huge camera move (sF 0, sF2 17 of 5600) is not a pop");
-  h.eq(classify({ ...calm, sF: 4, sF2: 30, midF: 90 }), [], "a start that grows 7x (cubic ease) is smooth");
+  h.eq(classify({ ...calm, sF: 0, sF2: 201, sFr: 0, sF2r: 201, midF: 432 }), ["START POP (2nd frame)"], "a second frame that jumps from nothing to a frame of the cue's own motion is a late start pop (the count-up's digit slots replacing the number)");
+  h.eq(classify({ ...calm, sF: 0.5, sF2: 12, sFr: 0.5, sF2r: 12, midF: 90 }), [], "a quadratic-ish start whose second frame is ~10 % of a mid-flight frame is not a pop");
+  h.eq(classify({ ...calm, sF: 0, sF2: 17, sFr: 0, sF2r: 17, midF: 5600 }), [], "a headless 1/4 px quantisation step on a huge camera move (sF 0, sF2 17 of 5600) is not a pop");
+  h.eq(classify({ ...calm, sF: 4, sF2: 30, sFr: 4, sF2r: 30, midF: 90 }), [], "a start that grows 7x (cubic ease) is smooth");
+  h.eq(classify({ ...calm, sF: 0, sF2: 8.8, sFr: 0, sF2r: 8.8, midF: 0 }), [], "a quick curve that moves a small element's whole change in its second frame (nothing moves at mid-flight) is under the second-frame floor");
+  h.eq(classify({ ...calm, sF: 0, sF2: 13.4, sFr: 3.1, sF2r: 15.9, midF: 10.6 }), [], "a slow start the dead band reads as 0 (every early change under 4 %) is not a late pop: the test is on the RAW windows");
   h.eq(classify({ ...calm, e20: 14, e42: 0 }), ["END SNAP (2ms)"], "a jump in the last 2 ms beside a quiet window is an end snap");
   h.eq(classify({ ...calm, eF: 12, eF2: 2 }), ["END SNAP (frame)"], "a last frame that moves 6x the one before is a one-frame end snap");
   h.eq(classify({ ...calm, dPre: 5 }), [], "a promoted layer re-rastered at the first frame is under the pre-roll floor");
