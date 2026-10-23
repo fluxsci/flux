@@ -74,8 +74,12 @@ export interface SlideRenderCtx {
 export interface RenderedSlide {
   /** elId → the wrapper element (the player/editor animates/overlays these). */
   elements: Map<string, HTMLElement>;
-  /** One stage-space surface for cross-object flights, inside the camera. */
+  /** One stage-space surface for cross-object flights, inside the camera (the top of the stack). */
   flight: SVGSVGElement;
+  /** The flight surface at the DEPTH of `wrappers` (a hand-off's destination): the topmost of them is where the destination rests, so a flight
+   *  drawn on that surface is covered by exactly the elements that cover the destination, and the landing frame (the flight hands over to the
+   *  destination's own render) does not flip the paint order of anything the flight overlaps. The top of the stack is `flight` itself. */
+  flightAt?(wrappers: readonly Element[]): SVGSVGElement;
   sourceSlide?: Slide;
 }
 
@@ -785,15 +789,38 @@ export function renderSlide(
     host.appendChild(w);
     elements.set(el.id, w);
   }
-  const flight = document.createElementNS(SVG_NS, "svg");
-  flight.setAttribute("class", "sl-flight");
-  flight.setAttribute("viewBox", `0 0 ${stage.width} ${stage.height}`);
-  flight.setAttribute("width", "100%");
-  flight.setAttribute("height", "100%");
-  flight.setAttribute("preserveAspectRatio", "none");
-  flight.style.cssText = "pointer-events:none;position:absolute;inset:0;overflow:visible;display:block";
+  const surface = (): SVGSVGElement => {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "sl-flight");
+    svg.setAttribute("viewBox", `0 0 ${stage.width} ${stage.height}`);
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.style.cssText = "pointer-events:none;position:absolute;inset:0;overflow:visible;display:block";
+    return svg;
+  };
+  const flight = surface();
   host.appendChild(flight);
-  return { elements, flight, sourceSlide: slide };
+  // One surface per depth in use, created on first need and shared by every flight that lands on the same element (a merge's landers must share
+  // their surface: `beneath` orders layers inside it). A destination nothing covers rests at the top of the stack, which is `flight`.
+  const depths = new Map<Element, SVGSVGElement>();
+  const flightAt = (wrappers: readonly Element[]): SVGSVGElement => {
+    const kids = Array.from(host.children);
+    let top: Element | undefined, at = -1;
+    for (const w of wrappers) { const i = kids.indexOf(w); if (i > at) { at = i; top = w; } }
+    if (!top || !kids.slice(at + 1).some(k => k.classList.contains("sl-el"))) return flight;
+    let svg = depths.get(top);
+    if (!svg || svg.parentNode !== host) {
+      svg = surface(); svg.setAttribute("data-depth", "");
+      // directly above the destination: after it, and after anything already stacked on it (another flight's surface, a text layer)
+      let after: Element = top;
+      while (after.nextElementSibling && !after.nextElementSibling.classList.contains("sl-el") && after.nextElementSibling !== flight) after = after.nextElementSibling;
+      after.after(svg);
+      depths.set(top, svg);
+    }
+    return svg;
+  };
+  return { elements, flight, flightAt, sourceSlide: slide };
 }
 
 /** The wrapper box/transform/opacity for an element state at REST — exported

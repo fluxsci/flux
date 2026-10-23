@@ -282,25 +282,26 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // 21 x 22 px point each; `fade` twice and `popIn` twice read the same: R2 F2 measured it, it is not a defect of scaleIn). Pinned here so that making
   // an enter on a shown node a no-op (or anything else) is a deliberate vocabulary decision, never a side effect: the entry fails once the pop is gone.
   [openKey("plot_scatter", "scatter_reenter", 2, 2)]: { seek: ["START POP (2nd frame)"], owner: "by definition: re-entering a shown part vanishes and re-enters it (a vocabulary decision for the owner: manim's own FadeIn on a shown mobject shows no pop)" },
-  // The Release 1 review deck's two hardest hand-offs (slide 11 a thick-stroked line / arrow becoming a shape, slide 13 a 12 px unfilled rect
-  // becoming an ellipse; `become_stroked`). R2 follow-up F1 fixed their START (a stroke's outer corner jumped from radius 0 to w/2 on the first frame,
-  // and a body that stopped inside an arrowhead poked a round cap past the tip: 20 to 30 stage px^2 on both domains, now 0.1): the stroke is drawn as a
-  // band between two normal-matched contours (outline.ts planStrokeBand), the arrow's body starts inside its head, and the stage draws a resting
-  // ellipse as the path of its outline (render.ts stageMarkup), so the flight and the rest share one rasteriser. What is left is the LANDING of the
-  // 12 px non-circular ring on the GPU: the band is an exact offset of the outline, and the path stroker's offset of the same outline is up to 0.1 px
-  // thicker at 12 px (measured: band vs path stroke 20.1, vs the oval primitive 6.5; the base landed 30.4). Tolerated, not required: it reads 6 to 20
-  // from run to run with the frame the compositor lands on.
-  [openKey("become_stroked", "corners", 1, 1)]: { rtMay: ["LANDING STEP"], max: { "LANDING STEP": 25 }, owner: "inherent: the path stroker is up to 0.1 px thicker than the exact stroke band on a 12 px non-circular ring (base 30.4 perceptual / 70.9 raw, now 6 to 20.1 / 55.7 raw; pinned at 25)" },
-  // The same seam at the START of the reverse pair, a 12 px ring (ellipse) becoming a rect (`become_corners`): the resting ring is the path stroker's, the first
-  // band frame is the exact offset, and the GPU's tessellated stroker differs from it by ~0.1 px along the whole ring (the base started at 48.9 raw, now
-  // 39.4 raw; the seek domain reads 8.6 / 7.9 against the physical 6). The only exact fix is to draw the RESTING stroke as the same band: a static look change.
-  [openKey("become_corners", "ell_rect", 1, 1)]: { seek: ["START POP (2ms)"], rtMay: ["START STEP", "FIRST FRAME"], max: { "START POP": 12, "START STEP": 25 }, owner: "inherent: band vs the path stroker's ~0.1 px thicker 12 px ring (GPU 13.5 perceptual, seek 8.6; pinned)" },
-  [openKey("become_corners", "ell_rect_ho", 1, 1)]: { seek: ["START POP (2ms)"], rtMay: ["START STEP"], max: { "START POP": 12, "START STEP": 25 }, owner: "inherent: band vs the path stroker's ~0.1 px thicker 12 px ring (GPU 20.1 perceptual, seek 7.9; pinned)" },
-  // A flight that LANDS on a set of ellipses (a rect split into three, `set_flights`): its pieces are the destination rings re-cut at arbitrary stations,
-  // and a stroker tessellates the same circle cut one way ~0.1 px differently from the resting 4-arc ellipse (the difference image is an edge-only ring
-  // that does not converge over the last frames). 9.6 in the seek domain, 14.4 on the GPU (lane S's deck; the base read 6.9 / 0.0 there before the
-  // stage drew ellipses as paths). The single-ellipse hand-offs land at 0.0. Pinned; the fix would be to land on the destination's own nodes.
-  [openKey("set_flights", "rect_3ellipses", 1, 1)]: { seek: ["END SNAP (2ms)"], rtMay: ["LANDING STEP"], max: { "END SNAP": 14, "LANDING STEP": 25 }, owner: "inherent: a ring cut at arbitrary stations strokes ~0.1 px differently from the resting 4-arc ellipse (seek 9.6, GPU 14.4; pinned)" },
+  // (R2 follow-up F3 deleted the four stroked-morph seams F1 had pinned here as inherent: `become_stroked/corners` landing, `become_corners/ell_rect` and
+  // `ell_rect_ho` starts, `set_flights/rect_3ellipses` landing. They were a rasteriser seam (the exact stroke band, or pieces cut at other stations, against the
+  // resting path stroker) plus a raster step of the wrapper itself; a Become with a band or a flight made of pieces now hands over to the real renders at both
+  // ends, and a morph that keeps its box no longer promotes its layer. See shapeHandover.ts and the F3 report.)
+  // The FLIGHT DEPTH law (RenderedSlide.flightAt: a hand-off flies on a surface right above its DESTINATION) puts the paint-order flip of a hand-off whose source and
+  // destination sit on different sides of a covering element X at the START instead of the landing (it used to be the landing: END SNAP 5,413 on the base). The
+  // source was above X (`src_over`) and the flight is under X from its first moving frame, or the source was under X (`src_under`) and the flight appears above it:
+  // 3,651 stage px^2 either way, where the landing is exact (0.0). A paint order cannot be crossfaded (two copies added across a covering element cannot be summed:
+  // coverage dips to 75 % where they overlap) and a surface switch needs a moment when the flight is clear of X, which a source drawn INSIDE X's area never has.
+  // Recorded with both numbers, required, so the entry fails the moment either end is fixed. The reverse pairing (`dest_under`, the owner's slide-style case where
+  // the destination sits under a later element and the source does not) is fixed and gated as a clean cue.
+  [openKey("become_depth", "src_over", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], owner: "inherent: source and destination on different sides of a covering element: the paint order flips once, here at the start (the base flipped it at the landing, END SNAP 5,413)" },
+  [openKey("become_depth", "src_under", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], owner: "inherent: source and destination on different sides of a covering element: the paint order flips once, here at the start (3,651 on the base too)" },
+  // An asset Change between plots of DIFFERENT intrinsic size (sine 360x108 pt -> scatter 180x108 pt) is not yet one law: the controller reads the pt-true
+  // compensation (`intrinsic`, `naturalViewBox`, transform.ts) from the START asset for the whole flight, so its last frame is not the static render of the
+  // end plot (END SNAP, 8.0) and the next step of a chain starts from the picture the controller left, not from the rest state (PRE-ROLL CHANGE 4,154; 132,822 px
+  // in the browser). Same-size chains (bars5 <-> bars10) are exact. Found by the F3 review (pre-existing, the same on the base); recorded, required: the entry
+  // fails when the per-frame intrinsic / viewBox of the asset a frame belongs to lands.
+  [openKey("plot_chain", "sine_scatter_sine", 1, 1)]: { seek: ["END SNAP (2ms)"], max: { "END SNAP": 12 }, owner: "open: an asset Change between plots of different intrinsic size reads its compensation from the start asset (the end is not the static render)" },
+  [openKey("plot_chain", "sine_scatter_sine", 2, 2)]: { seek: ["PRE-ROLL CHANGE"], owner: "open: a chained asset Change between plots of different intrinsic size starts from the picture the step before it left, not from the rest state" },
   // A compound Change whose hole fills in (lerpCompoundD): the crisp, pixel-aligned hole edge leaves the pixel grid on the first frame whose 8-bit pixels
   // change (9.3 against 0.0, then the next frames are sub-quantum); the same on the base. Physical, not a pop of the motion; tolerated with its magnitude.
   [openKey("compound", "hole_fills", 1, 1)]: { rtMay: ["START STEP"], max: { "START STEP": 15 }, owner: "inherent: a pixel-aligned hole edge leaves the pixel grid on the first changed frame (9.3 then 0.0; same on the base)" },

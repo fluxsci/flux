@@ -158,6 +158,11 @@ interface GuideBinding {
    *  has none). A re-ticked clone of this guide is placed at `pixel - anchor` from it, which keeps the guide's resting offset
    *  from its tick: a y label sits its baseline offset (~0.36 em) below the tick, and a clone must too. */
   anchor: number;
+  /** The same anchor in the END version's geometry (an asset Change moves a guide's own natural place from `origin` to `end` while the
+   *  binder lerps it; a pooled tick is placed against the lerped anchor). Equal to `anchor` when the Change keeps the asset. */
+  anchorEnd: number;
+  /** Which plot version carries this guide: the start's, the end's (both for a Change that keeps the asset). */
+  inA: boolean; inB: boolean;
   /** The leaf id (unprefixed) and its guide kind, for re-ticking (F4). */
   leaf: string; kind: "tick" | "tick-label" | "gridline";
 }
@@ -368,6 +373,10 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
   // vertices are read back into data units through the generated fits and re-projected (F4)
   const shapes: ShapeBinding[] = [];
   const targetIndex = opts?.targetRoot ? new Map(Array.from(opts.targetRoot.querySelectorAll("[id]")).map((n) => [n.getAttribute("id") ?? "", n])) : null;
+  // The polygon a mark STARTS from is the start asset's own pristine one, never what the live node holds: a transform is compiled while the
+  // live content still shows the element's BASE asset, so a Change that follows another asset Change (bars5 -> bars10 -> bars5) would otherwise
+  // read the base asset's geometry as if it were its own start (the second step began from the merged wide bars).
+  const sourceIndex = opts?.sourceRoot ? new Map(Array.from(opts.sourceRoot.querySelectorAll("[id]")).map((n) => [n.getAttribute("id") ?? "", n])) : null;
   for (const a of manifest.series ?? []) {
     const panel = panels.get(a.panelId);
     if (!panel || a.rasterized) continue;
@@ -390,17 +399,20 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     }
     const scaleId = (a as { color?: { scale?: string } }).color?.scale ?? (a as { field?: { colorScale?: string } }).field?.colorScale;
     const scale = scaleId ? (manifest.colorScales ?? []).find((sc) => sc.id === scaleId) : undefined;
+    const paired = new Set<Element>();   // the end version's marks some start mark already stands for
     for (const leaf of filledLeaves(a)) {
       const found = q(leaf);
       const path = pathOf(found);
       if (!path) continue;
-      const subpaths = polygonInData(path, root, sRaw);
+      const home = pathOf(sourceIndex?.get(leaf) ?? null);
+      const subpaths = home ? polygonInData(home, opts!.sourceRoot!, sRaw) : polygonInData(path, root, sRaw);
       if (!subpaths) continue;
       const binding: ShapeBinding = { node: path, panel, from: sFrom, to: sTo, fits: sFits, subpaths };
       if (b && sRawB && opts?.targetRoot) {
         const key = found!.getAttribute("data-key") ?? path.getAttribute("data-key");
         const twin = (key ? bByKey.get(key) : undefined) ?? bById.get(leaf);
         const twinPath = twin ? pathOf(twin) : null;
+        if (twin) paired.add(twin);
         const twinPolys = twinPath ? polygonInData(twinPath, opts.targetRoot, sRawB) : null;
         if (twinPolys && twinPolys.length === subpaths.length && twinPolys.every((sp, k) => sp.x.length === subpaths[k].x.length)) binding.target = { subpaths: twinPolys };
         const va = Number(path.getAttribute("data-value") ?? found!.getAttribute("data-value")), vb = Number(twinPath?.getAttribute("data-value") ?? twin?.getAttribute("data-value"));
@@ -411,6 +423,16 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
       }
       nodes.add(path); reserve(path, ["d"], []);
       shapes.push(binding);
+    }
+    // A mark only the END version has (a bar a Change grows) stands where it will rest: its own pristine polygon through the END view's fit,
+    // never blended with the start's (it grows in place, as it does without a view). Without an end view its own bytes are already the rest.
+    if (b && sRawB && opts?.targetRoot && view) for (const leaf of filledLeaves(b)) {
+      const home = bById.get(leaf);
+      if (!home || paired.has(home)) continue;
+      const path = pathOf(q(leaf)), twinPath = pathOf(home), subpaths = path && twinPath ? polygonInData(twinPath, opts.targetRoot, sRawB) : null;
+      if (!path || !subpaths) continue;
+      nodes.add(path); reserve(path, ["d"], []);
+      shapes.push({ node: path, panel, from: sFrom, to: sTo, fits: sTo, subpaths });
     }
   }
   const guides: GuideBinding[] = [];
@@ -424,15 +446,23 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     reserve(node, ["transform"], ["opacity", "display"]);
     const kind: GuideBinding["kind"] = /\.gridline\.\d+$/.test(leaf) ? "gridline" : /\.(?:ticklabel|tick-label)\.\d+$/.test(leaf) ? "tick-label" : "tick";
     const origin = projectWith(rawFitA, g.value);
-    guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin, anchor: origin,
-      end: projectWith(rawFitB, targetData.get(leaf)?.value ?? g.value), delta: g.axis.startsWith("x") ? { dx: 0 } : { dy: 0 }, leaf, kind });
+    const end = projectWith(rawFitB, targetData.get(leaf)?.value ?? g.value);
+    guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin, anchor: origin, anchorEnd: end,
+      end, delta: g.axis.startsWith("x") ? { dx: 0 } : { dy: 0 }, leaf, kind, inA: data.has(leaf), inB: targetData.has(leaf) });
   }
   // a label (or gridline) rests at its tick's pixel plus a constant: anchor every guide to the tick of its own index
-  const tickAt = new Map<Panel, Map<string, number>>();
-  for (const g of guides) if (g.kind === "tick") (tickAt.get(g.panel) ?? tickAt.set(g.panel, new Map()).get(g.panel)!).set(`${g.axis}|${guideIndexKey(g.leaf)}`, g.origin);
-  for (const g of guides) g.anchor = tickAt.get(g.panel)?.get(`${g.axis}|${guideIndexKey(g.leaf)}`) ?? g.origin;
+  const tickAt = new Map<Panel, Map<string, number>>(), tickEndAt = new Map<Panel, Map<string, number>>();
+  for (const g of guides) if (g.kind === "tick") {
+    (tickAt.get(g.panel) ?? tickAt.set(g.panel, new Map()).get(g.panel)!).set(`${g.axis}|${guideIndexKey(g.leaf)}`, g.origin);
+    (tickEndAt.get(g.panel) ?? tickEndAt.set(g.panel, new Map()).get(g.panel)!).set(`${g.axis}|${guideIndexKey(g.leaf)}`, g.end);
+  }
+  for (const g of guides) {
+    const key = `${g.axis}|${guideIndexKey(g.leaf)}`;
+    g.anchor = tickAt.get(g.panel)?.get(key) ?? g.origin;
+    g.anchorEnd = tickEndAt.get(g.panel)?.get(key) ?? g.end;
+  }
   const flightNodes: Element[] = [];
-  const flight = opts?.tickHandoff && !opts.assetChange && (view || opts.fromView) ? buildFlight(manifest, view, opts, panels, guides, nodes, flightNodes) : [];
+  const flight = opts?.tickHandoff && (view || opts.fromView) ? buildFlight(manifest, view, opts, panels, guides, nodes, flightNodes, targetIndex) : [];
   return { series, guides, panels: [...panels.values()], shapes, interpolated: opts?.geometryInterpolated ?? false, axesInfo, flight, flightNodes };
 }
 
@@ -453,40 +483,50 @@ let flightSerial = 0;
 const labelHtml = (l: { text: string; base?: string; exponent?: string }) =>
   l.exponent !== undefined ? `${l.base}<tspan baseline-shift="super" style="font-size: 70%">${l.exponent}</tspan>` : l.text;
 function buildFlight(manifest: FluxPlotManifest, view: PlotView | undefined, opts: PlotViewOptions, panels: Map<string | undefined, Panel>,
-  guides: GuideBinding[], nodes: Set<Element>, created: Element[]): FlightAxis[] {
+  guides: GuideBinding[], nodes: Set<Element>, created: Element[], targetIndex: Map<string, Element> | null): FlightAxis[] {
   const out: FlightAxis[] = [];
   for (const [panelId, panel] of panels) for (const axis of ["x", "y", "y2", "x2"] as PlotAxisKey[]) {
     const mine = guides.filter(g => g.panel === panel && g.axis === axis);
     if (!mine.length) continue;
-    const aRet = retickable(manifest, opts.fromView, panelId, axis), bRet = retickable(manifest, view, panelId, axis);
+    // An asset Change has two manifests (and two pixel ranges): each side's set is read from its own version, so a Change that starts from
+    // (or lands on) a re-ticked view hands the ticks off exactly as a view Change does, and a side with no view keeps its generated ticks.
+    const endManifest = opts.toManifest ?? manifest;
+    const aRet = retickable(manifest, opts.fromView, panelId, axis), bRet = retickable(endManifest, view, panelId, axis);
     if (!aRet && !bRet) continue;
     const range = panel.ranges[axis]; if (!range) continue;
+    const endRange = panel.endRanges[axis] ?? range;
     // a side's tick set: nice ticks of its domain (what the static retick paints), or the generated ones (their
     // recovered values and exact strings)
-    const nice = (sideView: PlotView | undefined): { set: TickSpec[]; log: boolean } | null => {
-      const fit = viewFits(manifest, sideView, panelId)?.[axis]; if (!fit) return null;
-      const d = [dataOfPixel(fit, range[0]), dataOfPixel(fit, range[1])], lo = Math.min(...d), hi = Math.max(...d), eps = (hi - lo) * 1e-9;
+    const nice = (sideView: PlotView | undefined, side: "a" | "b"): { set: TickSpec[]; log: boolean } | null => {
+      const fit = viewFits(side === "a" ? manifest : endManifest, sideView, panelId)?.[axis], r = side === "a" ? range : endRange; if (!fit) return null;
+      const d = [dataOfPixel(fit, r[0]), dataOfPixel(fit, r[1])], lo = Math.min(...d), hi = Math.max(...d), eps = (hi - lo) * 1e-9;
       const values = ticksFor(fit.log ? "log" : "linear", lo, hi).filter(v => v >= lo - eps && v <= hi + eps);
       const labels = fit.log ? values.map(v => labelHtml(formatTick(v, "log"))) : scalarLabels(values);
       return { set: values.map((value, i) => ({ value, html: labels[i] })), log: fit.log };
     };
     // The generated ticks of this axis, one entry per TICK (its mark, label and gridline share a leaf index, and their
     // recovered values differ by the rounding of three separate SVG coordinates, so they are grouped by index, never by value).
-    const generated = (): TickSpec[] => {
+    const generated = (side: "a" | "b"): TickSpec[] => {
       const byIndex = new Map<string, { mark?: GuideBinding; label?: GuideBinding; other?: number; html: string }>();
+      const valueOf = (g: GuideBinding) => side === "a" ? g.value : g.endValue;
+      // a label's exact string comes from the version it belongs to: the live node holds the START's, so an asset Change reads the end's
+      // from the end's own pristine render
+      const labelNode = (g: GuideBinding): Element => (side === "b" && opts.assetChange ? targetIndex?.get(g.leaf) : null) || g.node;
       for (const g of mine) {
+        if (!(side === "a" ? g.inA : g.inB)) continue;
         const key = guideIndexKey(g.leaf);
         const entry = byIndex.get(key) ?? byIndex.set(key, { html: "" }).get(key)!;
-        if (g.kind === "tick") entry.mark = g; else entry.other ??= g.value;
+        if (g.kind === "tick") entry.mark = g; else entry.other ??= valueOf(g);
         if (g.kind === "tick-label") {
           entry.label = g;
-          const text = g.node.tagName.toLowerCase() === "text" ? g.node : g.node.querySelector("text"); entry.html = text?.innerHTML ?? "";
+          const node = labelNode(g), text = node.tagName.toLowerCase() === "text" ? node : node.querySelector("text"); entry.html = text?.innerHTML ?? "";
         }
       }
-      return [...byIndex.values()].map(e => ({ value: e.mark?.value ?? e.other!, html: e.html, offset: e.label && e.mark ? e.label.origin - e.mark.origin : undefined }));
+      const gap = (e: { mark?: GuideBinding; label?: GuideBinding }) => e.label && e.mark ? side === "a" ? e.label.origin - e.mark.origin : e.label.end - e.mark.end : undefined;
+      return [...byIndex.values()].map(e => ({ value: e.mark ? valueOf(e.mark) : e.other!, html: e.html, offset: gap(e) }));
     };
-    const na = aRet ? nice(opts.fromView) : null, nb = bRet ? nice(view) : null;
-    const A = na?.set ?? generated(), B = nb?.set ?? generated();
+    const na = aRet ? nice(opts.fromView, "a") : null, nb = bRet ? nice(view, "b") : null;
+    const A = na?.set ?? generated("a"), B = nb?.set ?? generated("b");
     const log = !!(na?.log ?? nb?.log ?? panel.from[axis]?.log);
     // The first guide of the kind that is shown in the plot's own state. A Change that starts from a re-ticked static view
     // binds with the generated guides already hidden by that static pass, so the display is read through the pristine
@@ -558,10 +598,14 @@ function writeFlight(plan: Projection, t: number): Set<Element> {
     const base = { tick: baseOf(fa.origin.tick, "tick"), label: baseOf(fa.origin["tick-label"], "tick-label"), grid: baseOf(fa.origin.gridline, "gridline") };
     // `offset`: where this tick's label rests from its tick (a generated label's own; absent = the template's, which every nice
     // label takes, exactly as the static re-tick places it)
+    // an asset Change moves the template's own natural place from its start geometry to its end geometry (the binder lerps it), so the pool
+    // is placed against the lerped anchor; a Change that keeps the asset has origin == end, anchor == anchorEnd (the same numbers)
+    const lerped = (a: number, b: number) => plan.interpolated ? a + (b - a) * t : a;
     const put = (node: Element | undefined, tpl: GuideBinding | undefined, pixel: number, opacity: number, b: number, offset?: number) => {
       if (!node || !tpl) return;
       if (!(opacity > 0.002) || !Number.isFinite(pixel)) { style(node, "display", "none"); return; }
-      const delta = pixel - tpl.anchor + (offset === undefined ? 0 : offset - (tpl.origin - tpl.anchor)), original = tpl.node.getAttribute("transform");
+      const anchor = lerped(tpl.anchor, tpl.anchorEnd);
+      const delta = pixel - anchor + (offset === undefined ? 0 : offset - (lerped(tpl.origin, tpl.end) - anchor)), original = tpl.node.getAttribute("transform");
       const pristineTransform = pristine.get(tpl.node)?.attrs.get("transform"), baseT = pristineTransform?.written ? pristineTransform.value : original;
       attr(node, "transform", `translate(${(isX ? delta : 0).toFixed(6)} ${(isX ? 0 : delta).toFixed(6)})${baseT ? ` ${baseT}` : ""}`);
       style(node, "opacity", String(opacity * b)); style(node, "display", "");
@@ -657,7 +701,9 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
     if (sh.value.paint !== "fill") { style(sh.node, "stroke", hex); if (opacity) style(sh.node, "stroke-opacity", opacity); }
   }
   const progress = opts?.raw ?? t;
-  const atRest = !!opts?.assetChange && (progress >= 1 && !view || progress <= 0 && !opts.fromView);
+  // at an asset Change's end the frame IS that end's own render: an axis its view leaves alone keeps its generated guides at full opacity
+  // (the static render skips an unchanged axis; only a viewed one fades its guides at the plot edge)
+  const atRest = (axis: PlotAxisKey) => !!opts?.assetChange && (progress >= 1 && !view?.[axis] || progress <= 0 && !opts.fromView?.[axis]);
   // at rest with a view, an axis whose domain or scale changed gets ticks generated for the new
   // domain (its own scheme: nice 1·2·5 steps or decades) in place of the generated ones (F4)
   const reticked = !opts ? (view ? retick(root, plan, view, manifest) : new Set<Element>()) : plan.flight.length ? writeFlight(plan, t) : new Set<Element>();
@@ -671,7 +717,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
     const a = p.ranges[g.axis] ?? (g.axis.startsWith("x") ? p.xRange : p.yRange), b = p.endRanges[g.axis] ?? (g.axis.startsWith("x") ? p.xEndRange : p.yEndRange);
     const edge0 = a[0] + (b[0] - a[0]) * t, edge1 = a[1] + (b[1] - a[1]) * t;
     const lo = Math.min(edge0, edge1), hi = Math.max(edge0, edge1);
-    const fade = atRest ? 1 : Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
+    const fade = atRest(g.axis) ? 1 : Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
     g.delta[g.axis.startsWith("x") ? "dx" : "dy"] = Number.isFinite(pixel) ? pixel - (g.origin + (plan.interpolated ? (g.end - g.origin) * t : 0)) : 0;
     writeGuide(g.node, g.delta, fade);
   }

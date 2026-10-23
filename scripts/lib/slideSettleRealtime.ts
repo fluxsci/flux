@@ -90,6 +90,9 @@ export const RT = {
   stepRatio: 3, startRatio: 4, stepFloor: 6,
   /** a presented frame whose change from its predecessor exceeds this has moved (the rest frames before the motion read exactly 0) */
   moveEps: 0.05,
+  /** a presented frame that changed by less than this since its predecessor carries no new motion: the compositor presented the previous frame again (a
+   *  duplicate, with a tenth of a unit of compositing noise at most), so the start rule compares the first moving frame with the next frame that is more */
+  dupEps: 0.5,
   /** an interrupt settles velocity-continuously: no presented frame changes more than this multiple of the frames before it (floor 6) */
   jumpRatio: 6,
 };
@@ -116,7 +119,9 @@ export function rtFlags(c: RtCue): string[] {
   // after it, and the first presented frame against the rest before it
   {
     const frames = c.frames.filter(x => x.t >= 0), at = frames.findIndex(x => x.d > RT.moveEps);
-    const next = at >= 0 ? frames[at + 1]?.d ?? 0 : 0;
+    // ... the next frame that moved again: a compositor can present a duplicate right after the first moving frame (d = 0, series `0 0 20 0 72 49`), and
+    // comparing the first motion frame with a frame that did not move reads a step of the cadence, never of the picture
+    const next = at >= 0 ? frames.slice(at + 1).find(x => x.d > RT.dupEps)?.d ?? 0 : 0;
     if (at >= 0 && frames[at].d > Math.max(RT.startRatio * next, RT.stepFloor)) f.push(`START STEP (${frames[at].d.toFixed(1)} before ${next.toFixed(1)})`);
     const after = Math.max(frames[1]?.d ?? 0, frames[2]?.d ?? 0);
     if (c.restBeforeToFirst != null && c.restBeforeToFirst > Math.max(RT.startRatio * after, RT.stepFloor)) f.push(`FIRST FRAME != REST (${c.restBeforeToFirst.toFixed(1)} against ${after.toFixed(1)} after it)`);

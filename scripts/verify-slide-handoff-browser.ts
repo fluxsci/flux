@@ -116,6 +116,15 @@ try {
   const mm = add("morph-markers"); addElement(deck, mm.id, plot("source", "medium", 30, { width: 200, height: 100 })); addElement(deck, mm.id, plot("dest", "sine", 520, { height: 108 }));
   handoff(mm, "source", { element: "dest", parts: ["2hz.line"] }, { pair: "data" }, ["samples.points"]);
 
+  // R2 F3: a flight is drawn at the DEPTH its destination rests at, so the landing never flips the paint order of an element the flight crossed.
+  // `depth`: the destination is covered by an element drawn after it (cover); `depth-top`: nothing covers it (the flight is the top of the stack).
+  const rectEl = (id: string, x: number, y: number, w: number, hh: number, fill: string) => ({ id, type: "rect" as const, x, y, width: w, height: hh, rotation: 0, fill, stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+  const ellipseEl = (id: string) => ({ id, type: "ellipse" as const, x: 600, y: 200, width: 120, height: 80, rotation: 0, fill: "#e13958", stroke: "none", strokeWidth: 0 });
+  const depth = add("depth"); addElement(deck, depth.id, pathEl("source")); addElement(deck, depth.id, ellipseEl("dest")); addElement(deck, depth.id, rectEl("cover", 650, 220, 120, 80, "#4169e1"));
+  handoff(depth, "source", { element: "dest" });
+  const depthTop = add("depth-top"); addElement(deck, depthTop.id, rectEl("under", 650, 220, 120, 80, "#4169e1")); addElement(deck, depthTop.id, pathEl("source")); addElement(deck, depthTop.id, ellipseEl("dest"));
+  handoff(depthTop, "source", { element: "dest" });
+
   // In-memory curves until M3 enables their persisted schema.
   const springPaths = structuredClone(b), springGlyphs = structuredClone(d);
   springPaths.id = "spring-pairs"; springGlyphs.id = "spring-glyphs";
@@ -411,6 +420,21 @@ try {
   h.eq(statics.disposed, { children:0,source:"",dest:"" }, "dispose restores all prior inline visibility and releases flight children");
   h.ok(statics.channels.pairs.length >= 58 && statics.channels.pairs.every((t: number) => t >= 0 && t <= 1), "real-player correspondence receives only [0,1] under spring(.8)");
   h.ok(statics.channels.glyphs.length >= 116 && statics.channels.glyphs.every((t: number) => t >= 0 && t <= 1), "real-player glyph driver receives only [0,1] under spring(.8)");
+  {
+    await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.seek");
+    // paint order = DOM order of the stage's children: the flight surface must sit directly after the destination, before whatever covers it
+    // (string expressions: a function declared inside an evaluated callback gets tsx's `__name` helper)
+    const order = (slide: number) => page.evaluate(`(() => { window.fluxDeck.seek(${slide}, 1, 500);
+      const host = document.querySelector('[data-el-id="dest"]').parentElement, kids = Array.from(host.children);
+      return kids.map(n => n.classList.contains("sl-flight") ? (n.querySelector(".sl-handoff") ? "flight" : "flight(empty)") : n.dataset.elId || n.className).filter(t => t !== "flight(empty)"); })()`) as Promise<string[]>;
+    const at = (id: string) => deck.slides.findIndex(x => x.id === id);
+    h.eq(await order(at("depth")), ["source", "dest", "flight", "cover"], "a hand-off landing under an element drawn after it flies on a surface right above the destination (covered by it, as the destination is)");
+    h.eq(await order(at("depth-top")), ["under", "source", "dest", "flight"], "a destination nothing covers flies on the top of the stack");
+    const covered = await page.evaluate((slide) => { (window as any).fluxDeck.seek(slide, 1, 500); const f = document.querySelector('.sl-flight[data-depth]'); return !!f && !!f.querySelector(".sl-handoff"); }, at("depth"));
+    h.ok(covered, "the depth surface carries the hand-off layer");
+    await page.evaluate((slide) => (window as any).fluxDeck.seek(slide, 1, 5000), at("depth"));
+    h.eq(await page.evaluate(() => getComputedStyle(document.querySelector(".sl-flight[data-depth] .sl-handoff")!).visibility), "hidden", "landed: the layer is hidden and the destination shows at its own depth");
+  }
   h.eq(errors, [], "exported and static hosts have no browser errors or CSP violations");
 } catch (err) { h.fail(String((err as Error).stack ?? err)); }
 finally { await browser?.close(); await fs.rm(tmp, { recursive:true,force:true }); }

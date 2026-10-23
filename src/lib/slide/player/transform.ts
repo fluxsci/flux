@@ -44,6 +44,7 @@ import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { ghostEmergence } from "../ghost";
 import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
+import { shapeWeights, snapWeights, maxShift, pathPoints, LOOK_TRAVEL } from "./shapeHandover";
 import type { GlyphProvider } from "./glyphProvider";
 import type { TextLook } from "../timing";
 import { elementStageOutlines } from "../targetGeometry";
@@ -191,6 +192,10 @@ export function createTransform(
   // the composite translate then carries the exact fraction, so frames and
   // endpoints agree to the sub-pixel and nothing snaps at either end.
   const baseBox = layoutBoxOf(elementBBox({ ...pre, rotation: 0 }));
+  // An outline morph is a Become between two boxes: the composite is laid on the START's layout box for the first half and on the END's for the
+  // second, so the last flight frame is exactly the end's rest law (layout box + the same composite form) and the landing does not change the
+  // wrapper's raster (a 12 px ring landing on a different layout box moved its edge by 10 stage px^2 at the swap to the rest box).
+  const endBaseBox = layoutBoxOf(elementBBox({ ...end, rotation: 0 }));
   // A pure move rides its own compositor layer for the flight (render.ts,
   // layer hygiene): rasterized once, moved at float precision — text glides
   // instead of stepping, heavy content moves without repainting. Demoted at
@@ -234,9 +239,10 @@ export function createTransform(
     to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
     fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
     sourceRoot, targetRoot, geometryInterpolated: true, assetChange,
-    // a view-only Change hands the generated ticks off to the nice ones in flight (projectDom buildFlight); an asset Change
-    // keeps the guide pairing of its own two manifests
-    tickHandoff: !assetChange,
+    // a Change whose start or end view re-ticks an axis hands the generated ticks off to the nice ones in flight (projectDom buildFlight),
+    // an asset Change included (each side's set is read from its own version); an axis no view re-ticks keeps the guide pairing of the
+    // two manifests
+    tickHandoff: true,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
   const intrinsic = (() => {
@@ -350,11 +356,52 @@ export function createTransform(
     morphLayers = { A, M, B, svg, body, band: null, heads, fixed };
     return morphLayers;
   }
-  function showMorphLayer(t: number): void {
+  function showMorphLayer(raw: number, w = { a: 0, m: 1, b: 0 }): void {
     const L = ensureMorphLayers();
-    L.A.style.visibility = t <= 0 ? "" : "hidden";
-    L.M.style.visibility = t > 0 && t < 1 ? "" : "hidden";
-    L.B.style.visibility = t >= 1 ? "" : "hidden";
+    if (raw <= 0) w = { a: 1, m: 0, b: 0 }; else if (raw >= 1) w = { a: 0, m: 0, b: 1 };
+    // (A, M and B are HTML layers hidden by `visibility`, unlike the hand-off's SVG pieces, which are `display: none` at weight 0: the invisible-child raster shift
+    // belongs to an isolated SVG group holding a hidden path. Measured: the 20 become cues of the settle corpus read the same numbers with either.)
+    for (const [node, weight] of [[L.A, w.a], [L.M, w.m], [L.B, w.b]] as const) {
+      const v = weight > 0 ? "" : "hidden", o = weight >= 1 || weight <= 0 ? "" : String(Math.round(weight * 1e6) / 1e6);
+      if (node.style.visibility !== v) node.style.visibility = v;
+      if (node.style.opacity !== o) node.style.opacity = o;
+    }
+  }
+  /** A Become whose stroke is a BAND hands over to the real renders at its ends: the exact band against the path stroker (a ring) differs by ~0.1 px along
+   *  the whole edge, a seam on the first moving frame and the landing frame. A pair without one strokes the same path the resting shape is (no seam, no
+   *  layer). Decided at the first flight frame (planning the band never costs the first preview), then the layers are ADDED with distance weights
+   *  (shapeHandover.ts): the host isolated and the three layers plus-lighter, set once and never toggled. */
+  let handoverOn: boolean | null = null;
+  function handoverFor(): boolean {
+    if (handoverOn !== null) return handoverOn;
+    // (a gradient paint keeps the old law: the browser rounds a gradient one to two levels differently inside an alpha layer than in the direct paint, a
+    // second-frame step of 223,000 px at 2 levels on the Release 1 deck's viridis fill, far above the 0.1 px seam it would hide)
+    const gradient = (st: { fillMap?: unknown; strokeMap?: unknown }) => !!(st.fillMap || st.strokeMap);
+    handoverOn = !!morphPlan!.band?.() && !gradient(morphPlan!.preStyle) && !gradient(morphPlan!.endStyle);
+    if (handoverOn) {
+      const L = ensureMorphLayers();
+      for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) contentHost.style.setProperty(k, v);
+      for (const layer of [L.A, L.M, L.B]) for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) layer.style.setProperty(k, v);
+    }
+    return handoverOn;
+  }
+  /** The stage-px points (anchors and handle ends) of the flight's own two ends (sampled once), for the hand-over distances. */
+  let morphEnds: { a: number[]; b: number[]; look: number; turn: number } | null = null;
+  const anchorsOf = (el: FigElement): number[] => (el.type === "path" ? pathPoints(el.nodes ?? [], el.x, el.y) : []);
+  /** How far this flight frame is from its start render and from its end render (stage px; every term of change counts). */
+  function morphDistances(frame: FigElement, t: number): { away: number; settle: number } {
+    const plan = morphPlan!;
+    if (!morphEnds) {
+      const A = sampleElementMorph(plan, 0), B = sampleElementMorph(plan, 1), ps = plan.preStyle, es = plan.endStyle;
+      const same = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y);
+      const lookDiffers = !same([ps.fill, ps.stroke, ps.dash, plan.pre.opacity, (plan.pre as { fillOpacity?: number }).fillOpacity, (plan.pre as { strokeOpacity?: number }).strokeOpacity],
+        [es.fill, es.stroke, es.dash, plan.end.opacity, (plan.end as { fillOpacity?: number }).fillOpacity, (plan.end as { strokeOpacity?: number }).strokeOpacity]) || !same(ps.fillMap, es.fillMap) || !same(ps.strokeMap, es.strokeMap);
+      const radius = Math.max(plan.preBox.w, plan.preBox.h, plan.endBox.w, plan.endBox.h) / 2;
+      morphEnds = { a: anchorsOf(A), b: anchorsOf(B), look: (lookDiffers ? LOOK_TRAVEL : 0) + Math.abs(es.strokeWidth - ps.strokeWidth),
+        turn: Math.abs((plan.end.rotation ?? 0) - (plan.pre.rotation ?? 0)) * Math.PI / 180 * radius };
+    }
+    const cur = anchorsOf(frame), e = morphEnds;
+    return { away: Math.max(maxShift(cur, e.a), t * (e.look + e.turn)), settle: Math.max(maxShift(cur, e.b), (1 - t) * (e.look + e.turn)) };
   }
   // the last `<defs>` markup written (innerHTML never round-trips: SVG serializes `</stop>` end tags)
   let morphDefsMarkup = "";
@@ -616,9 +663,11 @@ export function createTransform(
     // rasterised the text softly in flight against the hinted rest text and snapped when the flight landed.
     const relayoutsText = staticUpdate && pre.type === "text";
     if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
-      applyWrapperBoxComposite(wrap, wrapEl, baseBox, { skipOpacity: boxOpts.skipOpacity });
+      applyWrapperBoxComposite(wrap, wrapEl, morphPlan && t >= 0.5 ? endBaseBox : baseBox, { skipOpacity: boxOpts.skipOpacity });
       // a text morph's box rides a layer only when the box itself travels (its spans decide for themselves)
-      if (glide && (!textLayers || displaced)) promoteMovingWrapper(wrap);
+      // ... and an outline morph's box only when it really travels: a Become that keeps its box (a ring into a rect) has nothing a layer could move,
+      // and promoting it re-rasters the whole picture at the first flight frame (a 6 stage px^2 step on the first moving frame)
+      if (glide && (!textLayers || displaced) && (!morphPlan || displaced)) promoteMovingWrapper(wrap);
     } else {
       applyWrapperBox(wrap, wrapEl, boxOpts);
       if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)
@@ -635,8 +684,11 @@ export function createTransform(
     }
 
     if (morphPlan) {
-      if (raw > 0 && raw < 1) writeMorphFrame(content, t);
-      showMorphLayer(raw);
+      if (raw > 0 && raw < 1) {
+        writeMorphFrame(content, t);
+        if (handoverFor()) { const { away, settle } = morphDistances(content, t); showMorphLayer(raw, snapWeights(shapeWeights(away, settle))); }
+        else showMorphLayer(raw);
+      } else showMorphLayer(raw);
       return;
     }
 

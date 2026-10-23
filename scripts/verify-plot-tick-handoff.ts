@@ -250,7 +250,46 @@ h.section("scope: flag unset, category axis, asset change");
   const rb = bars.root(), ob = optsFor(bars.manifest, undefined, bv); preparePlotView(rb, bars.manifest, bv, "", ob);
   h.eq(rb.querySelectorAll('[data-projection-flight][id*="axis.x."]').length, 0, "a category x axis is never pooled");
   h.ok(rb.querySelectorAll('[data-projection-flight][id*="axis.y."]').length > 0, "while the numeric y axis of the same plot is");
-  const ra = sine.root(), oa = optsFor(sine.manifest, undefined, view, { assetChange: true }); preparePlotView(ra, sine.manifest, view, "", oa);
-  h.eq(ra.querySelectorAll("[data-projection-flight]").length, 0, "assetChange keeps the guide pairing (no pool)");
+  const ra = sine.root(), oa = optsFor(sine.manifest, undefined, undefined, { assetChange: true }); preparePlotView(ra, sine.manifest, undefined, "", oa);
+  h.eq(ra.querySelectorAll("[data-projection-flight]").length, 0, "an asset Change with no view at either end keeps the guide pairing (no pool)");
+}
+
+// R2 F3: an asset Change that starts from or lands on a re-ticked view hands the axis' ticks off exactly like a view Change. Before, only a
+// view-only Change pooled its ticks: an asset Change under a view started on the GENERATED ticks (4 6 8) where the rest render held the nice
+// ones (2 3 4 ... 8) and landed on the generated ones again, so a Change after a view Change (and any Change under a view) popped its ticks.
+{
+  const A = load("plots/mpl_bars_5_FLUXPLOT"), B = load("plots/mpl_bars_10_FLUXPLOT");
+  const V: PlotView = { y: { domain: [2, 8] } };
+  const staticOf = (fx: Fx, view: PlotView | undefined) => { const r = fx.root(); if (view) applyPlotView(r, fx.manifest, view, ""); return r; };
+  const assetScenario = (name: string, from: PlotView | undefined, to: PlotView | undefined) => {
+    h.section(`asset Change under a view: ${name}`);
+    const root = A.root(), sA = staticOf(A, from), sB = staticOf(B, to);
+    const o: PlotViewOptions = { t: 0, from: viewFits(A.manifest, from) ?? undefined, to: viewFits(B.manifest, to) ?? undefined, fromView: from, geometryInterpolated: true,
+      assetChange: true, tickHandoff: true, toManifest: B.manifest, sourceRoot: A.root(), targetRoot: B.root(),
+      series: (a) => B.manifest.series.find(x => x.id === a.id) ?? null };
+    preparePlotView(root, A.manifest, to, "", o);
+    h.ok(root.querySelectorAll('[data-projection-flight][id*="axis.y."]').length > 0, "the viewed y axis is pooled");
+    h.eq(root.querySelectorAll('[data-projection-flight][id*="axis.x."]').length, 0, "the category x axis never is (the guide pairing of the two manifests)");
+    const frame = (t: number) => { o.t = t; o.raw = t; applyPlotView(root, A.manifest, to, "", o); };
+    frame(0);
+    h.eq(labelsOf(root, "y"), labelsOf(sA, "y"), `t=0 y labels equal the start render (${labelsOf(sA, "y").join(" ")})`);
+    h.ok(sameNumbers(markPositions(root, "y"), markPositions(sA, "y")), "t=0 y tick marks sit where the start render has them");
+    h.eq(labelsOf(root, "x"), labelsOf(sA, "x"), "t=0 x labels equal the start render (an axis no view touches: full opacity, no edge fade)");
+    h.ok(sameNumbers(markPositions(root, "x"), markPositions(sA, "x")), "t=0 x tick marks equal the start render");
+    frame(1e-6);
+    h.eq(labelsOf(root, "y"), labelsOf(sA, "y"), "t=0+ the y label set is unchanged (no pop at the first moving frame)");
+    h.ok(sameNumbers(markPositions(root, "y"), markPositions(sA, "y"), 1e-3), "t=0+ every y tick mark stays");
+    frame(1);
+    h.eq(labelsOf(root, "y"), labelsOf(sB, "y"), `t=1 y labels equal the end render, string for string (${labelsOf(sB, "y").join(" ")})`);
+    h.ok(sameNumbers(markPositions(root, "y"), markPositions(sB, "y")), "t=1 y tick marks sit where the end render has them");
+    const p1 = labelPositions(root, "y"), q1 = labelPositions(sB, "y");
+    h.ok(Object.keys(q1).every(k => k in p1 && Math.abs(p1[k] - q1[k]) < 1e-3), "t=1 every y label rests where the end render has it");
+    frame(.4); const mid = root.toString(); frame(.9); frame(.4);
+    h.ok(root.toString() === mid, "re-seeking the same t is byte-identical (seek purity)");
+    restoreProjection(root);
+  };
+  assetScenario("start viewed, end not", V, undefined);
+  assetScenario("start not viewed, end viewed", undefined, V);
+  assetScenario("viewed at both ends", V, V);
 }
 await h.done();

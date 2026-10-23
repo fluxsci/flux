@@ -157,6 +157,22 @@ async function plotDecks(compact: boolean): Promise<CorpusDeck[]> {
     }
     out.push({ name: "plot_lines", payload: { deck: b.deck, plots: { sine: plots.sine } } });
   }
+  {
+    // CHAINED plot Changes (R2 F3): every step starts from the plot the step before it left, whatever it changed. The fixtures are the same plot with
+    // five and with ten bars (same size, so the asset Change is a value morph). A chain compiled against the element's BASE asset began its second
+    // Change on the merged wide bars (PRE-ROLL CHANGE 4,558).
+    const bars5 = await readPlot("mpl_bars_5"), bars10 = await readPlot("mpl_bars_10");
+    const b = new Builder("plot_chain"); const to = (id: string) => ({ toAssetId: id, duration: 1200 });
+    const chain = (slide: string, steps: Record<string, unknown>[]) => { for (const o of steps) b.change(slide, b.beat(slide), "pl", (o.state as Record<string, unknown>) ?? {}, o); };
+    const zoom = { view: { y: { domain: [2, 8] } } };
+    { const s = b.slide("bars_chain"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [to("bars10"), to("bars5"), to("bars10")]); }
+    { const s = b.slide("asset_then_view"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [to("bars10"), { state: zoom }]); }
+    { const s = b.slide("view_then_asset"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [{ state: zoom }, to("bars10")]); }
+    // an asset chain between plots of DIFFERENT intrinsic size (sine 360x108 pt, scatter 180x108 pt): open, see KNOWN_OPEN
+    const sine = await readPlot("mpl_sine_waves"), scatter = await readPlot("mpl_scatter");
+    { const s = b.slide("sine_scatter_sine"); place(b, s, "pl", "sine", { x: 120, width: 400 }); chain(s, [to("scatter"), to("sine")]); }
+    out.push({ name: "plot_chain", payload: { deck: b.deck, plots: { bars5, bars10, sine, scatter } } });
+  }
   return out;
 }
 
@@ -206,6 +222,29 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     b.add(s, el("text", "txtA", 40, 335, { text: "Mycelial growth" })); b.add(s, el("text", "txtB", 320, 335, { text: "growth Mycelial" }));
     b.become(s, b.beat(s), "txtA", { element: "txtB" });
     out.push({ name: "become", payload: { deck: b.deck } });
+  }
+  {
+    // R2 follow-up F3: a hand-off flies at the DEPTH its destination rests at. The flight surface used to be the top of the stack, so a flight that
+    // crossed an element ABOVE the destination covered it all the way, and the landing frame (the destination appearing under that element) flipped
+    // the paint order of the overlap (the synthetic `become#1-1`: END SNAP 59.8). `dest_under` lands an ellipse under an element drawn after it, `dest_over`
+    // lands one OVER an element drawn before it (the control: nothing covers the landing, the flight is the top of the stack either way).
+    const b = new Builder("become_depth");
+    { const s = b.slide("dest_under"); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80 }));
+      b.add(s, el("ellipse", "b", 330, 100, { width: 160, height: 100 })); b.add(s, el("rectS", "x", 420, 130, { width: 140, height: 90, fill: "#f2f0e5" }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("dest_over"); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80 }));
+      b.add(s, el("rectS", "x", 420, 130, { width: 140, height: 90, fill: "#f2f0e5" })); b.add(s, el("ellipse", "b", 330, 100, { width: 160, height: 100 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    // the MIRRORED configurations (the destination and the SOURCE sit on different sides of a covering element X): the flight draws at the destination's depth, so
+    // when the source was above X (`src_over`) the flight is covered by X from its first moving frame, and when the source was under X (`src_under`) it
+    // appears above X: a flip of the overlap's paint order at the START (3,651 on both; the landing is exact). KNOWN_OPEN, with the reason.
+    { const s = b.slide("src_over"); b.add(s, { id: "b", type: "ellipse", x: 360, y: 100, width: 160, height: 100, rotation: 0, fill: C.red, stroke: "none", strokeWidth: 0 });
+      b.add(s, el("rectS", "x", 40, 80, { width: 520, height: 160, stroke: "none", strokeWidth: 0 })); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80, cornerRadius: 0 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("src_under"); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80, cornerRadius: 0 }));
+      b.add(s, el("rectS", "x", 40, 80, { width: 520, height: 160, stroke: "none", strokeWidth: 0 })); b.add(s, { id: "b", type: "ellipse", x: 360, y: 100, width: 160, height: 100, rotation: 0, fill: C.red, stroke: "none", strokeWidth: 0 });
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    out.push({ name: "become_depth", payload: { deck: b.deck } });
   }
   {
     // The Release 1 review deck's two hardest hand-offs, authored the way that deck is (a state Become, mode "consume"): a THICK-stroked
@@ -260,6 +299,27 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "rect", x: 220, y: 90, width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 } }); }
     { const s = b.slide("ell_rect_ho"); b.add(s, { id: "a", type: "ellipse", x: 60, y: 90, width: 200, height: 180, rotation: 0, fill: "none", stroke: C.ink, strokeWidth: 12 }); b.add(s, el("rect", "b", 380, 90, { width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 }));
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    // the REVERSE of line -> shape: a rect becomes a butt-capped line (the other half of the hairpin stadium; 8.9 seek / 9.5 GPU at the start before F3)
+    { const s = b.slide("rect_line"); b.add(s, el("rect", "a", 100, 110, { width: 200, height: 140, fill: C.blue, stroke: C.blueD, strokeWidth: 8 })); b.add(s, el("line", "b", 340, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.redD, strokeWidth: 8, cap: "butt" }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    // ... into a ROUND-capped line, and the forward direction from one: the hairpin tips carry the line's own round join (cornerJoinOf), so the round caps do not appear at
+    // the landing (END SNAP 18.4 before F3) and a round-capped line does not start from square tips
+    { const s = b.slide("rect_line_round"); b.add(s, el("rect", "a", 100, 110, { width: 200, height: 140, fill: C.blue, stroke: C.blueD, strokeWidth: 8 })); b.add(s, el("line", "b", 340, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.redD, strokeWidth: 8, cap: "round" }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("line_rect_round"); b.add(s, el("line", "a", 100, 175, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.blueD, strokeWidth: 8, cap: "round" })); b.add(s, el("rect", "b", 340, 110, { width: 200, height: 140, fill: C.red, stroke: C.redD, strokeWidth: 8 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("rect_line_consume"); b.add(s, el("rect", "a", 100, 110, { width: 200, height: 140, fill: C.blue, stroke: C.blueD, strokeWidth: 8 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "line", x: 100, y: 175, width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.redD, strokeWidth: 8, cap: "butt" } }); }
+    // a CIRCLE <-> its inscribed DIAMOND (a rect turned 45 degrees whose corners sit on the circle's four points): the anchors coincide and the whole
+    // change lives in the bezier handles (round on the circle, none on the diamond), so a hand-over distance that read anchors alone stayed on A until
+    // an anchor finally moved and then jumped to the flight (START POP 6.6 / END SNAP 6.6)
+    { const R = 100, side = R * Math.SQRT2, cx = 300, cy = 180;
+      { const s = b.slide("circ_diamond_ho"); b.add(s, { id: "a", type: "ellipse", x: cx - R, y: cy - R, width: 2 * R, height: 2 * R, rotation: 0, fill: "none", stroke: C.ink, strokeWidth: 12 });
+        b.add(s, el("rect", "b", cx - side / 2, cy - side / 2, { width: side, height: side, rotation: 45, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 }));
+        b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+      { const s = b.slide("diamond_circ_ho"); b.add(s, el("rect", "a", cx - side / 2, cy - side / 2, { width: side, height: side, rotation: 45, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 }));
+        b.add(s, { id: "b", type: "ellipse", x: cx - R, y: cy - R, width: 2 * R, height: 2 * R, rotation: 0, fill: "none", stroke: C.ink, strokeWidth: 12 });
+        b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); } }
     { const s = b.slide("translucent"); b.add(s, el("rect", "a", 220, 90, { width: 200, height: 180, fill: C.blue, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 })); circle("b", { x: 220, y: 90, width: 200, height: 180, fill: C.red, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 });
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", x: 220, y: 90, width: 200, height: 180, fill: C.red, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 } }); }
     out.push({ name: "become_corners", payload: { deck: b.deck } });

@@ -56,11 +56,15 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
  *  `HANDOVER_EPS` apart while two copies show. `entry` (A -> spans) and `landing` (spans -> B) are pure functions of the frame. */
 export const HANDOVER_EPS = 0.75;
 export interface Handover { entry: number; landing: number }
-/** The opacity of each of the three layers while the spans fly: A (the start render), M (the spans), B (the end render). They always sum to 1,
- *  and are added, not laid over each other, so the layers must carry `mix-blend-mode: plus-lighter` inside an isolated parent
- *  (`HANDOVER_LAYER_STYLE`). */
+/** The smoothstep of a hand-over window: 0 at no distance, 1 at `HANDOVER_EPS` stage px. ONE ease for text (here) and shapes (shapeHandover.ts). */
+export const handoverEase = (distance: number): number => { const q = clamp01(distance / HANDOVER_EPS); return q * q * (3 - 2 * q); };
+/** The opacity of each of the three layers while the flight shows: A (the start render), M (the flight: spans or shapes), B (the end render). They
+ *  sum to 1 and are ADDED, not laid over each other, so the layers must carry `mix-blend-mode: plus-lighter` inside an isolated parent
+ *  (`HANDOVER_LAYER_STYLE`). A whole travel shorter than the two windows together makes them overlap (`entry` below `landing`): the weights are
+ *  then normalised, so A crossfades into B and the sum stays 1 (unnormalised, a 0.2 px travel summed 1.65 and plus-lighter over-exposed). */
 export function handoverWeights(h: Handover): { a: number; m: number; b: number } {
-  return { a: 1 - h.entry, m: Math.max(0, h.entry - h.landing), b: h.landing };
+  const a = 1 - h.entry, m = Math.max(0, h.entry - h.landing), b = h.landing, sum = a + m + b;
+  return { a: a / sum, m: m / sum, b: b / sum };
 }
 /** Set once, with the layers, and never toggled (the crossfade layers' rule: a lone layer renders as it would anywhere, so the rest render before,
  *  during and after goes through one compositing path). */
@@ -473,9 +477,8 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
       }
     }
     void raw;
-    const hand = (distance: number) => { const q = clamp01(distance / HANDOVER_EPS); return q * q * (3 - 2 * q); };
     // `entry` 0 -> 1 as the spans leave the start render, `landing` 0 -> 1 as they settle onto the end render
-    return { entry: hand(away), landing: 1 - hand(settle) };
+    return { entry: handoverEase(away), landing: 1 - handoverEase(settle) };
   }
 
   function hide(): void {

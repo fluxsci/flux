@@ -308,7 +308,13 @@ for (const raw of samples) {
   player.seek(0, 1, raw * 1000);
   const dx = /translate\(([-\d.]+)px/.exec(wrapper.style.transform ?? "");
   peakX = Math.max(peakX, parseFloat(wrapper.style.left) + Number(dx?.[1] ?? 0));
-  layersStable &&= layers.length === 3 && layers.every((layer, i) => (layer.style.visibility !== "hidden") === (raw <= 0 ? i === 0 : raw >= 1 ? i === 2 : i === 1));
+  // The endpoints are exact (A alone at raw <= 0, B alone at raw >= 1) whatever the eased value does. A Become with a stroke band (this rect -> ellipse) hands the
+  // start / end render and the flight over to each other by DISTANCE (shapeHandover.ts, R2 F3), so in flight any of the three may show, one at least always: a
+  // spring that lands on its target early shows B alone before raw 1 (the picture is B within HANDOVER_EPS px), and never a blank wrapper.
+  const shown = (l: HTMLElement) => l.style.visibility !== "hidden";
+  // in flight the shown layers' opacities are weights of one picture and ADDED: they sum to 1 (no blank wrapper, no double-shown A and M)
+  const weightOf = (l: HTMLElement) => (shown(l) ? (l.style.opacity === "" ? 1 : Number(l.style.opacity)) : 0);
+  layersStable &&= layers.length === 3 && (raw <= 0 ? layers.map(shown).join() === "true,false,false" : raw >= 1 ? layers.map(shown).join() === "false,false,true" : Math.abs(layers.reduce((sum, l) => sum + weightOf(l), 0) - 1) < 1e-5);
   bounded &&= Number(wrapper.style.opacity) >= .2 && Number(wrapper.style.opacity) <= .8;
   if (raw > 0 && raw < 1) {
     const fill = layers[1].querySelector("path")!.getAttribute("fill")!;
@@ -322,13 +328,30 @@ for (const raw of samples) {
   sawLanding ||= raw < 1 && count === 100;
 }
 assert(peakX >= 605, `spring transform overshoots the 400→600 box (peak ${peakX.toFixed(3)})`);
-assert(layersStable, "60 raw samples keep A/M/B visibility tied only to raw endpoints");
+assert(layersStable, "60 raw samples: A alone at raw 0, B alone at raw 1, and in between the shown layers weigh 1 in all (a hand-over may show A and B, never a blank or doubled picture)");
 assert(bounded, "spring opacity stays between .2 and .8 and outline colours stay in gamut");
 assert(countBounded && sawLanding && countExact, "spring(.8) countUp reaches 100 before settling and never exceeds its target");
 assert(rawText, "countUp restores authored endpoint formatting only at raw=1");
 player.seek(0, 1, 310); player.seek(0, 1, 1000);
 assert(wrapper.style.left === "600px" && wrapper.style.width === "80px" && wrapper.style.transform === "", "static seek(1) after overshoot restores the exact end box");
 player.destroy();
+
+// A hand-off Become plays headless too: its hand-over copies (handoff.ts `clone`) measure layout, which a linkedom player has none of, so the flight
+// falls back to its plain law instead of throwing (the base played this deck; the copies reached `getBBox` on a node that has none).
+{
+  const { addSlide, addElement, addBeat, setTransform } = await import("../src/lib/slide/ops");
+  const deck = createDeck({ id: "x", title: "x", withTitleSlide: false }); deck.defaults.transition = "none";
+  addSlide(deck, { id: "s", layout: "blank" });
+  addElement(deck, "s", { id: "a", type: "rect", x: 60, y: 90, width: 200, height: 140, rotation: 0, fill: "none", stroke: "#100f0f", strokeWidth: 12, cornerRadius: 0 } as never);
+  addElement(deck, "s", { id: "b", type: "ellipse", x: 300, y: 90, width: 200, height: 140, rotation: 0, fill: "none", stroke: "#100f0f", strokeWidth: 12 } as never);
+  const beat = addBeat(deck, "s", { advance: "click" })!;
+  const t = setTransform(deck, "s", beat.id, "a", { state: {}, duration: 1200, easing: "smooth" })!; t.to!.become = { mode: "handoff", ref: { element: "b" } };
+  const p = createPlayer(document.createElement("div") as unknown as HTMLElement, deck, { ...opts, reducedMotion: false });
+  let threw = "";
+  try { for (const ms of [0, 5, 600, 1195, 1200, 300, 0]) p.seek(0, 1, ms); } catch (e) { threw = (e as Error).message; }
+  assert(!threw, `a hand-off Become seeks through a headless (linkedom) player without throwing${threw ? ` (${threw})` : ""}`);
+  p.destroy();
+}
 
 // Native WAAPI and sampled frames share the same resolved spring. The fadeRise
 // spec contains transform AND opacity, so its opacity must use the clamp channel.

@@ -10,6 +10,7 @@ import { pathD, pathRender } from "../../path";
 import { gradientDef, gradientId, gradientSvg } from "../../color/gradient";
 import { warmWhenIdle } from "./transform";
 import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
+import { shapeWeights, snapWeights, maxShift, pathPoints, LOOK_TRAVEL } from "./shapeHandover";
 import type { TextLook } from "../timing";
 import type { TextElement } from "../../types";
 import { applyWrapperBox, fillContent, type SlideRenderCtx } from "./render";
@@ -78,6 +79,9 @@ export interface HandoffOptions {
   beneath?: Element | null;
   /** The track's duration: time-based interiors (a dissolve) run in real ms. */
   durationMs?: number;
+  /** Hand the flight over to copies of the real ends (default). A MERGE's landers share one destination: each would add its own copy of it, so the
+   *  group lands as it always has (the pieces cover each other's seams). */
+  handover?: boolean;
 }
 export interface HandoffController extends MorphController {
   /** The flight layer this controller draws into (one `g.sl-handoff`). */
@@ -156,9 +160,11 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  the box crossfade below takes over only if the texts cannot be mapped). */
   const textOwns = () => !!textMorph && !textMorph.failed() && textMorph.ensure();
 
+  /** Where the flight's own drawings go: the layer, or (a path-only flight) the hand-over's flight group. */
+  let root: SVGElement = layer;
   function container(pair: CorrespondencePair): SVGElement {
     const owner = pair.b?.owner ?? pair.a!.owner, crop = ctx.crop?.(owner);
-    if (!crop) return layer;
+    if (!crop) return root;
     let clipId = clips.get(owner.elementId);
     if (!clipId) {
       clipId = `${id}-clip-${clips.size}`;
@@ -168,7 +174,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       if (crop.rotation) rect.setAttribute("transform", `rotate(${crop.rotation} ${crop.x + crop.width / 2} ${crop.y + crop.height / 2})`);
       clip.appendChild(rect); layer.appendChild(clip); clips.set(owner.elementId, clipId);
     }
-    const g = document.createElementNS(NS, "g"); g.setAttribute("clip-path", `url(#${clipId})`); layer.appendChild(g);
+    const g = document.createElementNS(NS, "g"); g.setAttribute("clip-path", `url(#${clipId})`); root.appendChild(g);
     return g;
   }
 
@@ -177,7 +183,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     if (mediaClone) return mediaClone;
     const bound = ctx.node(outline.owner);
     const original = bound?.namespaceURI === NS ? bound as SVGGraphicsElement : bound?.querySelector<SVGGraphicsElement>("svg");
-    if (!original) return undefined;
+    // (no layout engine, e.g. a headless linkedom player: nothing to measure, so no copy; the callers fall back to their plain law)
+    if (!original || typeof original.getBBox !== "function" || typeof original.getScreenCTM !== "function") return undefined;
     const g = document.createElementNS(NS, "g"), content = document.createElementNS(NS, "g");
     // Read layout once, before the first flight frame. Text anchors supplied by
     // the pure bridge may have no size; the actual glyph run supplies its box.
@@ -236,7 +243,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  discard its drawings so the next frame plans real outlines. */
   function invalidateIfStale(): void {
     if (!prepared || !ctx.glyphs || builtRevision === ctx.glyphs.revision()) return;
-    prepared = false; paths.length = 0; crosses.length = 0; glyphs.length = 0; boxFades.length = 0; out.length = 0;
+    prepared = false; paths.length = 0; crosses.length = 0; glyphs.length = 0; boxFades.length = 0; out.length = 0; handover = null; root = layer;
     for (const child of Array.from(layer.childNodes)) child.remove();
   }
   /** Live clones held over the flight's ends, on RAW progress over 15 %:
@@ -245,6 +252,11 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  - glyph BOXES (no font outline) crossfade with the live text, so the boxes
    *    land on each letter and then become it (`boxes`: the paths fade too). */
   const boxFades: { clone: HandoffClone; landing: boolean; boxes: boolean }[] = [];
+  /** The hand-over of a flight made of PATHS alone to the real renders at its two ends (shapeHandover.ts): copies of the sources and of the
+   *  destinations inside the flight, ADDED (plus-lighter, isolated) with the flight's own layer by distance still to travel, so the way the flight is
+   *  rasterised (an exact stroke band, pieces re-cut at other stations than the resting ellipse) never shows as a seam on the first moving frame or
+   *  the landing frame. Absent for a flight that carries text, rasters, glyphs, slices or media (their own laws hold the ends). */
+  let handover: { host: SVGGElement; flight: SVGGElement; a: HandoffClone[]; b: HandoffClone[]; refA: number[][]; refB: number[][]; look: number } | null = null;
 
   function ensure(): void {
     if (prepared || disposed) return;
@@ -260,6 +272,47 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     const next = layer.nextSibling;
     layer.remove(); // clone writes must not invalidate the next marker's layout read
     try {
+      // a flight made of path pairs alone hands over to the real renders at its ends (see `handover`)
+      const pathLike = (pair: CorrespondencePair) => !(plan!.driver === "glyph" && pair.a) && !(pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) && (plan!.driver === "path" || !pair.a);
+      const roles = plan.pairs.some(p => ["glyph-box", "slice"].some(r => p.a?.owner.role === r || p.b?.owner.role === r));
+      // ... when it has a seam to hide: a stroke band (a corner Become: the exact band against the path stroker) or pieces cut at other stations than the
+      // resting render (a shape split into several, or several merged into one). A plain round pair strokes the SAME path the resting ellipse is, so its ends
+      // already agree (R2 F1: 0.0), and copies would only add a layer.
+      const owners = new Map<string, number>();
+      for (const pair of plan.pairs) for (const side of [pair.a, pair.b]) if (side) { const k = `${side.owner.elementId}|${side.owner.partId ?? ""}`; owners.set(k, (owners.get(k) ?? 0) + 1); }
+      const seam = plan.pairs.some(pair => !!pair.band?.()) || [...owners.values()].some(n => n > 1);
+      const gradient = plan.pairs.some(pair => [pair.a?.paint, pair.b?.paint].some(paint => !!(paint?.fillMap?.stops?.length || paint?.strokeMap?.stops?.length)));   // gradients keep the old law (see transform.ts handoverFor)
+      if (seam && !gradient && plan.pairs.length && plan.pairs.every(pathLike) && !roles && !opts.media && !opts.text && opts.handover !== false) {
+        // the end renders: one copy per source and per destination (each placed by the live render's own matrix, the resting law), ADDED to the
+        // flight's group in an isolated host
+        const host = document.createElementNS(NS, "g"), flightGroup = document.createElementNS(NS, "g");
+        host.setAttribute("class", "sl-handover"); for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) host.style.setProperty(k, v);
+        // an isolated group is rasterised into a buffer sized to the union of its children, and that union moves with the flight (a piece a hundredth of a
+        // pixel outside the copies shifts the buffer's origin off the pixel grid and softens the copies' edges, measured as a 10 stage px^2 step when the flight
+        // leaves): a transparent rect over the whole stage pins the bounds
+        const [vx, vy, vw, vh] = (flight.getAttribute("viewBox") ?? "0 0 0 0").split(/\s+/).map(Number);
+        if (vw > 0 && vh > 0) { const pin = document.createElementNS(NS, "rect"); for (const [k, v] of [["x", vx], ["y", vy], ["width", vw], ["height", vh]] as const) pin.setAttribute(k, String(v)); pin.setAttribute("fill", "none"); pin.setAttribute("pointer-events", "none"); host.appendChild(pin); }
+        flightGroup.setAttribute("class", "sl-handover-flight"); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) flightGroup.style.setProperty(k, v);
+        const ends: { a: HandoffClone[]; b: HandoffClone[] } = { a: [], b: [] };
+        let whole = true;
+        for (const side of ["a", "b"] as const) {
+          if (side === "b") host.appendChild(flightGroup);
+          const seen = new Set<string>();
+          for (const pair of plan.pairs) {
+            const outline = pair[side]; if (!outline) continue;
+            const key = `${outline.owner.elementId}|${outline.owner.partId ?? ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const copy = clone({ ...outline, paint: { ...outline.paint, text: true } }, host);
+            if (!copy) { whole = false; break; }
+            copy.node.setAttribute("class", `sl-handover-${side}`); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) copy.node.style.setProperty(k, v);
+            set(copy.node, "transform", `translate(${copy.box.x} ${copy.box.y})`);
+            ends[side].push(copy);
+          }
+          if (!whole) break;
+        }
+        if (whole) { layer.appendChild(host); handover = { host, flight: flightGroup, a: ends.a, b: ends.b, refA: [], refB: [], look: 0 }; root = flightGroup; }
+      }
       for (const pair of plan.pairs) {
         if (plan.driver === "glyph" && pair.a) {
           const bound = ctx.node(pair.a.owner);
@@ -339,6 +392,22 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         live.node.setAttribute("class", role === "slice" ? "sl-handoff-shape" : "sl-handoff-text");
         boxFades.push({ clone: live, landing: side === "b", boxes: role === "glyph-box" });
       }
+      if (handover) {
+        // where the flight starts and ends (anchors, stage px) and what changes in place (a colour, a width, a piece that fades in or out)
+        const tmp0: SampledPath[] = [], tmp1: SampledPath[] = [];
+        // (just inside the flight: the exact endpoints sample the pair's ORIGINAL chains, which have other node counts than the aligned flight chains)
+        sampleCorrespondence(sampled, 1e-9, tmp0, { raw: 1e-9, durationMs: opts.durationMs ?? 600 }); sampleCorrespondence(sampled, 1 - 1e-9, tmp1, { raw: 1 - 1e-9, durationMs: opts.durationMs ?? 600 });
+        handover.refA = tmp0.map(sp => pathPoints(sp.nodes)); handover.refB = tmp1.map(sp => pathPoints(sp.nodes));
+        let look = 0;
+        for (const pair of plan.pairs) {
+          const pa = pair.a?.paint, pb = pair.b?.paint;
+          if (!pa || !pb) { look = Math.max(look, LOOK_TRAVEL); continue; }
+          const diff = (x: unknown, y: unknown) => JSON.stringify(x) !== JSON.stringify(y);
+          if (diff([pa.fill, pa.stroke, pa.dash, pa.opacity, pa.fillOpacity, pa.strokeOpacity, pa.fillMap, pa.strokeMap], [pb.fill, pb.stroke, pb.dash, pb.opacity, pb.fillOpacity, pb.strokeOpacity, pb.fillMap, pb.strokeMap])) look = Math.max(look, LOOK_TRAVEL);
+          look = Math.max(look, Math.abs((pb.strokeWidth ?? 0) - (pa.strokeWidth ?? 0)));
+        }
+        handover.look = look;
+      }
       prepared = true;
     } finally { flight.insertBefore(layer, next); }
   }
@@ -380,13 +449,19 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         set(drawing.band, "d", pathD(b.outer, true) + " " + pathD(b.inner, true));
         set(drawing.band, "fill", strokePaint); drawing.band.removeAttribute("visibility");   // inherit the flight layer's own visibility (an explicit "visible" would show at rest)
         if (p.strokeOpacity != null) set(drawing.band, "fill-opacity", String(p.strokeOpacity)); else drawing.band.removeAttribute("fill-opacity");
-        set(drawing.band, "opacity", String(sample.opacity * (p.opacity ?? 1) * fade));
+        const bandOpacity = sample.opacity * (p.opacity ?? 1) * fade;
+        set(drawing.band, "opacity", String(bandOpacity));
+        if (bandOpacity > 0) drawing.band.removeAttribute("display"); else set(drawing.band, "display", "none");
       } else set(drawing.band, "visibility", "hidden");
     }
     const shift = pair.plan?.dashShift;
     if (shift != null && pair.b?.paint.dash?.length) set(node, "stroke-dashoffset", String(dashOffsetAt(shift, pair.b.paint.dash, u, pair.plan?.dashReversed)));
     else node.removeAttribute("stroke-dashoffset");
-    set(node, "opacity", String(sample.opacity * (p.opacity ?? 1) * fade));
+    const opacity = sample.opacity * (p.opacity ?? 1) * fade;
+    set(node, "opacity", String(opacity));
+    // A piece that is not there (opacity 0) is not drawn at all: an invisible path still widens the bounds of the group it sits in, and that moved the
+    // rasterisation of the hand-over's end copies by ~0.1 px (a 10 stage px^2 step when the flight left; R2 F3)
+    if (opacity > 0) node.removeAttribute("display"); else set(node, "display", "none");
     for (const head of fixed) {
       let points = "";
       for (const point of pairHeadPoints(pair, head.points, head.dir, u, !head.start)) points += `${point[0]},${point[1]} `;
@@ -459,6 +534,21 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         while (sampled!.pairs[i] !== drawing.pair) i++;
         drawPath(drawing, out[i], t, 1 - textWeight);
       }
+      if (handover) {
+        // how far the flight has come from its start render and has still to go to its end render (stage px; a change in place counts too)
+        let away = t * handover.look, settle = (1 - t) * handover.look;
+        for (let i = 0; i < out.length; i++) { const cur = pathPoints(out[i].nodes); away = Math.max(away, maxShift(cur, handover.refA[i])); settle = Math.max(settle, maxShift(cur, handover.refB[i])); }
+        const w = snapWeights(shapeWeights(away, settle));
+        const put = (node: SVGElement, weight: number, factor = 1) => {
+          const o = Math.round(weight * factor * 1e6) / 1e6;   // a weight under a millionth is none: hidden, never an invisible layer that still composites
+          // `display`, never `visibility`: a hidden effect group still changes how its siblings are rasterised (the copies' edges moved by ~0.1 px)
+          if (o > 0) node.removeAttribute("display"); else set(node, "display", "none");
+          if (o !== 1 && o > 0) set(node, "opacity", String(o)); else node.removeAttribute("opacity");
+        };
+        for (const c of handover.a) put(c.node, w.a, c.opacity);
+        for (const c of handover.b) put(c.node, w.b, c.opacity);
+        put(handover.flight, w.m);
+      }
     }
     const fade = raw < .85 ? 1 : clamp01((1 - raw) / .15);
     for (const glyph of glyphs) {
@@ -497,6 +587,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       if (disposed) return;
       disposed = true; custom?.dispose(); opts.media?.dispose(); layer.remove();
       textMorph?.dispose(); textLayer?.remove();
+      if (flight.hasAttribute("data-depth") && !flight.childElementCount) flight.remove();   // a depth surface nothing flies on any more
       for (const entry of claims) {
         entry.state.claims.delete(entry.claim); paintVisibility(entry.node, entry.state);
         if (!entry.state.claims.size) visibility.delete(entry.node);
