@@ -15,6 +15,7 @@ import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, typ
 import type { Model3dImportRequest, Model3dImportResult, Model3dImportOwnership } from '../model3d/importData';
 import { GLB_LIMITS } from '../model3d/glbCore.mjs';
 import { RESERVED_PLOT_DIRNAMES } from "./plotsFolders";
+import { supportsDeckSchema } from "../slide/schemaStamp";
 import { DISSECT_REL, dissectionRootRelFor, classifyDissectionFile } from "../dissect/rules";
 import { probeImageSize } from "../plotsRail/rules";
 import type { PlotIndexEntry } from "./types";
@@ -154,7 +155,7 @@ export function createMemBridge(): FileBridge & {
       if (typeof currentDocument?.schemaVersion !== 'string' || !currentDocument.slides?.some((d: {id:string;path:string}) => d.id === id && d.path === relative)) throw new Error('The model destination deck is not registered in this project');
       documentPath = joinPath(root, relative);
       const saved = files.get(documentPath), deck = saved ? JSON.parse(dec.decode(saved)) : undefined;
-      if (deck?.id !== id || !/^0\.[23456]\./.test(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error('The model destination deck cannot be edited by this Flux version');
+      if (deck?.id !== id || !supportsDeckSchema(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error('The model destination deck cannot be edited by this Flux version');
       prefix = `slides/${id}`;
     }
     assertDestination();

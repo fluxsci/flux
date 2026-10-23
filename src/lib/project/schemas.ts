@@ -535,7 +535,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     // 0.1 remains the sanctioned clean break.
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[23456]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[234567]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },

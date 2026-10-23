@@ -6,7 +6,7 @@ import { verifyPublicS8Fixture } from './model3dS8PublicFixture.mjs';
 import { model3dScaleFixtures } from './model3dScaleFixture.mjs';
 import { prepareModel3dImport, makeImportedModel3dElement } from '../../src/lib/model3d/importData';
 import { scene3dSidecarWrites } from '../../src/lib/model3d/persistence';
-import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from '../../src/lib/project/types';
+import { FIG_INDEX_SCHEMA_VERSION, CANVAS_MODEL3D_SCHEMA_VERSION } from '../../src/lib/project/types';
 const [source, destination] = process.argv.slice(2), scratch = process.env.MODEL3D_NATIVE_SCRATCH;
 if (!scratch || !path.resolve(scratch).startsWith(os.tmpdir() + path.sep) || !path.resolve(destination ?? '').startsWith(path.resolve(scratch) + path.sep)) throw Error('Owned scratch S8 destination required');
 const provenance = await verifyPublicS8Fixture(source);
@@ -28,6 +28,6 @@ for (const [i, fixture] of (await model3dScaleFixtures(4)).entries()) {
 }
 if(JSON.stringify(figure.elements.slice(0,originalCount))!==originalElements)throw Error('Original public artwork was changed');
 figure.height = oldHeight + 240;
-index.schemaVersion = FIG_INDEX_SCHEMA_VERSION; canvas.schemaVersion = CANVAS_SCHEMA_VERSION;
+index.schemaVersion = FIG_INDEX_SCHEMA_VERSION; canvas.schemaVersion = CANVAS_MODEL3D_SCHEMA_VERSION;
 await fs.writeFile(canvasPath, JSON.stringify(canvas, null, 2)); await fs.writeFile(indexPath, JSON.stringify(index, null, 2));
 await fs.writeFile(path.join(destination, 's8-fixture-receipt.json'), JSON.stringify({ source: { repo: provenance.repo, commit: provenance.commit, tree: provenance.tree }, canvasId: canvas.id, figureId: figure.id, previousHeight: oldHeight, height: figure.height, additions, note: 'Original public 2D content retained; only four models and a bottom row were added in scratch. Matched image baseline must use identical placement and figure extent.' }, null, 2));

@@ -38,7 +38,7 @@ import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElemen
 import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
 import { modelBecomeResult, modelVideoHandoff } from "./model3dMorph";
 import {
-  DECK_SCHEMA_VERSION,
+  DECK_BASE_SCHEMA_VERSION,
   type Deck,
   type AnimStyle,
   type Slide,
@@ -109,7 +109,7 @@ export interface CreateDeckOpts {
 export function createDeck(opts: CreateDeckOpts = {}): Deck {
   const now = stamp();
   const deck: Deck = {
-    schemaVersion: DECK_SCHEMA_VERSION,
+    schemaVersion: DECK_BASE_SCHEMA_VERSION,
     id: opts.id ?? newId("deck"),
     title: opts.title ?? "Untitled Deck",
     created: now,
@@ -1717,7 +1717,7 @@ export function ensureTrackIds(deck: Deck): Deck {
  *  validation downstream exactly as before. Mutates + returns. */
 export function migrateDeck(deck: Deck): Deck {
   if (typeof deck?.schemaVersion === "string" && /^0\.[2345]\./.test(deck.schemaVersion)) {
-    deck.schemaVersion = DECK_SCHEMA_VERSION;
+    deck.schemaVersion = DECK_BASE_SCHEMA_VERSION;
   }
   // The legacy data-space `morph` preset IS a transform (Become, content
   // half only). Normalize the name; keep the authored timing (its old default

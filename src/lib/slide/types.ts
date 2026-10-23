@@ -23,7 +23,12 @@ import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../typ
 // anchors, and the plot data view — an older app would play a hand-off wrong,
 // so it must refuse. 3D models ship in this same unreleased minor. 0.2–0.5
 // migrate by a pure stamp without rewriting content.
-export const DECK_SCHEMA_VERSION = "0.6.0";
+// 0.7 (manim study WP 3.0, ruling X3) is CONTENT-DERIVED: a deck is written as 0.7.0 only while it holds a feature an older build would break
+// on (attached connectors, a radial stagger order: `schemaStamp.ts` DECK_FEATURES); every other deck keeps 0.6.0 and its bytes. So
+// DECK_SCHEMA_VERSION is the newest format this build READS (every read guard), and DECK_BASE_SCHEMA_VERSION is what a deck without those
+// features is stamped with (createDeck, migrateDeck, commitDeckGeneration).
+export const DECK_SCHEMA_VERSION = "0.7.0";
+export const DECK_BASE_SCHEMA_VERSION = "0.6.0";
 export type { VideoElement } from "./mediaTypes";
 
 // ---------------------------------------------------------------------------

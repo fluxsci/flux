@@ -21,6 +21,7 @@
 
 import type { Project, Figure, Asset, TextStyle, FigureFamilyDef } from "../types";
 import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION } from "./types";
+import { canvasSchemaFor } from "../slide/schemaStamp";
 import { composeCaption } from "../captions";
 import { deriveFigureReferenceKey, ensureFigureReferenceKeys } from "./figureIdentity";
 import {
@@ -221,7 +222,9 @@ export function planFigSave(model: Project, prev: FigIndexFile | null, previousF
     path: `fig/canvases/${c.id}.json`,
     text: json({
       ...previousCanvas(c.id),
-      schemaVersion: model.figures.some(f => f.canvasId === c.id && f.elements.some(e => e.type === "model3d")) ? CANVAS_SCHEMA_VERSION : LEGACY_FIG_SCHEMA_VERSION,
+      // WP 3.0: stamped by content (legacy 0.1.0, a 3D model 0.2.0, attached connectors 0.3.0), so an older app refuses exactly the canvases it
+      // would render wrong and every other canvas keeps its bytes
+      schemaVersion: canvasSchemaFor(model.figures.filter(f => f.canvasId === c.id).flatMap(f => f.elements)),
       id: c.id,
       name: c.name,
       figures: model.figures.filter((f) => f.canvasId === c.id).map(withIdentity),

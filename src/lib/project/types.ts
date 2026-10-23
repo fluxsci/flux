@@ -9,7 +9,11 @@ export const PROJECT_SCHEMA_VERSION = "0.1.0";
 // 0.x, the MINOR is the breaking slot (load.ts documents this); PATCH bumps
 // load fine.
 export const FIG_INDEX_SCHEMA_VERSION = "0.2.0";
-export const CANVAS_SCHEMA_VERSION = "0.2.0";
+/** The newest canvas format this build READS (every canvas read guard). A canvas is STAMPED by content (`schemaStamp.ts` canvasSchemaFor):
+ *  0.1.0 legacy, 0.2.0 when it holds a 3D model, 0.3.0 when it holds an attached connector or label (WP 3.0, ruling X3). */
+export const CANVAS_SCHEMA_VERSION = "0.3.0";
+/** A canvas holding a 3D model (an older app that predates model3d refuses it). */
+export const CANVAS_MODEL3D_SCHEMA_VERSION = "0.2.0";
 /** Non-3D documents retain their original format and serialized bytes. */
 export const LEGACY_FIG_SCHEMA_VERSION = "0.1.0";
 export const PROJECT_MODEL_VERSION = 2; // standalone Project.version (migrate.ts stamps it)

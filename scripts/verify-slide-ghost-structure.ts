@@ -12,7 +12,7 @@ import { applyAutoAnimation } from "../src/lib/slide/autobuild";
 import { makeAnimPreset } from "../src/lib/slide/animTemplates";
 import { readProjectDependencies } from "../src/lib/project/dependencies";
 import { figureSourceOwners } from "../src/lib/project/figureSourceOwners";
-import { DECK_SCHEMA_VERSION, type Deck, type Slide } from "../src/lib/slide/types";
+import { DECK_BASE_SCHEMA_VERSION, type Deck, type Slide } from "../src/lib/slide/types";
 import type { Asset, Element, Project } from "../src/lib/types";
 
 let checks = 0;
@@ -167,7 +167,7 @@ const fixture = () => {
 
 for (const version of ["0.2.0", "0.3.0"]) {
   const { d } = fixture(); d.schemaVersion = version;
-  const before = structuredClone(d); before.schemaVersion = DECK_SCHEMA_VERSION;
+  const before = structuredClone(d); before.schemaVersion = DECK_BASE_SCHEMA_VERSION;   // WP 3.0: migration stamps the base format
   eq(ops.migrateDeck(d), before, `${version} migration changes only the version stamp`);
   const once = JSON.stringify(d); ops.normalizeDeck(d); ops.normalizeDeck(d);
   eq(JSON.stringify(d), once, `${version} normalization is idempotent with stable identities`);

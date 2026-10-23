@@ -6,6 +6,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { shareRetry } = require("./fsRetry.cjs");
+const { supportsDeckSchema } = require("./deckSchemaSupport.cjs");
 const { publishExclusive: publishFile } = require("./fsExclusive.cjs");
 // GLB_LIMITS.maxBytes (glbCore.mjs). This CommonJS boundary cannot import the ESM
 // core synchronously; verify-model3d-import pins the two values equal.
@@ -66,7 +67,7 @@ async function importLocation(root, target) {
     document = await fsp.realpath(path.join(realRoot, relative));
     if (!contained(realRoot, document)) throw new Error("Model destination deck escapes the project");
     const deck = JSON.parse((await readBounded(document, 16 * 1024 * 1024, "Deck metadata")).toString("utf8"));
-    if (deck.id !== target.deckId || !/^0\.[23456]\./.test(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error("The model destination deck cannot be edited by this Flux version");
+    if (deck.id !== target.deckId || !supportsDeckSchema(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error("The model destination deck cannot be edited by this Flux version");
     prefix = `slides/${target.deckId}`;
   }
   const assetDir = path.join(realRoot, prefix, "assets");

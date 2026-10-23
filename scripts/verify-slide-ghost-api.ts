@@ -9,7 +9,7 @@ import { loadDeck, saveDeck, addGhostTransform } from "../flux-core/slides";
 import * as ops from "../src/lib/slide/ops";
 import { compileSlide } from "../src/lib/slide/compile";
 import { validateDeckFile } from "../src/lib/project/validate";
-import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
+import { DECK_BASE_SCHEMA_VERSION } from "../src/lib/slide/types";
 import { isNewerSchema } from "../src/lib/project/types";
 
 let checks = 0;
@@ -38,7 +38,7 @@ try {
   const created = JSON.parse(cli.stdout);
   ok(created.elementIds.length === 3 && created.trackIds.length === 3, "CLI returns independent result and track identities");
   const loaded = await loadDeck(root, deck.id);
-  ok(loaded.schemaVersion === DECK_SCHEMA_VERSION && isNewerSchema(DECK_SCHEMA_VERSION, "0.3.0"), "old players refuse the ghost birth format");
+  ok(loaded.schemaVersion === DECK_BASE_SCHEMA_VERSION && isNewerSchema(DECK_BASE_SCHEMA_VERSION, "0.3.0"), "old players refuse the ghost birth format (a ghost deck is written as the 0.6 base format)");
   ok(validateDeckFile(loaded).length === 0, "ghost deck passes the real shared validator");
   const compiled = compileSlide(loaded.slides[0]);
   ok(created.elementIds.every((id: string) => compiled.sample(1).presentation.unbornElementIds.includes(id)), "CLI copies are unborn before the selected step");

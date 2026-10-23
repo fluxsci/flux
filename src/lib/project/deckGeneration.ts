@@ -4,6 +4,7 @@ import type { Deck } from '../slide/types';
 import { decodeManifest, encodeManifest } from './manifestTransaction';
 import { validateDeckFile } from './validate';
 import { commitTextGeneration, type GenerationWrite, type TextGenerationIO } from './textGeneration';
+import { deckSchemaFor } from '../slide/schemaStamp';
 export function stageDeckRegistration(manifest: ReturnType<typeof decodeManifest>, deck: Deck): string {
   manifest.slides ??= [];
   const n = manifest.slides.findIndex(s => s.id === deck.id), prior = n < 0 ? undefined : manifest.slides[n];
@@ -21,6 +22,8 @@ export async function commitDeckGeneration(io: TextGenerationIO, input: Deck, op
   // JSON silently turns NaN/Infinity in extension/animation fields into null.
   JSON.stringify(input, (key, value) => { if (typeof value === 'number' && !Number.isFinite(value)) throw new Error(`Deck ${key} must be finite`); return value; });
   const deck = structuredClone(input), manifestText = await io.read('project.json');
+  // WP 3.0: the ONE write point stamps the format by content (a deck without a stamped feature keeps 0.6.0 and its bytes)
+  deck.schemaVersion = deckSchemaFor(deck);
   if (manifestText === null) throw new Error('Deck publication requires project.json');
   const manifest = decodeManifest(manifestText), beforeRegistration = JSON.stringify(manifest);
   const path = stageDeckRegistration(manifest, deck);

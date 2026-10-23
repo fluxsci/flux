@@ -10,7 +10,7 @@
 //   • an OLD-format (0.1.x) deck fails validation — the sanctioned clean break
 //     (owner decision, slide-migration plan §0.2.1): the GUI read seam
 //     QUARANTINES it (.corrupt-<ts> copy) and skips, never half-loads
-//   • a NEWER deck (0.7.x) is refused by the forward-version guard BEFORE
+//   • a NEWER deck (0.8.x since WP 3.0 made 0.7 readable) is refused by the forward-version guard BEFORE
 //     validation
 //   • dangling beat targets are WARNINGS (validate_deck), never rejections
 //   npx tsx scripts/verify-deck-schema.ts
@@ -20,7 +20,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { validateDeckFile } from "../src/lib/project/validate";
 import { isNewerSchema } from "../src/lib/project/types";
-import { DECK_SCHEMA_VERSION, type Deck } from "../src/lib/slide/types";
+import { DECK_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION, type Deck } from "../src/lib/slide/types";
 import * as slideOps from "../src/lib/slide/ops";
 import { validateDeck as validateDeckVerb, saveDeck, loadDeck, mutateDeck } from "../flux-core/slides";
 import { scaffold } from "../flux-core/index";
@@ -34,7 +34,9 @@ function assert(cond: unknown, msg: string) {
 // --- a good deck (built through the one blank-deck source) validates -----------
 const good = slideOps.createDeck({ id: "g", title: "Good" });
 slideOps.addSlideText(good, good.slides[0].id, { text: "hi", x: 10, y: 10 });
-assert(DECK_SCHEMA_VERSION === "0.6.0", "the animation-v2 format is 0.6.0 (0.x minor = the breaking slot)");
+// WP 3.0 (supersedes the 0.6.0 pin deliberately): 0.7.0 is the newest READ format; a deck without a stamped feature is still WRITTEN as 0.6.0
+assert(DECK_SCHEMA_VERSION === "0.7.0" && DECK_BASE_SCHEMA_VERSION === "0.6.0", "this build reads 0.7.0 and writes a featureless deck as 0.6.0 (0.x minor = the breaking slot)");
+assert(good.schemaVersion === "0.6.0", "a createDeck() deck is the 0.6.0 animation-v2 format");
 assert(validateDeckFile(good).length === 0, "a createDeck() deck validates against the bundled schema");
 
 // M6: load the same stagger/arc shape on tracks and linked styles.
@@ -243,8 +245,9 @@ assert(validateDeckFile(oldDeck).length > 0, "a 0.1.x deck (textBox elements) FA
 assert(!isNewerSchema(oldDeck.schemaVersion, DECK_SCHEMA_VERSION), "…and it is NOT 'newer' — it takes the quarantine path, not the refuse path");
 
 // --- forward-version guard runs BEFORE validation ---------------------------------
-assert(isNewerSchema("0.7.0", DECK_SCHEMA_VERSION), "a 0.7.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
-assert(!isNewerSchema("0.6.9", DECK_SCHEMA_VERSION), "0.6.x patch versions are OUR line (loadable)");
+// WP 3.0 supersedes "0.7 is newer": 0.7 is the content-derived stamp of a deck with attached connectors or a radial order, read by this build
+assert(isNewerSchema("0.8.0", DECK_SCHEMA_VERSION), "a 0.8.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
+assert(!isNewerSchema("0.7.9", DECK_SCHEMA_VERSION) && !isNewerSchema("0.6.9", DECK_SCHEMA_VERSION), "0.6.x and 0.7.x are OUR line (loadable)");
 assert(!isNewerSchema("0.5.0", DECK_SCHEMA_VERSION), "0.5.x is OLDER — it takes the migrate path, never the refuse path");
 assert(!isNewerSchema("0.2.0", DECK_SCHEMA_VERSION), "0.2.x is OLDER — it takes the migrate path, never the refuse path");
 

@@ -82,6 +82,7 @@
       "verify-docx-svg-fallback.ts",
       "verify-loadgate.ts",
       "verify-fwdguard.ts",
+      "verify-schema-stamp.ts",
       "verify-figsave-txn.ts",
       "verify-canvas-divergence.ts",
       "verify-fig-reload-preserve.ts",
@@ -1115,6 +1116,7 @@
       "verify-loadgate.ts",
       "verify-figfiles-parity.ts",
       "verify-fwdguard.ts",
+      "verify-schema-stamp.ts",
       "verify-ipc-contract.ts",
       "verify-deck-schema.ts",
       "verify-v020-conversion.ts",
@@ -3654,7 +3656,9 @@
         "verify-plot-value-morph.ts",
         "tier:pure"
       ]
-    }
+    },
+    { "glob": "src/lib/slide/schemaStamp.ts", "run": ["verify-schema-stamp.ts", "verify-deck-schema.ts", "verify-fwdguard.ts", "verify-figfiles-parity.ts", "verify-loadgate.ts", "verify-model3d-import.ts"] },
+    { "glob": "electron/deckSchemaSupport.cjs", "run": ["verify-schema-stamp.ts", "verify-model3d-import.ts"] }
   ],
   "retryOnce": [
     "verify-crop.mjs",
@@ -5400,6 +5404,15 @@
       "coverage": "behavior"
     },
     "verify-fwdguard.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-schema-stamp.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
