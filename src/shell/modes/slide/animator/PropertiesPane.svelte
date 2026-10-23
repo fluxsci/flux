@@ -26,7 +26,7 @@
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc, suggestArcsForBeat, setTrackTurn } from "../../../../lib/slide/ops";
   import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest, drawAlongX, sweepSeries } from "../../../../lib/slide/autobuild";
   import { guiPlotMeasures } from "../../../../lib/slide/partLengthGui";
@@ -305,9 +305,10 @@
     } else withSelectedTracks((t, resolved, d, sid) => {
       if (!t.id || familyOf(t) === "media") return;
       const duration = trackDuration(resolved), arrival = resolveCurve(resolved, familyOf(resolved)).arrival;
-      setTrackCurve(d, sid, t.id, typeof value === "object" && "influence" in value
+      const set = setTrackCurve(d, sid, t.id, typeof value === "object" && "influence" in value
         ? !value.influence.in && !value.influence.out ? null : value
         : value);
+      if (!set.ok) { pushToast("info", set.reason ?? "That curve does not apply here"); return; }
       if (keepArrival) {
         // A reset can restore a linked spring or the family default. Measure
         // the op's resolved result, not the discarded zero-influence patch.
@@ -336,6 +337,17 @@
   function arc(value: string) {
     const n = Number(value);
     if (Number.isFinite(n)) editFields(t => setTrackArc(t, Math.max(-1, Math.min(1, n))), "animator-arc");
+  }
+  /** "Suggest arcs" (WP 3.3): the moves of this step that cross each other mid-flight get an explicit arc. ONE undo step. */
+  function suggestArcs() {
+    const beatId = slide.beats[curBeatIndex]?.id;
+    if (!beatId) return;
+    let outcome: ReturnType<typeof suggestArcsForBeat> | undefined;
+    commitDeckLive(d => { outcome = suggestArcsForBeat(d, slide.id, beatId); });
+    sealHistory();
+    if (!outcome) return;
+    pushToast("info", outcome.written.length ? `Set an arc on ${outcome.written.length} move${outcome.written.length === 1 ? "" : "s"} (undo restores)`
+      : outcome.collisions ? `No arc written: ${outcome.reason ?? "nothing to change"}` : "No moves cross each other in this step");
   }
   function resetCurve() {
     withSelectedTracks((t, _resolved, d, sid) => { if (t.id) setTrackCurve(d, sid, t.id, null); });
@@ -722,13 +734,22 @@
       </label>
     {/if}
 
-    {#if curFamily === "transform" && selTracks.every(t => !isHandoff(t))}
+    {#if curFamily === "transform"}
       <label class="f arc-row">Arc
         <input aria-label="Transform arc" type="range" min="-1" max="1" step="0.05" value={curTrack.arc ?? 0} oninput={e => arc(e.currentTarget.value)} onchange={() => sealHistory()}/>
         <span class="arc-value">{mixed(t => t.arc ?? 0) ? "Mixed" : (curTrack.arc ?? 0).toFixed(2)}</span>
         <svg class="arc-preview" aria-hidden="true" width="32" height="28" viewBox="0 0 32 28"><path d={`M2 14 Q16 ${14 + 14 * (curTrack.arc ?? 0)} 30 14`} fill="none" stroke="currentColor"/></svg>
       </label>
       {@render overrideRow("arc")}
+      {#if !editingStyle}<div class="f"><button class="sg" title="Give the moves of this step that cross each other an arc (one undo step)" onclick={suggestArcs}>Suggest arcs</button></div>{/if}
+      {#if !handoff && (curTargetEl?.type === "line" || curTargetEl?.type === "path")}
+        <label class="f" title="How a line turns when its ends move: Shrink lerps its ends straight (it shortens mid-turn, and stays joined to whatever it connects); Rigid keeps its length">Turn
+          <select aria-label="Line turn" value={curTrack.params?.turn === "rigid" ? "rigid" : "shrink"} onchange={(e) => editFields(t => setTrackTurn(t, e.currentTarget.value === "rigid" ? "rigid" : null), "animator-turn")}>
+            <option value="shrink">Shrink</option><option value="rigid">Rigid</option>
+          </select>
+        </label>
+      {/if}
+      {#if selTracks.some(t => isHandoff(t))}<div class="note">A hand-off's flights bend by its arc; letter strips, shattered pieces, text and 3D models fly straight.</div>{/if}
     {/if}
 
     {#if textLook}

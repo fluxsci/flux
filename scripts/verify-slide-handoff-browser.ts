@@ -129,6 +129,19 @@ try {
   const springPaths = structuredClone(b), springGlyphs = structuredClone(d);
   springPaths.id = "spring-pairs"; springGlyphs.id = "spring-glyphs";
   for (const slide of [springPaths, springGlyphs]) slide.beats[1].tracks[0].curve = { kind: "spring", bounce: .8 };
+  // WP 3.3: a hand-off bends by its track's arc (the same pair, flown straight and at arc 0.83); added BEFORE the spring slides, which
+  // the checks below address from the end of the deck
+  for (const [id, arc] of [["arc-straight", 0], ["arc-bent", 0.83]] as const) {
+    const s = add(id); addElement(deck, s.id, pathEl("source")); addElement(deck, s.id, ellipseEl("dest"));
+    const t = handoff(s, "source", { element: "dest" }); if (arc) t.arc = arc;
+  }
+  // ... and a Change that turns an arrow 120 degrees, shrinking (the endpoint lerp) and rigid (keeps its length)
+  for (const [id, turn] of [["turn-shrink", null], ["turn-rigid", "rigid"]] as const) {
+    const s = add(id);
+    addElement(deck, s.id, { id: "source", type: "line", x: 300, y: 260, width: 240, height: 0, rotation: 0, x1: 0, y1: 0, x2: 240, y2: 0, stroke: "#4169e1", strokeWidth: 6, arrowStart: false, arrowEnd: true } as never);
+    const beat = addBeat(deck, s.id, { id: `${id}-turn` })!;
+    setTransform(deck, s.id, beat.id, "source", { state: { x1: 180, y1: -103.92, x2: 60, y2: 103.92 }, duration: 1000, easing: "linear", turn });
+  }
   deck.slides.push(springPaths, springGlyphs);
   const file = path.join(tmp, "handoff.html"); await fs.writeFile(file, (await exportDeckHtml({ deck, plots })).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
@@ -434,6 +447,29 @@ try {
     h.ok(covered, "the depth surface carries the hand-off layer");
     await page.evaluate((slide) => (window as any).fluxDeck.seek(slide, 1, 5000), at("depth"));
     h.eq(await page.evaluate(() => getComputedStyle(document.querySelector(".sl-flight[data-depth] .sl-handoff")!).visibility), "hidden", "landed: the layer is hidden and the destination shows at its own depth");
+  }
+  {
+    const at = (id: string) => deck.slides.findIndex(x => x.id === id);
+    const centre = async (slide: number, time: number) => page.evaluate(({ slide, time }) => {
+      (window as any).fluxDeck.seek(slide, 1, time);
+      const boxes = Array.from(document.querySelectorAll<SVGPathElement>(".sl-flight .sl-handoff-path")).filter(p => getComputedStyle(p).display !== "none").map(p => p.getBBox());
+      const x0 = Math.min(...boxes.map(b => b.x)), x1 = Math.max(...boxes.map(b => b.x + b.width)), y0 = Math.min(...boxes.map(b => b.y)), y1 = Math.max(...boxes.map(b => b.y + b.height));
+      return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+    }, { slide, time });
+    // travel = centre(dest) - centre(source) = (660, 240) - (130, 120); the bend at t = .5 is arc/4 of it, turned 90 degrees
+    const straight = await centre(at("arc-straight"), 500), bent = await centre(at("arc-bent"), 500), k = 0.83 / 4;
+    h.ok(near(bent.x - straight.x, -120 * k, 1.5) && near(bent.y - straight.y, 530 * k, 1.5), `a hand-off flight bends by its arc in the player: mid-flight (${(bent.x - straight.x).toFixed(1)}, ${(bent.y - straight.y).toFixed(1)}) off the chord, expected (${(-120 * k).toFixed(1)}, ${(530 * k).toFixed(1)})`);
+    const s0 = await centre(at("arc-straight"), 100), b0 = await centre(at("arc-bent"), 100), bow = 0.83 * 0.1 * 0.9;
+    // (a string expression: a function declared inside an evaluated callback gets tsx's `__name` helper)
+    const shaft = async (slide: number) => page.evaluate(`(() => { window.fluxDeck.seek(${slide}, 1, 500);
+      const l = document.querySelector('[data-el-id="source"] line'), x1 = +l.getAttribute("x1"), y1 = +l.getAttribute("y1"), x2 = +l.getAttribute("x2"), y2 = +l.getAttribute("y2");
+      const head = document.querySelector('[data-el-id="source"] polygon')?.getAttribute("points") ?? "";
+      return { len: Math.hypot(x2 - x1, y2 - y1), x2, y2, head }; })()`) as Promise<{ len: number; x2: number; y2: number; head: string }>;
+    const shrink = await shaft(at("turn-shrink")), rigid = await shaft(at("turn-rigid"));
+    h.ok(rigid.len > 200 && near(shrink.len, rigid.len * Math.cos(Math.PI / 3), 2), `a 120° turn mid-flight: the visible shaft shrinks to ${shrink.len.toFixed(1)} (cos 60°) on an ordinary Change and keeps ${rigid.len.toFixed(1)} on a rigid one (the head trims the 240 line at both)`);
+    const tip = rigid.head.trim().split(/\s+/)[0]?.split(",").map(Number) ?? [];
+    h.ok(tip.length === 2 && Math.hypot(tip[0] - rigid.x2, tip[1] - rigid.y2) < 40, "the rigid arrowhead is redrawn at the turned shaft's end (not left on the straight lerp)");
+    h.ok(near(b0.x - s0.x, -120 * bow, 1.5) && near(b0.y - s0.y, 530 * bow, 1.5), "early in the flight the bend is arc·t(1−t) of the travel (no step at the start)");
   }
   h.eq(errors, [], "exported and static hosts have no browser errors or CSP violations");
 } catch (err) { h.fail(String((err as Error).stack ?? err)); }

@@ -36,7 +36,7 @@ import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox, dashAttr, channelOpacity } from "../../geometry";
 import { pathRender, pathD } from "../../path";
-import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
+import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, type TurnMode, tweenColorScales } from "../tween";
 import { planElementMorph, sampleElementMorph, sampleStrokeBand, arrowFade, fixedHeadOpacity, fixedHeadPoints, dashOffsetAt, type ElementMorphPlan, type BandSample } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
@@ -62,6 +62,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 export interface TransformCtx extends SlideRenderCtx {
   arc?: number;
+  /** The track's turn law (`params.turn`, WP 3.3): "rigid" keeps a turning line's length (tween.rigidSegment). */
+  turn?: TurnMode;
   /** Effective source content after earlier cues (may be a crossfade layer). */
   contentHost?: HTMLElement;
   /** assetId → manifest (plot frame updates + the content-morph half). */
@@ -175,7 +177,7 @@ export function createTransform(
   const ownContent = contentHost.firstElementChild;
   const ownHost = (): HTMLElement => (ownContent && ownContent.parentElement as HTMLElement | null) || contentHost;
   const staticUpdate = pre.type !== "plot" && plan.contentDirty && plan.mode === "tween"
-    ? compileStaticContent(contentHost, pre, end, ctx) : null;
+    ? compileStaticContent(contentHost, pre, end, ctx, undefined, ctx.turn === "rigid") : null;
   // Text wrapping can change node topology as metrics change. Keep that
   // deliberate fallback; shape topology changes use prebuilt crossfade layers.
   if (pre.type !== "plot" && pre.type !== "text" && plan.contentDirty && !staticUpdate && plan.mode === "tween") plan.mode = "crossfade";
@@ -644,7 +646,7 @@ export function createTransform(
   const self = {};        // this controller's identity as a content writer
   function seek(u: number, raw = clamp01(u)): void {
     const t = clamp01(u);
-    const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw);
+    const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw, { turn: ctx.turn });
     const contentX = content.x, contentY = content.y;
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
     // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched).

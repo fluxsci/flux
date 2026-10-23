@@ -2,13 +2,15 @@
 // MORPH-PATH (WP 2.1, T5 (1)-(3)): same-kind RING alignment (H2; open chains keep their authored pairing),
 // compound paths, set pairing without crossings (M3), the content-keyed alignment memo and its warm hook.
 // Pure tier. Run: npx tsx scripts/verify-morph-path.ts
-// (Arcs on flights, Suggest arcs and the rigid turn are WP 3.3 and live in their own sections later.)
-import { lerpElement, lerpNodes, lerpCompoundD, warmSlideMorphs } from "../src/lib/slide/tween";
+// WP 3.3 (T5 (4)-(6)): arcs on hand-off / set flights (one centre-based law, the band and fixed heads ride it), Suggest arcs, the opt-in
+// rigid turn.
+import { lerpElement, lerpNodes, lerpCompoundD, warmSlideMorphs, rigidSegment, turnOf, arcBox } from "../src/lib/slide/tween";
 import { alignChains, planElementMorph, sampleElementMorph, compoundRings } from "../src/lib/slide/outline";
 import { pathToSubpaths } from "../src/lib/path";
-import { planCorrespondence, sampleCorrespondence, assignMinCost, greedyAssign } from "../src/lib/slide/correspondence";
+import { planCorrespondence, sampleCorrespondence, assignMinCost, greedyAssign, arcOffset, planBends } from "../src/lib/slide/correspondence";
+import { suggestArcs, collidingFlights, suggestBeatArcs, ARC_CANDIDATES } from "../src/lib/slide/arcSuggest";
 import { elementStageOutlines } from "../src/lib/slide/targetGeometry";
-import { createDeck, addSlide, addElement, addBeat, setTransform } from "../src/lib/slide/ops";
+import { createDeck, addSlide, addElement, addBeat, setTransform, setTrackArc, suggestArcsForBeat, setTrackTurn } from "../src/lib/slide/ops";
 import { harness } from "./lib/harness.mjs";
 import type { VectorNode } from "../src/lib/types";
 const h = harness("verify-morph-path");
@@ -286,4 +288,123 @@ h.section("warm hook: a same-kind path Change is aligned before the first frame"
   }
   h.ok(median(warmed) < median(cold) * 0.8, `the first player sample after the hook is ${median(warmed).toFixed(1)} ms vs ${median(cold).toFixed(1)} ms cold (median of 5; the memo was filled off-frame)`);
 }
+h.section("arcs honoured by set / hand-off flights");
+{ const plan = planCorrespondence([ell("d", 100, 100, 20)].flatMap((e) => elementStageOutlines(e)), [ell("e", 400, 300, 40)].flatMap((e) => elementStageOutlines(e)), { method: "dissolve" });
+  plan.prepare();
+  const p = plan.pairs.find((q) => q.a && q.b)!;
+  h.ok(!!p.travel && Math.abs(p.travel.dx - 300) < 1e-6 && Math.abs(p.travel.dy - 200) < 1e-6, "every two-sided pair records its centre-to-centre travel");
+  const mid = (arc?: number) => { const s = sampleCorrespondence(plan, 0.5, [], arc ? { raw: .5, durationMs: 600, arc } : undefined)[0]; const xs = s.nodes.map((n) => n.x), ys = s.nodes.map((n) => n.y); return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]; };
+  const a0 = mid(), a1 = mid(0.83);
+  h.ok(Math.abs((a1[0] - a0[0]) - (-200 * 0.83 / 4)) < 0.5 && Math.abs((a1[1] - a0[1]) - (300 * 0.83 / 4)) < 0.5, "arc .83 bends the mid-flight centre by arc·d/4 sideways (arcBox's own formula)");
+  const ends = [0, 1].map((t) => sampleCorrespondence(plan, t, [], { raw: t, durationMs: 600, arc: 0.83 })[0].nodes.map((n) => [n.x, n.y]));
+  const ref = [0, 1].map((t) => sampleCorrespondence(plan, t, [])[0].nodes.map((n) => [n.x, n.y]));
+  h.eq(JSON.stringify(ends), JSON.stringify(ref), "t = 0 and t = 1 are untouched by the arc");
+  const box = { x: 0, y: 0, width: 10, height: 10 } as any, to = { ...box, x: 300, y: 200 } as any;
+  const ab = arcBox({ ...box }, box, to, .5, .83), off = arcOffset({ dx: 300, dy: 200 }, .5, .83);
+  h.ok(Math.abs(ab.x - (150 + off.x)) < 1e-9 && Math.abs(ab.y - (100 + off.y)) < 1e-9, "arcOffset is arcBox's bend (one law for boxes and flights)");
+  h.ok(planBends(plan), "a plain flight bends");
+  const tile = planCorrespondence([rct("r", 100, 200, 300, 100)].flatMap((e) => elementStageOutlines(e)), [ell("a", 100, 60, 20), ell("b", 300, 60, 20), ell("c", 500, 60, 20)].flatMap((e) => elementStageOutlines(e)), { method: "shatter" });
+  h.ok(!planBends(tile), "a shattering ring (live cover clone at the ends) ignores arc");
+}
+
+h.section("arcs: the law for flights vs boxes");
+{ // flights bend about CENTRE-to-centre travel; arcBox bends by origin deltas. Equal-size moves agree; a resize about a fixed
+  // centre bends in arcBox (its origin travels) and not in a flight (its centre does not).
+  const box = { x: 0, y: 0, width: 100, height: 100 } as any, grown = { x: -100, y: -100, width: 300, height: 300 } as any;
+  const ab = arcBox({ ...box }, box, grown, .5, .83), straightX = (0 + -100) / 2;
+  h.ok(Math.abs(ab.x - straightX) > 1 || Math.abs(ab.y - (-50)) > 1, "arcBox bends a pure resize about a fixed centre (origin-based, unchanged contract)");
+  h.eq(JSON.stringify(arcOffset({ dx: 0, dy: 0 }, .5, .83)), JSON.stringify({ x: 0, y: 0 }), "a flight whose centre does not travel does not bend (centre-based law)");
+  h.eq(JSON.stringify(arcOffset({ dx: 300, dy: 200 }, 0, .83)), JSON.stringify({ x: 0, y: 0 }), "arcOffset is exactly zero at t = 0 and t = 1");
+}
+
+h.section("arc suggestions");
+{ const R = (x: number, y: number, w = 100, hh = 100) => ({ x, y, w, h: hh });
+  const swap = [{ id: "p", pre: R(150, 130), end: R(390, 130) }, { id: "q", pre: R(390, 130), end: R(150, 130) }];
+  h.eq(suggestArcs(swap).arcs, { p: 0.83, q: 0.83 }, "two boxes swapping places settle on manim's 90° Swap arc (0.83): 0.25 and 0.45 cannot clear a swap");
+  h.eq(JSON.stringify(ARC_CANDIDATES), "[0.25,0.45,0.83]", "the ladder is the owner's modal arcs then the Swap arc");
+  h.eq(suggestArcs([{ id: "p", pre: R(100, 130), end: R(440, 130) }, { id: "q", pre: R(440, 130), end: R(100, 130) }]).arcs, { p: 0.83, q: 0.83 }, "a wide swap is cleared by 0.83");
+  h.eq(suggestArcs([{ id: "p", pre: R(100, 60), end: R(300, 60) }, { id: "q", pre: R(100, 220), end: R(300, 220) }]).collisions, 0, "parallel moves stay straight");
+  h.eq(suggestArcs([{ id: "p", pre: R(100, 100), end: R(400, 200) }]).arcs, {}, "a single move stays straight");
+  h.eq(suggestArcs(swap, { p: 0 }).arcs, { q: 0.83 }, "an authored 0 is never overwritten");
+  const cyc = suggestArcs([{ id: "a", pre: R(270, 40), end: R(430, 220) }, { id: "b", pre: R(430, 220), end: R(110, 220) }, { id: "c", pre: R(110, 220), end: R(270, 40) }]).arcs;
+  h.ok(Object.keys(cyc).length === 3 && Object.values(cyc).every((v) => v === cyc.a) && Math.abs(cyc.a) < 0.83, "a 3-cycle circulates (one sign, a magnitude below the Swap arc)");
+  h.eq(collidingFlights([{ id: "p", pre: R(100, 100), end: R(100, 100, 160, 160) }, { id: "q", pre: R(110, 110, 40, 40), end: R(110, 110, 80, 80) }]).length, 0, "in-place resizes are not collisions");
+  h.eq(collidingFlights([{ id: "u", pre: R(100, 100), end: R(400, 100) }, { id: "v", pre: R(110, 110, 40, 40), end: R(500, 300, 40, 40) }]).length, 0, "a move out from under another box (overlap at the start) is composed, not a collision");
+  // real clocks: a swap whose second box starts after the first has landed does not collide
+  const ease = (r: number) => r;
+  const pq = (timed: boolean) => [{ id: "p", pre: R(100, 130), end: R(500, 130), ...(timed ? { start: 300, duration: 300, ease } : {}) }, { id: "q", pre: R(280, 130), end: R(280, 290), ...(timed ? { start: 0, duration: 200, ease } : {}) }];
+  h.eq([suggestArcs(pq(false)).collisions, suggestArcs(pq(true)).collisions], [1, 0], "p crosses q's column while q is still moving on ONE shared clock (1 collision) but q is gone before p starts on the real clocks (0)");
+  h.eq(suggestArcs([{ id: "p", pre: R(150, 130), end: R(390, 130), start: 0, duration: 400, ease }, { id: "q", pre: R(390, 130), end: R(150, 130), start: 600, duration: 400, ease }]).arcs, {}, "a staggered swap (p lands on q's spot while q still sits there) is reported but arcs cannot fix timing: nothing written");
+  h.eq(suggestArcs([{ id: "p", pre: R(150, 130), end: R(150, 330), start: 0, duration: 300, ease }, { id: "q", pre: R(300, 130), end: R(300, 330), start: 0, duration: 300, ease }]).collisions, 0, "side-by-side parallel moves on one clock never collide");
+  // perf cliff: 12 mutually colliding flights answer fast and 60 flagged flights say why they give up
+  const ring = (n: number) => Array.from({ length: n }, (_, i) => { const a = i / n * 2 * Math.PI, b = ((i + n / 2) % n) / n * 2 * Math.PI; return { id: "r" + i, pre: R(300 + 200 * Math.cos(a), 200 + 150 * Math.sin(a), 30, 30), end: R(300 + 200 * Math.cos(b), 200 + 150 * Math.sin(b), 30, 30) }; });
+  const t0 = performance.now(), many = suggestArcs(ring(12)); const ms = performance.now() - t0;
+  h.ok(ms < 120 && many.collisions > 0, `12 colliding flights suggest in ${ms.toFixed(0)} ms (< 120 ms; the 2^12 search took 395 ms)`);
+  const huge = suggestArcs(ring(60)), thirteen = suggestArcs(ring(14));
+  h.ok(!Object.keys(huge.arcs).length && /too many/.test(huge.reason ?? ""), "60 colliding flights give up WITH a reason");
+  h.ok(!Object.keys(thirteen.arcs).length && /too many colliding moves \(1[34]\)/.test(thirteen.reason ?? ""), "more than MAX_FLAGGED = 12 flagged flights give up too (a chorus of bows is not a fix)");
+  // never a bigger bow than needed: two boxes that merely cross (offset enough that 0.45 clears) must not get the Swap arc
+  const R2 = (x: number, y: number) => ({ x, y, w: 30, h: 30 });
+  const cross = suggestArcs([{ id: "m", pre: R2(100, 100), end: R2(400, 300) }, { id: "n", pre: R2(100, 300), end: R2(400, 100) }]);
+  h.ok(Object.values(cross.arcs).length === 2 && Object.values(cross.arcs).every((v) => Math.abs(v) === 0.45), `an X crossing of 30-unit boxes is cleared by 0.45, not the Swap's 0.83 (${JSON.stringify(cross.arcs)})`);
+
+  // resolved arcs + resolved clocks through a real deck: a style-inherited arc counts as authored
+  const deck: any = createDeck({ id: "t5g", title: "g", withTitleSlide: false });
+  const sl = addSlide(deck, { id: "s", layout: "blank" });
+  for (const [id, x] of [["p", 150], ["q", 390], ["r", 20]] as const) addElement(deck, sl.id, { type: "rect", id, x, y: 130, width: 100, height: 100, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as any);
+  const beat = addBeat(deck, sl.id, { id: "b1" });
+  const tp = setTransform(deck, sl.id, beat.id, "p", { state: { x: 390 } })!, tq = setTransform(deck, sl.id, beat.id, "q", { state: { x: 150 } })!;
+  const bi = sl.beats.findIndex((b: any) => b.id === beat.id), res = suggestBeatArcs(sl, bi, deck);
+  h.eq(res.arcs, { [tp.id!]: 0.83, [tq.id!]: 0.83 }, "suggestBeatArcs on a real swap beat");
+  deck.animStyles = [{ id: "st", name: "bow", family: "transform", track: { preset: "transform", arc: 0.3 } }]; tq.styleId = "st";
+  h.eq(suggestBeatArcs(sl, bi, deck).arcs[tq.id!], undefined, "an arc inherited from a linked style counts as authored (never overwritten)");
+  delete tq.styleId; setTrackArc(tq, 0);
+  const done = suggestArcsForBeat(deck, sl.id, beat.id);
+  h.ok(tq.arc === 0 && tp.arc !== undefined && done.written.length === 1, "suggestArcsForBeat writes only unset tracks and leaves an authored 0");
+}
+
+h.section("rigid turn (opt-in `params.turn`)");
+{ const P = (x: number, y: number) => ({ x, y });
+  const th = 120 * Math.PI / 180, cx = 320, cy = 180, r = 80;
+  const p1 = P(cx - r, cy), p2 = P(cx + r, cy), q1 = P(cx - r * Math.cos(th), cy - r * Math.sin(th)), q2 = P(cx + r * Math.cos(th), cy + r * Math.sin(th));
+  let spread = 0, drift = 0;
+  for (let i = 1; i < 100; i++) { const [a, b] = rigidSegment(p1, p2, q1, q2, i / 100)!; spread = Math.max(spread, Math.abs(Math.hypot(b.x - a.x, b.y - a.y) - 2 * r)); drift = Math.max(drift, Math.hypot((a.x + b.x) / 2 - cx, (a.y + b.y) / 2 - cy)); }
+  h.ok(spread < 1e-9 && drift < 1e-9, "a 120° turn about the centre keeps length and centre exactly (the endpoint lerp dips to cos 60° = 50 %)");
+  const t1 = P(240, 180), h1 = P(400, 180), h2 = P(240 + 160 * Math.cos(th), 180 + 160 * Math.sin(th));
+  let tail = 0, len = 0;
+  for (let i = 1; i < 100; i++) { const [a, b] = rigidSegment(t1, h1, t1, h2, i / 100)!; tail = Math.max(tail, Math.hypot(a.x - 240, a.y - 180)); len = Math.max(len, Math.abs(Math.hypot(b.x - a.x, b.y - a.y) - 160)); }
+  h.ok(tail < 1e-9 && len < 1e-9, "a swing about the tail keeps the tail fixed and the length constant");
+  // the critique: the centre must travel in a STRAIGHT line (arc stays the only curvature); a spiral similarity bent it by 87 px
+  const s1 = P(0, 0), s2 = P(100, 0), e1 = P(300 - 50 * Math.cos(th), -50 * Math.sin(th)), e2 = P(300 + 50 * Math.cos(th), 50 * Math.sin(th));
+  let off = 0;
+  for (const t of [.1, .3, .5, .7, .9]) { const [a, b] = rigidSegment(s1, s2, e1, e2, t)!; const c = P((a.x + b.x) / 2, (a.y + b.y) / 2), c0 = P(50, 0), c1 = P(300, 0); off = Math.max(off, Math.abs((c1.x - c0.x) * (c.y - c0.y) - (c1.y - c0.y) * (c.x - c0.x)) / Math.hypot(c1.x - c0.x, c1.y - c0.y)); }
+  h.ok(off < 1e-9, "move + turn: the centre stays on the straight chord at 5 phases (arc 0 = straight)");
+  h.eq(rigidSegment(P(0, 0), P(100, 0), P(50, 40), P(150, 40), .5), null, "a pure translation is the plain lerp (null)");
+  h.eq(rigidSegment(P(0, 0), P(100, 0), P(0, 0), P(200, 0), .5), null, "a pure stretch is the plain lerp (null)");
+  const [e0, f0] = rigidSegment(P(10, 10), P(110, 30), P(200, 150), P(160, 240), 1)!;
+  h.ok(Math.abs(e0.x - 200) < 1e-9 && Math.abs(e0.y - 150) < 1e-9 && Math.abs(f0.x - 160) < 1e-9 && Math.abs(f0.y - 240) < 1e-9, "t = 1 lands on the end endpoints exactly (turn + stretch + shift)");
+  // through lerpElement: default = the old lerp byte for byte; rigid keeps the length
+  const line = (x2: number, y2: number, x = 240, y = 180): any => ({ type: "line", id: "l", x, y, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2, y2, stroke: "#000", strokeWidth: 6, arrowStart: false, arrowEnd: true });
+  const a = line(160, 0), b = line(160 * Math.cos(th), 160 * Math.sin(th));
+  const plain = lerpElement(a, b, .5, .5) as any, rigid = lerpElement(a, b, .5, .5, { turn: "rigid" }) as any;
+  h.ok(Math.abs(Math.hypot(plain.x2 - plain.x1, plain.y2 - plain.y1) - 80) < 1e-6, "default Change of a turning line: the endpoint lerp (length 80 = cos 60° of 160): unchanged contract");
+  h.ok(Math.abs(Math.hypot(rigid.x2 - rigid.x1, rigid.y2 - rigid.y1) - 160) < 1e-9, "params.turn = rigid keeps the length 160");
+  const track: any = { id: "t", target: "l", preset: "transform" }; setTrackTurn(track, "rigid");
+  h.eq([turnOf(track), track.params?.turn], ["rigid", "rigid"], "setTrackTurn / turnOf round-trip through params.turn");
+  setTrackTurn(track, null); h.eq([turnOf(track), track.params], [undefined, undefined], "turn: null removes the key (and an empty params)");
+  const stick = (d: string): any => ({ ...path(N([[0, 0], [0, 0]]), false), d, nodes: undefined, x: 100, y: 100, width: 40, height: 40 });
+  const sm = lerpElement(stick("M 0 0 L 40 0"), stick("M 0 0 L 0 40"), .5, .5, { turn: "rigid" }) as any;
+  const pm = sm.d.match(/-?[\d.e-]+/g).map(Number);
+  h.ok(Math.abs(Math.hypot(pm[2] - pm[0], pm[3] - pm[1]) - 40) < 1e-2, "a straight 2-node stick on a rigid track keeps its length too");
+}
+
+{ // the stroke BAND (R2 F1: a thick ring's stroke drawn as the ring between two contours) rides the same bent flight as its centreline
+  const plan = planCorrespondence(elementStageOutlines({ ...rct("d", 50, 50, 80, 60), strokeWidth: 8 }), elementStageOutlines({ ...ell("e", 400, 300, 40), strokeWidth: 8 }), { method: "dissolve" });
+  plan.prepare();
+  const at = (arc?: number) => sampleCorrespondence(plan, 0.5, [], { raw: .5, durationMs: 600, ...(arc ? { arc } : {}) })[0];
+  const flat = at(), bent = at(0.6), off = arcOffset(plan.pairs[0].travel, 0.5, 0.6);
+  h.ok(!!flat.band && !!bent.band && Math.abs(bent.band.outer[0].x - flat.band.outer[0].x - off.x) < 1e-6 && Math.abs(bent.band.inner[0].y - flat.band.inner[0].y - off.y) < 1e-6
+    && Math.abs(bent.nodes[0].x - flat.nodes[0].x - off.x) < 1e-6, "a thick ring's stroke band is displaced exactly like its centreline (no band left on the chord)");
+}
+
 await h.done();

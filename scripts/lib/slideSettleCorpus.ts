@@ -338,6 +338,19 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     out.push({ name: "become_corners", payload: { deck: b.deck } });
   }
   {
+    // WP 3.3: flights bent by an arc (a hand-off and a swap of two boxes at manim's Swap arc) and a line that turns rigidly (keeps its length)
+    const b = new Builder("arcs_turns");
+    { const s = b.slide("arc_handoff"); b.add(s, el("rect", "a", 60, 200, { width: 120, height: 80, fill: C.blue, stroke: C.blueD, strokeWidth: 6 }));
+      b.add(s, { id: "b", type: "ellipse", x: 460, y: 60, width: 140, height: 140, rotation: 0, fill: C.red, stroke: C.redD, strokeWidth: 6 });
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }, { arc: 0.83 }); }
+    { const s = b.slide("arc_swap"); b.add(s, el("rect", "p", 120, 140, { width: 120, height: 100, fill: C.blue, stroke: C.blueD, strokeWidth: 6 }));
+      b.add(s, el("rect", "q", 400, 140, { width: 120, height: 100, fill: C.red, stroke: C.redD, strokeWidth: 6 }));
+      const beat = b.beat(s); b.change(s, beat, "p", { x: 400 }, { arc: 0.83 }); b.change(s, beat, "q", { x: 120 }, { arc: 0.83 }); }
+    { const s = b.slide("turn_rigid"); b.add(s, el("arrow", "l", 200, 180, { width: 240, height: 0, x1: 0, y1: 0, x2: 240, y2: 0, stroke: C.blueD, strokeWidth: 6 }));
+      b.change(s, b.beat(s), "l", { x1: 180, y1: -103.92, x2: 60, y2: 103.92 }, { turn: "rigid" }); }
+    out.push({ name: "arcs_turns", payload: { deck: b.deck } });
+  }
+  {
     // R2 follow-up F1: a Change of cornerRadius with REAL element data (the sharp `nodes` skeleton plus the rounded `d` the app writes). Lane S measured
     // a 222-px^2 start pop on a path whose `d` was hand-written sharp while its cornerRadius said 20 (an element the app never produces): with the
     // data it writes, rounding a corner and sharpening it are smooth from the first frame to the last (this deck pins that).

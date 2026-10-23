@@ -274,8 +274,9 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   scale: { scale: { default: 1.15 } },
   rotate: { deg: { default: 15 } },
   camera: {},
-  // The text-rewrite look (text morph, player/textMorph.ts via resolveTextLook): classic = drift fades, letters fade.
-  transform: { fadeStyle: { default: "drift" }, letters: { default: "fade" } },
+  // The text-rewrite look (text morph, player/textMorph.ts via resolveTextLook): classic = drift fades, letters fade. `turn` (WP 3.3): how a
+  // line / straight bond whose endpoints change turns: "shrink" (absent: the endpoint lerp) or "rigid" (keeps its length; tween.rigidSegment).
+  transform: { fadeStyle: { default: "drift" }, letters: { default: "fade" }, turn: { default: "shrink" } },
   videoStart: {},
   videoPause: {},
   videoStop: {},

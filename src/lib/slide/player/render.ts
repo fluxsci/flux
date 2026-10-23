@@ -30,7 +30,7 @@ import { prefixIds, applyOverrides, partDomId, partIdFromDom } from "../../plot/
 import { isDerivedManifest } from "../../plot/derive";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
-import { elementBBox } from "../../geometry";
+import { elementBBox, lineRender } from "../../geometry";
 import { pathD } from "../../path";
 import { elementOutline } from "../outline";
 import { barGrowWeight, type BarGrow } from "../growOrigin";
@@ -556,7 +556,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
 /** Compile the serializer's two endpoints into stable attribute bindings.
  * Normal shape transforms never serialize/parse SVG during playback. A
  * topology change returns null so the caller can crossfade complete layers. */
-export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: { circles: ReadonlySet<string>; lines: ReadonlySet<string> }): ((el: FigElement, t: number, raw?: number) => void) | null {
+export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: { circles: ReadonlySet<string>; lines: ReadonlySet<string> }, rigidTurn = false): ((el: FigElement, t: number, raw?: number) => void) | null {
   if (pre.type === "text" && end.type === "text") {
     const svg = w.firstElementChild, text = svg?.querySelector("text");
     if (!svg || !text) return null;
@@ -627,6 +627,13 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
   };
   if (!bind(liveSvg, aSvg, bSvg)) return null;
   const path = pre.type === "path" ? liveSvg.querySelector("path") : null;
+  // A line on a `turn: "rigid"` track (tween.rigidSegment, WP 3.3): the bound attributes lerp the two serialized endpoints straight, so the
+  // frame's own geometry (shaft + arrowheads, lineRender) overwrites them, like a path's `d`. Never for an ordinary Change: its bound lerp
+  // stays the contract.
+  const lineNodes = rigidTurn && pre.type === "line" ? {
+    line: liveSvg.querySelector(":scope > line"),
+    polys: Array.from(liveSvg.querySelectorAll(":scope > polygon")), vees: Array.from(liveSvg.querySelectorAll(":scope > polyline")),
+  } : null;
   return (el, t, raw = t) => {
     if (el.type !== "plot") {
       const bb = elementBBox({ ...el, rotation: 0 });
@@ -636,6 +643,13 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
     // The path tween owns its resampled geometry; interpolating raw d strings
     // would pair unrelated commands when the node count changed.
     if (path && el.type === "path") path.setAttribute("d", el.d);
+    if (lineNodes?.line && el.type === "line") {
+      const lr = lineRender(el), put = (n: Element, k: string, v: string) => { if (n.getAttribute(k) !== v) n.setAttribute(k, v); };
+      put(lineNodes.line, "x1", String(el.x + lr.x1)); put(lineNodes.line, "y1", String(el.y + lr.y1));
+      put(lineNodes.line, "x2", String(el.x + lr.x2)); put(lineNodes.line, "y2", String(el.y + lr.y2));
+      lr.polys.forEach((tri, i) => lineNodes.polys[i] && put(lineNodes.polys[i], "points", tri.map(([px, py]) => `${el.x + px},${el.y + py}`).join(" ")));
+      lr.vees.forEach((v, i) => lineNodes.vees[i] && put(lineNodes.vees[i], "points", v.map(([px, py]) => `${el.x + px},${el.y + py}`).join(" ")));
+    }
   };
 }
 

@@ -2,7 +2,7 @@
 import type { BecomeSpec } from "../types";
 import type { StageOutline, OutlineOwner } from "../stageOutline";
 import type { CorrespondencePlan, CorrespondencePair, SampledPath } from "../correspondence";
-import { sampleCorrespondence, pairHeadPoints } from "../correspondence";
+import { sampleCorrespondence, pairHeadPoints, arcOffset, planBends } from "../correspondence";
 import { dashOffsetAt, strokeEndDirection } from "../outline";
 import type { MorphController } from "../../plot/project";
 import { prefixIds } from "../../plot/parse";
@@ -79,6 +79,9 @@ export interface HandoffOptions {
   beneath?: Element | null;
   /** The track's duration: time-based interiors (a dissolve) run in real ms. */
   durationMs?: number;
+  /** The track's `arc` (−1…1, WP 3.3): every flight bends about its centre travel like a box move (correspondence `arcOffset`); a plan held
+   *  registered with live cover clones (letter strips, a shattering ring: `planBends`), text glides and 3D media fly straight. */
+  arc?: number;
   /** Hand the flight over to copies of the real ends (default). A MERGE's landers share one destination: each would add its own copy of it, so the
    *  group lands as it always has (the pieces cover each other's seams). */
   handover?: boolean;
@@ -101,7 +104,7 @@ export interface HandoffMedia {
 interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean; dir: [number, number] }
 interface PathDrawing { node: SVGPathElement; /** the stroke as a band between two contours (correspondence `band`), drawn over `node` */ band?: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement; defsMarkup?: string }
 let gradientSerial = 0;
-interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; aBox: Box; bBox: Box }
+interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; aBox: Box; bBox: Box; travel: { dx: number; dy: number } }
 interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
 
 export function createHandoff(opts: HandoffOptions): HandoffController {
@@ -118,6 +121,10 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   const custom = opts.media?.mount?.(layer);
   let readyState = !opts.media && !ctx.glyphs, preparation: Promise<void> | undefined;
   let disposed = false, prepared = false, plan: CorrespondencePlan | undefined, sampled: CorrespondencePlan | undefined;
+  /** The arc this plan's flights bend by (decided once, at `ensure`: 0 for a plan that must fly straight) and `arcOffset`'s scratch (no
+   *  per-frame allocation). */
+  let arc = 0;
+  const bend = { x: 0, y: 0 };
   let lastPhase = -1;
   const out: SampledPath[] = [], paths: PathDrawing[] = [], crosses: Crossfade[] = [], glyphs: Glyph[] = [];
   const clips = new Map<string, string>();
@@ -263,6 +270,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     builtRevision = ctx.glyphs?.revision() ?? -1;
     if (custom) { prepared = true; layer.setAttribute("data-driver", "model3d"); return; }
     plan = opts.plan(); plan.prepare();
+    arc = opts.arc && planBends(plan) ? opts.arc : 0;
     layer.setAttribute("data-driver", plan.driver);
     // Allocate sampling/paint buffers in preparation, including when a first
     // seek beats the idle warm. Every subsequent seek reuses them.
@@ -341,7 +349,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           }
           const a = pair.a ? clone(pair.a, host) : undefined, b = pair.b ? clone(pair.b, host) : undefined;
           const aBox = pair.a?.paint.text ? a?.box : pair.a?.bbox, bBox = pair.b?.paint.text ? b?.box : pair.b?.bbox;
-          crosses.push({ a, b, pair, aBox: aBox ?? bBox!, bBox: bBox ?? aBox! });
+          const from = aBox ?? bBox!, to = bBox ?? aBox!;
+          crosses.push({ a, b, pair, aBox: from, bBox: to, travel: { dx: to.x + to.w / 2 - from.x - from.w / 2, dy: to.y + to.h / 2 - from.y - from.h / 2 } });
           if (a && b) for (const c of [a, b]) c.node.style.setProperty("mix-blend-mode", "plus-lighter");
         } else if (plan.driver === "path" || !pair.a) {
           const node = document.createElementNS(NS, "path");
@@ -396,7 +405,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         // where the flight starts and ends (anchors, stage px) and what changes in place (a colour, a width, a piece that fades in or out)
         const tmp0: SampledPath[] = [], tmp1: SampledPath[] = [];
         // (just inside the flight: the exact endpoints sample the pair's ORIGINAL chains, which have other node counts than the aligned flight chains)
-        sampleCorrespondence(sampled, 1e-9, tmp0, { raw: 1e-9, durationMs: opts.durationMs ?? 600 }); sampleCorrespondence(sampled, 1 - 1e-9, tmp1, { raw: 1 - 1e-9, durationMs: opts.durationMs ?? 600 });
+        sampleCorrespondence(sampled, 1e-9, tmp0, { raw: 1e-9, durationMs: opts.durationMs ?? 600, arc }); sampleCorrespondence(sampled, 1 - 1e-9, tmp1, { raw: 1 - 1e-9, durationMs: opts.durationMs ?? 600, arc });
         handover.refA = tmp0.map(sp => pathPoints(sp.nodes)); handover.refB = tmp1.map(sp => pathPoints(sp.nodes));
         let look = 0;
         for (const pair of plan.pairs) {
@@ -462,9 +471,11 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     // A piece that is not there (opacity 0) is not drawn at all: an invisible path still widens the bounds of the group it sits in, and that moved the
     // rasterisation of the hand-over's end copies by ~0.1 px (a 10 stage px^2 step when the flight left; R2 F3)
     if (opacity > 0) node.removeAttribute("display"); else set(node, "display", "none");
+    // a fixed head rides its chain's support point, which bends with the flight
+    const bent = arcOffset(pair.travel, u, arc, bend);
     for (const head of fixed) {
       let points = "";
-      for (const point of pairHeadPoints(pair, head.points, head.dir, u, !head.start)) points += `${point[0]},${point[1]} `;
+      for (const point of pairHeadPoints(pair, head.points, head.dir, u, !head.start)) points += `${point[0] + bent.x},${point[1] + bent.y} `;
       set(head.node, "points", points);
       set(head.node, "opacity", String((head.start ? clamp01(1 - u / .4) : clamp01((u - .6) / .4)) * (head.side.paint.opacity ?? 1)));
     }
@@ -528,7 +539,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       set(f.clone.node, "transform", `translate(${f.clone.box.x} ${f.clone.box.y})`); set(f.clone.node, "opacity", String(w * f.clone.opacity));
     }
     if (paths.length) {
-      sampleCorrespondence(sampled!, t, out, { raw, durationMs: opts.durationMs ?? 600 });
+      sampleCorrespondence(sampled!, t, out, { raw, durationMs: opts.durationMs ?? 600, arc });
       let i = 0;
       for (const drawing of paths) {
         while (sampled!.pairs[i] !== drawing.pair) i++;
@@ -552,12 +563,13 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     }
     const fade = raw < .85 ? 1 : clamp01((1 - raw) / .15);
     for (const glyph of glyphs) {
-      set(glyph.node, "transform", `translate(${glyph.x + glyph.dx * t} ${glyph.y + glyph.dy * t}) scale(${1 + glyph.scale * t})`);
+      const bent = arcOffset(glyph, t, arc, bend);   // a glyph's travel is its own (dx, dy) to the landing
+      set(glyph.node, "transform", `translate(${glyph.x + glyph.dx * t + bent.x} ${glyph.y + glyph.dy * t + bent.y}) scale(${1 + glyph.scale * t})`);
       set(glyph.node, "opacity", String(glyph.opacity * fade));
     }
     for (const cross of crosses) {
-      const a = cross.aBox, b = cross.bBox;
-      const x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t), w = lerp(a.w, b.w, t), h = lerp(a.h, b.h, t);
+      const a = cross.aBox, b = cross.bBox, bent = arcOffset(cross.travel, t, arc, bend);
+      const x = lerp(a.x, b.x, t) + bent.x, y = lerp(a.y, b.y, t) + bent.y, w = lerp(a.w, b.w, t), h = lerp(a.h, b.h, t);
       // A text clone scales UNIFORMLY (by height): glyphs never stretch with a
       // box whose aspect changes; rasters and shapes still fill the lerped box.
       const fit = (c: HandoffClone, text: boolean | undefined) => {

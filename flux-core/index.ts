@@ -152,6 +152,7 @@ export {
   swapBecomeVerb,
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
+  suggestArcs,
   setPlotViewVerb,
   setPlotColorScaleVerb,
   getPlotColorScales,

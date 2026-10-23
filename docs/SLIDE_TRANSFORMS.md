@@ -142,7 +142,24 @@ ranks and maxRank are prepared before frames.
 
 `arc` is a HOW field in −1…1. `arcBox` changes only box x/y using a quadratic control offset
 of `arc × distance / 2`; its halfway apex is `arc × distance / 4`. Zero preserves straight
-motion. The same unclamped eased progress drives compiler and player box paths.
+motion. The same unclamped eased progress drives compiler and player box paths. Hand-off
+flights (set, glyph and box-crossfade flights, with a thick ring's stroke band and fixed
+arrowheads riding along) bend by the same law about their CENTRE-to-centre travel
+(`correspondence.arcOffset`, on the clamped progress; `planBends`); letter-strip, shatter,
+text-morph and 3D flights stay straight. Arc equivalents: `arc = 2·tan(θ/4)` matches the apex
+of a circular arc of included angle θ, i.e. manim's `path_arc` (30° 0.26, 45° 0.40, 60° 0.54,
+90° 0.83). Authored arcs run 0.2–0.45; manim's Swap is 0.83. **Suggest arcs**
+(`suggestArcsForBeat`, CLI `suggest-arcs`) writes an explicit arc, from {0.25, 0.45, 0.83}, onto
+the tracks of one step whose flights collide, judged on their real clocks; more than 12 colliding
+moves are refused with a reason, and it never touches a track whose resolved arc is set (an
+authored 0 is a decision).
+
+`params.turn = "rigid"` (CLI `set-transform --turn rigid`; absent = `shrink`) makes a `line`
+or a straight 2-node path turn without shrinking (`tween.rigidSegment`: the centre lerps, the
+angle takes the shortest turn, the length lerps; a stationary end is a pivot). The player
+redraws the shaft and its arrowheads from the turned line (`compileStaticContent` `rigidTurn`).
+Off by default: a bond or connector whose end points are shared with neighbouring elements must
+keep lerping them straight or it detaches.
 
 Camera `to.path` selects the default pole/log Zoom path (absent or `pole`) or van Wijk–Nuij
 `fly`. `sampleCamera` is the shared geometry sampler; `flyDuration` supplies the suggested

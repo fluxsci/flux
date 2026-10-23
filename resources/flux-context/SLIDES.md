@@ -65,7 +65,7 @@ flux get-plot-color-scales <figureId|deckId/slideId> <elId> [--beat beatId]     
 
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state] [--curve 'spring(0.35)']
-     [--start ms] [--duration ms] [--easing e] [--arc -1..1] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
+     [--start ms] [--duration ms] [--easing e] [--arc -1..1] [--turn rigid|shrink] [--to-asset id]   # (set_transform)  CHANGE: edit the object's own endpoint
 flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
      [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently
@@ -208,6 +208,12 @@ to place multiple appearance effects on the same object in one step.
   quadratic Bézier. The control point is offset by half the move distance times arc;
   at halfway the path offset is one quarter of the distance times arc. Styles/presets
   retain it. HTML/video play these paths; PPTX does not reproduce curves/distributions.
+  A Become hand-off's flights bend by the same arc about their centre travel (letter strips,
+  shatter, text and 3D stay straight). arc = 2·tan(θ/4) for manim's path_arc θ: 45° 0.40,
+  90° 0.83 (Swap). `flux suggest-arcs <deck> <slideId> <beatId>` (`suggest_arcs`) gives the moves
+  of one step that collide mid-flight the smallest of 0.25 / 0.45 / 0.83 that clears them (only
+  tracks whose resolved arc is unset). `set-transform --turn rigid|shrink`: a line / straight
+  bond that turns keeps its length (rigid) or lerps its ends straight (shrink, the default).
 
 **2. Transforms** — ONE track kind (`preset: "transform"`, at most one per complete source `TargetRef` per
 beat — chain across beats) authored three ways:

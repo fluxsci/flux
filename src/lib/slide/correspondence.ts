@@ -26,6 +26,9 @@ export interface CorrespondencePair {
   landing?: { x: number; y: number; scale: number };
   crossfade?: true;
   boxes?: { a: StageOutline["bbox"]; b: StageOutline["bbox"] };
+  /** Centre-to-centre displacement of the pair's flight (stage px): the vector a track `arc` bends it about (WP 3.3). A fill
+   *  triangle of a shattering ring carries its arc piece's vector. */
+  travel?: { dx: number; dy: number };
   /** A filled ring's INTERIOR while its outline splits (a-only) or pieces merge into
    *  it (b-only), under a transform method other than shatter: the sampler fades,
    *  shrinks or drains the ring's fill-only copy instead of flying it anywhere. */
@@ -48,8 +51,23 @@ export const INTERIOR_WINDOW: Record<InteriorSpec["method"], number> = { dissolv
  *  it runs over this many real ms however long the transform is (owner, 2026-10-03);
  *  `INTERIOR_WINDOW.dissolve` is the fallback when a caller has no timing. */
 export const DISSOLVE_MS = 220;
-/** The flight's real timing, so time-based interiors (dissolve) can ignore its length. */
-export interface SampleTiming { raw: number; durationMs: number }
+/** The flight's real timing, so time-based interiors (dissolve) can ignore its length; `arc` = the track's box-move curvature (−1…1),
+ *  which bends every flight of the plan (WP 3.3). */
+export interface SampleTiming { raw: number; durationMs: number; arc?: number }
+/** The sideways displacement of a flight at eased progress t for a track `arc` (WP 3.3): the SAME quadratic bend `tween.arcBox` gives a box,
+ *  arc·t(1−t) of the pair's centre travel turned 90°, so a flight's apex is arc·d/4 off the chord (arc = 2·tan(θ/4) is manim's path_arc θ).
+ *  Flights bend about CENTRE travel on the clamped eased progress; arcBox bends a box's ORIGIN on the unclamped one: equal-size moves agree. */
+export function arcOffset(travel: { dx: number; dy: number } | undefined, t: number, arc: number | undefined, out = { x: 0, y: 0 }): { x: number; y: number } {
+  if (!travel || !arc) { out.x = 0; out.y = 0; return out; }
+  const bend = arc * t * (1 - t);
+  out.x = -travel.dy * bend; out.y = travel.dx * bend;
+  return out;
+}
+/** Whether a plan's flights may bend: a letter strip or a shattering ring's triangle is covered by a live clone held at the flight's ends, which
+ *  must stay registered with the pieces, so such a plan flies straight. */
+export function planBends(plan: CorrespondencePlan): boolean {
+  return plan.driver === "glyph" || plan.pairs.every((p) => p.a?.owner.role !== "slice" && p.b?.owner.role !== "slice" && p.a?.owner.role !== "glyph-box" && p.b?.owner.role !== "glyph-box");
+}
 export interface CorrespondencePlan {
   pairs: CorrespondencePair[];
   policy: Exclude<PairPolicy, "auto">;
@@ -756,10 +774,23 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
       else { const station = pointAt(paramOf(b), 0.5); pair.landing = { ...station, scale: b.paint.strokeWidth / size }; }
     }
   }
+  assignTravel(pairs);
   const result: CorrespondencePlan = { pairs, policy, driver, destinations: bs, prepare() { for (const p of pairs) p.plan?.prepare(); } };
   if (batches.size >= BATCH_CACHE_MAX) batches.delete(batches.keys().next().value!);
   batches.set(key, result);
   return result;
+}
+
+/** Each two-sided pair's centre-to-centre travel; a slice pair (a shattering ring's fill triangle) takes the travel of the pair that shares
+ *  its outline, so it would bend with it (such a plan does not bend today: planBends). */
+function assignTravel(pairs: CorrespondencePair[]): void {
+  const vec = (a: StageOutline, b: StageOutline) => ({ dx: center(b).x - center(a).x, dy: center(b).y - center(a).y });
+  for (const p of pairs) if (p.a && p.b && p.a.owner.role !== "slice" && p.b.owner.role !== "slice") p.travel = vec(p.a, p.b);
+  for (const p of pairs) {
+    if (!p.a || !p.b || p.travel) continue;
+    const mate = pairs.find((q) => q.travel && (q.a?.owner === p.a!.owner || q.b?.owner === p.b!.owner));
+    if (mate) p.travel = mate.travel;
+  }
 }
 
 interface SampleBuffers {
@@ -800,6 +831,7 @@ function clipBeyond(poly: { x: number; y: number }[], centre: { x: number; y: nu
 /** prepare() must run before sampling. Endpoint nodes are the exact authored
  *  chains (the aligned intermediate may have additional corner-preserving
  *  splits). Reuse out to retain every path, node, handle and dash buffer. */
+const bendScratch = { x: 0, y: 0 };
 export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: SampledPath[] = [], timing?: SampleTiming): SampledPath[] {
   t = clamp(t);
   for (let i = 0; i < plan.pairs.length; i++) {
@@ -866,7 +898,8 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       path.nodes = end === a ? buf.a : buf.b;
       path.closed = end.closed;
     } else if (aligned) {
-      const x = lerp(a.bbox.x, b.bbox.x, t), y = lerp(a.bbox.y, b.bbox.y, t);
+      const bent = arcOffset(pair.travel, t, timing?.arc, bendScratch);
+      const x = lerp(a.bbox.x, b.bbox.x, t) + bent.x, y = lerp(a.bbox.y, b.bbox.y, t) + bent.y;
       path.nodes = sampleNodes(aligned.a, aligned.b, t, lerp(a.bbox.w, b.bbox.w, t), lerp(a.bbox.h, b.bbox.h, t), buf.morph, { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
       for (const n of path.nodes) { n.x += x; n.y += y; }
       path.closed = aligned.closed;
@@ -890,7 +923,12 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
     paint.text = stepped.text; paint.raster = stepped.raster;
     // the stroke as a band between two contours (outline.ts planStrokeBand): the flight draws it, never a stroke of the centreline
     const bp = aligned && a && b && t > 0 && t < 1 && !pair.crossfade && pair.band ? pair.band() : null;
-    if (bp) path.band = sampleStrokeBand(bp, t, buf.bandBuf ??= { outer: [], inner: [] }, false); else delete path.band;
+    if (bp) {
+      path.band = sampleStrokeBand(bp, t, buf.bandBuf ??= { outer: [], inner: [] }, false);
+      // the band rides the same bent flight as its centreline (it is sampled in stage px from the lerped boxes)
+      const bent = arcOffset(pair.travel, t, timing?.arc, bendScratch);
+      if (bent.x || bent.y) for (const ring of [path.band.outer, path.band.inner]) for (const n of ring) { n.x += bent.x; n.y += bent.y; }
+    } else delete path.band;
   }
   out.length = plan.pairs.length;
   return out;

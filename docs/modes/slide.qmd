@@ -436,7 +436,13 @@ both ends of the move.
 
 For a box move, the **Arc** slider bends the path to either side of the straight line.
 Zero keeps it straight; the endpoints stay fixed. The small path preview shows the bend.
-Arc shares the transform's easing and can be inherited from an animation style.
+Arc shares the transform's easing and can be inherited from an animation style. A Become's
+flying pieces bend by it too (letters, shattered pieces, text and 3D models fly straight).
+**Suggest arcs** gives the moves of the current step that would pass through each other an
+arc (the smallest of 0.25, 0.45 and manim's 0.83 that clears them; one Undo removes it), and
+leaves any move whose arc you set alone. For a line or a straight connector, **Turn** chooses
+**Shrink** (its ends move straight, so it shortens while it turns and stays joined to what it
+connects) or **Rigid** (it keeps its length, like a rotating arrow).
 
 ```bash
 flux set-transform talk slide1 step1 object1 --state '{"x":420,"y":160}' --arc 0.5

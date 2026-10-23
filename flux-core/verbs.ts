@@ -3368,7 +3368,8 @@ export const VERBS: VerbDef[] = [
       duration: z.number().optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
       curve: z.string().describe(CURVE_GRAMMAR).optional(),
-      arc: z.number().min(-1).max(1).optional(),
+      arc: z.number().min(-1).max(1).describe("Box-move curvature (-1..1; 2·tan(θ/4) = manim's path_arc θ: 90° = 0.83). Hand-off flights bend by it too; letter strips, shatter, text and 3D flights stay straight").optional(),
+      turn: z.enum(["rigid", "shrink"]).describe("How a line / arrow or straight bond turns when its endpoints change: shrink (default: the endpoints lerp straight, so the segment shortens mid-turn) or rigid (keeps its length; the centre still moves straight, so arc is the only curvature)").optional(),
       toAssetId: z.string().optional(),
     },
     cliArgs: [
@@ -3383,6 +3384,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "easing", into: "easing" },
       { kind: "flag", at: "curve", into: "curve" },
       { kind: "flag", at: "arc", into: "arc", as: "number" },
+      { kind: "flag", at: "turn", into: "turn" },
       { kind: "flag", at: "to-asset", into: "toAssetId" },
     ],
     handler: (ctx, a) =>
@@ -3393,6 +3395,7 @@ export const VERBS: VerbDef[] = [
         ...(a.duration != null ? { duration: a.duration as number } : {}),
         ...timingCurveArgs(a),
         ...(a.arc !== undefined ? { arc: n(a.arc) } : {}),
+        ...(a.turn !== undefined ? { turn: a.turn === "rigid" ? "rigid" as const : null } : {}),
         ...(a.toAssetId != null ? { toAssetId: s(a.toAssetId) } : {}),
       }),
     render: {
@@ -3401,6 +3404,31 @@ export const VERBS: VerbDef[] = [
         err: `✓ transform on ${a.target} (beat ${a.beatId})`,
       }),
       mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId} on ${a.target} (beat ${a.beatId})`),
+    },
+  },
+  {
+    name: "suggest_arcs",
+    scope: "project",
+    cli: "suggest-arcs",
+    cliRoot: "flags",
+    summary:
+      "Give the box moves of ONE beat that cross each other mid-flight an explicit arc (the Animator's Suggest arcs). Judged on each track's real start, duration and easing; the smallest of 0.25 / 0.45 / 0.83 that leaves 2 stage units of daylight (0.83 = manim's 90° Swap). Only tracks whose resolved arc is unset are written (an authored 0 or a linked style's arc is respected). Returns the track ids written, how many pairs collided, and a reason when nothing could be written.",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+    ],
+    handler: (ctx, a) => core.suggestArcs(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId)),
+    render: {
+      human: (r) => {
+        const v = r as { written: string[]; collisions: number; reason?: string };
+        return { out: v.written.join("\n"), err: v.written.length ? `✓ arc set on ${v.written.length} track(s)` : v.collisions ? `no arc written: ${v.reason}` : "no moves cross each other in this beat" };
+      },
+      mcp: (r) => {
+        const v = r as { written: string[]; collisions: number; reason?: string };
+        return text(v.written.length ? `arc set on ${v.written.length} track(s): ${v.written.join(", ")} (${v.collisions} colliding pair(s))` : v.collisions ? `no arc written: ${v.reason}` : "no moves cross each other in this beat");
+      },
     },
   },
   {

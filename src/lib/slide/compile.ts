@@ -4,7 +4,7 @@ import type { Element, TextElement } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Scene3dManifest } from "../model3d/types";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
-import { lerpElement, overshootBox, arcBox, transformEndState, transformPreState } from "./tween";
+import { lerpElement, overshootBox, arcBox, turnOf, transformEndState, transformPreState } from "./tween";
 import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
 import { seriesAxes, seriesTweenable, keyedMorphable, plotViewIssues } from "../plot/project";
@@ -310,7 +310,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const pre = transformPreState(slide, track.target, bi) ?? el;
         const end = transformEndState(pre, track);
         const u = ct.ease.fn(raw);
-        const sampled = arcBox(overshootBox(lerpElement(pre, end, t, raw), pre, end, u), pre, end, u, track.arc);
+        const sampled = arcBox(overshootBox(lerpElement(pre, end, t, raw, { turn: turnOf(track) }), pre, end, u), pre, end, u, track.arc);
         for (const key of Object.keys(el)) if (!(key in sampled)) delete (el as unknown as Record<string, unknown>)[key];
         Object.assign(el, sampled);
         continue;

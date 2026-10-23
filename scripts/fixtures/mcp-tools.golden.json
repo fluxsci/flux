@@ -163,6 +163,7 @@
   "set_z",
   "similar_papers",
   "snip_paper",
+  "suggest_arcs",
   "swap_become",
   "sync_figure",
   "toggle_text_run_script",

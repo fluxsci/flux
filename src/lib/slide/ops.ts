@@ -29,6 +29,7 @@ import { familyOf } from "./family";
 import { authoredFields, defaultEasingFor, defaultTimingFor, isExitPreset, rewritesText } from "./presetCatalog";
 import { AUTO_DELAY_AUTHORED_MS } from "./timing";
 import { EASING_TOKENS, resolveCurve } from "./curves";
+import { suggestBeatArcs } from "./arcSuggest";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
 import { targetOutlines } from "./targetGeometry";
 import { diffState, transformPreState } from "./tween";
@@ -896,6 +897,29 @@ export function setTrackArc(track: Track, arc: number): void {
   track.arc = arc;
 }
 
+/** "Suggest arcs" (WP 3.3): give the colliding box moves of ONE beat an explicit arc (arcSuggest.suggestBeatArcs). Writes only tracks whose
+ *  RESOLVED arc is unset (own or style-inherited; an authored 0 is a decision) through `setTrackArc`, i.e. exactly what the Arc slider writes,
+ *  so it is ONE history step for the caller to seal. Returns what it did; `reason` explains an empty result that still had collisions. */
+export function suggestArcsForBeat(deck: Deck, slideId: Id, beatId: Id): { written: Id[]; collisions: number; reason?: string } {
+  const s = slideById(deck, slideId), b = s && beatById(s, beatId);
+  if (!s || !b) return { written: [], collisions: 0, reason: "beat not found" };
+  const result = suggestBeatArcs(s, s.beats.indexOf(b), deck), written: Id[] = [];
+  for (const track of b.tracks) {
+    const arc = result.arcs[track.id ?? track.target];
+    if (arc === undefined || track.arc !== undefined) continue;
+    setTrackArc(track, arc); written.push(track.id ?? track.target);
+  }
+  return { written, collisions: result.collisions, ...(result.reason ? { reason: result.reason } : {}) };
+}
+
+/** A transform track's turn law (WP 3.3) lives in `params.turn` (an inheritable style field: no schema change): "rigid" keeps a turning line's
+ *  length, null = back to the plain endpoint lerp. */
+export function setTrackTurn(track: Track, turn: "rigid" | null): void {
+  const params = { ...(track.params ?? {}) };
+  if (turn === "rigid") params.turn = "rigid"; else delete params.turn;
+  if (Object.keys(params).length) track.params = params; else delete track.params;
+}
+
 /** Generic timing edits share linked-style and anchored-start semantics. */
 export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
   styleId?: Id | null; anchor?: Track["anchor"] | null;
@@ -1242,6 +1266,8 @@ export function setTransform(
     start?: number;
     duration?: number;
     arc?: number;
+    /** `"rigid"`: a line / straight bond whose endpoints turn keeps its length (tween.rigidSegment); `null` = back to the plain endpoint lerp. */
+    turn?: "rigid" | null;
     /** content half: the asset the element's content becomes (+ explicit
      *  source paths; `source` carries the full bundle of a placed plot). */
     toAssetId?: Id;
@@ -1302,6 +1328,7 @@ export function setTransform(
   if (opts.duration != null) t.duration = opts.duration;
   patchTimingCurve(t, opts);
   if (opts.arc !== undefined) setTrackArc(t, opts.arc);
+  if (opts.turn !== undefined) setTrackTurn(t, opts.turn);
   return t;
 }
 

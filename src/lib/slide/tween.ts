@@ -24,6 +24,7 @@ import { colormapLut } from "../color/colormapLuts";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
+import { presetParam } from "./presetCatalog";
 import { lerpColor } from "../color/interp";
 import { elementBBox } from "../geometry";
 import { pathD, pathToNodes, pathToSubpaths, resampleNodes } from "../path";
@@ -532,7 +533,41 @@ export function arcBox(el: Element, pre: Element, end: Element, u: number, arc =
 /** Interpolate two states of ONE element (same id/type). raw≤0 / raw≥1 return
  *  clones of the endpoints verbatim (true end nodes, no resample residue).
  *  Non-interpolable props step at raw progress = 0.5. */
-export function lerpElement(pre: Element, end: Element, t: number, raw = t): Element {
+// --- rigid turn (WP 3.3, opt-in: `track.params.turn = "rigid"`) -------------------------------------------
+// A line whose endpoints change is lerped endpoint by endpoint, which SHRINKS a turning segment to cos(Δθ/2) of its length (an arrow turning
+// 120° halves at mid-flight; manim's Transform does the same, its Rotate does not). `rigidSegment` is the other law, chosen per track, never
+// a default: a segment that shares its end points with neighbouring elements (a bond, a connector) must keep lerping them straight or it
+// detaches. DECOMPOSED, not a spiral: the centre lerps (so `arc` stays the only curvature), the angle takes the shortest turn, the length
+// lerps. A stationary end (|P − Q| < PIVOT_EPS) is a pivot: that end stays put and the other swings round it.
+export type TurnMode = "rigid";
+/** A transform track's turn law (`params.turn`, PRESET_PARAMS.transform.turn): "rigid", anything else (absent, "shrink") = the plain endpoint lerp. */
+export const turnOf = (track: { params?: Record<string, unknown> }): TurnMode | undefined => presetParam<string>(track, "turn", "transform") === "rigid" ? "rigid" : undefined;
+const PIVOT_EPS = 0.5, MIN_TURN = 1e-6;
+type Pt = { x: number; y: number };
+/** The segment P1→P2 carried to Q1→Q2 at t, as absolute endpoints; null when the plain lerp is the right answer (no turn, or a degenerate
+ *  segment). t = 0 / 1 reproduce the end points to rounding error. */
+export function rigidSegment(p1: Pt, p2: Pt, q1: Pt, q2: Pt, t: number): [Pt, Pt] | null {
+  const v0x = p2.x - p1.x, v0y = p2.y - p1.y, v1x = q2.x - q1.x, v1y = q2.y - q1.y;
+  const l0 = Math.hypot(v0x, v0y), l1 = Math.hypot(v1x, v1y);
+  if (!(l0 > 1e-9) || !(l1 > 1e-9)) return null;
+  const turn = Math.atan2(v0x * v1y - v0y * v1x, v0x * v1x + v0y * v1y); // (−π, π]; a straight flip turns +π
+  if (Math.abs(turn) < MIN_TURN) return null;
+  const th = Math.atan2(v0y, v0x) + turn * t, len = l0 + (l1 - l0) * t, ux = Math.cos(th), uy = Math.sin(th);
+  const tailFixed = Math.hypot(p1.x - q1.x, p1.y - q1.y) < PIVOT_EPS, headFixed = Math.hypot(p2.x - q2.x, p2.y - q2.y) < PIVOT_EPS;
+  if (tailFixed && !headFixed) return [{ x: p1.x, y: p1.y }, { x: p1.x + ux * len, y: p1.y + uy * len }];
+  if (headFixed && !tailFixed) return [{ x: p2.x - ux * len, y: p2.y - uy * len }, { x: p2.x, y: p2.y }];
+  const cx = (p1.x + p2.x) / 2 + ((q1.x + q2.x) / 2 - (p1.x + p2.x) / 2) * t, cy = (p1.y + p2.y) / 2 + ((q1.y + q2.y) / 2 - (p1.y + p2.y) / 2) * t;
+  return [{ x: cx - ux * len / 2, y: cy - uy * len / 2 }, { x: cx + ux * len / 2, y: cy + uy * len / 2 }];
+}
+/** A straight, head-less, open 2-node path (a bond, a rung) as absolute end points, else null. */
+function stickOf(el: { x: number; y: number; closed?: boolean; d: string; nodes?: VectorNode[]; arrowStart?: boolean; arrowEnd?: boolean }): [Pt, Pt] | null {
+  if (el.closed || el.arrowStart || el.arrowEnd) return null;
+  const n = nodesOf(el);
+  if (n.length !== 2 || n.some((p) => p.hIn || p.hOut)) return null;
+  return [{ x: el.x + n[0].x, y: el.y + n[0].y }, { x: el.x + n[1].x, y: el.y + n[1].y }];
+}
+
+export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts?: { turn?: TurnMode }): Element {
   if (raw <= 0) return structuredClone(pre);
   if (raw >= 1) return structuredClone(end);
   // Across kinds (or a path changing closedness): the outline morph — one
@@ -610,14 +645,28 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t): Ele
       else out[k] = structuredClone(v);
     }
   }
+  // opt-in (`params.turn = "rigid"`): a line whose endpoints turn keeps its length instead of shrinking
+  if (opts?.turn === "rigid" && pre.type === "line" && end.type === "line") {
+    const o = out as unknown as { x: number; y: number; x1: number; y1: number; x2: number; y2: number };
+    const seg = rigidSegment({ x: pre.x + pre.x1, y: pre.y + pre.y1 }, { x: pre.x + pre.x2, y: pre.y + pre.y2 },
+      { x: end.x + end.x1, y: end.y + end.y1 }, { x: end.x + end.x2, y: end.y + end.y2 }, t);
+    if (seg) { o.x1 = seg[0].x - o.x; o.y1 = seg[0].y - o.y; o.x2 = seg[1].x - o.x; o.y2 = seg[1].y - o.y; }
+  }
   // path geometry, wholesale (same closedness — a closedness change morphed above)
   if (pre.type === "path" && end.type === "path") {
     const closedB = Boolean(end.closed);
     // a compound `d` (donut: outline + hole) pairs its subpaths instead of flattening them into one chain
     // (a dashed ring keeps its authored pairing: its dashes start at the first node, see AlignOptions.authored)
     const authored = Boolean(pre.dash?.length || end.dash?.length);
-    const compound = pre.d !== end.d ? lerpCompoundD(pre.d, end.d, t, (out as { cornerRadius?: number }).cornerRadius, authored) : null;
-    if (compound) {
+    // a straight 2-node stick on a rigid track (a bond, a rung) turns like a line
+    const stickA = opts?.turn === "rigid" ? stickOf(pre) : null, stickB = stickA ? stickOf(end) : null;
+    const seg = stickA && stickB ? rigidSegment(stickA[0], stickA[1], stickB[0], stickB[1], t) : null;
+    const compound = !seg && pre.d !== end.d ? lerpCompoundD(pre.d, end.d, t, (out as { cornerRadius?: number }).cornerRadius, authored) : null;
+    if (seg) {
+      const o = out as unknown as { x: number; y: number; nodes: VectorNode[]; d: string };
+      o.nodes = [{ x: seg[0].x - o.x, y: seg[0].y - o.y, type: "corner" }, { x: seg[1].x - o.x, y: seg[1].y - o.y, type: "corner" }];
+      o.d = pathD(o.nodes, false, (out as { cornerRadius?: number }).cornerRadius);
+    } else if (compound) {
       (out as unknown as { d: string }).d = compound;
       delete (out as unknown as { nodes?: VectorNode[] }).nodes; // a flattened chain would re-bridge the subpaths
     } else if (pre.d !== end.d || JSON.stringify(pre.nodes) !== JSON.stringify(end.nodes)) {

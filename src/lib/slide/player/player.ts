@@ -32,7 +32,7 @@ import { createHandoff, type HandoffController } from "./handoff";
 import { createGlyphProvider, glyphFontsRevision } from "./glyphProvider";
 import type { TextElement } from "../../types";
 import { planHandoff } from "../handoffPlan";
-import { transformEndState, transformPreState } from "../tween";
+import { transformEndState, transformPreState, turnOf } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
 import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
 
@@ -334,7 +334,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // The flight draws at the DEPTH the destination rests at, so it is covered by exactly what covers the destination and the landing does not
           // flip the paint order of anything it overlaps (an element above the destination that the flight crossed).
           const flightSurface = rendered.flightAt?.(handoff.destination.flatMap(t => { const w = rendered.elements.get(t.elementId); return w ? [w] : []; })) ?? rendered.flight;
-          const driver = createHandoff({ flight: flightSurface, handover: group.length <= 1, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration,
+          const driver = createHandoff({ flight: flightSurface, handover: group.length <= 1, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration, arc: track.arc,
             beneath: lastLander ? group.map(c => mergeLayers.get(c.track.id ?? "")).find(Boolean) : undefined,
             plan: () => planHandoff(track, planFrame, geometry, group.length > 1 ? group.map(c => c.track) : undefined),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
@@ -372,7 +372,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         }
         const endEl = transformEndState(preEl, track);
         const driver = createTransform(wrap, preEl, endEl, {
-          arc: track.arc,
+          arc: track.arc, turn: turnOf(track),
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
           plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
           videoPlayback: opts.videoPlayback,

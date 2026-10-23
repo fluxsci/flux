@@ -701,6 +701,7 @@ export async function setTransformTrack(
     duration?: number;
     toAssetId?: string;
     arc?: number;
+    turn?: "rigid" | null;
   } & slideOps.TimingCurvePatch = {},
 ): Promise<{ trackId: string }> {
   return mutateDeck(root, deckId, "set_transform", async (deck) => {
@@ -725,11 +726,20 @@ export async function setTransformTrack(
       ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
       ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
       ...(opts.arc !== undefined ? { arc: opts.arc } : {}),
+      ...(opts.turn !== undefined ? { turn: opts.turn } : {}),
       ...(opts.toAssetId != null ? { toAssetId: opts.toAssetId } : {}),
       ...paths,
     });
     if (!t?.id) throw new Error(`beat not found: ${beatId} on ${slideId}`);
     return { trackId: t.id };
+  });
+}
+
+/** suggest-arcs (WP 3.3): explicit arcs for the colliding box moves of one beat (slideOps.suggestArcsForBeat, the Animator's button). */
+export async function suggestArcs(root: string, deckId: string, slideId: string, beatId: string): Promise<{ written: string[]; collisions: number; reason?: string }> {
+  return mutateDeck(root, deckId, "suggest_arcs", (deck) => {
+    mustSlide(deck, slideId);
+    return slideOps.suggestArcsForBeat(deck, slideId, beatId);
   });
 }
 
