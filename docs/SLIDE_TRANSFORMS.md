@@ -192,6 +192,19 @@ the ellipse it replaces), so a round Become's flight and the resting ellipse sha
 the figure serializer, the editor canvas and every export still write `<ellipse>`, and the slide
 ellipse differs from the old oval primitive by under one device pixel of edge position.
 
+A shape flight hands over to the real renders at its ends (`player/shapeHandover.ts`, the text law of lane
+F2 for shapes): the start render, the flight and the end render are ADDED (plus-lighter, isolated host)
+with weights from the distance still to travel over the first and last `HANDOVER_EPS` = 0.75 stage px,
+every term of change counting (anchors, a turn, a stroke width, a look); a travel shorter than the window
+crossfades start into end; the weights snap to a layer that owns the picture. The 1-1 driver hands over for
+a stroke-BAND pair; the hand-off driver flies copies of its sources and destinations and hands over where
+there is a seam (a band, or an owner cut into pieces). A plain round pair, a merge group, text, rasters,
+glyph flights, slices, media and gradient paints keep their own laws. A hand-off draws on a surface at the
+DEPTH its destination rests at (`RenderedSlide.flightAt`), so the element that covers the destination
+covers the flight and the landing never flips the paint order. A Become that keeps its box is not promoted
+to a compositor layer; the second half of an outline morph is laid on the END's layout box. A round-capped
+line carries a round join into the join law.
+
 A same-kind path Change (and a Consume of two paths) is paired by `tween.alignedPair`, not by the
 outline planner: a CLOSED ring keeps its authored index pairing unless another start node or direction
 costs under 0.8x of it (`outline.alignChains`; rings of unequal counts are sampled once and every seam
@@ -303,6 +316,14 @@ own baseline (`barGrowWeight`; nothing fades, though a bar carrying its own `tra
 does). Count-ups hold their digits still on SVG text: each digit sits in a place-value slot, centred and
 right-aligned numbers too (the hidden param `steadyDigits: false` restores the plain count).
 
+**A plot Change starts from the plot the step before it left.** A transform is compiled while the live
+content still shows the element's BASE asset, so a filled mark (a bar) starts from the START asset's own
+pristine polygon (`projectDom.bind`, `opts.sourceRoot`), never from the live node: a chained Change (bars5
+-> bars10 -> bars5) begins on exactly the bars the step before it left. An asset Change whose start or end
+view re-ticks an axis hands the generated ticks off through the same pool as a view Change (each side's
+tick set read from its own version, the pool placed against the lerped anchor); a mark only the end version
+has stands where it rests under the end view and grows in place.
+
 `ResolvedCurve` is retained once per track/spec; never parse easing or SVG during a frame.
 The channel law is:
 
@@ -389,6 +410,7 @@ would be a visible sharpening step). Slide text is grayscale-antialiased end to 
 - `verify-morph-path.ts` (pure): ring alignment, compound subpaths and holes, crossing-free set pairing.
 - `verify-slide-xfade-browser.ts` (pure tier, Chrome): plus-lighter crossfades keep full coverage.
 - `verify-slide-stroke-band.ts` / `verify-slide-stroke-band-browser.ts`: the stroke band and the ellipse path.
+- `verify-slide-shape-handover.ts` (pure): the shape hand-over weights, the flight's depth, the hand-over host.
 - `verify-text-lanes.ts` (pure): glide lanes, the stage bound, the obstacle bound.
 - `verify-plot-tick-handoff.ts`, `verify-count-up-slots.ts`, `verify-bar-grow.ts`: tick hand-off, count-up
   slots and bar grow/shrink.

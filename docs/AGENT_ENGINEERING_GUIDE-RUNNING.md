@@ -1803,7 +1803,7 @@ Persistence invariants (all machine-checked — do not weaken):
   grayscale in offscreen paint bitmaps). Gates:
   `group:slide-transforms` (outline, become, become-browser, become-gui) plus the
   tween/timeline/export-transform/transform-gui/ghost pins of both laws and the mark, and
-  `verify-slide-settle-sweep.ts` and `verify-slide-settle-electron.cjs`.
+  `verify-slide-settle-sweep.ts`, `verify-slide-settle-electron.cjs` and `verify-slide-shape-handover.ts`.
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
   **The settle system (Release 2 lanes J, F1, F2; standing requirement: nothing pops at the start or landing
   of any animation).** Two domains are judged. SEEK (`slideSettleSweep.ts`, headless Chrome, every cue of the
@@ -1826,15 +1826,19 @@ Persistence invariants (all machine-checked — do not weaken):
   FAILS the gate when it stops firing (that is how a fix is proven, and how a lane that fixes one must delete it),
   every key must name a measured cue (a real-time entry must name a PLAYED cue), and an entry carries
   `max: { "<flag prefix>": n }`, so a tolerated defect cannot grow unseen (every tolerated entry should have one).
-  After Release 2 the open entries are: countUp's second frame (inherent: a quantised count under plain `smooth`
-  has no frame between 0 and 1), text that glides to a fractional position or turns (inherent: lands on its
-  layer's raster), re-entering a SHOWN part (`scatter_reenter`: pops by definition; making an enter on a shown
-  part a no-op is an owner vocabulary decision and deletes the entry), the 12 px non-circular stroked ring's
-  landing and its reverse start (band vs the path stroker, ~0.1 px, tolerated with `max`), the flight onto a set
-  of ellipses (`set_flights/rect_3ellipses`, an edge-only ring from re-cut stations), and a hole that fills in
-  (`compound/hole_fills`, a pixel-aligned edge leaving the grid). Not entries: a reversed dashed ring (collapses
-  mid-flight), the stroked-hole dot (≈ 0.24 × stroke² px², flagged from ~10 px strokes), the cold-GPU first
-  `drawOff` hitch of a round-cap line (80 to 100 ms once per GPU cache; the gate absorbs it by retry and says so).
+  After Release 2 the open entries are: countUp's second frame (inherent: a quantised count under plain
+  `smooth` has no frame between 0 and 1), text that glides to a fractional position or turns (inherent: lands
+  on its layer's raster), re-entering a SHOWN part (`scatter_reenter`: pops by definition; making an enter on a
+  shown part a no-op is an owner vocabulary decision and deletes the entry), a Become whose source and
+  destination rest on different sides of a covering element (`become_depth`: the flight flies at the
+  destination's depth, so the source's side steps at the start), a chained asset Change between plots of
+  different intrinsic size (`plot_chain/sine_scatter_sine`: open, the landing pinned with `max`), and a hole
+  that fills in (`compound/hole_fills`, a pixel-aligned edge leaving the grid). The 12 px stroked-ring seams
+  and the flight onto a set of ellipses were closed by follow-up F3's hand-over law (`player/shapeHandover.ts`:
+  the start render, the flight and the end render ADDED with weights from the distance still to travel). Not
+  entries: a reversed dashed ring (collapses mid-flight), the stroked-hole dot (≈ 0.24 × stroke² px², flagged
+  from ~10 px strokes), the cold-GPU first `drawOff` hitch of a round-cap line (80 to 100 ms once per GPU
+  cache; the gate absorbs it by retry and says so).
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
@@ -4640,6 +4644,20 @@ outside this PNG packaging change.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
+- **Release 2 follow-up F3 traps (2026-10-23).** (a) "**A transform is compiled against the element's BASE
+  asset.** Every controller of a slide is built at mount, in story order, while the live content shows the base
+  asset: anything a driver reads from the live DOM at compile time (a mark's polygon) is the BASE's, whatever the
+  step's own start is. Read the step's start from its pristine root." (b) "**An isolated effect group rasterises
+  its visible children differently when it holds an invisible one.** A path with `opacity: 0`, or a group hidden
+  with `visibility`, moved a sibling copy's edges by ~0.1 px (10 stage px^2 when it left). Hide with `display:
+  none`." (c) "**A gradient inside an alpha layer rounds one to two levels differently than in the direct paint**
+  (223,000 px on a viridis fill): a flight with a gradient keeps the old law; weights within a thousandth of 1
+  are exactly 1." (d) "**`run-verifies --group` queues the electron tier even with `--tier ui`**: pass `--tier
+  pure,ui` and run the offscreen settle / raster gates alone under the flock; any other electron gate may open a
+  window." (e) "`pkill -f <pattern>` ... `[v]ite`, and a `pgrep -f` for a gate name matches the very shell that
+  mentions it: wait on the output file instead." (f) "Compare images of a candidate against the BASE on the
+  owner's own deck before committing: the sweep of the Release 1 deck found the gradient regression the compact
+  corpus could not."
 - **3D v1 is triangle-mesh visualization.** N2 (3D lines and points) remains out of
   scope, alongside volumes, textures/PBR or light editing, shadows, geometry
   modelling, 3D-anchored annotations, VR/AR and live PPTX 3D. Compose depth-related
@@ -11223,3 +11241,18 @@ Codex's accepted limitation stands: direct Alt+T with 5,000 selected ≈103–11
 - **Deliberate supersessions (never loosened):** scaleIn enter budget 5.5 → 5.7 %/frame and onset-exempt rows judged by zero end velocity; `verify-slide-player` (a gliding enter presents frame 0 first, two extra driven callbacks); `verify-slide-tween` mark laws; the raster tolerance 1 % / 1.5 px → 0.01 % / 0.1 px (`verify-slide-raster-pure`); gate pins that selected `<ellipse>` now select `[data-shape=ellipse]` and the arrow gate counts `svg > path:not([fill-rule])`; H3 (the head keeps the overhang it is drawn with) and pre-cache oracle 2 (`line → oval`) re-recorded; `verify-slide-handoff-browser`'s selector pair for `g[data-xfade]`; `verify-slide-ghost-runtime` (the generated guide is replaced by the pool); `verify-preset-params` census gains `timing.ts`; `LANE_POLICY.maxObstacles` added to the pinned policy; hash pins replaced by an exact straight-line + `crossArc` formula in `verify-text-morph-browser`; `unitSlices` deleted (`penSlices` is bit-identical at lag 1); `dim` ends at its level; `verify-plot-view` pins the static y-label offset; the Animator effect switch (`switchEffect`) is a deliberate extension beyond the brief that the owner may veto; first-round F2 pins ("ride promoted layers") restored to their base meaning.
 - **Traps (full list in §9 "Release 2 slide traps"):** `page.evaluate` serialises `Infinity` to `null`; a `run-verifies --group slide-transforms` run INCLUDES the electron tier (flock it) and two WINDOWED Electron gates (`verify-slide-video-electron.cjs`, `verify-slide-embed-electron.cjs`) must never be run on the owner's machine (one flashed a window); headless rAF runs only in the FOREGROUND tab (three pages in one browser stalled two of them) and parallel browsers leave high camera zooms on low-res tiles; judge the first frame that CHANGED (t = 0 is still the rest); a layer bakes its first raster's offset; hand-over weights that ignore look changes freeze count / colour glides; `mask-image` on SVG `<g>` paints nothing in Firefox and `#000` becomes `#0`; a `sample` spec needs its own `transient` and an `ANIM_PROPS` entry; a stale `.generated/slide-embed-assets.json` tests a stale player; `grep -a` for `outline.ts` (a NUL byte); `pkill -f` kills the shell that names the pattern.
 - **Open risks:** Windows / Mac compositing of plus-lighter, isolation and priming is unmeasured; the GPU cost of plus-lighter; the cold-GPU first `drawOff` hitch; the stroked-hole dot, the reversed dashed ring, the 12 px non-circular ring's landing (0.1 px, tolerated with `max`), a flight onto a set of ellipses; countUp's second frame (inherent); re-entering a shown part pops (owner vocabulary call); Georgia digit kerning on macOS / Windows unverified; PowerPoint playback of the 0.02x scaleIn twins unverified; a visible-window owner smoke test and the Mac QuickTime / Keynote smoke are still owed (no windowed gate was run in the lanes).
+
+### 2026-10-23 — Release 2 follow-up F3: chained plot Change, Become landing depth, one hand-over law for shapes and text (Sonnet 5.5 lane, merged by Claude Opus 5.5)
+**Work:** a chained plot asset Change starts from where the step before it left the plot (every controller
+is compiled at mount against the BASE asset: a mark's start polygon is read from the start asset's pristine
+root, `projectDom.bind` `sourceRoot`; 22,154 px → 0 on the owner's bars5 → bars10 → bars5); a hand-off
+flies on a surface at the depth its destination rests at (`RenderedSlide.flightAt`; a synthetic Become's
+landing 59.8 → 0.3); a shape flight hands over to the real renders at both ends (`player/shapeHandover.ts`,
+lane F2's text law for shapes: start render, flight and end render added with plus-lighter in an isolated
+host, weights from the distance still to travel over `HANDOVER_EPS` = 0.75 stage px), which closed the four
+stroke-seam entries F1 had pinned as inherent; a rect ⇄ round-capped line lands on and starts from its
+round ends. Gate `verify-slide-shape-handover.ts`; corpus decks `plot_chain`, `become_depth`, four
+`become_corners` cues.
+**Learnings:** see §9 "Release 2 follow-up F3 traps"; the integrator also fixed the settle sweep gate's
+loop (one page in one browser: headless rAF runs only in the foreground tab, and parallel browsers leave
+high camera zooms on low-res tiles).
