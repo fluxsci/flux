@@ -23,10 +23,14 @@ export const PLAY: Record<string, string[]> = {
   change: ["change#1-1", "change#4-4", "change#5-5", "change#7-7", "change#9-9", "change#11-11", "change#13-13", "change#16-16", "change#17-17"],
   become: ["become#1-1", "become#2-2", "become#3-3"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"], camera: ["camera#1-1", "camera#2-2", "camera#3-3", "camera#4-4", "camera#5-5"],
   chains: ["chains#1-1", "chains#2-2", "chains#3-3", "chains#4-6"], plot_scatter: ["scatter#1-1", "scatter#2-2"], plot_bars: ["bars#2-2"], plot_lines: ["lines#2-2"],
-  interrupt: ["int#1-1"], become_stroked: ["line_shape#1-1", "corners#1-1"],
+  interrupt: ["int#1-1"], become_stroked: ["line_shape#1-1", "corners#1-1"], ghost: ["ghost#2-2"],
 };
 // A cue another lane owns (or a documented open item) is tolerated ONLY for the flags KNOWN_OPEN names for the real-time domain, and a REQUIRED
 // entry whose flag stopped firing fails the gate (the entry must be deleted).
+//
+// The gate's HOME / XDG dirs are fresh, so every GPU cache is cold: the first use of a pipeline in the whole run (a round-cap line whose stroke
+// width animates, the first `drawOff`) can hitch once, ~80-100 ms, 3 runs in 3 cold and 0 in 22 warm. That is not a defect of the cue, and the
+// retry sees it warm; it is measured in the lane report as an open risk.
 //
 // This runs on a live desktop, so a frame the machine dropped must not fail a structural gate, and a structural defect must not hide behind a
 // retry. A cue that fails its first run is run twice more on fresh pages and judged by MAJORITY: a flag class counts when it shows in at least
@@ -35,7 +39,7 @@ export const PLAY: Record<string, string[]> = {
 // measure its rate with the probe (REPEAT=<n> scripts/perf/slide-settle-realtime.mts) before and after a fix.
 const MAX_RETRIED = 4;
 const cls = (flag: string) => flag.split(" (")[0];
-const failures: string[] = [], retried: string[] = [];
+const failures: string[] = [], retried: string[] = [], played = new Set<string>();
 let cues = 0;
 probe(RT_HEAD);
 for (const d of decks) {
@@ -44,7 +48,7 @@ for (const d of decks) {
   const run = (only: (slide: string, from: number, to: number) => boolean) => realtimeSweep(d.payload, d.name, { interrupts, fresh: true, restMs: 350, tailMs: 450, only });
   const r = await run((slide, from, to) => want.includes(`${slide}#${from}-${to}`));
   for (const c of r.cues) {
-    cues++;
+    cues++; played.add(c.name);
     const open = KNOWN_OPEN[c.name];
     probe(rtRow(c));
     const attempts = [judge(rtFlags(c), open, "rt")];
@@ -74,6 +78,7 @@ for (const d of decks) {
     if (stale.length) failures.push(`${c.name}: STALE KNOWN_OPEN entry (${stale.join(", ")} no longer fires in the real-time domain: delete it from scripts/lib/slideSettleSweep.ts)`);
   }
 }
+for (const [key, open] of Object.entries(KNOWN_OPEN)) if (open.rt && !played.has(key)) failures.push(`${key}: KNOWN_OPEN names a real-time flag for a cue the gate does not play (add it to PLAY or delete the entry)`);
 probe(`retried ${retried.length} cue(s)${retried.length ? `: ${retried.join(", ")}` : ""}`);
 assert.ok(cues >= 46, `the real-time sweep measured ${cues} cues`);
 assert.ok(retried.length <= MAX_RETRIED, `${retried.length} cues needed a second look (more than ${MAX_RETRIED}: a loaded machine or an intermittent defect): ${retried.join(", ")}`);
