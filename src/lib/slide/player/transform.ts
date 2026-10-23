@@ -100,6 +100,22 @@ export function warmWhenIdle(job: () => void): void {
  *  the content (see the endpoint rule in seek). */
 const contentWriter = new WeakMap<HTMLElement, object>();
 
+/** One id per transform instance: the original markup, the M layer and the B layer of a
+ *  Become each define `fxg-<id>-fill` for the SAME element id, and `url(#id)` resolves to
+ *  the FIRST definition in the document (a frozen or wrong gradient). Each gets a suffix. */
+let transformSerial = 0;
+/** Re-id every gradient definition under `host`, and the `fill`/`stroke` url() references beside
+ *  them, with `suffix`. Identity when `host` defines none. */
+function namespaceGradients(host: Element, suffix: string): void {
+  const ids = new Map<string, string>();
+  for (const n of Array.from(host.querySelectorAll('[id^="fxg-"]'))) { ids.set(n.id, n.id + suffix); n.id = n.id + suffix; }
+  if (!ids.size) return;
+  for (const n of Array.from(host.querySelectorAll("*"))) for (const attr of ["fill", "stroke"]) {
+    const m = /^url\(#([^)]+)\)$/.exec(n.getAttribute(attr) ?? "");
+    if (m && ids.has(m[1])) n.setAttribute(attr, `url(#${ids.get(m[1])})`);
+  }
+}
+
 export function createTransform(
   wrap: HTMLElement,
   source: FigElement,
@@ -107,6 +123,7 @@ export function createTransform(
   ctx: TransformCtx,
 ): MorphController {
   const [pre, end] = source.type === "model3d" && destination.type === "model3d" ? modelFieldEndpoints(source, destination, ctx) : [source, destination];
+  const gradSuffix = "-t" + ++transformSerial;
   const plan: ContentPlan = contentPlan(pre, end);
   // A video is stretched by its retained element. Re-serializing width/height
   // Changes would replace its decoder and restart playback every frame.
@@ -216,6 +233,7 @@ export function createTransform(
     // layers stretch with the wrapper (fillContent svgs are 100% + none-
     // preserveAspectRatio), so even the fallback moves with the box.
     fillContent(layerB, end, ctx);
+    namespaceGradients(layerB, gradSuffix);
     contentHost.appendChild(layerA);
     contentHost.appendChild(layerB);
   }
@@ -269,6 +287,7 @@ export function createTransform(
     });
     M.appendChild(svg);
     fillContent(B, end, ctx);
+    namespaceGradients(B, gradSuffix);
     contentHost.appendChild(A);
     contentHost.appendChild(M);
     contentHost.appendChild(B);
@@ -281,6 +300,8 @@ export function createTransform(
     L.M.style.visibility = t > 0 && t < 1 ? "" : "hidden";
     L.B.style.visibility = t >= 1 ? "" : "hidden";
   }
+  // the last `<defs>` markup written (innerHTML never round-trips: SVG serializes `</stop>` end tags)
+  let morphDefsMarkup = "";
   function writeMorphFrame(el: FigElement, t: number): void {
     const L = ensureMorphLayers();
     if (el.type !== "path") return;
@@ -295,13 +316,13 @@ export function createTransform(
     // The A layer (the original markup, hidden but still in the document) owns
     // `fxg-<id>-fill`; an `url(#same-id)` here would resolve to ITS stops (document
     // order) and the gradient would sit frozen until the swap to B. Own namespace.
-    const paint = elementPaints(el.fillMap || el.strokeMap ? { ...el, id: el.id + "-morph" } : el);
+    const paint = elementPaints(el.fillMap || el.strokeMap ? { ...el, id: el.id + "-morph" + gradSuffix } : el);
     let defs = L.svg.querySelector("defs");
     const markup = paint.defs.map(gradientSvg).join("");
     if (markup) {
       if (!defs) { defs = document.createElementNS(SVG_NS, "defs"); L.svg.prepend(defs); }
-      if (defs.innerHTML !== markup) defs.innerHTML = markup;
-    } else defs?.remove();
+      if (morphDefsMarkup !== markup) { defs.innerHTML = markup; morphDefsMarkup = markup; }
+    } else { defs?.remove(); morphDefsMarkup = ""; }
     set(L.body, "fill", paint.fill);
     set(L.body, "stroke", paint.stroke);
     set(L.body, "stroke-width", String(el.strokeWidth));
@@ -309,12 +330,11 @@ export function createTransform(
     const dash = dashAttr(el);
     if (dash) set(L.body, "stroke-dasharray", dash); else L.body.removeAttribute("stroke-dasharray");
     const shift = morphPlan!.dashShift, endDash = morphPlan!.endStyle.dash;
-    if (dash && shift && endDash?.length) set(L.body, "stroke-dashoffset", String(dashOffsetAt(shift, endDash, t, morphPlan!.dashReversed))); else L.body.removeAttribute("stroke-dashoffset");
+    if (dash && shift != null && endDash?.length) set(L.body, "stroke-dashoffset", String(dashOffsetAt(shift, endDash, t, morphPlan!.dashReversed))); else L.body.removeAttribute("stroke-dashoffset");
     for (const [name, v] of [["fill-opacity", channelOpacity(el.fillOpacity)], ["stroke-opacity", channelOpacity(el.strokeOpacity)]] as const)
       if (v != null) set(L.body, name, String(v)); else L.body.removeAttribute(name);
     for (let i = 0; i < L.fixed.length; i++) {
       const h = morphPlan!.fixedHeads[i], node = L.fixed[i];
-      const w = Math.max(el.width, 1e-6), hh = Math.max(el.height, 1e-6);
       const side = h.side === "pre" ? morphPlan!.preStyle : morphPlan!.endStyle;
       set(node, "points", fixedHeadPoints(morphPlan!, h, t).map(([x, y]) => `${x},${y}`).join(" "));
       set(node, h.filled ? "fill" : "stroke", side.stroke);
@@ -472,6 +492,8 @@ export function createTransform(
       const set = (name: string, value: string) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
       set("d", pathD(sample.nodes, sample.closed));
       set("fill", p.fill); set("stroke", p.stroke); set("stroke-width", String(p.strokeWidth)); set("stroke-linecap", p.cap);
+      if (p.fillOpacity != null) set("fill-opacity", String(p.fillOpacity)); else node.removeAttribute("fill-opacity");
+      if (p.strokeOpacity != null) set("stroke-opacity", String(p.strokeOpacity)); else node.removeAttribute("stroke-opacity");
       set("opacity", String(sample.opacity * (p.opacity ?? 1) * (1 - textFade)));
     }
   }

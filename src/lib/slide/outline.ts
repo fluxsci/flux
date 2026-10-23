@@ -17,7 +17,7 @@
 
 import type { Element, PathElement, VectorNode, GradientFill } from "../types";
 import { elementBBox } from "../geometry";
-import { lerpColor, prepareColorLerp } from "../color/interp";
+import { lerpColor, prepareColorLerp, parseColor, formatColor } from "../color/interp";
 import {
   pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent,
   type PathSeg,
@@ -455,7 +455,7 @@ function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, 
     const nm = px ? normalMatchRings(oa.nodes, ob.nodes) : normalMatchRings(unit(oa.nodes, aw, ah), unit(ob.nodes, bw, bh));
     if (nm) {
       const a = px ? unit(nm.a, aw, ah) : nm.a, b = px ? unit(nm.b, bw, bh) : nm.b;
-      return { a, b, closed: true, ...(nm.bStart != null && nm.bStart > 0 ? { dashShift: chainLengthTo(b, nm.bStart, bw, bh), ...(nm.bReversed ? { dashReversed: true } : {}) } : {}) };
+      return { a, b, closed: true, ...(nm.bStart != null && (nm.bStart > 0 || nm.bReversed) ? { dashShift: chainLengthTo(b, nm.bStart, bw, bh), ...(nm.bReversed ? { dashReversed: true } : {}) } : {}) };
     }
   }
   let ua: Outline = { nodes: unit(oa.nodes, aw, ah), closed: oa.closed };
@@ -567,9 +567,6 @@ export interface FixedHead {
    *  the unit frame, which divides by 0 for an axis-aligned arrow's h = 0 and
    *  flattened the head to a sliver on the first morph frame.) */
   pts: [number, number][];
-  /** The stroke end this head sits on (same local pixels): the head rides the
-   *  chain node there, rigidly. */
-  anchor: [number, number];
   /** Unit direction the head points (the stroke's end tangent). */
   dir: [number, number];
 }
@@ -597,17 +594,20 @@ export function strokeEndDirection(nodes: VectorNode[], atFirst: boolean): [numb
   return atFirst ? [-v.x / len, -v.y / len] : [v.x / len, v.y / len];
 }
 
-const headBuffers = new WeakMap<FixedHead, VectorNode[]>();
+const headBuffers = new WeakMap<FixedHead, { buf: VectorNode[]; ref: [number, number] }>();
 /** A fixed head's vertices in the CURRENT box at time t: its authored shape (rigid, never
- *  stretched with the box), translated so its tip sits on the swelling ring's extreme point
- *  along the head's own direction — the visible end of the stroke while it inflates. At t = 0
- *  that point IS the anchor (the stroke's end), so the head starts exactly where it was drawn. */
+ *  stretched with the box), carried by the displacement of the swelling ring's extreme point
+ *  along the head's own direction — the visible end of the stroke while it inflates — from
+ *  that point on the head's OWN state (t = 0 for a pre head, t = 1 for an end head). The
+ *  displacement is zero there by construction, so the head sits exactly where it was drawn
+ *  even on a hooked stroke whose end is not its extreme point along its end tangent. */
 export function fixedHeadPoints(plan: ElementMorphPlan, head: FixedHead, t: number): [number, number][] {
   const pb = plan.preBox, eb = plan.endBox;
-  const buf = headBuffers.get(head) ?? (headBuffers.set(head, []), headBuffers.get(head)!);
-  const nodes = sampleNodes(plan.a, plan.b, t, lerp(pb.w, eb.w, t), lerp(pb.h, eb.h, t), buf, { wa: pb.w, ha: pb.h, wb: eb.w, hb: eb.h });
-  const tip = supportPoint(nodes, true, head.dir);
-  const dx = tip[0] - head.anchor[0], dy = tip[1] - head.anchor[1];
+  const tipAt = (u: number, buf: VectorNode[]) => supportPoint(sampleNodes(plan.a, plan.b, u, lerp(pb.w, eb.w, u), lerp(pb.h, eb.h, u), buf, { wa: pb.w, ha: pb.h, wb: eb.w, hb: eb.h }), true, head.dir);
+  let st = headBuffers.get(head);
+  if (!st) headBuffers.set(head, st = { buf: [], ref: tipAt(head.side === "pre" ? 0 : 1, []) });
+  const tip = tipAt(t, st.buf);
+  const dx = tip[0] - st.ref[0], dy = tip[1] - st.ref[1];
   return head.pts.map(([x, y]) => [x + dx, y + dy]);
 }
 
@@ -626,7 +626,7 @@ export function fixedHeadOpacity(head: FixedHead, t: number): number {
 export function dashOffsetAt(shift: number, endDash: number[], t: number, reversed = false): number {
   const even = endDash.length % 2 ? [...endDash, ...endDash] : endDash;
   const period = even.reduce((m, v) => m + v, 0);
-  if (!(period > 0) || !shift) return 0;
+  if (!(period > 0) || (!shift && !reversed)) return 0;
   if (reversed && even.length !== 2) return 0;
   const mod = (v: number) => ((v % period) + period) % period;
   return lerp(0, mod(reversed ? even[0] - shift : -shift), t);
@@ -641,8 +641,7 @@ function strokeHeads(el: Element, outline: Outline, box: { w: number; h: number 
   const mk = (pts: number[][], filled: boolean): FixedHead => {
     const tip = pts.reduce((m, p) => [m[0] + p[0] / pts.length, m[1] + p[1] / pts.length], [0, 0]);
     const nearFirst = (tip[0] - first.x) ** 2 + (tip[1] - first.y) ** 2 < (tip[0] - last.x) ** 2 + (tip[1] - last.y) ** 2;
-    const at = nearFirst ? first : last;
-    return { side, filled, pts: pts.map(([x, y]) => [x, y] as [number, number]), anchor: [at.x, at.y], dir: strokeEndDirection(outline.nodes, nearFirst) };
+    return { side, filled, pts: pts.map(([x, y]) => [x, y] as [number, number]), dir: strokeEndDirection(outline.nodes, nearFirst) };
   };
   return [...pr.polys.map((pts) => mk(pts, true)), ...pr.vees.map((pts) => mk(pts, false))];
 }
@@ -743,9 +742,21 @@ export function lerpGradientFill(a: GradientFill | null | undefined, b: Gradient
   if (!sa && !sb) return undefined;
   const pick = t < 0.5 ? (sa ? a : b) : (sb ? b : a);
   if ((a?.discrete && sa) || (b?.discrete && sb)) return structuredClone(pick ?? undefined);
+  // two maps are EXACT at the ends (whatever their stop counts): the ramp the Become hands over to
+  if (sa && sb && t <= 0) return structuredClone(a ?? undefined);
+  if (sa && sb && t >= 1) return structuredClone(b ?? undefined);
   if (!cache.prep) {
     const n = Math.max(sa?.length ?? 1, sb?.length ?? 1);
-    const at = (s: string[] | null, flat: string, i: number) => (s ? s[Math.round((i * (s.length - 1)) / Math.max(1, n - 1))] : flat);
+    // a ramp of m stops resampled to n evenly spaced ones: piecewise-linear in sRGB between its own stops (the space
+    // SVG blends a gradient in), so 5 stops against 3 describe the same ramp as the 3 (SVG spaces stops evenly at i/(n-1))
+    const at = (s: string[] | null, flat: string, i: number): string => {
+      if (!s) return flat;
+      const pos = (i * (s.length - 1)) / Math.max(1, n - 1), lo = Math.min(Math.floor(pos + 1e-9), s.length - 1), hi = Math.min(lo + 1, s.length - 1), f = pos - lo;
+      if (f < 1e-6 || lo === hi) return s[lo];
+      const c0 = parseColor(s[lo]), c1 = parseColor(s[hi]);
+      if (!c0 || !c1) return f < 0.5 ? s[lo] : s[hi];
+      return formatColor({ r: lerp(c0.r, c1.r, f), g: lerp(c0.g, c1.g, f), b: lerp(c0.b, c1.b, f), a: lerp(c0.a, c1.a, f) });
+    };
     cache.prep = Array.from({ length: n }, (_, i) => prepareColorLerp(at(sa, flatA, i), at(sb, flatB, i)));
   }
   const g = pick ?? a ?? b!;

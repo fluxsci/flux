@@ -5,7 +5,7 @@
 import type { Element } from "../src/lib/types";
 import { planElementMorph, sampleElementMorph, planOutlines, sampleNodes, elementOutline, fixedHeadPoints, lerpGradientFill, dashOffsetAt, pixelLaw, THIN_BOX } from "../src/lib/slide/outline";
 import { normalMatchRings } from "../src/lib/slide/normalMatch";
-import { planCorrespondence, sampleCorrespondence, pairHeadPoints } from "../src/lib/slide/correspondence";
+import { planCorrespondence, sampleCorrespondence, pairHeadPoints, opaque } from "../src/lib/slide/correspondence";
 import { elementStageOutlines } from "../src/lib/slide/targetGeometry";
 import { segsFromNodes, segPoint } from "../src/lib/path";
 import { parameterize, pointAt } from "../src/lib/slide/outline";
@@ -143,9 +143,8 @@ h.section("H3: an arrowhead rides the swelling stroke end, rigid, tip on the out
   const A = elementStageOutlines(a)[0], B = elementStageOutlines(b)[0];
   const cp = planCorrespondence([A], [B], { pair: "spatial" }); cp.prepare();
   const pair = cp.pairs[0];
-  const anchor = plan.fixedHeads[0].anchor, dir = plan.fixedHeads[0].dir;
-  const stageAnchor: [number, number] = [anchor[0] + A.bbox.x, anchor[1] + A.bbox.y];
-  const hp = pairHeadPoints(pair, plan.fixedHeads[0].pts.map(([x, y]) => [x + A.bbox.x, y + A.bbox.y]), stageAnchor, dir, 0.3);
+  const dir = plan.fixedHeads[0].dir;
+  const hp = pairHeadPoints(pair, plan.fixedHeads[0].pts.map(([x, y]) => [x + A.bbox.x, y + A.bbox.y]), dir, 0.3, false);
   const fp = fixedHeadPoints(plan, plan.fixedHeads[0], 0.3);
   // both lerp boxes: pair uses stage coordinates, the plan box-local ones
   const ox = A.bbox.x + (B.bbox.x - A.bbox.x) * 0.3, oy = A.bbox.y + (B.bbox.y - A.bbox.y) * 0.3;
@@ -226,6 +225,59 @@ h.section("dashes: A keeps its own start and direction; B lands on its static pa
   }
 }
 
+h.section("review fixes: mid-edge starts, hooked heads, reversed dash at bStart 0, translucent seams, gradient resampling");
+{
+  // (a) A's own start node and traversal survive a ring that starts MID-EDGE (every rounded rect: elementOutline starts at (0, r))
+  const rr = mk("rect", { width: 200, height: 100, cornerRadius: 18, dash: [12, 8], strokeWidth: 2 }), oval = circle({ width: 200, height: 100 });
+  const pr = planElementMorph(rr, oval)!; pr.prepare?.();
+  const n0 = elementOutline(rr)!.nodes[0];
+  h.ok(Math.hypot(pr.a[0].x * 200 - n0.x, pr.a[0].y * 100 - n0.y) < 1e-6, `rounded rect→ellipse: the chain starts on A's own node 0 (${(pr.a[0].x * 200).toFixed(2)}, ${(pr.a[0].y * 100).toFixed(2)}) = (${n0.x}, ${n0.y}), not at the start of the flat before it`);
+  // (b) a convex polygon with collinear midpoint nodes that starts mid-edge still pairs by normals (it used to fall back to the pillow pairing)
+  const sq = [[100, 0], [200, 0], [200, 100], [200, 200], [100, 200], [0, 200], [0, 100], [0, 0]];
+  let fellBack = 0, tried = 0;
+  for (const rev of [false, true]) for (let rot = 0; rot < sq.length; rot++) {
+    const ring = sq.map(([x, y]) => ({ x, y, type: "corner" as const })), nodes = [...ring.slice(rot), ...ring.slice(0, rot)];
+    const o = elementOutline(mk("path", { closed: true, d: "", nodes: rev ? [...nodes].reverse() : nodes }))!;
+    tried++; if (!normalMatchRings(o.nodes.map((n) => ({ ...n, x: n.x / 200, y: n.y / 200 })), elementOutline(circle())!.nodes.map((n) => ({ ...n, x: n.x / 200, y: n.y / 200, hIn: n.hIn && { dx: n.hIn.dx / 200, dy: n.hIn.dy / 200 }, hOut: n.hOut && { dx: n.hOut.dx / 200, dy: n.hOut.dy / 200 } })))) fellBack++;
+  }
+  h.ok(fellBack === 0 && tried === 16, `a square with midpoint nodes, all ${tried} starts × both windings, normal-matches a circle (${fellBack} fell back to the pillow pairing)`);
+  // (c) a hooked stroke's arrowhead is exactly where it was drawn at t → 0 (and an end head at t → 1): no teleport
+  const hook = (o = {}) => mk("path", { closed: false, d: "", x: 50, y: 50, width: 100, height: 50, fill: "none", stroke: "#000", strokeWidth: 4, arrowEnd: true, arrowStyle: "filled", nodes: [{ x: 0, y: 0, type: "corner" }, { x: 100, y: 0, type: "corner" }, { x: 0, y: 50, type: "corner" }, { x: 60, y: 50, type: "corner" }], ...o });
+  const disc = circle({ x: 50, y: 50, width: 100, height: 100 });
+  const ph = planElementMorph(hook(), disc)!; ph.prepare?.();
+  const hd = ph.fixedHeads[0], first = (pts: number[][]) => pts[0];
+  const d0 = Math.hypot(first(fixedHeadPoints(ph, hd, 0.001))[0] - hd.pts[0][0], first(fixedHeadPoints(ph, hd, 0.001))[1] - hd.pts[0][1]);
+  h.ok(ph.fixedHeads.length === 1 && d0 < 0.5, `hooked arrow→circle: the head moves ${d0.toFixed(3)} px on the first frame (< 0.5; it jumped 64 px)`);
+  const pe = planElementMorph(disc, hook({ x: 50, y: 50 }))!; pe.prepare?.();
+  const he = pe.fixedHeads[0];
+  const d1 = Math.hypot(first(fixedHeadPoints(pe, he, 0.999))[0] - he.pts[0][0], first(fixedHeadPoints(pe, he, 0.999))[1] - he.pts[0][1]);
+  h.ok(pe.fixedHeads.length === 1 && he.side === "end" && d1 < 0.5, `circle→hooked arrow: the landing head is ${d1.toFixed(3)} px from its authored place at t=.999 (< 0.5)`);
+  // the hand-off law agrees at both ends
+  const A = elementStageOutlines(hook())[0], B = elementStageOutlines(disc)[0];
+  const cp = planCorrespondence([A], [B], { pair: "spatial" }); cp.prepare();
+  const hp0 = pairHeadPoints(cp.pairs[0], hd.pts.map(([x, y]) => [x + A.bbox.x, y + A.bbox.y]), hd.dir, 0.001, false);
+  h.ok(Math.hypot(hp0[0][0] - (hd.pts[0][0] + A.bbox.x), hp0[0][1] - (hd.pts[0][1] + A.bbox.y)) < 0.5, "hand-off: the same hooked head moves < 0.5 px on its first frame");
+  // (d) a reversed pair whose B start coincides with the chain start still carries the dash phase
+  const base = { fill: "none", stroke: "#000", strokeWidth: 4, dash: [12, 8] };
+  const sqp = [[0, 0], [200, 0], [200, 100], [0, 100]];
+  const cwp = mk("path", { ...base, closed: true, d: "", width: 200, height: 100, nodes: sqp.map(([x, y]) => ({ x, y, type: "corner" })) });
+  const ccw = { ...cwp, nodes: [sqp[0], sqp[3], sqp[2], sqp[1]].map(([x, y]) => ({ x, y, type: "corner" })) };
+  const pd = planElementMorph(mk("rect", { ...base, width: 200, height: 100 }), ccw)!; pd.prepare?.();
+  h.ok(pd.dashReversed === true && pd.dashShift === 0 && Math.abs(dashOffsetAt(0, [12, 8], 1, true) - 12) < 1e-9 && dashOffsetAt(0, [12, 8], 1) === 0, `rect→counter-clockwise square path: dashReversed with shift ${pd.dashShift} still lands the pattern (offset ${dashOffsetAt(pd.dashShift ?? 0, [12, 8], 1, pd.dashReversed)} = even[0] = 12)`);
+  // (e) a translucent fill is never grown by the seam overlap; opaque ones are
+  const tr = elementStageOutlines(mk("rect", { fillOpacity: 0.35 }))[0], sol = elementStageOutlines(mk("rect"))[0];
+  h.ok(!opaque(tr.paint) && opaque(sol.paint), "opaque(): a fill with fillOpacity < 1 is translucent (no seam overlap), a plain fill is opaque");
+  // (f) a gradient is exact at both ends even when the stop counts differ, and the resample is the same ramp
+  const GA = { map: "a", axis: "x" as const, stops: ["#000000", "#222222", "#444444", "#666666", "#888888"] }, GB = { map: "b", axis: "x" as const, stops: ["#ff0000", "#00ff00", "#0000ff"] };
+  const c = {} as any;
+  h.ok(lerpGradientFill(GA as any, GB as any, "#fff", "#fff", 0, c)?.stops.join() === GA.stops.join() && lerpGradientFill(GA as any, GB as any, "#fff", "#fff", 1, c)?.stops.join() === GB.stops.join(), "5-stop → 3-stop gradient: the ends are exactly A's and B's stops (no plateau ramp at the hand-over)");
+  const rgb = (c: string) => [1, 3, 5].map((k) => parseInt(c.slice(k, k + 2), 16));
+  const mid = lerpGradientFill(GB as any, GA as any, "#fff", "#fff", 0.001, {} as any)!.stops;
+  const want = [[255, 0, 0], [128, 128, 0], [0, 255, 0], [0, 128, 128], [0, 0, 255]];   // B's 3 stops resampled to 5 evenly spaced ones
+  const off = Math.max(...mid.map((c, k) => Math.max(...rgb(c).map((v, m) => Math.abs(v - want[k][m])))));
+  h.ok(mid.length === 5 && off <= 8, `3 → 5 stops at t=.001 is B's ramp resampled piecewise-linearly (worst channel error ${off} ≤ 8), not a stepped plateau ramp`);
+}
+
 h.section("seek purity: forward = reverse = shuffled (the player seeks backwards and skips)");
 {
   const V = ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"];
@@ -237,7 +289,7 @@ h.section("seek purity: forward = reverse = shuffled (the player seeks backwards
   const grid = Array.from({ length: 21 }, (_, i) => i / 20), order = [7, 19, 2, 14, 0, 20, 11, 5, 16, 9, 3, 18, 12, 1, 8, 15, 4, 17, 10, 13, 6];
   const frameOf = (t: number) => JSON.stringify([
     sampleElementMorph(plan, t), fixedHeadPoints(plan, plan.fixedHeads[0], t), dashOffsetAt(plan2.dashShift ?? 0, [12, 8], t, plan2.dashReversed), sampleElementMorph(plan2, t),
-    pairHeadPoints(cp.pairs[0], plan.fixedHeads[0].pts.map(([x, y]) => [x + A.bbox.x, y + A.bbox.y]), [plan.fixedHeads[0].anchor[0] + A.bbox.x, plan.fixedHeads[0].anchor[1] + A.bbox.y], plan.fixedHeads[0].dir, t),
+    pairHeadPoints(cp.pairs[0], plan.fixedHeads[0].pts.map(([x, y]) => [x + A.bbox.x, y + A.bbox.y]), plan.fixedHeads[0].dir, t, false),
     JSON.parse(JSON.stringify(sampleCorrespondence(cp, t))),
   ]);
   const fwd = grid.map(frameOf), rev = grid.map((_, i) => frameOf(grid[20 - i])).reverse(), shuf = order.map((i) => frameOf(grid[i]));

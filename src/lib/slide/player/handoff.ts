@@ -92,8 +92,8 @@ export interface HandoffMedia {
   ready(): Promise<void>;
   dispose(): void;
 }
-interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean; anchor: [number, number]; dir: [number, number] }
-interface PathDrawing { node: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement }
+interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean; dir: [number, number] }
+interface PathDrawing { node: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement; defsMarkup?: string }
 let gradientSerial = 0;
 interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; aBox: Box; bBox: Box }
 interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
@@ -274,7 +274,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
                   const f = side.nodes[0], l = side.nodes[side.nodes.length - 1];
                   const cx = points.reduce((m, q) => m + q[0] / points.length, 0), cy = points.reduce((m, q) => m + q[1] / points.length, 0);
                   const at = (cx - f.x) ** 2 + (cy - f.y) ** 2 < (cx - l.x) ** 2 + (cy - l.y) ** 2 ? f : l;
-                  fixed.push({ node: head, side, start: side === pair.a, points, anchor: [at.x, at.y], dir: strokeEndDirection(side.nodes, at === f) });
+                  fixed.push({ node: head, side, start: side === pair.a, points, dir: strokeEndDirection(side.nodes, at === f) });
                 }
               }
             } else {
@@ -320,20 +320,20 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       }
       const host = (drawing.defs ??= (() => { const d = document.createElementNS(NS, "defs"); node.parentNode?.insertBefore(d, node); return d; })());
       const markup = defs.join("");
-      if (host.innerHTML !== markup) host.innerHTML = markup;
-    } else if (drawing.defs) { drawing.defs.remove(); drawing.defs = undefined; }
+      if (drawing.defsMarkup !== markup) { host.innerHTML = markup; drawing.defsMarkup = markup; }
+    } else if (drawing.defs) { drawing.defs.remove(); drawing.defs = undefined; drawing.defsMarkup = undefined; }
     set(node, "fill", fillPaint); set(node, "stroke", strokePaint);
     if (p.fillOpacity != null) set(node, "fill-opacity", String(p.fillOpacity)); else node.removeAttribute("fill-opacity");
     if (p.strokeOpacity != null) set(node, "stroke-opacity", String(p.strokeOpacity)); else node.removeAttribute("stroke-opacity");
     set(node, "stroke-width", String(p.strokeWidth)); set(node, "stroke-linecap", p.cap);
     set(node, "stroke-dasharray", p.dash?.join(" ") || "none");
     const shift = pair.plan?.dashShift;
-    if (shift && pair.b?.paint.dash?.length) set(node, "stroke-dashoffset", String(dashOffsetAt(shift, pair.b.paint.dash, u, pair.plan?.dashReversed)));
+    if (shift != null && pair.b?.paint.dash?.length) set(node, "stroke-dashoffset", String(dashOffsetAt(shift, pair.b.paint.dash, u, pair.plan?.dashReversed)));
     else node.removeAttribute("stroke-dashoffset");
     set(node, "opacity", String(sample.opacity * (p.opacity ?? 1) * fade));
     for (const head of fixed) {
       let points = "";
-      for (const point of pairHeadPoints(pair, head.points, head.anchor, head.dir, u)) points += `${point[0]},${point[1]} `;
+      for (const point of pairHeadPoints(pair, head.points, head.dir, u, !head.start)) points += `${point[0]},${point[1]} `;
       set(head.node, "points", points);
       set(head.node, "opacity", String((head.start ? clamp01(1 - u / .4) : clamp01((u - .6) / .4)) * (head.side.paint.opacity ?? 1)));
     }

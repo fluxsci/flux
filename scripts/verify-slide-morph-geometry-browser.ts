@@ -3,7 +3,10 @@
 //    made `url(#…)` resolve to A's stops, so a gradient→flat Become sat frozen until the swap to B: a 68,541 px pop);
 //  - pieces of a split gradient shape paint ONE ramp (userSpaceOnUse over the shape's box), not one ramp per piece;
 //  - per-channel alpha survives a Become (a translucent source never snaps opaque on its first frame);
-//  - a dashed Become writes `stroke-dashoffset` on the live path (0 → −shift), in both drivers.
+//  - a dashed Become writes `stroke-dashoffset` on the live path (0 → −shift), in both drivers;
+//  - a gradient → gradient Become keeps B's own ramp after the swap (B's `<defs>` are namespaced too, else `url(#same-id)`
+//    resolves to A's stops for the rest of the step) and every id stays unique;
+//  - a gradient set Become under the DEFAULT method (dissolve) paints its stroke-only arc pieces with no gradient fill.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -34,7 +37,14 @@ try {
   const dh = slide("dash_ho"); addElement(deck, dh.id, R({ id: "source", dash: [12, 8], width: 200, height: 174 })); addElement(deck, dh.id, E("dest", { dash: [12, 8], height: 174, x: 420, y: 100 }));
   const dhb = addBeat(deck, dh.id, { id: "b1" })!; setTransform(deck, dh.id, dhb.id, "source", { state: {}, duration: 1000, easing: "linear" });
   dhb.tracks[0].to!.become = { mode: "handoff", ref: { element: "dest" } } as any;
-  for (const sl of deck.slides) for (const b of sl.beats) for (const t of b.tracks) if (sl.id !== "set" && sl.id !== "dash_ho") { delete (t as any).duration; delete (t as any).easing; }
+  const G = ["#000004", "#51127c", "#b73779", "#fc8961", "#fcfdbf"];
+  const gg = slide("g2g"); addElement(deck, gg.id, R({ fillMap: { map: "viridis", axis: "x", stops: V } })); addElement(deck, gg.id, E("b", { fillMap: { map: "magma", axis: "x", stops: G } }));
+  const ggb = addBeat(deck, gg.id, { id: "b1" })!; becomeTransform(deck, gg.id, ggb.id, "a", "b");
+  const sd = slide("setdis"); addElement(deck, sd.id, R({ id: "source", x: 161, y: 111, width: 135, height: 45, strokeWidth: 2, fillMap: { map: "viridis", axis: "x", stops: V } }));
+  for (const [id, y] of [["e1", 71], ["e2", 124], ["e3", 176]] as const) addElement(deck, sd.id, E(id, { x: 458, y, width: 21, height: 21, strokeWidth: 0 }));
+  const sdb = addBeat(deck, sd.id, { id: "b1" })!; setTransform(deck, sd.id, sdb.id, "source", { state: {}, duration: 1000, easing: "linear" });
+  sdb.tracks[0].to!.become = { mode: "handoff", ref: { element: "e1", members: [{ element: "e1" }, { element: "e2" }, { element: "e3" }] } } as any;
+  for (const sl of deck.slides) for (const b of sl.beats) for (const t of b.tracks) if (sl.id !== "set" && sl.id !== "dash_ho" && sl.id !== "setdis") { delete (t as any).duration; delete (t as any).easing; }
 
   const file = path.join(tmp, "morph.html"); await fs.writeFile(file, (await exportDeckHtml({ deck })).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
@@ -82,6 +92,36 @@ try {
   await seek(4, 500);
   const hoDash = await page.evaluate(() => { const p = document.querySelector(".sl-flight .sl-handoff-path"); return p ? { arr: p.getAttribute("stroke-dasharray"), off: p.getAttribute("stroke-dashoffset") } : null; });
   h.ok(!!hoDash && !!hoDash.arr && hoDash.off !== null && Number(hoDash.off) > 0 && Number(hoDash.off) < 20, `hand-off driver: the flying path of a dashed shape carries stroke-dashoffset (${hoDash?.off})`);
+
+  h.section("gradient → gradient Become: B keeps its own ramp after the swap, ids stay unique");
+  const refs = () => page.evaluate(() => {
+    const ids = Array.from(document.querySelectorAll("[id]")).map((n) => n.id);
+    const out: { ref: string; first: string | null }[] = [];
+    for (const p of Array.from(document.querySelectorAll("path,ellipse,rect"))) {
+      const f = p.getAttribute("fill") ?? "";
+      if (!/^url\(#/.test(f)) continue;
+      let hidden = false;
+      for (let n: Element | null = p; n; n = n.parentElement) if (getComputedStyle(n).visibility === "hidden") { hidden = true; break; }
+      if (hidden) continue;
+      const ref = /#([^)]+)/.exec(f)![1];
+      out.push({ ref, first: document.getElementById(ref)?.querySelector("stop")?.getAttribute("stop-color") ?? null });
+    }
+    return { dup: ids.length - new Set(ids).size, out };
+  });
+  let worstDup = 0; const seen: string[] = [];
+  for (const time of [0, 300, 599, 601, 700, 2000]) {
+    await seek(5, time); const r = await refs(); worstDup = Math.max(worstDup, r.dup);
+    if (time >= 601) seen.push(r.out.map((q) => q.first).join("|"));
+  }
+  h.eq(worstDup, 0, "g→g: no duplicate element ids at t = 0, 300, 599, 601, 700, 2000 ms");
+  h.ok(seen.length === 3 && seen.every((x) => x === G[0]), `g→g: after the swap the visible ellipse resolves to B's magma ramp (${seen.join(" ; ")}), not A's viridis (${V[0]})`);
+
+  h.section("gradient set Become, default method (dissolve): stroke-only arc pieces never paint the gradient");
+  for (const time of [60, 150, 300]) {
+    await seek(6, time);
+    const arcs = await page.evaluate(() => Array.from(document.querySelectorAll<SVGPathElement>(".sl-flight .sl-handoff-path")).filter((p) => (p.getAttribute("stroke") ?? "none") !== "none" && Number(p.getAttribute("stroke-width")) > 0).map((p) => ({ fill: p.getAttribute("fill"), stroke: p.getAttribute("stroke") })));
+    h.ok(arcs.length >= 3 && arcs.every((a) => !/^url\(#/.test(a.fill ?? "") && !/^url\(#/.test(a.stroke ?? "")), `t=${time} ms: ${arcs.length} stroke arcs, none paints a gradient fill (fills ${arcs.map((a) => a.fill).join(" ")})`);
+  }
 
 } finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 await h.done();

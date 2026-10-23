@@ -353,7 +353,7 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean, m
   // Under every method but shatter the arcs carry the STROKE only: the interior is
   // one fill-only ring the sampler fades, shrinks or drains (below), never a set
   // of chord-filled segments flying apart.
-  if (interior && method !== "shatter") tiles = tiles.map((t) => ({ ...t, paint: { ...t.paint, fill: "none" } }));
+  if (interior && method !== "shatter") tiles = tiles.map((t) => ({ ...t, paint: { ...t.paint, fill: "none", fillMap: undefined } }));
   const pairs: CorrespondencePair[] = ordered.map((p, i) => ({ a: source ? tiles[i] : p.o, b: source ? p.o : tiles[i] }));
   if (interior && method !== "shatter") {
     const ring = fillOnly(single);
@@ -403,7 +403,7 @@ function tile(single: StageOutline, partners: StageOutline[], source: boolean, m
 }
 
 /** The outline's fill alone: no stroke, dash or heads. */
-const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint, stroke: "none", strokeWidth: 0, dash: undefined, arrowStart: false, arrowEnd: false } });
+const fillOnly = (o: StageOutline): StageOutline => ({ ...o, paint: { ...o.paint, stroke: "none", strokeWidth: 0, strokeMap: undefined, dash: undefined, arrowStart: false, arrowEnd: false } });
 
 /** Half a stage px of overlap between adjacent opaque fill pieces (device px
  *  ≥ 1 at any presentation scale), so no anti-aliased seam can show. */
@@ -413,7 +413,7 @@ export const EXPAND_MITER_LIMIT = 3;
 /** Whether a fill (with the outline's own alpha) paints fully opaque — only then
  *  may pieces overlap invisibly; a translucent fill would darken where it did. */
 export function opaque(paint: OutlinePaint): boolean {
-  if ((paint.opacity ?? 1) < 1) return false;
+  if ((paint.opacity ?? 1) < 1 || (paint.fillOpacity ?? 1) < 1) return false;
   const c = paint.fill.trim().toLowerCase();
   if (["", "none", "transparent"].includes(c)) return false;
   if (c.startsWith("#")) return c.length === 7 || c.length === 4 || /ff$/.test(c) && (c.length === 9) || (c.length === 5 && c.endsWith("f"));
@@ -720,23 +720,31 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
   return out;
 }
 
-const headNodes = new WeakMap<CorrespondencePair, VectorNode[]>();
+const headNodes = new WeakMap<CorrespondencePair, { buf: VectorNode[]; ref: Map<string, [number, number]> }>();
 /** Stage-space vertices of a FIXED head (a stroke side's authored arrowhead that
- *  rides an inflating pair) at flight progress u: the authored points, translated
- *  so the head's tip sits on the swelling chain's support point along the head's own
- *  direction. Rigid, never scaled with the lerped box (dividing by a zero-extent box
- *  of an axis-aligned arrow used to flatten the head). The same law as
+ *  rides an inflating pair) at flight progress u: the authored points (already in stage
+ *  px), carried by the displacement of the swelling chain's support point along the
+ *  head's own direction from that point on the head's OWN state (u = 0 for a head of
+ *  the source side, u = 1 for the destination's), so it is exactly where it was drawn
+ *  there even on a hooked stroke. Rigid, never scaled with the lerped box (dividing by a
+ *  zero-extent box of an axis-aligned arrow used to flatten the head). The same law as
  *  `fixedHeadPoints` in the 1↔1 driver, in stage px. Pure in (pair, u): the WeakMap
- *  only holds a reusable node buffer. */
-export function pairHeadPoints(pair: CorrespondencePair, points: number[][], anchor: [number, number], dir: [number, number], u: number): number[][] {
+ *  only holds a reusable node buffer and the t-independent reference point. */
+export function pairHeadPoints(pair: CorrespondencePair, points: number[][], dir: [number, number], u: number, landing: boolean): number[][] {
   const plan = pair.plan, a = pair.a, b = pair.b;
   if (!plan || !a || !b) return points;
-  // the intermediate chain in STAGE px at flight progress u (same law as sampleCorrespondence)
-  const buf = headNodes.get(pair) ?? (headNodes.set(pair, []), headNodes.get(pair)!);
-  const nodes = sampleNodes(plan.a, plan.b, u, lerp(a.bbox.w, b.bbox.w, u), lerp(a.bbox.h, b.bbox.h, u), buf, { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
-  const x = lerp(a.bbox.x, b.bbox.x, u), y = lerp(a.bbox.y, b.bbox.y, u);
-  for (const n of nodes) { n.x += x; n.y += y; }
-  const tip = supportPoint(nodes, true, dir);
-  const dx = tip[0] - anchor[0], dy = tip[1] - anchor[1];
+  const st = headNodes.get(pair) ?? (headNodes.set(pair, { buf: [], ref: new Map() }), headNodes.get(pair)!);
+  // the support point of the intermediate chain in STAGE px at flight progress v (same law as sampleCorrespondence)
+  const tipAt = (v: number): [number, number] => {
+    const nodes = sampleNodes(plan.a, plan.b, v, lerp(a.bbox.w, b.bbox.w, v), lerp(a.bbox.h, b.bbox.h, v), st.buf, { wa: a.bbox.w, ha: a.bbox.h, wb: b.bbox.w, hb: b.bbox.h });
+    const x = lerp(a.bbox.x, b.bbox.x, v), y = lerp(a.bbox.y, b.bbox.y, v);
+    for (const n of nodes) { n.x += x; n.y += y; }
+    return supportPoint(nodes, true, dir);
+  };
+  const k = landing ? 1 : 0, key = k + ":" + dir[0] + "," + dir[1]; // a pair can carry a head at each stroke end
+  let ref = st.ref.get(key);
+  if (!ref) st.ref.set(key, ref = tipAt(k));
+  const tip = tipAt(u);
+  const dx = tip[0] - ref[0], dy = tip[1] - ref[1];
   return points.map(([px, py]) => [px + dx, py + dy]);
 }

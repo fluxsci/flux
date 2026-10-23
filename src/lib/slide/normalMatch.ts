@@ -190,7 +190,7 @@ function discretize(items: Item[], cuts: number[]): Discrete {
   for (const f of items) if (f.kind === "flat") {
     let best = 0, bd = Infinity;
     for (let k = 0; k <= K; k++) { const d = Math.abs(cuts[k] - f.a); if (d < bd) { bd = d; best = k; } }
-    flats[best === K ? 0 : best].push(f.seg!);
+    flats[best].push(f.seg!); // a flat at angle 2π (a ring that starts mid-edge) is the LAST thing walked, not the first
   }
   return { pieces, flats };
 }
@@ -251,17 +251,21 @@ export function normalMatchRings(A: VectorNode[], B: VectorNode[]): NormalMatch 
   curB = { x: firstB.x0, y: firstB.y0 };
   const firstA = da.flats[0][0] ?? da.pieces[0];
   curA = { x: firstA.x0, y: firstA.y0 };
-  for (let k = 0; k < K; k++) {
+  const walkFlats = (k: number) => {
     const fa = da.flats[k], fb = db.flats[k];
     for (let j = 0; j < Math.max(fa.length, fb.length); j++) {
       const sa = fa[j] ?? pointSeg(curA), sb = fb[j] ?? pointSeg(curB);
       segA.push(sa); segB.push(sb);
       curA = { x: sa.x3, y: sa.y3 }; curB = { x: sb.x3, y: sb.y3 };
     }
+  };
+  for (let k = 0; k < K; k++) {
+    walkFlats(k);
     const pa = da.pieces[k], pb = db.pieces[k];
     segA.push(pa); segB.push(pb);
     curA = { x: pa.x3, y: pa.y3 }; curB = { x: pb.x3, y: pb.y3 };
   }
+  walkFlats(K); // flats at angle 2π close the ring (they end on the start node)
   // closure sanity: the walk must come back to where it began
   const closeErr = (s: PathSeg[]) => Math.hypot(s[s.length - 1].x3 - s[0].x0, s[s.length - 1].y3 - s[0].y0);
   const scale = Math.max(1, ...segA.map(chordLen), ...segB.map(chordLen));
