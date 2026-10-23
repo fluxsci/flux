@@ -422,9 +422,13 @@ try {
   );
   assert(disp === "none", "hidden part is display:none on the live node");
   await page.keyboard.press("x");
-  await waitOv("hidden", false, "'x' unhid the drilled part");
+  // Shown = the hidden flag CLEARED (2026-10-23, ops.setPartHidden: a stale `false` would
+  // outrank a later family hide); the live node draws again.
+  await waitOv("hidden", undefined, "'x' unhid the drilled part");
   m = await model();
-  assert(m.overrides[PART]?.hidden === false, "'x' again shows the part");
+  assert(m.overrides[PART]?.hidden == null, "'x' again shows the part (flag cleared)");
+  const disp2 = await page.evaluate((p) => document.getElementById(`plot1__${p}`)?.style.display ?? "", PART);
+  assert(disp2 !== "none", "…and the live node is drawn again");
 
   await page.evaluate(() => window.__flux.fig.partSelection.set(null));
   await waitFor(page, () => window.__flux.get(window.__flux.fig.partSelection) === null, null, {
