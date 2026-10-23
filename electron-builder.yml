@@ -78,8 +78,10 @@ asarUnpack:
   - electron/fsRetry.cjs
   # Node-mode children (the CLI/MCP bundles, the workers launched from app.asar.unpacked)
   # have NO asar support, so every relative require of an unpacked module must be unpacked too:
-  # videoMedia/model3dImport → fsExclusive → fsRetry; slideVideoWorker → slideAudioGraph, workerCancel.
+  # videoMedia/model3dImport → fsExclusive → fsRetry; slideVideoWorker → slideAudioGraph, workerCancel;
+  # model3dImport → deckSchemaSupport (the deck format check it shares with schemaStamp.ts).
   - electron/fsExclusive.cjs
+  - electron/deckSchemaSupport.cjs
   - electron/slideAudioGraph.cjs
   - electron/workerCancel.cjs
   - src/lib/model3d/importData.native.gen.mjs
