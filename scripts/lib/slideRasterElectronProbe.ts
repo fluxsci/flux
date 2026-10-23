@@ -88,6 +88,7 @@ const A = await runJobs("scenes", [
   ...["cam_zoom", "cam_zoom4", "cam_zoom10", "cam_pan", "cam_move", "txt_cam"].map((slide): Job => ({ name: slide, deck: cam, slide, options: OPTS })),
   ...plain.slides.map((s): Job => ({ name: s.id, deck: plain, slide: s.id, options: OPTS })),
   { name: "rect_to_ellipse", deck: join, slide: "rect_to_ellipse", options: OPTS },
+  { name: "rect_to_box_path", deck: join, slide: "rect_to_box_path", options: OPTS },
   { name: "swatches", deck: swatches, slide: "swatches", options: STILL },
   { name: "ref_zoom", deck: restingDeck("ref_zoom", ZOOM_POSE), slide: "ref_zoom", options: STILL },
   { name: "ref_zoom4", deck: restingDeck("ref_zoom4", ZOOM4_POSE), slide: "ref_zoom4", options: STILL },
@@ -166,14 +167,22 @@ probe(`R4 ${plain.slides.map((s) => s.id).join(", ")}: 0 re-bakes, camera layer 
   assert.ok(source.includes('"disable-lcd-text"') && worker.VIDEO_CAPTURE_SWITCHES.some(([name]) => name === "disable-lcd-text"), "disable-lcd-text is set for every capture (insurance; not behaviourally testable in the real path)");
 }
 
-// ---- R6: a stroked rect Becoming an ellipse does not pop at the layer swap ------------------------------------------------------
-{
-  const c = cap("rect_to_ellipse"), first = await frame(c, 0);
+// ---- R6: the morph layer's join matches the resting rect at the layer swap (no join pop) --------------------------------------
+// rect -> rectangular path: cross-kind (the M layer runs), same edge normals, so the convex normal-matched morph keeps sharp corners
+// and the swap frame isolates the join. R6b reports rect -> ellipse, whose corners round from the first frame by geometry (the
+// convex morph's documented limit; HEAD's 145 was the round-join pop of the old pairing): reported, not asserted.
+const swapAt = async (name: string) => {
+  const c = cap(name), first = await frame(c, 0);
   let start = -1;
   for (let i = 1; i < c.frames && start < 0; i++) if (!(await frame(c, i)).rgb.equals(first.rgb)) start = i;
-  assert.ok(start > 0, "the Become starts moving");
-  const swap = changedPixels(await frame(c, start - 1), await frame(c, start));
-  probe(`R6 rect -> ellipse: pixels changed (>40) entering the first moving frame ${start} (the layer swap): ${swap} (HEAD: 145)`);
-  assert.ok(swap <= 10, `no join pop at the swap (${swap} changed pixels)`);
+  assert.ok(start > 0, `${name}: the Become starts moving`);
+  return { start, swap: changedPixels(await frame(c, start - 1), await frame(c, start)) };
+};
+{
+  const r = await swapAt("rect_to_box_path");
+  probe(`R6 rect -> rectangular path: pixels changed (>40) entering the first moving frame ${r.start} (the layer swap): ${r.swap}`);
+  assert.ok(r.swap <= 10, `no join pop at the swap (${r.swap} changed pixels)`);
+  const e = await swapAt("rect_to_ellipse");
+  probe(`R6b rect -> ellipse (report only): ${e.swap} changed pixels entering frame ${e.start}: the convex morph rounds the corners from the first frame (HEAD's round-join pop: 145)`);
 }
 console.log("SLIDE RASTER ELECTRON: PASS");

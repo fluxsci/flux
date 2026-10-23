@@ -87,6 +87,15 @@ export function joinDeck(): Deck {
   addElement(deck, s.id, { type: "ellipse", id: "b", x: 380, y: 110, width: 140, height: 140, rotation: 0, fill: "none", stroke: "#af3029", strokeWidth: 12 });
   becomeTransform(deck, s.id, addBeat(deck, s.id, { id: "b1" })!.id, "a", "b");
   for (const b of s.beats) for (const t of b.tracks) { t.duration = 900; t.easing = "smooth"; }
+  // The join law in isolation (Release-1 integration): rect -> a rectangular closed PATH is cross-kind (the outline morph's M
+  // layer runs) but both are convex with the same edge normals, so the normal-matched geometry keeps its sharp corners and
+  // any change at the swap would be a join pop. rect -> ellipse also rounds the corners from the first frame (T4's
+  // documented limit), which is geometry, not join.
+  const p = add("rect_to_box_path");
+  addElement(deck, p.id, { type: "rect", id: "a", x: 120, y: 110, width: 140, height: 140, rotation: 0, fill: "none", stroke: "#205ea6", strokeWidth: 12, cornerRadius: 0 });
+  addElement(deck, p.id, { type: "path", id: "b", x: 380, y: 110, width: 140, height: 140, rotation: 0, d: "M 0 0 L 140 0 L 140 140 L 0 140 Z", fill: "none", stroke: "#af3029", strokeWidth: 12, closed: true });
+  becomeTransform(deck, p.id, addBeat(deck, p.id, { id: "b1" })!.id, "a", "b");
+  for (const b of p.beats) for (const t of b.tracks) { t.duration = 900; t.easing = "smooth"; }
   return deck;
 }
 
