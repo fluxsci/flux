@@ -358,6 +358,9 @@
       "verify-plot-value-morph.ts",
       "verify-plot-view-filled.ts",
       "verify-plot-view-twin.ts",
+      "verify-plot-tick-handoff.ts",
+      "verify-count-up-slots.ts",
+      "verify-bar-grow.ts",
       "verify-id-aliases.ts",
       "verify-slide-stagger.ts",
       "verify-slide-choreo.ts",
@@ -928,6 +931,9 @@
       "verify-slide-arrow-browser.ts",
       "verify-preset-params.ts",
       "verify-slide-part-origin.ts",
+      "verify-plot-tick-handoff.ts",
+      "verify-count-up-slots.ts",
+      "verify-bar-grow.ts",
       "verify-slide-become-gui.mjs",
       "verify-slide-ghost-gui.mjs",
       "verify-slide-import-gui.mjs",
@@ -3571,6 +3577,21 @@
         "verify-plot-view-twin.ts",
         "tier:pure"
       ]
+    },
+    {
+      "$why": "2026-10-23 WP 2.3 (T8 D1): a view Change hands the generated ticks off to the nice ones in flight and ends on the static render.",
+      "glob": "{src/lib/plot/project.ts,src/lib/plot/projectDom.ts,src/lib/slide/player/transform.ts}",
+      "run": ["verify-plot-tick-handoff.ts", "verify-slide-ghost-runtime.ts", "tier:pure"]
+    },
+    {
+      "$why": "2026-10-23 WP 2.3 (T8 D5): count-up place-value slots on SVG text (real glyph metrics in Chrome).",
+      "glob": "src/lib/slide/player/countup.ts",
+      "run": ["verify-count-up-slots.ts", "verify-slide-player.ts", "tier:pure"]
+    },
+    {
+      "$why": "2026-10-23 WP 2.3 (T8 D8a): keyed bars with no counterpart grow and shrink on their baseline instead of fading.",
+      "glob": "{src/lib/slide/growOrigin.ts,src/lib/slide/player/render.ts,src/lib/slide/player/transform.ts,src/lib/slide/compile.ts}",
+      "run": ["verify-bar-grow.ts", "tier:pure"]
     },
     {
       "$why": "2026-09-30 colour-system plan F4: the axis view re-ticks the viewed axis and re-projects filled marks (bars, cells, hexagons) vertex by vertex.",
@@ -10222,6 +10243,33 @@
       "coverage": "behavior"
     },
     "verify-plot-view-twin.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-tick-handoff.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-count-up-slots.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-bar-grow.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

@@ -77,7 +77,8 @@ refreshed.destroy();
 // A real line plot copy floats and zooms through the ordinary transform driver.
 const { readFile } = await import("node:fs/promises");
 const { addSlide, addPlotToSlide, addBeat, addGhostTransform, setTransform } = await import("../src/lib/slide/ops");
-const { projectSeries, viewFits } = await import("../src/lib/plot/project");
+const { projectSeries, viewFits, projectWith, guideData } = await import("../src/lib/plot/project");
+const { preparePlot } = await import("../src/lib/plot/parse");
 const lineSvg = await readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.svg", import.meta.url), "utf8");
 const lineManifest = JSON.parse(await readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.fluxplot.json", import.meta.url), "utf8")) as FluxPlotManifest;
 cachePlot("sine", lineSvg, lineManifest);
@@ -97,7 +98,18 @@ for (const time of [500, 1000, 0, 500]) {
   if (time === 500) {
     check(near(xy[0], expected.x) && near(xy[1], expected.y), "floating ghost's midpoint data agrees with projectSeries");
     check(node(ghost).style.transform.includes("translate(100px, 50px)"), "ghost floats in x and y while its data view zooms");
-    check((host.querySelector(`[id="${ghost}__axis.x.tick.1"]`) as SVGElement).style.opacity === "0", "ghost guide outside the data view remains faded");
+    // WP 2.3 (tick hand-off, deliberate supersession of "remains faded"): a view Change replaces the GENERATED guides with a pool of
+    // ticks that ride the blended view, so the generated tick outside the data view is hidden (display none) and judged by its
+    // EFFECTIVE visibility; the check that mattered, no tick outside the view, is made on the pool, in pixels.
+    const generatedTick = host.querySelector(`[id="${ghost}__axis.x.tick.1"]`) as SVGElement;
+    check(generatedTick.style.display === "none" || Number(generatedTick.style.opacity || 1) === 0, "ghost guide outside the data view is not visible (hidden by the hand-off pool or faded)");
+    const pooled = Array.from(host.querySelectorAll(`[id^="${ghost}__axis.x.tick."][data-projection-flight]`)) as SVGElement[];
+    check(pooled.length > 0, "the ghost's view Change built its hand-off tick pool");
+    const rawFit = viewFits(lineManifest)!.x, domain = (lineManifest.axes[0] as unknown as { x: { domain: [number, number] } }).x.domain;
+    const bounds = domain.map(v => projectWith(rawFit, v)), lo = Math.min(...bounds), hi = Math.max(...bounds), slack = (hi - lo) * .04 + 1e-6;
+    const origin = projectWith(rawFit, guideData(lineManifest, preparePlot(lineSvg, lineManifest).root!).get("axis.x.tick.1")!.value); // the tick's resting pixel, from a pristine copy
+    const shown = pooled.filter(n => n.style.display !== "none" && Number(n.style.opacity || 1) > .02);
+    check(shown.length > 0 && shown.every(n => { const px = origin + Number(n.getAttribute("transform")!.match(/translate\(([-\d.e+]+)/)![1]); return px >= lo - slack && px <= hi + slack; }), "every visible pooled tick of the ghost lies inside the plot's x range");
   }
 }
 zoomPlayer.seek(0, 2, 500);

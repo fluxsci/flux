@@ -49,6 +49,7 @@ import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type
 import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
+import { barGrow, type BarGrow } from "../growOrigin";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
@@ -115,6 +116,17 @@ function namespaceGradients(host: Element, suffix: string): void {
     const m = /^url\(#([^)]+)\)$/.exec(n.getAttribute(attr) ?? "");
     if (m && ids.has(m[1])) n.setAttribute(attr, `url(#${ids.get(m[1])})`);
   }
+}
+
+/** Keyed bars present in only ONE of the two plot versions, by their manifest bar id (the binder's semantic key) -> the baseline
+ *  edge they grow from / shrink to (WP 2.3, D8a). Bars paired by key keep morphing in place. A bar's baseline is read through
+ *  `barGrow` from the manifest that lists it, so a Change grows a bar exactly as the `growBaseline` entrance would. */
+function unpairedBars(a?: FluxPlotManifest, b?: FluxPlotManifest): Map<string, BarGrow> {
+  const out = new Map<string, BarGrow>();
+  const ids = (m?: FluxPlotManifest) => new Set((m?.series ?? []).flatMap(s => s.svg?.bars ?? []));
+  const inA = ids(a), inB = ids(b);
+  for (const [m, other] of [[a, inB], [b, inA]] as const) for (const id of ids(m)) if (!other.has(id)) out.set(id, barGrow(m, id));
+  return out;
 }
 
 export function createTransform(
@@ -201,6 +213,7 @@ export function createTransform(
     neutralPlot(pre as SemanticPlotElement, sourceRoot), neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
       circles: new Set(dataSeries.flatMap(s => (s.points ?? []).map(p => partDomId(pre.id, p.svgId)))),
       lines: new Set(dataSeries.flatMap(s => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
+      growFrom: assetChange ? unpairedBars(manifestA, manifestB) : undefined,
     }) : null;
   // Only unaddressable (raster/id-less) plots need a whole-content crossfade.
   if (project && !plotUpdate) plan.mode = "crossfade";
@@ -210,6 +223,9 @@ export function createTransform(
     to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
     fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
     sourceRoot, targetRoot, geometryInterpolated: true, assetChange,
+    // a view-only Change hands the generated ticks off to the nice ones in flight (projectDom buildFlight); an asset Change
+    // keeps the guide pairing of its own two manifests
+    tickHandoff: !assetChange,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
   const intrinsic = (() => {
@@ -224,7 +240,12 @@ export function createTransform(
   })();
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
   const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
-  if (plotSvg && projectionOptions) preparePlotView(plotSvg, manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
+  if (plotSvg && projectionOptions) {
+    // The hand-off tick pool is CLONED from the guide templates at bind time, so the templates must be pristine: the static
+    // render already pt-true-compensated them, and a clone of a compensated template would be compensated twice.
+    restorePtTrue(plotSvg);
+    preparePlotView(plotSvg, manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
+  }
   const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
 
   // --- crossfade layers (built lazily on the first seek that needs them) ----
@@ -679,5 +700,7 @@ export function createTransform(
     warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
     return { seek, targetRoot: ensureMorphLayers().B, glide: marks };
   }
+  // No dispose: the hand-off tick pool lives inside the plot's own SVG, so it goes with the slide, and a still (renderStaticAt
+  // disposes its controllers after sampling the step) must keep the projected line, the re-ticked axis and the pool it sampled.
   return { seek, targetRoot: layerB ?? contentHost, glide: marks };
 }
