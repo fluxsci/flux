@@ -21,6 +21,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import type { Element as SceneElement } from "../../types";
 import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, penWidth, penSlices, type TrimSpec } from "./trim";
 import { trackDuration } from "../timing";
+import { seamOffCorners } from "../../path";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
 
@@ -245,7 +246,7 @@ export const DRAW_HAIRLINE = 1.25;
  *  during the draw (it draws solid and takes the pattern at rest, as every deck did before T3). */
 export const DRAW_DASH_BUDGET = 4000;
 /** Props that exist only while a draw plays; dropped at progress 1 (the authored attributes are the rest state). */
-const DRAW_TRANSIENT = ["strokeDashoffset", "strokeDasharray", "strokeLinecap", "fillOpacity", "stroke", "strokeWidth", "transform", "transformOrigin"] as const;
+const DRAW_TRANSIENT = ["strokeDashoffset", "strokeDasharray", "strokeLinecap", "fillOpacity", "stroke", "strokeWidth", "transform", "transformOrigin", "d"] as const;
 const IDENT = (x: number) => x;
 
 function rawPaintVal(el: Element, name: string): string {
@@ -292,8 +293,37 @@ interface Piece {
   pen: number;
   /** headFill: scale origin (user space). headVee: the tip is the polyline's mid-length. */
   origin?: [number, number];
+  /** a closed, solid stroke that starts on a corner: what its draw frames carry so the dash's seam does not open that corner (`drawSeam`) */
+  seam?: { d?: string; strokeLinecap?: "square" | "round" };
 }
 interface Unit { pieces: Piece[]; pen: number }
+
+/** THE DRAW SEAM (path.ts `seamOffCorners` has the measurement): a closed stroke dashed from a corner ends its draw with that corner open
+ *  until the dash is dropped at rest. A path is drawn on the same geometry re-started a stroke width before the corner (the transient `d`
+ *  property; the resting attribute never changes); a rect, which has no `d`, closes its corner with the cap its join implies (a mitred 90°
+ *  corner is exactly two square caps, a round join two round caps), as does a polygon whose start corner is a right angle or round-joined.
+ *  A dash PATTERN keeps today's seam (moving the contour start would shift the pattern against the rest). */
+function drawSeam(geo: SVGElement, closed: boolean, pattern: number[] | undefined): Piece["seam"] {
+  if (!closed || pattern) return undefined;
+  const tag = geo.tagName.toLowerCase(), join = rawPaintVal(geo, "stroke-linejoin") || "miter", width = parseFloat(rawPaintVal(geo, "stroke-width") || "1");
+  if (tag === "path") {
+    const d = seamOffCorners(geo.getAttribute("d") ?? "", Math.max(1, Number.isFinite(width) ? width : 1));
+    return d ? { d: `path("${d}")` } : undefined;
+  }
+  if (tag === "rect") {
+    const rounded = parseFloat(geo.getAttribute("rx") ?? "0") > 0 || parseFloat(geo.getAttribute("ry") ?? "0") > 0;
+    return rounded ? undefined : join === "round" ? { strokeLinecap: "round" } : join === "miter" ? { strokeLinecap: "square" } : undefined;
+  }
+  if (tag === "polygon") {
+    if (join === "round") return { strokeLinecap: "round" };
+    const q = pts(geo);
+    if (join !== "miter" || q.length < 3) return undefined;
+    const [a, b, c] = [q[q.length - 1], q[0], q[1]];
+    const u = [b[0] - a[0], b[1] - a[1]], v = [c[0] - b[0], c[1] - b[1]], dot = u[0] * v[0] + u[1] * v[1];
+    return Math.abs(dot) < 1e-3 * Math.hypot(...u) * Math.hypot(...v) ? { strokeLinecap: "square" } : undefined;
+  }
+  return undefined;
+}
 
 /** Classify a target's geometry into pen UNITS. A Flux line/path arrow is a stroke plus sibling head shapes
  *  (`<polygon>` filled / `<polyline>` vee): the heads join their shaft's unit, so the pen reaches them in order.
@@ -309,7 +339,9 @@ function drawUnits(node: TargetNode): Unit[] {
   const mk = (geo: SVGElement, role: Piece["role"]): Piece => {
     const len = geoLength(geo);
     const dash = readPaint(geo).dash;
-    return { geo, tag: shapeTag(geo), role, len, closed: geoClosed(geo), pen: explicitPathLength(geo) ? trueLength(geo, len) : len, ...(dash?.some((v) => v > 0) ? { pattern: dash } : {}) };
+    const closed = geoClosed(geo), pattern = dash?.some((v) => v > 0) ? dash : undefined;
+    const seam = role === "stroke" || role === "strokeFill" ? drawSeam(geo, closed, pattern) : undefined;
+    return { geo, tag: shapeTag(geo), role, len, closed, pen: explicitPathLength(geo) ? trueLength(geo, len) : len, ...(pattern ? { pattern } : {}), ...(seam ? { seam } : {}) };
   };
   // heads first: a head belongs to the stroked line/open-path sibling whose end it sits on
   const hosts = all.filter((g) => ["line", "path"].includes(g.tagName.toLowerCase()) && paint.get(g)!.stroked && !paint.get(g)!.filled && !geoClosed(g));
@@ -378,8 +410,8 @@ const win = (raw: number, w0: number, w1: number) => clamp01((raw - w0) / Math.m
 
 /** The authored pen of a stroked piece when its caps put a disc at the head of a dash (round / square): its stroke width in user units.
  *  Null for a butt cap (a zero-length dash paints nothing, nothing to ramp) or a width we cannot read in user units. */
-function penOf(geo: SVGElement): number | null {
-  const cap = rawPaintVal(geo, "stroke-linecap");
+function penOf(geo: SVGElement, capOverride?: string): number | null {
+  const cap = capOverride ?? rawPaintVal(geo, "stroke-linecap");
   if (cap !== "round" && cap !== "square") return null;
   const m = /^\s*([+-]?(?:\d*\.)?\d+(?:e[-+]?\d+)?)(px)?\s*$/i.exec(rawPaintVal(geo, "stroke-width"));
   const w = m ? Number(m[1]) : NaN;
@@ -398,10 +430,11 @@ function pieceSampler(piece: Piece, [a, b]: [number, number]): Forward {
   const hid = hiddenDash(reach);
   const clock = (raw: number, ease: (x: number) => number) => ease(clamp01(raw));
   const slice = (c: number) => clamp01((c - a) / Math.max(1e-9, b - a));
-  const pen = penOf(geo);
+  // the seam's cap (a rect's corner closed by its caps) is the pen's cap while it draws: it touches down like a round or square cap
+  const seam = piece.seam ?? {}, pen = penOf(geo, seam.strokeLinecap);
   /** the touch-down width of a frame that has laid `frac` of this piece's pen length (see penWidth) */
   const touch = (frac: number) => (pen == null ? {} : { strokeWidth: penWidth(pen, frac * piece.pen) });
-  if (piece.role === "stroke") return (raw, ease) => { const c = slice(clock(raw, ease)); return { ...(windowsDash(spec, [[0, c * reach]]) ?? hid), ...touch(c) } as unknown as Keyframe; };
+  if (piece.role === "stroke") return (raw, ease) => { const c = slice(clock(raw, ease)); return { ...(windowsDash(spec, [[0, c * reach]]) ?? hid), ...touch(c), ...seam } as unknown as Keyframe; };
   if (piece.role === "headFill") {
     const [ox, oy] = piece.origin!;
     return (raw, ease) => ({ transform: `scale(${Math.max(1e-4, slice(clock(raw, ease)))})`, transformOrigin: `${ox}px ${oy}px` });
@@ -416,7 +449,7 @@ function pieceSampler(piece: Piece, [a, b]: [number, number]): Forward {
   const fillRamp = (raw: number, ease: (x: number) => number) => clamp01(ease(win(raw, DRAW_FILL_FROM, 1)));
   if (piece.role === "strokeFill") return (raw, ease) => {
     const o = outline(raw, ease), f = windowsDash(spec, [[0, o * reach]]) ?? hid;
-    return { ...f, ...touch(o), fillOpacity: restFillOp * fillRamp(raw, ease) } as unknown as Keyframe;
+    return { ...f, ...touch(o), ...seam, fillOpacity: restFillOp * fillRamp(raw, ease) } as unknown as Keyframe;
   };
   // fill only: a hairline border in the fill colour is drawn first, then fades into the fill
   const colourOK = fillCol && !/^(none|url\(|transparent)/i.test(fillCol);

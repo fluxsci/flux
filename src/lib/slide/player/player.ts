@@ -485,7 +485,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   return specs;
 }
 
-const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin", "transformBox", "fillOpacity", "stroke", "strokeWidth", "maskImage"] as const;
+const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin", "transformBox", "fillOpacity", "stroke", "strokeWidth", "maskImage", "d"] as const;
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** How a keyframed spec moves its node: a flight whose keyframes differ only
  *  in translate() rides a compositor layer while it plays (render.ts layer

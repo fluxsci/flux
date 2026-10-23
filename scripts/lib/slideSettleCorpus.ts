@@ -459,6 +459,16 @@ export async function syntheticCorpus(compact: boolean): Promise<CorpusDeck[]> {
     ks.forEach((k, i) => b.add(s, el(k, `m${i}`, 40 + i * 140, 140)));
     const beat = b.beat(s); ks.forEach((_, i) => b.anim(s, beat, `m${i}`, "fadeRise", { start: i * 150 }));
   });
+  // the draw seam (Release 2 residual): a closed stroke dashed from a corner landed with that corner closing in one step (a 12 px rect:
+  // LANDING STEP 31.6 on the GPU). Thick strokes, a bare and a filled rect, a mitred closed path; on and off. GPU-only: in PLAY.
+  await grid("draw_seam", b => {
+    const s = b.slide("seam");
+    b.add(s, el("rectS", "box", 40, 120, { width: 150, height: 100, fill: "none", strokeWidth: 12 }));
+    b.add(s, el("rectS", "card", 240, 120, { width: 150, height: 100, strokeWidth: 12 }));
+    b.add(s, el("path", "frame", 440, 120, { width: 150, height: 100, d: "M0 0 L 150 0 L 150 100 L 0 100 Z", closed: true, cap: "butt", strokeWidth: 12 }));
+    for (const id of ["box", "card", "frame"]) b.anim(s, b.beat(s), id, "drawOn");
+    for (const id of ["box", "card", "frame"]) b.anim(s, b.beat(s), id, "drawOff");
+  });
   decks.push(...await transformDecks(compact), ...await plotDecks(compact));
   return decks;
 }

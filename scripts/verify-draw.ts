@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { penWidth, hiddenDash, drawReach, DRAW_REACH_EPS, windowsDash, traceDash, passingFlash, penSlices, trimDashAt, trimKeyframes, type TrimSpec, type DashFrame } from "../src/lib/slide/player/trim";
 import { PRESETS } from "../src/lib/slide/player/presets";
+import { seamOffCorners, pathToSubpaths } from "../src/lib/path";
 import { computeSlideAnims } from "../src/lib/slide/player/player";
 import { compileSlide } from "../src/lib/slide/compile";
 import { resolveTrack, resolveTrackRaw, resolveBeat, tickCompensation, TICK_WINDOW_SHARE } from "../src/lib/slide/resolve";
@@ -296,6 +297,50 @@ h.section("penSlices: exact tables, bit-identical within-unit slicing, and param
 // ---------------------------------------------------------------------------------------------------------------
 // X13 — resolveTrack's tick compensation
 // ---------------------------------------------------------------------------------------------------------------
+h.section("the draw seam: a closed stroke is not dashed from a corner (the landing step of a box's draw)");
+{
+  // pure: the same geometry, re-started delta before a corner start along the closing segment
+  const nums = (d: string) => (d.match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/g) ?? []).map(Number);
+  const polyLen = (d: string) => pathToSubpaths(d).reduce((t, sp) => { const n = sp.nodes; let L = 0; for (let i = 0; i < n.length; i++) { const a = n[i], b = n[(i + 1) % n.length]; if (i < n.length - 1 || sp.closed) L += Math.hypot(b.x - a.x, b.y - a.y); } return t + L; }, 0);
+  const sq = "M 10 10 H 110 V 110 H 10 Z", moved = seamOffCorners(sq, 14)!;
+  assert(moved && nums(moved).slice(0, 2).join(",") === "10,24", `a square starting on its top-left corner re-starts 14 below it, on its closing (left) edge: ${moved}`);
+  assert(near(polyLen(moved), polyLen(sq), 1e-6), "...the geometry is unchanged (same perimeter, same corners)");
+  assert(pathToSubpaths(moved)[0].nodes.some((n) => n.x === 10 && n.y === 10) && pathToSubpaths(moved)[0].closed, "...the corner is now INSIDE the contour (a vertex the dash passes through), still closed");
+  assert(seamOffCorners("M 60 10 H 110 V 110 H 10 V 10 Z", 14) === null, "a contour that already starts mid-edge needs nothing (null)");
+  assert(seamOffCorners("M 110 60 A 50 50 0 1 1 10 60 A 50 50 0 1 1 110 60 Z", 14) === null, "a smooth start (a circle from arcs) needs nothing");
+  assert(seamOffCorners("M 0 0 L 100 0 L 100 100", 14) === null, "an open path has no seam");
+  assert(near(nums(seamOffCorners("M 0 0 H 100 V 4 H 0 Z", 14)!)[1], 2, 1e-9), "the move never passes half of a short closing segment (4 -> 2)");
+  const compound = seamOffCorners("M 0 0 H 100 V 100 H 0 Z M 30 30 H 70 V 70 H 30 Z", 5)!;
+  assert(pathToSubpaths(compound).length === 2 && pathToSubpaths(compound).every((sp) => sp.closed && sp.nodes[0].x === sp.nodes[1].x), "every closed subpath of a compound path is re-started (an outline and its hole)");
+  // a curved closing segment: the new start lies ON the original curve, delta of arc before the corner
+  const curve = "M 0 0 L 100 0 L 100 100 C 50 120 0 50 0 0 Z", c = seamOffCorners(curve, 10)!;
+  const bez = (t: number) => { const u = 1 - t; return [u * u * u * 100 + 3 * u * u * t * 50 + 3 * u * t * t * 0 + 0, u * u * u * 100 + 3 * u * u * t * 120 + 3 * u * t * t * 50 + 0]; };
+  const [sx, sy] = nums(c).slice(0, 2);
+  const onCurve = Math.min(...Array.from({ length: 2001 }, (_, i) => { const [x, y] = bez(i / 2000); return Math.hypot(x - sx, y - sy); }));
+  assert(onCurve < 0.02 && near(Math.hypot(sx, sy), 10, 0.3), `a curved closing segment is split ON the curve, about 10 of arc before the corner (off by ${onCurve.toFixed(4)}; chord ${Math.hypot(sx, sy).toFixed(2)})`);
+  // through the real draw plan
+  const { document } = parseHTML("<!doctype html><html><body></body></html>");
+  (globalThis as { document?: unknown }).document = document;
+  const svgNS = "http://www.w3.org/2000/svg";
+  const mk = (attrs: Record<string, string>, tag = "path") => { const n = document.createElementNS(svgNS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n as unknown as SVGElement; };
+  const ctx = { theme: FLUX_DARK, stage: { width: 640, height: 360 } };
+  const track = { target: "x", preset: "drawOn", duration: 900 } as Track;
+  const frameOf = (geo: SVGElement, r: number, preset: "drawOn" | "drawOff" = "drawOn") => PRESETS[preset]([geo as never], { ...track, preset } as Track, ctx)[0].sample!(r, (x: number) => x) as unknown as Record<string, string>;
+  const box = mk({ d: sq, stroke: "#111", fill: "none", "stroke-width": "14" });
+  const [boxAnim] = PRESETS.drawOn([box as never], track, ctx);
+  assert(frameOf(box, 0.5).d === `path("${moved}")` && frameOf(box, 1).d === `path("${moved}")` && boxAnim.transient?.includes("d" as never), "a closed path draws on the re-started contour in every frame, as a transient `d` (dropped at rest: the attribute never changes)");
+  assert(box.getAttribute("d") === sq, "...and the element's own `d` attribute is untouched");
+  assert(frameOf(box, 0, "drawOff").d === `path("${moved}")`, "a drawOff's first frame (the full stroke) is on the re-started contour too, so the exit starts without opening the corner");
+  const rect = mk({ x: "0", y: "0", width: "100", height: "60", stroke: "#111", fill: "none", "stroke-width": "12" }, "rect");
+  assert(frameOf(rect, 0.5).strokeLinecap === "square", "a mitred rect (no `d`) closes its start corner with square caps, exactly its 90-degree mitre");
+  // (headless linkedom cannot measure a rect's length, so only the ramp is asserted here; the browser gates see the full width at rest)
+  assert(parseFloat(frameOf(rect, 0.001).strokeWidth) < parseFloat(frameOf(rect, 0.5).strokeWidth) && parseFloat(frameOf(rect, 0.001).strokeWidth) < 0.01, "...and the square-capped pen touches down (its width ramps from nothing: no cap square blinks in on the first frame)");
+  assert(frameOf(mk({ x: "0", y: "0", width: "100", height: "60", rx: "8", stroke: "#111", fill: "none", "stroke-width": "12" }, "rect"), 0.5).strokeLinecap === undefined, "a rounded rect starts on its straight top edge: no seam treatment");
+  assert(frameOf(mk({ x: "0", y: "0", width: "100", height: "60", stroke: "#111", fill: "none", "stroke-width": "12", "stroke-linejoin": "round" }, "rect"), 0.5).strokeLinecap === "round", "a round-joined rect closes its corner with round caps");
+  assert(frameOf(mk({ d: sq, stroke: "#111", fill: "none", "stroke-width": "14", "stroke-dasharray": "10 6" }), 0.5).d === undefined, "a DASHED closed path keeps its seam (moving the contour start would shift the pattern against the rest)");
+  assert(frameOf(mk({ d: "M 0 0 L 100 0 L 100 100", stroke: "#111", fill: "none", "stroke-width": "14" }), 0.5).d === undefined, "an open path is drawn as authored");
+}
+
 h.section("X13: tick compensation in resolveTrack (one normaliser, both engines)");
 const load = (p: string) => JSON.parse(fs.readFileSync(path.join(here, "fixtures", p), "utf8")) as FluxPlotManifest;
 const scatter = load("plots/mpl_scatter_FLUXPLOT.fluxplot.json");

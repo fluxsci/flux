@@ -199,6 +199,62 @@ function arcCubics(x: number, y: number, rx: number, ry: number, degrees: number
   return parts;
 }
 
+/** THE DRAW SEAM. A closed contour dashed from a CORNER ends its draw with that corner open: the dash's two butt ends meet at the
+ *  contour's start, and the browser (Chromium's GPU rasteriser, measured) never joins a dash across a contour's start, so the mitred
+ *  corner appears only when the dash is dropped at rest — a landing step (49 px at up to 238 levels for a 14 px stroke). The same
+ *  contour started a hair BEFORE the corner, on its own closing segment, is pixel-identical to the solid stroke when dashed in full:
+ *  the seam then sits on a straight run where the two butt ends meet flush, and the corner is drawn inside one continuous dash.
+ *  Returns `d` with every closed subpath that starts on a corner re-started `delta` user units before it along its closing segment
+ *  (never past half of that segment), the geometry unchanged; null when no subpath starts on a corner. Pure. */
+export function seamOffCorners(d: string, delta: number): string | null {
+  if (!(delta > 0)) return null;
+  const subs = pathToSubpaths(d);
+  let changed = false;
+  const out = subs.map(({ nodes, closed }) => {
+    if (!closed || nodes.length < 2) return { nodes, closed };
+    const F = nodes[0], N = nodes[nodes.length - 1];
+    // the closing segment N -> F as a cubic (a line has its controls on its ends)
+    const p0 = { x: N.x, y: N.y }, p1 = abs(N, N.hOut) ?? p0, p3 = { x: F.x, y: F.y }, p2 = abs(F, F.hIn) ?? p3;
+    // the tangents at F: arriving along the closing segment (its last distinct control point), leaving along the first segment
+    const ctl = [p2, p1, p0].find((p) => p.x !== p3.x || p.y !== p3.y);
+    if (!ctl) return { nodes, closed };
+    const into = { x: p3.x - ctl.x, y: p3.y - ctl.y };
+    const next = nodes[1], q = abs(F, F.hOut) ?? abs(next, next.hIn) ?? { x: next.x, y: next.y };
+    const out1 = { x: q.x - F.x, y: q.y - F.y };
+    const li = Math.hypot(into.x, into.y), lo = Math.hypot(out1.x, out1.y);
+    if (!(li > 1e-9) || !(lo > 1e-9)) return { nodes, closed };
+    const cos = (into.x * out1.x + into.y * out1.y) / (li * lo);
+    if (cos > Math.cos(Math.PI / 180)) return { nodes, closed }; // smooth (within 1 degree): no corner at the seam
+    const curved = !!(N.hOut || F.hIn);
+    if (!curved) {
+      // a straight closing segment: the new start is exactly `delta` (at most half the segment) before F
+      const len = Math.hypot(p0.x - p3.x, p0.y - p3.y), k = Math.min(delta, len / 2) / len;
+      changed = true;
+      return { nodes: [{ x: p3.x + (p0.x - p3.x) * k, y: p3.y + (p0.y - p3.y) * k, type: "corner" as const }, F, ...nodes.slice(1)], closed };
+    }
+    // a curved one: the parameter t at which it has `delta` (at most half its length) left to run, by arc length
+    const at = (t: number) => { const u = 1 - t; return { x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x, y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y }; };
+    const STEPS = 64, cum = [0];
+    let prev = at(0);
+    for (let k = 1; k <= STEPS; k++) { const p = at(k / STEPS); cum.push(cum[k - 1] + Math.hypot(p.x - prev.x, p.y - prev.y)); prev = p; }
+    const total = cum[STEPS];
+    if (!(total > 1e-9)) return { nodes, closed };
+    const want = total - Math.min(delta, total / 2);
+    let k = 1;
+    while (k < STEPS && cum[k] < want) k++;
+    const t = (k - 1 + (want - cum[k - 1]) / Math.max(1e-12, cum[k] - cum[k - 1])) / STEPS;
+    // de Casteljau at t: N -> S is the closing segment's new end, S -> F the contour's new first segment
+    const lerp = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    const a1 = lerp(p0, p1), b1 = lerp(p1, p2), c1 = lerp(p2, p3), a2 = lerp(a1, b1), b2 = lerp(b1, c1), s = lerp(a2, b2);
+    const seam: VectorNode = { x: s.x, y: s.y, type: "smooth", hIn: { dx: a2.x - s.x, dy: a2.y - s.y }, hOut: { dx: b2.x - s.x, dy: b2.y - s.y } };
+    const first: VectorNode = { ...F, hIn: { dx: c1.x - F.x, dy: c1.y - F.y } };
+    const last: VectorNode = { ...N, hOut: { dx: a1.x - N.x, dy: a1.y - N.y } };
+    changed = true;
+    return { nodes: [seam, first, ...nodes.slice(1, -1), last], closed };
+  });
+  return changed ? out.map((p) => nodesToPath(p.nodes, p.closed)).join(" ") : null;
+}
+
 /** Does the path close (ends with Z)? Pairs with pathToNodes for legacy paths. */
 export function pathIsClosed(d: string): boolean {
   return /z\s*$/i.test(d.trim());
