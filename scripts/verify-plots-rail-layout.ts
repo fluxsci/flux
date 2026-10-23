@@ -84,19 +84,23 @@ h.section("keyboard movement");
 
 h.section("cost is linear in the item count");
 {
-  const run = (n: number) => {
+  // EQUAL WORK if linear: 16 layouts of 5,000 vs 4 of 20,000 (the index caps at 20,000), each
+  // sample several milliseconds — a 1 ms single run is timer noise on a CI runner (one measured a
+  // linear layout at "8.6×"). Linear ≈ 1×; a quadratic run scan ≈ 4×.
+  const run = (n: number, reps: number) => {
     const aspects = Array.from({ length: n }, (_, i) => 0.5 + (i % 7) * 0.4);
     let best = Infinity;
-    for (let k = 0; k < 5; k++) {
+    for (let k = 0; k < 7; k++) {
       const t = performance.now();
-      layoutJustified([sec(aspects)], opts(320));
+      for (let r = 0; r < reps; r++) layoutJustified([sec(aspects)], opts(320));
       best = Math.min(best, performance.now() - t);
     }
     return best;
   };
-  run(2000); // warm the JIT
-  const small = run(5000), big = run(20000);
-  h.ok(big / Math.max(small, 0.05) < 8, `20,000 items cost ≈ 4× 5,000 (measured ${(big / Math.max(small, 0.05)).toFixed(1)}×, best of five) — no quadratic run scan`);
+  run(5000, 4); // warm the JIT
+  const small = run(5000, 16), big = run(20000, 4);
+  const ratio = big / Math.max(small, 0.05);
+  h.ok(ratio < 3, `4 × 20,000 items cost the same as 16 × 5,000 (measured ${ratio.toFixed(2)}×, best of seven; a quadratic run scan would be ≈4×)`);
 }
 
 h.section("middle ellipsis keeps the distinguishing end");
