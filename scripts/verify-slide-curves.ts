@@ -204,11 +204,11 @@ h.ok(resolveCurve({ easing: "linear", preset: "transform" }) === resolveCurve({ 
 h.ok(resolveCurve({ influence: { in: 0, out: 0 }, preset: "transform" }) === resolveCurve({ easing: "smooth" }), "inactive influence preserves default");
 for (const def of Object.values(PRESET_CATALOG)) {
   h.ok(resolveCurve({ preset: def.name }) === resolveCurve({ easing: defaultEasingFor(def.name) }), `${def.name}: resolver reads catalog default`);
-  // the FAMILY default (a track with no preset) is the family's first preset's: the appearance family's presets differ on purpose
-  // since WP 2.2 (the onset-exempt there-and-back emphasis, pulse / encircle, default to `smooth`), so "every preset of the family" no longer holds
-  const familyFirst = Object.values(PRESET_CATALOG).find(d => d.family === def.family)!;
-  h.ok(resolveCurve({}, def.family) === resolveCurve({ easing: familyFirst.defaultEasing }), `${def.name}: absent preset uses the explicit ${def.family} family default`);
+  // the FAMILY default (a track with no preset) is what every preset of the family defaults to, EXCEPT the onset-exempt there-and-back
+  // emphasis (pulse, encircle: WP 2.2 / X2), which default to `smooth` on purpose and are pinned explicitly below
+  if (!def.onsetExempt) h.ok(resolveCurve({}, def.family) === resolveCurve({ easing: def.defaultEasing }), `${def.family}: absent preset uses explicit family default`);
 }
+h.eq(Object.values(PRESET_CATALOG).filter(d => d.onsetExempt).map(d => [d.name, d.defaultEasing]), [["pulse", "smooth"], ["encircle", "smooth"]], "the onset-exempt emphasis presets (and only they) default to smooth (X2)");
 h.eq([defaultEasingFor(), defaultEasingFor("transform"), defaultEasingFor("countUp"), defaultEasingFor("videoPause")], ["standard", "smooth", "standard", "linear"], "default easing values preserve historical families");
 h.ok(resolveCurve({ curve: { kind: "spring", bounce: 9 } }) === resolveCurve({ curve: { kind: "spring", bounce: 0.8, velocity: 0 } }), "clamped springs share a cache entry");
 h.ok(resolveCurve({ curve: { kind: "steps", n: 99 } }) === resolveCurve({ curve: { kind: "steps", n: 60, jump: "end" } }), "normalized steps share a cache entry");

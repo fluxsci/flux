@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 import type { FluxPlotManifest } from "../plot/types";
 import { elementBBox, rotatedAABB, unionRect, type Rect } from "../geometry";
+import { isPoint, type PointParam } from "./presetCatalog";
 
 export interface BarGrow {
   /** CSS scale function the entrance animates: scaleY for vertical bars, scaleX for horizontal. */
@@ -78,10 +79,9 @@ export interface GrowElement {
   type: string; x: number; y: number; width: number; height: number; rotation?: number;
   x1?: number; y1?: number; x2?: number; y2?: number; arrowStart?: boolean; arrowEnd?: boolean;
 }
-export interface StagePoint { x: number; y: number }
+export type StagePoint = PointParam;
 const isLine = (e: GrowElement): boolean => e.type === "line" && e.x1 !== undefined && e.x2 !== undefined;
 const boxOf = (e: GrowElement): Rect => elementBBox(e as never);
-const isPoint = (v: unknown): v is StagePoint => !!v && typeof v === "object" && Number.isFinite((v as StagePoint).x) && Number.isFinite((v as StagePoint).y);
 
 /** The shared origin of elements that enter / pulse TOGETHER: the centre of the union of their ROTATED boxes (manim animates
  *  a VGroup about the group's centre). undefined for an empty set. */
@@ -134,7 +134,7 @@ export const pulseAuto = (box: { w: number; h: number } | undefined): number =>
  *  `scale` <= 1 falls back to the auto peak). */
 export function pulsePeak(authored: unknown, box: Rect | undefined, stage: { width: number; height: number }, about?: StagePoint, margin = STAGE_MARGIN): number {
   let k = typeof authored === "number" && Number.isFinite(authored) && authored > 1 ? Math.min(authored, 3) : pulseAuto(box);
-  if (!box || box.w <= 0 || box.h <= 0) return Math.max(1, k);
+  if (!box) return Math.max(1, k);
   const ax = about?.x ?? box.x + box.w / 2, ay = about?.y ?? box.y + box.h / 2;
   // the grown box edge is a + (edge - a)·k: keep every edge inside [margin, stage - margin]
   const lim = (lo: number, hi: number, a: number, max: number) => {

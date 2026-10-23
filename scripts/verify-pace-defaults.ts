@@ -84,9 +84,10 @@ const trimmed = (t: number) => { const L = 0.08; return (smoothstep(L + (1 - L) 
 for (const [p, d] of Object.entries(AUTHORED)) {
   const def = PRESET_CATALOG[p as keyof typeof PRESET_CATALOG]; if (def.family === "media") continue;
   const s = curveStats(resolveCurve({ ...authoredTiming(p) as any, preset: p }).fn, d);
-  // scaleIn is the owner's 600 ms row (X1 / Q3a): 600 ms quick-smooth peaks at 5.6 %/frame, a hair over the 700 ms enters' 5.5 (the
-  // budget was measured at 700); 6.0 still holds it 2.4x under classic popIn's 14.2 and under manim-CE's 4.2 + the quick onset's margin
-  const cap = def.phase === "exit" ? 7 : def.family === "transform" || def.family === "camera" ? 3.6 : p === "scaleIn" ? 6.0 : 5.5;
+  // scaleIn is the owner's 600 ms row (X1 / Q3a): 600 ms quick-smooth peaks at 5.62 %/frame, a hair over the 700 ms enters' 5.5 (the
+  // budget was measured at 700); pinned tight to the measured peak (5.7) so a later curve change still trips it, still 2.4x under
+  // classic popIn's 14.2
+  const cap = def.phase === "exit" ? 7 : def.family === "transform" || def.family === "camera" ? 3.6 : p === "scaleIn" ? 5.7 : 5.5;
   h.ok(s.peak <= cap, `${p} ${d} ms: peak ${s.peak.toFixed(2)} %/frame <= ${cap} (classic standard@320 = 13.9)`);
   // the click-onset budget is the quick-smooth curve's job; an onset-exempt there-and-back (pulse, encircle) is the symmetric smooth
   // token instead, which must leave AND land at rest (X2): zero velocity at both ends, so its landing never snaps

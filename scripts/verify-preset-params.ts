@@ -122,6 +122,8 @@ h.eq([presetParam(T("drawOn", { lag: 5 }), "lag", "drawOn"), presetParam(T("draw
   [1, 0, 0.3, "sequence", "together"], "drawOn / drawOff order + lag (X4): lag clamps to [0, 1] and defaults to 0.3, a malformed order reads as together");
 h.eq([paramDiagnostics(T("drawOn", { lag: 0.5 })).length, paramDiagnostics(T("drawOn", { order: "sequence", lag: 0.5 })).length, paramDiagnostics(T("stagger", { child: "drawOn", order: "sequence" })).length, paramDiagnostics(T("drawOff", { order: "sequence" })).length],
   [1, 0, 0, 0], "a lag with no sequence is reported (the PRESET_PARAMS `requires` rule for order); a sequence on a drawOn / drawOff / stagger-over-draw is known");
+h.eq([paramDiagnostics(T("fadeRise", { order: "sequence" })).length, paramDiagnostics(T("stagger", { child: "fade", order: "sequence" })).length, paramDiagnostics(T("writeOn", { order: "sequence", lag: 0.3 })).length, paramDiagnostics(T("fadeRise", { from: 0.5 })).length],
+  [1, 1, 2, 0], "order / lag are host-bound (FINAL_PLAN 2.4): reported on a preset that is not a Draw (fadeRise, stagger over fade, writeOn); an ordinary foreign key (popIn.from) stays a silent leftover");
 
 // ---------------------------------------------------------------------------------------------------------------
 h.section("4. player, compile and PPTX read the same value");

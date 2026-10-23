@@ -13,7 +13,7 @@ import {
 } from "../src/lib/slide/presetCatalog";
 import { barGrow, growLocal, growOrigin, growStage, groupPoint, pulsePeak, pulseAuto } from "../src/lib/slide/growOrigin";
 import { encircleShape, encircleParams, ENCIRCLE_DEFAULTS } from "../src/lib/slide/encircleGeometry";
-import { EASING_TOKENS } from "../src/lib/slide/curves";
+import { EASING_TOKENS, resolveCurve } from "../src/lib/slide/curves";
 import { smoothstep } from "../src/lib/motion/tokens";
 import { compileSlide } from "../src/lib/slide/compile";
 import { pptxPages } from "../src/lib/slide/export/pptxBuilds";
@@ -55,13 +55,16 @@ const scaleOf = (f: Record<string, unknown>) => Number(String(f.transform).match
 {
   const na = run("pulse", undefined, { element: box(100, 100, 160, 100) }), k = scaleOf(na.keyframes[1]);
   h.eq(na.keyframes.map((f) => [f.transform, f.offset ?? null]), [["scale(1)", null], ["scale(1.12)", 0.5], ["scale(1)", null]], "keyframes [scale(1), scale(1.12)@0.5, scale(1)]: scale = paints in place, rest = identity");
+  // the REAL resolved `smooth` curve (what a track plays), not only the token function: a drift of either trips the identity
+  const realSmooth = resolveCurve({ easing: "smooth" } as never).fn;
+  h.ok(Array.from({ length: 1001 }, (_, i) => Math.abs(realSmooth(i / 1000) - smoothstep(i / 1000))).every((d) => d < 1e-14), "resolveCurve(smooth) is the token smoothstep");
   let err = 0, mono = true, prev = 1;
   for (let i = 0; i <= 1000; i++) {
-    const raw = i / 1000, got = scaleOf(na.sample!(raw, smoothstep) as never);
+    const raw = i / 1000, got = scaleOf(na.sample!(raw, realSmooth) as never);
     err = Math.max(err, Math.abs((got - 1) / (k - 1) - glThereBack(raw)));
     if (raw <= 0.5) { if (got < prev - 1e-12) mono = false; prev = got; }
   }
-  h.ok(err < 1e-12, `pulse(smooth) == manimgl there_and_back over 1001 samples (max err ${err.toExponential(1)})`);
+  h.ok(err < 1e-14, `pulse(smooth) == manimgl there_and_back over 1001 samples (max err ${err.toExponential(1)}; the resolved curve, to ~1e-15)`);
   h.ok(mono && near(scaleOf(na.sample!(0.5, smoothstep) as never), k) && near(scaleOf(na.sample!(0.25, (x) => x) as never), 1 + (k - 1) * 0.5), "peak exactly k at 0.5; a linear easing gives the triangle wave");
   const a = [0.3, 0.9, 0.1, 0.5].map((r) => scaleOf(na.sample!(r, smoothstep) as never)), b = [0.1, 0.5, 0.3, 0.9].map((r) => scaleOf(na.sample!(r, smoothstep) as never));
   h.ok(near(a[0], b[2]) && near(a[1], b[3]) && near(a[2], b[0]) && near(a[3], b[1]), "pure in raw progress: call order (forward / reverse / shuffled seeks) cannot matter");
@@ -71,6 +74,8 @@ h.eq([pulseAuto({ w: 160, h: 100 }), pulseAuto({ w: 14, h: 14 }), pulseAuto({ w:
   "size-aware peak clamp(1 + 8/min(w,h), 1.12, 1.3): a 14-unit dot grows 4.2 units, a 160x100 box 12 %");
 h.eq([pulsePeak(undefined, { x: 10, y: 10, w: 620, h: 340 }, stage), pulsePeak(undefined, { x: 0, y: 0, w: 640, h: 360 }, stage), pulsePeak(1.5, { x: 270, y: 155, w: 100, h: 50 }, stage), pulsePeak(0.5, { x: 270, y: 155, w: 100, h: 50 }, stage), pulsePeak(Number.NaN, { x: 270, y: 155, w: 100, h: 50 }, stage), pulsePeak(99, { x: 270, y: 155, w: 20, h: 20 }, stage)],
   [1.0129032258064516, 1, 1.5, 1.16, 1.16, 3], "stage clamp (6-unit margin): a 620x340 box centred -> 1.0129, full-stage -> 1; authored 1.5 honoured; scale <= 1 / NaN -> auto; authored capped at 3");
+h.ok(pulsePeak(undefined, { x: 10, y: 180, w: 620, h: 0 }, stage) < 1.12 && pulsePeak(undefined, { x: 300, y: 10, w: 0, h: 340 }, stage) < 1.12 && pulsePeak(undefined, { x: 270, y: 180, w: 100, h: 0 }, stage) === 1.12,
+  "a horizontal / vertical line (zero extent on one axis) is stage-clamped on its long axis (620 of 640 -> k < 1.12) and unclamped when it fits");
 h.ok(near(pulsePeak(2, { x: 300, y: 150, w: 100, h: 60 }, stage, { x: 350, y: 180 }), 2) && pulsePeak(3, { x: 520, y: 150, w: 100, h: 60 }, stage, { x: 400, y: 180 }) < 2, "about-point clamp: the grown box about a group point also stays on stage");
 h.eq(run("pulse", { about: { x: 300, y: 200 } }, { element: box(0, 0, 100, 50) }).origin, "300.00px 200.00px", "pulse about a stage point: the effects-layer origin is that point in the element's local frame");
 h.eq(run("pulse", { about: { x: 300, y: 200 } }, { element: box(0, 0, 100, 50) }, true).origin, "50% 50%", "...but an SVG part keeps its own fill-box centre");

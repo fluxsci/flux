@@ -180,6 +180,9 @@ export interface ParamSpec {
   /** Numeric reads are clamped into [min, max]. */
   range?: readonly [number, number];
   requires?: ParamRequirement;
+  /** The key means something only on the presets that declare it: on any other preset `paramDiagnostics` reports it instead of
+   *  applying the silent stale-leftover rule (`order` on a fade is an authoring error, not a switch leftover). */
+  hostOnly?: boolean;
   /** The value types an authored key may have (default: the type of `default`; any scalar for a `null` default).
    *  `"point"` = a `{x, y}` object of finite numbers. */
   types?: readonly ("number" | "string" | "boolean" | "point")[];
@@ -202,8 +205,8 @@ const TRIM_PARAMS: ParamRow = {
   // stroke ORDER (X4): "sequence" draws the strokes of ONE target one after another at one pen speed (document order; an exit retreats
   // last first), "together" (absent) is every stroke at once. `lag` is the share of each stroke's length the next one waits for
   // (1 = back to back, 0 = together); it only applies to a sequence.
-  order: { default: "together" },
-  lag: { default: 0.3, range: [0, 1], requires: { key: "order", equals: "sequence" } },
+  order: { default: "together", hostOnly: true },
+  lag: { default: 0.3, range: [0, 1], requires: { key: "order", equals: "sequence" }, hostOnly: true },
 };
 
 export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
@@ -251,7 +254,8 @@ export function paramSpec(preset: string | undefined, key: string): ParamSpec | 
   return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : undefined;
 }
 
-const isPoint = (v: unknown): v is PointParam =>
+/** Is `v` a stage point (`{x, y}` of finite numbers)? The one predicate: growOrigin.ts and the param validators share it. */
+export const isPoint = (v: unknown): v is PointParam =>
   !!v && typeof v === "object" && !Array.isArray(v) && Number.isFinite((v as PointParam).x) && Number.isFinite((v as PointParam).y);
 
 /** Does `v` have a type the spec accepts? A finite number, a non-empty string, a boolean or (when the spec lists
@@ -324,7 +328,15 @@ export function paramDiagnostics(track: ParamSource, table: Readonly<Record<stri
     if (!owner) {
       // a key some OTHER preset declares is a stale leftover of a preset switch (autobuild keeps `child` when a
       // stagger suggestion is overridden to fade): the Animator has no control to clear it, so it stays silent
-      if (Object.values(table).some(row => Object.prototype.hasOwnProperty.call(row, key))) continue;
+      const declaring = Object.entries(table).filter(([, row]) => Object.prototype.hasOwnProperty.call(row, key));
+      if (declaring.length) {
+        // ...unless the key is host-bound (stroke `order` / `lag`): then it is an authoring error on a preset that cannot honour it
+        if (declaring.every(([, row]) => row[key].hostOnly)) {
+          const hosts = declaring.map(([name]) => presetDef(name).label).join(" / ");
+          out.push(`Option “${key}” only applies to ${hosts}: ignored by ${def.label}.`);
+        }
+        continue;
+      }
       out.push(`Unknown option “${key}” for ${def.label}: kept in the deck, ignored by playback.`);
       continue;
     }

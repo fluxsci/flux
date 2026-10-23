@@ -615,10 +615,12 @@ export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, man
 // the FIGURE element union (slides-are-figures): shapes render as inline SVG geometry. ONE function per direction, taking the
 // ELEMENT (an arrow is a line with a head: `el.arrowStart` / `el.arrowEnd`, X1b). Durations, curve and params are the catalog's
 // authored pace (`authoredFields`, X1a); only the preset CHOICE per kind lives here.
-const isArrow = (el: Pick<Element, "type">): boolean => el.type === "line" && !!((el as { arrowStart?: boolean }).arrowStart || (el as { arrowEnd?: boolean }).arrowEnd);
+/** The slice of an element the authoring defaults read: its kind, and (for a line) whether either end carries a head. */
+export type AuthoringElement = Pick<Element, "type"> & { arrowStart?: boolean; arrowEnd?: boolean };
+const isArrow = (el: AuthoringElement): boolean => el.type === "line" && !!(el.arrowStart || el.arrowEnd);
 /** The Appear default of an element: rect / ellipse / arrow scaleIn (an arrow grows from its tail: `from` "auto"), a plain line or path
  *  draws on, text / image / plot rise in (`fadeRise`, y 24 authored), anything else fades. */
-export function elementEnterPreset(el: Pick<Element, "type">): PresetName {
+export function elementEnterPreset(el: AuthoringElement): PresetName {
   switch (el.type) {
     case "text": case "image": case "plot": return "fadeRise";
     case "rect": case "ellipse": return "scaleIn";
@@ -628,7 +630,7 @@ export function elementEnterPreset(el: Pick<Element, "type">): PresetName {
   }
 }
 /** The Disappear default: the mirror family (scaleOut for shapes and arrows, drawOff for a plain line or path, fadeOut otherwise). */
-export function elementExitPreset(el: Pick<Element, "type">): PresetName {
+export function elementExitPreset(el: AuthoringElement): PresetName {
   switch (el.type) {
     case "rect": case "ellipse": return "scaleOut";
     case "line": return isArrow(el) ? "scaleOut" : "drawOff";

@@ -541,7 +541,12 @@ export function baseCameraTransform(slide: Slide, stage: StageSize): string {
 
 // Compiled DOM binding state. No selectors or scene reconstruction in sampling.
 interface BoundNode { node: TargetNode; keyframed: Spec[]; properties: string[]; blockers: Map<Spec, Spec[]>; controllers: Spec[]; lastController: number; flights: Map<Spec, "translate" | "other">; glides: boolean }
-interface BoundPlan { nodes: BoundNode[]; natives: Map<Spec, Animation>; samplers: Map<Spec, (t: number) => Keyframe> }
+interface BoundPlan {
+  nodes: BoundNode[]; natives: Map<Spec, Animation>; samplers: Map<Spec, (t: number) => Keyframe>;
+  /** The origin a COMPLETED spec keeps at rest: its rest frame (a constant of the spec) leaves a non-identity transform and it is not an
+   *  exit. Decided once when the plan binds, not per frame. */
+  restPivots: Map<Spec, string>;
+}
 const bindings = new WeakMap<Spec[], BoundPlan>();
 function numericSampler(a: unknown, b: unknown): { sample: (t: number) => string | number; discrete: boolean } {
   if (typeof a === "number" && typeof b === "number") return { sample: (t) => a + (b - a) * t, discrete: false };
@@ -618,12 +623,16 @@ function boundPlan(specs: Spec[]): BoundPlan {
     const flights = new Map<Spec, "translate" | "other">();
     for (const s of keyframed) { const kind = transformFlight(s.keyframes); if (kind !== "none") flights.set(s, kind); }
     return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights, glides: [...flights.values()].includes("translate") };
-  }), natives: new Map(), samplers: new Map() };
+  }), natives: new Map(), samplers: new Map(), restPivots: new Map() };
   // Materialize content layers in story order before a first random seek.
   // Otherwise seeking directly to a late text change could nest its layer
   // underneath an earlier change which is only materialized afterwards.
   for (const group of plan.nodes) for (const controller of group.controllers) controller.morph!.seek(0, 0);
-  for (const spec of specs) if (spec.keyframes.length) plan.samplers.set(spec, frameSampler(spec));
+  for (const spec of specs) if (spec.keyframes.length) {
+    const sampler = frameSampler(spec);
+    plan.samplers.set(spec, sampler);
+    if (spec.origin && !isExitPreset(spec.preset) && restKeepsTransform(sampler(1))) plan.restPivots.set(spec, spec.origin);
+  }
   bindings.set(specs, plan);
   return plan;
 }
@@ -710,7 +719,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       // ONE origin per node per frame: the spec in flight (the later one if two overlap). A COMPLETED spec whose transform survives at
       // rest (the legacy `scale` / `rotate` emphasis) keeps pivoting about its origin; an identity rest (popIn, scaleIn, pulse ...) and
       // an exit (the node is gone) carry none.
-      if (spec.origin) { if (p < 1) origin = spec.origin; else if (restKeepsTransform(frame) && !isExitPreset(spec.preset)) restOrigin = spec.origin; }
+      if (spec.origin) { if (p < 1) origin = spec.origin; else restOrigin = plan.restPivots.get(spec) ?? restOrigin; }
       const flight = p > 0 && p < 1 ? flights.get(spec) : undefined;
       if (flight) { moving++; if (flight === "translate") pureMoves++; }
       // Use native effects for active frames when available. Their time is

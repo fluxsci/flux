@@ -292,6 +292,7 @@ try {
     const vs = slideOps.addSlide(vd, { name: "V", layout: "blank" }).id;
     slideOps.addElement(vd, vs, { id: "vhouse", type: "plot", assetId: "house", source: { svgPath: "plots/house.svg" }, x: 20, y: 20, width: 300, height: 200, rotation: 0 } as never);
     slideOps.addElement(vd, vs, { id: "vone", type: "plot", assetId: "one", source: { svgPath: "plots/one.svg" }, x: 340, y: 20, width: 200, height: 100, rotation: 0 } as never);
+    slideOps.addElement(vd, vs, { id: "vchart", type: "plot", assetId: "mpl_scatter", source: { svgPath: "plots/mpl_scatter.svg", manifestPath: "plots/mpl_scatter.fluxplot.json" }, x: 340, y: 140, width: 260, height: 160, rotation: 0 } as never);
     await slides.saveDeck(root, vd);
     const track = async (r: { beatIndex: number; trackId: string }) => (await slides.loadDeck(root, "verb")).slides[0].beats[r.beatIndex].tracks.find((t: { id?: string }) => t.id === r.trackId) as { preset?: string; params?: Record<string, unknown> };
     const draw = await track(await slides.animateElementVerb(root, "verb", vs, "vhouse", { preset: "drawOn" }));
@@ -300,6 +301,8 @@ try {
     assert(off.preset === "drawOff" && off.params?.order === "sequence", "...and so does the exit");
     const lone = await track(await slides.animateElementVerb(root, "verb", vs, "vone", { preset: "drawOn" }));
     assert(lone.preset === "drawOn" && lone.params === undefined, "a drawing with ONE stroke has nothing to order: no params");
+    const chart = await track(await slides.animateElementVerb(root, "verb", vs, "vchart", { preset: "drawOn" }));
+    assert(chart.preset === "drawOn" && chart.params?.order === undefined, `a fluxplot (it has a manifest, several strokes) is a chart, not a drawing: Draw on writes no order (${JSON.stringify(chart.params)})`);
     const rise = await track(await slides.animateElementVerb(root, "verb", vs, "vhouse", {}));
     assert(rise.preset === "fadeRise" && rise.params?.order === undefined, "the default Appear of a plot (fadeRise) never carries an order");
     const part = await track(await slides.animateElementVerb(root, "verb", vs, "vhouse", { preset: "drawOn", part: "house.walls" }));

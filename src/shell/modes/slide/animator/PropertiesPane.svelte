@@ -244,7 +244,7 @@
   };
   /** Switch the effect. The new effect brings its AUTHORED params for the keys the track does not set (a Wipe in is soft-edged, a
    *  Highlight eases into its dip: what every new track of that effect is written with), and a Draw on a multi-path drawing (an
-   *  imported SVG with several strokes) traces its strokes in order. A style-linked track keeps inheriting its params from the style. */
+   *  imported SVG with several strokes, NOT a fluxplot: a chart draws as one) traces its strokes in order. A style-linked track keeps inheriting its params from the style. */
   function switchEffect(preset: PresetName) {
     if (anyGhost || anyMedia && !allMedia) return; // the same guards as patchTrack: a hand-off or a mixed media selection keeps its effect
     editFields((t) => {
@@ -256,7 +256,7 @@
       for (const [key, value] of Object.entries(authoredParams(before, params) ?? {})) if (params[key] === value) delete params[key];
       for (const [key, value] of Object.entries(authoredParams(preset, params) ?? {})) if (!(key in params)) params[key] = value;
       const target = slide.elements.find(e => e.id === t.target);
-      if ((preset === "drawOn" || preset === "drawOff") && target?.type === "plot" && !t.part && !t.selector && !("order" in params) && multiStroke(plotDom.get(target.assetId))) params.order = "sequence";
+      if ((preset === "drawOn" || preset === "drawOff") && target?.type === "plot" && !t.part && !t.selector && !("order" in params) && !$plotManifests[target.assetId] && multiStroke(plotDom.get(target.assetId))) params.order = "sequence";
       if (Object.keys(params).length) t.params = params; else delete t.params;
     });
   }

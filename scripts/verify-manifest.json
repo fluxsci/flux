@@ -1396,6 +1396,14 @@
       ]
     },
     {
+      "$why": "WP 2.2 grow / pulse / encircle geometry: the pure owners of the part-origin law. The pure gate pins the maths; the Chromium gate pins the same origins on real SVG (leaf wrappers, rest origins, encircle fit), so a change here must reach both.",
+      "glob": "{src/lib/slide/growOrigin.ts,src/lib/slide/encircleGeometry.ts}",
+      "run": [
+        "verify-appear-emphasis.ts",
+        "verify-slide-part-origin.ts"
+      ]
+    },
+    {
       "$why": "WP 1.3 choreography core: the stagger planner, the plot auto-build (AutoPace tables, scaffold, chains), the shared pen measure and the animate-plot verb. WP 2.2/2.4: the authoring writers (element defaults, Emphasize, the group origin, the V2 point child) and the stroke-order measure feed the vocabulary and draw gates too.",
       "glob": "{src/lib/slide/stagger.ts,src/lib/slide/autobuild.ts,src/lib/slide/partLength.ts,src/lib/slide/strokeGeometry.ts,src/lib/slide/animateSelection.ts,flux-core/slides.ts}",
       "run": [

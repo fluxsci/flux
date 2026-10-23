@@ -1205,11 +1205,13 @@ export async function animateElementVerb(
 ): Promise<{ beatIndex: number; trackId: string }> {
   return mutateDeck(root, deckId, "animate_element", async (deck) => {
     mustSlide(deck, slideId);
-    // a Draw on a whole imported drawing with several strokes traces them in order (X4): the same `multiStroke` measure the Animator uses
+    // a Draw on a whole imported drawing with several strokes traces them in order (X4): the same `multiStroke` measure the Animator uses.
+    // A fluxplot (it has a manifest) is a chart, not a drawing: its axes, ticks and series always draw together
     let sequence = false;
     const found = (opts.preset === "drawOn" || opts.preset === "drawOff") && !opts.part ? slideOps.findElement(deck, elementId) : undefined;
     if (found?.el.type === "plot") {
-      const svg = await readPlotSvg(root, found.el, deckId);
+      const isChart = !!(await readPlotManifest(root, found.el, deckId));
+      const svg = isChart ? undefined : await readPlotSvg(root, found.el, deckId);
       sequence = !!svg && multiStroke(parseHTML(svg).document);
     }
     const r = animateElement(deck, slideId, elementId, { ...opts, ...(sequence ? { sequence } : {}) });
