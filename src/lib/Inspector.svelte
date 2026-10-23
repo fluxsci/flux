@@ -18,6 +18,7 @@
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextAlign, TextStyle, TextVAlign } from "./types";
+  import { openAlignArrange } from "./interact/alignArrange";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle, openCascade } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
@@ -1132,6 +1133,10 @@
 
   <details class="advanced" open={sel.length >= 2}>
     <summary>Align, arrange &amp; selection tools</summary>
+    <div class="row" style="padding:8px 0">
+      <button title="Open Flux Align (A)" on:click={() => openAlignArrange("align")}>Flux Align… <span class="hk">A</span></button>
+      <button title="Open Flux Arrange (Alt+T)" disabled={arrN < 2} on:click={() => openAlignArrange("arrange")}>Flux Arrange… <span class="hk">Alt+T</span></button>
+    </div>
   <!-- ALIGN -->
   <section>
     <h4>Align</h4>

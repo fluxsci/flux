@@ -14,7 +14,7 @@ survives.
 # The workspace
 
 - **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
-  **R** rectangle, **O** ellipse, **L** line, **A** arrow, **P** pen.
+  **R** rectangle, **O** ellipse, **L** line, **Shift+L** arrow, **P** pen.
 - The **sidebar** has two views, **Layers** and **Plots** (the tabs at its top; **Alt+G** goes
   to Plots — see [The Plots rail](#the-plots-rail)). **Layers** lists Canvases (pages — add, rename, delete), Figures on the active canvas
   (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and
@@ -712,9 +712,56 @@ one gesture.
 - **Shift+Alt+M** opens Figure-Meta already pinned in a separate window; **Pin open** and
   **Dock** move the same view between windows. You can keep editing the workspace while
   it is pinned. **Shift+Alt+G** likewise opens the Plot gallery already pinned.
-- **Alt+T** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
-  the keyboard, live, as one undo step.
+- **A** opens **Align & Arrange** with Align active; **Space** switches the active pane. **Alt+T** opens it with Arrange active.
+  See [Alignment and arrangement](#alignment-and-arrangement) for spacing, anchors and plot spines.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.
+
+# Alignment and arrangement
+
+Select objects and press **A** to open **Align & Arrange** beside them. Both panes stay
+visible; click a pane or one of its controls to activate it. With Align active, click an
+alignment button or use **W/A/S/D** for top/left/bottom/right. **H** aligns X centers along a vertical line;
+**V** aligns Y centers along a horizontal line. Choose **Selection bounds**, a named
+**Reference object**, or the **Figure** frame. One selected object aligns to the figure.
+Each alignment is one Undo step; the panel stays open for further adjustments.
+
+For semantic plots, **X spines** (**X**) aligns horizontal axes and **Y spines** (**Y**)
+aligns vertical axes. The reference plot stays fixed. Whole groups move together, including
+annotations. For multi-panel plots, use the panel and spine choices to identify the intended
+axis. Unavailable spines are explained in the panel; ordinary alignment remains available.
+These commands move plots without changing their domains, sizes or internal geometry.
+
+Press **Space** on the tool surface to switch the active pane to **Arrange**, or open it
+with Arrange already active using **Alt+T**. An existing row, column or simple grid keeps its order and internal offsets while
+uneven gaps are tidied. A regular arrangement stays where it is. An ambiguous selection gets
+a **Suggested grid** preview. Explicit **Row**, **Grid** and **Column** buttons reflow the
+selection into centered cells; **A** toggles row/column, **G** chooses a balanced grid, and
+**D/F** increases/decreases the row count.
+
+Selecting an already evenly spaced row, column or simple grid shows pink gap guides without
+opening the panel. This recognition leaves the objects unchanged; ambiguous overlaps do not
+show guides. Drag a guide directly to edit spacing as one Undo step.
+
+Drag a pink gap guide to adjust all gaps on that axis, or enter, scroll or scrub a value in
+the spacing field. Negative gaps overlap objects, which is useful for stacked traces or
+waveforms. Values have no zero floor; very negative spacing can move successive tracks past
+one another while retaining their members, sizes and stacking order. Right/down increases spacing; left/up decreases it. **Shift** adjusts faster and
+**Alt** more finely. **Keep fixed** chooses which edge or center stays in place; a grid offers
+nine anchor points. Click the small pin on the selection to open the same chooser without
+opening the panel. Center is the initial default; your choice stays selected across selections
+and tool visits in the current app session. **1/2/3** chooses start/center/end on the gap axis
+you are editing or hovering; numeric fields retain normal typing. Choosing a different anchor
+moves nothing until you change
+the spacing, and the fixed point always uses the actual selection bounds, including overlap. Grid gaps measure the space between column/row tracks, so smaller
+objects can have more visible clearance within their cells.
+
+**Enter** or **Apply** keeps the Arrange preview as one Undo step. **Escape** cancels the
+current drag or field edit first; another **Escape** restores the arrangement from when you
+entered. Switching back to Align keeps the arrangement. Input fields retain normal typing;
+**Enter** accepts a field, and keyboard-focused buttons retain normal **Enter/Space** activation.
+Both panes remain visible, and their headings select the active keyboard commands. Middle-button and wheel navigation remain
+available between edits. These tools set ordinary object positions; they do not create an
+automatic layout that later moves newly added objects.
 
 # Reusable designs
 

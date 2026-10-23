@@ -395,7 +395,11 @@
       "verify-plots-rail-focus.ts",
       "verify-plots-rail-model.ts",
       "verify-plot-thumbs.ts",
-      "verify-asar-unpack-closure.ts"
+      "verify-asar-unpack-closure.ts",
+      "verify-arrangement.ts",
+      "verify-plot-landmarks.ts",
+      "verify-align-arrange-controller.ts",
+      "verify-scene-transforms.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -558,6 +562,10 @@
       "verify-become-picker-gui.mjs",
       "verify-setup-flux-gui.mjs",
       "verify-plots-rail.mjs",
+      "verify-align-arrange-gui.mjs",
+      "verify-arrange-gaps-gui.mjs",
+      "verify-number-field-owner.mjs",
+      "verify-plot-spines-gui.mjs",
       "verify-plots-rail-p3.mjs",
       "verify-plots-rail-slide.mjs"
     ],
@@ -1273,10 +1281,79 @@
     "plots-rail-native": [
       "verify-plots-rail-electron.cjs",
       "verify-figure-polish-electron.cjs"
+    ],
+    "align-arrange": [
+      "verify-arrangement.ts",
+      "verify-plot-landmarks.ts",
+      "verify-align-arrange-controller.ts",
+      "verify-align-arrange-gui.mjs",
+      "verify-arrange-gaps-gui.mjs",
+      "verify-number-field-owner.mjs",
+      "verify-plot-spines-gui.mjs",
+      "verify-scene-transforms.ts"
+    ],
+    "align-arrange-native": [
+      "verify-figure-polish-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/ElementSlot.svelte",
+      "run": [
+        "verify-render-optimizations.mjs",
+        "verify-figure-editing-gui.mjs",
+        "verify-v020-geometry-gui.mjs",
+        "verify-slide-canvas-presentation-gui.mjs",
+        "verify-cursor-gui.mjs",
+        "verify-cursor-press.mjs",
+        "verify-canvas-coverage.mjs",
+        "group:align-arrange",
+        "group:align-arrange-native"
+      ]
+    },
+    {
+      "glob": "flux-core/plotAlignment.ts",
+      "run": [
+        "verify-plot-landmarks.ts",
+        "verify-plot-spines-gui.mjs",
+        "verify-registry-parity.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/layout/layoutMath.ts",
+      "run": [
+        "verify-arrangement.ts",
+        "verify-v020-geometry.ts",
+        "verify-ops.ts"
+      ]
+    },
+    {
+      "glob": "{src/lib/AlignArrangePanel.svelte,src/lib/ArrangeGapOverlay.svelte,src/lib/ArrangementAnchorPicker.svelte,src/lib/interact/alignArrange.ts,scripts/lib/alignArrangeFixture.mjs}",
+      "run": [
+        "group:align-arrange",
+        "verify-fig-esc.mjs",
+        "verify-surface-anchor.ts",
+        "verify-annotate-chord-census.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/layout/arrangement.ts",
+      "run": [
+        "verify-arrangement.ts",
+        "verify-ops.ts",
+        "verify-v020-geometry.ts",
+        "group:align-arrange"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/landmarks.ts",
+      "run": [
+        "verify-plot-landmarks.ts",
+        "verify-target-geometry.ts",
+        "group:align-arrange"
+      ]
+    },
     {
       "glob": "scripts/lib/slideModel3d*Scale*",
       "run": [
@@ -2477,7 +2554,8 @@
         "verify-cross-figure-drag.mjs",
         "verify-color-field.mjs",
         "group:slide-stash",
-        "tier:pure"
+        "tier:pure",
+        "group:align-arrange"
       ]
     },
     {
@@ -2578,7 +2656,10 @@
         "verify-crop.mjs",
         "verify-fig-esc.mjs",
         "verify-f5-drag.mjs",
-        "verify-v020-geometry-gui.mjs"
+        "verify-v020-geometry-gui.mjs",
+        "group:align-arrange",
+        "group:align-arrange-native",
+        "verify-scene-transforms.ts"
       ]
     },
     {
@@ -2635,7 +2716,8 @@
         "verify-cross-figure-drag.mjs",
         "verify-model3d-snapshot-quiet.mjs",
         "verify-become-picker-gui.mjs",
-        "group:plots-rail"
+        "group:plots-rail",
+        "group:align-arrange"
       ]
     },
     {
@@ -2690,6 +2772,7 @@
         "group:inline-slides",
         "group:slide-stash",
         "group:slide-model3d-gui",
+        "group:align-arrange",
         "group:plots-rail"
       ]
     },
@@ -3093,7 +3176,8 @@
         "group:slide-stash",
         "tier:pure",
         "verify-cross-figure-drag.mjs",
-        "group:plots-rail"
+        "group:plots-rail",
+        "group:align-arrange"
       ]
     },
     {
@@ -3134,7 +3218,8 @@
         "verify-recovery-entry.ts",
         "tier:pure",
         "verify-live-view.ts",
-        "verify-live-view-electron.cjs"
+        "verify-live-view-electron.cjs",
+        "group:align-arrange"
       ]
     },
     {
@@ -3246,7 +3331,8 @@
     {
       "glob": "flux-core/**",
       "run": [
-        "tier:pure"
+        "tier:pure",
+        "group:align-arrange"
       ]
     },
     {
@@ -3299,7 +3385,8 @@
         "verify-no-retired-agent-layer.ts",
         "verify-plot-view-gui.mjs",
         "group:model3d-xray",
-        "verify-become-picker-gui.mjs"
+        "verify-become-picker-gui.mjs",
+        "group:align-arrange"
       ]
     },
     {
@@ -3367,7 +3454,8 @@
       "glob": "src/shell/modes/figure/FigureMode.svelte",
       "run": [
         "verify-no-retired-agent-layer.ts",
-        "group:plots-rail"
+        "group:plots-rail",
+        "group:align-arrange"
       ]
     },
     {
@@ -10136,6 +10224,86 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-arrangement.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-landmarks.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-align-arrange-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-arrange-gaps-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-number-field-owner.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plot-spines-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-align-arrange-controller.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-scene-transforms.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

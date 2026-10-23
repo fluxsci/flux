@@ -87,11 +87,46 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 | `set-style <ids…> [--fill] [--stroke] [--fill-opacity 0–1] [--stroke-opacity 0–1] …` | `set_style` | element-level style; the channel alphas are independent of `--opacity`, which multiplies both |
 | `delete-element <ids…>` · `delete-figure <figId>` · `duplicate-figure <figId>` | `delete_elements` · `delete_figure` · `duplicate_figure` | remove elements / remove or copy a whole figure |
 | `align <figId> <edge> [--ids a,b,c]` · `group <ids…>` · `ungroup <ids…>` | `align_figure` · `group_elements` · `ungroup_elements` | align (left/right/top/bottom/centerH/centerV) / group / ungroup |
+| `align-plot-spines <figId> --ids a,b --axis x --reference e:a [--scope groupId] [--choices JSON]` | `align_plot_spines` | align actual semantic X or Y spines to a named plot unit; move grouped annotations rigidly, refuse ambiguous/invisible spines atomically |
 | `cascade <figId> <property> <ids…> [--delta n\|--factor n] [--dl --dc --dh] [--order selection\|layer\|x\|y] [--reverse] [--first-fixed]` | `cascade` | stepped delta across elements — rank k gets `value + delta·step` (step = k with `--first-fixed`, else k+1; `--factor` = ×factor^step); property ∈ x/y/rotation/width/height/opacity/strokeWidth/cornerRadius/fontSize(pt)/fill/stroke/color (colors step in OKLCh via `--dl/--dc/--dh`); a group is ONE rigid rank |
 | `set-z <figId> <front\|back\|forward\|backward> --ids a,b,c` · `set-figure-layout <figId> [--x --y --width --height --background --name]` | `set_z` · `set_figure_layout` | stacking order / figure frame (`--name` legacy seam: a designation like "Figure S3" routes to family+number, anything else becomes the nickname — prefer `set-figure-family`) |
 | `render-figure <id> [--png] [--out f] [--scale n]` | `get_figure_image {id}` · `render_figure {id}` (SVG) | render to SVG/**PNG** — the **look** step (warns when panels are stale vs `plots/`) |
 | `render-canvas [canvasId] [--png] [--out f]` | `get_canvas_image` | render the WHOLE canvas (all figures at their x/y) — catches overlap/layout problems per-figure renders can't |
 | `sync-figure [figId]` | `sync_figure` | refresh `fig/assets` copies from regenerated `plots/` sources IN PLACE (captions/restyles survive); a changed intrinsic plot size resizes the element true-size + grows the figure frame — re-`arrange` if the grid should reflow |
+
+Figure/Slide's **A** tool opens the combined Align & Arrange panel with Align active;
+**Space** switches the active keyboard pane while both stay visible, and **Alt+T**
+activates Arrange directly. Arrow is **Shift+L** (Line stays L). Evenly spaced
+selections show draggable pink guides without opening the panel. Gap edits use a
+chosen fixed point; click the selection pin or use **Keep fixed** in the panel.
+The anchor choice persists across selections/tool visits in the current app session.
+**1/2/3** chooses start/center/end on the edited or hovered gap axis, except while
+typing in an input. Each Arrange visit or direct-guide
+drag is one Undo; individual Align actions are separate Undo steps.
+
+For reproducible file layout, `arrange <figId> --ids a,b,c --mode tidy --gap-x 16
+--anchor-x center --anchor-y center` infers a row/column/simple grid while preserving
+internal offsets. Omit gap overrides to preserve already uniform spacing exactly.
+`--mode reflow --rows N` or `--cols N` deliberately changes topology. Use `--gap-y`
+for row spacing; `--gap` sets both, axis flags take precedence. All gaps accept
+finite signed values: negative values overlap tracks, with no lower floor. Extreme
+negative spacing may reverse physical positions while retaining logical track
+membership, dimensions and stacking order. Anchors are `start|center|end` and fix
+the actual selection bounds, including overlaps. `--scope` addresses children of
+an entered group. Legacy calls retain their old top-left defaults. Tidy rejects rows/cols; in reflow, cols wins if both are given.
+
+Ordinary `align` also accepts `--target selection|figure|reference`, `--reference
+<unit-key-or-member-id>`, and `--scope`. Scientific alignment uses `--reference`
+with a stable `e:<element-id>` or `g:<group-id>` unit key. `--choices` maps unit
+keys to `{plotId,panelId,spineId}`. Discover exact schemas with `flux_verbs` before
+constructing advanced choices. The scientific command reports per-unit eligibility
+issues instead of moving a subset; it never changes domains, dimensions or source
+assets. File-based scientific alignment requires the project's accepted SVG and
+asset-local semantic sidecar; refresh or reimport plots whose accepted metadata is
+missing. It never combines a saved SVG with a newer external source manifest.
+`--scope` uses the editor's existing unit grouping: members inside the group become
+its child units, while explicitly selected objects outside it retain top-level units.
+
 | `caption <id>` · `set-caption <id> <md> [--panel a]` | `get_caption` · `set_caption` | read / write the caption; the `Lead. **a**, … **b**, …` convention is DISTRIBUTED into per-panel blocks; `--panel` writes one panel; `--panel __ps__` writes unlabelled closing prose |
 | `normalize-embeds` | `normalize_embeds` | clear legacy alt-text captions from embed lines (canonical embeds are `![](…){#fig-id}`) |
 | `manuscript [--doc r]` · `set-manuscript [--doc r] <text\|--file f>` | `get_manuscript` · `set_manuscript` | read / overwrite a `.qmd` |

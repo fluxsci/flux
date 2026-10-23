@@ -2,7 +2,6 @@ import { scene3dManifests } from "./model3d/store";
 import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 import { openFigureMeta } from "./figure/metadataState";
 import { pushToast } from "./toast";
-import { editSession } from "./interact/editSession";
 import { selectionTargets } from "./interact/selectionTargets";
 import { requestFigureDeletion, figureDeletion } from "./project/figureDeletion";
 import { get } from "svelte/store";
@@ -18,7 +17,6 @@ import {
   redo,
   commit,
   beginGesture,
-  mutate,
   mutateFigure,
   editGen,
   clearSelection,
@@ -29,11 +27,9 @@ import {
   nodeEditId,
   expandGroups,
   enteredGroupId,
-  getActiveFigure,
   figuresOnCanvas,
   activeCanvasId,
   selectedFigureIds,
-  arrange,
   lastArrangeRows,
   cascadeState,
   gestureCancelHook,
@@ -58,10 +54,8 @@ import {
   alignElements,
   distributeElements,
   flipElements,
-  arrangeGrid,
   gridItemCount,
   validRowCounts,
-  balancedRows,
   type AlignKind,
 } from "./geometry";
 import { saveProject, openProject, importAssets } from "./io";
@@ -76,6 +70,7 @@ import { plotManifests } from "./plot/store";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
 import { modelOrbit } from "./model3d/orbitSession";
+import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey } from "./interact/alignArrange";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -130,81 +125,12 @@ function doDistribute(axis: "h" | "v", gap?: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Arrange mode (Alt+T): live-reflow the selection into a grid via the home row.
-// The whole session is one undo entry (beginGesture on enter, mutate per
-// tweak); Esc rolls it back. Each preview re-arranges from the baseline
-// geometry captured at entry, so the anchor and reading order stay stable.
+// Align / Arrange share one editor-local transaction controller.
 // ---------------------------------------------------------------------------
-const arrangeEdit = editSession();
-let arrangeBase: Map<string, { x: number; y: number }> | null = null;
-
-function applyArrange(rows: number) {
-  const st = get(arrange);
-  if (!st || !arrangeBase) return;
-  const cols = Math.ceil(st.n / rows);
-  const sel = editableIds();
-  arrangeEdit.run(() => mutate((p) => {
-    const fig = getActiveFigure(p);
-    if (!fig) return;
-    const els = fig.elements.filter((e) => sel.has(e.id));
-    for (const e of els) {
-      const b = arrangeBase!.get(e.id);
-      if (b) {
-        e.x = b.x;
-        e.y = b.y;
-      }
-    }
-    arrangeGrid(els, cols, {}, {figure:fig,scope:get(enteredGroupId)});
-  }));
-  arrange.set({ ...st, rows, cols });
-  lastArrangeRows.set(rows);
-}
-
-export function enterArrange() {
-  const fig = activeFig();
-  const sel = editableIds();
-  if (!fig || sel.size < 2) return;
-  const els = fig.elements.filter((e) => sel.has(e.id));
-  const n = gridItemCount(els,{figure:fig,scope:get(enteredGroupId)});
-  if (n < 2) return;
-  arrangeBase = new Map(els.map((e) => [e.id, { x: e.x, y: e.y }]));
-  const rows = balancedRows(n);
-  arrange.set({ active: true, n, rows, cols: Math.ceil(n / rows) });
-  applyArrange(rows);
-}
-
-export function commitArrange() {
-  if (!get(arrange)) return;
-  arrange.set(null);
-  arrangeEdit.finish();
-  arrangeBase = null;
-}
-
-export function cancelArrange() {
-  if (!get(arrange)) return;
-  arrangeEdit.cancel();
-  arrange.set(null);
-  arrangeBase = null;
-}
-
-function arrangeStep(dir: 1 | -1) {
-  const st = get(arrange);
-  if (!st) return;
-  const v = validRowCounts(st.n);
-  let i = v.indexOf(st.rows);
-  if (i < 0) i = 0;
-  applyArrange(v[Math.max(0, Math.min(v.length - 1, i + dir))]);
-}
-
-function arrangeToggleRowCol() {
-  const st = get(arrange);
-  if (st) applyArrange(st.rows === 1 ? st.n : 1); // single row(1) <-> column(n)
-}
-
-function arrangeGridMode() {
-  const st = get(arrange);
-  if (st) applyArrange(balancedRows(st.n));
-}
+// Compatibility exports for Inspector/bridge callers; one controller owns all visits.
+export function enterArrange() { openAlignArrange("arrange"); }
+export function commitArrange() { closeAlignArrange(); }
+export function cancelArrange() { closeAlignArrange(true); }
 
 // Open the cascade popover on the current selection (chord + Inspector
 // button). Silent no-op below 2 selection UNITS (a whole group is one unit) —
@@ -220,12 +146,12 @@ export function openCascade() {
 export function arrangeToRows(rows: number) {
   const fig = activeFig();
   const sel = get(selection);
-  if (!fig || sel.size < 2) return;
+  if (!fig || sel.size < 2 || get(partSelection) || get(partSelections).length || get(project).figures.filter(f=>f.elements.some(e=>sel.has(e.id))).length>1) return;
   const n = gridItemCount(fig.elements.filter((e) => sel.has(e.id)),{figure:fig,scope:get(enteredGroupId)});
   if (n < 2) return;
   const v = validRowCounts(n);
   const r = v.reduce((b, x) => (Math.abs(x - rows) < Math.abs(b - rows) ? x : b));
-  withSelected((els,_,figure) => arrangeGrid(els, Math.ceil(n / r), {}, {figure,scope:get(enteredGroupId)}));
+  commit(p=>ops.arrangePanels(p,fig.id,{ids:[...sel],scope:get(enteredGroupId),excluded:get(editorSelectionExclusions),mode:"reflow",rows:r,anchor:{x:.5,y:.5}}));
   lastArrangeRows.set(r);
 }
 
@@ -694,7 +620,6 @@ const TOOL_KEYS: Record<string, Tool> = {
   r: "rect",
   o: "ellipse",
   l: "line",
-  a: "arrow",
   p: "pen",
 };
 
@@ -791,22 +716,6 @@ export function handleKey(e: KeyboardEvent) {
 
   const mod = e.metaKey || e.ctrlKey;
 
-  // Arrange mode (Alt+T) owns the keyboard while active: home-row tweaks, Enter
-  // to apply, Esc to cancel; everything else is swallowed.
-  if (get(arrange)?.active) {
-    if (e.key === "Escape") return e.preventDefault(), cancelArrange();
-    if (e.key === "Enter") return e.preventDefault(), commitArrange();
-    if (!e.altKey && !mod) {
-      const k = e.key.toLowerCase();
-      if (k === "a") return e.preventDefault(), arrangeToggleRowCol();
-      if (k === "g") return e.preventDefault(), arrangeGridMode();
-      if (k === "d") return e.preventDefault(), arrangeStep(1);
-      if (k === "f") return e.preventDefault(), arrangeStep(-1);
-    }
-    e.preventDefault();
-    return;
-  }
-
   const t = e.target as HTMLElement;
   const typing =
     t &&
@@ -867,7 +776,17 @@ export function handleKey(e: KeyboardEvent) {
     inspectorHidden.update((v) => !v);
     return;
   }
-  if (typing) return;
+  if (typing || e.isComposing) return;
+  if (handleAlignArrangeKey(e)) return;
+
+  if (!mod && !e.altKey && e.code === "KeyA" && !e.shiftKey) {
+    e.preventDefault();
+    if (!e.repeat) openAlignArrange("align");
+    return;
+  }
+  if (!mod && !e.altKey && e.code === "KeyL" && e.shiftKey) {
+    e.preventDefault(); activeTool.set("arrow"); return;
+  }
 
   // Alt+L: toggle selected text as panel label(s) for captions.
   if (e.altKey && !mod && e.code === "KeyL") {

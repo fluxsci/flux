@@ -2,6 +2,7 @@ import { elementSourceAssetIds } from "../src/lib/model3d/refs";
 import { readModel3dMetadata, ensureModelPoster } from './model3d';
 import { applyModelPartStyle } from '../src/lib/model3d/commandOps';
 import { stageFigureWrites } from "./model";
+export { alignPlotSpines, PlotSpineAlignmentError, type AlignPlotSpinesOptions } from './plotAlignment';
 // flux-core/figures.ts — the figure verbs (split out of index.ts; WS-6.2):
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
 // element styles + the text system, groups/z-order/layout, and scaffold.
@@ -464,7 +465,7 @@ export async function composeFigure(
 export async function arrangeFigure(
   root: string,
   figId: string,
-  opts: { rows?: number; cols?: number; gap?: number } = {},
+  opts: ops.ArrangeOpts = {},
 ): Promise<void> {
   await mutateFigModel(root, "arrange", ({ project }) => {
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
@@ -967,10 +968,11 @@ export async function alignFigure(
   figId: string,
   kind: "left" | "right" | "top" | "bottom" | "centerH" | "centerV",
   ids?: string[],
+  options?: Parameters<typeof ops.alignPanels>[4],
 ): Promise<void> {
   await mutateFigModel(root, "align", ({ project }) => {
     if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
-    ops.alignPanels(project, figId, kind, ids);
+    ops.alignPanels(project, figId, kind, ids, options);
   });
 }
 

@@ -21,6 +21,9 @@ import { ELEMENT_CASCADE_PROPS, type CascadeSpec } from "../cascade";
 import { scene3dManifests } from '../model3d/store';
 import { applyModelViewCommand, applyModelFieldCommand, validateModelViewCommand, validateModelFieldCommand, assertModelPart, applyModelPartStyle, type ModelViewCommand, type ModelFieldCommand } from '../model3d/commandOps';
 import type { Model3dAsset } from '../model3d/types';
+import { planPlotSpineAlignment, type SpineChoice } from '../plot/landmarks';
+import { plotDom, plotManifests, ensurePlotDom } from '../plot/store';
+import { resolveLayoutUnits } from '../layout/arrangement';
 
 export type Command = { type: string } & Record<string, unknown>;
 
@@ -38,6 +41,7 @@ export const ALLOWED_COMMANDS = [
   "rotate",
   "arrange",
   "align",
+  "align_plot_spines",
   "distribute",
   "auto_label",
   "cascade",
@@ -127,7 +131,7 @@ function validateCommand(c: Command): void {
     if (obj[key] === undefined && !required) return;
     if (typeof obj[key] !== 'string' || !values.includes(obj[key] as string)) throw new Error(`${key} must be one of ${values.join(', ')}`);
   };
-  const numeric = ['deg','degrees','rows','cols','gap','index','count','factor','pivotX','pivotY','width','height','fontSize','strokeWidth','rotation','dx','dy','dl','dc','dh','delta','number'];
+  const numeric = ['deg','degrees','rows','cols','gap','gapX','gapY','index','count','factor','pivotX','pivotY','width','height','fontSize','strokeWidth','rotation','dx','dy','dl','dc','dh','delta','number'];
   for (const key of numeric) scalar(c,key,'number');
   if (c.type !== 'set_guides') for (const key of ['x','y']) scalar(c,key,'number');
   for (const key of ['name','text','markdown','figureId','elementId','partId','styleId','assetId','groupId','parentId','fromElementId','family','color','stroke','fill']) scalar(c,key,'string');
@@ -136,7 +140,23 @@ function validateCommand(c: Command): void {
   for (const key of ['count','rows','cols']) if (c[key] !== undefined && (!Number.isInteger(c[key]) || Number(c[key]) < 1 || Number(c[key]) > 10000)) throw new Error(`${key} must be an integer from 1 to 10000`);
   if (c.pivot !== undefined) { const value=object(c.pivot,'pivot');scalar(value,'x','number',true);scalar(value,'y','number',true); }
   if (c.type === 'align') enumeration(c,'kind',['left','right','top','bottom','centerH','centerV'],true);
+  if (c.type === 'arrange' || c.type === 'align') scalar(c,'scope','string');
+  if (c.type === 'arrange') {
+    enumeration(c,'mode',['tidy','reflow']);
+    enumeration(c,'anchorX',['start','center','end']);
+    enumeration(c,'anchorY',['start','center','end']);
+  }
+  if (c.type === 'align') { enumeration(c,'target',['selection','figure','reference']); scalar(c,'referenceId','string'); }
+
   if (c.type === 'flip' || c.type === 'distribute') enumeration(c,'axis',['h','v']);
+  if (c.type === 'align_plot_spines') {
+    enumeration(c, 'axis', ['x', 'y'], true); scalar(c, 'referenceKey', 'string', true); scalar(c, 'scope', 'string');
+    if (c.choices !== undefined) for (const value of Object.values(object(c.choices, 'choices'))) {
+      const choice = object(value, 'spine choice');
+      for (const key of ['plotId', 'panelId', 'spineId']) scalar(choice, key, 'string');
+      if (Object.keys(choice).some(key => !['plotId', 'panelId', 'spineId'].includes(key))) throw new Error('Unknown spine choice field');
+    }
+  }
   if (c.type === 'toggle_text_style') enumeration(c,'which',['bold','italic','underline']);
   if (c.type === 'set_z') enumeration(c,'where',['front','back','forward','backward']);
   if (c.type === 'select_matching') { enumeration(c,'by',['fill','stroke','font','type']);enumeration(c,'scope',['project','figure']); }
@@ -404,6 +424,11 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
           cols: num(c.cols),
           gap: num(c.gap),
           ids: Array.isArray(c.ids) ? (c.ids as string[]) : undefined,
+          scope: typeof c.scope === "string" ? c.scope : undefined,
+          mode: c.mode as ops.ArrangeOpts["mode"],
+          gapX: num(c.gapX), gapY: num(c.gapY),
+          anchorX: c.anchorX as ops.ArrangeOpts["anchorX"],
+          anchorY: c.anchorY as ops.ArrangeOpts["anchorY"],
         }),
       );
       return { figureId: f };
@@ -412,8 +437,37 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
     case "align": {
       const f = fig(c);
       if (!f) throw new Error("align: no active figure");
-      store.commit((p) => ops.alignPanels(p, f, c.kind as AlignKind, ids(c)));
+      if (c.target !== undefined && !["selection", "figure", "reference"].includes(String(c.target))) throw new Error("Invalid alignment target");
+      if (c.target === "reference" && typeof c.referenceId !== "string") throw new Error("Reference alignment requires referenceId");
+      if (c.referenceId !== undefined && c.target !== "reference") throw new Error("referenceId requires target:reference");
+      const options = c.target !== undefined || c.scope !== undefined ? {
+        scope: typeof c.scope === "string" ? c.scope : undefined,
+        target: c.target === "reference" ? { unitKey: c.referenceId as string } : c.target as "selection" | "figure" | undefined,
+      } : undefined;
+      store.commit((p) => ops.alignPanels(p, f, c.kind as AlignKind, ids(c), options));
       return { figureId: f };
+    }
+
+    case 'align_plot_spines': {
+      const figureId = fig(c), project = get(store.project);
+      const figure = project.figures.find(f => f.id === figureId);
+      if (!figure) throw new Error('align_plot_spines: no active figure');
+      const selected = ids(c);
+      if (!selected.length || selected.some(id => !figure.elements.some(e => e.id === id))) throw new Error('Every plot alignment target must belong to the requested figure');
+      const scope = typeof c.scope === 'string' ? c.scope : get(store.enteredGroupId);
+      const units = resolveLayoutUnits(figure, selected, { scope, editable: false });
+      for (const unit of units) for (const element of unit.members) if (element.type === 'plot') ensurePlotDom(element.assetId);
+      const manifests = get(plotManifests);
+      const plan = planPlotSpineAlignment(units, c.axis as 'x' | 'y', c.referenceKey as string, {
+        figure, scope, manifest: id => manifests[id], plotRoot: id => plotDom.get(id),
+        excluded: new Set(figure.elements.filter(e => store.isEditorTargetExcluded(e.id)).map(e => e.id)),
+        partExcluded: store.isEditorTargetExcluded,
+      }, c.choices as Record<string, SpineChoice> | undefined);
+      if (plan.issues.length) throw Object.assign(new Error(`Plot alignment not applied: ${JSON.stringify({ issues: plan.issues })}`), { issues: plan.issues });
+      assertOwner();
+      const moved = plan.translations.filter(t => t.dx !== 0 || t.dy !== 0).map(t => t.id);
+      if (moved.length) store.commit(p => ops.applyLayoutTranslations(p, figure.id, plan.translations));
+      return { figureId, axis: c.axis, referenceKey: c.referenceKey, moved, landmarks: plan.landmarks };
     }
 
     case "distribute": {

@@ -47,7 +47,6 @@
     lastDupOffset,
     hoverId,
     nodeEditId,
-    arrange,
     canvasBox,
   } from "./store";
   import { chainOf, cloneGroupsFor, effectiveHidden, effectiveLocked, unitOf } from "./groups";
@@ -64,14 +63,13 @@
   import { partReadout, readoutText, nodeAttrs } from "./plot/readout";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
-  import { commitArrange } from "./keyboard";
+  import ArrangeGapOverlay from "./ArrangeGapOverlay.svelte";
+  import { alignArrange, arrangementPreview, passiveArrangement } from "./interact/alignArrange";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick, onDestroy } from "svelte";
   import { cursorPress } from "./cursor/cursorPress";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
-  import { presentEditorParts } from "./editorPresentationDom";
-  import { modelPartOpacity } from './model3d/appearance';
   import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
   import { remapRuns, normalizeRuns, elementFlags, rangeIsOn, rangeScript } from "./textRuns";
   import { publishTextRange, detachTextRange, registerLiveRangeToggle, typingStyle, type RangeStyle } from "./textEditRange";
@@ -624,6 +622,18 @@
         for (const f of next) mountedFigs.add(f.id);
         return next;
       })();
+  // Layout previews may bring previously offscreen objects into view. Cull
+  // against BOTH model and preview bounds; retain model sources for the whole
+  // gesture so visible artwork is never replaced while its spacing changes.
+  // Opening Align does not need to tear down offscreen selected artwork.
+  // Start layout culling when Arrange is first used, then retain that policy
+  // until this owner closes so switching panes cannot remount/unmount thousands.
+  let layoutCullOwner: number | null = null;
+  $: if (!$alignArrange) layoutCullOwner = null;
+  else if ($alignArrange.mode === "arrange") layoutCullOwner = $alignArrange.id;
+  $: layoutFigureId = $alignArrange && $alignArrange.id === layoutCullOwner ? $alignArrange.figureId : null;
+  $: layoutDeltas = new Map($arrangementPreview?.plan.translations.map(t => [t.id, t]) ?? []);
+  $: layoutViewKey = layoutFigureId ? `${Math.round($viewport.panX / 64)},${Math.round($viewport.panY / 64)},${$viewport.zoom},${hostW},${hostH}` : '';
   function visibleEls(fig: Figure): Element[] {
     // The frame being moved renders all its elements: its world position is stale
     // until commit, so culling by the stale bbox would drop elements as it travels.
@@ -638,9 +648,16 @@
     // not vanish while its spun corners are still visible (unrotated = same fast path).
     const els = fig.elements.filter((el) => {
       if (effHidden(el)) return false;
-      if ($selection.has(el.id)) return true;
+      if ($selection.has(el.id) && fig.id !== layoutFigureId) return true;
       const box = rotatedAABB(el);
-      return rectsIntersect(box, lr) || (was?.has(el.id) === true && rectsIntersect(box, lrOut));
+      const delta = fig.id === layoutFigureId ? layoutDeltas.get(el.id) : undefined;
+      const destination = delta ? { ...box, x: box.x + delta.dx, y: box.y + delta.dy } : box;
+      // Selection previously mounted every object, including far-offscreen ones.
+      // Do not inherit that unconditional set as viewport hysteresis on entry.
+      if (fig.id === layoutFigureId && $selection.has(el.id))
+        return rectsIntersect(box, lr) || rectsIntersect(destination, lr);
+      return rectsIntersect(box, lr) || rectsIntersect(destination, lr) ||
+        (was?.has(el.id) === true && (rectsIntersect(box, lrOut) || rectsIntersect(destination, lrOut)));
     });
     const ids = new Set(els.map((el) => el.id));
     if (!was || was.size !== ids.size || [...ids].some((id) => !was.has(id))) mountedGen++; // the mounted set changed (snapshot key)
@@ -670,40 +687,54 @@
     // throttle's own `cullKey` let and forced a re-cull every pan frame.
     cullRef: null as Rect | null,
     cullGen: 0,
+    layoutFigure: null as string | null,
+    layoutDeltas: null as typeof layoutDeltas | null,
+    layoutGen: 0,
+    layoutViewKey: "",
     frozen: new Map<string, Element[]>(), // last computed map (Fix 7 suspension)
   };
-  $: visibleByFig = (() => {
-    if (!paneActive) return visMemoBox.frozen; // Fix 7: hidden pane — no recompute
-    void effState; // P7: group eyes change the visible set (effHidden reads it)
-    if ($selection !== visMemoBox.sel) {
-      visMemoBox.sel = $selection;
-      visMemoBox.selGen++;
-    }
-    if (cullMovingFigureId !== visMemoBox.movingFigure) {
-      visMemoBox.movingFigure = cullMovingFigureId;
-      visMemoBox.gesGen++;
-    }
-    if (cullRect !== visMemoBox.cullRef) {
-      visMemoBox.cullRef = cullRect;
-      visMemoBox.cullGen++;
-    }
-    const next = new Map<string, { key: string; els: Element[] }>();
-    const m = new Map<string, Element[]>();
-    for (const f of visibleFigures) {
-      const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${absentPresentationKey}`;
-      let mm = visMemoBox.map.get(f.id);
-      if (!mm || mm.key !== key) {
-        perfCounters.visRecomputes++;
-        mm = { key, els: visibleEls(f) };
+  let visibleByFig = new Map<string, Element[]>();
+  $: {
+    if (paneActive) { // Fix 7: hidden pane — no recompute
+      void effState; // P7: group eyes change the visible set (effHidden reads it)
+      if ($selection !== visMemoBox.sel) {
+        visMemoBox.sel = $selection;
+        visMemoBox.selGen++;
       }
-      next.set(f.id, mm);
-      m.set(f.id, mm.els);
+      if (cullMovingFigureId !== visMemoBox.movingFigure) {
+        visMemoBox.movingFigure = cullMovingFigureId;
+        visMemoBox.gesGen++;
+      }
+      if (cullRect !== visMemoBox.cullRef) {
+        visMemoBox.cullRef = cullRect;
+        visMemoBox.cullGen++;
+      }
+      if (layoutFigureId !== visMemoBox.layoutFigure || layoutDeltas !== visMemoBox.layoutDeltas || layoutViewKey !== visMemoBox.layoutViewKey) {
+        visMemoBox.layoutFigure = layoutFigureId;
+        visMemoBox.layoutDeltas = layoutDeltas;
+        visMemoBox.layoutViewKey = layoutViewKey;
+        visMemoBox.layoutGen++;
+      }
+      const next = new Map<string, { key: string; els: Element[] }>();
+      const m = new Map<string, Element[]>();
+      for (const f of visibleFigures) {
+        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}`;
+        let mm = visMemoBox.map.get(f.id);
+        if (!mm || mm.key !== key) {
+          perfCounters.visRecomputes++;
+          const els = visibleEls(f);
+          const previous = mm?.els;
+          mm = { key, els: previous && previous.length === els.length && els.every((el, i) => el === previous[i]) ? previous : els };
+        }
+        next.set(f.id, mm);
+        m.set(f.id, mm.els);
+      }
+      for (const id of Array.from(mountedEls.keys())) if (!next.has(id)) { mountedEls.delete(id); mountedGen++; } // a figure that left starts fresh
+      const changed = m.size !== visMemoBox.frozen.size || [...m].some(([id, els]) => visMemoBox.frozen.get(id) !== els);
+      visMemoBox.map = next;
+      if (changed) { visMemoBox.frozen = m; visibleByFig = m; }
     }
-    for (const id of Array.from(mountedEls.keys())) if (!next.has(id)) { mountedEls.delete(id); mountedGen++; } // a figure that left starts fresh
-    visMemoBox.map = next;
-    visMemoBox.frozen = m;
-    return m;
-  })();
+  }
 
   // selection bbox in active-figure-local coords
   $: overlayBox = (() => {
@@ -791,7 +822,7 @@
   }
   function maybeCoolScene() {
     sceneCoolTimer = null;
-    if (gesture || guideDrag || nodeDrag || zoomUnsettled) {
+    if (gesture || guideDrag || nodeDrag || $arrangementPreview || zoomUnsettled) {
       sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS); // still busy — re-check
     } else {
       sceneHot = false; // idle demotion → full-quality re-raster + tile release
@@ -982,7 +1013,7 @@
     snapScheduled = false;
     if (snapshotDestroyed || !paneActive || gen !== snapGen) return;
     if (!sceneSvgEl || hostW <= 0 || hostH <= 0) return;
-    if (Object.keys($modelPreviews).length || sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
+    if ($arrangementPreview || Object.keys($modelPreviews).length || sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
       scheduleSnapshot(); // still moving — try again once quiet
       return;
     }
@@ -1193,6 +1224,7 @@
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    if ($alignArrange?.dragging) return;
     finishModelOrbit();
     keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();
@@ -1217,6 +1249,7 @@
   }
 
   function startPanIfNeeded(e: PointerEvent): boolean {
+    if ($alignArrange?.dragging) { e.preventDefault(); return true; }
     if (e.button === 1 || (spaceDown && e.button === 0) || $activeTool === "hand") {
       gesture = { kind: "pan", sx: e.clientX, sy: e.clientY, panX: $viewport.panX, panY: $viewport.panY };
       hostEl.setPointerCapture(e.pointerId);
@@ -1251,11 +1284,6 @@
     lastDownEl = null; // background pointerdown — no element under a dblclick
     pressTone = "dark"; // the canvas itself
     if (startPanIfNeeded(e)) return;
-    if (get(arrange)?.active) {
-      e.stopPropagation();
-      commitArrange(); // click applies the live arrangement and exits the mode
-      return;
-    }
     // The selection's box can reach past its figure's frame (an element half
     // outside it): a press there lands on the canvas, and is still a grab.
     if (af && !editPathId && selectionBoxGrab(e, af, localPoint(e.clientX, e.clientY, af))) return;
@@ -1275,11 +1303,6 @@
     lastDownEl = null; // figure-background pointerdown (also the locked/tool fallthrough)
     pressTone = figureTone(fig);
     if (startPanIfNeeded(e)) return;
-    if (get(arrange)?.active) {
-      e.stopPropagation();
-      commitArrange();
-      return;
-    }
     // Node-edit sub-modes intercept figure clicks: pen places/connects draft
     // points; delete de-escalates back to edit on a background click. Plain
     // edit mode exits as before (unless the pen TOOL is active — then it's
@@ -2076,11 +2099,6 @@
     }
     pressTone = elementTone(el, el.type === "plot" ? $plotManifests[el.assetId] : null) ?? figureTone(fig);
     if (startPanIfNeeded(e)) return;
-    if (get(arrange)?.active) {
-      e.stopPropagation();
-      commitArrange();
-      return;
-    }
     // Pen/delete sub-modes: a click on ANY element routes like a figure click
     // (pen places a draft point "through" element bodies; delete de-escalates)
     // — never starts a move/selection.
@@ -3465,6 +3483,7 @@
     if (inPlotsRailScope(e)) return;
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
+    if (get(alignArrange)) { spaceDown = false; return; }
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
     if (e.key === "Alt") altDown = true; // caliper (measure) mode
     if ((e.key === "Alt" || e.key === "Shift") && gesture) replayLastMove(e); // modifiers apply at once mid-gesture
@@ -3734,7 +3753,7 @@
   }
 
   $: af = $project.figures.find((f) => f.id === $activeFigureId) ?? null;
-  $: displayBox = liveBox ?? overlayBox; // figure-local, active figure
+  $: displayBox = ($arrangementPreview?.figureId === $activeFigureId ? $arrangementPreview.plan.bounds : null) ?? liveBox ?? overlayBox; // figure-local, active figure
 
   // A selection made entirely of locked elements (only reachable via the Layers
   // panel) shows its box but NO resize/rotate handles — locked elements can't be
@@ -4461,7 +4480,53 @@
       ? `translate(${gesture.cx}px, ${gesture.cy}px) rotate(${gRotDeg}deg) translate(${-gesture.cx}px, ${-gesture.cy}px)`
       : "";
 
-  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform, resizeTransforms);
+  // Once an object leaves the viewport, retain its last offscreen transform
+  // instead of needlessly updating it on every subsequent sample. View mapping
+  // is frozen during dragging; a numeric-preview viewport change also checks
+  // the previous rendered bounds, so neither returning objects nor old pixels
+  // can be missed. The memo ends with the transient baseline, never the model.
+  const layoutTransformMemo = { elements: null as Element[] | null, transforms: new Map<string, string>(),
+    deltas: new Map<string, { dx: number; dy: number }>() };
+  $: layoutTransforms = (() => {
+    const preview = $arrangementPreview;
+    const fig = preview ? canvasFigures.find(f => f.id === preview.figureId) : undefined;
+    if (!preview || !fig) {
+      layoutTransformMemo.elements = null; layoutTransformMemo.transforms.clear(); layoutTransformMemo.deltas.clear();
+      return null;
+    }
+    if (layoutTransformMemo.elements !== fig.elements) {
+      layoutTransformMemo.elements = fig.elements; layoutTransformMemo.transforms.clear(); layoutTransformMemo.deltas.clear();
+    }
+    const z = $viewport.zoom, margin = 32 / z;
+    const view = { x: -$viewport.panX / z - fig.x - margin, y: -$viewport.panY / z - fig.y - margin,
+      w: hostW / z + margin * 2, h: hostH / z + margin * 2 };
+    const transforms = new Map<string, string>(), deltas = new Map<string, { dx: number; dy: number }>();
+    for (const el of visibleByFig.get(fig.id) ?? []) {
+      const delta = layoutDeltas.get(el.id), transform = preview.transforms.get(el.id);
+      if (!delta || !transform) continue;
+      const box = rotatedAABB(el), previous = layoutTransformMemo.deltas.get(el.id);
+      const oldBox = previous ? { ...box, x: box.x + previous.dx, y: box.y + previous.dy } : box;
+      const newBox = { ...box, x: box.x + delta.dx, y: box.y + delta.dy };
+      if (rectsIntersect(oldBox, view) || rectsIntersect(newBox, view)) {
+        transforms.set(el.id, transform); deltas.set(el.id, delta);
+      } else if (previous) {
+        transforms.set(el.id, layoutTransformMemo.transforms.get(el.id)!); deltas.set(el.id, previous);
+      }
+    }
+    layoutTransformMemo.transforms = transforms; layoutTransformMemo.deltas = deltas;
+    return transforms;
+  })();
+  $: layoutDirectIds = layoutTransforms && layoutTransforms.size > 128
+    ? new Set(canvasFigures.find(f => f.id === $arrangementPreview?.figureId)?.elements
+      .filter(el => el.type !== 'plot' && el.type !== 'image' && el.type !== 'model3d')
+      .map(el => el.id) ?? []) : null;
+  $: sceneTransforms.update(moveIds, moveTransform, rotIds, rotTransform, layoutTransforms ?? resizeTransforms, layoutDirectIds);
+  $: if ($arrangementPreview) {
+    if (proxyActive) endZoomProxy();
+    cancelSnapshot();
+    if (zoomSnap) { revokeSnapshot(zoomSnap); zoomSnap = null; }
+    keepSceneHot();
+  }
 
   // F8 frame move: the figure being moved + its transient GPU transform, plus
   // smart-guide lines (world-absolute, drawn full-viewport in the overlay).
@@ -4583,37 +4648,23 @@
                 </text>
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
-                {@const elTone = elementTone(el, el.type === "plot" ? $plotManifests[el.assetId] : null)}
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <g
-                  class="el"
-                  class:cursor-on-light={elTone === "light"}
-                  class:cursor-on-dark={elTone === "dark"}
-                  data-editor-element-id={el.id}
-                  use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : el.type === 'model3d' ? $model3dPosterRevision : 0 }}
-                  opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
-                  style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
-                  class:editing-hidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
-                  style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
-                  use:sceneTransforms.register={el.id}
-                  on:pointerdown={(e) => onElementDown(e, el, fig)}
-                  on:pointerenter={() => {
-                    if ($activeTool === "select" || $activeTool === "scale") hoverId.set(el.id);
-                  }}
-                  on:pointerleave={() => {
-                    if ($hoverId === el.id) hoverId.set(null);
-                  }}
-                  on:dblclick={(e) => onElementDblClick(e, el, fig)}
-                >
-                  <!-- WS-1 Fix 2: transient node-drag / line-pivot preview swaps
-                       into the element's own slot — z-order + clipping intact,
-                       model untouched until the single pointer-up commit. -->
-                  {#if sceneOverride && sceneOverride.id === el.id}
-                    <ElementView element={sceneOverride.el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
-                  {:else}
-                    <ElementSlot element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
-                  {/if}
-                </g>
+                <ElementSlot
+                  element={el}
+                  figure={fig}
+                  {sceneTransforms}
+                  onPointerDown={onElementDown}
+                  onDoubleClick={onElementDblClick}
+                  plotManifest={el.type === "plot" ? $plotManifests[el.assetId] : null}
+                  generation={el.type === "plot" ? $plotGen[el.assetId] : el.type === "model3d" ? $model3dPosterRevision : 0}
+                  partStates={presentation?.partStates?.[el.id]}
+                  ghost={presentation?.ghostHidden}
+                  hidden={hiddenPresentationIds.has(el.id)}
+                  opacity={presentation?.elementStates?.[el.id]?.opacity ?? 1}
+                  absent={absentPresentationIds.has(el.id)}
+                  editingHidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
+                  gestureHidden={gestureHiddenIds.has(el.id)}
+                  override={sceneOverride?.id === el.id ? sceneOverride.el : null}
+                />
               {/each}
             </g>
             {#if !frame}
@@ -5070,6 +5121,9 @@
       {/each}
       <rect class="ruler-corner" x="0" y="0" width={RULER} height={RULER} />
     {/if}
+    {#if paneActive && af && ($alignArrange?.figureId === af.id || ((!gesture || gesture.kind === "pan") && !nodeDrag && !bendDrag && $passiveArrangement?.figureId === af.id))}
+      <ArrangeGapOverlay viewport={$viewport} figureX={af.x} figureY={af.y} width={hostW} height={hostH} />
+    {/if}
   </svg>
 
   {#if editPathId}
@@ -5225,9 +5279,6 @@
     overflow: visible;
     pointer-events: none;
   }
-  .editing-hidden {
-    opacity: 0;
-  }
   /* The painted text is showing through: keep the caret and the selection
      highlight, hand the glyphs to the canvas. */
   /* The painted text shows through; the textarea keeps only caret + selection.
@@ -5288,15 +5339,6 @@
     fill: var(--c-tx-muted);
     text-anchor: middle;
     pointer-events: none;
-  }
-  .el {
-    /* The cursor FIREWALL (see the hostCursor rationale in the script): an
-       explicit constant on every element wrapper, so host cursor flips stop
-       here instead of restyling the mounted plot DOM beneath. The constant is
-       the hover-dot variant — hovering an object shows the dot with no JS. The
-       press variant over objects comes from the host's pointer capture. Never
-       `inherit` here. */
-    cursor: var(--cursor-cross-hover);
   }
   .sel-box {
     stroke: var(--c-accent);

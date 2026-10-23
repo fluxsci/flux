@@ -84,6 +84,8 @@ import {
   type AlignKind,
   type Rect,
 } from "./geometry";
+import { createArrangementSnapshot, planArrangement, planAlignment, resolveLayoutUnits, type ArrangementPlan, type LayoutTranslation, type AlignOptions, type FixedPoint, type LayoutTargetOptions } from "./layout/arrangement";
+import { effectiveHidden, effectiveLocked } from "./groups";
 import { scaleRemap } from "./editing";
 import { figurePanels } from "./captions";
 import {
@@ -637,28 +639,89 @@ export interface ArrangeOpts {
   rows?: number;
   gap?: number;
   ids?: Id[];
+  scope?: Id | null;
+  excluded?: ReadonlySet<Id>;
+  mode?: "reflow" | "tidy";
+  gapX?: number;
+  gapY?: number;
+  anchorX?: "start" | "center" | "end";
+  anchorY?: "start" | "center" | "end";
+  anchor?: FixedPoint;
 }
 
-/** Reflow a figure's panels (or a subset) into a grid. `cols` wins; else `rows`
- *  is snapped to a valid count; else a balanced (near-square) grid. Mirrors the
- *  Inspector "Arrange to rows" path (geometry.arrangeGrid). */
+/** Explicit modern layout requests must not quietly drop stale/foreign IDs and
+ * apply to the surviving subset. Legacy no-options calls retain their contract. */
+function validateLayoutIds(figure: Figure, ids?: readonly Id[]): void {
+  if (!ids) return;
+  const present = new Set(figure.elements.map(element => element.id));
+  const missing = ids.filter(id => !present.has(id));
+  if (missing.length) throw new Error(`Unknown layout targets in figure ${figure.id}: ${missing.join(', ')}`);
+}
+
+/** Preflight the complete translation before touching any member. Controllers
+ * own revision checks; the shared operation refuses missing/noneditable targets. */
+export function applyLayoutTranslations(p:Project,figId:Id,translations:readonly LayoutTranslation[]):void {
+  const f=figById(p,figId);if(!f)throw new Error(`Unknown figure: ${figId}`);
+  const byId=new Map(f.elements.map(e=>[e.id,e])),seen=new Set<string>();
+  const changes=translations.map(t=>{
+    const e=byId.get(t.id);
+    if(!e||seen.has(t.id))throw new Error(`Invalid layout target: ${t.id}`);
+    seen.add(t.id);
+    if(effectiveHidden(f,e)||effectiveLocked(f,e))throw new Error(`Layout target is hidden or locked: ${t.id}`);
+    if(![t.dx,t.dy,e.x+t.dx,e.y+t.dy].every(Number.isFinite))throw new Error('Nonfinite layout translation');
+    return {e,x:e.x+t.dx,y:e.y+t.dy};
+  });
+  for(const {e,x,y} of changes){e.x=x;e.y=y;}
+}
+
+/** Plans carry absolute model positions, so repeated baseline-derived previews
+ * do not accumulate translation or rounding drift. */
+export function applyArrangementPlan(p:Project,figId:Id,plan:ArrangementPlan):void {
+  if(plan.figureId!==figId)throw new Error('Arrangement belongs to another figure');
+  const f=figById(p,figId);if(!f)throw new Error(`Unknown figure: ${figId}`);
+  const byId=new Map(f.elements.map(e=>[e.id,e])),seen=new Set<string>();
+  const changes=plan.positions.map(pos=>{
+    const e=byId.get(pos.id);
+    if(!e||seen.has(pos.id))throw new Error(`Invalid arrangement target: ${pos.id}`);
+    seen.add(pos.id);
+    if(effectiveHidden(f,e)||effectiveLocked(f,e))throw new Error(`Arrangement target is hidden or locked: ${pos.id}`);
+    if(![pos.x,pos.y].every(Number.isFinite))throw new Error('Nonfinite arrangement position');
+    return {e,pos};
+  });
+  for(const {e,pos} of changes){if(e.x!==pos.x)e.x=pos.x;if(e.y!==pos.y)e.y=pos.y;}
+}
+
+/** Old calls retain signed gaps, top-left anchoring, cols precedence and
+ * centered cells. Explicit geometry options opt into the new safe planner. */
 export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): void {
   const f = figById(p, figId);
   if (!f) return;
-  const els = targetEls(f, opts.ids);
-  const n = gridItemCount(els, { figure: f });
+  const modern=opts.mode!==undefined||opts.gapX!==undefined||opts.gapY!==undefined||opts.anchorX!==undefined||opts.anchorY!==undefined||opts.anchor!==undefined;
+  if(modern){
+    validateLayoutIds(f, opts.ids);
+    if(opts.gap!==undefined&&!Number.isFinite(opts.gap))throw new Error('Arrangement gap must be finite');
+    const fraction=(value:ArrangeOpts['anchorX']):0|.5|1=>{
+      if(value===undefined||value==='start')return 0;if(value==='center')return .5;if(value==='end')return 1;throw new Error('Invalid arrangement anchor');
+    };
+    // Agent defaults stay top-left; the interactive caller explicitly requests center.
+    const anchor=opts.anchor??{x:fraction(opts.anchorX),y:fraction(opts.anchorY)};
+    const snapshot=createArrangementSnapshot(f,opts.ids,{scope:opts.scope,excluded:opts.excluded});
+    const plan=planArrangement(snapshot,{mode:opts.mode??'reflow',rows:opts.rows,cols:opts.cols,gapX:opts.gapX??opts.gap,gapY:opts.gapY??opts.gap,anchor});
+    applyArrangementPlan(p,figId,plan);
+    return;
+  }
+  const els = opts.scope!==undefined||opts.excluded ? resolveLayoutUnits(f,opts.ids,{scope:opts.scope,excluded:opts.excluded}).flatMap(u=>u.members) : targetEls(f, opts.ids);
+  const context={figure:f,scope:opts.scope,excluded:opts.excluded};
+  const n = gridItemCount(els, context);
   if (n < 2) return;
   let cols: number;
-  if (opts.cols && opts.cols > 0) {
-    cols = Math.min(opts.cols, n);
-  } else if (opts.rows && opts.rows > 0) {
+  if (opts.cols && opts.cols > 0) cols = Math.min(opts.cols, n);
+  else if (opts.rows && opts.rows > 0) {
     const v = validRowCounts(n);
     const r = v.reduce((b, x) => (Math.abs(x - opts.rows!) < Math.abs(b - opts.rows!) ? x : b));
     cols = Math.ceil(n / r);
-  } else {
-    cols = Math.ceil(n / balancedRows(n));
-  }
-  arrangeGrid(els, cols, opts.gap != null ? { gap: opts.gap } : {}, { figure: f });
+  } else cols = Math.ceil(n / balancedRows(n));
+  arrangeGrid(els, cols, opts.gap != null ? { gap: opts.gap } : {}, context);
 }
 
 /** Rotate elements by `deltaDeg` about a pivot (default = the group-expanded
@@ -684,16 +747,18 @@ export function rotateElements(
   }
 }
 
-export function alignPanels(p: Project, figId: Id, kind: AlignKind, ids?: Id[]): void {
+export function alignPanels(p: Project, figId: Id, kind: AlignKind, ids?: Id[], options?:AlignOptions): void {
   const f = figById(p, figId);
   if (!f) return;
+  if(options){validateLayoutIds(f,ids);applyLayoutTranslations(p,figId,planAlignment(f,ids,kind,options));return;}
   alignElements(targetEls(f, ids), kind, { figure: f });
 }
 
-export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: Id[], gap?: number): void {
+export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: Id[], gap?: number, options?:LayoutTargetOptions): void {
   const f = figById(p, figId);
   if (!f) return;
-  distributeElements(targetEls(f, ids), axis, gap, { figure: f });
+  const els=options?resolveLayoutUnits(f,ids,options).flatMap(u=>u.members):targetEls(f,ids);
+  distributeElements(els, axis, gap, { figure: f,scope:options?.scope,excluded:options?.excluded });
 }
 
 /** Minimal 1-D translation that brings [pos, pos+size] inside [0, frame]:

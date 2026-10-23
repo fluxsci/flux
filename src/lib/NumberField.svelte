@@ -34,9 +34,46 @@
   export let optional = false;
   export let empty = false;
   export let live = false;
+  /** Display-only rounding; editing and model values retain full precision. */
+  export let displayPrecision: number | undefined = undefined;
   /** Opt-in keyboard flow (the property menu's armed axis view): Space accepts
    *  the value and emits `advance`; Enter accepts it and emits `done`. */
   export let advanceOnSpace = false;
+  /** A surrounding tool may own all history and inner-edit cancellation. */
+  export let externalOwner: {
+    begin: (kind?: 'typing'|'wheel'|'scrub') => void;
+    interaction?: (kind: 'typing'|'wheel'|'scrub'|null) => void;
+    owns?: () => boolean;
+    preview: (value: number | undefined) => void;
+    accept: () => void;
+    cancel: () => void;
+    validity?: (valid: boolean) => void;
+  } | null = null;
+  let externalActive = false;
+  let invalid = false;
+  function beginExternal(kind: 'typing'|'wheel'|'scrub'='typing') {
+    if (!externalOwner || (externalActive && (externalOwner.owns?.() ?? true))) return;
+    externalActive = true;
+    externalOwner.begin(kind);
+  }
+  function externalValue(v: number | undefined, kind: 'typing'|'wheel'|'scrub'='typing') {
+    beginExternal(kind);
+    externalOwner?.interaction?.(kind);
+    invalid = false;
+    externalOwner?.validity?.(true);
+    externalOwner?.preview(v);
+  }
+  function endExternal(cancel = false) {
+    if (!externalActive) return;
+    externalActive = false;
+    if (externalOwner?.owns && !externalOwner.owns()) return;
+    if (cancel || invalid) externalOwner?.cancel(); else externalOwner?.accept();
+  }
+  function parsedExternal(): number | undefined | null {
+    if (optional && !inputEl.value.trim()) return undefined;
+    const v = evalExpr(inputEl.value);
+    return v === null || !Number.isFinite(v) || (min !== null && v < min) || (max !== null && v > max) ? null : v;
+  }
   let focused = false;
   let draft = "";
   let cancelled = false;
@@ -50,7 +87,7 @@
   // significant digits in the opt-in live mode instead of rounding to zero.
   const format = (v: number) => live && Number.isFinite(v) ? String(+v.toPrecision(12)) : fmtNum(v);
   const round = (v: number) => Number(format(v));
-  $: display = format(value);
+  $: display = displayPrecision === undefined || !Number.isFinite(value) ? format(value) : String(+value.toFixed(displayPrecision));
 
   function clamp(v: number): number {
     if (min != null) v = Math.max(min, v);
@@ -60,17 +97,28 @@
 
   function preview() {
     draft = inputEl.value;
+    if (externalOwner) {
+      // A different field may have taken the shared transaction while this
+      // input kept focus (for example, hover-wheel over the other grid gap).
+      beginExternal();
+      const v = parsedExternal();
+      invalid = v === null;
+      externalOwner.validity?.(!invalid);
+      if (v !== null) externalValue(v);
+      return;
+    }
     if (!live) return;
     if (optional && !draft.trim()) { session.run(() => dispatch("preview", undefined)); return; }
     const parsed = evalExpr(draft);
     if (parsed !== null) session.run(() => dispatch("preview", clamp(parsed)));
   }
   function blur() {
+    if (externalOwner) { endExternal(); focused = false; cancelled = false; return; }
     if (live) { session.finish(); focused = false; draft = ""; }
     cancelled = false;
   }
   function onChange() {
-    if (live || cancelled) return;
+    if (externalOwner || live || cancelled) return;
     const parsed = evalExpr(inputEl.value);
     if (parsed == null) {
       inputEl.value = display; // reject invalid → keep previous value
@@ -82,6 +130,35 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (externalOwner) {
+      // Local edit keys and native text Undo/Redo stay in the field; shell
+      // chords such as Save and rail toggles keep ordinary input routing.
+      if (["Enter", "Escape", "ArrowUp", "ArrowDown"].includes(e.key) ||
+          ((e.ctrlKey || e.metaKey) && ["z", "y"].includes(e.key.toLowerCase()))) e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        preview();
+        if (!invalid) { endExternal(); inputEl.blur(); }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (wheelTimer) clearTimeout(wheelTimer);
+        wheelTimer = null; wheel.reset();
+        const owned = externalOwner.owns?.() ?? true;
+        endExternal(true); invalid = false; if (owned) externalOwner.validity?.(true);
+        draft = format(value); inputEl.value = draft; inputEl.blur();
+        return;
+      }
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const parsed = parsedExternal();
+        if (parsed === null) return;
+        const v = clamp(round(numericStep(parsed ?? value, (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : e.altKey ? .1 : 1), step, factor)));
+        draft = format(v); inputEl.value = draft; externalValue(v);
+      }
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       inputEl.blur(); // triggers change
@@ -118,13 +195,14 @@
     if (wheelTimer) clearTimeout(wheelTimer);
     wheelTimer = null;
     wheel.reset();
+    endExternal(true);
     session.finish();
   });
   $: targetKey=JSON.stringify([storeTenant(),$embeddedProjectRoot,$activeFigureId,[...$selection],$partSelections]);
   let wheelOwner="";
   $: if (wheelOwner!==targetKey) {
     if (wheelTimer) clearTimeout(wheelTimer);
-    wheelTimer=null;wheel.reset();session.finish();wheelOwner=targetKey;
+    wheelTimer=null;wheel.reset();endExternal(true);session.finish();wheelOwner=targetKey;
   }
   function onWheel(e: WheelEvent) {
     if (disabled) return;
@@ -135,7 +213,7 @@
   /** Step by one wheel event wherever it happened (the armed axis view forwards
    *  the wheel from anywhere on screen to its focused limit). */
   export function wheelBy(e: WheelEvent) {
-    if (disabled) return;
+    if (disabled || (externalOwner && focused && invalid)) return;
     const steps = wheel.steps({ deltaY: wheelDelta(e), deltaMode: e.deltaMode, time: performance.now() });
     if (!steps) return;
     const mult = wheelMultiplier(e);
@@ -145,13 +223,13 @@
     }
     const v = clamp(round(numericStep(value, steps * mult, step, factor)));
     if (live && focused) draft = format(v);
-    if (v !== value) (history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v));
+    if (v !== value) externalOwner ? externalValue(v, 'wheel') : (history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v));
     // The gesture ends when the wheel rests: one undo entry per roll.
     if (wheelTimer) clearTimeout(wheelTimer);
     wheelTimer = setTimeout(() => {
       wheelTimer = null;
       wheel.reset();
-      session.finish();
+      if (externalOwner) { if (!focused) endExternal(); else if(externalOwner.owns?.() ?? true)externalOwner.interaction?.(null); } else session.finish();
     }, 220);
   }
 </script>
@@ -161,10 +239,10 @@
     <span
       class="lb"
       use:scrub={{ get: () => value, step, factor, min, max, disabled, owner: targetKey, round: live ? round : undefined,
-        onStart: () => { scrubBaseline = value; dispatch('scrubStart'); },
-        onStep: (v) => history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
-        onEnd: session.finish,
-        onCancel: () => { if (history) session.cancel(); else dispatch("scrub", scrubBaseline); }
+        onStart: () => { scrubBaseline = value; if (externalOwner) { if (wheelTimer) clearTimeout(wheelTimer); wheelTimer = null; wheel.reset(); endExternal(); inputEl?.blur(); beginExternal('scrub'); externalOwner.interaction?.('scrub'); } else dispatch('scrubStart'); },
+        onStep: (v) => externalOwner ? externalValue(v, 'scrub') : history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
+        onEnd: () => externalOwner ? endExternal() : session.finish(),
+        onCancel: () => { if (externalOwner) endExternal(true); else if (history) session.cancel(); else dispatch("scrub", scrubBaseline); }
       }}
       >{label}</span
     >
@@ -176,8 +254,9 @@
     spellcheck="false"
     {disabled}
     placeholder={mixed ? mixedLabel : placeholder}
-    value={live && focused ? draft : mixed || empty ? "" : display}
-    on:focus={() => { focused = true; draft = inputEl.value; }}
+    aria-invalid={invalid || undefined}
+    value={(live || externalOwner) && (focused || invalid) ? draft : mixed || empty ? "" : display}
+    on:focus={() => { focused = true; draft = displayPrecision !== undefined && !mixed && !empty ? String(value) : inputEl.value; inputEl.value = draft; if (externalOwner) beginExternal(); }}
     on:input={preview}
     on:blur={blur}
     on:change={onChange}
@@ -222,5 +301,6 @@
     border-color: var(--c-accent);
     outline: none;
   }
+  input[aria-invalid="true"] { border-color: var(--c-danger, #d14d41); }
   input:disabled { opacity: 0.5; }
 </style>

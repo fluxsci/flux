@@ -1,6 +1,7 @@
 import type { Element, ElementBase, LineElement, Figure, Id } from "./types";
 
 import { effectiveHidden, effectiveLocked, unitKeyOf } from "./groups";
+import { gridTracks, layoutDefaultGap, layoutReadingOrder } from "./layout/layoutMath";
 
 export interface LayoutContext { figure?: Figure; scope?: Id | null; excluded?: ReadonlySet<Id> }
 
@@ -530,33 +531,6 @@ export function distributeElements(els: Element[], axis: "h" | "v", gap?: number
   layoutUnits(els,context,boxes=>distributeBoxes(boxes,axis,gap));
 }
 
-function median(xs: number[]): number {
-  if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
-// Stable reading order: group items into row-bands within a y-tolerance, then
-// sort each band left-to-right. Avoids the non-transitive single comparator.
-function readingOrder(items: GridItem[], tol: number): GridItem[] {
-  const byY = [...items].sort((a, b) => a.bbox.y - b.bbox.y);
-  const bands: GridItem[][] = [];
-  for (const it of byY) {
-    const band = bands[bands.length - 1];
-    if (band && it.bbox.y - band[0].bbox.y <= tol) band.push(it);
-    else bands.push([it]);
-  }
-  for (const band of bands) band.sort((a, z) => a.bbox.x - z.bbox.x);
-  return bands.flat();
-}
-
-// Auto gap: scales with content (median item dimension), clamped to a sane range.
-function defaultGap(w: number[], h: number[]): number {
-  const m = median([...w, ...h]);
-  return m > 0 ? Math.round(Math.min(48, Math.max(8, m * 0.06))) : 16;
-}
-
 // Number of layout cells for a selection (a group counts as one).
 export function gridItemCount(els: Element[], context: LayoutContext = {}): number {
   return selectionUnits(els,context).length;
@@ -574,47 +548,13 @@ export function arrangeGrid(
   if (n < 2) return;
 
   const anchor = unionRect(items.map(i=>i.bbox))!;
-  const ws = items.map((i) => i.bbox.w);
-  const hs = items.map((i) => i.bbox.h);
-  const gap = opts.gap ?? defaultGap(ws, hs);
-  const colGap = opts.colGap ?? gap;
-  const rowGap = opts.rowGap ?? gap;
-
-  const ordered = readingOrder(items, median(hs) * 0.5);
-  const C = Math.min(cols, n);
-  const R = Math.ceil(n / C);
-
-  const colW = new Array(C).fill(0);
-  const rowH = new Array(R).fill(0);
+  const gap = opts.gap ?? layoutDefaultGap(items.map(i=>i.bbox));
+  const ordered = layoutReadingOrder(items, item=>item.bbox);
+  const layout = gridTracks(ordered.map(i=>i.bbox), cols, opts.colGap ?? gap, opts.rowGap ?? gap, anchor.x, anchor.y);
   ordered.forEach((it, i) => {
-    const r = (i / C) | 0;
-    const c = i % C;
-    colW[c] = Math.max(colW[c], it.bbox.w);
-    rowH[r] = Math.max(rowH[r], it.bbox.h);
-  });
-
-  const colX = new Array(C);
-  let ax = anchor.x;
-  for (let c = 0; c < C; c++) {
-    colX[c] = ax;
-    ax += colW[c] + colGap;
-  }
-  const rowY = new Array(R);
-  let ay = anchor.y;
-  for (let r = 0; r < R; r++) {
-    rowY[r] = ay;
-    ay += rowH[r] + rowGap;
-  }
-
-  ordered.forEach((it, i) => {
-    const r = (i / C) | 0;
-    const c = i % C;
-    const dx = colX[c] + (colW[c] - it.bbox.w) / 2 - it.bbox.x;
-    const dy = rowY[r] + (rowH[r] - it.bbox.h) / 2 - it.bbox.y;
-    for (const m of it.members) {
-      m.x += dx; // x/y translation moves every element type (lines included)
-      m.y += dy;
-    }
+    const dx = layout.boxes[i].x - it.bbox.x;
+    const dy = layout.boxes[i].y - it.bbox.y;
+    for (const m of it.members) { m.x += dx; m.y += dy; }
   });
 }
 
