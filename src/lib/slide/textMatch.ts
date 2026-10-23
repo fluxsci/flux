@@ -13,6 +13,8 @@
 //   4. CHARACTER blocks inside a leftover gap, only when the two gap strings are
 //      "close" (similarity ≥ 0.4, both ≤ 60 chars) — a lone letter flying across
 //      a rewrite reads as noise, a word stem gliding into its plural reads as magic.
+// A fifth, opt-in pass (the LETTER BAG, authored `params.letters: "travel"`)
+// lets the leftover LETTERS of a near-permutation (an anagram) fly to their places.
 // Runs are maximal spans that move as ONE unit; exits/enters are whole words.
 // `planTextMorph` cuts runs at visual-line (and style-segment) boundaries,
 // applies the span caps and returns the reading-ordered spans the driver draws;
@@ -55,6 +57,20 @@ export const TEXT_MORPH_CAPS = Object.freeze({
   maxSpans: 48,
   /** Above this many characters on either side, morph whole visual lines. */
   maxChars: 200,
+});
+
+/** The letter-bag policy (pass 6 of `matchTokens`, opt-in per track), pinned like TEXT_MATCH_POLICY: the leftover
+ *  LETTERS of both texts must be short and a near-permutation of one another, so that every letter that flies has a
+ *  purpose. Prose, typos, labels and numbers never qualify (0 of 17 probe edits). */
+export const LETTER_BAG_POLICY = Object.freeze({
+  /** Each side's leftover letters: at most this many … */
+  maxLetters: 30,
+  /** … and at least this many (a short word swap is not an anagram). */
+  minLetters: 5,
+  /** 2·pairs / (|A|+|B|) must reach this (letters equal ignoring case and accents). */
+  minOverlap: 0.8,
+  /** A lone transposition ("teh" → "the") is one run: refused, it stays today's cross-fade. */
+  minMovers: 2,
 });
 
 // A word is letters/marks/digits with inner apostrophes; a number keeps its
@@ -155,8 +171,10 @@ interface Pair { i: number; j: number; kind: Exclude<RunKind, "char"> }
  *   4. numbers differing only in digits inside a gap → a count-up glide;
  *   5. CHARACTER blocks between a leftover old word and a leftover new word
  *      when the two are close (charLevelAllowed): "Microscope" → "Microscopy",
- *      "quick" → "quickly", "text" → "Subtextual". */
-export function matchTokens(a: string, b: string, opts: { charLevel?: boolean } = {}): TextMatch {
+ *      "quick" → "quickly", "text" → "Subtextual";
+ *   6. (opt-in `letterBag`) LETTERS: when what is left of both texts is a
+ *      near-permutation (LETTER_BAG_POLICY), each letter flies to its partner. */
+export function matchTokens(a: string, b: string, opts: { charLevel?: boolean; letterBag?: boolean } = {}): TextMatch {
   const ta = tokenize(a).filter(t => t.kind !== "space"), tb = tokenize(b).filter(t => t.kind !== "space");
   const pairs: Pair[] = lcs(ta, tb, t => t.text).map(([i, j]) => ({ i, j, kind: "exact" }));
   const usedA = new Set(pairs.map(p => p.i)), usedB = new Set(pairs.map(p => p.j));
@@ -232,8 +250,43 @@ export function matchTokens(a: string, b: string, opts: { charLevel?: boolean } 
         runs.push({ a: { from: wa[c.x].from + k.a, to: wa[c.x].from + k.a + k.len }, b: { from: wb[c.y].from + k.b, to: wb[c.y].from + k.b + k.len }, kind: "char" });
     }
   }
+  // 6 — LETTER BAG: only when the leftovers are a near-permutation of each other.
+  if (opts.letterBag) for (const run of letterBagRuns(a, b, runs)) { runs.push(run); charLevel = "used"; }
   runs.sort((x, y) => x.a.from - y.a.from);
   return { runs, exits: leftovers(a, runs.map(r => r.a)), enters: leftovers(b, runs.map(r => r.b)), charLevel };
+}
+
+/** Pass 6: the single-letter (or adjacent-letter) runs of a near-permutation, or none. Letters are `\p{L}\p{N}`
+ *  of each side's LEFTOVER words (what no earlier pass covered); equal folded letters pair in reading order per
+ *  letter; pairs adjacent in both texts merge into one run (`char` when the glyphs are identical, else `fold`);
+ *  fewer than `minMovers` runs refuses (a lone transposition stays a cross-fade). Never covers a letter twice. */
+export function letterBagRuns(a: string, b: string, covered: MatchRun[]): MatchRun[] {
+  const letters = (text: string, cov: TextRange[]) => leftovers(text, cov).flatMap(r => {
+    const out: { i: number; ch: string }[] = [];
+    for (let i = r.from; i < r.to; i++) if (/[\p{L}\p{N}]/u.test(text[i])) out.push({ i, ch: text[i] });
+    return out;
+  });
+  const la = letters(a, covered.map(r => r.a)), lb = letters(b, covered.map(r => r.b));
+  const P = LETTER_BAG_POLICY;
+  if (la.length < P.minLetters || lb.length < P.minLetters || la.length > P.maxLetters || lb.length > P.maxLetters) return [];
+  const bucket = (xs: { i: number; ch: string }[]) => {
+    const m = new Map<string, number[]>();
+    for (const x of xs) { const k = fold(x.ch); (m.get(k) ?? m.set(k, []).get(k)!).push(x.i); }
+    return m;
+  };
+  const ba = bucket(la), bb = bucket(lb);
+  const pairs: [number, number][] = [];
+  for (const [k, ia] of ba) { const ib = bb.get(k) ?? []; for (let n = 0; n < Math.min(ia.length, ib.length); n++) pairs.push([ia[n], ib[n]]); }
+  if (2 * pairs.length / (la.length + lb.length) < P.minOverlap) return [];
+  pairs.sort((x, y) => x[0] - y[0]);
+  const out: MatchRun[] = [];
+  for (const [i, j] of pairs) {
+    const last = out[out.length - 1];
+    const kind: RunKind = a[i] === b[j] ? "char" : "fold";
+    if (last && last.kind === kind && last.a.to === i && last.b.to === j) { last.a.to = i + 1; last.b.to = j + 1; continue; }
+    out.push({ a: { from: i, to: i + 1 }, b: { from: j, to: j + 1 }, kind });
+  }
+  return out.length >= P.minMovers ? out : [];
 }
 
 /** The uncovered non-whitespace stretches of `text`, one per word. */
@@ -296,7 +349,7 @@ function lineOf(lines: TextRange[], at: number): number {
 /** Build the morph plan. `aLines`/`bLines` are each text's visual-line ranges
  *  (a span never crosses a line: it is one positioned glyph run); `aCuts`/`bCuts`
  *  are extra boundaries (style segments, justified word starts). */
-export function planTextMorph(a: string, b: string, opts: { aLines: TextRange[]; bLines: TextRange[]; aCuts?: number[]; bCuts?: number[] }): TextMorphPlan {
+export function planTextMorph(a: string, b: string, opts: { aLines: TextRange[]; bLines: TextRange[]; aCuts?: number[]; bCuts?: number[]; letterBag?: boolean }): TextMorphPlan {
   const aCuts = [...opts.aLines.map(l => l.from), ...opts.aLines.map(l => l.to), ...(opts.aCuts ?? [])];
   const bCuts = [...opts.bLines.map(l => l.from), ...opts.bLines.map(l => l.to), ...(opts.bCuts ?? [])];
   const build = (match: TextMatch, perLine: boolean): TextMorphSpan[] => {
@@ -337,8 +390,9 @@ export function planTextMorph(a: string, b: string, opts: { aLines: TextRange[];
     match = matchLines(a, b, opts.aLines, opts.bLines);
     spans = build(match, true);
   } else {
-    match = matchTokens(a, b);
+    match = matchTokens(a, b, { letterBag: opts.letterBag });
     spans = build(match, false);
+    // Coarsening drops EVERY char-level run, letter flights included.
     if (spans.length > TEXT_MORPH_CAPS.maxSpans && match.charLevel === "used") { level = "word"; match = matchTokens(a, b, { charLevel: false }); spans = build(match, false); }
     if (spans.length > TEXT_MORPH_CAPS.maxSpans) { level = "word"; spans = build(match, true); }
     if (spans.length > TEXT_MORPH_CAPS.maxSpans) { level = "line"; match = matchLines(a, b, opts.aLines, opts.bLines); spans = build(match, true); }
@@ -457,4 +511,26 @@ export function crossArc(dx: number, dy: number, size: number, t: number): numbe
   if (Math.abs(dx) < size * 0.75 || Math.abs(dy) > Math.abs(dx)) return 0;
   const lift = Math.min(0.3 * size, 0.1 * Math.abs(dx));
   return -Math.sign(dx) * lift * 4 * t * (1 - t);
+}
+
+
+// --- the leftover ROLL (authored `params.fadeStyle: "roll"`; `fadeLook` stays the classic look) -----------------------
+
+/** Roll: an exit lifts and an enter rises from below by `rollEm` font sizes (an odometer), with NO scale change (a
+ *  shrink read as "breathing" on an in-place word swap). When the other side's fading spans sit more than `travelEm`
+ *  away (a multi-word rewrite) the motion points along the line between the two centres instead, capped at
+ *  min(`maxEm` em, `frac` of the distance). FROZEN (gate-pinned). */
+export const LEFTOVER_ROLL = Object.freeze({ rollEm: 0.35, travelEm: 1.5, maxEm: 0.9, frac: 0.3 });
+
+/** The look of a fading span at its window progress p under the roll style. The opacity law is `fadeLook`'s, so the
+ *  "never an empty frame" overlap windows hold. `pull` = vector (stage px) from the span's centre to the centroid of
+ *  the OTHER side's fading spans, or null; displacements are stage px (not font sizes), added to the span's place. */
+export function rollLook(kind: "exit" | "enter", p: number, pull: { x: number; y: number } | null, size: number): { opacity: number; dx: number; dy: number; scale: number } {
+  const L = LEFTOVER_ROLL, d = pull ? Math.hypot(pull.x, pull.y) : 0;
+  let vx: number, vy: number; // full displacement (stage px) of the exit at p = 1 / the enter at p = 0
+  if (pull && d > L.travelEm * size) { const mag = Math.min(L.maxEm * size, L.frac * d); vx = pull.x / d * mag; vy = pull.y / d * mag; }
+  else { vx = 0; vy = (kind === "exit" ? -1 : 1) * L.rollEm * size; }
+  return kind === "exit"
+    ? { opacity: 1 - p, dx: vx * p, dy: vy * p, scale: 1 }
+    : { opacity: p, dx: vx * (1 - p), dy: vy * (1 - p), scale: 1 };
 }

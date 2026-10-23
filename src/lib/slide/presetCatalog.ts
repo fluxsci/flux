@@ -32,10 +32,19 @@ export interface PresetDef {
   /** Authored `params` written into a new track of this preset (X1a). Playback keeps its literal
    *  fallbacks (`?? 14` ...), so an omitted param on an old track plays exactly as before. */
   authoringParams?: Readonly<Record<string, number | string | boolean>>;
+  /** Authored `params` written ONLY when the track's target is text (X1a): a text rewrite is the one place the
+   *  look depends on what the target IS, so the table cannot be keyed by preset alone. Merged over `authoringParams`
+   *  by `authoredFields(preset, params, target)`. Absent keys keep today's playback (drift / fade). */
+  authoringTextParams?: Readonly<Record<string, number | string | boolean>>;
   /** A symmetric there-and-back preset (pulse, encircle: not built yet): its landing must have zero
    *  velocity, so it is authored with `smooth`, never QUICK_SMOOTH (X2; verify-pace-defaults pins it). */
   onsetExempt?: boolean;
 }
+
+/** What a NEW text transform is authored with (owner decision, WP 2.5): leftover words ROLL (0.35 em, no shrink) and
+ *  an anagram's letters TRAVEL. Written at AUTHORING time only (X1: playback never reads a profile); a track that
+ *  omits them plays the frozen classic look ("drift" / "fade"), so old decks play exactly as made. */
+export const TEXT_TRANSFORM_PARAMS: Readonly<Record<string, string>> = Object.freeze({ fadeStyle: "roll", letters: "travel" });
 
 // Editable entries are in the Animator's established select order.
 export const PRESET_CATALOG: Readonly<Record<PresetName, PresetDef>> = {
@@ -58,7 +67,7 @@ export const PRESET_CATALOG: Readonly<Record<PresetName, PresetDef>> = {
   scale: { name: "scale", family: "appearance", phase: "spatial", label: "scale", colour: "#4385be", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: false, legacy: true },
   rotate: { name: "rotate", family: "appearance", phase: "spatial", label: "rotate", colour: "#4385be", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: false, legacy: true },
   camera: { name: "camera", family: "camera", phase: "camera", label: "Camera", colour: "#a02f6f", wrapperProps: [], defaultDurationMs: 320, defaultEasing: "standard", editable: false, authoringTiming: { duration: 900, easing: "smooth" } },
-  transform: { name: "transform", family: "transform", phase: "transform", label: "Transform", colour: "#66800b", wrapperProps: [], defaultDurationMs: 600, defaultEasing: "smooth", editable: false, authoringTiming: { duration: 1200, easing: "smooth" } },
+  transform: { name: "transform", family: "transform", phase: "transform", label: "Transform", colour: "#66800b", wrapperProps: [], defaultDurationMs: 600, defaultEasing: "smooth", editable: false, authoringTiming: { duration: 1200, easing: "smooth" }, authoringTextParams: TEXT_TRANSFORM_PARAMS },
   videoStart: { name: "videoStart", family: "media", phase: "media", label: "Start video", colour: "#3aa99f", wrapperProps: [], defaultDurationMs: 0, defaultEasing: "linear", editable: false },
   videoPause: { name: "videoPause", family: "media", phase: "media", label: "Pause video", colour: "#d0a215", wrapperProps: [], defaultDurationMs: 0, defaultEasing: "linear", editable: false },
   videoStop: { name: "videoStop", family: "media", phase: "media", label: "Stop video", colour: "#af3029", wrapperProps: [], defaultDurationMs: 0, defaultEasing: "linear", editable: false },
@@ -93,21 +102,33 @@ export function authoredTiming(preset?: string): { duration: number; easing?: Ea
   return def.authoringTiming?.curve ? { duration: t.duration, curve: structuredClone(def.authoringTiming.curve) } : { duration: t.duration, easing: t.easing };
 }
 
+/** The type of element a track is born on: all authoring rows that depend on the target ask only this. */
+export interface AuthoredTarget { type?: string }
+/** Does a transform of `target` rewrite TEXT? `become` = what a Become turns the target into (omitted for a Change,
+ *  which rewrites the element itself): the glyph-matched text morph needs text on BOTH sides, so a text that becomes
+ *  a shape (or the other way round) is not a text rewrite and carries no text look. */
+export function rewritesText(target?: AuthoredTarget, become?: AuthoredTarget): boolean {
+  return target?.type === "text" && (become === undefined || become.type === "text");
+}
+
 /** The authored `params` of a new track of `preset`, or undefined. A `stagger` plays its `child` preset
  *  (default fadeRise, player/presets.ts), so it carries the CHILD's authored params: a stagger whose
- *  `child` is absent or fadeRise gets `y: 24` (X1a); any other child gets none. */
-export function authoredParams(preset?: string, params?: Readonly<Record<string, unknown>>): Record<string, number | string | boolean> | undefined {
+ *  `child` is absent or fadeRise gets `y: 24` (X1a); any other child gets none. A preset with
+ *  `authoringTextParams` (the text-rewrite transform) adds them when `rewrites` says the track rewrites text. */
+export function authoredParams(preset?: string, params?: Readonly<Record<string, unknown>>, rewrites = false): Record<string, number | string | boolean> | undefined {
   const owner = preset === "stagger" ? (typeof params?.child === "string" && params.child ? params.child : "fadeRise") : preset;
-  const row = owner !== undefined && KNOWN_PRESETS.has(owner) ? PRESET_CATALOG[owner as PresetName].authoringParams : undefined;
-  return row ? { ...row } : undefined;
+  const def = owner !== undefined && KNOWN_PRESETS.has(owner) ? PRESET_CATALOG[owner as PresetName] : undefined;
+  const out = { ...def?.authoringParams, ...(rewrites ? def?.authoringTextParams : undefined) };
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** EVERYTHING a writer puts into a new track of `preset` (X1a): `{ duration, curve | easing, params? }`.
  *  Every place a track is born spreads this; `authoredTiming` stays timing-only for callers that own `params`.
  *  `params` (optional) is the track's existing params, consulted only for a stagger's `child`. A writer that
- *  already has params merges: `{ ...fields.params, ...ownParams }`. */
-export function authoredFields(preset?: string, params?: Readonly<Record<string, unknown>>): { duration: number; easing?: EasingToken; curve?: Curve; params?: Record<string, number | string | boolean> } {
-  const authored = authoredParams(preset, params);
+ *  already has params merges: `{ ...fields.params, ...ownParams }`. `rewrites` (see `rewritesText`) adds the text
+ *  look of a text-rewrite transform. */
+export function authoredFields(preset?: string, params?: Readonly<Record<string, unknown>>, rewrites = false): { duration: number; easing?: EasingToken; curve?: Curve; params?: Record<string, number | string | boolean> } {
+  const authored = authoredParams(preset, params, rewrites);
   return { ...authoredTiming(preset), ...(authored ? { params: authored } : {}) };
 }
 
@@ -123,12 +144,13 @@ export function autoBuildMs(preset: PresetName, manifestMs?: number): number {
  *  caller OMITTED is filled from `authoredFields`, so an agent-authored deck gets the same explicit pace as a
  *  GUI-authored one. Only known, non-media presets are filled; supplied fields win key by key; an `influence`
  *  or `curve` the caller supplied suppresses the easing/curve fill (one group); keyframe-only tracks are left
- *  alone; a style-linked track (`styleId`) is returned unchanged so the style keeps supplying its fields. Copy/paste, snapshots and library inserts never call this (an omitted field there stays omitted,
+ *  alone; a style-linked track (`styleId`) is returned unchanged so the style keeps supplying its fields. `rewrites`
+ *  (`rewritesText` of the track's target, which only the caller can look up) adds a text transform's authored look. Copy/paste, snapshots and library inserts never call this (an omitted field there stays omitted,
  *  i.e. frozen-classic). */
-export function withAuthoringTiming<T extends { preset?: string; styleId?: string; duration?: number; easing?: EasingToken; influence?: unknown; curve?: unknown; params?: Record<string, unknown> }>(track: T): T {
+export function withAuthoringTiming<T extends { preset?: string; styleId?: string; duration?: number; easing?: EasingToken; influence?: unknown; curve?: unknown; params?: Record<string, unknown> }>(track: T, rewrites = false): T {
   if (track.styleId !== undefined) return track; // a style-linked track INHERITS its timing/curve/params from the style: never write local overrides
   if (track.preset === undefined || !KNOWN_PRESETS.has(track.preset) || PRESET_CATALOG[track.preset as PresetName].family === "media") return track;
-  const fields = authoredFields(track.preset, track.params), out = { ...track } as T & { easing?: EasingToken; curve?: unknown };
+  const fields = authoredFields(track.preset, track.params, rewrites), out = { ...track } as T & { easing?: EasingToken; curve?: unknown };
   if (out.duration === undefined) out.duration = fields.duration;
   if (out.easing === undefined && out.influence === undefined && out.curve === undefined) { if (fields.easing) out.easing = fields.easing; if (fields.curve) out.curve = fields.curve; }
   if (fields.params) out.params = { ...fields.params, ...track.params };
@@ -201,7 +223,8 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   scale: { scale: { default: 1.15 } },
   rotate: { deg: { default: 15 } },
   camera: {},
-  transform: {},
+  // The text-rewrite look (text morph, player/textMorph.ts via resolveTextLook): classic = drift fades, letters fade.
+  transform: { fadeStyle: { default: "drift" }, letters: { default: "fade" } },
   videoStart: {},
   videoPause: {},
   videoStop: {},
