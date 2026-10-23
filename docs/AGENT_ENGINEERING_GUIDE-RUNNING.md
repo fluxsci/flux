@@ -10670,3 +10670,20 @@ build); groups align-arrange 8/8 + plots-rail 8/8; cross-figure drag 31/31, sele
 bbox grab, figure controls, Become picker, slide editor, filmstrip, crop, input hygiene,
 metadata, video clips, gallery workflow, dissect. Native + full ui tier owed (tonight's run);
 Codex's accepted limitation stands: direct Alt+T with 5,000 selected ≈103–113 ms vs 100 ms.
+
+### 2026-10-22 — Align / Arrange visual + UX polish (Claude Opus 5.5, main)
+**Work:** Brought the Align & Arrange panel onto Flux's tool-surface vocabulary (the Inspector /
+Plots rail): a 30 px header with a count chip; mono uppercase eyebrows for panes and sections
+instead of serif headings; the keyboard-owning pane marked by a magenta underline + `KEYS` chip
+(was "Keyboard active" text); shortcut letters as faint corner hints (were pink inline letters
+everywhere); inset tiles with a hover lift and the tool colour only on CHOSEN states; a real
+rows stepper ("2 rows × 3 columns" + −/+); footer key chips with Apply as the primary action and
+the layout status between. The grid "Keep fixed" picker is now a miniature frame whose nine
+points sit on its corners/edges/centre. Canvas: a gap being hovered or dragged is FILLED with the
+tool colour (the design-tool spacing highlight; never for overlaps), the fixed-point pin is a
+ring on a paper halo with a centre dot (legible on any artwork; grows on hover / while its picker
+is open), the value badge a lifted paper pill. New tokens `--c-layout-gap-tint` / `-fill`.
+No behaviour changed; every selector and aria label the gates use was kept.
+**Verification:** svelte-check 0/0; pure 398/398; align-arrange 8/8; cross-figure drag, selection
+zones, plots rail, figure controls; screenshots of passive guides, gap hover, pin picker, Align,
+Arrange (row/grid), overlapping waveforms, compact DPR2 and plot spines inspected.

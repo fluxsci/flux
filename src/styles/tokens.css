@@ -98,8 +98,11 @@
   --c-danger:  #d14d41;
   --c-success: #879a39;
   --c-warning: #da702c;
-  /* Transient arrangement gutters and fixed-point marker. */
+  /* Transient arrangement gutters and fixed-point marker — Align & Arrange's identity colour
+     (the tool's chosen states, the canvas gutters, the pin), like Become's green. */
   --c-layout-gap: #ce5d97;
+  --c-layout-gap-tint: color-mix(in oklab, var(--c-layout-gap) 15%, transparent);
+  --c-layout-gap-fill: color-mix(in oklab, var(--c-layout-gap) 22%, transparent);
 
   /* ---- The Slide "Become picker" mode accent (2026-10-02) -------------- */
   /* Flexoki green: the stage outline, halo, pick outlines and the pick bar's
