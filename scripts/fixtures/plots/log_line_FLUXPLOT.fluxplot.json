@@ -1,0 +1,670 @@
+{
+  "artifact": {
+    "svgSha256": "c2dbcc462287a961ee836ee5e23d43019a971c28fdd4d95ada7d0a47edac4d06"
+  },
+  "axes": [
+    {
+      "id": "plot-area",
+      "pixelBox": {
+        "x0": 45.0,
+        "x1": 324.0,
+        "y0": 25.919999999999998,
+        "y1": 192.24
+      },
+      "projection": "rectilinear",
+      "svgId": "plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": 1.0,
+            "svg": 45.0
+          },
+          {
+            "data": 1000.0,
+            "svg": 324.0
+          }
+        ],
+        "base": 10.0,
+        "domain": [
+          1.0,
+          1000.0
+        ],
+        "label": "Dose",
+        "scale": "log",
+        "supported": true,
+        "tickFormatter": "log",
+        "tickLocator": "log",
+        "ticks": [
+          {
+            "label": "$\\mathdefault{10^{-1}}$",
+            "value": 0.1
+          },
+          {
+            "label": "$\\mathdefault{10^{0}}$",
+            "value": 1.0
+          },
+          {
+            "label": "$\\mathdefault{10^{1}}$",
+            "value": 10.0
+          },
+          {
+            "label": "$\\mathdefault{10^{2}}$",
+            "value": 100.0
+          },
+          {
+            "label": "$\\mathdefault{10^{3}}$",
+            "value": 1000.0
+          },
+          {
+            "label": "$\\mathdefault{10^{4}}$",
+            "value": 10000.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 192.24
+          },
+          {
+            "data": 4.0,
+            "svg": 25.919999999999998
+          }
+        ],
+        "domain": [
+          0.0,
+          4.0
+        ],
+        "label": "Response",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "0.0",
+            "value": 0.0
+          },
+          {
+            "label": "0.5",
+            "value": 0.5
+          },
+          {
+            "label": "1.0",
+            "value": 1.0
+          },
+          {
+            "label": "1.5",
+            "value": 1.5
+          },
+          {
+            "label": "2.0",
+            "value": 2.0
+          },
+          {
+            "label": "2.5",
+            "value": 2.5
+          },
+          {
+            "label": "3.0",
+            "value": 3.0
+          },
+          {
+            "label": "3.5",
+            "value": 3.5
+          },
+          {
+            "label": "4.0",
+            "value": 4.0
+          }
+        ]
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "axis.x",
+      "axis.y",
+      "dose.line",
+      "dose.points"
+    ],
+    "presets": {
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "line": {
+        "animation": "draw-on",
+        "durationMs": 800
+      },
+      "point": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "index",
+        "staggerMs": 40
+      }
+    }
+  },
+  "figure": {
+    "background": "figure.background"
+  },
+  "generator": {
+    "matplotlib": "3.10.9",
+    "name": "fluxplot",
+    "version": "0.1.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "axis.x",
+      "role": "axis",
+      "svgId": "axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "axis.y",
+      "role": "axis",
+      "svgId": "axis.y"
+    }
+  ],
+  "idAliases": {
+    "axis.x.spine": "axis.x.spine.bottom",
+    "axis.x.spine-2": "axis.x.spine.top",
+    "axis.y.spine": "axis.y.spine.left",
+    "axis.y.spine-2": "axis.y.spine.right"
+  },
+  "overlays": [],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "kind": "shape",
+            "ref": "axes.background",
+            "role": "background"
+          },
+          {
+            "axis": "x",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.bottom",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.top",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.x.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.x.tick.1",
+                  "axis.x.tick.2",
+                  "axis.x.tick.3",
+                  "axis.x.tick.4",
+                  "axis.x.minor.tick.8",
+                  "axis.x.minor.tick.9",
+                  "axis.x.minor.tick.10",
+                  "axis.x.minor.tick.11",
+                  "axis.x.minor.tick.12",
+                  "axis.x.minor.tick.13",
+                  "axis.x.minor.tick.14",
+                  "axis.x.minor.tick.15",
+                  "axis.x.minor.tick.16",
+                  "axis.x.minor.tick.17",
+                  "axis.x.minor.tick.18",
+                  "axis.x.minor.tick.19",
+                  "axis.x.minor.tick.20",
+                  "axis.x.minor.tick.21",
+                  "axis.x.minor.tick.22",
+                  "axis.x.minor.tick.23",
+                  "axis.x.minor.tick.24",
+                  "axis.x.minor.tick.25",
+                  "axis.x.minor.tick.26",
+                  "axis.x.minor.tick.27",
+                  "axis.x.minor.tick.28",
+                  "axis.x.minor.tick.29",
+                  "axis.x.minor.tick.30",
+                  "axis.x.minor.tick.31"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.x.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.x.ticklabel.1",
+                  "axis.x.ticklabel.2",
+                  "axis.x.ticklabel.3",
+                  "axis.x.ticklabel.4"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.x.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.x",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "axis": "y",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.left",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.right",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.y.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.y.tick.0",
+                  "axis.y.tick.1",
+                  "axis.y.tick.2",
+                  "axis.y.tick.3",
+                  "axis.y.tick.4",
+                  "axis.y.tick.5",
+                  "axis.y.tick.6",
+                  "axis.y.tick.7",
+                  "axis.y.tick.8"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.y.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.y.ticklabel.0",
+                  "axis.y.ticklabel.1",
+                  "axis.y.ticklabel.2",
+                  "axis.y.ticklabel.3",
+                  "axis.y.ticklabel.4",
+                  "axis.y.ticklabel.5",
+                  "axis.y.ticklabel.6",
+                  "axis.y.ticklabel.7",
+                  "axis.y.ticklabel.8"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.y.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.y",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "children": [
+              {
+                "kind": "line",
+                "ref": "dose.line",
+                "role": "line"
+              },
+              {
+                "groupRole": "point",
+                "id": "dose.points",
+                "kind": "shape",
+                "memberRole": "point",
+                "members": [
+                  "dose.point.0",
+                  "dose.point.1",
+                  "dose.point.2",
+                  "dose.point.3",
+                  "dose.point.4",
+                  "dose.point.5",
+                  "dose.point.6",
+                  "dose.point.7",
+                  "dose.point.8",
+                  "dose.point.9",
+                  "dose.point.10",
+                  "dose.point.11",
+                  "dose.point.12",
+                  "dose.point.13",
+                  "dose.point.14",
+                  "dose.point.15",
+                  "dose.point.16",
+                  "dose.point.17",
+                  "dose.point.18",
+                  "dose.point.19",
+                  "dose.point.20",
+                  "dose.point.21",
+                  "dose.point.22",
+                  "dose.point.23"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "dose",
+            "kind": "container",
+            "label": "response",
+            "role": "series"
+          }
+        ],
+        "id": "plot-area",
+        "kind": "container",
+        "role": "plot-area"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "line",
+  "schemaVersion": "0.3.2",
+  "series": [
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#1f77b4",
+        "palette": {
+          "index": 0,
+          "name": "cycle"
+        }
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "dose.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "dose.point.0",
+            "dose.point.1",
+            "dose.point.2",
+            "dose.point.3",
+            "dose.point.4",
+            "dose.point.5",
+            "dose.point.6",
+            "dose.point.7",
+            "dose.point.8",
+            "dose.point.9",
+            "dose.point.10",
+            "dose.point.11",
+            "dose.point.12",
+            "dose.point.13",
+            "dose.point.14",
+            "dose.point.15",
+            "dose.point.16",
+            "dose.point.17",
+            "dose.point.18",
+            "dose.point.19",
+            "dose.point.20",
+            "dose.point.21",
+            "dose.point.22",
+            "dose.point.23"
+          ],
+          "role": "point",
+          "svgId": "dose.points"
+        }
+      ],
+      "data": {
+        "x": [
+          1.0,
+          1.350314037869873,
+          1.823348000868441,
+          2.4620924014946253,
+          3.3245979322709407,
+          4.489251258218605,
+          6.061898993497572,
+          8.185467307069027,
+          11.052951411260215,
+          14.92495545051829,
+          20.15337685941733,
+          27.213387683753073,
+          36.74661940736688,
+          49.61947603002903,
+          67.00187503509586,
+          90.47357242349298,
+          122.16773489967917,
+          164.96480740980206,
+          222.75429519995564,
+          300.7882518043099,
+          406.158598837698,
+          548.4416576121015,
+          740.5684692262435,
+          1000.0
+        ],
+        "y": [
+          0.5,
+          0.6043478260869565,
+          0.7086956521739131,
+          0.8130434782608695,
+          0.9173913043478261,
+          1.0217391304347827,
+          1.126086956521739,
+          1.2304347826086957,
+          1.3347826086956522,
+          1.4391304347826086,
+          1.5434782608695652,
+          1.6478260869565218,
+          1.7521739130434781,
+          1.856521739130435,
+          1.9608695652173913,
+          2.0652173913043477,
+          2.1695652173913045,
+          2.2739130434782613,
+          2.378260869565217,
+          2.482608695652174,
+          2.5869565217391304,
+          2.6913043478260867,
+          2.7956521739130435,
+          2.9000000000000004
+        ]
+      },
+      "id": "dose",
+      "kind": "line",
+      "label": "response",
+      "name": "dose",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "dose.point.0",
+          "x": 1.0,
+          "y": 0.5
+        },
+        {
+          "index": 1,
+          "svgId": "dose.point.1",
+          "x": 1.350314037869873,
+          "y": 0.6043478260869565
+        },
+        {
+          "index": 2,
+          "svgId": "dose.point.2",
+          "x": 1.823348000868441,
+          "y": 0.7086956521739131
+        },
+        {
+          "index": 3,
+          "svgId": "dose.point.3",
+          "x": 2.4620924014946253,
+          "y": 0.8130434782608695
+        },
+        {
+          "index": 4,
+          "svgId": "dose.point.4",
+          "x": 3.3245979322709407,
+          "y": 0.9173913043478261
+        },
+        {
+          "index": 5,
+          "svgId": "dose.point.5",
+          "x": 4.489251258218605,
+          "y": 1.0217391304347827
+        },
+        {
+          "index": 6,
+          "svgId": "dose.point.6",
+          "x": 6.061898993497572,
+          "y": 1.126086956521739
+        },
+        {
+          "index": 7,
+          "svgId": "dose.point.7",
+          "x": 8.185467307069027,
+          "y": 1.2304347826086957
+        },
+        {
+          "index": 8,
+          "svgId": "dose.point.8",
+          "x": 11.052951411260215,
+          "y": 1.3347826086956522
+        },
+        {
+          "index": 9,
+          "svgId": "dose.point.9",
+          "x": 14.92495545051829,
+          "y": 1.4391304347826086
+        },
+        {
+          "index": 10,
+          "svgId": "dose.point.10",
+          "x": 20.15337685941733,
+          "y": 1.5434782608695652
+        },
+        {
+          "index": 11,
+          "svgId": "dose.point.11",
+          "x": 27.213387683753073,
+          "y": 1.6478260869565218
+        },
+        {
+          "index": 12,
+          "svgId": "dose.point.12",
+          "x": 36.74661940736688,
+          "y": 1.7521739130434781
+        },
+        {
+          "index": 13,
+          "svgId": "dose.point.13",
+          "x": 49.61947603002903,
+          "y": 1.856521739130435
+        },
+        {
+          "index": 14,
+          "svgId": "dose.point.14",
+          "x": 67.00187503509586,
+          "y": 1.9608695652173913
+        },
+        {
+          "index": 15,
+          "svgId": "dose.point.15",
+          "x": 90.47357242349298,
+          "y": 2.0652173913043477
+        },
+        {
+          "index": 16,
+          "svgId": "dose.point.16",
+          "x": 122.16773489967917,
+          "y": 2.1695652173913045
+        },
+        {
+          "index": 17,
+          "svgId": "dose.point.17",
+          "x": 164.96480740980206,
+          "y": 2.2739130434782613
+        },
+        {
+          "index": 18,
+          "svgId": "dose.point.18",
+          "x": 222.75429519995564,
+          "y": 2.378260869565217
+        },
+        {
+          "index": 19,
+          "svgId": "dose.point.19",
+          "x": 300.7882518043099,
+          "y": 2.482608695652174
+        },
+        {
+          "index": 20,
+          "svgId": "dose.point.20",
+          "x": 406.158598837698,
+          "y": 2.5869565217391304
+        },
+        {
+          "index": 21,
+          "svgId": "dose.point.21",
+          "x": 548.4416576121015,
+          "y": 2.6913043478260867
+        },
+        {
+          "index": 22,
+          "svgId": "dose.point.22",
+          "x": 740.5684692262435,
+          "y": 2.7956521739130435
+        },
+        {
+          "index": 23,
+          "svgId": "dose.point.23",
+          "x": 1000.0,
+          "y": 2.9000000000000004
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "dose.line",
+        "points": "dose.points"
+      }
+    }
+  ],
+  "size": {
+    "height": 216.0,
+    "unit": "pt",
+    "width": 360.0
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": null,
+    "tokens": {
+      "axis": "#000000",
+      "grid": "#b0b0b0",
+      "ink": "#000000",
+      "label": "#000000",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#000000"
+    }
+  },
+  "svg": "log_line.svg"
+}

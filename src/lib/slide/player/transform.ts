@@ -39,7 +39,7 @@ import { pathRender, pathD } from "../../path";
 import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, fixedHeadPoints, dashOffsetAt, type ElementMorphPlan } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
-import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
+import { applyPlotView, preparePlotView, releasePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { createTextMorph, layoutForMorph, type TextMorph } from "./textMorph";
@@ -196,6 +196,9 @@ export function createTransform(
     to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
     fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
     sourceRoot, targetRoot, geometryInterpolated: true, assetChange,
+    // a view-only Change hands the generated ticks off to the nice ones in flight (projectDom buildFlight); an asset Change
+    // keeps the guide pairing of its own two manifests
+    tickHandoff: !assetChange,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
   const intrinsic = (() => {
@@ -210,7 +213,12 @@ export function createTransform(
   })();
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
   const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
-  if (plotSvg && projectionOptions) preparePlotView(plotSvg, manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
+  if (plotSvg && projectionOptions) {
+    // The hand-off tick pool is CLONED from the guide templates at bind time, so the templates must be pristine: the static
+    // render already pt-true-compensated them, and a clone of a compensated template would be compensated twice.
+    restorePtTrue(plotSvg);
+    preparePlotView(plotSvg, manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
+  }
   const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
 
   // --- crossfade layers (built lazily on the first seek that needs them) ----
@@ -653,5 +661,7 @@ export function createTransform(
     warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
     return { seek, targetRoot: ensureMorphLayers().B };
   }
-  return { seek, targetRoot: layerB ?? contentHost };
+  // Drop this host's plan and the hand-off tick pool it cloned: a destroyed or still player must not leave hidden clones.
+  const releaseView = () => { if (plotSvg && projectionOptions) { restoreProjection(plotSvg); releasePlotView(plotSvg, projectionOptions); } };
+  return { seek, targetRoot: layerB ?? contentHost, dispose: releaseView };
 }

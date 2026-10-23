@@ -72,7 +72,8 @@ try {
   h.ok(!root!.querySelector('[data-projection-tick][id*="axis.y.tick."]') && !root!.querySelector('[data-projection-tick][id*="axis.x.tick."]'), 'the primary axes keep their ticks');
   const xTick = [...guides].find(([, g]) => g.axis === 'x')!;
   h.ok(!root!.querySelector(`[id="${xTick[0]}"]`)!.getAttribute('transform')?.startsWith('translate'), 'an x tick is left alone by a y2 view');
-  // in a tween the generated y2 ticks move by the twin fit's displacement instead
+  // in a tween the generated y2 ticks move by the twin fit's displacement instead (the ASSET-CHANGE path only since WP 2.3: the
+  // slide transform host hands a view Change's ticks off through `tickHandoff`; this bare `{ t }` call carries no flag)
   restoreProjection(root!);
   applyPlotView(root!, manifest, view, '', { t: 1 });
   const [, tickGuide] = y2Ticks[0];

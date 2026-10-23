@@ -69,7 +69,9 @@ h.ok(!root.querySelector('[data-projection-tick][id*="axis.y."]'), "an axis the 
 restoreProjection(root);
 h.eq(root.querySelectorAll("[data-projection-tick]").length, 0, "restore removes the regenerated ticks");
 h.ok(!guideNode.style.display, "and shows the generated ones again");
-// in a tween (opts present) the generated ticks move and fade instead
+// in a tween (opts present) the generated ticks move and fade instead. Since WP 2.3 this is the ASSET-CHANGE path only: a view
+// Change in the slide transform host passes `tickHandoff` and hands the ticks off to the nice ones in flight (a bare
+// `{ t }` here has no flag, so it keeps the generated ticks); verify-plot-tick-handoff pins that path.
 applyPlotView(root, sine.manifest, zoom, "", { t: 1 });
 const delta = Number((guideNode.getAttribute("transform") ?? "").match(/translate\(([-\d.]+)/)?.[1] ?? NaN);
 near(projectWith(sourceFits.x, guide[1].value) + delta, projectWith(fits.x, guide[1].value), "guide moves by its recovered data value");

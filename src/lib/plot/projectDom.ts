@@ -3,7 +3,7 @@
 import type { PlotView, PlotAxisKey } from "../types";
 import type { FluxPlotManifest, FluxPlotSeries, FluxPlotAxis } from "./types";
 import { partDomId } from "./parse";
-import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, retickable,
+import { axisFit, blendFit, guideAxes, guideData, matchTickSets, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, retickable, tickFlightLaw, type TickSpec,
   seriesAxes, seriesVertices, seriesTweenable, viewFits, lerpData, type Fit, type Fits, type MorphPoint } from "./project";
 import { transformToAncestor } from "./svgMatrix";
 import { ticksFor, scalarLabels, formatTick } from "./ticks";
@@ -126,6 +126,9 @@ export interface PlotViewOptions {
   /** This frame's live colour-scale views, so a value morph (F7) paints a tweened value the
    *  way the colour-scale writer would. */
   colorScale?: Record<string, ColorScaleView>;
+  /** T8: hand the axis ticks off in flight (pooled clones ride the blended fit; see buildFlight). Set by the slide
+   *  transform host only; a bare `{t}` call keeps the generated ticks moving and fading. */
+  tickHandoff?: boolean;
 }
 interface Panel {
   from: Fits; to: Fits; rawA: Fits; rawB: Fits;
@@ -151,6 +154,10 @@ interface SeriesBinding {
 interface GuideBinding {
   node: Element; panel: Panel; axis: PlotAxisKey; value: number; endValue: number;
   origin: number; end: number; delta: { dx?: number; dy?: number };
+  /** Where the TICK this guide belongs to rests (`origin` of the tick mark with the same leaf index; its own `origin` when it
+   *  has none). A re-ticked clone of this guide is placed at `pixel - anchor` from it, which keeps the guide's resting offset
+   *  from its tick: a y label sits its baseline offset (~0.36 em) below the tick, and a clone must too. */
+  anchor: number;
   /** The leaf id (unprefixed) and its guide kind, for re-ticking (F4). */
   leaf: string; kind: "tick" | "tick-label" | "gridline";
 }
@@ -166,9 +173,29 @@ interface ShapeBinding {
   target?: { subpaths: ShapeBinding["subpaths"] };
   value?: { a: number; b: number; scale: FluxPlotManifest["colorScales"] extends (infer T)[] | undefined ? T : never; paint: "fill" | "stroke" | "both" };
 }
+/** T8 tick hand-off: one pooled tick of a re-ticked axis during a view Change. `va`/`vb` are its data value in the
+ *  start / end set (equal-ish for a matched tick); a matched tick walks from `va` to `vb` so the generated end
+ *  and the nice end are both hit exactly. */
+interface FlightTick {
+  va: number; vb: number; a: boolean; b: boolean; log: boolean; sameText: boolean;
+  /** how far each side's label rests from its tick (generated ticks only; undefined = the template's offset) */
+  oa?: number; ob?: number;
+  tick?: Element; grid?: Element; labelA?: Element; labelB?: Element;
+}
+interface FlightAxis {
+  panel: Panel; axis: PlotAxisKey; guides: GuideBinding[]; ticks: FlightTick[];
+  aRet: boolean; bRet: boolean;
+  origin: { tick?: GuideBinding; "tick-label"?: GuideBinding; gridline?: GuideBinding };
+  /** last template inline style copied onto the pool, per kind (a per-leaf override reaches the clones) */
+  css: Partial<Record<"tick" | "tick-label" | "gridline", string>>;
+}
 interface Projection {
   series: SeriesBinding[]; guides: GuideBinding[]; panels: Panel[]; shapes: ShapeBinding[];
   interpolated: boolean;
+  /** Pooled hand-off ticks per re-ticked axis (a view Change in flight; see buildFlight). */
+  flight: FlightAxis[];
+  /** every node buildFlight cloned for this plan (removed by releasePlotView) */
+  flightNodes: Element[];
   /** Per panel and axis key: the view axis' tick scheme, for re-ticking at rest. */
   axesInfo: Map<string | undefined, Record<string, { locator?: string; formatter?: string; scale: string }>>;
 }
@@ -232,8 +259,11 @@ const paintOfGroup = (node: Element): "fill" | "stroke" | "both" => {
 interface CachedProjection { manifest: FluxPlotManifest; view: PlotView | undefined; opts: PlotViewOptions | undefined; plan: Projection }
 const plans = new WeakMap<Element, CachedProjection[]>();
 
+/** `axis.x.tick.3` / `axis.x.ticklabel.3` / `axis.x.gridline.3` -> `axis.x.#3`: the three guides of one tick share it. */
+const guideIndexKey = (leaf: string) => leaf.replace(/\.(?:ticklabel|tick-label|tick|gridline)\.(\d+)$/, ".#$1");
+
 function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): Projection {
-  if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], shapes: [], interpolated: false, axesInfo: new Map() };
+  if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], shapes: [], interpolated: false, axesInfo: new Map(), flight: [], flightNodes: [] };
   const nodes = roots.get(root) ?? new Set<Element>(); roots.set(root, nodes);
   // One id index per bind (first element in document order wins, exactly what
   // root.querySelector('[id="…"]') returned): a per-leaf querySelector scanned
@@ -393,10 +423,165 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     if (!rawFitA || !rawFitB || !panel.fits[g.axis]) continue;
     reserve(node, ["transform"], ["opacity", "display"]);
     const kind: GuideBinding["kind"] = /\.gridline\.\d+$/.test(leaf) ? "gridline" : /\.(?:ticklabel|tick-label)\.\d+$/.test(leaf) ? "tick-label" : "tick";
-    guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin: projectWith(rawFitA, g.value),
+    const origin = projectWith(rawFitA, g.value);
+    guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin, anchor: origin,
       end: projectWith(rawFitB, targetData.get(leaf)?.value ?? g.value), delta: g.axis.startsWith("x") ? { dx: 0 } : { dy: 0 }, leaf, kind });
   }
-  return { series, guides, panels: [...panels.values()], shapes, interpolated: opts?.geometryInterpolated ?? false, axesInfo };
+  // a label (or gridline) rests at its tick's pixel plus a constant: anchor every guide to the tick of its own index
+  const tickAt = new Map<Panel, Map<string, number>>();
+  for (const g of guides) if (g.kind === "tick") (tickAt.get(g.panel) ?? tickAt.set(g.panel, new Map()).get(g.panel)!).set(`${g.axis}|${guideIndexKey(g.leaf)}`, g.origin);
+  for (const g of guides) g.anchor = tickAt.get(g.panel)?.get(`${g.axis}|${guideIndexKey(g.leaf)}`) ?? g.origin;
+  const flightNodes: Element[] = [];
+  const flight = opts?.tickHandoff && !opts.assetChange && (view || opts.fromView) ? buildFlight(manifest, view, opts, panels, guides, nodes, flightNodes) : [];
+  return { series, guides, panels: [...panels.values()], shapes, interpolated: opts?.geometryInterpolated ?? false, axesInfo, flight, flightNodes };
+}
+
+// ---------------------------------------------------------------------------
+// T8 TICK HAND-OFF. During a view Change the axis' ticks are not frozen at the generated
+// set (which popped to the nice set at the end): both end sets ride the blended fit.
+// A tick whose DATA value is in both sets is one tick (matchTickSets; its label swaps text once at t=.5 if the two
+// exact strings differ: "1" -> "1.0"); start-only ticks fade out, end-only ticks fade in (tickFlightLaw). The
+// nodes are pooled at bind time (before pt-true compensation binds its node list), so a
+// frame only writes transform / opacity / display.
+// ---------------------------------------------------------------------------
+/** The inline `display` a node has in the plot's own state: what projection recorded before it wrote one, else the live value. */
+const ownDisplay = (node: Element): string => {
+  const field = pristine.get(node)?.styles.get("display");
+  return (field?.written ? field.value : (node as SVGElement).style.getPropertyValue("display")) ?? "";
+};
+let flightSerial = 0;
+const labelHtml = (l: { text: string; base?: string; exponent?: string }) =>
+  l.exponent !== undefined ? `${l.base}<tspan baseline-shift="super" style="font-size: 70%">${l.exponent}</tspan>` : l.text;
+function buildFlight(manifest: FluxPlotManifest, view: PlotView | undefined, opts: PlotViewOptions, panels: Map<string | undefined, Panel>,
+  guides: GuideBinding[], nodes: Set<Element>, created: Element[]): FlightAxis[] {
+  const out: FlightAxis[] = [];
+  for (const [panelId, panel] of panels) for (const axis of ["x", "y", "y2", "x2"] as PlotAxisKey[]) {
+    const mine = guides.filter(g => g.panel === panel && g.axis === axis);
+    if (!mine.length) continue;
+    const aRet = retickable(manifest, opts.fromView, panelId, axis), bRet = retickable(manifest, view, panelId, axis);
+    if (!aRet && !bRet) continue;
+    const range = panel.ranges[axis]; if (!range) continue;
+    // a side's tick set: nice ticks of its domain (what the static retick paints), or the generated ones (their
+    // recovered values and exact strings)
+    const nice = (sideView: PlotView | undefined): { set: TickSpec[]; log: boolean } | null => {
+      const fit = viewFits(manifest, sideView, panelId)?.[axis]; if (!fit) return null;
+      const d = [dataOfPixel(fit, range[0]), dataOfPixel(fit, range[1])], lo = Math.min(...d), hi = Math.max(...d), eps = (hi - lo) * 1e-9;
+      const values = ticksFor(fit.log ? "log" : "linear", lo, hi).filter(v => v >= lo - eps && v <= hi + eps);
+      const labels = fit.log ? values.map(v => labelHtml(formatTick(v, "log"))) : scalarLabels(values);
+      return { set: values.map((value, i) => ({ value, html: labels[i] })), log: fit.log };
+    };
+    // The generated ticks of this axis, one entry per TICK (its mark, label and gridline share a leaf index, and their
+    // recovered values differ by the rounding of three separate SVG coordinates, so they are grouped by index, never by value).
+    const generated = (): TickSpec[] => {
+      const byIndex = new Map<string, { mark?: GuideBinding; label?: GuideBinding; other?: number; html: string }>();
+      for (const g of mine) {
+        const key = guideIndexKey(g.leaf);
+        const entry = byIndex.get(key) ?? byIndex.set(key, { html: "" }).get(key)!;
+        if (g.kind === "tick") entry.mark = g; else entry.other ??= g.value;
+        if (g.kind === "tick-label") {
+          entry.label = g;
+          const text = g.node.tagName.toLowerCase() === "text" ? g.node : g.node.querySelector("text"); entry.html = text?.innerHTML ?? "";
+        }
+      }
+      return [...byIndex.values()].map(e => ({ value: e.mark?.value ?? e.other!, html: e.html, offset: e.label && e.mark ? e.label.origin - e.mark.origin : undefined }));
+    };
+    const na = aRet ? nice(opts.fromView) : null, nb = bRet ? nice(view) : null;
+    const A = na?.set ?? generated(), B = nb?.set ?? generated();
+    const log = !!(na?.log ?? nb?.log ?? panel.from[axis]?.log);
+    // The first guide of the kind that is shown in the plot's own state. A Change that starts from a re-ticked static view
+    // binds with the generated guides already hidden by that static pass, so the display is read through the pristine
+    // record (the value before projection wrote it), not off the live style.
+    const template = (kind: GuideBinding["kind"]) => mine.find(g => g.kind === kind && ownDisplay(g.node) !== "none");
+    const origin = { tick: template("tick"), "tick-label": template("tick-label"), gridline: template("gridline") };
+    if (!origin.tick && !origin["tick-label"]) continue;
+    const ticks: FlightTick[] = [];
+    const cursor: Partial<Record<string, Element>> = {};
+    const serial = ++flightSerial; // unique ids when two plans of a chain pool the same template
+    const mk = (kind: "tick" | "tick-label" | "gridline", n: string, html?: string): Element | undefined => {
+      const tpl = origin[kind]; if (!tpl) return undefined;
+      const clone = tpl.node.cloneNode(true) as Element;
+      clone.setAttribute("id", `${tpl.node.getAttribute("id") ?? tpl.leaf}.flight.${serial}.${n}`);
+      // residue: the slide binder (render.compilePlotContent) must see straight past a pooled tick, never key or fade it
+      clone.setAttribute("data-projection-tick", ""); clone.setAttribute("data-projection-flight", ""); clone.setAttribute("data-projection-residue", "");
+      (clone as SVGElement).style.setProperty("display", "none");
+      if (kind === "tick-label" && html !== undefined) {
+        const text = clone.tagName.toLowerCase() === "text" ? clone : clone.querySelector("text");
+        if (text) text.innerHTML = html;
+      }
+      const after = cursor[kind] ?? tpl.node;
+      after.parentNode?.insertBefore(clone, after.nextSibling);
+      cursor[kind] = clone;
+      nodes.add(clone); created.push(clone); reserve(clone, ["transform"], ["opacity", "display"]);
+      return clone;
+    };
+    let n = 0;
+    for (const pair of matchTickSets(A, B, log)) {
+      const same = !!pair.a && !!pair.b && pair.a.html === pair.b.html;
+      const va = pair.a?.value ?? pair.b!.value, vb = pair.b?.value ?? pair.a!.value;
+      ticks.push({ va, vb, a: !!pair.a, b: !!pair.b, log, sameText: same, oa: pair.a?.offset, ob: pair.b?.offset,
+        tick: mk("tick", String(n)), grid: mk("gridline", String(n)),
+        labelA: pair.a ? mk("tick-label", `${n}a`, pair.a.html) : undefined,
+        labelB: pair.b && !same && (!pair.a || pair.a.html !== pair.b.html) ? mk("tick-label", `${n}b`, pair.b.html) : undefined });
+      n++;
+    }
+    out.push({ panel, axis, guides: mine, ticks, aRet, bRet, origin, css: {} });
+  }
+  return out;
+}
+/** Place + fade the pooled ticks for this frame; returns the generated guide nodes replaced. */
+function writeFlight(plan: Projection, t: number): Set<Element> {
+  const replaced = new Set<Element>();
+  const law = tickFlightLaw(t);
+  for (const fa of plan.flight) {
+    if (t <= 0 && !fa.aRet || t >= 1 && !fa.bRet) continue; // the generated nodes ARE that end
+    const fit = fa.panel.fits[fa.axis]; if (!fit) continue;
+    const r0 = fa.panel.ranges[fa.axis]!, r1 = fa.panel.endRanges[fa.axis] ?? r0;
+    const e0 = r0[0] + (r1[0] - r0[0]) * t, e1 = r0[1] + (r1[1] - r0[1]) * t, lo = Math.min(e0, e1), hi = Math.max(e0, e1), soft = (hi - lo) * .04 || 1;
+    for (const g of fa.guides) { style(g.node, "display", "none"); replaced.add(g.node); }
+    const isX = fa.axis.startsWith("x");
+    // the template carries the leaf-level overrides / ghost factor of this frame: read its opacity now, and mirror its
+    // inline style onto the pool when it changed
+    const baseOf = (tpl: GuideBinding | undefined, kind: "tick" | "tick-label" | "gridline"): number => {
+      if (!tpl) return 1;
+      const css = tpl.node.getAttribute("style") ?? "";
+      if (fa.css[kind] !== css) {
+        fa.css[kind] = css;
+        // a pooled node is hidden in its pristine state, whatever the template's `display` is right now
+        for (const ft of fa.ticks) for (const el of kind === "tick" ? [ft.tick] : kind === "gridline" ? [ft.grid] : [ft.labelA, ft.labelB])
+          if (el) { const st = (el as SVGElement).style; st.cssText = css; st.setProperty("display", "none"); }
+      }
+      const o = (tpl.node as SVGElement).style.getPropertyValue("opacity") || tpl.node.getAttribute("opacity");
+      return o ? Number(o) : 1;
+    };
+    const base = { tick: baseOf(fa.origin.tick, "tick"), label: baseOf(fa.origin["tick-label"], "tick-label"), grid: baseOf(fa.origin.gridline, "gridline") };
+    // `offset`: where this tick's label rests from its tick (a generated label's own; absent = the template's, which every nice
+    // label takes, exactly as the static re-tick places it)
+    const put = (node: Element | undefined, tpl: GuideBinding | undefined, pixel: number, opacity: number, b: number, offset?: number) => {
+      if (!node || !tpl) return;
+      if (!(opacity > 0.002) || !Number.isFinite(pixel)) { style(node, "display", "none"); return; }
+      const delta = pixel - tpl.anchor + (offset === undefined ? 0 : offset - (tpl.origin - tpl.anchor)), original = tpl.node.getAttribute("transform");
+      const pristineTransform = pristine.get(tpl.node)?.attrs.get("transform"), baseT = pristineTransform?.written ? pristineTransform.value : original;
+      attr(node, "transform", `translate(${(isX ? delta : 0).toFixed(6)} ${(isX ? 0 : delta).toFixed(6)})${baseT ? ` ${baseT}` : ""}`);
+      style(node, "opacity", String(opacity * b)); style(node, "display", "");
+    };
+    for (const ft of fa.ticks) {
+      const value = ft.a && ft.b ? lerpData(ft.va, ft.vb, t, ft.log) : ft.a ? ft.va : ft.vb;
+      const pixel = projectWith(fit, value);
+      const out = Math.max(lo - pixel, pixel - hi, 0) - 1e-6, edge = out <= 0 ? 1 : Math.max(0, 1 - out / soft);
+      const w = ft.a && ft.b ? 1 : ft.a ? law.aOnly : law.bOnly;
+      put(ft.tick, fa.origin.tick, pixel, w * edge, base.tick);
+      put(ft.grid, fa.origin.gridline, pixel, w * edge, base.grid);
+      // a matched tick's label walks from its generated offset to the template's (a nice label is placed as the static re-tick places it)
+      const rest = fa.origin["tick-label"] ? fa.origin["tick-label"].origin - fa.origin["tick-label"].anchor : 0;
+      const offset = ft.a && ft.b ? (ft.oa ?? rest) + ((ft.ob ?? rest) - (ft.oa ?? rest)) * t : ft.a ? ft.oa : ft.ob;
+      if (ft.sameText || !(ft.a && ft.b)) { put(ft.labelA ?? ft.labelB, fa.origin["tick-label"], pixel, w * edge, base.label, offset); }
+      else { // matched, exact text differs: one hard swap at t = .5, always full opacity
+        put(ft.labelA, fa.origin["tick-label"], pixel, law.swapToB ? 0 : edge, base.label, offset);
+        put(ft.labelB, fa.origin["tick-label"], pixel, law.swapToB ? edge : 0, base.label, offset);
+      }
+    }
+  }
+  return replaced;
 }
 function projection(root: Element, manifest: FluxPlotManifest, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): Projection {
   let entries = plans.get(root);
@@ -405,6 +590,17 @@ function projection(root: Element, manifest: FluxPlotManifest, view: PlotView | 
   if (!entries) { entries = []; plans.set(root, entries); }
   entries.push({ manifest, view, opts, plan });
   return plan;
+}
+/** Drop the plan bound for `opts` on `root` and the hand-off pool it cloned (the transform host's dispose). Other
+ *  plans on the same root (a two-transform chain) keep theirs. Call after restoreProjection(root). */
+export function releasePlotView(root: Element, opts: PlotViewOptions | undefined): void {
+  const entries = plans.get(root); if (!entries) return;
+  const set = roots.get(root);
+  plans.set(root, entries.filter(e => {
+    if (e.opts !== opts) return true;
+    for (const n of e.plan.flightNodes) { n.parentNode?.removeChild(n); set?.delete(n); }
+    return false;
+  }));
 }
 /** Bind before overrides/compensation, or before the first playback frame. */
 export function preparePlotView(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): void {
@@ -473,7 +669,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
   const atRest = !!opts?.assetChange && (progress >= 1 && !view || progress <= 0 && !opts.fromView);
   // at rest with a view, an axis whose domain or scale changed gets ticks generated for the new
   // domain (its own scheme: nice 1·2·5 steps or decades) in place of the generated ones (F4)
-  const reticked = !opts && !!view ? retick(root, plan, view, manifest) : new Set<Element>();
+  const reticked = !opts ? (view ? retick(root, plan, view, manifest) : new Set<Element>()) : plan.flight.length ? writeFlight(plan, t) : new Set<Element>();
   if (!reticked.size) dropRetick(root);
   for (const g of plan.guides) {
     if (reticked.has(g.node)) continue;
@@ -535,7 +731,7 @@ function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxP
         clone.setAttribute("id", `${tpl.node.getAttribute("id") ?? tpl.leaf}.view.${i}`);
         clone.setAttribute("data-projection-tick", "");
         (clone as SVGElement).style.removeProperty("display");
-        const delta = pixel - tpl.origin;
+        const delta = pixel - tpl.anchor;
         const original = tpl.node.getAttribute("transform");
         const pristineTransform = pristine.get(tpl.node)?.attrs.get("transform");
         const base = pristineTransform?.written ? pristineTransform.value : original;

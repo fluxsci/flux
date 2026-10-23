@@ -270,3 +270,39 @@ export function plotViewIssues(manifest: FluxPlotManifest | undefined, view: Plo
   if (unchanged) issues.push("View applies to lines, points, bars, cells, hexagons and guides of this plot; images and rasterized layers remain unchanged.");
   return issues;
 }
+
+// ---------------------------------------------------------------------------
+// T8 tick hand-off (pure): which entries of a start tick set and an end tick set are THE SAME tick, and the
+// frame law for the rest. Shared by the DOM writer (projectDom.buildFlight/writeFlight) and the headless gate.
+// ---------------------------------------------------------------------------
+/** One tick of a start or end set: its data `value`, its label markup, and (generated ticks only) how far its label rests from
+ *  its tick mark along the axis, in pixels: a log axis' left-anchored label is half its own width off, so a generated label
+ *  keeps ITS offset while a nice one takes the template's. */
+export interface TickSpec { value: number; html: string; offset?: number }
+export interface TickPair { a?: TickSpec; b?: TickSpec }
+/** Pair two tick sets by DATA value with a tolerance of 2 % of the smaller tick step (log axes: of the smaller
+ *  log-step). Exact `toPrecision` keys fail for a generated start set: its values are recovered from the 6-digit
+ *  SVG coordinates and sit up to ~0.3 % of a step off the nice values. Greedy nearest, both sets sorted. */
+export function matchTickSets(A: readonly TickSpec[], B: readonly TickSpec[], log = false): TickPair[] {
+  const f = (v: number) => log ? Math.log(v) : v;
+  const sa = A.filter(t => Number.isFinite(t.value) && (!log || t.value > 0)).sort((p, q) => p.value - q.value);
+  const sb = B.filter(t => Number.isFinite(t.value) && (!log || t.value > 0)).sort((p, q) => p.value - q.value);
+  const step = (s: TickSpec[]) => { let m = Infinity; for (let i = 1; i < s.length; i++) m = Math.min(m, f(s[i].value) - f(s[i - 1].value)); return m; };
+  const minStep = Math.min(step(sa), step(sb)), tol = Number.isFinite(minStep) && minStep > 0 ? 0.02 * minStep : 1e-9;
+  const out: TickPair[] = [];
+  let i = 0, j = 0;
+  while (i < sa.length || j < sb.length) {
+    if (i < sa.length && j < sb.length && Math.abs(f(sa[i].value) - f(sb[j].value)) <= tol) out.push({ a: sa[i++], b: sb[j++] });
+    else if (j >= sb.length || i < sa.length && f(sa[i].value) < f(sb[j].value)) out.push({ a: sa[i++] });
+    else out.push({ b: sb[j++] });
+  }
+  return out;
+}
+const smoothstep01 = (x: number) => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
+/** The in-flight law of a tick during a view Change (eased t in 0..1). Matched ticks (same data value) stay at 1; a
+ *  start-only tick leaves over t .10-.45 and an end-only tick arrives over .45-.80, so the two sets never coexist
+ *  (their labels would bunch); a matched label whose exact text differs ("1" -> "1.0") swaps ONCE at t = .5 at full
+ *  opacity (a crossfade overprints "1"+"1.0" as "110" and dims the whole axis). */
+export function tickFlightLaw(t: number): { aOnly: number; bOnly: number; swapToB: boolean } {
+  return { aOnly: 1 - smoothstep01((t - .10) / .35), bOnly: smoothstep01((t - .45) / .35), swapToB: t >= .5 };
+}
