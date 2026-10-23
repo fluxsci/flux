@@ -17,8 +17,10 @@ import { lookupFont } from "../src/lib/text/fontFiles.mjs";
 import type { Slide } from "../src/lib/slide/types";
 import type { TextElement } from "../src/lib/types";
 import { crossArc as crossArcOf } from "../src/lib/slide/textMatch";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { harness } from "./lib/harness.mjs";
 import { launch } from "./lib/driver.mjs";
+import { perceptualDiff } from "./lib/slideSettleSweep";
 
 const h = harness("verify-text-morph-browser");
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-text-morph-"));
@@ -97,6 +99,19 @@ try {
   change(s16, "t", { text: "Microscopy images" });
   const s17 = add("stem-old"); addElement(deck, s17.id, text("t", 100, 200, "Microscope images", { fontSize: 44, width: 700, height: 60 }));
   old(change(s17, "t", { text: "Microscopy images" }));
+  // 18 — a text -> text hand-off whose source is unmappable (legacy whole-line justification): the box crossfade draws it, and the flight's own
+  // copies of A and B (the text layer, R2 F2) stay hidden: two renders of one text must never show at once.
+  const s18 = add("handoff-legacy"); addElement(deck, s18.id, text("a", 100, 100, "one two three four five six", { align: "justify", sizing: "fixed", width: 200, height: 80, lines: ["one two three", "four five six"] }));
+  addElement(deck, s18.id, text("b", 400, 300, "seven eight nine ten", { sizing: "fixed", width: 260, height: 40 }));
+  change(s18, "a", {}).to!.become = { mode: "handoff", ref: { element: "b" } };
+  // 19 / 20 / 21 — glides whose own LOOK changes in place: a count, a colour lerp, a weight cross-fade. They do not move, so the hand-over's
+  // position terms read 0 for the whole flight; the look terms (textMorph frame()) must hand the picture to the span layer as they change.
+  const s19 = add("count"); addElement(deck, s19.id, text("t", 100, 200, "Flux 42", { fontSize: 56, width: 700, height: 70 }));
+  change(s19, "t", { text: "Flux 4.2 rewritten" });
+  const s20 = add("recolor"); addElement(deck, s20.id, text("t", 100, 200, "Hello world", { fontSize: 56, width: 700, height: 70 }));
+  change(s20, "t", { text: "Hello world today", color: "#d14d41" });
+  const s21 = add("weight"); addElement(deck, s21.id, text("t", 100, 200, "Hello world", { fontSize: 56, width: 700, height: 70 }));
+  change(s21, "t", { text: "Hello world today", fontWeight: 700 });
   // The real bake (payload.ts) through the shared resolver, as export-deck does.
   const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p) };
   const baked = (await gatherPayload(tmp, deck, { ...io, glyphFont: async (style) => (await lookupFont(style)).bytes })).payload;
@@ -172,7 +187,10 @@ try {
   await seek(0, 500); st = await state();
   const glides = st.spans.filter((s) => s.kind === "glide");
   h.eq(new Set(glides.map((s) => s.text!.toLowerCase())).size, 3, "mid-flight: all three words glide (a reorder by content)");
-  h.ok(glides.filter((s) => s.promoted && s.role === "main").length === 3, "mid-flight: the three gliding spans ride promoted layers");
+  // R2 F2 round 2: the spans ride compositor layers in the middle of the move (a slow glide is smooth; painted in place it stair-steps in
+  // quarter-device-pixel hops), and the hand-over hides the phase of a layer's first raster at both ends (pinned in pixels below)
+  // a rewrite whose BOX travels rides the wrapper's layer, so its spans are painted into that one (a layer per span would re-promote what already moves with it)
+  h.ok(st.spans.every((s) => !s.promoted) && await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>("[data-el-id]")).some((w) => w.style.willChange === "transform")), "mid-flight: a rewrite that moves its box paints its spans into the box's one promoted layer");
   h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden" && st.morphVisible === "visible", "mid-flight: A and B are hidden, the span layer shows");
   const mono = (v: number[]) => v.every((x, i) => !i || x > v[i - 1]) || v.every((x, i) => !i || x < v[i - 1]);
   h.ok(Object.keys(xs).length === 3 && Object.values(xs).every(mono), `glide translates move monotonically (${Object.entries(xs).map(([k, v]) => `${k}:${v.map((x) => x.toFixed(1)).join(">")}`).join(" ")})`);
@@ -371,6 +389,65 @@ try {
   // the hand-off driver plans lanes and reads the look too
   const ovh = await worstOverlap(15);
   h.ok(ovh <= 400, `hand-off: the same reversal as a text -> text Become overprints ${ovh} px^2 (<= 400)`);
+
+  // --- R2 F2: the first moving frame is the rest render, the last is the static render ---------------------------------------------------------
+  // A span run is shaped and rasterised a few hundredths of a device pixel differently from the whole line it was cut from (a quarter-pixel
+  // glyph bucket flips for a glyph or two), which read 15 to 130 stage px^2 on the first moving frame and the landing frame of every rewrite
+  // (R2 settle sweep: START POP / END SNAP on the text decks, change#3). Measured in the pixels the page paints (the perceptual comparison of the
+  // settle sweep, stage px^2 per stage px^2), through the real player: spans are drawn by their endpoint's own svg mapping, paint in place, and
+  // hand over to the static renders over the first and the last 0.75 stage px of change.
+  {
+    const box = await page.evaluate(() => { const r = document.querySelector<HTMLElement>(".sl-camera")!.parentElement!.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    const grab = async (slide: number, time: number, beat = 1) => {
+      await seek(slide, time, beat); await page.evaluate("new Promise(r => requestAnimationFrame(r))");
+      const img = await loadImage(await page.screenshot({ clip: box, type: "png" }) as Buffer);
+      const c = createCanvas(img.width, img.height).getContext("2d"); c.drawImage(img, 0, 0);
+      return c.getImageData(0, 0, img.width, img.height).data;
+    };
+    const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => perceptualDiff(a, b, Math.round(box.width), scale);
+    for (const [slide, label] of [[0, "reorder + move"], [7, "4-word reversal"], [16, "stem edit"], [3, "text -> text Become"], [15, "Become reversal"]] as const) {
+      const rest = await grab(slide, 0), first = await grab(slide, 0.05), near = await grab(slide, 999.95), end = await grab(slide, 1000);
+      const d0 = diff(rest, first), d1 = diff(near, end);
+      h.ok(d0 < 2, `${label}: the first moving frame (0.05 ms of a linear move) is the rest render (Δ ${d0.toFixed(2)} stage px² < 2; the base player measures 2.6 to 3.3 here)`);
+      h.ok(d1 < 2, `${label}: the last frame (0.05 ms before the end) is the static render (Δ ${d1.toFixed(2)} stage px² < 2; the base player measures 4.3 to 23 here)`);
+    }
+    // the hand-over weights are a pure function of the frame: forward == reverse == shuffled seeks, on the windows where they are not 0 or 1
+    const weights = () => page.evaluate(() => { const m = document.querySelector<HTMLElement>(".sl-text-morph"); return m ? Array.from(m.parentElement!.children).map((n) => `${getComputedStyle(n).visibility}:${(n as HTMLElement).style.opacity}`).join("|") : ""; });
+    const atW = async (slide: number, t: number) => { await seek(slide, t); return weights(); };
+    const wt = [0.05, 3, 8, 30, 500, 960, 985, 995, 999.9], fw = [] as string[], rv = [] as string[], sh = [] as string[];
+    for (const t of wt) fw.push(await atW(16, t));
+    for (const t of [...wt].reverse()) rv.unshift(await atW(16, t));
+    for (const i of [4, 1, 8, 0, 6, 3, 7, 2, 5]) sh[i] = await atW(16, wt[i]);
+    h.ok(fw.every((v, i) => v === rv[i] && v === sh[i]) && new Set(fw).size >= 4, `hand-over weights: forward == reverse == shuffled seeks on the entry and landing windows (${new Set(fw).size} distinct states)`);
+    await seek(0, 500); st = await state();
+    h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden", "mid-flight the span layer alone shows (A and B hold no weight)");
+    await seek(0, 0.2); st = await state();
+    h.ok(st.layers[0] === "visible" && st.morphVisible === "visible", "a fraction of a ms in, A still shows and the span layer is added over it with its own weight");
+    // a rewrite whose box stays put (a stem edit) glides on compositor layers: a slow glide painted in place moves in quarter-device-pixel hops
+    await seek(16, 500); st = await state();
+    h.ok(st.spans.some((s) => s.kind === "glide" && s.visible) && st.spans.filter((s) => s.visible).every((s) => s.promoted), "stem edit mid-flight: every visible span rides its own layer (a slow glide is smooth, not quarter-pixel hops)");
+    await seek(16, 1000); st = await state();
+    h.ok(st.spans.every((s) => !s.promoted && !s.visible), "stem edit at the end: every span is demoted and hidden");
+
+    // A glide that changes only its LOOK (a count's digits, a colour lerp, a weight cross-fade) is not away from A by distance; without the look terms
+    // the span layer held weight 0 under the frozen static render while the count counted and the colour lerped unseen, then took over in one frame
+    // (R2 F2 review: "Flux 42" frozen for 450 ms, then 13 digits in one frame; the red of "Hello world" 16 16 16 16 16 76). The picture must move
+    // from the first frames and the span layer must own it by a fifth of the way: weight of the span layer > 0 from 100 ms, and the picture differs
+    // from the rest render in pixels by 300 ms.
+    const share = () => page.evaluate(() => { const m = document.querySelector<HTMLElement>(".sl-text-morph"); return m ? Number(m.style.opacity === "" ? 1 : m.style.opacity) : -1; });
+    for (const [slide, label] of [[19, "count"], [20, "colour"], [21, "weight cross-fade"]] as const) {
+      await seek(slide, 100); const early = await share(); await seek(slide, 200); const later = await share();
+      h.ok(early > 0 && later >= early && later > 0.9, `${label}: the span layer owns the picture from 100 ms (weight ${early.toFixed(3)} at 100 ms, ${later.toFixed(3)} at 200 ms of 1000)`);
+      const rest = await grab(slide, 0), mid = await grab(slide, 300), end = await grab(slide, 1000);
+      h.ok(diff(rest, mid) > 6 && diff(mid, end) > 6, `${label}: the picture at 300 ms differs from the rest render and from the end render (it is moving)`);
+    }
+  }
+
+  {
+    await seek(18, 500);
+    const fb = await page.evaluate(() => { const l = document.querySelector<HTMLElement>(".sl-flight-text"); return { copies: l ? Array.from(l.children).filter((c) => !c.classList.contains("sl-text-morph") && c.querySelector("text")).map((c) => getComputedStyle(c).visibility) : [], spans: Array.from(document.querySelectorAll<HTMLElement>(".sl-tm-span")).filter((s) => getComputedStyle(s).visibility === "visible").length }; });
+    h.ok(fb.copies.length === 2 && fb.copies.every((v) => v === "hidden") && fb.spans === 0, `hand-off, unmappable source: the box crossfade draws the texts and the flight's copies of A and B stay hidden (${fb.copies.join("/")}, ${fb.spans} spans showing)`);
+  }
 
   // --- the glyph-box fallback (an export without baked fonts) -----------------------------
   await page.goto(pathToFileURL(boxesFile).href); await page.waitForFunction("!!window.fluxDeck?.seek");

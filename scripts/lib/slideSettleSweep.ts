@@ -25,6 +25,8 @@ import type { Deck, Slide } from "../../src/lib/slide/types";
 export const FRAME_MS = 1000 / 60;
 /** Tiny windows (ms): wide enough that an eased start still moves < 1/255 of a level, narrow enough that a pop is a spike. */
 export const TINY_MS = 2;
+/** The window of the MID FREEZE test (six frames: long enough that a discrete count flip or a quantised glide cannot hide in it). */
+export const QUARTER_MS = 100;
 /** "Seek to the end" (page.evaluate would serialise Infinity to null): the player clamps a seek to the cue length. */
 const REST = 1e9;
 /** The comparison is PERCEPTUAL: both images are averaged 2x2 (a 1 device-pixel box filter) and a per-channel difference under
@@ -48,6 +50,9 @@ export interface CueRow {
   sFr: number; sF2r: number;
   /** mid-flight Δ over 2 ms and over one frame (the cue's own motion scale). */
   mid: number; midF: number;
+  /** RAW change over `QUARTER_MS` starting a quarter of the way into the cue: a cue that moves at mid-flight is never still a quarter in (a text
+   *  rewrite whose spans counted and recoloured unseen under the static render, then took over in one frame, read 0.0 here and 100 at mid-flight). */
+  q4: number;
   /** Δ D-4 → D-2, D-2 → D, D-2F → D-F, D-F → D. */
   e42: number; e20: number; eF2: number; eF: number;
   /** landing reached by seeking forward frame by frame vs seeked directly (a controller crossing must leave the same pixels). */
@@ -67,6 +72,8 @@ export interface Thresholds {
   /** ... and above this many units (3x floorFrame): a quick curve (dim, quick smooth) moves most of a small element's change in its second frame while
    *  the first reads ~0 and nothing moves at mid-flight, so a low floor would call every quick start a pop. */
   floorSecond: number;
+  /** MID FREEZE: the raw change over `QUARTER_MS` at D/4 must exceed this when the cue moves at mid-flight (`midF` above floorFrame). */
+  freeze: number;
   /** a post-landing change must stay under this (it should be exactly 0). */
   rest: number;
   /** the landing reached frame by frame vs seeked directly: a seek has no priming frame, so headless Chrome bakes a gliding layer
@@ -80,10 +87,30 @@ export interface Thresholds {
  *  device-pixel snapping: a wrapper's layout box is whole STAGE px, which at a fractional fit scale (2.5x here) the browser snaps to the
  *  device grid at rest but not in flight, so a resized stroked shape lands up to ~0.15 device px off its last frame. Nobody can see that;
  *  a dot, a thickened stroke, re-rasterised text, a popped corner are all well above it. */
-export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, ratioSecond: 10, secondOfMid: 0.25, floorSecond: 24, rest: 2, run: 30, pre: 25 };
+export const THRESHOLDS: Thresholds = { floorTiny: 6, floorFrame: 8, ratioTiny: 4, ratioFrame: 3, ratioSecond: 10, secondOfMid: 0.25, floorSecond: 24, freeze: 0.5, rest: 2, run: 30, pre: 25 };
 
 const spike = (a: number, b: number, floor: number, ratio: number) => a > floor && a > ratio * Math.max(b, 0.25);
 
+/** HOP: a presented frame inside a motion that must be CONTINUOUS (a glide: stem edit, number + unit) changes several times more than both of its
+ *  neighbours. Painted in place, a slow text glide moves in quarter-device-pixel hops (0.8, 23.4, 0.3 beside 1.1: smooth on a compositor layer,
+ *  stair-stepped in place); a layer moves it at float precision. Judged only for the cues a gate lists as continuous (a count flips digits,
+ *  a stagger starts nodes one by one: their series are legitimately spiky). `d` = the change from the previous presented frame; the first and
+ *  the last frame of the motion belong to START STEP / LANDING STEP. */
+export const HOP = { ratio: 4, floor: 8 } as const;
+export function hops(d: readonly number[], t = HOP): number[] {
+  const out: number[] = [];
+  for (let i = 1; i + 1 < d.length; i++) if (d[i] > t.floor && d[i] > t.ratio * Math.max(d[i - 1], d[i + 1])) out.push(i);
+  return out;
+}
+
+// The second-frame rule reads a QUANTISED slow start as a content swap, and three study-rig cues still show it (`CORPUS=rig`, measured by R2 F2; none is a
+//  defect, none is in the gate's corpus, so they are recorded here instead of being tolerated by an entry nothing could check):
+//    W `dim_demo` (slide 5 `dim`)        raw 1.4 -> 214.7: opacity 1 -> 0.99558 (16.7 ms) -> 0.98060 (33 ms): a 0.0044 step is under one 8-bit level on most
+//                                         fills, 0.015 reaches 1 to 3 levels, so the first frame reads 0 and the second a whole shape;
+//    T6 `growBaseline` (bars_mixed)      raw 12.2 -> 260.1: scaleY 0.0063 -> 0.0277 on bars 0.2 to 0.4 axis units tall (about 6 px): a 0.04 px, then a 0.17 px sliver;
+//    T3 `writeOn` on text, HARD clip     raw 0.0 -> 75.5: a pre-WP-2.4 track has no `edge`, and the hard edge crosses the first stem in frame 2. The soft
+//                                         edge every new writeOn is authored with reads 0.0 -> 4.7 on the same text (and plays clean on the compositor).
+//  The same rule still catches the real thing (a content swap one frame late: the count-up case in KNOWN_OPEN, START POP 2nd frame 209, gated).
 /** The verdict for one measured cue, from its windows alone (pure; the gate pins it). */
 export function classify(r: Omit<CueRow, "flags">, t: Thresholds = THRESHOLDS): string[] {
   const flags: string[] = [];
@@ -93,6 +120,7 @@ export function classify(r: Omit<CueRow, "flags">, t: Thresholds = THRESHOLDS): 
   if (r.sF2r > t.floorSecond && r.sF2r > t.ratioSecond * Math.max(r.sFr, 0.25) && r.sF2r > t.secondOfMid * r.midF) flags.push("START POP (2nd frame)");
   if (spike(r.e20, r.e42, t.floorTiny, t.ratioTiny)) flags.push("END SNAP (2ms)");
   if (spike(r.eF, r.eF2, t.floorFrame, t.ratioFrame)) flags.push("END SNAP (frame)");
+  if (r.midF > t.floorFrame && r.q4 < t.freeze) flags.push("MID FREEZE");
   if (r.dRun > t.run) flags.push("POST CHANGE");
   return flags;
 }
@@ -174,6 +202,7 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
         p0: await grab(s, to, 0, from), p2: await grab(s, to, TINY_MS, from), p4: await grab(s, to, 2 * TINY_MS, from),
         pF: await grab(s, to, Math.min(F, D), from), p2F: await grab(s, to, Math.min(2 * F, D), from),
         mid: await grab(s, to, D / 2, from), mid2: await grab(s, to, D / 2 + TINY_MS, from), midF: await grab(s, to, D / 2 + F, from),
+        q0: await grab(s, to, D / 4, from), q1: await grab(s, to, Math.min(D, D / 4 + QUARTER_MS), from),
         e2F: await grab(s, to, Math.max(0, D - 2 * F), from), eF: await grab(s, to, Math.max(0, D - F), from),
         e4: await grab(s, to, Math.max(0, D - 2 * TINY_MS), from), e2: await grab(s, to, Math.max(0, D - TINY_MS), from), e0: await grab(s, to, D, from),
       };
@@ -187,7 +216,7 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
         slide: s, slideId: slide.id, from, to, label: kindsOf(slide, from, to), dur: D,
         dPre: pre ? diff(pre, f.p0) : NaN,
         s02: diff(f.p0, f.p2), s24: diff(f.p2, f.p4), sF: diff(f.p0, f.pF), sF2: diff(f.pF, f.p2F), sFr: raw(f.p0, f.pF), sF2r: raw(f.pF, f.p2F),
-        mid: diff(f.mid, f.mid2), midF: diff(f.mid, f.midF),
+        mid: diff(f.mid, f.mid2), midF: diff(f.mid, f.midF), q4: raw(f.q0, f.q1),
         e42: diff(f.e4, f.e2), e20: diff(f.e2, f.e0), eF2: diff(f.e2F, f.eF), eF: diff(f.eF, f.e0),
         dRun: diff(f.e0, run),
       };
@@ -198,10 +227,10 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
 }
 
 const n = (v: number, w = 6) => (Number.isFinite(v) ? v.toFixed(1) : "  -").padStart(w);
-export const TABLE_HEAD = "slide beat   dur(ms) tracks    pre   s0-2   s2-4  s0-F  sF-2F  s0-Fr sF-2Fr    mid   midF  e-4-2  e-2-0 e-2F-F  e-F-0   run  verdict";
+export const TABLE_HEAD = "slide beat   dur(ms) tracks    pre   s0-2   s2-4  s0-F  sF-2F  s0-Fr sF-2Fr    mid   midF     q4  e-4-2  e-2-0 e-2F-F  e-F-0   run  verdict";
 export function tableRow(r: CueRow, name = ""): string {
   const beat = r.from === r.to ? String(r.from) : `${r.from}-${r.to}`;
-  return `${(name || String(r.slide)).slice(0, 18).padStart(5)} ${beat.padStart(4)}  ${String(Math.round(r.dur)).padStart(7)} ${r.label.slice(0, 9).padEnd(9)} ${n(r.dPre)} ${n(r.s02)} ${n(r.s24)} ${n(r.sF)} ${n(r.sF2, 6)} ${n(r.sFr)} ${n(r.sF2r, 7)} ${n(r.mid)} ${n(r.midF, 7)} ${n(r.e42)} ${n(r.e20)} ${n(r.eF2, 7)} ${n(r.eF)} ${n(r.dRun)}  ${r.flags.join(", ") || "ok"}`;
+  return `${(name || String(r.slide)).slice(0, 18).padStart(5)} ${beat.padStart(4)}  ${String(Math.round(r.dur)).padStart(7)} ${r.label.slice(0, 9).padEnd(9)} ${n(r.dPre)} ${n(r.s02)} ${n(r.s24)} ${n(r.sF)} ${n(r.sF2, 6)} ${n(r.sFr)} ${n(r.sF2r, 7)} ${n(r.mid)} ${n(r.midF, 7)} ${n(r.q4)} ${n(r.e42)} ${n(r.e20)} ${n(r.eF2, 7)} ${n(r.eF)} ${n(r.dRun)}  ${r.flags.join(", ") || "ok"}`;
 }
 
 export async function withBrowser<T>(fn: (browser: import("puppeteer-core").Browser, tmp: string) => Promise<T>): Promise<T> {
@@ -230,21 +259,29 @@ export const openKey = (deck: string, slideId: string, from: number, to: number)
  *  stops firing fails it too. */
 export const KNOWN_OPEN: Record<string, OpenCase> = {
   // highlight / dim start as a wink: the element is dimmed at t = 0 (opacity level -> 1). Lane V (WP 2.2, T6 emphasis that MOVES) rewrites it.
-  // a text rewrite hands the original static text to the span layer: the glyph-matched morph's first/last frame differ from the resting
-  // text by anti-aliasing (50 stage px^2). Lane T (WP 2.5, text glide lanes / letters travel) owns textMorph.ts.
-  [openKey("change", "change", 3, 3)]: { seek: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)"], owner: "lane T (text morph layers)" },
   // a with-previous highlight starts at its OWN delay (120 ms in) with a one-frame dim of 147 stage px^2 and then holds (the wink): the real-time
   // gate's first-changing-frame rule sees it where the seek gate's windows at t = 0 cannot (the boundary is not at t = 0). Lane V rewrites highlight.
-  // the count-up replaces the resting number with its digit slots one frame after t = 0 (frame 0 is the rest, the second frame is 201 units, a
-  // frame of the motion's own scale): a content swap that lands late. Lane D (WP 2.3, count-up slots) owns it.
-  [openKey("plot_scatter", "scatter", 4, 4)]: { seek: ["START POP (2nd frame)"], owner: "R2 follow-up (a scaleIn point child re-entering VISIBLE points shifts every point at t = 0 (pre 22.7) and again on the 2nd frame; fade / popIn re-entries do not; a fresh auto-built scatter is clean)" },
-  [openKey("preset_countUp", "p_countUp", 1, 1)]: { seek: ["START POP (2nd frame)"], owner: "lane D (count-up digit slots replace the resting number one frame late)" },
+  // The count-up's first digit step lands on the SECOND frame: frame 0 is the rest, frame 1 still reads "0" (the count has not yet reached 0.5), frame 2
+  // is the first flip (a glyph, 209 stage px^2 at 40 px: the motion's own scale, 154 to 201 on every later frame). R2 F2 measured it, and it is NOT the
+  // place-value slots replacing the resting number late: the slotted "0" before the cue and on frames 0 and 1 are the same pixels (0.0 raw), the first
+  // flip lands in the same slot, and with `steadyDigits: false` the step is the same (201 against 209). It is the plain quintic `smooth` of the track:
+  // its dead lead-in keeps the value under 0.5 for 25 ms, and a quantised quantity has no frame between "0" and "1". Both sides measured (seek,
+  // 900 ms, 1,234): `smooth` first flip on frame 2 (START POP 2nd frame 209, here); the appearance onset curve QUICK_SMOOTH flips inside the first 2 ms
+  // (START POP 2ms 209); linear flips continuously and is clean, but a count that starts at full speed is not manim's `smooth`. The plan keeps countUp on
+  // plain `smooth` (R4_T1 §3.4: "the one accepted residual", pinned by verify-pace-defaults); the real-time gate (the frames a viewer sees) reads the first flip
+  // as the count's own first step (211 before 154) and passes without an entry.
+  [openKey("preset_countUp", "p_countUp", 1, 1)]: { seek: ["START POP (2nd frame)"], owner: "inherent: a quantised count under plain smooth has no frame between 0 and 1 (plan R4_T1 keeps countUp on smooth; QUICK_SMOOTH moves the flip into the first 2 ms)" },
   // TEXT that glides to a FRACTIONAL position rests on the gliding raster: a layer is rasterised once at its source phase and moved at float
   // precision (the only way text glides), so it lands up to half a device pixel soft against a render painted in place there (25 stage px^2
   // for a 22 px word). The alternative, demoting the layer at landing, measured a 44 stage px^2 sharpening STEP on the landing frame; manim's
   // rule is that nothing pops, so the landing keeps the raster. Inherent to the glide (docs: layer hygiene), recorded here, not hidden.
   [openKey("change", "change", 1, 1)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
   [openKey("springs", "springs", 3, 3)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
+  // Re-entering a part that is already SHOWN pops by definition: a node that is shown has to vanish before an enter can show it again, so every point
+  // leaves (scale 0) and grows back at its own turn: the second `scaleIn` of the same points reads 22.7 before the cue and 22.8 on its second frame (one
+  // 21 x 22 px point each; `fade` twice and `popIn` twice read the same: R2 F2 measured it, it is not a defect of scaleIn). Pinned here so that making
+  // an enter on a shown node a no-op (or anything else) is a deliberate vocabulary decision, never a side effect: the entry fails once the pop is gone.
+  [openKey("plot_scatter", "scatter_reenter", 2, 2)]: { seek: ["START POP (2nd frame)"], owner: "by definition: re-entering a shown part vanishes and re-enters it (a vocabulary decision for the owner: manim's own FadeIn on a shown mobject shows no pop)" },
   // The Release 1 review deck's two hardest hand-offs (slide 11 a thick-stroked line / arrow becoming a shape, slide 13 a 12 px unfilled rect
   // becoming an ellipse; `become_stroked`). R2 follow-up F1 fixed their START (a stroke's outer corner jumped from radius 0 to w/2 on the first frame,
   // and a body that stopped inside an arrowhead poked a round cap past the tip: 20 to 30 stage px^2 on both domains, now 0.1): the stroke is drawn as a
@@ -273,10 +310,6 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // layer's raster, the hinted glyphs rotated by the compositor, which differs from a fresh render painted at the final angle (42 stage px^2 for a
   // 210 px line; 0.0 to 16 elsewhere). Unpromoted it is exact at the end and ragged all along with a 9 to 66 jump at the start.
   [openKey("change", "change", 16, 16)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a turning text lands on its layer's raster (the alternative is a start flip and a ragged turn)" },
-  // A Ghost copy of a TEXT is born exactly on top of its source: two layers of the same anti-aliased glyphs read bolder than one (edge coverage c
-  // becomes 1-(1-c)^2), a first frame 22.6 stage px^2 from the rest. A copy that fades in as it separates, or a source that hides under it for the
-  // first frame, fixes it; both change the Ghost vocabulary (not this lane's brief). Unassigned: the integrator.
-  [openKey("ghost", "ghost", 2, 2)]: { rt: ["START STEP"], rtMay: ["FIRST FRAME"], owner: "unassigned (Ghost birth: a text copy doubles its source's anti-aliasing for one frame)" },
 };
 /** What this cue's flags leave over once its tolerated ones are removed, plus the stale entries (a required flag that did not fire). */
 export function judge(flags: string[], open: OpenCase | undefined, domain: "seek" | "rt", value: (flag: string) => number | undefined = flagValue): { failing: string[]; tolerated: string[]; stale: string[] } {

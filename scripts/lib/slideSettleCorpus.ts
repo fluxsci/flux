@@ -109,13 +109,32 @@ async function plotDecks(compact: boolean): Promise<CorpusDeck[]> {
     b.anim(s, axes, "pl", "drawOn", { part: "axis.x.ticks", stagger: { by: "x", from: "start", totalMs: 450 }, duration: 140 });
     b.anim(s, axes, "pl", "fade", { part: "axis.x.tick-labels", start: 40, duration: 200, stagger: { by: "x", from: "start", totalMs: 450 } });
     b.anim(s, axes, "pl", "fade", { part: "axis.y.tick-labels", start: 40, duration: 200, stagger: { by: "y", from: "start", totalMs: 450 } });
-    for (const child of compact ? ["fade", "popIn", "scaleIn"] : ["fade", "fadeRise", "popIn", "growBaseline", "scaleIn"]) {  // scaleIn: the V2 point child (WP 2.2)
-      const beat = b.beat(s);
-      b.anim(s, beat, "pl", "stagger", { selector: { role: "point" }, stagger: { by: "index", from: "start", totalMs: 1200 }, params: { child }, duration: 400 });
-    }
-    if (!compact) { const beat = b.beat(s); b.anim(s, beat, "pl", "fade", { selector: { role: "point" }, duration: 500 }); }
+    // Every point child enters FRESH points, one slide each. The points of one slide enter ONCE: a second enter of the same (visible) points makes each
+    // of them leave and grow back at its own turn (a node that is already shown has to vanish before its enter can show it again: `fade` twice
+    // pops exactly like `scaleIn` after `popIn`), which is what entering a shown part MEANS, not a defect of the child (R2 F2 measured both). The
+    // authored scatter build enters its points once.
+    const children = compact ? ["fade", "popIn", "scaleIn"] : ["fade", "fadeRise", "popIn", "growBaseline", "scaleIn"];  // scaleIn: the V2 point child (WP 2.2)
+    const enter = (slide: string, child: string) => {
+      const beat = b.beat(slide);
+      b.anim(slide, beat, "pl", "stagger", { selector: { role: "point" }, stagger: { by: "index", from: "start", totalMs: 1200 }, params: { child }, duration: 400 });
+    };
+    enter(s, children[0]);
+    for (const child of children.slice(1)) { const slide = b.slide(`scatter_${child}`); place(b, slide, "pl", "scatter"); enter(slide, child); }
+    // ... and the second enter of the SAME points, kept as the pinned meaning of re-entering a shown part (KNOWN_OPEN, "by definition")
+    { const slide = b.slide("scatter_reenter"); place(b, slide, "pl", "scatter"); enter(slide, "scaleIn"); enter(slide, "scaleIn"); }
     out.push({ name: "plot_scatter", payload: { deck: b.deck, plots: { scatter: plots.scatter } } });
     void D;
+  }
+  {
+    // part effects on VISIBLE points (no enter): every transform-writing part effect leaves a visible part's first frame equal to its rest
+    // (a scaleIn / popIn / scaleOut / pulse / legacy scale / rotate / popOut / dim wrapper must add no step of its own)
+    const b = new Builder("plot_parts");
+    for (const [preset, extra] of [["pulse", {}], ["scaleOut", {}], ["popOut", {}], ["scale", { to: { scale: 1.4 } }], ["rotate", { to: { rotation: 40 } }], ["dim", {}]] as [string, Partial<Track>][]) {
+      const s = b.slide(`parts_${preset}`); place(b, s, "pl", "scatter");
+      const beat = b.beat(s);
+      if (LEGACY[preset]) b.old(s, beat, "pl", preset, 700, { selector: { role: "point" }, ...extra }); else b.anim(s, beat, "pl", preset, { selector: { role: "point" }, ...extra });
+    }
+    out.push({ name: "plot_parts", payload: { deck: b.deck, plots: { scatter: plots.scatter } } });
   }
   {
     const b = new Builder("plots_bars"); const s = b.slide("bars"); place(b, s, "pl", "bars", { x: 200, width: 240 });
@@ -164,6 +183,12 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     // an anagram rewrite (WP 2.5: a new text Change is authored with letters travel and roll leftovers), last so the cues above keep their numbers
     b.add(s, el("text", "anagram", 40, 318, { text: "LISTEN", fontSize: 28 }));
     b.change(s, b.beat(s), "anagram", { text: "SILENT" });
+    // a stem edit (Microscope -> Microscopy: the changed letters ride the word's glide and roll in place), after it so the cues above keep their numbers
+    b.add(s, el("text", "stem", 300, 318, { text: "Microscope images", fontSize: 28, sizing: "fixed", width: 330, height: 40 }));
+    b.change(s, b.beat(s), "stem", { text: "Microscopy images" });
+    // a rewrite that also MOVES its box (the wrapper rides a layer for the flight while the spans stay in place inside it)
+    b.add(s, el("text", "mv", 40, 262, { text: "Moving words here", fontSize: 24, sizing: "fixed", width: 250, height: 34 }));
+    b.change(s, b.beat(s), "mv", { text: "Words moving there", x: 100.5, y: 281.25 });
     out.push({ name: "change", payload: { deck: b.deck, assets: { img: pngDataUrl() }, assetSizes: { img: { width: 64, height: 48 } } } as SweepPayload });
   }
   {

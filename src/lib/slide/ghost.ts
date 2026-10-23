@@ -1,9 +1,40 @@
 /** Ghost results keep ordinary element identities in the document. Their birth
  * pose is resolved once from the preceding step, never from live player DOM. */
 import type { Element } from "../types";
+import { elementBBox } from "../geometry";
 import type { Slide, Track } from "./types";
 import type { AnimationIssue, PartFrame, SlideFrame } from "./compile";
 import { hasPartBinding } from "./targets";
+
+// --- the Ghost law: a copy's ink is not doubled while it coincides with its source ------------------------------------------------------
+// A Ghost copy is born exactly on top of its source (manim's TransformFromCopy). Two layers of the same anti-aliased glyphs are not one layer:
+// an edge pixel of coverage c reads 1 - (1 - c)^2, so a text copy born on its source read BOLDER on its first frame (22.6 stage px² on the
+// compositor, the frame it was born) and stayed doubled until it had moved a stroke width. Rendering twice is a rasteriser fact manim never meets
+// (it draws one frame at a time and the copy hides under its original). The copy's ink therefore EMERGES with its separation from the source:
+// invisible while it coincides, fully drawn once it has left by `ghostEmergeSpan` (a stroke width or so), a soft ramp between: it grows out of the
+// original, as it does in manim. A copy that never separates (the same place, a different look) fades in over the start of its flight instead.
+/** The distance (stage px) the copy has left its source by: the largest travel of any corner of its box, rotation and resize included. */
+export function ghostSeparation(from: Element, to: Element): number {
+  const corners = (e: Element) => {
+    const bb = elementBBox({ ...e, rotation: 0 }), cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2, a = (e.rotation ?? 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    return [[-bb.w / 2, -bb.h / 2], [bb.w / 2, -bb.h / 2], [bb.w / 2, bb.h / 2], [-bb.w / 2, bb.h / 2]].map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c]);
+  };
+  const a = corners(from), b = corners(to);
+  return Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1])));
+}
+/** Separation over which the copy's ink emerges: a tenth of its box's smaller side, 3 to 12 stage px (about a stroke width of its text). */
+export function ghostEmergeSpan(e: Element): number {
+  const bb = elementBBox({ ...e, rotation: 0 });
+  return Math.max(3, Math.min(12, 0.1 * Math.min(bb.w, bb.h)));
+}
+/** Share of the copy's own ink drawn at flight progress `u` for its state `el` (0 on the birth frame, 1 once it has left the source). Decided
+ *  once per Ghost track from its two ends: by separation when the copy travels at least its emerge span, by progress (the first quarter of the
+ *  flight) when it does not. Pure; every seek is a function of (el, u). */
+export function ghostEmergence(pre: Element, end: Element): (el: Element, u: number) => number {
+  const span = ghostEmergeSpan(pre), travels = ghostSeparation(pre, end) >= span;
+  const ramp = (x: number) => { const q = Math.max(0, Math.min(1, x)); return q * q * (3 - 2 * q); };
+  return travels ? (el) => ramp(ghostSeparation(pre, el) / span) : (_el, u) => ramp(u / 0.25);
+}
 
 export interface GhostBirth { target: string; source: string; beat: number; start: number; enabled: boolean; track: Track }
 export function ghostTargetIds(slide: Slide): string[] {

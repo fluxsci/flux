@@ -9,7 +9,7 @@
 // Headless Chrome quantizes slowly moving straight edges to 1/4 px: the neighbour-relative thresholds absorb it.
 import { PRESET_CATALOG } from "../src/lib/slide/presetCatalog";
 import { harness } from "./lib/harness.mjs";
-import { classify, judge, KNOWN_OPEN, openDeck, openKey, seekFlagValue, sweepDeck, tableRow, TABLE_HEAD, THRESHOLDS, withBrowser, type CueRow } from "./lib/slideSettleSweep";
+import { classify, hops, judge, KNOWN_OPEN, openDeck, openKey, seekFlagValue, sweepDeck, tableRow, TABLE_HEAD, THRESHOLDS, withBrowser, type CueRow } from "./lib/slideSettleSweep";
 import { corpus } from "./lib/slideSettleCorpus";
 
 const h = harness("verify-slide-settle-sweep");
@@ -17,7 +17,7 @@ const h = harness("verify-slide-settle-sweep");
 // -- 1. the verdict function (pure) ------------------------------------------------------------------------------------------
 {
   h.section("verdict function");
-  const calm = { slide: 0, slideId: "s", from: 1, to: 1, label: "x", dur: 700, dPre: 0, s02: 0, s24: 0, sF: 3, sF2: 6, sFr: 3, sF2r: 6, mid: 10, midF: 80, e42: 0, e20: 0, eF2: 6, eF: 2, dRun: 0 };
+  const calm = { slide: 0, slideId: "s", from: 1, to: 1, label: "x", dur: 700, dPre: 0, s02: 0, s24: 0, sF: 3, sF2: 6, sFr: 3, sF2r: 6, mid: 10, midF: 80, q4: 60, e42: 0, e20: 0, eF2: 6, eF: 2, dRun: 0 };
   h.eq(classify(calm), [], "a smooth ease-in / ease-out step has no verdict");
   h.eq(classify({ ...calm, s02: 7, s24: 0.1 }), ["START POP (2ms)"], "an instant jump in the first 2 ms beside a quiet window is a start pop");
   h.eq(classify({ ...calm, sF: 20, sF2: 2 }), ["START POP (frame)"], "a first frame that moves 10x the next one is a one-frame start pop");
@@ -27,6 +27,10 @@ const h = harness("verify-slide-settle-sweep");
   h.eq(classify({ ...calm, sF: 4, sF2: 30, sFr: 4, sF2r: 30, midF: 90 }), [], "a start that grows 7x (cubic ease) is smooth");
   h.eq(classify({ ...calm, sF: 0, sF2: 8.8, sFr: 0, sF2r: 8.8, midF: 0 }), [], "a quick curve that moves a small element's whole change in its second frame (nothing moves at mid-flight) is under the second-frame floor");
   h.eq(classify({ ...calm, sF: 0, sF2: 13.4, sFr: 3.1, sF2r: 15.9, midF: 10.6 }), [], "a slow start the dead band reads as 0 (every early change under 4 %) is not a late pop: the test is on the RAW windows");
+  h.eq(classify({ ...calm, q4: 0 }), ["MID FREEZE"], "a cue that moves at mid-flight but is dead 100 ms a quarter in froze under a static render (a text rewrite whose count and colour ran unseen, then took over in one frame)");
+  h.eq(classify({ ...calm, q4: 0.2 }), ["MID FREEZE"], "a quarter-way window under half a unit of change is still a freeze");
+  h.eq(classify({ ...calm, q4: 0, midF: 3 }), [], "a cue that does not move at mid-flight (a late or tiny element) has nothing to freeze");
+  h.eq(classify({ ...calm, q4: 3 }), [], "a slow, sub-visible quarter is not a freeze (a quintic start of a long cue)");
   h.eq(classify({ ...calm, e20: 14, e42: 0 }), ["END SNAP (2ms)"], "a jump in the last 2 ms beside a quiet window is an end snap");
   h.eq(classify({ ...calm, eF: 12, eF2: 2 }), ["END SNAP (frame)"], "a last frame that moves 6x the one before is a one-frame end snap");
   h.eq(classify({ ...calm, dPre: 5 }), [], "a promoted layer re-rastered at the first frame is under the pre-roll floor");
@@ -46,6 +50,9 @@ const h = harness("verify-slide-settle-sweep");
     h.eq(judge(["START POP (2ms)"], { seek: ["START POP (2ms)"], max: { "START POP": 12 }, owner: "x" }, "seek", seekFlagValue({ ...calm, s02: 40, s24: 0 } as never)).failing.length, 1, "the same pin reads a seek flag's measured window");
     h.eq(judge(["START STEP (1 before 0)"], { ...open, rt: undefined }, "seek"), { failing: ["START STEP (1 before 0)"], tolerated: [], stale: ["START POP (frame)"] }, "domains do not leak into each other");
   }
+  h.eq(hops([0, 0, 0.2, 0.5, 0.5, 1.1, 1.3, 0.8, 23.4, 0.3, 0.8, 1.1, 22.7, 1.0, 1.1]), [8, 12], "a presented frame that steps 20x its neighbours inside a glide is a hop (the stem edit painted in place: a ~23 unit hop every fourth frame)");
+  h.eq(hops([0, 0, 0.2, 0.5, 0.9, 1.2, 2.5, 2.6, 3.8, 4.0, 5.2, 5.9, 10.7, 10.0, 9.7, 8.2, 8.9, 7.4, 3.6, 2.6, 2.0, 0.9, 0.2]), [], "a smooth glide (a ramp up, a ramp down, a layer moving at float precision) has no hop");
+  h.eq(hops([0, 0, 0.1, 9.9, 10.5, 11.2, 12]), [], "a first changing frame is START STEP's, a fast start is not a hop (its neighbour moves as much)");
   h.ok(THRESHOLDS.floorTiny > 0 && THRESHOLDS.ratioTiny >= 3 && THRESHOLDS.ratioFrame >= 2, "thresholds are relative (a ratio to the neighbour) with an absolute floor");
 }
 
