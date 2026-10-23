@@ -229,6 +229,14 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
     { const s = b.slide("butt_line_rect"); b.add(s, el("line", "a", 60, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.blueD, strokeWidth: 8, cap: "butt" })); b.add(s, el("rect", "b", 330, 110, { width: 200, height: 140, fill: C.red, stroke: C.redD, strokeWidth: 8 }));
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    // the REVERSE direction on a thick ring (round -> corners: the same band-vs-stroker seam as the 12 px landing of become_stroked/corners, at the START),
+    // and a translucent stroke over a translucent fill (the band and the fill body composite as two nodes on the GPU)
+    { const s = b.slide("ell_rect"); b.add(s, { id: "a", type: "ellipse", x: 220, y: 90, width: 200, height: 180, rotation: 0, fill: "none", stroke: C.ink, strokeWidth: 12 }); b.add(s, el("rect", "b", 220, 90, { width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "rect", x: 220, y: 90, width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 } }); }
+    { const s = b.slide("ell_rect_ho"); b.add(s, { id: "a", type: "ellipse", x: 60, y: 90, width: 200, height: 180, rotation: 0, fill: "none", stroke: C.ink, strokeWidth: 12 }); b.add(s, el("rect", "b", 380, 90, { width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12, cornerRadius: 0 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("translucent"); b.add(s, el("rect", "a", 220, 90, { width: 200, height: 180, fill: C.blue, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 })); circle("b", { x: 220, y: 90, width: 200, height: 180, fill: C.red, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 });
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", x: 220, y: 90, width: 200, height: 180, fill: C.red, fillOpacity: 0.5, stroke: C.ink, strokeOpacity: 0.5, strokeWidth: 14 } }); }
     out.push({ name: "become_corners", payload: { deck: b.deck } });
   }
   {
@@ -258,7 +266,20 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     const ring = (s: string) => b.add(s, { id: "b", type: "ellipse", x: 230, y: 90, width: 180, height: 180, rotation: 0, fill: C.red + "cc", stroke: C.red, strokeWidth: 4 });
     { const s = b.slide("donut_circle"); pathEl(s, "a", D(40, 100), C.blue + "cc", C.blue); ring(s); b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", fill: C.red + "cc", stroke: C.red, strokeWidth: 4 } }); }
     { const s = b.slide("donut_circle_ho"); pathEl(s, "a", D(40, 100), C.blue + "cc", C.blue); ring(s); b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    // an extra subpath that winds WITH its outline rests as solid (Flux fills nonzero only): no hole may open as the Become runs
+    { const s = b.slide("donut_same_wind"); pathEl(s, "a", "M 0 0 L 180 0 L 180 180 L 0 180 Z M 40 40 L 140 40 L 140 140 L 40 140 Z", C.blue + "cc", C.blue); ring(s); b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", fill: C.red + "cc", stroke: C.red, strokeWidth: 4 } }); }
     out.push({ name: "compound", payload: { deck: b.deck } });
+  }
+  {
+    // R2 follow-up F1: flights that land on a SET of ellipses (lane S's decks: a rect split into three ellipses, six dots joining one ring, three dots into one rect)
+    const b = new Builder("set_flights");
+    { const s = b.slide("rect_3ellipses"); b.add(s, el("rect", "r", 120, 60, { width: 400, height: 80, fill: "#e6e4d9", stroke: C.ink, strokeWidth: 3, cornerRadius: 0 }));
+      [140, 320, 500].forEach((cx, i) => b.add(s, { id: "e" + i, type: "ellipse", x: cx - 30, y: 230, width: 60, height: 60, rotation: 0, fill: [C.blue, C.orange, C.green][i], stroke: C.ink, strokeWidth: 2 }));
+      b.become(s, b.beat(s), "r", { element: "e0", members: [{ element: "e0" }, { element: "e1" }, { element: "e2" }] }, { mode: "handoff" }); }
+    { const s = b.slide("six_ring"); for (let i = 0; i < 6; i++) b.add(s, { id: "d" + i, type: "ellipse", x: 70 + i * 90, y: 40, width: 30, height: 30, rotation: 0, fill: [C.blue, C.orange, C.green, C.red, C.blue, C.orange][i], stroke: C.ink, strokeWidth: 2 });
+      b.add(s, { id: "ring", type: "ellipse", x: 220, y: 150, width: 200, height: 170, rotation: 0, fill: "none", stroke: C.ink, strokeWidth: 5 });
+      const beat = b.beat(s); for (let i = 0; i < 6; i++) b.become(s, beat, "d" + i, { element: "ring" }, { mode: "handoff" }); }
+    out.push({ name: "set_flights", payload: { deck: b.deck } });
   }
   {
     const b = new Builder("ghost"); const s = b.slide("ghost");

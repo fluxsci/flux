@@ -4,13 +4,17 @@
 //  - the hand-off driver draws `.sl-handoff-band` in flight and it is HIDDEN at rest on both sides of the flight (an explicit `visibility: visible`
 //    on it showed a second copy of the ring at rest: a doubled edge, measured 0.75 coverage against 0.5);
 //  - a pair with no corner (dot -> dot) draws no band at all, a line becoming a ring neither (a round cap is a round join);
-//  - the stage draws an ELLIPSE as a `<path data-shape="ellipse">` (start at 3 o'clock, clockwise) and a rect still as a `<rect>`.
+//  - the stage draws an ELLIPSE as a `<path data-shape="ellipse">` (start at 3 o'clock, clockwise) and a rect still as a `<rect>`;
+//  - a DASHED / dotted ellipse keeps its butt caps (the figure serializer's path case defaults to round caps; the review of F1 caught every dashed
+//    ring growing w/2 at both ends of each dash): structurally, and against a real `<ellipse>` of the same geometry, pixel for pixel.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createDeck, addSlide, addElement, addBeat, becomeTransform, setTransform } from "../src/lib/slide/ops";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { perceptualDiff } from "./lib/slideSettleSweep";
 import { harness } from "./lib/harness.mjs";
 import { launch } from "./lib/driver.mjs";
 const h = harness("verify-slide-stroke-band-browser");
@@ -32,6 +36,9 @@ try {
   const draw = slide("draw"); addElement(deck, draw.id, E("a", { x: 100, y: 100, width: 100, height: 60, fill: "none" }));
   const db = addBeat(deck, draw.id, { id: "b1" })!; void setTransform;
   (await import("../src/lib/slide/ops")).setAnimation(deck, draw.id, db.id, { id: "t1", target: "a", preset: "drawOn", duration: 1000, easing: "linear", start: 0 } as never);
+  const dashed = slide("dashed");
+  addElement(deck, dashed.id, E("a", { x: 60, y: 60, width: 200, height: 140, fill: "none", stroke: "#fffcf0", strokeWidth: 4, dash: [10, 6] }));
+  addElement(deck, dashed.id, E("b", { x: 340, y: 60, width: 200, height: 140, fill: "none", stroke: "#fffcf0", strokeWidth: 7, dash: [0.1, 9] }));
   for (const sl of deck.slides) for (const b of sl.beats) for (const t of b.tracks) if (sl.id !== "draw") { (t as any).duration = 1000; (t as any).easing = "linear"; }
 
   const file = path.join(tmp, "band.html"); await fs.writeFile(file, (await exportDeckHtml({ deck })).html);
@@ -92,6 +99,24 @@ try {
   await seek(4, 0); await settle();
   const dash = await page.evaluate(() => { const p = document.querySelector('[data-el-id="a"] [data-shape="ellipse"]') as SVGPathElement; return { off: p.style.strokeDashoffset, arr: p.style.strokeDasharray, len: p.getTotalLength() }; });
   h.ok(!!dash.arr && Number(dash.arr.split(/[ ,]+/)[0]) > dash.len, `a drawOn ellipse rests undrawn with a dash that overshoots its measured length (${dash.arr} > ${dash.len.toFixed(1)})`);
+
+  h.section("a dashed ellipse keeps its butt caps: the same picture as the real <ellipse>");
+  await seek(5, 0); await settle();
+  const caps = await page.evaluate(() => ["a", "b"].map(id => { const p = document.querySelector(`[data-el-id="${id}"] [data-shape="ellipse"]`) as SVGPathElement; return { cap: p.getAttribute("stroke-linecap"), dash: p.getAttribute("stroke-dasharray") }; }));
+  h.ok(caps.every(c => c.cap === "butt") && caps[0].dash === "10 6", `a dashed ellipse is serialised with stroke-linecap="butt" (${caps.map(c => c.cap).join(", ")}) and its dash (${caps[0].dash}); round caps would grow every dash by w/2 at both ends`);
+  const grab = async () => {
+    const r = await page.evaluate(() => { const b = (document.querySelector('[data-el-id="a"]') as HTMLElement).getBoundingClientRect(), c = (document.querySelector('[data-el-id="b"]') as HTMLElement).getBoundingClientRect(); return { x: Math.floor(Math.min(b.left, c.left)) - 12, y: Math.floor(Math.min(b.top, c.top)) - 12, w: Math.ceil(Math.max(b.right, c.right) - Math.min(b.left, c.left)) + 24, h: Math.ceil(Math.max(b.bottom, c.bottom) - Math.min(b.top, c.top)) + 24 }; });
+    const buf = (await page.screenshot({ clip: { x: r.x, y: r.y, width: r.w, height: r.h }, type: "png" })) as Buffer;
+    if (process.env.DBG) await fs.writeFile(`${process.env.DBG}_${Date.now()}.png`, buf);
+    const img = await loadImage(buf), ctx = createCanvas(img.width, img.height).getContext("2d"); ctx.drawImage(img, 0, 0);
+    return { d: ctx.getImageData(0, 0, img.width, img.height).data, w: img.width };
+  };
+  const asPath = await grab();
+  await page.evaluate(() => { for (const id of ["a", "b"]) { const p = document.querySelector(`[data-el-id="${id}"] [data-shape="ellipse"]`) as SVGPathElement; const bb = p.getBBox(); const e = document.createElementNS("http://www.w3.org/2000/svg", "ellipse"); for (const a of [...p.attributes]) if (!["d", "data-shape", "stroke-linecap", "stroke-linejoin"].includes(a.name)) e.setAttribute(a.name, a.value); e.setAttribute("cx", String(bb.x + bb.width / 2)); e.setAttribute("cy", String(bb.y + bb.height / 2)); e.setAttribute("rx", String(bb.width / 2)); e.setAttribute("ry", String(bb.height / 2)); p.replaceWith(e); } });
+  await settle();
+  const asEllipse = await grab();
+  const diff = perceptualDiff(asPath.d, asEllipse.d, asPath.w, 1);
+  h.ok(diff < 80, `a dashed ring and a dotted ring look like the real <ellipse> (perceptual ${diff.toFixed(1)} stage px^2 < 80: hairline dots differ by the oval primitive; with round caps it reads 11,551)`);
 } finally {
   await browser?.close();
   await fs.rm(tmp, { recursive: true, force: true });

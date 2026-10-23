@@ -256,6 +256,14 @@ h.section("compound Become (R2 F1): a donut becoming a ring closes its hole in p
   h.ok(g(0.2) < g(0.5) && g(0.5) < g(0.9) && g(0.9) > 0.5 * 100 * 100, "a ring becoming a donut opens its hole from its centroid, growing monotonically");
   const j = (t: number) => JSON.stringify(sampleElementMorph(plan, t).d), ts = [0.001, 0.3, 0.7, 0.999];
   h.ok(JSON.stringify([...ts].reverse().map(j).reverse()) === JSON.stringify(ts.map(j)), "seek purity: forward = reverse");
+  // a hole keeps its AUTHORED winding relative to its outline (Flux fills nonzero: a same-wound extra subpath rests as solid and must not open a hole at t > 0)
+  {
+    const wound = (d: string, t: number, p: any = {}) => { const pl = planElementMorph({ ...donut, d, ...p }, circle)!, sub = pathToSubpaths(sampleElementMorph(pl, t).d); return sub.length === 2 ? Math.sign(area(sub[0].nodes)) * Math.sign(area(sub[1].nodes)) : 0; };
+    const cw = "M 0 0 L 180 0 L 180 180 L 0 180 Z", inCw = "M 40 40 L 140 40 L 140 140 L 40 140 Z", inCcw = "M 40 40 L 40 140 L 140 140 L 140 40 Z", ccw = "M 0 0 L 0 180 L 180 180 L 180 0 Z";
+    h.ok([0.001, 0.4, 0.8].every((t) => wound(cw + " " + inCw, t) === 1), "a same-wound extra subpath (it rests as solid, no hole) stays same-wound through the whole Become: no hole opens at t > 0 (the first frame was a 1,922 px^2 pop)");
+    h.ok([0.001, 0.4, 0.8].every((t) => wound(ccw + " " + inCcw, t) === 1 && wound(ccw + " " + inCw, t) === -1 && wound(cw + " " + inCcw, t) === -1), "counter-clockwise outlines keep the authored relation too (hole stays a hole, same-wound stays same-wound)");
+    h.ok([0.001, 0.4, 0.8].every((t) => wound(cw + " " + inCcw, t, { flipX: true }) === -1), "a mirrored donut keeps its hole");
+  }
   const o = elementStageOutlines(donut as never)[0];
   h.ok(elementStageOutlines(donut as never).length === 1 && !!o.paint.raster && o.bbox.w === 180, "the hand-off driver takes a compound path by its box (the element crossfades over the box tween), not by a flattened chain");
 }

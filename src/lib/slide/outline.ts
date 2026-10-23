@@ -110,9 +110,10 @@ function flipNodes(nodes: VectorNode[], el: Element): VectorNode[] {
 
 const shoelaceArea = (n: VectorNode[]) => { let a = 0; for (let i = 0; i < n.length; i++) { const p = n[i], q = n[(i + 1) % n.length]; a += p.x * q.y - q.x * p.y; } return a / 2; };
 const compoundCache = new Map<string, { outer: Outline; holes: Outline[] } | null>();
-/** A path whose `d` holds two or more CLOSED subpaths: its outline is the largest one, the rest are holes (null for any other element).
+/** A path whose `d` holds two or more CLOSED subpaths: its outline is the largest one, every other closed subpath is carried beside it (a hole when it
+ *  winds against the outline, an island or a solid same-wound extra when it does not: all of them close or open the same way) (null for any other element).
  *  `elementOutline` flattens such a `d` into one chain joined by phantom bridge segments, which has no morph; a Become morphs the outer ring and
- *  closes (or opens) the holes at their own centroids, the way a same-kind Change does (tween.ts lerpCompoundD). */
+ *  shrinks (or grows) the other subpaths about their own node mean, the way a same-kind Change does (tween.ts lerpCompoundD, which names it the centroid). */
 export function compoundRings(el: Element): { outer: Outline; holes: Outline[] } | null {
   if (el.type !== "path" || typeof el.d !== "string") return null;
   let moves = 0;
@@ -717,7 +718,12 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
   /** The holes of a compound end (a donut), in their end's UNIT frame: a source's shrink to their centroid as t runs 0 -> 1, a destination's grow from theirs. */
   holes: HoleRing[];
 }
-export interface HoleRing { unit: VectorNode[]; centre: { x: number; y: number }; side: "pre" | "end" }
+export interface HoleRing {
+  /** The hole's nodes in its end's unit frame, as authored (`sign` = their winding), and the same ring reversed; `rel` is the authored winding of the hole
+   *  relative to its OUTLINE (-1: a hole, +1: a same-wound subpath that rests as solid). */
+  unit: VectorNode[]; unitRev: VectorNode[]; rel: 1 | -1; sign: 1 | -1;
+  centre: { x: number; y: number }; side: "pre" | "end";
+}
 
 export interface FixedHead {
   side: "pre" | "end";
@@ -855,12 +861,14 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
   const preStyle = styleOf(pre), endStyle = styleOf(end);
   const holes: HoleRing[] = [];
-  {
-    // every hole winds against the ring it is sampled with (the frame's `d` is filled nonzero, like every path: a hole that wound with its ring would fill in)
-    const ringSign = Math.sign(shoelaceArea(A.nodes)) || 1;
-    for (const [c, side, box] of [[cpre, "pre", pb], [cend, "end", eb]] as const) for (const ring of c?.holes ?? []) {
-      const nodes = Math.sign(shoelaceArea(ring.nodes)) === ringSign ? reverseNodes(ring.nodes) : ring.nodes, u = unit(nodes, box.w, box.h);
-      holes.push({ unit: u, centre: { x: u.reduce((m, n) => m + n.x, 0) / u.length, y: u.reduce((m, n) => m + n.y, 0) / u.length }, side });
+  for (const [c, side, box] of [[cpre, "pre", pb], [cend, "end", eb]] as const) {
+    if (!c) continue;
+    // a hole keeps its AUTHORED winding relative to its own outline (Flux fills nonzero only: a donut's hole winds against its ring and is a hole, a
+    // same-wound extra subpath rests as solid, and lerpCompoundD keeps that relation too); the sampler winds it against the SAMPLED ring by that relation
+    const outerSign = Math.sign(shoelaceArea(c.outer.nodes)) || 1;
+    for (const ring of c.holes) {
+      const u = unit(ring.nodes, box.w, box.h), rel: 1 | -1 = (Math.sign(shoelaceArea(ring.nodes)) * outerSign || -1) as 1 | -1;
+      holes.push({ unit: u, unitRev: reverseNodes(u), rel, sign: (Math.sign(shoelaceArea(u)) || 1) as 1 | -1, centre: { x: u.reduce((m, n) => m + n.x, 0) / u.length, y: u.reduce((m, n) => m + n.y, 0) / u.length }, side });
     }
   }
   // a stroke meets a FILLED ring by inflating (no wedge); a stroke-only ring
@@ -902,7 +910,7 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   };
 }
 
-function isNoneColor(c: string): boolean {
+export function isNoneColor(c: string): boolean {
   const t = c.trim().toLowerCase();
   return t === "none" || t === "transparent" || t === "";
 }
@@ -1014,11 +1022,12 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): 
     }
   }
   out.d = pathD(nodes, plan.closed);
+  const ringSign = plan.holes.length ? Math.sign(shoelaceArea(nodes)) || 1 : 1;     // the sampled ring's own winding: a hole is wound against it (or with it, as authored)
   for (const hole of plan.holes) {
     const k = hole.side === "pre" ? 1 - t : t;
     if (!(k > 1e-6)) continue;      // a hole that has not opened (or has closed) is not in the frame: a stroked point would paint a dot
     const { centre: c } = hole;
-    out.d += " " + pathD(hole.unit.map((n) => ({
+    out.d += " " + pathD((hole.sign === ringSign * hole.rel ? hole.unit : hole.unitRev).map((n) => ({
       x: (c.x + (n.x - c.x) * k) * w, y: (c.y + (n.y - c.y) * k) * h, type: n.type,
       ...(n.hIn ? { hIn: { dx: n.hIn.dx * k * w, dy: n.hIn.dy * k * h } } : {}),
       ...(n.hOut ? { hOut: { dx: n.hOut.dx * k * w, dy: n.hOut.dy * k * h } } : {}),

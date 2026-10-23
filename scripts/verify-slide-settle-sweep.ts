@@ -9,7 +9,7 @@
 // Headless Chrome quantizes slowly moving straight edges to 1/4 px: the neighbour-relative thresholds absorb it.
 import { PRESET_CATALOG } from "../src/lib/slide/presetCatalog";
 import { harness } from "./lib/harness.mjs";
-import { classify, judge, KNOWN_OPEN, openDeck, openKey, sweepDeck, tableRow, TABLE_HEAD, THRESHOLDS, withBrowser, type CueRow } from "./lib/slideSettleSweep";
+import { classify, judge, KNOWN_OPEN, openDeck, openKey, seekFlagValue, sweepDeck, tableRow, TABLE_HEAD, THRESHOLDS, withBrowser, type CueRow } from "./lib/slideSettleSweep";
 import { corpus } from "./lib/slideSettleCorpus";
 
 const h = harness("verify-slide-settle-sweep");
@@ -41,6 +41,9 @@ const h = harness("verify-slide-settle-sweep");
     h.eq(judge(["START POP (frame)", "END SNAP (2ms)"], open, "seek").failing, ["END SNAP (2ms)"], "a flag that is not listed still fails");
     h.eq(judge([], open, "seek").stale, ["START POP (frame)"], "a REQUIRED entry whose flag stopped firing is stale (fails: delete it)");
     h.eq(judge(["START STEP (20.4 before 0.0)", "LANDING STEP (30.4 after 9.4)"], open, "rt"), { failing: [], tolerated: ["START STEP (20.4 before 0.0)", "LANDING STEP (30.4 after 9.4)"], stale: [] }, "real-time flags match by prefix; rtMay is tolerated without being required");
+    h.eq(judge(["LANDING STEP (20.1 after 0.6)"], { ...open, max: { "LANDING STEP": 25 } }, "rt").tolerated, ["LANDING STEP (20.1 after 0.6)"], "a tolerated flag under its pinned max is tolerated");
+    h.eq(judge(["LANDING STEP (70.9 after 0.0)"], { ...open, max: { "LANDING STEP": 25 } }, "rt").failing, ["LANDING STEP (70.9 after 0.0) over its pinned max 25"], "a tolerated flag over its pinned max FAILS (a regression from 20 to 70 cannot pass by prefix)");
+    h.eq(judge(["START POP (2ms)"], { seek: ["START POP (2ms)"], max: { "START POP": 12 }, owner: "x" }, "seek", seekFlagValue({ ...calm, s02: 40, s24: 0 } as never)).failing.length, 1, "the same pin reads a seek flag's measured window");
     h.eq(judge(["START STEP (1 before 0)"], { ...open, rt: undefined }, "seek"), { failing: ["START STEP (1 before 0)"], tolerated: [], stale: ["START POP (frame)"] }, "domains do not leak into each other");
   }
   h.ok(THRESHOLDS.floorTiny > 0 && THRESHOLDS.ratioTiny >= 3 && THRESHOLDS.ratioFrame >= 2, "thresholds are relative (a ratio to the neighbour) with an absolute floor");
@@ -67,7 +70,7 @@ const decks = await corpus("compact");
   for (const p of ["role:point", "role:bar", "axis.x.spine", "axis.x.ticks", "axis.x.tick-labels", "line"]) h.ok(parts.has(p), `corpus animates plot part ${p}`);
   // R2 follow-up F1 (geometry): the hand-off / Change starts and landings it fixed stay in the corpus (a deck that left it would let them regress unseen)
   const cuesOfDeck = (name: string) => decks.find(d => d.name === name)?.payload.deck.slides.length ?? 0;
-  for (const [name, n] of [["become_stroked", 2], ["become_corners", 5], ["handoff_round", 5], ["corner_radius", 3], ["compound", 5]] as const) h.ok(cuesOfDeck(name) >= n, `corpus keeps the ${name} cases (${cuesOfDeck(name)} >= ${n}): stroke band, round hand-offs, cornerRadius Change, compound holes`);
+  for (const [name, n] of [["become_stroked", 2], ["become_corners", 8], ["handoff_round", 5], ["corner_radius", 3], ["compound", 6], ["set_flights", 2]] as const) h.ok(cuesOfDeck(name) >= n, `corpus keeps the ${name} cases (${cuesOfDeck(name)} >= ${n}): stroke band, round hand-offs, cornerRadius Change, compound holes, flights landing on a set`);
 }
 
 // -- 3. the sweep --------------------------------------------------------------------------------------------------------------
@@ -90,7 +93,7 @@ for (const { name, rows } of results) for (const r of rows) {
   cues++;
   console.log(tableRow(r, name));
   const key = openKey(name, r.slideId, r.from, r.to), open = KNOWN_OPEN[key];
-  const { failing, tolerated, stale } = judge(r.flags, open, "seek");
+  const { failing, tolerated, stale } = judge(r.flags, open, "seek", seekFlagValue(r));
   h.ok(failing.length === 0 && stale.length === 0, `${key} (${r.label}, ${Math.round(r.dur)} ms): ${failing.join(", ") || (stale.length ? `STALE KNOWN_OPEN entry (${stale.join(", ")} no longer fires: delete it from scripts/lib/slideSettleSweep.ts)` : "clean start, clean landing")}${tolerated.length ? ` [known open: ${tolerated.join(", ")} - ${open!.owner}]` : ""}`);
 }
 {

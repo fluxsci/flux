@@ -11,7 +11,7 @@ import { lerpDash } from "./tween";
 import { axisFit, projectWith } from "../plot/project";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
-  planOutlines, sampleNodes, supportPoint, lerpGradientFill, planStrokeBand, sampleStrokeBand, trimUnderHeads,
+  planOutlines, sampleNodes, supportPoint, lerpGradientFill, planStrokeBand, sampleStrokeBand, trimUnderHeads, isNoneColor,
   type GradientLerp, type RingStrategy, type Outline, type BandSide, type BandSample, type StrokeBandPlan,
 } from "./outline";
 
@@ -695,7 +695,7 @@ function planPair(pair: CorrespondencePair): void {
     const p = o.paint;
     if (p.dash?.length || p.strokeMap?.stops?.length) return null;
     const outline = local(o);
-    return { outline: outline.closed ? outline : { nodes: trimUnderHeads(outline.nodes, p), closed: false }, box: o.bbox, width: ["", "none", "transparent"].includes(p.stroke.trim().toLowerCase()) ? 0 : p.strokeWidth, join: p.join ?? "round", cap: p.cap };
+    return { outline: outline.closed ? outline : { nodes: trimUnderHeads(outline.nodes, p), closed: false }, box: o.bbox, width: isNoneColor(p.stroke) ? 0 : p.strokeWidth, join: p.join ?? "round", cap: p.cap };
   };
   pair.band = () => {
     if (band !== undefined) return band;

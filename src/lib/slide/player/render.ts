@@ -121,7 +121,8 @@ function stageMarkup(neutral: FigElement, ctx: SlideRenderCtx): string {
   if (neutral.type !== "ellipse" || !(neutral.width > 0) || !(neutral.height > 0)) return plain();
   const outline = elementOutline(neutral);
   if (!outline) return plain();
-  const asPath = { ...neutral, type: "path", nodes: outline.nodes, d: pathD(outline.nodes, true), closed: true } as unknown as FigElement;
+  // cap "butt": the serializer's path case defaults to round caps, an ellipse's SVG default is butt (a dashed or dotted ring must keep its dashes).
+  const asPath = { ...neutral, type: "path", cap: "butt", nodes: outline.nodes, d: pathD(outline.nodes, true), closed: true } as unknown as FigElement;
   return elementToSvg(asPath, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize).replace("<path ", '<path data-shape="ellipse" ');
 }
 
