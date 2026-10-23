@@ -194,6 +194,8 @@ export const dimOpacity = (level: number, at: number): number => 1 - (1 - level)
 export function paramDiagnostics(track: ParamSource, table: Readonly<Record<string, ParamRow>> = PRESET_PARAMS): string[] {
   const params = track.params;
   if (!params || typeof params !== "object") return [];
+  // a preset this build does not know (a newer deck) or a keyframe-only track: its keys are the newer build's, stay quiet
+  if (track.preset ? !KNOWN_PRESETS.has(track.preset) : (track as { keyframes?: unknown }).keyframes !== undefined) return [];
   const def = presetDef(track.preset);
   const rows: ParamRow[] = [table[def.name] ?? {}];
   // a stagger applies a child preset over its nodes, so the child's keys are the stagger track's keys too
@@ -204,7 +206,13 @@ export function paramDiagnostics(track: ParamSource, table: Readonly<Record<stri
   const out: string[] = [];
   for (const key of Object.keys(params)) {
     const owner = rows.find(row => Object.prototype.hasOwnProperty.call(row, key));
-    if (!owner) { out.push(`Unknown option “${key}” for ${def.label}: kept in the deck, ignored by playback.`); continue; }
+    if (!owner) {
+      // a key some OTHER preset declares is a stale leftover of a preset switch (autobuild keeps `child` when a
+      // stagger suggestion is overridden to fade): the Animator has no control to clear it, so it stays silent
+      if (Object.values(table).some(row => Object.prototype.hasOwnProperty.call(row, key))) continue;
+      out.push(`Unknown option “${key}” for ${def.label}: kept in the deck, ignored by playback.`);
+      continue;
+    }
     const need = owner[key].requires;
     if (!need) continue;
     const sibling = owner[need.key];

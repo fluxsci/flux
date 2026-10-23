@@ -325,6 +325,10 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     return id === null || STAMPED_ID.test(id) || COUNTER_ID.test(id) && !named.has(id) ? null : id;
   };
   const residue = (node: Element) => node.hasAttribute("data-plot-residue") || node.hasAttribute("data-projection-residue");
+  // `<g data-sl-fx>` is the player's own wrapper around a leaf a transform effect animates (player.ts effectNode). It is no part of
+  // the plot's structure: the binder sees straight through it (no key, no depth, children seen as the wrapper's parent's).
+  const isFx = (node: Element) => node.getAttribute("data-sl-fx") === "1";
+  const unwrapped = (node: Element): Element[] => Array.from(node.children).map(child => isFx(child) && child.firstElementChild ? child.firstElementChild : child);
   // key: a semantic id, or `@<depth>:<first semantic descendant>` for a wrapper
   // that holds one; anonymous nodes (neither) have no key and bind by position.
   const keyOf = new Map<Element, string>();
@@ -333,6 +337,12 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     if (!root) return map;
     const walk = (node: Element): [string, number] | null => {
       if (residue(node)) return null;
+      if (isFx(node)) {
+        keyOf.delete(node);
+        let seen: [string, number] | null = null;
+        for (const child of Array.from(node.children)) { const found = walk(child); if (found && !seen) seen = found; }
+        return seen;
+      }
       const own = semanticId(node);
       let first: [string, number] | null = null;
       for (const child of Array.from(node.children)) { const found = walk(child); if (found && !first) first = [found[0], found[1] + 1]; }
@@ -389,7 +399,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     w.append(outgoing, incoming); fade(outgoing, false); fade(incoming, true);
     return update;
   }
-  const anonymous = (node: Element) => Array.from(node.children).filter(child => !keyOf.has(child) && !residue(child));
+  const anonymous = (node: Element) => unwrapped(node).filter(child => !keyOf.has(child) && !residue(child));
   const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
   const same = (x: Element, y: Element, line = false): boolean => {
     if (x.tagName !== y.tagName) return false;
@@ -406,12 +416,15 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     for (const [key, node] of keys) if (node !== copy && ai.has(key) && !keep.has(key) && copy.contains(node)) node.remove();
     return new Map([...keys].filter(([, node]) => node === copy || copy.contains(node)));
   };
+  // The node that sits in the parent's child list: a wrapped leaf's wrapper, else the node itself.
+  const slotOf = (node: Element): Element => node.parentElement && isFx(node.parentElement) ? node.parentElement : node;
   const covered = new Set<string>();
   function local(node: Element, x: Element, y: Element, line = false, force = false) {
     if (node !== live && !same(x, y, line)) {
       const xKeys = index(x, true), replacement = y.cloneNode(true) as Element;
       const next = withoutShared(replacement, new Set(xKeys.keys()));
-      node.parentNode!.insertBefore(replacement, node.nextSibling);
+      const slotNode = slotOf(node);
+      slotNode.parentNode!.insertBefore(replacement, slotNode.nextSibling);
       // Keep the destination's canonical ids for later tracks. The outgoing
       // copy has its own reference namespace, never duplicate document ids.
       prefixIds(node, `${pre.id}-residue-${plotResidueId++}`);
@@ -451,7 +464,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     if (key === undefined || !key.startsWith("@")) { fade(node, entering, source); return; }
     const sourceAnonymous = anonymous(source);
     anonymous(node).forEach((child, i) => fade(child, entering, sourceAnonymous[i] ?? child));
-    for (const child of Array.from(node.children)) {
+    for (const child of unwrapped(node)) {
       const k = keyOf.get(child);
       if (k !== undefined && !residue(child)) fadeParts(child, entering, tree.get(k) ?? child, tree);
     }
@@ -486,7 +499,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     const dest = parentKey === undefined ? live : li.get(parentKey);
     if (!dest) continue; // the destination-only ancestor installs the entire subtree
     let sibling = y.nextElementSibling, before: Element | null = null;
-    while (sibling) { const k = keyOf.get(sibling); const candidate = k === undefined ? undefined : li.get(k); if (candidate?.parentNode === dest) { before = candidate; break; } sibling = sibling.nextElementSibling; }
+    while (sibling) { const k = keyOf.get(sibling); const candidate = k === undefined ? undefined : li.get(k); if (candidate && slotOf(candidate).parentNode === dest) { before = slotOf(candidate); break; } sibling = sibling.nextElementSibling; }
     const next = y.cloneNode(true) as Element;
     for (const [k, node] of withoutShared(next)) { li.set(k, node); fresh.add(node); }
     li.set(key, next);

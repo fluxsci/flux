@@ -17,7 +17,7 @@ import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
-import { KNOWN_PRESETS } from "../presetCatalog";
+import { KNOWN_PRESETS, presetParam } from "../presetCatalog";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
@@ -343,7 +343,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const nodes = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots);
       if (!nodes.length) continue;
       const preset = PRESETS[track.preset ?? "fade"] ?? PRESETS.fade;
-      const growsBars = track.preset === "growBaseline" || track.preset === "stagger" && track.params?.child === "growBaseline";
+      const growsBars = track.preset === "growBaseline" || track.preset === "stagger" && presetParam<string>(track, "child", "stagger") === "growBaseline";
       const trackCtx: PresetCtx = growsBars ? { ...ctx, manifest: manifestFor(track.target, slide, opts, bi) as FluxPlotManifest | undefined } : ctx;
       const nodeAnims = preset(nodes, track, track.preset === "camera" ? {
         ...trackCtx, cameraFrom: compiled.sample(bi, ct.start).camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 },

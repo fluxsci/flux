@@ -9,7 +9,8 @@
 //  4. leaf SVG markers that carry a `transform` attribute (scatter points) keep their centre (+-0.5) through popIn,
 //     fadeRise, stagger+popIn and popOut, and rest where they were (the CSS transform composes, never replaces);
 //  5. rest state: after its beat an animated SVG part carries NO inline origin / box / transform;
-//  6. the GEOMETRY is identical for forward / reverse / shuffled seeks.
+//  6. the GEOMETRY is identical for forward / reverse / shuffled seeks;
+//  7. a data-morph Change between two different scatter assets matches the unwrapped Change over wrapped markers (the binder sees through `data-sl-fx`).
 //   Run: npx tsx scripts/verify-slide-part-origin.ts
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -25,6 +26,15 @@ const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-part-origin-"));
 const fx = (n: string) => path.join("scripts/fixtures/plots", n);
 const plot = async (id: string, stem: string) => ({ id, svg: await fs.readFile(fx(`${stem}_FLUXPLOT.svg`), "utf8"), manifest: JSON.parse(await fs.readFile(fx(`${stem}_FLUXPLOT.fluxplot.json`), "utf8")) });
 const PLOTS = await Promise.all([plot("bars", "bars_mixed"), plot("barh", "barh_mixed"), plot("scat", "mpl_scatter")]);
+{
+  // Two data variants of the scatter for the data-morph cases: `scatB` drops points 50.. and shifts the rest; `scatC` has a hole (points 10-14
+  // missing) so a swap back to `scat` installs destination-only points in the MIDDLE of the group (z-order next to wrapped markers).
+  const scat = PLOTS[2], variant = (id: string, keep: (i: number) => boolean, dx: number, dy: number) => ({
+    id, manifest: scat.manifest,
+    svg: scat.svg.replace(/(<use [^>]*?) x="([\d.]+)" y="([\d.]+)"([^>]*id="samples\.point\.(\d+)")/g, (_m, a, x, y, b, i) => keep(Number(i)) ? `${a} x="${Number(x) + dx}" y="${Number(y) + dy}"${b}` : ""),
+  });
+  PLOTS.push(variant("scatB", (i) => i < 50, 40, 25), variant("scatC", (i) => i < 10 || i > 14, 0, 0));
+}
 
 const deck = createDeck({ id: "origin", title: "origin", withTitleSlide: false }); deck.defaults.transition = "none";
 deck.assets = PLOTS.map((p) => ({ id: p.id, name: p.id, kind: "svg", path: `assets/${p.id}.svg`, naturalWidth: 400, naturalHeight: 250 })) as never;
@@ -43,6 +53,12 @@ const slides: Record<string, { els: unknown[]; beats: unknown[][] }> = {
   scatRise: { els: [P("p", "scat")], beats: [[tr("a", "p", "fadeRise", { selector: { role: "point" } })]] },
   scatStagger: { els: [P("p", "scat")], beats: [[tr("a", "p", "stagger", { selector: { role: "point" }, params: { child: "popIn" }, stagger: { perMs: 5, by: "x", from: "start" } })]] },
   scatOut: { els: [P("p", "scat")], beats: [[tr("a", "p", "popOut", { selector: { role: "point" } })]] },
+  // data-morph Change between two different scatter assets, with and without wrapped markers (popIn before / after the swap)
+  swapAB: { els: [P("p", "scat")], beats: [[tr("s", "p", "transform", { to: { assetId: "scatB", state: {} } })]] },
+  popSwapAB: { els: [P("p", "scat")], beats: [[tr("a", "p", "popIn", { selector: { role: "point" } })], [tr("s", "p", "transform", { to: { assetId: "scatB", state: {} } })]] },
+  swapPopAB: { els: [P("p", "scat")], beats: [[tr("s", "p", "transform", { to: { assetId: "scatB", state: {} } })], [tr("a", "p", "popIn", { selector: { role: "point" } })]] },
+  swapCA: { els: [P("p", "scatC")], beats: [[tr("s", "p", "transform", { to: { assetId: "scat", state: {} } })]] },
+  popSwapCA: { els: [P("p", "scatC")], beats: [[tr("a", "p", "popIn", { selector: { role: "point" } })], [tr("s", "p", "transform", { to: { assetId: "scat", state: {} } })]] },
 };
 for (const [id, s] of Object.entries(slides)) deck.slides.push({ id, name: id, groups: {}, elements: s.els, beats: [{ id: "b0", tracks: [] }, ...s.beats.map((tracks, i) => ({ id: `b${i + 1}`, tracks }))] } as never);
 const index = (id: string) => deck.slides.findIndex((s) => s.id === id);
@@ -179,6 +195,36 @@ try {
       return { wrappers: w.length, oneChild: w.every((n) => n.childElementCount === 1 && n.firstElementChild!.getAttribute("data-role") === "point"), nested: w.some((n) => n.parentElement?.getAttribute("data-sl-fx") === "1") };
     });
     h.ok(shape.wrappers === control.length && shape.oneChild && !shape.nested, `exactly one wrapper per marker (${shape.wrappers}/${control.length}), each holding only its marker, none nested`);
+  }
+
+  // 7: the wrappers are invisible to the plot Change binder: a data-morph between two different scatter assets matches the same Change
+  // on an unwrapped plot (positions, visibility, and DOM z-order of the markers), whether the markers were wrapped before or after it
+  h.section("data-morph Change over wrapped markers");
+  {
+    type M = { id: string; x: number; y: number; o: number };
+    const marks = async (slide: string, beat: number, ms: number): Promise<{ vis: M[]; order: string[] }> => {
+      await page.evaluate((s: number, b: number, t: number) => (window as never as { fluxDeck: { seek(s: number, b: number, t: number): void } }).fluxDeck.seek(s, b, t), index(slide), beat, ms);
+      return page.evaluate(() => {
+        const cam = document.querySelector(".sl-camera")!.getBoundingClientRect(), k = cam.width / 640;
+        const all = [...document.querySelectorAll('[data-role="point"]')].filter((n) => !n.closest("[data-plot-residue]"));
+        const vis = all.map((n) => { const r = n.getBoundingClientRect(); let o = 1; for (let e: Element | null = n; e && e.tagName.toLowerCase() !== "svg"; e = e.parentElement) o *= Number(getComputedStyle(e).opacity); return { id: n.id, x: (r.x + r.width / 2 - cam.x) / k, y: (r.y + r.height / 2 - cam.y) / k, o }; }).filter((m) => m.o > 0.01);
+        return { vis, order: all.map((n) => n.id) };
+      });
+    };
+    const cases = [["popSwapAB", "swapAB", 2, 1, "popIn then swap scat -> scatB (fewer points)"], ["swapPopAB", "swapAB", 2, 1, "swap scat -> scatB then popIn"], ["popSwapCA", "swapCA", 2, 1, "popIn then swap scatC -> scat (destination-only points mid-group)"]] as const;
+    for (const [slide, ref, beat, refBeat, label] of cases) {
+      for (const ms of [0, 400, 800, 5000]) {
+        // swapPop's pop plays in beat 2 while the swap is settled: its settled-swap reference is the reference deck's end state
+        const want = await marks(ref, refBeat, slide === "swapPopAB" ? 5000 : ms), got = await marks(slide, beat, slide === "swapPopAB" ? 5000 : ms);
+        if (slide === "swapPopAB" && ms !== 5000) continue;
+        const byId = new Map(want.vis.map((m) => [m.id, m]));
+        let worst = 0, missing = 0;
+        for (const g of got.vis) { const m = byId.get(g.id); if (!m) { missing++; continue; } worst = Math.max(worst, Math.hypot(m.x - g.x, m.y - g.y), Math.abs(m.o - g.o) * 100); }
+        h.ok(got.vis.length === want.vis.length && missing === 0 && worst <= 0.5, `${label} @${ms}: ${got.vis.length}/${want.vis.length} visible markers, ${missing} unmatched, worst delta ${worst.toFixed(2)}`);
+      }
+      const want = await marks(ref, refBeat, 5000), got = await marks(slide, beat, 5000);
+      h.ok(JSON.stringify(got.order) === JSON.stringify(want.order), `${label}: marker DOM order equals the unwrapped Change's (${got.order.length} vs ${want.order.length} markers)`);
+    }
   }
 
   // 6: seek-order independence of the GEOMETRY (pixel hashes also carry pre-existing text/marker anti-aliasing history; the rects below are exact)

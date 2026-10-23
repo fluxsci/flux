@@ -53,12 +53,12 @@ h.eq(Object.entries(PRESET_PARAMS).flatMap(([p, row]) => Object.entries(row).fil
   ["dim.level:0,1", "highlight.level:0,1"], "only the NEW keys (the highlight/dim levels) are clamped; every legacy key stays unclamped");
 
 // ---------------------------------------------------------------------------------------------------------------
-h.section("2. the census: the three engines read params through the table only");
+h.section("2. the census: the engines (presets, player, compile, pptx) read params through the table only");
 // presetParam<T>(track, "key", "preset") — the preset is a literal, or (trimAnim) the `preset` variable naming drawOn | drawOff.
 const CALL = /presetParam(?:<[^>]*>)?\(\s*[^,()]+,\s*"(\w+)"\s*,\s*(?:"(\w+)"|(preset))\s*\)/g;
 const owners = (literal: string | undefined, variable: string | undefined): string[] => literal ? [literal] : variable ? ["drawOn", "drawOff"] : [];
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
-for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts"]) {
+for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts"]) {
   const src = strip(readFileSync(file, "utf8"));
   const direct = [...src.matchAll(/\bparams\??\.\w+/g)].map((m) => m[0]);
   h.eq(direct, [], `${file}: no direct params.<key> read`);
@@ -69,7 +69,7 @@ for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/compile.ts
 {
   // every table key a compiler reads is read through the table: the keys the three files name == the table's keys (minus countUp's, read by countup.ts)
   const named = new Set<string>();
-  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts"]) {
+  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts"]) {
     for (const m of strip(readFileSync(file, "utf8")).matchAll(CALL)) for (const p of owners(m[2], m[3])) named.add(`${p}.${m[1]}`);
   }
   const declared = Object.entries(PRESET_PARAMS).filter(([p]) => p !== "countUp").flatMap(([p, row]) => Object.keys(row).map((k) => `${p}.${k}`));
@@ -200,7 +200,14 @@ h.section("5. unknown keys: kept, reported, never refused");
 }
 h.eq(paramDiagnostics(T("fade")), [], "no params -> no diagnostics");
 h.eq(paramDiagnostics(T("dim", { level: 0.2 })), [], "a known key -> no diagnostics");
-h.eq(paramDiagnostics(T("stagger", { child: "nope", from: 0.5 })).length, 1, "an unknown stagger child contributes no keys: `from` is reported");
+h.eq(paramDiagnostics(T("stagger", { child: "nope", wobble: 0.5 })).length, 1, "an unknown stagger child contributes no keys: `wobble` is reported");
+// a key another preset declares is a stale leftover of a preset switch (autobuild keeps `child` when a stagger suggestion is overridden
+// to fade): the Animator has no control to clear it, so it is silent; a key NO preset declares is still reported
+h.eq(paramDiagnostics(T("fade", { child: "fade" })), [], "fade + {child}: a stale stagger key is silent");
+h.eq(paramDiagnostics(T("fadeRise", { from: 0.5, deg: 3 })), [], "a key another preset declares (popIn.from, rotate.deg) is silent");
+h.eq(paramDiagnostics(T("fade", { child: "fade", wobble: 3 })).length, 1, "fade + {child, wobble}: only the foreign key is reported");
+h.eq(paramDiagnostics(T("scaleIn", { from: 0.5, spin: 90 })), [], "a preset this build does not know (a newer deck): quiet, its keys are the newer build's");
+h.eq(paramDiagnostics({ params: { x: 1 }, keyframes: [] } as never), [], "a keyframe-only track (no preset): quiet");
 {
   // `requires` (T2's order, T8's clock/pen/tight): a key that only applies while a sibling holds a value
   const table: Record<string, ParamRow> = { ...PRESET_PARAMS, drawOn: { mode: { default: "single" }, lag: { default: 0.3, requires: { key: "mode", equals: "sequence" } } } };

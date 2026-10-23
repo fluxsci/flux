@@ -16,16 +16,27 @@ export interface BarGrow {
 
 type BarInfo = { orientation?: string; length?: (number | null)[] };
 
-/** The series and index that list `partId` among their bars, or undefined. */
-function barSeries(manifest: FluxPlotManifest | undefined, partId: string): { bar?: BarInfo; index: number } | undefined {
-  for (const s of manifest?.series ?? []) {
-    const bars = s.svg?.bars;
-    if (!Array.isArray(bars)) continue;
-    const index = bars.indexOf(partId);
-    if (index >= 0) return { bar: (s as unknown as { bar?: BarInfo }).bar, index };
+type BarEntry = { bar?: BarInfo; index: number };
+// One part-id -> (series bar info, index) map per manifest, built on first use: a histogram of thousands of bins must not
+// scan every series' bar list for every node (O(bars^2) at build). Manifests are immutable once loaded.
+const barIndexes = new WeakMap<object, Map<string, BarEntry>>();
+function barIndex(manifest: FluxPlotManifest): Map<string, BarEntry> {
+  let map = barIndexes.get(manifest);
+  if (!map) {
+    map = new Map();
+    for (const s of manifest.series ?? []) {
+      const bars = s.svg?.bars;
+      if (!Array.isArray(bars)) continue;
+      const bar = (s as unknown as { bar?: BarInfo }).bar;
+      bars.forEach((id, index) => { if (!map!.has(id)) map!.set(id, { bar, index }); });
+    }
+    barIndexes.set(manifest, map);
   }
-  return undefined;
+  return map;
 }
+
+/** The series info and index that list `partId` among their bars, or undefined (the first series to list it wins). */
+const barSeries = (manifest: FluxPlotManifest | undefined, partId: string): BarEntry | undefined => manifest ? barIndex(manifest).get(partId) : undefined;
 
 /** Is `partId` one of the manifest's bars (`series[].svg.bars`)? */
 export const isManifestBar = (manifest: FluxPlotManifest | undefined, partId: string): boolean => !!barSeries(manifest, partId);
