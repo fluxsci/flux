@@ -32,9 +32,12 @@ export interface PresetDef {
   /** Authored `params` written into a new track of this preset (X1a). Playback keeps its literal
    *  fallbacks (`?? 14` ...), so an omitted param on an old track plays exactly as before. */
   authoringParams?: Readonly<Record<string, number | string | boolean>>;
-  /** A symmetric there-and-back preset (pulse, encircle: not built yet): its landing must have zero
+  /** A symmetric there-and-back preset (pulse, encircle): its landing must have zero
    *  velocity, so it is authored with `smooth`, never QUICK_SMOOTH (X2; verify-pace-defaults pins it). */
   onsetExempt?: boolean;
+  /** An effect that leaves NO resting state (pulse, encircle): the compiled presentation, static export and PPTX
+   *  pages ignore it; only playback shows it. */
+  ephemeral?: boolean;
 }
 
 // Editable entries are in the Animator's established select order.
@@ -43,15 +46,24 @@ export const PRESET_CATALOG: Readonly<Record<PresetName, PresetDef>> = {
   fadeRise: { name: "fadeRise", family: "appearance", phase: "enter", label: "Rise in", colour: "#879a39", wrapperProps: ["opacity", "transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 600, authoringTiming: { duration: 700, easing: "smooth", curve: QUICK_SMOOTH }, authoringParams: { y: 24 } },
   popIn: { name: "popIn", family: "appearance", phase: "enter", label: "Pop in", colour: "#8b7ec8", wrapperProps: ["opacity", "transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 500, authoringTiming: { duration: 700, easing: "smooth", curve: QUICK_SMOOTH } },
   drawOn: { name: "drawOn", family: "appearance", phase: "enter", label: "Draw on", colour: "#4385be", wrapperProps: [], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 800, authoringTiming: { duration: 900, easing: "smooth", curve: QUICK_SMOOTH } },
-  growBaseline: { name: "growBaseline", family: "appearance", phase: "enter", label: "Grow", colour: "#d0a215", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 800, authoringTiming: { duration: 900, easing: "smooth", curve: QUICK_SMOOTH } },
+  growBaseline: { name: "growBaseline", family: "appearance", phase: "enter", label: "Grow bars", colour: "#d0a215", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 800, authoringTiming: { duration: 900, easing: "smooth", curve: QUICK_SMOOTH } },
+  // manim GrowFromCenter / GrowArrow: scale 0 -> 1 about an origin, NEVER an opacity channel. 600 ms is authored; the 500 ms
+  // floor is what a plot build gives its points (X1c).
+  scaleIn: { name: "scaleIn", family: "appearance", phase: "enter", label: "Scale in", colour: "#d0a215", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 500, authoringTiming: { duration: 600, easing: "smooth", curve: QUICK_SMOOTH } },
   stagger: { name: "stagger", family: "appearance", phase: "enter", label: "Stagger in", colour: "#d14d41", wrapperProps: ["opacity", "transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 600, authoringTiming: { duration: 700, easing: "smooth", curve: QUICK_SMOOTH } },
-  writeOn: { name: "writeOn", family: "appearance", phase: "enter", label: "Wipe in", colour: "#3aa99f", wrapperProps: ["clipPath"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 700, authoringTiming: { duration: 900, easing: "smooth", curve: QUICK_SMOOTH } },
+  writeOn: { name: "writeOn", family: "appearance", phase: "enter", label: "Wipe in", colour: "#3aa99f", wrapperProps: ["clipPath"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 700, authoringTiming: { duration: 900, easing: "smooth", curve: QUICK_SMOOTH }, authoringParams: { edge: "soft" } },
   fadeOut: { name: "fadeOut", family: "appearance", phase: "exit", label: "Fade out", colour: "#af3029", wrapperProps: ["opacity"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 500, easing: "smooth", curve: QUICK_SMOOTH } },
   popOut: { name: "popOut", family: "appearance", phase: "exit", label: "Pop out", colour: "#af3029", wrapperProps: ["opacity", "transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 500, easing: "smooth", curve: QUICK_SMOOTH } },
+  // manim ShrinkToCenter: scaleIn run backwards (scale 1 -> 0 about an origin, no opacity channel).
+  scaleOut: { name: "scaleOut", family: "appearance", phase: "exit", label: "Scale out", colour: "#af3029", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 500, easing: "smooth", curve: QUICK_SMOOTH } },
   drawOff: { name: "drawOff", family: "appearance", phase: "exit", label: "Draw off", colour: "#af3029", wrapperProps: [], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 500, easing: "smooth", curve: QUICK_SMOOTH } },
   wipeOut: { name: "wipeOut", family: "appearance", phase: "exit", label: "Wipe out", colour: "#af3029", wrapperProps: ["clipPath"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 500, easing: "smooth", curve: QUICK_SMOOTH } },
-  highlight: { name: "highlight", family: "appearance", phase: "emphasis", label: "Highlight", colour: "#d0a215", wrapperProps: ["opacity"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 700, easing: "smooth", curve: QUICK_SMOOTH } },
+  highlight: { name: "highlight", family: "appearance", phase: "emphasis", label: "Highlight", colour: "#d0a215", wrapperProps: ["opacity"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 700, easing: "smooth", curve: QUICK_SMOOTH }, authoringParams: { lead: 0.25 } },
   dim: { name: "dim", family: "appearance", phase: "emphasis", label: "Dim", colour: "#6f6e69", wrapperProps: ["opacity"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 700, easing: "smooth", curve: QUICK_SMOOTH } },
+  // manim Indicate: a calm grow-and-return (size-aware peak). Symmetric, so onset-exempt: it is authored with `smooth` (X2).
+  pulse: { name: "pulse", family: "appearance", phase: "emphasis", label: "Pulse", colour: "#d0a215", wrapperProps: ["transform"], defaultDurationMs: 700, defaultEasing: "smooth", editable: true, authoringTiming: { duration: 700, easing: "smooth" }, onsetExempt: true, ephemeral: true },
+  // manim Circumscribe: a band traced round the target and gone again. Onset-exempt like pulse.
+  encircle: { name: "encircle", family: "appearance", phase: "emphasis", label: "Circle it", colour: "#d0a215", wrapperProps: [], defaultDurationMs: 900, defaultEasing: "smooth", editable: true, authoringTiming: { duration: 900, easing: "smooth" }, onsetExempt: true, ephemeral: true },
   countUp: { name: "countUp", family: "appearance", phase: "count", label: "Count up", colour: "#66800b", wrapperProps: [], defaultDurationMs: 800, defaultEasing: "standard", editable: true, authoringTiming: { duration: 900, easing: "smooth" } },
   // Frozen compatibility channel; new geometry edits use transform.
   move: { name: "move", family: "appearance", phase: "spatial", label: "move", colour: "#4385be", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: false, legacy: true },
@@ -153,7 +165,9 @@ export function withAuthoringTiming<T extends { preset?: string; styleId?: strin
 //    while a sibling key holds a value (reported when it does not).
 // ---------------------------------------------------------------------------
 
-export type ParamValue = number | string | boolean | null;
+/** A stage point (`{x, y}` in stage units): `scaleIn.from`, `scaleOut.to` and `pulse.about` take one. */
+export interface PointParam { x: number; y: number }
+export type ParamValue = number | string | boolean | PointParam | null;
 export interface ParamRequirement {
   /** A sibling key of the SAME preset row. */
   key: string;
@@ -166,12 +180,21 @@ export interface ParamSpec {
   /** Numeric reads are clamped into [min, max]. */
   range?: readonly [number, number];
   requires?: ParamRequirement;
-  /** The value types an authored key may have (default: the type of `default`; any type for a `null` default). */
-  types?: readonly ("number" | "string" | "boolean")[];
+  /** The key means something only on the presets that declare it: on any other preset `paramDiagnostics` reports it instead of
+   *  applying the silent stale-leftover rule (`order` on a fade is an authoring error, not a switch leftover). */
+  hostOnly?: boolean;
+  /** The value types an authored key may have (default: the type of `default`; any scalar for a `null` default).
+   *  `"point"` = a `{x, y}` object of finite numbers. */
+  types?: readonly ("number" | "string" | "boolean" | "point")[];
 }
 export type ParamRow = Readonly<Record<string, ParamSpec>>;
 
-const WIPE_DIRECTION: ParamRow = { direction: { default: "ltr" } };
+/** writeOn / wipeOut: the sweep direction and the edge of the wipe. `edge` "soft" feathers a TEXT target's leading edge (0.9 x its font
+ *  size) and is inert on anything else; absent = "hard" = today's ink-fitted clip, so old decks play as made (X1a: new writeOn
+ *  tracks AUTHOR "soft"). */
+const WIPE_PARAMS: ParamRow = { direction: { default: "ltr" }, edge: { default: "hard" } };
+/** scaleIn / scaleOut: the origin word (a compass point, "tail", "auto", "group") or a stage point, and an optional spin in degrees. */
+const GROW_SPIN: ParamSpec = { default: 0, range: [-720, 720] };
 /** drawOn / drawOff trim-path params (rework §5): the legacy default draw is anchor start, forward, single, 0..1. */
 const TRIM_PARAMS: ParamRow = {
   anchor: { default: "start", types: ["number", "string"] },
@@ -179,6 +202,11 @@ const TRIM_PARAMS: ParamRow = {
   mode: { default: "single" },
   from: { default: 0 },
   to: { default: 1 },
+  // stroke ORDER (X4): "sequence" draws the strokes of ONE target one after another at one pen speed (document order; an exit retreats
+  // last first), "together" (absent) is every stroke at once. `lag` is the share of each stroke's length the next one waits for
+  // (1 = back to back, 0 = together); it only applies to a sequence.
+  order: { default: "together", hostOnly: true },
+  lag: { default: 0.3, range: [0, 1], requires: { key: "order", equals: "sequence" }, hostOnly: true },
 };
 
 export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
@@ -187,14 +215,25 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   popIn: { from: { default: 0.9 } },
   drawOn: TRIM_PARAMS,
   growBaseline: {},
+  scaleIn: { from: { default: "auto", types: ["string", "point"] }, spin: GROW_SPIN },
   stagger: { child: { default: "fadeRise" } },
-  writeOn: WIPE_DIRECTION,
+  writeOn: WIPE_PARAMS,
   fadeOut: {},
   popOut: { to: { default: 0.92 } },
+  scaleOut: { to: { default: "auto", types: ["string", "point"] }, spin: GROW_SPIN },
   drawOff: TRIM_PARAMS,
-  wipeOut: WIPE_DIRECTION,
-  highlight: { level: { default: 0.4, range: [0, 1] } },
+  wipeOut: WIPE_PARAMS,
+  // `lead`: the share of eased progress a highlight spends easing from where the node IS into its dip (0 = the legacy jump).
+  highlight: { level: { default: 0.4, range: [0, 1] }, lead: { default: 0, range: [0, 0.9] } },
   dim: { level: { default: 0.3, range: [0, 1] } },
+  // pulse.scale: the authored peak (null = size-aware auto, growOrigin.pulsePeak); about: "group" | a stage point (null = the target's own centre)
+  pulse: { scale: { default: null, types: ["number"], range: [1, 3] }, about: { default: null, types: ["string", "point"] } },
+  // encircle: the band (gap to the target, corner radius, stroke width in stage units; window = the share of the band's lap that is
+  // visible at once), colour = a CSS colour (null = the deck's accent)
+  encircle: {
+    gap: { default: 6, range: [0, 60] }, radius: { default: 6, range: [0, 60] }, width: { default: 3.5, range: [0.5, 12] },
+    window: { default: 0.3, range: [0.05, 1] }, color: { default: null, types: ["string"] },
+  },
   // countUp keys are read by player/countup.ts; their defaults come from the target's text.
   countUp: { from: { default: 0 }, to: { default: null }, decimals: { default: null }, prefix: { default: null }, suffix: { default: null }, separator: { default: null },
     // WP 2.3 (D5): place-value slots on SVG text; `false` is the hidden kill switch (no UI). Read by player/countup.ts.
@@ -217,14 +256,19 @@ export function paramSpec(preset: string | undefined, key: string): ParamSpec | 
   return Object.prototype.hasOwnProperty.call(row, key) ? row[key] : undefined;
 }
 
-/** Does `v` have a type the spec accepts? A finite number, a non-empty string or a boolean; a `null` default with no
- *  `types` accepts any of them (content-derived keys). */
+/** Is `v` a stage point (`{x, y}` of finite numbers)? The one predicate: growOrigin.ts and the param validators share it. */
+export const isPoint = (v: unknown): v is PointParam =>
+  !!v && typeof v === "object" && !Array.isArray(v) && Number.isFinite((v as PointParam).x) && Number.isFinite((v as PointParam).y);
+
+/** Does `v` have a type the spec accepts? A finite number, a non-empty string, a boolean or (when the spec lists
+ *  `"point"`) a `{x, y}` of finite numbers; a `null` default with no `types` accepts any scalar (content-derived keys). */
 function typeOk(spec: ParamSpec, v: unknown): boolean {
   const t = typeof v;
+  const allowed = spec.types ?? (spec.default === null ? undefined : [typeof spec.default]);
+  if (isPoint(v)) return !!allowed && (allowed as readonly string[]).includes("point");
   if (t !== "number" && t !== "string" && t !== "boolean") return false;
   if (t === "number" && !Number.isFinite(v)) return false;
   if (t === "string" && v === "") return false;
-  const allowed = spec.types ?? (spec.default === null ? undefined : [typeof spec.default]);
   return !allowed || (allowed as readonly string[]).includes(t);
 }
 
@@ -251,10 +295,19 @@ export const legacyScaleOf = (track: ParamSource & { to?: Record<string, unknown
 export const legacyRotationOf = (track: ParamSource & { to?: Record<string, unknown> }): number =>
   finiteNumber(track.to?.rotation) ? track.to.rotation : finiteNumber(track.to?.deg) ? track.to.deg : presetParam(track, "deg", "rotate");
 
-/** highlight: the wink's opacity at eased progress `at` (level → 1). The player's keyframes [level, 1] sample the same line. */
-export const highlightOpacity = (level: number, at: number): number => level + (1 - level) * at;
-/** dim: opacity at eased progress `at` (1 → level). */
-export const dimOpacity = (level: number, at: number): number => 1 - (1 - level) * at;
+/** highlight: the wink's opacity at EASED progress `at`, starting FROM `prior` (the opacity the node has when the track
+ *  begins). `lead` <= 0 is the legacy jump straight to `level` (`level + (1 - level)·at`, bit-exact; the model3d part gates pin
+ *  it). With `lead` > 0 the node eases from `prior` into the dip over the first `lead` of the progress, then climbs to 1: a
+ *  dimmed node (prior below `level`) never dips below where it is, it just climbs. ONE formula: the player's keyframes
+ *  `[prior, dip@lead, 1]` and `compile.sample` both use it. */
+export function highlightOpacityAt(at: number, prior: number, level: number, lead: number): number {
+  if (!(lead > 0)) return level + (1 - level) * at;
+  const dip = Math.min(prior, level);
+  return at < lead ? prior + (dip - prior) * (at / lead) : dip + (1 - dip) * ((at - lead) / (1 - lead));
+}
+/** dim: opacity at eased progress `at`, starting FROM `prior` (X7: a dim of an already dimmed or half-faded node starts where it is,
+ *  never at 1) and ending at `level` ("dim to 30 %"). From a fully visible node (`prior` 1) it is the legacy `1 - (1 - level)·at`, bit-exact. */
+export const dimOpacityAt = (at: number, prior: number, level: number): number => prior + (level - prior) * at;
 
 /** Diagnostics for authored params the table does not vouch for. They are advice, never a refusal: the keys stay
  *  in the deck (a newer build may read them) and playback ignores what it does not know. `table` is injectable
@@ -277,7 +330,15 @@ export function paramDiagnostics(track: ParamSource, table: Readonly<Record<stri
     if (!owner) {
       // a key some OTHER preset declares is a stale leftover of a preset switch (autobuild keeps `child` when a
       // stagger suggestion is overridden to fade): the Animator has no control to clear it, so it stays silent
-      if (Object.values(table).some(row => Object.prototype.hasOwnProperty.call(row, key))) continue;
+      const declaring = Object.entries(table).filter(([, row]) => Object.prototype.hasOwnProperty.call(row, key));
+      if (declaring.length) {
+        // ...unless the key is host-bound (stroke `order` / `lag`): then it is an authoring error on a preset that cannot honour it
+        if (declaring.every(([, row]) => row[key].hostOnly)) {
+          const hosts = declaring.map(([name]) => presetDef(name).label).join(" / ");
+          out.push(`Option “${key}” only applies to ${hosts}: ignored by ${def.label}.`);
+        }
+        continue;
+      }
       out.push(`Unknown option “${key}” for ${def.label}: kept in the deck, ignored by playback.`);
       continue;
     }

@@ -99,10 +99,11 @@ export function addAppearanceTracks(
         ? suggestTrack(el.type === "plot" ? manifestOf(el.assetId) : undefined, el.id, part, { pace: options.pace })
         : suggestElementTrack(el, { exit, ...(part ? { part } : {}) });
     if (kind === "emphasize") {
-      track.preset = "highlight";
-      // the entrance suggestion's timing group and authored params (fadeRise y) mean nothing to highlight
-      delete track.easing; delete track.influence; delete track.curve; if (!track.stagger) delete track.params;
-      Object.assign(track, authoredFields("highlight"));
+      track.preset = "pulse";
+      // the entrance suggestion's timing group and authored params (fadeRise y, a stagger's child) mean nothing to a pulse; it brings
+      // its own pace (700 ms, smooth: onset-exempt, X2). An existing `highlight` track is never rewritten: this is a NEW track.
+      delete track.easing; delete track.influence; delete track.curve; delete track.params;
+      Object.assign(track, authoredFields("pulse"));
     }
     const key = trackKey(track);
     const prior = beat.tracks.filter((x) => trackKey(x) === key && familyOf(x) === "appearance");
@@ -113,6 +114,17 @@ export function addAppearanceTracks(
     }
     const added = appendAnimation(deck, slideId, beat.id, track);
     if (added?.id) created.push(added.id);
+  }
+  // Several whole objects that grow in / out / pulse TOGETHER move about ONE point, the centre of their union (manim animates a
+  // VGroup about its centre), so a label never leaves its card: `from` / `to` / `about` = "group", resolved at play time over the
+  // tracks that start together. A lagged selection (>= 3 objects) is one-after-another by design, each about its own origin.
+  if (!lagged) {
+    const whole = beat.tracks.filter((x) => x.id && created.includes(x.id) && !x.part && !x.selector && !x.stagger);
+    const key = (x: Track) => x.preset === "scaleIn" ? "from" : x.preset === "scaleOut" ? "to" : x.preset === "pulse" ? "about" : undefined;
+    for (const preset of ["scaleIn", "scaleOut", "pulse"]) {
+      const same = whole.filter((x) => x.preset === preset);
+      if (same.length >= 2) for (const x of same) x.params = { ...x.params, [key(x)!]: "group" };
+    }
   }
   if (lagged) {
     // one lag schedule over the NEW tracks that follow nothing: window never longer than the track's own, starts one step apart

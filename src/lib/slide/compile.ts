@@ -12,7 +12,7 @@ import { staggerRanks, staggerSpan, staggerDelay, staggerSeed } from "./stagger"
 import { staggerKey, manifestCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
-import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS, presetParam, paramDiagnostics, legacyScaleOf, legacyRotationOf, highlightOpacity, dimOpacity } from "./presetCatalog";
+import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS, presetParam, paramDiagnostics, legacyScaleOf, legacyRotationOf, highlightOpacityAt, dimOpacityAt } from "./presetCatalog";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, isWholeElementRef, refElementIds, type ResolvedTarget } from "./targets";
 import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
@@ -139,6 +139,15 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const el = transformPreState(slide, track.target, bi);
       if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target,
         reason: `No matching ${el?.type === "plot" ? "plot" : "semantic"} parts. Retarget this effect.` });
+      // A 3D model's mesh parts draw in WebGL and own no DOM node: their opacity comes from this compiler, so a transform-only
+      // effect cannot scale or pulse them (scale in / out would silently fade them instead).
+      if (el?.type === "model3d" && hasPartBinding(track) && parts.length) {
+        const preset = track.preset;
+        if (preset === "scaleIn" || preset === "scaleOut") issues.push({ trackId: track.id, target: track.target,
+          reason: `${preset === "scaleIn" ? "Scale in" : "Scale out"} has no 3D-part equivalent: the model's mesh parts fade ${preset === "scaleIn" ? "in" : "out"} instead. Use ${preset === "scaleIn" ? "Fade in" : "Fade out"}, or animate the camera.` });
+        else if (preset === "pulse" || preset === "encircle") issues.push({ trackId: track.id, target: track.target,
+          reason: `${preset === "pulse" ? "Pulse" : "Circle it"} acts on the model's labels and axes, not on its mesh parts; it is skipped there.` });
+      }
       const start = Math.max(0, track.start ?? 0), duration = trackDuration(track);
       const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
       const staggerBy = staggerKey(track.stagger?.by);
@@ -249,6 +258,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       }
       if (familyOf(ct.track) === "media") continue;
       if (ct.track.preset === "transform" || ct.track.preset === "camera") continue;
+      if (presetDef(ct.track.preset).ephemeral) continue; // pulse / encircle never decide whether a target starts hidden
       for (const key of targetsFor(ct)) {
         if (isEnterPreset(ct.track.preset)) entrances.add(key);
         if (!first.has(key)) { first.add(key); appearance.set(key, { opacity: isEnterPreset(ct.track.preset) ? 0 : 1, visible: !isEnterPreset(ct.track.preset) }); }
@@ -316,10 +326,12 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         camera = sampleCamera(from, to, ct.ease.fn(raw), stage, track.to?.path, from);
         continue;
       }
+      if (presetDef(preset).ephemeral) continue; // pulse / encircle leave no resting trace: playback shows them, the presentation never does
       for (const [i, key] of targetsFor(ct).entries()) {
         const at = ct.duration > 0 ? ct.ease.clamped(clamp((local - ct.start - staggerDelay(track, ct.ranks[i] ?? 0, ct.maxRank)) / ct.duration)) : 1;
         const previous = appearance.get(key) ?? { opacity: 1, visible: true };
-        const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? dimOpacity(presetParam(track, "level", "dim"), at) : preset === "highlight" ? highlightOpacity(presetParam(track, "level", "highlight"), at) : previous.opacity;
+        // highlight / dim start FROM the node's opacity as the track begins (`previous`), the same formulas the player's keyframes sample
+        const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? dimOpacityAt(at, previous.opacity, presetParam(track, "level", "dim")) : preset === "highlight" ? highlightOpacityAt(at, previous.opacity, presetParam(track, "level", "highlight"), presetParam(track, "lead", "highlight")) : previous.opacity;
         appearance.set(key, { opacity, visible: opacity > 0 });
         if (handoffVisibility.has(key) && (isEnterPreset(preset) || isExitPreset(preset))) handoffVisibility.set(key, opacity > 0);
       }

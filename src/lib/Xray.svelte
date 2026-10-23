@@ -600,7 +600,7 @@
   type AnimateOption = { kind: XrayAnimateKind; label: string; key: string; hint: string };
   $: animOptions = [
     { kind: "appear", label: "Appear", key: "1", hint: "entrance with each kind's default" },
-    { kind: "emphasize", label: "Emphasize", key: "2", hint: "highlight" },
+    { kind: "emphasize", label: "Emphasize", key: "2", hint: "pulse" },
     { kind: "disappear", label: "Disappear", key: "3", hint: "exit" },
     { kind: "change", label: "Change", key: "4", hint: "transform — edit the object after this step" },
     { kind: "appear-from", label: "Appear from…", key: "5", hint: "Pick the object these rows come from" },

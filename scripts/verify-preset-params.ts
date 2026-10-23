@@ -13,7 +13,7 @@ import { parseHTML } from "linkedom";
 import { harness } from "./lib/harness.mjs";
 import {
   PRESET_PARAMS, PRESET_CATALOG, KNOWN_PRESETS, presetParam, paramSpec, paramDiagnostics, legacyScaleOf, legacyRotationOf,
-  highlightOpacity, dimOpacity, type ParamRow,
+  highlightOpacityAt, dimOpacityAt, type ParamRow,
 } from "../src/lib/slide/presetCatalog";
 import { PRESETS, type PresetCtx, type TargetNode } from "../src/lib/slide/player/presets";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -32,10 +32,14 @@ h.section("1. the table");
 // default may never change (saved decks and every authoring layer write values instead).
 const FROZEN: Record<string, Record<string, unknown>> = {
   fadeRise: { y: 14 }, popIn: { from: 0.9 }, popOut: { to: 0.92 }, scale: { scale: 1.15 }, rotate: { deg: 15 },
-  stagger: { child: "fadeRise" }, writeOn: { direction: "ltr" }, wipeOut: { direction: "ltr" },
-  drawOn: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1 },
-  drawOff: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1 },
-  highlight: { level: 0.4 }, dim: { level: 0.3 },
+  // WP 2.4: writeOn / wipeOut gain `edge` (absent = the hard clip), drawOn / drawOff gain `order` (absent = together) and `lag`
+  stagger: { child: "fadeRise" }, writeOn: { direction: "ltr", edge: "hard" }, wipeOut: { direction: "ltr", edge: "hard" },
+  drawOn: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3 },
+  drawOff: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3 },
+  highlight: { level: 0.4, lead: 0 }, dim: { level: 0.3 },
+  // WP 2.2: the fade-free vocabulary. Their defaults are the playback fallbacks of a track that omits the key (authoring writes none of them).
+  scaleIn: { from: "auto", spin: 0 }, scaleOut: { to: "auto", spin: 0 }, pulse: { scale: null, about: null },
+  encircle: { gap: 6, radius: 6, width: 3.5, window: 0.3, color: null },
 };
 h.eq(Object.keys(PRESET_PARAMS).sort(), Object.keys(PRESET_CATALOG).sort(), "one row per catalog preset (a new preset forces its row)");
 for (const [preset, keys] of Object.entries(FROZEN)) {
@@ -43,14 +47,15 @@ for (const [preset, keys] of Object.entries(FROZEN)) {
   h.eq(Object.fromEntries(Object.entries(row).map(([k, s]) => [k, s.default])), keys, `${preset}: defaults are today's literals`);
 }
 for (const [preset, row] of Object.entries(PRESET_PARAMS)) for (const [key, spec] of Object.entries(row)) {
-  const bad = spec.range && !(spec.range[0] < spec.range[1]) ? "range is not ordered" : spec.range && typeof spec.default !== "number" ? "range on a non-number" :
+  const bad = spec.range && !(spec.range[0] < spec.range[1]) ? "range is not ordered" : spec.range && typeof spec.default !== "number" && !(spec.default === null && spec.types?.includes("number")) ? "range on a non-number (a null default must declare types: [\"number\"])" :
     spec.range && typeof spec.default === "number" && (spec.default < spec.range[0] || spec.default > spec.range[1]) ? "default outside its range" :
     spec.requires && !(spec.requires.key in row) ? "requires names a key that is not in the row" : "";
   if (bad) h.fail(`${preset}.${key}: ${bad}`);
 }
 h.ok(true, "every range is ordered and holds its default, every `requires` names a sibling key");
 h.eq(Object.entries(PRESET_PARAMS).flatMap(([p, row]) => Object.entries(row).filter(([, s]) => s.range).map(([k, s]) => `${p}.${k}:${s.range}`)).sort(),
-  ["dim.level:0,1", "highlight.level:0,1"], "only the NEW keys (the highlight/dim levels) are clamped; every legacy key stays unclamped");
+  ["dim.level:0,1", "drawOff.lag:0,1", "drawOn.lag:0,1", "encircle.gap:0,60", "encircle.radius:0,60", "encircle.width:0.5,12", "encircle.window:0.05,1", "highlight.lead:0,0.9", "highlight.level:0,1", "pulse.scale:1,3", "scaleIn.spin:-720,720", "scaleOut.spin:-720,720"],
+  "only the NEW keys (levels, lead, the WP 2.2 vocabulary) are clamped; every legacy key stays unclamped");
 
 // ---------------------------------------------------------------------------------------------------------------
 h.section("2. the census: the engines (presets, player, compile, pptx) read params through the table only");
@@ -58,7 +63,7 @@ h.section("2. the census: the engines (presets, player, compile, pptx) read para
 const CALL = /presetParam(?:<[^>]*>)?\(\s*[^,()]+,\s*"(\w+)"\s*,\s*(?:"(\w+)"|(preset))\s*\)/g;
 const owners = (literal: string | undefined, variable: string | undefined): string[] => literal ? [literal] : variable ? ["drawOn", "drawOff"] : [];
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
-for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts"]) {
+for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/encircleGeometry.ts"]) {
   const src = strip(readFileSync(file, "utf8"));
   const direct = [...src.matchAll(/\bparams\??\.\w+/g)].map((m) => m[0]);
   h.eq(direct, [], `${file}: no direct params.<key> read`);
@@ -69,7 +74,7 @@ for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/pla
 {
   // every table key a compiler reads is read through the table: the keys the three files name == the table's keys (minus countUp's, read by countup.ts)
   const named = new Set<string>();
-  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts"]) {
+  for (const file of ["src/lib/slide/player/presets.ts", "src/lib/slide/player/player.ts", "src/lib/slide/compile.ts", "src/lib/slide/export/pptxBuilds.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/encircleGeometry.ts"]) {
     for (const m of strip(readFileSync(file, "utf8")).matchAll(CALL)) for (const p of owners(m[2], m[3])) named.add(`${p}.${m[1]}`);
   }
   const declared = Object.entries(PRESET_PARAMS).filter(([p]) => p !== "countUp").flatMap(([p, row]) => Object.keys(row).map((k) => `${p}.${k}`));
@@ -108,9 +113,17 @@ h.eq(legacyRotationOf({ ...T("rotate", { deg: 40 }), to: { deg: 10 } } as never)
 h.eq(legacyRotationOf(T("rotate", { deg: 40 })), 40, "legacy rotate: params.deg");
 {
   let bad = 0;
-  for (let i = 0; i <= 20; i++) { const at = i / 20; if (highlightOpacity(0.4, at) !== 0.4 + 0.6 * at || dimOpacity(0.3, at) !== 1 - 0.7 * at) bad++; }
-  h.eq(bad, 0, "highlight/dim at the default levels are BIT-IDENTICAL to the old `.4 + .6*at` / `1 - .7*at`");
+  for (const prior of [1, 0.3, 0.8]) for (let i = 0; i <= 20; i++) { const at = i / 20; if (highlightOpacityAt(at, prior, 0.4, 0) !== 0.4 + 0.6 * at) bad++; }
+  for (let i = 0; i <= 20; i++) { const at = i / 20; if (dimOpacityAt(at, 1, 0.3) !== 1 - 0.7 * at) bad++; }
+  h.eq(bad, 0, "highlight (lead 0, any prior) / dim (from a fully visible node) at the default levels are BIT-IDENTICAL to the old `.4 + .6*at` / `1 - .7*at`");
 }
+
+h.eq([presetParam(T("drawOn", { lag: 5 }), "lag", "drawOn"), presetParam(T("drawOn", { lag: -1 }), "lag", "drawOn"), presetParam(T("drawOn"), "lag", "drawOn"), presetParam(T("drawOff", { order: "sequence" }), "order", "drawOff"), presetParam(T("drawOn", { order: 3 }), "order", "drawOn")],
+  [1, 0, 0.3, "sequence", "together"], "drawOn / drawOff order + lag (X4): lag clamps to [0, 1] and defaults to 0.3, a malformed order reads as together");
+h.eq([paramDiagnostics(T("drawOn", { lag: 0.5 })).length, paramDiagnostics(T("drawOn", { order: "sequence", lag: 0.5 })).length, paramDiagnostics(T("stagger", { child: "drawOn", order: "sequence" })).length, paramDiagnostics(T("drawOff", { order: "sequence" })).length],
+  [1, 0, 0, 0], "a lag with no sequence is reported (the PRESET_PARAMS `requires` rule for order); a sequence on a drawOn / drawOff / stagger-over-draw is known");
+h.eq([paramDiagnostics(T("fadeRise", { order: "sequence" })).length, paramDiagnostics(T("stagger", { child: "fade", order: "sequence" })).length, paramDiagnostics(T("writeOn", { order: "sequence", lag: 0.3 })).length, paramDiagnostics(T("fadeRise", { from: 0.5 })).length],
+  [1, 1, 2, 0], "order / lag are host-bound (FINAL_PLAN 2.4): reported on a preset that is not a Draw (fadeRise, stagger over fade, writeOn); an ordinary foreign key (popIn.from) stays a silent leftover");
 
 // ---------------------------------------------------------------------------------------------------------------
 h.section("4. player, compile and PPTX read the same value");

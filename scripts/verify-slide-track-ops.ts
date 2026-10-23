@@ -104,8 +104,8 @@ assert(tText.preset === "fadeRise" && !tText.selector, "text → fadeRise (one u
 const line = { type: "line", id: "el-line", x: 0, y: 0, width: 200, height: 0, rotation: 0, x1: 0, y1: 0, x2: 200, y2: 0, stroke: "#000", strokeWidth: 2, arrowStart: false, arrowEnd: false } as unknown as SlideElement;
 assert(suggestElementTrack(line).preset === "drawOn", "line → drawOn");
 const rect = { type: "rect", id: "el-rect", x: 0, y: 0, width: 100, height: 80, rotation: 0, fill: "#123", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as unknown as SlideElement;
-assert(suggestElementTrack(rect).preset === "popIn", "rect → popIn (div-rendered, NOT drawOn)");
-assert(suggestElementTrack(rect, { exit: true }).preset === "popOut", "rect exit → popOut");
+assert(suggestElementTrack(rect).preset === "scaleIn", "rect → scaleIn (it grows in; div-rendered, NOT drawOn)");
+assert(suggestElementTrack(rect, { exit: true }).preset === "scaleOut", "rect exit → scaleOut (the fade-free mirror)");
 assert(suggestElementTrack(line, { exit: true }).preset === "drawOff", "line exit → drawOff");
 assert(suggestElementTrack(textEl, { exit: true }).preset === "fadeOut", "default exit → fadeOut");
 

@@ -30,13 +30,14 @@ const r1 = addAppearanceTracks(deck, sid, [{ elementId: rectId }, { elementId: l
 assert(r1 && r1.beatIndex === 1 && slide.beats.length === 2, "step 1 is created for the resting step");
 assert(r1.trackIds.length === 2 && slide.beats[1].tracks.length === 2, "one track per target");
 const [tr, tl] = slide.beats[1].tracks;
-assert(tr.target === rectId && tr.preset === "popIn" && tl.target === lineId && tl.preset === "drawOn", "per-kind entrance defaults (rect pops, line draws on)");
+assert(tr.target === rectId && tr.preset === "scaleIn" && tl.target === lineId && tl.preset === "drawOn", "per-kind entrance defaults (rect grows in, a plain line draws on)");
+assert(tr.params === undefined, "two objects: a rect and a plain line are not two growing tracks, so no group origin is written");
 assert(tr.start === 0 && tl.start === 0, "first effects start at 0");
 
 // (2) a second appear on the same target stacks after the prior one
 const r2 = addAppearanceTracks(deck, sid, [{ elementId: rectId }], "emphasize", 1, {})!;
 const em = slide.beats[1].tracks.find((t) => t.id === r2.trackIds[0])!;
-assert(em.preset === "highlight" && em.duration === 700 && em.easing === undefined && em.curve?.kind === "bezier", "emphasize = highlight 700ms quick smooth (T1 pace)");
+assert(em.preset === "pulse" && em.duration === 700 && em.easing === "smooth" && em.curve === undefined && em.params === undefined, "emphasize = pulse 700ms plain smooth (onset-exempt, X2; Q3b)");
 assert(em.anchor?.trackId === tr.id && em.anchor.edge === "end", "successive effect anchors to the prior entrance end");
 assert(resolveStart(em, slide.beats[1], deck).start === (tr.start ?? 0) + (tr.duration ?? 0), "anchored emphasis preserves its initial timing");
 
@@ -58,7 +59,7 @@ assert(partTracks.map((t) => `${t.target}:${t.part}`).join(",") === "p1:axis.x,p
 const r4 = addAppearanceTracks(deck, sid, [{ elementId: lineId }, { elementId: "ghost-of-nothing" }], "disappear", 1, {})!;
 assert(r4.trackIds.length === 1, "unknown targets are skipped");
 const exit = slide.beats[1].tracks.find((t) => t.id === r4.trackIds[0])!;
-assert(exit.preset === "drawOff" && exit.target === lineId, "line exit = drawOff");
+assert(exit.preset === "drawOff" && exit.target === lineId, "plain line exit = drawOff");
 assert(exit.anchor?.trackId === tl.id && resolveStart(exit, slide.beats[1], deck).start === (tl.start ?? 0) + (tl.duration ?? 0), "exit anchors after the entrance");
 tl.duration = 750;
 assert(resolveStart(exit, slide.beats[1], deck).start === 750, "retiming an entrance moves its following exit");
@@ -78,6 +79,33 @@ const p1Tracks = b2.tracks.filter((t) => t.target === p1 && t.part === "axis.x")
 assert(p1Tracks.length === 1 && p1Tracks[0].start === 0, "duplicate part picks cannot create an unintended second entrance");
 const later = addAppearanceTracks(deck, sid, [{ elementId: p1, partId: "axis.x" }], "emphasize", 2, {})!;
 assert(later.trackIds.length === 1 && resolveStart(b2.tracks.find((t) => t.id === later.trackIds[0])!, b2, deck).start > 0, "a separate explicit action still appends after the prior effect");
+
+// (7) Q3a/Q3b: arrows grow from the tail, shapes scale out, several objects move about ONE group centre, a lagged selection does not
+{
+  const d = ops.createDeck({ id: "g", title: "Group" });
+  const sg = ops.addSlide(d, { name: "G", layout: "blank" }).id, gs = ops.slideById(d, sg)!;
+  const box = (id: string, x: number) => ({ type: "rect", id, x, y: 0, width: 100, height: 60, rotation: 0, fill: "#eee", stroke: "#000", strokeWidth: 1, cornerRadius: 0 }) as unknown as SlideElement;
+  for (const id of ["a", "b", "c"]) ops.addElement(d, sg, box(id, id.charCodeAt(0) * 10));
+  ops.addElement(d, sg, { type: "line", id: "arrow", x: 0, y: 100, width: 100, height: 0, rotation: 0, x1: 0, y1: 0, x2: 100, y2: 0, stroke: "#000", strokeWidth: 2, arrowStart: false, arrowEnd: true } as unknown as SlideElement);
+  const two = addAppearanceTracks(d, sg, [{ elementId: "a" }, { elementId: "b" }], "appear", 0, {})!;
+  const twoTracks = gs.beats[two.beatIndex].tracks.filter((t) => two.trackIds.includes(t.id!));
+  assert(twoTracks.every((t) => t.preset === "scaleIn" && t.params?.from === "group"), "two objects appearing together grow about their group centre (from: group)");
+  const arrow = addAppearanceTracks(d, sg, [{ elementId: "arrow" }], "appear", two.beatIndex, {})!;
+  const at = gs.beats[arrow.beatIndex].tracks.find((t) => t.id === arrow.trackIds[0])!;
+  assert(at.preset === "scaleIn" && at.params === undefined, "an arrow grows in (scaleIn) with the default origin: its tail (auto)");
+  const out = addAppearanceTracks(d, sg, [{ elementId: "a" }, { elementId: "b" }], "disappear", two.beatIndex, {})!;
+  const outTracks = gs.beats[out.beatIndex].tracks.filter((t) => out.trackIds.includes(t.id!));
+  assert(outTracks.every((t) => t.preset === "scaleOut" && t.params?.to === "group"), "two shapes disappearing together shrink to their group centre (scaleOut, to: group)");
+  const pulse = addAppearanceTracks(d, sg, [{ elementId: "a" }, { elementId: "b" }, { elementId: "c" }], "emphasize", two.beatIndex, {})!;
+  const pulses = gs.beats[pulse.beatIndex].tracks.filter((t) => pulse.trackIds.includes(t.id!));
+  assert(pulses.length === 3 && pulses.every((t) => t.preset === "pulse" && t.params?.about === "group"), "a multi-selection pulses about the group centre (emphasis never lags)");
+  const fresh = ops.addBeat(d, sg, { label: "Step lag", advance: "click" })!, freshIndex = gs.beats.indexOf(fresh);
+  const lag = addAppearanceTracks(d, sg, [{ elementId: "a" }, { elementId: "b" }, { elementId: "c" }], "appear", freshIndex, {})!;
+  const lagged = gs.beats[lag.beatIndex].tracks.filter((t) => lag.trackIds.includes(t.id!));
+  assert(lagged.every((t) => t.preset === "scaleIn" && t.params === undefined) && new Set(lagged.map((t) => t.start ?? 0)).size > 1, "three or more objects lag one after another, each about its own origin (no group)");
+  const hl = d.slides[0].beats.flatMap((b) => b.tracks).filter((t) => t.preset === "highlight");
+  assert(hl.length === 0, "Emphasize no longer writes highlight (saved highlight tracks are never rewritten: this writes new tracks only)");
+}
 
 const emptyDeck = ops.createDeck({ id: "empty", title: "No targets" });
 const emptySlide = ops.addSlide(emptyDeck, { name: "Empty", layout: "blank" });

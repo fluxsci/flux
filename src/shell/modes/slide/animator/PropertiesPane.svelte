@@ -38,6 +38,8 @@
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
   import { resolveBeat, resolveTrackRaw, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
+  import { presetParam, PRESET_PARAMS, authoredParams, type PointParam } from "../../../../lib/slide/presetCatalog";
+  import { multiStroke } from "../../../../lib/slide/strokeGeometry";
   import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
@@ -240,6 +242,24 @@
       Object.assign(t, p);
     });
   };
+  /** Switch the effect. The new effect brings its AUTHORED params for the keys the track does not set (a Wipe in is soft-edged, a
+   *  Highlight eases into its dip: what every new track of that effect is written with), and a Draw on a multi-path drawing (an
+   *  imported SVG with several strokes, NOT a fluxplot: a chart draws as one) traces its strokes in order. A style-linked track keeps inheriting its params from the style. */
+  function switchEffect(preset: PresetName) {
+    if (anyGhost || anyMedia && !allMedia) return; // the same guards as patchTrack: a hand-off or a mixed media selection keeps its effect
+    editFields((t) => {
+      const before = t.preset;
+      t.preset = preset;
+      if (editingStyle || t.styleId) return;
+      const params = { ...(t.params ?? {}) } as Record<string, unknown>;
+      // the old effect's authored params (still at their authored value) go with it; the new effect's arrive for the keys left unset
+      for (const [key, value] of Object.entries(authoredParams(before, params) ?? {})) if (params[key] === value) delete params[key];
+      for (const [key, value] of Object.entries(authoredParams(preset, params) ?? {})) if (!(key in params)) params[key] = value;
+      const target = slide.elements.find(e => e.id === t.target);
+      if ((preset === "drawOn" || preset === "drawOff") && target?.type === "plot" && !t.part && !t.selector && !("order" in params) && !$plotManifests[target.assetId] && multiStroke(plotDom.get(target.assetId))) params.order = "sequence";
+      if (Object.keys(params).length) t.params = params; else delete t.params;
+    });
+  }
   function timing(field: "start" | "duration", value: string) {
     const n = Number(value);
     if (!value.trim() || !Number.isFinite(n)) return;
@@ -470,6 +490,29 @@
   // --- trim-path params (drawOn/drawOff — rework §5) -------------------------
   const isTrim = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "drawOn" || curTrack?.preset === "drawOff"));
   const isWipe = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "writeOn" || curTrack?.preset === "wipeOut"));
+  // --- scale in / scale out / pulse / circle it (WP 2.2) -----------------------------------------------------------
+  const isGrow = $derived(!anyGhost && curFamily === "appearance" && (curTrack?.preset === "scaleIn" || curTrack?.preset === "scaleOut"));
+  const isPulse = $derived(!anyGhost && curFamily === "appearance" && curTrack?.preset === "pulse");
+  const isEncircle = $derived(!anyGhost && curFamily === "appearance" && curTrack?.preset === "encircle");
+  /** Write one free param; a value equal to its table default (or blank) DELETES the key so decks stay byte-minimal. */
+  function setParam(key: string, value: unknown, def: unknown) {
+    editFields((t, resolved) => {
+      const p = { ...(resolved.params ?? {}) } as Record<string, unknown>;
+      if (value === def || value === "" || value == null || (typeof value === "number" && !Number.isFinite(value))) delete p[key];
+      else p[key] = value;
+      t.params = Object.keys(p).length || t.styleId ? p : undefined;
+    });
+  }
+  // The origin word of a scale in / out. The UI offers auto, the centre, the four edge midpoints and the group centre; a stored
+  // diagonal or stage point (schema-only) shows as a disabled "Custom" so opening the pane never rewrites it.
+  const growKey = $derived(curTrack?.preset === "scaleOut" ? "to" : "from");
+  const growWord = $derived(curTrack && (isGrow) ? presetParam<string | PointParam>(curTrack, growKey, curTrack.preset as string) : "auto");
+  const GROW_CHOICES = ["auto", "center", "n", "e", "s", "w", "group"];
+  const growChoice = $derived(typeof growWord === "string" && GROW_CHOICES.includes(growWord) ? growWord : "custom");
+  const pulseAbout = $derived(curTrack && isPulse ? presetParam<string | PointParam | null>(curTrack, "about", "pulse") : null);
+  const aboutChoice = $derived(pulseAbout === "group" ? "group" : pulseAbout ? "custom" : "");
+  /** A param the track authors explicitly, or "" (shown as the placeholder): the table's default is not the author's number. */
+  const authored = (key: string, preset: string): number | "" => curTrack && curTrack.params?.[key] !== undefined ? presetParam<number>(curTrack, key, preset) : "";
   const trimP = $derived((curTrack?.params ?? {}) as { anchor?: number | string; direction?: string; mode?: string; from?: number; to?: number });
   /** Write one trim param; a value equal to its default DELETES the key so
    *  default decks keep the legacy byte-identical compile path. */
@@ -641,7 +684,7 @@
       <div class="note">{curTrack.preset === "videoStart" ? "Starts from the first frame. Playback continues across steps until the clip ends or a Pause/Stop action runs." : curTrack.preset === "videoPause" ? "Freezes the current frame. A later Start action plays again from the beginning." : "Stops playback and returns to the first frame."} Appearance is controlled separately.</div>
     {:else if curFamily === "appearance" && !anyGhost && !anyMedia}
       <label class="f">Effect<kbd class="kc" title="shortcut: p">p</kbd>
-        <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
+        <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => switchEffect(e.currentTarget.value as PresetName)}>
           {#each EDIT_PRESETS as p (p)}<option value={p}>{presetLabel(p)}</option>{/each}
         </select>
       </label>
@@ -743,12 +786,67 @@
         </select>
       </label>
     {/if}
+    {#if isGrow}
+      <label class="f">{curTrack?.preset === "scaleOut" ? "shrink to" : "grow from"}
+        <select aria-label="Grow origin" value={growChoice} title="The point the shape scales about. Auto: an arrow grows from its tail, everything else from its centre."
+          onchange={(e) => setParam(growKey, e.currentTarget.value, "auto")}>
+          <option value="auto">auto (arrow tail / centre)</option>
+          <option value="center">centre</option>
+          <option value="n">top</option><option value="e">right</option><option value="s">bottom</option><option value="w">left</option>
+          <option value="group" title="The centre of the objects that start together: a label stays inside its card">group centre</option>
+          {#if growChoice === "custom"}<option value="custom" disabled>custom</option>{/if}
+        </select>
+      </label>
+    {/if}
+    {#if isPulse}
+      <label class="f">peak
+        <span class="unit"><input aria-label="Pulse peak" type="number" min="1.01" max="3" step="0.05" placeholder="auto"
+          value={authored("scale", "pulse")}
+          title="How large it grows, as a multiple of its size. Blank: sized to the object (1.12 to 1.3×), never past the slide edge."
+          onchange={(e) => { const v = e.currentTarget.value; setParam("scale", v === "" ? undefined : Math.max(1.01, Math.min(3, Number(v))), null); }} /><small>×</small></span>
+      </label>
+      <label class="f">about
+        <select aria-label="Pulse origin" value={aboutChoice}
+          onchange={(e) => setParam("about", e.currentTarget.value, null)}>
+          <option value="">its own centre</option>
+          <option value="group" title="The centre of the objects that pulse together">group centre</option>
+          {#if aboutChoice === "custom"}<option value="custom" disabled>custom</option>{/if}
+        </select>
+      </label>
+    {/if}
+    {#if isEncircle}
+      <label class="f">gap
+        <span class="unit"><input aria-label="Circle gap" type="number" min="0" max="60" step="1" placeholder={String(PRESET_PARAMS.encircle.gap.default)}
+          value={authored("gap", "encircle")}
+          title="Space between the object and the band, in slide units"
+          onchange={(e) => { const v = e.currentTarget.value; setParam("gap", v === "" ? undefined : Number(v), PRESET_PARAMS.encircle.gap.default); }} /><small>st</small></span>
+      </label>
+      <label class="f">width
+        <span class="unit"><input aria-label="Circle width" type="number" min="0.5" max="12" step="0.5" placeholder={String(PRESET_PARAMS.encircle.width.default)}
+          value={authored("width", "encircle")}
+          title="Stroke width of the band, in slide units"
+          onchange={(e) => { const v = e.currentTarget.value; setParam("width", v === "" ? undefined : Number(v), PRESET_PARAMS.encircle.width.default); }} /><small>st</small></span>
+      </label>
+    {/if}
+    {#if isWipe}
+      <label class="f">edge
+        <select aria-label="Wipe edge" value={presetParam<string>(curTrack!, "edge", curTrack!.preset as string)} title="Soft: a feathered leading edge on text (anything else keeps the hard edge). Hard: the plain clip."
+          onchange={(e) => setParam("edge", e.currentTarget.value, PRESET_PARAMS.writeOn.edge.default)}>
+          <option value="soft">soft</option><option value="hard">hard</option>
+        </select>
+      </label>
+    {/if}
     {#if isTrim}
       <!-- TRIM PATHS (rework §5) — the featured draw controls: where the draw
            anchors, which way it runs, single/both-ends/middle-out, and the
            final [from,to] window. Defaults keep the legacy compile path. -->
       <div class="trim">
         <div class="tl">Trim path</div>
+        <label class="f" title="Draw the strokes of a multi-path drawing one after another at one pen speed (a retreat takes the last stroke first), instead of all at once">
+          <input type="checkbox" aria-label="Trace strokes in order" checked={presetParam<string>(curTrack!, "order", curTrack!.preset as string) === "sequence"}
+            onchange={(e) => setParam("order", e.currentTarget.checked ? "sequence" : undefined, PRESET_PARAMS.drawOn.order.default)} />
+          <span>Trace strokes in order</span>
+        </label>
         <div class="f seg2" role="group" aria-label="Trim mode">
           <button class="sg2" class:on={(trimP.mode ?? "single") === "single"} title="One window grows from the anchor" onclick={() => setTrim("mode", "single")}>single</button>
           <button class="sg2" class:on={trimP.mode === "both-ends"} title="Draw from both ends, meet in the middle" onclick={() => setTrim("mode", "both-ends")}>both ends</button>
@@ -798,7 +896,7 @@
         </div>
       </div>
     {/if}
-    {#if isTrim || isWipe}{@render overrideRow("params")}{/if}
+    {#if isTrim || isWipe || isGrow || isPulse || isEncircle}{@render overrideRow("params")}{/if}
     {#if !anyMedia}
       <CurveField tracks={editingStyle ? [curTrack] : selTracks} contextKey={`${slide.id}:${$selTrackIds.join(",")}:${editingStyleId ?? ""}`} onChange={changeCurve} />
       {#if ["easing", "influence", "curve"].some(k => overridden(k as StyleField))}

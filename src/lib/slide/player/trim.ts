@@ -331,6 +331,38 @@ export function penWidth(width: number, ink: number): number {
   return width > 0 ? width * Math.min(1, Math.max(0, ink) / width) : width;
 }
 
+/** The PEN-SLICE law: how the children of ONE target share one node window so they draw one after another at ONE pen speed
+ *  (manim's `get_sub_alpha` generalised from equal slices to arc-length widths).
+ *    child i:  window d_i = k·w_i,  start s_i = L·k·(w_0 + … + w_{i-1}),  k = 1 / max_i(L·P_i + w_i),  P_i = Σ_{q<i} w_q
+ *  so the last end is exactly 1, `equal` weights are manim's equal slices, and with length weights every child runs at the
+ *  SAME speed w_i/d_i = 1/k for any lag L. `lag` 1 = back to back (a constant-speed pen: each slice starts where the previous
+ *  ends, i.e. an arrowhead after its shaft), 0 = all together. `minFrac`: no window may fall under that fraction of the node
+ *  window (a 3 unit cap is never a one-frame flash): the weights of short children are raised and k re-solved (≤ 200 passes);
+ *  if even equal minimum windows cannot fit, the LAG gives way, never the total. Pure; the caller eases ONCE PER SLOT
+ *  (`c_i = ease(clamp((raw − s_i)/d_i))`, manim's per-child rate_func). At `lag` 1, `equal` false, `minFrac` 0 it is the
+ *  within-unit shaft → head slicing of the draw plan, bit for bit. */
+export function penSlices(weights: readonly number[], lag = 1, equal = false, minFrac = 0): [number, number][] {
+  const n = weights.length;
+  if (!n) return [];
+  const w = weights.map((v) => (equal ? 1 : Number.isFinite(v) ? Math.max(v, 1e-9) : 1e-9));
+  const L = n > 1 && minFrac > 0 ? Math.max(0, Math.min(lag, (1 / minFrac - 1) / (n - 1))) : Math.max(0, lag);
+  const P = new Array<number>(n).fill(0);
+  let m = 1; // the node window in weight units: k = 1 / m, so a slice is (L·P_i, L·P_i + w_i) / m
+  const solve = () => {
+    for (let i = 1; i < n; i++) P[i] = P[i - 1] + w[i - 1];
+    m = 0;
+    for (let i = 0; i < n; i++) m = Math.max(m, L * P[i] + w[i]);
+  };
+  solve();
+  for (let pass = 0; pass < 200 && minFrac > 0; pass++) {
+    let changed = false;
+    for (let i = 0; i < n; i++) if (w[i] / m < minFrac * (1 - 1e-9)) { w[i] = minFrac * m; changed = true; }
+    if (!changed) break;
+    solve();
+  }
+  return w.map((wi, i) => [L * P[i] / m, Math.min(1, (L * P[i] + wi) / m)] as [number, number]);
+}
+
 /** manim ShowPassingFlash's window (time_width w): head = lerp(0, 1+w, p), tail = head − w. */
 export function passingFlash(width: number, p: number): { tail: number; head: number } {
   const head = p * (1 + width);

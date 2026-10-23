@@ -13,11 +13,14 @@
 import { inDefs, paintOf, GEO_TAGS } from "../strokeGeometry";
 import { readPaint, parseStyleAttr } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
-import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf, legacyRotationOf } from "../presetCatalog";
+import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf, legacyRotationOf, type PointParam } from "../presetCatalog";
 import { partDomId } from "../../plot/parse";
-import { barGrow, isManifestBar } from "../growOrigin";
+import { barGrow, isManifestBar, growOrigin, pulsePeak, isCompass, compassOrigin, type StagePoint } from "../growOrigin";
+import { rotatedAABB } from "../../geometry";
 import type { FluxPlotManifest } from "../../plot/types";
-import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, penWidth, type TrimSpec } from "./trim";
+import type { Element as SceneElement } from "../../types";
+import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, penWidth, penSlices, type TrimSpec } from "./trim";
+import { trackDuration } from "../timing";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
 
@@ -29,6 +32,16 @@ export interface PresetCtx {
   cameraFrom?: CameraPose;
   /** The target's plot manifest (bar orientation and sign for growBaseline). */
   manifest?: FluxPlotManifest;
+  /** The track target's element as the beat starts (`transformPreState`): scaleIn / scaleOut / pulse origins and the pulse's
+   *  stage clamp. Set by the player for those presets. */
+  element?: SceneElement;
+  /** The shared stage point of a `"group"` origin (the union centre of the tracks that start together). */
+  group?: StagePoint;
+  /** The presentation opacity of a node just before the track starts: highlight and dim start FROM it (X7). */
+  priorOpacity?: (node: TargetNode) => number;
+  /** The stage box of ONE plot part: a pulse sizes its peak to the part it swells (a 6-unit marker grows to 1.3x, a bar to 1.12x), not to
+   *  the whole plot it sits in. Set by the player for a live pulse on plot parts. */
+  partBox?: (node: TargetNode) => { x: number; y: number; w: number; h: number } | undefined;
 }
 
 /** One node's animation within a track. `enter` marks an intro (the node is
@@ -69,6 +82,14 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const num = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 const each = (nodes: TargetNode[], fn: (node: TargetNode, index: number) => NodeAnim): NodeAnim[] =>
   nodes.map(fn);
+
+/** The pivot of a scaleIn / scaleOut / pulse on `node`. A plot part (SVG) scales about a point of its OWN fill-box: a compass
+ *  word picks the point, everything else (tail, a stage point, group) falls back to the part's centre. A whole element
+ *  (the HTML effects layer) takes the full vocabulary through `growOrigin`, in the element's unrotated local frame. */
+function growPivot(node: TargetNode, word: string | PointParam | null, ctx: PresetCtx, count: number): string {
+  if (node.namespaceURI === SVG_NS) return isCompass(word) ? compassOrigin(word) : "50% 50%";
+  return growOrigin(word ?? undefined, count === 1 ? ctx.element : undefined, ctx.group);
+}
 
 /** [hidden, shown] clip-path insets for a writeOn/wipeOut direction. The
  *  non-animating edges use a NEGATIVE margin: any clip-path clips the border
@@ -141,6 +162,35 @@ function wipeAt(direction: string, f: number): string {
 }
 /** Where the sweep has covered the ink; the last (1 - this) only uncovers the overhang margin. */
 export const WIPE_BOX_AT = 0.95;
+
+/** The feather of a SOFT wipe edge, in font sizes (manim's soft write edge): 0.9 x the text's font size. */
+export const SOFT_FEATHER_EM = 0.9;
+const MASK_ANGLE: Record<string, number> = { ltr: 90, rtl: 270, ttb: 180, btt: 0 };
+const NON_TEXT_INK = "path,line,polyline,polygon,rect,ellipse,circle,image,img,canvas,video,foreignObject,use";
+let maskOK: boolean | undefined;
+const maskSupported = (): boolean => (maskOK ??= typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("mask-image", "linear-gradient(black, transparent)"));
+
+/** The SOFT-edged wipe of a TEXT-ONLY target: a slide text renders as HTML wrapper > svg > `<text>`, and each `<text>` takes a CSS
+ *  mask gradient whose 0-100 % is the text's own fill box (no hard edge; unlike an HTML mask, which clips to the border box, it
+ *  shaves no descender). The edge sweeps from -F % to 100 %, so the ink is complete exactly at progress 1; F is the feather in
+ *  percent of the text's extent along the sweep. Returns null (the ink-fitted hard clip) for EVERYTHING else: a target with any
+ *  non-text drawable (a plot, an image, a mixed group: masking only its `<text>` would leave every line and marker visible), an
+ *  SVG node itself (a plot part: `mask-image` on an SVG `<g>` paints nothing in Firefox), and an engine without CSS `mask-image`.
+ *  Use `black`, never `#000` (the numeric interpolator rewrites `#000` to `#0`). */
+export function softWipeTargets(node: TargetNode, direction: string): { el: SVGElement; gradient: (edge: number) => string; feather: number }[] | null {
+  if (!maskSupported() || node.namespaceURI === SVG_NS) return null;
+  const els = Array.from(node.querySelectorAll?.("text") ?? []) as unknown as SVGElement[];
+  if (!els.length || node.querySelector(NON_TEXT_INK)) return null;
+  const horiz = direction === "ltr" || direction === "rtl", angle = MASK_ANGLE[direction] ?? 90;
+  return els.map((el) => {
+    let axis = 100, fontSize = 0;
+    try { const bb = (el as unknown as SVGGraphicsElement).getBBox(); axis = horiz ? bb.width : bb.height; fontSize = parseFloat(getComputedStyle(el).fontSize) || 0; } catch { /* unmeasurable: a proportional feather */ }
+    const px = fontSize ? fontSize * SOFT_FEATHER_EM : axis * 0.12;
+    const feather = Math.round(Math.min(60, Math.max(3, (px / Math.max(1, axis)) * 100)) * 100) / 100;
+    const gradient = (edge: number) => `linear-gradient(${angle}deg, black ${Math.round(edge * 100) / 100}%, transparent ${Math.round((edge + feather) * 100) / 100}%)`;
+    return { el, gradient, feather };
+  });
+}
 
 /** Measured length of a strokable node, honoring an explicit pathLength
  *  attribute (dash units must then be expressed in ITS scale). */
@@ -316,15 +366,6 @@ function drawUnits(node: TargetNode): Unit[] {
   return units.sort((a, b) => order(a) - order(b));
 }
 
-/** The pieces of ONE unit take back-to-back slices of its eased pen clock, proportional to their pen length: one
- *  curve gives a pen of continuous speed across shaft -> head (a unit's slices are cumulative sums, [0,1] in total).
- *  Deliberately local and lag-free: across-unit stroke ORDER (WP 2.4) is a separate, later feature. */
-function unitSlices(weights: readonly number[]): [number, number][] {
-  const w = weights.map((v) => Math.max(v, 1e-9)), total = w.reduce((a, b) => a + b, 0);
-  let acc = 0;
-  return w.map((v) => { const a = acc / total; acc += v; return [a, Math.min(1, acc / total)] as [number, number]; });
-}
-
 /** A forward sampler: raw progress of the TRACK (0..1) and the track's curve. */
 type Forward = (raw: number, ease: (x: number) => number) => Keyframe;
 const win = (raw: number, w0: number, w1: number) => clamp01((raw - w0) / Math.max(1e-9, w1 - w0));
@@ -391,12 +432,22 @@ function drawPlan(node: TargetNode, index: number, t: Track, enter: boolean): No
   if (!units.length) return [{ node, index, enter, keyframes: enter ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }] }];
   const params = (t.params ?? {}) as TrimParams;
   const trim = !isDefaultTrim(params);
+  const preset = enter ? "drawOn" : "drawOff";
+  // STROKE ORDER (X4): `order: "sequence"` gives each pen unit of this target a slot of the node window (`penSlices`, true pen
+  // length as the weight, document order, no slot under 150 ms), so they draw one after another at ONE pen speed. Each slot is
+  // eased by itself (the track's curve over its own span, manim's per-child rate_func). An exit is this same plan sampled
+  // backwards, so the LAST unit retreats first. Absent / "together": every unit takes the whole window, byte for byte as before.
+  const duration = trackDuration(t);
+  const slots = units.length > 1 && presetParam<string>(t, "order", preset) === "sequence"
+    ? penSlices(units.map((u) => u.pen), presetParam<number>(t, "lag", preset), false, duration > 0 ? Math.min(1, 150 / duration) : 0) : null;
   const out: NodeAnim[] = [];
-  for (const unit of units) {
-    // pieces of one unit share the unit's EASED clock: shaft -> head with no stall
-    const inner = unit.pieces.length > 1 ? unitSlices(unit.pieces.map((p) => p.pen)) : [[0, 1] as [number, number]];
+  units.forEach((unit, ui) => {
+    // pieces of one unit share the unit's EASED clock: shaft -> head with no stall (penSlices at lag 1, the pen continuous)
+    const inner = unit.pieces.length > 1 ? penSlices(unit.pieces.map((p) => p.pen), 1, false, 0) : [[0, 1] as [number, number]];
+    const slot = slots?.[ui];
     unit.pieces.forEach((piece, pi) => {
-      const forward: Forward = trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, enter ? "drawOn" : "drawOff") : pieceSampler(piece, inner[pi]);
+      const own: Forward = trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, preset) : pieceSampler(piece, inner[pi]);
+      const forward: Forward = slot ? (raw, ease) => own(win(raw, slot[0], slot[1]), ease) : own;
       // exit = the enter sampled backwards in time with the MIRRORED curve (1 - e(1 - v)): the retreat eases in
       // exit time exactly as the legacy offset reversal did, for any curve
       const sample = enter
@@ -408,7 +459,7 @@ function drawPlan(node: TargetNode, index: number, t: Track, enter: boolean): No
         ...(enter ? { transient: DRAW_TRANSIENT } : {}),
       });
     });
-  }
+  });
   return out;
 }
 
@@ -477,12 +528,31 @@ export const PRESETS: Record<string, Preset> = {
     });
   },
 
+  // scaleIn — manim's GrowFromCenter / GrowFromPoint / GrowArrow / SpinInFromNothing: scale(0) -> scale(1) about an origin,
+  // NEVER an opacity channel (a shape grows, it does not fade). params.from: a compass word (center, n..nw) | "tail" | "auto"
+  // (the default: an arrow's tail, everything else its centre) | "group" (the centre of the scaleIn tracks that start together) |
+  // {x, y} (a stage point). params.spin (degrees; schema only, no UI): the node also unwinds from -spin to 0 (manim's
+  // spiral_path). A plot part takes a compass word (a point of its own fill-box); the other forms fall back to its centre.
+  scaleIn: (nodes, t, ctx) => {
+    const spin = presetParam(t, "spin", "scaleIn"), from = presetParam<string | PointParam>(t, "from", "scaleIn");
+    const start = spin ? `scale(0) rotate(${-spin}deg)` : "scale(0)", end = spin ? "scale(1) rotate(0deg)" : "scale(1)";
+    return each(nodes, (node, index) => ({ node, index, enter: true, origin: growPivot(node, from, ctx, nodes.length), keyframes: [{ transform: start }, { transform: end }] }));
+  },
+
   // Tier-2: directional reveal via a clip-path inset (math / axis labels /
   // text). params.direction: ltr (default) | rtl | ttb | btt. The sweep is fitted
   // to the INK: hidden exactly at the first ink, covering the last ink at
   // WIPE_BOX_AT, the overhang margin uncovered after: no dead lead, no dead tail.
   writeOn: (nodes, t) => nodes.flatMap((node, index): NodeAnim[] => {
     const dir = presetParam<string>(t, "direction", "writeOn");
+    // params.edge "soft" (authored on every new writeOn): a TEXT target's leading edge is a feathered gradient mask, not a hard clip
+    const soft = presetParam<string>(t, "edge", "writeOn") === "soft" ? softWipeTargets(node, dir) : null;
+    if (soft) return soft.map(({ el, gradient, feather }) => ({
+      node: el, index, enter: true, transient: ["maskImage"],
+      keyframes: [{ maskImage: gradient(-feather) }, { maskImage: gradient(100) }],
+      // the edge travels -F -> 100 on the eased clock: the ink is complete exactly at progress 1
+      sample: (raw, ease) => ({ maskImage: gradient(-feather + (100 + feather) * clamp01(ease(raw))) }),
+    }));
     const shown = wipeInsets(dir)[1], [a, b] = inkFractions(node, dir);
     return [{ node, index, enter: true, keyframes: [{ clipPath: wipeAt(dir, a) }, { clipPath: wipeAt(dir, b), offset: WIPE_BOX_AT }, { clipPath: shown }] }];
   }),
@@ -505,9 +575,23 @@ export const PRESETS: Record<string, Preset> = {
     }));
   },
 
+  // scaleOut — scaleIn run backwards (manim ShrinkToCenter): scale(1) -> scale(0) about params.to (the scaleIn.from vocabulary),
+  // no opacity channel. An exit: the node rests at scale(0) (not rendered) and the compiled presentation hides it.
+  scaleOut: (nodes, t, ctx) => {
+    const spin = presetParam(t, "spin", "scaleOut"), to = presetParam<string | PointParam>(t, "to", "scaleOut");
+    const start = spin ? "scale(1) rotate(0deg)" : "scale(1)", end = spin ? `scale(0) rotate(${spin}deg)` : "scale(0)";
+    return each(nodes, (node, index) => ({ node, index, enter: false, origin: growPivot(node, to, ctx, nodes.length), keyframes: [{ transform: start }, { transform: end }] }));
+  },
+
   // Tier-2: writeOn's mirror — a directional wipe via clip-path, ink-fitted.
   wipeOut: (nodes, t) => nodes.flatMap((node, index): NodeAnim[] => {
     const dir = presetParam<string>(t, "direction", "wipeOut");
+    const soft = presetParam<string>(t, "edge", "wipeOut") === "soft" ? softWipeTargets(node, dir) : null;
+    if (soft) return soft.map(({ el, gradient, feather }) => ({
+      node: el, index, enter: false,
+      keyframes: [{ maskImage: gradient(100) }, { maskImage: gradient(-feather) }],
+      sample: (raw, ease) => ({ maskImage: gradient(100 - (100 + feather) * clamp01(ease(raw))) }),
+    }));
     const shown = wipeInsets(dir)[1], [a, b] = inkFractions(node, dir);
     return [{ node, index, enter: false, keyframes: [{ clipPath: shown }, { clipPath: wipeAt(dir, b), offset: 1 - WIPE_BOX_AT }, { clipPath: wipeAt(dir, a) }] }];
   }),
@@ -525,10 +609,12 @@ export const PRESETS: Record<string, Preset> = {
     }));
   },
 
+  // scale / rotate pivot about the node's own centre (a part's fill-box centre): the origin persists at rest, where the
+  // transform persists, so an SVG part never turns about the view-box corner.
   scale: (nodes, t) => {
     const s = legacyScaleOf(t);
     return each(nodes, (node, index) => ({
-      node, index, enter: false,
+      node, index, enter: false, origin: "50% 50%",
       keyframes: [{ transform: "scale(1)" }, { transform: `scale(${s})` }],
     }));
   },
@@ -536,20 +622,57 @@ export const PRESETS: Record<string, Preset> = {
   rotate: (nodes, t) => {
     const deg = legacyRotationOf(t);
     return each(nodes, (node, index) => ({
-      node, index, enter: false,
+      node, index, enter: false, origin: "50% 50%",
       keyframes: [{ transform: "rotate(0deg)" }, { transform: `rotate(${deg}deg)` }],
     }));
   },
 
-  highlight: (nodes, t) => {
-    const level = presetParam(t, "level", "highlight");
-    return each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: level }, { opacity: 1 }] }));
+  // highlight — the dip-and-recover wink, started FROM the node's presentation opacity (a dimmed node climbs from its dim
+  // level instead of jumping). `lead` is the share of eased progress spent easing into the dip: 0 (every saved track) is the
+  // historical jump, bit-exact; new tracks author 0.25. Same formula as compile.sample (`highlightOpacityAt`).
+  highlight: (nodes, t, ctx) => {
+    const level = presetParam(t, "level", "highlight"), lead = presetParam(t, "lead", "highlight");
+    return each(nodes, (node, index) => {
+      if (!(lead > 0)) return { node, index, enter: false, keyframes: [{ opacity: level }, { opacity: 1 }] };
+      const prior = Math.max(0, Math.min(1, ctx.priorOpacity?.(node) ?? 1));
+      return { node, index, enter: false, keyframes: [{ opacity: prior }, { opacity: Math.min(prior, level), offset: lead }, { opacity: 1 }] };
+    });
   },
 
-  dim: (nodes, t) => {
+  // dim starts FROM the node's presentation opacity too (X7) and ends at `level`: [prior, level] (prior 1 = the legacy [1, level]).
+  dim: (nodes, t, ctx) => {
     const level = presetParam(t, "level", "dim");
-    return each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: level }] }));
+    return each(nodes, (node, index) => {
+      const prior = Math.max(0, Math.min(1, ctx.priorOpacity?.(node) ?? 1));
+      return { node, index, enter: false, keyframes: [{ opacity: prior }, { opacity: level }] };
+    });
   },
+
+  // pulse — manim's Indicate: scale(1) -> scale(k) -> scale(1), the track's own easing applied to the triangle wave
+  // there_and_back(u) = ease(1 - |2u - 1|). With the default `smooth` that is manimgl's `there_and_back` exactly (gated to 1e-12).
+  // Token-free: `sample` is a pure function of raw progress, so forward / reverse / shuffled seeks, video and the HTML player agree.
+  // The keyframes still declare the flight kind (scale = paints in place) and the rest pose (scale(1): nothing left behind).
+  // k is size-aware and stage-clamped (`pulsePeak`); params.about: "group" | a stage point moves the pivot of a whole element.
+  pulse: (nodes, t, ctx) => {
+    const about = presetParam<string | PointParam | null>(t, "about", "pulse"), authored = presetParam<number | null>(t, "scale", "pulse");
+    const point: StagePoint | undefined = about === "group" ? ctx.group : about && typeof about === "object" ? about : undefined;
+    const whole = ctx.element ? rotatedAABB(ctx.element) : undefined;
+    return each(nodes, (node, index) => {
+      // a plot part swells about its OWN fill-box centre and is sized by its own box; a whole element about `about` (default its centre)
+      const part = node.namespaceURI === SVG_NS;
+      const k = pulsePeak(authored, part ? ctx.partBox?.(node) ?? whole : whole, ctx.stage, part ? undefined : point);
+      return {
+        node, index, enter: false,
+        origin: point ? growPivot(node, point, ctx, nodes.length) : "50% 50%",
+        keyframes: [{ transform: "scale(1)" }, { transform: `scale(${k})`, offset: 0.5 }, { transform: "scale(1)" }],
+        sample: (raw, ease) => ({ transform: `scale(${1 + (k - 1) * ease(1 - Math.abs(2 * raw - 1))})` }),
+      };
+    });
+  },
+
+  // encircle is a synthetic overlay: the player builds its MorphController in the flight layer (player/overlay.ts), so the
+  // preset itself animates no node.
+  encircle: () => [],
 
   // --- the stage camera (target = the camera layer) ------------------------
   camera: (nodes, t, ctx) => {

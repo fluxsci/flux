@@ -330,7 +330,7 @@
             title="Transform the selection at this step — Change (edit it), Ghost (copies), or Become (turn into another object)">Transform ▾</button>
           {#if transformMenu}<TimelineMenu x={transformMenu.x} y={transformMenu.y} items={transformItems} onClose={() => (transformMenu = null)} />{/if}
         </span>
-        <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Highlight the selection">Emphasize</button>
+        <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Pulse the selection: a calm grow-and-return (add Circle it or Highlight from the Effect menu)">Emphasize</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("disappear")} title="Add an exit · Cmd/Ctrl+Shift+D">Disappear</button>
         {#if selectedModels.length && selectedModels.length === sel.length && !$partSelections.length}
           <button class="b" onclick={() => onAction?.("turntable")} title="One full turn in 6 seconds — edit its Change track">Turntable</button>

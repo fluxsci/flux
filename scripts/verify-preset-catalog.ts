@@ -28,15 +28,19 @@ const EXPECTED = {
   fadeRise:     ["Rise in",     "#879a39", ["opacity", "transform"], 320, true,  "appearance", "enter", 600],
   popIn:        ["Pop in",      "#8b7ec8", ["opacity", "transform"], 320, true,  "appearance", "enter", 500],
   drawOn:       ["Draw on",     "#4385be", [],                       320, true,  "appearance", "enter", 800],
-  growBaseline: ["Grow",        "#d0a215", ["transform"],            320, true,  "appearance", "enter", 800],
+  growBaseline: ["Grow bars",   "#d0a215", ["transform"],            320, true,  "appearance", "enter", 800],
+  scaleIn:      ["Scale in",    "#d0a215", ["transform"],            320, true,  "appearance", "enter", 500],
   stagger:      ["Stagger in",  "#d14d41", ["opacity", "transform"], 320, true,  "appearance", "enter", 600],
   writeOn:      ["Wipe in",     "#3aa99f", ["clipPath"],             320, true,  "appearance", "enter", 700],
   fadeOut:      ["Fade out",    "#af3029", ["opacity"],              320, true,  "appearance", "exit"],
   popOut:       ["Pop out",     "#af3029", ["opacity", "transform"], 320, true,  "appearance", "exit"],
+  scaleOut:     ["Scale out",   "#af3029", ["transform"],            320, true,  "appearance", "exit"],
   drawOff:      ["Draw off",    "#af3029", [],                       320, true,  "appearance", "exit"],
   wipeOut:      ["Wipe out",    "#af3029", ["clipPath"],             320, true,  "appearance", "exit"],
   highlight:    ["Highlight",   "#d0a215", ["opacity"],              320, true,  "appearance", "emphasis"],
   dim:          ["Dim",         "#6f6e69", ["opacity"],              320, true,  "appearance", "emphasis"],
+  pulse:        ["Pulse",       "#d0a215", ["transform"],            700, true,  "appearance", "emphasis"],
+  encircle:     ["Circle it",   "#d0a215", [],                       900, true,  "appearance", "emphasis"],
   countUp:      ["Count up",    "#66800b", [],                       800, true,  "appearance", "count"],
   move:         ["move",        "#4385be", ["transform"],            320, false, "appearance", "spatial"],
   scale:        ["scale",       "#4385be", ["transform"],            320, false, "appearance", "spatial"],
@@ -65,7 +69,8 @@ for (const name of names) {
   const [label, colour, wrapperProps, duration, editable, family, phase, autoBuildDuration] = EXPECTED[name] as Snapshot;
   const def = presetDef(name);
   h.ok(EASING_TOKENS.includes(def.defaultEasing), `${name}: default easing is a known token`);
-  h.eq(defaultEasingFor(name), name === "transform" ? "smooth" : family === "media" ? "linear" : "standard", `${name}: default easing matches the family contract`);
+  // the symmetric there-and-back emphasis (pulse, encircle) plays the plain `smooth` token even when it omits its timing (X2)
+  h.eq(defaultEasingFor(name), name === "transform" || name === "pulse" || name === "encircle" ? "smooth" : family === "media" ? "linear" : "standard", `${name}: default easing matches the family contract`);
   h.eq([def.name, def.label, def.colour, def.wrapperProps, def.defaultDurationMs, def.editable, def.family, def.phase, def.autoBuildDurationMs],
     [name, label, colour, wrapperProps, duration, editable, family, phase, autoBuildDuration], `${name}: exact base facts`);
   h.ok(def === PRESET_CATALOG[name], `${name}: lookup returns the catalog definition`);
@@ -99,7 +104,9 @@ h.eq(EDIT_PRESETS, EDITABLE_PRESETS, "Animator consumes the catalog's editable o
 // longer one wins. CLASSIC_PACE (explicit) keeps the pre-Release-1 shape: the manifest duration wins and no curve or
 // params are written (a part with no manifest duration still falls back to the catalog's autoBuildDurationMs).
 h.section("autobuild: raised floors (T1), separate from the frozen playback defaults");
-for (const name of names.filter(name => EXPECTED[name][6] === "enter")) {
+// scaleIn is an AUTHORED effect (the V2 point child, element Appear), not a word of the fluxplot manifest vocabulary: it has no
+// `animation` token to build from, so the loop skips it (its floor, 500, is pinned through the stagger rows below and in verify-appear-emphasis).
+for (const name of names.filter(name => EXPECTED[name][6] === "enter" && name !== "scaleIn")) {
   const role = name === "stagger" ? "point" : "area";
   const animation = ({ fade: "fade-in", fadeRise: "rise", popIn: "pop-in", drawOn: "draw-on", growBaseline: "grow", stagger: "stagger-in", writeOn: "write-on" } as Record<string, string>)[name];
   const manifest: FluxPlotManifest = { spec: "fluxplot", schemaVersion: "0.3.0", plotType: "test", svg: "fixture.svg",
@@ -108,16 +115,18 @@ for (const name of names.filter(name => EXPECTED[name][6] === "enter")) {
     build: { order: ["mark"], presets: { [role]: { animation } } } };
   const pick = ({ id: _id, ...track }: Track) => track;
   const floor = (EXPECTED[name] as Snapshot)[7];
+  // V2 grows a small point group in (child scaleIn, WP 2.2), so its window floor is the CHILD's (500, X1c), not the fade child's (600)
+  const v2Floor = name === "stagger" ? PRESET_CATALOG.scaleIn.autoBuildDurationMs! : floor;
   const expected = { target: "plot1", part: "mark", preset: name, duration: floor, start: 0,
-    ...(name === "stagger" ? { stagger: { by: "x", from: "start", totalMs: 0 }, params: { child: "fade" } } : {}),
-    curve: QUICK_SMOOTH, ...(name === "fadeRise" ? { params: { y: 24 } } : {}) };
+    ...(name === "stagger" ? { stagger: { by: "x", from: "start", totalMs: 0 }, params: { child: "scaleIn" } } : {}),
+    curve: QUICK_SMOOTH, ...(name === "fadeRise" ? { params: { y: 24 } } : {}), ...(name === "writeOn" ? { params: { edge: "soft" } } : {}) };
   h.eq(pick(suggestTrack(manifest, "plot1", "mark")), expected, `${name}: suggested track bytes = the raised floor + the authored curve/params, otherwise unchanged except generated ID`);
   h.eq(pick(autoAnimatePlot(manifest, "plot1")[0].tracks[0]), { ...expected, generatedBy: "auto-reveal" }, `${name}: automatic build bytes = the same + generatedBy`);
   const classic = { target: "plot1", part: "mark", preset: name, duration: floor, start: 0,
     ...(name === "stagger" ? { stagger: { perMs: 40, by: "x", from: "start" }, params: { child: "fade" } } : {}) };
   h.eq(pick(suggestTrack(manifest, "plot1", "mark", { pace: CLASSIC_PACE })), classic, `${name}: CLASSIC_PACE writes no curve or params (catalog window, classic stagger)`);
   manifest.build!.presets![role].durationMs = 117;
-  h.eq(suggestTrack(manifest, "plot1", "mark").duration, floor, `${name}: a manifest duration below the floor is raised to it`);
+  h.eq(suggestTrack(manifest, "plot1", "mark").duration, v2Floor, `${name}: a manifest duration below the floor is raised to it`);
   h.eq(suggestTrack(manifest, "plot1", "mark", { pace: CLASSIC_PACE }).duration, 117, `${name}: CLASSIC_PACE keeps the manifest duration`);
   manifest.build!.presets![role].durationMs = 2000;
   h.eq(suggestTrack(manifest, "plot1", "mark").duration, 2000, `${name}: a manifest duration above the floor wins`);
