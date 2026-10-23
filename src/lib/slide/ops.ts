@@ -27,6 +27,7 @@ import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
 import { defaultEasingFor, defaultTimingFor, isExitPreset } from "./presetCatalog";
+import { AUTO_DELAY_AUTHORED_MS } from "./timing";
 import { EASING_TOKENS } from "./curves";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
 import { targetOutlines } from "./targetGeometry";
@@ -619,6 +620,7 @@ export function addBeat(deck: Deck, slideId: Id, opts: AddBeatOpts = {}): Beat |
   if (opts.label != null) beat.label = opts.label;
   if (opts.advance != null) beat.advance = opts.advance;
   if (opts.autoDelayMs != null) beat.autoDelayMs = opts.autoDelayMs;
+  else if (opts.advance === "auto") beat.autoDelayMs = AUTO_DELAY_AUTHORED_MS;
   // Never insert before the resting beat 0 — it IS the slide's start state.
   const at = opts.at != null ? Math.max(1, opts.at) : null;
   if (at != null && at <= s.beats.length) s.beats.splice(at, 0, beat);
@@ -638,6 +640,7 @@ export function setBeat(
   if (patch.label != null) b.label = patch.label;
   if (patch.advance != null) b.advance = patch.advance;
   if (patch.autoDelayMs != null) b.autoDelayMs = patch.autoDelayMs;
+  else if (patch.advance === "auto" && b.autoDelayMs == null) b.autoDelayMs = AUTO_DELAY_AUTHORED_MS;
 }
 
 /** Every copied beat owns new track identities and local anchor references. */

@@ -10,7 +10,9 @@ export interface SlideVideoOptions {
   height: 720 | 1080 | 2160;
   fps: 30 | 60;
 }
-export const DEFAULT_VIDEO_OPTIONS: SlideVideoOptions = { stepDelayMs: 500, startHoldMs: 1000, endHoldMs: 2000, height: 1080, fps: 60 };
+/** The pause between click cues in a video is a presenter's beat, not a UI delay: 1 s, the constant hold of the
+ *  manim corpus (R1_M11). Was 500 ms. */
+export const DEFAULT_VIDEO_OPTIONS: SlideVideoOptions = { stepDelayMs: 1000, startHoldMs: 1000, endHoldMs: 2000, height: 1080, fps: 60 };
 export function videoOptions(input: Partial<SlideVideoOptions> = {}): SlideVideoOptions {
   const out = { ...DEFAULT_VIDEO_OPTIONS, ...input };
   for (const key of ["stepDelayMs", "startHoldMs", "endHoldMs"] as const)

@@ -45,13 +45,15 @@ const g = resolveEasingFn(undefined, { in: 50, out: 50 });
 assert(close(g(0), 0) && close(g(1), 1) && close(g(0.5), 0.5), "resolveEasingFn samples the influence curve");
 assert(resolveEasingFn("linear")(0.3) === 0.3, "resolveEasingFn linear is the identity");
 
+// T1 (pace): the css of token `smooth` is now the 64-knot linear() (midpoint error 1.97e-4, was 1.25e-3 with 24 knots); the
+// sha256 digests (the exact quintic fn samples) are UNCHANGED, only the css bytes moved, deliberately.
 // Captured by executing git show 04f37e3:src/lib/slide/easing.ts with its
 // pre-change motion/tokens.ts. Digests pin all 1,001 double-valued samples
 // (JSON at i/1000), rather than reimplementing the old resolver as an oracle.
 h.section("pre-M1 byte snapshots: five tokens by twelve influence pairs");
 const LEGACY_TOKENS = {
   "smooth": {
-    "css": "linear(0.0000,0.0007,0.0051,0.0161,0.0355,0.0645,0.1035,0.1522,0.2099,0.2752,0.3466,0.4222,0.5000,0.5778,0.6534,0.7248,0.7901,0.8478,0.8965,0.9355,0.9645,0.9839,0.9949,0.9993,1.0000)",
+    "css": "linear(0.0000,0.0000,0.0003,0.0010,0.0022,0.0042,0.0071,0.0110,0.0161,0.0223,0.0298,0.0386,0.0488,0.0603,0.0733,0.0877,0.1035,0.1207,0.1392,0.1590,0.1800,0.2022,0.2255,0.2499,0.2752,0.3014,0.3283,0.3559,0.3840,0.4126,0.4416,0.4707,0.5000,0.5293,0.5584,0.5874,0.6160,0.6441,0.6717,0.6986,0.7248,0.7501,0.7745,0.7978,0.8200,0.8410,0.8608,0.8793,0.8965,0.9123,0.9267,0.9397,0.9512,0.9614,0.9702,0.9777,0.9839,0.9890,0.9929,0.9958,0.9978,0.9990,0.9997,1.0000,1.0000)",
     "sha256": "61e3b0eaa2d7c6194a6c1cfc8c18da3f0721fb680599fdca3456efc360250851"
   },
   "standard": {

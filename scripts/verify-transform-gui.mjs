@@ -291,12 +291,13 @@ try {
     var collect = function () {
       var m = w ? /translate\\(([-0-9.]+)px/.exec(w.style.transform || "") : null;
       window.__plefts.push(w ? (parseFloat(w.style.left) || 0) + (m ? parseFloat(m[1]) : 0) : NaN);
-      if (window.__plefts.length < 80) requestAnimationFrame(collect);
+      if (window.__plefts.length < 200) requestAnimationFrame(collect);
     };
     requestAnimationFrame(collect);
   })()`);
   await page.keyboard.press("ArrowRight");
-  await page.waitForFunction("window.__plefts && window.__plefts.length >= 70", { timeout: 8000 });
+  // the transform's authored pace (T1: 1200 ms) is read, never hard-coded: poll until it lands
+  await page.waitForFunction(`document.querySelector('.present .mount [data-el-id="tr-rect"]')?.style.left === "260px" && window.__plefts && window.__plefts.length >= 70`, { timeout: 8000 });
   const pr1 = await page.evaluate(() => {
     const w = document.querySelector('.present .mount [data-el-id="tr-rect"]');
     const mids = window.__plefts.filter((v) => Number.isFinite(v) && v > 45 && v < 255);
@@ -308,7 +309,7 @@ try {
   ok(pr1.mids >= 5, `…through real mid-flight frames (${pr1.mids} samples strictly between the endpoints)`);
   ok(pr1.dots === 2, `…and the HUD advanced (${pr1.dots} dots lit)`);
   await page.keyboard.press("ArrowRight"); // the chained beat (y → 220)
-  await sleep(900);
+  await page.waitForFunction(`document.querySelector('.present .mount [data-el-id="tr-rect"]')?.style.top === "220px"`, { timeout: 8000 }).catch(() => {});
   const pr2 = await page.evaluate(() => document.querySelector('.present .mount [data-el-id="tr-rect"]')?.style.top);
   ok(pr2 === "220px", `the chained transform composed on advance (top ${pr2})`);
   // click-prev (left quarter) steps back a beat

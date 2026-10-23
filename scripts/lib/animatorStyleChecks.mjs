@@ -81,7 +81,7 @@ export async function verifyLinkedStyles(page, ok) {
   await select(page,[tids[2]]);await styleAction(page,'Detach');
   await pickLike(page,[tids[3]],targets[2]);state=await read(page);
   ok(state.styles.some(s=>s.name==='Like Plain'&&s.id===state.tracks[2].styleId)&&state.tracks[3].styleId===state.tracks[2].styleId,'Animate like creates Like ‹object label› from an unstyled source and links both effects');
-  const tx=await page.evaluate(target=>{const f=window.__flux,sid=f.get(f.fig.activeFigureId);let id;f.slide.commitDeckLive(d=>{const s=f.slideOps.slideById(d,sid);id=f.slideOps.setTransform(d,sid,s.beats[f.get(f.slide.activeBeat)].id,target,{state:{x:650}}).id;});return id;},targets[3]);
+  const tx=await page.evaluate(target=>{const f=window.__flux,sid=f.get(f.fig.activeFigureId);let id;f.slide.commitDeckLive(d=>{const s=f.slideOps.slideById(d,sid);id=f.slideOps.setTransform(d,sid,s.beats[f.get(f.slide.activeBeat)].id,target,{state:{x:650},duration:600}).id;/* explicit: the lane click below targets a bar centre, so the fixture must not depend on the authored transform pace (1200) */});return id;},targets[3]);
   await select(page,[tids[0],tx]);ok(await page.$eval('[aria-label="Animation style"]',e=>e.disabled)&&/one family/.test(await page.$eval('.style-reason',e=>e.textContent)),'mixed-family selection disables the picker with a reason');await shot(page,'08-mixed-family');
   await pickLike(page,[tx],targets[1]);
   ok(await page.evaluate(()=>document.body.textContent.includes('Family mismatch: transform track cannot link to appearance style')),'Animate like reports the shared op’s family refusal');await shot(page,'09-family-refusal');

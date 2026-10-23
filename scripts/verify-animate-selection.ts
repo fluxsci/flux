@@ -36,7 +36,7 @@ assert(tr.start === 0 && tl.start === 0, "first effects start at 0");
 // (2) a second appear on the same target stacks after the prior one
 const r2 = addAppearanceTracks(deck, sid, [{ elementId: rectId }], "emphasize", 1, {})!;
 const em = slide.beats[1].tracks.find((t) => t.id === r2.trackIds[0])!;
-assert(em.preset === "highlight" && em.duration === 500, "emphasize = highlight 500ms");
+assert(em.preset === "highlight" && em.duration === 700 && em.easing === undefined && em.curve?.kind === "bezier", "emphasize = highlight 700ms quick smooth (T1 pace)");
 assert(em.anchor?.trackId === tr.id && em.anchor.edge === "end", "successive effect anchors to the prior entrance end");
 assert(resolveStart(em, slide.beats[1], deck).start === (tr.start ?? 0) + (tr.duration ?? 0), "anchored emphasis preserves its initial timing");
 

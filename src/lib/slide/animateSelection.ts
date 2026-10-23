@@ -10,6 +10,7 @@ import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, appendAnimation } from "./ops";
 import { suggestTrack, suggestElementTrack, type AutoPace } from "./autobuild";
 import { familyOf } from "./family";
+import { authoredFields } from "./presetCatalog";
 import { newId } from "../ids";
 import { trackKey } from "./targets";
 import { planStagger, lagTotal } from "./stagger";
@@ -99,7 +100,9 @@ export function addAppearanceTracks(
         : suggestElementTrack(el, { exit, ...(part ? { part } : {}) });
     if (kind === "emphasize") {
       track.preset = "highlight";
-      track.duration = 500;
+      // the entrance suggestion's timing group and authored params (fadeRise y) mean nothing to highlight
+      delete track.easing; delete track.influence; delete track.curve; if (!track.stagger) delete track.params;
+      Object.assign(track, authoredFields("highlight"));
     }
     const key = trackKey(track);
     const prior = beat.tracks.filter((x) => trackKey(x) === key && familyOf(x) === "appearance");

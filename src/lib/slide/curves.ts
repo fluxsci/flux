@@ -1,7 +1,7 @@
 /** Pure timing curves shared by playback, compilation and authoring. Resolve
  *  once when building a spec; the returned samplers allocate nothing per frame. */
 import { EASE, cubicBezierFn, influenceToCss, smoothEasing, smoothstep, type Bezier } from "../motion/tokens";
-import { defaultEasingFor, PRESET_CATALOG } from "./presetCatalog";
+import { defaultEasingFor, PRESET_CATALOG, QUICK_SMOOTH } from "./presetCatalog";
 import type { TrackFamily } from "./family";
 import type { EasingToken, Track } from "./types";
 
@@ -182,6 +182,10 @@ export const CURVE_CATALOG: readonly CurveCatalogEntry[] = [
   { id: "exit", group: "Ease", label: "Exit", spec: "exit" },
   { id: "linear", group: "Ease", label: "Linear", spec: "linear" },
   { id: "gentle", group: "Ease", label: "Gentle", spec: { kind: "bezier", p: [0.37, 0, 0.63, 1] } },
+  // quintic `smooth` minus its dead lead-in (QUICK_SMOOTH in presetCatalog.ts): what appearance authoring writes.
+  { id: "quick smooth", group: "Ease", label: "Quick smooth", spec: QUICK_SMOOTH },
+  // manim-community's `smooth` (sigmoid, inflection 10) as an ordinary bezier; max error 0.0058 of travel (ceSmooth).
+  { id: "glide", group: "Ease", label: "Glide", spec: { kind: "bezier", p: [0.627, 0, 0.373, 1] } },
   { id: "overshoot", group: "Overshoot", label: "Overshoot", spec: { kind: "bezier", p: [0.34, 1.56, 0.64, 1] } },
   { id: "anticipate", group: "Overshoot", label: "Anticipate", spec: { kind: "bezier", p: [0.36, 0, 0.66, -0.56] } },
   { id: "anticipate + overshoot", group: "Overshoot", label: "Anticipate + overshoot", spec: { kind: "bezier", p: [0.68, -0.6, 0.32, 1.6] } },

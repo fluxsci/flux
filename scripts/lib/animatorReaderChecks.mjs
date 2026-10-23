@@ -52,10 +52,13 @@ export async function verifyResolvedReaders(page, check) {
 
   const [initial,selected,nudged,edited,styled]=probe.steps;
   const geometry = s => {const scale=s.bars[0].width/s.cues.find(t=>t.id===s.bars[0].id).duration,origin=s.bars[0].left-s.cues.find(t=>t.id===s.bars[0].id).start*scale;return s.bars.every(b=>{const c=s.cues.find(t=>t.id===b.id);return Math.abs(b.left-origin-c.start*scale)<2&&Math.abs(b.width-c.duration*scale)<2;});};
-  check(geometry(initial)&&initial.cues.map(t=>t.start).join(',')==='0,300,800','F1 reprobe: successive effect geometry agrees with compiled 0/300/800 ms');
-  check(selected.startRow.includes('Start 800 ms')&&selected.startInput==='0','F1 reprobe: anchored exit displays resolved start and its zero offset');
+  // The three successive effects chain end-to-start, so the starts are the prefix sums of the authored durations (WP 1.7 pace:
+  // popIn 700, highlight 700, popOut 500 -> 0/700/1400; it was 300/500 -> 0/300/800). Structure is pinned, pace is read from the cues.
+  const chain=initial.cues.map((_,i)=>initial.cues.slice(0,i).reduce((n,t)=>n+t.duration,0)), exitStart=chain[2];
+  check(initial.cues.length===3&&geometry(initial)&&initial.cues.map(t=>t.start).join(',')===chain.join(','),`F1 reprobe: successive effect geometry agrees with compiled ${chain.join('/')} ms`);
+  check(selected.startRow.includes(`Start ${exitStart} ms`)&&selected.startInput==='0','F1 reprobe: anchored exit displays resolved start and its zero offset');
   check(geometry(nudged)&&nudged.tracks[2].anchor.offsetMs>0&&nudged.bars[2].left>selected.bars[2].left,'F1 reprobe: Alt+Right updates the anchor offset AND the lane');
-  check(geometry(edited)&&edited.tracks[2].anchor.offsetMs===1200&&edited.cues.find(t=>t.id===ids[2]).start===2000,'F1 reprobe: primary anchored input edits offset; literal start cannot silently lose the edit');
+  check(geometry(edited)&&edited.tracks[2].anchor.offsetMs===1200&&edited.cues.find(t=>t.id===ids[2]).start===exitStart+1200,'F1 reprobe: primary anchored input edits offset; literal start cannot silently lose the edit');
   check(geometry(styled)&&styled.durInput==='900','F1 reprobe: linked entrance displays its inherited 900 ms duration');
   fs.writeFileSync(path.join(outDir,'f1-reprobe.json'),JSON.stringify(probe,null,2));
   // Same-target order is start-sorted by the compiler. Style timing reverses

@@ -4,7 +4,7 @@
 // SVG self-draw used by the logomark.
 
 import { cubicOut, quintOut } from "svelte/easing";
-import { DUR, EASE, smoothEasing } from "./tokens";
+import { DUR, EASE } from "./tokens";
 import { prefersReducedMotion } from "./motion";
 
 /** Fade + a small upward rise. The house "enter" for content. */
@@ -41,7 +41,7 @@ export interface DrawOnParams {
   play?: boolean;
   duration?: number;
   delay?: number;
-  /** Use the exact manim smoothstep curve rather than the bezier approximation. */
+  /** Retained for callers; the curve is ALWAYS the exact manim smoothstep now (EASE.smooth). */
   smooth?: boolean;
 }
 
@@ -73,7 +73,7 @@ export function drawOn(node: SVGGeometryElement, params: DrawOnParams = {}) {
       {
         duration: p.duration ?? DUR.deliberate,
         delay: p.delay ?? 0,
-        easing: p.smooth ? smoothEasing() : EASE.smooth,
+        easing: EASE.smooth,
         fill: "both",
       },
     );

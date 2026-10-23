@@ -1,7 +1,8 @@
 import type * as slideOps from "../../src/lib/slide/ops";
 
 /** Full ghost-birth deck, with only generated identities and timestamps made
- * deterministic. Golden captured from fa47852 (the integration head before M3). */
+ * deterministic. Golden captured from fa47852 (the integration head before M3); the three transform durations were
+ * re-pinned 600 -> 1200 deliberately when T1 moved the transform authoring pace (structure unchanged). */
 export function ghostDisappearBytes(ops: typeof slideOps): string {
   const d = ops.createDeck({ id: "ghost-disappear", title: "Ghost defaults", withTitleSlide: false });
   const s = ops.addSlide(d, { id: "slide", layout: "blank", name: "Ghosts" });
