@@ -229,10 +229,11 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   function exposeHook() {
     (window as unknown as { fluxDeck?: unknown }).fluxDeck = {
       goTo: (s: number, b: number) => player.goTo(s, b, { animate: false }),
-      seek: (s: number, b: number, ms: number) => player.seek(s, b, ms),
+      seek: (s: number, b: number, ms: number, from?: number) => player.seek(s, b, ms, from),
       play: (range: import("../player/player").PlayRange) => player.play(range),
       pause: () => player.pause(),
       resume: () => player.resume(),
+      on: (ev: "change" | "beatStart" | "beatEnd" | "frame", cb: (s: import("../player/player").PlayerState) => void) => player.on(ev, cb),
       stop: () => player.stop(),
       state: () => player.state(),
       rasterBakes: () => player.rasterBakes(), settleRaster: () => player.settleRaster(),
