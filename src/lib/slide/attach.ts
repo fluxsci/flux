@@ -115,13 +115,26 @@ function solveLine(line: LineElement & { attach: LineAttach }, byId: Map<string,
   const sA = drv(line.attach.start), eA = drv(line.attach.end);
   // the point each end aims at: the other end's driver centre (or its fixed point)
   const aimAt = (other?: Element, fallback?: Pt): Pt => other ? shapeOf(other).c : fallback!;
+  const anchorOf = (end: AttachEnd) => end.anchor !== undefined && (ANCHORS.has(end.anchor as string) || typeof end.anchor === "object") ? end.anchor : "auto";
+  const autoOrFree = (end: AttachEnd | undefined, el: Element | undefined) => !end || !el || anchorOf(end) === "auto" || anchorOf(end) === "center";
   const resolve = (end: AttachEnd | undefined, el: Element | undefined, which: "start" | "end", other: Element | undefined): Pt => {
     if (!end || !el) return fixed(which);
-    const anchor = end.anchor !== undefined && (ANCHORS.has(end.anchor as string) || typeof end.anchor === "object") ? end.anchor : "auto", gap = fin(end.gap, 0);
+    const anchor = anchorOf(end), gap = fin(end.gap, 0);
     return anchor === "auto" ? boundaryToward(el, aimAt(other, fixed(which === "start" ? "end" : "start")), gap) : sidePoint(el, anchor, gap);
   };
-  const p1 = resolve(line.attach.start, sA, "start", eA), p2 = resolve(line.attach.end, eA, "end", sA);
+  let p1 = resolve(line.attach.start, sA, "start", eA), p2 = resolve(line.attach.end, eA, "end", sA);
   if (![p1.x, p1.y, p2.x, p2.y].every(Number.isFinite)) return;
+  // NEVER BACKWARDS. When every end is auto-anchored or free, both ends lie on the line between the end references (a driver's centre, or a
+  // free end's point). Overlapping drivers (or a free end inside its driver) would push them past each other and the arrow would point back
+  // at its source; instead the ends meet and the connector shrinks away (lineRender thins it to nothing). Continuous: the ends meet exactly
+  // where the order flips. A free end never moves (it is authored), so the attached end comes to it; side anchors are explicit and kept.
+  if ((sA || eA) && autoOrFree(line.attach.start, sA) && autoOrFree(line.attach.end, eA)) {
+    const r1 = sA ? shapeOf(sA).c : fixed("start"), r2 = eA ? shapeOf(eA).c : fixed("end");
+    if ((p2.x - p1.x) * (r2.x - r1.x) + (p2.y - p1.y) * (r2.y - r1.y) <= 0) {
+      const m = !sA ? p1 : !eA ? p2 : { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      p1 = m; p2 = m;
+    }
+  }
   line.x = p1.x; line.y = p1.y; line.x1 = 0; line.y1 = 0; line.x2 = p2.x - p1.x; line.y2 = p2.y - p1.y;
   line.rotation = 0;
 }

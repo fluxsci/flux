@@ -326,6 +326,8 @@ h.section("arc suggestions");
   h.eq(suggestArcs([{ id: "p", pre: R(100, 60), end: R(300, 60) }, { id: "q", pre: R(100, 220), end: R(300, 220) }]).collisions, 0, "parallel moves stay straight");
   h.eq(suggestArcs([{ id: "p", pre: R(100, 100), end: R(400, 200) }]).arcs, {}, "a single move stays straight");
   h.eq(suggestArcs(swap, { p: 0 }).arcs, { q: 0.83 }, "an authored 0 is never overwritten");
+  const twoSwaps = [...swap, { id: "u", pre: R(150, 400), end: R(390, 400) }, { id: "v", pre: R(390, 400), end: R(150, 400) }];
+  h.eq(suggestArcs(twoSwaps, { u: 0, v: 0 }).arcs, { p: 0.83, q: 0.83 }, "a collision between two flights whose arcs are both set does not block the suggestion for another pair");
   const cyc = suggestArcs([{ id: "a", pre: R(270, 40), end: R(430, 220) }, { id: "b", pre: R(430, 220), end: R(110, 220) }, { id: "c", pre: R(110, 220), end: R(270, 40) }]).arcs;
   h.ok(Object.keys(cyc).length === 3 && Object.values(cyc).every((v) => v === cyc.a) && Math.abs(cyc.a) < 0.83, "a 3-cycle circulates (one sign, a magnitude below the Swap arc)");
   h.eq(collidingFlights([{ id: "p", pre: R(100, 100), end: R(100, 100, 160, 160) }, { id: "q", pre: R(110, 110, 40, 40), end: R(110, 110, 80, 80) }]).length, 0, "in-place resizes are not collisions");

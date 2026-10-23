@@ -103,9 +103,12 @@ export function suggestArcs(boxes: FlightBox[], fixed: Record<string, number> = 
   if (flagged.length > MAX_FLAGGED) return { arcs: {}, collisions: pairs.length, reason: `too many colliding moves (${flagged.length}); arcs cannot untangle them` };
   const slot = new Map(flagged.map((n, k) => [n, k] as const));
   const arcOf = (n: number, arcs: number[]) => fixed[boxes[n].id] ?? (slot.has(n) ? arcs[slot.get(n)!] : 0);
+  // judged on the pairs a suggestion can change (at least one flight unset): a collision between two flights whose arcs are both set is
+  // the author's, and must not block the suggestion for the others
+  const open = pairs.filter(([i, j]) => slot.has(i) || slot.has(j));
   const worstGap = (arcs: number[]) => {
     let w = Infinity;
-    for (const [i, j] of pairs) w = Math.min(w, flightGap(boxes[i], arcOf(i, arcs), boxes[j], arcOf(j, arcs)));
+    for (const [i, j] of open) w = Math.min(w, flightGap(boxes[i], arcOf(i, arcs), boxes[j], arcOf(j, arcs)));
     return w;
   };
   const straight = worstGap(flagged.map(() => 0));

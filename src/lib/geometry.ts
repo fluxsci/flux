@@ -216,6 +216,7 @@ export interface LineRender {
   x2: number;
   y2: number; // visible stroke endpoints
   cap: "butt" | "round" | "square";
+  sw: number; // painted stroke width: the element's, except an attached connector thins with its length (CONNECTOR_THIN)
   polys: number[][][]; // filled triangle heads (tip first)
   vees: number[][][]; // open-V heads as 3-point polylines (leg, tip, leg)
 }
@@ -290,17 +291,24 @@ export function dashAttr(e: { dash?: number[] }): string | undefined {
   return e.dash && e.dash.length ? e.dash.join(" ") : undefined;
 }
 
+/** An attached connector is never thicker than 1/CONNECTOR_THIN of its length (manim's Arrow max_stroke_width_to_length_ratio): as the
+ *  shapes it joins close in it thins with its head and vanishes at zero length, never a stray round-cap dot. Unattached lines: untouched. */
+export const CONNECTOR_THIN = 4;
+
 export function lineRender(e: LineElement): LineRender {
   const cap = e.cap ?? "round";
   const filled = (e.arrowStyle ?? "filled") === "filled";
   const dx = e.x2 - e.x1;
   const dy = e.y2 - e.y1;
-  const len = Math.hypot(dx, dy) || 1;
+  const raw = Math.hypot(dx, dy);
+  const len = raw || 1;
+  const att = e.attach as { start?: unknown; end?: unknown } | undefined;
+  const sw = att && (att.start || att.end) ? Math.min(e.strokeWidth, raw / CONNECTOR_THIN) : e.strokeWidth;
   const headCount = (e.arrowStart ? 1 : 0) + (e.arrowEnd ? 1 : 0);
-  const head = arrowHeadLen(e.strokeWidth, e.arrowSize, len, headCount);
+  const head = arrowHeadLen(sw, e.arrowSize, len, headCount);
   const ux = dx / len;
   const uy = dy / len;
-  const out: LineRender = { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, cap, polys: [], vees: [] };
+  const out: LineRender = { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, cap, sw, polys: [], vees: [] };
   // sx/sy = direction from the line body toward this end's tip.
   const make = (tipX: number, tipY: number, sx: number, sy: number, end: "start" | "end") => {
     if (filled) {

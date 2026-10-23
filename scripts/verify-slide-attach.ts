@@ -54,6 +54,36 @@ h.section("solver exactness");
   h.ok(near(lab.x, 115) && near(lab.y, 100 - 8 - 24), "label: centred above the driver with gap 8 (x=115, y=68)");
 }
 
+h.section("never backwards: overlapping drivers, a free end inside its driver");
+{
+  const ends = (l: any) => [l.x + l.x1, l.y + l.y1, l.x + l.x2, l.y + l.y2];
+  // A slides right through B: the connector shortens, meets at a point, stays a point while they overlap, never points back at A
+  let backward = 0, minLen = Infinity, prevLen = Infinity, jumps = 0;
+  for (let x = 0; x <= 400; x += 2) {
+    const els = [R("A", x, 0), R("B", 300, 0), L("L", AUTO)]; att.resolveAttachments(els as any);
+    const [x1, y1, x2, y2] = ends(els[2]), len = Math.hypot(x2 - x1, y2 - y1), dir = Math.sign(350 - (x + 50));
+    if (dir !== 0 && len > 1e-9 && Math.sign(x2 - x1) !== dir) backward++;
+    if (prevLen !== Infinity && Math.abs(len - prevLen) > 2 + 1e-9) jumps++;
+    minLen = Math.min(minLen, len); prevLen = len;
+  }
+  h.eq(backward, 0, "an arrow never points back at its source while the drivers pass through each other (201 positions)");
+  h.ok(minLen === 0 && jumps === 0, "it shrinks continuously to zero length and grows back (no jump > the 2 px step)");
+  const ov = [R("A", 260, 0), R("B", 300, 0), L("L", AUTO)]; att.resolveAttachments(ov as any);
+  const [ox1, oy1, ox2, oy2] = ends(ov[2]);
+  h.ok(ox1 === ox2 && oy1 === oy2 && near(oy1, 30), "overlapping drivers: both ends meet on the centre line");
+  const same = [R("A", 300, 0), R("B", 300, 0), L("L", AUTO)]; att.resolveAttachments(same as any);
+  h.ok(ends(same[2])[0] === ends(same[2])[2], "coincident centres: zero length, not a stub pointing +x");
+  const fr = [R("A", 0, 0), { ...L("L", { start: { to: "A", gap: 3 } }), x: 40, y: 20, x1: 0, y1: 0, x2: 10, y2: 5 }]; att.resolveAttachments(fr as any);
+  const [fx1, fy1, fx2, fy2] = ends(fr[1]);
+  h.ok(fx1 === 50 && fy1 === 25 && fx2 === 50 && fy2 === 25, "a free end inside its start's driver: the attached end comes to the free end, which never moves");
+  const side = [R("A", 260, 0), R("B", 300, 0), L("L", { start: { to: "A", anchor: "e", gap: 0 }, end: { to: "B", anchor: "w", gap: 0 } })]; att.resolveAttachments(side as any);
+  h.ok(ends(side[2])[0] === 360 && ends(side[2])[2] === 300, "side anchors are explicit: kept even when they cross");
+  const { lineRender, CONNECTOR_THIN } = await import("../src/lib/geometry");
+  const at = (len: number, attach?: any) => lineRender({ ...L("L", attach), strokeWidth: 3, x2: len } as any);
+  h.ok(at(100, AUTO).sw === 3 && at(4 * 3, AUTO).sw === 3 && near(at(6, AUTO).sw, 6 / CONNECTOR_THIN) && at(0, AUTO).sw === 0, "an attached connector thins below 4x its stroke width and is invisible at zero length");
+  h.ok(at(2).sw === 3 && at(0).sw === 3, "an unattached line keeps its stroke width at any length (old decks render byte-identically)");
+}
+
 h.section("order, cycles, malformed input");
 {
   const els: any[] = [L("L2", { start: { to: "T", anchor: "auto" }, end: { to: "B" } }), T("T", { to: "A", side: "e" }), R("A", 0, 0), E("B", 300, 0)];

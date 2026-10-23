@@ -158,7 +158,7 @@
       x2={element.x + lr.x2}
       y2={element.y + lr.y2}
       stroke={paints.stroke}
-      stroke-width={element.strokeWidth}
+      stroke-width={lr.sw}
       stroke-linecap={lr.cap}
       stroke-dasharray={dashAttr(element)}
       stroke-opacity={channelOpacity(element.strokeOpacity)}
@@ -176,7 +176,7 @@
         fill="none"
         stroke={paints.heads}
         stroke-opacity={channelOpacity(element.strokeOpacity)}
-        stroke-width={element.strokeWidth}
+        stroke-width={lr.sw}
         stroke-linecap="round"
         stroke-linejoin="round"
       />

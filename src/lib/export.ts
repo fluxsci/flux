@@ -206,7 +206,7 @@ export function elementToSvg(
       let s =
         paintDefsSvg(P) +
         `<line x1="${e.x + lr.x1}" y1="${e.y + lr.y1}" x2="${e.x + lr.x2}" y2="${e.y + lr.y2}" ` +
-        `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}" ` +
+        `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${lr.sw}" ` +
         `stroke-linecap="${esc(lr.cap)}"${dashA(e)}${paintA(e, false)}${op(e)}/>`;
       for (const tri of lr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
@@ -216,7 +216,7 @@ export function elementToSvg(
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
           `<polyline points="${pts}" fill="none" stroke="${esc(passivePaint(P.heads))}" ` +
-          `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${chanA("stroke-opacity", e.strokeOpacity)}${op(e)}/>`;
+          `stroke-width="${lr.sw}" stroke-linecap="round" stroke-linejoin="round"${chanA("stroke-opacity", e.strokeOpacity)}${op(e)}/>`;
       }
       return rot(e, s);
     }

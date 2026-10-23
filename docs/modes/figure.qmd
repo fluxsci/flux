@@ -18,7 +18,8 @@ survives.
 - **Connectors and labels stick.** A line or arrow drawn from one shape to another sticks to
   both (a dashed outline shows the shape an end will stick to), and dragging one of its ends onto a
   shape sticks that end; a filled end handle marks a stuck end. Move a shape and its connectors and
-  labels follow it, live while you drag. Any element can sit beside another: in the Inspector,
+  labels follow it, live while you drag. A connector never points backwards: as the shapes close in
+  it thins out, and while they overlap it is hidden. Any element can sit beside another: in the Inspector,
   **Sticks to** picks the element, the side, the gap and the alignment (a line shows **Connector**
   with its two ends instead). Moving a stuck element by hand frees it; **Settings → Connectors stick
   to shapes** turns the sticking off. From the command line:
