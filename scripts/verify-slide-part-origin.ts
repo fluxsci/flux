@@ -253,7 +253,7 @@ try {
     // (1/3 stage unit) wide. Quick smooth leaves rest almost at once (T6's numbers assumed a player lead-in that X2 deleted).
     const widthAt = async (sel: string, ms: number) => (await rects("onset", 1, ms, sel))[0]?.w ?? 0;
     const firstInk = async (sel: string) => { for (let ms = 0; ms <= 120; ms += 1) if ((await widthAt(sel, ms)) >= 1 / 3) return ms; return Infinity; };
-    const BIG = '[data-el-id="big"] rect', DOT = '[data-el-id="dot"] ellipse';
+    const BIG = '[data-el-id="big"] rect', DOT = '[data-el-id="dot"] [data-shape="ellipse"]';
     const inkBig = await firstInk(BIG), inkDot = await firstInk(DOT);
     h.ok(inkBig <= 12 && inkDot <= 45, `first visible ink: a 200-unit box at ${inkBig} ms, a 14-unit dot at ${inkDot} ms (the first ink of even a 14-unit dot lands inside 45 ms of a Present click; plain smooth needs 60-90)`);
     const restBig = await widthAt(BIG, 600), restDot = await widthAt(DOT, 600);

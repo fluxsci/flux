@@ -21,7 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import type { VectorNode } from "../types";
-import { segsFromNodes, segTangent, splitSeg, reverseNodes, type PathSeg } from "../path";
+import { segsFromNodes, segTangent, segPoint, splitSeg, reverseNodes, type PathSeg } from "../path";
 
 export type BandJoin = "miter" | "round";
 export type BandCap = "butt" | "round" | "square";
@@ -92,8 +92,10 @@ function arcSegs(c: V, r: number, a0: number, sweep: number): PathSeg[] {
   return out;
 }
 
-/** Split every cubic into pieces turning at most MAX_PIECE_TURN (a convex piece's end tangents bound its turning). Straights stay whole. */
-function subdivide(s: PathSeg): PathSeg[] {
+/** Split every cubic into pieces turning at most MAX_PIECE_TURN (a convex piece's end tangents bound its turning), then into halves while the
+ *  offset of a piece (by +-|d|) is off the exact parallel curve by more than OFFSET_TOL (a flat ellipse's quarter arc runs from a radius of a few px
+ *  to a few dozen: end-matched Hermite pieces of equal turning are not enough there). Straights stay whole. */
+function subdivide(s: PathSeg, d: number): PathSeg[] {
   if (straight(s)) return [{ ...s, line: true, x1: s.x0, y1: s.y0, x2: s.x3, y2: s.y3 }];
   const turn = Math.abs(turnBetween(segTangent(s, 0), segTangent(s, 1)));
   const k = Math.max(1, Math.ceil(turn / MAX_PIECE_TURN - 1e-9));
@@ -101,7 +103,26 @@ function subdivide(s: PathSeg): PathSeg[] {
   let rest = s;
   for (let i = 0; i < k - 1; i++) { const [a, b] = splitSeg(rest, 1 / (k - i)); out.push(a); rest = b; }
   out.push(rest);
-  return out;
+  return out.flatMap((piece) => refine(piece, d, 0));
+}
+const OFFSET_TOL = 0.003, MAX_REFINE = 5;
+function refine(piece: PathSeg, d: number, depth: number): PathSeg[] {
+  if (depth >= MAX_REFINE || !(d > 0)) return [piece];
+  for (const sign of [1, -1]) {
+    const o = offsetPiece(piece, sign * d);
+    if (!o) continue;           // an inverted inward offset answers null for the whole ring later
+    const mine: V[] = Array.from({ length: 24 }, (_, i) => segPoint(o, i / 23));
+    for (const u of [0.25, 0.5, 0.75]) {
+      const p = segPoint(piece, u), n = rightNormal(segTangent(piece, u)), q = { x: p.x + sign * d * n.x, y: p.y + sign * d * n.y };
+      let best = Infinity;
+      for (let i = 0; i + 1 < mine.length; i++) {
+        const a = mine[i], b = mine[i + 1], dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy || 1e-12, t = Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / L));
+        best = Math.min(best, Math.hypot(q.x - a.x - t * dx, q.y - a.y - t * dy));
+      }
+      if (best > OFFSET_TOL * d + 0.002) { const [l, r] = splitSeg(piece, 0.5); return [...refine(l, d, depth + 1), ...refine(r, d, depth + 1)]; }
+    }
+  }
+  return [piece];
 }
 
 /** The offset of one piece by signed `d` (> 0 outward = to the right of travel): the endpoints move along their normals and the
@@ -139,7 +160,7 @@ export function ringBand(nodes: VectorNode[], width: number, join: BandJoin): Ba
   if (signedArea(segsFromNodes(ring, true)) < 0) { const rev = reverseNodes(ring); ring = [rev[rev.length - 1], ...rev.slice(0, -1)]; }
   const raw = segsFromNodes(ring, true).filter(s => !degenerate(s));
   if (raw.length < 3 && !(raw.length >= 2 && raw.some(s => !straight(s)))) return null;
-  const pieces = raw.flatMap(subdivide);
+  const pieces = raw.flatMap((seg) => subdivide(seg, width / 2));
   // a corner: a tangent jump between consecutive pieces (a rect, a polygon)
   let corners = false;
   for (let i = 0; i < pieces.length; i++) if (turnBetween(segTangent(pieces[i], 1), segTangent(pieces[(i + 1) % pieces.length], 0)) > 1e-3) corners = true;
