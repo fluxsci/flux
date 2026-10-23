@@ -143,7 +143,7 @@ for (const file of ["src/lib/slide/player/rasterKeeper.ts", "src/lib/slide/playe
 }
 
 const figureSelection = resolveChangedRuns(collectChangedRuns(["src/lib/figureLayoutStore.ts"], manifest.pathMap), manifest);
-equal(figureSelection, { scripts: ["verify-fig-namer.mjs", "verify-m11-m14.mjs", "verify-plots-rail-layout.ts", "verify-plots-rail-backdrop.ts", "verify-plots-rail-focus.ts", "verify-plot-thumbs.ts", "verify-plots-rail.mjs"], diagnostics: [] }, "literal filenames resolve to the actual GUI gates (and the Plots rail group, which owns the rail's widths and split)");
+equal(figureSelection, { scripts: ["verify-fig-namer.mjs", "verify-m11-m14.mjs", "verify-plots-rail-layout.ts", "verify-plots-rail-backdrop.ts", "verify-plots-rail-focus.ts", "verify-plots-rail-model.ts", "verify-plot-thumbs.ts", "verify-plots-rail.mjs", "verify-plots-rail-p3.mjs", "verify-plots-rail-slide.mjs"], diagnostics: [] }, "literal filenames resolve to the actual GUI gates (and the Plots rail group, which owns the rail's widths and split)");
 const slideSelection = resolveChangedRuns(collectChangedRuns(["src/lib/slide/player/player.ts"], manifest.pathMap), manifest);
 equal(slideSelection.scripts.includes("verify-slide-authoring-gui.mjs"), true, "slide changes select the authoring GUI gate");
 equal(slideSelection.scripts.includes("verify-slide-source-sync-gui.mjs"), true, "slide changes select the source synchronization GUI gate");

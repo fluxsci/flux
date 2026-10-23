@@ -3,7 +3,8 @@
 // the page with the same ink analysis the desktop worker runs, so the client path is the real
 // one; the worker itself is gated by verify-plot-thumbs.ts (pure) and the Electron gate.
 //   * switching: the tabs, Alt+G's three states (also from inside the search box), Ctrl+B from
-//     the search, the canvas holding still across the width change, Slide keeps its Alt+G;
+//     the search, the canvas holding still across the width change; in Slide, Alt+G is Slide's
+//     own [Slides | Plots] rail and Shift+Alt+G the full gallery (verify-plots-rail-slide.mjs);
 //   * the gallery: folder sections, collapse, search, "_" collections, Recent sort, the backdrop
 //     law on real matplotlib fixtures (and on the fallback path), the ⧉ chip, the in-use mark,
 //     the linked ring;
@@ -362,7 +363,7 @@ h.section("review regressions: one-shot Alt+G, typing, the app's own writes");
   h.ok(true, "an image the app archives into plots/pasted appears in the gallery live");
 }
 
-h.section("the fallback renderer keeps the law; Slide keeps its Alt+G");
+h.section("the fallback renderer keeps the law; Slide's Alt+G is its own rail");
 {
   await page.evaluate(() => localStorage.setItem("flux.fixture.thumbsUnavailable", "1"));
   await gotoApp(page, { url: `${APP_URL}?fixture=demo`, settle: 2500 });
@@ -379,9 +380,12 @@ h.section("the fallback renderer keeps the law; Slide keeps its Alt+G");
   await sleep(600);
   await page.mouse.click(760, 520);
   await alt("KeyG");
-  await waitFor(page, () => !!document.querySelector(".importer"), null, { label: "slide gallery", timeout: 6000 });
-  h.ok(true, "in Slide, Alt+G still opens the gallery (the rail is Figure's)");
-  await page.keyboard.press("Escape");
+  await waitFor(page, () => document.querySelector("[data-left-rail]")?.getAttribute("data-left-rail") === "plots" && !!document.querySelector(".filmstrip") === false, null, { label: "slide plots rail", timeout: 6000 });
+  h.ok(!(await page.evaluate(() => !!document.querySelector(".importer"))), "in Slide, Alt+G shows Slide's own Plots rail (no dialog)");
+  await alt("KeyG", true);
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.importerOpen) && window.__flux.get(window.__flux.fig.importerDetached), null, { label: "slide gallery", timeout: 6000 });
+  h.ok(true, "…and Shift+Alt+G still opens the full gallery, pinned");
+  await page.evaluate(() => window.__flux.fig.importerOpen.set(false));
 }
 
 h.eq(errs.length, 0, `console stays clean${errs.length ? `: ${errs.slice(0, 3).join(" | ")}` : ""}`);

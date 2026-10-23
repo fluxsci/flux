@@ -20,7 +20,8 @@
   import { createDissectionsModel, type DissectionSection, type DissectionsState } from "./dissectionsModel";
   import { railPrefs, dissectGroupState, saveDissectGroupState, TILE_H_MIN, TILE_H_MAX } from "./railPrefs";
   import { beginPlotDrag } from "./dragPlace";
-  import { insertPlots } from "./insert";
+  import { insertPlots, type PlaceAdapter } from "./insert";
+  import { peekHover, peekToggle, hidePeek, type DissectionPeek } from "./peek";
   import { acquireThumb } from "./thumbClient";
   import { dissectTarget } from "../dissect/state";
   import { createDissectionRoot, dissectionRootAbs } from "../dissect/loader";
@@ -37,6 +38,7 @@
     galleryCollapsed = false,
     onCollapse,
     onMaximize,
+    place = null,
   }: {
     active?: boolean;
     hitBridge?: HitBridgeHolder | null;
@@ -46,6 +48,8 @@
     onCollapse?: () => void;
     /** ▴ — give this pane the whole height (collapse the gallery), or restore the split. */
     onMaximize?: () => void;
+    /** The mode's placement route (Slide); the shared pipeline when null. */
+    place?: PlaceAdapter | null;
   } = $props();
 
   const GROUP_CAP = 60;
@@ -78,8 +82,10 @@
   });
 
   // ------------------------------------------------------------------ sizes, stamps, tables
-  let sizes = $state.raw<Map<string, { w: number; h: number; stamp: string }>>(new Map());
+  let sizes = $state.raw<Map<string, { w: number; h: number; stamp: string; physMm: [number, number] | null; mtimeMs: number }>>(new Map());
   let tables = $state.raw<Map<string, TablePreview>>(new Map());
+  // Peek's longer look at a table: its first 20 rows (the card shows 6).
+  let peekTables = $state.raw<Map<string, TablePreview>>(new Map());
   // What is on screen: a listing whose sizes and tables are in. The previous one stays (dimmed)
   // until the next is complete — never a blank frame between two plots.
   let view = $state.raw<{ key: string; rev: number; sections: DissectionSection[] }>({ key: "", rev: -1, sections: [] });
@@ -91,21 +97,22 @@
     void (async () => {
       const fb = fileBridge();
       const images = files.filter((f) => f.kind === "image").map((f) => f.abs);
-      const nextSizes = new Map<string, { w: number; h: number; stamp: string }>();
+      const nextSizes = new Map<string, { w: number; h: number; stamp: string; physMm: [number, number] | null; mtimeMs: number }>();
       if (images.length && fb?.plotsProbe) {
         try {
-          for (const p of await fb.plotsProbe(images)) nextSizes.set(p.abs, { w: p.w ?? 0, h: p.h ?? 0, stamp: `${p.size ?? 0}:${p.mtimeMs ?? 0}` });
+          for (const p of await fb.plotsProbe(images)) nextSizes.set(p.abs, { w: p.w ?? 0, h: p.h ?? 0, stamp: `${p.size ?? 0}:${p.mtimeMs ?? 0}`, physMm: p.physMm ?? null, mtimeMs: p.mtimeMs ?? 0 });
         } catch { /* layout falls back to 4:3 */ }
       }
-      const nextTables = new Map<string, TablePreview>();
+      const nextTables = new Map<string, TablePreview>(), nextPeek = new Map<string, TablePreview>();
       await Promise.all(files.filter((f) => f.kind === "table" || DISSECT_TABLE_RE.test(f.name)).map(async (f) => {
         try {
           const r = await fb?.readTextBounded?.(f.abs, 64 * 1024);
           nextTables.set(f.abs, r ? tablePreview(r.text, f.name, r.truncated) : { header: [], rows: [], rowCount: 0, complete: true, cols: 0, transposed: false, error: "Unreadable" });
+          if (r) nextPeek.set(f.abs, tablePreview(r.text, f.name, r.truncated, 20));
         } catch { nextTables.set(f.abs, { header: [], rows: [], rowCount: 0, complete: true, cols: 0, transposed: false, error: "Unreadable" }); }
       }));
       if (!alive) return;
-      sizes = nextSizes; tables = nextTables; view = { key: st.key, rev, sections: st.sections };
+      sizes = nextSizes; tables = nextTables; peekTables = nextPeek; view = { key: st.key, rev, sections: st.sections };
       await tick();
       applyAnchor();
     })();
@@ -187,8 +194,29 @@
     grid?.focusGrid();
   }
   function onOpen(g: GridItem) { const it = itemOf(g); if (it) openInViewer(it); }
+  function peekFor(it: DissectItem, cell: HTMLElement | null): DissectionPeek | null {
+    if (it.kind === "other") return null;
+    const sz = sizes.get(it.abs);
+    return {
+      kind: "dissection", abs: it.abs, stamp: sz?.stamp ?? "?", name: it.name, group: it.group,
+      aspect: sz && sz.w && sz.h ? sz.w / sz.h : 4 / 3,
+      physMm: sz?.physMm ?? null, mtimeMs: sz?.mtimeMs ?? 0,
+      table: it.kind === "table" ? peekTables.get(it.abs) ?? tables.get(it.abs) ?? null : null,
+      placeholder: cell?.querySelector<HTMLImageElement>(".page img")?.src ?? "",
+    };
+  }
+  function onItemHover(g: GridItem | null, cell: HTMLElement | null) {
+    const it = g ? itemOf(g) : null;
+    peekHover(it && it.kind !== "other" ? () => peekFor(it, cell) : null, it ? cell : null);
+  }
   function onKey(e: KeyboardEvent, focused: GridItem | null) {
     const it = focused ? itemOf(focused) : null;
+    if (e.code === "Space" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      const cell = focused ? sectionEl?.querySelector<HTMLElement>(`[data-grid-id="${CSS.escape(focused.id)}"]`) ?? null : null;
+      if (it) peekToggle(() => peekFor(it, cell), cell);
+      return;
+    }
     if ((e.key === "Enter" || e.key === " ") && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       const d = focused?.data as { showAll?: string; showLess?: string } | undefined;
@@ -231,9 +259,9 @@
       return { paths: [it.abs], thumbUrl: pageEl.querySelector<HTMLImageElement>("img")?.src ?? "", tileRect: pageEl.getBoundingClientRect(),
         placed: sz && sz.w ? { w: sz.w, h: sz.h } : null, backdrop: getComputedStyle(pageEl).backgroundColor || null };
     }, hitBridge, {
-      onStart: () => { suppressClick = true; },
+      onStart: () => { suppressClick = true; hidePeek(); },
       onEnd: () => { setTimeout(() => { suppressClick = false; }, 0); },
-      onDrop: (fig, at, paths) => { void insertPlots(paths, { figId: fig.id, ...at }); },
+      onDrop: (fig, at, paths) => { void insertPlots(paths, { figId: fig.id, ...at }, place); },
       onMiss: () => pushToast("info", "Drop onto a figure to place it"),
     });
   }
@@ -276,10 +304,11 @@
   }
   const destination = $derived($project.figures.find((f) => f.id === $activeFigureId)?.background ?? null);
   const loading = $derived(ds.loadingKey !== "" || !shown);
+  let sectionEl = $state<HTMLElement>();
   const relPath = $derived(ds.key ? `plots/_dissections/${ds.key}/` : wantKey ? `plots/_dissections/${wantKey}/` : "");
 </script>
 
-<section class="dissections" class:collapsed data-plots-dissections>
+<section class="dissections" class:collapsed data-plots-dissections bind:this={sectionEl}>
   <header class="head">
     {#if headThumb}<img class="mini" src={headThumb} alt="" />{:else}<span class="mini blank"></span>{/if}
     <span class="eyebrow">Dissections</span>
@@ -329,6 +358,8 @@
           onHeaderToggle={(s) => toggleGroup(s.key.startsWith("images:") ? s.key.slice(7) || "·" : s.key, "collapsed")}
           onFocusChange={(g) => { selectedId = g.id; }}
           onKeyDown={onKey}
+          {onItemHover}
+          onScrolled={hidePeek}
           onZoom={(d) => railPrefs.update((p) => ({ ...p, dissectTileH: Math.max(TILE_H_MIN, Math.min(TILE_H_MAX, Math.round(p.dissectTileH * (d > 0 ? 1.15 : 1 / 1.15)))) }))}>
           {#snippet tile(g: GridItem, w: number, h: number, flags: TileFlags)}
             {@const d = g.data as DissectItem & { showAll?: string; total?: number; showLess?: string }}

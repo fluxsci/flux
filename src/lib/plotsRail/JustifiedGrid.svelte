@@ -57,6 +57,9 @@
     onKeyDown,
     onZoom,
     onScrollState,
+    onItemHover,
+    onHeaderContext,
+    onScrolled,
   }: {
     sections: GridSection[];
     rowHeight: number;
@@ -79,6 +82,11 @@
     onKeyDown?: (e: KeyboardEvent, focused: GridItem | null) => void;
     onZoom?: (delta: number, anchorId: string) => void;
     onScrollState?: (s: { top: number; firstVisible: number }) => void;
+    /** The pointer entered a different cell (null: it left every cell) — Peek's dwell. */
+    onItemHover?: (item: GridItem | null, cell: HTMLElement | null) => void;
+    onHeaderContext?: (section: GridSection, e: MouseEvent) => void;
+    /** The user scrolled (Peek hides). */
+    onScrolled?: () => void;
   } = $props();
 
   let viewport = $state<HTMLDivElement>();
@@ -145,6 +153,9 @@
   $effect(() => { onScrollState?.({ top: scrollTop, firstVisible: firstVisibleIndex }); });
 
   function onScroll() {
+    onScrolled?.();
+    // Content moved under the pointer (and Peek hid): the next pointer move re-dwells.
+    hovered = "";
     if (raf || !viewport) return;
     const view = viewport.ownerDocument.defaultView!;
     raf = view.requestAnimationFrame(() => { raf = 0; if (viewport) scrollTop = viewport.scrollTop; });
@@ -186,6 +197,13 @@
     return row ? row.y - viewport.scrollTop : null;
   }
   export function firstVisibleId(): string { return flat[firstVisibleIndex]?.id ?? ""; }
+  /** The laid-out width of an item (null: not laid out — its section is collapsed). */
+  export function widthOf(id: string): number | null {
+    const i = indexOf.get(id);
+    if (i === undefined) return null;
+    const row = layout.rows[layout.itemRow[i]];
+    return row?.items.find((p) => p.index === i)?.w ?? null;
+  }
   export function itemRect(id: string): DOMRect | null {
     const node = viewport?.querySelector<HTMLElement>(`[data-grid-id="${CSS.escape(id)}"]`);
     return node ? node.getBoundingClientRect() : null;
@@ -217,6 +235,24 @@
     onKeyDown?.(e, focused);
   }
 
+  // Hover, delegated: one listener for every cell. Pointer MOVES (not just `over`), so a pointer
+  // resting on a tile after a scroll starts a new dwell with its first nudge.
+  let hovered = "";
+  function pointerOver(e: PointerEvent) {
+    if (!onItemHover || e.pointerType === "touch") return;
+    const cell = (e.target as HTMLElement).closest?.<HTMLElement>("[data-grid-id]") ?? null;
+    const id = cell?.dataset.gridId ?? "";
+    if (id === hovered) return;
+    hovered = id;
+    const item = id ? flat[indexOf.get(id) ?? -1] ?? null : null;
+    onItemHover(item, item ? cell : null);
+  }
+  function pointerLeave() {
+    if (!hovered) return;
+    hovered = "";
+    onItemHover?.(null, null);
+  }
+
   function wheel(e: WheelEvent) {
     if (!(e.ctrlKey || e.metaKey) || !onZoom) return;
     e.preventDefault();
@@ -237,13 +273,15 @@
     aria-activedescendant={focusId && indexOf.has(focusId) ? `${uid}-${indexOf.get(focusId)}` : undefined}
     onscroll={onScroll}
     onkeydown={keydown}
-    onwheel={wheel}>
+    onwheel={wheel}
+    onpointermove={pointerOver}
+    onpointerleave={pointerLeave}>
     <div class="spacer" style:height={`${layout.height + 8}px`}>
       {#each visibleSections as si (sections[si].key)}
         {@const sec = sections[si]}
         {@const place = layout.sections[si]}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="section-head" role="presentation" style:top={`${place.y}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX + sec.depth * 8}px`} data-section={sec.key}>
+        <div class="section-head" role="presentation" oncontextmenu={(e) => { if (onHeaderContext) { e.preventDefault(); onHeaderContext(sec, e); } }} style:top={`${place.y}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX + sec.depth * 8}px`} data-section={sec.key}>
           {#if sec.collapsible}
             <button class="chev" aria-expanded={!sec.collapsed} aria-label={`${sec.collapsed ? "Expand" : "Collapse"} ${sec.title}`} onclick={(e) => onHeaderToggle?.(sec, e)}>{sec.collapsed ? "▸" : "▾"}</button>
           {/if}
@@ -290,7 +328,7 @@
   {#if stuck}
     {@const sec = sections[stuck.index]}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="section-head stuck" role="presentation" style:top={`${stuck.offset}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX}px`} data-stuck={sec.key}>
+    <div class="section-head stuck" role="presentation" oncontextmenu={(e) => { if (onHeaderContext) { e.preventDefault(); onHeaderContext(sec, e); } }} style:top={`${stuck.offset}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX}px`} data-stuck={sec.key}>
       {#if sec.collapsible}
         <button class="chev" aria-expanded={!sec.collapsed} aria-label={`Collapse ${sec.title}`} onclick={(e) => onHeaderToggle?.(sec, e)}>▾</button>
       {/if}

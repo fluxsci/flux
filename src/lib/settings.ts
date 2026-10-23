@@ -1,4 +1,5 @@
 import { decodePreferences } from "./preferences";
+import { DEFAULT_PHYSICAL_UNIT, PHYSICAL_UNITS, type PhysicalUnit } from "./figure/physicalUnits";
 import { writable } from "svelte/store";
 import { DEFAULT_PLOT_SEARCH_SCOPE, PLOT_SEARCH_SCOPE_IDS, type PlotSearchScope } from "./plot/galleryScope";
 import {
@@ -37,6 +38,9 @@ export interface Settings {
   // Figure — the Plot gallery's Folders sidebar: a click on a folder row also expands /
   // collapses it (default off: the click shows the folder, the › arrow expands it).
   galleryFolderClickExpands: boolean;
+  // Physical sizes (the Inspector's readouts, the Plots rail's Peek): inches by default —
+  // matplotlib's figsize — or millimetres (figure/physicalUnits.ts).
+  physicalUnit: PhysicalUnit;
   // The crosshair cursor family (2026-10-21, cursor/cursorFamily.ts): the one
   // drawing every pointer state is generated from. Defaults reproduce the
   // 2026-09-15 cursors byte for byte; cursorTheme.ts writes :root when they differ.
@@ -96,6 +100,7 @@ const DEFAULTS: Settings = {
   captionFontSize: 16,
   plotSearchScope: DEFAULT_PLOT_SEARCH_SCOPE,
   galleryFolderClickExpands: false,
+  physicalUnit: DEFAULT_PHYSICAL_UNIT,
   cursorStyle: CURSOR_DEFAULTS.style,
   arrowSize: CURSOR_DEFAULTS.arrowSize,
   arrowFill: CURSOR_DEFAULTS.arrowFill,
@@ -196,7 +201,7 @@ export function decodeSettings(value: unknown): Settings {
     gridSize: { min: 1 }, captionFontSize: { min: 9, max: 28 }, paperMaxMarginPanes: { min: 1, max: 6 },
     paletteCollection: { enum: ["flexoki", "brewer", "tol", "project"] }, colormapCollection: { enum: ["mpl", "crameri", "tol", "cmasher"] },
     paperMarginScene: { enum: ["harmonograph", "neurons", "inkwind", "loom", "vines"] },
-    plotSearchScope: { enum: PLOT_SEARCH_SCOPE_IDS },
+    plotSearchScope: { enum: PLOT_SEARCH_SCOPE_IDS }, physicalUnit: { enum: PHYSICAL_UNITS },
     cursorSize: { ...CURSOR_SIZE_RANGE }, cursorStroke: { ...CURSOR_STROKE_RANGE }, cursorGap: { ...CURSOR_GAP_RANGE },
     cursorHaloWidth: { ...CURSOR_HALO_WIDTH_RANGE }, cursorHaloOpacity: { ...CURSOR_HALO_OPACITY_RANGE },
     cursorCoreColor: { maxLength: 7 }, cursorCoreColorDark: { maxLength: 7 }, cursorHaloColor: { maxLength: 7 }, cursorDotColor: { maxLength: 7 },

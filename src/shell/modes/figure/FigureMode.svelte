@@ -35,7 +35,7 @@
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import { activeFigureId, dirty as figDirty, embeddedProjectRoot } from "../../../lib/store";
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
-  import { figureLayout, FIGURE_LAYOUT_DEFAULTS, PLOTS_RAIL_MIN, PLOTS_RAIL_MAX } from "../../../lib/figureLayoutStore";
+  import { figureLayout, FIGURE_LAYOUT_DEFAULTS, PLOTS_RAIL_MIN, leftRailMax, shownLeftRailW } from "../../../lib/figureLayoutStore";
   import { viewport } from "../../../lib/store";
   import { projectModel } from "../../shellStore";
   import { loadFigInto, saveFigFrom, figDiskDiverged } from "../../../lib/project/figbridge";
@@ -136,15 +136,17 @@
       }, () => figureLayout.set(original), () => { cancelRail = null; });
     };
   }
-  // The left rail's drag edge sizes whichever view is showing: Layers is happy narrow, the
-  // Plots view wants room for a gallery (up to half the window).
+  // The left rail's drag edge sizes whichever view is showing. No fixed widest width: either
+  // view may grow until the canvas keeps CANVAS_MIN_W px beside the right rail.
+  const rightRailW = () => (get(inspectorHidden) ? 0 : get(figureLayout).inspectorW);
   const startSbDrag = railDrag((x, rect) => {
+    const max = leftRailMax(rect.width, rightRailW());
     if (get(figureLayout).leftView === "plots") {
-      const w = Math.max(PLOTS_RAIL_MIN, Math.min(Math.max(PLOTS_RAIL_MIN, Math.min(PLOTS_RAIL_MAX, Math.round(window.innerWidth * 0.5))), x - rect.left));
+      const w = Math.max(PLOTS_RAIL_MIN, Math.min(max, x - rect.left));
       figureLayout.update((s) => ({ ...s, plotsRailW: Math.round(w) }));
       return;
     }
-    const w = Math.max(140, Math.min(railMax(420), x - rect.left));
+    const w = Math.max(140, Math.min(max, x - rect.left));
     figureLayout.update((s) => ({ ...s, sidebarW: Math.round(w) }));
   });
   const startInspDrag = railDrag((x, rect) => {
@@ -157,7 +159,10 @@
 
   // One canvas hit bridge per FigureMode (the Plots rail's drag-to-place targets THIS canvas).
   const hitBridge = createHitBridge();
-  const leftW = $derived($figureLayout.leftView === "plots" ? $figureLayout.plotsRailW : $figureLayout.sidebarW);
+  let bodyW = $state(0);
+  const leftW = $derived($figureLayout.leftView === "plots"
+    ? shownLeftRailW($figureLayout.plotsRailW, PLOTS_RAIL_MIN, bodyW, $inspectorHidden ? 0 : $figureLayout.inspectorW)
+    : shownLeftRailW($figureLayout.sidebarW, 140, bodyW, $inspectorHidden ? 0 : $figureLayout.inspectorW));
   // Switching the rail's view changes its width; pan the canvas by the same amount so the
   // world stays still on screen (Alt+G is a round trip — the canvas must not hop each time).
   let lastView = get(figureLayout).leftView;
@@ -260,6 +265,7 @@
   <div
     class="body"
     bind:this={bodyEl}
+    bind:clientWidth={bodyW}
     style={`--sb-w:${leftW}px; --insp-w:${$figureLayout.inspectorW}px`}>
     {#if !$leftRailHidden}
       <LeftRail paneActive={active} {hitBridge} />

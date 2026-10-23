@@ -123,7 +123,10 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
 | **Alt+G** | Show the Plots view of the sidebar and search it (again, from inside it: back to Layers) |
-| **Shift+Alt+G** | Open the full Plot gallery in its own window (the toolbar's **Gallery** opens it in place) |
+| **Shift+Alt+G** | Open the full Plot gallery in its own window (the toolbar's **Gallery** opens it in place) — also from the Plots view's search box |
+| **Shift+Space** *(Plots view)* | Peek at the selected plot (again: close) — hovering a plot for a moment peeks too |
+| **Enter** / *double-click* *(Plots view, a stack)* | Open a variant stack in place (**⋯ → Stack variants**) |
+| **Backspace** *(Plots view, empty search)* | Leave Similar names, climb out of a folder shown alone, then out of a collection |
 | **Alt+1** / **Alt+2** | In the Plots view or the Plot gallery: this project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
@@ -191,7 +194,8 @@ Everything in the Figure table works on the stage. Additionally:
 |---|---|
 | **F5** / **Shift+F5** | Present from the start / from the current slide |
 | **↓** / **↑** (nothing selected) | Next / previous slide |
-| **Ctrl+B** (nothing text-like selected) | Hide/show the filmstrip |
+| **Ctrl+B** (nothing text-like selected) | Hide/show the left rail (filmstrip or Plots) |
+| **Alt+G** | Show the left rail's Plots view and search it (again, from inside it: back to the filmstrip) |
 | **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
 | **Ctrl+Shift+D** | Add disappearance *(animator open)* |
 | **Ctrl+Shift+C** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
@@ -208,7 +212,7 @@ Everything in the Figure table works on the stage. Additionally:
 | **A** *(Become pick)* | Widen the last pick to its siblings |
 | **Backspace** *(Become pick)* | Drop the last pick |
 | **B** / **Enter** *(Become pick)* | Confirm the pick |
-| **R O L P T** *(Become pick)* · **Ctrl+P** · **Alt+G** | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
+| **R O L P T** *(Become pick)* · **Ctrl+P** · placing from the Plots rail | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
 | **Alt+R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live |
 | **B** *(X-ray while Become is armed)* | Become: confirm the whole pick |
 | **Escape** *(Become / Appear from… pick)* | Leave Add mode or close the X-ray first; then cancel without creating a transform |

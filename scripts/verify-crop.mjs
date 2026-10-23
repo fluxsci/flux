@@ -227,7 +227,7 @@ try {
     const el = [...document.querySelectorAll(".note.phys")].find((n) => /cropped from/i.test(n.textContent ?? ""));
     return el ? el.textContent?.replace(/\s+/g, " ").trim() : null;
   });
-  assert(note && /cropped from 177\.8 × 127\.0 mm/.test(note), `Inspector shows "cropped from W×H mm" (got: ${note})`);
+  assert(note && /cropped from 7\.00 × 5\.00 in/.test(note), `Inspector shows "cropped from W×H in" — inches by default (got: ${note})`);
   const clicked = await page.evaluate(() => {
     const b = [...document.querySelectorAll("button.true-size")].find((x) => /reset crop/i.test(x.textContent ?? ""));
     if (!b) return false;

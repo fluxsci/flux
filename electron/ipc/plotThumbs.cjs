@@ -258,11 +258,13 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
       const bucket = BUCKETS.has(request?.bucket) ? request.bucket : 512;
       const { base, abs } = guard(e, request?.path);
       const rid = typeof request?.rid === "string" && request.rid.length < 64 ? request.rid : null;
+      const warm = request?.warm === true;
       // Warm: straight from the disk cache.
       try {
         const { cachedThumb } = await loadEngine();
         const hit = await cachedThumb(cacheDir(), abs, bucket);
-        if (hit) return { ...hit, bytes: await fs.promises.readFile(hit.path) };
+        // Pre-warm (the rail's idle generation) only fills the disk cache: no bytes cross IPC.
+        if (hit) return warm ? { warmed: true, stats: hit.stats ?? null, paper: hit.paper ?? null } : { ...hit, bytes: await fs.promises.readFile(hit.path) };
       } catch { /* fall through to the worker */ }
       if (unavailable) return { error: "unavailable", unavailable: true };
       const senderId = e.sender.id;
@@ -283,6 +285,7 @@ function createPlotThumbsFamily({ app, appRoot, rootFor, libraryRoot, cacheDir, 
       if (reply.error) return { error: reply.error, cancelled: !!reply.cancelled, quarantined: !!reply.quarantined, unavailable: !!reply.unavailable };
       const r = reply.result;
       if (!r || r.error) return { error: r?.error ?? "no preview", quarantined: !!r?.quarantined, tooLarge: !!r?.tooLarge, unsupported: !!r?.unsupported };
+      if (warm) return { warmed: true, stats: r.stats ?? null, paper: r.paper ?? null };
       try { return { ...r, bytes: await fs.promises.readFile(r.path) }; }
       catch { return { error: "preview vanished" }; }
     });

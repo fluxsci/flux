@@ -46,11 +46,20 @@ async function main(){
    // rail must cost the editor nothing (stop-ship: ≤100 ms and within noise of rail-closed).
    await key('G',['alt']);
    await wait(()=>js("document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='plots'&&document.querySelectorAll('[data-plots-gallery] [data-tile*=\"/dense/\"] img').length>=4"),'Plots rail open with dense thumbnails');
+   // …and its idle pre-warm busy with the 120 plots no tile shows (the disk cache grows).
+   const thumbPngs=()=>{const dir=path.join(app.getPath('userData'),'cache','plot-thumbs');try{return fs.readdirSync(dir).filter(d=>/^[0-9a-f]{2}$/.test(d)).reduce((n,d)=>n+fs.readdirSync(path.join(dir,d)).filter(f=>f.endsWith('.png')).length,0)}catch{return 0}};
+   const {cachedThumb}=await import(path.resolve(__dirname,'../../electron/plotThumbEngine.mjs'));
+   const coldFiles=Array.from({length:120},(_,i)=>path.join(root,'plots','dense','cold','stack',`c${i}.svg`));
+   const cold=async()=>{const dir=path.join(app.getPath('userData'),'cache','plot-thumbs');let n=0;for(const f of coldFiles)for(const b of [256,512,1024])if(await cachedThumb(dir,f,b)){n++;break}return n};
+   await wait(async()=>(await cold())>=1,'pre-warm started on the collapsed folder',30000);
+   const warmBefore=await cold(),pngsBefore=thumbPngs();
    await key('Escape'); // search box → canvas keyboard (the rail owns the unmodified key: no deselect)
    const beforeRailX=await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)");
    await js("window.__nativeTimes=[];window.__nativeKey=e=>{if(e.key!=='ArrowRight')return;const t=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>window.__nativeTimes.push(performance.now()-t)))};window.addEventListener('keydown',window.__nativeKey,true)");
    for(let i=0;i<18;i++){win.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')}
    const railTimes=await js("window.removeEventListener('keydown',window.__nativeKey,true);window.__nativeTimes");
+   const warmAfter=await cold();
+   check(warmAfter>warmBefore,`5000 + Plots rail: pre-warm was rendering during the measurement (${warmBefore} → ${warmAfter} of 120 cold plots; ${pngsBefore} → ${thumbPngs()} cached PNGs)`);
    check(await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)")===beforeRailX+18,'5000 + Plots rail: the measured keys moved the object');
    metrics.railOpen={nudgeP95:p95(railTimes),samplesMs:railTimes,closedP95:metrics[n].nudgeP95};
    console.log('PROBE metrics='+JSON.stringify({figure:'5000+rail',...metrics.railOpen}));

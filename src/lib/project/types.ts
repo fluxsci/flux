@@ -203,7 +203,7 @@ export interface FileBridge {
   /** Placed size from file headers (no raster). */
   plotsProbe?(paths: string[]): Promise<PlotProbe[]>;
   /** A cached raster thumbnail (rendered off the main thread on a miss) + its ink analysis. */
-  plotThumb?(request: { path: string; bucket: number; priority?: number; rid?: string }): Promise<PlotThumbResult>;
+  plotThumb?(request: { path: string; bucket: number; priority?: number; rid?: string; warm?: boolean }): Promise<PlotThumbResult>;
   plotThumbCancel?(rids: string[]): Promise<void>;
   /** Dissection file counts for plot keys (listDissections semantics). */
   dissectCounts?(keys: string[]): Promise<Record<string, number>>;
@@ -635,4 +635,6 @@ export interface PlotThumbResult {
   unavailable?: boolean;
   tooLarge?: boolean;
   unsupported?: boolean;
+  /** A pre-warm request: the cache now holds it (no bytes). */
+  warmed?: boolean;
 }

@@ -1782,15 +1782,32 @@ Persistence invariants (all machine-checked — do not weaken):
   (proxy-capture, print) never do, and the last app window's close quits on non-mac — *a
   window the user cannot see must never keep the app alive* (the quit-wedge fix). Gates:
   `verify-quit-policy.ts` (pure), `verify-multiwindow.cjs` (electron).
-- **The Plots rail (2026-10-22) — the Figure left rail's second view.** `plotsRail/LeftRail.svelte`
-  hosts a tab row ([Layers | Plots], the destination chip, the ⋯ view menu) over `Sidebar` or
+- **The Plots rail (2026-10-22) — the Figure and Slide left rails' second view.** `plotsRail/LeftRail.svelte`
+  hosts a tab row (Figure [Layers | Plots], Slide [Slides | Plots] — `unit="slide"` renders the
+  filmstrip from a snippet; the destination chip; the ⋯ view menu) over `Sidebar`/the filmstrip or
   `PlotsRail` (Gallery over Dissections, a splitter; layout in `figureLayoutStore`: `leftView`,
-  per-view widths `sidebarW`/`plotsRailW`, `plotsSplit`, collapse flags — FigureMode pans the
-  viewport by the width change so a view switch never moves the canvas). **Alt+G** (Figure tenant
-  only, handled ABOVE `handleKey`'s `typing` return) shows Plots + focuses its search / from
-  inside the rail returns to Layers; with the full gallery pinned it still focuses that window.
-  The full gallery opens from the toolbar's Gallery (`data-open-gallery`) or **Shift+Alt+G**
-  (pinned); Slide keeps Alt+G. Keyboard: the rail is `data-command-scope="plots-rail"`;
+  per-view widths `sidebarW`/`plotsRailW` with NO fixed widest width (owner, 2026-10-22: the
+  rail may grow until the canvas keeps `CANVAS_MIN_W` beside the right rail — `leftRailMax`;
+  a stored width wider than the window shows clamped via `shownLeftRailW` and is kept), `plotsSplit`, collapse flags — FigureMode pans the
+  viewport by the width change so a view switch never moves the canvas; Slide keeps its view and
+  widths in `slideLayout` `leftView`/`plotsRailW`, the film gutter sizing whichever shows). **Alt+G**
+  (handled ABOVE `handleKey`'s `typing` return) asks the store tenant's RAIL HOST
+  (`railState.registerRailHost`: `figureRailHost.ts` at import, SlideMode on mount) — shows Plots
+  + focuses its search / from inside the rail returns to the other view; with the full gallery
+  pinned it still focuses that window. The full gallery opens from the toolbar
+  (`data-open-gallery`) or **Shift+Alt+G** (pinned; also from the rail's search box). Slide places
+  through a `PlaceAdapter` (its `importSlideItems`: deck/slide guards, clips; a rail job is not
+  cancelled by the closed dialog) and, in a Become pick, enters Add mode first so the placed plot
+  joins; SlideMode's `pickKey` and `onKey` yield the rail's unmodified keys (F5 excepted).
+  P3 (`galleryModel.ts`, pure): filters, focus folder, Similar names, variant stacks, width class;
+  `peek.ts` + `Peek.svelte` (350 ms dwell, hides on rail leave/scroll/key/press; Shift+Space);
+  Fresh marks compare each listing with the last one of that base THIS SESSION (module-level, so
+  an unmounted rail still sees what changed; keyed base|accept, since Slide also lists clips);
+  pre-warm = `thumbClient.setPrewarm` → `thumbs:get {warm:true}` (disk cache only, one job, only
+  with no visible request queued, held during canvas presses, never a file > 2 MB, and OFF for
+  the session at the first quarantined file — idle work must never spend the worker's respawn
+  budget). The Unused filter reads a SIGNATURE of the placed sources, so commits that only move
+  things do not re-filter 20k plots. Keyboard: the rail is `data-command-scope="plots-rail"`;
   `plotsRail/keyScope.ts` yields only UNMODIFIED keys to it (in `handleKey` and Canvas's own
   `onKeyDown`), so Ctrl+Z/S/B still reach the editor — narrower than the `.animator` yield.
   **Thumbnails** never rasterize in main or the renderer: `electron/ipc/plotThumbs.cjs`
@@ -1814,7 +1831,8 @@ Persistence invariants (all machine-checked — do not weaken):
   (every plots/dissections path in the watcher window, `rescan` past 500) plus
   `notifyPlotsWritten` for the app's own writes (the watcher skips them). Drag-to-place: a
   per-FigureMode `interact/canvasHitBridge.ts` (never a singleton) + `placeIncoming(…, at)`.
-  Gates: `group:plots-rail` (four pure + `verify-plots-rail.mjs`), `verify-asar-unpack-closure.ts`.
+  Gates: `group:plots-rail` (five pure + `verify-plots-rail.mjs`, `-p3.mjs`, `-slide.mjs`),
+  `verify-asar-unpack-closure.ts`, `group:plots-rail-native`.
 - **The Plot gallery (Shift+Alt+G pinned; the toolbar's Gallery) is an editor-owned utility view.** Gallery/list, preview size
   (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
   `GalleryTree` reads only expanded directories, windows its rows and includes explicit
@@ -1875,7 +1893,7 @@ Persistence invariants (all machine-checked — do not weaken):
   hairline dividers, accent-tint selection with an inset rail (never solid accent fills), no
   blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
   motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
-  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G the Plots rail (Figure) / plot gallery (Slide), Alt+T arrange,
+  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G the Plots rail (Figure and Slide), Alt+T arrange,
   Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
@@ -4255,6 +4273,18 @@ outside this PNG packaging change.
 - **puppeteer `mouse.click(…, { clickCount: 2 })` is deprecated and does not double-click** on
   this version — use `{ count: 2 }`. A synthetic `dispatchEvent(new MouseEvent("dblclick"))`
   proves the handler, not the gesture.
+- **Never mutate an item a view memoises on.** `plotIndex.ensureSizes` once wrote `it.w`/`it.physMm`
+  in place and bumped a version: the layout (which reads a new GridItem each pass) updated, but
+  a `{@const it = …}` → Tile prop chain memoised on the SAME object never re-read `physMm` —
+  width badges appeared at random. Replace the object (`{ ...it, w, h, physMm }`).
+- **A Slide import job cancels itself when the gallery DIALOG is closed** (`videoImport` +
+  `!$importerOpen`) — right for the dialog, silent death (an AbortError → 0, no toast) for any
+  other caller. Callers that are not the dialog mark the job (`rail: true`).
+- **In the browser harness Shift+Alt+G opens the pinned gallery as a popup** — `.importer` never
+  appears in the page; read `importerOpen`/`importerDetached` through `__flux` and close it via
+  the store (a leftover open gallery puts the next Become pick straight into Add mode).
+- **RailMenu checked items' text starts with "✓"** — match a menu item's `.label`, never
+  `textContent` with `^`.
 - **Contain a requested path AFTER canonicalising it.** `plots/../project.json` passes a
   prefix check on the raw string; refuse `..` segments, `path.resolve`, then compare
   (`plotThumbs.cjs placeOf`, pinned in verify-plot-thumbs.ts).
@@ -10740,6 +10770,34 @@ fallback, one-shot Alt+G, ©-typing, tile re-rank vs cancel/resend, self-writes,
 gate registration) with regression checks. The one ui red on the way was a selector collision:
 the rail's tab row used `.tabs` and `verify-figure-metadata` clicks `.tabs button:first-child` —
 classes in an always-mounted rail must be specific (`.rail-tabs`).
+
+### 2026-10-22 15:50 CDT — Align / Arrange blueprint (Codex, main)
+**Work:** Produced `notes/align_arrange_2026-10-22/PLAN.md` with three independent mapping, critique and final-review passes covering the A-key Align panel, inferred tidy plus fixed-anchor gap manipulation, and actual scientific-spine alignment. Retained source references and executable arithmetic/SVG probes; existing ops, geometry and target-geometry gates pass. This is planning only; no application feature was implemented.
+
+### 2026-10-22 — Plots rail P3 + the Slide rail (Claude Opus 5.5, `plots-rail-p3` worktree)
+**Work:** P3 per PLAN §13 — Peek (350 ms dwell / Shift+Space; 1024 px raster, printed size + width
+class, placements, dissection groups, the backdrop law's reason, the reads-poorly warning), Unused /
+Fluxplots / Has-dissections filters with a chip line, Show only this folder, Similar names, session
+Fresh dots, the width-class badge, variant stacks (off by default), idle pre-warm into the disk cache,
+separate gallery / dissections size sliders. P4: Slide's left rail is [Slides | Plots] (Alt+G via
+the per-tenant rail host; Slide's import route incl. clips with progress/Cancel; Become-pick Add-mode
+interplay; drop-at-pointer on the frame canvas). Owner tweaks: physical sizes in INCHES by default
+(Settings → Figure → Physical sizes → mm), Peek trims, no fixed left-rail width cap. An Opus review
+(no critical findings; 3 important + 9 minor) fixed with a regression check each.
+**Learnings:** §9 (never mutate an item a view memoises on; Slide's import job self-cancels when the
+dialog is closed; Shift+Alt+G = a popup in the browser harness; RailMenu labels start with ✓). Never
+edit `src/` while a ui tier runs against the same dev server: HMR re-stamps modules and gates that
+`import('/src/…')` get a second instance (background-run, model3d-source went red); restart the
+server. A timing-ratio gate needs equal-work samples of several ms — a 1 ms run is CI noise.
+**Verification:** svelte-check + headless 0/0; pure 394/394 (after the last change); ui 157/157 on a
+fresh server before the review fixes, the rail gates (P2 67, P3 56, Slide 36, model 45) plus crop,
+filmstrip, slide-editor and video-clips after them; native on :87: plots-rail-electron (Peek's
+worker raster, pre-warm into the cache, the Slide rail), figure-polish (rail open with pre-warm
+rendering: 62.6 vs ~51 ms p95), figure-metadata, gallery-preview, plot-gallery. OPEN for tonight's
+full run: the final ui tier after the review fixes; `verify-slide-video-clips-electron` ("native
+resize handle hit") and `verify-annotate-utility-electron` (win:capture pixels) fail on this Xvfb —
+the clips one identically on pre-merge main; CI-only reds seen on main (text-morph letter counts,
+model3d-gui, model3d-snapshot-quiet, a 101 ms morph-startup seek) predate the rail.
 
 ### 2026-10-22 — Release 1 of the manim study: pace, choreography, drawing, convex morphs, crisp stage (Claude Opus 5.5 orchestrating Sonnet 5.5 lanes, `manim/release1`)
 **Work:** Five parallel lanes (render, origin, morph, choreo-draw, pace; each with an adversarial review and a fixer pass), merged and integrated on `manim/release1` (plan: notes/manim_exploration/FINAL_PLAN.md §4 and Appendix D; lane reports: notes/manim_exploration/impl/R1_L*_report.md). Shipped per WP: **1.1** video frames encode as tagged BT.709 limited range (Flexoki swatch error 15 → 2). **1.2** origins are data: bars grow from their own zero line (horizontal and negative included), scatter points exist under popIn/fadeRise/stagger (a leaf-transform `data-sl-fx` wrapper), and the open `PRESET_PARAMS` table. **1.3** `choreograph()` + `planStagger`: three clicks, scaffold-first, capped lag totals, `animate-plot` verb, `--pace classic|v2`. **1.4** the draw plan: border-then-fill, heads on the pen clock, dash lists that keep the pattern, exact reach, ink-fitted wipes, X13 tick compensation. **1.5** morph bug floor: per-transform gradient ids, per-channel alpha, pixel law, rigid heads. **1.6** Pillow-free convex morphs (`normalMatch.ts`), implicit handles, dash phase. **1.7** the measured pace (700/900/500/1200), `quick smooth`, authored params, interrupt settle. **1.8** the raster keeper keeps the stage crisp after resize/zoom/pan (0.30 → 1.000), exact capture camera, the T7 join law. Integrator's own changes: auto-build now DEFAULTS to `V2_PACE` with the authored curve and params on every plot-part track; the join law reaches the hand-off and glyph flight layers (`OutlinePaint.join`, `pairJoin`). Owner-facing release-note order: resize/fullscreen crispness, video colours, zoom sharpness. Docs: slide.qmd, SLIDE_TRANSFORMS.md, flux-context SLIDES.md/CLI-REFERENCE (and the regenerated `fluxContextDocs.gen.cjs`), plot fixtures README, and this guide's body (§2 table, §4 catalog/pace, auto-build + draw plan, origins, convex morphs, join law, layer hygiene + raster keeper, video colour, §9 traps).

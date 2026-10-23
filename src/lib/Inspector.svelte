@@ -22,7 +22,7 @@
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
-  import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
+  import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize } from "./figure/journalSizing";
   import { applyTextLayout, reflowTexts } from "./text";
   import { textEditRange, activeTextRange, toggleActiveRange, publishTextRange, typingStyle, type RangeStyle } from "./textEditRange";
   import { rangeIsOn, rangeColor, rangeScript } from "./textRuns";
@@ -40,7 +40,8 @@
   import { scene3dManifests } from "./model3d/store";
   import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
   import { partBreadcrumb } from "./plot/partStyle";
-  import { fluxFigMenuOpen } from "./settings";
+  import { fluxFigMenuOpen, settings } from "./settings";
+  import { formatSizePx } from "./figure/physicalUnits";
   import { nameForHex } from "./colors";
   import { gradientCss, gradientLabel } from "./color/gradient";
   import type { GradientFill } from "./types";
@@ -105,7 +106,8 @@
   // For a CROPPED element (P5) the reference is the crop WINDOW's intrinsic
   // dims (crop px are assetDisplaySize units, i.e. already physical): "true
   // size" means the visible window renders 1:1, not the full content.
-  const mmStr = (px: number) => ((px / 96) * MM_PER_INCH).toFixed(1);
+  // Physical readouts in the user's unit (Settings → Figure: inches by default — matplotlib's figsize).
+  $: size = (w: number, h: number) => formatSizePx(w, h, $settings.physicalUnit);
   $: physSize = single && single.type !== "model3d" && "assetId" in single ? ops.assetDisplaySize($project, single.assetId) : null;
 
   // Dissect: the selected asset's companion-folder count (plots/_dissections/<key>).
@@ -627,16 +629,16 @@
           <!-- Physical units stay hidden in slide mode: a slide shares the 96/in
                ruler but has no FIXED physical size (it projects at any scale). -->
           <p class="note phys">
-            {mmStr(single.width)} × {mmStr(single.height)} mm
+            {size(single.width, single.height)}
             {#if physRef && !atPhys}
               <span class="off-phys">· {Math.round((single.width / physRef.width) * 100)}% of true size</span>
-              <button class="true-size" title="Reset to the {elCrop ? 'crop window' : 'source'}'s true physical size ({mmStr(physRef.width)} × {mmStr(physRef.height)} mm)" on:click={resetToPhysical}>True size</button>
+              <button class="true-size" title="Reset to the {elCrop ? 'crop window' : 'source'}'s true physical size ({size(physRef.width, physRef.height)})" on:click={resetToPhysical}>True size</button>
             {/if}
           </p>
         {/if}
         {#if elCrop && physSize}
           <p class="note phys">
-            {#if slideMode}cropped{:else}cropped from {mmStr(physSize.width)} × {mmStr(physSize.height)} mm{/if}
+            {#if slideMode}cropped{:else}cropped from {size(physSize.width, physSize.height)}{/if}
             <button class="true-size" title="Remove the crop — show the full content at its current scale" on:click={resetCrop}>Reset crop</button>
           </p>
         {/if}
@@ -1076,7 +1078,7 @@
           on:commit={(e) => updateFigure((f) => (f.height = e.detail))}
           on:scrub={(e) => scrubFigure((f) => (f.height = e.detail))} />
       </div>
-      <p class="note mono">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
+      <p class="note mono">= {size(fig.width, fig.height)}</p>
 
       <!-- Identity is family + number (figfamily.ts) — the name is derived, so
            the row opens the Figure-Meta Name tab instead of editing text. The nickname

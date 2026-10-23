@@ -19,7 +19,8 @@ survives.
   to Plots — see [The Plots rail](#the-plots-rail)). **Layers** lists Canvases (pages — add, rename, delete), Figures on the active canvas
   (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and
   **Layers** — the z-ordered element tree, with per-row show/hide, lock, drag-to-reorder, and
-  collapsible groups. Drag its right edge to resize it; **Ctrl+B** hides it (bold still wins
+  collapsible groups. Drag its right edge to resize it — as wide as you like, the canvas always
+  keeps a strip beside the right rail — and double-click the edge to reset; **Ctrl+B** hides it (bold still wins
   when a text element is selected).
 - **Clicking a figure's name takes you to it** — the view centres on that figure at whatever
   zoom you are already working at, so a big canvas stays navigable without hunting. Your zoom
@@ -90,7 +91,9 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
 **gallery** on top, and below it the **dissections** of whichever plot you last clicked.
 
 - **Alt+G** shows it and puts the cursor in its search box — it also opens a hidden sidebar.
-  Press **Alt+G** again while you are in it to go back to **Layers**. The two views keep
+  Press **Alt+G** again while you are in it to go back to **Layers**; **Shift+Alt+G** opens
+  the full gallery in its own window, from anywhere. Slide mode has the same rail beside its
+  slide list ([Slide: the Plots rail](slide.qmd#the-plots-rail)). The two views keep
   their own widths (drag the sidebar's edge), and the canvas stays where it is when you switch.
 - **Folders are headings**, not places you go into: every folder of `plots/` is a section
   you scroll through. Click a heading's arrow to fold it (deeper folders start folded);
@@ -102,12 +105,40 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   chosen so **all of it shows**: dark ink on paper, white ink (a plot made for a dark slide)
   on dark, both on grey, and a plot's own paper colour when it declares one. The **⋯** menu
   can set the background yourself (paper, dark, a checkerboard, or the figure's own), sort
-  **Recent first** (newest-changed plots on top), change the tile size (or **Ctrl+wheel**),
-  and hide names.
+  **Recent first** (newest-changed plots on top), and hide names. **Tiles → Gallery** and
+  **Tiles → Dissections** size each part separately (or **Ctrl+wheel** over it; **Reset
+  sizes** goes back to 112 and 84 px).
 - Small marks on a tile: **●** the plot is placed in the active figure (dimmer: placed
   elsewhere in the project, with a count); **⧉ 12** it has 12 dissection files (click it to
   show them); **◆** an editable fluxplot. A dashed outline marks the plot selected on the
-  canvas, and the rail scrolls to it (switch that off in **⋯**).
+  canvas, and the rail scrolls to it (switch that off in **⋯**). An accent **dot** marks a
+  plot that is new or was regenerated since the rail last listed it — handy after a re-run
+  of your analysis; clicking the plot clears it, and **⋯ → Clear the new-file dots** clears
+  them all. **⋯ → Width class badge** adds the journal width each plot will print at:
+  **1c** (one column, up to about 90 mm), **1.5c**, **2c** (full page, about 180 mm).
+- **Rest the pointer on a plot** for a moment to **peek** at it: a larger picture beside the
+  rail with its full name and folder, its printed size (in inches, as for matplotlib's
+  `figsize`; **Settings → Figure → Physical sizes** switches Peek and the Inspector to
+  millimetres) and width class, when it changed,
+  where it is placed, its dissection folders, and why its tile has the background it has.
+  If the plot's ink would read poorly on the active figure's background, Peek says so.
+  **Shift+Space** peeks at the selected tile from the keyboard (and closes it again). Peek
+  never takes clicks and vanishes when the pointer leaves the rail; **⋯ → Peek on hover**
+  turns the hover off.
+- **Narrow the gallery** from **⋯ → Show only**: **Unused** (in no figure yet — slides are not counted),
+  **Fluxplots** (editable ones), **Has dissections**. Active filters show as chips under the
+  search box; click one to remove it. Right-click a plot (or a folder heading) for **Show
+  only this folder**, and **Backspace** in an empty search climbs back out one folder at a
+  time. **Similar names** lists a plot's variants across all folders (`_v2`, `_s07`, …), even
+  from inside a folder shown alone; **Escape** returns to where you were.
+- **⋯ → Stack variants** folds runs of variants in one folder — `fig1_a` … `fig1_f`,
+  `latency`, `latency_v2` … — into one tile showing the newest, with a **×6** badge.
+  **Enter**, a double-click or the badge opens the stack in place; the first variant's
+  **◂** badge folds it again. Dragging a stack places the variant it shows.
+- While you work, Flux prepares the previews of the plots you have not scrolled to yet, a
+  little at a time, so the next scroll or project open is instant. It pauses while you drag
+  on the canvas, leaves very large files (over 2 MB) until you scroll to them, and stops for
+  the session if a file crashes the preview renderer.
 - **Double-click** or **Enter** places the selected plots in the figure named at the top
   (**→ Fig 3** — click it to pick another figure). **Drag** a plot onto any figure to place
   it where you let go; over the canvas it shows at the size it will land. **Space** opens a
