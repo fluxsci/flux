@@ -399,9 +399,17 @@ try {
     for (const [slide, label] of [[0, "reorder + move"], [7, "4-word reversal"], [16, "stem edit"], [3, "text -> text Become"], [15, "Become reversal"]] as const) {
       const rest = await grab(slide, 0), first = await grab(slide, 0.05), near = await grab(slide, 999.95), end = await grab(slide, 1000);
       const d0 = diff(rest, first), d1 = diff(near, end);
-      h.ok(d0 < 2, `${label}: the first moving frame (0.05 ms of a linear move) is the rest render (Δ ${d0.toFixed(2)} stage px² < 2; base 15 to 130)`);
-      h.ok(d1 < 2, `${label}: the last frame (0.05 ms before the end) is the static render (Δ ${d1.toFixed(2)} stage px² < 2; base 10 to 90)`);
+      h.ok(d0 < 2, `${label}: the first moving frame (0.05 ms of a linear move) is the rest render (Δ ${d0.toFixed(2)} stage px² < 2; the base player measures 2.6 to 3.3 here)`);
+      h.ok(d1 < 2, `${label}: the last frame (0.05 ms before the end) is the static render (Δ ${d1.toFixed(2)} stage px² < 2; the base player measures 4.3 to 23 here)`);
     }
+    // the hand-over weights are a pure function of the frame: forward == reverse == shuffled seeks, on the windows where they are not 0 or 1
+    const weights = () => page.evaluate(() => { const m = document.querySelector<HTMLElement>(".sl-text-morph"); return m ? Array.from(m.parentElement!.children).map((n) => `${getComputedStyle(n).visibility}:${(n as HTMLElement).style.opacity}`).join("|") : ""; });
+    const atW = async (slide: number, t: number) => { await seek(slide, t); return weights(); };
+    const wt = [0.05, 3, 8, 30, 500, 960, 985, 995, 999.9], fw = [] as string[], rv = [] as string[], sh = [] as string[];
+    for (const t of wt) fw.push(await atW(16, t));
+    for (const t of [...wt].reverse()) rv.unshift(await atW(16, t));
+    for (const i of [4, 1, 8, 0, 6, 3, 7, 2, 5]) sh[i] = await atW(16, wt[i]);
+    h.ok(fw.every((v, i) => v === rv[i] && v === sh[i]) && new Set(fw).size >= 4, `hand-over weights: forward == reverse == shuffled seeks on the entry and landing windows (${new Set(fw).size} distinct states)`);
     await seek(0, 500); st = await state();
     h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden", "mid-flight the span layer alone shows (A and B hold no weight)");
     await seek(0, 0.2); st = await state();
