@@ -15,12 +15,15 @@
 // of exactly that substring, placed by its baseline start point. The tiny svg
 // carries its ENDPOINT's own view-box mapping (EndpointFrame) and the span layer
 // the endpoint's own residual scale, so a glyph is shaped and drawn exactly as the
-// endpoint's static render draws it, and spans PAINT IN PLACE: no compositor layer
-// (a layer bakes the sub-pixel phase of its first raster, so a layer's picture is
-// not the in-place picture the endpoints are: measured 15 to 130 stage px² of step
-// on the first and the last moving frame of a rewrite). The static render (A at the
-// start, B at the end) and the span layer are handed over to each other in
-// premultiplied space over the first and last HANDOVER_EPS stage px of change.
+// endpoint's static render draws it. A layer bakes the sub-pixel phase of its first
+// raster, so a promoted span's picture is NOT the in-place picture the endpoints are
+// (measured 15 to 130 stage px² of step on the first and the last moving frame of a
+// rewrite), and spans painted in place instead move in quarter-device-pixel hops (a
+// slow glide stair-steps). ONE law answers both: the static render (A at the start, B
+// at the end) and the span layer are handed over to each other in premultiplied space
+// over the first and last HANDOVER_EPS stage px of change, so the frames in between
+// ride compositor layers (smooth glides) and the phase of a layer's first raster never
+// shows at either end.
 //
 // Channels (docs/SLIDE_TRANSFORMS.md): glide POSITIONS and scale take the eased
 // progress unclamped (a spring overshoots the words like any box); opacity and
@@ -39,7 +42,7 @@ import { numericTextTween } from "../tween";
 import { planTextMorph, textMorphTimeline, windowProgress, fadeLook, rollLook, type TextMorphSpan, type TextMorphPlan, type TextRange } from "../textMatch";
 import { glideLanes, laneOffset, type GlideGeom, type LaneBounds } from "../lanes";
 import type { TextLook } from "../timing";
-import { fillContent, layoutBoxOf, type SlideRenderCtx } from "./render";
+import { fillContent, layoutBoxOf, promoteMovingWrapper, settleWrapper, type SlideRenderCtx } from "./render";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
@@ -186,7 +189,7 @@ function segmentCuts(layout: ReturnType<typeof blockLayout>): number[] {
   return cuts;
 }
 
-interface Clone { div: HTMLDivElement; text: SVGTextElement; fill?: (t: number) => string; ep: EndpointFrame }
+interface Clone { div: HTMLDivElement; text: SVGTextElement; fill?: (t: number) => string; ep: EndpointFrame; side: "a" | "b" }
 interface SpanNode {
   span: TextMorphSpan;
   /** Box-relative baseline start points (stage px). */
@@ -238,6 +241,9 @@ export interface TextMorphOptions {
   /** The host's wrapper rests under the residual transform (the resting law; default). False: a bare layout box (a same-beat appearance
    *  owns the wrapper transform). */
   residual?: boolean;
+  /** Spans ride compositor layers while they fly (default). False when an ancestor already carries the flight on its own layer (a text
+   *  box that travels): its spans are painted into that layer, and a layer per span would only re-promote what already moves with it. */
+  promote?: boolean;
 }
 
 /** Plan and build lazily: nothing is measured until the warm hook or the first
@@ -272,7 +278,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
     t.textContent = text;
     svg.appendChild(t);
     div.appendChild(svg);
-    return { div, text: t, ep };
+    return { div, text: t, ep, side };
   }
 
   function build(): boolean | "later" {
@@ -358,12 +364,11 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
       // pull, so a stem edit never shows a shrinking letter beside a rolling word. Their glide's position is added in frame().
       for (const n of built) if (n.ride && n.span.kind !== "glide") n.pull = { x: 0, y: 0 };
     }
-    // Paint order: exits under glides under enters. Arm every node at REST, before
-    // its first promotion (render.ts: a mark attached in the promoting frame is inert).
+    // Paint order: A's layer (exits, the glides' own text) under B's (enters, the twins); within a layer exits under glides.
     const order = { exit: 0, glide: 1, enter: 2 } as const;
     for (const side of [sides.a, sides.b]) if (side.layer.parentElement !== layer) layer.appendChild(side.layer);
     for (const node of built.slice().sort((x, y) => order[x.span.kind] - order[y.span.kind])) {
-      for (const c of [node.main, node.twin]) if (c) { sides[c.ep === epA ? "a" : "b"].layer.appendChild(c.div); }
+      for (const c of [node.main, node.twin]) if (c) { sides[c.side].layer.appendChild(c.div); }
     }
     nodes = built;
     // A web font still loading measured with fallback metrics: rebuild once it lands.
@@ -391,6 +396,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
     if (s.opacity !== o) s.opacity = o;
     const vis = opacity > 0 ? "visible" : "hidden";
     if (s.visibility !== vis) s.visibility = vis;
+    if (opts.promote !== false && opacity > 0) promoteMovingWrapper(c.div); else settleWrapper(c.div);
   };
   const n6 = (v: number) => Math.round(v * 1e6) / 1e6;
   /** Where a span sits: `X`, `Y` are stage px from the box origin; the layer's local px are `rest` times them (see EndpointFrame). */
@@ -417,12 +423,16 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
         // how far this glide is from where A draws it and from where B does (position, and size when the look changes)
         away = Math.max(away, Math.hypot(x - origin.x - a.x, y - origin.y - a.y), Math.abs(lerp(1, k, u) - 1) * a.size);
         settle = Math.max(settle, Math.hypot(x - origin.x - b.x, y - origin.y - b.y), Math.abs(lerp(1, k, u) - k) * b.size);
+        // a glide whose own LOOK changes in place (a count's digits, a colour lerp, a twin's cross-fade) is as far from A and from B as its
+        // look has travelled, in the same units (font size x progress): without it the spans stay at weight 0 under the static render while
+        // they count and recolour unseen, and take over in one frame
+        const looks = node.twin ? windowProgress(TWIN_FADE, t) : node.count || node.main.fill ? t : -1;
+        if (looks >= 0) { away = Math.max(away, looks * a.size); settle = Math.max(settle, (1 - looks) * b.size); }
         if (!node.twin) {
           const s = Math.max(0.01, lerp(1, k, u));
           set(node.main, `${at(node.main, x, y)}${s !== 1 ? ` scale(${n6(s)})` : ""}`, 1, "0 0");
           if (node.main.fill) { const f = node.main.fill(t); if (node.main.text.getAttribute("fill") !== f) node.main.text.setAttribute("fill", f); }
           if (node.count) { const text = node.count(t); if (node.main.text.textContent !== text) node.main.text.textContent = text; }
-          
         } else {
           // Both clones share ONE advance width and height at every moment (a bold
           // run is wider than its regular self): each is stretched a few percent
@@ -430,10 +440,11 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
           const w = windowProgress(TWIN_FADE, t), width = Math.max(1e-3, lerp(a.width, b.width, u));
           const ya = Math.max(0.01, lerp(1, k, u)), yb = Math.max(0.01, lerp(1 / k, 1, u));
           const scaled = (sx: number, sy: number) => sx === 1 && sy === 1 ? "" : ` scale(${n6(sx)}, ${n6(sy)})`;
+          // the stretch is distance too: the run's far end is `width - a.width` from where A draws it and `width - b.width` from where B does
+          away = Math.max(away, Math.abs(width - a.width)); settle = Math.max(settle, Math.abs(width - b.width));
           set(node.main, `${at(node.main, x, y)}${scaled(width / a.width, ya)}`, 1 - w, "0 0");
           set(node.twin, `${at(node.twin, x, y)}${scaled(width / b.width, yb)}`, w, "0 0");
           for (const c of [node.main, node.twin]) if (c.fill) { const f = c.fill(t); if (c.text.getAttribute("fill") !== f) c.text.setAttribute("fill", f); }
-          
         }
       } else {
         const p = node.a ?? node.b!;
@@ -459,7 +470,6 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
         if (span.kind === "exit") { away = Math.max(away, (1 - fade.opacity) * p.size + shift); settle = Math.max(settle, fade.opacity * p.size); }
         else { away = Math.max(away, fade.opacity * p.size); settle = Math.max(settle, (1 - fade.opacity) * p.size + shift); }
         set(node.main, `${at(node.main, x, y)}${fade.scale !== 1 ? ` scale(${n6(fade.scale)})` : ""}`, fade.opacity, `${n6(node.centre.x / ep.restX)}px ${n6(node.centre.y / ep.restY)}px`);
-        
       }
     }
     void raw;
@@ -470,7 +480,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
 
   function hide(): void {
     if (!nodes) return;
-    for (const node of nodes) for (const c of [node.main, node.twin]) if (c && c.div.style.visibility !== "hidden") c.div.style.visibility = "hidden";
+    for (const node of nodes) for (const c of [node.main, node.twin]) if (c) { settleWrapper(c.div); if (c.div.style.visibility !== "hidden") c.div.style.visibility = "hidden"; }
   }
 
   function teardown(): void {

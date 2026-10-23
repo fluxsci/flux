@@ -446,7 +446,7 @@ export function createTransform(
     fillContent(B, layoutForMorph(end as TextElement), ctx);
     contentHost.append(A, M, B);
     const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
-    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600, textLook: ctx.textLook, stage: ctx.stage, residual: !boxOpts.skipTransform }),
+    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600, textLook: ctx.textLook, stage: ctx.stage, residual: !boxOpts.skipTransform, promote: !displaced }),
       preBox: { w: Math.max(pb.w, 1), h: Math.max(pb.h, 1) }, endBox: { w: Math.max(eb.w, 1), h: Math.max(eb.h, 1) } };
   }
   function writeTextMorph(el: FigElement, u: number, raw: number): void {
@@ -573,7 +573,9 @@ export function createTransform(
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw);
     const contentX = content.x, contentY = content.y;
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
-    // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched)
+    // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched).
+    // Two limits, both deliberate: the separation is measured from the source's BIRTH pose (a source that moves in the same beat keeps the overlap
+    // longer: no gate pins that case), and a same-beat appearance that owns the wrapper's opacity (`skipOpacity`) takes the law's share with it.
     // never 0: an opacity-0 node is culled and first rasterises in flight, at a fractional offset it then keeps (render.ts primeFlightLayers)
     const share = emerge ? Math.max(0.001, emerge(el, u)) : 1;
     const wrapEl = share >= 1 ? el : { ...el, opacity: (el.opacity ?? 1) * share } as FigElement;

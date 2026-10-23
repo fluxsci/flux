@@ -104,6 +104,14 @@ try {
   const s18 = add("handoff-legacy"); addElement(deck, s18.id, text("a", 100, 100, "one two three four five six", { align: "justify", sizing: "fixed", width: 200, height: 80, lines: ["one two three", "four five six"] }));
   addElement(deck, s18.id, text("b", 400, 300, "seven eight nine ten", { sizing: "fixed", width: 260, height: 40 }));
   change(s18, "a", {}).to!.become = { mode: "handoff", ref: { element: "b" } };
+  // 19 / 20 / 21 — glides whose own LOOK changes in place: a count, a colour lerp, a weight cross-fade. They do not move, so the hand-over's
+  // position terms read 0 for the whole flight; the look terms (textMorph frame()) must hand the picture to the span layer as they change.
+  const s19 = add("count"); addElement(deck, s19.id, text("t", 100, 200, "Flux 42", { fontSize: 56, width: 700, height: 70 }));
+  change(s19, "t", { text: "Flux 4.2 rewritten" });
+  const s20 = add("recolor"); addElement(deck, s20.id, text("t", 100, 200, "Hello world", { fontSize: 56, width: 700, height: 70 }));
+  change(s20, "t", { text: "Hello world today", color: "#d14d41" });
+  const s21 = add("weight"); addElement(deck, s21.id, text("t", 100, 200, "Hello world", { fontSize: 56, width: 700, height: 70 }));
+  change(s21, "t", { text: "Hello world today", fontWeight: 700 });
   // The real bake (payload.ts) through the shared resolver, as export-deck does.
   const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p) };
   const baked = (await gatherPayload(tmp, deck, { ...io, glyphFont: async (style) => (await lookupFont(style)).bytes })).payload;
@@ -179,9 +187,10 @@ try {
   await seek(0, 500); st = await state();
   const glides = st.spans.filter((s) => s.kind === "glide");
   h.eq(new Set(glides.map((s) => s.text!.toLowerCase())).size, 3, "mid-flight: all three words glide (a reorder by content)");
-  // F2: spans paint IN PLACE. A layer bakes the sub-pixel phase of its first raster, so its picture is not the in-place picture the two endpoints
-  // are (a step on the first and the last moving frame, measured 10 to 90 stage px² on a line of text in both headless and the GPU compositor).
-  h.ok(glides.filter((s) => !s.promoted && s.role === "main").length === 3 && st.spans.every((s) => !s.promoted), "mid-flight: the three gliding spans paint in place (no compositor layer)");
+  // R2 F2 round 2: the spans ride compositor layers in the middle of the move (a slow glide is smooth; painted in place it stair-steps in
+  // quarter-device-pixel hops), and the hand-over hides the phase of a layer's first raster at both ends (pinned in pixels below)
+  // a rewrite whose BOX travels rides the wrapper's layer, so its spans are painted into that one (a layer per span would re-promote what already moves with it)
+  h.ok(st.spans.every((s) => !s.promoted) && await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>("[data-el-id]")).some((w) => w.style.willChange === "transform")), "mid-flight: a rewrite that moves its box paints its spans into the box's one promoted layer");
   h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden" && st.morphVisible === "visible", "mid-flight: A and B are hidden, the span layer shows");
   const mono = (v: number[]) => v.every((x, i) => !i || x > v[i - 1]) || v.every((x, i) => !i || x < v[i - 1]);
   h.ok(Object.keys(xs).length === 3 && Object.values(xs).every(mono), `glide translates move monotonically (${Object.entries(xs).map(([k, v]) => `${k}:${v.map((x) => x.toFixed(1)).join(">")}`).join(" ")})`);
@@ -213,7 +222,7 @@ try {
   // --- 2: a font-size change ---------------------------------------------------------
   await seek(2, 500); st = await state();
   const grow = st.spans.find((s) => s.kind === "glide" && s.text === "Grow");
-  h.ok(!!grow && grow.m.sx > 1.2 && grow.m.sx < 1.3 && !grow.promoted, `size change: the glide scales mid-flight (×${grow?.m.sx.toFixed(3)}), painted in place`);
+  h.ok(!!grow && grow.m.sx > 1.2 && grow.m.sx < 1.3 && grow.promoted, `size change: the glide scales mid-flight (×${grow?.m.sx.toFixed(3)}) on its own layer`);
   await seek(2, 1000); st = await state();
   h.ok(st.spans.every((s) => !s.promoted && !s.visible), "size change: demoted and hidden at rest");
 
@@ -413,7 +422,25 @@ try {
     await seek(0, 500); st = await state();
     h.ok(st.layers[0] === "hidden" && st.layers[2] === "hidden", "mid-flight the span layer alone shows (A and B hold no weight)");
     await seek(0, 0.2); st = await state();
-    h.ok(st.layers[0] === "visible" && st.morphVisible === "visible" && st.spans.every((s) => !s.promoted), "a fraction of a ms in, A still shows and the span layer is added over it with its own weight (no span is promoted)");
+    h.ok(st.layers[0] === "visible" && st.morphVisible === "visible", "a fraction of a ms in, A still shows and the span layer is added over it with its own weight");
+    // a rewrite whose box stays put (a stem edit) glides on compositor layers: a slow glide painted in place moves in quarter-device-pixel hops
+    await seek(16, 500); st = await state();
+    h.ok(st.spans.some((s) => s.kind === "glide" && s.visible) && st.spans.filter((s) => s.visible).every((s) => s.promoted), "stem edit mid-flight: every visible span rides its own layer (a slow glide is smooth, not quarter-pixel hops)");
+    await seek(16, 1000); st = await state();
+    h.ok(st.spans.every((s) => !s.promoted && !s.visible), "stem edit at the end: every span is demoted and hidden");
+
+    // A glide that changes only its LOOK (a count's digits, a colour lerp, a weight cross-fade) is not away from A by distance; without the look terms
+    // the span layer held weight 0 under the frozen static render while the count counted and the colour lerped unseen, then took over in one frame
+    // (R2 F2 review: "Flux 42" frozen for 450 ms, then 13 digits in one frame; the red of "Hello world" 16 16 16 16 16 76). The picture must move
+    // from the first frames and the span layer must own it by a fifth of the way: weight of the span layer > 0 from 100 ms, and the picture differs
+    // from the rest render in pixels by 300 ms.
+    const share = () => page.evaluate(() => { const m = document.querySelector<HTMLElement>(".sl-text-morph"); return m ? Number(m.style.opacity === "" ? 1 : m.style.opacity) : -1; });
+    for (const [slide, label] of [[19, "count"], [20, "colour"], [21, "weight cross-fade"]] as const) {
+      await seek(slide, 100); const early = await share(); await seek(slide, 200); const later = await share();
+      h.ok(early > 0 && later >= early && later > 0.9, `${label}: the span layer owns the picture from 100 ms (weight ${early.toFixed(3)} at 100 ms, ${later.toFixed(3)} at 200 ms of 1000)`);
+      const rest = await grab(slide, 0), mid = await grab(slide, 300), end = await grab(slide, 1000);
+      h.ok(diff(rest, mid) > 6 && diff(mid, end) > 6, `${label}: the picture at 300 ms differs from the rest render and from the end render (it is moving)`);
+    }
   }
 
   {

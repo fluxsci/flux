@@ -129,13 +129,16 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     textLayer.dataset.handoff = id;
     textLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:visible;visibility:hidden;";
     for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) textLayer.style.setProperty(k, v);
+    const fill = (d: HTMLElement, el: TextElement) => {
+      const laid = layoutForMorph(el);
+      d.replaceChildren(); fillContent(d, laid, opts.text!.render); applyWrapperBox(d, { ...laid, rotation: 0 } as TextElement);
+    };
     const copy = (el: TextElement): HTMLElement => {
       const d = document.createElement("div");
       // hidden until the text morph owns the flight (the box crossfade draws the texts when it cannot be mapped)
       d.style.cssText = "position:absolute;box-sizing:border-box;visibility:hidden;";
       for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) d.style.setProperty(k, v);
-      const laid = layoutForMorph(el);
-      fillContent(d, laid, opts.text!.render); applyWrapperBox(d, { ...laid, rotation: 0 } as TextElement);
+      fill(d, el);
       return d;
     };
     const m = document.createElement("div");
@@ -144,6 +147,9 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     textStatic = { a: copy(opts.text.a), m, b: copy(opts.text.b) };
     textLayer.append(textStatic.a, m, textStatic.b);
     flight.parentNode?.insertBefore(textLayer, flight);
+    // a web font still loading wrapped the copies with fallback metrics (the span layer rebuilds itself the same way): lay them out again once it lands
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts, ends = opts.text;
+    if (fonts && fonts.status === "loading") void fonts.ready.then(() => { if (!disposed && textStatic) { fill(textStatic.a, ends.a); fill(textStatic.b, ends.b); } });
     textMorph = createTextMorph(opts.text.a, opts.text.b, { layer: m, ctx: opts.text.render, durationMs: opts.text.durationMs, textLook: opts.text.textLook, stage: opts.text.stage });
   }
   /** True while the text morph owns this flight (it never falls back mid-way:
