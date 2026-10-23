@@ -44,6 +44,7 @@ import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { createTextMorph, layoutForMorph, type TextMorph } from "./textMorph";
 import type { GlyphProvider } from "./glyphProvider";
+import type { TextLook } from "../timing";
 import { elementStageOutlines } from "../targetGeometry";
 import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type SampledPath } from "../correspondence";
 import { hasOutline } from "../outline";
@@ -68,6 +69,11 @@ export interface TransformCtx extends SlideRenderCtx {
   /** Letter outlines (player/glyphProvider.ts): a text ↔ drawn-shape retype
    *  pours the shape into the letters instead of crossfading. */
   glyphs?: GlyphProvider;
+  /** The track's authored text look (`resolveTextLook(track.params)`): leftover fade style and letter flights of a text
+   *  rewrite. Absent = today's drift / fade. Every host that plays tracks resolves it the same way (player.ts). */
+  textLook?: TextLook;
+  /** The stage size: text-morph glide lanes keep ink on stage. */
+  stage?: { width: number; height: number };
 }
 
 /** The wrapper's local CSS frame in stage px for a frame of state `el`: where its
@@ -386,7 +392,7 @@ export function createTransform(
     fillContent(B, layoutForMorph(end as TextElement), ctx);
     contentHost.append(A, M, B);
     const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
-    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600 }),
+    textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600, textLook: ctx.textLook, stage: ctx.stage }),
       preBox: { w: Math.max(pb.w, 1), h: Math.max(pb.h, 1) }, endBox: { w: Math.max(eb.w, 1), h: Math.max(eb.h, 1) } };
   }
   function writeTextMorph(el: FigElement, u: number, raw: number): void {

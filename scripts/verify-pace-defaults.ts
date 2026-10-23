@@ -136,6 +136,61 @@ ops.addElement(deck, s.id, { type: "ellipse", id: "e", x: 200, y: 50, width: 50,
 const bb = ops.addBeat(deck, s.id, {})!; ops.becomeTransform(deck, s.id, bb.id, "r", "e");
 const tr = deck.slides[0].beats.find(x => x.id === bb.id)!.tracks.find(t => t.preset === "transform")!;
 h.eq([tr.duration, tr.easing, tr.curve], [1200, "smooth", undefined], "Become authors 1200 ms on the plain smooth token");
+// ---- 4b. the text-rewrite look (WP 2.5, owner decision: letters travel by default for NEW text transforms) ------------
+h.section("authored text look (X1a rows)");
+{
+  const { TEXT_TRANSFORM_PARAMS, rewritesText } = await import("../src/lib/slide/presetCatalog");
+  const { resolveTextLook } = await import("../src/lib/slide/timing");
+  const LOOK = { fadeStyle: "roll", letters: "travel" };
+  h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringTextParams).map(([n, d]) => [n, d.authoringTextParams]), [["transform", LOOK]], "ONE text-look row: the transform preset { fadeStyle: roll, letters: travel }");
+  h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringParams).map(([n, d]) => [n, d.authoringParams]), [["fadeRise", { y: 24 }]], "...and the plain authoring rows are still only fadeRise { y: 24 }");
+  h.eq({ ...TEXT_TRANSFORM_PARAMS }, LOOK, "TEXT_TRANSFORM_PARAMS is the row");
+  h.eq([authoredFields("transform").params, authoredFields("transform", undefined, false).params], [undefined, undefined], "a transform that does not rewrite text authors no params");
+  h.eq(authoredFields("transform", undefined, true), { duration: 1200, easing: "smooth", params: LOOK }, "a text transform authors 1200 ms smooth + the look");
+  h.eq(authoredParams("transform", undefined, true), LOOK, "authoredParams(transform, rewrites) is the look");
+  h.eq(["fade", "fadeRise", "popIn", "drawOn", "camera", "countUp", "stagger"].map(p => authoredFields(p, undefined, true).params?.fadeStyle), Array(7).fill(undefined), "no other preset ever carries the text look, rewrites flag or not");
+  h.eq(authoredFields("fadeRise", undefined, true).params, { y: 24 }, "the flag does not disturb fadeRise's own row");
+  { const a = authoredFields("transform", undefined, true); a.params!.letters = "x"; h.eq(authoredFields("transform", undefined, true).params, LOOK, "a fresh params object per call (the frozen row is never handed out)"); }
+  h.eq([rewritesText({ type: "text" }), rewritesText({ type: "text" }, { type: "text" }), rewritesText({ type: "text" }, { type: "rect" }), rewritesText({ type: "rect" }), rewritesText({ type: "rect" }, { type: "text" }), rewritesText(undefined), rewritesText({ type: "text" }, { type: "set" })],
+    [true, true, false, false, false, false, false], "rewritesText: text -> text (or a Change of text); never a shape, a missing target, or a set");
+  // headless set-animation (withAuthoringTiming): the caller says whether the target is text
+  h.eq(withAuthoringTiming({ preset: "transform" } as any, true), { preset: "transform", duration: 1200, easing: "smooth", params: LOOK }, "set-animation of a text transform fills the look");
+  h.eq(withAuthoringTiming({ preset: "transform" } as any), { preset: "transform", duration: 1200, easing: "smooth" }, "...and not for any other target");
+  h.eq(withAuthoringTiming({ preset: "transform", params: { letters: "fade" } } as any, true).params, { fadeStyle: "roll", letters: "fade" }, "a supplied look key wins, key by key");
+  h.eq(withAuthoringTiming({ preset: "transform", params: {} } as any, true).params, LOOK, "an empty params object is filled (only a style-linked track is exempt)");
+  h.eq(withAuthoringTiming({ target: "t", preset: "transform", styleId: "calm" } as any, true), { target: "t", preset: "transform", styleId: "calm" }, "a style-linked text transform is returned unchanged (the style supplies the look)");
+  h.eq(withAuthoringTiming({ preset: "fade" } as any, true), { preset: "fade", duration: 700, curve: QUICK_SMOOTH }, "the flag is inert on a fade");
+  // ---- the writers (ops): every place a text transform is born -----------------------------------------------
+  const d = ops.createDeck({ id: "dt", title: "dt", withTitleSlide: false } as any), sl = ops.addSlide(d, { id: "st", layout: "blank" } as any);
+  const text = (id: string, t: string) => ({ type: "text", id, x: 10, y: 10, width: 200, height: 40, rotation: 0, text: t, fontSize: 24, fontFamily: "Inter", fontWeight: 400, fill: "#000", align: "left" }) as any;
+  ops.addElement(d, sl.id, text("t1", "alpha beta")); ops.addElement(d, sl.id, text("t2", "beta alpha"));
+  ops.addElement(d, sl.id, { type: "rect", id: "box", x: 0, y: 100, width: 50, height: 50, rotation: 0, fill: "#f00", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as any);
+  const beat = () => ops.addBeat(d, sl.id, {})!;
+  const track = (b: { id: string }, pred: (t: any) => boolean = () => true) => d.slides[0].beats.find(x => x.id === b.id)!.tracks.find(t => t.preset === "transform" && pred(t))!;
+  { const b = beat(); ops.setTransform(d, sl.id, b.id, "t1", { state: { text: "beta alpha" } });
+    h.eq([track(b).params, track(b).duration, track(b).easing], [LOOK, 1200, "smooth"], "a Change on text (setTransform) is born with the look");
+    ops.setTransform(d, sl.id, b.id, "t1", { state: { fill: "#00f" } });
+    h.eq(track(b).params, LOOK, "a later edit of the same Change keeps its params");
+    track(b).params = { fadeStyle: "drift" }; ops.setTransform(d, sl.id, b.id, "t1", { state: { fill: "#0f0" } }); h.eq(track(b).params, { fadeStyle: "drift" }, "...and never rewrites a track the author already set"); }
+  { const b = beat(); ops.setTransform(d, sl.id, b.id, "box", { state: { x: 40 } }); h.eq(track(b).params, undefined, "a Change on a rect has no params"); }
+  { const b = beat(); ops.setTransform(d, sl.id, b.id, "t1", { ref: { parts: ["p1"] }, state: { opacity: 1 } }); h.eq(track(b).params, undefined, "a part-bound Change has no params (text has no parts)"); }
+  { const b = beat(); ops.becomeTransform(d, sl.id, b.id, "t1", "t2", { mode: "handoff" });
+    h.eq([track(b).params, track(b).to.become.mode], [LOOK, "handoff"], "a text -> text hand-off Become is born with the look"); }
+  { const b = beat(); ops.becomeTransform(d, sl.id, b.id, "t2", "box", { mode: "handoff" }); h.eq(track(b).params, undefined, "a text -> rect Become is not a text rewrite: no params"); }
+  { const b = beat(); ops.becomeTransform(d, sl.id, b.id, "box", "t1", { mode: "handoff" }); h.eq(track(b).params, undefined, "a rect -> text Become: no params"); }
+  { const d2 = ops.createDeck({ id: "dc", title: "dc", withTitleSlide: false } as any), s2 = ops.addSlide(d2, { id: "sc", layout: "blank" } as any);
+    ops.addElement(d2, s2.id, text("a", "one two")); ops.addElement(d2, s2.id, text("b", "two one"));
+    const b = ops.addBeat(d2, s2.id, {})!; ops.becomeTransform(d2, s2.id, b.id, "a", "b", { mode: "consume" });
+    const t = d2.slides[0].beats.find(x => x.id === b.id)!.tracks.find(x => x.preset === "transform")!;
+    h.eq([t.params, t.to?.become?.mode], [LOOK, "consume"], "a text Consume Become is born with the look"); }
+  { const b = beat(); const g = ops.addGhostTransform(d, sl.id, b.id, "t1", { count: 2, original: "stay", states: [{ text: "x y" }, { text: "y x" }] })!;
+    const ts = d.slides[0].beats.find(x => x.id === b.id)!.tracks.filter(t => t.ghostFrom === "t1");
+    h.eq(ts.map(t => t.params), [LOOK, LOOK], "text ghost copies are born with the look"); h.eq(g.trackIds.length, 2, "(two ghosts)"); }
+  { const b = beat(); ops.addGhostTransform(d, sl.id, b.id, "box", { count: 1, original: "stay", states: [{ x: 90 }] });
+    h.eq(d.slides[0].beats.find(x => x.id === b.id)!.tracks.filter(t => t.ghostFrom === "box").map(t => t.params), [undefined], "a rect ghost has no params"); }
+  { const old = { id: "old", target: "t1", preset: "transform", duration: 1200, easing: "smooth", to: { state: { text: "x" } } } as any;
+    h.eq(resolveTextLook(old.params), { letters: "fade", fadeStyle: "drift" }, "an OLD text transform (no params) plays the classic look: nothing is read from a profile"); }
+}
 // ---- 5. tokens / curves hygiene --------------------------------------------------------------------
 h.section("tokens");
 h.eq(EASE.smooth, smoothEasing(64), "EASE.smooth is the exact quintic string (was a bezier look-alike)");
@@ -238,4 +293,32 @@ const frames = (n: number, ms = 16.7) => { for (let i = 0; i < n; i++) stepMs(ms
   h.ok(/function cancelClock\(\)[^]*?clockMode = "forward"/.test(src), "cancelClock resets the mode to forward");
   h.ok(/if \(clockMode === "forward" && remaining >= SETTLE_MIN_REMAINING_MS\)/.test(src), "the settle branch of nextCue is guarded by clockMode === \"forward\""); }
 // "Next during a rewind replays the undone beat and never settles" (X14) needs WP 4.1's "rewinding" mode: it lands with that WP.
+// ---- 4c. headless set-animation through flux-core (CLI + MCP share it): a text transform is authored with the look --------
+h.section("headless set-animation (flux-core)");
+{
+  const fsp = await import("node:fs/promises"), os = await import("node:os"), path = await import("node:path");
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "flux-textlook-"));
+  try {
+    await core.scaffold(root, { title: "Text look" });
+    const { deckId } = await core.createDeck(root, { id: "talk", title: "Talk" });
+    const { slideId } = await core.addSlide(root, deckId, { name: "S", layout: "full-bleed" });
+    const { elementId: t1 } = await core.addTextToSlide(root, deckId, slideId, { text: "alpha beta", x: 90, y: 150, width: 400, height: 60, fontSize: 24 });
+    const { elementId: t2 } = await core.addTextToSlide(root, deckId, slideId, { text: "beta alpha", x: 90, y: 250, width: 400, height: 60, fontSize: 24 });
+    const { beatId } = await core.addBeat(root, deckId, slideId, { label: "go" });
+    const LOOK = { fadeStyle: "roll", letters: "travel" };
+    const text = await core.setAnimation(root, deckId, slideId, beatId, { target: t1, preset: "transform", to: { state: { text: "beta alpha" } } } as any);
+    h.eq(text.params, LOOK, "set-animation: a text transform gets the look");
+    const stored = (await core.loadDeck(root, deckId)).slides.find(s => s.id === slideId)!.beats.find(b => b.id === beatId)!.tracks.find(t => t.target === t1)!;
+    h.eq([stored.params, stored.duration, stored.easing], [LOOK, 1200, "smooth"], "...and the stored track carries it with the authored pace");
+    const { beatId: b2 } = await core.addBeat(root, deckId, slideId, { label: "go2" });
+    const hand = await core.setAnimation(root, deckId, slideId, b2, { target: t2, preset: "transform", to: { state: {}, become: { ref: { element: t1 }, mode: "handoff" } } } as any);
+    h.eq(hand.params, LOOK, "set-animation: a text -> text hand-off gets the look");
+    const { beatId: b3 } = await core.addBeat(root, deckId, slideId, { label: "go3" });
+    const own = await core.setAnimation(root, deckId, slideId, b3, { target: t1, preset: "transform", params: { letters: "fade" }, to: { state: { text: "x" } } } as any);
+    h.eq(own.params, { fadeStyle: "roll", letters: "fade" }, "set-animation: a supplied key wins");
+    const { beatId: b4 } = await core.addBeat(root, deckId, slideId, { label: "go4" });
+    const move = await core.setAnimation(root, deckId, slideId, b4, { target: t1, preset: "fade" } as any);
+    h.eq(move.params, undefined, "set-animation: a fade carries no look");
+  } finally { await fsp.rm(root, { recursive: true, force: true }); }
+}
 await h.done();

@@ -7,7 +7,7 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
-import { beatDelayMs, settleTime, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
+import { beatDelayMs, settleTime, resolveTextLook, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
@@ -264,7 +264,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const textA = !hasPartBinding(track) && whole ? elementOf(track.target) : undefined, textB = whole ? elementOf(handoff.destination[0].elementId) : undefined;
           const upright = (el: typeof textA) => !!el && !el.rotation && !el.flipX && !el.flipY;
           const text = textA?.type === "text" && textB?.type === "text" && upright(textA) && upright(textB)
-            ? { a: textA, b: textB, render: { ...opts, ghostPartFactors: opts.ghostPartFactors } as SlideRenderCtx, durationMs: ct.duration } : undefined;
+            ? { a: textA, b: textB, render: { ...opts, ghostPartFactors: opts.ghostPartFactors } as SlideRenderCtx, durationMs: ct.duration, textLook: resolveTextLook(track.params), stage } : undefined;
           // One side a whole text, the other not: its letters fly as outlines.
           const letterTexts = text ? [] : [...handoff.source, ...handoff.destination].filter(t => t.partIds === null).map(t => elementOf(t.elementId)).filter((el): el is TextElement => el?.type === "text");
           const glyphs = letterTexts.length ? { ready: () => Promise.all(letterTexts.map(el => glyphProvider.ready(el))).then(() => {}), revision: () => glyphProvider.revision() } : undefined;
@@ -319,6 +319,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors, durationMs: ct.duration, glyphs: glyphProvider,
+          textLook: resolveTextLook(track.params), stage,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         // A text ↔ shape retype flies letter outlines: play waits for their fonts.

@@ -34,6 +34,8 @@
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import CurveField, { type CurveEdit } from "./CurveField.svelte";
   import { resolveCurve } from "../../../../lib/slide/curves";
+  import { rewritesText } from "../../../../lib/slide/presetCatalog";
+  import { resolveTextLook } from "../../../../lib/slide/timing";
   import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
@@ -483,6 +485,22 @@
       t.params = Object.keys(p).length || t.styleId ? p : undefined;
     });
   }
+  // --- text rewrite look (WP 2.5): leftover fade style + anagram letter flights ----------------------
+  /** The authored look of a text transform (a Change of text, or a Become of one text into another), else null. */
+  const textLook = $derived.by(() => {
+    if (!curTrack || curFamily !== "transform" || curTrack.part || curTrack.parts || curTrack.selector) return null;
+    const dest = handoff ? (isWholeElementRef(handoff.ref) ? transformPreState(slide, handoff.ref.element, curBeatIndex) ?? { type: "missing" } : { type: "set" }) : undefined;
+    return rewritesText(curTargetEl ?? undefined, dest) ? resolveTextLook(curTrack.params) : null;
+  });
+  /** Write one text-look param; a value equal to the playback default (fade / drift) DELETES the key, as for the trim params. */
+  function setTextLook(key: "letters" | "fadeStyle", value: string) {
+    const DEF = { letters: "fade", fadeStyle: "drift" };
+    editFields((t, resolved) => {
+      const p = { ...(resolved.params ?? {}) } as Record<string, unknown>;
+      if (value === DEF[key]) delete p[key]; else p[key] = value;
+      t.params = Object.keys(p).length || t.styleId ? p : undefined;
+    });
+  }
   // the anchor pad: named positions laid out spatially (rect/ellipse corners +
   // edges; paths get start/middle/end below)
   const PAD: (string | null)[] = ["corner-tl", "top", "corner-tr", "left", null, "right", "corner-bl", "bottom", "corner-br"];
@@ -654,6 +672,24 @@
         <svg class="arc-preview" aria-hidden="true" width="32" height="28" viewBox="0 0 32 28"><path d={`M2 14 Q16 ${14 + 14 * (curTrack.arc ?? 0)} 30 14`} fill="none" stroke="currentColor"/></svg>
       </label>
       {@render overrideRow("arc")}
+    {/if}
+
+    {#if textLook}
+      <div class="trim" aria-label="Text rewrite look">
+        <div class="f"><span class="fl" title="When an anagram's letters are a near-permutation of the old text's, each letter flies to its place instead of cross-fading">Letters</span>
+          <div class="seg" role="group" aria-label="Letters travel">
+            <button class="sg" class:on={textLook.letters === "travel"} aria-pressed={textLook.letters === "travel"} onclick={() => setTextLook("letters", "travel")}>Letters travel</button>
+            <button class="sg" class:on={textLook.letters === "fade"} aria-pressed={textLook.letters === "fade"} onclick={() => setTextLook("letters", "fade")}>Fade</button>
+          </div>
+        </div>
+        <div class="f"><span class="fl" title="How words that only exist on one side leave and arrive: Drift fades with a small nudge and scale; Roll lifts and rises by about a third of the text height">Fade style</span>
+          <div class="seg" role="group" aria-label="Text fade style">
+            <button class="sg" class:on={textLook.fadeStyle === "drift"} aria-pressed={textLook.fadeStyle === "drift"} onclick={() => setTextLook("fadeStyle", "drift")}>Drift</button>
+            <button class="sg" class:on={textLook.fadeStyle === "roll"} aria-pressed={textLook.fadeStyle === "roll"} onclick={() => setTextLook("fadeStyle", "roll")}>Roll</button>
+          </div>
+        </div>
+        {@render overrideRow("params")}
+      </div>
     {/if}
 
     {@render overrideRow("preset")}

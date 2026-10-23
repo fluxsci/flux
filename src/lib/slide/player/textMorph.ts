@@ -31,7 +31,9 @@ import { textSvgLayout, segmentAttrs } from "../../export";
 import { elementPaints } from "../../color/gradient";
 import { prepareColorLerp, parseColor } from "../../color/interp";
 import { numericTextTween } from "../tween";
-import { planTextMorph, textMorphTimeline, windowProgress, fadeLook, crossArc, TEXT_MORPH_CAPS, type TextMorphSpan, type TextMorphPlan, type TextRange } from "../textMatch";
+import { planTextMorph, textMorphTimeline, windowProgress, fadeLook, rollLook, TEXT_MORPH_CAPS, type TextMorphSpan, type TextMorphPlan, type TextRange } from "../textMatch";
+import { glideLanes, laneOffset, type GlideGeom, type LaneBounds } from "../lanes";
+import type { TextLook } from "../timing";
 import { fillContent, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx } from "./render";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -160,6 +162,11 @@ interface SpanNode {
   visible: boolean;
   /** The glide this fade rides with (same word). */
   ride?: SpanNode;
+  /** Glide geometry and its planned lane (stage px; `undefined` = today's crossArc, see lanes.ts). */
+  geom?: GlideGeom;
+  lane?: number;
+  /** Roll style: vector from this fade's centre to the centroid of the OTHER side's free-standing fades. */
+  pull?: { x: number; y: number };
 }
 
 export interface TextMorph {
@@ -182,12 +189,17 @@ export interface TextMorphOptions {
   layer: HTMLElement;
   ctx: SlideRenderCtx;
   durationMs: number;
+  /** The track's authored text look (`resolveTextLook(track.params)`); absent = today's drift / fade. */
+  textLook?: TextLook;
+  /** The stage size: glide lanes never push ink off it (a title on the top edge stays on stage). */
+  stage?: { width: number; height: number };
 }
 
 /** Plan and build lazily: nothing is measured until the warm hook or the first
  *  mid-flight seek asks for it. */
 export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphOptions): TextMorph {
   const { layer, ctx } = opts;
+  const look = opts.textLook ?? { letters: "fade", fadeStyle: "drift" } as const;
   let nodes: SpanNode[] | null = null, failed = false, plan: TextMorphPlan | null = null;
   let stale = false;
 
@@ -217,7 +229,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
     if (ma === "later" || mb === "later") return "later";
     if (!ma || !mb) return false;
     const la = blockLayout(A), lb = blockLayout(B);
-    plan = planTextMorph(A.text, B.text, { aLines: ma.lines, bLines: mb.lines, aCuts: segmentCuts(la), bCuts: segmentCuts(lb) });
+    plan = planTextMorph(A.text, B.text, { aLines: ma.lines, bLines: mb.lines, aCuts: segmentCuts(la), bCuts: segmentCuts(lb), letterBag: look.letters === "travel" });
     const exits = plan.spans.filter((s) => s.kind === "exit").length, enters = plan.spans.filter((s) => s.kind === "enter").length;
     const timeline = textMorphTimeline(exits, enters, opts.durationMs, plan.fadeUnit);
     const built: SpanNode[] = [];
@@ -272,6 +284,22 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
       }
     }
     plan.spans.forEach((sp, k) => { if (sp.with !== undefined) built[k].ride = built[sp.with]; });
+    // Glide lanes (lanes.ts): words whose classic paths would overprint each other take separate lanes; every glide,
+    // static ones included, is an obstacle. Planned HERE, in the build the idle warm-up runs, never inside a frame.
+    const glides = built.filter((n) => n.span.kind === "glide");
+    for (const n of glides) n.geom = { ax: n.a!.x, ay: n.a!.y, bx: n.b!.x, by: n.b!.y, w: (n.a!.width + n.b!.width) / 2, size: Math.max(n.a!.size, n.b!.size) };
+    const bounds: LaneBounds | undefined = opts.stage ? { x0: -Math.min(A.x, B.x), y0: -Math.min(A.y, B.y), x1: opts.stage.width - Math.max(A.x, B.x), y1: opts.stage.height - Math.max(A.y, B.y) } : undefined;
+    const lanes = glideLanes(glides.map((n) => n.geom!), bounds);
+    glides.forEach((n, i) => { n.lane = lanes[i]; });
+    // Roll fades: free-standing exits and enters (not the ones riding a glide) lean toward the other side's centroid.
+    if (look.fadeStyle === "roll") {
+      const ctr = (n: SpanNode) => { const p = n.a ?? n.b!; return { x: p.x + n.centre.x, y: p.y + n.centre.y }; };
+      const mean = (ns: SpanNode[]) => ns.length ? { x: ns.reduce((q, n) => q + ctr(n).x, 0) / ns.length, y: ns.reduce((q, n) => q + ctr(n).y, 0) / ns.length } : null;
+      const ex = built.filter((n) => n.span.kind === "exit" && !n.ride), en = built.filter((n) => n.span.kind === "enter" && !n.ride);
+      const cEx = mean(ex), cEn = mean(en);
+      for (const n of ex) n.pull = cEn ? { x: cEn.x - ctr(n).x, y: cEn.y - ctr(n).y } : { x: 0, y: 0 };
+      for (const n of en) n.pull = cEx ? { x: cEx.x - ctr(n).x, y: cEx.y - ctr(n).y } : { x: 0, y: 0 };
+    }
     // Paint order: exits under glides under enters. Arm every node at REST, before
     // its first promotion (render.ts: a mark attached in the promoting frame is inert).
     const order = { exit: 0, glide: 1, enter: 2 } as const;
@@ -319,7 +347,8 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
       const { span } = node;
       if (span.kind === "glide") {
         const a = node.a!, b = node.b!;
-        const x = n6(origin.x + lerp(a.x, b.x, u)), y = n6(origin.y + lerp(a.y, b.y, u) + crossArc(b.x - a.x, b.y - a.y, Math.max(a.size, b.size), t));
+        const bo = laneOffset(node.geom!, node.lane, t);
+        const x = n6(origin.x + lerp(a.x, b.x, u) + bo.dx), y = n6(origin.y + lerp(a.y, b.y, u) + bo.dy);
         const k = b.size / a.size;
         if (!node.twin) {
           const s = Math.max(0.01, lerp(1, k, u));
@@ -341,19 +370,23 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
         }
       } else {
         const p = node.a ?? node.b!;
-        const look = fadeLook(span.kind, windowProgress(node.window, t));
+        const wp = windowProgress(node.window, t);
+        const roll = node.pull ? rollLook(span.kind, wp, node.pull, p.size) : null;
+        const fade = roll ?? { ...fadeLook(span.kind, wp), dx: 0 };
         // Riding a glide: keep this letter's offset from the glide's start on
         // its own side, wherever the glide currently is (and at its scale).
         let px = p.x, py = p.y;
         if (node.ride) {
           const g = node.ride, ga = g.a!, gb = g.b!, own = span.kind === "exit" ? ga : gb;
-          const gx = lerp(ga.x, gb.x, u), gy = lerp(ga.y, gb.y, u) + crossArc(gb.x - ga.x, gb.y - ga.y, Math.max(ga.size, gb.size), t);
+          const go = laneOffset(g.geom!, g.lane, t);
+          const gx = lerp(ga.x, gb.x, u) + go.dx, gy = lerp(ga.y, gb.y, u) + go.dy;
           const k = Math.max(0.01, lerp(1, gb.size / ga.size, u)) * (span.kind === "exit" ? 1 : ga.size / gb.size);
           px = gx + (p.x - own.x) * k; py = gy + (p.y - own.y) * k;
         }
-        const x = n6(origin.x + px), y = n6(origin.y + py + look.dy * p.size);
-        set(node.main, `translate(${x}px, ${y}px)${look.scale !== 1 ? ` scale(${n6(look.scale)})` : ""}`, look.opacity, `${n6(node.centre.x)}px ${n6(node.centre.y)}px`);
-        place(node.main, look.opacity > 0);
+        // fadeLook's dy is in font sizes, rollLook's displacements are stage px.
+        const x = n6(origin.x + px + fade.dx), y = n6(origin.y + py + (roll ? roll.dy : fade.dy * p.size));
+        set(node.main, `translate(${x}px, ${y}px)${fade.scale !== 1 ? ` scale(${n6(fade.scale)})` : ""}`, fade.opacity, `${n6(node.centre.x)}px ${n6(node.centre.y)}px`);
+        place(node.main, fade.opacity > 0);
       }
     }
     void raw;

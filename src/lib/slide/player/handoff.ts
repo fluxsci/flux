@@ -10,6 +10,7 @@ import { pathD, pathRender } from "../../path";
 import { gradientDef, gradientId, gradientSvg } from "../../color/gradient";
 import { warmWhenIdle } from "./transform";
 import { createTextMorph, type TextMorph } from "./textMorph";
+import type { TextLook } from "../timing";
 import type { TextElement } from "../../types";
 import type { SlideRenderCtx } from "./render";
 import { pairJoin } from "../../strokeStyle";
@@ -71,7 +72,7 @@ export interface HandoffOptions {
   /** Two whole, unrotated text elements: the glyph-matched text morph flies
    *  their words on a stage-level HTML layer beside the flight SVG instead of
    *  the box crossfade (which stays the fallback when the texts cannot be mapped). */
-  text?: { a: TextElement; b: TextElement; render: SlideRenderCtx; durationMs: number };
+  text?: { a: TextElement; b: TextElement; render: SlideRenderCtx; durationMs: number; textLook?: TextLook; stage?: { width: number; height: number } };
   /** Insert this flight's layer before that one (a merge's last lander, whose
    *  destination leftovers must lie beneath every co-lander's pieces). */
   beneath?: Element | null;
@@ -125,7 +126,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     textLayer.dataset.handoff = id;
     textLayer.style.cssText = "position:absolute;inset:0;pointer-events:none;overflow:visible;visibility:hidden;";
     flight.parentNode?.insertBefore(textLayer, flight);
-    textMorph = createTextMorph(opts.text.a, opts.text.b, { layer: textLayer, ctx: opts.text.render, durationMs: opts.text.durationMs });
+    textMorph = createTextMorph(opts.text.a, opts.text.b, { layer: textLayer, ctx: opts.text.render, durationMs: opts.text.durationMs, textLook: opts.text.textLook, stage: opts.text.stage });
   }
   /** True while the text morph owns this flight (it never falls back mid-way:
    *  the box crossfade below takes over only if the texts cannot be mapped). */

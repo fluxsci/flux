@@ -36,8 +36,8 @@ import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
-import { normalizeRef, setLabel } from "../src/lib/slide/targets";
-import { withAuthoringTiming } from "../src/lib/slide/presetCatalog";
+import { normalizeRef, setLabel, isWholeElementRef } from "../src/lib/slide/targets";
+import { withAuthoringTiming, rewritesText } from "../src/lib/slide/presetCatalog";
 import { alignTrackEdges, alignTargetMs, inheritTrack, type AlignEdge } from "../src/lib/slide/alignTracks";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel, mutateFigModel } from "./model";
@@ -401,8 +401,14 @@ export async function setAnimation(
 ): Promise<Track> {
   let stored = track;
   await mutateDeck(root, deckId, "set_animation", (deck) => {
-    mustSlide(deck, slideId);
-    const authored = withAuthoringTiming(track);
+    const slide = mustSlide(deck, slideId);
+    // X1a: a new text transform is authored with the text look (the target types are only known here, not in the track).
+    const typeOf = (id: string | undefined) => slide.elements.find(e => e.id === id);
+    const become = track.to?.become;
+    // a Become must land on ONE whole object to be a text morph; any other destination is not a rewrite
+    const becomes = !become ? undefined : isWholeElementRef(become.ref) ? typeOf(become.ref.element) ?? { type: "missing" } : { type: "set" };
+    const rewrites = track.preset === "transform" && !track.part && !track.parts && !track.selector && rewritesText(typeOf(track.target), becomes);
+    const authored = withAuthoringTiming(track, rewrites);
     stored = authored;
     const ok = opts.append ? slideOps.appendAnimation(deck, slideId, beatId, authored) : slideOps.setAnimation(deck, slideId, beatId, authored);
     if (!ok) throw new Error(`beat not found: ${beatId} on ${slideId}`);
