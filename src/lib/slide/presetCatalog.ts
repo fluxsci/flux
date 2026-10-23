@@ -196,7 +196,9 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   highlight: { level: { default: 0.4, range: [0, 1] } },
   dim: { level: { default: 0.3, range: [0, 1] } },
   // countUp keys are read by player/countup.ts; their defaults come from the target's text.
-  countUp: { from: { default: 0 }, to: { default: null }, decimals: { default: null }, prefix: { default: null }, suffix: { default: null }, separator: { default: null } },
+  countUp: { from: { default: 0 }, to: { default: null }, decimals: { default: null }, prefix: { default: null }, suffix: { default: null }, separator: { default: null },
+    // WP 2.3 (D5): place-value slots on SVG text; `false` is the hidden kill switch (no UI). Read by player/countup.ts.
+    steadyDigits: { default: true } },
   move: {},
   scale: { scale: { default: 1.15 } },
   rotate: { deg: { default: 15 } },
