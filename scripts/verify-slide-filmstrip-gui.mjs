@@ -65,6 +65,29 @@ try {
   ok(t1.renders[0] === t0.renders[0] && t1.renders[2] === t0.renders[2],
     `slides A + C did NOT re-render (${t0.renders[0]}→${t1.renders[0]}, ${t0.renders[2]}→${t1.renders[2]}) — figureRev keying`);
 
+  // plot generations are keyed too: (re)caching a plot re-renders only the thumbnails
+  // whose slide names it. 2026-10-23: any cachePlot re-rendered the whole filmstrip
+  // back to back on timers — 100+ ms with no frame, landing on a just-started hand-off.
+  const svg = (fill) => `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80" viewBox="0 0 100 80"><rect id="r" width="50" height="40" fill="${fill}"/></svg>`;
+  const thumbRenders = () => page.evaluate(() => [...document.querySelectorAll(".filmstrip .thumb")].map((t) => Number(t.querySelector(".thumb-stage")?.dataset.renders ?? 0)));
+  await page.evaluate((a) => {
+    const f = window.__flux;
+    f.plot.cachePlot("filmstrip-used", a);
+    f.slide.commitDeckLive((d) => {
+      f.slideOps.addElement(d, d.slides[2].id, { id: "filmstrip-plot", type: "plot", assetId: "filmstrip-used", x: 200, y: 200, width: 200, height: 160, rotation: 0 });
+    });
+  }, svg("#4385be"));
+  await sleep(700);
+  const t2 = await thumbRenders();
+  await page.evaluate((a) => window.__flux.plot.cachePlot("filmstrip-unused", a), svg("#d14d41"));
+  await sleep(700);
+  const t3 = await thumbRenders();
+  ok(JSON.stringify(t3) === JSON.stringify(t2), `caching a plot no slide uses re-rendered no thumbnail (${t2.join(",")} → ${t3.join(",")})`);
+  await page.evaluate((a) => window.__flux.plot.cachePlot("filmstrip-used", a), svg("#879a39"));
+  await sleep(700);
+  const t4 = await thumbRenders();
+  ok(t4[2] === t3[2] + 1 && t4[0] === t3[0] && t4[1] === t3[1], `re-caching slide C's plot re-rendered only C (${t3.join(",")} → ${t4.join(",")})`);
+
   // drag-reorder: move thumb C (index 2) before thumb B (index 1)
   await page.evaluate(() => {
     const thumbs = [...document.querySelectorAll(".filmstrip .thumb")];

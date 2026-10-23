@@ -156,7 +156,14 @@
 {#if showing}
   <g class="gap-guides" role="presentation" on:pointermove={move} on:pointerup={up} on:pointercancel={cancel} on:lostpointercapture={cancel}>
     {#each guides as g (`${g.axis}-${g.index}`)}
-      <g class:lit={(hover?.axis===g.axis&&hover.index===g.index)||$alignArrange?.hover===`gap-${g.axis}`}>
+      {@const lit=(hover?.axis===g.axis&&hover.index===g.index)||$alignArrange?.hover===`gap-${g.axis}`||drag?.axis===g.axis}
+      {@const span=Math.max(0,(g.axis==='x'?gapX:gapY)*projection.zoom)}
+      <g class:lit>
+        {#if lit && span>=2}
+          <!-- The gap itself, filled: what a drag here edits (design tools' spacing highlight). -->
+          {#if g.axis==='x'}<rect class="gap-fill" x={g.x1-span/2} y={Math.min(g.y1,g.y2)} width={span} height={Math.abs(g.y2-g.y1)} />
+          {:else}<rect class="gap-fill" x={Math.min(g.x1,g.x2)} y={g.y1-span/2} width={Math.abs(g.x2-g.x1)} height={span} />{/if}
+        {/if}
         <line class="gap-visible" x1={g.x1} y1={g.y1} x2={g.x2} y2={g.y2} />
         <line role="presentation" data-arrange-gap={g.axis} data-gap-index={g.index} class="gap-hit" style:cursor={resizeCursorVar(g.axis==='x'?'e':'s')}
           x1={g.x1} y1={g.y1} x2={g.x2} y2={g.y2}
@@ -167,7 +174,12 @@
     {#if bounds}
       <g class="arrangement-anchor-control">
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-        <circle class="pin" cx={pinX} cy={pinY} r="4" aria-hidden="true"/>
+        <!-- The fixed point: a ring on a paper halo (legible on any artwork), a centre dot. -->
+        <g class="pin-glyph" class:open={anchorOpen} aria-hidden="true">
+          <circle class="pin-halo" cx={pinX} cy={pinY} r="7.5"/>
+          <circle class="pin" cx={pinX} cy={pinY} r="5"/>
+          <circle class="pin-core" cx={pinX} cy={pinY} r="1.75"/>
+        </g>
         <circle bind:this={anchorToggle} class="pin-hit" data-arrangement-anchor-toggle role="button" tabindex="0" aria-label="Choose fixed point" aria-haspopup="dialog" aria-expanded={anchorOpen} cx={pinX} cy={pinY} r="10" on:pointerdown={pinDown} on:click={pinClick} on:keydown={e=>{if(e.key==='Enter'||e.key===' ')toggleAnchor(e);}}><title>Keep fixed · click to choose</title></circle>
         {#if anchorOpen}
           <foreignObject x={popupX} y={popupY} width="178" height={popupHeight}>
@@ -188,7 +200,8 @@
       {@const x=Math.max(4,Math.min(width-badgeW-4,drag?drag.clientX-drag.originX+16:(guide!.x1+guide!.x2)/2+9))}
       {@const y=Math.max(4,Math.min(height-24,drag?drag.clientY-drag.originY-32:(guide!.y1+guide!.y2)/2-28))}
       <g class="gap-badge" transform={`translate(${x} ${y})`}>
-        <rect width={badgeW} height="22" rx="4" />
+        <rect class="gap-badge-shadow" x="0" y="1" width={badgeW} height="22" rx="11" />
+        <rect width={badgeW} height="22" rx="11" />
         <text class="gap-value" x={badgeW/2} y="15" text-anchor="middle">{value}</text>
       </g>
     {/if}
@@ -197,18 +210,27 @@
 
 <style>
   .gap-guides,.align-guides{pointer-events:none}
-  .gap-visible,.align-guides line{stroke:var(--c-layout-gap,#ef83bd);stroke-width:1.5;fill:none}
-  .reference-outline{fill:none;stroke:var(--c-layout-gap);stroke-width:1;stroke-dasharray:3 3}
+  .gap-visible,.align-guides line{stroke:var(--c-layout-gap,#ce5d97);stroke-width:1.25;fill:none}
+  .reference-outline{fill:none;stroke:var(--c-layout-gap);stroke-width:1.25;stroke-dasharray:4 3}
   .align-guides line{stroke-dasharray:4 3}
-  .gap-visible{opacity:.7}
-  .lit .gap-visible{opacity:1;stroke-width:2}
+  .gap-visible{opacity:.75;transition:opacity 80ms linear}
+  .lit .gap-visible{opacity:1;stroke-width:1.75}
+  .gap-fill{fill:var(--c-layout-gap-fill,rgba(206,93,151,.22));stroke:none}
   .gap-hit{stroke:transparent;stroke-width:12;pointer-events:stroke;touch-action:none}
-  .pin{fill:var(--c-surface,#252523);stroke:var(--c-layout-gap,#ef83bd);stroke-width:2}
+  /* The pin: invisible 10 px target, a ring that grows a touch on hover and while its picker is open. */
+  .pin-glyph{transform-box:fill-box;transform-origin:center;transition:transform 90ms ease-out}
+  .arrangement-anchor-control:hover .pin-glyph,.pin-glyph.open{transform:scale(1.2)}
+  .pin-halo{fill:var(--flx-paper,#fffcf0);opacity:.85;stroke:color-mix(in oklab,var(--flx-black,#100f0f) 25%,transparent);stroke-width:.75}
+  .pin{fill:var(--flx-paper,#fffcf0);stroke:var(--c-layout-gap,#ce5d97);stroke-width:2}
+  .pin-core{fill:var(--c-layout-gap,#ce5d97)}
   .pin-hit{pointer-events:all;cursor:var(--cursor-cross-hover);fill:transparent;stroke:none}
   .pin-hit:focus-visible{outline:none;stroke:var(--c-layout-gap);stroke-width:1.5}
   .arrangement-anchor-control foreignObject{overflow:visible}
-  .anchor-popover{pointer-events:auto;box-sizing:border-box;padding:8px;background:var(--c-surface);border:1px solid var(--c-line-strong);border-radius:4px;color:var(--c-tx);box-shadow:var(--elev-2);font:11px var(--font-ui)}
-  .anchor-title{display:block;margin-bottom:6px;font:600 11px var(--font-serif)}
-  .gap-badge rect{fill:var(--flx-paper)}
-  .gap-value{fill:var(--flx-magenta-600);font:600 12px var(--font-mono,monospace);stroke:none}
+  .anchor-popover{pointer-events:auto;box-sizing:border-box;padding:7px 8px 8px;background:var(--c-surface);border:1px solid var(--c-line-strong);border-radius:var(--r-panel,3px);color:var(--c-tx);box-shadow:var(--elev-2);font:11px var(--font-ui)}
+  .anchor-title{display:block;margin-bottom:6px;color:var(--c-tx-muted);font:600 9.5px var(--font-mono);letter-spacing:.08em;text-transform:uppercase}
+  /* The spacing badge: a paper pill that lifts off any artwork. */
+  .gap-badge rect{fill:var(--flx-paper,#fffcf0);stroke:color-mix(in oklab,var(--c-layout-gap) 45%,transparent);stroke-width:1}
+  .gap-badge .gap-badge-shadow{fill:rgba(0,0,0,.28);stroke:none;filter:blur(2px)}
+  .gap-value{fill:var(--flx-magenta-600,#a02f6f);font:600 12px var(--font-mono,monospace);stroke:none}
+  @media (prefers-reduced-motion: reduce){.pin-glyph,.gap-visible{transition:none}}
 </style>

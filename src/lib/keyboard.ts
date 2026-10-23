@@ -1,4 +1,5 @@
 import { scene3dManifests } from "./model3d/store";
+import "./editorCore"; // links the editor core into the store (./editorLink)
 import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 import { openFigureMeta } from "./figure/metadataState";
 import { pushToast } from "./toast";

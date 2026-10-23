@@ -1,4 +1,5 @@
 import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
+import "../editorCore"; // links the editor core into the store (./editorLink)
 import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
 import { generationBridgeIO } from "./generationBridgeIO";
 import { stageFigureRegistration } from "./figureGeneration";

@@ -7,6 +7,7 @@
 // Installed only from main.ts behind `import.meta.env.DEV`, via dynamic import, so
 // it is never included in a production build.
 
+import "../editorCore"; // links the editor core into the store (./editorLink)
 import { get, type Readable } from "svelte/store";
 import * as fig from "../store";
 import * as layout from "../interact/alignArrange";

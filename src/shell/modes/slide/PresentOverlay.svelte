@@ -108,7 +108,7 @@
     try {
       const controller = nextPosters = new AbortController(), posters = createAppModelPosters(controller.signal);
       const render = () => renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), { ...playerOpts(), ...posters.context });
-      render(); void posters.settle().then(() => { if (!controller.signal.aborted && host.isConnected) render(); }).catch(() => {});
+      render(); void posters.settle().then((posted) => { if (posted && !controller.signal.aborted && host.isConnected) render(); }).catch(() => {});
     } catch { /* a missing asset preview is non-fatal */ }
   }
 

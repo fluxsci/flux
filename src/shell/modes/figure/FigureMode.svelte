@@ -13,6 +13,7 @@
   // 100vh) and the keyboard handler is scoped to this component's lifetime so
   // figure shortcuts aren't global when another mode is focused. Persistence is
   // wired into the project's `fig/` subsystem via project/figbridge.ts.
+  import "../../../lib/editorCore"; // links the editor core into the store (./editorLink)
   import { openFigureRequest } from "../../command/commandBus";
   import { centerOnFigure } from "../../../lib/viewportNav";
   import { selection, setPartSelections, activeCanvasId, project } from "../../../lib/store";

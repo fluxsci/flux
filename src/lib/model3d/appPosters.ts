@@ -22,11 +22,15 @@ export function createAppModelPosters(signal: AbortSignal) {
       return cachedModelPosterUrl({ ...request, partOpacity }, { source }) ?? (partOpacity ? cachedModelPosterUrl(request, { source }) : undefined);
     },
   };
-  return { context, async settle() {
+  /** Resolves true when the last render asked for posters (the host re-renders with
+   *  them); false when it had none, so a plain slide is not rendered twice. */
+  return { context, async settle(): Promise<boolean> {
     const requests = [...requested.values()]; requested.clear();
+    if (!requests.length) return false;
     await Promise.all(requests.map(({ element, partOpacity }) => {
       const asset = assets.get(element.assetId);
       return asset ? modelPosterUrl({ element, asset, manifest: manifests[element.assetId], surface: 'slide', partOpacity }, { source, signal }) : undefined;
     }));
+    return true;
   } };
 }

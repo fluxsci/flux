@@ -90,14 +90,14 @@
 {#if state}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_static_element_interactions -->
   <div class="align-arrange-panel" class:placed bind:this={panel} tabindex="-1" role="dialog" aria-label={state.mode === "align" ? "Flux Align" : "Flux Arrange"} data-command-scope="align-arrange" style={`left:${position.x}px;top:${position.y}px;`} on:pointerdown|stopPropagation>
-    <header><Logomark size={16} /><h2>Align &amp; Arrange</h2><span class="count">{state.count} {state.count === 1 ? "object" : "objects"}</span><button class="close" aria-label="Close alignment tool" title="Close and keep changes" on:click={() => closeAlignArrange()}>×</button></header>
+    <header><Logomark size={14} /><h2>Align &amp; Arrange</h2><span class="count">{state.count} {state.count === 1 ? "object" : "objects"}</span><button class="close" aria-label="Close alignment tool" title="Close and keep changes" on:click={() => closeAlignArrange()}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></header>
     {#if state.blockedReason}<p class="notice" role="status">{state.blockedReason}</p>{/if}
     {#if state.excludedCount}<p class="exclusions">{state.excludedCount} locked or hidden {state.excludedCount === 1 ? "object excluded" : "objects excluded"}</p>{/if}
     <div class="body">
       <!-- Both panes stay visible; a control activates its keyboard owner before editing. -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="tool-pane align-pane" class:active={state.mode === "align"} on:pointerdown|capture={()=>activate("align")} on:focusin={()=>activate("align")}>
-        <button class="pane-title" aria-pressed={state.mode === "align"} on:click={(e)=>action(e,()=>activate("align"))}>Align<span>{state.mode === "align" ? "Keyboard active" : ""}</span></button>
+        <button class="pane-title" aria-pressed={state.mode === "align"} title={state.mode === "align" ? "The keyboard drives Align" : "Use Align (Space)"} on:click={(e)=>action(e,()=>activate("align"))}>Align{#if state.mode === "align"}<span class="keys">keys</span>{/if}</button>
         <div class="pane-content">
           <label class="select-row"><span>To</span><select aria-label="Align to" disabled={blocked || state.count === 0} value={state.alignTarget} on:change={(e) => setAlignTarget(e.currentTarget.value as "selection" | "reference" | "figure")}><option value="selection" disabled={state.count < 2}>Selection bounds</option><option value="reference" disabled={state.count < 2}>Reference object</option><option value="figure">Figure</option></select></label>
           {#if state.alignTarget === "reference"}<label class="select-row"><span>Reference</span><select aria-label="Alignment reference object" value={state.referenceId} on:change={(e) => setAlignReference(e.currentTarget.value)}>{#each state.units as unit}<option value={unit.id}>{unit.label}</option>{/each}</select></label>{/if}
@@ -138,7 +138,7 @@
       </div>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="tool-pane arrange-pane" class:active={state.mode === "arrange"} on:pointerdown|capture={()=>activate("arrange")} on:focusin={()=>activate("arrange")} on:wheel|capture={(e)=>{if(e.target instanceof Element && e.target.closest(".nf input"))activate("arrange");}}>
-        <button class="pane-title" aria-pressed={state.mode === "arrange"} disabled={arrangeDisabled} on:click={(e)=>action(e,()=>activate("arrange"))}>Arrange<span>{state.mode === "arrange" ? "Keyboard active" : ""}</span></button>
+        <button class="pane-title" aria-pressed={state.mode === "arrange"} disabled={arrangeDisabled} title={state.mode === "arrange" ? "The keyboard drives Arrange" : "Use Arrange (Space)"} on:click={(e)=>action(e,()=>activate("arrange"))}>Arrange{#if state.mode === "arrange"}<span class="keys">keys</span>{/if}</button>
         <div class="pane-content">
           <div class="topologies" aria-label="Arrangement layout">
             {#each [
@@ -147,62 +147,89 @@
               {id:"column",label:"Column",key:"A",path:"M9 3h14v5H9ZM9 13h14v5H9ZM9 23h14v5H9Z"}
             ] as layout}<button class:current={state.topology===layout.id} aria-pressed={state.topology===layout.id} disabled={arrangeDisabled} title={`Reflow as ${layout.label.toLowerCase()} (${layout.key})`} on:click={(e)=>action(e,()=>reflowArrangement(layout.id as "row"|"grid"|"column"))}><svg viewBox="0 0 32 32" aria-hidden="true"><path d={layout.path}/></svg><span>{layout.label}</span><kbd>{layout.key}</kbd></button>{/each}
           </div>
-          <div class="shape-row"><span><strong>{state.rows} × {state.cols}</strong></span><div class="stepper"><button disabled={arrangeDisabled || state.rows<=1} aria-label="Fewer rows" title="Fewer rows (F)" on:click={(e)=>action(e,()=>stepArrangementRows(-1))}>−<kbd>F</kbd></button><span>rows</span><button disabled={arrangeDisabled || state.rows>=state.count} aria-label="More rows" title="More rows (D)" on:click={(e)=>action(e,()=>stepArrangementRows(1))}>+<kbd>D</kbd></button></div></div>
+          <div class="shape-row"><span class="shape" title="Rows × columns"><strong>{state.rows}</strong> {state.rows === 1 ? "row" : "rows"} <i>×</i> <strong>{state.cols}</strong> {state.cols === 1 ? "column" : "columns"}</span><div class="stepper" role="group" aria-label="Rows"><button disabled={arrangeDisabled || state.rows<=1} aria-label="Fewer rows" title="Fewer rows (F)" on:click={(e)=>action(e,()=>stepArrangementRows(-1))}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8"/></svg></button><button disabled={arrangeDisabled || state.rows>=state.count} aria-label="More rows" title="More rows (D)" on:click={(e)=>action(e,()=>stepArrangementRows(1))}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 8h8M8 4v8"/></svg></button></div></div>
           <section class="spacing"><h3>Spacing</h3><div class="gap-fields">
             {#if state.topology!=="column"}<div on:focusin={()=>hover("gap-x")} on:focusout={()=>hover(null)}><NumberField label={state.topology==="grid"?"Column gap":"Horizontal gap"} value={state.gapX} displayPrecision={3} live disabled={arrangeDisabled} externalOwner={fieldOwner("x")} title="Horizontal spacing in canvas pixels; negative values overlap"/></div>{/if}
             {#if state.topology!=="row"}<div on:focusin={()=>hover("gap-y")} on:focusout={()=>hover(null)}><NumberField label={state.topology==="grid"?"Row gap":"Vertical gap"} value={state.gapY} displayPrecision={3} live disabled={arrangeDisabled} externalOwner={fieldOwner("y")} title="Vertical spacing in canvas pixels; negative values overlap"/></div>{/if}
           </div>{#if state.topology==="grid"}<label class="link-gaps"><input type="checkbox" checked={state.linkedGaps} on:change={(e)=>setArrangementLinked(e.currentTarget.checked)}/><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 14 4-4M9 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m0 10a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-1 1"/></svg>Link gaps</label>{/if}</section>
           <section class="anchor-section" class:grid-anchor={state.topology==="grid"}><h3>Keep fixed</h3><ArrangementAnchorPicker topology={state.topology} anchor={state.anchor} disabled={arrangeDisabled} onchange={setArrangementAnchor}/></section>
-          <p class="status" role="status">{state.status || `Existing ${state.topology}`}</p>
         </div>
       </div>
     </div>
-    <footer><button disabled={state.mode==="align"&&arrangeDisabled} on:click={(e)=>action(e,()=>switchAlignArrange(state!.mode==="align"?"arrange":"align"))}><kbd>Space</kbd> switch to {state.mode==="align"?"Arrange":"Align"}</button>{#if state.mode==="arrange"}<button class="apply" on:click={()=>closeAlignArrange()}><kbd>↵</kbd> Apply</button>{/if}<button on:click={()=>closeAlignArrange(true)}><kbd>Esc</kbd> {state.mode==="arrange"?"Cancel":"Close"}</button></footer>
+    <footer><button class="switch" disabled={state.mode==="align"&&arrangeDisabled} on:click={(e)=>action(e,()=>switchAlignArrange(state!.mode==="align"?"arrange":"align"))}><kbd>Space</kbd>{state.mode==="align"?"Arrange":"Align"}</button><span class="status-line" role="status">{state.mode==="arrange" ? (state.status || `Existing ${state.topology}`) : ""}</span><button class="secondary" on:click={()=>closeAlignArrange(true)}><kbd>Esc</kbd>{state.mode==="arrange"?"Cancel":"Close"}</button>{#if state.mode==="arrange"}<button class="apply" on:click={()=>closeAlignArrange()}><kbd>↵</kbd>Apply</button>{/if}</footer>
   </div>
 {/if}
 <style>
-  .align-arrange-panel {position:fixed;z-index:80;width:476px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);display:flex;flex-direction:column;visibility:hidden;background:var(--c-surface);border:1px solid var(--c-line-strong);border-radius:var(--r-ui,4px);box-shadow:var(--elev-3);color:var(--c-tx);font:12px var(--font-ui);outline:none;}
+  /* Flux's tool-surface vocabulary (the Inspector, the Plots rail): mono uppercase eyebrows, quiet
+     hints, inset tiles; Align & Arrange's own colour (--c-layout-gap, the canvas gutters' magenta)
+     marks state — the pane that owns the keyboard, the chosen layout, the fixed point. */
+  .align-arrange-panel {position:fixed;z-index:80;width:476px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);display:flex;flex-direction:column;visibility:hidden;background:var(--c-surface);border:1px solid var(--c-line-strong);border-radius:var(--r-panel,3px);box-shadow:var(--elev-3);color:var(--c-tx);font:12px var(--font-ui);outline:none;-webkit-font-smoothing:antialiased}
   .align-arrange-panel.placed {visibility:visible}
-  header {display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--c-bg-raised);border-bottom:1px solid var(--c-line)}
-  h2 {margin:0;font:600 16px var(--font-serif);color:var(--c-tx-hi)}
-  .count {margin-left:auto;color:var(--c-tx-muted);font:10px var(--font-mono);white-space:nowrap}
-  button {border:1px solid transparent;border-radius:var(--r-ui,3px);background:transparent;color:var(--c-tx);font:11px var(--font-ui);cursor:var(--cursor-cross-hover)}
-  button:hover:not(:disabled) {background:var(--c-bg-raised);border-color:var(--c-line-strong);color:var(--c-tx-hi)}
+  header {display:flex;align-items:center;gap:7px;height:30px;padding:0 4px 0 10px;flex-shrink:0;background:var(--c-bg-raised);border-bottom:1px solid var(--c-line)}
+  h2 {margin:0;font:600 12px var(--font-ui);color:var(--c-tx-hi);letter-spacing:.01em}
+  .count {margin-left:auto;display:inline-flex;align-items:center;padding:0 7px;height:17px;border-radius:9px;background:var(--c-surface-2);color:var(--c-tx-muted);font:10px var(--font-mono);white-space:nowrap}
+  button {border:1px solid transparent;border-radius:var(--r-ui,2px);background:transparent;color:var(--c-tx-2);font:11px var(--font-ui);cursor:var(--cursor-cross-hover);transition:background-color 80ms linear,border-color 80ms linear,color 80ms linear}
+  button:hover:not(:disabled) {background:var(--c-surface-2);color:var(--c-tx-hi)}
   button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible {outline:2px solid var(--c-layout-gap);outline-offset:1px}
   button:disabled {opacity:.35;cursor:var(--cursor-cross)}
-  .close {width:22px;height:22px;padding:0;font-size:20px;color:var(--c-tx-muted)}
+  .close {display:grid;place-items:center;width:22px;height:22px;padding:0;color:var(--c-tx-muted)}
+  .close svg {width:12px;height:12px;stroke-width:1.5}
   .body {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);overflow:auto;min-height:0}
-  .tool-pane {min-width:0}.arrange-pane {border-left:1px solid var(--c-line-strong)}
-  .pane-title {display:flex;align-items:center;justify-content:space-between;width:100%;padding:8px 11px;border:0;border-bottom:2px solid var(--c-line);border-radius:0;font:600 15px var(--font-serif);color:var(--c-tx-muted);text-align:left}
-  .pane-title span {font:9px var(--font-ui);color:var(--c-tx-muted)}
-  .active .pane-title {border-bottom-color:var(--c-layout-gap);color:var(--c-layout-gap)}
+  .tool-pane {min-width:0}.arrange-pane {border-left:1px solid var(--c-line)}
+  .pane-title {display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 10px;border:0;border-bottom:1px solid var(--c-line);border-radius:0;box-shadow:inset 0 -2px 0 transparent;color:var(--c-tx-muted);font:600 10px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;text-align:left}
+  .pane-title:hover:not(:disabled) {background:transparent}
+  .active .pane-title {color:var(--c-layout-gap);box-shadow:inset 0 -2px 0 var(--c-layout-gap)}
+  .keys {margin-left:auto;padding:0 5px;height:15px;line-height:15px;border-radius:var(--r-ui,2px);background:var(--c-layout-gap-tint);color:var(--c-layout-gap);font:600 9px var(--font-mono);letter-spacing:.06em}
   .pane-content {padding:10px}
-  .select-row {display:flex;align-items:center;gap:7px;margin:0 0 8px;font-size:10px;color:var(--c-tx-muted)}
-  .select-row>span {flex:0 0 auto;max-width:60px}
-  select {min-width:0;flex:1;height:25px;padding:0 5px;background:var(--c-bg);color:var(--c-tx);border:1px solid var(--c-line);border-radius:var(--r-ui,3px);font:11px var(--font-ui)}
-  .align-pad {display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:9px 0 2px}
-  .alignment {display:flex;align-items:center;justify-content:center;gap:8px;height:38px;background:var(--c-bg-raised);border-color:var(--c-line)}
-  svg {width:23px;height:23px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-  kbd {font:10px var(--font-mono);color:var(--c-tx-muted)}.active kbd {color:var(--c-layout-gap)}
-  section {margin-top:11px;padding-top:10px;border-top:1px solid var(--c-line)}
-  h3 {margin:0 0 7px;font:600 12px var(--font-serif);color:var(--c-tx-hi)}
+  .select-row {display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:10.5px;color:var(--c-tx-muted)}
+  .select-row>span {flex:0 0 auto;max-width:64px}
+  select {min-width:0;flex:1;height:24px;padding:0 5px;background:var(--c-bg);color:var(--c-tx);border:1px solid var(--c-line);border-radius:var(--r-ui,2px);font:11px var(--font-ui)}
+  select:hover:not(:disabled) {border-color:var(--c-line-strong)}
+  svg {width:20px;height:20px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  /* Shortcut hints whisper in the corner; brighter only where the keyboard is (the active pane). */
+  kbd {font:9px var(--font-mono);color:var(--c-tx-faint)}
+  .active kbd {color:var(--c-tx-muted)}
+  /* Tiles: inset wells (the rail's tiles), a lift on hover, the tool colour when chosen. */
+  .align-pad {display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:2px 0 0}
+  .alignment,.two button,.spine-buttons button,.topologies button {position:relative;background:var(--c-bg);border-color:var(--c-line)}
+  .alignment:hover:not(:disabled),.two button:hover:not(:disabled),.spine-buttons button:hover:not(:disabled),.topologies button:hover:not(:disabled) {background:var(--c-surface-2);border-color:var(--c-line-strong)}
+  .alignment {display:grid;place-items:center;height:36px;padding:0}
+  .alignment kbd,.topologies kbd {position:absolute;right:4px;top:2px;line-height:1}
+  section {margin-top:12px;padding-top:10px;border-top:1px solid var(--c-line)}
+  h3 {margin:0 0 7px;font:600 9.5px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--c-tx-muted)}
   .two,.spine-buttons {display:flex;gap:4px}
-  .two button,.spine-buttons button {display:flex;align-items:center;justify-content:center;gap:5px;flex:1;min-width:0;height:33px;padding:2px 4px;background:var(--c-bg-raised);border-color:var(--c-line);font-size:10px}
-  .two svg {width:23px;height:23px}.spine-buttons svg {width:32px;height:23px}.spine {stroke:var(--flx-green-400,var(--c-accent))}
-  .hint,.notice,.exclusions {font-size:10px;line-height:1.4;color:var(--c-tx-muted);margin:7px 0}
-  .notice,.exclusions {margin:0;padding:7px 10px;border-bottom:1px solid var(--c-line)}
+  .two button,.spine-buttons button {display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:0;height:32px;padding:2px 6px;font-size:10.5px}
+  .spine-buttons svg {width:30px;height:20px}.spine {stroke:var(--flx-green-400,var(--c-accent))}
+  .spine-buttons kbd {margin-left:auto}
+  .hint,.notice,.exclusions {font-size:10.5px;line-height:1.45;color:var(--c-tx-muted);margin:7px 0}
+  .notice,.exclusions {margin:0;padding:6px 10px;border-bottom:1px solid var(--c-line);background:var(--c-bg-raised)}
+  .notice {color:var(--c-tx-2)}
   .plots-section .select-row {margin-top:8px}
-  details {margin-top:8px;font-size:10px}summary {cursor:var(--cursor-cross-hover);color:var(--c-tx-2);padding:3px 0}
-  .plot-choice {margin-top:9px}.plot-choice strong {display:block;font-size:10px;margin-bottom:5px}
-  .topologies {display:flex;gap:4px}.topologies button {flex:1;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;gap:4px;height:38px;padding:3px;background:var(--c-bg-raised);border-color:var(--c-line);font-size:10px}
-  .topologies svg {width:18px;height:18px}.topologies kbd {position:absolute;right:3px;top:1px;font-size:8px}.topologies button.current {border-color:var(--c-layout-gap);color:var(--c-tx-hi)}
-  .shape-row {display:flex;align-items:center;justify-content:space-between;margin:7px 0 0;color:var(--c-tx-muted);font-size:10px}.shape-row strong {color:var(--c-tx);font:11px var(--font-mono)}
-  .stepper {display:flex;align-items:center;gap:5px}.stepper button {display:flex;align-items:center;gap:5px;height:23px;padding:0 5px;font-size:15px}.stepper kbd {font-size:8px}
-  .gap-fields {display:flex;gap:9px}.gap-fields>div {flex:1;min-width:0}.gap-fields :global(.nf) {margin:0}.gap-fields :global(.nf .lb) {font-size:10px}.gap-fields :global(.nf input) {font-size:11px;height:26px}
-  .link-gaps {display:flex;align-items:center;gap:5px;margin-top:8px;color:var(--c-tx-muted);font-size:10px}.link-gaps input {accent-color:var(--c-layout-gap);width:12px;height:12px;margin:0}.link-gaps svg {width:13px;height:13px}
+  details {margin-top:8px;font-size:10.5px}summary {cursor:var(--cursor-cross-hover);color:var(--c-tx-2);padding:3px 0}
+  summary:hover {color:var(--c-tx-hi)}
+  .plot-choice {margin-top:9px}.plot-choice strong {display:block;font-size:10.5px;margin-bottom:5px;color:var(--c-tx-hi)}
+  .topologies {display:flex;gap:4px}.topologies button {flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:5px;height:34px;padding:3px;font-size:10.5px}
+  .topologies svg {width:16px;height:16px}
+  .topologies button.current {background:var(--c-layout-gap-tint);border-color:var(--c-layout-gap);color:var(--c-tx-hi)}
+  .topologies button.current svg {color:var(--c-layout-gap)}
+  .shape-row {display:flex;align-items:center;justify-content:space-between;margin:8px 0 0;color:var(--c-tx-muted);font-size:10.5px}
+  .shape strong {color:var(--c-tx-hi);font:600 11px var(--font-mono)}.shape i {font-style:normal;color:var(--c-tx-faint);margin:0 2px}
+  .stepper {display:inline-flex;border:1px solid var(--c-line);border-radius:var(--r-ui,2px);overflow:hidden}
+  .stepper button {display:grid;place-items:center;width:24px;height:20px;padding:0;border:0;border-radius:0;background:var(--c-bg)}
+  .stepper button + button {border-left:1px solid var(--c-line)}
+  .stepper svg {width:12px;height:12px}
+  .gap-fields {display:flex;gap:8px}.gap-fields>div {flex:1;min-width:0}.gap-fields :global(.nf) {margin:0}.gap-fields :global(.nf .lb) {font-size:10.5px}.gap-fields :global(.nf input) {font-size:11px;height:24px}
+  .link-gaps {display:inline-flex;align-items:center;gap:5px;margin-top:8px;color:var(--c-tx-muted);font-size:10.5px;cursor:var(--cursor-cross-hover)}.link-gaps:hover {color:var(--c-tx-hi)}
+  .link-gaps input {accent-color:var(--c-layout-gap);width:12px;height:12px;margin:0}.link-gaps svg {width:13px;height:13px}
   .anchor-section h3 {margin-bottom:7px}.anchor-section.grid-anchor {display:flex;align-items:center;justify-content:space-between}.anchor-section.grid-anchor h3 {margin:0}
-  .status {font:9px var(--font-ui);color:var(--c-tx-muted);margin:8px 0 0;text-align:right}
-  footer {display:flex;align-items:center;gap:12px;padding:7px 10px;border-top:1px solid var(--c-line);background:var(--c-bg-raised)}
-  footer button {padding:0;font-size:10px;color:var(--c-tx-muted)}footer button:last-child {margin-left:auto}footer kbd {margin-right:3px;color:var(--c-layout-gap)}footer .apply {color:var(--c-tx-hi)}
-  @media(max-width:500px) {.align-arrange-panel {width:310px}.body {grid-template-columns:minmax(0,1fr)}.arrange-pane {border-left:0;border-top:1px solid var(--c-line-strong)}.pane-content {padding:9px 11px}.align-pad {grid-template-columns:repeat(6,1fr)}.alignment {gap:3px}.alignment svg {width:20px;height:20px}.alignment kbd {font-size:8px}.pane-title {padding:7px 11px}.topologies button {height:32px}}
+  /* Footer: key chips, the status between, the primary action last. */
+  footer {display:flex;align-items:center;gap:6px;height:32px;padding:0 8px;flex-shrink:0;border-top:1px solid var(--c-line);background:var(--c-bg-raised)}
+  footer button {display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;color:var(--c-tx-2);font-size:11px}
+  footer kbd {display:inline-block;padding:0 4px;height:15px;line-height:14px;border:1px solid var(--c-line-strong);border-bottom-width:1.5px;border-radius:3px;background:var(--c-surface);color:var(--c-tx-2);font-size:9px}
+  .status-line {flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--c-tx-faint);font:10px var(--font-mono);padding-right:4px}
+  footer .apply {background:var(--c-layout-gap-tint);border-color:color-mix(in oklab,var(--c-layout-gap) 55%,transparent);color:var(--c-tx-hi)}
+  footer .apply:hover:not(:disabled) {background:color-mix(in oklab,var(--c-layout-gap) 26%,transparent);border-color:var(--c-layout-gap)}
+  footer .apply kbd {border-color:color-mix(in oklab,var(--c-layout-gap) 55%,transparent)}
+  @media(max-width:500px) {.align-arrange-panel {width:310px}.body {grid-template-columns:minmax(0,1fr)}.arrange-pane {border-left:0;border-top:1px solid var(--c-line)}.pane-content {padding:9px 10px}.align-pad {grid-template-columns:repeat(6,1fr)}.alignment svg {width:18px;height:18px}.alignment kbd {display:none}.topologies button {height:32px}.status-line {display:none}}
+  @media (prefers-reduced-motion: reduce) {button {transition:none}}
 </style>

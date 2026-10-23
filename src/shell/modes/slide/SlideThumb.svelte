@@ -54,7 +54,13 @@
     const slide = composedSlide(slideId);
     if (!slide) return;
     bg = slide.background ?? overlay.background ?? resolveTheme(overlay.theme).background;
-    const sig = `${JSON.stringify(slide)}|${JSON.stringify(slideAnimStyles(slide, overlay))}|${overlay.theme}|${overlay.background ?? ""}|${stage.width}x${stage.height}|${JSON.stringify($plotGen)}|${$scene3dGeneration}|${$model3dDeckScope?.deckId}|${JSON.stringify([...($model3dDeckScope?.externalAssetIds ?? [])].sort())}`;
+    // Only the generations of plots THIS slide names: one plot (re)cached used to change
+    // every thumbnail's signature, and the whole filmstrip re-rendered (~9 ms each, back to
+    // back on timers — 100+ ms with no frame, landing on a hand-off that had just started).
+    const plotIds = new Set<string>();
+    const slideJson = JSON.stringify(slide, (key, value) => { if (typeof value === "string" && /assetId$/i.test(key)) plotIds.add(value); return value; });
+    const plotGens = [...plotIds].sort().map((id) => `${id}:${$plotGen[id] ?? 0}`).join(",");
+    const sig = `${slideJson}|${JSON.stringify(slideAnimStyles(slide, overlay))}|${overlay.theme}|${overlay.background ?? ""}|${stage.width}x${stage.height}|${plotGens}|${$scene3dGeneration}|${$model3dDeckScope?.deckId}|${JSON.stringify([...($model3dDeckScope?.externalAssetIds ?? [])].sort())}`;
     if (sig === memo.sig) return;
     memo.sig = sig;
     // Trailing debounce: a burst of commits (nudge auto-repeat, scrub) pays ONE
@@ -84,7 +90,7 @@
           reducedMotion: true,
         });
         render();
-        void models.settle().then(() => { if (!controller.signal.aborted && memo.sig === sig) render(); }).catch(() => { /* current placeholder remains honest on missing geometry/GPU */ }).finally(() => { finished = true; });
+        void models.settle().then((posted) => { if (posted && !controller.signal.aborted && memo.sig === sig) render(); }).catch(() => { /* current placeholder remains honest on missing geometry/GPU */ }).finally(() => { finished = true; });
       } catch {
         /* a mid-edit render miss is repaired by the next invalidation */
       }
