@@ -161,16 +161,17 @@ The established shared cores — extend these, don't duplicate them:
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Semantic targets (incl. destination SETS: `normalizeRef`, `composeDestination`, `setLabel`), hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
-| Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
+| Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`; `alignedPair` / `lerpCompoundD`, with `outline.ts` `alignChains`) | `verify-slide-tween.ts`, `verify-color-interp.ts`, `verify-morph-path.ts` (ring alignment, compound subpaths and holes, set pairing) |
 | Stage-space geometry for element, plot-part and group targets | `src/lib/slide/targetGeometry.ts` | `verify-target-geometry.ts` (pure/core parity), `verify-target-geometry-browser.ts` (live CTM) |
-| N↔M outline correspondence (merge, pairing, tiling, sampling; convex normal matching) | `src/lib/slide/correspondence.ts` + `outline.ts` + `normalMatch.ts` | `verify-correspondence.ts` (public API and flux-core export identity), `verify-slide-morph-geometry.ts` (convex pairing, rigid heads, dash phase, per-channel alpha/gradients, seek purity), `verify-slide-morph-geometry-browser.ts` (unique gradient ids per transform, set-Become paint) |
-| Text-rewrite matching, morph plan and timeline (the glyph-matched text morph) | `src/lib/slide/textMatch.ts` (pure; `player/textMorph.ts` is its browser driver) | `verify-text-match.ts` (passes, policy, caps, timeline), `verify-text-morph-browser.ts` (exported player), `verify-transform-gui.mjs` (presented Change) |
+| N↔M outline correspondence (merge, pairing, tiling, sampling; convex normal matching) | `src/lib/slide/correspondence.ts` + `outline.ts` + `normalMatch.ts` + `strokeBand.ts` | `verify-correspondence.ts` (public API and flux-core export identity), `verify-slide-morph-geometry.ts` (convex pairing, rigid heads, dash phase, per-channel alpha/gradients, seek purity), `verify-slide-morph-geometry-browser.ts` (unique gradient ids per transform, set-Become paint), `verify-morph-path.ts` (set pairing: `assignMinCost`, `betterRingLayout`), `verify-slide-xfade-browser.ts` (plus-lighter crossfade coverage), `verify-slide-stroke-band.ts` (pure) and `verify-slide-stroke-band-browser.ts` (the band, the ellipse path) |
+| Text-rewrite matching, morph plan and timeline (the glyph-matched text morph) | `src/lib/slide/textMatch.ts` (pure; `player/textMorph.ts` is its browser driver), `slide/lanes.ts` (pure glide lanes, X6 sign), `slide/ghost.ts` (the Ghost emergence law) | `verify-text-match.ts` (passes, policy, caps, timeline), `verify-text-lanes.ts` (lanes, stage and obstacle bounds), `verify-text-morph-browser.ts` (exported player: first/last frame in pixels, hand-over weights, lanes, roll, letters), `verify-slide-ghost-runtime.ts`, `verify-transform-gui.mjs` (presented Change) |
 | Letter outlines for text ↔ shape (placement, counters, glyph boxes; which texts fly as letters) | `src/lib/text/glyphOutlines.ts` + `slide/glyphTexts.ts` (pure); `text/glyphFont.ts` parses font bytes (opentype.js, never in the export runtime) | `verify-glyph-outlines.ts` (incl. GUI-bridge vs Node vs flux-core bake bytes), `verify-text-morph-browser.ts` |
 | Font request identity and system font files (Electron main `fonts:lookup` + flux-core bake) | `src/lib/text/fontRequest.mjs` (plain ESM, also the renderer's key) + `fontFiles.mjs` (Node) | `verify-glyph-outlines.ts`, `verify-ipc-contract.ts` |
-| Trim-path and draw-plan dash math (drawOn/drawOff windows, `drawReach`, dash lists, pen clock) | `src/lib/slide/player/trim.ts` (+ `presets.ts` `drawPlan`) | `verify-trim.ts`, `verify-draw.ts` (pure plan), `verify-slide-draw-browser.ts` (real Chromium geometry) |
-| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability, authored pace, `PRESET_PARAMS` / `presetParam` / `paramDiagnostics`: the ONE table of every `track.params` key with its frozen classic default) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**), `verify-pace-defaults.ts` (frozen fallbacks vs authored table, settle, onset-exempt rule), `verify-preset-params.ts` (frozen defaults; a grep census that presets.ts / compile.ts / pptxBuilds.ts / player.ts read params ONLY through `presetParam`; player == compile == PPTX for authored / absent / malformed values; unknown keys kept + reported) |
-| Bar-growth geometry (orientation, sign, baseline edge) and the part-origin / leaf-wrapper law | `src/lib/slide/growOrigin.ts`, `player/presets.ts`, `player/player.ts` | `verify-slide-part-origin.ts` (Chromium via the exported player; each bar keeps its zero-line edge, markers keep their centres) |
-| Plot auto-build choreography (planner, paces, scaffold, pen lengths) | `src/lib/slide/autobuild.ts` (`choreograph`, `V2_PACE`, `CLASSIC_PACE`), `stagger.ts` (`planStagger`), `partLength.ts` | `verify-slide-choreo.ts`, `verify-animate-plot.ts` (real CLI), `verify-slide-autobuild.ts`, `verify-slide-scatter-showcase.ts` |
+| Trim-path and draw-plan dash math (drawOn/drawOff windows, `drawReach`, dash lists, pen clock) | `src/lib/slide/player/trim.ts` (+ `presets.ts` `drawPlan`; `penSlices`, the one stroke-order law, also the within-unit shaft → head clock; `penWidth`, the pen touch-down; `strokeGeometry.multiStroke`) | `verify-trim.ts`, `verify-draw.ts` (pure plan, `penSlices` tables, `penWidth`), `verify-slide-choreo.ts` (the 2 000-case `penSlices` gate), `verify-slide-draw-browser.ts` (real Chromium geometry, stroke order, soft edge) |
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability, `PresetDef.ephemeral`, `highlightOpacityAt` / `dimOpacityAt` (the one formula for the player and `compile.sample`), point-typed params, authored pace, `PRESET_PARAMS` / `presetParam` / `paramDiagnostics`: the ONE table of every `track.params` key with its frozen classic default) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**), `verify-pace-defaults.ts` (frozen fallbacks vs authored table, settle, onset-exempt rule), `verify-preset-params.ts` (frozen defaults; a grep census that presets.ts / compile.ts / pptxBuilds.ts / player.ts read params ONLY through `presetParam`; player == compile == PPTX for authored / absent / malformed values; unknown keys kept + reported), `verify-appear-emphasis.ts` (the fade-free vocabulary: catalog and authored rows, pulse identity / size / clamp, highlight + dim parity, the param table, origins, encircle geometry, ephemeral compile, PPTX twins, authoring) |
+| Grow / pulse / encircle geometry (bar baselines and `barGrowWeight`, grow origins, group centre, pulse peak, the circle band) and the part-origin / leaf-wrapper law | `src/lib/slide/growOrigin.ts`, `src/lib/slide/encircleGeometry.ts`, `player/overlay.ts`, `player/presets.ts`, `player/player.ts` | `verify-appear-emphasis.ts` (pure), `verify-slide-part-origin.ts` (Chromium via the exported player; each bar keeps its zero-line edge, markers keep their centres, scaleIn / pulse origins, encircle ink), `verify-bar-grow.ts` |
+| Count-up digit slots (place-value slots on SVG text, `steadyDigits`) | `src/lib/slide/player/countup.ts` | `verify-count-up-slots.ts` (Chrome) |
+| Plot auto-build choreography (planner, paces, scaffold, pen lengths) | `src/lib/slide/autobuild.ts` (`choreograph`, `V2_PACE`, `CLASSIC_PACE`, `V2_STAGGER_CHILD` / `AutoPace.pointChild(n)`, `elementEnterPreset` / `elementExitPreset`), `stagger.ts` (`planStagger`), `partLength.ts` | `verify-slide-choreo.ts`, `verify-animate-plot.ts` (real CLI), `verify-slide-autobuild.ts`, `verify-slide-scatter-showcase.ts` |
 | Stroke corner joins (`cornerJoinOf`, `morphJoin`, `pairJoin`) and the stage raster keeper | `src/lib/strokeStyle.ts`; `player/rasterKeeper.ts` | `verify-slide-raster-pure.ts`, `verify-slide-raster-electron.cjs` (offscreen Electron), `verify-slide-arrow-browser.ts` (DOM joins) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Timeline align and Inherit (candidate law, edge alignment, exact-HOW inheritance) | `src/lib/slide/alignTracks.ts` | `verify-slide-timeline.ts` (law + ops field by field), `verify-slide-resolve.ts` (REAL CLI `align-tracks` / `inherit-track` write the GUI op's bytes), `verify-slide-animator-gui.mjs` via `scripts/lib/animatorAlignChecks.mjs` (real keys and Ctrl+Alt drags) |
@@ -178,9 +179,10 @@ The established shared cores — extend these, don't duplicate them:
 | Stagger distribution and box arcs | `src/lib/slide/stagger.ts`, `tween.ts` (`arcBox`), `ops.ts` | `verify-slide-stagger.ts` (Total/order/real player parity), `verify-slide-tween.ts`, `verify-slide-player.ts` (painted content and box frames), `verify-slide-timeline.ts`, `verify-slide-animator-gui.mjs` (Each/Total, seed/Undo, Arc/scrub) |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
+| Start and landing of every animation (pen touch-down, priming and the flight mark, the first-tick clock, the camera's early bake, the settle corpus and its KNOWN_OPEN) | `player/player.ts` (`begin`, `lastBeatOf` / `markFor`), `player/render.ts` (`armFlightMark`, `primeFlightLayers`), `timing.ts` (`FIRST_TICK_MAX_MS`), `player/rasterKeeper.ts` (`EARLY_BAKE_LEAD_FRAMES`), `player/trim.ts` (`penWidth`); probes and corpus in `scripts/lib/slideSettle*.ts` | `verify-slide-settle-sweep.ts` (pure, headless Chrome), `verify-slide-settle-electron.cjs` (electron tier, offscreen), `verify-slide-raster-pure.ts`, `verify-slide-raster-electron.cjs`, `verify-pace-defaults.ts`, `verify-slide-tween.ts` (mark laws) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts`; `verify-slide-animator-gui.mjs` pins saved Arc through the library's real Apply and Undo paths. Transform preset application forwards HOW fields explicitly into `setTransform`; extending the saved payload alone does not extend this reader. |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
-| Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
+| Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-plot-tick-handoff.ts` (view-Change tick hand-off, stills), `verify-slide-morph.ts`, paper/render and slide/export parity |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
 | Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
@@ -543,8 +545,38 @@ Persistence invariants (all machine-checked — do not weaken):
     template sit at `ticksFor` positions with `scalarLabels` / `formatTick` text, inserted in
     tick order and marked `data-projection-tick`; `restoreProjection` removes them. Only `auto` /
     `multiple` / `log` locators with `plain` / `log` formatters are re-ticked; category / date /
-    fixed / sci keep the moving, fading ticks (a tween always does). `plotViewIssues` names only
+    fixed / sci keep the moving, fading ticks (an asset Change always does; a view Change hands ticks off, next
+    bullet). `plotViewIssues` names only
     images and rasterized layers as unchanged. Gate `verify-plot-view-filled`.
+  - *View-Change tick hand-off (Release 2, WP 2.3).* Asset Changes only keep "the generated ticks move and
+    fade". A VIEW Change sets `PlotViewOptions.tickHandoff` (the transform host, for `!assetChange`):
+    `projectDom.buildFlight` pools one clone of the first shown guide template per tick; ticks pair by data
+    value (`matchTickSets`, 2 % of the smaller step; the generated set is grouped by leaf index because mark,
+    label and gridline recover values that differ by rounding and by a constant label offset), matched ticks
+    walk, start-only ticks leave over t .10-.45, end-only ticks arrive over .45-.80 (the two sets never
+    coexist), a re-formatted label for the same value hard-swaps once at t = .5, and the last frame equals
+    the static re-tick. Labels are placed against the tick of their OWN index (`GuideBinding.anchor`), never
+    their own pixel: a y label rests ~0.36 em (1.82 plot units) below its tick, which the static `retick`
+    once ignored (it put the label AT the tick, a static look change of every re-ticked y axis, now pinned
+    in `verify-plot-view`). The pool draws the WHOLE Change (t = 0 and t = 1 too), so the first and last
+    frame use the raster path of their neighbours (a generated label with its own text transform and a
+    pooled clone under an ancestor translate rasterise differently: a 25 px² hop at t = 0), and the plot
+    transform has NO dispose: the pool lives in the plot's SVG, and `renderStaticAt` (thumbnails, previews)
+    disposes controllers after sampling, so a dispose that restores the projection un-projects every still
+    (`verify-plot-tick-handoff` pins a still after a view Change and a two-plan chain). Pool nodes are
+    `data-projection-residue` (the binder never keys or fades them), carry a plan serial in their ids and an
+    explicit `display:none` copy. Bars with no counterpart in a keyed Change grow and shrink on their
+    baseline (`growOrigin.barGrowWeight`: enter t .45 → 1, leave 0 → .55, smoothstep; `barGrow` stays the
+    origin owner; `growFrom` is keyed by the manifest bar id through the binder's `keyOf`; the compile
+    "has no counterpart and fades" diagnostic is skipped for a series with bars and no line / points; a bar
+    with its own `transform` attribute keeps the fade, because CSS transform would replace the attribute).
+    Count-up digit slots (`player/countup.ts`, SVG text only, `steadyDigits: false` is the kill switch; never
+    `tabular-nums`: Georgia has no `tnum`): each digit sits in a place-value slot, `text-anchor: middle|end`
+    numbers too (Chrome's anchor shift ignores the first glyph's `dx` but not later ones, so the first
+    glyph's `dx` takes the difference back); the digit advances are measured from `seek` only (the
+    `textContent` rewrite is a layout flush) and the key read of the computed font is the guard that
+    re-measures when another track changes the font mid-flight. Count-up's own second frame (raw 0 → 213: the
+    first flip of a quantised quantity under the plain `smooth` countUp keeps) is inherent, not a slot defect.
   - *Value morphs, data-order stagger, per-panel build (F7).* `stagger.by` ∈ `"index" | "x" |
     "y" | "data" | {key: "value" | "count" | "index"}` (`slide/staggerData`: the compiler ranks
     from the manifest — hexagon values / counts, cell values, bar heights, point colour values —
@@ -1160,7 +1192,10 @@ Persistence invariants (all machine-checked — do not weaken):
   `manualSteps` embeds, reduced motion, seek/prev/goTo, video export, Animator preview and
   `nextCue({animate:false})` never settle. `verify-pace-defaults` asserts exactly one `clockMode`,
   one `clockTime` and one `settleTime` call site: a new mode is a case in that switch, never a
-  second clock.
+  second clock. **The clock starts at the first presented frame (`timing.ts FIRST_TICK_MAX_MS` = 20,
+  `firstTickOrigin`).** The first tick of a cue advances the clock by at most one frame; a first frame
+  delayed by setup is a hitch, not progress. Later ticks keep the wall clock. Pre-roll and priming: see Layer
+  hygiene.
   Preset facts live in the pure `slide/presetCatalog.ts`; compiler, player metadata,
   family law and Animator lists derive from it. **Pace (Release 1, 2026-10-22; write-time
   only — playback never reads a profile):** `defaultDurationMs` / `defaultEasing` are the FROZEN
@@ -1169,8 +1204,13 @@ Persistence invariants (all machine-checked — do not weaken):
   (enters/highlight/dim 700, draws and countUp 900, exits 500, transform 1200, camera 900, all
   explicit; appearances carry the `quick smooth` curve, transform/countUp/camera the `smooth`
   token; `onsetExempt` rows such as pulse/encircle stay on `smooth`) and in `authoringParams`
-  (fadeRise `y: 24`, inherited by a stagger whose child is fadeRise or absent).
-  `authoredFields(preset, params?)` returns `{duration, curve|easing, params?}` (never easing AND
+  (fadeRise `y: 24`, inherited by a stagger whose child is fadeRise or absent; writeOn `edge: "soft"`, inert off
+  text; highlight `lead: 0.25`; the Release 2 rows scaleIn 600 / scaleOut 500 on `quick smooth`, pulse 700 /
+  encircle 900 on `smooth`) and in `authoringTextParams` (a text-rewrite transform is written with
+  `{fadeStyle: "roll", letters: "travel"}` by every writer, `rewritesText(target, become?)`: text → text or a
+  Change on text; an existing track is never touched and `swapBecome` keeps the old track's params; owner
+  decision: roll and travel are the default look).
+  `authoredFields(preset, params?, rewrites?)` returns `{duration, curve|easing, params?}` (never easing AND
   curve) and is what every writer spreads (autobuild element tables, animateSelection, ops
   transform sites via `defaultTimingFor`, headless `set-animation` via `withAuthoringTiming`,
   which leaves a style-linked track alone); `authoredTiming` is timing-only;
@@ -1188,7 +1228,11 @@ Persistence invariants (all machine-checked — do not weaken):
   demand a row for a new preset; `{}` is enough); strict typing means a numeric STRING reads as
   the default in every engine (PPTX used to coerce it); unknown authored keys are kept and
   reported as a compile issue by `paramDiagnostics`, never refused (a key some other preset
-  declares is a harmless leftover of a preset switch and stays silent).
+  declares is a harmless leftover of a preset switch and stays silent, except a key marked `ParamSpec.hostOnly`,
+  one that means something only on the presets that declare it (`order`, `lag`), which is reported on any
+  other preset; `isPoint` / `PointParam` (point-typed `from` / `to` / `about`) live in `presetCatalog.ts` and
+  `growOrigin`'s `StagePoint` aliases it; `resolveTextLook(params)` in `timing.ts` is the one reader of the
+  text-look keys, reading through `presetParam`).
   Automatic beat delays use `timing.beatDelayMs` in Present, video and PowerPoint; the authored
   "After previous" gap is 150 ms (`AUTO_DELAY_AUTHORED_MS`), the frozen fallback stays 600
   (`AUTO_DELAY_FALLBACK_MS`); video `stepDelayMs` defaults to 1000 (dialog re-seed `v: 2`).
@@ -1263,12 +1307,28 @@ Persistence invariants (all machine-checked — do not weaken):
   (0–60 %) and fills (45–100 %); fill-only shapes get a 1.25-unit hairline in the fill colour;
   arrowheads scale from the shaft end on the pen clock (support point); dash math uses `geoLength`
   (honours `pathLength`, X12) while pen weights use the true `getTotalLength`. `writeOn`/`wipeOut`
-  are an ink-fitted hard clip (the mask only on text-only targets, never on `<g>`) except where
+  are an ink-fitted hard clip by default; `params.edge: "soft"` (authored on every new writeOn; wipeOut mirrors
+  it) feathers a TEXT-only, HTML-wrapped target with a `maskImage` gradient on its `<text>` (feather 0.9 × font
+  size, clamped 3–60 % of the text extent, a `sample` spec, `transient: ["maskImage"]`, `maskImage` in
+  `ANIM_PROPS`); plots, mixed targets, SVG parts and engines without `mask-image` always take the clip, and
   `axesNotPreserved(node)` (the node or an ancestor has a computed transform that is not
-  translate + positive scale) forces the whole-box sweep. The T3 → T8 contract (X12): a sweep
+  translate + positive scale) still forces the whole-box sweep. The T3 → T8 contract (X12): a sweep
   that is pure keyframes returns NodeAnims without `sample`, built on `hiddenDash`, ending at
   `drawReach`, declaring `transient: [strokeDashoffset, strokeDasharray]` (the generic
   `frameSampler` filter drops them at rest); `trimKeyframes` stays only as the gate oracle.
+  **Pen touch-down (`trim.ts penWidth`).** A round or square cap paints a full disc at the head of the
+  smallest dash, so a draw's first frame blinked a dot in and a drawOff ended on one. Every stroke piece,
+  arrowhead vee and trim-path frame emits `strokeWidth = w · min(1, ink / w)` (`strokeWidth` is already
+  transient), so the disc grows from nothing and the last frame is the resting stroke; butt caps are
+  untouched. **Stroke order (X4).** `params.order: "sequence"` (+ `lag`, default 0.3; both `ParamSpec.hostOnly`)
+  gives each pen unit of ONE target a slot of the node window (`penSlices(weights, lag, equal, minFrac)`,
+  weights = the unit's TRUE pen length, document order, floor 150 ms of the track), eased once per slot; a pen
+  unit (shaft + heads, a filled shape's outline + fill) draws entirely inside its slot, and the exit is the
+  same plan sampled backwards (last unit retreats first, no second reversal). `penSlices` must stay a DIVISION by
+  the node window `m` (not a multiplication by `1/m`): that form is bit-identical to the within-unit slicer
+  Release 1 shipped. Absent = together. Only whole imported drawings with ≥ 2 strokes
+  (`strokeGeometry.multiStroke`, no fluxplot manifest) author it (Animator `switchEffect`, `animate-element
+  --preset drawOn|drawOff`); a fluxplot is a chart and always draws together.
   **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
   the shared constructor and `ops.ts` the independent zero-duration media commands.
   `electron/videoMedia.cjs` prepares H.264/AAC MP4 + PNG poster, called by both IPC and
@@ -1373,6 +1433,12 @@ Persistence invariants (all machine-checked — do not weaken):
   between its own two ends (2026-10-06: a later geometry tween had baked its start position into
   the content's translate and an earlier geometry-only transform had no binding to repaint it;
   `verify-slide-player` "shared content" pins seven forward/back seeks).
+  A transform driver repaints through its OWN content node's parent (`ownHost()`): a later driver of the
+  same element (a rewrite after a resize) moves the content into its own layer, after which
+  `contentHost.firstElementChild` is that layer and a host repaint wipes it. A text tween takes
+  `applyWrapperBox` (whole-pixel layout box + residual transform) every frame instead of the frozen-box
+  composite: the composite's 1.4x scale rasterised the glyphs differently each frame (45 to 60 px² frame to
+  frame, 54 at landing).
   **A transform effect's pivot is DATA (Release 1, WP 1.2):** `NodeAnim.origin` -> `Spec.origin`,
   and `applyAt` writes ONE `transform-origin` (+ `transform-box: fill-box` on SVG) per node per
   frame, that of the spec in flight (later spec wins if two overlap), after `applyAccumulated`;
@@ -1384,19 +1450,47 @@ Persistence invariants (all machine-checked — do not weaken):
   `growBaseline` takes orientation and sign from `series[].bar` (`growOrigin.barGrow`; vertical
   from the bottom, horizontal from the left, flipped when negative; a non-bar part grows from the
   bottom of its own fill-box); popIn/popOut scale parts about the fill-box centre. Legacy
-  `move`/`scale`/`rotate` on SVG parts are deliberately left alone (frozen channel; WP 2.2 must
-  give them a persistent origin and extend `verify-slide-part-origin` to marker centres under
-  `scale`). Inverted VALUE axes are not detected by `barGrow`. The plot Change binder
+  `move`/`scale`/`rotate` on SVG parts keep their frozen channel, but since WP 2.2 `scale` and `rotate`
+  carry `origin: "50% 50%"` (marker and bar centres stay put in flight and at rest; `applyAt` keeps a
+  COMPLETED spec's origin at rest iff its rest transform is non-identity and it is not an exit, decided
+  once at bind: `BoundPlan.restPivots`, so popIn / scaleIn / pulse leave nothing inline; `verify-slide-part-origin`
+  pins marker and bar centres under `scale` / `rotate`). Inverted VALUE axes are not detected by `barGrow`. The plot Change binder
   (`compilePlotContent`) must stay blind to the wrappers: `isFx` / `unwrapped` / `slotOf` in
   `render.ts` keep them out of the structural keys (`@<depth>:<first semantic descendant>`), the
   `local()` replacement and the z-order sibling insert.
+  **Release 2 vocabulary (WP 2.2).** `scaleIn` / `scaleOut` / `pulse` are transform-only (no opacity channel:
+  gated; `growOrigin.ts` owns the pivot: compass word, tail, auto, group, stage point; a plot part takes a
+  compass word about its own fill-box and a pulse on a part is sized by that PART's stage box,
+  `PresetCtx.partBox`). `pulse` is a `sample` spec `1 + (k-1)·ease(1-|2raw-1|)`, which with `smooth` IS
+  manimgl `there_and_back` (gated to 1e-14 against the REAL resolved curve; peak `clamp(1 + 8/min(w,h), 1.12,
+  1.3)`, stage-clamped; onset-exempt, `smooth`, X2). `encircle` builds no node animation: the player adds a
+  `MorphController` band to the flight layer (`overlay.ts`, `traceDash`; geometry in `encircleGeometry.ts`,
+  text INK measured on a hidden clone), absent at seek 0 and at rest. `ephemeral` presets (pulse, encircle)
+  leave no appearance state, never decide that a target starts hidden and export no PPTX page / step;
+  scaleIn / scaleOut export 0.02× twins about the origin. `highlight` starts from the node's opacity at the
+  track start (`lead`, authored 0.25) and so does `dim` (which ends at its level, not `min(prior, level)`);
+  both read `highlightOpacityAt` / `dimOpacityAt`, as does `compile.sample`. A group origin (`from` / `to` /
+  `about: "group"`) is the centre of the rotated union of the same-preset whole-element tracks of one cue
+  that start together (±0.5 ms; player and PPTX share `groupPoint`); alone it reads as `auto`, and it is not
+  written for a lagged selection of three or more whole objects (they enter one after another by design).
+  Authoring reads the ELEMENT (`elementEnterPreset(el)` / `elementExitPreset(el)`, autobuild.ts): rect /
+  ellipse / arrow scaleIn, text / image / plot fadeRise (y 24), plain line / path drawOn; exits scaleOut for
+  shapes and arrows, drawOff for lines and paths, else fadeOut; Emphasize writes `pulse`; the scatter
+  build's point child is `V2_STAGGER_CHILD` (`AutoPace.pointChild(n)`: scaleIn for n ≤ 150, else fade; classic
+  always fade). The Animator's effect switch (`switchEffect`) is a deliberate extension: switching ANY effect
+  removes the old effect's authored-valued params and fills the new effect's authored params for unset keys
+  (a Wipe in reached from a Fade is soft; hand-edited values and style-linked tracks are untouched). Onset is
+  gated on first visible ink, not on progress (a 200-unit box 4 ms, a 14-unit dot 40 ms at 600 ms quick smooth).
+  `scaleIn`'s enter budget is 5.7 %/frame (the 600 ms row measures 5.62) and the onset-exempt rows are
+  checked for zero velocity at both ends instead of the click-onset budget.
   **Authoring polish must inspect in-flight frames.** Endpoint/seek parity alone does not
   prove smooth motion. When a nearly flat/vertical native path grows into a large shape,
   retain a stable, generously sized SVG box across its poses; extreme frozen-wrapper scale
   ratios can rasterize a skinny source into blurred intermediate strokes. Continuous motion
   belongs on one playback clock (with-prev beats and explicit offsets), with matched segment
   velocity. Axis labels changing statistical quantities should crossfade between exact texts,
-  rather than numerically interpolate unrelated scales.
+  rather than numerically interpolate unrelated scales (a label re-formatted for the SAME value, "1" → "1.0",
+  is the one exception: ONE hard swap at t = .5, never a glyph morph or a cross-fade).
   Custom vector pose bundles can use empty `axes`/`series` and an explicit parts tree:
   keep every semantic ID, SVG tag and numeric attribute template identical between poses
   for geometry/paint interpolation without residue fades. Zero-radius ellipses retain their
@@ -1521,8 +1615,8 @@ Persistence invariants (all machine-checked — do not weaken):
   `owner.members` are the reveal inventory. THE LAW (owner, 2026-10-05): every pair morphs,
   outline to outline — a dot becomes its ellipse, a dot becomes its piece of a rectangle's
   outline, a point becomes its slice of a fitted line — and nothing on either side merely
-  fades while the other side has outlines: `complete()` hands a destination the greedy match
-  left over to its nearest matched source (which tiles across both) and merges a leftover
+  fades while the other side has outlines: `complete()` hands a destination the pairing (`assignMinCost`,
+  minimum squared travel) left over to its nearest matched source (which tiles across both) and merges a leftover
   source into a piece of its nearest destination; only a side with nothing opposite it, or a
   text/raster box (no outline to split), keeps the fade envelope. The glyph driver (the
   markers themselves fly, shrink to their landing and fade over the last 15 %) is purely the
@@ -1563,6 +1657,58 @@ Persistence invariants (all machine-checked — do not weaken):
   round), so ellipse/line/plot-part outlines stay byte-identical. Head vee/poly nodes are round on
   purpose. The drawOn butt → round cap swap is the draw track's; `stroke-linecap` on an open
   stroke still steps at .5.
+  **Rings, compound paths, sets, crossfades and the stroke band (Release 2, WP 2.1 and F1).** (1) Ring
+  alignment (`outline.alignChains`, reached through `tween.alignedPair`) is for same-kind CLOSED path Changes
+  and path Consumes only; convex Becomes never reach it (`correspond`/`normalMatch` keep their tangent
+  pairing). Open chains and dashed rings keep the authored pairing (a dash pattern runs from node 0 and a
+  Change has no dash offset: a re-seamed dashed ring snapped 287 px² at the landing; a reversed dashed ring
+  still collapses mid-flight, and a Change-level dash offset could not reach zero across the seam). An
+  alternative start/direction is taken only below 0.8x the authored cost (equal counts to 128 nodes: all 2n
+  pairings; larger equal rings pick the seam on 32 stations and refine exactly, because the exhaustive search
+  is O(n²), 1 s at 10 000 nodes; unequal counts are sampled once and every seam is a rotation of the table).
+  The alignment memo is keyed by CONTENT (a full Float64Array compare confirms; `compile.sample` builds fresh
+  pre/end clones every call, so never key by identity), bounded by 128 entries and 60 000 nodes, and its
+  entries OWN copies of their nodes (always, even a re-seamed ring, which is a new array of the caller's node
+  OBJECTS); `warmSlideMorphs` fills it. (2) Compound paths (`tween.lerpCompoundD`, `outline.compoundRings`):
+  subpaths pair largest area first; extras (a hole, an island, a solid same-wound extra) get a collapsed twin
+  at their own node mean and are omitted at their own end (`t >= 1` / `t <= 0`); every hole keeps its AUTHORED
+  winding relative to its outline, read from the SAMPLED ring (`HoleRing.rel`, `ringSign`: a same-wound extra
+  stays solid whichever way the planner re-wound the ring); subpaths are written in the end's order. A compound
+  path Become is planned in the 1↔1 driver (a donut becoming a circle was a 2 000 px² start pop: a flattened
+  chain with phantom bridges) and flown by its box in the hand-off driver (`targetGeometry.ts`). A STROKED hole
+  that closes leaves a stroke-width dot (a path has one stroke width and one opacity; taper needs a
+  per-subpath ink channel): 1 / 3.8 / 8.6 / 15 / 35 px² for 2 / 4 / 6 / 8 / 12 px strokes. (3) Set pairing:
+  `betterRingLayout` then `assignMinCost` (Hungarian; `greedyAssign` for non-finite or >1e150 centres); it is a
+  heuristic past a few partners (30 dots in a column still cross), and a layout that crosses MORE flights than
+  the legacy one is refused (967 → 154 crossings over 120 seeded sets, none worse). (4) Crossfades: a
+  two-sided box crossfade pair sits in its own isolated `g[data-xfade]` with both clones
+  `mix-blend-mode: plus-lighter` (never isolate the whole flight layer: a blue pair over a red path turns
+  magenta); the clones live one group deeper, so select them with `.sl-handoff > g[data-xfade] > g,
+  .sl-handoff > g:not([data-xfade])`; the asset-swap Change isolates its content host and its layers' blend is
+  set once and never toggled (white on dark 195 → 255, near-black on paper 69 → 8 in offscreen Electron;
+  Windows / Mac compositing and the GPU cost are unmeasured, the fallback is dropping the two `setProperty`
+  pairs). (5) **The stage draws an ellipse as `<path data-shape="ellipse">`** (`render.ts stageMarkup`: four
+  kappa arcs from 3 o'clock, clockwise, `cap: "butt"`: the figure serializer's path case defaults to ROUND caps
+  and would grow every dash of a dashed ring by half the width; pinned in `verify-slide-stroke-band-browser`).
+  Chromium rasterises `<ellipse>` through an oval primitive no path shares, so a flight (always a path) stepped
+  against the resting ellipse by that alone (12 dots 8.6, a 12 px ring 30 stage px² on the GPU; a rect and a line
+  measure identical to their paths). Select an ellipse in a slide DOM with `[data-shape=ellipse]` (draw presets
+  read `presets.ts shapeTag`, never `tagName`) and exclude `[fill-rule]` when counting `svg > path` in the morph
+  layer (the band). The figure serializer, the editor canvas and every export still write `<ellipse>`. (6)
+  **The stroke band** (`strokeBand.ts`, `outline.planStrokeBand`, `sampleStrokeBand`): a Become's stroke is
+  drawn as an evenodd fill between the outer and inner contour (curvature-matched Hermite offsets refined until
+  within 0.3 % of the exact parallel curve; mitre / round / bevel at SVG's miter limit 4; a capsule for a line),
+  normal-matched outer to outer and inner to inner, so a mitred outer corner is the source's at t = 0 (the
+  centreline law rounded it by half the width on the first frame: a 12 px rect corner jumped 0 → 6). Only a pair
+  with a CORNER (rect, polygon, butt/square-capped line) with solid, undashed strokes takes it; round pairs keep
+  the stroke law (the path stroker is the rasteriser a resting ellipse path is drawn with; an exact-offset band
+  differs by ~0.1 px on a thick ring), and a stroke thicker than the ring's smallest curvature radius, a
+  non-convex ring or a needle returns `null`. A FILL's ink bounds are tight, so a promoted layer clips the
+  half-covered fringe of the band's outer edge: the band carries an invisible stroke (`BAND_INK_GUARD`). Never
+  give a band child an explicit `visibility: visible` (it shows at rest through a hidden parent: a second ring,
+  coverage 0.75 against 0.5). `sampleElementMorph` (pure still frame) keeps the centreline law. A stroke that
+  inflates into a ring starts from the body it is DRAWN with (`trimUnderHeads`: an arrow's body ends inside
+  its head). `outline.ts` holds a NUL byte in a cache-key literal: `grep -a`, and edit it with python.
   **The placement law (render.ts):** a
   wrapper's layout box is WHOLE stage pixels (`layoutBoxOf`) at rest and in flight, and the
   exact box rides a residual composite transform (translate + centre-conjugated rotation/flips
@@ -1572,7 +1718,8 @@ Persistence invariants (all machine-checked — do not weaken):
   **Layer hygiene:** a flight that only translates rides its own compositor layer for exactly
   that flight (`promoteMovingWrapper`/`settleWrapper`, `will-change: transform`; the
   transform driver via `pureMove`, keyframed specs via `transformFlight` — `move`,
-  fadeRise's lift) and is demoted at either endpoint or after 250 ms parked; a flight
+  fadeRise's lift) and is demoted at either endpoint or after 250 ms parked (a node carrying the flight
+  mark, below, keeps its layer through the landing); a flight
   that scales or rotates paints in place every frame. The player's CAMERA (`.sl-camera`) is a
   compositor layer at all times (`will-change: transform`, 2026-10-03): a wrapper promoted
   mid-slide made Chromium squash every later sibling it overlapped into composited layers, and
@@ -1586,10 +1733,20 @@ Persistence invariants (all machine-checked — do not weaken):
   energy against a fresh render 0.30 after a resize, 0.37 at 2.5x, minimum 0.02 across a 10x zoom
   video). The keeper re-bakes: drop the hint for exactly one presented frame (`RAF;
   will-change:auto; RAF; will-change:transform; RAF`), keyed on camera pose + host scale +
-  devicePixelRatio. Live: immediately at the natural end of a flight, debounced 80 ms
+  devicePixelRatio. Live: `EARLY_BAKE_LEAD_FRAMES` (2) frames BEFORE a camera flight lands (`earlyBakeDue`, in the clock's own
+  per-frame cue time, once per flight object, never cancelled by `flying()`: a re-bake is two frame hops, the
+  hint drops in one frame and goes back in the next, and the fresh layer rasterises the pose of the second,
+  so the raster is baked at the pose the flight LANDS on, whatever the travel and the curve, under the last
+  of the motion, and the landing finds it right: a 3x zoom 438 px² soft after landing → 0.0, a pan no
+  second bake at rest; a progress threshold is a fixed fraction of the TRAVEL and cannot do this),
+  immediately at the natural end of any other flight, debounced 80 ms
   (`BAKE_DEBOUNCE_MS`) after a scrub/resize/refresh, skipped above 30 000 DOM nodes under the
   camera (`MAX_BAKE_NODES`; heavy slides stay soft exactly as before; the count is measured only
-  when the key changed). Capture (`PlayerOpts.captureMode`): after every seek whose pose changed,
+  when the key changed). A LIVE keeper accepts a raster baked within 0.01 % zoom and 0.1 px of the pose
+  (`withinBakeTolerance`; a pure pan, `translate(x, y)`, and the identity pose are read: a parser of three
+  numbers never matched a pan and re-baked at rest), a landing that arrives while the early bake is in flight
+  is judged when its turn comes (never a second bake for a pose the early bake took), a cue with two camera
+  flights early-bakes each; capture stays exact. Capture (`PlayerOpts.captureMode`): after every seek whose pose changed,
   awaited via `Player.settleRaster()` (bounded by `SETTLE_TIMEOUT_MS` = 1500; a timed-out settle
   leaves one soft frame instead of failing the 30 s worker deadline); a deck without a camera
   never bakes. The keeper is inert headless (linkedom, flux-core SSR), the hint always ends ON,
@@ -1599,7 +1756,8 @@ Persistence invariants (all machine-checked — do not weaken):
   pre-zoom raster. Capture also samples the camera exactly (`sampleCamera`, `Spec.exactPath`,
   capture only) instead of by the 24-chord polyline (5.53 → 0 stage px at 10x); LIVE playback and
   scrubbing keep their chords (dropping the flag makes live exact too). Live in-flight frames are
-  still as soft as before and sharpen in one step at landing (owner decision 4A). A
+  still as soft as before (owner decision 4A), and the raster is re-baked for the landing pose under the last
+  two frames, so there is no sharpening step at landing. A
   sub-pixel text-energy alternation in capture (0.70–0.82 at fractional offsets, 1.000 at integer
   ones, X11) is the glide itself — a held raster moved at float precision — not a keeper defect;
   fixing it (re-bake or snap per frame) trades against the glide and is a WP 1.4/2.2 decision.
@@ -1613,12 +1771,24 @@ Persistence invariants (all machine-checked — do not weaken):
   Promoted, the browser rasterizes once
   and moves the raster at float precision — the only way moving TEXT glides (in-place glyphs
   snap their baseline to device pixels) and heavy plots move without repainting; demoted at
-  rest, everything is crisp. Two measured refinements: a gliding node is ARMED at rest with a
-  paused, additive, no-op transform animation (`armFlightMark`, kept across flights, cancelled
-  when the slide is disposed) — Chromium bakes a layer's fractional offset into every raster
-  unless it considers the transform animating, so without the mark a promoted element that
-  also repaints per frame (a recolour, a data morph) stepped again; the mark must exist
-  BEFORE the promotion (attached in the same frame as a transform change it does nothing).
+  rest, everything is crisp. Two measured refinements: a gliding node carries a paused, additive, no-op transform
+  animation (`armFlightMark`, cancelled when the slide is disposed) — Chromium bakes a layer's fractional offset into every raster
+  unless it considers the transform animating, so without the mark a promoted element that also repaints per frame (a recolour, a data morph) stepped again.
+  The mark is a function of the node's OWN latest beat (`lastBeatOf` / `markFor`, player.ts): armed at the first frame of a beat in which the node glides
+  (a pure translation that really displaces it, or a TURN of a text: unpromoted, a turning text flips between its hinted axis-aligned raster and an unhinted
+  rotated one, a 9 to 66 px² jump at the first frames and ragged all along; a shape rasterises the same either way and a mark on it only adds a first-frame step),
+  kept through the landing and through every beat the node sits out (releasing it at the first frame of an unrelated cue stepped the node's picture while
+  something else began to move), released at the first frame of a beat in which it plays something that changes its picture (a kept layer re-rasters a
+  resize at fractional transforms the browser does not snap, and text landed soft). It only works a frame after it is attached and a layer bakes the
+  fractional offset of its FIRST raster, so a cue that glides presents FRAME 0 first (`begin`: the clock starts at that frame, the first moving frame waits
+  for a frame at least `PREROLL_MIN_MS` later because a catching-up compositor can deliver the next callback with frame 0's timestamp) and a hidden enter
+  (fadeRise's lift, a stagger child) is PRIMED: rendered once at opacity 0.001 at its rest placement (`primeFlightLayers`; opacity 0 is culled and never
+  rastered), so its layer is baked at the phase it lands on; a delayed enter is primed in the 50 ms before its own start (`PRIME_AHEAD_MS`), and a hidden
+  enter or a glider delayed by less than one first tick (`FIRST_TICK_MAX_MS`) is primed at frame 0 too. Text that glides to a FRACTIONAL position, or
+  turns, still lands on its layer's raster (up to half a device pixel soft, 25 px² for a 22 px word, 42 px² for a turned 210 px line): demoting it at
+  landing measured a 44 px² sharpening step on the landing frame, and nothing pops (R2 lane J; the one-line alternative is to release the mark at
+  the landing). Slide text is grayscale-antialiased end to end (the stage is a will-change layer, which disables LCD text: 0.5 % chromatic ink against
+  64 % for a plain page), so a promotion or demotion inside the stage cannot flip LCD to grayscale; what changes at a promotion is raster phase and hinting.
   And frame-by-frame capture (the video runtime) HOLDS flight layers (`holdFlightLayers`):
   a fresh layer bakes the offset of its first frame, so with an encoder's worth of wall time
   between frames every frame would be a fresh layer. Measure paint, not timing:
@@ -1626,10 +1796,45 @@ Persistence invariants (all machine-checked — do not weaken):
   `slide-raster-probe.mts` (stage crispness after resize/zoom/pan, offscreen Electron),
   `slide-motion-probe.mts` (Δ per ms; MODE=transform|recolor|camera|rise|move, GAP/KEEPALIVE
   for slow stepping), `slide-video-frames-probe.mts` (the capture document stepped slowly) and
-  `slide-playback-profile.mjs` (frame pacing + CPU profile of the editor preview). Gates:
+  `slide-playback-profile.mjs` (frame pacing + CPU profile of the editor preview), and (Release 2)
+  `slide-twitch-sweep.mts` (seek domain, perceptual, 2 ms and one-frame windows; `CORPUS=compact|synthetic|rig|all`),
+  `slide-settle-realtime.mts` (offscreen Electron, real clicks, every presented frame; `REPEAT=<n>` prints the
+  rate of every flag per cue, the tool for a defect below ~1 run in 3) and `slide-lcd-probe.cjs` (LCD vs
+  grayscale in offscreen paint bitmaps). Gates:
   `group:slide-transforms` (outline, become, become-browser, become-gui) plus the
-  tween/timeline/export-transform/transform-gui/ghost pins of both laws and the mark.
+  tween/timeline/export-transform/transform-gui/ghost pins of both laws and the mark, and
+  `verify-slide-settle-sweep.ts` and `verify-slide-settle-electron.cjs`.
   When touching stores/keep-alive, run `verify-slide-tenancy-gui.mjs`.
+  **The settle system (Release 2 lanes J, F1, F2; standing requirement: nothing pops at the start or landing
+  of any animation).** Two domains are judged. SEEK (`slideSettleSweep.ts`, headless Chrome, every cue of the
+  122-to-160-cue `compact` corpus at 2 ms and one-frame windows at both ends beside an equal neighbouring window;
+  comparison is perceptual: 2x2 average, a per-channel difference under 10 levels counts as equal, floors are
+  physical, 6 stage px² = a 0.1 px shift of a 60 px edge) and REAL TIME (`slideSettleElectronProbe.ts`, offscreen
+  Electron on the GPU compositor, a real `sendInputEvent` click per cue with a fresh page, every frame the
+  compositor PRESENTED from `paint` bitmaps; `PLAY` names the cues it plays, run under a fresh `HOME` so GPU
+  caches are cold). Verdicts: START POP / END SNAP / PRE-ROLL / POST CHANGE and the second-frame rule on the
+  raw windows (a content swap one frame late), MID FREEZE (the raw change over 100 ms a quarter into a cue that
+  moves at mid-flight must exceed 0.5; the smallest quarter in the corpus is 47.8), SKIPPED BEGINNING,
+  START HITCH (click to first moving frame ≤ 100 ms), UNEVEN PACING (no player gap > 34 ms), LONG FRAME AT
+  LANDING, FIRST FRAME != REST, START STEP (the first frame that CHANGED against the next one: the presented
+  frame at t = 0 is still the REST and a primed cue's identical frame 0 hides a pop on frame 1), LANDING STEP,
+  LANDING != REST RENDER (≤ 6, the physical floor, camera included), CHANGE AFTER LANDING (≤ 2), `hops()`
+  (a presented frame > 4x both neighbours, floor 8, judged for the `SMOOTH` cues), an interrupt shows no frame
+  more than 6x its predecessors, and slide text carries no LCD fringes (chromatic ink ≤ 2 %). A failing real-time
+  cue is rerun twice and judged by majority; more than 4 retried cues fail the gate. `KNOWN_OPEN` is the ledger of
+  tolerated defects: entries are per domain (`seek`, `rt`, `rtMay`), keyed `deck/slide#from-to`; a REQUIRED entry
+  FAILS the gate when it stops firing (that is how a fix is proven, and how a lane that fixes one must delete it),
+  every key must name a measured cue (a real-time entry must name a PLAYED cue), and an entry carries
+  `max: { "<flag prefix>": n }`, so a tolerated defect cannot grow unseen (every tolerated entry should have one).
+  After Release 2 the open entries are: countUp's second frame (inherent: a quantised count under plain `smooth`
+  has no frame between 0 and 1), text that glides to a fractional position or turns (inherent: lands on its
+  layer's raster), re-entering a SHOWN part (`scatter_reenter`: pops by definition; making an enter on a shown
+  part a no-op is an owner vocabulary decision and deletes the entry), the 12 px non-circular stroked ring's
+  landing and its reverse start (band vs the path stroker, ~0.1 px, tolerated with `max`), the flight onto a set
+  of ellipses (`set_flights/rect_3ellipses`, an edge-only ring from re-cut stations), and a hole that fills in
+  (`compound/hole_fills`, a pixel-aligned edge leaving the grid). Not entries: a reversed dashed ring (collapses
+  mid-flight), the stroked-hole dot (≈ 0.24 × stroke² px², flagged from ~10 px strokes), the cold-GPU first
+  `drawOff` hitch of a round-cap line (80 to 100 ms once per GPU cache; the gate absorbs it by retry and says so).
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
@@ -1667,8 +1872,23 @@ Persistence invariants (all machine-checked — do not weaken):
   (`with`), and owns the windows (`textMorphTimeline`). `player/textMorph.ts` measures both
   endpoints by rendering them once through the serializer, using `getStartPositionOfChar` /
   `getExtentOfChar` mapped through SVG white-space collapsing. It never guesses metrics. Each
-  span is a `<svg><text>` clone on a pre-armed, promoted, capped layer, so glyph baselines move
-  sub-pixel. Endpoints show the A / B layers. Rules learned:
+  span is a `<svg><text>` clone that carries its ENDPOINT's own view-box mapping (`EndpointFrame`:
+  `viewBox="0 0 1/kx 1/ky"`, `preserveAspectRatio="none"`) under that endpoint's residual scale, so a cloned
+  span reproduces the static render pixel for pixel; A's spans sit under A's frame, B's under B's (two layers
+  `a` / `b` inside the morph layer). The static render (A at the start, B at the end) and the span layer are
+  ADDED (plus-lighter, inside an isolated content host, set once and never toggled) with weights from the
+  distance still to travel (`handoverWeights`, `HANDOVER_EPS = 0.75` stage px: the static render hands over to
+  the spans over the first, and back over the last, 0.75 px of change, a window of distance, so a short move
+  gets a long hand-over): the phase of a layer's first raster never shows at either end. Between them the
+  spans ride compositor layers while visible (`promoteMovingWrapper`, bounded by `TEXT_MORPH_CAPS.maxSpans`;
+  a slow glide painted in place moves in quarter-device-pixel hops) and demote at both endpoints; a rewrite
+  whose BOX travels keeps its spans in the wrapper's one layer (`promote: false`; the hand-off promotes by
+  default). Every glide's LOOK progress (font size × progress; a twin's horizontal stretch in px) is added to
+  its distance from A and from B, so a glide whose own look changes in place (a count's digits, a colour lerp,
+  a weight cross-fade) cannot freeze the hand-over. The text → text hand-off keeps its own copies of A and B
+  (laid out again when a web font lands) in the flight's text layer, hidden unless the span layer owns the
+  flight. `numericTextTween` moves the shown precision from the start text's to the end text's with the count
+  (`42 → 4.2` read `42.0` from frame 1). Rules learned:
   (1) inside the Change wrapper the span layer is COUNTER-SCALED by the wrapper's composite
   scale, so it is in stage px (otherwise text stretches with a changing box, the old crossfade's
   visible artifact); (2) a text morph or glyph morph must NOT run `applyTextLayout` on the
@@ -1686,7 +1906,46 @@ Persistence invariants (all machine-checked — do not weaken):
   to the system serif. No readable outline → rounded glyph boxes that crossfade into the text,
   diagnosed through `CompileOptions.glyphStatus`. Measured: glide Δx sd 0.015 stage px/ms (a
   plain move is 0.017); landing ≤ 0.12 stage px (Skia's ¼-device-px glyph quantum, the same
-  class as a plain text move); cold first seek ≤ 35 ms. Gates: `group:text-morph`.
+  class as a plain text move); cold first mid-morph seek ≤ 35 ms (Release 2: measured 17 ms worst, lanes planner included,
+  headless; the planner is bounded to 12 obstacles per glide, ~7 ms for a 48-glide page). Gates: `group:text-morph`.
+  **Glide lanes, roll and letters (Release 2, WP 2.5).** `slide/lanes.ts` (pure, imports only `crossArc`):
+  `glideLanes` keeps `crossArc` bit for bit for every glide that does not collide and for more than 16
+  colliding ones, and gives a colliding glide a signed bow (`bowOffset`, normal `(-dy, dx)/d` as in `arcBox`,
+  X6; negative = left of travel = the `crossArc` side; seed side and ladder order are that one law) chosen to
+  minimise ink overlap, bounded by `TransformCtx.stage` (a top-edge title never lifts ink off stage) and scored
+  against at most `LANE_POLICY.maxObstacles = 12` neighbours (any glide, static ones included, is an
+  obstacle); offsets are 0 at both ends and planning runs in `build()` (the idle warm-up). Roll
+  (`LEFTOVER_ROLL`, `rollLook`: leftover words lift 0.35 em / rise from 0.35 em below with no scale change,
+  leaning toward the other side's centroid by min(0.9 em, 30 %) beyond 1.5 em; riders under a glide roll in
+  place, `pull = {0, 0}`) and letters (`LETTER_BAG_POLICY` 5-30 letters, 80 % overlap, at least two runs,
+  pass 6 of `matchTokens`, `planTextMorph({letterBag})`; coarsening past 48 spans drops the bag too) are
+  authored params on the text-rewrite `transform` track (`fadeStyle`, `letters`); `resolveTextLook(params)`
+  (`timing.ts`) is the one reader, absent = drift / fade, so old (param-less) tracks still play the pre-2.5
+  look and there is no re-pace command (owner). Text-look params are written at AUTHORING time by
+  `setTransform` (and `becomeTransform`, `addGhostTransform`, headless `set-animation`): any new writer of a
+  transform track must call `authoredFields("transform", undefined, rewritesText(...))` or use `setTransform`.
+  Limits: a one-word-per-line vertical reorder is not solved; letter anagrams overprint where letters converge.
+  **The Ghost law (`ghost.ts`).** A copy is born exactly on its source and two layers of the same AA glyphs read
+  1-(1-c)²: the copy's own ink is drawn in proportion to its separation from the source
+  (`ghostSeparation` / `ghostEmergeSpan` / `ghostEmergence`: 0 while coincident, 1 once it has left by a tenth
+  of its smaller side; a copy that never separates fades in over the first quarter), applied by the transform
+  driver on the wrapper only (`TransformCtx.ghost`), floored at 0.001 (an opacity-0 node is culled and rasters
+  mid-flight at a fractional offset it keeps). Limits: separation is measured from the BIRTH pose, and a
+  same-beat appearance owning the wrapper's opacity takes the share with it.
+  **Measured TRAPS (Release 2 F2).** (a) Chrome shapes SVG text at the scale of the svg's own view-box
+  mapping, so a run measured in a node laid out in the exact (fractional) box is 0.06 % off the real render in
+  the whole-pixel layout box: measure in the layout box and give clones the endpoint's mapping with
+  `preserveAspectRatio="none"` (without it the text is 0.4 % narrow). (b) A promoted span bakes the phase of its
+  first raster and makes every overlapping sibling composite at a fractional offset, and a span painted in
+  place moves a slow glide in quarter-pixel hops: hand the static render and the layer over at both ends
+  (distance windows) and let the layer carry the middle. (c) A hand-over weight that reads only POSITION and
+  SIZE freezes every glide whose look changes in place (the picture sat under the static render at weight 0 and
+  took over in one frame: `Flux 42` frozen for 450 ms): every look term belongs in the distance; the first/last
+  frame pins and the seek windows at both ends cannot see it, only MID FREEZE and the real-time pacing can.
+  (d) A span layer hidden by `visibility` is NOT hidden when a child sets its own `visibility`: hide it by
+  opacity. (e) The second-frame rule reads 8-bit quantisation as a pop on slow starts (a 0.0044 opacity step is
+  under one level, 0.015 is 1 to 3): check progress before calling a pop. (f) Re-entering a shown node pops by
+  definition (fade twice pops exactly as scaleIn after popIn).
 - **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
   **Highlights** (Alt+A). CLI `highlights` / `add-highlight` and MCP `list_highlights`,
   `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
@@ -2786,6 +3045,13 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
+- **Slide settle gates (Release 2).** `verify-slide-settle-sweep.ts` (pure tier, headless Chrome, ~3.5 min, one page
+  in one browser) and `verify-slide-settle-electron.cjs` (electron tier, offscreen and window-free, `exclusive`,
+  ~4.5 min, 54+ real clicks under a fresh `HOME`; needs an x11 ozone display and a GPU-capable Electron) are
+  members of `group:slide-transforms`, so `run-verifies --group slide-transforms` RUNS THE ELECTRON TIER: never
+  two Electron gates at once on one machine (wrap them in `flock`), and never a WINDOWED Electron gate
+  (`verify-slide-video-electron.cjs`, `verify-slide-embed-electron.cjs`) from an agent shell on the owner's
+  machine. The full account of what they judge and the `KNOWN_OPEN` ledger is in §4 "The settle system".
 - `--changed` maps `git diff` paths through the manifest's `pathMap` and **unions** those
   scripts with explicit `--tier` selections; `--tier pure` or `--tier ui` does not filter the
   changed set. A constrained worker must intersect the mapped names with its permitted tiers
@@ -3861,7 +4127,9 @@ outside this PNG packaging change.
   A paused additive no-op transform animation on the node (`armFlightMark`) counts as
   animating and stops the re-baking, but ONLY if it already exists when the layer is
   created — created in the same frame as the transform change it is inert (three variants
-  measured: same frame, one frame ahead, unpaused; only "armed at rest" works). A paused
+  measured: same frame, one frame ahead, unpaused; only a mark armed BEFORE the layer exists works: since
+  Release 2 it is armed at the first frame of the beat in which the node glides, frame 0 is presented first and a
+  hidden enter is primed at rest, §4). A paused
   animation is "current" and keeps its detached target alive, so marks are cancelled on
   dispose and a still (`renderStaticAt`) disposes what it armed. Probe hygiene: a
   measurement that screenshots a full stage per step is slower than the cool-down and
@@ -4331,6 +4599,45 @@ outside this PNG packaging change.
   prefix check on the raw string; refuse `..` segments, `path.resolve`, then compare
   (`plotThumbs.cjs placeOf`, pinned in verify-plot-thumbs.ts).
 
+- **Release 2 slide traps (2026-10-23).** Measuring: (1) `page.evaluate` serialises `Infinity` to `null` (a
+  "seek to the end" was a seek to 0), and a function declared inside an evaluated callback gets tsx's `__name`
+  helper (use string expressions). (2) Compare images perceptually (2x2 average, a 4 % dead band): half-pixel edge
+  snapping and 0.03 % bezier error are not visible, a 3 px round-cap dot is. (3) Headless Chrome re-rasters
+  will-change layers, so layer-lifecycle defects need offscreen Electron with the GPU (`paint` events give the
+  presented frames); headless `requestAnimationFrame` runs only in the FOREGROUND tab, and parallel browsers load
+  the box until high camera zooms sit on low-res tiles (the settle sweep gate runs one page in one browser, deck
+  after deck). (4) The presented frame at t = 0 is still the REST: judge the first frame that CHANGED against the
+  next one (the first round's "0.0 on the GPU" for the stroked hand-offs was exactly that). (5) Offscreen `paint`
+  bitmaps DO carry LCD fringes (plain page 64 % chromatic ink) and the will-change stage does not (0.5 %). (6) A
+  fresh `HOME` reproduces first-use GPU hitches a warm one hides (the gate runs under one); an intermittent flag
+  is a rate (`REPEAT=<n>`), not a verdict. (7) A seek has no priming frame, so the seek gate's run-vs-direct floor
+  is 30. (8) A crisp edge leaving the pixel grid reads 9.3 then 0.0 on the first-changed-frame rule: read raw
+  sequences (`DEAD=0`, `DUMP=` / `DUMPALL=1` on `slide-settle-realtime.mts`) before calling it a pop; compare
+  two primitives on the GPU (an offscreen harness drawing the same geometry both ways, F1's scratch
+  `raster_compare.cjs`) before choosing a representation.
+  Laws: (9) a layer bakes the offset of its FIRST raster and an invisible node first rasters in flight: prime it at
+  rest. (10) A bake that takes N frame hops must be triggered N frames before the landing; a progress threshold is a
+  fixed fraction of the travel. (11) A tolerance parser that reads three numbers cannot read `translate(x, y)`.
+  (12) State that depends on a beat must depend on the node's OWN beats (a mark released at the first frame of an
+  unrelated beat stepped the node while something else started). (13) Additive overlap (plus-lighter) at a hand-over
+  is set once and never toggled; hide a layer by opacity, never by a child-overridable `visibility`. Vocabulary:
+  (14) `mask-image` on an SVG `<g>` paints nothing in Firefox: the soft wipe masks only `<text>`, and its
+  gradient is written with `black`, never `#000` (the numeric interpolator rewrites `#000` to `#0`). (15) A
+  `sample` spec must carry its own `transient` / key set: `frameSampler` returns the last keyframe minus
+  `transient` at rest and `clearAnimStyles` only knows `ANIM_PROPS`, so add a new animated style property to
+  `ANIM_PROPS` or it is never cleared. (16) `compile.sample`'s `previous.opacity` for highlight / dim is the node's
+  state when the track is evaluated; two overlapping opacity effects on one target are an authoring error the
+  compiler already flags. (17) A hidden text-morph span keeps its last invisible style, so purity checks compare
+  VISIBLE spans only. Process: (18) `.generated/slide-embed-assets.json` must be regenerated
+  (`node scripts/gen-slide-embed-assets.mjs`) before any gate that exports the player, or the gate tests a stale
+  player (a fresh worktree also fails `tsc` until it runs). (19) `run-verifies --group slide-transforms` INCLUDES
+  the electron tier (`verify-slide-settle-electron.cjs`): wrap it in `flock` or use `--tier ui` / `--only`; and
+  two WINDOWED Electron gates (`verify-slide-video-electron.cjs`, `verify-slide-embed-electron.cjs`) open a shown
+  window on the real display and must never be run on the owner's machine by an agent (one flashed a window for
+  ~30 s during R2). (20) Bisect a regression with `git archive <sha>` copies plus the head's `scripts/` overlay,
+  never in the worktree; `pkill -f <pattern>` kills a shell whose command line contains the pattern (use
+  `[v]ite`); `grep` on `outline.ts` answers "binary file matches" (a NUL in a cache-key literal): `grep -a`.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **3D v1 is triangle-mesh visualization.** N2 (3D lines and points) remains out of
@@ -4489,6 +4796,14 @@ outside this PNG packaging change.
   opt-in, and the zoom-proxy capture policy (a capture must not start while a button is down / should wait
   for a short pointer-still moment, or become incremental — ~7 ms of parse per 1k nodes today). Display facts for this desktop: two Dell 4K panels at 60 Hz that support 120 Hz; native Wayland is
   the right default (X11 renders 2.56× the pixels through Mutter's downsample).
+- **Release 2 of the manim study (2026-10-23) leaves these OPEN on purpose** (ledger: `KNOWN_OPEN` in
+  `scripts/lib/slideSettleSweep.ts`; §4 "The settle system"): the stroked-hole dot, a reversed dashed ring that
+  still collapses mid-flight, a re-entering shown part that vanishes and re-enters (an enter on a shown part as a
+  no-op is the owner's vocabulary call), countUp's second frame (plain `smooth` is the accepted residual), text
+  that glides to a fractional position or turns landing on its layer's raster, the cold-GPU first `drawOff` hitch,
+  and Windows / Mac compositing of plus-lighter and priming (unmeasured). There is NO re-pace command (WP 2.6 cut
+  by the owner): old talks play exactly as made, and a mixed-pace deck is legal. Letters travel and roll are the
+  default for NEW text transforms; `params` stripped is the classic look.
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -10899,3 +11214,12 @@ Codex's accepted limitation stands: direct Alt+T with 5,000 selected ≈103–11
 - **Traps the lanes hit:** a fresh worktree fails `tsc` and exported-player gates until `node scripts/gen-slide-embed-assets.mjs` runs; the headless Chrome probes cannot see the raster defect (offscreen Electron only); swatch decode needs `accurate_rnd+full_chroma_int`; a `data-sl-fx` wrapper that is not skipped by the plot Change binder re-keys its ancestors (destination-only markers landed INSIDE point 0's wrapper); X13 leaked into saved presets/templates until the raw reads were audited; the y-tick rank is already bottom-to-top in DOM order (`from:"end"` ran against the pen); a stale `params.child` after a preset switch raised an unclearable "Unknown option" until `paramDiagnostics` went silent for keys another row declares; `verify-fluxconfig` has an intermittent ENOENT rename race in `ensureFluxConfig` under a loaded pure run (unrelated); `verify-model3d-headless` is red in a worktree without the model3d runtime.
 - **Open risks:** the capture's first look keeps the end-of-beat-0 raster until the first pose change (spec measured ≥ 0.992); slides above 30 000 nodes stay soft after resize/zoom; a timed-out capture settle leaves one soft frame; the bake toggle is Chromium-only; a possible LCD ↔ grayscale flip on the one un-promoted frame of a bake at host scale exactly 1; non-convex Becomes keep the older look and `stroke-linecap` still steps at .5; hand-off gradients are laid in stage space (rotation baked); a translucent SPLIT source is denser for its first ~15 %; legacy `scale`/`rotate` on SVG parts still pivot about the view-box origin (WP 2.2); inverted value axes are not detected by `barGrow`; panel-prefixed tick ids are not compensated and a one-tick axis shrinks to 0.4 d; ink-fitted writeOn is skipped for rotated/flipped targets; the Animator shows 0.4 d for a legacy tick track (owner call); `highlight.level`/`dim.level` have no UI; dash budget measured on Chrome 156 only; `fadeRise y: 24` changes the look of every NEWLY authored text entrance (old tracks keep 14); a mixed-pace old deck is possible (no re-pace op until WP 2.6).
 - **Still owed (not run in the lanes):** the Mac QuickTime/Keynote smoke for the transfer tag, `verify-slide-video-electron.cjs` and the packaged sections of `slideVideoExportProbe.ts` on a real display, `slide-playback-profile.mjs`, `slide-play-probe.mts` on the plot-node-explosion deck now that the V2 floors are live, and a real-Electron click on the owner's display for the settle (`QUICK_SMOOTH` is the one onset dial, `PlayerOpts.settle` the switch).
+
+### 2026-10-23 — Release 2 of the manim study: fade-free vocabulary, sets and rings, data hand-offs, text lanes, clean starts and landings (Claude Opus 5.5 orchestrating Sonnet 5.5 lanes, `manim/release2`)
+**Work:** Five WP lanes (S sets, V vocabulary, D data, T text, J settle; each with an adversarial review and a fixer pass) plus two follow-up lanes (F1 geometry, F2 text/emphasis/data) merged on `manim/release2` (plan: notes/manim_exploration/FINAL_PLAN.md §4 and Appendix D; reports: notes/manim_exploration/impl/R2_{J,V,S,D,T,F1,F2}_report.md). Per WP: **2.1** closed-ring alignment (`alignChains`, 0.8x gate, memoised by content), compound subpaths (`lerpCompoundD`, holes keep their winding), crossing-free set pairing (`assignMinCost`, layouts never cross more than the legacy one), per-pair plus-lighter crossfades (white on dark 195 → 255). **2.2** `scaleIn` / `scaleOut` / `pulse` (manimgl `there_and_back`) / `encircle`, lead highlight, dim from the current opacity, group origin, ephemeral presets and PPTX twins, authored defaults (rect / ellipse / arrow grow, Emphasize pulses), scatter point child `scaleIn`, legacy scale / rotate pivot about the part's centre. **2.3** view-Change tick hand-off (the last frame equals the static render), count-up place-value slots, bars with no counterpart grow and shrink; the static y-label offset is a visible look change (0.36 em lower). **2.4** soft wipe edge (`params.edge`) and stroke order (`penSlices`, `params.order`). **2.5** glide lanes (`slide/lanes.ts`), roll, letters travel, `resolveTextLook`; roll + travel are the DEFAULT for new text transforms (owner decision). **WP 2.6 (re-pace command) was cut by the owner:** old talks play exactly as made. Settle (standing requirement: no jitter at any start or landing): **J** pen touch-down, priming and the beat-following flight mark, first-tick clock, camera early bake, the transform driver's own host, and the two settle gates with a corpus of every preset and element kind; **F1** the stroke band, the ellipse drawn as a path, round hand-offs on one rasteriser, compound holes, `cornerRadius` Change pinned, magnitudes on KNOWN_OPEN; **F2** the text-morph additive hand-over (a blocker found by review: look-only glides froze), slow glides back on layers, the Ghost emergence law, count-up and re-entry explained as inherent / by definition. Integrator: the corpus covers the new vocabulary, stale entries deleted, the sweep gate runs one page in one browser (260/260 in 211 s). Docs: slide.qmd, SLIDE_TRANSFORMS.md, flux-context SLIDES.md (and the regenerated `fluxContextDocs.gen.cjs`), and this guide's body (§2 table, §4 draw plan, vocabulary, rings / sets / band, text morph, layer hygiene, the settle system, clock, pace, §7, §9, §10).
+**Learnings:**
+- **Laws that bind future work.** (1) PEN TOUCH-DOWN: a round or square cap's stroke width ramps with the ink (`penWidth`), so a draw starts and a drawOff ends on nothing; a new round-cap reveal uses it. (2) FLIGHT MARKS follow the node's OWN beats (`lastBeatOf` / `markFor`) and need PRIMING: a hidden enter is rendered once at opacity 0.001 at its rest placement before it flies, frame 0 is really presented first, the layer lives until the node changes its picture. (3) FIRST-TICK CLOCK: the first tick of a cue advances at most 20 ms (`FIRST_TICK_MAX_MS`). (4) CAMERA EARLY BAKE: the raster is baked for the pose a flight LANDS on `EARLY_BAKE_LEAD_FRAMES` (2) frames before it lands (a bake costs two frame hops; a progress threshold is a fixed fraction of the travel). (5) ADDITIVE HAND-OVER: where a layered driver swaps the static render for a moving layer, add them (plus-lighter, set once) with weights from the distance still to travel, and count EVERY look term in that distance. (6) STROKE BAND: a corner Become draws its stroke as the band between two normal-matched contours; the band carries an invisible ink guard; round pairs keep the stroke law; the stage draws ellipses as `<path data-shape="ellipse">` with butt caps. (7) KNOWN_OPEN DISCIPLINE: every tolerated defect is a named entry with an owner; a REQUIRED entry FAILS when it stops firing (delete it when you fix the defect); every entry names a measured (real-time: PLAYED) cue; `max` pins a magnitude per flag prefix so a tolerated defect cannot grow. (8) Pace stays WRITE-TIME (R1 ruling): new defaults are written into new tracks (`authoredFields`, `authoringTextParams`), playback reads no profile, saved decks never change; text-look params are written at authoring time by every writer (`setTransform` or `authoredFields("transform", undefined, rewritesText(...))`).
+- **New gates:** `verify-morph-path` (71), `verify-slide-xfade-browser` (6), `verify-appear-emphasis` (82), `verify-plot-tick-handoff` (289), `verify-count-up-slots` (25), `verify-bar-grow` (65), `verify-text-lanes` (82), `verify-slide-stroke-band` (39) + `-browser` (14), `verify-slide-settle-sweep` (pure, 260 checks) and `verify-slide-settle-electron.cjs` (electron tier, offscreen); extended `verify-slide-part-origin` (105), `verify-draw`, `verify-slide-draw-browser`, `verify-text-morph-browser` (81), `verify-slide-raster-pure`, `verify-pace-defaults`. Probes: `slide-twitch-sweep.mts`, `slide-settle-realtime.mts`, `slide-lcd-probe.cjs`.
+- **Deliberate supersessions (never loosened):** scaleIn enter budget 5.5 → 5.7 %/frame and onset-exempt rows judged by zero end velocity; `verify-slide-player` (a gliding enter presents frame 0 first, two extra driven callbacks); `verify-slide-tween` mark laws; the raster tolerance 1 % / 1.5 px → 0.01 % / 0.1 px (`verify-slide-raster-pure`); gate pins that selected `<ellipse>` now select `[data-shape=ellipse]` and the arrow gate counts `svg > path:not([fill-rule])`; H3 (the head keeps the overhang it is drawn with) and pre-cache oracle 2 (`line → oval`) re-recorded; `verify-slide-handoff-browser`'s selector pair for `g[data-xfade]`; `verify-slide-ghost-runtime` (the generated guide is replaced by the pool); `verify-preset-params` census gains `timing.ts`; `LANE_POLICY.maxObstacles` added to the pinned policy; hash pins replaced by an exact straight-line + `crossArc` formula in `verify-text-morph-browser`; `unitSlices` deleted (`penSlices` is bit-identical at lag 1); `dim` ends at its level; `verify-plot-view` pins the static y-label offset; the Animator effect switch (`switchEffect`) is a deliberate extension beyond the brief that the owner may veto; first-round F2 pins ("ride promoted layers") restored to their base meaning.
+- **Traps (full list in §9 "Release 2 slide traps"):** `page.evaluate` serialises `Infinity` to `null`; a `run-verifies --group slide-transforms` run INCLUDES the electron tier (flock it) and two WINDOWED Electron gates (`verify-slide-video-electron.cjs`, `verify-slide-embed-electron.cjs`) must never be run on the owner's machine (one flashed a window); headless rAF runs only in the FOREGROUND tab (three pages in one browser stalled two of them) and parallel browsers leave high camera zooms on low-res tiles; judge the first frame that CHANGED (t = 0 is still the rest); a layer bakes its first raster's offset; hand-over weights that ignore look changes freeze count / colour glides; `mask-image` on SVG `<g>` paints nothing in Firefox and `#000` becomes `#0`; a `sample` spec needs its own `transient` and an `ANIM_PROPS` entry; a stale `.generated/slide-embed-assets.json` tests a stale player; `grep -a` for `outline.ts` (a NUL byte); `pkill -f` kills the shell that names the pattern.
+- **Open risks:** Windows / Mac compositing of plus-lighter, isolation and priming is unmeasured; the GPU cost of plus-lighter; the cold-GPU first `drawOff` hitch; the stroked-hole dot, the reversed dashed ring, the 12 px non-circular ring's landing (0.1 px, tolerated with `max`), a flight onto a set of ellipses; countUp's second frame (inherent); re-entering a shown part pops (owner vocabulary call); Georgia digit kerning on macOS / Windows unverified; PowerPoint playback of the 0.02x scaleIn twins unverified; a visible-window owner smoke test and the Mac QuickTime / Keynote smoke are still owed (no windowed gate was run in the lanes).

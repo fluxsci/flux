@@ -29,7 +29,8 @@ Consume of a placed plot also writes its evaluated geometry and style into `to.s
 
 Animation v2 replaces the remaining all-or-nothing plot driver with `plot/project.ts` and
 `projectDom.ts`. Supported shared series tween through blended axis fits; semantic SVG
-parts bind by identity, and unmatched or unsupported matches fade locally. Only an SVG
+parts bind by identity, and unmatched or unsupported matches fade locally (a bar with no counterpart is the
+exception: it grows from, or shrinks onto, its own baseline). Only an SVG
 without semantic IDs uses a whole-content fade. **From gallery…** authors this content
 form; it is still one of Become's destinations, not a fourth transform way.
 
@@ -104,8 +105,12 @@ pair of data limits and scale is linear or log. It belongs to the shared figure 
 `to.state.view` makes it an ordinary Change, including on ghosts. `plot/project.ts` owns
 axis fitting, interpolation and inverse projection; `projectDom.ts` writes series and guides.
 Axis view needs series and calibrated axes. Lines, points and existing guides re-project;
-filled/non-series marks remain unchanged, log data must be positive, and no new ticks are
-invented. Existing guides fade in the outer 4%, including exactly on a new limit.
+filled/non-series marks remain unchanged and log data must be positive. A view Change hands the axis ticks
+off in flight and ends exactly on the editor's re-ticked render (§4, data hand-offs); axes that are not
+re-ticked (category, date, fixed labels) keep their guides, which fade in the outer 4%, including exactly
+on a new limit. A re-ticked y axis now places each label at its tick plus the plot's own label offset,
+about 0.36 em lower than before (labels used to sit on their tick): paper embeds, exports, thumbnails and
+PowerPoint posters of existing decks and papers with a y view shift accordingly.
 
 ### Curves, styles and anchors
 
@@ -151,7 +156,9 @@ mid-flight frames change, and no legacy switch exists.
 `targetOutlines` maps drawn elements, plot leaves and groups into stage-pixel `StageOutline`
 geometry and paint, applying crop, pt-true factors, overrides, view projection and placement.
 Pristine roots/manifests are immutable cache keys. `correspondence.ts` merges connected chains
-and pairs spatial/order/data/tile sets. Data ↔ summary uses data-axis fits in stage coordinates;
+and pairs spatial (minimum squared travel, `assignMinCost`, nearest-first paint order; a ring layout that
+avoids crossing flights, refused whenever it would cross more than the legacy layout; non-finite centres
+fall back to `greedyAssign`) / order / data / tile sets. Data ↔ summary uses data-axis fits in stage coordinates;
 reverse expansion uses the summary's source fit. The existing `planOutlines` seam/winding/
 arc-length planner supplies each pair, and `sampleNodes` is the shared sampling loop.
 `prepare()` runs before sampling; warmed buffers and paint conversions are retained.
@@ -171,6 +178,38 @@ source's join until t = 0.5 and then the destination's, a kind without corners i
 other side's. The hand-off paths and glyph flights use the same law (`pairJoin`), so no stroked
 corner pops at a layer swap.
 
+A Become's STROKE is drawn as the band between two contours (`strokeBand.ts`): the centreline offset
+by half the width outwards (the element's own join: a rect's mitre, a path's round, bevelled past the
+SVG miter limit) and inwards, normal-matched like the centreline (`outline.planStrokeBand`), so a
+mitred outer corner is the source's at t = 0, rounds continuously and is the destination's at t = 1
+(the centreline law rounded it by half the width on the first frame). A pair takes the band only when an
+end has a corner (a rect, a polygon, a butt- or square-capped line) and its strokes are solid and
+undashed; everything else (ellipses, rounded rects, dashes, gradient strokes, non-convex rings, a stroke
+thicker than the ring's smallest curvature radius) keeps the stroke law. A stroke that inflates into a
+ring starts from the body it is drawn with, which stops inside a filled arrowhead (`trimUnderHeads`).
+The stage draws an ellipse as a `<path data-shape="ellipse">` (four arcs from 3 o'clock, butt caps like
+the ellipse it replaces), so a round Become's flight and the resting ellipse share one rasteriser;
+the figure serializer, the editor canvas and every export still write `<ellipse>`, and the slide
+ellipse differs from the old oval primitive by under one device pixel of edge position.
+
+A same-kind path Change (and a Consume of two paths) is paired by `tween.alignedPair`, not by the
+outline planner: a CLOSED ring keeps its authored index pairing unless another start node or direction
+costs under 0.8x of it (`outline.alignChains`; rings of unequal counts are sampled once and every seam
+is a rotation of the table; rings above 128 nodes choose their seam on 32 stations), so a reversed-start
+or reversed-winding ring no longer collapses through zero area. OPEN chains are never re-paired (a bond
+or rung shares end points with its neighbours, and arrowhead/dash direction belongs to the end element),
+and a ring with a dash pattern on either end keeps its authored pairing too (dashes start at the first
+node: a reversed dashed ring still collapses mid-flight). A compound `d` (outline + holes) pairs its
+subpaths largest area first; an unmatched subpath, a hole, an island or a solid same-wound extra,
+shrinks to or grows from its own node mean (a hole closes or opens in place); every hole keeps the
+winding it was authored with relative to its outline, and the subpaths are written in the end's order.
+A compound path Become is planned the same way in the one-element driver (a donut closes its hole as it
+becomes a disc), while the hand-off driver flies a compound path by its box. A stroked hole that closes
+leaves a stroke-width dot in its last frames (a path has one stroke width), under the visibility floor
+up to about 8 px strokes. The aligned pair is memoised by CONTENT (a full coordinate compare confirms
+every hit and entries own copies of their nodes), and `warmSlideMorphs` fills it for same-kind path
+Changes.
+
 A same-element retype/outline morph stays inside `player/transform.ts`'s content host:
 A is original content, M a retained sampled path/head set, B endpoint markup rendered once
 through the shared serializer. Later tracks bind B through `targetRoot`. Same-kind content
@@ -182,7 +221,11 @@ A cross-object **hand-off** uses `player/handoff.ts`, with one retained drawing 
 controller inside the camera's stage-level `svg.sl-flight` layer. `handoffPlan.ts` prepares
 its geometry; source/destination nodes have reversible visibility leases. Whole-plot defaults
 pair the merged spines; remaining parts fade in. Crops discard outside outlines and clip the
-retained drawing. Text/raster pairs use box fades; text is measured once from live geometry.
+retained drawing. Text/raster pairs use box fades; text is measured once from live geometry. A box crossfade (a text/raster
+pair of a hand-off, an asset-swap Change) adds its two sides in premultiplied space (`mix-blend-mode:
+plus-lighter`) so coverage never dips: each two-sided hand-off pair sits in its own isolated
+`g[data-xfade]` (the flight layer is not isolated) and an asset-swap Change isolates its content host;
+one-sided fades, glyph flights and shatter pieces keep plain opacity.
 
 **Text rewrites (oct2 W3).** A text → text Change, a text Consume and a hand-off between two
 whole upright texts play the **glyph-matched text morph**. `slide/textMatch.ts` (pure) matches
@@ -193,10 +236,37 @@ than 200 characters → line level). It also gives every span its window: glides
 morph; word fades end by 55 % / start at 40 %; letter waves (when the letters fit the cap) sweep
 25 % / 30 %. `player/textMorph.ts` renders both endpoints once through the serializer, reads
 every glyph position with `getStartPositionOfChar` / `getExtentOfChar`, and flies one
-`<svg><text>` clone per span on its own armed, promoted layer (demoted at rest). The Change driver
-hosts it as A / span layer / B, with the span layer counter-scaled so it is in stage px. Hand-offs
-fly it on a stage-level `div.sl-flight-text` placed before `svg.sl-flight`. Unmappable texts (a
-legacy whole-line justification stretch) crossfade A and B at their natural size.
+`<svg><text>` clone per span; each clone carries its endpoint's own view-box mapping
+(`EndpointFrame`) under that endpoint's residual scale, so it is drawn exactly as the static render
+draws that text. The static render (A at the start, B at the end) and the span layer are ADDED
+(plus-lighter, inside an isolated content host, set once and never toggled) with weights from the
+distance still to travel over the first and last `HANDOVER_EPS = 0.75` stage px of change, so the phase
+of a layer's first raster never shows at either end; between them the spans ride compositor layers (a
+slow glide stays smooth: painted in place it would move in quarter-device-pixel hops), and a rewrite
+whose box travels paints its spans into the wrapper's one layer. A glide whose own look changes in place
+(a count's digits, a colour lerp, a weight cross-fade) counts that change in its distance, so the span
+layer owns the picture from the first frames. The Change driver hosts it as A / span layer / B, with the
+span layer counter-scaled so it is in stage px. Hand-offs fly it on a stage-level `div.sl-flight-text`
+placed before `svg.sl-flight`, with their own copies of A and B in that layer for the same hand-over.
+Unmappable texts (a legacy whole-line justification stretch) crossfade A and B at their natural size.
+The shown precision of a digit tween moves from the start text's to the end text's with the count.
+
+**Glide lanes, roll, letters.** `slide/lanes.ts` (pure, neutral) keeps `crossArc` for every glide and
+only moves the glides whose arcs would overprint another word (any glide, static ones included, is an
+obstacle): each takes a signed bow (`(-dy, dx)` normal, the same as `arcBox`; negative = left of travel =
+the `crossArc` side) chosen to minimise ink overlap, never leaving the stage; more than 16 colliding
+glides keep `crossArc`, and each is scored against at most its 12 deepest neighbours
+(`LANE_POLICY.maxObstacles`). Offsets are 0 at both ends and planning runs in the idle warm-up. Two
+authored params on the text-rewrite `transform` track (`PRESET_PARAMS.transform`): `fadeStyle: "roll"`
+(leftover words lift 0.35 em / rise from 0.35 em below with no scale change; when the other side's
+leftovers are more than 1.5 em away they lean toward them by min(0.9 em, 30 %); leftover letters glued
+to a glide, as in *Microscope* to *Microscopy*, roll in place too) and `letters: "travel"` (when the
+leftover letters of both texts are a near-permutation, an anagram, each letter flies to its partner;
+`LETTER_BAG_POLICY`: 5-30 letters, 80 % overlap, at least two runs). Absent means `"drift"` / `"fade"`:
+old tracks play exactly as made (there is no re-pace command), and `resolveTextLook(params)`
+(`timing.ts`) is the one reader. NEW text transforms are written with both, since roll and travel are
+the default look (strip `params` for the classic one). Limits: a one-word-per-line vertical reorder is
+not solved, and letter anagrams overprint where letters converge.
 
 **Text ↔ shape.** `GeometryCtx.glyphs` (the player's `glyphProvider`) turns a text element into
 letter outlines. Each letter is a filled ring from its font (`text/glyphFont.ts`, opentype.js),
@@ -218,6 +288,21 @@ transform attributes, never per-marker CSS transforms. Unsliced destinations and
 owner members define the reveal set. Reverse/random seeks restore exact endpoint visibility;
 disposal releases leases and drawings. Static hosts bake the sampled visibility before disposal.
 
+**Ghost copies.** A Ghost copy's ink emerges with its separation from its source (`ghostEmergence`, one
+law in `ghost.ts`): 0 while it coincides, 1 once it has left by a tenth of its smaller side (3 to 12
+stage px); a copy that never separates fades in over the first quarter of its flight. Two layers of the
+same anti-aliased glyphs read bolder (1-(1-c)^2), which is what a copy born on its source used to show.
+
+**Data hand-offs (WP 2.3).** A plot view Change hands the axis ticks off in flight (asset Changes keep
+their guide pairing): ticks pair by data value (`matchTickSets`, within 2 % of the smaller step), matched
+ticks walk to their new values, ticks only in the start leave over t .10-.45, ticks only in the end
+arrive over .45-.80, and a re-formatted label for the same value ("1" to "1.0") hard-swaps once at
+t = .5, never a glyph morph. Labels are placed against the tick of their own index. The last frame is the
+editor's static re-ticked render. Bars that exist in only one plot version grow from, or shrink onto, their
+own baseline (`barGrowWeight`; nothing fades, though a bar carrying its own `transform` attribute still
+does). Count-ups hold their digits still on SVG text: each digit sits in a place-value slot, centred and
+right-aligned numbers too (the hidden param `steadyDigits: false` restores the plain count).
+
 `ResolvedCurve` is retained once per track/spec; never parse easing or SVG during a frame.
 The channel law is:
 
@@ -235,8 +320,23 @@ Controllers receive `seek(u, raw)`. Static endpoints pass `(0,0)` or `(1,1)`.
 `overshootBox` and `arcBox` change only wrapper geometry; the content frame/viewBox stays
 bounded so it cannot cancel the outer motion. Wrapper layout boxes remain whole stage
 pixels, with exact placement on composite transforms. Pure translations promote for the
-flight and demote at rest; nothing animates at rest. Per-frame work writes retained-node
+flight and demote at rest (a gliding node keeps its layer through the landing, below); nothing animates
+at rest. Per-frame work writes retained-node
 attributes, with no SVG serialization, parsing or geometry planning.
+
+**Starts and landings (Release 2).** Nothing pops at either end of an animation, in the editor, in
+Present or in an export. A draw is a pen: the stroke width grows with the ink laid down (`penWidth`), so a
+round cap never blinks a dot in on frame 1 or leaves one at the end of a drawOff. The clock starts at the
+first presented frame: the first tick of a cue advances it by at most 20 ms (`FIRST_TICK_MAX_MS`), so a
+frame delayed by setup is a hitch, never a skipped beginning. A gliding node's compositor layer is baked
+at rest and kept until the node next changes its picture: a hidden enter is primed once, invisibly, at its
+rest placement just before it flies, frame 0 is really presented before anything moves, and the flight
+mark follows the node's OWN latest beat, so text that rose in lands on the static render's raster instead
+of half a pixel off it. A camera flight re-bakes the stage raster for the pose it LANDS on under its last
+two frames (`EARLY_BAKE_LEAD_FRAMES`), so the landing finds it sharp. Text that glides to a fractional
+position, or turns, lands on its layer's raster (up to half a device pixel soft: demoting it at landing
+would be a visible sharpening step). Slide text is grayscale-antialiased end to end (the stage is a
+`will-change` layer), so a promotion cannot flip LCD to grayscale.
 
 ## 5. UI
 
@@ -286,6 +386,16 @@ attributes, with no SVG serialization, parsing or geometry planning.
 - `verify-slide-become-browser.ts` (pure tier, Chrome): the three-layer driver in the exported
   player — mid-flight geometry, endpoint parity, no console errors.
 - `verify-slide-become-gui.mjs` (ui): the pick flow in the editor.
+- `verify-morph-path.ts` (pure): ring alignment, compound subpaths and holes, crossing-free set pairing.
+- `verify-slide-xfade-browser.ts` (pure tier, Chrome): plus-lighter crossfades keep full coverage.
+- `verify-slide-stroke-band.ts` / `verify-slide-stroke-band-browser.ts`: the stroke band and the ellipse path.
+- `verify-text-lanes.ts` (pure): glide lanes, the stage bound, the obstacle bound.
+- `verify-plot-tick-handoff.ts`, `verify-count-up-slots.ts`, `verify-bar-grow.ts`: tick hand-off, count-up
+  slots and bar grow/shrink.
+- `verify-appear-emphasis.ts` (pure): the fade-free vocabulary (scaleIn, scaleOut, pulse, encircle), lead highlight.
+- `verify-slide-settle-sweep.ts` / `verify-slide-settle-electron.cjs`: start and landing of every preset
+  and element kind, in the seek domain and in the offscreen-Electron compositor domain (the settle
+  corpus includes the stroked hand-offs, round hand-offs, compound holes and the text morph).
 - Existing gates updated where they encoded the superseded `morph` preset.
 
 ## 7. Historical smoothness evidence (September 15, `848dda0`)
@@ -318,8 +428,11 @@ never jank):
    Chromium bakes a layer's fractional offset into its raster whenever it does not consider the
    transform animating, so a promoted element that also repaints per frame (MODE=recolor: a
    colour lerp, likewise a data morph) stepped again — a paused, additive, no-op transform
-   animation armed at rest (`armFlightMark`) marks the transform as animating and the
-   repainting text glides (Δy sd 0.135 → 0.010); and the video capture runtime holds flight
+   animation (`armFlightMark`: armed at the first frame of the beat in which the node glides, kept through
+   the landing, released at the first frame of a later beat in which it plays something that changes its
+   picture; Release 2) marks the transform as animating and the repainting text glides (Δy sd
+   0.135 → 0.010; a hidden enter is primed, rendered once at opacity 0.001 at its rest placement just before it
+   flies, and frame 0 is presented first, because a layer bakes the fractional offset of its first raster); and the video capture runtime holds flight
    layers across frames (`holdFlightLayers`), since a fresh layer bakes its first frame's
    offset and an encoder's worth of wall time between frames would otherwise mean a fresh
    layer per frame (`slide-video-frames-probe`: 400 ms between frames, text Δy per frame
@@ -328,7 +441,9 @@ never jank):
    so after a resize, fullscreen switch, camera zoom or pan the stage was a resampled bitmap. The
    **raster keeper** (`player/rasterKeeper.ts`, owner of the camera's `will-change` hint) re-bakes it:
    drop the hint for exactly one presented frame, keyed on camera pose, host scale and device pixel
-   ratio. Live it bakes at the natural end of a flight and 80 ms after a scrub, resize or refresh,
+   ratio. Live it bakes `EARLY_BAKE_LEAD_FRAMES` (2) frames before a camera flight lands, for the pose the flight
+   lands on (a re-bake is two frame hops, so a progress threshold, a fixed fraction of the travel, cannot
+   do it), at the natural end of any other flight and 80 ms after a scrub, resize or refresh,
    and skips slides above 30,000 nodes under the camera; in video capture it settles after every
    frame whose pose changed, and a slide that zooms its camera paints wrapper flights in place and
    samples the camera exactly (`sampleCamera`) instead of by the live player's 24 chords. Measured

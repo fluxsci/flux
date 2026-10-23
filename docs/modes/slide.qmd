@@ -84,10 +84,10 @@ To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plo
 - **Transform ▾** — one action, three ways: **Change** (**Ctrl+Shift+C**) shapes a new state of the
   object at this step; **Ghost…** (**Ctrl+Alt+G**) creates copies that transform independently;
   **Become** (**B**) turns the object into another one. See [Transforms](#transforms).
-- **Emphasize** — add a highlight.
+- **Emphasize** — add a pulse (a calm swell and return); Highlight, Dim and Circle it are in the Effect menu.
 - **Disappear** / **Ctrl+Shift+D** — add an exit.
 
-Text rises in, shapes pop, and lines and paths draw on. Adding another appearance keeps the existing
+Text rises in, shapes and arrows grow, and lines and paths draw on. Adding another appearance keeps the existing
 effects; successive effects on the same target start after its existing effects by default.
 **Auto-animate** builds a plot's entrance sequence from its semantic anatomy and the plot's own
 hints, in three clicks: **Axes & grid** (the axes and their colour key, with each gridline
@@ -329,11 +329,13 @@ preview uses the updated document. Use Present for manual click-by-click rehears
 
 ## Appearances
 
-The preset menu covers entrances (**fade**, **fadeRise**, **popIn**, **growBaseline**,
-**drawOn**, **writeOn**), exits (**fadeOut**, **popOut**, **drawOff**, **wipeOut**), emphasis
-(**highlight**, **dim**), **stagger** — members of a group or points of a series arrive in
-sequence, ordered by position or index, from either end or the center — and **countUp**, which
-tweens a number in a text element ("n = 1,247" counts up in place). Draw-on/off expose full
+The preset menu covers entrances (**fade**, **fadeRise**, **popIn**, **scaleIn**, **growBaseline**,
+**drawOn**, **writeOn**), exits (**fadeOut**, **popOut**, **scaleOut**, **drawOff**, **wipeOut**),
+emphasis (**highlight**, **dim**, **pulse**, **encircle**), **stagger** — members of a group or points
+of a series arrive in sequence, ordered by position or index, from either end or the center — and
+**countUp**, which tweens a number in a text element ("n = 1,247" counts up in place; the digits stay
+put while counting, centred and right-aligned numbers too, and the hidden option `steadyDigits: false`
+restores the plain count). Draw-on/off expose full
 **trim path** control (direction, anchor, single/both-ends/middle-out, partial windows), and
 wipes pick their direction. A draw behaves like a pen: a filled shape traces its outline first and
 then fills, an arrowhead grows out of the end of its shaft, a dashed line draws dash by dash, and
@@ -347,6 +349,27 @@ or flipped target sweeps its whole box.
 Grow starts every bar from its own zero line (horizontal and negative bars included), and scatter
 points and axis ticks now animate under Pop in, Rise in and Stagger instead of vanishing. Saved
 decks pick this up automatically.
+
+Shapes and arrows **grow** in (**Scale in**: from the centre, an arrow from its tail, or about the
+centre of the objects that appear together) and shrink away (**Scale out**), and **Emphasize** pulses: a
+calm swell and return sized to the object, never past the slide edge. **Circle it** traces a band round
+an object or a sentence. Neither leaves anything behind, and neither adds a PowerPoint page. Pop in and
+Highlight remain, and saved decks keep playing as made. Highlight eases into its dip from where the
+object is, and Dim starts from the object's current opacity. Wipe in feathers its leading edge on text
+(a Soft/Hard choice in the Animator), and **Trace strokes in order** (a toggle on Draw, written for an
+imported drawing with several strokes, never for a plot) draws the strokes of a multi-path drawing one
+after another at one pen speed, each weighted by its length (a Draw out takes the last stroke first).
+Every animation starts and lands without a pop: a draw grows from nothing (a round-capped line no longer
+blinks a dot in), and text that glides lands on the crisp resting text.
+
+Release note: New animations differ from before: Appear grows shapes and arrows instead of popping
+them, Disappear shrinks them, Emphasize pulses instead of dimming-and-recovering, Wipe in has a soft
+leading edge on text, and a new Highlight eases into its dip instead of jumping. Saved animations are
+never rewritten; two things change for saved decks: a Dim after another effect starts where the object
+is, and Scale / Rotate emphasis on a plot part now turns about the part's own centre. A re-ticked y axis
+places its labels about 0.36 em lower than before (they used to sit on their tick), so thumbnails,
+exports and Paper embeds of existing decks and papers with a y view shift accordingly. The scatter
+build's points now grow in (up to 150 points) instead of fading.
 
 **by** orders the ramp: **order** (target order), **x →** or **y ↑** (data position), **value**
 (each part's own value — a hexagon's mean, a cell's value, a bar's height — low to high),
@@ -382,16 +405,22 @@ to shape it; the animator records a sparse property change. **Before** selects t
 previous step (or Design for the first change), while **After** selects this step. The destination
 above the stage always identifies where subsequent edits will go. Chained changes compose across
 steps; colors blend perceptually and rewritten numbers digit-tween. Drop a captured property in the
-Animation inspector's **Δ** row to let it inherit from earlier steps.
+Animation inspector's **Δ** row to let it inherit from earlier steps. A closed shape that starts at
+another corner or winds the other way no longer collapses on the way, and a path with a hole keeps its
+hole.
 
 **Rewriting text** plays a *text morph*. Words the old and new text share glide from where
 they were to where they land, even when they change order, case or style; a word that grows
 into a longer one (*quick* → *quickly*, *Microscope* → *Microscopy*) glides and gains its new
-letters on the way. Everything else fades: old letters drift down and fade in reading
-order while the new ones rise in, so the line turns over left to right without ever going
-empty. Crossing words pass on slightly separated lanes, and a size, weight or colour change
-travels with each word. A rewrite of more than 200 characters moves line by line. A change
-of a single number still counts up in place.
+letters on the way. Everything else fades: old letters lift away and fade in reading
+order while the new ones rise in from below (older decks keep a gentle downward drift), so the line
+turns over left to right without ever going empty. Crossing words fan out onto separate lanes so they
+stay readable, and a size, weight or colour change travels with each word. A rewrite of more than 200
+characters moves line by line. A change of a single number still counts up in place. When a text is
+rearranged into an anagram (*listen* → *silent*) its letters fly to their new places. Both looks are
+options on the Change in the Animator, **Letters travel** and **Fade style** (Drift or Roll), and they are
+on for every new text Change; saved decks play as they were made. The line is the crisp resting text at
+both ends of the move.
 
 For a box move, the **Arc** slider bends the path to either side of the straight line.
 Zero keeps it straight; the endpoints stay fixed. The small path preview shows the bend.
@@ -511,7 +540,11 @@ without a cushion at the corners), a line swells into the shape and an arrowhead
 it melts. Dashed outlines keep their dash rhythm, and translucent and colormap-filled shapes keep
 their paint throughout. Shapes with a dent (a star, an L, a pen shape) keep the older, more
 organic morph, so one slide can mix both looks. Polygon-to-polygon in-betweens look faceted rather
-than wobbly, and stroked corners keep one join style across the whole Become.
+than wobbly, and stroked corners keep one join style across the whole Become. A shape with corners
+keeps its sharp corners, stroke included, until they round off, and an arrow's body starts inside its
+head; a donut closes its hole as it becomes a disc. Several objects becoming one (or one becoming
+several) fly to their places without crossing, and a crossfade between two boxes keeps full strength
+instead of dipping.
 
 **Text and shapes.** When a shape becomes text, it splits into one piece per letter, in
 reading order, and each piece pours into its letter's outline. When text becomes a shape,
@@ -590,8 +623,11 @@ A saved view also applies in Figure mode, Paper embeds and exports.
 
 Lines, points, bars, heatmap cells, hexagons, contour bands and box or violin bodies move
 through the new axis mapping. During the glide the existing ticks, gridlines and tick labels
-move with their data values and fade near the edges; at rest the viewed axis is re-ticked for its
-new limits (categories, dates and fixed labels keep their own ticks). A log view requires
+glide to their new values: ticks that exist at both ends walk, ticks that only the old view has leave
+and ticks that only the new view has arrive (they never coexist), and a label that is re-formatted for
+the same value ("1" to "1.0") swaps once. The last frame is exactly the viewed axis, re-ticked for its
+new limits (categories, dates and fixed labels keep their own ticks, which move with their data values
+and fade near the edges). A log view requires
 positive limits and positive data; an unsupported series keeps its original geometry and the
 animation reports why. Images and rasterized layers keep their geometry. A twin value axis
 (fluxplot 0.3.2 `y2` / `x2`) has its own limits in the view.
@@ -603,7 +639,7 @@ placeholders. Choose **linear** or **log**, or **Reset** both axes. At **After s
 edit becomes a Change on that step, with one undo per edit. Scrubbing previews the axis glide.
 X-ray's axis-row **v · Axis view…** focuses the matching Inspector row.
 
-Ticks exactly on a new limit fade to zero (the outer 4% rule). Non-series marks, such as a
+On axes that keep their own ticks, ticks exactly on a new limit fade to zero (the outer 4% rule). Non-series marks, such as a
 dashed reference line, stay put. For multi-panel plots the same view applies to each panel;
 placeholders show the first panel's limits.
 
@@ -611,7 +647,8 @@ Asset Becomes and Changes of a data view use the same projection, so one Change 
 new data, axis limits and movement. Shared semantic parts tween; removed parts fade out in
 the first 40% and added parts fade in during the last 40%. Between two versions of a plot whose
 members carry stable keys (fluxplot 0.3.2: bars by category, heatmap cells and hexagons by row
-and column), each member tweens to its namesake — a bar grows or shrinks to its new height, a
+and column), each member tweens to its namesake — a bar grows or shrinks to its new height (a bar that exists in
+only one version grows from, or shrinks onto, its own baseline instead of fading), a
 hexagon's colour passes through the colour scale's law at the intermediate value — so a bar
 chart or a hexmatrix with new data is a Become candidate even without lines or points. A local SVG structure change fades
 that part. An SVG without semantic IDs uses a whole-plot crossfade. Matching ignores positional
@@ -797,7 +834,8 @@ the effect's duration:
   themselves after the same gap; an **auto** step advances after its delay; steps chained
   **with previous** land on the same click;
 - entrances and exits fade; **Rise in** and **Pop in** keep their lift or pop, and **Pop
-  out** its shrink;
+  out** its shrink; **Scale in** and **Scale out** keep their growth and shrink; **Pulse** and
+  **Circle it** add no PowerPoint slide;
 - the slide's transition (fade, slide, push) plays when the slide is entered.
 
 Objects are named with a leading `!!` (the Selection Pane shows it) — that is how Morph pairs

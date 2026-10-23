@@ -52,7 +52,7 @@ flux add-beat <deck> <slideId> [--label L]     # (add_beat)     append a build/a
 flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--preset P] [--part id]
      [--start ms] [--duration ms] [--easing e] [--to-asset id] [--to-x --to-y --to-zoom] [--track '<json>']
                                                # (set_animation)  --track passes a full Track JSON; else built from flags
-flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default
+flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default (rect/ellipse/arrow scaleIn / scaleOut, text/image/plot fadeRise, line/path drawOn / drawOff; a Draw on a multi-stroke imported drawing, not a fluxplot, traces the strokes in order)
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 flux animate-plot <deck> <slideId> <elId> [--per-panel] [--pace classic|v2]           # (animate_plot)     the whole plot build, as Animate > Auto: three clicks (axes + grid, data, legend + annotations); --pace classic keeps the older numbers
 
@@ -126,8 +126,8 @@ emits ONE file with the player + fonts inlined. No network, no install to presen
 Media commands and camera moves have their own independent families.
 
 **1. (dis)Appearances** — an object arrives or leaves elegantly. Enters: `fade`, `fadeRise`,
-`popIn`, `growBaseline`, `drawOn`, `writeOn`, `stagger` (fan a child preset across a part set).
-Exits: `fadeOut`, `popOut`, `drawOff`, `wipeOut`. Emphasis: `highlight`, `dim`, `countUp`.
+`popIn`, `scaleIn`, `growBaseline`, `drawOn`, `writeOn`, `stagger` (fan a child preset across a part set).
+Exits: `fadeOut`, `popOut`, `scaleOut`, `drawOff`, `wipeOut`. Emphasis: `highlight`, `dim`, `pulse`, `encircle`, `countUp`.
 The default set-animation upserts by family; pass `--append` (MCP `append:true`)
 to place multiple appearance effects on the same object in one step.
 
@@ -147,21 +147,45 @@ to place multiple appearance effects on the same object in one step.
   one by one along the axis in the pen's direction (same total length); give them Each 0 ms to opt out.
 - **Grow bars** (`growBaseline`) grows each bar from its own zero line: vertical bars up (down when
   negative), horizontal bars from the left (right when negative). Points and ticks animate correctly
-  under `popIn` / `fadeRise` / `stagger`.
+  under `popIn` / `fadeRise` / `stagger`. A bar that exists in only one of two plot versions grows from /
+  shrinks onto its own baseline in a Change or Become (nothing fades).
+- **Scale in / Scale out** (`scaleIn`/`scaleOut`) grow a shape from nothing (and back) about `params.from` /
+  `params.to`: a compass point (`center`, `n`, `ne`, `e`, `se`, `s`, `sw`, `w`, `nw`), `tail`, `auto`
+  (default: an arrow's tail, else the centre), `group` (the centre of the objects that start together) or
+  `{x,y}`. They never fade. A new Appear on a rect / ellipse / arrow writes `scaleIn`, Disappear `scaleOut`.
+- **Pulse** (`pulse`, Emphasize's default) swells the object and returns; the peak is sized to it
+  (1.12-1.3x, `params.scale` overrides, never past the slide edge). **Circle it** (`encircle`) traces a
+  rounded band round the object or the text ink (`params.gap`, `width`, `radius`, `window`, `color`). Both
+  leave nothing behind and add no PowerPoint page.
+- `highlight` takes `params.lead` (0-0.9, authored 0.25): it eases into its dip from where the object is;
+  `dim` starts from the object's current opacity.
+- **Stroke order**: `drawOn`/`drawOff` `params.order: "sequence"` (+ `lag`, default 0.3) draws the strokes
+  of one multi-path drawing one after another at one pen speed, weighted by length (a retreat takes the
+  last stroke first); the Animator writes it for a Draw on an imported drawing with several strokes (never
+  for a fluxplot chart).
+- **Soft wipe**: `writeOn`/`wipeOut` `params.edge: "soft"` feathers a text's leading edge (0.9 x font size);
+  new Wipe ins carry it; `"hard"` or an absent edge is the plain clip.
 - **`params` keys the player knows** (frozen defaults): `fadeRise.y` 14, `popIn.from` 0.9,
   `popOut.to` 0.92, `scale.scale` 1.15, `rotate.deg` 15, `stagger.child` fadeRise,
   `writeOn`/`wipeOut` `direction` ltr, the trim keys on `drawOn`/`drawOff`, `highlight.level` 0.4,
-  `dim.level` 0.3 (0..1). A key outside this list is kept in the deck and reported as an issue; it
+  `dim.level` 0.3 (0..1), `scaleIn.from` auto, `scaleOut.to` auto, `scaleIn`/`scaleOut` `spin` 0 (+-720),
+  `pulse.scale` (auto, 1-3) / `about`, `encircle` `gap` 6, `radius` 6, `width` 3.5, `window` 0.3, `color`,
+  `highlight.lead` 0, `drawOn`/`drawOff` `order` together / `lag` 0.3, `writeOn`/`wipeOut` `edge` hard,
+  `countUp.steadyDigits` true (SVG text only; digits sit in place-value slots), and on a text-rewrite
+  `transform` `fadeStyle` drift / `letters` fade. A key outside this list is kept in the deck and reported as an issue; it
   has no effect.
 - **Pace.** New effects are written at a measured pace: entrances and emphasis 700 ms, draw / grow /
   count-up 900 ms, exits 500 ms, Become / Change 1200 ms, camera 900 ms, on `smooth` (appearances use
-  `quick smooth`, the same S-curve without its slow first moments). A new `fadeRise` carries `y: 24`.
+  `quick smooth`, the same S-curve without its slow first moments; a new `scaleIn` is 600 ms and `scaleOut`
+  500 ms on `quick smooth`, `pulse` 700 ms and `encircle` 900 ms on `smooth`). A new `fadeRise` carries
+  `y: 24`, a new `writeOn` `edge: soft`, a new `highlight` `lead: 0.25`.
   A track that omits its timing still plays at the old fallback numbers, so existing decks never
   retime; `set-animation` fills an omitted duration, curve/easing and authored params from this pace.
   A click that lands while an effect is still moving finishes that effect in at most 120 ms, then
   starts the next. An "After previous" step waits 150 ms by default.
 - Selecting three or more whole objects for Appear / Disappear lags them in reading order (at most
-  1 s in total); two stay together.
+  1 s in total); two stay together, and then Appear / Disappear / Emphasize write the group origin (`from` / `to` /
+  `about: "group"`: they scale about the centre of the objects that start together; a pulse groups for any count).
 - Timing knobs on every track: `start`, `duration`, `curve`, `easing`
   (`smooth|standard|enter|exit|linear`), `influence` ({in, out} 0–100, the AE velocity
   profile), `stagger` ({perMs? or totalMs?, curve?, by: index|x|y, from: start|end|center|edges|random, seed?}).
@@ -179,8 +203,10 @@ beat — chain across beats) authored three ways:
 
 - **Change** (`set-transform`): the object becomes a different version of itself — position,
   size, shape geometry, colors (blended in OKLab), opacity, dash, text (a pure numeric change
-  digit-tweens; a rewrite plays the TEXT MORPH — shared words glide to their new places,
-  the rest fades by reading order — moving all the while), plot part styles. Stores a
+  digit-tweens; a rewrite plays the TEXT MORPH — shared words glide to their new places, crossing words
+  take separate lanes, the rest fades by reading order — moving all the while; new text Changes/Becomes
+  carry `params: { fadeStyle: "roll", letters: "travel" }` (leftover words lift/rise, an anagram's letters
+  fly to their partners): omit them for the classic drift/fade look; saved tracks play as made), plot part styles. Stores a
   **sparse patch** (`to.state`) against the track's pre-state; **chaining composes**: t1 of a
   later transform = the earlier one's end. Never hand-compose states; pass the patch and let
   the engine fold. `--to-asset` sets the plot content half (see Become).
@@ -197,7 +223,11 @@ beat — chain across beats) authored three ways:
   (dissolve = fades in place, the default; shatter = wedges fly with the pieces; a shape becoming letters always pours its area into them; collapse = shrinks to
   the centre; drain = empties toward the pieces). Convex shapes round off progressively (a line swells
   into its shape, a dashed outline keeps marching), shapes with a dent keep the older, more organic
-  morph, and translucent and colormap-filled shapes keep their paint through a Become.
+  morph, and translucent and colormap-filled shapes keep their paint through a Become. A shape with
+  corners keeps its sharp corners, stroke included, until they round off, and an arrow's body starts
+  inside its head; a donut closes its hole as it becomes a disc. Several objects becoming one (or one
+  becoming several) fly to their places without crossing, and a crossfade between two boxes keeps full
+  strength instead of dipping.
   A destination cannot receive overlapping hand-offs in one step. Neither side may be video;
   ghost destinations must already be born. New tracks use 1200 ms / smooth / start 0; replacing
   an existing transform keeps timing unless supplied. **Appear from…** (`appear-from`) writes
@@ -225,12 +255,14 @@ other state. Without `--beat`, it edits Design. `--reset` clears the view (at a 
 writes `view:null`). The Inspector and F-menu expose the same controls. Log limits and data
 must be positive. Lines, points, bars, heatmap cells, hexagons, contour bands and box / violin
 bodies project (fluxplot 0.3.2 records their data geometry); reference lines and rasters stay
-put. During a glide the existing ticks move and fade in the outer 4%; at rest the viewed axis is
-re-ticked for its new limits (categories / dates / fixed labels keep theirs). A twin value axis
+put. A view Change hands the axis ticks off in flight (ticks pair by data value and walk, ticks only
+one view has leave or arrive, a re-formatted label swaps once) and ends exactly on the re-ticked render of
+the viewed axis (categories / dates / fixed labels keep theirs, moving and fading in the outer 4%); a
+re-ticked y label rests at its tick plus the plot's own label offset (about 0.36 em lower than before). A twin value axis
 (`axes[].y2` / `.x2`) takes `--y2-min --y2-max --y2-scale` (`--x2-…`) and moves only the series
 drawn on it. Two versions of a keyed plot (bars by category, cells and hexagons by row.col —
 `capabilities.valueMorph`) Become each other member by member: heights tween, colour values pass
-through the colour law. `--stagger-by value|count|data-index` orders a ramp by each part's data
+through the colour law; a bar present in only one version grows / shrinks on its baseline. `--stagger-by value|count|data-index` orders a ramp by each part's data
 (`data-value` / `data-count` / `data-index`; `x` / `y` by position, `index` by target order).
 
 **Colour scale** is the same kind of prop for colour-mapped plots (hexbin, heatmap, scatter
