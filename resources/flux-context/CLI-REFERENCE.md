@@ -186,7 +186,7 @@ parameters, `target` or the current selection) as one Undo step. Posters, `--no-
 `spring(0.35[, v=2])`, `spring(k=170,c=26,m=1)`, `bezier(x1,y1,x2,y2)` /
 `cubic-bezier(...)`, `steps(n[,start|end])`, or `standard`, `smooth`, `enter`, `exit`,
 `linear`, `gentle`, `overshoot`, `anticipate`, `anticipate + overshoot`, `settle`,
-`snappy`, `bouncy`, `playful`, `steps`, `hold`. Legacy `--easing` remains supported.
+`snappy`, `bouncy`, `playful`, `steps`, `hold`, `quick smooth`, `glide`. Legacy `--easing` remains supported.
 
 ## MCP server (richer: typed verbs + inline figure PNGs)
 

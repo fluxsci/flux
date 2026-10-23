@@ -75,9 +75,11 @@ to: {
 
 `becomeTransform` and destination-side `appearFrom` write the same source-owned record.
 Pair choices derive from `PAIR_POLICIES`: auto, spatial, order, data, tile. Reveal is flip
-or draw. New transform timing comes from `defaultTimingFor("transform")` (600 ms/Smooth,
+or draw. New transform timing comes from `defaultTimingFor("transform")` (1200 ms/Smooth,
 start 0); replacing an existing transform retains its timing unless supplied. The same
-catalog keeps camera commands at 900 ms/Smooth and omitted camera playback at 320 ms/Standard.
+catalog keeps camera commands at 900 ms/Smooth. A transform or camera track that OMITS timing
+still plays at the frozen catalog fallback (600 ms/Smooth, and 320 ms/Standard for the camera):
+old decks never change; only newly authored tracks carry the pace table (`authoringTiming`).
 
 Admission resolves canonical targets against effective step manifests. It refuses missing
 parts, self refs, video, unborn ghosts and overlapping destinations in one step; disabled
@@ -153,6 +155,21 @@ and pairs spatial/order/data/tile sets. Data ↔ summary uses data-axis fits in 
 reverse expansion uses the summary's source fit. The existing `planOutlines` seam/winding/
 arc-length planner supplies each pair, and `sampleNodes` is the shared sampling loop.
 `prepare()` runs before sampling; warmed buffers and paint conversions are retained.
+
+Convex ring pairs pair by tangent angle (`slide/normalMatch.ts`, each ring in its unit frame;
+boxes thinner than `THIN_BOX = 1` stage unit use the pixel frame), so every in-between of two
+convex shapes is convex and a square rounds off progressively into a circle. Straight segments
+carry implicit 1/3-chord handles, `sampleNodes` needs the two end boxes (`ends`; `pixelLaw` picks
+the sampling law), fixed arrowheads ride the support point of the swelling ring
+(`fixedHeadPoints` / `pairHeadPoints`), and dashed destinations land on their static pattern
+(`dashShift` / `dashOffsetAt`). The M layer's gradient ids are namespaced (`<id>-morph`), and
+per-channel alpha and colormap gradients ride t in both drivers (the A, M and B layers each own
+their gradient ids: `-morph-tN` / `-tN`). Non-convex pairs (star, L, pen shapes) and rings over 600
+nodes keep the arc-length pairing. Stroke corners follow one join law (`src/lib/strokeStyle.ts`):
+rect corners are miter, path corners round, and a morph layer draws `morphJoin(pre, end, t)`, the
+source's join until t = 0.5 and then the destination's, a kind without corners inheriting the
+other side's. The hand-off paths and glyph flights use the same law (`pairJoin`), so no stroked
+corner pops at a layer swap.
 
 A same-element retype/outline morph stays inside `player/transform.ts`'s content host:
 A is original content, M a retained sampled path/head set, B endpoint markup rendered once
@@ -250,6 +267,11 @@ attributes, with no SVG serialization, parsing or geometry planning.
 - `verify-preset-catalog.ts`: defaults, labels, shared helpers, part-id and naming censuses.
 - `verify-target-geometry.ts` / `verify-target-geometry-browser.ts`: pure/core parity and live CTM.
 - `verify-correspondence.ts`: merge/pair/tiling and 1↔1 parity, real prepared geometry.
+- `verify-slide-morph-geometry.ts` / `verify-slide-morph-geometry-browser.ts`: convex normal
+  matching, rigid heads, dash phase, gradient and alpha paint through both drivers, seek purity;
+  the browser gate also pins unique gradient ids per transform.
+- `verify-slide-raster-pure.ts` / `verify-slide-raster-electron.cjs`: the raster keeper, the
+  exact capture camera, the join law and the BT.709 video colour (offscreen Electron).
 - `verify-slide-handoff-browser.ts`: exported player flight layer, glyph lifecycle and reverse seeks.
 - `verify-text-match.ts` (pure): tokenizer, matcher passes, closeness policy, plan caps, timeline.
 - `verify-glyph-outlines.ts` (pure): font resolution (fontconfig, scan index, collections,
@@ -301,7 +323,16 @@ never jank):
    layers across frames (`holdFlightLayers`), since a fresh layer bakes its first frame's
    offset and an encoder's worth of wall time between frames would otherwise mean a fresh
    layer per frame (`slide-video-frames-probe`: 400 ms between frames, text Δy per frame
-   1.017 ± 0.015 stage px — sub-pixel). The player's camera (`.sl-camera`) is itself a permanent compositor layer (2026-10-03): otherwise a promoted flight made Chromium squash every overlapping later sibling onto composited layers, flipping their text anti-aliasing at the first and last frame of every transform.
+   1.017 ± 0.015 stage px — sub-pixel). The player's camera (`.sl-camera`) is itself a permanent compositor layer (2026-10-03): otherwise a promoted flight made Chromium squash every overlapping later sibling onto composited layers, flipping their text anti-aliasing at the first and last frame of every transform. A permanent layer is
+   rasterised once and never again when its scale, fractional offset or an ancestor's scale changes,
+   so after a resize, fullscreen switch, camera zoom or pan the stage was a resampled bitmap. The
+   **raster keeper** (`player/rasterKeeper.ts`, owner of the camera's `will-change` hint) re-bakes it:
+   drop the hint for exactly one presented frame, keyed on camera pose, host scale and device pixel
+   ratio. Live it bakes at the natural end of a flight and 80 ms after a scrub, resize or refresh,
+   and skips slides above 30,000 nodes under the camera; in video capture it settles after every
+   frame whose pose changed, and a slide that zooms its camera paints wrapper flights in place and
+   samples the camera exactly (`sampleCamera`) instead of by the live player's 24 chords. Measured
+   with `slide-raster-probe.mts` and `verify-slide-raster-electron.cjs`, both offscreen Electron.
 
 Frame pacing in the editor preview (`scripts/perf/slide-playback-profile.mjs`): 89 consecutive
 16.7 ms frames, zero drops, on the normal fixture before and after; the dense fixture (1,200-mark

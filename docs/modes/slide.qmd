@@ -68,11 +68,14 @@ To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plo
 Text rises in, shapes pop, and lines and paths draw on. Adding another appearance keeps the existing
 effects; successive effects on the same target start after its existing effects by default.
 **Auto-animate** builds a plot's entrance sequence from its semantic anatomy and the plot's own
-hints: axes and their colour key first, then gridlines, then the data (lines draw on, bars grow from
-their baseline, points and hexagons stagger in), and last the legend, annotations and brackets,
-each after the short delay the plot suggests. A multi-panel plot offers **panel by panel**: the
-same four phases for each panel in turn (an inset right after its host), with the figure's title
-first and its shared legend last.
+hints, in three clicks: **Axes & grid** (the axes and their colour key, with each gridline
+fading in alongside its own axis's ticks, which arrive one by one along the axis), then
+**Data** (lines draw on, bars grow from their baseline, points and hexagons stagger in, however
+many there are), and last **Legend & annotations** (the legend's frame, then its entries, then
+annotations and brackets), each after the short delay the plot suggests. A multi-panel plot offers
+**panel by panel**: the same three clicks for each panel in turn (an inset right after its host),
+with the figure's title first and its shared legend last. The same build is available from the
+command line as `flux animate-plot`.
 
 Drag a box from empty timing-grid space to select the effects it intersects. Hold **Shift**
 (or Ctrl/Cmd) to add to the selection. Crossing a collapsed group span selects its members.
@@ -145,6 +148,15 @@ its own effect on the current step, ready to retime. **Change** selects the whol
 part-style edits are captured in each plot’s Change. Selecting the same part through
 both a common row and its plot's tree creates one effect. With **Show hidden** off,
 disappeared targets remain untouched by common-row visibility and animation actions.
+
+New effects start at a measured pace: entrances and emphasis 0.7 s, draw/grow/count 0.9 s, exits
+0.5 s, Become 1.2 s, camera 0.9 s, all on a smooth curve (**Quick smooth** for appearances: the
+same S-curve with its slow first moments removed, so a click shows motion at once). An effect that
+was authored before this change keeps its own numbers; nothing in an existing deck is retimed.
+"After previous" steps start with a 150 ms wait. A click while an effect is still moving finishes
+that effect in at most 0.12 s, then starts the next one. Selecting three or more objects and
+choosing **Appear** or **Disappear** lags them in reading order (at most one second in all); two
+objects stay together.
 
 The **Animation** inspector edits the selected effects' target, part, effect, start, duration,
 easing, stagger, and relevant specialized controls. Mixed timing values are blank until you set
@@ -292,7 +304,18 @@ The preset menu covers entrances (**fade**, **fadeRise**, **popIn**, **growBasel
 sequence, ordered by position or index, from either end or the center — and **countUp**, which
 tweens a number in a text element ("n = 1,247" counts up in place). Draw-on/off expose full
 **trim path** control (direction, anchor, single/both-ends/middle-out, partial windows), and
-wipes pick their direction.
+wipes pick their direction. A draw behaves like a pen: a filled shape traces its outline first and
+then fills, an arrowhead grows out of the end of its shaft, a dashed line draws dash by dash, and
+a stroke finishes at about 94 % of its duration, so existing decks' draws end about 100 ms
+later than before. A dotted line draws solid and takes its dots when the draw ends. A Draw on an
+axis's tick marks with no stagger set plays the ticks arriving one by one along the axis, in the
+pen's direction, in the same total time; set **Stagger → Each** to 0 ms to opt out. Wipe in/out
+fits the text itself, with no dead lead or tail, for text that is not rotated or flipped; a rotated
+or flipped target sweeps its whole box.
+
+Grow starts every bar from its own zero line (horizontal and negative bars included), and scatter
+points and axis ticks now animate under Pop in, Rise in and Stagger instead of vanishing. Saved
+decks pick this up automatically.
 
 **by** orders the ramp: **order** (target order), **x →** or **y ↑** (data position), **value**
 (each part's own value — a hexagon's mean, a cell's value, a bar's height — low to high),
@@ -451,6 +474,13 @@ on the destination axis. This supports **data ↔ summary**: points can become a
 or a summary can expand back into its points. Unmatched sources fade out; unmatched
 parts of the destination fade in. Images crossfade while their boxes move.
 
+**How a shape changes shape.** Convex shapes round off progressively (a square becomes a circle
+without a cushion at the corners), a line swells into the shape and an arrowhead rides the tip as
+it melts. Dashed outlines keep their dash rhythm, and translucent and colormap-filled shapes keep
+their paint throughout. Shapes with a dent (a star, an L, a pen shape) keep the older, more
+organic morph, so one slide can mix both looks. Polygon-to-polygon in-betweens look faceted rather
+than wobbly, and stroked corners keep one join style across the whole Become.
+
 **Text and shapes.** When a shape becomes text, it splits into one piece per letter, in
 reading order, and each piece pours into its letter's outline. When text becomes a shape,
 the letters fuse into it. A text that becomes another text plays the text morph described
@@ -472,7 +502,7 @@ auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
 pieces (or several pieces merge into it): **shatter** splits it into wedges that fly with the
 pieces; **dissolve** fades it away in place as the outline leaves; **collapse** shrinks it into
 the shape's centre; **drain** empties it toward where the pieces are going (and fills from that
-side when pieces merge). Shatter is the default.
+side when pieces merge). Dissolve is the default.
 **↔ Swap direction** reverses the hand-off, including plot parts, in one Undo. It keeps timing,
 styles and follower links. It refuses ghost births, group sources, missing outlines and a
 destination that already has a transform in this step. The command twin is `swap-become`.
@@ -750,7 +780,7 @@ replaced by PowerPoint.
 
 **Video…** exports the **current slide** and all of its animation steps as one continuous
 `.mp4`. Set **Delay between steps**, **Hold at start**, and **Hold at end**, then choose
-where to save. Defaults are a 0.5-second step delay, a 1-second start hold, a 2-second end
+where to save. Defaults are a 1-second step delay, a 1-second start hold, a 2-second end
 hold, and **1080p at 60 fps**. Settings are remembered for the next export.
 
 The start hold sets when the first animation begins. Later manual steps use your chosen
@@ -761,8 +791,10 @@ initial design regardless of the step you are editing.
 
 Choose 720p, 1080p or 2160p, and 30 or 60 fps. The slide's aspect ratio is preserved
 (portrait slides work too); the displayed pixel dimensions show the exact output size.
-MP4s use H.264 with AAC audio from unmuted clips. Individual timing holds can be 0–60 seconds; a
-single-slide video can be up to 30 minutes long. Static slides export as a still video.
+MP4s use H.264 with AAC audio from unmuted clips. Videos are BT.709 limited range and tagged as
+such, so their colours match the slide on screen; imported video clips are transcoded separately.
+Individual timing holds can be 0–60 seconds; a single-slide video can be up to 30 minutes long.
+Static slides export as a still video.
 
 Flux saves the slide before export and renders a snapshot in the background. You can keep
 editing while progress is shown, or **Cancel export**. An existing MP4 is replaced only

@@ -54,6 +54,7 @@ flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--p
                                                # (set_animation)  --track passes a full Track JSON; else built from flags
 flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
+flux animate-plot <deck> <slideId> <elId> [--per-panel] [--pace classic|v2]           # (animate_plot)     the whole plot build, as Animate > Auto: three clicks (axes + grid, data, legend + annotations); --pace classic keeps the older numbers
 
 flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
      [--x-scale linear|log --y-scale linear|log --y2-min N --y2-max N --y2-scale linear|log --reset] [--beat beatId]  # (set_plot_view) data view (a twin axis by --y2-*/--x2-*), or a Change at a deck beat
@@ -136,7 +137,31 @@ to place multiple appearance effects on the same object in one step.
   (partial window, 0..1). A rect can draw from its top-right corner, meet in the middle from
   both ends, or draw only its top half. Only STROKE-rendered shapes self-draw (a filled shape
   fades — dash windows hide strokes alone). Defaults reproduce the classic full draw.
-- `writeOn`/`wipeOut` take `params.direction: ltr|rtl|ttb|btt`.
+- `writeOn`/`wipeOut` take `params.direction: ltr|rtl|ttb|btt`. They sweep the text's own ink
+  (no dead lead or tail), but only for unrotated, unflipped targets; a rotated or flipped one
+  sweeps its whole box.
+- A **draw** is a pen: a filled+stroked shape traces its outline first and fills as the pen
+  comes round, arrowheads grow from the end of the shaft, a dashed line draws dash by dash, and a
+  dotted line (zero-length dashes, round caps) draws solid and takes its dots at rest. Strokes land
+  at about 94 % of the duration. A Draw on an axis's tick marks with no stagger set plays the ticks
+  one by one along the axis in the pen's direction (same total length); give them Each 0 ms to opt out.
+- **Grow bars** (`growBaseline`) grows each bar from its own zero line: vertical bars up (down when
+  negative), horizontal bars from the left (right when negative). Points and ticks animate correctly
+  under `popIn` / `fadeRise` / `stagger`.
+- **`params` keys the player knows** (frozen defaults): `fadeRise.y` 14, `popIn.from` 0.9,
+  `popOut.to` 0.92, `scale.scale` 1.15, `rotate.deg` 15, `stagger.child` fadeRise,
+  `writeOn`/`wipeOut` `direction` ltr, the trim keys on `drawOn`/`drawOff`, `highlight.level` 0.4,
+  `dim.level` 0.3 (0..1). A key outside this list is kept in the deck and reported as an issue; it
+  has no effect.
+- **Pace.** New effects are written at a measured pace: entrances and emphasis 700 ms, draw / grow /
+  count-up 900 ms, exits 500 ms, Become / Change 1200 ms, camera 900 ms, on `smooth` (appearances use
+  `quick smooth`, the same S-curve without its slow first moments). A new `fadeRise` carries `y: 24`.
+  A track that omits its timing still plays at the old fallback numbers, so existing decks never
+  retime; `set-animation` fills an omitted duration, curve/easing and authored params from this pace.
+  A click that lands while an effect is still moving finishes that effect in at most 120 ms, then
+  starts the next. An "After previous" step waits 150 ms by default.
+- Selecting three or more whole objects for Appear / Disappear lags them in reading order (at most
+  1 s in total); two stay together.
 - Timing knobs on every track: `start`, `duration`, `curve`, `easing`
   (`smooth|standard|enter|exit|linear`), `influence` ({in, out} 0–100, the AE velocity
   profile), `stagger` ({perMs? or totalMs?, curve?, by: index|x|y, from: start|end|center|edges|random, seed?}).
@@ -170,9 +195,11 @@ beat — chain across beats) authored three ways:
   `--source-part` selects source parts. `--pair` chooses correspondence, `--reveal` flip/draw,
   `--method` what a filled shape's interior does while it splits into pieces or pieces merge into it
   (dissolve = fades in place, the default; shatter = wedges fly with the pieces; a shape becoming letters always pours its area into them; collapse = shrinks to
-  the centre; drain = empties toward the pieces).
+  the centre; drain = empties toward the pieces). Convex shapes round off progressively (a line swells
+  into its shape, a dashed outline keeps marching), shapes with a dent keep the older, more organic
+  morph, and translucent and colormap-filled shapes keep their paint through a Become.
   A destination cannot receive overlapping hand-offs in one step. Neither side may be video;
-  ghost destinations must already be born. New tracks use 600 ms / smooth / start 0; replacing
+  ghost destinations must already be born. New tracks use 1200 ms / smooth / start 0; replacing
   an existing transform keeps timing unless supplied. **Appear from…** (`appear-from`) writes
   exactly the same source-owned hand-off record from the destination side.
   `--asset <assetId>` is the separate whole-plot content form (`to.assetId` + source paths):
@@ -289,7 +316,7 @@ and clamps to −0.5…0.8; other effects consume no rank.
 
 - `standard`, `smooth`, `enter`, `exit`, `linear` — the existing easing tokens.
 - `gentle`, `overshoot`, `anticipate`, `anticipate + overshoot`, `settle`, `snappy`,
-  `bouncy`, `playful`, `steps`, `hold` — catalog names, stored as concrete specs.
+  `bouncy`, `playful`, `steps`, `hold`, `quick smooth`, `glide` — catalog names, stored as concrete specs.
 - `spring(0.35)`, `spring(0.35, v=2)` or `spring(k=170, c=26, m=1)`.
 - `bezier(0.34,1.56,0.64,1)` or `cubic-bezier(0.34,1.56,0.64,1)`.
 - `steps(8)` or `steps(1,start)`; omitted jump means end.
