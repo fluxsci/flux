@@ -14,7 +14,7 @@ import { parseHTML } from "linkedom";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { hiddenDash, drawReach, DRAW_REACH_EPS, windowsDash, traceDash, passingFlash, trimDashAt, trimKeyframes, type TrimSpec, type DashFrame } from "../src/lib/slide/player/trim";
+import { hiddenDash, drawReach, DRAW_REACH_EPS, windowsDash, traceDash, passingFlash, penSlices, trimDashAt, trimKeyframes, type TrimSpec, type DashFrame } from "../src/lib/slide/player/trim";
 import { PRESETS } from "../src/lib/slide/player/presets";
 import { computeSlideAnims } from "../src/lib/slide/player/player";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -217,6 +217,66 @@ h.section("the draw plan: pathLength (X12), exit == enter backwards, transient l
   assert(fr(0.03).strokeDasharray.includes(",") === false && parseFloat(fr(0.03).strokeDasharray) > 0 && fr(0.03).strokeDasharray.split(" ").length === 2, "a filled+stroked shape shows ink at 3 % of the clock (the old plan showed nothing for 58 %)");
   assert(fr(0.3).fillOpacity === 0 && fr(0.6).fillOpacity > 0.05 && fr(0.6).fillOpacity < 0.5 && near(fr(0.999).fillOpacity, 1, 0.02), "the fill stays 0 until 45 % of the clock, ramps after the outline, and lands at 1");
   void dummy;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// WP 2.4 (X4) — penSlices and the stroke ORDER carrier (params.order / params.lag), through the real preset
+// ---------------------------------------------------------------------------------------------------------------
+h.section("penSlices: exact tables, bit-identical within-unit slicing, and params.order through the real draw plan");
+{
+  h.eq(penSlices([300, 120, 30], 0.5), [[0, 1], [0.5, 0.9], [0.7, 0.8]], "penSlices([300,120,30], .5) = [[0,1],[.5,.9],[.7,.8]]: one pen speed, the last end exactly 1");
+  h.eq(penSlices([100, 100, 100], 1), [[0, 1 / 3], [1 / 3, 2 / 3], [2 / 3, 1]], "lag 1: three equal strokes are back-to-back thirds");
+  h.eq(penSlices([100, 100], 0), [[0, 1], [0, 1]], "lag 0: everything together");
+  // the within-unit slicing of Release 1 (L4's private unitSlices, deleted) is penSlices(lens, 1, false, 0), BIT FOR BIT
+  const oldUnitSlices = (weights: readonly number[]): [number, number][] => { const w = weights.map((v) => Math.max(v, 1e-9)), total = w.reduce((a, b) => a + b, 0); let acc = 0; return w.map((v) => { const a = acc / total; acc += v; return [a, Math.min(1, acc / total)] as [number, number]; }); };
+  let rnd = 99, mismatches = 0;
+  const rand = () => (rnd = (rnd * 1664525 + 1013904223) >>> 0) / 4294967296;
+  for (let t = 0; t < 20000; t++) { const n = 1 + Math.floor(rand() * 6), w = Array.from({ length: n }, () => (rand() < 0.1 ? 0 : rand() * 500)); if (JSON.stringify(oldUnitSlices(w)) !== JSON.stringify(penSlices(w, 1, false, 0))) mismatches++; }
+  assert(mismatches === 0, "penSlices(lens, 1, false, 0) == Release 1's unitSlices(lens) over 20 000 random unit shapes (0-length parts included): existing arrow draws are byte-identical");
+  const here2 = fs.readFileSync(path.join(here, "..", "src/lib/slide/player/presets.ts"), "utf8");
+  assert(!/function unitSlices|unitSlices\(/.test(here2) && /penSlices\(unit\.pieces\.map\(\(p\) => p\.pen\), 1, false, 0\)/.test(here2), "presets.ts no longer owns a private slicer: the within-unit shaft -> head clock IS penSlices(lens, 1, false, 0)");
+
+  const { document } = parseHTML("<!doctype html><html><body></body></html>");
+  (globalThis as { document?: unknown }).document = document;
+  const svgNS = "http://www.w3.org/2000/svg";
+  const mk = (attrs: Record<string, string>, tag = "path") => { const n = document.createElementNS(svgNS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n as unknown as SVGElement; };
+  const ctx = { theme: FLUX_DARK, stage: { width: 640, height: 360 } };
+  const linear = (x: number) => x;
+  // three strokes of pen length 100 / 200 / 300 (linkedom has no getTotalLength: the pen length falls back to the pathLength units)
+  const house = () => { const g = mk({}, "g"); for (const len of [100, 200, 300]) g.appendChild(mk({ d: `M 0 0 L ${len} 0`, stroke: "#000", fill: "none", pathLength: String(len) })); return g; };
+  // the drawn share of a stroke: a 2-entry dash list "d gap" paints [0, d] (d / reach), the 1-entry list is the hidden frame (nothing)
+  const frac = (a: ReturnType<typeof PRESETS.drawOn>[number], raw: number) => {
+    const f = a.sample!(raw, linear) as unknown as DashFrame, entries = f.strokeDasharray.trim().split(/[\s,]+/).map(Number);
+    return entries.length === 1 ? 0 : entries[0] / drawReach(parseFloat(String(a.node.getAttribute("pathLength"))), "path");
+  };
+  const track = (params?: Record<string, unknown>, preset = "drawOn") => ({ target: "x", preset, duration: 1000, ...(params ? { params } : {}) }) as Track;
+  const together = PRESETS.drawOn([house() as never], track(), ctx), sequence = PRESETS.drawOn([house() as never], track({ order: "sequence", lag: 1 }), ctx);
+  assert([0, 0.25, 0.5, 0.75, 1].every((r) => together.every((a) => near(frac(a, r), r, 0.01))), "absent order = together: every stroke draws at the track's own pace (the plan is untouched)");
+  // lag 1 over weights 100/200/300 (total 600): slots [0,1/6] [1/6,1/2] [1/2,1]
+  const at = (r: number) => sequence.map((a) => frac(a, r));
+  assert(near(at(1 / 12)[0], 0.5, 0.01) && at(1 / 12)[1] === 0 && at(1 / 12)[2] === 0, "sequence, lag 1: at 1/12 of the clock the first stroke is half drawn and the others have not started");
+  assert(near(at(1 / 6)[0], 1, 0.02) && at(1 / 6)[1] < 0.01, "the second stroke starts exactly when the first finishes (a continuous pen)");
+  assert(near(at(1 / 3)[1], 0.5, 0.02) && at(1 / 3)[2] === 0, "...and is half drawn at 1/3");
+  assert(near(at(0.75)[2], 0.5, 0.02) && near(at(1)[2], 1, 0.02), "the last stroke lands exactly at the end of the clock");
+  const speed = [1 / 12, 1 / 3, 0.75].map((r, i) => at(r)[i] * [100, 200, 300][i] / (r - [0, 1 / 6, 1 / 2][i]));
+  assert(near(speed[0], speed[1], 0.05 * speed[0]) && near(speed[1], speed[2], 0.05 * speed[1]), `every stroke draws at ONE pen speed (${speed.map((v) => v.toFixed(0)).join(" / ")} units per unit of clock)`);
+  // lag 0.3 (the carrier default): strokes overlap, the last end is still the whole window
+  const lag3 = PRESETS.drawOn([house() as never], track({ order: "sequence" }), ctx);
+  assert(lag3.map((a) => frac(a, 0.999)).every((v) => v > 0.99) && lag3[1].sample!(0.05, linear) !== undefined && frac(lag3[2], 0.2) < 1, "the default lag (0.3) lets the strokes overlap and still lands every stroke by the end");
+  // an exit retreats LAST stroke first (the same plan sampled backwards)
+  const off = PRESETS.drawOff([house() as never], track({ order: "sequence", lag: 1 }, "drawOff"), ctx);
+  const gone = (r: number) => off.map((a) => frac(a, r));
+  assert(gone(0)[0] > 0.99 && gone(0)[2] > 0.99 && gone(1 / 12)[2] < 0.9 && gone(1 / 12)[0] > 0.99, "drawOff, sequence: the LAST stroke retreats first, the first is still whole");
+  assert(gone(1)[0] === 0 && gone(1)[1] === 0 && gone(1)[2] === 0, "...and every stroke is gone at the end");
+  // the 150 ms floor: a 3-unit cap beside a long stroke still gets >= 150 ms of a 1 000 ms track
+  const cap = mk({}, "g"); for (const len of [600, 3]) cap.appendChild(mk({ d: `M 0 0 L ${len} 0`, stroke: "#000", fill: "none", pathLength: String(len) }));
+  const [longS, capS] = PRESETS.drawOn([cap as never], track({ order: "sequence", lag: 1 }), ctx);
+  let capWindow = 0; for (let r = 0; r <= 1; r += 0.001) { const v = frac(capS, r); if (v > 0.001 && v < 0.999) capWindow += 0.001; }
+  assert(capWindow >= 0.145 && frac(longS, 1) > 0.99, `a 3-unit cap beside a 600-unit stroke is drawn over ${(capWindow * 1000).toFixed(0)} ms (>= 150), never a one-frame flash`);
+  // trim params ride a sequence too (a stroke keeps its trim inside its own slot)
+  const trimmed = PRESETS.drawOn([house() as never], track({ order: "sequence", lag: 1, mode: "both-ends" }), ctx);
+  assert(trimmed.length === 3 && trimmed[1].sample!(0.3, linear) !== undefined, "an authored trim mode coexists with a stroke order");
+  // (the WEIGHT of a stroke is its TRUE geometric length, never its `pathLength` attribute: linkedom cannot measure, so verify-slide-draw-browser pins that in Chromium)
 }
 
 // ---------------------------------------------------------------------------------------------------------------

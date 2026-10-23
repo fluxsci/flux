@@ -51,7 +51,7 @@ export const PRESET_CATALOG: Readonly<Record<PresetName, PresetDef>> = {
   // floor is what a plot build gives its points (X1c).
   scaleIn: { name: "scaleIn", family: "appearance", phase: "enter", label: "Scale in", colour: "#d0a215", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 500, authoringTiming: { duration: 600, easing: "smooth", curve: QUICK_SMOOTH } },
   stagger: { name: "stagger", family: "appearance", phase: "enter", label: "Stagger in", colour: "#d14d41", wrapperProps: ["opacity", "transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 600, authoringTiming: { duration: 700, easing: "smooth", curve: QUICK_SMOOTH } },
-  writeOn: { name: "writeOn", family: "appearance", phase: "enter", label: "Wipe in", colour: "#3aa99f", wrapperProps: ["clipPath"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 700, authoringTiming: { duration: 900, easing: "smooth", curve: QUICK_SMOOTH } },
+  writeOn: { name: "writeOn", family: "appearance", phase: "enter", label: "Wipe in", colour: "#3aa99f", wrapperProps: ["clipPath"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, autoBuildDurationMs: 700, authoringTiming: { duration: 900, easing: "smooth", curve: QUICK_SMOOTH }, authoringParams: { edge: "soft" } },
   fadeOut: { name: "fadeOut", family: "appearance", phase: "exit", label: "Fade out", colour: "#af3029", wrapperProps: ["opacity"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 500, easing: "smooth", curve: QUICK_SMOOTH } },
   popOut: { name: "popOut", family: "appearance", phase: "exit", label: "Pop out", colour: "#af3029", wrapperProps: ["opacity", "transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: true, authoringTiming: { duration: 500, easing: "smooth", curve: QUICK_SMOOTH } },
   // manim ShrinkToCenter: scaleIn run backwards (scale 1 -> 0 about an origin, no opacity channel).
@@ -186,7 +186,10 @@ export interface ParamSpec {
 }
 export type ParamRow = Readonly<Record<string, ParamSpec>>;
 
-const WIPE_DIRECTION: ParamRow = { direction: { default: "ltr" } };
+/** writeOn / wipeOut: the sweep direction and the edge of the wipe. `edge` "soft" feathers a TEXT target's leading edge (0.9 x its font
+ *  size) and is inert on anything else; absent = "hard" = today's ink-fitted clip, so old decks play as made (X1a: new writeOn
+ *  tracks AUTHOR "soft"). */
+const WIPE_PARAMS: ParamRow = { direction: { default: "ltr" }, edge: { default: "hard" } };
 /** scaleIn / scaleOut: the origin word (a compass point, "tail", "auto", "group") or a stage point, and an optional spin in degrees. */
 const GROW_SPIN: ParamSpec = { default: 0, range: [-720, 720] };
 /** drawOn / drawOff trim-path params (rework §5): the legacy default draw is anchor start, forward, single, 0..1. */
@@ -196,6 +199,11 @@ const TRIM_PARAMS: ParamRow = {
   mode: { default: "single" },
   from: { default: 0 },
   to: { default: 1 },
+  // stroke ORDER (X4): "sequence" draws the strokes of ONE target one after another at one pen speed (document order; an exit retreats
+  // last first), "together" (absent) is every stroke at once. `lag` is the share of each stroke's length the next one waits for
+  // (1 = back to back, 0 = together); it only applies to a sequence.
+  order: { default: "together" },
+  lag: { default: 0.3, range: [0, 1], requires: { key: "order", equals: "sequence" } },
 };
 
 export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
@@ -206,12 +214,12 @@ export const PRESET_PARAMS: Readonly<Record<PresetName, ParamRow>> = {
   growBaseline: {},
   scaleIn: { from: { default: "auto", types: ["string", "point"] }, spin: GROW_SPIN },
   stagger: { child: { default: "fadeRise" } },
-  writeOn: WIPE_DIRECTION,
+  writeOn: WIPE_PARAMS,
   fadeOut: {},
   popOut: { to: { default: 0.92 } },
   scaleOut: { to: { default: "auto", types: ["string", "point"] }, spin: GROW_SPIN },
   drawOff: TRIM_PARAMS,
-  wipeOut: WIPE_DIRECTION,
+  wipeOut: WIPE_PARAMS,
   // `lead`: the share of eased progress a highlight spends easing from where the node IS into its dip (0 = the legacy jump).
   highlight: { level: { default: 0.4, range: [0, 1] }, lead: { default: 0, range: [0, 0.9] } },
   dim: { level: { default: 0.3, range: [0, 1] } },

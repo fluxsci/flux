@@ -119,7 +119,7 @@ for (const name of names.filter(name => EXPECTED[name][6] === "enter" && name !=
   const v2Floor = name === "stagger" ? PRESET_CATALOG.scaleIn.autoBuildDurationMs! : floor;
   const expected = { target: "plot1", part: "mark", preset: name, duration: floor, start: 0,
     ...(name === "stagger" ? { stagger: { by: "x", from: "start", totalMs: 0 }, params: { child: "scaleIn" } } : {}),
-    curve: QUICK_SMOOTH, ...(name === "fadeRise" ? { params: { y: 24 } } : {}) };
+    curve: QUICK_SMOOTH, ...(name === "fadeRise" ? { params: { y: 24 } } : {}), ...(name === "writeOn" ? { params: { edge: "soft" } } : {}) };
   h.eq(pick(suggestTrack(manifest, "plot1", "mark")), expected, `${name}: suggested track bytes = the raised floor + the authored curve/params, otherwise unchanged except generated ID`);
   h.eq(pick(autoAnimatePlot(manifest, "plot1")[0].tracks[0]), { ...expected, generatedBy: "auto-reveal" }, `${name}: automatic build bytes = the same + generatedBy`);
   const classic = { target: "plot1", part: "mark", preset: name, duration: floor, start: 0,

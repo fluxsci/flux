@@ -32,9 +32,10 @@ h.section("1. the table");
 // default may never change (saved decks and every authoring layer write values instead).
 const FROZEN: Record<string, Record<string, unknown>> = {
   fadeRise: { y: 14 }, popIn: { from: 0.9 }, popOut: { to: 0.92 }, scale: { scale: 1.15 }, rotate: { deg: 15 },
-  stagger: { child: "fadeRise" }, writeOn: { direction: "ltr" }, wipeOut: { direction: "ltr" },
-  drawOn: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1 },
-  drawOff: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1 },
+  // WP 2.4: writeOn / wipeOut gain `edge` (absent = the hard clip), drawOn / drawOff gain `order` (absent = together) and `lag`
+  stagger: { child: "fadeRise" }, writeOn: { direction: "ltr", edge: "hard" }, wipeOut: { direction: "ltr", edge: "hard" },
+  drawOn: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3 },
+  drawOff: { anchor: "start", direction: "forward", mode: "single", from: 0, to: 1, order: "together", lag: 0.3 },
   highlight: { level: 0.4, lead: 0 }, dim: { level: 0.3 },
   // WP 2.2: the fade-free vocabulary. Their defaults are the playback fallbacks of a track that omits the key (authoring writes none of them).
   scaleIn: { from: "auto", spin: 0 }, scaleOut: { to: "auto", spin: 0 }, pulse: { scale: null, about: null },
@@ -53,7 +54,7 @@ for (const [preset, row] of Object.entries(PRESET_PARAMS)) for (const [key, spec
 }
 h.ok(true, "every range is ordered and holds its default, every `requires` names a sibling key");
 h.eq(Object.entries(PRESET_PARAMS).flatMap(([p, row]) => Object.entries(row).filter(([, s]) => s.range).map(([k, s]) => `${p}.${k}:${s.range}`)).sort(),
-  ["dim.level:0,1", "encircle.gap:0,60", "encircle.radius:0,60", "encircle.width:0.5,12", "encircle.window:0.05,1", "highlight.lead:0,0.9", "highlight.level:0,1", "pulse.scale:1,3", "scaleIn.spin:-720,720", "scaleOut.spin:-720,720"],
+  ["dim.level:0,1", "drawOff.lag:0,1", "drawOn.lag:0,1", "encircle.gap:0,60", "encircle.radius:0,60", "encircle.width:0.5,12", "encircle.window:0.05,1", "highlight.lead:0,0.9", "highlight.level:0,1", "pulse.scale:1,3", "scaleIn.spin:-720,720", "scaleOut.spin:-720,720"],
   "only the NEW keys (levels, lead, the WP 2.2 vocabulary) are clamped; every legacy key stays unclamped");
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -116,6 +117,11 @@ h.eq(legacyRotationOf(T("rotate", { deg: 40 })), 40, "legacy rotate: params.deg"
   for (let i = 0; i <= 20; i++) { const at = i / 20; if (dimOpacityAt(at, 1, 0.3) !== 1 - 0.7 * at) bad++; }
   h.eq(bad, 0, "highlight (lead 0, any prior) / dim (from a fully visible node) at the default levels are BIT-IDENTICAL to the old `.4 + .6*at` / `1 - .7*at`");
 }
+
+h.eq([presetParam(T("drawOn", { lag: 5 }), "lag", "drawOn"), presetParam(T("drawOn", { lag: -1 }), "lag", "drawOn"), presetParam(T("drawOn"), "lag", "drawOn"), presetParam(T("drawOff", { order: "sequence" }), "order", "drawOff"), presetParam(T("drawOn", { order: 3 }), "order", "drawOn")],
+  [1, 0, 0.3, "sequence", "together"], "drawOn / drawOff order + lag (X4): lag clamps to [0, 1] and defaults to 0.3, a malformed order reads as together");
+h.eq([paramDiagnostics(T("drawOn", { lag: 0.5 })).length, paramDiagnostics(T("drawOn", { order: "sequence", lag: 0.5 })).length, paramDiagnostics(T("stagger", { child: "drawOn", order: "sequence" })).length, paramDiagnostics(T("drawOff", { order: "sequence" })).length],
+  [1, 0, 0, 0], "a lag with no sequence is reported (the PRESET_PARAMS `requires` rule for order); a sequence on a drawOn / drawOff / stagger-over-draw is known");
 
 // ---------------------------------------------------------------------------------------------------------------
 h.section("4. player, compile and PPTX read the same value");

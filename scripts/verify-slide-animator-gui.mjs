@@ -183,8 +183,23 @@ try {
     ok((await track()).params?.gap === 10, "a band gap of 10 is written");
     await setNum('.props input[aria-label="Circle gap"]', "6");
     ok((await track()).params === null, "the default gap (6) deletes the key");
+    // WP 2.4: the wipe edge and the stroke-order toggle; an effect switch brings (and takes away) the effect's AUTHORED params
+    await setSel('.props [data-fld="p"]', "writeOn");
+    ok((await track()).params?.edge === "soft", "switching to Wipe in writes its authored params.edge = soft (what every new Wipe in is written with)");
+    ok(await page.evaluate(() => document.querySelector('.props select[aria-label="Wipe edge"]')?.value === "soft"), "…and the edge row shows soft");
+    await setSel('.props select[aria-label="Wipe edge"]', "hard");
+    ok((await track()).params === null, "choosing hard deletes the key (an absent edge IS the hard clip)");
+    await setSel('.props select[aria-label="Wipe edge"]', "soft");
+    ok((await track()).params?.edge === "soft", "choosing soft writes it again");
+    await setSel('.props [data-fld="p"]', "drawOn");
+    ok((await track()).params === null, "switching away from Wipe in takes its authored edge with it (no stale key on a Draw)");
+    ok(await page.evaluate(() => !!document.querySelector('.props input[aria-label="Trace strokes in order"]') && !document.querySelector('.props input[aria-label="Trace strokes in order"]').checked), "a Draw shows the 'Trace strokes in order' toggle, off by default");
+    await page.evaluate(() => document.querySelector('.props input[aria-label="Trace strokes in order"]').click()); await sleep(150);
+    ok((await track()).params?.order === "sequence", "ticking it writes params.order = sequence");
+    await page.evaluate(() => document.querySelector('.props input[aria-label="Trace strokes in order"]').click()); await sleep(150);
+    ok((await track()).params === null, "unticking deletes the key");
     await setSel('.props [data-fld="p"]', "scaleIn");
-    ok((await track()).preset === "scaleIn", "…and back to scale in");
+    ok((await track()).preset === "scaleIn" && (await track()).params === null, "…and back to scale in, with no params left behind");
   }
 
   // group / ungroup + deck-persisted collapse

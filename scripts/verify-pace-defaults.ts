@@ -50,7 +50,9 @@ for (const [name, def] of Object.entries(PRESET_CATALOG)) {
 for (const p of ["transform", "camera", "countUp"]) h.ok(authoredTiming(p).easing === "smooth" && !authoredTiming(p).curve, `${p} stays on the plain smooth token`);
 // X1a: authored params. Release 1 has exactly one row (fadeRise y 24), also inherited by a stagger whose child is fadeRise or absent.
 h.section("authored params (X1a)");
-h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringParams).map(([n, d]) => [n, d.authoringParams]), [["fadeRise", { y: 24 }], ["highlight", { lead: 0.25 }]], "params rows: fadeRise { y: 24 } and (WP 2.2) highlight { lead: 0.25 }, nothing else");
+h.eq(Object.entries(PRESET_CATALOG).filter(([, d]) => d.authoringParams).map(([n, d]) => [n, d.authoringParams]), [["fadeRise", { y: 24 }], ["writeOn", { edge: "soft" }], ["highlight", { lead: 0.25 }]], "params rows: fadeRise { y: 24 }, (WP 2.4) writeOn { edge: soft } and (WP 2.2) highlight { lead: 0.25 }, nothing else");
+h.eq([authoredFields("writeOn").params, authoredFields("wipeOut").params, authoredFields("drawOn").params, authoredFields("drawOff").params], [{ edge: "soft" }, undefined, undefined, undefined],
+  "the soft wipe edge is AUTHORED on writeOn only (X1a); stroke order is never authored by default (only the Animator writes it on a multi-path Draw)");
 h.eq(authoredFields("highlight").params, { lead: 0.25 }, "authoredFields(highlight) carries lead 0.25 (the ramp into the dip, X1a)");
 h.eq(["scaleIn", "scaleOut", "pulse", "encircle"].map(p => authoredFields(p).params), Array(4).fill(undefined), "the new presets author NO params: auto origin, auto peak, the table's band");
 h.eq(authoredFields("fadeRise").params, { y: 24 }, "authoredFields(fadeRise) carries y 24");
@@ -144,6 +146,8 @@ h.eq(withAuthoringTiming({ preset: "fade" } as any), { preset: "fade", duration:
 h.eq(withAuthoringTiming({ preset: "fadeRise" } as any), { preset: "fadeRise", duration: 700, curve: QUICK_SMOOTH, params: { y: 24 } }, "headless set-animation fills fadeRise's authored y");
 h.eq(withAuthoringTiming({ preset: "highlight" } as any), { preset: "highlight", duration: 700, curve: QUICK_SMOOTH, params: { lead: 0.25 } }, "headless set-animation fills highlight's authored lead");
 h.eq(withAuthoringTiming({ preset: "highlight", params: { lead: 0 } } as any).params, { lead: 0 }, "a supplied lead 0 (the legacy jump) wins");
+h.eq(withAuthoringTiming({ preset: "writeOn" } as any), { preset: "writeOn", duration: 900, curve: QUICK_SMOOTH, params: { edge: "soft" } }, "headless set-animation fills writeOn's soft edge");
+h.eq(withAuthoringTiming({ preset: "writeOn", params: { edge: "hard" } } as any).params, { edge: "hard" }, "a supplied edge: hard wins (the author restored the clip)");
 h.eq(withAuthoringTiming({ preset: "pulse" } as any), { preset: "pulse", duration: 700, easing: "smooth" }, "headless set-animation fills pulse's plain-smooth pace (onset-exempt, no curve)");
 h.eq(withAuthoringTiming({ preset: "scaleIn" } as any), { preset: "scaleIn", duration: 600, curve: QUICK_SMOOTH }, "headless set-animation fills scaleIn's pace");
 h.eq(withAuthoringTiming({ preset: "fadeRise", params: { y: 8 } } as any).params, { y: 8 }, "a supplied param wins, key by key");

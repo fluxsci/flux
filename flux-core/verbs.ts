@@ -3660,7 +3660,7 @@ export const VERBS: VerbDef[] = [
     cli: "animate-element",
     cliRoot: "flags",
     summary:
-      "Give a whole element (text / shape / line / image / plot) an enter or exit animation with sensible per-kind defaults (text/image/plot→fadeRise, rect/ellipse/arrow→scaleIn, line/path→drawOn; exits: scaleOut for shapes and arrows, drawOff for lines and paths, fadeOut otherwise). The non-plot analog of animate_part. `part` narrows to a named plot part instead.",
+      "Give a whole element (text / shape / line / image / plot) an enter or exit animation with sensible per-kind defaults (text/image/plot→fadeRise, rect/ellipse/arrow→scaleIn, line/path→drawOn; exits: scaleOut for shapes and arrows, drawOff for lines and paths, fadeOut otherwise; a Draw on an imported drawing with several strokes traces them in order, params.order sequence). The non-plot analog of animate_part. `part` narrows to a named plot part instead.",
     params: {
       deckId: z.string(),
       slideId: z.string(),

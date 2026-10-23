@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as slideOps from "../src/lib/slide/ops";
+import { penSlices } from "../src/lib/slide/player/trim";
 import { planStagger, staggerFields, lagTotal, lagStarts, writeTiming, trackFootprint, staggerDelay, staggerRanks, staggerSpan, LAG_MIN_CHILD_MS, LAG_MIN_CHILD_FRAC } from "../src/lib/slide/stagger";
 import {
   autoAnimatePlot, applyAutoAnimation, suggestTrack, drawDuration, paceUsesLengths, CLASSIC_PACE, V2_PACE, DEFAULT_PACE, AUTO_PACES, V2_STAGGER_CHILD,
@@ -292,5 +293,46 @@ h.ok(typeof strokeGeometry.drawGeometry === "function" && typeof strokeGeometry.
 {
   const presetsSrc = await fs.readFile(path.join(here, "..", "src", "lib", "slide", "player", "presets.ts"), "utf8");
   h.ok(/from "\.\.\/strokeGeometry"/.test(presetsSrc) && !/function (inDefs|drawGeometry|paintOf)\b/.test(presetsSrc) && !/const GEO_TAGS/.test(presetsSrc), "player/presets.ts imports them and no longer defines its own copy");
+}
+
+// ---------------------------------------------------------------- H. penSlices (WP 2.4, X4): the stroke-order law
+h.section("H. penSlices: manim get_sub_alpha generalised to arc length (T2 section 3.6, 2 000 cases)");
+{
+  const sub = (n: number, L: number) => Array.from({ length: n }, (_, i) => { const w = 1 / (1 + (n - 1) * L); return [i * L * w, i * L * w + w]; });
+  const near = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol;
+  for (const [n, L] of [[2, 0.3], [5, 0.3], [9, 0.5], [4, 1], [6, 0]] as const) {
+    const p = penSlices(Array(n).fill(1), L);
+    h.ok(p.every((s, i) => near(s[0], sub(n, L)[i][0], 1e-12) && near(s[1], sub(n, L)[i][1], 1e-12)), `equal weights, n=${n} L=${L}: identical to manim's equal slices`);
+    const e = penSlices(Array.from({ length: n }, (_, i) => 10 + 37 * i), L, true);
+    h.ok(e.every((s, i) => near(s[0], sub(n, L)[i][0], 1e-12) && near(s[1], sub(n, L)[i][1], 1e-12)), `equal=true ignores the weights (n=${n} L=${L})`);
+  }
+  let worstSpeed = 0, lastEnd = 0, viol = 0, rnd = 12345;
+  const rand = () => (rnd = (rnd * 1664525 + 1013904223) >>> 0) / 4294967296;
+  for (let t = 0; t < 2000; t++) {
+    const n = 2 + Math.floor(rand() * 9), L = rand() * 1.5, w = Array.from({ length: n }, () => 5 + rand() * 600);
+    const p = penSlices(w, L);
+    const speeds = p.map((s, i) => w[i] / (s[1] - s[0]));
+    worstSpeed = Math.max(worstSpeed, Math.max(...speeds) / Math.min(...speeds) - 1);
+    lastEnd = Math.max(lastEnd, Math.max(...p.map(s => s[1])));
+    if (p.some(s => s[0] < -1e-12 || s[1] > 1 + 1e-12 || s[1] <= s[0])) viol++;
+  }
+  h.ok(worstSpeed < 1e-9, `2000 random stroke sets: every stroke draws at ONE speed (max spread ${worstSpeed.toExponential(1)})`);
+  h.ok(near(lastEnd, 1, 1e-12) && viol === 0, "the last end is exactly the node window; no slot leaves [0, 1]");
+  const f = penSlices([300, 3, 120], 0.3, false, 150 / 2400);
+  h.ok(f.every(s => s[1] - s[0] >= 150 / 2400 - 1e-9), "a 3-unit cap never becomes a sub-150 ms flash (weights raised, k re-solved)");
+  const pen = penSlices([300, 120, 30], 1);
+  h.ok(near(pen[0][1], pen[1][0], 1e-12) && near(pen[1][1], pen[2][0], 1e-12), "lag 1 = constant-speed pen: each stroke starts where the previous ends");
+  // minFrac when equal minimum windows cannot fit: the LAG gives way, never the total
+  const tight = penSlices(Array(20).fill(100), 1, false, 150 / 1000);
+  h.ok(tight.every(s => s[1] - s[0] >= 0.15 - 1e-9) && near(Math.max(...tight.map(s => s[1])), 1, 1e-12), "20 strokes in 1 000 ms with a 150 ms floor: every window >= 150 ms, the lag yields, the total is still the whole window");
+  // 2000 random sets with a floor: windows >= floor (when feasible), last end 1
+  let floorBad = 0;
+  for (let t = 0; t < 2000; t++) {
+    const n = 2 + Math.floor(rand() * 9), floor = 150 / (600 + rand() * 2400), w = Array.from({ length: n }, () => 1 + rand() * 600), p = penSlices(w, rand(), false, floor);
+    if (n * floor <= 1 && (p.some(s => s[1] - s[0] < floor - 1e-9) || !near(Math.max(...p.map(s => s[1])), 1, 1e-12))) floorBad++;
+  }
+  h.eq(floorBad, 0, "2000 random floored sets: no window under the 150 ms floor (when n floors fit), the last end is exactly 1");
+  h.eq(penSlices([]), [], "no weights, no slices");
+  h.ok(penSlices([0, NaN, -5]).every(s => Number.isFinite(s[0]) && Number.isFinite(s[1]) && s[1] >= s[0]), "degenerate weights (0, NaN, negative) still give finite, ordered slices");
 }
 await h.done();

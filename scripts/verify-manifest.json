@@ -1396,13 +1396,19 @@
       ]
     },
     {
-      "$why": "WP 1.3 choreography core: the stagger planner, the plot auto-build (AutoPace tables, scaffold, chains), the shared pen measure and the animate-plot verb.",
+      "$why": "WP 1.3 choreography core: the stagger planner, the plot auto-build (AutoPace tables, scaffold, chains), the shared pen measure and the animate-plot verb. WP 2.2/2.4: the authoring writers (element defaults, Emphasize, the group origin, the V2 point child) and the stroke-order measure feed the vocabulary and draw gates too.",
       "glob": "{src/lib/slide/stagger.ts,src/lib/slide/autobuild.ts,src/lib/slide/partLength.ts,src/lib/slide/strokeGeometry.ts,src/lib/slide/animateSelection.ts,flux-core/slides.ts}",
       "run": [
         "verify-slide-choreo.ts",
         "verify-animate-plot.ts",
         "verify-slide-autobuild.ts",
-        "verify-slide-scatter-showcase.ts"
+        "verify-slide-scatter-showcase.ts",
+        "verify-animate-selection.ts",
+        "verify-appear-emphasis.ts",
+        "verify-pace-defaults.ts",
+        "verify-preset-catalog.ts",
+        "verify-draw.ts",
+        "verify-slide-draw-browser.ts"
       ]
     },
     {

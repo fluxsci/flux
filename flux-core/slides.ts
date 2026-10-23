@@ -48,6 +48,7 @@ import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSi
 import { plotSourceCandidates } from "../src/lib/plot/source";
 import { animateElement, animatePart, applyAutoAnimation, AUTO_PACES, paceUsesLengths, type AutoBuildOptions, type AutoPace } from "../src/lib/slide/autobuild";
 import { plotPenLengths } from "../src/lib/slide/partLength";
+import { multiStroke } from "../src/lib/slide/strokeGeometry";
 import { parseHTML } from "linkedom";
 import { hasTweenableSeries } from "../src/lib/plot/project";
 import { slideAssetIds } from "../src/lib/slide/deckProject";
@@ -1202,9 +1203,16 @@ export async function animateElementVerb(
   elementId: string,
   opts: { beatIndex?: number; exit?: boolean; preset?: Track["preset"]; part?: string } = {},
 ): Promise<{ beatIndex: number; trackId: string }> {
-  return mutateDeck(root, deckId, "animate_element", (deck) => {
+  return mutateDeck(root, deckId, "animate_element", async (deck) => {
     mustSlide(deck, slideId);
-    const r = animateElement(deck, slideId, elementId, opts);
+    // a Draw on a whole imported drawing with several strokes traces them in order (X4): the same `multiStroke` measure the Animator uses
+    let sequence = false;
+    const found = (opts.preset === "drawOn" || opts.preset === "drawOff") && !opts.part ? slideOps.findElement(deck, elementId) : undefined;
+    if (found?.el.type === "plot") {
+      const svg = await readPlotSvg(root, found.el, deckId);
+      sequence = !!svg && multiStroke(parseHTML(svg).document);
+    }
+    const r = animateElement(deck, slideId, elementId, { ...opts, ...(sequence ? { sequence } : {}) });
     if (!r) throw new Error(`element not found: ${elementId} on ${slideId}`);
     return r;
   });

@@ -10,6 +10,10 @@
 //   * writeOn: the hard clip is ink-fitted (no dead lead, no dead tail, descender margin kept); a PLOT never takes a mask;
 //   * X13: an old-style tick track (one drawOn, no stagger) plays with its ticks FOLLOWING the pen, same cue length;
 //     `{ perMs: 0 }` restores the old simultaneous look;
+//   * (WP 2.4) params.edge "soft" feathers a TEXT writeOn with a gradient mask (feather 0.9 x font size, the edge travelling
+//     -F -> 100 %, none at rest); "hard" and an absent edge keep the clip; a plot, or a mixed target, never takes a mask;
+//   * (WP 2.4, X4) params.order "sequence" draws the strokes of one multi-path drawing one after another at ONE pen speed
+//     (true pen length as weight, pathLength never), an exit retreats the last stroke first, and absent = together;
 //   * drawOn -> drawOff -> drawOn rest states, reverse seeks, supersession; zero page errors.
 // Run: npx tsx scripts/verify-slide-draw-browser.ts
 import * as fs from "node:fs/promises";
@@ -19,6 +23,7 @@ import { pathToFileURL } from "node:url";
 import * as slides from "../flux-core/slides";
 import * as core from "../flux-core/index";
 import * as slideOps from "../src/lib/slide/ops";
+import { DRAW_REACH_EPS } from "../src/lib/slide/player/trim";
 import { harness } from "./lib/harness.mjs";
 
 const h = harness("verify-slide-draw-browser");
@@ -82,6 +87,32 @@ try {
   const tickBeat = (target: string, part: string, extra: Record<string, unknown> = {}) => { const bb = slideOps.addBeat(tk, tks, { label: part })!; slideOps.setAnimation(tk, tks, bb.id, { target, part, preset: "drawOn", duration: 800, easing: "linear", ...extra } as never); };
   tickBeat(pa, "axis.x.ticks"); tickBeat(pa, "axis.y.ticks"); tickBeat(pb, "axis.x.ticks", { stagger: { perMs: 0 } }); tickBeat(pc2, "axis.x.ticks", { stagger: { perMs: 40, by: "x", from: "start" } });
   await slides.saveDeck(root, tk);
+
+  // WP 2.4: a multi-path drawing (a house, its roof and a sun: 3 strokes, the roof declares pathLength 1000 on a 170-unit stroke) drawn in
+  // ORDER, and four writeOns that differ only in params.edge
+  await fs.writeFile(path.join(root, "plots", "house.svg"), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200" width="300" height="200"><path id="house.walls" d="M 20 180 H 120 V 100 H 20 Z" fill="none" stroke="#222" stroke-width="3"/><path id="house.roof" d="M 10 100 L 70 40 L 130 100" fill="none" stroke="#222" stroke-width="3" pathLength="1000"/><circle id="house.sun" cx="220" cy="60" r="20" fill="none" stroke="#d0a215" stroke-width="3"/></svg>`);
+  const ord = slideOps.createDeck({ id: "order", title: "order", withTitleSlide: false });
+  const os2 = slideOps.addSlide(ord, { name: "O", layout: "blank" }).id;
+  slideOps.addElement(ord, os2, { id: "house", type: "plot", assetId: "house", source: { svgPath: "plots/house.svg" }, x: 40, y: 20, width: 300, height: 200, rotation: 0 } as never);
+  for (const [i, params] of [{ order: "sequence", lag: 1 }, undefined, { order: "sequence", lag: 1 }, { order: "sequence" }].entries()) {
+    const bb = slideOps.addBeat(ord, os2, { label: `b${i}` })!;
+    slideOps.setAnimation(ord, os2, bb.id, { target: "house", preset: i === 2 ? "drawOff" : "drawOn", duration: 1000, easing: "linear", ...(params ? { params } : {}) } as never);
+  }
+  await slides.saveDeck(root, ord);
+  const soft = slideOps.createDeck({ id: "soft", title: "soft", withTitleSlide: false });
+  const ss = slideOps.addSlide(soft, { name: "S", layout: "blank" }).id;
+  const textIds: string[] = [];
+  for (const [i, edge] of ["soft", "hard", undefined, "soft"].entries()) {
+    slideOps.addSlideText(soft, ss, { text: "Write me on", x: 40, y: 20 + i * 60, width: 300, height: 40, fontSize: i === 3 ? 40 : 24 });
+    textIds.push(slideOps.slideById(soft, ss)!.elements.at(-1)!.id);
+    void edge;
+  }
+  slideOps.addElement(soft, ss, { id: "spl", type: "plot", assetId: "panels-a", source: { svgPath: "plots/panels-a.svg", manifestPath: "plots/panels-a.fluxplot.json" }, x: 360, y: 20, width: 260, height: 200, rotation: 0 } as never);
+  slideOps.addElement(soft, ss, { id: "srot", type: "rect", x: 40, y: 280, width: 120, height: 40, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
+  { const bb = slideOps.addBeat(soft, ss, { label: "write" })!;
+    ["soft", "hard", undefined, "soft"].forEach((edge, i) => slideOps.setAnimation(soft, ss, bb.id, { target: textIds[i], preset: i === 3 ? "wipeOut" : "writeOn", duration: 1000, easing: "linear", ...(edge ? { params: { edge } } : {}) } as never));
+    slideOps.setAnimation(soft, ss, bb.id, { target: "spl", preset: "writeOn", duration: 1000, easing: "linear", params: { edge: "soft" } } as never); }
+  await slides.saveDeck(root, soft);
 
   const { launch } = await import("./lib/driver.mjs");
   const launched = await launch();
@@ -178,6 +209,102 @@ try {
   const pl = await S(100);
   assert(pl.plotText > 0 && pl.plotMasks === 0 && pl.plotClip.startsWith("inset("), `writeOn on a plot (${pl.plotText} <text>s + geometry): clip-path ${pl.plotClip}, ${pl.plotMasks} masked nodes — a text-only mask would leave every line and marker visible`);
   await pc.close();
+
+  // ---------------------------------------------------------------- WP 2.4: the soft wipe edge (text only; everything else keeps the clip)
+  {
+    const psoft = await open("soft");
+    const state = (ms: number) => psoft.evaluate(([ms, ids]) => {
+      const fd = (window as unknown as { fluxDeck: { goTo(s: number, b: number): void; seek(s: number, b: number, ms: number): void } }).fluxDeck;
+      if ((ms as number) < 0) fd.goTo(0, 0); else fd.seek(0, 1, ms as number);
+      const one = (id: string) => { const w = document.querySelector(`[data-el-id="${id}"]`) as HTMLElement, t = w.querySelector("text") as SVGElement, eff = (w.querySelector(".sl-effects") as HTMLElement) ?? w; return { mask: t.style.maskImage, clip: eff.style.clipPath, size: parseFloat(getComputedStyle(t).fontSize), width: (t as unknown as SVGGraphicsElement).getBBox().width }; };
+      const plot = document.querySelector('[data-el-id="spl"]') as HTMLElement, pEff = (plot.querySelector(".sl-effects") as HTMLElement) ?? plot;
+      return { texts: (ids as string[]).map(one), plotClip: pEff.style.clipPath, plotMasks: [...plot.querySelectorAll("*")].filter((n) => ((n as SVGElement).style?.maskImage ?? "") !== "").length };
+    }, [ms, textIds] as [number, string[]]);
+    const edgeOf = (mask: string) => { const m = /black\s+(-?[\d.]+)%,\s*transparent\s+(-?[\d.]+)%/.exec(mask); return m ? { at: parseFloat(m[1]), end: parseFloat(m[2]) } : null; };
+    const pre = await state(-1), a500 = await state(500), a1000 = await state(1000), a33 = await state(33);
+    assert(pre.texts[0].mask.includes("linear-gradient") && edgeOf(pre.texts[0].mask)!.end <= 0.01, `soft edge, pre-beat: the text is fully masked away (${pre.texts[0].mask})`);
+    const feather = edgeOf(a500.texts[0].mask)!.end - edgeOf(a500.texts[0].mask)!.at;
+    assert(a500.texts[0].clip === "" || !a500.texts[0].clip.startsWith("inset(-20% "), "soft edge: the text is NOT clipped while its mask plays");
+    assert(near(edgeOf(a500.texts[0].mask)!.at, -feather + (100 + feather) * 0.5, 0.05), `soft edge: at half the clock the edge sits at ${edgeOf(a500.texts[0].mask)!.at}% = -F + (100 + F) x 0.5 (F = ${feather.toFixed(1)}%)`);
+    assert(a1000.texts[0].mask === "" && a1000.texts[1].mask === "", "soft edge: REST carries no mask (the ink is complete at progress 1, the mask is transient)");
+    assert(a33.texts[0].mask.includes("black") && a33.texts[0].mask.includes("transparent") && !a33.texts[0].mask.includes("#"), "the mask names `black` / `transparent` (never #000: the numeric interpolator would rewrite it)");
+    // the feather is 0.9 x the font size, as a percentage of the text's own extent along the sweep, clamped to 3-60 %
+    const law = (i: number) => Math.min(60, Math.max(3, (0.9 * a500.texts[i].size / a500.texts[i].width) * 100));
+    assert(near(feather, law(0), 0.06) && feather > 3 && feather < 60, `the feather is 0.9 x the font size: F = ${feather.toFixed(2)} % for a ${a500.texts[0].size.toFixed(0)} px text ${a500.texts[0].width.toFixed(0)} units wide (law ${law(0).toFixed(2)} %)`);
+    assert(a500.texts[1].mask === "" && a500.texts[1].clip.startsWith("inset("), `params.edge "hard": the ink-fitted clip, no mask (${a500.texts[1].clip})`);
+    assert(a500.texts[2].mask === "" && a500.texts[2].clip.startsWith("inset("), `an ABSENT edge keeps today's hard clip (old decks play as made): ${a500.texts[2].clip}`);
+    assert(a500.plotMasks === 0 && a500.plotClip.startsWith("inset("), `params.edge "soft" on a plot is inert: the clip (${a500.plotClip}), ${a500.plotMasks} masked nodes`);
+    // wipeOut mirrors it: the edge travels 100 -> -F, resting fully masked away
+    assert(a500.texts[3].mask.includes("linear-gradient") && near(edgeOf(a500.texts[3].mask)!.at, 100 - (100 + (edgeOf(a500.texts[3].mask)!.end - edgeOf(a500.texts[3].mask)!.at)) * 0.5, 0.05), `soft wipeOut: the edge retreats (${edgeOf(a500.texts[3].mask)?.at}% at half the clock)`);
+    assert(a1000.texts[3].mask !== "" && edgeOf(a1000.texts[3].mask)!.end <= 0.01, "soft wipeOut rests fully masked away");
+    // seek purity: forward == reverse == shuffled seeks
+    const times = [0, 1, 40, 250, 500, 750, 999, 1000]; const key = async (t: number) => JSON.stringify((await state(t)).texts.map((x) => x.mask));
+    const fwd = new Map<number, string>(); for (const t of times) fwd.set(t, await key(t));
+    const rev = new Map<number, string>(); for (const t of [...times].reverse()) rev.set(t, await key(t));
+    assert(times.every((t) => fwd.get(t) === rev.get(t)), "the soft mask is identical for forward / reverse seeks");
+    await psoft.close();
+  }
+
+  // ---------------------------------------------------------------- WP 2.4 (X4): stroke ORDER on a multi-path drawing
+  {
+    const pord = await open("order");
+    const strokes = (beat: number, ms: number) => pord.evaluate(([beat, ms]) => {
+      (window as unknown as { fluxDeck: { seek(s: number, b: number, ms: number): void } }).fluxDeck.seek(0, beat as number, ms as number);
+      return ["house.walls", "house.roof", "house.sun"].map((id) => {
+        const g = document.querySelector(`[id="house__${id}"]`)!, p = (g.tagName.toLowerCase() === "path" || g.tagName.toLowerCase() === "circle" ? g : g.querySelector("path,circle")) as SVGGeometryElement;
+        const list = p.style.strokeDasharray.trim().split(/[\s,]+/).filter(Boolean).map(Number), pl = Number(p.getAttribute("pathLength")) || p.getTotalLength();
+        return { drawn: list.length >= 2 ? list[0] : list.length === 1 && p.style.strokeDasharray !== "" ? 0 : 1, units: pl, dash: p.style.strokeDasharray, len: p.getTotalLength() };
+      });
+    }, [beat, ms] as [number, number]);
+    const reachOf = (units: number, tag = "path") => units * (1 + (tag === "circle" ? DRAW_REACH_EPS.round : DRAW_REACH_EPS.other)) + 0.05;
+    const share = (r: { drawn: number; units: number; dash: string; len: number }) => (r.dash === "" ? 1 : r.drawn / reachOf(r.units));
+    // the TRUE pen lengths, measured by the browser: walls 360, roof 169.7 (it declares pathLength 1000: NOT its weight), sun ~125
+    const lens = (await strokes(1, 0)).map((r) => r.len);
+    assert(near(lens[0], 360, 0.01) && near(lens[1], 2 * Math.hypot(60, 60), 0.01) && lens[2] > 124 && lens[2] < 126, `the drawing's true lengths: ${lens.map((l) => l.toFixed(1)).join(" / ")} (the roof's pathLength is 1000)`);
+    const total = lens.reduce((a, b) => a + b, 0), slots = (() => { let acc = 0; return lens.map((l) => { const a = acc / total; acc += l; return [a, acc / total]; }); })();
+    const expectAt = (t: number) => slots.map(([a, b]) => Math.min(1, Math.max(0, (t - a) / (b - a))));
+    let worst = 0;
+    for (const t of [0.1, 0.3, 0.5, 0.6, 0.8, 0.95]) { const got = (await strokes(1, t * 1000)).map(share); expectAt(t).forEach((e, i) => { worst = Math.max(worst, Math.abs(got[i] - e)); }); }
+    assert(worst <= 0.02, `params.order "sequence" lag 1: walls, then roof, then sun, each over its own slice of the clock sized by its TRUE pen length (${lens.map((l) => l.toFixed(0)).join(" / ")}; the roof's pathLength="1000" is not its weight): worst share error ${worst.toFixed(3)}`);
+    const at300 = (await strokes(1, 300)).map(share);
+    assert(at300[0] > 0 && at300[0] < 1 && at300[1] === 0 && at300[2] === 0, `at 300 ms only the walls are drawing (${at300.map((v) => v.toFixed(2)).join(" / ")})`);
+    const tog = (await strokes(2, 500)).map(share);
+    assert(tog.every((v) => near(v, 0.5, 0.03)), `an ABSENT order draws every stroke together (${tog.map((v) => v.toFixed(2)).join(" / ")} at half the clock): old decks play as made`);
+    // an exit retreats the LAST stroke first
+    const off = [0.1, 0.3, 0.5, 0.8].map(async (t) => (await strokes(3, t * 1000)).map(share));
+    const offA = await off[0], offB = await off[1], offE = await off[3];
+    assert(offA[2] < 0.995 && offA[0] > 0.995 && offA[1] > 0.995 && offB[2] < 0.005 && offE[1] < 0.005 && offE[2] < 0.005 && offE[0] > 0.1, `drawOff, sequence: the sun retreats first (${offA.map((v) => v.toFixed(2)).join(" / ")} at 10 %), the walls last (${offE.map((v) => v.toFixed(2)).join(" / ")} at 80 %)`);
+    const lag3 = (await strokes(4, 400)).map(share);
+    assert(lag3[0] > 0.3 && lag3[1] > 0 && lag3[2] >= 0, `the carrier default lag (0.3) overlaps the strokes (${lag3.map((v) => v.toFixed(2)).join(" / ")} at 400 ms)`);
+    // seek purity
+    const times = [0, 1, 80, 333, 500, 750, 999, 1000]; const key = async (t: number) => JSON.stringify((await strokes(1, t)).map((x) => x.dash));
+    const fwd = new Map<number, string>(); for (const t of times) fwd.set(t, await key(t));
+    const rev = new Map<number, string>(); for (const t of [...times].reverse()) rev.set(t, await key(t));
+    assert(times.every((t) => fwd.get(t) === rev.get(t)), "the stroke order is identical for forward / reverse seeks");
+    assert((await strokes(1, 1000)).every((r) => r.dash === ""), "REST: no stroke keeps a temporary dash");
+    await pord.close();
+  }
+
+  // ---------------------------------------------------------------- X4 authoring: only a Draw on a MULTI-PATH drawing is written in order
+  {
+    await fs.writeFile(path.join(root, "plots", "one.svg"), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50"><path id="one.line" d="M 5 25 H 95" fill="none" stroke="#222" stroke-width="3"/></svg>`);
+    const vd = slideOps.createDeck({ id: "verb", title: "verb", withTitleSlide: false });
+    const vs = slideOps.addSlide(vd, { name: "V", layout: "blank" }).id;
+    slideOps.addElement(vd, vs, { id: "vhouse", type: "plot", assetId: "house", source: { svgPath: "plots/house.svg" }, x: 20, y: 20, width: 300, height: 200, rotation: 0 } as never);
+    slideOps.addElement(vd, vs, { id: "vone", type: "plot", assetId: "one", source: { svgPath: "plots/one.svg" }, x: 340, y: 20, width: 200, height: 100, rotation: 0 } as never);
+    await slides.saveDeck(root, vd);
+    const track = async (r: { beatIndex: number; trackId: string }) => (await slides.loadDeck(root, "verb")).slides[0].beats[r.beatIndex].tracks.find((t: { id?: string }) => t.id === r.trackId) as { preset?: string; params?: Record<string, unknown> };
+    const draw = await track(await slides.animateElementVerb(root, "verb", vs, "vhouse", { preset: "drawOn" }));
+    assert(draw.preset === "drawOn" && draw.params?.order === "sequence", `animate-element drawOn on a 3-stroke drawing writes params.order = sequence (${JSON.stringify(draw.params)})`);
+    const off = await track(await slides.animateElementVerb(root, "verb", vs, "vhouse", { preset: "drawOff" }));
+    assert(off.preset === "drawOff" && off.params?.order === "sequence", "...and so does the exit");
+    const lone = await track(await slides.animateElementVerb(root, "verb", vs, "vone", { preset: "drawOn" }));
+    assert(lone.preset === "drawOn" && lone.params === undefined, "a drawing with ONE stroke has nothing to order: no params");
+    const rise = await track(await slides.animateElementVerb(root, "verb", vs, "vhouse", {}));
+    assert(rise.preset === "fadeRise" && rise.params?.order === undefined, "the default Appear of a plot (fadeRise) never carries an order");
+    const part = await track(await slides.animateElementVerb(root, "verb", vs, "vhouse", { preset: "drawOn", part: "house.walls" }));
+    assert(part.params?.order === undefined, "a part-bound track is never ordered (its strokes are separate targets)");
+  }
 
   // ---------------------------------------------------------------- writeOn on rotated / flipped text (review F1)
   // The ink measure reads screen rects, the clip lives in the element's local frame: under rotation the fractions are

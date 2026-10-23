@@ -38,7 +38,8 @@
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
   import { resolveBeat, resolveTrackRaw, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
-  import { presetParam, PRESET_PARAMS, type PointParam } from "../../../../lib/slide/presetCatalog";
+  import { presetParam, PRESET_PARAMS, authoredParams, type PointParam } from "../../../../lib/slide/presetCatalog";
+  import { multiStroke } from "../../../../lib/slide/strokeGeometry";
   import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
@@ -241,6 +242,24 @@
       Object.assign(t, p);
     });
   };
+  /** Switch the effect. The new effect brings its AUTHORED params for the keys the track does not set (a Wipe in is soft-edged, a
+   *  Highlight eases into its dip: what every new track of that effect is written with), and a Draw on a multi-path drawing (an
+   *  imported SVG with several strokes) traces its strokes in order. A style-linked track keeps inheriting its params from the style. */
+  function switchEffect(preset: PresetName) {
+    if (anyGhost || anyMedia && !allMedia) return; // the same guards as patchTrack: a hand-off or a mixed media selection keeps its effect
+    editFields((t) => {
+      const before = t.preset;
+      t.preset = preset;
+      if (editingStyle || t.styleId) return;
+      const params = { ...(t.params ?? {}) } as Record<string, unknown>;
+      // the old effect's authored params (still at their authored value) go with it; the new effect's arrive for the keys left unset
+      for (const [key, value] of Object.entries(authoredParams(before, params) ?? {})) if (params[key] === value) delete params[key];
+      for (const [key, value] of Object.entries(authoredParams(preset, params) ?? {})) if (!(key in params)) params[key] = value;
+      const target = slide.elements.find(e => e.id === t.target);
+      if ((preset === "drawOn" || preset === "drawOff") && target?.type === "plot" && !t.part && !t.selector && !("order" in params) && multiStroke(plotDom.get(target.assetId))) params.order = "sequence";
+      if (Object.keys(params).length) t.params = params; else delete t.params;
+    });
+  }
   function timing(field: "start" | "duration", value: string) {
     const n = Number(value);
     if (!value.trim() || !Number.isFinite(n)) return;
@@ -665,7 +684,7 @@
       <div class="note">{curTrack.preset === "videoStart" ? "Starts from the first frame. Playback continues across steps until the clip ends or a Pause/Stop action runs." : curTrack.preset === "videoPause" ? "Freezes the current frame. A later Start action plays again from the beginning." : "Stops playback and returns to the first frame."} Appearance is controlled separately.</div>
     {:else if curFamily === "appearance" && !anyGhost && !anyMedia}
       <label class="f">Effect<kbd class="kc" title="shortcut: p">p</kbd>
-        <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => patchTrack({ preset: e.currentTarget.value as PresetName })}>
+        <select data-fld="p" value={curTrack.preset ?? "fade"} onchange={(e) => switchEffect(e.currentTarget.value as PresetName)}>
           {#each EDIT_PRESETS as p (p)}<option value={p}>{presetLabel(p)}</option>{/each}
         </select>
       </label>
@@ -809,12 +828,25 @@
           onchange={(e) => { const v = e.currentTarget.value; setParam("width", v === "" ? undefined : Number(v), PRESET_PARAMS.encircle.width.default); }} /><small>st</small></span>
       </label>
     {/if}
+    {#if isWipe}
+      <label class="f">edge
+        <select aria-label="Wipe edge" value={presetParam<string>(curTrack!, "edge", curTrack!.preset as string)} title="Soft: a feathered leading edge on text (anything else keeps the hard edge). Hard: the plain clip."
+          onchange={(e) => setParam("edge", e.currentTarget.value, PRESET_PARAMS.writeOn.edge.default)}>
+          <option value="soft">soft</option><option value="hard">hard</option>
+        </select>
+      </label>
+    {/if}
     {#if isTrim}
       <!-- TRIM PATHS (rework §5) — the featured draw controls: where the draw
            anchors, which way it runs, single/both-ends/middle-out, and the
            final [from,to] window. Defaults keep the legacy compile path. -->
       <div class="trim">
         <div class="tl">Trim path</div>
+        <label class="f" title="Draw the strokes of a multi-path drawing one after another at one pen speed (a retreat takes the last stroke first), instead of all at once">
+          <input type="checkbox" aria-label="Trace strokes in order" checked={presetParam<string>(curTrack!, "order", curTrack!.preset as string) === "sequence"}
+            onchange={(e) => setParam("order", e.currentTarget.checked ? "sequence" : undefined, PRESET_PARAMS.drawOn.order.default)} />
+          <span>Trace strokes in order</span>
+        </label>
         <div class="f seg2" role="group" aria-label="Trim mode">
           <button class="sg2" class:on={(trimP.mode ?? "single") === "single"} title="One window grows from the anchor" onclick={() => setTrim("mode", "single")}>single</button>
           <button class="sg2" class:on={trimP.mode === "both-ends"} title="Draw from both ends, meet in the middle" onclick={() => setTrim("mode", "both-ends")}>both ends</button>

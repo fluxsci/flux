@@ -19,7 +19,8 @@ import { barGrow, isManifestBar, growOrigin, pulsePeak, isCompass, compassOrigin
 import { rotatedAABB } from "../../geometry";
 import type { FluxPlotManifest } from "../../plot/types";
 import type { Element as SceneElement } from "../../types";
-import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, type TrimSpec } from "./trim";
+import { trimDashAt, resolveAnchor, isDefaultTrim, windowsDash, hiddenDash, drawReach, penSlices, type TrimSpec } from "./trim";
+import { trackDuration } from "../timing";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
 
@@ -161,6 +162,35 @@ function wipeAt(direction: string, f: number): string {
 }
 /** Where the sweep has covered the ink; the last (1 - this) only uncovers the overhang margin. */
 export const WIPE_BOX_AT = 0.95;
+
+/** The feather of a SOFT wipe edge, in font sizes (manim's soft write edge): 0.9 x the text's font size. */
+export const SOFT_FEATHER_EM = 0.9;
+const MASK_ANGLE: Record<string, number> = { ltr: 90, rtl: 270, ttb: 180, btt: 0 };
+const NON_TEXT_INK = "path,line,polyline,polygon,rect,ellipse,circle,image,img,canvas,video,foreignObject,use";
+let maskOK: boolean | undefined;
+const maskSupported = (): boolean => (maskOK ??= typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("mask-image", "linear-gradient(black, transparent)"));
+
+/** The SOFT-edged wipe of a TEXT-ONLY target: a slide text renders as HTML wrapper > svg > `<text>`, and each `<text>` takes a CSS
+ *  mask gradient whose 0-100 % is the text's own fill box (no hard edge; unlike an HTML mask, which clips to the border box, it
+ *  shaves no descender). The edge sweeps from -F % to 100 %, so the ink is complete exactly at progress 1; F is the feather in
+ *  percent of the text's extent along the sweep. Returns null (the ink-fitted hard clip) for EVERYTHING else: a target with any
+ *  non-text drawable (a plot, an image, a mixed group: masking only its `<text>` would leave every line and marker visible), an
+ *  SVG node itself (a plot part: `mask-image` on an SVG `<g>` paints nothing in Firefox), and an engine without CSS `mask-image`.
+ *  Use `black`, never `#000` (the numeric interpolator rewrites `#000` to `#0`). */
+export function softWipeTargets(node: TargetNode, direction: string): { el: SVGElement; gradient: (edge: number) => string; feather: number }[] | null {
+  if (!maskSupported() || node.namespaceURI === SVG_NS) return null;
+  const els = Array.from(node.querySelectorAll?.("text") ?? []) as unknown as SVGElement[];
+  if (!els.length || node.querySelector(NON_TEXT_INK)) return null;
+  const horiz = direction === "ltr" || direction === "rtl", angle = MASK_ANGLE[direction] ?? 90;
+  return els.map((el) => {
+    let axis = 100, fontSize = 0;
+    try { const bb = (el as unknown as SVGGraphicsElement).getBBox(); axis = horiz ? bb.width : bb.height; fontSize = parseFloat(getComputedStyle(el).fontSize) || 0; } catch { /* unmeasurable: a proportional feather */ }
+    const px = fontSize ? fontSize * SOFT_FEATHER_EM : axis * 0.12;
+    const feather = Math.round(Math.min(60, Math.max(3, (px / Math.max(1, axis)) * 100)) * 100) / 100;
+    const gradient = (edge: number) => `linear-gradient(${angle}deg, black ${Math.round(edge * 100) / 100}%, transparent ${Math.round((edge + feather) * 100) / 100}%)`;
+    return { el, gradient, feather };
+  });
+}
 
 /** Measured length of a strokable node, honoring an explicit pathLength
  *  attribute (dash units must then be expressed in ITS scale). */
@@ -336,15 +366,6 @@ function drawUnits(node: TargetNode): Unit[] {
   return units.sort((a, b) => order(a) - order(b));
 }
 
-/** The pieces of ONE unit take back-to-back slices of its eased pen clock, proportional to their pen length: one
- *  curve gives a pen of continuous speed across shaft -> head (a unit's slices are cumulative sums, [0,1] in total).
- *  Deliberately local and lag-free: across-unit stroke ORDER (WP 2.4) is a separate, later feature. */
-function unitSlices(weights: readonly number[]): [number, number][] {
-  const w = weights.map((v) => Math.max(v, 1e-9)), total = w.reduce((a, b) => a + b, 0);
-  let acc = 0;
-  return w.map((v) => { const a = acc / total; acc += v; return [a, Math.min(1, acc / total)] as [number, number]; });
-}
-
 /** A forward sampler: raw progress of the TRACK (0..1) and the track's curve. */
 type Forward = (raw: number, ease: (x: number) => number) => Keyframe;
 const win = (raw: number, w0: number, w1: number) => clamp01((raw - w0) / Math.max(1e-9, w1 - w0));
@@ -398,12 +419,22 @@ function drawPlan(node: TargetNode, index: number, t: Track, enter: boolean): No
   if (!units.length) return [{ node, index, enter, keyframes: enter ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }] }];
   const params = (t.params ?? {}) as TrimParams;
   const trim = !isDefaultTrim(params);
+  const preset = enter ? "drawOn" : "drawOff";
+  // STROKE ORDER (X4): `order: "sequence"` gives each pen unit of this target a slot of the node window (`penSlices`, true pen
+  // length as the weight, document order, no slot under 150 ms), so they draw one after another at ONE pen speed. Each slot is
+  // eased by itself (the track's curve over its own span, manim's per-child rate_func). An exit is this same plan sampled
+  // backwards, so the LAST unit retreats first. Absent / "together": every unit takes the whole window, byte for byte as before.
+  const duration = trackDuration(t);
+  const slots = units.length > 1 && presetParam<string>(t, "order", preset) === "sequence"
+    ? penSlices(units.map((u) => u.pen), presetParam<number>(t, "lag", preset), false, duration > 0 ? Math.min(1, 150 / duration) : 0) : null;
   const out: NodeAnim[] = [];
-  for (const unit of units) {
-    // pieces of one unit share the unit's EASED clock: shaft -> head with no stall
-    const inner = unit.pieces.length > 1 ? unitSlices(unit.pieces.map((p) => p.pen)) : [[0, 1] as [number, number]];
+  units.forEach((unit, ui) => {
+    // pieces of one unit share the unit's EASED clock: shaft -> head with no stall (penSlices at lag 1, the pen continuous)
+    const inner = unit.pieces.length > 1 ? penSlices(unit.pieces.map((p) => p.pen), 1, false, 0) : [[0, 1] as [number, number]];
+    const slot = slots?.[ui];
     unit.pieces.forEach((piece, pi) => {
-      const forward: Forward = trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, enter ? "drawOn" : "drawOff") : pieceSampler(piece, inner[pi]);
+      const own: Forward = trim && piece.role === "stroke" ? trimSampler(piece, inner[pi], t, preset) : pieceSampler(piece, inner[pi]);
+      const forward: Forward = slot ? (raw, ease) => own(win(raw, slot[0], slot[1]), ease) : own;
       // exit = the enter sampled backwards in time with the MIRRORED curve (1 - e(1 - v)): the retreat eases in
       // exit time exactly as the legacy offset reversal did, for any curve
       const sample = enter
@@ -415,7 +446,7 @@ function drawPlan(node: TargetNode, index: number, t: Track, enter: boolean): No
         ...(enter ? { transient: DRAW_TRANSIENT } : {}),
       });
     });
-  }
+  });
   return out;
 }
 
@@ -500,6 +531,14 @@ export const PRESETS: Record<string, Preset> = {
   // WIPE_BOX_AT, the overhang margin uncovered after: no dead lead, no dead tail.
   writeOn: (nodes, t) => nodes.flatMap((node, index): NodeAnim[] => {
     const dir = presetParam<string>(t, "direction", "writeOn");
+    // params.edge "soft" (authored on every new writeOn): a TEXT target's leading edge is a feathered gradient mask, not a hard clip
+    const soft = presetParam<string>(t, "edge", "writeOn") === "soft" ? softWipeTargets(node, dir) : null;
+    if (soft) return soft.map(({ el, gradient, feather }) => ({
+      node: el, index, enter: true, transient: ["maskImage"],
+      keyframes: [{ maskImage: gradient(-feather) }, { maskImage: gradient(100) }],
+      // the edge travels -F -> 100 on the eased clock: the ink is complete exactly at progress 1
+      sample: (raw, ease) => ({ maskImage: gradient(-feather + (100 + feather) * clamp01(ease(raw))) }),
+    }));
     const shown = wipeInsets(dir)[1], [a, b] = inkFractions(node, dir);
     return [{ node, index, enter: true, keyframes: [{ clipPath: wipeAt(dir, a) }, { clipPath: wipeAt(dir, b), offset: WIPE_BOX_AT }, { clipPath: shown }] }];
   }),
@@ -533,6 +572,12 @@ export const PRESETS: Record<string, Preset> = {
   // Tier-2: writeOn's mirror — a directional wipe via clip-path, ink-fitted.
   wipeOut: (nodes, t) => nodes.flatMap((node, index): NodeAnim[] => {
     const dir = presetParam<string>(t, "direction", "wipeOut");
+    const soft = presetParam<string>(t, "edge", "wipeOut") === "soft" ? softWipeTargets(node, dir) : null;
+    if (soft) return soft.map(({ el, gradient, feather }) => ({
+      node: el, index, enter: false,
+      keyframes: [{ maskImage: gradient(100) }, { maskImage: gradient(-feather) }],
+      sample: (raw, ease) => ({ maskImage: gradient(100 - (100 + feather) * clamp01(ease(raw))) }),
+    }));
     const shown = wipeInsets(dir)[1], [a, b] = inkFractions(node, dir);
     return [{ node, index, enter: false, keyframes: [{ clipPath: shown }, { clipPath: wipeAt(dir, b), offset: 1 - WIPE_BOX_AT }, { clipPath: wipeAt(dir, a) }] }];
   }),

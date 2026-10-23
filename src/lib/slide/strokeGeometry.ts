@@ -51,3 +51,10 @@ export function drawGeometry(node: Element): { strokes: SVGElement[]; fills: SVG
   return { strokes, fills };
 }
 
+
+/** Is this a MULTI-PATH drawing: a root holding at least two stroke-rendered geometries (a house, its roof and a sun)? Only such a target
+ *  has strokes to put in order (`params.order`); a lone stroke, an arrow (shaft + filled head) or a filled shape does not. One definition
+ *  for the Animator (the plot store's parsed DOM) and the headless verbs (a parse of the plot's own SVG). */
+export function multiStroke(root: ParentNode | Element | null | undefined): boolean {
+  return !!root && drawGeometry(root as Element).strokes.length > 1;
+}

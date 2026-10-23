@@ -663,13 +663,13 @@ export function suggestElementTrack(
  *  analog of `animatePart`, and the GUI's "Animate in / Animate out" quick
  *  action. Adds to `beatIndex` when given (never 0), else the last build beat
  *  (creating beat 1 if only the resting beat exists). `part` narrows to a
- *  named plot part. Returns the beat index and the track id, or null if the
- *  element/slide is missing. */
+ *  named plot part. `sequence` (the caller found a multi-path drawing) writes a Draw with `params.order: "sequence"`.
+ *  Returns the beat index and the track id, or null if the element/slide is missing. */
 export function animateElement(
   deck: Deck,
   slideId: Id,
   elId: Id,
-  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; part?: string } = {},
+  opts: { beatIndex?: number; exit?: boolean; preset?: PresetName; part?: string; sequence?: boolean } = {},
 ): { beatIndex: number; trackId: Id } | null {
   const slide = slideById(deck, slideId);
   const found = findElement(deck, elId);
@@ -685,6 +685,8 @@ export function animateElement(
     delete track.easing; delete track.influence; delete track.curve; delete track.params;
     Object.assign(track, { preset: opts.preset, ...authoredFields(opts.preset) });
   }
+  // a Draw on a MULTI-PATH drawing (the caller measured the target: `multiStroke`) traces its strokes in order, one pen speed (X4)
+  if (opts.sequence && (track.preset === "drawOn" || track.preset === "drawOff")) track.params = { ...track.params, order: "sequence" };
   setAnimation(deck, slideId, slide.beats[bi].id, track);
   return { beatIndex: bi, trackId: track.id! };
 }
