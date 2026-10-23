@@ -379,8 +379,8 @@ export function sliceIntoLetters(single: StageOutline, letters: StageOutline[]):
  *  ring's corners); the winner minimises the sum of |piece centre - partner centre|² (the squared travel
  *  of the whole flight; the optimal CENTRE assignment cannot cross, the layout search is a heuristic
  *  beyond a few partners: 30 dots in a column still leave crossings). Never worse than the legacy layout:
- *  it is a candidate, and a new layout needs cost < 0.98 x legacy. Null keeps the legacy layout (also for a
- *  degenerate or non-finite ring, centre or length). */
+ *  it is a candidate, and a new layout needs cost < 0.98 x legacy AND no more crossing flights than the legacy
+ *  one. Null keeps the legacy layout (also for a degenerate or non-finite ring, centre or length). */
 function betterRingLayout(single: StageOutline, partners: StageOutline[], legacy: { seam: number; order: number[] }): { seam: number; order: number[] } | null {
   const k = partners.length;
   if (k < 2 || k > 96) return null;
@@ -413,6 +413,19 @@ function betterRingLayout(single: StageOutline, partners: StageOutline[], legacy
     }
     return sum;
   };
+  /** Pairs of partner-to-piece flights (centre to centre) that properly cross: the defect a viewer sees. */
+  const crossings = (seam: number, order: number[]) => {
+    const flights: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    let u0 = seam;
+    for (const idx of order) { const u1 = u0 + lens[idx] / total, q = pieceCentre(u0, u1); flights.push({ x0: cs[idx].x, y0: cs[idx].y, x1: q.x, y1: q.y }); u0 = u1; }
+    const side = (a: typeof flights[0], x: number, y: number) => (a.x1 - a.x0) * (y - a.y0) - (a.y1 - a.y0) * (x - a.x0);
+    let n = 0;
+    for (let i = 0; i < flights.length; i++) for (let j = i + 1; j < flights.length; j++) {
+      const p = flights[i], q = flights[j];
+      if (side(p, q.x0, q.y0) * side(p, q.x1, q.y1) < 0 && side(q, p.x0, p.y0) * side(q, p.x1, p.y1) < 0) n++;
+    }
+    return n;
+  };
   const c0 = center(single);
   const ang = cs.map((c) => Math.atan2(c.y - c0.y, c.x - c0.x));
   const asc = partners.map((_, i) => i).sort((a, b) => ang[a] - ang[b] || a - b);
@@ -442,7 +455,9 @@ function betterRingLayout(single: StageOutline, partners: StageOutline[], legacy
     const order = assignMinCost(centres, cs).map(([, idx]) => idx);
     if (order.length === k) { const c = cost(seam, order); if (c < best.cost) best = { seam, order, cost: c }; }
   }
-  return best.cost < floor ? { seam: best.seam, order: best.order } : null;
+  // The squared travel is the planner's proxy; crossings are what the eye reads. A layout that is cheaper but
+  // crosses more flights than the legacy one (three dots: 0 -> 1) is not an improvement.
+  return best.cost < floor && crossings(best.seam, best.order) <= crossings(legacy.seam, legacy.order) ? { seam: best.seam, order: best.order } : null;
 }
 
 function tile(single: StageOutline, partners: StageOutline[], source: boolean, method: TransformMethod = DEFAULT_TRANSFORM_METHOD): CorrespondencePair[] {

@@ -161,6 +161,21 @@ h.eq(crossings([rct("r", 120, 260, 360, 120)], [ell("a", 100, 100, 20), ell("b",
   const got = crossings(A, B).crossings;
   h.ok(got <= 3, `12 random dots -> 12 random dots: the minimum-cost pairing leaves ${got} crossings (greedy-nearest left ~10 on the T5 sample)`);
 }
+{ // never worse than the legacy layout: 60 seeded set Becomes (k dots <-> one rect, both directions); LEGACY holds the flight
+  // crossings the pre-WP-2.1 planner left on exactly these instances (measured on 2c95341d)
+  const LEGACY = [8,7,14,14,8,10,3,1,2,5,4,8,4,14,4,2,11,35,10,7,12,4,27,3,18,1,1,2,3,6,16,9,15,18,0,1,5,4,11,6,4,27,4,1,2,30,24,0,3,3,1,3,1,6,20,11,20,5,11,6];
+  let seed = 1; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+  const got: number[] = [];
+  for (let trial = 0; trial < 60; trial++) {
+    const k = 3 + Math.floor(rnd() * 10), reverse = trial % 2 === 1;
+    const dots = Array.from({ length: k }, (_, i) => ell("d" + i, 40 + rnd() * 560, 20 + rnd() * 120, 8 + rnd() * 6));
+    const rect = rct("r", 100 + rnd() * 200, 220 + rnd() * 60, 150 + rnd() * 250, 40 + rnd() * 90);
+    got.push((reverse ? crossings([rect], dots) : crossings(dots, [rect])).crossings);
+  }
+  const sum = (v: number[]) => v.reduce((p, q) => p + q, 0);
+  h.ok(got.every((n, i) => n <= LEGACY[i]), "no set Become crosses more flights than the legacy layout did (60 seeded instances; a cheaper layout that crosses more is refused)");
+  h.ok(sum(got) <= sum(LEGACY) * 0.3, `and in total the layouts cross far fewer flights (${sum(got)} vs ${sum(LEGACY)} legacy)`);
+}
 h.eq(crossings([rct("a", 0, 100, 40, 40), rct("b", 300, 100, 40, 40)], [rct("c", 200, 100, 40, 40), rct("d", 500, 100, 40, 40)]).sq, 80000, "spatial: {0,300} -> {200,500} takes the minimum-cost pairs (greedy gave 260000)");
 { let seed = 5; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296; let ok = true;
   for (let trial = 0; trial < 200; trial++) {
