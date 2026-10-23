@@ -214,8 +214,8 @@ export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRe
 
 type DataGeometry = {
   circles: ReadonlySet<string>; lines: ReadonlySet<string>;
-  /** Keyed bars present in only ONE plot version, by DOM id: they grow from / shrink to their own baseline edge
-   *  (`barGrow`) instead of fading. */
+  /** Keyed bars present in only ONE plot version, by semantic (manifest) bar id: they grow from / shrink to their own baseline
+   *  edge (`barGrow`) instead of fading. */
   growFrom?: ReadonlyMap<string, BarGrow>;
 };
 
@@ -371,7 +371,9 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
   const fade = (node: Element, entering: boolean, source = node) => {
     // A keyed bar with no counterpart scales on its baseline instead of fading. A CSS `transform` replaces the node's own
     // `transform` attribute, so a bar that carries one keeps the fade (fluxplot bars do not).
-    const grow = node.hasAttribute("transform") ? undefined : dataGeometry?.growFrom?.get(node.getAttribute("id") ?? source.getAttribute("id") ?? "");
+    // Looked up by the binder's semantic key (`keyOf`), which survives the id prefixing of a replaced outgoing copy.
+    const key = keyOf.get(node) ?? keyOf.get(source);
+    const grow = node.hasAttribute("transform") || key === undefined ? undefined : dataGeometry?.growFrom?.get(key);
     fades.push({ node, opacity: source.getAttribute("opacity"), style: (source as SVGElement).style.getPropertyValue("opacity") || "", display: (source as SVGElement).style.getPropertyValue("display") || "", entering, hidden: entering, grow });
     // Hide before the first seek without turning the authored opacity into
     // zero when later appearance tracks compile their baseline.

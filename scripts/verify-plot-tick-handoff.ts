@@ -8,7 +8,7 @@ import { harness } from "./lib/harness.mjs";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { PlotView } from "../src/lib/types";
 import { viewFits, matchTickSets, tickFlightLaw, guideData, projectWith, axisFit, type TickSpec } from "../src/lib/plot/project";
-import { applyPlotView, restoreProjection, releasePlotView, preparePlotView, type PlotViewOptions } from "../src/lib/plot/projectDom";
+import { applyPlotView, restoreProjection, preparePlotView, type PlotViewOptions } from "../src/lib/plot/projectDom";
 import { preparePlot } from "../src/lib/plot/parse";
 const { document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, DOMParser });
@@ -185,7 +185,7 @@ h.section("a re-formatted matched label swaps ONCE at t = .5, at full opacity (n
   h.eq(swaps, 1, `the label text changes exactly once (${seen[0]} -> ${seen[seen.length - 1]})`);
 }
 
-h.section("lifecycle: release drops one plan's pool, a chained plan keeps its own");
+h.section("a chain: two plans on one root pool their own ticks, and each frame shows only the plan in flight");
 {
   const r = sine.root(), v1: PlotView = { x: { domain: [0, 2.5] } }, v2: PlotView = { x: { domain: [1, 2] } };
   const o1 = optsFor(sine.manifest, undefined, v1), o2 = optsFor(sine.manifest, v1, v2);
@@ -194,10 +194,40 @@ h.section("lifecycle: release drops one plan's pool, a chained plan keeps its ow
   h.ok(n1 > 0 && n2 > n1, `two plans on one root each pool their own ticks (${n1} then ${n2})`);
   const ids = Array.from(r.querySelectorAll("[data-projection-flight]")).map(n => n.getAttribute("id")!);
   h.eq(ids.length, new Set(ids).size, "ids stay unique across a chain");
-  restoreProjection(r); releasePlotView(r, o1);
-  h.eq(r.querySelectorAll("[data-projection-flight]").length, n2 - n1, "release removes exactly that plan's pool");
-  restoreProjection(r); releasePlotView(r, o2);
-  h.eq(r.querySelectorAll("[data-projection-flight]").length, 0, "and the last one leaves no clone behind");
+  // the player restores, then applies the plan of the transform that owns the frame: the other plan's pool must stay hidden
+  const frameOf = (o: PlotViewOptions, view: PlotView, t: number) => { restoreProjection(r); o.t = t; applyPlotView(r, sine.manifest, view, "", o); };
+  const shown = () => Array.from(r.querySelectorAll("[data-projection-flight]")).filter(n => eff(n) > 0.02).length;
+  frameOf(o2, v2, 0.6); const mid = shown(); h.ok(mid > 0, `mid-Change of the second plan shows pooled ticks (${mid})`);
+  frameOf(o2, v2, 1);
+  h.eq(labelsOf(r, "x").length, labelsOf((() => { const s = sine.root(); applyPlotView(s, sine.manifest, v2, ""); return s; })(), "x").length, "t = 1 of the second plan shows the static label count of its end view");
+  restoreProjection(r);
+  h.ok(Array.from(r.querySelectorAll("[data-projection-flight]")).every(n => (n as SVGElement).style.display === "none"), "restore hides both pools");
+}
+
+h.section("a still: renderStaticAt after a view Change keeps the projected line, the re-ticked axis and the pool");
+{
+  const { createDeck, addSlide, addPlotToSlide, addBeat, setTransform } = await import("../src/lib/slide/ops");
+  const { renderStaticAt } = await import("../src/lib/slide/player/player");
+  const { FLUX_DARK } = await import("../src/lib/slide/theme");
+  const { cachePlot } = await import("../src/lib/plot/store");
+  const read = (name: string, ext: string) => readFileSync(new URL(`./fixtures/plots/${name}${ext}`, import.meta.url), "utf8");
+  cachePlot("still-sine", read("mpl_sine_waves_FLUXPLOT", ".svg"), sine.manifest);
+  const deck = createDeck({ withTitleSlide: false }), slide = addSlide(deck, { layout: "blank" });
+  const src = addPlotToSlide(deck, slide.id, { assetId: "still-sine", x: 20, y: 30, width: 480, height: 144 })!;
+  const beat = addBeat(deck, slide.id)!;
+  setTransform(deck, slide.id, beat.id, src, { duration: 1000, easing: "linear", state: { view: { x: { domain: [1, 3] } } } });
+  const stage = { width: 960, height: 540 }, host = document.createElement("div") as unknown as HTMLElement;
+  const snapshot = (index: number) => {
+    host.replaceChildren();
+    renderStaticAt(host, deck.slides[0], stage, index, { theme: FLUX_DARK, reducedMotion: true, plotManifest: () => sine.manifest });
+    const line = host.querySelector('[id*="2hz.line"] path, [id*="2hz.line"]')!;
+    const labels = Array.from(host.querySelectorAll('[id*="axis.x.ticklabel"]')).filter(n => eff(n) > 0.02).map(n => squash(n.textContent));
+    return { d: line.getAttribute("d") ?? line.querySelector("path")?.getAttribute("d") ?? "", labels, pooled: host.querySelectorAll("[data-projection-flight]").length };
+  };
+  const before = snapshot(0), after = snapshot(1);
+  h.ok(before.d && after.d && before.d !== after.d, "the post-Change still carries the PROJECTED line (not beat 0's unviewed path)");
+  h.ok(after.labels.join(" ") !== before.labels.join(" "), `and the end view's labels (${after.labels.join(" ")}), not the generated ones (${before.labels.join(" ")})`);
+  h.ok(after.pooled > 0, `and its hand-off pool (${after.pooled} pooled nodes) shows the end ticks`);
 }
 
 h.section("a leaf override / ghost factor on the template reaches the pool");

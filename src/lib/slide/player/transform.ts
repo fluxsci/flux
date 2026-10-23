@@ -39,7 +39,7 @@ import { pathRender, pathD } from "../../path";
 import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, fixedHeadPoints, dashOffsetAt, type ElementMorphPlan } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
-import { applyPlotView, preparePlotView, releasePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
+import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { createTextMorph, layoutForMorph, type TextMorph } from "./textMorph";
@@ -118,14 +118,14 @@ function namespaceGradients(host: Element, suffix: string): void {
   }
 }
 
-/** Keyed bars present in only ONE of the two plot versions, by DOM id -> the baseline edge they grow from / shrink to
- *  (WP 2.3, D8a). Bars paired by key keep morphing in place. A bar's baseline is read through `barGrow` from the manifest
- *  that lists it, so a Change grows a bar exactly as the `growBaseline` entrance would. */
-function unpairedBars(elId: string, a?: FluxPlotManifest, b?: FluxPlotManifest): Map<string, BarGrow> {
+/** Keyed bars present in only ONE of the two plot versions, by their manifest bar id (the binder's semantic key) -> the baseline
+ *  edge they grow from / shrink to (WP 2.3, D8a). Bars paired by key keep morphing in place. A bar's baseline is read through
+ *  `barGrow` from the manifest that lists it, so a Change grows a bar exactly as the `growBaseline` entrance would. */
+function unpairedBars(a?: FluxPlotManifest, b?: FluxPlotManifest): Map<string, BarGrow> {
   const out = new Map<string, BarGrow>();
   const ids = (m?: FluxPlotManifest) => new Set((m?.series ?? []).flatMap(s => s.svg?.bars ?? []));
   const inA = ids(a), inB = ids(b);
-  for (const [m, other] of [[a, inB], [b, inA]] as const) for (const id of ids(m)) if (!other.has(id)) out.set(partDomId(elId, id), barGrow(m, id));
+  for (const [m, other] of [[a, inB], [b, inA]] as const) for (const id of ids(m)) if (!other.has(id)) out.set(id, barGrow(m, id));
   return out;
 }
 
@@ -199,7 +199,7 @@ export function createTransform(
     neutralPlot(pre as SemanticPlotElement, sourceRoot), neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
       circles: new Set(dataSeries.flatMap(s => (s.points ?? []).map(p => partDomId(pre.id, p.svgId)))),
       lines: new Set(dataSeries.flatMap(s => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
-      growFrom: assetChange ? unpairedBars(pre.id, manifestA, manifestB) : undefined,
+      growFrom: assetChange ? unpairedBars(manifestA, manifestB) : undefined,
     }) : null;
   // Only unaddressable (raster/id-less) plots need a whole-content crossfade.
   if (project && !plotUpdate) plan.mode = "crossfade";
@@ -674,7 +674,7 @@ export function createTransform(
     warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
     return { seek, targetRoot: ensureMorphLayers().B };
   }
-  // Drop this host's plan and the hand-off tick pool it cloned: a destroyed or still player must not leave hidden clones.
-  const releaseView = () => { if (plotSvg && projectionOptions) { restoreProjection(plotSvg); releasePlotView(plotSvg, projectionOptions); } };
-  return { seek, targetRoot: layerB ?? contentHost, dispose: releaseView };
+  // No dispose: the hand-off tick pool lives inside the plot's own SVG, so it goes with the slide, and a still (renderStaticAt
+  // disposes its controllers after sampling the step) must keep the projected line, the re-ticked axis and the pool it sampled.
+  return { seek, targetRoot: layerB ?? contentHost };
 }

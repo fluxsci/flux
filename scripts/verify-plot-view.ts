@@ -66,6 +66,21 @@ const cloneDelta = Number((cloneAt3.getAttribute("transform") ?? "").match(/tran
 const tplOrigin = projectWith(sourceFits.x, [...originalGuides].find(([id]) => id === cloneAt3.getAttribute("id")!.replace(/\.view\.\d+$/, ""))![1].value);
 near(tplOrigin + cloneDelta, projectWith(fits.x, 3), "a regenerated tick sits at the view fit's projection of its value");
 h.ok(!root.querySelector('[data-projection-tick][id*="axis.y."]'), "an axis the view leaves alone is not re-ticked");
+{
+  // STATIC re-tick of a y axis (WP 2.3 label fix): a label rests at its tick plus the template's own offset (the sine fixture's y
+  // labels sit 1.82 units below their tick: baseline offset, ~0.36 em); before 2.3 the clone's label sat ON the tick (0 offset)
+  const yRoot = sine.root(); applyPlotView(yRoot, sine.manifest, { y: { domain: [-0.5, 0.5] } }, "");
+  const along = (n: Element) => { let total = 0; for (let cur: Element | undefined = n; cur; cur = cur.children[0] as Element | undefined) {
+    for (const m of (cur.getAttribute("transform") ?? "").matchAll(/translate\(([-\d.e+]+)[ ,]+([-\d.e+]+)\)/g)) total += Number(m[2]);
+    if (cur.tagName.toLowerCase() === "text") { total += Number(cur.getAttribute("y") ?? 0); break; }
+  } return total; };
+  const clonesOf = (kind: string) => new Map(Array.from(yRoot.querySelectorAll(`[data-projection-tick][id*="axis.y.${kind}."]`)).map(n => [n.getAttribute("id")!.replace(/^.*\.view\./, ""), n]));
+  const ticksY = clonesOf("tick"), labelsY = clonesOf("ticklabel"), template = sine.root();
+  const own = along(template.querySelector('[id="axis.y.ticklabel.1"]')!) - along(template.querySelector('[id="axis.y.tick.1"]')!);
+  h.ok(own > 1 && ticksY.size >= 3 && labelsY.size === ticksY.size, `the y axis is re-ticked (${ticksY.size} ticks), the template label rests ${own.toFixed(3)} below its tick`);
+  const worst = Math.max(...[...labelsY].map(([k, label]) => Math.abs(along(label) - along(ticksY.get(k)!) - own)));
+  h.ok(worst < 1e-4, `every re-ticked y label rests at its tick plus the template's offset (worst error ${worst.toExponential(2)})`);
+}
 restoreProjection(root);
 h.eq(root.querySelectorAll("[data-projection-tick]").length, 0, "restore removes the regenerated ticks");
 h.ok(!guideNode.style.display, "and shows the generated ones again");

@@ -194,7 +194,7 @@ interface Projection {
   interpolated: boolean;
   /** Pooled hand-off ticks per re-ticked axis (a view Change in flight; see buildFlight). */
   flight: FlightAxis[];
-  /** every node buildFlight cloned for this plan (removed by releasePlotView) */
+  /** every node buildFlight cloned for this plan (they live in the plot's own SVG and go with it) */
   flightNodes: Element[];
   /** Per panel and axis key: the view axis' tick scheme, for re-ticking at rest. */
   axesInfo: Map<string | undefined, Record<string, { locator?: string; formatter?: string; scale: string }>>;
@@ -533,7 +533,9 @@ function writeFlight(plan: Projection, t: number): Set<Element> {
   const replaced = new Set<Element>();
   const law = tickFlightLaw(t);
   for (const fa of plan.flight) {
-    if (t <= 0 && !fa.aRet || t >= 1 && !fa.bRet) continue; // the generated nodes ARE that end
+    // No early-out at either end: the generated nodes also stand for an end that is not re-ticked, but a label drawn through the
+    // pool (an ancestor translate) rasterises a hair differently from the generated one (own text transform), so the pool
+    // draws the WHOLE Change, t = 0 and t = 1 included: the first and the last frame use the raster path of the frames beside them.
     const fit = fa.panel.fits[fa.axis]; if (!fit) continue;
     const r0 = fa.panel.ranges[fa.axis]!, r1 = fa.panel.endRanges[fa.axis] ?? r0;
     const e0 = r0[0] + (r1[0] - r0[0]) * t, e1 = r0[1] + (r1[1] - r0[1]) * t, lo = Math.min(e0, e1), hi = Math.max(e0, e1), soft = (hi - lo) * .04 || 1;
@@ -590,17 +592,6 @@ function projection(root: Element, manifest: FluxPlotManifest, view: PlotView | 
   if (!entries) { entries = []; plans.set(root, entries); }
   entries.push({ manifest, view, opts, plan });
   return plan;
-}
-/** Drop the plan bound for `opts` on `root` and the hand-off pool it cloned (the transform host's dispose). Other
- *  plans on the same root (a two-transform chain) keep theirs. Call after restoreProjection(root). */
-export function releasePlotView(root: Element, opts: PlotViewOptions | undefined): void {
-  const entries = plans.get(root); if (!entries) return;
-  const set = roots.get(root);
-  plans.set(root, entries.filter(e => {
-    if (e.opts !== opts) return true;
-    for (const n of e.plan.flightNodes) { n.parentNode?.removeChild(n); set?.delete(n); }
-    return false;
-  }));
 }
 /** Bind before overrides/compensation, or before the first playback frame. */
 export function preparePlotView(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): void {

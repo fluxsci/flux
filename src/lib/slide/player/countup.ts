@@ -70,7 +70,8 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const isDigit = (ch: string) => ch >= "0" && ch <= "9";
 
 /** The advance of each digit 0-9 in the node's computed font, or null when it cannot be measured (a text with no rendering,
- *  e.g. detached, throws or reports 0; headless DOMs have no `getSubStringLength`). */
+ *  e.g. detached, throws or reports 0; headless DOMs have no `getSubStringLength`). It rewrites the node's text while it measures
+ *  (restored in `finally`), so call it only from `seek`, which owns the node's text and rewrites it right after. */
 function digitAdvances(node: Element): number[] | null {
   const t = node as unknown as SVGTextContentElement;
   if (typeof t.getSubStringLength !== "function") return null;

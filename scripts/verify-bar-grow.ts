@@ -59,6 +59,13 @@ section("bars5 -> bars10: nothing fades, bars 5-9 grow from their baseline, bars
   const A = read("mpl_bars_5_FLUXPLOT"), B = read("mpl_bars_10_FLUXPLOT");
   const c = change(A, B, "grow");
   check(!c.issues.some(i => /counterpart|fades/.test(i.reason)), `compileSlide reports no "fades" issue for a keyed bar Change (${c.issues.map(i => i.reason).join("; ") || "no issues"})`);
+  {
+    // a bar SERIES present in one version only (a renamed series) is not reported as fading either: its bars grow / shrink
+    const renamed = { svg: B.svg, manifest: { ...B.manifest, series: B.manifest.series.map(s => ({ ...s, id: `${s.id}.other` })) } as FluxPlotManifest };
+    const r = change(A, renamed, "renamed", 4);
+    check(!r.issues.some(i => /no counterpart/.test(i.reason)), `a bar series with no counterpart is not reported as fading (${r.issues.map(i => i.reason).join("; ") || "no issues"})`);
+    r.destroy();
+  }
   const forward = c.times.map(ms => c.at(ms));
   const entering = c.barIds.filter(id => /\.bar\.[5-9]$/.test(id)), paired = c.barIds.filter(id => /\.bar\.[0-4]$/.test(id));
   let translucent = 0;

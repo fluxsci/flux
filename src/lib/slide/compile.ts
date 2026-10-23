@@ -115,7 +115,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
           // (tweenable) counterpart fades on its own — never a whole-plot crossfade.
           if (a && b) for (const id of new Set([...(a.series ?? []).map(s => s.id), ...(b.series ?? []).map(s => s.id)])) {
             const sa = a.series?.find(s => s.id === id), sb = b.series?.find(s => s.id === id);
-            if (!sa || !sb) issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no counterpart and fades.` });
+            // a bar series present in one version only does not fade: its bars grow / shrink on their baseline (player/transform unpairedBars)
+            const lone = sa ?? sb, barsOnly = !!lone?.svg?.bars?.length && !lone.svg.line && !lone.svg.points;
+            if (!sa || !sb) { if (!barsOnly) issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no counterpart and fades.` }); }
             else if (!seriesTweenable(sa, sb, seriesAxes(a, sa), seriesAxes(b, sb)) && !keyedMorphable(sa, sb))
               issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no tweenable counterpart and fades.` });
           }
