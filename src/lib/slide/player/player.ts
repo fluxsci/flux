@@ -18,7 +18,7 @@ import { plotDom, plotManifests } from "../../plot/store";
 import { createRasterKeeper, type RasterKeeper } from "./rasterKeeper";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
-import { KNOWN_PRESETS } from "../presetCatalog";
+import { KNOWN_PRESETS, presetParam } from "../presetCatalog";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
@@ -117,6 +117,8 @@ interface Spec {
    *  nodes (fade acts on the part's <g>, drawOn drills to its path). */
   key: string;
   prep?: () => void;
+  /** `transform-origin` of this spec's transform (DATA: the player writes ONE per node per frame, the spec in flight). */
+  origin?: string;
   /** Rebuild all camera frames from live FROM at play time, or restore on seek. */
   refreshCamera?: (transform?: string) => boolean;
   /** Exact transform for eased progress outside [0,1] (the camera's geometric path). */
@@ -147,6 +149,23 @@ function holdCurve(curve: ResolvedCurve, k: number): ResolvedCurve {
   return { ...curve, key: `${curve.key}|hold:${k}`, fn: p => curve.fn(Math.min(1, p * k)), clamped: p => curve.clamped(Math.min(1, p * k)) };
 }
 const flightLayers = new WeakMap<Spec[], SVGSVGElement>();
+
+/** The node a transform effect animates. A CSS `transform` REPLACES an SVG node's own `transform`
+ *  attribute, and fluxplot's markers and ticks carry one (`translate(x y) scale(s)`): animating such a
+ *  leaf directly would throw it to the SVG origin. The leaf is therefore wrapped ONCE in a neutral
+ *  `<g data-sl-fx="1">` and the wrapper is animated, so the CSS transform composes with the attribute.
+ *  Idempotent across rebuilds and seeks (a parent already so marked, holding only this leaf, is reused);
+ *  the node is MOVED, never cloned, so every reader keeps its identity. Every other node is its own target. */
+function effectNode(node: TargetNode): TargetNode {
+  if (node.namespaceURI !== SVG_NS || !node.hasAttribute?.("transform")) return node;
+  const parent = node.parentNode as Element | null;
+  if (parent?.getAttribute?.("data-sl-fx") === "1" && parent.childNodes.length === 1) return parent as unknown as TargetNode;
+  const g = node.ownerDocument.createElementNS(SVG_NS, "g");
+  g.setAttribute("data-sl-fx", "1");
+  parent?.insertBefore(g, node);
+  g.appendChild(node);
+  return g as unknown as TargetNode;
+}
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
 export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts, compiled = compileSlide(slide, stage, opts)): Spec[] {
@@ -331,9 +350,13 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const nodes = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots);
       if (!nodes.length) continue;
       const preset = PRESETS[track.preset ?? "fade"] ?? PRESETS.fade;
+      const growsBars = track.preset === "growBaseline" || track.preset === "stagger" && presetParam<string>(track, "child", "stagger") === "growBaseline";
+      const trackCtx: PresetCtx = growsBars ? { ...ctx, manifest: manifestFor(track.target, slide, opts, bi) as FluxPlotManifest | undefined } : ctx;
       const nodeAnims = preset(nodes, track, track.preset === "camera" ? {
-        ...ctx, cameraFrom: compiled.sample(bi, ct.start).camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 },
-      } : ctx);
+        ...trackCtx, cameraFrom: compiled.sample(bi, ct.start).camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 },
+      } : trackCtx);
+      // See effectNode: a transform effect on a leaf that carries its own transform animates a wrapper.
+      for (const na of nodeAnims) if (na.keyframes.some((k) => "transform" in k)) na.node = effectNode(na.node);
       const n = nodes.length;
       const from = track.stagger?.from ?? "start";
       const by = staggerKey(track.stagger?.by);
@@ -358,6 +381,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           enter: na.enter,
           key,
           prep: na.prep,
+          origin: na.origin,
           refreshCamera: na.refreshCamera,
           transformAt: na.transformAt,
           exactPath: !!opts.captureMode,
@@ -383,7 +407,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   return specs;
 }
 
-const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin"] as const;
+const ANIM_PROPS = ["opacity", "transform", "visibility", "clipPath", "strokeDashoffset", "strokeDasharray", "strokeLinecap", "transformOrigin", "transformBox"] as const;
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** How a keyframed spec moves its node: a flight whose keyframes differ only
  *  in translate() rides a compositor layer while it plays (render.ts layer
@@ -499,7 +523,7 @@ function boundPlan(specs: Spec[]): BoundPlan {
     const channels = keyframed.map((s) => new Set(s.keyframes.flatMap((f) => Object.keys(f).filter((p) => !["offset", "easing", "composite"].includes(p)))));
     const blockers = new Map(keyframed.map((s, i) => [s, keyframed.filter((_, j) => j > i && [...channels[i]].some((p) => channels[j].has(p)))]));
     if (properties.has("strokeDashoffset")) { properties.add("strokeDasharray"); properties.add("strokeLinecap"); }
-    if (properties.has("transform")) properties.add("transformOrigin");
+    if (properties.has("transform")) { properties.add("transformOrigin"); properties.add("transformBox"); }
     const flights = new Map<Spec, "translate" | "other">();
     for (const s of keyframed) { const kind = transformFlight(s.keyframes); if (kind !== "none") flights.set(s, kind); }
     return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights, glides: [...flights.values()].includes("translate") };
@@ -579,7 +603,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     const applied: Spec[] = [];
     // transform flights in progress on this node: all translation-only → the
     // node rides its own layer this frame (render.ts layer hygiene)
-    let moving = 0, pureMoves = 0;
+    let moving = 0, pureMoves = 0, origin: string | undefined;
     for (const spec of keyframed) {
       const p = progressAt(spec, beat, time);
       if (superseded(spec)) continue;
@@ -595,6 +619,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
         ? Object.fromEntries(Object.entries(sampled).filter(([property]) => !["strokeDashoffset", "strokeDasharray", "strokeLinecap"].includes(property)))
         : sampled;
       applied.push({ ...spec, keyframes: [frame] });
+      if (spec.origin && p < 1) origin = spec.origin; // ONE origin per node per frame: the spec in flight (the later one if two overlap)
       const flight = p > 0 && p < 1 ? flights.get(spec) : undefined;
       if (flight) { moving++; if (flight === "translate") pureMoves++; }
       // Use native effects for active frames when available. Their time is
@@ -612,6 +637,11 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       }
     }
     if (applied.length) applyAccumulated(node, applied);
+    if (origin) { // after the accumulated rest look; fill-box makes percentages refer to an SVG part's own box
+      const style = (node as HTMLElement).style;
+      if (node.namespaceURI === SVG_NS) style.transformBox = "fill-box";
+      style.transformOrigin = origin;
+    }
     // T7: the camera layer's compositor hint belongs to the raster keeper (player.ts), never to the flight
     // hygiene below — settleWrapper() used to CLEAR it after the first pure-pan camera flight.
     if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {

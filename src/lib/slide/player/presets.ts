@@ -12,7 +12,10 @@
 
 import { readPaint } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
-import { PRESET_CATALOG, isEnterPreset, isExitPreset } from "../presetCatalog";
+import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf, legacyRotationOf } from "../presetCatalog";
+import { partDomId } from "../../plot/parse";
+import { barGrow, isManifestBar } from "../growOrigin";
+import type { FluxPlotManifest } from "../../plot/types";
 import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
 import { editorCameraTransform } from "../../editorPresentation";
 import { sampleCamera, type CameraPose } from "../camera";
@@ -23,18 +26,25 @@ export interface PresetCtx {
   theme: DeckTheme;
   stage: StageSize;
   cameraFrom?: CameraPose;
+  /** The target's plot manifest (bar orientation and sign for growBaseline). */
+  manifest?: FluxPlotManifest;
 }
 
 /** One node's animation within a track. `enter` marks an intro (the node is
  *  hidden — at `keyframes[0]` — until this beat plays). `index` orders staggers.
  *  `prep` runs once before play/static to set non-animated scaffolding (dash
- *  array, transform-origin). */
+ *  array). The transform origin is NOT scaffolding: it is `origin` (data). */
 export interface NodeAnim {
   node: TargetNode;
   keyframes: Keyframe[];
   index: number;
   enter: boolean;
   prep?: () => void;
+  /** The `transform-origin` this node's transform is about. DATA, not a side effect: the player
+   *  writes ONE origin per node per frame (that of the spec in flight) and none at rest, so two
+   *  transform effects on one node can never corrupt each other. On an SVG node the player also
+   *  sets `transform-box: fill-box`, so percentages refer to the part's own box. */
+  origin?: string;
   /** Rebuild camera frames at play start; no argument restores the compiled FROM. */
   refreshCamera?: (transform?: string) => boolean;
   /** The exact transform at an eased progress OUTSIDE [0,1] (a spring's
@@ -45,6 +55,7 @@ export interface NodeAnim {
 
 export type Preset = (nodes: TargetNode[], track: Track, ctx: PresetCtx) => NodeAnim[];
 
+const SVG_NS = "http://www.w3.org/2000/svg";
 const num = (v: unknown, d: number): number => (typeof v === "number" ? v : d);
 const each = (nodes: TargetNode[], fn: (node: TargetNode, index: number) => NodeAnim): NodeAnim[] =>
   nodes.map(fn);
@@ -138,7 +149,7 @@ function geoClosed(geo: SVGElement): boolean {
   return false;
 }
 
-/** Trim-path params from a track (documented schema — §5 of the rework plan). */
+/** Trim-path params from a track (documented schema — §5 of the rework plan; defaults live in PRESET_PARAMS). */
 interface TrimParams {
   anchor?: number | string;
   direction?: "forward" | "reverse";
@@ -147,22 +158,24 @@ interface TrimParams {
   to?: number;
 }
 
-/** Build the trim NodeAnim for one geometry (the enriched drawOn/drawOff). */
-function trimAnim(geo: SVGElement, index: number, enter: boolean, p: TrimParams): NodeAnim {
+/** Build the trim NodeAnim for one geometry (the enriched drawOn/drawOff). `t` is the track whose
+ *  params (read through the one param table) describe the trim. */
+function trimAnim(geo: SVGElement, index: number, enter: boolean, t: Track): NodeAnim {
+  const preset = enter ? "drawOn" : "drawOff";
   const len = geoLength(geo);
   const box = (geo as unknown as { getBBox?: () => { width: number; height: number } }).getBBox?.();
   const spec: TrimSpec = {
     len,
     closed: geoClosed(geo),
-    anchor: resolveAnchor(p.anchor, {
+    anchor: resolveAnchor(presetParam<number | string>(t, "anchor", preset), {
       tag: geo.tagName?.toLowerCase() ?? "path",
       width: box?.width ?? Number(geo.getAttribute?.("width")) ?? undefined,
       height: box?.height ?? Number(geo.getAttribute?.("height")) ?? undefined,
     }),
-    direction: p.direction === "reverse" ? "reverse" : "forward",
-    mode: p.mode === "both-ends" || p.mode === "middle-out" ? p.mode : "single",
-    from: typeof p.from === "number" ? p.from : 0,
-    to: typeof p.to === "number" ? p.to : 1,
+    direction: presetParam<string>(t, "direction", preset) === "reverse" ? "reverse" : "forward",
+    mode: ((m) => m === "both-ends" || m === "middle-out" ? m : "single")(presetParam<string>(t, "mode", preset)),
+    from: presetParam(t, "from", preset),
+    to: presetParam(t, "to", preset),
   };
   const kfs = trimKeyframes(spec, enter);
   // The trim engine's window lists carry STRUCTURAL zero-length dashes, and a
@@ -189,32 +202,46 @@ export const PRESETS: Record<string, Preset> = {
   fade: (nodes) => each(nodes, (node, index) => ({ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] })),
 
   fadeRise: (nodes, t) => {
-    const y = num(t.params?.y, 14);
+    const y = presetParam(t, "y", "fadeRise");
     return each(nodes, (node, index) => ({
       node, index, enter: true,
       keyframes: [{ opacity: 0, transform: `translateY(${y}px)` }, { opacity: 1, transform: "translateY(0)" }],
     }));
   },
 
+  // Scales about the node's own centre: `origin` is a fill-box percentage on an SVG part (a part scaled
+  // about the SVG's top-left corner would fly away) and the centre of the effects layer on a whole element.
   popIn: (nodes, t) => {
-    const from = num(t.params?.from, 0.9);
+    const from = presetParam(t, "from", "popIn");
     return each(nodes, (node, index) => ({
-      node, index, enter: true,
+      node, index, enter: true, origin: "50% 50%",
       keyframes: [{ opacity: 0, transform: `scale(${from})` }, { opacity: 1, transform: "scale(1)" }],
     }));
   },
 
-  growBaseline: (nodes) =>
-    each(nodes, (node, index) => ({
-      node, index, enter: true,
-      prep: () => { (node as HTMLElement).style.transformOrigin = "bottom center"; },
-      keyframes: [{ transform: "scaleY(0)" }, { transform: "scaleY(1)" }],
-    })),
+  // Each bar grows along ITS value axis from ITS baseline edge (`barGrow`, from the manifest's
+  // series[].bar): vertical bars scaleY from the bottom (the top when negative), horizontal bars scaleX
+  // from the left (the right when negative). The origin is a fill-box percentage of the bar's own
+  // geometry, never the plot's edge (`transform-origin` on an SVG node resolves against the view-box
+  // unless the player sets fill-box). A part that is not a bar grows up from the bottom of its own box;
+  // a whole element keeps the classic "bottom center".
+  growBaseline: (nodes, t, ctx) => {
+    const prefix = partDomId(t.target, "");
+    return each(nodes, (node, index) => {
+      const svg = node.namespaceURI === SVG_NS;
+      const attr = (name: string) => { const v = node.getAttribute?.(name); const x = v == null || v === "" ? NaN : Number(v); return Number.isFinite(x) ? x : null; };
+      const part = node.id?.startsWith(prefix) ? node.id.slice(prefix.length) : "";
+      const isBar = svg && (node.getAttribute?.("data-role") === "bar" || isManifestBar(ctx.manifest, part));
+      const bar = isBar ? barGrow(ctx.manifest, part, { x: attr("data-x"), y: attr("data-y") }) : undefined;
+      const fn = bar?.fn ?? "scaleY";
+      return { node, index, enter: true, origin: svg ? bar?.origin ?? "50% 100%" : "bottom center", keyframes: [{ transform: `${fn}(0)` }, { transform: `${fn}(1)` }] };
+    });
+  },
 
   // Tier-2: directional reveal via a clip-path inset (math / axis labels /
   // text). params.direction: ltr (default) | rtl | ttb | btt.
   writeOn: (nodes, t) => {
-    const [hidden, shown] = wipeInsets((t.params?.direction as string) ?? "ltr");
+    const [hidden, shown] = wipeInsets(presetParam<string>(t, "direction", "writeOn"));
     return each(nodes, (node, index) => ({
       node, index, enter: true,
       keyframes: [{ clipPath: hidden }, { clipPath: shown }],
@@ -240,7 +267,7 @@ export const PRESETS: Record<string, Preset> = {
       if (!strokes.length && !fills.length) return [{ node, index, enter: true, keyframes: [{ opacity: 0 }, { opacity: 1 }] }];
       const trim = !isDefaultTrim(t.params as TrimParams | undefined);
       const out: NodeAnim[] = strokes.map((geo): NodeAnim => {
-        if (trim) return trimAnim(geo, index, true, (t.params ?? {}) as TrimParams);
+        if (trim) return trimAnim(geo, index, true, t);
         // offset-based hiding paints NOTHING pre-beat (no zero-length dash →
         // no round/square cap dots); the overshot G covers the true perimeter
         // at offset 0, so the drawn rest state has no seam either.
@@ -266,9 +293,9 @@ export const PRESETS: Record<string, Preset> = {
     each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] })),
 
   popOut: (nodes, t) => {
-    const to = num(t.params?.to, 0.92);
+    const to = presetParam(t, "to", "popOut");
     return each(nodes, (node, index) => ({
-      node, index, enter: false,
+      node, index, enter: false, origin: "50% 50%",
       keyframes: [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: `scale(${to})` }],
     }));
   },
@@ -276,7 +303,7 @@ export const PRESETS: Record<string, Preset> = {
   // Tier-2: writeOn's mirror — a directional wipe via clip-path. The default
   // wipes back right-to-left (the reverse of the ltr write).
   wipeOut: (nodes, t) => {
-    const [hidden, shown] = wipeInsets((t.params?.direction as string) ?? "ltr");
+    const [hidden, shown] = wipeInsets(presetParam<string>(t, "direction", "wipeOut"));
     return each(nodes, (node, index) => ({
       node, index, enter: false,
       keyframes: [{ clipPath: shown }, { clipPath: hidden }],
@@ -292,7 +319,7 @@ export const PRESETS: Record<string, Preset> = {
       if (!strokes.length && !fills.length) return [{ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0 }] }];
       const trim = !isDefaultTrim(t.params as TrimParams | undefined);
       const out: NodeAnim[] = strokes.map((geo): NodeAnim => {
-        if (trim) return trimAnim(geo, index, false, (t.params ?? {}) as TrimParams);
+        if (trim) return trimAnim(geo, index, false, t);
         const G = drawGap(geoLength(geo));
         return {
           node: geo, index, enter: false,
@@ -319,7 +346,7 @@ export const PRESETS: Record<string, Preset> = {
   },
 
   scale: (nodes, t) => {
-    const s = num(t.to?.scale ?? t.params?.scale, 1.15);
+    const s = legacyScaleOf(t);
     return each(nodes, (node, index) => ({
       node, index, enter: false,
       keyframes: [{ transform: "scale(1)" }, { transform: `scale(${s})` }],
@@ -327,18 +354,22 @@ export const PRESETS: Record<string, Preset> = {
   },
 
   rotate: (nodes, t) => {
-    const deg = num(t.to?.rotation ?? t.to?.deg ?? t.params?.deg, 15);
+    const deg = legacyRotationOf(t);
     return each(nodes, (node, index) => ({
       node, index, enter: false,
       keyframes: [{ transform: "rotate(0deg)" }, { transform: `rotate(${deg}deg)` }],
     }));
   },
 
-  highlight: (nodes) =>
-    each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: 0.4 }, { opacity: 1 }] })),
+  highlight: (nodes, t) => {
+    const level = presetParam(t, "level", "highlight");
+    return each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: level }, { opacity: 1 }] }));
+  },
 
-  dim: (nodes) =>
-    each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: 0.3 }] })),
+  dim: (nodes, t) => {
+    const level = presetParam(t, "level", "dim");
+    return each(nodes, (node, index) => ({ node, index, enter: false, keyframes: [{ opacity: 1 }, { opacity: level }] }));
+  },
 
   // --- the stage camera (target = the camera layer) ------------------------
   camera: (nodes, t, ctx) => {
@@ -373,7 +404,7 @@ export const PRESETS: Record<string, Preset> = {
   // `stagger` = apply a child preset (default fadeRise) over the node set; the
   // player adds the per-index delay from track.stagger.
   stagger: (nodes, t, ctx) => {
-    const child = (t.params?.child as string) || "fadeRise";
+    const child = presetParam<string>(t, "child", "stagger");
     return (PRESETS[child] ?? PRESETS.fadeRise)(nodes, t, ctx);
   },
 };

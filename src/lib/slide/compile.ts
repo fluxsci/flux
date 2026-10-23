@@ -12,7 +12,7 @@ import { staggerRanks, staggerSpan, staggerDelay, staggerSeed } from "./stagger"
 import { staggerKey, manifestCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
-import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
+import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS, presetParam, paramDiagnostics, legacyScaleOf, legacyRotationOf, highlightOpacity, dimOpacity } from "./presetCatalog";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, isWholeElementRef, refElementIds, type ResolvedTarget } from "./targets";
 import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
@@ -131,6 +131,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         if (end?.type === "plot") for (const reason of plotViewIssues(opts.plotManifest?.(end.assetId), end.view))
           issues.push({ trackId: track.id, target: track.target, reason });
       }
+      // Authored params the table does not know stay in the deck; they are advice, never a refusal.
+      for (const reason of paramDiagnostics(track)) issues.push({ trackId: track.id, target: track.target, reason });
       const parts = semanticTargets(track, slide, opts, bi);
       const el = transformPreState(slide, track.target, bi);
       if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target,
@@ -315,7 +317,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       for (const [i, key] of targetsFor(ct).entries()) {
         const at = ct.duration > 0 ? ct.ease.clamped(clamp((local - ct.start - staggerDelay(track, ct.ranks[i] ?? 0, ct.maxRank)) / ct.duration)) : 1;
         const previous = appearance.get(key) ?? { opacity: 1, visible: true };
-        const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? 1 - .7 * at : preset === "highlight" ? .4 + .6 * at : previous.opacity;
+        const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? dimOpacity(presetParam(track, "level", "dim"), at) : preset === "highlight" ? highlightOpacity(presetParam(track, "level", "highlight"), at) : previous.opacity;
         appearance.set(key, { opacity, visible: opacity > 0 });
         if (handoffVisibility.has(key) && (isEnterPreset(preset) || isExitPreset(preset))) handoffVisibility.set(key, opacity > 0);
       }
@@ -324,8 +326,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const u = ct.ease.fn(raw);
         const effects = spatial.get(el.id) ?? new Map<string, number[]>(); spatial.set(el.id, effects);
         if (preset === "move") effects.set("move", [Number(track.to?.x ?? 0) * u, Number(track.to?.y ?? 0) * u]);
-        if (preset === "rotate") effects.set("rotate", [Number(track.to?.rotation ?? track.to?.deg ?? track.params?.deg ?? 15) * u]);
-        if (preset === "scale") effects.set("scale", [1 + (Number(track.to?.scale ?? track.params?.scale ?? 1.15) - 1) * u]);
+        if (preset === "rotate") effects.set("rotate", [legacyRotationOf(track) * u]);
+        if (preset === "scale") effects.set("scale", [1 + (legacyScaleOf(track) - 1) * u]);
       }
     }
     // Appearance offsets are a child of authored/changed geometry at runtime.
