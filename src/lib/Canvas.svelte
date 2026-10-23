@@ -23,6 +23,7 @@
     selection,
     partSelection,
     partSelections,
+    xrayOpen,
     setPartSelections,
     type PartSelection,
     enteredGroupId,
@@ -4295,25 +4296,32 @@
   function measurePartsWorld(parts: readonly { elementId: string; partId: string }[]): Rect[] {
     if (!hostEl || !parts.length) return [];
     const h=hostEl.getBoundingClientRect(),v=get(viewport);
-    const ms=get(plotManifests);
-    const ids: string[]=[];
-    for (const ps of parts) {
-      const f=findElement($project, ps.elementId);
-      const m=f?.element.type==="plot" ? ms[f.element.assetId] : undefined;
-      ids.push(partDomId(ps.elementId, ps.partId));
-      if (m) for (const leaf of resolveTargets(m, ps.partId)) if (leaf!==ps.partId) ids.push(partDomId(ps.elementId, leaf));
-    }
-    const lookup=partNodeLookup(ids.length), boxes: Rect[]=[];
+    const ms=get(plotManifests), boxes: Rect[]=[];
     const push=(n: globalThis.Element) => {
       const r=n.getBoundingClientRect();
       if (r.width || r.height) boxes.push({x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom});
     };
+    // Own nodes first (one scene walk only for a big pick); the leaves of the rest are
+    // looked up inside THEIR plot's wrapper — never a walk of every id on the canvas.
+    const own=partNodeLookup(parts.length), misses=new Map<string, string[]>();
     for (const ps of parts) {
-      const own=lookup(partDomId(ps.elementId, ps.partId));
-      if (own) { push(own); continue; }
-      const f=findElement($project, ps.elementId);
+      const n=own(partDomId(ps.elementId, ps.partId));
+      if (n) push(n);
+      else { const l=misses.get(ps.elementId); if (l) l.push(ps.partId); else misses.set(ps.elementId, [ps.partId]); }
+    }
+    for (const [elementId, partIds] of misses) {
+      const f=findElement($project, elementId);
       const m=f?.element.type==="plot" ? ms[f.element.assetId] : undefined;
-      if (m) for (const leaf of resolveTargets(m, ps.partId)) { const n=lookup(partDomId(ps.elementId, leaf)); if (n) push(n); }
+      const wrapper=hostEl.querySelector(`[data-editor-element-id="${CSS.escape(elementId)}"]`);
+      if (!m || !wrapper) continue;
+      const leaves=partIds.flatMap((id) => resolveTargets(m, id));
+      let byId: Map<string, globalThis.Element> | null=null;
+      if (leaves.length > 4) { byId=new Map(); for (const n of wrapper.querySelectorAll("[id]")) if (!byId.has(n.id)) byId.set(n.id, n); }
+      for (const leaf of leaves) {
+        const dom=partDomId(elementId, leaf);
+        const n=byId ? byId.get(dom) : wrapper.querySelector(`[id="${CSS.escape(dom)}"]`);
+        if (n) push(n);
+      }
     }
     return boxes;
   }
@@ -4323,9 +4331,11 @@
   // re-measures a 1,876-point series twice).
   let xrayHoverWorld: Rect[] = [];
   let xrayHoverCache = new Map<string, Rect[]>();
-  $: { void $project; void $plotGen; xrayHoverCache = new Map(); }
+  // A commit or a re-drawn plot invalidates the boxes — and re-measures the row still
+  // hovered (an `x` under the pointer must not leave the old outline behind).
+  $: { void $project; void $plotGen; xrayHoverCache = new Map(); scheduleXrayHover(get(xrayHover)); }
   let xrayHoverFrame = 0;
-  $: scheduleXrayHover($xrayHover);
+  $: scheduleXrayHover($xrayOpen ? $xrayHover : null);
   function scheduleXrayHover(t: XrayHoverTarget[] | null) {
     cancelAnimationFrame(xrayHoverFrame);
     if (!t?.length) { xrayHoverWorld = []; return; }
@@ -4971,7 +4981,7 @@
     {/if}
 
     <!-- the X-ray row under the pointer (xray/hoverHook) -->
-    {#if xrayHoverScreen.length && !gesture}
+    {#if xrayHoverScreen.length && !gesture && $xrayOpen}
       <path class="part-hover xray-hover" data-xray-hover={xrayHoverScreen.length} d={boxesPath(xrayHoverScreen)} fill="none" />
     {/if}
 

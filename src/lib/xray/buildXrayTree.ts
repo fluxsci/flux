@@ -31,7 +31,7 @@ import { partDomId } from "../plot/parse";
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import { buildRenderTree, groupDefs, membersDeep, type RenderNode } from "../groups";
 import { distinctiveParts, manifestIndex, overrideState, partContext, plotHint, type OverrideState } from "./rowContext";
-import { labelForPart, inferRole } from "../plot/tree";
+import { labelForPart, inferRole, resolveTargets } from "../plot/tree";
 
 export const partRowId = (elementId: string, partId: string): string => `part:${partDomId(elementId, partId)}`;
 
@@ -162,6 +162,12 @@ function plotCtx(el: SemanticElement, manifests: Record<string, FluxPlotManifest
   const manifest = manifests[el.assetId];
   if (!manifest) return undefined;
   return { manifest, dom: doms?.(el.assetId) ?? null, state: overrideState(manifest, el.overrides as Record<string, Record<string, unknown>> | undefined) };
+}
+/** Is a plot part drawn hidden — every leaf it covers hidden by the rendering rule? */
+function drawnHidden(pc: PlotCtx, partId: string): boolean {
+  if (!pc.state.hiddenLeaf.size) return false;
+  const leaves = resolveTargets(pc.manifest, partId);
+  return leaves.length > 0 && leaves.every((l) => pc.state.hiddenLeaf.get(l));
 }
 /** Context + state for a plot part row. `leaves` = the drawn leaves the row
  *  controls; `ancestorHides` = some ancestor's OWN flag hides it. */
@@ -381,7 +387,10 @@ export function commonPartRows(
   const ctxs = plots.map((pl) => plotCtx(pl, manifests, doms));
   return commonPartIds(plots, manifests, models, info).map((c) => {
     const ids = plots.map((pl) => pl.id);
-    const hiddenCount = plots.filter((pl) => pl.type === "model3d" ? Boolean(resolveScene3dPartStyle(models[pl.assetId], pl.overrides, c.id, {index:indices.get(pl.assetId)}).hidden) : Boolean(pl.overrides?.[c.id]?.hidden)).length;
+    // As DRAWN on each plot (the rendering rule): a part hidden with its axis counts.
+    const hiddenOn = (pl: SemanticElement, i: number) => pl.type === "model3d" ? Boolean(resolveScene3dPartStyle(models[pl.assetId], pl.overrides, c.id, {index:indices.get(pl.assetId)}).hidden)
+      : ctxs[i] ? drawnHidden(ctxs[i]!, c.id) : Boolean(pl.overrides?.[c.id]?.hidden);
+    const hiddenCount = plots.filter(hiddenOn).length;
     const row: XRow = {
       id: "common:" + c.id,
       kind: "common",
@@ -406,6 +415,8 @@ export function commonPartRows(
       if (each[0].swatch && each.every((x) => x.swatch === each[0].swatch)) row.swatch = each[0].swatch;
       if (ctxs.some((pc) => pc!.state.styled.has(c.id))) row.styled = true;
       if (ctxs.some((pc) => pc!.state.styledBeneath.has(c.id))) row.styledBeneath = true;
+      // hidden everywhere, but by an ancestor's flag on every plot (not its own)
+      if (row.hidden && ctxs.every((pc) => !pc!.state.ownHidden.has(c.id))) row.inheritedHidden = true;
     }
     return row;
   });

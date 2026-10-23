@@ -13,8 +13,9 @@
 //       copies of one plot get ordinals
 //   (e) search: "x tick" finds the x axis's tick rows only, "y lab" the y tick labels,
 //       a plot name narrows to that plot, a value finds its tick label
-//   (f) hidden: the most specific flag wins in BOTH the drawing and the rows; an eye
-//       toggle normalises the subtree, in either key order
+//   (f) hidden: the rows mirror the drawing's rule (keys in order, the later wins) in
+//       either key order; the eye toggle normalises its subtree and reorders a key only
+//       when an exception must follow the ancestor it overrules
 //   (g) restyled state marks the row and its ancestors
 //   (h) cost: a 5-plot root with 2,000-point series rebuilds well inside a frame
 //   Run: npx tsx scripts/verify-xray-context.ts
@@ -132,7 +133,7 @@ console.log("(b) previews");
   assert(ctx.plotHint(SIGMA, null) === "Sigma power (µV²)", "…else its y-axis title");
   assert(ctx.partContext(DELTA, "quiet-wake-acquisitions").swatch === "#879a39" && /scatter · 23 pts/.test(ctx.partContext(DELTA, "quiet-wake-acquisitions").preview ?? ""), "a series previews kind + size and carries its colour");
   assert(!/acq_1/.test(ctx.partContext(DELTA, "acq-1-soma1").preview ?? ""), "…but not a display name that only restates its id");
-  for (const [tex, plain] of [["$\\mathdefault{2\\times10^{-1}}$", "2×10⁻¹"], ["$\\mu$m", "µm"], ["$x_{1}$", "x₁"], ["$\\mathdefault{10^{-1.5}}$", "10^(-1.5)"], ["50%", "50%"]])
+  for (const [tex, plain] of [["$\\mathdefault{2\\times10^{-1}}$", "2×10⁻¹"], ["$\\mu$m", "µm"], ["$x_{1}$", "x₁"], ["$\\mathdefault{10^{-1.5}}$", "10^(-1.5)"], ["50%", "50%"], ["$\\mathregular{10^{3}}$", "10³"], ["$\\frac{1}{2}$", "1/2"], ["$\\left(x\\right)$", "(x)"], ["$\\unknowncmd x$", "x"]])
     assert(ctx.plainTickLabel(tex) === plain, `mathtext ${JSON.stringify(tex)} → ${plain}`);
 }
 
@@ -205,53 +206,60 @@ console.log("(e) search");
 
 console.log("(f) hidden: one rule for the drawing and the rows");
 {
-  // The rendering rule: most specific wins, whatever the key order.
-  const orders: Record<string, Record<string, unknown>>[] = [
-    { "axis.x.tick-labels": { hidden: true }, "axis.x.ticklabel.3": { hidden: false } },
-    { "axis.x.ticklabel.3": { hidden: false }, "axis.x.tick-labels": { hidden: true } },
+  // The rendering rule is unchanged — keys apply in order, the later wins — and the rows
+  // mirror it exactly, in both key orders (saved documents draw as they always have).
+  const cases: [string, Record<string, Record<string, unknown>>, boolean][] = [
+    ["family hidden, then tick label 3 shown", { "axis.x.tick-labels": { hidden: true }, "axis.x.ticklabel.3": { hidden: false } }, true],
+    ["tick label 3 shown, then the family hidden", { "axis.x.ticklabel.3": { hidden: false }, "axis.x.tick-labels": { hidden: true } }, false],
   ];
-  for (const [i, ov] of orders.entries()) {
+  for (const [name, ov, threeShown] of cases) {
     const h = hiddenLeaves(DELTA, ov as never);
-    assert(h.get("axis.x.ticklabel.3") === false && h.get("axis.x.ticklabel.0") === true, `order ${i + 1}: the member's own flag outranks its group's`);
-    // the drawing agrees: applyOverrides on a placed copy
+    assert(h.get("axis.x.ticklabel.3") === !threeShown && h.get("axis.x.ticklabel.0") === true, `${name}: the later key wins`);
     const root = parsePlotSvg(DELTA_SVG)!;
     prefixIds(root, "p1");
     applyOverrides(root, ov as never, "p1", DELTA);
     const shown = (part: string) => (root.querySelector(`[id="${partDomId("p1", part)}"]`) as SVGElement).style.display !== "none";
-    assert(shown("axis.x.ticklabel.3") && !shown("axis.x.ticklabel.0"), `order ${i + 1}: the drawing shows exactly tick label 3`);
+    assert(shown("axis.x.ticklabel.3") === threeShown && !shown("axis.x.ticklabel.0"), `${name}: the drawing agrees with the rule`);
     const fig: Figure = { id: "f1", name: "f", x: 0, y: 0, width: 800, height: 600, elements: [plotEl("p1", "a-delta", "bandpower-delta", ov)] };
     const t = buildXrayTree(proj(fig), { kind: "element", figId: "f1", elementId: "p1" }, { "a-delta": DELTA });
     const g = byPart(t, "p1", "axis.x.tick-labels")!;
-    assert(!g.hidden && g.hiddenParts === 4 && g.hiddenBeneath, `order ${i + 1}: the group row reads partly hidden (4 of 5)`);
-    assert(byPart(t, "p1", "axis.x.ticklabel.3")!.hidden === false && byPart(t, "p1", "axis.x.ticklabel.0")!.hidden === true, `order ${i + 1}: member rows read as drawn`);
+    assert(threeShown ? !g.hidden && g.hiddenParts === 4 : g.hidden === true, `${name}: the group row reads as drawn (${threeShown ? "4 of 5 hidden" : "hidden"})`);
+    assert(byPart(t, "p1", "axis.x.ticklabel.3")!.hidden === !threeShown, `${name}: the member row reads as drawn`);
   }
-  // Equal specificity: the later key wins (as before).
-  assert(hiddenLeaves(DELTA, { "axis.x.ticklabel.1": { hidden: true }, "axis.x.ticklabel.1x": { hidden: false } } as never).get("axis.x.ticklabel.1") === true, "an unrelated key never interferes");
-  // The eye toggle: normalise the subtree, in both key orders (the critic's acceptance check).
-  const apply = (ov: Record<string, Record<string, unknown>>, part: string, hide: boolean) => {
-    const out = structuredClone(ov);
-    for (const [k, v] of Object.entries(ctx.hiddenToggleWrites(DELTA, out as never, part, hide))) {
-      const cur = { ...(out[k] ?? {}) };
-      if (v == null) delete cur.hidden; else cur.hidden = v;
-      if (Object.keys(cur).length) out[k] = cur; else delete out[k];
-    }
-    return out;
-  };
-  const drawn = (ov: Record<string, Record<string, unknown>>, part: string) => ctx.partDrawnHidden(DELTA, ov as never, part);
-  let ov: Record<string, Record<string, unknown>> = {};
-  ov = apply(ov, "axis.x.ticklabel.3", true);   // hide label 3
-  ov = apply(ov, "axis.x.ticklabel.3", false);  // show it
-  assert(!("axis.x.ticklabel.3" in ov), "showing a part with nothing above hiding it CLEARS its flag (no stale false)");
-  ov = apply(ov, "axis.x.tick-labels", true);   // hide the family
-  assert(resolveTargets(DELTA, "axis.x.tick-labels").every((l) => hiddenLeaves(DELTA, ov as never).get(l)), "…so hiding the family afterwards hides all five");
-  ov = apply(ov, "axis.x.ticklabel.3", false);  // show one inside the hidden family
-  assert(!drawn(ov, "axis.x.ticklabel.3") && drawn(ov, "axis.x.ticklabel.0") && ov["axis.x.ticklabel.3"]?.hidden === false, "showing one member inside its hidden family writes the exception and draws it");
-  ov = apply(ov, "axis.x.tick-labels", true);   // hide the family again
-  assert(resolveTargets(DELTA, "axis.x.tick-labels").every((l) => hiddenLeaves(DELTA, ov as never).get(l)) && !("axis.x.ticklabel.3" in ov), "hiding the family again clears the exception: all hidden");
-  ov = apply(ov, "axis.x.tick-labels", false);
-  assert(Object.keys(ov).length === 0, "showing the family clears every flag beneath it");
-  ov = apply({ "axis.x.tick-labels": { hidden: true, fill: "#ff0000" } }, "axis.x.ticklabel.1", false);
-  assert(ov["axis.x.tick-labels"]?.fill === "#ff0000", "a toggle never touches other properties");
+  // The reviewer's legacy case: a stale `false` under a LATER axis hide stays hidden.
+  const legacy = hiddenLeaves(DELTA, { "axis.x.tick-labels": { hidden: false }, "axis.x": { hidden: true } } as never);
+  assert(resolveTargets(DELTA, "axis.x").every((l) => legacy.get(l)), "a stale shown-flag never outlives a later axis hide (documents unchanged)");
+
+  // The eye toggle (ops.setPartHidden — the X-ray's eyes and the canvas's x), through the real op.
+  const ops = await import("../src/lib/ops");
+  const doc = (ov: Record<string, Record<string, unknown>>) => proj({ id: "f1", name: "f", x: 0, y: 0, width: 800, height: 600, elements: [plotEl("p1", "a-delta", "bandpower-delta", structuredClone(ov))] });
+  const el = (p: Project) => p.figures[0].elements[0] as SemanticPlotElement;
+  const ovOf = (p: Project) => (el(p).overrides ?? {}) as Record<string, Record<string, unknown>>;
+  const drawn = (p: Project, part: string) => ctx.partDrawnHidden(DELTA, ovOf(p) as never, part);
+  const allHidden = (p: Project) => resolveTargets(DELTA, "axis.x.tick-labels").every((l) => hiddenLeaves(DELTA, ovOf(p) as never).get(l));
+  const p = doc({});
+  ops.setPartHidden(p, "p1", "axis.x.ticklabel.3", true, DELTA);
+  ops.setPartHidden(p, "p1", "axis.x.ticklabel.3", false, DELTA);
+  assert(!("axis.x.ticklabel.3" in ovOf(p)), "showing a part with nothing above hiding it CLEARS its flag (no stale false)");
+  ops.setPartHidden(p, "p1", "axis.x.tick-labels", true, DELTA);
+  assert(allHidden(p), "…so hiding the family afterwards hides all five");
+  ops.setPartHidden(p, "p1", "axis.x.ticklabel.3", false, DELTA);
+  assert(!drawn(p, "axis.x.ticklabel.3") && drawn(p, "axis.x.ticklabel.0") && ovOf(p)["axis.x.ticklabel.3"]?.hidden === false, "showing one member inside its hidden family draws exactly that member");
+  ops.setPartHidden(p, "p1", "axis.x.tick-labels", true, DELTA);
+  assert(allHidden(p) && !("axis.x.ticklabel.3" in ovOf(p)), "hiding the family again clears the exception: all hidden");
+  ops.setPartHidden(p, "p1", "axis.x.tick-labels", false, DELTA);
+  assert(Object.keys(ovOf(p)).length === 0, "showing the family clears every flag beneath it");
+  // The exception written BEFORE the ancestor (a legacy key order) moves after it — and only then.
+  const q = doc({ "axis.x.ticklabel.3": { fill: "#0000ff", hidden: true }, "axis.x.tick-labels": { hidden: true } });
+  ops.setPartHidden(q, "p1", "axis.x.ticklabel.3", false, DELTA);
+  assert(!drawn(q, "axis.x.ticklabel.3") && Object.keys(ovOf(q)).join() === "axis.x.tick-labels,axis.x.ticklabel.3" && ovOf(q)["axis.x.ticklabel.3"].fill === "#0000ff", "an exception written before its ancestor moves after it (other properties kept)");
+  const r = doc({ "axis.x.tick-labels": { fill: "#ff0000" }, "axis.x.ticklabel.1": { fill: "#0000ff" }, "axis.x.ticklabel.2": { fill: "#00ff00" } });
+  ops.setPartHidden(r, "p1", "axis.x.ticklabel.1", true, DELTA);
+  ops.setPartHidden(r, "p1", "axis.x.ticklabel.1", false, DELTA);
+  assert(Object.keys(ovOf(r)).join() === "axis.x.tick-labels,axis.x.ticklabel.1,axis.x.ticklabel.2", "a toggle that needs no exception never reorders keys (colour precedence untouched)");
+  const s2 = doc({ "axis.x.tick-labels": { hidden: true, fill: "#ff0000" } });
+  ops.setPartHidden(s2, "p1", "axis.x.ticklabel.1", false, DELTA);
+  assert(ovOf(s2)["axis.x.tick-labels"]?.fill === "#ff0000", "a toggle never touches other properties");
 }
 
 console.log("(g) restyled state");

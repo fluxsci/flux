@@ -90,6 +90,14 @@ try {
   const ci = rows.findIndex((r) => r.kind === "common" && r.label === "X axis");
   ok(ci >= 0 && rows[ci + 1]?.kind === "common" && rows.slice(ci + 1, ci + 4).map((r) => r.label).join() === "Spine,Tick marks,Tick labels", "Common parts nest: X axis › Spine / Tick marks / Tick labels");
   ok(rows.some((r) => r.kind === "common" && r.label === "Y axis" && r.preview === "varies"), "the common Y axis says its titles vary");
+  // eyes read what is DRAWN: hide the common X axis → its common Tick labels read hidden too
+  await page.click('.xray .row[data-rid="common:axis.x"] .eye');
+  await sleep(200);
+  rows = await rowInfo();
+  ok(rows.find((r) => r.rid === "common:axis.x.tick-labels")?.eye === "○" && await F(() => document.querySelector('.xray .row[data-rid="common:axis.x.tick-labels"] .eye')?.classList.contains("ghost")), "a common part hidden with its axis reads hidden (ghosted: by its parent)");
+  await page.click('.xray .row[data-rid="common:axis.x"] .eye');
+  await sleep(200);
+  ok((await rowInfo()).find((r) => r.rid === "common:axis.x.tick-labels")?.eye === "◉", "…and shown again with it");
   await close();
 
   // --- 3. a drilled tick label opens picked; ↓ siblings, ← family --------------------------
@@ -116,9 +124,14 @@ try {
   await waitFor(page, () => document.querySelector("[data-xray-hover]")?.getAttribute("data-xray-hover") === "5", null, { label: "hover outline", timeout: 3000 }).catch(() => {});
   ok((await F(() => document.querySelector("[data-xray-hover]")?.getAttribute("data-xray-hover"))) === "5", "hovering Tick marks outlines its five ticks on the canvas");
   ok((await stripText(".xray .xdetail .dpath")) === "X axis › Tick marks", "…and the detail strip follows the hover");
+  await shot(page, "xray-context-02-family");
+  // closed from OUTSIDE the panel (the Become picker, a mode switch …), the outline goes too
+  await F(() => window.__flux.fig.xrayOpen.set(false));
+  await sleep(200);
+  ok(!(await page.$("[data-xray-hover]")), "the hover outline never outlives the X-ray");
+  await altR();
   await page.mouse.move(1450, 900);
   await sleep(150);
-  await shot(page, "xray-context-02-family");
 
   // --- 4. x / Ctrl+Z inside the X-ray; ◐ for a partly hidden family ------------------------
   await page.keyboard.press("ArrowDown"); // → the first tick label

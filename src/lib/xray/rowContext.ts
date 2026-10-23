@@ -83,8 +83,10 @@ function texToText(src: string): string {
   let t = src;
   t = t.replace(/\^\{([^{}]*)\}/g, (_, x: string) => script(x, SUP, "^")).replace(/\^([^\\{(])/g, (_, x: string) => script(x, SUP, "^"));
   t = t.replace(/_\{([^{}]*)\}/g, (_, x: string) => script(x, SUB, "_")).replace(/_([^\\{(])/g, (_, x: string) => script(x, SUB, "_"));
-  for (let k = 0; k < 3; k++) t = t.replace(/\\(?:mathdefault|mathrm|mathit|mathbf|mathsf|text|operatorname)\{([^{}]*)\}/g, "$1");
-  t = t.replace(/\\([A-Za-z]+|.)/g, (_, name: string) => TEX[name] ?? name);
+  t = t.replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1/$2").replace(/\\(?:left|right|big|Big|bigg|Bigg)\b/g, "");
+  for (let k = 0; k < 3; k++) t = t.replace(/\\(?:mathdefault|mathregular|mathrm|mathit|mathbf|mathsf|mathtt|textrm|text|operatorname|boldsymbol)\{([^{}]*)\}/g, "$1");
+  // A known symbol → its character; an escaped character (\%) → itself; any other command drops.
+  t = t.replace(/\\([A-Za-z]+|.)/g, (_, name: string) => TEX[name] ?? (name.length === 1 ? name : ""));
   return t.replace(/[{}]/g, "");
 }
 
@@ -376,9 +378,11 @@ export function isWithin(manifest: FluxPlotManifest, id: string, ancestor: strin
 /** The hidden writes one eye toggle makes on a part, as a key → hidden patch
  *  (true / false / null = clear). The toggle NORMALISES the part's subtree:
  *  every key beneath it loses its own hidden flag (so "x" on Tick labels shows
- *  or hides ALL of them, the Layers rule), and the part itself is set — to
- *  `false` only when an ancestor would otherwise still hide it (the most
- *  specific flag wins, so that exception draws), else cleared. */
+ *  or hides ALL of them, the Layers rule — and no stale `false` is left to
+ *  outrank a later family hide), and the part itself is set — to `false` only
+ *  when an ancestor would otherwise still hide it, else cleared. Rendering
+ *  applies keys in order (the later wins), so an exception must also come
+ *  AFTER that ancestor: see hiddenNeedsReorder. */
 export function hiddenToggleWrites(manifest: FluxPlotManifest | undefined, overrides: Record<string, { hidden?: boolean | null } | undefined> | undefined, partId: string, hide: boolean): Record<string, boolean | null> {
   const out: Record<string, boolean | null> = {};
   const id = manifest ? aliasPartId(manifest, partId) : partId;
@@ -528,4 +532,14 @@ export function partDrawnHidden(manifest: FluxPlotManifest | undefined, override
   const leaves = resolveTargets(manifest, partId);
   const hidden = hiddenLeaves(manifest, overrides);
   return leaves.length > 0 && leaves.every((l) => hidden.get(l));
+}
+
+/** After a toggle's writes, does the part's own flag still lose to a key written
+ *  after it (an ancestor's)? Then the part's key must move to the end — the only
+ *  case a toggle reorders keys, so other properties keep their precedence. */
+export function hiddenNeedsReorder(manifest: FluxPlotManifest | undefined, overrides: Record<string, { hidden?: boolean | null } | undefined> | undefined, partId: string): boolean {
+  const own = overrides?.[partId]?.hidden;
+  if (own == null) return false;
+  const drawn = hiddenLeaves(manifest, overrides);
+  return resolveTargets(manifest, partId).some((l) => drawn.get(l) !== own);
 }

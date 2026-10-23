@@ -217,6 +217,17 @@ try {
   h.eq(await units(), [`p:pk-plot/${pointIds[0]}`, "p:pk-plot/axis.x.spine", "p:pk-plot/axis.x.ticks"].sort(), "a second row joins too");
   await page.keyboard.down(mod); await page.click(ticksRow); await page.keyboard.up(mod); await paint();
   h.eq(await units(), [`p:pk-plot/${pointIds[0]}`, "p:pk-plot/axis.x.spine"].sort(), "toggling a row off unpicks it live");
+  // 2026-10-23: group members are rows — the canvas-picked point shows picked, and
+  // unpicking it there drops it (it used to have no row, so the X-ray could not).
+  const pointRow = `.xray [data-rid="part:pk-plot__${pointIds[0]}"]`;
+  h.ok(await page.$eval(pointRow, (r) => r.classList.contains("sel")), "the canvas-picked point is a picked X-ray row");
+  await page.keyboard.down(mod); await page.click(pointRow); await page.keyboard.up(mod); await paint();
+  h.eq(await units(), ["p:pk-plot/axis.x.spine"], "unpicking the point's row drops it from the pick");
+  // restore the pick in its original order (point, then spine) for the confirm below
+  await page.keyboard.down(mod); await page.click(pointRow); await page.keyboard.up(mod); await paint();
+  await page.keyboard.down(mod); await page.click(spineRow); await page.keyboard.up(mod); await paint();
+  await page.keyboard.down(mod); await page.click(spineRow); await page.keyboard.up(mod); await paint();
+  h.eq(await units(), [`p:pk-plot/${pointIds[0]}`, "p:pk-plot/axis.x.spine"].sort(), "…and picking it again restores it");
   await page.keyboard.press("Escape"); await paint();
   h.ok(!(await page.$(".xray")) && await layer() === "pick" && (await units()).length === 2, "closing the X-ray keeps the picks and the mode");
   await page.mouse.move(pc.x, pc.y);
@@ -225,6 +236,22 @@ try {
   await page.keyboard.press("Space"); await paint();
   handoff = (await tracks()).find((t) => t.to?.become);
   h.ok(JSON.stringify(handoff?.to.become.ref) === JSON.stringify({ element: "pk-plot", parts: [pointIds[0], "axis.x.spine"] }), "b in the X-ray confirms the whole pick (canvas point + row)");
+  await undo();
+
+  h.section("Shift+Alt+R — the picks' family");
+  await seed(); await armBecome();
+  await page.mouse.click(p0.x, p0.y); await paint();
+  await page.mouse.move(pc.x, pc.y);
+  await page.keyboard.down("Shift"); await page.keyboard.down("Alt"); await page.keyboard.press("KeyR"); await page.keyboard.up("Alt"); await page.keyboard.up("Shift");
+  await waitFor(page, () => document.activeElement?.classList.contains("xray"), null, { label: "family X-ray focus" });
+  const fam = await units();
+  const famPart = fam[0]?.replace(/^p:pk-plot\//, "");
+  h.ok(fam.length === 1 && famPart && famPart !== pointIds[0] && await page.$eval(".xray .row.primary", (r) => r.dataset.rid) === `part:pk-plot__${famPart}`, `the picked point widens to its family — picked in the picker AND the X-ray (${fam.join(", ")})`);
+  await page.keyboard.press("Escape"); await paint();
+  h.eq(await units(), fam, "closing the X-ray keeps the family as the pick");
+  await page.keyboard.press("Space"); await paint();
+  handoff = (await tracks()).find((t) => t.to?.become);
+  h.ok(JSON.stringify(handoff?.to.become.ref?.parts) === JSON.stringify([famPart]), "Space becomes the family");
   await undo();
 
   h.section("Appear from… uses the same picker");

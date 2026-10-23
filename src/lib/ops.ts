@@ -20,7 +20,7 @@ import type { Model3dElement } from './model3d/types';
 export { setModelField, setModelStates, setModelFrame, modelFrame, modelDefaultStates, modelStateWeight } from './model3d/semanticOps';
 export type { ModelFieldPatch } from './model3d/semanticOps';
 
-import { hiddenToggleWrites } from "./xray/rowContext";
+import { hiddenNeedsReorder, hiddenToggleWrites } from "./xray/rowContext";
 import type { ColorScaleView,
   Project,
   Figure,
@@ -1694,8 +1694,10 @@ export function setPartOverride(p: Project, elementId: Id, partId: string, patch
 /** Show or hide one plot part — THE eye toggle (the X-ray's eyes, the canvas's `x` on a
  *  drilled part). It normalises the part's subtree (rowContext.hiddenToggleWrites): hiding
  *  or showing Tick labels hides or shows every tick label, and showing one tick label inside
- *  hidden tick labels draws it (the most specific hidden flag wins — plot/tree hiddenLeaves).
- *  Models keep their own lineage rule (a plain override). */
+ *  hidden tick labels draws it. Rendering applies override keys in order (applyOverrides:
+ *  the later wins), so such an exception moves after the ancestor it overrules
+ *  (hiddenNeedsReorder) — the only time a toggle reorders keys. Models keep their own
+ *  lineage rule (a plain override). */
 export function setPartHidden(p: Project, elementId: Id, partId: string, hide: boolean, manifest?: FluxPlotManifest): void {
   for (const f of p.figures)
     for (const e of f.elements) {
@@ -1704,6 +1706,13 @@ export function setPartHidden(p: Project, elementId: Id, partId: string, hide: b
       if (e.type !== "plot") continue;
       const m = manifest ?? readStore(plotManifests)[e.assetId];
       for (const [key, hidden] of Object.entries(hiddenToggleWrites(m, e.overrides, partId, hide))) mergePartOverride(e, key, { hidden });
+      if (e.overrides && hiddenNeedsReorder(m, e.overrides, partId)) {
+        const own = e.overrides[partId];
+        const reordered: Record<string, PartOverride> = Object.assign(Object.create(null), e.overrides);
+        delete reordered[partId];
+        reordered[partId] = own;
+        e.overrides = reordered;
+      }
     }
 }
 

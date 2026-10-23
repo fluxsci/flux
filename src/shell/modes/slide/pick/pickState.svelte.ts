@@ -303,6 +303,12 @@ export class BecomePicker {
     const seeded = t.units.filter((u) => u.element === plotId && u.part && rowIds.has(u.part));
     this.#xrayOwned = new Set(seeded.map(unitKey));
     const parts = [...new Set(seeded.map((u) => (family && manifest ? partFamily(manifest, u.part!) ?? u.part! : u.part!)))];
+    if (family && parts.some((id) => !seeded.some((u) => u.part === id))) {
+      // The family IS the pick now (shown in the X-ray, held by the picker — Esc keeps it).
+      const next = targetsToUnits(parts.map((partId) => ({ elementId: plotId, partId })));
+      this.setUnits(addUnits(t.units.filter((u) => !seeded.includes(u)), next, t.source, this.unitContext()));
+      this.#xrayOwned = new Set(next.map(unitKey));
+    }
     selection.set(new Set([plotId]));
     setPartSelections(parts.map((partId) => ({ elementId: plotId, partId })));
     xrayRoot.set({ kind: "element", figId: fig.id, elementId: plotId });

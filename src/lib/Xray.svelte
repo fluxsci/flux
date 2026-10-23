@@ -266,7 +266,7 @@
     });
     sizeObs.observe(el);
   }
-  onDestroy(() => sizeObs?.disconnect());
+  onDestroy(() => { sizeObs?.disconnect(); xrayHover.set(null); });
 
   let prevOpen = false;
   $: {
@@ -275,6 +275,10 @@
       void place();
     }
     if (!$xrayOpen && prevOpen) {
+      // However it closed (Esc here, the Become picker, a mode switch …): the
+      // canvas outline of the hovered row goes with it, and the view is kept.
+      xrayHover.set(null);
+      rememberExpansion();
       sizeObs?.disconnect();
       sizeObs = null;
     }
@@ -290,7 +294,8 @@
   // Expansion is remembered per root for the session: reopening the X-ray on the
   // same plot (or set) lands where you left it.
   const expansionMemory = new Map<string, Set<string>>();
-  const rootKey = (t: XrayTarget | null) => (t ? JSON.stringify(t) : "");
+  // A set of plots is one root whatever order it was gathered in.
+  const rootKey = (t: XrayTarget | null) => (t ? JSON.stringify(t.kind === "elements" ? { ...t, elementIds: [...t.elementIds].sort() } : t) : "");
   function rememberExpansion() {
     if (root) expansionMemory.set(rootKey(root), new Set(expanded));
   }
@@ -445,10 +450,17 @@
     }
     return false;
   }
+  /** A picked group ABSORBS its picked members (Tick labels + tick label 3 = Tick labels):
+   *  one key edited, one track animated, never the family and each member over again. */
+  function absorbMembers(picked: XRow[]): XRow[] {
+    const ids = new Set(picked.map((n) => n.id));
+    return picked.filter((n) => !(n.member && ids.has(rowIndex.get(n.id)?.parent?.id ?? "")));
+  }
   /** Publish the pick to the editor's selection stores: parts (any row kind
    *  that names one) become the plural part selection; whole objects and
    *  group members become the element selection. */
-  function applySelection(picked: XRow[]) {
+  function applySelection(all: XRow[]) {
+    const picked = absorbMembers(all);
     publishPick(picked);
     const exclusions = get(editorSelectionExclusions);
     const parts: { elementId: string; partId: string }[] = [];
@@ -624,7 +636,7 @@
   function toggleHiddenRows(list: XRow[]) {
     const exclusions = get(editorSelectionExclusions);
     const fig = root ? get(project).figures.find((f) => f.id === root.figId) : null;
-    const targets = list.flatMap((n) => n.kind === "set" ? n.children : [n])
+    const targets = absorbMembers(list).flatMap((n) => n.kind === "set" ? n.children : [n])
       .filter((n) => !hideBlocked(n, exclusions))
       .map((n) => {
         if (n.kind !== "common") return n;
@@ -693,11 +705,10 @@
   }
   function animateTargets(kind?: XrayAnimateKind, rows?: XRow[]): XrayAnimateTarget[] {
     const all = rows ?? (pickedRows.length ? pickedRows : selRow ? [selRow] : []);
-    // A picked group covers its picked MEMBERS (Tick labels + one tick label → one track
-    // for the family, never the glyph animated twice). Containers and their children stay
-    // separate targets, as before: "X axis appears, its ticks emphasize" is two tracks.
-    const pickedIds = new Set(all.map((n) => n.id));
-    const picked = all.filter((n) => !(n.member && pickedIds.has(rowIndex.get(n.id)?.parent?.id ?? "")));
+    // A picked group covers its picked MEMBERS (one track for the family, never the glyph
+    // animated twice). Containers and their children stay separate targets, as before:
+    // "X axis appears, its ticks emphasize" is two tracks.
+    const picked = absorbMembers(all);
     const exclusions = get(editorSelectionExclusions);
     const out: XrayAnimateTarget[] = [];
     const fig = root ? get(project).figures.find((f) => f.id === root.figId) : null;
@@ -738,7 +749,9 @@
     if (selRow.children.length && expanded.has(selRow.id)) { expanded.delete(selRow.id); expanded = expanded; return; }
     const up = parents.get(selRow.id);
     if (!up || !rowIndex.has(up.id)) return;
-    pick(up, additive ? { ctrlKey: true } : undefined);
+    if (additive && !selectedIds.has(up.id)) pick(up, { ctrlKey: true });
+    else if (additive) { selectedId = up.id; anchorId = up.id; }
+    else pick(up);
     void revealPrimary();
   }
   /** → opens a closed row; on an open one it steps to the first child. */
@@ -976,6 +989,7 @@
       else popRoot();
       return;
     }
+    if (k.startsWith("Arrow")) hoverRow(null); // the strip and canvas follow the keyboard now
     if (k === "ArrowDown" || k === "ArrowUp") {
       e.preventDefault();
       const i = rows.findIndex((r) => r.node.id === selectedId);

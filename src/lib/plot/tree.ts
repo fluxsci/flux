@@ -77,47 +77,6 @@ function indexTree(root: PartNode | undefined): Map<string, PartNode> {
   return m;
 }
 
-const depthMemo = new WeakMap<PartNode, Map<string, number>>();
-/** How SPECIFIC an override key is: its depth in the parts tree (a group's
- *  member one deeper than the group). Keys the tree does not name are leaves
- *  — the most specific of all. */
-export function partDepth(manifest: FluxPlotManifest | undefined, id: string): number {
-  const root = manifest?.parts as PartNode | undefined;
-  if (!root) return 0;
-  let m = depthMemo.get(root);
-  if (!m) {
-    const depths = new Map<string, number>();
-    const walk = (n: PartNode, d: number) => {
-      const k = key(n);
-      if (k && !depths.has(k)) depths.set(k, d);
-      for (const mem of n.members ?? []) if (!depths.has(mem)) depths.set(mem, d + 1);
-      for (const c of n.children ?? []) walk(c, d + 1);
-    };
-    walk(root, 0);
-    depthMemo.set(root, depths);
-    m = depths;
-  }
-  return m.get(aliasPartId(manifest, id)) ?? Number.MAX_SAFE_INTEGER;
-}
-
-/** Which leaves the element's overrides hide or show: THE one rule, shared by
- *  rendering (applyOverrides) and the X-ray's eyes. The MOST SPECIFIC hidden
- *  flag wins — a member over its group, a group over its axis — and among keys
- *  equally specific, the later one. So "hide the tick labels, show tick label
- *  3" draws tick label 3, whatever order the keys were written in. */
-export function hiddenLeaves(manifest: FluxPlotManifest | undefined, overrides: Record<string, { hidden?: boolean | null } | undefined> | undefined): Map<string, boolean> {
-  const out = new Map<string, boolean>();
-  if (!overrides) return out;
-  const keys = Object.keys(overrides).filter((k) => overrides[k]?.hidden != null);
-  if (!keys.length) return out;
-  const ranked = keys.map((k, i) => ({ k, i, d: partDepth(manifest, k) })).sort((a, b) => a.d - b.d || a.i - b.i);
-  for (const { k } of ranked) {
-    const h = !!overrides[k]!.hidden;
-    for (const leaf of resolveTargets(manifest, k)) out.set(leaf, h);
-  }
-  return out;
-}
-
 /** The current id for a part id an OLDER fluxplot emitted (colour-system plan C7). fluxplot
  *  0.3.2 renamed spines (`axis.x.spine` → `axis.x.spine.bottom`) and re-slugged some series
  *  roots; `manifest.idAliases` maps each old id — or an old series root standing for every id
@@ -135,6 +94,21 @@ export function aliasPartId(manifest: FluxPlotManifest | undefined, id: string):
   let best: string | null = null;
   for (const key of Object.keys(aliases)) if (id.startsWith(key + ".") && (best === null || key.length > best.length)) best = key;
   return best === null ? id : aliases[best] + id.slice(best.length);
+}
+
+/** Which leaves the element's overrides draw hidden or shown — a MIRROR of
+ *  applyOverrides (parse.ts), which sets each key's targets in key order, so the
+ *  later key wins. The X-ray's eyes read this, so a row never disagrees with the
+ *  drawing; saved documents render exactly as they always have. */
+export function hiddenLeaves(manifest: FluxPlotManifest | undefined, overrides: Record<string, { hidden?: boolean | null } | undefined> | undefined): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  if (!overrides) return out;
+  for (const k of Object.keys(overrides)) {
+    const h = overrides[k]?.hidden;
+    if (h == null) continue;
+    for (const leaf of resolveTargets(manifest, k)) out.set(leaf, !!h);
+  }
+  return out;
 }
 
 /** The concrete leaf ids an override key controls. Group/container → its leaves; leaf → itself.
