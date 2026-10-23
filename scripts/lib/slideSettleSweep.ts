@@ -239,16 +239,15 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // rule is that nothing pops, so the landing keeps the raster. Inherent to the glide (docs: layer hygiene), recorded here, not hidden.
   [openKey("change", "change", 1, 1)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
   [openKey("springs", "springs", 3, 3)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
-  // The Release 1 review deck's two hardest hand-offs (slide 11 a thick-stroked line becoming a shape, slide 13 a 12 px unfilled rect becoming an
-  // ellipse). Measured on BOTH domains (the first lane report called the pop headless-only: it compared the presented frame at t = 0, which is
-  // still the rest, not the first frame that moved). Two causes: (1) GEOMETRY: the morph rounds the centreline from the first frame by
-  // t x R_B, and a stroke's OUTER corner is round with radius w/2 + r the moment r > 0, so a sharp 12 px rect corner jumps from radius 0 to 6
-  // (4 corners x (1 - pi/4) x 36 = 31 stage px^2: the measured 27); (2) the DOM rect / line / ellipse and the flight's PATH rasterise the
-  // same edge differently by a fraction of a pixel (the line's 20, the corners' landing 30). Fixes (hand-off lane S/L, not this lane):
-  // morph the stroke's OUTLINE (outer and inner contours, mitred offsets) for a thick-stroked convex Become, and serialise stroked rect /
-  // ellipse / line as <path> in the player's static markup so both sides share a rasteriser.
-  [openKey("become_stroked", "line_shape", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], rt: ["START STEP"], rtMay: ["FIRST FRAME"], owner: "lane S (hand-off stroke geometry + rasteriser)" },
-  [openKey("become_stroked", "corners", 1, 1)]: { seek: ["START POP (frame)"], rt: ["START STEP"], rtMay: ["LANDING STEP", "FIRST FRAME"], owner: "lane S (hand-off stroke geometry + rasteriser)" },
+  // The Release 1 review deck's two hardest hand-offs (slide 11 a thick-stroked line / arrow becoming a shape, slide 13 a 12 px unfilled rect
+  // becoming an ellipse; `become_stroked`). R2 follow-up F1 fixed their START (a stroke's outer corner jumped from radius 0 to w/2 on the first frame,
+  // and a body that stopped inside an arrowhead poked a round cap past the tip: 20 to 30 stage px^2 on both domains, now 0.1): the stroke is drawn as a
+  // band between two normal-matched contours (outline.ts planStrokeBand), the arrow's body starts inside its head, and the stage draws a resting
+  // ellipse as the path of its outline (render.ts stageMarkup), so the flight and the rest share one rasteriser. What is left is the LANDING of the
+  // 12 px non-circular ring on the GPU: the band is an exact offset of the outline, and the path stroker's offset of the same outline is up to 0.1 px
+  // thicker at 12 px (measured: band vs path stroke 20.1, vs the oval primitive 6.5; the base landed 30.4). Tolerated, not required: it reads 6 to 20
+  // from run to run with the frame the compositor lands on.
+  [openKey("become_stroked", "corners", 1, 1)]: { rtMay: ["LANDING STEP"], owner: "inherent: the path stroker is up to 0.1 px thicker than the exact stroke band on a 12 px non-circular ring (base 30.4, now 20.1)" },
   // A turning TEXT rides the flight mark (a layer baked at rest): it turns smoothly from a clean first frame and lands without a step, but on its
   // layer's raster, the hinted glyphs rotated by the compositor, which differs from a fresh render painted at the final angle (42 stage px^2 for a
   // 210 px line; 0.0 to 16 elsewhere). Unpromoted it is exact at the end and ragged all along with a 9 to 66 jump at the start.

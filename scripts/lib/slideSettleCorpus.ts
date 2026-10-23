@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
 import { createDeck, addSlide, addElement, addBeat, setAnimation, setTransform, addGhostTransform } from "../../src/lib/slide/ops";
+import { pathD } from "../../src/lib/path";
 import { authoredFields } from "../../src/lib/slide/presetCatalog";
 import type { Deck, Track, TargetRef, BecomeSpec } from "../../src/lib/slide/types";
 import type { SweepPayload } from "./slideSettleSweep";
@@ -183,9 +184,8 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
   }
   {
     // The Release 1 review deck's two hardest hand-offs, authored the way that deck is (a state Become, mode "consume"): a THICK-stroked
-    // line and arrow becoming an ellipse and a rect (slide 11), and a 12 px stroked, unfilled rect becoming an ellipse (slide 13). In
-    // HEADLESS Chrome their first frame differs from the rest by a half-pixel edge snap of the DOM rect against the flight's path
-    // (KNOWN_OPEN, seek domain); on the GPU compositor it is 0.0 and the real-time gate pins that.
+    // line and arrow becoming an ellipse and a rect (slide 11), and a 12 px stroked, unfilled rect becoming an ellipse (slide 13). Their first
+    // frame stepped 20 to 30 stage px^2 on BOTH domains until R2 follow-up F1 (the stroke band, the trimmed arrow body, the stage's ellipse path).
     const b = new Builder("become_stroked");
     const l = b.slide("line_shape");
     b.add(l, el("line", "l1", 60, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.blueD, strokeWidth: 6 }));
@@ -197,6 +197,68 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     b.add(c, el("rectS", "r1", 200, 110, { width: 240, height: 160, fill: "none", stroke: C.ink, strokeWidth: 12 }));
     b.become(c, b.beat(c), "r1", { element: "e3" }, { mode: "consume" }, { state: { type: "ellipse", x: 220, y: 100, width: 200, height: 180, fill: "none", stroke: C.ink, strokeWidth: 12 } });
     out.push({ name: "become_stroked", payload: { deck: b.deck } });
+  }
+  {
+    // R2 follow-up F1 (geometry): hand-offs between ROUND shapes. The flight draws the stroke law (the path stroker), and the stage draws a resting
+    // ellipse as the path of its outline (render.ts stageMarkup), so both ends are one rasteriser: a lone dot, a dot at fractional coordinates, a dot
+    // that grows, a thick ring, and six dots at once (the per-dot raster noise adds up: 8.6 stage px^2 on the GPU with the oval primitive, 0.6 now).
+    const b = new Builder("handoff_round");
+    const dot = (s: string, id: string, cx: number, cy: number, r: number, fill: string, sw = 2) => b.add(s, { id, type: "ellipse", x: cx - r, y: cy - r, width: 2 * r, height: 2 * r, rotation: 0, fill, stroke: C.ink, strokeWidth: sw });
+    const ho = (s: string, a: string, to: string) => b.become(s, b.beat(s), a, { element: to }, { mode: "handoff" });
+    { const s = b.slide("dot_int"); dot(s, "a", 140, 70, 18, C.blue); dot(s, "b", 480, 250, 18, C.red); ho(s, "a", "b"); }
+    { const s = b.slide("dot_frac"); dot(s, "a", 85.3, 55.6, 15, C.red); dot(s, "b", 470.7, 240.2, 15, C.green); ho(s, "a", "b"); }
+    { const s = b.slide("dot_grow"); dot(s, "a", 140, 70, 15, C.blue); dot(s, "b", 420, 200, 60, C.orange, 3); ho(s, "a", "b"); }
+    { const s = b.slide("ring_ring"); dot(s, "a", 180, 180, 60, "none", 12); dot(s, "b", 460, 180, 90, "none", 12); ho(s, "a", "b"); }
+    { const s = b.slide("six_dots"); for (let i = 0; i < 6; i++) { dot(s, `a${i}`, 70 + i * 95, 60 + (i % 2) * 30, 12, C.blue); dot(s, `b${i}`, 90 + i * 85, 280 - (i % 3) * 22, 12, C.red); } const beat = b.beat(s); for (let i = 0; i < 6; i++) b.become(s, beat, `a${i}`, { element: `b${i}` }, { mode: "handoff" }); }
+    out.push({ name: "handoff_round", payload: { deck: b.deck } });
+  }
+  {
+    // R2 follow-up F1: stroked shapes with CORNERS become other shapes (the stroke band: outline.ts planStrokeBand). A triangle path (round join) and a
+    // rect (mitre) become circles, a round-capped arrow becomes a circle (its body ends inside the head), a butt-capped line becomes a rect, and the
+    // same arrow is handed off to the circle (the hand-off driver's band and trimmed body).
+    const b = new Builder("become_corners");
+    const tri = [{ x: 100, y: 0, type: "corner" }, { x: 200, y: 200, type: "corner" }, { x: 0, y: 200, type: "corner" }];
+    const circle = (id: string, o: Record<string, unknown> = {}) => b.add(b.deck.slides[b.deck.slides.length - 1].id, { id, type: "ellipse", x: 220, y: 80, width: 200, height: 200, rotation: 0, fill: C.red, stroke: C.redD, strokeWidth: 6, ...o });
+    { const s = b.slide("tri_circle"); b.add(s, { id: "a", type: "path", x: 220, y: 80, width: 200, height: 200, rotation: 0, nodes: tri, d: pathD(tri as never, true), closed: true, fill: C.blue, stroke: C.blueD, strokeWidth: 6, cap: "round" }); circle("b");
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", fill: C.red, stroke: C.redD, strokeWidth: 6 } }); }
+    { const s = b.slide("rect_circle"); b.add(s, el("rect", "a", 220, 80, { width: 200, height: 200, fill: C.blue, stroke: C.blueD, strokeWidth: 6 })); circle("b");
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", fill: C.red, stroke: C.redD, strokeWidth: 6 } }); }
+    { const s = b.slide("arrow_circle"); b.add(s, el("arrow", "a", 140, 180, { width: 360, height: 0, x1: 0, y1: 0, x2: 360, y2: 0, stroke: C.blueD, strokeWidth: 6 })); circle("b", { x: 220, y: 80 });
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", x: 220, y: 80, width: 200, height: 200, fill: C.red, stroke: C.redD, strokeWidth: 4 } }); }
+    { const s = b.slide("arrow_circle_ho"); b.add(s, el("arrow", "a", 140, 180, { width: 360, height: 0, x1: 0, y1: 0, x2: 360, y2: 0, stroke: C.blueD, strokeWidth: 6 })); circle("b", { strokeWidth: 4 });
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    { const s = b.slide("butt_line_rect"); b.add(s, el("line", "a", 60, 180, { width: 200, height: 10, x1: 0, y1: 5, x2: 200, y2: 5, stroke: C.blueD, strokeWidth: 8, cap: "butt" })); b.add(s, el("rect", "b", 330, 110, { width: 200, height: 140, fill: C.red, stroke: C.redD, strokeWidth: 8 }));
+      b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    out.push({ name: "become_corners", payload: { deck: b.deck } });
+  }
+  {
+    // R2 follow-up F1: a Change of cornerRadius with REAL element data (the sharp `nodes` skeleton plus the rounded `d` the app writes). Lane S measured
+    // a 222-px^2 start pop on a path whose `d` was hand-written sharp while its cornerRadius said 20 (an element the app never produces): with the
+    // data it writes, rounding a corner and sharpening it are smooth from the first frame to the last (this deck pins that).
+    const b = new Builder("corner_radius");
+    const sq = [{ x: 0, y: 0, type: "corner" }, { x: 140, y: 0, type: "corner" }, { x: 140, y: 140, type: "corner" }, { x: 0, y: 140, type: "corner" }];
+    const pathEl = (s: string, id: string, radius: number) => b.add(s, { id, type: "path", x: 250, y: 110, width: 140, height: 140, rotation: 0, nodes: sq, d: pathD(sq as never, true, radius), closed: true, cornerRadius: radius, fill: C.blue + "99", stroke: C.blue, strokeWidth: 4 });
+    { const s = b.slide("path_20_0"); pathEl(s, "a", 20); b.change(s, b.beat(s), "a", { cornerRadius: 0 }); }
+    { const s = b.slide("path_0_20"); pathEl(s, "a", 0); b.change(s, b.beat(s), "a", { cornerRadius: 20 }); }
+    { const s = b.slide("rect_20_0"); b.add(s, el("rect", "a", 250, 110, { width: 140, height: 140, fill: C.blue + "99", stroke: C.blue, strokeWidth: 4, cornerRadius: 20 })); b.change(s, b.beat(s), "a", { cornerRadius: 0 }); }
+    out.push({ name: "corner_radius", payload: { deck: b.deck } });
+  }
+  {
+    // R2 follow-up F1: compound paths (outline + hole). Lane S's lerpCompoundD pairs the subpaths; a hole with no partner collapses at its own centroid and
+    // is dropped at its own end, so the hole opens and closes in place with nothing popping (a 4 px stroke: the dot a collapsed stroked hole leaves is
+    // 0.24 x stroke^2 = 3.8 stage px^2, under the floor; at 12 px it is 34.8 and is an inherent trade-off, see the report).
+    const b = new Builder("compound");
+    const D = (hx: number, hw: number) => `M 0 0 L 180 0 L 180 180 L 0 180 Z M ${hx} 40 L ${hx} 140 L ${hx + hw} 140 L ${hx + hw} 40 Z`, SQ = "M 0 0 L 180 0 L 180 180 L 0 180 Z";
+    const pathEl = (s: string, id: string, d: string, fill: string, stroke: string) => b.add(s, { id, type: "path", x: 230, y: 90, width: 180, height: 180, rotation: 0, d, fill, stroke, strokeWidth: 4, closed: true, cap: "round" });
+    { const s = b.slide("hole_moves"); pathEl(s, "a", D(40, 60), C.blue + "cc", C.blue); b.change(s, b.beat(s), "a", { d: D(90, 50), fill: C.red + "cc", stroke: C.red }); }
+    { const s = b.slide("hole_fills"); pathEl(s, "a", D(40, 100), C.blue + "cc", C.blue); b.change(s, b.beat(s), "a", { d: SQ, fill: C.red + "cc", stroke: C.red }); }
+    { const s = b.slide("hole_opens"); pathEl(s, "a", SQ, C.blue + "cc", C.blue); b.change(s, b.beat(s), "a", { d: D(40, 100), fill: C.red + "cc", stroke: C.red }); }
+    // a compound path that BECOMES a ring: the 1-1 driver closes its hole at the hole's own centroid while the outer ring morphs; the hand-off driver
+    // (which flies one outline per element) takes a compound path by its box. Both were a start pop of ~2,000 stage px^2 (a flattened, bridged chain).
+    const ring = (s: string) => b.add(s, { id: "b", type: "ellipse", x: 230, y: 90, width: 180, height: 180, rotation: 0, fill: C.red + "cc", stroke: C.red, strokeWidth: 4 });
+    { const s = b.slide("donut_circle"); pathEl(s, "a", D(40, 100), C.blue + "cc", C.blue); ring(s); b.become(s, b.beat(s), "a", { element: "b" }, { mode: "consume" }, { state: { type: "ellipse", fill: C.red + "cc", stroke: C.red, strokeWidth: 4 } }); }
+    { const s = b.slide("donut_circle_ho"); pathEl(s, "a", D(40, 100), C.blue + "cc", C.blue); ring(s); b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
+    out.push({ name: "compound", payload: { deck: b.deck } });
   }
   {
     const b = new Builder("ghost"); const s = b.slide("ghost");

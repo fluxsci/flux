@@ -65,6 +65,9 @@ const decks = await corpus("compact");
   h.ok(presets.has("become") && presets.has("ghost"), "corpus exercises Become (hand-off) and Ghost");
   for (const k of ["text", "rect", "ellipse", "line", "arrow", "path", "image"]) h.ok(kinds.has(k), `corpus animates element kind ${k}`);
   for (const p of ["role:point", "role:bar", "axis.x.spine", "axis.x.ticks", "axis.x.tick-labels", "line"]) h.ok(parts.has(p), `corpus animates plot part ${p}`);
+  // R2 follow-up F1 (geometry): the hand-off / Change starts and landings it fixed stay in the corpus (a deck that left it would let them regress unseen)
+  const cuesOfDeck = (name: string) => decks.find(d => d.name === name)?.payload.deck.slides.length ?? 0;
+  for (const [name, n] of [["become_stroked", 2], ["become_corners", 5], ["handoff_round", 5], ["corner_radius", 3], ["compound", 5]] as const) h.ok(cuesOfDeck(name) >= n, `corpus keeps the ${name} cases (${cuesOfDeck(name)} >= ${n}): stroke band, round hand-offs, cornerRadius Change, compound holes`);
 }
 
 // -- 3. the sweep --------------------------------------------------------------------------------------------------------------
