@@ -14,7 +14,7 @@ const freezeDeep=(value:unknown):void=>{if(value&&typeof value==='object'){for(c
 {
  const f=figure([rect('a',.1,1,.2,1),rect('b',.4,1,.2,1),rect('c',.7,1,.2,1)]),before=structuredClone(f);
  const s=createArrangementSnapshot(f),p=planArrangement(s);
- eq(s.topology,'row');eq(p.identity,true);applyArrangementPlan(project(f),'f',p);eq(f,before,'fractional regular entry is byte-identical');eq(createArrangementSnapshot(f,['c','a','b']),createArrangementSnapshot(f,['a','b','c']));
+ eq(s.topology,'row');eq(p.identity,true);eq(p.units===s.units&&p.positions===s.memberPositions,true,'exact identity reuses immutable baseline');applyArrangementPlan(project(f),'f',p);eq(f,before,'fractional regular entry is byte-identical');eq(createArrangementSnapshot(f,['c','a','b']),createArrangementSnapshot(f,['a','b','c']));
 }
 {
  const f=figure([rect('a',0,0,40,100),rect('b',60,30,20,40),rect('c',140,40,20,20)]),s=createArrangementSnapshot(f),original=structuredClone(s);

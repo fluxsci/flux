@@ -190,7 +190,6 @@ function guides(columns:LayoutTrack[],rows:LayoutTrack[],cells:LayoutCell[],gapX
  * an edit, including a value equal to the representative display value. */
 export function planArrangement(snapshot:LayoutSnapshot,options:ArrangementOptions={}):ArrangementPlan {
   checkOptions(options);
-  const byKey=new Map(snapshot.units.map(u=>[u.key,u]));
   const n=snapshot.units.length,reflow=options.mode==='reflow'||options.cols!==undefined||options.rows!==undefined||snapshot.suggested;
   let cols=snapshot.cols;
   if(reflow&&n){
@@ -199,6 +198,17 @@ export function planArrangement(snapshot:LayoutSnapshot,options:ArrangementOptio
     else cols=Math.ceil(n/balancedRows(n));
   }
   const gapX=options.gapX??snapshot.gapX,gapY=options.gapY??snapshot.gapY;
+  // The common regular-layout entry has no geometry work. Reuse its immutable
+  // baseline rather than building and comparing per-member positions just to
+  // rediscover identity (important for direct Alt+T on thousands of objects).
+  if(n>=2&&!reflow&&options.gapX===undefined&&options.gapY===undefined&&snapshot.regularX&&snapshot.regularY){
+    if(!finiteBox(snapshot.bounds)||snapshot.units.some(u=>!finiteBox(u.bounds))||snapshot.memberPositions.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)))throw new Error('Arrangement overflowed finite geometry');
+    return {figureId:snapshot.figureId,positions:snapshot.memberPositions,translations:[],identity:true,
+      units:snapshot.units,bounds:snapshot.bounds,columns:snapshot.columns,rows:snapshot.rows,cells:snapshot.cells,
+      gaps:guides(snapshot.columns,snapshot.rows,snapshot.cells,gapX,gapY),cols:snapshot.cols,rowCount:snapshot.rowCount,
+      gapX,gapY,topology:snapshot.topology,suggested:false,mode:'inferred'};
+  }
+  const byKey=new Map(snapshot.units.map(u=>[u.key,u]));
   const anchor=options.anchor??{x:.5,y:.5},pin=options.pin??arrangementPin(snapshot.bounds,anchor);
   // The frozen topology and member IDs are read-only across previews. Share
   // them instead of allocating thousands of identical objects per pointermove.

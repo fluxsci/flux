@@ -164,7 +164,10 @@ export function switchAlignArrange(mode:Mode) {
     changed=false; arrangementLayout.set(null); snapshot=makeSnapshot(); publish({...s,mode,dragging:false,bounds:snapshot?.bounds??s.bounds}); refreshPlotChoices(); return;
   }
   if(s.blockedReason||s.count<2)return;
-  snapshot=makeSnapshot(); if(!snapshot)return;
+  // Open, settled Align actions and mode exit already refresh this baseline;
+  // foreign model changes close the owner. Re-capturing it here duplicates the
+  // entire selection walk on the direct Alt+T path.
+  if(!snapshot)return;
   s={...s,mode,anchor:{x:.5,y:.5},linkedGaps:false};
   pin={x:snapshot.bounds.x+snapshot.bounds.w/2,y:snapshot.bounds.y+snapshot.bounds.h/2};
   publish(s); const plan=planArrangement(snapshot,{mode:'tidy',anchor:s.anchor,pin}); applyPlan(plan); showPlan(plan);
@@ -178,6 +181,11 @@ function showPlan(plan:ArrangementPlan) {
 }
 function applyPlan(plan:ArrangementPlan) {
   const f=figure();if(!f||!snapshot||!captured)return;
+  // The planner's shared identity result is this exact owned baseline. There
+  // is nothing to commit or clone; preserve alternate-axis defaults/mode by
+  // using the ordinary path whenever those metadata values actually change.
+  if(plan.identity&&plan.units===snapshot.units&&plan.positions===snapshot.memberPositions&&
+    plan.gapX===snapshot.gapX&&plan.gapY===snapshot.gapY&&plan.mode===snapshot.mode)return;
   const byId=new Map(f.elements.map(e=>[e.id,e]));
   const differs=plan.positions.some(pos=>{const e=byId.get(pos.id);return !e||e.x!==pos.x||e.y!==pos.y;});
   if(differs) {write(()=>visit.run(()=>mutateFigure(f.id,p=>applyArrangementPlan(p,f.id,plan))));changed=true;}

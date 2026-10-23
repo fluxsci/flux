@@ -1725,8 +1725,13 @@ Persistence invariants (all machine-checked — do not weaken):
     Gap overlays must explicitly depend on viewport/figure projection in legacy Svelte:
     reading pan/zoom through a helper closure alone does not invalidate reactive guides,
     bounds, badges or pins when geometry is unchanged.
-    Layout culling includes original and preview bounds; publish visible sets only when their
-    members/model identities change. Bulk primitive previews use disposable SVG translation attributes instead of
+    Opening Align preserves the ordinary selected-wrapper policy. The first Arrange entry
+    enables layout culling for that visit and keeps it enabled across pane switches. Selected
+    layout objects use the normal 600-screen-pixel mount region against original AND preview
+    bounds, without inheriting the previous unconditional selection set as hysteresis. Publish
+    visible sets only when their members/model identities change. Exact no-edit plans reuse the
+    captured immutable arrays; explicit gap edits still normalize geometry, even at the same value.
+    Bulk primitive previews use disposable SVG translation attributes instead of
     thousands of compositor animations; dense artwork keeps its drive. Stop updating a primitive
     once its last rendered bounds and planned bounds are both offscreen; reset on baseline exit.
     Cancel inner edits before cancelling the visit; outside model/source conflicts finish
@@ -10571,3 +10576,9 @@ classes in an always-mounted rail must be specific (`.rail-tabs`).
 **Learnings:**
 - Negative spacing must anchor the actual occupied union; summed track sizes and gaps can describe a smaller or negative extent.
 - Legacy Svelte cannot discover viewport reads hidden in helper closures. Pass the projection explicitly to every reactive overlay calculation so pan/zoom moves unchanged layout chrome.
+
+
+### 2026-10-22 19:18 CDT — Direct Arrange entry stress qualification (Codex, `feat/align-arrange`)
+**Work:** Traced 5,000-selected-object entry to synchronous Svelte teardown and SVG layout, retained a normal-region/sticky culling policy, and removed duplicate snapshot/no-op allocations. Added direct Alt+T coverage without changing the 100 ms budget; the final isolated software-rendered native run passed 67/68 checks, including all functional/export checks, but direct entry remained 113.1 ms (A 62.0, Space 77.7, reflow 81.2, gap p95 97.0 ms). This is a documented stress limitation, not a passing responsiveness qualification; evidence is retained in `test-results/align-arrange-native-normal-mount-experiment` and the implementation report.
+**Learnings:**
+- An unconditional selected-node mount set cannot be reused as normal viewport hysteresis: it retains every offscreen selected object and shifts the cost into the next layout commit. The current policy and immutable identity-plan rules are promoted into the body.

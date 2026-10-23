@@ -71,7 +71,12 @@ async function arrangementCohort(n,count){
  await wait(()=>JSON.stringify(JSON.parse(fs.readFileSync(path.join(root,'fig/canvases/c.json'),'utf8')).figures.find(f=>f.id===`native-${n}`).elements)!==JSON.stringify(before.elements),'arrange preview reaches saved model before cancellation');
  await key('Escape');await wait(()=>js("!document.querySelector('.align-arrange-panel')"),'arrange Escape closes visit');
  await wait(()=>JSON.stringify(JSON.parse(fs.readFileSync(path.join(root,'fig/canvases/c.json'),'utf8')).figures.find(f=>f.id===`native-${n}`).elements)===JSON.stringify(before.elements),'cancel restores saved positions');
- metrics[`arrange-${n}`]={count,openMs:opened,enterMs:entered,rowMs:row,firstMoveMs:moves[0],gapP95:p95(moves),samplesMs:moves,scene,profiling};
+ const stopDirectProfile=process.env.FLUX_LAYOUT_PROFILE==='direct'&&n===5000?await startProfile('align-arrange-native-direct'):null;
+ const directOpen=await timedKey('T',['alt']);
+ if(stopDirectProfile)await stopDirectProfile();
+ check(await js("document.querySelector('.align-arrange-panel')?.getAttribute('aria-label')==='Flux Arrange'"),`${n}: Alt+T opens Arrange directly`);
+ await key('Escape');await wait(()=>js("!document.querySelector('.align-arrange-panel')"),'direct Arrange visit closes');
+ metrics[`arrange-${n}`]={count,openMs:opened,enterMs:entered,directOpenMs:directOpen,rowMs:row,firstMoveMs:moves[0],gapP95:p95(moves),samplesMs:moves,scene,profiling};
  console.log('PROBE metrics='+JSON.stringify({figure:`arrange-${n}`,...metrics[`arrange-${n}`]}));
  fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-native-metrics.json'),JSON.stringify(metrics,null,2));
  check(moves.length===18,`${n}: eighteen native gap pointer events measured`);
@@ -193,7 +198,7 @@ async function main(){
  // Keep the unchanged budget strict, while retaining the existing export and
  // interaction receipts even if the new full-selection cohort is too slow.
  for(const [name,m]of Object.entries(metrics))if(name.startsWith('arrange-')){
-  for(const metric of ['openMs','enterMs','rowMs','firstMoveMs','gapP95']){const value=m[metric];budget(Number.isFinite(value)&&value<=100,`${name}: ${metric} ${value?.toFixed(1)}ms ≤100ms`);}
+  for(const metric of ['openMs','enterMs','directOpenMs','rowMs','firstMoveMs','gapP95']){const value=m[metric];budget(Number.isFinite(value)&&value<=100,`${name}: ${metric} ${value?.toFixed(1)}ms ≤100ms`);}
  }
  for(const result of budgets){checks.push(result);console.log('PROBE check='+JSON.stringify(result));}
  fs.writeFileSync(path.join(out,'figure-polish-native.json'),JSON.stringify({checks,metrics},null,2));

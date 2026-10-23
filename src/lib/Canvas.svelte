@@ -625,7 +625,13 @@
   // Layout previews may bring previously offscreen objects into view. Cull
   // against BOTH model and preview bounds; retain model sources for the whole
   // gesture so visible artwork is never replaced while its spacing changes.
-  $: layoutFigureId = $alignArrange?.figureId ?? null;
+  // Opening Align does not need to tear down offscreen selected artwork.
+  // Start layout culling when Arrange is first used, then retain that policy
+  // until this owner closes so switching panes cannot remount/unmount thousands.
+  let layoutCullOwner: number | null = null;
+  $: if (!$alignArrange) layoutCullOwner = null;
+  else if ($alignArrange.mode === "arrange") layoutCullOwner = $alignArrange.id;
+  $: layoutFigureId = $alignArrange && $alignArrange.id === layoutCullOwner ? $alignArrange.figureId : null;
   $: layoutDeltas = new Map($arrangementPreview?.plan.translations.map(t => [t.id, t]) ?? []);
   $: layoutViewKey = layoutFigureId ? `${Math.round($viewport.panX / 64)},${Math.round($viewport.panY / 64)},${$viewport.zoom},${hostW},${hostH}` : '';
   function visibleEls(fig: Figure): Element[] {
@@ -638,9 +644,6 @@
     const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
     const lrOut: Rect = { x: cullRectOut.x - fig.x, y: cullRectOut.y - fig.y, w: cullRectOut.w, h: cullRectOut.h };
     const was = mountedEls.get(fig.id);
-    const z = $viewport.zoom, pad = 96 / z;
-    const layoutView: Rect = { x: -$viewport.panX / z - fig.x - pad, y: -$viewport.panY / z - fig.y - pad,
-      w: hostW / z + 2 * pad, h: hostH / z + 2 * pad };
     // FIG-4: cull by the ROTATED bounds — a tilted element near the viewport edge must
     // not vanish while its spun corners are still visible (unrotated = same fast path).
     const els = fig.elements.filter((el) => {
@@ -649,8 +652,10 @@
       const box = rotatedAABB(el);
       const delta = fig.id === layoutFigureId ? layoutDeltas.get(el.id) : undefined;
       const destination = delta ? { ...box, x: box.x + delta.dx, y: box.y + delta.dy } : box;
+      // Selection previously mounted every object, including far-offscreen ones.
+      // Do not inherit that unconditional set as viewport hysteresis on entry.
       if (fig.id === layoutFigureId && $selection.has(el.id))
-        return rectsIntersect(box, layoutView) || rectsIntersect(destination, layoutView);
+        return rectsIntersect(box, lr) || rectsIntersect(destination, lr);
       return rectsIntersect(box, lr) || rectsIntersect(destination, lr) ||
         (was?.has(el.id) === true && (rectsIntersect(box, lrOut) || rectsIntersect(destination, lrOut)));
     });
