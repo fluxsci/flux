@@ -224,15 +224,18 @@ export const openKey = (deck: string, slideId: string, from: number, to: number)
  *  stops firing fails it too. */
 export const KNOWN_OPEN: Record<string, OpenCase> = {
   // highlight / dim start as a wink: the element is dimmed at t = 0 (opacity level -> 1). Lane V (WP 2.2, T6 emphasis that MOVES) rewrites it.
-  // a text rewrite hands the original static text to the span layer: the glyph-matched morph's first/last frame differ from the resting
-  // text by anti-aliasing (50 stage px^2). Lane T (WP 2.5, text glide lanes / letters travel) owns textMorph.ts.
-  [openKey("change", "change", 3, 3)]: { seek: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)"], owner: "lane T (text morph layers)" },
   // a with-previous highlight starts at its OWN delay (120 ms in) with a one-frame dim of 147 stage px^2 and then holds (the wink): the real-time
   // gate's first-changing-frame rule sees it where the seek gate's windows at t = 0 cannot (the boundary is not at t = 0). Lane V rewrites highlight.
-  // the count-up replaces the resting number with its digit slots one frame after t = 0 (frame 0 is the rest, the second frame is 201 units, a
-  // frame of the motion's own scale): a content swap that lands late. Lane D (WP 2.3, count-up slots) owns it.
-  [openKey("plot_scatter", "scatter", 4, 4)]: { seek: ["START POP (2nd frame)"], owner: "R2 follow-up (a scaleIn point child re-entering VISIBLE points shifts every point at t = 0 (pre 22.7) and again on the 2nd frame; fade / popIn re-entries do not; a fresh auto-built scatter is clean)" },
-  [openKey("preset_countUp", "p_countUp", 1, 1)]: { seek: ["START POP (2nd frame)"], owner: "lane D (count-up digit slots replace the resting number one frame late)" },
+  // The count-up's first digit step lands on the SECOND frame: frame 0 is the rest, frame 1 still reads "0" (the count has not yet reached 0.5), frame 2
+  // is the first flip (a glyph, 209 stage px^2 at 40 px: the motion's own scale, 154 to 201 on every later frame). R2 F2 measured it, and it is NOT the
+  // place-value slots replacing the resting number late: the slotted "0" before the cue and on frames 0 and 1 are the same pixels (0.0 raw), the first
+  // flip lands in the same slot, and with `steadyDigits: false` the step is the same (201 against 209). It is the plain quintic `smooth` of the track:
+  // its dead lead-in keeps the value under 0.5 for 25 ms, and a quantised quantity has no frame between "0" and "1". Both sides measured (seek,
+  // 900 ms, 1,234): `smooth` first flip on frame 2 (START POP 2nd frame 209, here); the appearance onset curve QUICK_SMOOTH flips inside the first 2 ms
+  // (START POP 2ms 209); linear flips continuously and is clean, but a count that starts at full speed is not manim's `smooth`. The plan keeps countUp on
+  // plain `smooth` (R4_T1 §3.4: "the one accepted residual", pinned by verify-pace-defaults); the real-time gate (the frames a viewer sees) reads the first flip
+  // as the count's own first step (211 before 154) and passes without an entry.
+  [openKey("preset_countUp", "p_countUp", 1, 1)]: { seek: ["START POP (2nd frame)"], owner: "inherent: a quantised count under plain smooth has no frame between 0 and 1 (plan R4_T1 keeps countUp on smooth; QUICK_SMOOTH moves the flip into the first 2 ms)" },
   // TEXT that glides to a FRACTIONAL position rests on the gliding raster: a layer is rasterised once at its source phase and moved at float
   // precision (the only way text glides), so it lands up to half a device pixel soft against a render painted in place there (25 stage px^2
   // for a 22 px word). The alternative, demoting the layer at landing, measured a 44 stage px^2 sharpening STEP on the landing frame; manim's
@@ -253,10 +256,6 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // layer's raster, the hinted glyphs rotated by the compositor, which differs from a fresh render painted at the final angle (42 stage px^2 for a
   // 210 px line; 0.0 to 16 elsewhere). Unpromoted it is exact at the end and ragged all along with a 9 to 66 jump at the start.
   [openKey("change", "change", 16, 16)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a turning text lands on its layer's raster (the alternative is a start flip and a ragged turn)" },
-  // A Ghost copy of a TEXT is born exactly on top of its source: two layers of the same anti-aliased glyphs read bolder than one (edge coverage c
-  // becomes 1-(1-c)^2), a first frame 22.6 stage px^2 from the rest. A copy that fades in as it separates, or a source that hides under it for the
-  // first frame, fixes it; both change the Ghost vocabulary (not this lane's brief). Unassigned: the integrator.
-  [openKey("ghost", "ghost", 2, 2)]: { rt: ["START STEP"], rtMay: ["FIRST FRAME"], owner: "unassigned (Ghost birth: a text copy doubles its source's anti-aliasing for one frame)" },
 };
 /** What this cue's flags leave over once its tolerated ones are removed, plus the stale entries (a required flag that did not fire). */
 export function judge(flags: string[], open: OpenCase | undefined, domain: "seek" | "rt"): { failing: string[]; tolerated: string[]; stale: string[] } {

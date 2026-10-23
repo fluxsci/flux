@@ -18,12 +18,15 @@ const decks = await corpus("compact");
 export const PLAY: Record<string, string[]> = {
   preset_fadeRise: ["p_fadeRise#1-1", "p_fadeRise#2-2", "p_fadeRise#4-4"], preset_popIn: ["p_popIn#1-1", "p_popIn#2-2"], preset_fade: ["p_fade#1-1"],
   preset_drawOn: ["p_drawOn#3-3", "p_drawOn#4-4", "p_drawOn#6-6"], preset_drawOff: ["p_drawOff#3-3", "p_drawOff#6-6"], preset_growBaseline: ["p_growBaseline#1-1"],
-  preset_stagger: ["p_stagger#1-1"], preset_stagger_many: ["p_many#1-1"], preset_writeOn: ["p_writeOn#2-2"], preset_fadeOut: ["p_fadeOut#2-2"], preset_popOut: ["p_popOut#2-2"],
+  preset_stagger: ["p_stagger#1-1"], preset_stagger_many: ["p_many#1-1"], preset_writeOn: ["p_writeOn#1-1", "p_writeOn#2-2"], preset_fadeOut: ["p_fadeOut#2-2"], preset_popOut: ["p_popOut#2-2"],
   preset_move: ["p_move#1-1"], preset_scale: ["p_scale#1-1"], preset_rotate: ["p_rotate#1-1"], preset_dim: ["p_dim#2-2"], preset_countUp: ["p_countUp#1-1"],
-  change: ["change#1-1", "change#4-4", "change#5-5", "change#7-7", "change#9-9", "change#11-11", "change#13-13", "change#16-16", "change#17-17"],
-  become: ["become#1-1", "become#2-2", "become#3-3"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"], camera: ["camera#1-1", "camera#2-2", "camera#3-3", "camera#4-4", "camera#5-5"],
-  chains: ["chains#1-1", "chains#2-2", "chains#3-3", "chains#4-6"], plot_scatter: ["scatter#1-1", "scatter#2-2"], plot_bars: ["bars#2-2"], plot_lines: ["lines#2-2"],
-  interrupt: ["int#1-1"], become_stroked: ["line_shape#1-1", "corners#1-1"], ghost: ["ghost#2-2"],
+  change: ["change#1-1", "change#3-3", "change#4-4", "change#5-5", "change#7-7", "change#9-9", "change#11-11", "change#13-13", "change#16-16", "change#17-17", "change#18-18"],
+  become: ["become#1-1", "become#2-2", "become#3-3", "become#4-4"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"], camera: ["camera#1-1", "camera#2-2", "camera#3-3", "camera#4-4", "camera#5-5"],
+  chains: ["chains#1-1", "chains#2-2", "chains#3-3", "chains#4-6"], plot_scatter: ["scatter#1-1", "scatter#2-2", "scatter_scaleIn#1-1"], plot_parts: ["parts_pulse#1-1", "parts_scaleOut#1-1"], plot_bars: ["bars#2-2"], plot_lines: ["lines#2-2"],
+  interrupt: ["int#1-1"],
+  // Release 2 vocabulary (lane V measured it headless only): scale in / scale out / pulse / encircle on a text and a shape, and the soft wipe on a text (its
+  // leading edge is a mask-image, which forces its own raster layer while it plays: landing == rest render, nothing changes after it)
+  preset_scaleIn: ["p_scaleIn#1-1", "p_scaleIn#2-2"], preset_scaleOut: ["p_scaleOut#1-1", "p_scaleOut#2-2"], preset_pulse: ["p_pulse#1-1", "p_pulse#2-2"], preset_encircle: ["p_encircle#1-1", "p_encircle#2-2"], become_stroked: ["line_shape#1-1", "corners#1-1"], ghost: ["ghost#2-2"],
 };
 // A cue another lane owns (or a documented open item) is tolerated ONLY for the flags KNOWN_OPEN names for the real-time domain, and a REQUIRED
 // entry whose flag stopped firing fails the gate (the entry must be deleted).
