@@ -4,7 +4,8 @@
 // Pure tier. Run: npx tsx scripts/verify-morph-path.ts
 // (Arcs on flights, Suggest arcs and the rigid turn are WP 3.3 and live in their own sections later.)
 import { lerpElement, lerpNodes, lerpCompoundD, warmSlideMorphs } from "../src/lib/slide/tween";
-import { alignChains } from "../src/lib/slide/outline";
+import { alignChains, planElementMorph, sampleElementMorph, compoundRings } from "../src/lib/slide/outline";
+import { pathToSubpaths } from "../src/lib/path";
 import { planCorrespondence, sampleCorrespondence, assignMinCost, greedyAssign } from "../src/lib/slide/correspondence";
 import { elementStageOutlines } from "../src/lib/slide/targetGeometry";
 import { createDeck, addSlide, addElement, addBeat, setTransform } from "../src/lib/slide/ops";
@@ -232,6 +233,31 @@ h.section("M3b: non-finite geometry never hangs the planner; pairing order is st
   const P = [ell("a", 0, 0, 5), ell("b", 100, 0, 5)].flatMap((e) => elementStageOutlines(e)), Q = [ell("p", 10, 0, 5), ell("q", 105, 0, 5)].flatMap((e) => elementStageOutlines(e));
   const order = planCorrespondence(P, Q, { method: "dissolve", pair: "spatial" }).pairs.filter((p) => p.a && p.b).map((p) => p.a!.owner.elementId).join("");
   h.eq(order, "ba", "matched pairs keep nearest-first order (b -> q is 5 away, a -> p is 10: flight z-order as the greedy gave it)");
+}
+
+h.section("compound Become (R2 F1): a donut becoming a ring closes its hole in place instead of flattening into a bridged chain");
+{
+  const D = "M 0 0 L 180 0 L 180 180 L 0 180 Z M 40 40 L 40 140 L 140 140 L 140 40 Z";
+  const donut: any = { type: "path", id: "a", x: 230, y: 90, width: 180, height: 180, rotation: 0, d: D, fill: "#4385be", stroke: "#205ea6", strokeWidth: 4, closed: true };
+  const circle: any = { type: "ellipse", id: "b", x: 230, y: 90, width: 180, height: 180, rotation: 0, fill: "#d14d41", stroke: "#942822", strokeWidth: 4 };
+  const rings = compoundRings(donut)!;
+  h.ok(!!rings && rings.holes.length === 1 && Math.abs(Math.abs(area(rings.outer.nodes)) - 180 * 180) < 1e-6 && Math.abs(Math.abs(area(rings.holes[0].nodes)) - 100 * 100) < 1e-6, "compoundRings: the largest subpath is the outline, the other is its hole");
+  h.ok(compoundRings({ ...donut, d: "M 0 0 L 180 0 L 180 180 L 0 180 Z" }) === null && compoundRings(circle) === null && compoundRings({ ...donut, d: "M 0 0 L 9 0 L 9 9 Z M 20 20 L 29 20" }) === null, "a plain ring, a non-path and a compound with an open subpath are not compound rings");
+  const plan = planElementMorph(donut, circle)!;
+  const frame = (t: number) => { const e = sampleElementMorph(plan, t); const sub = pathToSubpaths(e.d); return { e, sub, outer: Math.abs(area(sub[0].nodes)), hole: sub[1] ? Math.abs(area(sub[1].nodes)) : 0, sign: sub[1] ? Math.sign(area(sub[0].nodes)) * Math.sign(area(sub[1].nodes)) : 0 }; };
+  const f0 = frame(0.001);
+  h.ok(f0.sub.length === 2 && Math.abs(f0.outer - 180 * 180) / (180 * 180) < 0.01 && Math.abs(f0.hole - 100 * 100) / (100 * 100) < 0.01, `t = .001: the frame is the donut (outer ${f0.outer.toFixed(0)}, hole ${f0.hole.toFixed(0)}); the flattened chain bridged its subpaths (start pop 1,994 stage px^2)`);
+  let prev = Infinity, ok = true, winding = true;
+  for (let k = 1; k < 40; k++) { const f = frame(k / 40); if (f.hole > prev + 1e-6) ok = false; if (f.sub.length === 2 && f.sign >= 0) winding = false; prev = f.hole; }
+  h.ok(ok && winding, "the hole only shrinks, and always winds against its ring (nonzero fill keeps it a hole)");
+  const near1 = frame(0.995);
+  h.ok(near1.hole < 0.02 * 100 * 100 || near1.sub.length === 1, `just before the landing the hole is a speck (${near1.hole.toFixed(1)} px^2 of 10,000): nothing is left to snap`);
+  const opens = planElementMorph(circle, donut)!, g = (t: number) => { const sub = pathToSubpaths(sampleElementMorph(opens, t).d); return sub[1] ? Math.abs(area(sub[1].nodes)) : 0; };
+  h.ok(g(0.2) < g(0.5) && g(0.5) < g(0.9) && g(0.9) > 0.5 * 100 * 100, "a ring becoming a donut opens its hole from its centroid, growing monotonically");
+  const j = (t: number) => JSON.stringify(sampleElementMorph(plan, t).d), ts = [0.001, 0.3, 0.7, 0.999];
+  h.ok(JSON.stringify([...ts].reverse().map(j).reverse()) === JSON.stringify(ts.map(j)), "seek purity: forward = reverse");
+  const o = elementStageOutlines(donut as never)[0];
+  h.ok(elementStageOutlines(donut as never).length === 1 && !!o.paint.raster && o.bbox.w === 180, "the hand-off driver takes a compound path by its box (the element crossfades over the box tween), not by a flattened chain");
 }
 
 h.section("warm hook: a same-kind path Change is aligned before the first frame");

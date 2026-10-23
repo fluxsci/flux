@@ -19,7 +19,7 @@ import type { Element, PathElement, VectorNode, GradientFill } from "../types";
 import { elementBBox } from "../geometry";
 import { lerpColor, prepareColorLerp, parseColor, formatColor } from "../color/interp";
 import {
-  pathD, pathToNodes, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent, nodesExtent,
+  pathD, pathToNodes, pathToSubpaths, pathRender, roundCorners, reverseNodes, segsFromNodes, segLength, splitSeg, segPoint, segTangent, nodesExtent,
   type PathSeg,
 } from "../path";
 import { normalMatchRings } from "./normalMatch";
@@ -88,19 +88,48 @@ export function elementOutline(el: Element): Outline | null {
     out = { nodes: el.cornerRadius && el.cornerRadius > 0 ? roundCorners(sharp, closed, el.cornerRadius) : sharp, closed };
   }
   if (!out || out.nodes.length < 2) return null;
-  if (el.flipX || el.flipY) {
-    // mirror about the box (the wrapper's scaleX/Y pivot is the box centre, so
-    // x ↦ w − x is the same picture); the planner re-aligns winding afterwards
-    const bb = elementBBox({ ...el, rotation: 0 });
-    const mx = el.flipX ? bb.w : 0, my = el.flipY ? bb.h : 0;
-    const sx = el.flipX ? -1 : 1, sy = el.flipY ? -1 : 1;
-    out.nodes = out.nodes.map((n) => ({
-      x: mx + n.x * sx, y: my + n.y * sy, type: n.type,
-      ...(n.hIn ? { hIn: { dx: n.hIn.dx * sx, dy: n.hIn.dy * sy } } : {}),
-      ...(n.hOut ? { hOut: { dx: n.hOut.dx * sx, dy: n.hOut.dy * sy } } : {}),
-    }));
-  }
+  out.nodes = flipNodes(out.nodes, el);
   return out;
+}
+
+/** Mirror nodes about the element's box (the wrapper's scaleX/Y pivot is the box centre, so x ↦ w − x is the same picture);
+ *  the planner re-aligns winding afterwards. The input when the element is not flipped. */
+function flipNodes(nodes: VectorNode[], el: Element): VectorNode[] {
+  if (!(el.flipX || el.flipY)) return nodes;
+  const bb = elementBBox({ ...el, rotation: 0 });
+  const mx = el.flipX ? bb.w : 0, my = el.flipY ? bb.h : 0;
+  const sx = el.flipX ? -1 : 1, sy = el.flipY ? -1 : 1;
+  return nodes.map((n) => ({
+    x: mx + n.x * sx, y: my + n.y * sy, type: n.type,
+    ...(n.hIn ? { hIn: { dx: n.hIn.dx * sx, dy: n.hIn.dy * sy } } : {}),
+    ...(n.hOut ? { hOut: { dx: n.hOut.dx * sx, dy: n.hOut.dy * sy } } : {}),
+  }));
+}
+
+// --- compound paths (a donut: outline + holes) ----------------------------------
+
+const shoelaceArea = (n: VectorNode[]) => { let a = 0; for (let i = 0; i < n.length; i++) { const p = n[i], q = n[(i + 1) % n.length]; a += p.x * q.y - q.x * p.y; } return a / 2; };
+const compoundCache = new Map<string, { outer: Outline; holes: Outline[] } | null>();
+/** A path whose `d` holds two or more CLOSED subpaths: its outline is the largest one, the rest are holes (null for any other element).
+ *  `elementOutline` flattens such a `d` into one chain joined by phantom bridge segments, which has no morph; a Become morphs the outer ring and
+ *  closes (or opens) the holes at their own centroids, the way a same-kind Change does (tween.ts lerpCompoundD). */
+export function compoundRings(el: Element): { outer: Outline; holes: Outline[] } | null {
+  if (el.type !== "path" || typeof el.d !== "string") return null;
+  let moves = 0;
+  for (let i = 0; i < el.d.length && moves < 2; i++) { const c = el.d.charCodeAt(i); if (c === 77 || c === 109) moves++; }
+  if (moves < 2) return null;
+  let rings = compoundCache.get(el.d);
+  if (rings === undefined) {
+    const subs = pathToSubpaths(el.d);
+    if (subs.length < 2 || subs.some((x) => !x.closed || x.nodes.length < 2)) rings = null;
+    else {
+      const ranked = subs.map((x) => ({ nodes: x.nodes, area: Math.abs(shoelaceArea(x.nodes)) })).sort((p, q) => q.area - p.area);
+      rings = ranked[0].area > 1e-9 ? { outer: { nodes: ranked[0].nodes, closed: true }, holes: ranked.slice(1).map((x) => ({ nodes: x.nodes, closed: true })) } : null;
+    }
+    if (compoundCache.size >= 16) compoundCache.delete(compoundCache.keys().next().value!);
+    compoundCache.set(el.d, rings);
+  }
+  return rings && { outer: { nodes: flipNodes(rings.outer.nodes, el), closed: true }, holes: rings.holes.map((h) => ({ nodes: flipNodes(h.nodes, el), closed: true })) };
 }
 
 // --- arc-length parameterization + splitting ------------------------------------
@@ -685,7 +714,10 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
   /** The stroke drawn as a BAND between two morphing contours (see `planStrokeBand`), or null when the pair keeps the centreline
    *  law (no stroke, dashed, gradient stroke, non-convex, an inner contour that does not exist). Deferred like the correspondence. */
   band?: () => StrokeBandPlan | null;
+  /** The holes of a compound end (a donut), in their end's UNIT frame: a source's shrink to their centroid as t runs 0 -> 1, a destination's grow from theirs. */
+  holes: HoleRing[];
 }
+export interface HoleRing { unit: VectorNode[]; centre: { x: number; y: number }; side: "pre" | "end" }
 
 export interface FixedHead {
   side: "pre" | "end";
@@ -816,10 +848,21 @@ const lerpRot = (a: number, b: number, t: number) => a + ((((b - a) % 360) + 540
  *  usable outline — the caller crossfades. */
 export function planElementMorph(pre: Element, end: Element): ElementMorphPlan | null {
   if (!outlineMorphable(pre, end)) return null;
-  const A = elementOutline(pre), B = elementOutline(end);
+  // a compound path (a donut) morphs its OUTER ring; its holes close (or open) at their own centroids while the ring morphs (`holes`, below)
+  const cpre = compoundRings(pre), cend = compoundRings(end);
+  const A = cpre ? cpre.outer : elementOutline(pre), B = cend ? cend.outer : elementOutline(end);
   if (!A || !B) return null;
   const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
   const preStyle = styleOf(pre), endStyle = styleOf(end);
+  const holes: HoleRing[] = [];
+  {
+    // every hole winds against the ring it is sampled with (the frame's `d` is filled nonzero, like every path: a hole that wound with its ring would fill in)
+    const ringSign = Math.sign(shoelaceArea(A.nodes)) || 1;
+    for (const [c, side, box] of [[cpre, "pre", pb], [cend, "end", eb]] as const) for (const ring of c?.holes ?? []) {
+      const nodes = Math.sign(shoelaceArea(ring.nodes)) === ringSign ? reverseNodes(ring.nodes) : ring.nodes, u = unit(nodes, box.w, box.h);
+      holes.push({ unit: u, centre: { x: u.reduce((m, n) => m + n.x, 0) / u.length, y: u.reduce((m, n) => m + n.y, 0) / u.length }, side });
+    }
+  }
   // a stroke meets a FILLED ring by inflating (no wedge); a stroke-only ring
   // opens up and unrolls instead
   const ringStyle = A.closed === B.closed ? null : A.closed ? preStyle : endStyle;
@@ -840,14 +883,14 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   const outlines = () => (corresponded ??= planOutlines(drawn(A, preStyle), pb.w, pb.h, drawn(B, endStyle), eb.w, eb.h, strategy));
   const closed = morphIsClosed(A, B, strategy);
   let band: StrokeBandPlan | null | undefined;
-  const bandPlan = () => (band === undefined ? (band = closed ? elementStrokeBand(pre, end, A, B, pb, eb, preStyle, endStyle) : null) : band);
+  const bandPlan = () => (band === undefined ? (band = closed && !holes.length ? elementStrokeBand(pre, end, A, B, pb, eb, preStyle, endStyle) : null) : band);   // a hole's stroke is not in the band
   const fixedHeads = strategy === "inflate" ? [...strokeHeads(pre, A, pb, "pre"), ...strokeHeads(end, B, eb, "end")] : [];
   return {
     get a() { return outlines().a; },
     get b() { return outlines().b; },
     get dashShift() { return outlines().dashShift; },
     get dashReversed() { return outlines().dashReversed; },
-    closed,
+    closed, holes,
     arrowStart: !closed && (preStyle.arrowStart || endStyle.arrowStart),
     arrowEnd: !closed && (preStyle.arrowEnd || endStyle.arrowEnd),
     /** Force the correspondence now. The player calls this once the preview is
@@ -971,6 +1014,16 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): 
     }
   }
   out.d = pathD(nodes, plan.closed);
+  for (const hole of plan.holes) {
+    const k = hole.side === "pre" ? 1 - t : t;
+    if (!(k > 1e-6)) continue;      // a hole that has not opened (or has closed) is not in the frame: a stroked point would paint a dot
+    const { centre: c } = hole;
+    out.d += " " + pathD(hole.unit.map((n) => ({
+      x: (c.x + (n.x - c.x) * k) * w, y: (c.y + (n.y - c.y) * k) * h, type: n.type,
+      ...(n.hIn ? { hIn: { dx: n.hIn.dx * k * w, dy: n.hIn.dy * k * h } } : {}),
+      ...(n.hOut ? { hOut: { dx: n.hOut.dx * k * w, dy: n.hOut.dy * k * h } } : {}),
+    })), true);
+  }
   return out;
 }
 

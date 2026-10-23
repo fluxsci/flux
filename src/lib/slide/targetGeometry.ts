@@ -5,7 +5,7 @@ import type { FluxPlotManifest, PartInfo } from "../plot/types";
 import type { SlideFrame } from "./compile";
 import type { TargetRef } from "./types";
 import type { StageOutline, OutlineOwner, OutlinePaint } from "./stageOutline";
-import { elementOutline, elementPaint, type Outline } from "./outline";
+import { elementOutline, elementPaint, type Outline, compoundRings } from "./outline";
 import { cornerJoinOf } from "../strokeStyle";
 import { elementBBox, type Rect } from "../geometry";
 import { pathToSubpaths, nodesExtent } from "../path";
@@ -77,13 +77,16 @@ export function elementStageOutlines(el: SceneElement, ctx?: Pick<GeometryCtx, "
       return letters.map((o) => { const nodes = applyToNodes(o.nodes, m); return { ...o, nodes, bbox: nodesExtent(nodes, true) }; });
     }
   }
-  if (outline) {
+  // A compound path (a donut) has no single outline to fly (the flattened chain bridges its subpaths): it takes the box law, like text and rasters
+  // (the real element crossfades over the box tween). The 1-1 morph driver, which can close the holes in place, morphs it instead (outline.ts).
+  const compound = !!compoundRings(el);
+  if (outline && !compound) {
     const o = stage(outline, compose(placement(el, false), translate(b.x, b.y)),
       { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1, ...channelAlpha(el), ...cornerJoin(el) });
     if (o.paint.fillMap?.stops?.length || o.paint.strokeMap?.stops?.length) o.paint.gradBox = o.bbox;
     return [o];
   }
-  if (el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d") return [];
+  if (!compound && el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d") return [];
   return [stage({ nodes: boxNodes(b), closed: true }, placement(el, true), { elementId: el.id }, {
     fill: el.type === "text" ? el.color : "none", stroke: "none", strokeWidth: 0, cap: "butt",
     opacity: el.opacity ?? 1, text: el.type === "text", raster: el.type !== "text",
