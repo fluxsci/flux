@@ -579,6 +579,18 @@ function progressAt(spec: Spec, beat: number, time: number): number {
 function pendingEnterGlide(node: BoundNode, beat: number, time: number, ahead = Infinity): boolean {
   return node.keyframed.some(s => s.enter && node.flights.get(s) === "translate" && s.beatIndex === beat && progressAt(s, beat, time) <= 0 && s.delay - time <= ahead);
 }
+/** Does this node glide (a pure-translation flight, riding a compositor layer) in `beat`? The flight mark exists exactly for the cues in
+ *  which it does: armed at the cue's first frame (with a pre-roll frame, `begin`), kept through the landing (the layer was baked at the
+ *  phase it lands on), released at the first frame of a later cue in which the node does NOT glide. A mark kept on through a resize, a
+ *  rotation or a rewrite made the layer re-raster at fractional transforms the browser then did not snap: text that landed soft. */
+function glidesIn(node: BoundNode, beat: number): boolean {
+  return node.keyframed.some(s => node.flights.get(s) === "translate" && s.beatIndex === beat) || node.controllers.some(c => c.morph!.glide && c.beatIndex === beat);
+}
+/** Keep the mark while the node glides in this beat (or is flying now), release it otherwise. */
+function markFor(group: BoundNode, beat: number, flying: boolean): void {
+  const wrapper = group.node as HTMLElement;
+  if (flying || glidesIn(group, beat)) armFlightMark(wrapper); else releaseFlightMark(wrapper);
+}
 /** The hidden gliders a cue is about to reveal (render.ts primeFlightLayers): all of them at frame 0 (`ahead` = 0 ms: only those starting
  *  at once), and during playback those whose start is within PRIME_AHEAD_MS (a delayed or staggered enter is primed just before its own
  *  start: a layer of an invisible node does not keep its raster, so priming it at frame 0 would be lost by then). */
@@ -623,6 +635,11 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
         const spec = controllers[selected], p = progressAt(spec, beat, time);
         spec.morph!.seek(spec.ease.fn(p), p);
       } else controllers[0].morph!.seek(0, 0);
+      // a gliding driver's wrapper: the mark follows the beat (a node with keyframed specs too is handled in the flight loop below)
+      if (!group.keyframed.length && group.node.namespaceURI !== SVG_NS && controllers.some(c => c.morph!.glide)) {
+        const cur = selected >= 0 ? controllers[selected] : undefined, p = cur ? progressAt(cur, beat, time) : -1;
+        markFor(group, beat, !!cur?.morph!.glide && p > 0 && p < 1);
+      }
     }
   }
   for (const group of plan.nodes) {
@@ -674,10 +691,8 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
       else {
-        // The node keeps its flight mark at rest (render.ts armFlightMark): the layer it makes was baked at REST (an entering node is
-        // primed there one frame before it flies, `begin`), so the rest it lands on is the fresh static render with nothing to demote.
         settleWrapper(node as HTMLElement);
-        if (glides) armFlightMark(node as HTMLElement);
+        markFor(group, beat, false);
       }
     }
   }

@@ -49,7 +49,7 @@ import { planCorrespondence, sampleCorrespondence, type CorrespondencePlan, type
 import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -528,7 +528,7 @@ export function createTransform(
       if (glide) promoteMovingWrapper(wrap);
     } else {
       applyWrapperBox(wrap, el, boxOpts);
-      if (glide) { settleWrapper(wrap); armFlightMark(wrap); }
+      if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)
     }
 
     // The frozen content frame must not counter-translate the curved wrapper.
@@ -641,7 +641,7 @@ export function createTransform(
     // Warm only an UNPLANNED morph: a replan (a font that arrived) belongs to the
     // next frame, which draws it — rebuilt off-frame, the paths would sit blank.
     warmWhenIdle(() => { if (wrap.isConnected && !L.failed && !L.plan) glyphPlan(); });
-    return { seek, targetRoot: L.B } as MorphController;
+    return { seek, targetRoot: L.B, glide } as MorphController;
   }
   if (textLayers) {
     writeTextMorph(pre, 0, 0);
@@ -649,7 +649,7 @@ export function createTransform(
     // spans built; a seek that arrives first builds them on the spot.
     const L = textLayers;
     warmWhenIdle(() => { if (wrap.isConnected) L.morph.ensure(); });
-    return { seek, targetRoot: L.B, dispose: () => L.morph.dispose() } as MorphController;
+    return { seek, targetRoot: L.B, glide, dispose: () => L.morph.dispose() } as MorphController;
   }
   if (morphPlan) {
     showMorphLayer(0);
@@ -661,7 +661,7 @@ export function createTransform(
     // a transform per slide, and a warm for one already off the document is
     // pure waste at exactly the moment the machine is busiest.
     warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
-    return { seek, targetRoot: ensureMorphLayers().B };
+    return { seek, targetRoot: ensureMorphLayers().B, glide };
   }
-  return { seek, targetRoot: layerB ?? contentHost };
+  return { seek, targetRoot: layerB ?? contentHost, glide };
 }

@@ -24,6 +24,8 @@ export interface MorphPoint { index: number; x: number; y: number }
 export interface MorphController {
   seek(u: number, raw?: number): void;
   targetRoot?: HTMLElement;
+  /** The driver moves its wrapper as a pure translation (it rides a compositor layer in flight): the PLAYER owns that layer's flight mark. */
+  glide?: boolean;
   dispose?(): void;
 }
 export type SeriesAxes = FluxPlotManifest["axes"][number];

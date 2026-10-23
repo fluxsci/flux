@@ -36,12 +36,12 @@ for (const d of decks) {
     const key = c.name.replace(/\/[^#]*#/, "#");
     const open = KNOWN_OPEN[key];
     probe(rtRow(c));
-    let flags = rtFlags(c).filter(f => !open);   // an entry in KNOWN_OPEN is a SEEK-domain item; its cue is exempt here only when listed
+    let flags = rtFlags(c).filter(f => !open?.flags.some(g => f.startsWith(g)));   // tolerated only for the flags KNOWN_OPEN names
     if (flags.length) {
       // A structural defect repeats; a frame the desktop dropped (this runs on a live machine) does not: judge the cue again on a fresh page.
-      const again = await realtimeSweep(d.payload, d.name, { interrupts, fresh: true, restMs: 350, tailMs: 450, only: (slide, from, to) => `${slide}#${from}-${to}` === key });
+      const again = await realtimeSweep(d.payload, d.name, { interrupts, fresh: true, restMs: 350, tailMs: 450, only: (slide, from, to) => `${slide}#${from}-${to}` === c.name.slice(d.name.length + 1) });
       const second = again.cues[0] ? rtFlags(again.cues[0]) : flags;
-      probe(`retry ${rtRow(again.cues[0])}`);
+      if (again.cues[0]) probe(`retry ${rtRow(again.cues[0])}`);
       flags = flags.filter(f => second.some(g => g.split(" (")[0] === f.split(" (")[0]));
     }
     if (flags.length) failures.push(`${c.name}: ${flags.join(", ")}`);

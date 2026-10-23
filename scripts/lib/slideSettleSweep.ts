@@ -206,12 +206,18 @@ export const KNOWN_OPEN: Record<string, { flags: string[]; owner: string }> = {
   "preset_highlight#5-5": { flags: ["PRE-ROLL CHANGE"], owner: "lane V (highlight is a wink)" },
   // a text rewrite hands the original static text to the span layer: the glyph-matched morph's first/last frame differ from the resting
   // text by anti-aliasing (50 stage px^2). Lane T (WP 2.5, text glide lanes / letters travel) owns textMorph.ts.
-  "change#3-3": { flags: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)"], owner: "lane T (text morph layers)" },
+  "change#3-3": { flags: ["START POP (2ms)", "START POP (frame)", "END SNAP (2ms)", "END SNAP (frame)", "LANDING != REST RENDER", "LANDING STEP"], owner: "lane T (text morph layers)" },
   // a Ghost copy of a TEXT is born exactly on top of its source: two layers of the same anti-aliased glyphs read bolder than one
   // (edge coverage c becomes 1-(1-c)^2), so the first frame differs from the rest by 20 stage px^2. Open in lane J.
   "ghost#2-2": { flags: ["PRE-ROLL CHANGE"], owner: "lane J open (a born text copy doubles its source's anti-aliasing)" },
+  // TEXT that glides to a FRACTIONAL position rests on the gliding raster: a layer is rasterised once at its source phase and moved at float
+  // precision (the only way text glides), so it lands up to half a device pixel soft against a render painted in place there (25 stage px^2
+  // for a 22 px word). The alternative, demoting the layer at landing, measured a 44 stage px^2 sharpening STEP on the landing frame; manim's
+  // rule is that nothing pops, so the landing keeps the raster. Inherent to the glide (docs: layer hygiene), recorded here, not hidden.
+  "change#1-1": { flags: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
+  "springs#3-3": { flags: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
   // a text box RESIZED with an overshooting curve: the wrapper's whole-pixel layout box steps by one pixel as the size crosses .5, and the
   // glyphs re-rasterise at each step (about 10 stage px^2; 38 on the first). Before lane J the frozen-box composite shimmered at ~50 per
   // frame for the whole resize and landed soft; this is what is left. Open in lane J.
-  "springs#4-4": { flags: ["START POP (frame)", "POST CHANGE"], owner: "lane J open (a resized text box re-rasterises at each layout-pixel step)" },
+  "springs#4-4": { flags: ["START POP (frame)", "POST CHANGE", "LANDING != REST RENDER"], owner: "lane J open (a resized text box re-rasterises at each layout-pixel step)" },
 };
