@@ -575,14 +575,17 @@ function progressAt(spec: Spec, beat: number, time: number): number {
   return spec.duration <= 0 ? 1 : Math.min(1, (time - spec.delay) / spec.duration);
 }
 /** An ENTERING translate flight (fadeRise's lift, a stagger child) of THIS cue is still to come at (beat, time): progress <= 0, so not
- *  started or at its very first frame. */
-function pendingEnterGlide(node: BoundNode, beat: number, time: number): boolean {
-  return node.keyframed.some(s => s.enter && node.flights.get(s) === "translate" && s.beatIndex === beat && progressAt(s, beat, time) <= 0);
+ *  started or at its very first frame, and (when `ahead` is given) starting within `ahead` ms. */
+function pendingEnterGlide(node: BoundNode, beat: number, time: number, ahead = Infinity): boolean {
+  return node.keyframed.some(s => s.enter && node.flights.get(s) === "translate" && s.beatIndex === beat && progressAt(s, beat, time) <= 0 && s.delay - time <= ahead);
 }
-/** The hidden gliders a cue is about to reveal (render.ts primeFlightLayers). */
-export function pendingEnterGlides(specs: Spec[], beat: number, time: number): HTMLElement[] {
-  return boundPlan(specs).nodes.filter(n => n.node.namespaceURI !== SVG_NS && pendingEnterGlide(n, beat, time)).map(n => n.node as HTMLElement);
+/** The hidden gliders a cue is about to reveal (render.ts primeFlightLayers): all of them at frame 0 (`ahead` = 0 ms: only those starting
+ *  at once), and during playback those whose start is within PRIME_AHEAD_MS (a delayed or staggered enter is primed just before its own
+ *  start: a layer of an invisible node does not keep its raster, so priming it at frame 0 would be lost by then). */
+export function pendingEnterGlides(specs: Spec[], beat: number, time: number, ahead = Infinity): HTMLElement[] {
+  return boundPlan(specs).nodes.filter(n => n.node.namespaceURI !== SVG_NS && pendingEnterGlide(n, beat, time, ahead)).map(n => n.node as HTMLElement);
 }
+const PRIME_AHEAD_MS = 50;
 /** Seek any frame, including reverse/random seeks. Native effects and custom
  * geometry use the same time; a stopped frame has no running animation loop. */
 export function applyAt(specs: Spec[], beat: number, time = Infinity, native = false): void {
@@ -868,6 +871,8 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     time = clockTime(timestamp);
     paint(true);
     if (session !== generation) return;
+    // the next frame is the first of a delayed / staggered enter: present its node primed at rest (render.ts primeFlightLayers)
+    if (time < duration && clockMode === "forward") primeFlightLayers(pendingEnterGlides(runSpecs ?? specs, bi, time, PRIME_AHEAD_MS));
     if (time >= duration) finish();
     else queueFrame();
   }
@@ -905,7 +910,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     paint(); emit("beatStart"); emit("change");
     if (session !== generation) return;
     if (reduced || instant || !duration) { finish(); return; }
-    const entering = pendingEnterGlides(runSpecs ?? specs, bi, 0);
+    const entering = pendingEnterGlides(runSpecs ?? specs, bi, 0, 0);
     if (takeFreshMarks() > 0 || entering.length) {
       // Frame 0 presents the rest state with the flight marks in place and the hidden gliders primed at rest (render.ts
       // primeFlightLayers); the clock starts AT that frame, so the first moving frame is exactly one frame of motion and rides a
