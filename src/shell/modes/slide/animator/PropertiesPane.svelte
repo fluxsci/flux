@@ -29,6 +29,7 @@
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
   import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest } from "../../../../lib/slide/autobuild";
+  import { guiPenLengths } from "../../../../lib/slide/partLengthGui";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import CurveField, { type CurveEdit } from "./CurveField.svelte";
@@ -36,7 +37,7 @@
   import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
-  import { resolveBeat, resolveTrack, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
+  import { resolveBeat, resolveTrackRaw, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
   import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
@@ -51,7 +52,10 @@
   let savingPreset = $state(false);
   let presetName = $state("");
   async function doSavePreset() {
-    const t = curTrack;
+    // a saved preset is STORAGE: read the raw timing (X13: the compensated tick view must not become data)
+    const rawId = rawTrack?.id;
+    const t = editingStyle || !rawId ? curTrack
+      : slide.beats.flatMap((b, index) => resolveBeat(b, deck, target => manifestAt(target, index), "raw").tracks).find(r => r.id === rawId) ?? curTrack;
     const name = presetName.trim();
     if (!t || !name) return;
     if (await saveAnimPreset(makeAnimPreset(name, t))) {
@@ -285,7 +289,7 @@
       if (keepArrival) {
         // A reset can restore a linked spring or the family default. Measure
         // the op's resolved result, not the discarded zero-influence patch.
-        const updated = resolveTrack(t, d);
+        const updated = resolveTrackRaw(t, d);
         setTrack(d, sid, t.id, { duration: Math.max(150, Math.min(4000, duration * arrival / resolveCurve(updated, familyOf(updated)).arrival)) });
       }
     });
@@ -403,7 +407,7 @@
     commitDeckLive(d => {
       const s = d.slides.find(s => s.id === slide.id)!;
       const leaves = compile(d, s).resolveTarget(handoff.ref, curBeatIndex).flatMap(t => t.partIds ?? buildPartTree($plotManifests[destinationEl.assetId])?.targets ?? []);
-      autoAnimateExcept(d, s.id, destinationEl.id, $plotManifests[destinationEl.assetId], leaves);
+      autoAnimateExcept(d, s.id, destinationEl.id, $plotManifests[destinationEl.assetId], leaves, { lengths: guiPenLengths(destinationEl.assetId, $plotManifests[destinationEl.assetId], destinationEl.width) });
     });
     const bi = currentDeck()?.slides.find(s => s.id === slide.id)?.beats.findIndex(b => b.id === beatId);
     if (bi != null && bi >= 0) activeBeat.set(bi);

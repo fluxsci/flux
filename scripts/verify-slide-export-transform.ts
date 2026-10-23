@@ -113,15 +113,17 @@ try {
   const dashes = (await page.evaluate(() => (window as never as { __dash: string[] }).__dash)) as string[];
   const distinct = [...new Set(dashes.filter((d) => d && d !== "none"))];
   assert(distinct.length > 5, `the trim dash window actually ANIMATES (${distinct.length} distinct mid-flight values)`);
-  // a rect is a CLOSED loop → symmetric growth about the anchor takes the
-  // 2-entry [k, L−k] pattern form, k growing monotonically to the perimeter
-  const grows = distinct
-    .map((d) => parseFloat(d))
-    .filter((v) => Number.isFinite(v));
+  // a rect is a CLOSED loop → symmetric growth about the anchor takes the 2-entry [k, L−k] pattern form
+  // (T3: ONE dash of exact period L, k growing monotonically to the perimeter); the pre-beat frame is the
+  // 1-entry HIDDEN gap G. NO entry is ever zero: a zero dash + a round cap paints a dot (the old engine
+  // forced butt caps for it and snapped back to the authored cap on the last frame).
+  const windowsSeen = distinct.filter((d) => d.includes(","));
+  const grows = windowsSeen.map((d) => parseFloat(d)).filter((v) => Number.isFinite(v));
   assert(
-    distinct.every((d) => d.split(",").length === 2) && Math.max(...grows) > Math.min(...grows) + 50,
+    windowsSeen.length > 5 && windowsSeen.every((d) => d.split(",").length === 2) && Math.max(...grows) > Math.min(...grows) + 50,
     `…in the closed 2-entry [k, L−k] form with a growing window (k ${Math.min(...grows).toFixed(0)}→${Math.max(...grows).toFixed(0)})`,
   );
+  assert(distinct.every((d) => d.split(",").every((v) => parseFloat(v) > 0)), "…and never a zero-length dash entry (no cap dots; the authored linecap stays for the whole draw)");
 
   // --- real playback: the transform beat moves through intermediate frames -----
   // Mid-flight the wrapper's LAYOUT stays frozen at the t1 box and motion
@@ -194,13 +196,13 @@ try {
       dash: parseFloat(ell.style.strokeDasharray || "0"),
       measured: ell.getTotalLength(),
       truePerimeter: 2 * Math.PI * 15,
-      polyOpacity: getComputedStyle(poly).opacity,
+      polyScale: new DOMMatrix(getComputedStyle(poly).transform).a,
       lineHidden: line.style.strokeDashoffset !== "" && line.style.strokeDashoffset !== "0",
       displays: [...new Set(svgs.map((s) => getComputedStyle(s).display))],
     };
   });
   assert(pre.dash > pre.truePerimeter, `the draw dasharray OVERSHOOTS the true perimeter (${pre.dash.toFixed(2)} > ${pre.truePerimeter.toFixed(2)}; measured was ${pre.measured.toFixed(2)})`);
-  assert(pre.polyOpacity === "0", "the filled arrowhead is HIDDEN before the draw (opacity, not dash)");
+  assert(pre.polyScale > 0 && pre.polyScale <= 1e-3, `the filled arrowhead is HIDDEN before the draw (scale ${pre.polyScale} about the shaft end — it grows when the pen arrives; T3 replaced the opacity pop)`);
   assert(pre.lineHidden, "the arrow line rests undrawn (offset form — no zero-dash cap dots)");
   assert(pre.displays.length === 1 && pre.displays[0] === "block", "content svgs are display:block (no host-baseline offset — the 12px-low arrow bug)");
   await page2.evaluate(() => (window as never as { fluxDeck: { goTo(s: number, b: number): void } }).fluxDeck.goTo(0, 1));
@@ -212,11 +214,12 @@ try {
       offset: ell.style.strokeDashoffset,
       dash: parseFloat(ell.style.strokeDasharray || "0"),
       polyOpacity: getComputedStyle(poly).opacity,
+      polyTransform: poly.style.transform,
       clip: (wt?.querySelector(".sl-effects") as HTMLElement ?? wt)?.style.clipPath ?? "",
     };
   });
   assert(post.offset === "" && post.dash === 0, "the drawn rest state restores the authored solid stroke without a temporary dash seam");
-  assert(post.polyOpacity === "1", "the arrowhead pops in with the draw");
+  assert(post.polyTransform === "" && post.polyOpacity === "1", "the arrowhead rests at its authored geometry once drawn (no temporary scale left behind)");
   assert(post.clip.includes("-20%"), `writeOn's resting clip keeps the overflow margin (descenders survive: ${post.clip})`);
   // The portable runtime must carry M2 as well. This deck stays in memory until
   // M3 adds curve validation; exportDeckHtml accepts the compiled payload directly.

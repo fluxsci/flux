@@ -26,7 +26,8 @@ import { buildPartTree, kindForRole, type PartKind, type XrayNode } from "../plo
 import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
 import { hasTweenableSeries } from "../plot/project";
-import type { Beat, Track, PresetName, Deck, Slide, TargetRef } from "./types";
+import type { Beat, Track, PresetName, Deck, Slide, TargetRef, Stagger } from "./types";
+import { planStagger, staggerFields, lagTotal, lagStarts } from "./stagger";
 import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
@@ -103,6 +104,7 @@ function singular(s: string): string {
 // a flat, phase-tagged plan entry before it becomes a Track.
 interface PlanTrack {
   part: string;
+  axis?: "x" | "y";
   role: string;
   preset: PresetName;
   durationMs: number;
@@ -119,20 +121,30 @@ interface PlanTrack {
  *  Legend), or `perPanel` — the same four phases panel by panel, in the manifest's panel order
  *  with an inset right after its host; figure-scope titles lead, figure legends and
  *  annotations close (colour-system plan F7). */
-export interface AutoBuildOptions { perPanel?: boolean }
+export interface AutoBuildOptions {
+  perPanel?: boolean;
+  /** The PACE table (`CLASSIC_PACE` | `V2_PACE`). Selects numbers only; the STRUCTURE (scaffold order, folded gridlines,
+   *  capped lag totals, chains) is the same for every pace. Absent = `DEFAULT_PACE`. Playback never reads a pace: it is
+   *  what AUTHORING writes into the tracks (X1). */
+  pace?: AutoPace;
+  /** Pen length per plot part id, in STAGE units (`partPenLengths`, one pure measure for GUI and CLI). Absent = no
+   *  length scaling (the manifest/pace duration is used). */
+  lengths?: Record<string, number>;
+}
 
 export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: string, options: AutoBuildOptions = {}): Beat[] {
   const xray = buildPartTree(manifest);
   if (!xray) return [];
   const panels = (manifest as { panels?: { id: string; label?: string; insetOf?: string }[] } | undefined)?.panels ?? [];
-  if (options.perPanel && panels.length > 1) return autoAnimatePanels(manifest!, elId, panels, xray);
+  if (options.perPanel && panels.length > 1) return autoAnimatePanels(manifest!, elId, panels, xray, options);
 
   const phases = planPhases(manifest!, xray, manifest?.build?.order ?? [], null);
   const beats: Beat[] = [];
-  phases.forEach((tracks, ph) => {
+  const plan = choreograph(phases, options.pace ?? DEFAULT_PACE, options.lengths ?? {});
+  plan.phases.forEach((tracks, ph) => {
     if (!tracks.length) return;
     const ids = tracks.map(() => newId("track"));
-    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt, i) => ({ ...planToTrack(pt, elId, ph, tracks, ids, i), generatedBy: "auto-reveal" as const })) });
+    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: plan.label(ph, tracks), tracks: plan.build(ph, tracks, ids, elId).map(t => ({ ...t, generatedBy: "auto-reveal" as const })) });
   });
   return beats;
 }
@@ -175,8 +187,10 @@ function planPhases(manifest: FluxPlotManifest, xray: XrayNode, order: readonly 
     // an unknown role narrates by its kind: text joins the annotations, marks join the data
     const ph = ROLE_PHASE[node.role] ?? ROLE_PHASE[highLevelKey(node.role)] ?? (node.kind === "text" ? 3 : 2);
     const cfg = presets[node.role] ?? presets[highLevelKey(node.role)];
+    const axis = /(^|\.)axis\.([xy])(\.|$)/.exec(node.id)?.[2] as "x" | "y" | undefined;
     phases[ph].push({
       part: node.id,
+      axis,
       role: node.role,
       preset,
       durationMs: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400,
@@ -207,7 +221,7 @@ function planPhases(manifest: FluxPlotManifest, xray: XrayNode, order: readonly 
  *  figure legend, fig.text) as a leading Axes beat and a closing Legend beat. Beat ids are
  *  `auto-<group>-<phase>`, `autoPhase` counts through the groups so merging and ranking keep
  *  working. */
-function autoAnimatePanels(manifest: FluxPlotManifest, elId: string, panels: { id: string; label?: string; insetOf?: string }[], xray: XrayNode): Beat[] {
+function autoAnimatePanels(manifest: FluxPlotManifest, elId: string, panels: { id: string; label?: string; insetOf?: string }[], xray: XrayNode, options: AutoBuildOptions = {}): Beat[] {
   const ordered: typeof panels = [];
   for (const p of panels) {
     if (p.insetOf) continue;
@@ -225,31 +239,275 @@ function autoAnimatePanels(manifest: FluxPlotManifest, elId: string, panels: { i
   if (figureTail.length) groups.push({ label: "Figure", entries: figureTail, prefix: null });
   const beats: Beat[] = [];
   groups.forEach((g, gi) => {
-    const phases = planPhases(manifest, xray, g.entries, g.prefix);
-    phases.forEach((tracks, ph) => {
+    const plan = choreograph(planPhases(manifest, xray, g.entries, g.prefix), options.pace ?? DEFAULT_PACE, options.lengths ?? {});
+    plan.phases.forEach((tracks, ph) => {
       if (!tracks.length) return;
       const ids = tracks.map(() => newId("track"));
-      beats.push({ id: `auto-${gi}-${ph}`, generatedBy: "auto-reveal", autoPhase: gi * 4 + ph, label: `${g.label} · ${PHASE_LABELS[ph]}`,
-        tracks: tracks.map((pt, i) => ({ ...planToTrack(pt, elId, ph, tracks, ids, i), generatedBy: "auto-reveal" as const })) });
+      beats.push({ id: `auto-${gi}-${ph}`, generatedBy: "auto-reveal", autoPhase: gi * 4 + ph, label: `${g.label} · ${plan.label(ph, tracks)}`,
+        tracks: plan.build(ph, tracks, ids, elId).map(t => ({ ...t, generatedBy: "auto-reveal" as const })) });
     });
   });
   return beats;
 }
 
-/** One plan entry → a Track. In the Data phase, points stagger left→right by x
- *  and the geometry (line/area) starts partway through that stagger so it
- *  resolves "just as the points finish" — the user's exact scatter beat. */
-function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrack[], ids: string[], index: number): Track {
-  const track: Track = { id: ids[index], target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: pt.delayMs ?? 0 };
-  if (pt.preset === "stagger") {
-    track.stagger = { perMs: pt.staggerMs ?? 40, by: staggerAxis(pt.staggerBy), from: "start" };
-    track.params = { child: "fade" }; // points FADE in (staggered) — cleaner than rise for a scatter
+// ---------------------------------------------------------------------------
+// CHOREOGRAPHY (T2). Pure: the manifest-derived plan in, Tracks out. ONE structure for every pace; the `AutoPace` table
+// only supplies the numbers. Every stagger is written with EXISTING Total-mode fields (`duration` = each target's window,
+// `stagger.totalMs` = first-to-last start), produced by `planStagger`, so no schema field, player branch or compile branch
+// exists for it and old apps open the deck.
+//   scaffold first   spines draw from the origin corner, ticks lag along their axis, tick labels follow their ticks, frame
+//                    spines and titles land as the pen finishes; gridlines fold into the SAME click, anchored to their
+//                    own axis's ticks (no dead start, no extra click)
+//   data             marks lag with a CAPPED total; the line starts while the points are still arriving; secondary
+//                    marks follow their primary at half its window; composite series chain (box -> whiskers -> ...)
+//   legend           its own click; the frame no longer leaks into Data; entries lag
+// ---------------------------------------------------------------------------
+
+/** A staggered scaffold group. `windowMs` unset: `planStagger(totalMs, lag, maxRank)` (totalMs = whole footprint, first
+ *  start to last end). `windowMs` set: that fixed window, and `totalMs` is the first-to-last start spread (Total mode). */
+export interface ScaffoldStagger { startMs: number; totalMs: number; lag: number; windowMs?: number }
+
+/** The Axes click, as named numbers (X5 for V2_PACE; T2's unit-400 table for CLASSIC_PACE). */
+export interface AutoScaffold {
+  /** primary spines (`axis.x.spine`, `axis.y.spine`, drawn concurrently from the origin corner): a fixed draw (V2, exempt
+   *  from the drawOn floor and `drawDuration`) or null = `drawDuration(len, window)` */
+  spineMs: number | null;
+  /** frame spines (`….top` / `….right`): a `fade` of `ms` (V2), or a `drawOn` of the primary spine's window (classic) */
+  frameSpine: { preset: "fade" | "drawOn"; ms: number | null; startMs: number };
+  ticks: ScaffoldStagger;
+  tickLabels: ScaffoldStagger;
+  /** axis titles, title, subtitle: `startMs` fixed, or null = `max(spineRefMs, longest spine end) - leadMs` */
+  titles: { ms: number; startMs: number | null; spineRefMs: number; leadMs: number };
+  /** parts the scaffold has no row for (whole-axis group, colour key): never a pop at t = 0 */
+  otherStartMs: number;
+  /** gridlines (fade): `planStagger(totalMs, lag, …)`, anchored to the SAME axis's ticks (edge start) at `anchorOffsetMs` */
+  grid: { totalMs: number; lag: number; anchorOffsetMs: number };
+}
+
+/** X5: the V2 Axes click is one 700 ms gesture (measured 690 ms, R4_T8 §3.4). */
+export const SCAFFOLD_MS = 700;
+export const SCAFFOLD_SPINE_MS = 520;
+export const SCAFFOLD_TICK_WINDOW_MS = 140;
+export const SCAFFOLD_TICK_SPREAD_MS = 450;
+export const SCAFFOLD_LABEL_START_MS = 40;
+export const SCAFFOLD_LABEL_WINDOW_MS = 200;
+export const SCAFFOLD_FRAME_SPINE_MS = 200;
+export const SCAFFOLD_FRAME_SPINE_START_MS = 420;
+export const SCAFFOLD_TITLE_MS = 250;
+export const SCAFFOLD_TITLE_START_MS = 370;
+export const SCAFFOLD_GRID_TOTAL_MS = 380;
+export const SCAFFOLD_GRID_ANCHOR_MS = 225;
+
+export interface AutoPace {
+  id: "classic" | "v2";
+  /** reference length of the Axes click (ms): 400 classic (T2's table is fractions of it), `SCAFFOLD_MS` for V2 */
+  unit: number;
+  /** minimum window per preset. Classic has none; V2 READS the catalog (`presetDef(p).autoBuildDurationMs`), never a copy. */
+  floor: (preset: PresetName) => number;
+  scaffold: AutoScaffold;
+  /** points: lag ratio (null = the plot's authored staggerMs / window, today's pacing) and the cap on the group */
+  pointLag: number | null;
+  /** classic: cap on the SPREAD (first-to-last start); v2: cap on the whole group (first start to last end) */
+  pointCap: number;
+  /** bars of one series enter one after another (child growBaseline) at this ratio; null = together, unless the plot authors `stagger-in` */
+  barLag: number | null;
+  barCap: number;
+  /** length-scaled pen draws (data lines, fit lines, annotations); null = the authored/floored duration */
+  draw: { pxPerSec: number; minMs: number; maxMs: number } | null;
+  /** the line starts this share of the points' group footprint after they start (classic keeps today's half of the spread) */
+  lineOverlap: number;
+  /** data-series line draws carry an explicit easing (V2: the pen moves at constant speed); undefined = the preset default */
+  lineEasing?: "linear";
+}
+
+/** The catalog's authored window for a preset (0 when the preset has none). One helper, no copied table. */
+const catalogFloor = (preset: PresetName): number => presetDef(preset).autoBuildDurationMs ?? 0;
+
+export const CLASSIC_PACE: AutoPace = {
+  id: "classic", unit: 400, floor: () => 0,
+  scaffold: {
+    spineMs: null,
+    frameSpine: { preset: "drawOn", ms: null, startMs: 80 },
+    ticks: { startMs: 60, totalMs: 320, lag: 0.2 },
+    tickLabels: { startMs: 80, totalMs: 400, lag: 0.2 },
+    titles: { ms: 280, startMs: null, spineRefMs: 400, leadMs: 120 },
+    otherStartMs: 80,
+    grid: { totalMs: 340, lag: 0.3, anchorOffsetMs: 160 },
+  },
+  pointLag: null, pointCap: 1200, barLag: null, barCap: 1500, draw: null, lineOverlap: 0.5,
+};
+export const V2_PACE: AutoPace = {
+  id: "v2", unit: SCAFFOLD_MS, floor: catalogFloor,
+  scaffold: {
+    spineMs: SCAFFOLD_SPINE_MS,
+    frameSpine: { preset: "fade", ms: SCAFFOLD_FRAME_SPINE_MS, startMs: SCAFFOLD_FRAME_SPINE_START_MS },
+    ticks: { startMs: 0, totalMs: SCAFFOLD_TICK_SPREAD_MS, lag: 0.2, windowMs: SCAFFOLD_TICK_WINDOW_MS },
+    tickLabels: { startMs: SCAFFOLD_LABEL_START_MS, totalMs: SCAFFOLD_TICK_SPREAD_MS, lag: 0.2, windowMs: SCAFFOLD_LABEL_WINDOW_MS },
+    titles: { ms: SCAFFOLD_TITLE_MS, startMs: SCAFFOLD_TITLE_START_MS, spineRefMs: 0, leadMs: 0 },
+    otherStartMs: SCAFFOLD_LABEL_START_MS,
+    grid: { totalMs: SCAFFOLD_GRID_TOTAL_MS, lag: 0.3, anchorOffsetMs: SCAFFOLD_GRID_ANCHOR_MS },
+  },
+  pointLag: 0.1, pointCap: 2000, barLag: 0.25, barCap: 1500, draw: { pxPerSec: 600, minMs: 600, maxMs: 1600 }, lineOverlap: 0.55,
+  lineEasing: "linear",
+};
+/** Named lookup for hosts that take a pace by name (the `animate-plot` verb, `--pace classic|v2`). */
+export const AUTO_PACES: Readonly<Record<AutoPace["id"], AutoPace>> = { classic: CLASSIC_PACE, v2: V2_PACE };
+/** What an entry point uses when no `pace` is passed. Release 1 ships CLASSIC; the pace lane's integration flips it to V2. */
+export const DEFAULT_PACE: AutoPace = CLASSIC_PACE;
+
+/** Whether a build at `pace` reads pen lengths at all (so a host can skip measuring a plot that nothing will use). */
+export const paceUsesLengths = (pace: AutoPace = DEFAULT_PACE): boolean => pace.draw !== null;
+
+/** Draw duration from the pen length (stage px): `len / v` clamped, on a 50 ms grid; no measure -> `fallback`. */
+export function drawDuration(len: number | undefined, fallback: number, pace: AutoPace): number {
+  if (!pace.draw || !(len && len > 0)) return fallback;
+  return Math.round(Math.max(pace.draw.minMs, Math.min(pace.draw.maxMs, len / pace.draw.pxPerSec * 1000)) / 50) * 50;
+}
+
+/** The fields of ONE staggered group of `n` targets whose own authored window is `window`. */
+function groupStagger(pace: AutoPace, n: number, window: number, perMsHint: number, by: "index" | "x" | "y"): { duration: number; stagger: Stagger; footprint: number } {
+  if (pace.pointLag === null) {
+    // classic pacing, capped: the plot's own Each step while the spread fits (byte-identical to today's tracks), else the
+    // step that makes the spread exactly the cap (same window, same mode: Each, so the Animator row stays the author's number)
+    const step = n > 1 ? Math.min(perMsHint, Math.floor(pace.pointCap / (n - 1) * 100) / 100) : perMsHint;
+    return { duration: window, stagger: { perMs: step, by, from: "start" }, footprint: window + step * Math.max(0, n - 1) };
   }
-  if (phase === 2 && pt.preset !== "stagger") {
-    const pts = peers.find((p) => p.preset === "stagger");
-    if (pts) track.anchor = { trackId: ids[peers.indexOf(pts)], edge: "start", offsetMs: (pt.delayMs ?? 0) + Math.round(0.5 * pts.nLeaves * (pts.staggerMs ?? 40)) };
-  }
-  return track;
+  const f = staggerFields(planStagger(lagTotal(n, window, pace.pointLag, pace.pointCap), pace.pointLag, Math.max(0, n - 1)), { by, from: "start" });
+  return { ...f, footprint: f.duration + (f.stagger.totalMs ?? 0) };
+}
+
+const COMPOSITE = ["box", "whisker", "cap", "median", "mean", "flier"];
+const isSecondary = (role: string) => /^(errorbar|whisker|cap|median|mean|flier|segment)(-\d+)?$/.test(role);
+const win = (pt: PlanTrack, pace: AutoPace) => Math.max(pt.durationMs, pace.floor(pt.preset));
+/** A frame spine is the top/right one; the primary spines (bottom/left, or the pre-0.3.2 bare `axis.<x|y>.spine`) are the axes. */
+const isFrameSpine = (pt: PlanTrack) => pt.role === "spine" && /\.(top|right)$/.test(pt.part);
+// Both axes lag `from: "start"`: fluxplot's tick/label/gridline nodes carry no data-x / data-y, so the ranks follow DOM
+// order, which already runs left to right and bottom to top, the direction each spine's pen travels (see resolve.ts
+// `tickCompensation` for the measurement).
+
+function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<string, number>) {
+  // gridlines fold into the Axes click; the legend frame/background belongs with the legend, not the Data phase it landed in
+  const moved: PlanTrack[][] = [[], [], [], []];
+  phases.forEach((list, ph) => list.forEach(pt => {
+    const legendish = /(^|\.)legend(\.|$)/.test(pt.part);
+    moved[ph === 1 ? 0 : legendish && ph === 2 ? 3 : ph].push(pt);
+  }));
+  const sc = pace.scaffold;
+  const build = (ph: number, tracks: PlanTrack[], ids: string[], elId: string): Track[] => {
+    const out: Track[] = [];
+    const idOf = (pt: PlanTrack) => ids[tracks.indexOf(pt)];
+    const mk = (pt: PlanTrack, extra: Partial<Track>): Track => ({ id: idOf(pt), target: elId, part: pt.part, preset: pt.preset, duration: win(pt, pace), start: pt.delayMs ?? 0, ...extra });
+    /** a scaffold stagger group along its own axis */
+    const scaffoldGroup = (pt: PlanTrack, spec: ScaffoldStagger): Track => {
+      const shared = { by: pt.axis === "y" ? "y" as const : "x" as const, from: "start" as const };
+      const f = spec.windowMs !== undefined
+        ? { duration: spec.windowMs, stagger: { ...shared, totalMs: pt.nLeaves > 1 ? spec.totalMs : 0 } as Stagger }
+        : staggerFields(planStagger(spec.totalMs, spec.lag, Math.max(0, pt.nLeaves - 1)), shared);
+      return mk(pt, { start: spec.startMs, ...f });
+    };
+    if (ph === 0) {
+      const spineDur = (pt: PlanTrack) => sc.spineMs ?? drawDuration(lengths[pt.part], win(pt, pace), pace);
+      const spineEnd = Math.max(sc.titles.spineRefMs, ...tracks.filter(t => t.role === "spine").map(t => isFrameSpine(t) ? sc.frameSpine.startMs + (sc.frameSpine.ms ?? spineDur(t)) : spineDur(t)));
+      const tickTrackOf = new Map<"x" | "y", Track>();
+      for (const pt of tracks) {
+        if (pt.role === "gridline" || pt.role === "colorbar-gridline") continue;
+        if (pt.role === "spine") {
+          if (!isFrameSpine(pt)) out.push(mk(pt, { duration: spineDur(pt), start: 0 }));
+          else out.push(mk(pt, { preset: sc.frameSpine.preset, duration: sc.frameSpine.ms ?? spineDur(pt), start: sc.frameSpine.startMs }));
+        }
+        else if (pt.role === "tick") { const tr = scaffoldGroup(pt, sc.ticks); out.push(tr); if (pt.axis) tickTrackOf.set(pt.axis, tr); }
+        else if (pt.role === "tick-label") out.push(scaffoldGroup(pt, sc.tickLabels));
+        else if (pt.role === "axis-title" || pt.role === "title" || pt.role === "subtitle") out.push(mk(pt, { duration: sc.titles.ms, start: sc.titles.startMs ?? Math.max(0, spineEnd - sc.titles.leadMs) }));
+        else out.push(mk(pt, { start: sc.otherStartMs })); // whole-axis group, colour key: scaffold, never a pop at t = 0
+      }
+      for (const pt of tracks) {
+        if (pt.role !== "gridline" && pt.role !== "colorbar-gridline") continue;
+        const ticks = pt.axis ? tickTrackOf.get(pt.axis) : undefined;
+        // anchored to the ticks: retiming the spine/tick tracks carries the grid with them (beat-local, same click)
+        const g = scaffoldGroup(pt, { startMs: 0, totalMs: sc.grid.totalMs, lag: sc.grid.lag });
+        out.push(ticks ? { ...g, start: 0, anchor: { trackId: ticks.id!, edge: "start", offsetMs: sc.grid.anchorOffsetMs } } : { ...g, start: sc.ticks.startMs + sc.grid.anchorOffsetMs });
+      }
+      return out;
+    }
+    if (ph === 2) {
+      const pointTracks = tracks.filter(t => t.preset === "stagger" && t.role !== "bar"); // points, hexagons, any authored stagger group
+      const pointsPt = pointTracks[0]; // the line, area and annotations anchor to the FIRST series' group
+      const pointFit = new Map(pointTracks.map(pt => [pt, groupStagger(pace, pt.nLeaves, win(pt, pace), pt.staggerMs ?? 40, staggerAxis(pt.staggerBy))] as const));
+      const pointsFit = pointsPt ? pointFit.get(pointsPt) : undefined;
+      const barsPt = tracks.find(t => t.role === "bar" && (t.preset === "growBaseline" || t.preset === "stagger"));
+      const barsWin = barsPt ? win({ ...barsPt, preset: "growBaseline" }, pace) : 0;
+      const barsFit = !barsPt || barsPt.nLeaves < 2 ? undefined
+        : barsPt.preset === "stagger" ? groupStagger(pace, barsPt.nLeaves, barsWin, barsPt.staggerMs ?? 40, staggerAxis(barsPt.staggerBy)) // the plot authors a bar stagger
+        : pace.barLag !== null ? staggerFields(planStagger(lagTotal(barsPt.nLeaves, barsWin, pace.barLag, pace.barCap), pace.barLag, barsPt.nLeaves - 1), { by: "x", from: "start" })
+        : undefined;
+      const lineLead = pointsPt && pointsFit
+        ? Math.round(pace.pointLag === null ? pace.lineOverlap * Math.min(pointsPt.nLeaves * (pointsPt.staggerMs ?? 40), pace.pointCap) : pace.lineOverlap * pointsFit.footprint)
+        : 0;
+      const lineish = tracks.filter(t => t.preset === "drawOn" && !isSecondary(t.role));
+      let lineIdx = 0;
+      // composite series (box plots): <series>.box -> whiskers -> caps -> medians -> means -> fliers, each component entering as
+      // the previous is half done; the next series follows the same law (manim AnimationGroup(lag_ratio .5), natural durations)
+      const comp = new Map<PlanTrack, { series: string; rank: number }>();
+      for (const pt of tracks) {
+        const m = /^(.*)\.(box|whiskers?|caps?|medians?|means?|fliers?)$/.exec(pt.part);
+        if (m) comp.set(pt, { series: m[1], rank: COMPOSITE.indexOf(m[2].replace(/s$/, "")) });
+      }
+      if (comp.size > 1 && !pointsPt) {
+        const bySeries = new Map<string, PlanTrack[]>();
+        for (const pt of tracks) if (comp.has(pt)) { const k = comp.get(pt)!.series; bySeries.set(k, [...(bySeries.get(k) ?? []), pt]); }
+        let prevHead: Track | undefined;
+        for (const list of bySeries.values()) {
+          list.sort((a, b) => comp.get(a)!.rank - comp.get(b)!.rank);
+          let prev: Track | undefined;
+          for (const pt of list) {
+            const tr = mk(pt, { duration: Math.max(win(pt, pace), pace.id === "v2" ? 450 : 0) });
+            const lead = prev ?? prevHead;
+            if (lead) { tr.anchor = { trackId: lead.id!, edge: "start", offsetMs: Math.round(0.5 * (lead.duration ?? 0)) }; tr.start = 0; }
+            if (!prev) prevHead = tr;
+            out.push(tr); prev = tr;
+          }
+        }
+        for (const pt of tracks) if (!comp.has(pt)) out.push(mk(pt, {}));
+        return out;
+      }
+      for (const pt of tracks) {
+        const fit = pointFit.get(pt);
+        if (fit) {
+          out.push(mk(pt, { duration: fit.duration, stagger: fit.stagger, params: { child: "fade" } })); // child -> "scaleIn" once WP 2.2 lands it
+        } else if (pt === barsPt) {
+          out.push(barsFit ? mk(pt, { preset: "stagger", duration: barsFit.duration, stagger: barsFit.stagger, params: { child: "growBaseline" } }) : mk(pt, { preset: "growBaseline", duration: barsWin }));
+        } else if (isSecondary(pt.role) && (barsPt || pointsPt)) {
+          // secondary marks (error bars, whiskers, caps...) enter as their primary is half done and share its pacing
+          const tr = mk(pt, { start: 0, anchor: { trackId: idOf((barsPt ?? pointsPt)!), edge: "start", offsetMs: Math.round(0.5 * (barsPt ? barsWin : win(pointsPt!, pace))) } });
+          if (pt.nLeaves > 1 && barsFit) Object.assign(tr, { duration: barsFit.duration, stagger: barsFit.stagger });
+          out.push(tr);
+        } else if (pt.preset === "drawOn") {
+          const track = mk(pt, { duration: drawDuration(lengths[pt.part], win(pt, pace), pace) });
+          if (pace.lineEasing && pt.role === "line") track.easing = pace.lineEasing; // data-series pen: constant speed
+          if (pointsPt) { track.anchor = { trackId: idOf(pointsPt), edge: "start", offsetMs: (pt.delayMs ?? 0) + lineLead }; track.start = 0; }
+          else if (lineish.length > 1 && lineIdx > 0) { const prev = out.find(o => o.part === lineish[lineIdx - 1].part); if (prev) { track.anchor = { trackId: prev.id!, edge: "start", offsetMs: Math.round(0.5 * (prev.duration ?? 0)) }; track.start = 0; } }
+          lineIdx += lineish.includes(pt) ? 1 : 0;
+          out.push(track);
+        } else if (pointsPt && (pt.preset === "fade" || pt.preset === "fadeRise")) {
+          out.push(mk(pt, { anchor: { trackId: idOf(pointsPt), edge: "start", offsetMs: (pt.delayMs ?? 0) + lineLead }, start: 0 }));
+        } else out.push(mk(pt, {}));
+      }
+      return out;
+    }
+    // phase 3 — legend & annotations: the frame first, then the entries lag
+    const entries = tracks.filter(t => /legend-entry/.test(t.role));
+    const frameWin = Math.max(0, ...tracks.filter(t => /(^|\.)legend\.(background|frame)$/.test(t.part)).map(t => win(t, pace)));
+    const entryTotal = lagTotal(entries.length, Math.max(300, ...entries.map(t => win(t, pace))), 0.3, 700);
+    const slots = lagStarts(entries.length, entryTotal, 0.3);
+    let k = 0;
+    for (const pt of tracks) {
+      if (/legend-entry/.test(pt.role)) { const i = k++; out.push(mk(pt, { duration: slots.childMs, start: (pt.delayMs ?? 0) + Math.round(0.4 * frameWin) + slots.startsMs[i] })); }
+      else out.push(mk(pt, {}));
+    }
+    return out;
+  };
+  const label = (ph: number, tracks: PlanTrack[]) => ph === 0 && tracks.some(t => t.role === "gridline" || t.role === "colorbar-gridline") ? "Axes & grid" : PHASE_LABELS[ph];
+  return { phases: moved, build, label };
 }
 
 /** Find a node by id anywhere in an xray tree. */
@@ -265,7 +523,7 @@ function findNode(root: XrayNode, id: string): XrayNode | null {
 /** A sensible single default Track for one part (used by the X-ray "Animate"
  *  toggle): the plot's authored preset for that role, role-corrected, with a
  *  spatial stagger for point/bar groups. Falls back to a plain fade. */
-export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: string, part: string): Track {
+export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: string, part: string, options: Pick<AutoBuildOptions, "pace" | "lengths"> = {}): Track {
   const xray = buildPartTree(manifest);
   const node = xray ? findNode(xray, part) : null;
   const role = node?.role ?? "";
@@ -273,9 +531,20 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
   const anim = presets[role]?.animation ?? presets[highLevelKey(role)]?.animation;
   const preset = presetForRole(role, anim);
   const cfg = presets[role] ?? presets[highLevelKey(role)];
-  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, start: cfg?.delayMs ?? 0 };
+  const pace = options.pace ?? DEFAULT_PACE;
+  const window = Math.max(cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, pace.floor(preset));
+  // a primary spine's draw is the scaffold's fixed constant (V2), exempt from the floor and the length scaling
+  const penMs = role === "spine" && pace.scaffold.spineMs !== null ? pace.scaffold.spineMs : drawDuration(options.lengths?.[part], window, pace);
+  const track: Track = { id: newId("track"), target: elId, part, preset, duration: preset === "drawOn" ? penMs : window, start: cfg?.delayMs ?? 0 };
+  if (preset === "drawOn" && role === "line" && pace.lineEasing) track.easing = pace.lineEasing;
+  // the frame spines (top/right) are not axes: under a scaffold pace the X-ray toggle gives them the same fade as the Auto build (review F6)
+  if (role === "spine" && pace.scaffold.spineMs !== null && isFrameSpine({ role, part } as PlanTrack)) {
+    const fs = pace.scaffold.frameSpine;
+    track.preset = fs.preset; track.duration = fs.ms ?? penMs; track.start = fs.startMs;
+  }
   if (preset === "stagger") {
-    track.stagger = { perMs: cfg?.staggerMs ?? 40, by: staggerAxis(cfg?.staggerBy), from: "start" };
+    const fit = groupStagger(pace, node?.targets.length ?? 1, window, cfg?.staggerMs ?? 40, staggerAxis(cfg?.staggerBy));
+    track.duration = fit.duration; track.stagger = fit.stagger;
     track.params = { child: "fade" };
   }
   return track;
@@ -290,7 +559,7 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
  *  last build beat is used (creating beat 1 if the slide only has the resting
  *  beat). Returns the beat index the track landed on, or -1 if the slide is
  *  missing. */
-export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, manifest: FluxPlotManifest | undefined, beatIndex?: number): number {
+export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, manifest: FluxPlotManifest | undefined, beatIndex?: number, options: Pick<AutoBuildOptions, "pace" | "lengths"> = {}): number {
   const slide = slideById(deck, slideId);
   if (!slide) return -1;
   setPartVisibility(deck, elId, part, "animate"); // clear any mask, re-enable tracks
@@ -301,7 +570,7 @@ export function animatePart(deck: Deck, slideId: Id, elId: Id, part: string, man
     if (slide.beats.length <= 1) addBeat(deck, slideId, { label: "Beat 1", advance: "click" });
     bi = slide.beats.length - 1;
   }
-  setAnimation(deck, slideId, slide.beats[bi].id, suggestTrack(manifest, elId, part));
+  setAnimation(deck, slideId, slide.beats[bi].id, suggestTrack(manifest, elId, part, options));
   return bi;
 }
 
@@ -471,13 +740,13 @@ export function canAutoAnimateRest(slide: Slide, ref: TargetRef, manifest: FluxP
  * Anchors are beat-local: an effect anchored across a generated reveal that is
  * excluded or moves behind the landing keeps its effective start, and a
  * rebuilt phase never reuses a beat id an authored effect still holds. */
-export function autoAnimateExcept(deck: Deck, slideId: Id, plotId: Id, manifest: FluxPlotManifest | undefined, exceptLeaves: readonly string[]): number {
+export function autoAnimateExcept(deck: Deck, slideId: Id, plotId: Id, manifest: FluxPlotManifest | undefined, exceptLeaves: readonly string[], options: AutoBuildOptions = {}): number {
   const slide = slideById(deck, slideId);
   if (!slide) return 0;
   const manifestFor = (id: Id) => id === plotId ? manifest : undefined;
   const starts = new Map(slide.beats.flatMap(b => resolveBeat(b, deck, manifestFor).tracks.map(t => [t.id, t.start ?? 0] as const)));
   const moved = new Set(slide.beats.flatMap(b => b.tracks.filter(t => t.target === plotId && t.generatedBy === "auto-reveal").map(t => t.id)));
-  if (!applyAutoAnimation(deck, slideId, plotId, manifest)) return 0;
+  if (!applyAutoAnimation(deck, slideId, plotId, manifest, options)) return 0;
   const except = new Set(exceptLeaves);
   const generated: Beat[] = [];
   for (const beat of slide.beats) {

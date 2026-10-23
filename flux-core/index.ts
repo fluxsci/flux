@@ -144,6 +144,7 @@ export {
   setPartVisibility,
   setPartStyle,
   animatePartVerb,
+  animatePlotVerb,
   animateElementVerb,
   become,
   appearFrom,

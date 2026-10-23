@@ -18,7 +18,7 @@
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat, copySelectedTiming, pasteSelectedTiming, canPasteTiming } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
   import { resolveCurve } from "../../../../lib/slide/curves";
-  import { resolveTrack } from "../../../../lib/slide/resolve";
+  import { resolveTrackRaw } from "../../../../lib/slide/resolve";
   import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
   import { curvePath } from "./CurveField.svelte";
   import TimelineMenu, { type MenuItem } from "./TimelineMenu.svelte";
@@ -201,6 +201,8 @@
   type Drag={x:number;y:number;dx:number;kind:"start"|"duration";orig:{id:string;start:number;duration:number}[];primary:string;over:number|null;row:number|null;copy:boolean;moving:boolean;magnets:Magnet[];link:boolean;anchor:Track["anchor"]|null;scale:number};
   let drag=$state<Drag|null>(null);
   const resolved = $derived(resolveBeat(beat, deck, manifestFor));
+  // RAW view for drags: a drag writes `start`/`duration`, so its origin values are the STORED ones (X13: a view track's tick compensation must not be stored)
+  const resolvedRaw = $derived(resolveBeat(beat, deck, manifestFor, "raw"));
   // Resolve the edited COPY as a beat: followers preview through the same DFS as playback.
   const displayed = $derived.by(() => {
     const d = drag;
@@ -225,7 +227,7 @@
     const link=leftEdge&&(e.metaKey||e.ctrlKey);
     if(!link&&(e.shiftKey||e.metaKey||e.ctrlKey)){chooseTrack(t,true);return;}
     if(!$selTrackIds.includes(t.id))chooseTrack(t); else onFocusDock();
-    const selected=resolved.tracks.filter(t=>t.id&&$selTrackIds.includes(t.id)&&(kind!=="duration"||familyOf(t)!=="media"));
+    const selected=resolvedRaw.tracks.filter(t=>t.id&&$selTrackIds.includes(t.id)&&(kind!=="duration"||familyOf(t)!=="media"));
     drag={x:e.clientX,y:e.clientY,dx:0,kind,primary:t.id,orig:selected.map(t=>({id:t.id!,start:t.start??0,duration:trackDuration(t)})),over:null,row:null,copy:e.altKey,moving:false,link,anchor:null,scale,
       magnets:resolved.tracks.filter(t=>t.id&&!$selTrackIds.includes(t.id)).flatMap(t=>[
         {ms:t.start??0,trackId:t.id!,edge:"start" as const},
@@ -387,7 +389,7 @@
     const source=beat.tracks.find(t=>t.id===sourceId);if(!source)return;
     const result=commitDeckLive(d=>inheritTrack(d,slide.id,sourceId,ids,{includeStart,beatId:beat.id,manifestFor}));
     sealHistory();
-    const r=resolveTrack(source,deck), n=result.inherited.length;
+    const r=resolveTrackRaw(source,deck), n=result.inherited.length;
     const style=result.styleId?$deckOverlay?.animStyles?.find(s=>s.id===result.styleId)?.name:undefined;
     if(n)pushToast("info",`${n} effect${n===1?"":"s"} inherit ‹${label(source)}› · ${Math.round(trackDuration(r))} ms · ${curveWord(r)}${style?` · style ‹${style}›`:""}${includeStart?" · start":""}`);
     if(result.refused.length)pushToast("error",[...new Set(result.refused.map(x=>x.reason))].join("; "));

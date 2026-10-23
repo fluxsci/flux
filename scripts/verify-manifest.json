@@ -141,6 +141,8 @@
       "verify-slide-model.ts",
       "verify-slide-morph.ts",
       "verify-trim.ts",
+      "verify-draw.ts",
+      "verify-slide-draw-browser.ts",
       "verify-color-interp.ts",
       "verify-slide-multiplot.ts",
       "verify-slide-orphans.ts",
@@ -354,6 +356,8 @@
       "verify-plot-view-twin.ts",
       "verify-id-aliases.ts",
       "verify-slide-stagger.ts",
+      "verify-slide-choreo.ts",
+      "verify-animate-plot.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
       "verify-model3d-scene3d.ts",
@@ -915,6 +919,10 @@
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
+      "verify-slide-choreo.ts",
+      "verify-animate-plot.ts",
+      "verify-draw.ts",
+      "verify-slide-draw-browser.ts",
       "verify-text-match.ts",
       "verify-text-morph-browser.ts",
       "verify-glyph-outlines.ts",
@@ -1301,6 +1309,16 @@
       ]
     },
     {
+      "$why": "WP 1.3 choreography core: the stagger planner, the plot auto-build (AutoPace tables, scaffold, chains), the shared pen measure and the animate-plot verb.",
+      "glob": "{src/lib/slide/stagger.ts,src/lib/slide/autobuild.ts,src/lib/slide/partLength.ts,src/lib/slide/strokeGeometry.ts,src/lib/slide/animateSelection.ts,flux-core/slides.ts}",
+      "run": [
+        "verify-slide-choreo.ts",
+        "verify-animate-plot.ts",
+        "verify-slide-autobuild.ts",
+        "verify-slide-scatter-showcase.ts"
+      ]
+    },
+    {
       "glob": "src/lib/slide/stagger.ts",
       "run": [
         "verify-slide-stagger.ts",
@@ -1598,6 +1616,8 @@
     {
       "glob": "src/lib/slide/resolve.ts",
       "run": [
+        "verify-draw.ts",
+        "verify-slide-draw-browser.ts",
         "verify-slide-resolve.ts",
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
@@ -1654,6 +1674,8 @@
     {
       "glob": "src/lib/slide/player/presets.ts",
       "run": [
+        "verify-draw.ts",
+        "verify-slide-draw-browser.ts",
         "verify-preset-catalog.ts",
         "verify-v020-morph-startup.mjs",
         "group:slide-transforms",
@@ -2284,6 +2306,8 @@
     {
       "glob": "{src/lib/slide/{outline,tween,normalMatch,stageOutline}.ts,src/lib/slide/player/**}",
       "run": [
+        "verify-draw.ts",
+        "verify-slide-draw-browser.ts",
         "verify-v020-morph-startup.mjs",
         "group:slide-transforms",
         "group:figures-slides-overhaul",
@@ -2683,6 +2707,8 @@
       "$why": "2026-10-02 W4: align-tracks / inherit-track pure core (GUI Alt+A/D and Ctrl+Alt-drag, CLI/MCP twins); keeps the broader slide rule's groups.",
       "glob": "src/lib/slide/alignTracks.ts",
       "run": [
+        "verify-draw.ts",
+        "verify-slide-draw-browser.ts",
         "verify-slide-timeline.ts",
         "verify-slide-resolve.ts",
         "verify-registry-parity.ts",
@@ -7532,6 +7558,24 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-draw.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-draw-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-undo-budget.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -9342,6 +9386,24 @@
       "coverage": "behavior"
     },
     "verify-slide-stagger.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-choreo.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-animate-plot.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

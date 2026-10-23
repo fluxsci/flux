@@ -95,3 +95,58 @@ export function patchStagger(current: Stagger | undefined, patch: Partial<Stagge
   }
   return next;
 }
+
+// ---------------------------------------------------------------------------
+// PLANNER (profile-independent, pure): a TOTAL-INVARIANT lag-ratio schedule written as EXISTING fields.
+//
+// manim's `lag_ratio` law (animation.py:384-391, composition.py:160): n children share a fixed total T;
+// each child's window is T / (1 + maxRank L) and the next starts L x window later. Flux stores no "lag"
+// mode: the planner RETURNS `{ duration: window, stagger: { totalMs: spread } }` (Total mode, shipped and
+// pinned), so footprint = duration + totalMs = T exactly, old apps open the deck, and every consumer of
+// `staggerSpan` (compile end, anchors, align, timeline bars) is already correct.
+// ---------------------------------------------------------------------------
+
+/** A target's window never drops under max(150 ms, 20 % of the group total): when it would, the RATIO gives
+ *  way, never the total. 20 % is manim's own asymptote (Write: lag = min(4/n, 0.2)); 150 ms ~ 9 frames. */
+export const LAG_MIN_CHILD_MS = 150;
+export const LAG_MIN_CHILD_FRAC = 0.2;
+
+export interface StaggerPlan {
+  /** effective lag ratio after the floor */ lag: number;
+  /** each target's window (ms, integer) */ childMs: number;
+  /** first start to last start (ms, integer) = totalMs - childMs */ spanMs: number;
+  /** start-to-start step (spanMs / maxRank) */ stepMs: number;
+  /** group footprint = childMs + spanMs = the requested total */ totalMs: number;
+}
+/** `totalMs` = whole group first start to last end; `maxRank` = highest rank (ties share one rank, so NOT n - 1 for from:center|edges).
+ *  Assumes ORDINAL ranks (law "rank"); a caller with fractional ranks (T8's `law:"coordinate"`) chooses its own (window, totalMs) pair. */
+export function planStagger(totalMs: number, lag: number, maxRank: number): StaggerPlan {
+  const T = Math.max(0, Math.round(totalMs)), L = Math.max(0, lag);
+  if (!(maxRank > 0) || T <= 0) return { lag: L, childMs: T, spanMs: 0, stepMs: 0, totalMs: T };
+  const floor = Math.min(T, Math.max(LAG_MIN_CHILD_MS, LAG_MIN_CHILD_FRAC * T));
+  const eff = T / (1 + maxRank * L) >= floor ? L : (T / floor - 1) / maxRank;
+  const childMs = Math.max(1, Math.round(T / (1 + maxRank * eff)));
+  const spanMs = T - childMs;
+  return { lag: eff, childMs, spanMs, stepMs: spanMs / maxRank, totalMs: T };
+}
+/** The fields a plan writes onto a Track (Total mode); `shared` = by/from/curve/seed. Single target: no spread. */
+export function staggerFields(plan: StaggerPlan, shared: Pick<Stagger, "by" | "from" | "curve" | "seed"> = {}): { duration: number; stagger: Stagger } {
+  return { duration: plan.childMs, stagger: { ...shared, totalMs: plan.spanMs } };
+}
+/** manim's natural LaggedStart time for n children of window `refMs`, capped: min(cap, ref (1 + (n-1) L)). */
+export function lagTotal(n: number, refMs: number, lag: number, capMs: number): number {
+  return Math.round(Math.min(capMs, refMs * (1 + Math.max(0, n - 1) * lag)));
+}
+/** manim's Write sizing as data: 1 s below 15 items, 2 s from 15, ratio 0.2 (the 20 % floor reproduces min(4/n, 0.2)). */
+export function writeTiming(n: number): { totalMs: number; lag: number } {
+  return { totalMs: n < 15 ? 1000 : 2000, lag: 0.2 };
+}
+/** Per-target literal starts for n SEPARATE tracks (multi-select Appear): window + start offsets of one lag schedule. */
+export function lagStarts(n: number, totalMs: number, lag: number): { childMs: number; startsMs: number[] } {
+  const p = planStagger(totalMs, lag, Math.max(0, n - 1));
+  return { childMs: p.childMs, startsMs: Array.from({ length: n }, (_, i) => Math.round(p.stepMs * i)) };
+}
+/** The whole group's footprint (what the Animator shows as "whole build"): duration + spread. */
+export function trackFootprint(track: Track, targetCount: number): number {
+  return Math.max(0, track.duration ?? 0) + staggerSpan(track, targetCount);
+}

@@ -44,7 +44,7 @@ const deck = slideOps.createDeck({ id: "showcase", title: "Scatter showcase" });
 const sid = slideOps.addSlide(deck, { name: "Scatter", layout: "blank" }).id;
 const elId = slideOps.addPlotToSlide(deck, sid, { assetId: "scatter", x: 0, y: 0, width: 1280, height: 720 })!;
 const added = applyAutoAnimation(deck, sid, elId, manifest);
-assert(added === 4, "auto-animate builds the 4-phase sequence (Axes/Gridlines/Data/Legend)");
+assert(added === 3, "auto-animate builds the 3-click sequence (Axes & grid / Data / Legend)");
 const slide = slideOps.slideById(deck, sid)!;
 
 // 3. render the slide through the ONE renderer, then flatten its beats → specs
@@ -73,7 +73,7 @@ applyStatic(specs, 1); // Axes — spines/ticks draw on
 assert(!style(spinePath(), "strokeDashoffset") && !style(spinePath(), "strokeDasharray"), "Axes beat: the x-axis spine is DRAWN ON");
 assert(style(aPoint(), "opacity") === "0", "Axes beat: the points are still hidden (their beat is later)");
 
-applyStatic(specs, 3); // Data — points stagger in, line draws on
+applyStatic(specs, 2); // Data — points stagger in, line draws on
 assert(style(aPoint(), "opacity") === "1", "Data beat: the scatter points are SHOWN");
 assert(!style(fitLine(), "strokeDashoffset") && !style(fitLine(), "strokeDasharray"), "Data beat: the fit line is DRAWN ON");
 

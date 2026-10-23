@@ -35,7 +35,7 @@ export const INHERITED_STYLE_FIELDS = ANIM_STYLE_FIELDS.filter(f => f !== "prese
  * Easing, influence and curve form one group: any own value overrides the
  * entire style group, so a token can replace a style's spring.
  * The returned value is a read view; callers must never mutate its nested data. */
-export function resolveTrack(track: Track, deck: StyleContext): Track {
+export function resolveTrackRaw(track: Track, deck: StyleContext): Track {
   const style = track.styleId == null ? undefined : deck.animStyles?.find(s => s.id === track.styleId);
   const result: Track = { ...track }, fields = result as unknown as Record<string, unknown>;
   if (result.preset == null) delete result.preset;
@@ -49,8 +49,46 @@ export function resolveTrack(track: Track, deck: StyleContext): Track {
   return result;
 }
 
-function beatResolver(beat: Beat, deck: StyleContext, manifestFor: ManifestFor) {
-  const tracks = beat.tracks.map(t => resolveTrack(t, deck));
+/** A draw-on of an axis's tick marks (`axis.x.ticks`, `axis.y.ticks`). */
+const AXIS_TICKS = /^axis\.([xy])\.ticks$/;
+/** Share of the authored duration each tick's own draw takes when the ticks follow the pen. */
+export const TICK_WINDOW_SHARE = 0.4;
+
+/** X13, the one shared normaliser for ticks that would otherwise outrun the pen. Since the draw reaches its end exactly
+ *  (WP 1.4), an axis whose ticks are ONE drawOn track with no stagger grows every tick at once, up to 450 px ahead of
+ *  the spine tip. Such a track is read as a spatial stagger along its axis with the SAME cue length:
+ *  `duration' = round(0.4 d)`, `stagger = { totalMs: d - duration', by: axis, from: "start" }`. `from` is "start" on BOTH
+ *  axes, deliberately NOT the ruling's y -> "end": fluxplot's tick nodes carry no `data-x`/`data-y`, so `staggerRanks`
+ *  falls back to DOM order, which already runs left to right and bottom to top (the y spine's pen direction); "end"
+ *  would run the y ticks top to bottom, against the pen (measured in the real player, verify-slide-draw-browser).
+ *  `stagger: { perMs: 0 }` opts out. Applies to a style-RESOLVED track; returns the fields to overlay, or null. */
+export function tickCompensation(track: Track): Pick<Track, "duration" | "stagger"> | null {
+  if (track.preset !== "drawOn" || track.stagger != null || !track.part) return null;
+  const axis = AXIS_TICKS.exec(track.part)?.[1] as "x" | "y" | undefined;
+  if (!axis) return null;
+  const d = trackDuration(track), own = Math.round(TICK_WINDOW_SHARE * d);
+  if (!(d > 0) || own < 1) return null;
+  return { duration: own, stagger: { totalMs: d - own, by: axis, from: "start" } };
+}
+
+/** The track as PLAYBACK, the timeline and the Animator's display read it: styles resolved, then X13's tick compensation.
+ *  A READ view: it must never be spread back into storage. Code that reads a track in order to WRITE one (detaching or
+ *  deriving a style, cascades, copy/paste of timing) uses `resolveTrackRaw`, so a resolved stagger never leaks into the
+ *  deck: the stored track is never rewritten. */
+export function resolveTrack(track: Track, deck: StyleContext): Track {
+  const result = resolveTrackRaw(track, deck);
+  const compensation = tickCompensation(result);
+  return compensation ? { ...result, ...compensation } : result;
+}
+
+/** `view` (default): tracks as playback and the timeline read them (X13's tick compensation applied). `raw`: the stored
+ *  fields with styles resolved and nothing else, for code that plans WRITES from a resolved beat (align, drag). A
+ *  compensated track keeps its cue footprint, so anchors and starts resolve identically in both modes (one-target tick
+ *  groups excepted: a single tick has no spread to carry the compensation's tail). */
+export type ResolveMode = "view" | "raw";
+
+function beatResolver(beat: Beat, deck: StyleContext, manifestFor: ManifestFor, mode: ResolveMode = "view") {
+  const tracks = beat.tracks.map(t => mode === "raw" ? resolveTrackRaw(t, deck) : resolveTrack(t, deck));
   const byId = new Map(tracks.flatMap((t, i) => t.id ? [[t.id, i] as const] : []));
   const done = new Map<number, { start: number; issue?: string }>();
   const stack = new Set<number>();
@@ -78,17 +116,17 @@ function beatResolver(beat: Beat, deck: StyleContext, manifestFor: ManifestFor) 
   return { tracks, visit };
 }
 
-export function resolveStart(track: Track, beat: Beat, deck: StyleContext, manifestFor: ManifestFor = () => undefined): { start: number; issue?: string } {
+export function resolveStart(track: Track, beat: Beat, deck: StyleContext, manifestFor: ManifestFor = () => undefined, mode: ResolveMode = "view"): { start: number; issue?: string } {
   const index = beat.tracks.findIndex(t => t === track || track.id != null && t.id === track.id);
   // Accept an edited candidate without requiring the caller to mutate the beat.
   const tracks = [...beat.tracks];
   if (index < 0) tracks.push(track); else tracks[index] = track;
-  return beatResolver({ ...beat, tracks }, deck, manifestFor).visit(index < 0 ? tracks.length - 1 : index);
+  return beatResolver({ ...beat, tracks }, deck, manifestFor, mode).visit(index < 0 ? tracks.length - 1 : index);
 }
 
 /** Lane order is preserved; DFS memoization resolves chains in one pass. */
-export function resolveBeat(beat: Beat, deck: StyleContext, manifestFor: ManifestFor = () => undefined): { tracks: Track[]; issues: TimingIssue[] } {
-  const { tracks, visit } = beatResolver(beat, deck, manifestFor);
+export function resolveBeat(beat: Beat, deck: StyleContext, manifestFor: ManifestFor = () => undefined, mode: ResolveMode = "view"): { tracks: Track[]; issues: TimingIssue[] } {
+  const { tracks, visit } = beatResolver(beat, deck, manifestFor, mode);
   const issues: TimingIssue[] = [];
   const starts = tracks.map((track, i) => {
     const result = visit(i);

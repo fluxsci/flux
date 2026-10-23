@@ -10,7 +10,7 @@
  * end a timing anchor and a drag magnet use). */
 import type { Deck, Track } from "./types";
 import type { Id } from "../types";
-import { resolveBeat, resolveTrack, type ManifestFor } from "./resolve";
+import { resolveBeat, resolveTrackRaw, type ManifestFor } from "./resolve";
 import { trackDuration } from "./timing";
 import { staggerSpan } from "./stagger";
 import { targetPartIds } from "./targets";
@@ -109,7 +109,8 @@ export function alignTrackEdges(deck: Deck, slideId: Id, beatId: Id, trackIds: r
   const slide = deck.slides.find(s => s.id === slideId), beat = slide?.beats.find(b => b.id === beatId);
   if (!slide || !beat) { result.refused.push(...trackIds.map(trackId => ({ trackId, reason: "Step not found on this slide" }))); return result; }
   if (!Number.isFinite(toMs) || toMs < 0) { result.refused.push(...trackIds.map(trackId => ({ trackId, reason: "Align time must be non-negative and finite" }))); return result; }
-  const resolved = new Map(resolveBeat(beat, deck, manifestFor).tracks.flatMap(t => t.id ? [[t.id, t] as const] : []));
+  // RAW: the plan below writes `duration` from these tracks (a view track's tick compensation must not be stored)
+  const resolved = new Map(resolveBeat(beat, deck, manifestFor, "raw").tracks.flatMap(t => t.id ? [[t.id, t] as const] : []));
   const plans: { id: Id; patch: { start?: number; duration?: number }; leader?: Id }[] = [];
   for (const id of new Set(trackIds)) {
     const raw = beat.tracks.find(t => t.id === id), track = resolved.get(id);
@@ -143,7 +144,7 @@ export function alignTargetMs(deck: Deck, slideId: Id, beatId: Id, to: number | 
   if (/^\d+(?:\.\d+)?$/.test(to)) return Number(to);
   const match = /^(.+?)(?::(start|end))?$/.exec(to);
   const beat = deck.slides.find(s => s.id === slideId)?.beats.find(b => b.id === beatId);
-  const track = beat && match ? resolveBeat(beat, deck, manifestFor).tracks.find(t => t.id === match[1]) : undefined;
+  const track = beat && match ? resolveBeat(beat, deck, manifestFor, "raw").tracks.find(t => t.id === match[1]) : undefined;
   return track ? trackEdges(track, manifestFor)[(match![2] as AlignEdge | undefined) ?? edge] : null;
 }
 
@@ -188,7 +189,7 @@ export function inheritTrack(deck: Deck, slideId: Id, sourceTrackId: Id, targetT
     return out;
   }
   const source = found.track, family = familyOf(source);
-  const resolvedSource = resolveBeat(found.beat, deck, manifestFor).tracks.find(t => t.id === sourceTrackId)!;
+  const resolvedSource = resolveBeat(found.beat, deck, manifestFor, "raw").tracks.find(t => t.id === sourceTrackId)!;
   const style = source.styleId != null ? deck.animStyles?.find(s => s.id === source.styleId) : undefined;
   if (style) out.styleId = style.id;
   for (const id of new Set(targetTrackIds)) {
@@ -202,7 +203,7 @@ export function inheritTrack(deck: Deck, slideId: Id, sourceTrackId: Id, targetT
       out.refused.push({ trackId: id, reason: family === "media" ? "A video command's timing cannot drive an animation" : "Video commands cannot inherit an animation's timing" });
       continue;
     }
-    const keepStart = resolveBeat(target.beat, deck, manifestFor).tracks.find(t => t.id === id)?.start ?? 0;
+    const keepStart = resolveBeat(target.beat, deck, manifestFor, "raw").tracks.find(t => t.id === id)?.start ?? 0;
     if (style) {
       const linked = linkTrackStyle(deck, slideId, id, style.id);
       if (!linked.ok) { out.refused.push({ trackId: id, reason: linked.reason! }); continue; }
@@ -212,7 +213,7 @@ export function inheritTrack(deck: Deck, slideId: Id, sourceTrackId: Id, targetT
       if (source.preset != null && !track.ghostFrom) track.preset = source.preset;
     } else {
       if (track.styleId != null) linkTrackStyle(deck, slideId, id, null);
-      const from = resolveTrack(source, deck);
+      const from = resolveTrackRaw(source, deck); // RAW: the target stores the source's STORED how
       // The effect itself (preset + its params + arc) travels only within one
       // family AND phase: an entrance never turns an exit into a second entrance.
       const same = family === targetFamily && family !== "media" && presetDef(source.preset).phase === presetDef(track.preset).phase;
@@ -235,7 +236,7 @@ export function inheritTrack(deck: Deck, slideId: Id, sourceTrackId: Id, targetT
       else track.start = resolvedSource.start ?? 0;
     } else if (!track.anchor) {
       // Keep the target where it sat in time, whatever the style now supplies.
-      const now = resolveTrack(track, deck).start ?? 0;
+      const now = resolveTrackRaw(track, deck).start ?? 0;
       if (Math.abs(now - keepStart) > 1e-9) track.start = keepStart;
     }
     out.inherited.push(id);
