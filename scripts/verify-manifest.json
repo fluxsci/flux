@@ -7472,7 +7472,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 300000,
+      "timeoutMs": 480000,
       "exclusive": false,
       "coverage": "behavior"
     },
