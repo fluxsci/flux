@@ -189,5 +189,18 @@ try{
  const cross=await page.evaluate(()=>{const x=document.querySelector('[data-arrange-gap="x"]').getBoundingClientRect(),y=document.querySelector('[data-arrange-gap="y"]').getBoundingClientRect();return{x:x.x,y:y.y};});
  for(const delta of [{x:1,y:3},{x:0,y:0}]){const before=await readLayout(page);await page.mouse.move(cross.x+delta.x,cross.y+delta.y);await page.mouse.down();await page.mouse.move(cross.x+delta.x+10,cross.y+delta.y);nearly((await readLayout(page)).state.gapX,before.state.gapX+10);nearly((await readLayout(page)).state.gapY,before.state.gapY);await page.keyboard.press('Escape');await page.mouse.up();}
  await page.keyboard.press('Escape');
- assert.deepEqual(realErrors(page),[]);console.log('PASS anchored gap drag at three zooms, modifier rebasing, cancellation routes, focus, clickaway, transient fields and grid independence');
+ await page.keyboard.press('Escape');
+ // The pin sits where people grab a selection (its centre by default): a press on it that MOVES
+ // is an ordinary drag of the selection — it never opens the picker or eats the gesture.
+ // (three in a row: the centre pin lies on the middle object, not on a gap guide — a press there
+ // with no pin would drag the selection, so with the pin it must too)
+ await seedLayout(page);const pinBefore=await readLayout(page);
+ const pin=await page.$eval('[data-arrangement-anchor-toggle]',n=>{const b=n.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2}});
+ await page.mouse.move(pin.x,pin.y);await page.mouse.down();await page.mouse.move(pin.x+30,pin.y+20,{steps:6});await page.mouse.up();await waitForFrame(page);
+ const pinAfter=await readLayout(page);
+ assert.ok(pinAfter.elements.every((e,i)=>Math.abs(e.x-pinBefore.elements[i].x-30)<1.5&&Math.abs(e.y-pinBefore.elements[i].y-20)<1.5),`a drag that starts on the pin moves the whole selection (${JSON.stringify(pinAfter.elements.map(e=>[e.x,e.y]))})`);
+ assert.equal(await page.$('.anchor-popover'),null,'…and opens no picker');
+ assert.equal(pinAfter.history.past,1,'…as one undoable move');
+ await page.click('[data-arrangement-anchor-toggle]');assert.ok(await page.$('.anchor-popover'),'a click on the pin still opens the picker');await page.keyboard.press('Escape');
+ assert.deepEqual(realErrors(page),[]);console.log('PASS anchored gap drag at three zooms, modifier rebasing, cancellation routes, focus, clickaway, transient fields, grid independence, and drags that start on the pin');
 }finally{await browser.close();}

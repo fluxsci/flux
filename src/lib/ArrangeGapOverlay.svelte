@@ -42,6 +42,35 @@
     e.preventDefault();e.stopPropagation();popupOrigin={x:pinX,y:pinY};anchorOpen=!anchorOpen;
     if(anchorOpen){await tick();anchorPopup?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus({preventScroll:true});}
   }
+  // The pin sits on the fixed point — by default the selection's centre, right where people grab
+  // a selection to drag it. A press that stays put is a click on the pin (the picker); a press
+  // that MOVES past the canvas's drag threshold is handed to whatever lies beneath the pin, so
+  // the ordinary move (and a drop onto another figure) runs exactly as if the pin were not there.
+  const PIN_DRAG_PX = 4;
+  let pinDragged = false;
+  function pinDown(e:PointerEvent) {
+    e.stopPropagation();e.preventDefault();
+    if(e.button!==0)return;
+    pinDragged=false;
+    const start={x:e.clientX,y:e.clientY,id:e.pointerId,type:e.pointerType,mods:{shiftKey:e.shiftKey,ctrlKey:e.ctrlKey,altKey:e.altKey,metaKey:e.metaKey}};
+    const win=(e.currentTarget as Element).ownerDocument.defaultView!;
+    const done=()=>{win.removeEventListener('pointermove',move,true);win.removeEventListener('pointerup',done,true);win.removeEventListener('pointercancel',done,true);};
+    const move=(ev:PointerEvent)=>{
+      if(ev.pointerId!==start.id||Math.hypot(ev.clientX-start.x,ev.clientY-start.y)<PIN_DRAG_PX)return;
+      done();pinDragged=true;anchorOpen=false;
+      const doc=win.document;
+      const under=doc.elementsFromPoint(start.x,start.y).find(n=>!n.closest('.arrangement-anchor-control'));
+      if(!under)return;
+      const init={bubbles:true,cancelable:true,composed:true,pointerId:start.id,pointerType:start.type,isPrimary:true,...start.mods};
+      under.dispatchEvent(new PointerEvent('pointerdown',{...init,clientX:start.x,clientY:start.y,button:0,buttons:1}));
+      under.dispatchEvent(new PointerEvent('pointermove',{...init,clientX:ev.clientX,clientY:ev.clientY,button:-1,buttons:1}));
+    };
+    win.addEventListener('pointermove',move,true);win.addEventListener('pointerup',done,true);win.addEventListener('pointercancel',done,true);
+  }
+  function pinClick(e:MouseEvent) {
+    if(pinDragged){pinDragged=false;e.preventDefault();e.stopPropagation();return;}
+    void toggleAnchor(e);
+  }
   function outsideAnchor(e:PointerEvent) {if(!(e.target instanceof Element)||!e.target.closest('.arrangement-anchor-control'))anchorOpen=false;}
   function anchorKeys(e:KeyboardEvent) {
     if(yieldsToShellModal(e)||isAnnotateChord(e))return;
@@ -54,7 +83,11 @@
   $: gapY=$alignArrange?.gapY??layout?.gapY??0;
   const factor=(e:Pick<PointerEvent,'shiftKey'|'altKey'>)=>e.shiftKey?10:e.altKey?.1:1;
   function nearest(e:PointerEvent) {
-    const node=e.currentTarget as SVGElement, rect=node.ownerSVGElement!.getBoundingClientRect();
+    const node=e.currentTarget as SVGElement, svg=node.ownerSVGElement;
+    // A move can still reach a band the moment the guides unmount (an object move starting
+    // under the pointer): a detached node has no owner SVG and no nearest guide.
+    if(!svg)return undefined;
+    const rect=svg.getBoundingClientRect();
     const x=e.clientX-rect.x,y=e.clientY-rect.y;
     // Overlapping 12px hit bands choose the visibly nearest gutter; exact
     // intersections use X then track order, independent of SVG paint order.
@@ -135,7 +168,7 @@
       <g class="arrangement-anchor-control">
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <circle class="pin" cx={pinX} cy={pinY} r="4" aria-hidden="true"/>
-        <circle bind:this={anchorToggle} class="pin-hit" data-arrangement-anchor-toggle role="button" tabindex="0" aria-label="Choose fixed point" aria-haspopup="dialog" aria-expanded={anchorOpen} cx={pinX} cy={pinY} r="10" on:pointerdown|stopPropagation|preventDefault on:click={toggleAnchor} on:keydown={e=>{if(e.key==='Enter'||e.key===' ')toggleAnchor(e);}}><title>Keep fixed · click to choose</title></circle>
+        <circle bind:this={anchorToggle} class="pin-hit" data-arrangement-anchor-toggle role="button" tabindex="0" aria-label="Choose fixed point" aria-haspopup="dialog" aria-expanded={anchorOpen} cx={pinX} cy={pinY} r="10" on:pointerdown={pinDown} on:click={pinClick} on:keydown={e=>{if(e.key==='Enter'||e.key===' ')toggleAnchor(e);}}><title>Keep fixed · click to choose</title></circle>
         {#if anchorOpen}
           <foreignObject x={popupX} y={popupY} width="178" height={popupHeight}>
             <!-- svelte-ignore a11y_no_static_element_interactions -->

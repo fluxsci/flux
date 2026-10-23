@@ -10649,3 +10649,24 @@ model3d-gui, model3d-snapshot-quiet, a 101 ms morph-startup seek) predate the ra
 **Work:** Replaced held-key anchor instructions with the shared persistent chooser in the panel and selection-pin popup, plus optional 1/2/3 axis shortcuts. Updated Figure/Slide/shortcut and stock agent docs, regenerated FluxContext, and passed the registered context-scheme gate (`2026-10-23T00-40-53-375Z-2`); prior native stress-limit evidence remains unchanged.
 **Learnings:**
 - A passive anchor choice is UI preference only: it must not create tool ownership, document edits or Undo history. The preference and input-priority contract are promoted into the body.
+
+### 2026-10-22 — Merge of feat/align-arrange into main (Claude Opus 5.5)
+**Work:** Merged Codex's six Align/Arrange commits (16d20c16..decd7be5) over the Plots rail P3
+work. Manifest merged structurally (every gate/group/contract/pathMap entry of both sides kept),
+guide log entries of both kept; keyboard order is rail yield → Alt+G host → typing → Align.
+`verify-cross-figure-drag` was red on the branch itself (main green): the passive anchor pin
+sits on the fixed point — the selection's centre by default, where people grab a selection —
+and swallowed the press. Fix (`ArrangeGapOverlay.svelte` pinDown/pinClick): a click still opens
+the picker; a press that moves ≥4 px is replayed onto whatever lies beneath the pin, so the
+ordinary drag (and a drop onto another figure) runs as if the pin were not there. A band hover
+handler that could run on a just-detached guide (no owner SVG) now returns nothing.
+**Learnings:** a canvas control placed ON content must hand moving presses through — a click
+target over the grab point of a selection silently breaks dragging. When replaying a press,
+the "as if absent" target is the topmost non-control element; gap guides are part of the same
+layer, so a pin over a gap band hands off a GAP drag (correct), which is why the gate's pin case
+uses a layout whose centre lies on an object.
+**Verification:** svelte-check + headless 0/0; build; pure 398/398 (model3d-headless after a
+build); groups align-arrange 8/8 + plots-rail 8/8; cross-figure drag 31/31, selection zones,
+bbox grab, figure controls, Become picker, slide editor, filmstrip, crop, input hygiene,
+metadata, video clips, gallery workflow, dissect. Native + full ui tier owed (tonight's run);
+Codex's accepted limitation stands: direct Alt+T with 5,000 selected ≈103–113 ms vs 100 ms.
