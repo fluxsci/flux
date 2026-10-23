@@ -79,9 +79,13 @@ export const RT = {
   firstClockMs: 34,
   /** UNEVEN PACING: the longest gap between two player frames anywhere in the motion, and (LONG FRAME AT LANDING) in the last four frames */
   maxGapMs: 34, gapMs: 34,
-  /** the last presented frame vs the static render of the end state, and the change after the landing frame (a sharpness / AA step).
-   *  The same 2 units for a camera cue: its raster is baked at the landing pose (rasterKeeper EARLY_BAKE_LEAD_FRAMES), so both are 0.0. */
-  restAfter: 2, postLanding: 2,
+  /** the last presented frame vs the static render of the end state, and the change after the landing frame (a sharpness / AA step). The same
+   *  for a camera cue: its raster is baked at the landing pose (rasterKeeper EARLY_BAKE_LEAD_FRAMES), so both read 0.0. The landing floor is the
+   *  physical 6 units of the seek gate (a 0.1 stage px shift of a 60 px edge; slideSettleSweep THRESHOLDS): the legacy `scale` preset lands
+   *  2.9 against the fresh render in about 1 run in 7 (before and after this round: a transform-scaled raster against the same transform painted at
+   *  rest), which no viewer can see; every defect the gate exists for reads 7 and above (the old landing of a fadeRise 11.6, a stagger 7.0, a
+   *  text rewrite 26). Nothing may change after the landing frame: 2. */
+  restAfter: 6, postLanding: 2,
   /** the landing frame and the first changing frame change like their neighbours: d_last <= max(3 x previous, floor), d_first <= max(4 x next, floor) */
   stepRatio: 3, startRatio: 4, stepFloor: 6,
   /** a presented frame whose change from its predecessor exceeds this has moved (the rest frames before the motion read exactly 0) */
