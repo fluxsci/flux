@@ -30,12 +30,20 @@ function tickExtents(model:RelayoutModel,a:LayoutAxis|LayoutColorbar,key:string,
   const baseH=Math.max(0,...visible.map(v=>v.t.bbox[3]-v.t.bbox[1]));
   const sizes=set.values.map((value,i)=>{
     const reuse=old.find(t=>near(t.value??NaN,value)&&t.t.text===set.labels[i]);
-    const w=reuse?reuse.t.bbox[2]-reuse.t.bbox[0]:fontWidth(model,set.labels[i],style.font);
-    const h=reuse?reuse.t.bbox[3]-reuse.t.bbox[1]:baseH||model.layout.fonts[style.font]?.sizePt||10;
+    const w=!set.labels[i]?0:reuse?reuse.t.bbox[2]-reuse.t.bbox[0]:fontWidth(model,set.labels[i],style.font);
+    const h=!set.labels[i]?0:reuse?reuse.t.bbox[3]-reuse.t.bbox[1]:baseH||model.layout.fonts[style.font]?.sizePt||10;
     const rot=style.labelRotation??0,r=rot*Math.PI/180;
-    return {beforeY:reuse?reuse.t.anchor[1]-reuse.t.bbox[1]:old[0]?.t.anchor[1]-old[0]?.t.bbox[1]||h*.38,afterY:reuse?reuse.t.bbox[3]-reuse.t.anchor[1]:old[0]?.t.bbox[3]-old[0]?.t.anchor[1]||h*.62,w:reuse?w:Math.abs(w*Math.cos(r))+Math.abs(h*Math.sin(r)),h:reuse?h:Math.abs(w*Math.sin(r))+Math.abs(h*Math.cos(r))};
+    return {beforeY:!set.labels[i]?0:reuse?reuse.t.anchor[1]-reuse.t.bbox[1]:old[0]?.t.anchor[1]-old[0]?.t.bbox[1]||h*.38,afterY:!set.labels[i]?0:reuse?reuse.t.bbox[3]-reuse.t.anchor[1]:old[0]?.t.bbox[3]-old[0]?.t.anchor[1]||h*.62,w:reuse?w:Math.abs(w*Math.cos(r))+Math.abs(h*Math.sin(r)),h:reuse?h:Math.abs(w*Math.sin(r))+Math.abs(h*Math.cos(r))};
   });
-  return {baseW,baseH,visible:visible.length>0,sizes,maxW:Math.max(0,...sizes.filter((_,i)=>set.values[i]>=lo&&set.values[i]<=hi).map(v=>v.w)),
+  // With no visible labels, Matplotlib places the axis title against the
+  // spine, retaining only the outward extent of any surviving tick marks.
+  // Padding belongs to a label; no ticks at all also removes the tick length.
+  const within=(v:number)=>v>=lo&&v<=hi;
+  const labelsVisible=set.values.some((v,i)=>within(v)&&!!set.labels[i])||set.minor.some((v,i)=>within(v)&&!!set.minorLabels[i]);
+  const outward=style.tickDir==='in'?0:style.tickDir==='inout'?.5:1;
+  const remaining=outward*(set.values.some(within)?style.tickLenPt:set.minor.some(within)?style.minorTickLenPt??2:0);
+  const gapDelta=labelsVisible?0:remaining-(style.tickPadPt+outward*style.tickLenPt);
+  return {baseW,baseH,visible:visible.length>0,sizes,gapDelta,maxW:Math.max(0,...sizes.filter((_,i)=>set.values[i]>=lo&&set.values[i]<=hi).map(v=>v.w)),
     maxH:Math.max(0,...sizes.filter((_,i)=>set.values[i]>=lo&&set.values[i]<=hi).map(v=>v.h))};
 }
 function margins(model:RelayoutModel,a:LayoutAxis|LayoutColorbar,b:Box,ticks:Record<string,TickSet>,domains?:Domains):number[] {
@@ -45,7 +53,7 @@ function margins(model:RelayoutModel,a:LayoutAxis|LayoutColorbar,b:Box,ticks:Rec
     const s=a.axisStyle[key],extent=tickExtents(model,a,key,ticks[key],domains?.[a.id]?.[key]);
     if(!extent.visible)continue;
     if(key==="y"){
-      m[s.side==="right"?2:0]+=extent.maxW-extent.baseW;if(s.labelTop&&s.labelBottom)m[s.side==="right"?0:2]+=extent.maxW-extent.baseW;
+      m[s.side==="right"?2:0]+=extent.maxW-extent.baseW+extent.gapDelta;if(s.labelTop&&s.labelBottom)m[s.side==="right"?0:2]+=extent.maxW-extent.baseW+extent.gapDelta;
       const [lo,hi]=domains?.[a.id]?.[key]??a.ticking[key].domain,scale=(v:number)=>a.ticking[key].scale==='log'?Math.log(v):v;
       let top=0,bottom=0;
       ticks[key].values.forEach((v,i)=>{if(v<Math.min(lo,hi)||v>Math.max(lo,hi))return;const at=(scale(v)-scale(lo))/(scale(hi)-scale(lo))*height(b),h=extent.sizes[i].h;top=Math.max(top,at+extent.sizes[i].beforeY-height(b));bottom=Math.max(bottom,extent.sizes[i].afterY-at);});
@@ -54,7 +62,7 @@ function margins(model:RelayoutModel,a:LayoutAxis|LayoutColorbar,b:Box,ticks:Rec
       m[3]=Math.max(m[3]<=oldTop+1e-6?0:m[3],top);m[1]=Math.max(m[1]<=oldBottom+1e-6?0:m[1],bottom);
     }
     else {
-      m[s.side==="top"?3:1]+=extent.maxH-extent.baseH;if(s.labelTop&&s.labelBottom)m[s.side==="top"?1:3]+=extent.maxH-extent.baseH;
+      m[s.side==="top"?3:1]+=extent.maxH-extent.baseH+extent.gapDelta;if(s.labelTop&&s.labelBottom)m[s.side==="top"?1:3]+=extent.maxH-extent.baseH+extent.gapDelta;
       const [lo,hi]=domains?.[a.id]?.[key]??a.ticking[key].domain,span=width(b),scale=(v:number)=>a.ticking[key].scale==="log"?Math.log(v):v;
       let left=0,right=0;
       ticks[key].values.forEach((v,i)=>{
@@ -209,7 +217,7 @@ export function solveRelayout(model:RelayoutModel,target:{wPt:number;hPt:number}
     }
     if(frame.f==='axis'&&frame.part==='title'&&b&&a&&a.axisStyle[frame.axis!]?.labelAuto){
       const k=frame.axis!,ext=tickExtents(model,a,k,ticks[a.id][k],domains[a.id][k]),s=a.axisStyle[k];
-      if(!ext.visible){}else if(k==='y')x+=(s.labelSide==='right'?1:-1)*(ext.maxW-ext.baseW);else y+=(s.labelSide==='top'?-1:1)*(ext.maxH-ext.baseH);
+      if(!ext.visible){}else if(k==='y')x+=(s.labelSide==='right'?1:-1)*(ext.maxW-ext.baseW+ext.gapDelta);else y+=(s.labelSide==='top'?-1:1)*(ext.maxH-ext.baseH+ext.gapDelta);
     }
     if(frame.f==='title'&&b&&a){
       const offsetId=a.axisStyle.y?.offsetText,offset=offsetId?model.layout.texts[offsetId]:null;

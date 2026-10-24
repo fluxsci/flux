@@ -10815,3 +10815,7 @@ cache lets another active worktree replace optimized dependencies and cause stal
 dynamic import failures even with frozen source and no HMR event in this server's log.
 The dev watcher excludes notes, generated output and test evidence: recursive baseline and
 acceptance artifacts can otherwise exhaust the machine's inotify limit during a long session.
+
+When a locator produces no visible ticks, remove their label padding and outward tick
+extent from axis-title placement as well as text height. The narrow log-subs oracle
+exercises this transition; retaining that spacing also changes vertical tick density.
