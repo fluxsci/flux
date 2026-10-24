@@ -197,6 +197,21 @@ export function applyRelayout(root:Element,model:RelayoutModel,sol:RelayoutSolut
         if(box.notch!=null){const yn=py(box.notch),h=box.heightPt!/2,tip=e-Math.min(box.depthPt!,e),above=Math.max(yn-h,lo),below=Math.min(yn+h,hi),right=[[X+e,below],[X+tip,yn],[X+e,above]];points.push(...right,[X+e,lo],[X-e,lo],...right.slice().reverse().map(([x,y])=>[2*X-x,y]));}
         else points.push([X+e,lo],[X-e,lo]);
         setPath(s,b,points.map(([x,y],i)=>`${i?'L':'M'} ${n(x)} ${n(y)}`).join(' ')+' Z');
+      }else if(f.mark&&target){
+        // fluxplot meanmark part (_MeanPart.get_path): point-sized geometry anchored to data. The
+        // circle moves rigidly with its mean; an arm runs from the rim to its bound; a cap keeps its
+        // point length at the bound, losing the part hidden inside the circle when the arm is shorter.
+        const m=f.mark,fit=sol.fits[f.axes!],h=m.orientation==='horizontal',k=h?0:1,px=(v:number)=>fit.x.m*(fit.x.log?Math.log(v):v)+fit.x.c,py=(v:number)=>fit.y.m*(fit.y.log?Math.log(v):v)+fit.y.c;
+        const at=(v:number)=>h?[px(v),py(m.position)]:[px(m.position),py(v)],c=at(m.mean),P=(p:number[])=>`${n(p[0])} ${n(p[1])}`;
+        if(m.bound==null){setPath(s,b,writeMplPath(b.path,{sx:1,sy:1,tx:c[0]-(c[0]-a.tx)/a.sx,ty:c[1]-(c[1]-a.ty)/a.sy}));continue;}
+        const e=at(m.bound),delta=e[k]-c[k],r=m.radiusPt;
+        if(m.capPt==null){const start=[...c];start[k]+=Math.sign(delta)*Math.min(Math.abs(delta),r);setPath(s,b,`M ${P(start)} L ${P(e)}`);continue;}
+        // Cap ends follow matplotlib's vertex order; SVG y runs opposite to display y.
+        const half=m.capPt/2,across=h?-1:1,lo=[...e],hi=[...e];lo[1-k]-=across*half;hi[1-k]+=across*half;
+        if(Math.abs(delta)>=r){setPath(s,b,`M ${P(lo)} L ${P(hi)}`);continue;}
+        const cut=Math.sqrt(r*r-delta*delta);if(half<=cut){setPath(s,b,`M ${P(e)}`);continue;}
+        const innerLo=[...e],innerHi=[...e];innerLo[1-k]-=across*cut;innerHi[1-k]+=across*cut;
+        setPath(s,b,`M ${P(lo)} L ${P(innerLo)} M ${P(innerHi)} L ${P(hi)}`);
       }else setPath(s,b,writeMplPath(b.path,a));continue;
     }
     const original=(key:string)=>s.pristine.get(b.el)&&key in s.pristine.get(b.el)!?s.pristine.get(b.el)![key]:b.el.getAttribute(key);

@@ -153,8 +153,10 @@ export function solveRelayout(model:RelayoutModel,target:{wPt:number;hPt:number}
         for(let c=s.cols[0];c<=s.cols[1];c++){vs[s.rows[0]][c]+=top;vs[s.rows[1]+1][c]+=bottom;}
       }
       const pad=(l.engine.pad??1.08)*(l.engine.fontPt??10),wp=(l.engine.wPad??l.engine.pad??1.08)*(l.engine.fontPt??10),hp=(l.engine.hPad??l.engine.pad??1.08)*(l.engine.fontPt??10);
-      const left=Math.max(0,...hs.map(v=>v[0]))+pad,right=Math.max(0,...hs.map(v=>v.at(-1)!))+pad;
-      const top=Math.max(0,...vs[0])+pad,bottom=Math.max(0,...vs.at(-1)!)+pad;
+      // get_tight_layout_figure's second pass: a rect (figure fractions) moves every edge inward
+      // by its offset on top of the decoration margins.
+      const left=Math.max(0,...hs.map(v=>v[0]))+pad+rect[0]*w,right=Math.max(0,...hs.map(v=>v.at(-1)!))+pad+(1-rect[2])*w;
+      const top=Math.max(0,...vs[0])+pad+(1-rect[3])*h,bottom=Math.max(0,...vs.at(-1)!)+pad+rect[1]*h;
       const gapx=g.ncols>1?Math.max(0,...hs.flatMap(v=>v.slice(1,-1)))+wp:0;
       const gapy=g.nrows>1?Math.max(0,...vs.slice(1,-1).flat())+hp:0;
       const iw=(w-left-right-gapx*(g.ncols-1))/sum(g.widthRatios),ih=(h-top-bottom-gapy*(g.nrows-1))/sum(g.heightRatios);

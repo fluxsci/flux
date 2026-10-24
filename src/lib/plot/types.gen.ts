@@ -1145,6 +1145,14 @@ export interface LayoutFrame {
     depthPt?: number;
     heightPt?: number;
   };
+  mark?: {
+    orientation: "vertical" | "horizontal";
+    position: number;
+    mean: number;
+    bound: number | null;
+    radiusPt: number;
+    capPt: number | null;
+  };
   anchorsPt?: number[][];
   axes?: string | null;
   anchor?: string;

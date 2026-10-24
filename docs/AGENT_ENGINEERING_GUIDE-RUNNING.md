@@ -4316,6 +4316,13 @@ switching a reused root back to Stretch. Geometry readers must use element-size 
 effective manifests rather than cached native boxes. Variants are immutable, limited to 16
 entries, and participate in the shared SVG node budget. Heavy relayout code stays behind
 mount or explicit command imports, outside the eager shell.
+Point-sized glyphs anchored to data are rebuilt from their captured geometry, never mapped
+affinely (that turns circles into ellipses and stretches caps): fluxbox boxes from `box`
+frames, meanmark circles/arms/caps from `mark` frames (a circle translates with its mean, an
+arm runs rim→bound, a cap keeps its point length and loses the part inside the circle). A
+tight engine's `rect` insets every edge on top of the decoration margins (matplotlib's second
+`get_tight_layout_figure` pass); a one-shot `fig.tight_layout()` instead freezes the figure to
+engine `none`, which can only scale its margins.
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -10830,3 +10837,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 
 ### 2026-10-24 00:25 CDT — Elastic relayout accepted into main (Codex, main)
 **Work:** Fast-forwarded both approved `relayout/v1` branches into their respective main checkouts (Flux `80414134`, fluxplot `6ee758ce`), installed the locked solver dependency and updated the main provider environment. Main production/CLI/MCP build, renderer/headless checks, 22-page documentation build and provider suite (625 passed, one skipped) pass. Rebound the test project's source and active Figure/Slide recipes to main through supported sync/export operations, preserving the owner's latest Figure objects and authored slides; final integration receipts are in `notes/elastic_relayout_2026-10-23/main-integration/`. Existing native qualification and metadata-size limits remain in the feature handoff; no budgets were relaxed, no other worktrees integrated, and nothing pushed.
+
+### 2026-10-24 18:10 CDT — meanmark and tight-rect reflow (Claude Opus 5.5, main)
+**Work:** meanmark parts were layout refusals (`transform:custom`), so most paper group-summary plots could not reflow; fluxplot `65b3aabe` captures them as `mark` glyph frames and `apply.ts` rebuilds them; `solve.ts` now applies a tight engine's `rect`. New oracle cases `meanmark`, `meanmark-log`, `tight-rect` pass at 0.0000 pt; against matplotlib re-renders of 324 real paper plots at 1.35×1.2, 314 match within 0.5 pt.
+**Learnings:**
+- Promoted to the body ("Elastic plot reflow pipeline"): glyph geometry is rebuilt from captured frames, and tight `rect` semantics.
+- Remaining real-plot mismatches are solver limits, not capture bugs: a rotated y-label longer than its axes (its overhang shrinks as the axes grow) and figures saved with engine `none`.
