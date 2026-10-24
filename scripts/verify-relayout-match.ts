@@ -6,4 +6,12 @@ resizePlot(p,'b',{width:5,height:3.2,unit:'in',keepAspect:false},f.manifest);h.o
 const before=JSON.stringify(p);try{matchPlotAreas(p,['a','missing'],{dimension:'height'},{asset:f.manifest});h.fail('invalid selection accepted');}catch{}h.eq(JSON.stringify(p),before,'invalid match atomic');
 const aspect=fixture('image-equal'),flat=matchPlotArea(aspect.model,{wPt:600,hPt:160},{width:500,height:500},'width');h.ok(flat.report.warnings.length>0,'aspect-flat constraint reported');
 const tiny=matchPlotArea(f.model,native,{width:.00001,height:.00001},'both');h.ok(!((await import('../src/lib/plot/relayout/solve')).solveRelayout(f.model,tiny.size)).collapsed,'infeasible request clamps to a feasible figure');h.ok(tiny.report.warnings.some(w=>w.code.startsWith('match:infeasible')),'infeasible clamp has reason');
+{
+ const shared=fixture('shared'),line=fixture('line'),reference=plot('reference','r'),target=plot('target','t',{width:600,height:430}),p=project([reference,target]),panel=shared.model.layout.axes[0].id;
+ const wanted=plotArea(shared.model,{wPt:reference.width*.75,hPt:reference.height*.75},panel);
+ matchPlotAreas(p,[reference.id,target.id],{dimension:'height',reference:reference.id,panels:{[reference.id]:panel}},{r:shared.manifest,t:line.manifest});
+ const got=plotArea(line.model,{wPt:target.width*.75,hPt:target.height*.75});
+ h.ok(Math.abs(got.height-wanted.height)<.05,'selected reference panel matches target union');
+ h.eq(reference.height,307.2,'panel reference size stays fixed');
+}
 await h.done();

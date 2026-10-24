@@ -9,6 +9,7 @@ import type { Model3dAsset, Scene3dManifest } from "../model3d/types";
 /** Read-only deck payload gathering, shared by GUI embeds and Node export. */
 import { preparePlot, buildPartIndex } from "../plot/parse";
 import { plotSourceCandidates } from "../plot/source";
+import { aliasPartId } from "../plot/tree";
 import { danglingTrackTargets, normalizeDeck } from "./ops";
 import { validateDeckFile } from "../project/validate";
 import { isNewerSchema } from "../project/types";
@@ -245,7 +246,7 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   const partIdx = new Map<string, Record<string, unknown>>();
   const coveredPart = (assetId: string, part: string): boolean => {
     if (!partIdx.has(assetId)) partIdx.set(assetId, buildPartIndex(plots[assetId]?.manifest));
-    return part in partIdx.get(assetId)!;
+    return aliasPartId(plots[assetId]?.manifest,part) in partIdx.get(assetId)!;
   };
   const partWarned = new Set<string>();
   for (const s of deck.slides) {
@@ -349,7 +350,7 @@ export function portablePayload(payload: ExportPayload, opts: { notes?: boolean 
     }
   };
   scrub(clean.deck);
-  const manifestFields = new Set(["spec", "schemaVersion", "plotType", "size", "panels", "axes", "series", "guides", "overlays", "parts", "build", "layout", "generator"]);
+  const manifestFields = new Set(["spec", "schemaVersion", "plotType", "size", "panels", "axes", "series", "guides", "overlays", "parts", "build", "layout", "generator", "idAliases"]);
   for (const plot of Object.values(clean.plots ?? {})) {
     plot.manifest = Object.fromEntries(Object.entries(plot.manifest).filter(([key]) => manifestFields.has(key))) as unknown as FluxPlotManifest;
     plot.manifest.svg = "";

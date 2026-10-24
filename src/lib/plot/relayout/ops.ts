@@ -22,7 +22,7 @@ export function resizePlot(project:Project,id:string,size:{width?:number;height?
   const report=next.layoutMode==="stretch"?stretchReport("layout:stretch"):model.supported?solveRelayout(model,targetFigureSize(next)).report:model.report;
   el.width=next.width;el.height=next.height;return report;
 }
-export function matchPlotAreas(project:Project,elIds:string[],options:{dimension:MatchDimension;reference?:string;panel?:string},manifests:Record<string,FluxPlotManifest>){
+export function matchPlotAreas(project:Project,elIds:string[],options:{dimension:MatchDimension;reference?:string;panel?:string;panels?:Record<string,string>},manifests:Record<string,FluxPlotManifest>){
   if(!["height","width","both"].includes(options.dimension))throw new Error("Choose height, width or both");
   if(new Set(elIds).size!==elIds.length)throw Error("Plot targets must be distinct");
   const all=project.figures.flatMap(f=>f.elements),elements=elIds.map(id=>all.find(e=>e.id===id));
@@ -30,8 +30,8 @@ export function matchPlotAreas(project:Project,elIds:string[],options:{dimension
   const plots=elements as SemanticPlotElement[],reference=plots.find(e=>e.id===(options.reference??elIds[0]));
   if(!reference)throw new Error("Reference must be one of the selected plots");
   const models=plots.map(e=>{const m=buildRelayoutModel(manifests[e.assetId]);if(!m.supported||e.layoutMode==="stretch")throw new Error(`Plot ${e.id} must support reflow to match its plot area`);return m;});
-  const referenceModel=models[plots.indexOf(reference)],area=plotArea(referenceModel,targetFigureSize(reference),options.panel);
-  const plans=plots.map((e,i)=>e===reference?null:matchPlotArea(models[i],targetFigureSize(e),area,options.dimension,{panel:options.panel,keepAspect:e.lockAspect}));
+  const referenceModel=models[plots.indexOf(reference)],area=plotArea(referenceModel,targetFigureSize(reference),options.panels?.[reference.id]??options.panel);
+  const plans=plots.map((e,i)=>e===reference?null:matchPlotArea(models[i],targetFigureSize(e),area,options.dimension,{panel:options.panels?.[e.id]??options.panel,keepAspect:e.lockAspect}));
   return plots.flatMap((e,i)=>{
     const plan=plans[i];if(!plan)return [];
     const factor=(e.contentScale??1)/.75;

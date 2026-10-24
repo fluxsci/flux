@@ -16,4 +16,21 @@ const first=snapshot(f.root);const next=relayoutPlot(f.root,f.manifest,el);apply
  h.ok(!!f.root.querySelector(`[id="${id}"] text`)?.textContent,'missing native offset created');
  const {resolveTargets}=await import('../src/lib/plot/tree');h.ok(resolveTargets(m,'axis.x',f.root).includes(id),'axis group reaches synthesized offset');restoreRelayout(f.root);h.eq(String(f.root),pristine,'synthetic offset restoration');
 }
+// An active data view owns its retick. Retained values keep semantic ids and
+// their own edits, dropped values stay dormant, and genuinely new ids inherit
+// only group edits. Removing the view restores the original nodes and ids.
+{
+ const f=fixture(),el=plot('p','asset',{width:720,height:500}),view={x:{domain:[2,8] as [number,number]}};
+ prefixIds(f.root,'p');const r=relayoutPlot(f.root,f.manifest,{...el,view});
+ const {preparePlotView,applyPlotView}=await import('../src/lib/plot/projectDom');
+ const leaf=Object.entries(r.manifest!.layout!.frames).find(([id,frame])=>frame.f==='axis'&&frame.axis==='x'&&frame.part==='ticklabel'&&frame.value===4&&!frame.minor)![0],id='p__'+leaf;
+ preparePlotView(f.root,r.manifest,view,'p');applyOverrides(f.root,{'axis.x.tick-labels':{fill:'#205ea6'},[leaf]:{fill:'#d14d41',fontSize:17,dx:3,hidden:false}},'p',r.manifest);applyPlotView(f.root,r.manifest,view,'p');
+ const kept=f.root.querySelector(`[id="${id}"]`)!;h.ok(kept.hasAttribute('data-projection-tick'),'view keeps original semantic tick id');
+ h.eq((kept.querySelector('text') as SVGElement).style.fill,'#d14d41','retained view tick keeps its leaf paint');h.eq((kept.querySelector('text') as SVGElement).style.fontSize,'17px','retained view tick keeps font edit');h.eq((kept.getAttribute('transform')!.match(/translate\(3 0\)/g)??[]).length,1,'retained value nudge applied exactly once');
+ for(const n of Array.from(f.root.querySelectorAll('[data-projection-tick]')).filter(n=>n.id.includes('.ticklabel.')&&n.id.includes('.view.')))h.eq((n.querySelector('text') as SVGElement).style.fill,'#205ea6','new view value inherits only group paint');
+ const first=snapshot(f.root);applyPlotView(f.root,r.manifest,view,'p');h.eq(snapshot(f.root),first,'view-retick overrides and dxdy repeat without accumulation');
+ applyPlotView(f.root,r.manifest,{x:{domain:[5,8]}},'p');h.eq((f.root.querySelector(`[id="${id}"]`) as SVGElement).style.display,'none','dropped viewed value stays dormant despite hidden:false');
+ applyPlotView(f.root,r.manifest,view,'p');h.eq((f.root.querySelector(`[id="${id}"] text`) as SVGElement).style.fill,'#d14d41','view value revives with its original edit');
+ applyPlotView(f.root,r.manifest,undefined,'p');h.ok(!f.root.querySelector('[id$=".projection-original"]'),'view removal restores every original semantic id');h.ok(!f.root.querySelector('[data-projection-tick]'),'view removal drops disposable guides');
+}
 await h.done();

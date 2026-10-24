@@ -542,23 +542,28 @@ function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxP
     const template = (kind: GuideBinding["kind"]) => guides.find((g) => g.kind === kind && (g.node as SVGElement).style.getPropertyValue("display") !== "none");
     const templates = { tick: template("tick"), "tick-label": template("tick-label"), gridline: template("gridline") };
     if (!templates.tick && !templates["tick-label"]) continue;
-    for (const g of guides) { style(g.node, "display", "none"); replaced.add(g.node); }
+    for (const g of guides) { style(g.node, "display", "none"); attr(g.node,"data-projection-hidden",""); replaced.add(g.node); }
     const cursor: Partial<Record<GuideBinding["kind"], Element>> = {};
     values.forEach((v, i) => {
       const pixel = projectWith(fit, v);
       if (!Number.isFinite(pixel) || pixel < lo - 1e-6 || pixel > hi + 1e-6) return;
       for (const kind of ["tick", "tick-label", "gridline"] as const) {
-        const tpl = templates[kind];
+        const reuse=manifest.layout?.supported?guides.find(g=>g.kind===kind&&Math.abs(g.value-v)<=1e-9*Math.max(1e-300,Math.abs(g.value),Math.abs(v))):undefined;
+        const tpl = reuse??templates[kind];
         if (!tpl) continue;
-        const clone = (plan.templates.get(tpl.node)??tpl.node).cloneNode(true) as Element;
-        clone.setAttribute("id", `${tpl.node.getAttribute("id") ?? tpl.leaf}.view.${i}`);
+        const source=plan.templates.get(tpl.node)??tpl.node,sourceId=source.getAttribute("id")??tpl.leaf;
+        const clone = source.cloneNode(true) as Element;
+        // Projection clones are disposable. Keep the semantic id for retained
+        // values while parking the original until restoreProjection runs.
+        if(reuse)attr(reuse.node,"id",sourceId+".projection-original");
+        clone.setAttribute("id", reuse?sourceId:`${sourceId}.view.${i}`);
         for(const child of Array.from(clone.querySelectorAll("[id]")))child.removeAttribute("id");
         clone.setAttribute("data-projection-tick", "");clone.setAttribute("data-relayout-source",tpl.leaf);clone.setAttribute("data-value",String(v));
         (clone as SVGElement).style.removeProperty("display");
         const delta = pixel - (atEnd?tpl.end:tpl.origin);
-        const original = tpl.node.getAttribute("transform");
-        const pristineTransform = pristine.get(tpl.node)?.attrs.get("transform");
-        const base = pristineTransform?.written ? pristineTransform.value : original;
+        // Templates were bound before overrides. A source leaf's nudge must
+        // neither leak into new values nor be applied twice to retained ones.
+        const base = source.getAttribute("transform");
         clone.setAttribute("transform", `translate(${(axis.startsWith("x") ? delta : 0).toFixed(6)} ${(axis.startsWith("x") ? 0 : delta).toFixed(6)})${base ? ` ${base}` : ""}`);
         if (kind === "tick-label") {
           const text = clone.tagName.toLowerCase() === "text" ? clone : clone.querySelector("text");

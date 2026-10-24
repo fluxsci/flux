@@ -40,4 +40,15 @@ for(const [name,view] of [
  h.ok(!clones.some(n=>n.textContent?.includes(String.raw`\times`)),`${name}: no literal math commands`);
  const first=String(root);applyPlotView(root,layout.manifest,el.view,'p');h.eq(String(root),first,`${name}: view retick is repeatable`);
 }
+// Regenerated plots retain legacy track bindings in offline payloads too.
+{
+ const {gatherPayload,portablePayload}=await import('../src/lib/slide/payload'),{createDeck}=await import('../src/lib/slide/ops'),{resolveTargets}=await import('../src/lib/plot/tree');
+ const deck=createDeck({id:'aliases',withTitleSlide:false});deck.assets=[{id:'A',kind:'svg',name:'Line',path:'assets/a.svg',naturalWidth:480,naturalHeight:307.2}];
+ deck.slides=[{id:'s',elements:[plot('p','A')],beats:[{id:'base',tracks:[]},{id:'alias',tracks:[{id:'alias-track',target:'p',part:'axis.x.spine',preset:'fade',duration:400}]}]}];
+ const gathered=await gatherPayload('/scratch',deck,{readText:async path=>{if(path.endsWith('/a.svg'))return a.svg;if(path.endsWith('/A.fluxplot.json'))return JSON.stringify(a.manifest);throw Error('Missing '+path)},readFile:async()=>new Uint8Array()});
+ h.eq(gathered.warnings,[],'legacy aliases count as covered animation parts');
+ const portable=portablePayload(gathered.payload),manifest=portable.plots.A.manifest;
+ h.eq(manifest.idAliases,a.manifest.idAliases,'portable deck keeps regenerated part aliases');
+ h.eq(resolveTargets(manifest,'axis.x.spine'),['axis.x.spine.bottom'],'offline legacy spine resolves to real geometry');
+}
 await h.done();

@@ -567,6 +567,8 @@ Select several reflow-capable plots and use **Match plot area → Width / Height
 Arrange to match their data areas. The anchor pin is the reference when selected; otherwise
 the first selected plot is the reference. This is one undo step. Then **Align plot areas**
 can align their reflowed spines. Aspect constraints and infeasible sizes are reported.
+A single panel picked in X-ray scopes that plot's data area for Match; other selected plots
+use their full panel union. Locked or excluded plots cannot be changed by Match.
 
 ## Axis view
 

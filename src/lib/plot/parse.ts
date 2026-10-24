@@ -403,11 +403,10 @@ export function restoreOverrideTranslations(root:Element):void {
 }
 
 const overridesByRoot=new WeakMap<Element,{overrides:Record<string,PartOverride>;elementId:string;manifest?:FluxPlotManifest}>();
-/** New tick values inherit group edits; a template's leaf edit never leaks. */
+/** Retained values keep their ids/leaf edits; new ids inherit only group edits. */
 export function applyTickGroupOverrides(root:Element):void {
   const saved=overridesByRoot.get(root);if(!saved)return;
-  const groups=Object.fromEntries(Object.entries(saved.overrides).filter(([key])=>resolveTargets(saved.manifest,key).some(id=>id!==key)));
-  applyOverrides(root,groups,saved.elementId,saved.manifest);overridesByRoot.set(root,saved);
+  applyOverrides(root,saved.overrides,saved.elementId,saved.manifest);
 }
 
 /** Apply per-part style overrides to the inlined DOM. A key may be a leaf semantic
@@ -430,7 +429,7 @@ export function applyOverrides(
 
       // Wrapper-level: visibility, compositing opacity, translation.
       const s = el.style;
-      if (ov.hidden != null) s.display = ov.hidden || el.hasAttribute("data-relayout-hidden") ? "none" : "";
+      if (ov.hidden != null) s.display = ov.hidden || el.hasAttribute("data-relayout-hidden") || el.hasAttribute("data-projection-hidden") ? "none" : "";
       if (ov.opacity != null) s.opacity = String(ov.opacity);
       if (ov.dx != null || ov.dy != null) {
         restorePlotClip(el);

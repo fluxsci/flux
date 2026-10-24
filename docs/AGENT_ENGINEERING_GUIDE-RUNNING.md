@@ -10819,3 +10819,10 @@ acceptance artifacts can otherwise exhaust the machine's inotify limit during a 
 When a locator produces no visible ticks, remove their label padding and outward tick
 extent from axis-title placement as well as text height. The narrow log-subs oracle
 exercises this transition; retaining that spacing also changes vertical tick density.
+
+Match captures per-plot X-ray panel scopes while ordinary drilled-part alignment remains
+blocked, and refuses locked/excluded targets. Data-view reticks preserve retained-value
+semantic ids/edits using disposable projection clones; originals are parked and restored.
+Build those clones from pre-override templates so dx/dy is applied once and a template's
+leaf style cannot leak to new values. Portable deck payloads retain idAliases, and the
+coverage audit resolves aliases before warning about old tracks after source regeneration.

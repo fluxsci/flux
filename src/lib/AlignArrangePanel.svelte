@@ -124,9 +124,10 @@
           <h3>Match plot area</h3>
           <div class="match-buttons" data-match-plot-area>
             {#each ["height","width","both"] as dimension}
-              <button disabled={blocked||!matchEnabled} aria-label={`Match plot area ${dimension}`} on:click={(e)=>action(e,()=>matchSelectedPlotAreas(dimension as "height"|"width"|"both"))}>{dimension[0].toUpperCase()+dimension.slice(1)}</button>
+              <button disabled={!matchEnabled} aria-label={`Match plot area ${dimension}`} on:click={(e)=>action(e,()=>matchSelectedPlotAreas(dimension as "height"|"width"|"both"))}>{dimension[0].toUpperCase()+dimension.slice(1)}</button>
             {/each}
           </div>
+          {#if state.matchPanels}<p class="hint" data-match-panel-scope>Matching the selected X-ray panels; other plots use their full data area.</p>{/if}
           <h3>Plot spines</h3>
           <div class="spine-buttons">
             <button disabled={blocked || !state.plot || state.plot.loading || !!state.plot.reasonX} title={state.plot?.reasonX ?? "Align horizontal X spines (X)"} on:click={(e) => action(e,()=>alignPlotSpines("x"))} on:mouseenter={() => hover("plot-x")} on:mouseleave={() => hover(null)} on:focus={() => hover("plot-x")} on:blur={() => hover(null)}><svg viewBox="0 0 56 32" aria-hidden="true"><path d="M6 6v20h19M32 12v14h18" /><path class="spine" d="M6 26h19M32 26h18" /></svg><span>X spines</span><kbd>X</kbd></button>
