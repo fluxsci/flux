@@ -10813,3 +10813,5 @@ passed both unchanged gates. Keep diagnostic baseline builds outside the watched
 Vite's cache lives in `.generated/vite-cache`, per worktree. A shared `node_modules/.vite`
 cache lets another active worktree replace optimized dependencies and cause stale-hash
 dynamic import failures even with frozen source and no HMR event in this server's log.
+The dev watcher excludes notes, generated output and test evidence: recursive baseline and
+acceptance artifacts can otherwise exhaust the machine's inotify limit during a long session.
