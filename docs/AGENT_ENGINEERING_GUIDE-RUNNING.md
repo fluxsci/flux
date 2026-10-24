@@ -11382,6 +11382,31 @@ round ends. Gate `verify-slide-shape-handover.ts`; corpus decks `plot_chain`, `b
 loop (one page in one browser: headless rAF runs only in the foreground tab, and parallel browsers leave
 high camera zooms on low-res tiles).
 
+### 2026-10-23 — Release 3 of the manim study: draw along x, arcs and turns, attached connectors (Claude Opus 5.5, `manim/release3`)
+**Work:** implemented directly, one adversarial review per WP (records: notes/manim_exploration/impl/R3_REPORT.md, RELEASE3.md).
+**3.0** the schema stamp (a file's format follows what it holds: deck 0.7.0 / canvas 0.3.0 only with attach or a radial order,
+`schemaStamp.ts`). **3.1** the x-clock sweep (a data line draws at a constant x rate, its band and markers on the same front, a lead
+dot; `sweep.ts`, `sweepPlan`/`sweepSampler`, `Stagger.spacing "true"`, `drawAlongX`). **3.3** hand-off flights bend by the track's arc
+(`arcOffset`, `planBends`), Suggest arcs (`arcSuggest.ts`), the rigid turn (`rigidSegment`). **3.2** attached connectors and labels
+(`slide/attach.ts` solver + hand-move rule + `stickEnd`; `player/attach.ts`; the store settles after every edit; write points re-solve;
+Canvas live follow; Inspector). Review fixes: editing a label keeps it stuck; ends on plots/images keep their spot; live draw samplers
+for stretching connectors; the attach box recorded after a text re-layout; never-backwards connectors.
+**Learnings:** (1) a solved dependent's geometry is the Design solve everywhere it is stored; the store's hand-move rule (position
+changed, size not) is the only detach. (2) A hugging text's stored box may disagree with its measured box (agent decks): tweens blend
+the difference end to end (`transform.ts` hugOffset). (3) The UI tier caught a WP 3.0 supersession (a gate pinned the READ version).
+
+### 2026-10-24 — Release 4 of the manim study: animated Back, Restore, text halo, piece lag, radial order, Focus, Turntable pace (Claude Opus 5.5, `manim/release4`)
+**Work:** implemented directly, one adversarial review (records: notes/manim_exploration/impl/R4_REPORT.md, RELEASE4.md). **4.1** Back
+rewinds the step (clockMode "rewinding", `rewindTime`; lands with the jump's seek; X14). **4.2** `restoreState` (Return to Design /
+before step N) and the text halo (`haloAttrs`, one law in serializer, player and editor; background resolved when drawn). **4.3**
+`Track.pairLag` (`lagWindow`, `pairProgress`; D4 default 0.15 for new splits of 3+ pieces) and `Stagger.by "radial"`
+(`radialCoordinates`, stamped 0.7.0). **4.4** Focus / Unfocus (`focusPlan`, `focusOn`, `unfocus`). **4.5** Turntable pace (soft by
+default). Review fixes: the halo through the transform driver; pieces counted per part; Restore refuses Become / Ghost steps; the
+camera's early bake in reverse; the MCP index budget kept by short first sentences.
+**Learnings:** (1) a render context built field by field (the transform driver's) silently drops new fields: thread new context
+through `opts` or add it to every literal. (2) The rewind law is pixel-checked in the exported player on a fake clock
+(`verify-slide-rewind-browser`); post-landing stillness must be measured AT the landing, before any other seek.
+
 ### 2026-10-23 — X-ray context: rows say what they are (Claude Opus 5.5, `xray/context`)
 **Work:** Owner: "I can't tell if a 'Tick marks' result is for the x or y ticks — or which plot";
 wants rich, immediately visible context like the plots rail, plus "open family in X-ray". Three
