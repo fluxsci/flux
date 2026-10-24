@@ -176,6 +176,9 @@ const ELEMENT_DEF = {
       valign: { type: "string" },
       letterSpacing: { type: "number" },
       paragraphSpacing: { type: "number" },
+      // WP 4.2: a ring behind the glyphs (px per side, 0 = off; capped at 0.3 em when drawn) and its colour (absent = the background)
+      haloWidth: { type: "number", minimum: 0 },
+      haloColor: { type: "string" },
       color: { type: "string" },
       sizing: { type: "string" },
       lines: { type: "array" },

@@ -57,6 +57,8 @@ export interface SlideRenderCtx {
   plotGen?: Record<string, number>;
   /** deck-level default slide background (falls back to the theme's). */
   deckBackground?: string;
+  /** WP 4.2: the background of the slide being drawn (slide ?? deck ?? theme): a text halo without its own colour takes it. */
+  haloBackground?: string;
   mode?: "edit" | "present" | "export";
   /** Static hosts must never allocate a decoder for each thumbnail. */
   videoPlayback?: boolean;
@@ -122,7 +124,7 @@ const RESIDUAL_EPS = 1e-4;
  *  (measured identical), so only the ellipse needs it. `data-shape` keeps the draw presets' ellipse conventions (presets.ts `shapeTag`).
  *  The figure serializer itself, the editor canvas and every export are unchanged. */
 function stageMarkup(neutral: FigElement, ctx: SlideRenderCtx): string {
-  const plain = () => elementToSvg(neutral, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize);
+  const plain = () => elementToSvg(neutral, (id) => ctx.assetUrl?.(id), undefined, ctx.assetSize, undefined, ctx.haloBackground);
   if (neutral.type !== "ellipse" || !(neutral.width > 0) || !(neutral.height > 0)) return plain();
   const outline = elementOutline(neutral);
   if (!outline) return plain();
@@ -563,13 +565,13 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
     if (!svg || !text) return null;
     const spans = Array.from(text.children);
     const segmentKeys: (string | null)[] = [];
-    let priorAttrs = Object.keys(textSvgLayout(pre).attrs);
+    let priorAttrs = Object.keys(textSvgLayout(pre, ctx.haloBackground).attrs);
     return (el) => {
       if (el.type !== "text") return;
       const neutral = { ...el, rotation: 0, opacity: undefined };
       const bb = elementBBox(neutral);
       svg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
-      const { attrs, spans: laid } = textSvgLayout(neutral);
+      const { attrs, spans: laid } = textSvgLayout(neutral, ctx.haloBackground);
       for (const name of priorAttrs) if (!(name in attrs)) text.removeAttribute(name);
       for (const [name, value] of Object.entries(attrs)) if (text.getAttribute(name) !== value) text.setAttribute(name, value);
       priorAttrs = Object.keys(attrs);
@@ -793,6 +795,7 @@ export function renderSlide(
   host.style.position = "relative";
   host.style.overflow = "hidden";
   host.style.background = slide.background ?? ctx.deckBackground ?? ctx.theme.background;
+  ctx = ctx.haloBackground ? ctx : { ...ctx, haloBackground: slide.background ?? ctx.deckBackground ?? ctx.theme.background };
   // Apply the theme as scoped --sl-* custom properties on the stage root.
   for (const decl of themeCssVars(ctx.theme).split(";")) {
     const i = decl.indexOf(":");

@@ -92,12 +92,12 @@ const NUM_PROPS = new Set([
   "x", "y", "width", "height", "opacity", "strokeWidth", "fontSize",
   "cornerRadius", "lineHeight", "letterSpacing", "paragraphSpacing",
   "x1", "y1", "x2", "y2", "contentScale",
-  "arrowSize",
+  "arrowSize", "haloWidth",
   "orbitAzimuth", "orbitElevation", "orbitRoll", "orbitPanX", "orbitPanY", "orbitFov",
 ]);
 
 /** OKLab-lerp props. */
-const COLOR_PROPS = new Set(["fill", "stroke", "color"]);
+const COLOR_PROPS = new Set(["fill", "stroke", "color", "haloColor"]);
 
 /** Text props whose change invalidates the wrap cache (`lines`). */
 const METRIC_PROPS = new Set([

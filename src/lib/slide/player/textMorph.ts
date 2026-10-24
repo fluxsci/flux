@@ -175,8 +175,8 @@ export function measureTextChars(host: HTMLElement, el: TextElement, ctx: SlideR
 
 /** The SVG attributes one substring of `el` paints with: the element's own text
  *  attributes plus whatever its per-range formatting changes at `at`. */
-function spanAttrs(el: TextElement, layout: ReturnType<typeof blockLayout>, at: number): Record<string, string> {
-  const { attrs } = textSvgLayout(el);
+function spanAttrs(el: TextElement, layout: ReturnType<typeof blockLayout>, at: number, haloBackground?: string): Record<string, string> {
+  const { attrs } = textSvgLayout(el, haloBackground);
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(attrs)) if (k !== "x" && k !== "y" && k !== "text-anchor" && k !== "opacity") out[k] = v;
   for (const line of layout.lines) for (const seg of line.segments ?? []) {
@@ -318,7 +318,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
     const fontSize = (attrs: Record<string, string>, el: TextElement) => Number(attrs["font-size"]) || el.fontSize;
     for (const span of plan.spans) {
       if (span.kind === "glide") {
-        const attrsA = spanAttrs(A, la, span.a!.from), attrsB = spanAttrs(B, lb, span.b!.from);
+        const attrsA = spanAttrs(A, la, span.a!.from, ctx.haloBackground), attrsB = spanAttrs(B, lb, span.b!.from, ctx.haloBackground);
         const pa = point(ma, A, span.a!, fontSize(attrsA, A)), pb = point(mb, B, span.b!, fontSize(attrsB, B));
         if (!pa || !pb) return false;
         const textA = A.text.slice(span.a!.from, span.a!.to), textB = B.text.slice(span.b!.from, span.b!.to);
@@ -341,7 +341,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
       } else {
         const side = span.kind === "exit" ? "a" : "b";
         const el = side === "a" ? A : B, m = side === "a" ? ma : mb, lay = side === "a" ? la : lb, r = span[side]!;
-        const attrs = spanAttrs(el, lay, r.from);
+        const attrs = spanAttrs(el, lay, r.from, ctx.haloBackground);
         const p = point(m, el, r, fontSize(attrs, el));
         if (!p) return false;
         const windows = span.kind === "exit" ? timeline.exits : timeline.enters;

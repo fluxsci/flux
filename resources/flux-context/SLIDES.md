@@ -159,6 +159,9 @@ to place multiple appearance effects on the same object in one step.
   (1.12-1.3x, `params.scale` overrides, never past the slide edge). **Circle it** (`encircle`) traces a
   rounded band round the object or the text ink (`params.gap`, `width`, `radius`, `window`, `color`). Both
   leave nothing behind and add no PowerPoint page.
+- A text element's `haloWidth` (px per side, 0 / absent = off, drawn capped at 0.3 em) and `haloColor` (absent = the
+  slide's background) put a ring behind the glyphs (`paint-order: stroke`): a label over a plot stays legible
+  (manim's set_backstroke). Change tracks tween both; PowerPoint export omits it.
 - `highlight` takes `params.lead` (0-0.9, authored 0.25): it eases into its dip from where the object is;
   `dim` starts from the object's current opacity.
 - **Focus** (the 3b1b idiom): `flux focus <deck> <slideId> <beatId> <elementId...> [--level 0.3]` (`focus`) dims

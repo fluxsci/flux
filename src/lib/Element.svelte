@@ -7,12 +7,14 @@
   import { pathRender } from "./path";
   import { elementPaints } from "./color/gradient";
   import { blockLayout, letterSpacing } from "./text";
-  import { segmentAttrs } from "./export";
+  import { segmentAttrs, haloAttrs } from "./export";
   import PlotElement from "./PlotElement.svelte";
   import Model3dElement from "./Model3dElement.svelte";
 
   export let element: Element;
   export let modelPartOpacity: Record<string, number> | undefined = undefined;
+  /** WP 4.2: the background this element is drawn on (its figure's / slide's): a text halo without its own colour takes it */
+  export let haloBackground: string | undefined = undefined;
 
   // solid colours, or url(#…) gradients when a colormap is set (color/gradient.ts)
   $: paints = elementPaints(element);
@@ -240,6 +242,7 @@
       letter-spacing={letterSpacing(element) || undefined}
       fill={paints.fill}
       text-anchor={L.anchor}
+      {...haloAttrs(element, haloBackground)}
       style="white-space:pre"
     >
       {#each L.lines as ln}

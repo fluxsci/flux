@@ -55,6 +55,7 @@
   import ColorPicker from "./ColorPicker.svelte";
   import Model3dInspector from "./model3d/Model3dInspector.svelte";
   import ColorField from "./ColorField.svelte";
+  import { haloBackgroundOf } from "./export";
   import NumberField from "./NumberField.svelte";
   import { commitDeckLive } from "./slide/store";
   import { setVideoSettings } from "./slide/ops";
@@ -942,6 +943,16 @@
           title="Extra space before each new paragraph (a hard line break), in points"
           on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))}
           on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))} />
+      </div>
+      <!-- WP 4.2: the halo, a ring behind the letters so a label reads over a plot (0 = off; colour = the background unless set) -->
+      <div class="row" data-text-halo>
+        <NumberField label="Halo (px)" value={single.haloWidth ?? 0} min={0} step={0.5}
+          title="A ring in the background colour behind the letters, so a label stays readable over a plot or an image (0 = off)"
+          on:commit={(e) => updateSelected((el) => { if (el.type !== "text") return; const v = Math.max(0, e.detail); if (v > 0) el.haloWidth = v; else { delete el.haloWidth; delete el.haloColor; } })} />
+        {#if (single.haloWidth ?? 0) > 0}
+          <ColorField value={single.haloColor ?? haloBackgroundOf(fig?.background)} fallback="#ffffff" label="Halo colour" onchange={(hex) => updateSelected((el) => { if (el.type === "text") el.haloColor = hex; })} />
+          {#if single.haloColor}<button class="mini" title="Follow the background colour again" on:click={() => updateSelected((el) => { if (el.type === "text") delete el.haloColor; })}>Background</button>{/if}
+        {/if}
       </div>
       {#if ranged}
         <div class="row range-note" data-text-range>

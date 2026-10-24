@@ -1002,6 +1002,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const slide = deck.slides[si];
     if (!slide) { specs = []; durations = [0]; return; }
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
+    ctx.haloBackground = slide.background ?? deck.background ?? opts.theme.background;   // WP 4.2: a text halo's default colour
     const compiled = compileSlide(slide, stage, { ...opts, animStyles: deck.animStyles });
     const modelIds = new Set(compiled.resolvedSlide.elements.filter(el => el.type === 'model3d').map(el => el.id));
     if (compiled.cues.some(cue => cue.tracks.some(ct => ct.parts.length && compiled.preState(ct.track.target, ct.beat)?.type === 'model3d')) || Object.keys(compiled.partFactors).some(id => modelIds.has(id))
@@ -1009,7 +1010,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
-    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, { ...opts, videoPlayback: true }, compiled);
+    specs = computeSlideAnims(slide, rendered, cameraLayer, stage, { ...opts, videoPlayback: true, haloBackground: ctx.haloBackground }, compiled);
     models = createModel3dController(cameraLayer, compiled.resolvedSlide, ctx, (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit('change');
@@ -1264,7 +1265,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
 /** The same evaluated endpoint as live playback; camera included. */
 export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize, beat: number, opts: PlayerOpts): RenderedSlide {
   // Static thumbnails and next-slide views never allocate a GPU host or decoder.
-  opts = { ...opts, model3d: undefined, videoPlayback: false };
+  opts = { ...opts, model3d: undefined, videoPlayback: false, haloBackground: slide.background ?? opts.deckBackground ?? opts.theme.background };
   // The host's transform belongs to its fit/thumbnail scale. Camera motion
   // gets a separate layer exactly as it does in createPlayer.
   host.replaceChildren();

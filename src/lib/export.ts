@@ -74,11 +74,23 @@ export function segmentAttrs(e: TextElement, segment: TextSegment): Record<strin
   return attrs;
 }
 
+/** The halo colour when a text names none: the background it is drawn on, white where that is transparent (a figure on the page). */
+export function haloBackgroundOf(background: string | null | undefined): string {
+  return background && !/^(transparent|none)$/i.test(background.trim()) ? background : "#ffffff";
+}
+/** WP 4.2 (W6): a text's halo as SVG presentation attributes (none at all when it has no halo, so every existing text serializes
+ *  byte-identically). Shared by the serializer, the slide player and the editor canvas. */
+export function haloAttrs(e: Pick<TextElement, "haloWidth" | "haloColor" | "fontSize">, background?: string | null): Record<string, string> {
+  const w = e.haloWidth;
+  if (!(typeof w === "number" && w > 0)) return {};
+  return { stroke: passivePaint(e.haloColor ?? haloBackgroundOf(background)), "stroke-width": String(2 * Math.min(w, 0.3 * e.fontSize)), "stroke-linejoin": "round", "paint-order": "stroke" };
+}
+
 /** Shared text presentation for SVG serialization and cached slide bindings.
  * Values are unescaped; a serializer escapes them and DOM setters do not.
  * `lines`/`x`/`advance` remain the flat view for callers that only need the
  * strings; `spans` carries the full arrangement (text.ts blockLayout). */
-export function textSvgLayout(e: TextElement): {
+export function textSvgLayout(e: TextElement, haloBackground?: string | null): {
   attrs: Record<string, string>;
   lines: string[];
   spans: TextSpan[];
@@ -95,6 +107,7 @@ export function textSvgLayout(e: TextElement): {
       ...(e.underline ? { "text-decoration": "underline" } : {}),
       ...(track ? { "letter-spacing": String(track) } : {}),
       fill: passivePaint(e.color), "text-anchor": L.anchor,
+      ...haloAttrs(e, haloBackground),
       ...(e.opacity != null && e.opacity < 1 ? { opacity: String(e.opacity) } : {}),
     },
     lines: L.lines.map((ln) => ln.text),
@@ -140,6 +153,8 @@ export function elementToSvg(
   plotMarkup?: (e: Element) => string | undefined,
   assetSize?: AssetSizeFn,
   model3d?: Model3dSvgContext,
+  /** the background the element is drawn on (a text halo without its own colour takes it) */
+  haloBackground?: string | null,
 ): string {
   switch (e.type) {
     case "model3d":
@@ -247,7 +262,7 @@ export function elementToSvg(
       // element's align/valign/line-height/paragraph-spacing. This ONE function
       // also serves flux-core's headless renderFigureSvg, so the arrangement is
       // identical everywhere.
-      const { attrs, spans } = textSvgLayout(e);
+      const { attrs, spans } = textSvgLayout(e, haloBackground);
       const P = elementPaints(e);
       if (P.defs.length) attrs.fill = P.fill;
       // A formatted line nests one tspan per differing piece. The nested tspans
@@ -321,7 +336,7 @@ export function figureToSvg(
       // just the walk's group skip) also covers stragglers/dangling ids the
       // tree renders LOOSE outside their (hidden) group's wrapper.
       if (effectiveHidden(fig, n.el)) return "";
-      const markup = elementToSvg(n.el, assetUrl, plotMarkup, assetSize, opts?.model3d);
+      const markup = elementToSvg(n.el, assetUrl, plotMarkup, assetSize, opts?.model3d, fig.background);
       // Per-element wrapper id: makes every member individually addressable
       // from slides (Track part "el:<elementId>" — same grammar family as the
       // group wrappers). Plot PARTS inside keep their own <elId>__<partId> ids.

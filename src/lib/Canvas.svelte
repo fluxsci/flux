@@ -87,6 +87,7 @@
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
   import { reattachClones, resolveAttachments, hasAttach, attachTargetAt, detachEnd, isLineAttach, stickEnd } from "./slide/attach";
+  import { haloBackgroundOf } from "./export";
   import { nodesToPath, pathD, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment, mergeNodeChains, reverseNodes } from "./path";
   import { nodeMoveAxes, constrainDelta, type Axis } from "./interact/nodeAxis";
   import { penSnap, type PenSnapResult, type PenAnchor } from "./interact/penSnap";
@@ -2085,6 +2086,8 @@
       el: f.element,
       L,
       showsRuns,
+      // WP 4.2: the halo keeps reading while you type (CSS text-stroke behind the fill, the canvas's own width and colour)
+      halo: (f.element.haloWidth ?? 0) > 0 ? { w: 2 * Math.min(f.element.haloWidth!, 0.3 * f.element.fontSize), color: f.element.haloColor ?? haloBackgroundOf(f.figure.background) } : null,
       left: $viewport.panX + (f.figure.x + f.element.x) * $viewport.zoom,
       top: $viewport.panY + (f.figure.y + f.element.y + L.offsetY) * $viewport.zoom,
     };
@@ -5233,6 +5236,7 @@
         line-height:${editingInfo.el.lineHeight ?? 1.2};
         letter-spacing:${textTracking(editingInfo.el) * $viewport.zoom}px;
         color:${editingInfo.showsRuns ? "transparent" : editingInfo.el.color};
+        ${editingInfo.halo && !editingInfo.showsRuns ? `-webkit-text-stroke:${editingInfo.halo.w * $viewport.zoom}px ${editingInfo.halo.color}; paint-order:stroke fill;` : ""}
         text-align:${editingInfo.el.align};
         white-space:${editingInfo.el.sizing === "auto" ? "pre" : "pre-wrap"};
         overflow-wrap:${editingInfo.el.sizing === "auto" ? "normal" : "break-word"};

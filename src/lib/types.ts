@@ -267,6 +267,11 @@ export interface TextElement extends ElementBase {
   // WRAP METRIC, so wrapping measures with it.
   letterSpacing?: number;
   color: string;
+  /** WP 4.2 (W6, manim's set_backstroke): a ring of `haloWidth` canvas px per side painted BEHIND the glyphs (`paint-order: stroke`), so a
+   *  label stays legible over data. Absent / 0 = off. Capped at 0.3 em when drawn (bold text never turns into blobs). */
+  haloWidth?: number;
+  /** The halo's colour; absent = the slide's / figure's background (resolved when drawn, never stored). */
+  haloColor?: string;
   /** Colormap gradient painting the glyphs (wins over `color` while set). */
   fillMap?: GradientFill | null;
   // Sizing mode (replaces the old boolean autoWidth; migrate.ts converts):

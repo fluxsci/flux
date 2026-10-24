@@ -95,7 +95,7 @@
   }}
   ondblclick={(event) => onDoubleClick(event, current.element, figure)}
 >
-  <ElementView element={rendered.element} {modelPartOpacity} />
+  <ElementView element={rendered.element} {modelPartOpacity} haloBackground={figure?.background} />
 </g>
 
 <style>

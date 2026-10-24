@@ -660,6 +660,11 @@ spacing — the space added after every letter. Both are in **points**, like the
 negative tracking pulls letters together. Tracking changes how much fits on a line, so a
 wrapping box re-wraps as you adjust it.
 
+**Halo** puts a ring of the background colour behind the letters, so a label stays readable where
+it crosses a plot's lines or an image (the 3Blue1Brown backstroke). Set its width in pixels (0 turns
+it off); it takes the figure's or slide's background unless you pick a colour. It shows in the
+editor, in exported figures and papers, and in slides; PowerPoint text boxes have no halo.
+
 **Italic for one word, not the whole box.** Double-click the text to edit it, select the part
 you want — a species name, a gene symbol, a single letter — and press **Ctrl+I**, **Ctrl+B** or
 **Ctrl+U**. Only that stretch changes; the box keeps its own font, so the rest of the label is

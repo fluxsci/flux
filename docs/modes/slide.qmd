@@ -864,7 +864,7 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
   three pages (`<deck>-steps.pdf`).
 - **PowerPoint** — an editable `.pptx` (`<deck>.pptx`) that **plays your builds and
   transitions** in PowerPoint's slide show. Text arrives as real text boxes (bold, italic,
-  colour, superscript and subscript kept), and rectangles, ellipses, lines, arrows and drawn
+  colour, superscript and subscript kept; a text **halo** is not, PowerPoint has no equivalent), and rectangles, ellipses, lines, arrows and drawn
   paths as real PowerPoint shapes you can restyle. Plots arrive as **vector** pictures:
   right-click one and choose **Convert to Shape** (**Group ▸ Ungroup** in older versions) to
   edit its individual lines, points and labels.
