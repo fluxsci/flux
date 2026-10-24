@@ -533,6 +533,12 @@ h.section("WP 4.2 Restore: return an element to an earlier look as an ordinary C
   ops.addElement(d, s.id, { id: "P", type: "rect", x: 0, y: 0, width: 10, height: 10, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
   ops.setTransform(d, s.id, b[0].id, "P", { state: { type: "ellipse" } });
   h.ok(/content changed/.test(refuse(() => ops.restoreState(d, s.id, b[2].id, "P", { toBeat: 0 }))), "refused: the content changed since then (a retype / Become)");
+  // a step where the object hands off into another (a Become owns its transform there): refused, nothing written
+  ops.addElement(d, s.id, { id: "Q", type: "ellipse", x: 300, y: 300, width: 40, height: 40, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0 } as never);
+  const becameQ = refuse(() => ops.becomeTransform(d, s.id, b[3].id, "A", "Q", { mode: "handoff" } as never));
+  h.eq(becameQ, "", "(fixture) A hands off into Q at step 4");
+  const snapB = JSON.stringify(d);
+  h.ok(/becomes another one/.test(refuse(() => ops.restoreState(d, s.id, b[3].id, "A", { toBeat: 0 }))) && JSON.stringify(d) === snapB, "refused: a step where the object becomes another (its Become is left as it was)");
 }
 
 console.log("\nSLIDE TWEEN (transform core + player drive): PASS");

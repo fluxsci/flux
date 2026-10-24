@@ -87,8 +87,9 @@ To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plo
 - **Emphasize** — add a pulse (a calm swell and return); Highlight, Dim and Circle it are in the Effect menu.
 - **Disappear** / **Ctrl+Shift+D** — add an exit.
 - **Focus** — dim everything else on the slide to 30 % at this step, so the selection stands out (a label
-  inside a selected object, and anything grouped with it, stays bright). **Unfocus**, on a later step,
-  brings everything back smoothly from where it is. Both are ordinary Dim / Highlight effects, grouped.
+  inside a selected object, and anything grouped with it, stays bright; a selected object an earlier Focus
+  dimmed comes back to full). **Unfocus**, on a later step, brings everything back smoothly from where it
+  is. Both are ordinary Dim / Highlight effects, grouped.
 
 Text rises in, shapes and arrows grow, and lines and paths draw on. Adding another appearance keeps the existing
 effects; successive effects on the same target start after its existing effects by default.
@@ -776,12 +777,12 @@ slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** togg
 fullscreen without leaving, **R** resets the timer, and one **Escape** leaves, even in
 fullscreen. Click zones work too: left quarter back, elsewhere forward.
 
-**Back plays the step in reverse.** Pressing Back rewinds the step you just saw (at about 70 % of
-its speed, never longer than 0.8 s) and lands exactly on the previous step, in Present and in
+**Back plays the step in reverse.** Pressing Back rewinds the step you just saw (in about 70 % of
+its time, never longer than 0.8 s) and lands exactly on the previous step, in Present and in
 exported decks. Back during a step rewinds it from where it is; Next during a rewind replays the
 step. Pressing Back twice quickly jumps (you are navigating, not watching), and slides with video
-or 3D, reduced motion (**M**) and slides embedded in Paper always cut. Turn it off in **Settings
-→ Figure → Slides**.
+or 3D, reduced motion (**M**) and slides embedded in Paper always cut. To cut instead in Present,
+turn it off in **Settings → Figure → Slides** (exported decks always rewind).
 
 # 3D models
 
@@ -797,8 +798,8 @@ blocks orbit and tells you why, so a drag cannot accidentally change both action
 
 Select a model and choose **Turntable** to add a full turn that eases in and out (it never
 jumps to full speed on its first frame). It is an ordinary Change effect: edit its duration or
-combine it with a Shape change; for a loop or spins chained step after step, set its curve to
-**Linear** for a constant speed. If the step already has a Change for that model, Turntable joins
+combine it with a Shape change; for a loop or spins chained step after step, set its **Pace** to
+**Constant speed** in the Animator. If the step already has a Change for that model, Turntable joins
 it and sets its timing to 6 seconds, soft start, and Flux tells you when that re-times it. Complete turns remain complete turns, even when the starting
 and ending views look identical. Zoom changes smoothly in proportion, and projection changes
 at the endpoint.
@@ -871,7 +872,7 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
   three pages (`<deck>-steps.pdf`).
 - **PowerPoint** — an editable `.pptx` (`<deck>.pptx`) that **plays your builds and
   transitions** in PowerPoint's slide show. Text arrives as real text boxes (bold, italic,
-  colour, superscript and subscript kept; a text **halo** is not, PowerPoint has no equivalent), and rectangles, ellipses, lines, arrows and drawn
+  colour, superscript and subscript kept; a text **halo** is not, PowerPoint text boxes have no equivalent), and rectangles, ellipses, lines, arrows and drawn
   paths as real PowerPoint shapes you can restyle. Plots arrive as **vector** pictures:
   right-click one and choose **Convert to Shape** (**Group ▸ Ungroup** in older versions) to
   edit its individual lines, points and labels.

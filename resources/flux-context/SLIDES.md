@@ -168,8 +168,9 @@ to place multiple appearance effects on the same object in one step.
   `dim` starts from the object's current opacity.
 - **Focus** (the 3b1b idiom): `flux focus <deck> <slideId> <beatId> <elementId...> [--level 0.3]` (`focus`) dims
   every element fully visible at the start of that beat except the given ones, the labels inside them and their
-  groups (one "Focus" track group of `dim` tracks); objects already dimmed, entering, or playing another
-  appearance in that beat are skipped and listed. `flux unfocus <deck> <slideId> <beatId>` (`unfocus`) brings
+  groups (one "Focus" track group of `dim` tracks, judged on the frame at the beat's start); objects already
+  dimmed or playing another appearance in that beat are skipped and listed; a given element an earlier Focus left
+  dimmed climbs back to full; objects not yet on screen are left alone. `flux unfocus <deck> <slideId> <beatId>` (`unfocus`) brings
   back everything a dim left below full opacity, from exactly where it is (`highlight` with `level` = that
   opacity and `lead` 0: no jump).
 - **Stroke order**: `drawOn`/`drawOff` `params.order: "sequence"` (+ `lag`, default 0.3) draws the strokes
@@ -518,7 +519,7 @@ export timeline. For another deck import the clip again or use a portable whole-
   advance (Shift = next slide), ←/Backspace/PageUp back, ↑/↓ jump slides, digits+Enter jump, **S**
   speaker-notes + timer, **R** reset timer, **B**/**W** blank, **F** fullscreen, Esc exit. Add
   per-slide `notes` (markdown) to feed the speaker view. Back REWINDS the step (the same frames in
-  reverse, <= 0.8 s, landing exactly on the previous step; Settings `slideBackAnimates`, default on);
+  reverse, <= 0.8 s, landing exactly on the previous step; in Present the Settings `slideBackAnimates`, default on; an exported deck always);
   a second Back within 350 ms, reduced motion and video/3D slides jump. Paper embeds always step.
 - **Export:** `flux export-deck <id>` → `exports/<id>.html`. One file, offline, double-click to
   present. This is the definition of done for a talk — verify by opening it with no network.

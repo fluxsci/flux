@@ -148,6 +148,14 @@ try {
     p.destroy();
   }
   { const { p } = mk(deck); p.seek(0, 0, Infinity); p.prev(); h.ok(!p.state().reversing && p.state().beat === 0, "Back at beat 0 of the first slide does nothing"); p.destroy(); }
+  { const { p } = mk(deck); p.seek(0, 4, Infinity); p.prev(); const st = p.state(); h.ok(st.reversing && st.rewindTo === 3, "state().rewindTo names the beat a rewind lands on (a host that rebuilds mid-rewind lands there)"); step(1000); h.eq(p.state().rewindTo, undefined, "...and is gone once it has landed"); p.destroy(); }
+  {
+    // the hosts' plumbing (no headless Svelte here): Present passes the setting and rebuilds onto the landing beat; the exported deck rewinds
+    const fsm = await import("node:fs"), src = (f: string) => fsm.readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8");
+    const present = src("shell/modes/slide/PresentOverlay.svelte"), runtime = src("lib/slide/export/runtime.ts");
+    h.ok(/backAnimates: get\(settings\)\.slideBackAnimates !== false/.test(present) && /st\.reversing \? st\.rewindTo/.test(present), "Present passes Settings slideBackAnimates and rebuilds a rewinding player onto its landing beat");
+    h.ok(/backAnimates: true/.test(runtime) && /now\.reversing \? now\.rewindTo/.test(runtime), "the exported deck always rewinds and rebuilds onto the landing beat too");
+  }
   {
     const V = makeDeck(0, (d, sid) => {
       d.assets = [{ id: "clip", name: "clip", kind: "mp4", path: "assets/clip.mp4", naturalWidth: 160, naturalHeight: 90, durationMs: 1200, hasAudio: false }, { id: "poster", name: "poster", kind: "png", path: "assets/poster.png", naturalWidth: 160, naturalHeight: 90 }];

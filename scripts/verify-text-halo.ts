@@ -12,7 +12,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { harness } from "./lib/harness.mjs";
 import { elementToSvg, figureToSvg, haloAttrs, haloBackgroundOf, textSvgLayout } from "../src/lib/export";
 import { lerpElement } from "../src/lib/slide/tween";
-import { createDeck, addSlide, addElement } from "../src/lib/slide/ops";
+import { createDeck, addSlide, addElement, addBeat } from "../src/lib/slide/ops";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import { validateDeckFile } from "../src/lib/project/validate";
 import { launch } from "./lib/driver.mjs";
@@ -78,6 +78,27 @@ try {
   const light = await page.evaluate(`(async () => { const img = new Image(); img.src = "data:image/png;base64,${shot}"; await img.decode(); const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const k = c.getContext("2d"); k.drawImage(img, 0, 0);
     const d = k.getImageData(150, 150, 660, 240).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 200) n++; return n; })()`) as number;
   h.ok(light > 1500, `on the dark panel, the halo paints ${light} light pixels around the label`);
+  // R4 review: a text with a CONTENT Change (colour, size, rewrite) is drawn by the transform driver: its halo must take the slide's
+  // background too, at rest before, mid-flight and after (it was white), and a halo colour set on one side blends from the background
+  const d3 = createDeck({ id: "dk", title: "dark", withTitleSlide: false } as never); d3.defaults.transition = "none";
+  const s3 = addSlide(d3, { id: "dark", layout: "blank" } as never); (d3.slides[0] as any).background = "#100f0f";
+  const L = (id: string, y: number) => addElement(d3, s3.id, T({ id, x: 60, y, haloWidth: 4, color: "#fffcf0", fontSize: 32 }) as never);
+  L("colour", 20); L("size", 90); L("rewrite", 160); L("tint", 230);
+  const b3 = addBeat(d3, s3.id, { id: "b3" } as never)!;
+  const { setTransform } = await import("../src/lib/slide/ops");
+  setTransform(d3, s3.id, b3.id, "colour", { state: { color: "#d14d41" }, duration: 600, easing: "linear" } as never);
+  setTransform(d3, s3.id, b3.id, "size", { state: { fontSize: 40 }, duration: 600, easing: "linear" } as never);
+  setTransform(d3, s3.id, b3.id, "rewrite", { state: { text: "OHLA" }, duration: 600, easing: "linear" } as never);
+  setTransform(d3, s3.id, b3.id, "tint", { state: { haloColor: "#4385be" }, duration: 600, easing: "linear" } as never);
+  const f3 = path.join(tmp, "dark.html"); await fs.writeFile(f3, (await exportDeckHtml({ deck: d3 } as never)).html);
+  await page.goto(pathToFileURL(f3).href); await page.waitForFunction("!!window.fluxDeck?.seek");
+  const strokes = (ms: number | "Infinity", beat: number) => page.evaluate(`(() => { window.fluxDeck.seek(0, ${beat}, ${ms}); const out = {}; for (const id of ["colour", "size", "rewrite", "tint"]) out[id] = [...new Set(Array.from(document.querySelectorAll('[data-el-id="' + id + '"] [stroke]')).filter(n => n.getAttribute("paint-order") === "stroke" || n.closest("text")).map(n => n.getAttribute("stroke")))]; return out; })()`) as Promise<Record<string, string[]>>;
+  const before = await strokes("Infinity", 0), during = await strokes(300, 1), after = await strokes("Infinity", 1);
+  const darkOnly = (o: Record<string, string[]>, ids: string[]) => ids.every((id) => o[id].length > 0 && o[id].every((c) => c.toLowerCase() === "#100f0f"));
+  h.ok(darkOnly(before, ["colour", "size", "rewrite", "tint"]), `at rest before a content Change, every halo is the dark slide's background (${JSON.stringify(before)})`);
+  h.ok(darkOnly(during, ["colour", "size", "rewrite"]) && darkOnly(after, ["colour", "size", "rewrite"]), `mid-flight and after a colour / size / text Change the halo stays the background, never white (${JSON.stringify(during)})`);
+  const tintMid = during.tint[0] ?? "", tintEnd = after.tint[0] ?? "";
+  h.ok(tintMid.toLowerCase() !== "#100f0f" && tintMid.toLowerCase() !== "#4385be" && tintEnd.toLowerCase() === "#4385be", `a halo colour set by a Change blends from the background (halfway ${tintMid}, end ${tintEnd}), never a jump at halfway`);
   h.eq(errors, [], "no page errors");
 } catch (err) { h.fail(String((err as Error).stack ?? err)); }
 finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }

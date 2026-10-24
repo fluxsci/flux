@@ -3426,7 +3426,7 @@ export const VERBS: VerbDef[] = [
     cli: "suggest-arcs",
     cliRoot: "flags",
     summary:
-      "Give the box moves of ONE beat that cross each other mid-flight an explicit arc (the Animator's Suggest arcs). Judged on each track's real start, duration and easing; the smallest of 0.25 / 0.45 / 0.83 that leaves 2 stage units of daylight (0.83 = manim's 90° Swap). Only tracks whose resolved arc is unset are written (an authored 0 or a linked style's arc is respected). Returns the track ids written, how many pairs collided, and a reason when nothing could be written.",
+      "Arc the crossing box moves of one beat apart. Gives the box moves of ONE beat that cross each other mid-flight an explicit arc (the Animator's Suggest arcs). Judged on each track's real start, duration and easing; the smallest of 0.25 / 0.45 / 0.83 that leaves 2 stage units of daylight (0.83 = manim's 90° Swap). Only tracks whose resolved arc is unset are written (an authored 0 or a linked style's arc is respected). Returns the track ids written, how many pairs collided, and a reason when nothing could be written.",
     params: { deckId: z.string(), slideId: z.string(), beatId: z.string() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -3451,7 +3451,7 @@ export const VERBS: VerbDef[] = [
     cli: "restore-state",
     cliRoot: "flags",
     summary:
-      "Return an element, at one beat, to the state it had BEFORE an earlier beat (--to 0 = Design; --to N = before step N), as an ordinary Change merged into that beat's Change for it (a new Change gets the authored timing; an existing one keeps its timing and other keys, and the keys restored win). --keys narrows it (x,y). Refused for a content change since then (a Become, a new plot). Returns the track, the keys restored and the keys of an existing Change it overwrote.",
+      "Return an element to its look before an earlier beat. At one beat, it goes back to the state it had BEFORE an earlier beat (--to 0 = Design; --to N = before step N), as an ordinary Change merged into that beat's Change for it (a new Change gets the authored timing; an existing one keeps its timing and other keys, and the keys restored win). --keys narrows it (x,y). Refused for a content change since then (a Become, a new plot). Returns the track, the keys restored and the keys of an existing Change it overwrote.",
     params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), targetId: z.string(), toBeat: z.number().int().min(0), keys: z.array(z.string()).optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -3473,7 +3473,7 @@ export const VERBS: VerbDef[] = [
     cli: "focus",
     cliRoot: "flags",
     summary:
-      "Focus (manim/3b1b): on ONE beat, dim every element visible at its start to 30 % (--level) except the given elements, the labels inside them and their groups, as one track group of ordinary dim tracks. Elements already below full opacity, or playing another appearance in that beat, are skipped and listed. Pair with `unfocus` on a later beat.",
+      "Dim everything but the given elements at a beat. Focus (manim/3b1b): on ONE beat, dim every element visible at its start to 30 % (--level) except the given elements, the labels inside them and their groups, as one track group of ordinary dim tracks. Elements already below full opacity, or playing another appearance in that beat, are skipped and listed; a given element that an earlier Focus left dimmed climbs back to full (brightened); objects not yet on screen are left alone. Pair with `unfocus` on a later beat.",
     params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), elementIds: z.array(z.string()).min(1), level: z.number().min(0).max(1).optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -3484,7 +3484,7 @@ export const VERBS: VerbDef[] = [
     ],
     handler: (ctx, a) => core.focusVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), a.elementIds as string[], a.level as number | undefined),
     render: {
-      human: (r) => { const v = r as { trackIds: string[]; dimmed: string[]; skipped: string[] }; return { out: v.trackIds.join("\n"), err: `✓ dimmed ${v.dimmed.length}${v.skipped.length ? `; skipped ${v.skipped.join(", ")}` : ""}` }; },
+      human: (r) => { const v = r as { trackIds: string[]; dimmed: string[]; skipped: string[]; brightened: string[] }; return { out: v.trackIds.join("\n"), err: `✓ dimmed ${v.dimmed.length}${v.brightened.length ? `; brightened ${v.brightened.join(", ")}` : ""}${v.skipped.length ? `; skipped ${v.skipped.join(", ")}` : ""}` }; },
       mcp: (r) => text(JSON.stringify(r)),
     },
   },
@@ -3494,7 +3494,7 @@ export const VERBS: VerbDef[] = [
     cli: "unfocus",
     cliRoot: "flags",
     summary:
-      "Undo a Focus on a later beat: every element a dim left below full opacity climbs back to 100 % from exactly where it is (a highlight with no dip), as one track group.",
+      "Bring back what a Focus dimmed. On a later beat, every element a dim left below full opacity climbs back to 100 % from exactly where it is (a highlight with no dip), as one track group.",
     params: { deckId: z.string(), slideId: z.string(), beatId: z.string() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -3771,7 +3771,7 @@ export const VERBS: VerbDef[] = [
     cli: "draw-along-x",
     cliRoot: "flags",
     summary:
-      "Draw ONE series of a plot along x (the Animator's Draw along x): its line draws at a constant x rate on the Gentle curve, its band and other marks are wiped open by the same front and its markers grow in as the front reaches each one (all in the line's beat, riding the line's start). pen: auto (a lead dot when no markers ride along) | on | off. duration: the sweep in ms (default: the line's own). off: removes the x clock (the line draws by length, a wipe is no longer tight, markers rank evenly); every effect and timing stays as it is now. Refused for a series with no x clock (x not running one way, a step line, a line running outside its axes) or with no line draw on the slide.",
+      "Draw one plot series along x, at an even pace. Draws ONE series of a plot along x (the Animator's Draw along x): its line draws at a constant x rate on the Gentle curve, its band and other marks are wiped open by the same front and its markers grow in as the front reaches each one (all in the line's beat, riding the line's start). pen: auto (a lead dot when no markers ride along) | on | off. duration: the sweep in ms (default: the line's own). off: removes the x clock (the line draws by length, a wipe is no longer tight, markers rank evenly); every effect and timing stays as it is now. Refused for a series with no x clock (x not running one way, a step line, a line running outside its axes) or with no line draw on the slide.",
     params: { deckId: z.string(), slideId: z.string(), elementId: z.string(), series: z.string(), pen: z.enum(["auto", "on", "off"]).optional(), duration: z.number().positive().optional(), off: z.boolean().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },

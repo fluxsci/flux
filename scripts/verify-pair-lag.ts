@@ -58,6 +58,23 @@ h.eq(authored.pairLag, ops.BECOME_PAIR_LAG_DEFAULT, `a NEW set hand-off of 5 pie
   const r = ops.setTrack(d2, s2.id, d2.slides[0].beats[1].tracks[0].id!, { pairLag: 0.25 });
   h.ok(r.ok && d2.slides[0].beats[1].tracks[0].pairLag === 0.25, "set-track --pair-lag edits a hand-off's lag");
   ops.setTrackPairLag(d2.slides[0].beats[1].tracks[0], null); h.eq(d2.slides[0].beats[1].tracks[0].pairLag, undefined, "null clears it"); }
+// R4 review: the default counts PIECES (a part set of one plot is as many pieces as parts), and leaves text-only sets alone (they fly as letters)
+{ const d3 = ops.createDeck({ id: "f", title: "f", withTitleSlide: false }); const s3 = ops.addSlide(d3, { id: "parts", layout: "blank" });
+  const { readFileSync } = await import("node:fs"), pth = await import("node:path");
+  const base = pth.join(pth.dirname(new URL(import.meta.url).pathname), "fixtures", "plots", "mpl_bars_5_FLUXPLOT");
+  const manifest = JSON.parse(readFileSync(`${base}.fluxplot.json`, "utf8")), bars: string[] = manifest.series[0].svg.bars;
+  d3.plots = { bars: { svg: readFileSync(`${base}.svg`, "utf8"), manifest } } as never;
+  const plotId = ops.addPlotToSlide(d3, s3.id, { assetId: "bars", x: 300, y: 40, width: 300, height: 220 } as never) as unknown as string;
+  ops.addElement(d3, s3.id, { type: "rect", id: "src", x: 20, y: 20, width: 200, height: 60, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
+  const b3 = ops.addBeat(d3, s3.id, { id: "b" });
+  ops.becomeTransform(d3, s3.id, b3.id, "src", { element: plotId, parts: bars }, { mode: "handoff", compiled: compileSlide(d3.slides[0], d3.stage, { plotManifest: () => manifest }) });
+  h.eq(d3.slides[0].beats[1].tracks[0].pairLag, ops.BECOME_PAIR_LAG_DEFAULT, `a box splitting into the ${bars.length} bars of ONE plot is ${bars.length} pieces: authored with the default lag`);
+  const s4 = ops.addSlide(d3, { id: "texts", layout: "blank" });
+  const T = (id: string, x: number) => ops.addElement(d3, s4.id, { type: "text", id, x, y: 100, width: 80, height: 30, rotation: 0, text: id, fontFamily: "Arial", fontSize: 20, fontWeight: 400, fontStyle: "normal", align: "left", color: "#000", sizing: "fixed" });
+  T("word", 20); T("w1", 200); T("w2", 300); T("w3", 400);
+  const b4 = ops.addBeat(d3, s4.id, { id: "b4" });
+  ops.becomeTransform(d3, s4.id, b4.id, "word", { element: "w1", members: [{ element: "w1" }, { element: "w2" }, { element: "w3" }] }, { mode: "handoff" });
+  h.eq(d3.slides.find((x) => x.id === "texts")!.beats[1].tracks[0].pairLag, undefined, "a text splitting into three texts is not given a lag (letters and rewrites fly by their own driver)"); }
 const compiled = compileSlide(deck.slides[0], deck.stage, {});
 const plan = planHandoff(compiled.cues[1].tracks[0].track, compiled.sample(1, 0), {} as any);
 plan.prepare();

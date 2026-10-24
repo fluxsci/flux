@@ -203,7 +203,7 @@
     switch (r.effect.kind) {
       case "close": close(); break;
       case "fullscreen": toggleFullscreen(); break;
-      case "rebuild": if (motionChanged) buildPlayer({ slide: st.slide, beat: st.beat }); break;
+      case "rebuild": if (motionChanged) buildPlayer({ slide: st.slide, beat: st.reversing ? st.rewindTo ?? st.beat : st.beat }); break;
       case "resetTimer": elapsed = 0; break;
     }
   }

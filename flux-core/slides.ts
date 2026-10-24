@@ -753,13 +753,13 @@ export async function restoreStateVerb(root: string, deckId: string, slideId: st
   });
 }
 /** focus (WP 4.4): dim everything visible at the start of the beat except `ids` (and the labels inside them / their groups). */
-export async function focusVerb(root: string, deckId: string, slideId: string, beatId: string, ids: string[], level?: number): Promise<{ trackIds: string[]; dimmed: string[]; skipped: string[] }> {
+export async function focusVerb(root: string, deckId: string, slideId: string, beatId: string, ids: string[], level?: number): Promise<{ trackIds: string[]; dimmed: string[]; skipped: string[]; brightened: string[] }> {
   return mutateDeck(root, deckId, "focus", (deck) => {
     mustSlide(deck, slideId);
     for (const id of ids) if (!deck.slides.find((x) => x.id === slideId)!.elements.some((e) => e.id === id)) throw new Error(`element not found on ${slideId}: ${id}`);
     const r = slideOps.focusOn(deck, slideId, beatId, ids, level === undefined ? {} : { level });
     if (!r) throw new Error(`cannot focus on beat ${beatId}: choose a step after Design and at least one element`);
-    return { trackIds: r.tracks.map((t) => t.id!), dimmed: r.dimmed, skipped: r.skipped };
+    return { trackIds: r.tracks.map((t) => t.id!), dimmed: r.dimmed, skipped: r.skipped, brightened: r.brightened };
   });
 }
 /** unfocus (WP 4.4): what a dim left below full opacity climbs back from where it is, in this beat. */

@@ -1384,6 +1384,10 @@ export function restoreState(deck: Deck, slideId: Id, beatId: Id, targetId: Id, 
   if (bi === 0) throw new Error("Design cannot animate: choose a step to return in");
   const to = opts.toBeat;
   if (!Number.isInteger(to) || to < 0 || to >= bi) throw new Error(`return to Design (0) or to before an EARLIER step (1-${bi - 1}), not ${to}`);
+  const existing = slide.beats[bi].tracks.find((t) => familyOf(t) === "transform" && t.target === targetId && isWholeElementRef(trackRef(t)));
+  // a Become (it turns into another object at this step) or a Ghost birth owns this step's transform of it: a restore would fight it
+  if (existing?.to?.become) throw new Error("At this step the object becomes another one (a Become): return it to an earlier look in another step.");
+  if (existing?.ghostFrom) throw new Error("At this step the object is born as a Ghost copy: return it to an earlier look in a later step.");
   const end = transformPreState(slide, targetId, to), cur = transformPreState(slide, targetId, bi);
   if (!end) throw new Error(`${targetId} does not exist ${to === 0 ? "at Design" : `before step ${to}`}`);
   if (!cur) throw new Error(`${targetId} does not exist at this step`);
@@ -1392,33 +1396,40 @@ export function restoreState(deck: Deck, slideId: Id, beatId: Id, targetId: Id, 
   if (opts.keys?.length) patch = Object.fromEntries(Object.entries(patch).filter(([k]) => opts.keys!.includes(k)));
   const restored = Object.keys(patch);
   if (!restored.length) return { track: null, restored, overwritten: [], message: "nothing differs: it already looks that way" };
-  const existing = slide.beats[bi].tracks.find((t) => familyOf(t) === "transform" && t.target === targetId && isWholeElementRef(trackRef(t)));
   const overwritten = existing ? restored.filter((k) => k in (existing.to?.state ?? {})) : [];
   const track = setTransform(deck, slideId, beatId, targetId, { state: patch });
   return { track, restored, overwritten };
 }
 
-/** WP 4.4 Focus: dim every element visible at the start of `beatId` except `ids` (and what belongs to them, `focusPlan`) to `level`
- *  (default 0.3, the Dim preset's), as ONE track group of ordinary `dim` tracks. Elements not at full opacity then (mid-entrance, already
- *  dimmed) and elements that already play another appearance in this step (an exit, a pulse: a dim would replace it) are left alone and
- *  reported in `skipped`. Null when the beat is Design or nothing is selected. */
+/** WP 4.4 Focus: dim every element visible at the start of `beatId` except `ids` (and what belongs to them, `focusPlan`, judged on the
+ *  frame as it stands then) to `level` (default 0.3, the Dim preset's), as ONE track group of ordinary `dim` tracks; a selected element
+ *  that an earlier Focus left dimmed climbs back to full (`brightened`: a highlight from where it is), so the selection always stands out.
+ *  Elements already dimmed and elements that already play another appearance in this step (an exit, a pulse: a dim would replace it) are
+ *  left alone and reported in `skipped`; objects not yet on screen are not touched. Null when the beat is Design or nothing is selected. */
 const appearanceElsewhere = (beat: Beat, id: Id, own: string) => beat.tracks.some((t) => t.target === id && familyOf(t) === "appearance" && isWholeElementRef(trackRef(t)) && t.preset !== own);
-export interface FocusResult { tracks: Track[]; groupId: Id | null; dimmed: Id[]; skipped: Id[] }
+export interface FocusResult { tracks: Track[]; groupId: Id | null; dimmed: Id[]; skipped: Id[]; brightened: Id[] }
 export function focusOn(deck: Deck, slideId: Id, beatId: Id, ids: readonly Id[], opts: { level?: number } = {}): FocusResult | null {
   const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
   if (!slide || bi <= 0 || !ids.length) return null;
   const level = Math.max(0, Math.min(1, Number.isFinite(opts.level) ? opts.level! : 0.3));
-  const states = compileSlide(slide, deck.stage, { animStyles: deck.animStyles }).sample(bi - 1, Infinity).presentation.elementStates;
-  const shown = slide.elements.filter((e) => !e.hidden && (states[e.id]?.visible ?? true));
-  const plan = focusPlan(shown, ids), dimmed: Id[] = [], skipped: Id[] = [], tracks: Track[] = [];
+  const frame = compileSlide(slide, deck.stage, { animStyles: deck.animStyles }).sample(bi - 1, Infinity), states = frame.presentation.elementStates;
+  // the geometry the viewer sees at the beat's start (moved boxes, Ghost copies), not the Design one
+  const shown = frame.elements.filter((e) => !e.hidden && (states[e.id]?.visible ?? true) && slide.elements.some((x) => x.id === e.id));
+  const plan = focusPlan(shown, ids), dimmed: Id[] = [], skipped: Id[] = [], brightened: Id[] = [], tracks: Track[] = [];
   for (const id of plan.dim) {
     if ((states[id]?.opacity ?? 1) < 0.999 || appearanceElsewhere(slide.beats[bi], id, "dim")) { skipped.push(id); continue; }
     const track: Track = { id: newId("track"), target: id, preset: "dim", ...authoredFields("dim"), params: { level }, start: 0 };
     if (setAnimation(deck, slideId, beatId, track)) { tracks.push(slide.beats[bi].tracks.find((t) => t.target === id && t.preset === "dim")!); dimmed.push(id); }
   }
-  if (!tracks.length) return { tracks, groupId: null, dimmed, skipped };
+  for (const id of plan.bright) {
+    const o = states[id]?.opacity ?? 1;
+    if (!(o < 0.999) || appearanceElsewhere(slide.beats[bi], id, "highlight")) continue;
+    const track: Track = { id: newId("track"), target: id, preset: "highlight", ...authoredFields("highlight"), params: { level: Math.round(o * 1e6) / 1e6, lead: 0 }, start: 0 };
+    if (setAnimation(deck, slideId, beatId, track)) { tracks.push(slide.beats[bi].tracks.find((t) => t.target === id && t.preset === "highlight")!); brightened.push(id); }
+  }
+  if (!tracks.length) return { tracks, groupId: null, dimmed, skipped, brightened };
   const groupId = tracks.length > 1 ? groupTracks(deck, slideId, beatId, tracks.map((t) => t.id!), "Focus") : null;
-  return { tracks, groupId, dimmed, skipped };
+  return { tracks, groupId, dimmed, skipped, brightened };
 }
 /** WP 4.4 Unfocus: every element a `dim` left below full opacity before `beatId` climbs back to 1 FROM where it is (a `highlight`
  *  with `level` = its opacity at the beat's start and no dip: no 0.31 -> 0.41 jump, the exact inverse of the dim). */
@@ -1565,9 +1576,12 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...(isWholeElementRef(ref) ? { become: target } : { become: { type: "set" } }), ...timing })!;
     track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== DEFAULT_TRANSFORM_METHOD ? { method: opts.method } : {}) }, state: {} };
     delete track.disabled;
-    // WP 4.3 (D4): a NEW set hand-off of >= 3 pieces peels apart; an explicit value always wins; a re-Become keeps what the track had
+    // WP 4.3 (D4): a NEW set hand-off of >= 3 PIECES peels apart (a whole object is one piece, a part set as many pieces as parts); an
+    // explicit value always wins; a re-Become keeps what the track had. Not for text: letters and rewrites fly by their own driver.
+    const pieces = (ts: { partIds: string[] | null }[]) => ts.reduce((n, t) => n + Math.max(1, t.partIds?.length ?? 1), 0);
+    const textOnly = [...sources, ...destination].every((t) => slide.elements.find((e) => e.id === t.elementId)?.type === "text");
     if (opts.pairLag !== undefined) track.pairLag = opts.pairLag;
-    else if (fresh && Math.max(destination.length, sources.length) >= 3) track.pairLag = BECOME_PAIR_LAG_DEFAULT;
+    else if (fresh && !textOnly && Math.max(pieces(destination), pieces(sources)) >= 3) track.pairLag = BECOME_PAIR_LAG_DEFAULT;
     return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
   }
   if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error(ref.members ? "Consume needs one whole destination object; a set of objects hands off. Use hand-off instead." : "Consume requires whole objects, without parts or groups. Use hand-off instead.");

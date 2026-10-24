@@ -387,7 +387,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const driver = createTransform(wrap, preEl, endEl, {
           arc: track.arc, turn: turnOf(track),
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
-          plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
+          plotGen: opts.plotGen, deckBackground: opts.deckBackground, haloBackground: opts.haloBackground, mode: opts.mode,
           videoPlayback: opts.videoPlayback,
           model3d: opts.model3d, modelAsset: opts.modelAsset, modelManifest: opts.modelManifest,
           modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
@@ -900,6 +900,8 @@ export interface PlayerState {
   /** True while Back walks the run in reverse (also while such a rewind is paused). `beat` stays the LATER beat until it lands, and a
    *  rewind emits no beatStart / beatEnd (they are forward events). */
   reversing: boolean;
+  /** While `reversing`: the beat the rewind lands on (a host that rebuilds the player mid-rewind lands there: the press is never lost). */
+  rewindTo?: number;
   /** Native clips continue while the presenter waits between animation steps. */
   mediaPlaying: boolean;
   mediaPaused: boolean;
@@ -982,7 +984,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let transition: Animation | null = null;
   const ctx: SlideRenderCtx = { ...opts, deckBackground: deck.background, videoPlayback: true };
   const beats = () => Math.max(1, deck.slides[si]?.beats.length ?? 0);
-  function state(): PlayerState { return { slide: si, beat: bi, totalBeats: beats(), totalSlides: deck.slides.length, time, duration, playing, reversing: !!pendingRewind(), issues, ...(media?.state() ?? { mediaPlaying: false, mediaPaused: false }) }; }
+  function state(): PlayerState { return { slide: si, beat: bi, totalBeats: beats(), totalSlides: deck.slides.length, time, duration, playing, reversing: !!pendingRewind(), ...(pendingRewind() ? { rewindTo: pendingRewind()!.to } : {}), issues, ...(media?.state() ?? { mediaPlaying: false, mediaPaused: false }) }; }
   const emit = (event: Ev) => { const value = state(); for (const listener of listeners[event]) listener(value); };
   function cancelClock(): void {
     generation++; if (raf) cancelAnimationFrame(raf); raf = 0;
@@ -1036,8 +1038,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       keeper.flying();
       // a camera flight EARLY_BAKE_LEAD_FRAMES from landing re-bakes now: the fresh layer rasterises the pose the flight lands on, under the
       // last of the motion (rasterKeeper). The lead is measured in cue time per presented frame (a settling clock runs faster than the wall).
-      // A rewind lands with a seek, which re-bakes at rest.
-      if (clockMode !== "rewinding") for (const s of runSpecs ?? specs) if (s.refreshCamera && s.beatIndex === bi && time > s.delay && earlyBakeDue(s.delay + s.duration - time, frameDt)) keeper.early(s);
+      // A rewind lands at a flight's START pose (time -> s.delay): the same early bake, measured to that end, so its landing frame is already
+      // rasterised at the pose it lands on (no sharpening on a still frame after it).
+      if (clockMode !== "rewinding") { for (const s of runSpecs ?? specs) if (s.refreshCamera && s.beatIndex === bi && time > s.delay && earlyBakeDue(s.delay + s.duration - time, frameDt)) keeper.early(s); }
+      else for (const s of runSpecs ?? specs) if (s.refreshCamera && s.beatIndex === bi && time < s.delay + s.duration && earlyBakeDue(time - s.delay, frameDt)) keeper.early(s);
     } else keeper.rest(playing);   // playing && time >= duration = a flight just ended by itself
     emit("frame");
   }

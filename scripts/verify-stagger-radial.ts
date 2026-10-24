@@ -58,6 +58,17 @@ try {
   const ld = radialCoordinates(logm, ls.points.map((p) => p.svgId), { x: 10, y: (logm.axes[0] as unknown as { y: { domain: number[] } }).y.domain?.[0] ?? 0 });
   h.ok(Math.abs((ld[0] as number) - (ld[2] as number)) < 1e-6 && ld[1] === 0, "a log axis: 1 and 100 are equally far from 10 (one decade each way), as they look");
 
+  // bars sit at their middle ON THEIR OWN BASELINE (a stacked bar), heatmap cells are placed from their names (values stored or not)
+  const bm = clone(fixture("mpl_bars_5").manifest), bs = bm.series[0] as unknown as { bar: { baseline: number[]; center: number[]; length: number[] }; svg: { bars: string[] } };
+  bs.bar.baseline[2] = 20;   // stack bar 2 on top of something
+  const mid2 = { x: bs.bar.center[2], y: bs.bar.baseline[2] + bs.bar.length[2] / 2 };
+  const bd = radialCoordinates(bm, bs.svg.bars, mid2);
+  h.ok(Math.abs(bd[2] as number) < 1e-9 && bd.every((v, i) => i === 2 || (v as number) > 1), "a stacked bar is placed at the middle of its own bar (baseline + half its length), not of a bar from zero");
+  const heat = JSON.parse(readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "colorscale", "heatmap.fluxplot.json"), "utf8")) as FluxPlotManifest;
+  const cells = (heat.series ?? []).flatMap((x) => (x.components ?? []).flatMap((c) => c.members ?? [])).filter((m) => /\.cell\.\d+\.\d+$/.test(m));
+  const hd = radialCoordinates(heat, cells);
+  h.ok(cells.length > 10 && hd.every((v) => typeof v === "number"), `a heatmap without stored values still places all its ${cells.length} cells (from their names)`);
+
   h.section("authoring and files");
   h.eq(patchStagger({ perMs: 40 }, { by: "radial", origin: { x: 1, y: 2 } }), { perMs: 40, by: "radial", origin: { x: 1, y: 2 } }, "patchStagger takes by radial with an origin");
   const refuse = (p: object) => { try { patchStagger({ perMs: 40 }, p as never); return false; } catch { return true; } };

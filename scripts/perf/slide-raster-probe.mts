@@ -48,7 +48,10 @@ check(eResize >= 0.995, `L2 800x450 -> 1000 -> 1400 -> 1920x1080: energy vs a fr
 check(res.scrub.before === 0 && res.scrub.during.every((n: number) => n === 0) && res.scrub.atLast === 0 && res.scrub.after500 === 1, `L3 scrub bakes ${JSON.stringify(res.scrub)} (want 0 during and at the last seek, 1 at +500 ms)`);
 for (const [n, want] of [[10000, 1], [29000, 1], [31000, 0], [60000, 0]] as const) check(res.ceiling[n].bakes === want, `L4 ${n} injected nodes (${res.ceiling[n].nodes} under the camera): bakes ${res.ceiling[n].bakes} (want ${want})`);
 check(res.stall.bakes === 1 && res.stall.maxGapMs <= 34 && res.stall.gapsOver34 === 0, `L7 29 000-node bake: max rAF gap ${res.stall.maxGapMs.toFixed(1)} ms, ${res.stall.gapsOver34} gaps > 34 ms, bakes ${res.stall.bakes} (want <= 34 ms, 0, 1)`);
-check(res.pan.hints.length === 1 && res.pan.hints[0] === "transform", `L5 pan-only will-change values ${JSON.stringify(res.pan.hints)} (want ["transform"]; HEAD ["transform",""])`);
+check(res.pan.hints.length === 1 && res.pan.hints[0] === "transform", `L5 pan-only will-change values ${JSON.stringify(res.pan.hints)}, bakes ${res.pan.bakes} (want ["transform"]; HEAD ["transform",""])`);
+const eRewind = (await energy("rewind_land")) / (await energy("rewind_rest"));
+check(eRewind >= 0.995, `L8 the rewind's landing frame is as sharp as the frame at rest: energy ${eRewind.toFixed(3)} (want >= 0.995: no sharpening on a still frame)`);
+check(res.rewind.sawReverse && res.rewind.atLanding === res.rewind.after500 && res.rewind.atLanding > res.rewind.before, `L8 Back after the zoom: bakes ${res.rewind.before} before, ${res.rewind.atLanding} at the landing, ${res.rewind.after500} 500 ms later (want: the re-bake before the landing, none after)`);
 await fs.rm(out, { recursive: true, force: true });
 if (failures.length) { console.error(`${failures.length} budget(s) missed`); process.exit(1); }
 console.log("slide-raster-probe: all budgets met");

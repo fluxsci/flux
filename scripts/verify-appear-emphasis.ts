@@ -275,5 +275,11 @@ h.section("J. Focus (WP 4.4): dim everything except the selection; Unfocus climb
   for (let t = 1; t <= 700; t++) { const o = op(2, t, "B"); worst = Math.max(worst, Math.abs(o - prev)); prev = o; }
   h.ok(near(op(2, 0, "B"), 0.3) && worst < 0.01 && near(op(2, Infinity, "B"), 1), `Unfocus climbs from 0.3 to 1 with no jump (largest step per ms ${worst.toFixed(4)}; the old highlight started at 0.41)`);
   h.eq(focusOn(d, s.id, d.slides[0].beats[0].id, ["A"]), null, "Focus refuses Design (step 0)");
+  // a second Focus on an object the first one dimmed brings THAT object back to full (the selection always stands out)
+  const b3 = addBeat(d, s.id, { id: "b3" } as never)!; void b3;
+  const d2: any = JSON.parse(JSON.stringify(d)); d2.slides[0].beats.splice(2, 1);   // drop the Unfocus step: B stays dimmed into step 2
+  const again = focusOn(d2, s.id, d2.slides[0].beats[2].id, ["B"])!;
+  const hb = d2.slides[0].beats[2].tracks.find((t: any) => t.target === "B");
+  h.ok(again.brightened.join() === "B" && hb?.preset === "highlight" && hb.params?.level === 0.3 && again.dimmed.includes("A"), "Focus on an object an earlier Focus dimmed: it climbs back to full from 0.3, and the old focus (A) dims");
 }
 await h.done();

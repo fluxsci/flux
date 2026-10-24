@@ -573,7 +573,9 @@ function stickOf(el: { x: number; y: number; closed?: boolean; d: string; nodes?
   return [{ x: el.x + n[0].x, y: el.y + n[0].y }, { x: el.x + n[1].x, y: el.y + n[1].y }];
 }
 
-export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts?: { turn?: TurnMode }): Element {
+/** `haloBackground`: the background a halo without its own colour takes (WP 4.2). Given, a halo colour set on one side only blends from /
+ *  to it instead of stepping halfway (the player knows it; a caller that does not keeps the step). */
+export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts?: { turn?: TurnMode; haloBackground?: string }): Element {
   if (raw <= 0) return structuredClone(pre);
   if (raw >= 1) return structuredClone(end);
   // Across kinds (or a path changing closedness): the outline morph — one
@@ -612,6 +614,8 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t, opts
       out[k] = lerp(fa, fb, t);
     } else if (COLOR_PROPS.has(k) && typeof va === "string" && typeof vb === "string") {
       out[k] = lerpColor(va, vb, t, undefined, raw);
+    } else if (k === "haloColor" && opts?.haloBackground && (typeof va === "string" || typeof vb === "string")) {
+      out[k] = lerpColor(typeof va === "string" ? va : opts.haloBackground, typeof vb === "string" ? vb : opts.haloBackground, t, undefined, raw);
     } else if (k === "dash") {
       const d = lerpDash(va as number[] | undefined, vb as number[] | undefined, t);
       if (d) out[k] = d;

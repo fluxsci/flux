@@ -61,6 +61,9 @@ try {
       const x = await load(a), y = await load(b); let n = 0; for (let i = 0; i < x.length; i += 4) if (Math.max(Math.abs(x[i] - y[i]), Math.abs(x[i + 1] - y[i + 1]), Math.abs(x[i + 2] - y[i + 2])) >= 16) n++; return n; };
   })()`);
   await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.prev");
+  // the runtime's HUD (slide counter + step dots, faded in by the mouse) is not the slide: keep it out of every screenshot
+  await page.addStyleTag({ content: "body > * > div[style*='pointer-events: none'][style*='transition'] { display: none !important; }" });
+  await page.evaluate(`for (const d of document.querySelectorAll("div")) if (/transition: opacity/.test(d.style.cssText) && d.style.pointerEvents === "none") d.style.setProperty("display", "none", "important")`);
   const shot = async () => (await page.screenshot({ encoding: "base64", type: "png" })) as string;
   const diff = (a: string, b: string) => page.evaluate(`window.__diff(${JSON.stringify(a)}, ${JSON.stringify(b)})`) as Promise<number>;
   const st = () => page.evaluate("window.fluxDeck.state()") as Promise<{ beat: number; time: number; playing: boolean; reversing: boolean }>;
@@ -91,12 +94,17 @@ try {
       if (firstVisible < 0 && await diff(png, rest) >= 100) firstVisible = (k + 1) * FRAME;
     }
     const landed = await shot(), q = await st();
+    // wait out the raster keeper's idle debounce and the layer cooling (real time) at the landing: nothing on screen may change any more
+    await new Promise((r) => setTimeout(r, 250)); await page.evaluate("window.__frame(0)");
+    const settled = await shot();
     await seek(s, 0, "Infinity"); const jumped = await shot();
     h.ok(q.beat === 0 && !q.reversing && !q.playing, `the rewind lands on beat 0 after ${rev.length} frames`);
     h.eq(await diff(landed, jumped), 0, "the landing frame is pixel-identical to a jump");
+    h.eq(await diff(landed, settled), 0, "nothing changes after the landing (no re-bake or layer change visible on a still frame)");
     h.ok(rev.length >= 10 && firstVisible > 0 && firstVisible <= 100, `the first visible change comes ${firstVisible.toFixed(0)} ms after Back (<= 100)`);
     const revWorst = await residual(s, rev);
-    h.ok(revWorst <= Math.max(fwdWorst, 4), `every rewind frame is the static sample at its time, as faithfully as forward play: worst ${revWorst} px (forward ${fwdWorst} px over ${fwd.length} frames)`);
+    h.ok(revWorst <= 4, `every rewind frame is the static sample at its time: worst ${revWorst} px (<= 4; forward play's own residual ${fwdWorst} px over ${fwd.length} frames)`);
+
   }
   h.eq(errors, [], "no page errors");
 } catch (err) { h.fail(String((err as Error).stack ?? err)); }

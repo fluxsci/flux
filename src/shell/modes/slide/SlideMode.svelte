@@ -1171,6 +1171,16 @@
   function focusAction(release: boolean) {
     const sid = $activeFigureId, ids = selectionTargets();
     if (!sid || !activeSlide || (!release && !ids.length)) return;
+    // a dry run on a copy first: nothing to dim / bring back writes nothing (no empty step, no undo entry)
+    const overlayNow = get(deckOverlay), probeSlide = composedSlide(sid);
+    if (overlayNow && probeSlide) {
+      const probe = structuredClone({ ...overlayNow, slides: [probeSlide] });
+      const ps = probe.slides[0];
+      if (ps.beats.length < 2) slideOps.addBeat(probe, sid, { label: "Step 1", advance: "click" });
+      const pb = ps.beats[Math.min(Math.max(1, $activeBeat), ps.beats.length - 1)].id;
+      const would = release ? (slideOps.unfocus(probe, sid, pb) ?? []).length : (slideOps.focusOn(probe, sid, pb, ids)?.tracks.length ?? 0);
+      if (!would) { pushToast("info", release ? "Nothing is dimmed at the start of this step." : "Nothing else on the slide is fully visible at this step."); return; }
+    }
     let bi = Math.max(1, $activeBeat), made: string[] = [], skipped: string[] = [];
     commitDeckLive((d) => {
       const slide = slideOps.slideById(d, sid); if (!slide) return;

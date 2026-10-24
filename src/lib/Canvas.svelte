@@ -4790,7 +4790,7 @@
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
         {#each overlayResizedEls as el (el.id)}
-          <ElementView element={el} />
+          <ElementView element={el} haloBackground={gestureFig.background} />
         {/each}
       </g>
     {/if}
@@ -4807,7 +4807,7 @@
               height={cropOverlay.clip.h}
             />
           </clipPath>
-          <g opacity="0.35"><g id="flux-crop-ghost"><ElementView element={cropOverlay.ghost} /></g></g>
+          <g opacity="0.35"><g id="flux-crop-ghost"><ElementView element={cropOverlay.ghost} haloBackground={gestureFig.background} /></g></g>
           <!-- the live window is the SAME content: a native <use> clone of the ghost (full opacity,
                clipped) instead of a second ElementView — a second plot mount was ~120 ms at crop start -->
           <use href="#flux-crop-ghost" clip-path="url(#flux-crop-live)" />
@@ -4831,7 +4831,7 @@
     <!-- draw preview -->
     {#if preview && gesture?.kind === "draw" && gestureFig}
       <g transform={drawPreviewTransform}>
-        <ElementView element={preview} />
+        <ElementView element={preview} haloBackground={gestureFig.background} />
       </g>
     {/if}
     <!-- the T tool's paragraph-box draft: the wrap width being drawn -->

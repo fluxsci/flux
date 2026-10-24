@@ -695,7 +695,7 @@
               <input type="checkbox" checked={$settings.slideBackAnimates !== false} onchange={(e) => settings.update((v) => ({ ...v, slideBackAnimates: e.currentTarget.checked }))} />
               Back plays the step in reverse
             </label>
-            <p class="hint">In Present and in exported decks, <b>Back</b> rewinds the step you just saw instead of cutting to the one before. Pressing Back twice quickly still jumps; slides with video or 3D always cut.</p>
+            <p class="hint">In Present, <b>Back</b> rewinds the step you just saw instead of cutting to the one before. Exported decks always rewind. Pressing Back twice quickly still jumps; slides with video or 3D always cut.</p>
 
             <h3>Figure-Meta captions</h3>
             <label class="chk num">

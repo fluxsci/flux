@@ -661,7 +661,7 @@ export function createTransform(
   const self = {};        // this controller's identity as a content writer
   function seek(u: number, raw = clamp01(u)): void {
     const t = clamp01(u);
-    const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw, { turn: ctx.turn });
+    const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw, { turn: ctx.turn, haloBackground: ctx.haloBackground });
     const contentX = content.x, contentY = content.y;
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
     // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched).

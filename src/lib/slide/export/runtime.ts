@@ -205,7 +205,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
         else mount.requestFullscreen?.();
         break;
       case "rebuild":
-        buildPlayer(player.state());
+        { const now = player.state(); buildPlayer({ slide: now.slide, beat: now.reversing ? now.rewindTo ?? now.beat : now.beat }); }   // a rewind's press is kept
         renderPanel();
         break;
       case "resetTimer":

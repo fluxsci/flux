@@ -1204,8 +1204,9 @@ Persistence invariants (all machine-checked — do not weaken):
   ease-out so the first visible change is one frame away; `rewindRate` = max(1/scale, run/`REWIND_CAP_MS`
   800), scale `BACK_SCALE_DEFAULT` 0.7) from the frame on screen (mid-play too), and LANDS with
   `seek(si, target, Infinity)`: the resting frame is the jump's, pixel for pixel. A rewind emits no
-  beatStart/beatEnd (`state().reversing` instead; `beat` is the later beat until landing), no media
-  ticks and no early camera bakes. It jumps instead under reduced motion, in a `BACK_BURST_MS` (350)
+  beatStart/beatEnd (`state().reversing` + `state().rewindTo` instead; `beat` is the later beat until landing;
+  a host that rebuilds the player mid-rewind lands on `rewindTo`), no media ticks, and the camera's early
+  bake measured to the flight's START pose (the pose a rewind lands on). It jumps instead under reduced motion, in a `BACK_BURST_MS` (350)
   burst, in an Animator range, on video/3D slides, while hand-offs/models are not ready. A Back or Next
   during a rewind lands it first (no lost press; Next then replays the undone beat on the forward
   clock, `manualSteps` only lands). Gates: `verify-slide-rewind` (linkedom: DOM mirror, cap, bursts,

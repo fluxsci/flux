@@ -79,18 +79,22 @@ export function manifestCoordinates(manifest: FluxPlotManifest | undefined, part
   return partIds.map((id) => out.get(id) ?? null);
 }
 
-/** WP 4.3 (W7): each part's distance from `origin` (data units of its series' axes; absent = the centre of the parts) in the plot's PIXEL
- *  space, through each series' own view fits (a log axis, a twin axis, a squashed aspect measure as they look): THE radial order of both
- *  engines (the compiler from the manifest; the player from the same manifest, never DOM attributes). Points at (x, y), bars at the middle
- *  of their bar, hexbins at their centre; heatmap cells in (column, row) index space (square cells assumed; their origin likewise).
- *  Parts the manifest does not place are null and keep their order after the ranked ones (staggerRanks). */
+/** WP 4.3 (W7): each part's distance from `origin` (data units of the panel's PRIMARY axes; absent = the centre of the parts) in the plot's
+ *  PIXEL space, each part placed through its own series' view fits (a log axis, a twin axis, a squashed aspect measure as they look) and
+ *  the origin through the panel's primary fits (one data origin is one point on screen): THE radial order of both engines (the compiler
+ *  from the manifest; the player from the same manifest, never DOM attributes). Points at (x, y), bars at the middle of their bar (its
+ *  baseline + half its length), hexbins at their centre; heatmap cells (named `….cell.<row>.<col>`, stored values or not) in (column, row)
+ *  index space (square cells assumed; their origin likewise). Parts the manifest does not place are null and keep their order after the
+ *  ranked ones (staggerRanks). */
 export function radialCoordinates(manifest: FluxPlotManifest | undefined, partIds: readonly string[], origin?: { x: number; y: number }): (number | null)[] {
   const pos = new Map<string, { x: number; y: number; o: { x: number; y: number } | null }>();
   for (const s of manifest?.series ?? []) {
     const fits = manifest ? viewFits(manifest, undefined, s.panelId) : null, f = fits ? seriesFits(fits, (s as { axis?: string }).axis) : undefined;
     const P = (v: number, axis: "x" | "y") => (f?.[axis] ? projectWith(f[axis]!, v) : v);
     const at = (x: number | null | undefined, y: number | null | undefined) => typeof x === "number" && Number.isFinite(x) && typeof y === "number" && Number.isFinite(y) ? { x: P(x, "x"), y: P(y, "y") } : null;
-    const o = origin ? { x: P(origin.x, "x"), y: P(origin.y, "y") } : null;
+    const primary = fits ? seriesFits(fits, undefined) : undefined;
+    const O = (v: number, axis: "x" | "y") => (primary?.[axis] ? projectWith(primary[axis]!, v) : P(v, axis));
+    const o = origin ? { x: O(origin.x, "x"), y: O(origin.y, "y") } : null;
     const rec = s as unknown as Record<string, unknown>;
     const data = rec.data as { x?: (number | null)[]; y?: (number | null)[] } | undefined;
     for (const p of s.points ?? []) { const q = at(p.x, p.y); if (q) pos.set(p.svgId, { ...q, o }); }
@@ -98,15 +102,15 @@ export function radialCoordinates(manifest: FluxPlotManifest | undefined, partId
     if (bins) for (const b of bins) { const q = b.svgId ? at(b.x, b.y) : null; if (q) pos.set(b.svgId!, { ...q, o }); }
     const bars = s.svg?.bars;
     if (Array.isArray(bars)) {
-      const bar = rec.bar as { length?: (number | null)[]; center?: (number | null)[]; orientation?: string } | undefined, horizontal = bar?.orientation === "horizontal";
+      const bar = rec.bar as { length?: (number | null)[]; center?: (number | null)[]; baseline?: (number | null)[]; orientation?: string } | undefined, horizontal = bar?.orientation === "horizontal";
       bars.forEach((id, i) => {
         const c = bar?.center?.[i] ?? (horizontal ? data?.y?.[i] : data?.x?.[i]) ?? null, len = bar?.length?.[i] ?? (horizontal ? data?.x?.[i] : data?.y?.[i]) ?? null;
-        const q = typeof len === "number" ? (horizontal ? at(len / 2, c) : at(c, len / 2)) : null;
+        const mid = typeof len === "number" ? (bar?.baseline?.[i] ?? 0) + len / 2 : null;   // a stacked / offset bar sits on its own baseline
+        const q = mid != null ? (horizontal ? at(mid, c) : at(c, mid)) : null;
         if (q) pos.set(id, { ...q, o });
       });
     }
-    const field = rec.field as { values?: unknown } | undefined;
-    if (field?.values) for (const c of s.components ?? []) for (const m of c.members ?? []) {
+    for (const c of s.components ?? []) for (const m of c.members ?? []) {
       const mm = /\.cell\.(\d+)\.(\d+)$/.exec(m);
       if (mm) pos.set(m, { x: Number(mm[2]), y: Number(mm[1]), o: origin ? { ...origin } : null });
     }

@@ -337,7 +337,7 @@
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("focus")} title="Dim everything else on the slide at this step (labels inside the selection stay bright)">Focus</button>
         <button class="b" onclick={() => onAction?.("unfocus")} title="Bring back everything a dim left behind, smoothly from where it is">Unfocus</button>
         {#if selectedModels.length && selectedModels.length === sel.length && !$partSelections.length}
-          <button class="b" onclick={() => onAction?.("turntable")} title="One full turn in 6 seconds, easing in and out — edit its Change track (curve Linear = constant speed, for loops)">Turntable</button>
+          <button class="b" onclick={() => onAction?.("turntable")} title="One full turn in 6 seconds, easing in and out — edit its Change track (Pace: Constant speed, for loops)">Turntable</button>
         {/if}
         {#if selectedVideos.length}
           <button class="b" onclick={() => onAction?.("videoStart")} title="Start the selected videos from their first frame at this step">Start video</button>

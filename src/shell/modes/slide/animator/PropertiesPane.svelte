@@ -26,8 +26,8 @@
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc, suggestArcsForBeat, setTrackTurn, setTrackPairLag } from "../../../../lib/slide/ops";
-  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc, suggestArcsForBeat, setTrackTurn, setTrackPairLag, TURNTABLE_SOFT_CURVE } from "../../../../lib/slide/ops";
+  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, refMembers, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest, drawAlongX, sweepSeries } from "../../../../lib/slide/autobuild";
   import { guiPlotMeasures } from "../../../../lib/slide/partLengthGui";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
@@ -171,6 +171,15 @@
   const curFamily = $derived(curTrack ? familyOf(curTrack) : null);
   const curWay = $derived(curTrack && curFamily === "transform" ? transformWay(curTrack) : null);
   const handoff = $derived(isHandoff(curTrack) ? curTrack.to.become : null);
+  /** WP 4.3: does a piece lag act on this hand-off? Two or more pieces (a whole object is one, a part set as many as its parts), not
+   *  text only (letters and rewrites fly by their own driver). */
+  const lagActs = $derived.by(() => {
+    if (!handoff || !curTrack) return false;
+    const count = (ref: import("../../../../lib/slide/types").TargetRef) => refMembers(ref).reduce((n, m) => n + Math.max(1, m.parts?.length ?? 0), 0);
+    const ids = [curTrack.target, ...refMembers(handoff.ref).map((m) => m.element)];
+    const textOnly = ids.every((id) => slide.elements.find((e) => e.id === id)?.type === "text");
+    return !textOnly && Math.max(count(handoff.ref), count(trackRef(curTrack))) >= 2;
+  });
   /** What the object becomes at this step, for the Destination row. */
   const destinationLabel = $derived.by(() => {
     if (!curTrack || curFamily !== "transform") return "";
@@ -750,13 +759,21 @@
         <svg class="arc-preview" aria-hidden="true" width="32" height="28" viewBox="0 0 32 28"><path d={`M2 14 Q16 ${14 + 14 * (curTrack.arc ?? 0)} 30 14`} fill="none" stroke="currentColor"/></svg>
       </label>
       {@render overrideRow("arc")}
-      {#if handoff}
+      {#if handoff && lagActs}
         <label class="f arc-row" title="The pieces of a hand-off peel off one after another in reading order inside the same duration (manim's lag_ratio); 0 = they all fly together">Piece lag
           <input aria-label="Piece lag" type="range" min="0" max="1" step="0.05" value={curTrack.pairLag ?? 0} oninput={e => pairLag(e.currentTarget.value)} onchange={() => sealHistory()}/>
           <span class="arc-value">{mixed(t => t.pairLag ?? 0) ? "Mixed" : (curTrack.pairLag ?? 0).toFixed(2)}</span>
         </label>
       {/if}
       {#if !editingStyle}<div class="f"><button class="sg" title="Give the moves of this step that cross each other an arc (one undo step)" onclick={suggestArcs}>Suggest arcs</button></div>{/if}
+      {#if !handoff && curTargetEl?.type === "model3d" && typeof curTrack.to?.state?.orbitAzimuth === "number"}
+        <!-- WP 4.5: a Turntable's pace named by what the viewer sees (Soft start is the new default; Constant speed for loops and chained spins) -->
+        <label class="f" title="Soft start eases the spin in and out; Constant speed keeps one speed from the first frame to the last (choose it for loops and spins chained step after step)">Pace
+          <select aria-label="Turntable pace" value={curTrack.easing === "linear" && !curTrack.curve ? "constant" : JSON.stringify(curTrack.curve) === JSON.stringify(TURNTABLE_SOFT_CURVE) ? "soft" : "custom"} onchange={(e) => changeCurve(e.currentTarget.value === "constant" ? "linear" : structuredClone(TURNTABLE_SOFT_CURVE), false)}>
+            <option value="soft">Soft start</option><option value="constant">Constant speed</option><option value="custom" disabled>Custom curve</option>
+          </select>
+        </label>
+      {/if}
       {#if !handoff && turnApplies(curTargetEl)}
         <label class="f" title="How a line turns when its ends move: Shrink lerps its ends straight (it shortens mid-turn, and stays joined to whatever it connects); Rigid keeps its length">Turn
           <select aria-label="Line turn" value={curTrack.params?.turn === "rigid" ? "rigid" : "shrink"} onchange={(e) => editFields(t => setTrackTurn(t, e.currentTarget.value === "rigid" ? "rigid" : null), "animator-turn")}>
@@ -844,7 +861,7 @@
             <option value="value" title="each part's data value (a hexagon's mean, a cell's value, a bar's height): low → high">value</option>
             <option value="count" title="observations per hexagon: few → many">count</option>
             <option value="data-index" title="the generator's own index (data-index)">data index</option>
-            <option value="radial" title="distance from the centre of the parts: from start ripples out, from end collapses in (the CLI sets another centre: --stagger-origin x,y)">radial</option>
+            {#if curTargetEl?.type === "plot" || curTrack.stagger?.by === "radial"}<option value="radial" title="distance from the centre of the plot's parts: from start ripples out, from end collapses in (the CLI sets another centre: --stagger-origin x,y)">radial</option>{/if}
           </select>
         </label>
         <label class="f">from

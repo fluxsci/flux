@@ -288,7 +288,8 @@ async function vectorFallbackXml(ctx: SlideContext, el: Element): Promise<string
   const r = (el.rotation * Math.PI) / 180, c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r));
   const bw = el.width * c + el.height * s, bh = el.width * s + el.height * c;
   const bx = el.x + el.width / 2 - bw / 2 - pad, by = el.y + el.height / 2 - bh / 2 - pad;
-  const inner = elementToSvg(el, (id) => ctx.payload.assets?.[id], ctx.ev.plotMarkup, (id) => ctx.payload.assetSizes?.[id]);
+  // (a text with a colormap fill arrives here: its halo, if it has one, takes the slide's background like everywhere else)
+  const inner = elementToSvg(el, (id) => ctx.payload.assets?.[id], ctx.ev.plotMarkup, (id) => ctx.payload.assetSizes?.[id], undefined, ctx.ev.background);
   return svgPicture(ctx, el, standaloneSvg(inner, bw + 2 * pad, bh + 2 * pad, bx, by), bx, by, bw + 2 * pad, bh + 2 * pad, 0);
 }
 

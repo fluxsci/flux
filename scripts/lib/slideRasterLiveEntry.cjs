@@ -94,6 +94,23 @@ app.whenReady().then(async () => {
     res.pan = { hints: [...new Set(seen)], bakes: await bakes(ev) };
     win.destroy();
   }
+  // L8 (WP 4.1): Back after the zoom rewinds it. The layer re-bakes BEFORE the rewind lands (an early bake under the last of the motion),
+  // never on the still frame after it: bakes at the landing == bakes 500 ms later, and the landing frame == the frame at rest.
+  {
+    const { win, ev, shot } = await open(job.html, 1280, 720);
+    await ev(`window.fluxDeck.goTo(${job.zoom},1,{animate:false})`); await sleep(700);
+    const before = await bakes(ev);
+    await ev(`window.fluxDeck.prev()`);
+    const t0 = Date.now(); let landedAt = null, atLanding = null, sawReverse = false;
+    while (Date.now() - t0 < 3000) {
+      const st = await ev(`(()=>{const s=window.fluxDeck.state(); return [s.reversing, window.fluxDeck.rasterBakes ? window.fluxDeck.rasterBakes() : -1]})()`);
+      if (st[0]) sawReverse = true;
+      else if (sawReverse) { landedAt = Date.now() - t0; atLanding = st[1]; await shot("rewind_land"); break; }
+    }
+    await sleep(500); await shot("rewind_rest");
+    res.rewind = { before, atLanding, after500: await bakes(ev), landedAt, sawReverse };
+    win.destroy();
+  }
   fs.writeFileSync(path.join(job.out, "live.json"), JSON.stringify(res, null, 1));
   process.stdout.write(`FLUX_RASTER_LIVE ${JSON.stringify(res)}\n`, () => app.exit(0));
 }).catch(error => { process.stderr.write(`[raster live] ${error && error.stack || error}\n`); app.exit(1); });
