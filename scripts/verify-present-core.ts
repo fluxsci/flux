@@ -135,7 +135,9 @@ for (const [key, plain, shifted] of [
   const source = readFileSync(new URL("../src/lib/slide/export/runtime.ts", import.meta.url), "utf8");
   const start = source.indexOf("  function onKey(e: KeyboardEvent)");
   const end = source.indexOf('  mount.addEventListener("keydown", onKey);', start);
-  assert(start >= 0 && end > start && createHash("sha256").update(source.slice(start, end)).digest("hex") === "b37263863751863654e802c833874ecafc058746b2e3f62f1e9c778a93007485", "exported presentation key runtime is unchanged by the app annotation chord");
+  assert(start >= 0 && end > start && createHash("sha256").update(source.slice(start, end)).digest("hex") === "d62accf6e60ddcb76996c564e377035b837f846ab34e162cf4482f7fd06bab7c", "exported presentation key runtime is unchanged by the app annotation chord");
+// (re-pinned once, deliberately, for WP 4.1: the "rebuild" key (M) lands a rewinding player on its landing beat, PlayerState.rewindTo;
+//  the keymap itself and everything else in onKey are byte-identical)
   const { nav } = navRecorder();
   assert(reducePresentKey("M", true, S0, nav, TOTAL).state.reducedMotion && reducePresentKey("S", true, S0, nav, TOTAL).state.showNotes,
     "portable M/S retain motion and notes behavior (modifier filtering belongs to the app host)");
