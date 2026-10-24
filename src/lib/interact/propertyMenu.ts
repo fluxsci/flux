@@ -21,6 +21,7 @@ import { stylePart } from "../model3d/commandOps";
 import { announceSourceColors } from "../colors";
 import { buildScene3dPartIndex, scene3dPartTargets } from "../model3d/scene3d";
 import { semanticPartIndex } from "../plot/partStyle";
+import { partDrawnHidden } from "../xray/rowContext";
 import type { FluxPlotManifest } from "../plot/types";
 import type { PartSelection } from "../store";
 import { project, mutate, drawStyle, xrayOpen, xrayRoot } from "../store";
@@ -202,11 +203,22 @@ export function buildPartFields(
       group: G,
       kind: "toggle",
       count: n,
-      get: () => !read().hidden,
+      // A plot part reads as DRAWN (a part hidden with its axis is not "visible") and
+      // writes through the one eye toggle (ops.setPartHidden — the X-ray's and the
+      // canvas's x): the subtree normalised, no stale shown-flag left behind.
+      get: () => !(el.type === "plot" ? partDrawnHidden(manifest as FluxPlotManifest | undefined, el.overrides, partId) : read().hidden),
       apply: () => {
         // All-shown → hide all; any hidden → show all (the Layers rule).
-        const anyHidden = readAll().some(style => style.hidden);
-        patch({ hidden: !anyHidden });
+        const hiddenNow = (r: (typeof resolved)[number]) => r.el.type === "plot" ? partDrawnHidden(manifestFor(r.el) as FluxPlotManifest | undefined, r.el.overrides, r.partId) : !!readPartStyle(r.el, r.partId, manifestFor(r.el)).hidden;
+        const hide = !resolved.some(hiddenNow);
+        let switched = false;
+        mutate((proj) => {
+          for (const r of resolved) {
+            if (r.el.type === "plot") ops.setPartHidden(proj, r.el.id, r.partId, hide, manifestFor(r.el) as FluxPlotManifest | undefined);
+            else switched = stylePart(proj, r.el.id, r.partId, { hidden: hide }, models) || switched;
+          }
+        });
+        if (switched) announceSourceColors();
       },
     });
 

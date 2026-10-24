@@ -17,6 +17,7 @@
 // today's; the editor's selection is cleared while picking and restored on
 // cancel. Pure rules live in `pickModel.ts`; DOM hit/rects in `stageHit.ts`.
 
+import { manifestIndex, partFamily } from "../../../../lib/xray/rowContext";
 import { get, fromStore } from "svelte/store";
 import { untrack } from "svelte";
 import { selection, partSelection, partSelections, setPartSelections, activeTool, xrayOpen, xrayRoot, project, importerOpen, hoverId, type PartSelection } from "../../../../lib/store";
@@ -286,19 +287,30 @@ export class BecomePicker {
     this.setUnits(addUnits(kept, next, t.source, this.unitContext()));
   }
   #xrayOwned = new Set<string>();
-  /** Alt+R: open the X-ray on a plot, its current picks pre-selected as rows. */
-  openXray(plotId: string) {
+  /** Alt+R: open the X-ray on a plot, its current picks pre-selected as rows — a
+   *  picked point or tick label included (group members are rows of their own).
+   *  Shift+Alt+R pre-selects their FAMILY instead (one point → the series' points). */
+  openXray(plotId: string, family = false) {
     const t = this.target, fig = this.hooks.fig();
     if (!t || !fig) return;
     const el = fig.elements.find((e) => e.id === plotId);
-    const tree = el?.type === "plot" ? buildPartTree(get(plotManifests)[el.assetId]) : null;
+    const manifest = el?.type === "plot" ? get(plotManifests)[el.assetId] : undefined;
+    const tree = manifest ? buildPartTree(manifest) : null;
     const rowIds = new Set<string>();
     const walk = (n: NonNullable<typeof tree>) => { rowIds.add(n.id); n.children.forEach(walk); };
     if (tree) walk(tree);
+    if (manifest) for (const id of manifestIndex(manifest).memberOf.keys()) rowIds.add(id);
     const seeded = t.units.filter((u) => u.element === plotId && u.part && rowIds.has(u.part));
     this.#xrayOwned = new Set(seeded.map(unitKey));
+    const parts = [...new Set(seeded.map((u) => (family && manifest ? partFamily(manifest, u.part!) ?? u.part! : u.part!)))];
+    if (family && parts.some((id) => !seeded.some((u) => u.part === id))) {
+      // The family IS the pick now (shown in the X-ray, held by the picker — Esc keeps it).
+      const next = targetsToUnits(parts.map((partId) => ({ elementId: plotId, partId })));
+      this.setUnits(addUnits(t.units.filter((u) => !seeded.includes(u)), next, t.source, this.unitContext()));
+      this.#xrayOwned = new Set(next.map(unitKey));
+    }
     selection.set(new Set([plotId]));
-    setPartSelections(seeded.map((u) => ({ elementId: plotId, partId: u.part! })));
+    setPartSelections(parts.map((partId) => ({ elementId: plotId, partId })));
     xrayRoot.set({ kind: "element", figId: fig.id, elementId: plotId });
     xrayOpen.set(true);
   }
@@ -349,7 +361,7 @@ export class BecomePicker {
       // The hovered plot, else the last picked one, else the source (the old selection fallback).
       const ids = [this.hover?.unit.element, get(hoverId), ...[...t.units].reverse().map((u) => u.element), t.source.element];
       const plot = ids.map((id) => fig?.elements.find((el) => el.id === id && el.type === "plot")).find(Boolean);
-      if (plot) this.openXray(plot.id);
+      if (plot) this.openXray(plot.id, e.shiftKey);
       else pushToast("info", "Hover a plot, then press Alt+R to pick its parts.");
       return true;
     }

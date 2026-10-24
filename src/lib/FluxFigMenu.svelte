@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { partContext } from "./xray/rowContext";
+  import type { FluxPlotManifest } from "./plot/types";
   import { numericStep, numericFraction } from "./interact/numericStep";
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
@@ -115,7 +117,16 @@
         const label =
           info?.label ??
           ([info?.role, info?.series, info && "index" in info && info.index !== undefined ? `#${info.index}` : null].filter(Boolean).join(" · ") || parts[0].partId);
-        return { name: `${plotName} › ${label}`, ctx: first?.e.type === "model3d" ? "3D part" : "plot part" };
+        // Where it sits ("X axis › Tick labels"): a bare "Tick labels" never says which axis.
+        const path = first?.e.type === "plot" && m ? partContext(m as FluxPlotManifest, parts[0].partId).path : [];
+        return { name: [plotName, ...path, label].join(" › "), ctx: first?.e.type === "model3d" ? "3D part" : "plot part" };
+      }
+      // The SAME part on several plots (a common X-ray row, ⇧A): name the part, count the plots.
+      const one = parts.every((pt) => pt.partId === parts[0].partId);
+      const m0 = first?.e.type === "plot" ? manifests[first.e.assetId] : undefined;
+      if (one && plots > 1 && m0) {
+        const label = semanticPartIndex(m0)[parts[0].partId]?.label ?? parts[0].partId;
+        return { name: [...partContext(m0, parts[0].partId).path, label].join(" › "), ctx: `${parts.length} plot parts · ${plots} plots` };
       }
       return { name: plots > 1 ? `${plots} plots` : plotName, ctx: `${parts.length} plot parts` };
     }

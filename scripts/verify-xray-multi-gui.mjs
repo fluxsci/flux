@@ -86,7 +86,9 @@ try {
   await page.keyboard.press("x");
   await sleep(200);
   ov = await overrides();
-  ok(ov["xm-a"]["axis.x"]?.hidden === false && ov["xm-b"]["axis.x"]?.hidden === false, "x again shows it on both");
+  // Shown = the hidden flag cleared (a stale `false` would outrank a later family hide).
+  ok(ov["xm-a"]["axis.x"]?.hidden == null && ov["xm-b"]["axis.x"]?.hidden == null, "x again shows it on both (flags cleared)");
+  ok(await page.evaluate(() => [...document.querySelectorAll('.xray .row[data-kind="common"]')].find((r) => r.querySelector(".rlabel")?.textContent.trim() === "X axis")?.querySelector(".eye")?.textContent.trim() === "◉"), "…and the common row's eye reads shown");
 
   await page.keyboard.press('Escape'); await waitForGone(page, '.xray');
   await page.keyboard.down('Alt'); await page.keyboard.press('KeyR'); await page.keyboard.up('Alt');
@@ -109,13 +111,14 @@ try {
   await clickRow("common", "X axis");
   ps = await parts();
   ok(ps.length === 1 && ps[0] === "xm-a:axis.x", "a common pick omits its stashed member");
+  const stashedBefore = JSON.stringify((await overrides())["xm-b"]);
   await page.keyboard.press("x");
-  await waitFor(page, () => window.__flux.figures()[0].elements.find((e) => e.id === "xm-a").overrides["axis.x"]?.hidden === true);
+  await waitFor(page, () => window.__flux.figures()[0].elements.find((e) => e.id === "xm-a").overrides?.["axis.x"]?.hidden === true);
   ov = await overrides();
-  ok(ov["xm-b"]["axis.x"]?.hidden === false, "common hide preserves the stashed plot part");
+  ok(JSON.stringify(ov["xm-b"]) === stashedBefore, "common hide preserves the stashed plot part (byte-identical)");
   await page.keyboard.press("x");
-  await waitFor(page, () => window.__flux.figures()[0].elements.find((e) => e.id === "xm-a").overrides["axis.x"]?.hidden === false);
-  ok((await overrides())["xm-b"]["axis.x"]?.hidden === false, "common show uses only editable members when deciding direction");
+  await waitFor(page, () => window.__flux.figures()[0].elements.find((e) => e.id === "xm-a").overrides?.["axis.x"]?.hidden == null);
+  ok(JSON.stringify((await overrides())["xm-b"]) === stashedBefore, "common show uses only editable members when deciding direction (stashed member untouched)");
   await page.evaluate(() => window.__flux.fig.setEditorSelectionExclusions(new Set()));
 
   // The synthetic root has an eye too: it must act on its plots, not be a no-op.

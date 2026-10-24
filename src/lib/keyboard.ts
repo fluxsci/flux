@@ -12,6 +12,7 @@ import {
   editorSelectionExclusions,
   partSelection,
   partSelections,
+  setPartSelections,
   activeFigureId,
   activeTool,
   undo,
@@ -68,6 +69,7 @@ import "./plotsRail/figureRailHost";
 import { plotsRailOwnsKey, inPlotsRailScope } from "./plotsRail/keyScope";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
+import { partDrawnHidden, partFamily } from "./xray/rowContext";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
 import { modelOrbit } from "./model3d/orbitSession";
@@ -268,16 +270,12 @@ function toggleHiddenX(): boolean {
   if (parts.length) {
     // Any shown → hide all; every one hidden → show all (the Layers rule).
     const p0 = get(project);
+    // As DRAWN (the rendering rule), so a tick label hidden with its family reads hidden.
     const isHidden = (ps: { elementId: string; partId: string }) =>
-      p0.figures.some((f) => f.elements.some((e) => e.id === ps.elementId && (e.type === "plot" || e.type === "model3d") && Boolean(readPartStyle(e, ps.partId, e.type === "model3d" ? get(scene3dManifests)[e.assetId] : get(plotManifests)[e.assetId]).hidden)));
+      p0.figures.some((f) => f.elements.some((e) => e.id === ps.elementId && (e.type === "plot" ? partDrawnHidden(get(plotManifests)[e.assetId], e.overrides, ps.partId) : e.type === "model3d" && Boolean(readPartStyle(e, ps.partId, get(scene3dManifests)[e.assetId]).hidden))));
     const hide = parts.some((ps) => !isHidden(ps));
     commit((p) => {
-      for (const ps of parts)
-        for (const f of p.figures)
-          for (const e of f.elements) {
-            if (e.id !== ps.elementId || (e.type !== "plot" && e.type !== "model3d")) continue;
-            ops.setPartOverride(p, ps.elementId, ps.partId, { hidden: hide });
-          }
+      for (const ps of parts) ops.setPartHidden(p, ps.elementId, ps.partId, hide);
     });
     return true;
   }
@@ -635,8 +633,15 @@ const TOOL_KEYS: Record<string, Tool> = {
 //   3. a selection entirely under ONE group unit (respecting the entered-group
 //      scope) → that group — covers "click a group, Alt+R" (members expand to
 //      the whole set) and any member subset of a single group.
-// Loose non-plot selections keep today's no-op (nothing x-rayable).
-function openXray() {
+//   4. otherwise the plots / models among the selection (Ctrl+A, then Alt+R) —
+//      after the group rule, so a group holding a plot still roots on the group.
+// Nothing x-rayable in the selection keeps today's no-op.
+//
+// Shift+Alt+R opens on the FAMILY: each drilled part widens one level first
+// (one tick label → its tick labels; an axis title → its axis — rowContext
+// partFamily), and that pick is published to the canvas before the X-ray opens.
+function openXray(family = false) {
+  if (family) widenPartsToFamily();
   const p = get(project);
   const ps = get(partSelection);
   const sel = get(selection);
@@ -669,21 +674,54 @@ function openXray() {
     return;
   }
   const scope = get(enteredGroupId);
-  let gid: string | null = null;
-  for (const e of els) {
-    // Unit at the current scope; a DIRECT member of the entered group is its
-    // own unit (groupId null) — those root on the entered group itself, so
-    // Alt+R inside a group still x-rays "the group I'm standing in".
-    const u = unitOf(fig, e, scope);
-    const g = u.groupId ?? (scope && ancestorsOf(fig, e.groupId).includes(scope) ? scope : null);
-    if (!g) return; // a loose element in the mix — nothing to root on
-    if (gid === null) gid = g;
-    else if (gid !== g) return; // spans two units
-  }
+  const groupRoot = (): string | null => {
+    let gid: string | null = null;
+    for (const e of els) {
+      // Unit at the current scope; a DIRECT member of the entered group is its
+      // own unit (groupId null) — those root on the entered group itself, so
+      // Alt+R inside a group still x-rays "the group I'm standing in".
+      const u = unitOf(fig, e, scope);
+      const g = u.groupId ?? (scope && ancestorsOf(fig, e.groupId).includes(scope) ? scope : null);
+      if (!g) return null; // a loose element in the mix — nothing to root on
+      if (gid === null) gid = g;
+      else if (gid !== g) return null; // spans two units
+    }
+    return gid;
+  };
+  const gid = groupRoot();
   if (gid) {
     xrayRoot.set({ kind: "group", figId: fig.id, groupId: gid });
     xrayOpen.set(true);
+    return;
   }
+  // A mixed selection (Ctrl+A: plots + panel letters + text): x-ray its plots.
+  const plots = els.filter((e) => e.type === "plot" || e.type === "model3d");
+  if (plots.length === 1) xrayRoot.set({ kind: "element", figId: fig.id, elementId: plots[0].id });
+  else if (plots.length > 1) xrayRoot.set({ kind: "elements", figId: fig.id, elementIds: plots.map((e) => e.id) });
+  else return;
+  xrayOpen.set(true);
+}
+
+/** Every drilled plot part → its family, one level up (deduped). A part at the top of its plot
+ *  has no family below the plot: it gives way to the plot itself. Models keep their parts. */
+function widenPartsToFamily() {
+  const parts = get(partSelections);
+  if (!parts.length) return;
+  const p = get(project), ms = get(plotManifests);
+  const out: { elementId: string; partId: string }[] = [], seen = new Set<string>(), plotsOnly = new Set<string>();
+  for (const ps of parts) {
+    const el = p.figures.flatMap((f) => f.elements).find((e) => e.id === ps.elementId);
+    const m = el?.type === "plot" ? ms[el.assetId] : undefined;
+    const fam = el?.type === "model3d" ? ps.partId : m ? partFamily(m, ps.partId) : null;
+    if (!fam) { plotsOnly.add(ps.elementId); continue; }
+    const key = ps.elementId + "\u0000" + fam;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ elementId: ps.elementId, partId: fam });
+  }
+  selection.set(new Set([...out.map((x) => x.elementId), ...plotsOnly]));
+  if (out.length) setPartSelections(out);
+  else partSelection.set(null);
 }
 
 export function handleKey(e: KeyboardEvent) {
@@ -811,10 +849,11 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Alt+R: open the X-Ray for the selected plot(s) / group / drilled part.
+  // Alt+R: open the X-Ray for the selected plot(s) / group / drilled part;
+  // Shift+Alt+R opens it on the drilled parts' FAMILY (one tick label → all of them).
   if (e.altKey && !mod && e.code === "KeyR") {
     e.preventDefault();
-    openXray();
+    openXray(e.shiftKey);
     return;
   }
 

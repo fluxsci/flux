@@ -184,11 +184,13 @@ try {
   await page.keyboard.press("x");
   await waitFor(
     page,
-    (pt) => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === "px")?.overrides?.[pt]?.hidden === false,
+    (pt) => window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === "px")?.overrides?.[pt]?.hidden == null,
     TICKS,
     { label: "'x' toggled the part override back" },
   ).catch(() => {});
-  ok((await override(TICKS)) === false, "'x' on the focused part row toggles the override back");
+  // Shown = the hidden flag CLEARED (2026-10-23: a stale `false` used to outrank a later
+  // group hide); the part draws again.
+  ok((await override(TICKS)) == null, "'x' on the focused part row toggles the override back (flag cleared)");
   await clickRow("rect 4");
   await page.keyboard.press("x");
   await waitFor(

@@ -23,6 +23,7 @@
     selection,
     partSelection,
     partSelections,
+    xrayOpen,
     setPartSelections,
     type PartSelection,
     enteredGroupId,
@@ -68,6 +69,8 @@
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick, onDestroy } from "svelte";
+  import { resolveTargets } from "./plot/tree";
+  import { xrayHover, type XrayHoverTarget } from "./xray/hoverHook";
   import { cursorPress } from "./cursor/cursorPress";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
@@ -4350,18 +4353,71 @@
     if (!key) {partWorldBoxes=[];return;}
     await tick();
     if (gen!==partMeasureGeneration || snapshotDestroyed || !hostEl) return;
-    const h=hostEl.getBoundingClientRect(),v=get(viewport);
-    const boxes: Rect[]=[];
-    const picked=get(partSelections), lookup=partNodeLookup(picked.length);
-    for (const ps of picked) {
-      const node=lookup(partDomId(ps.elementId, ps.partId));
-      if (!node) continue;
-      const r=node.getBoundingClientRect();
-      if (!r.width && !r.height) continue;
-      boxes.push({x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom});
-    }
-    partWorldBoxes=boxes;
+    partWorldBoxes=measurePartsWorld(get(partSelections));
   }
+  /** World boxes of plot parts. A part with a node of its own is that node's box; a
+   *  group / series / container without one (Tick labels, a series' points) is measured
+   *  through the LEAVES it controls — one box per drawn leaf, never one box around them
+   *  (a union around a scatter's points would just be the plot area). Hidden leaves draw
+   *  nothing and get no box. */
+  function measurePartsWorld(parts: readonly { elementId: string; partId: string }[]): Rect[] {
+    if (!hostEl || !parts.length) return [];
+    const h=hostEl.getBoundingClientRect(),v=get(viewport);
+    const ms=get(plotManifests), boxes: Rect[]=[];
+    const push=(n: globalThis.Element) => {
+      const r=n.getBoundingClientRect();
+      if (r.width || r.height) boxes.push({x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom});
+    };
+    // Own nodes first (one scene walk only for a big pick); the leaves of the rest are
+    // looked up inside THEIR plot's wrapper — never a walk of every id on the canvas.
+    const own=partNodeLookup(parts.length), misses=new Map<string, string[]>();
+    for (const ps of parts) {
+      const n=own(partDomId(ps.elementId, ps.partId));
+      if (n) push(n);
+      else { const l=misses.get(ps.elementId); if (l) l.push(ps.partId); else misses.set(ps.elementId, [ps.partId]); }
+    }
+    for (const [elementId, partIds] of misses) {
+      const f=findElement($project, elementId);
+      const m=f?.element.type==="plot" ? ms[f.element.assetId] : undefined;
+      const wrapper=hostEl.querySelector(`[data-editor-element-id="${CSS.escape(elementId)}"]`);
+      if (!m || !wrapper) continue;
+      const leaves=partIds.flatMap((id) => resolveTargets(m, id));
+      let byId: Map<string, globalThis.Element> | null=null;
+      if (leaves.length > 4) { byId=new Map(); for (const n of wrapper.querySelectorAll("[id]")) if (!byId.has(n.id)) byId.set(n.id, n); }
+      for (const leaf of leaves) {
+        const dom=partDomId(elementId, leaf);
+        const n=byId ? byId.get(dom) : wrapper.querySelector(`[id="${CSS.escape(dom)}"]`);
+        if (n) push(n);
+      }
+    }
+    return boxes;
+  }
+  // The X-ray row under the pointer (xray/hoverHook): its parts outlined, light and
+  // dashed — "where is this?" answered on the drawing, on every plot for a common row.
+  // Boxes are cached until the project or a plot's drawing changes (a hover never
+  // re-measures a 1,876-point series twice).
+  let xrayHoverWorld: Rect[] = [];
+  let xrayHoverCache = new Map<string, Rect[]>();
+  // A commit or a re-drawn plot invalidates the boxes — and re-measures the row still
+  // hovered (an `x` under the pointer must not leave the old outline behind).
+  $: { void $project; void $plotGen; xrayHoverCache = new Map(); scheduleXrayHover(get(xrayHover)); }
+  let xrayHoverFrame = 0;
+  $: scheduleXrayHover($xrayOpen ? $xrayHover : null);
+  function scheduleXrayHover(t: XrayHoverTarget[] | null) {
+    cancelAnimationFrame(xrayHoverFrame);
+    if (!t?.length) { xrayHoverWorld = []; return; }
+    xrayHoverFrame = requestAnimationFrame(() => {
+      const key = JSON.stringify(t);
+      let boxes = xrayHoverCache.get(key);
+      if (!boxes) { boxes = measurePartsWorld(t); xrayHoverCache.set(key, boxes); }
+      xrayHoverWorld = boxes;
+    });
+  }
+  onDestroy(() => cancelAnimationFrame(xrayHoverFrame));
+  $: xrayHoverScreen = xrayHoverWorld.map((b) => ({ x:$viewport.panX+b.x*$viewport.zoom-2, y:$viewport.panY+b.y*$viewport.zoom-2, w:b.w*$viewport.zoom+4, h:b.h*$viewport.zoom+4 }));
+  /** Many boxes draw as ONE path (a scatter's points), a few as rects. */
+  const BOX_RECTS = 64;
+  const boxesPath = (bs: { x: number; y: number; w: number; h: number }[]) => bs.map((b) => `M${b.x.toFixed(1)} ${b.y.toFixed(1)}h${b.w.toFixed(1)}v${b.h.toFixed(1)}h${(-b.w).toFixed(1)}Z`).join("");
   $: partBoxesScreen = partWorldBoxes.map((b) => ({
     x:$viewport.panX+b.x*$viewport.zoom-2,
     y:$viewport.panY+b.y*$viewport.zoom-2,
@@ -4990,10 +5046,19 @@
       </g>
     {/if}
 
-    <!-- selected plot part -->
-    {#each partBoxesScreen as b, i (i)}
-      <rect class="part-box" x={b.x} y={b.y} width={b.w} height={b.h} fill="none" />
-    {/each}
+    <!-- selected plot part(s): a group / series pick outlines every drawn leaf -->
+    {#if partBoxesScreen.length > BOX_RECTS}
+      <path class="part-box" data-part-boxes={partBoxesScreen.length} d={boxesPath(partBoxesScreen)} fill="none" />
+    {:else}
+      {#each partBoxesScreen as b, i (i)}
+        <rect class="part-box" x={b.x} y={b.y} width={b.w} height={b.h} fill="none" />
+      {/each}
+    {/if}
+
+    <!-- the X-ray row under the pointer (xray/hoverHook) -->
+    {#if xrayHoverScreen.length && !gesture && $xrayOpen}
+      <path class="part-hover xray-hover" data-xray-hover={xrayHoverScreen.length} d={boxesPath(xrayHoverScreen)} fill="none" />
+    {/if}
 
     <!-- parts being MOVED (partBoxesScreen suppresses itself during gestures) -->
     {#each partMoveBoxes as b, i (i)}
@@ -5459,6 +5524,8 @@
   .part-readout-bg { fill: var(--surface-2, #1c1b1a); fill-opacity: 0.94; stroke: var(--line, #8884); stroke-width: 1; }
   .part-readout-text { font: 11px var(--font-mono, ui-monospace, monospace); fill: var(--tx, #cecdc3); pointer-events: none; }
   .part-readout-text.title { fill: var(--accent, #4385be); }
+  /* the X-ray's hovered row: dotted, lighter than a pick's dashed .part-box */
+  .xray-hover { stroke-dasharray: 1 2.5; stroke-linecap: round; opacity: 0.95; }
   .part-hover,
   .part-preview {
     stroke: var(--c-accent-bright);

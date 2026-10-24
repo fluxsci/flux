@@ -62,14 +62,18 @@ export function leavesUnder(n: PartNode): string[] {
   return k ? [k] : [];
 }
 
+const treeIndexMemo = new WeakMap<PartNode, Map<string, PartNode>>();
+/** id → node over a parts tree, memoised per tree object (resolveTargets runs per
+ *  override key on every mount and every Slide frame). */
 function indexTree(root: PartNode | undefined): Map<string, PartNode> {
+  if (root) { const hit = treeIndexMemo.get(root); if (hit) return hit; }
   const m = new Map<string, PartNode>();
   const walk = (n: PartNode) => {
     const k = key(n);
     if (k && !m.has(k)) m.set(k, n);
     for (const c of n.children ?? []) walk(c);
   };
-  if (root) walk(root);
+  if (root) { walk(root); treeIndexMemo.set(root, m); }
   return m;
 }
 
@@ -90,6 +94,21 @@ export function aliasPartId(manifest: FluxPlotManifest | undefined, id: string):
   let best: string | null = null;
   for (const key of Object.keys(aliases)) if (id.startsWith(key + ".") && (best === null || key.length > best.length)) best = key;
   return best === null ? id : aliases[best] + id.slice(best.length);
+}
+
+/** Which leaves the element's overrides draw hidden or shown — a MIRROR of
+ *  applyOverrides (parse.ts), which sets each key's targets in key order, so the
+ *  later key wins. The X-ray's eyes read this, so a row never disagrees with the
+ *  drawing; saved documents render exactly as they always have. */
+export function hiddenLeaves(manifest: FluxPlotManifest | undefined, overrides: Record<string, { hidden?: boolean | null } | undefined> | undefined): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  if (!overrides) return out;
+  for (const k of Object.keys(overrides)) {
+    const h = overrides[k]?.hidden;
+    if (h == null) continue;
+    for (const leaf of resolveTargets(manifest, k)) out.set(leaf, !!h);
+  }
+  return out;
 }
 
 /** The concrete leaf ids an override key controls. Group/container → its leaves; leaf → itself.
@@ -118,6 +137,17 @@ const GROUP_LABEL: Record<string, string> = {
   gridline: "Gridlines",
   point: "Points",
   bar: "Bars",
+  // statistics marks fluxplot groups per series (box plots, error bars, means)
+  errorbar: "Error bars",
+  cap: "Caps",
+  median: "Medians",
+  mean: "Means",
+  whisker: "Whiskers",
+  flier: "Fliers",
+  area: "Areas",
+  line: "Lines",
+  segment: "Segments",
+  region: "Regions",
   // fluxplot's sweep of untagged-but-real artists (whiskers, glow layers, …)
   extra: "Extras",
   // Flux's own orphan defense — SVG content NO part covers (generator gaps)
@@ -183,6 +213,9 @@ const LEAF_LABEL: Record<string, string> = {
 };
 
 function labelFor(node: PartNode, role: string): string {
+  // A panel's authored label is its letter or slug ("a", "twin"): alone in a tree
+  // row it reads as noise, so one word becomes "Panel a" (worded labels stand).
+  if (role === "panel" && node.label && /^[\w-]+$/.test(node.label.trim())) return `Panel ${node.label.trim()}`;
   // Authored display label wins outright — DERIVED manifests (plot/derive.ts)
   // carry them ("X tick 3", "Text “hello”") so vanilla SVGs read friendly in
   // the X-ray instead of falling back to raw node ids.
@@ -205,8 +238,13 @@ function labelFor(node: PartNode, role: string): string {
       return "Entry " + lastIndex(id);
     case "series":
       return "Series: " + (node.id ?? "");
-    case "group":
-      return GROUP_LABEL[node.groupRole ?? ""] ?? node.groupRole ?? "Group";
+    case "group": {
+      const g = node.groupRole ?? "";
+      if (GROUP_LABEL[g]) return GROUP_LABEL[g];
+      // a custom kind's group (`x-contour`) reads as words, like its leaves
+      if (g.startsWith("x-")) { const w = g.slice(2).replace(/-/g, " "); return w.charAt(0).toUpperCase() + w.slice(1); }
+      return g || "Group";
+    }
     case "point":
       return "Point #" + lastIndex(id);
     case "bar":
@@ -226,7 +264,7 @@ function labelFor(node: PartNode, role: string): string {
  *  is appended when the generic label lacks one ("Tick label 3"). Shared by
  *  buildPartIndex and partStyle.partBreadcrumb so names never drift. */
 export function labelForPart(node: PartNode): string {
-  if (node.label) return node.label; // authored labels are complete — no index suffix
+  if (node.label) return node.role === "panel" ? labelFor(node, "panel") : node.label; // authored labels are complete — no index suffix
   const id = key(node) ?? "";
   const role = node.role ?? inferRole(id);
   let label = labelFor(node, role);

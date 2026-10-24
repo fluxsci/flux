@@ -130,7 +130,8 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Alt+1** / **Alt+2** | In the Plots view or the Plot gallery: this project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
-| **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **x** hides the pick, **Enter** or **F** opens their properties, **double-click** re-roots |
+| **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **Shift+A** the same part on every plot of the figure, **←** / **→** up to a row's family / down into it, **x** hides the pick, **Enter** or **F** opens their properties, **Ctrl+Z** undoes, **double-click** re-roots |
+| **Shift+Alt+R** | X-ray the drilled part's **family** (one tick label → all the tick labels), selected on the canvas too |
 | **Alt+M** / **Shift+Alt+M** | Figure-Meta / open it pinned (Figure and Paper) |
 | **Alt+L** | Mark selected text as a panel label |
 | **A** | Open Align & Arrange with Align active — **W/A/S/D** edges, **H/V** X/Y centers, **X/Y** plot spines |
@@ -216,7 +217,7 @@ Everything in the Figure table works on the stage. Additionally:
 | **Backspace** *(Become pick)* | Drop the last pick |
 | **B** / **Enter** *(Become pick)* | Confirm the pick |
 | **R O L P T** *(Become pick)* · **Ctrl+P** · placing from the Plots rail | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
-| **Alt+R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live |
+| **Alt+R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live (**Shift+Alt+R**: with the picks' families) |
 | **B** *(X-ray while Become is armed)* | Become: confirm the whole pick |
 | **Escape** *(Become / Appear from… pick)* | Leave Add mode or close the X-ray first; then cancel without creating a transform |
 | **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |
