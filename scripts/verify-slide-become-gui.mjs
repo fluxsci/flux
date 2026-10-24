@@ -30,7 +30,8 @@ try{
   // --- the menu is ONE class of action with three ways ---------------------------------
   await clickText('.animator .actions button','Transform ▾');await page.waitForSelector('.menu button[role="menuitem"]');
   const items=await page.$$eval('.menu button[role="menuitem"]',els=>els.map(e=>e.firstChild.textContent.trim()));
-  check(items.join('|')==='Change|Ghost…|Become','the Transform menu offers exactly Change · Ghost… · Become');
+  // (WP 4.2 adds Return to Design / to before a step after the three ways; at Design it is offered disabled)
+  check(items.slice(0,3).join('|')==='Change|Ghost…|Become'&&items.slice(3).every(t=>/^Return to /.test(t))&&items.includes('Return to Design'),`the Transform menu offers Change · Ghost… · Become, then Return to… (${items.join(' · ')})`);
   check(!(await page.$$eval('.animator .bar button',els=>els.some(e=>/Data morph|Ghost transform…/.test(e.textContent)))),'the old Change / Ghost transform… / Data morph… buttons are gone');
   await page.keyboard.press('Escape');await paint();
   // --- Become by clicking an existing object ---------------------------------------------
