@@ -397,12 +397,16 @@ uses a repeatable order; edit **Seed** or click **↻** to reshuffle (one Undo r
 The distribution curve controls how densely starts fall within the span: an ease-out curve
 starts widely spaced, then packs later starts together. Springs are clamped to the span.
 Center and Edges keep symmetric pairs together; if every item ties, Total uses input order.
-A single target has no stagger tail.
+A single target has no stagger tail. Order **radial** ranks a plot's points (or bars, hexagons,
+cells) by their distance from the centre of the group, as it looks on screen: from **start** they
+ripple outwards, from **end** they collapse inwards. A deck that uses it is saved in the newer
+format, which older Flux versions do not open.
 
 ```bash
 flux set-track talk slide1 effect1 --stagger-total 800 --stagger-curve enter --stagger-from random --seed 42
 flux set-track talk slide1 effect1 --stagger-each 30
 flux set-track talk slide1 effect1 --stagger-each 30 --stagger-by count
+flux set-track talk slide1 effect1 --stagger-total 900 --stagger-by radial --stagger-origin 2.5,1   # ripple out from (2.5, 1)
 ```
 
 ## Transforms {#transforms}

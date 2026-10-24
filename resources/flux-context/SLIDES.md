@@ -98,7 +98,7 @@ flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (anima
 flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
      [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
      [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
-     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index] [--stagger-spacing even|true] [--seed uint32]
+     [--stagger-from start|end|center|edges|random] [--stagger-by index|x|y|value|count|data-index|radial] [--stagger-origin x,y] [--stagger-spacing even|true] [--seed uint32]
 flux align-tracks <deck> <slideId> --tracks t1,t2 --edge start|end --to ms|t3[:start|end]
      [--beat beatId|index] [--resize]                             # (align_tracks) Alt+A / Alt+D: land resolved edges on a time/edge
 flux inherit-track <deck> <slideId> --from t1 --to t2,t3 [--beat beatId|index] [--include-start] # (inherit_track) exact animation of t1
@@ -302,7 +302,10 @@ re-ticked y label rests at its tick plus the plot's own label offset (about 0.36
 drawn on it. Two versions of a keyed plot (bars by category, cells and hexagons by row.col —
 `capabilities.valueMorph`) Become each other member by member: heights tween, colour values pass
 through the colour law; a bar present in only one version grows / shrinks on its baseline. `--stagger-by value|count|data-index` orders a ramp by each part's data
-(`data-value` / `data-count` / `data-index`; `x` / `y` by position, `index` by target order).
+(`data-value` / `data-count` / `data-index`; `x` / `y` by position, `index` by target order). `--stagger-by radial`
+ranks by distance from `--stagger-origin x,y` (the plot's data units; absent = the parts' centre) measured in the
+plot's pixel space (log axes and aspect as drawn): `--stagger-from start` ripples out, `end` collapses in; a deck
+holding it is written as 0.7.0 (older builds refuse it).
 
 **Colour scale** is the same kind of prop for colour-mapped plots (hexbin, heatmap, scatter
 `c=`, contour bands, colour-mapped bars/lines) saved by fluxplot ≥ 0.3.1: `set-plot-color-scale`

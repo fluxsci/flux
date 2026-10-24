@@ -298,8 +298,12 @@ export interface Stagger {
    *  cell's value, a bar's height), `{ key: "count" }` = observations per hexagon
    *  (data-count), `{ key: "index" }` = the generator's index (data-index).
    *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.) */
-  by?: "index" | "x" | "y" | "data" | { key: "value" | "count" | "index" };
+  by?: "index" | "x" | "y" | "data" | "radial" | { key: "value" | "count" | "index" };
   from?: "start" | "end" | "center" | "edges" | "random";
+  /** WP 4.3 (W7), `by: "radial"`: the point the order ripples out from (`from: "start"`, nearest first) or collapses into (`"end"`), in
+   *  DATA units of the plot's axes. Absent = the centre of the targets. Distances are measured in the plot's PIXEL space (a log axis,
+   *  a squashed aspect read as they look). A deck holding a radial order is written as 0.7.0 (an older build rejects it). */
+  origin?: { x: number; y: number };
   /** "true" spaces the delays by the targets' NORMALISED pixel-space coordinate (a point 30 % of the way along x starts at
    *  30 % of the span) instead of by ordinal rank; needs `by` x|y and `from` start|end. The marker clock of an x-clock sweep
    *  (WP 3.1), written only when the x spacing is irregular. Absent = "even". Not stamped (an older build plays it evenly). */

@@ -284,7 +284,7 @@
     return by.key === "index" ? "data-index" : by.key;
   }
   function staggerByFrom(value: string): Stagger["by"] {
-    return value === "value" ? { key: "value" } : value === "count" ? { key: "count" } : value === "data-index" ? { key: "index" } : value as "index" | "x" | "y";
+    return value === "value" ? { key: "value" } : value === "count" ? { key: "count" } : value === "data-index" ? { key: "index" } : value as "index" | "x" | "y" | "radial";
   }
   function staggerMode(total: boolean) {
     editFields((t, resolved) => {
@@ -844,6 +844,7 @@
             <option value="value" title="each part's data value (a hexagon's mean, a cell's value, a bar's height): low → high">value</option>
             <option value="count" title="observations per hexagon: few → many">count</option>
             <option value="data-index" title="the generator's own index (data-index)">data index</option>
+            <option value="radial" title="distance from the centre of the parts: from start ripples out, from end collapses in (the CLI sets another centre: --stagger-origin x,y)">radial</option>
           </select>
         </label>
         <label class="f">from

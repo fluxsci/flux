@@ -65,7 +65,7 @@ export { resolveEasing, resolveEasingFn } from "../easing";
 import { resolveCurve, type ResolvedCurve } from "../curves";
 import { compileSlide, type CompiledSlide, type AnimationIssue } from "../compile";
 import { staggerRanks, staggerDelay, staggerSeed } from "../stagger";
-import { staggerKey, manifestCoordinates, nodeCoordinate } from "../staggerData";
+import { staggerKey, manifestCoordinates, nodeCoordinate, radialCoordinates } from "../staggerData";
 import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
@@ -483,7 +483,11 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const trueSpacing = track.stagger?.spacing === "true" && (by === "x" || by === "y");
       const fallbackManifest = by && (trueSpacing || by !== "x" && by !== "y") ? manifestFor(track.target, slide, opts, bi) : undefined;
       const fallback = fallbackManifest && "series" in fallbackManifest ? manifestCoordinates(fallbackManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), by!, trueSpacing ? "pixel" : "data") : undefined;
-      const coordinates = !by ? undefined : trueSpacing ? nodes.map((_, i) => fallback?.[i] ?? null)
+      // WP 4.3: a radial order from the manifest ONLY (the compiler's own function), never from DOM attributes
+      const radial = track.stagger?.by === "radial";
+      const radialManifest = radial ? manifestFor(track.target, slide, opts, bi) : undefined;
+      const coordinates = radial ? (radialManifest && "series" in radialManifest ? radialCoordinates(radialManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), track.stagger!.origin) : undefined)
+        : !by ? undefined : trueSpacing ? nodes.map((_, i) => fallback?.[i] ?? null)
         : nodes.map((node, i) => (by === "x" || by === "y" ? spatialCoord(node, by) : nodeCoordinate(node as unknown as Parameters<typeof nodeCoordinate>[0], by)) ?? fallback?.[i] ?? null);
       const ranks = track.stagger ? staggerRanks(n, from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined, trueSpacing ? "true" : "even") : [];
       // Mesh targets have no DOM nodes. Furniture in the same binding keeps

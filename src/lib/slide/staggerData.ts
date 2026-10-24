@@ -11,9 +11,9 @@ import { projectWith, seriesFits, viewFits } from "../plot/project";
 
 export type StaggerKey = "x" | "y" | "value" | "count" | "index";
 
-/** The ordering key behind a `stagger.by`, or null for plain target order. */
+/** The ordering key behind a `stagger.by`, or null for plain target order (and for "radial", ranked by `radialCoordinates`). */
 export function staggerKey(by: Stagger["by"] | undefined): StaggerKey | null {
-  if (!by || by === "index") return null;
+  if (!by || by === "index" || by === "radial") return null;
   if (by === "x" || by === "y") return by;
   if (by === "data") return "value";
   return by.key === "index" ? "index" : by.key;
@@ -77,4 +77,41 @@ export function manifestCoordinates(manifest: FluxPlotManifest | undefined, part
     }
   }
   return partIds.map((id) => out.get(id) ?? null);
+}
+
+/** WP 4.3 (W7): each part's distance from `origin` (data units of its series' axes; absent = the centre of the parts) in the plot's PIXEL
+ *  space, through each series' own view fits (a log axis, a twin axis, a squashed aspect measure as they look): THE radial order of both
+ *  engines (the compiler from the manifest; the player from the same manifest, never DOM attributes). Points at (x, y), bars at the middle
+ *  of their bar, hexbins at their centre; heatmap cells in (column, row) index space (square cells assumed; their origin likewise).
+ *  Parts the manifest does not place are null and keep their order after the ranked ones (staggerRanks). */
+export function radialCoordinates(manifest: FluxPlotManifest | undefined, partIds: readonly string[], origin?: { x: number; y: number }): (number | null)[] {
+  const pos = new Map<string, { x: number; y: number; o: { x: number; y: number } | null }>();
+  for (const s of manifest?.series ?? []) {
+    const fits = manifest ? viewFits(manifest, undefined, s.panelId) : null, f = fits ? seriesFits(fits, (s as { axis?: string }).axis) : undefined;
+    const P = (v: number, axis: "x" | "y") => (f?.[axis] ? projectWith(f[axis]!, v) : v);
+    const at = (x: number | null | undefined, y: number | null | undefined) => typeof x === "number" && Number.isFinite(x) && typeof y === "number" && Number.isFinite(y) ? { x: P(x, "x"), y: P(y, "y") } : null;
+    const o = origin ? { x: P(origin.x, "x"), y: P(origin.y, "y") } : null;
+    const rec = s as unknown as Record<string, unknown>;
+    const data = rec.data as { x?: (number | null)[]; y?: (number | null)[] } | undefined;
+    for (const p of s.points ?? []) { const q = at(p.x, p.y); if (q) pos.set(p.svgId, { ...q, o }); }
+    const bins = (rec.hexmatrix as { bins?: { svgId?: string; x: number; y: number }[] } | undefined)?.bins;
+    if (bins) for (const b of bins) { const q = b.svgId ? at(b.x, b.y) : null; if (q) pos.set(b.svgId!, { ...q, o }); }
+    const bars = s.svg?.bars;
+    if (Array.isArray(bars)) {
+      const bar = rec.bar as { length?: (number | null)[]; center?: (number | null)[]; orientation?: string } | undefined, horizontal = bar?.orientation === "horizontal";
+      bars.forEach((id, i) => {
+        const c = bar?.center?.[i] ?? (horizontal ? data?.y?.[i] : data?.x?.[i]) ?? null, len = bar?.length?.[i] ?? (horizontal ? data?.x?.[i] : data?.y?.[i]) ?? null;
+        const q = typeof len === "number" ? (horizontal ? at(len / 2, c) : at(c, len / 2)) : null;
+        if (q) pos.set(id, { ...q, o });
+      });
+    }
+    const field = rec.field as { values?: unknown } | undefined;
+    if (field?.values) for (const c of s.components ?? []) for (const m of c.members ?? []) {
+      const mm = /\.cell\.(\d+)\.(\d+)$/.exec(m);
+      if (mm) pos.set(m, { x: Number(mm[2]), y: Number(mm[1]), o: origin ? { ...origin } : null });
+    }
+  }
+  const placed = partIds.map((id) => pos.get(id) ?? null), known = placed.filter((p): p is NonNullable<typeof p> => !!p);
+  const centre = known.length ? { x: known.reduce((a, p) => a + p.x, 0) / known.length, y: known.reduce((a, p) => a + p.y, 0) / known.length } : { x: 0, y: 0 };
+  return placed.map((p) => (p ? Math.hypot(p.x - (p.o ?? centre).x, p.y - (p.o ?? centre).y) : null));
 }

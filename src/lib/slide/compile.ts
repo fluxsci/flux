@@ -10,7 +10,7 @@ import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
 import { seriesAxes, seriesTweenable, keyedMorphable, plotViewIssues } from "../plot/project";
 import { staggerRanks, staggerSpan, staggerDelay, staggerSeed } from "./stagger";
-import { staggerKey, manifestCoordinates } from "./staggerData";
+import { staggerKey, manifestCoordinates, radialCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS, presetParam, paramDiagnostics, legacyScaleOf, legacyRotationOf, highlightOpacityAt, dimOpacityAt } from "./presetCatalog";
@@ -166,7 +166,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const staggerBy = staggerKey(track.stagger?.by);
       // spacing "true" (an x-clock sweep's markers) ranks by the PIXEL-space coordinate, from the manifest alone (the player does the same)
       const spacing = track.stagger?.spacing === "true" && (staggerBy === "x" || staggerBy === "y") ? "true" : "even";
-      const coordinates = staggerBy && manifest ? manifestCoordinates(manifest, parts, staggerBy, spacing === "true" ? "pixel" : "data") : undefined;
+      // WP 4.3: a radial order ranks by pixel-space distance from its origin, from the manifest (the player computes the same)
+      const coordinates = track.stagger?.by === "radial" ? (manifest ? radialCoordinates(manifest, parts, track.stagger.origin) : undefined)
+        : staggerBy && manifest ? manifestCoordinates(manifest, parts, staggerBy, spacing === "true" ? "pixel" : "data") : undefined;
       const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined, spacing);
       tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, maxRank: Math.max(0, ...ranks), ease: resolveCurve(track, familyOf(track)) });
     }

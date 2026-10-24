@@ -19,6 +19,9 @@ export interface SchemaFeature<T> { readonly name: string; readonly version: str
 export const DECK_FEATURES: SchemaFeature<Deck>[] = [
   // an older build would play an attached connector at its stored Design geometry while its drivers move away from it
   { name: "attach", version: DECK_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.elements.some(hasAttach)) },
+  // WP 4.3: an older build's validator rejects `stagger.by: "radial"` (and so the whole deck); a linked style can carry it too
+  { name: "radial", version: DECK_SCHEMA_VERSION, has: (deck) => deck.slides.some((s) => s.beats.some((b) => b.tracks.some((t) => t.stagger?.by === "radial")))
+    || Object.values(deck.animStyles ?? {}).some((st) => (st as { stagger?: { by?: unknown } }).stagger?.by === "radial") },
 ];
 /** Canvas features, over the canvas's elements (every figure on it). Registered by: model3d (0.2.0, before the manim study), WP 3.2. */
 export const CANVAS_FEATURES: SchemaFeature<readonly Element[]>[] = [

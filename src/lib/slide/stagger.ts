@@ -110,7 +110,8 @@ export function patchStagger(current: Stagger | undefined, patch: Partial<Stagge
     if (patch[key] !== undefined && (!Number.isFinite(patch[key]) || patch[key]! < 0)) throw new Error(`${key} must be non-negative and finite`);
   }
   if (patch.seed !== undefined && (!Number.isInteger(patch.seed) || patch.seed < 0 || patch.seed > 0xffffffff)) throw new Error("Stagger seed must be an unsigned 32-bit integer");
-  if (patch.by !== undefined && !(typeof patch.by === "string" ? ["index", "x", "y", "data"].includes(patch.by) : ["value", "count", "index"].includes(patch.by?.key ?? ""))) throw new Error("Unknown stagger ordering key");
+  if (patch.by !== undefined && !(typeof patch.by === "string" ? ["index", "x", "y", "data", "radial"].includes(patch.by) : ["value", "count", "index"].includes(patch.by?.key ?? ""))) throw new Error("Unknown stagger ordering key");
+  if (patch.origin !== undefined && patch.origin !== null && !(Number.isFinite(patch.origin.x) && Number.isFinite(patch.origin.y))) throw new Error("A radial stagger's origin needs finite x and y");
   if (patch.from !== undefined && !["start", "end", "center", "edges", "random"].includes(patch.from)) throw new Error("Unknown stagger origin");
   if (patch.spacing !== undefined && !["even", "true"].includes(patch.spacing)) throw new Error("Unknown stagger spacing");
   const next = { ...(current ?? { perMs: 40 }), ...patch };
@@ -121,6 +122,9 @@ export function patchStagger(current: Stagger | undefined, patch: Partial<Stagge
     delete next.spacing;
   }
   if (next.spacing === "even") delete next.spacing;
+  // an origin belongs to a radial order only (asked for elsewhere it is refused; leaving radial drops it); null clears it
+  if ((next.origin as unknown) === null) delete next.origin;
+  if (next.origin && next.by !== "radial") { if (patch.origin) throw new Error("A stagger origin needs by radial"); delete next.origin; }
   if (patch.totalMs !== undefined) delete next.perMs;
   else if (patch.perMs !== undefined) delete next.totalMs;
   if (patch.curve !== undefined) {

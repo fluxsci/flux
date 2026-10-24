@@ -28,8 +28,9 @@ import { ELEMENT_CASCADE_PROPS, TRACK_CASCADE_PROPS, type CascadeSpec, type Trac
 
 const staggerSchema = z.object({
   perMs: z.number().nonnegative().optional(), totalMs: z.number().nonnegative().optional(),
-  by: z.union([z.enum(["index", "x", "y", "data"]), z.object({ key: z.enum(["value", "count", "index"]) }).strict()]).optional(),
+  by: z.union([z.enum(["index", "x", "y", "data", "radial"]), z.object({ key: z.enum(["value", "count", "index"]) }).strict()]).optional(),
   from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+  origin: z.object({ x: z.number(), y: z.number() }).strict().optional(),
   spacing: z.enum(["even", "true"]).optional(),
   seed: z.number().int().min(0).max(0xffffffff).optional(),
   curve: z.union([
@@ -3109,12 +3110,13 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
-    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index. staggerSpacing true (with staggerBy x|y, from start|end) waits each part in proportion to its distance along the axis (an x sweep's markers); even is one step per part.",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index. staggerSpacing true (with staggerBy x|y, from start|end) waits each part in proportion to its distance along the axis (an x sweep's markers); even is one step per part. staggerBy radial orders the parts by their distance (in the plot's pixel space) from staggerOrigin x,y (data units; absent = their centre): from start ripples out, from end collapses in (a deck holding it is written as 0.7.0).",
     params: {
       deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
       staggerEach: z.number().nonnegative().optional(), staggerTotal: z.number().nonnegative().optional(),
       staggerCurve: z.string().optional(), staggerFrom: z.enum(["start", "end", "center", "edges", "random"]).optional(),
-      staggerBy: z.enum(["index", "x", "y", "data", "value", "count", "data-index"]).optional(),
+      staggerBy: z.enum(["index", "x", "y", "data", "value", "count", "data-index", "radial"]).optional(),
+      staggerOrigin: z.string().describe("A radial order's centre, x,y in the plot's data units (staggerBy radial; absent = the centre of the parts)").optional(),
       staggerSpacing: z.enum(["even", "true"]).optional(),
       seed: z.number().int().min(0).max(0xffffffff).optional(),
       styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
@@ -3131,6 +3133,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "stagger-from", into: "staggerFrom" },
       { kind: "flag", at: "stagger-by", into: "staggerBy" },
       { kind: "flag", at: "stagger-spacing", into: "staggerSpacing" },
+      { kind: "flag", at: "stagger-origin", into: "staggerOrigin" },
       { kind: "flag", at: "seed", into: "seed", as: "number" },
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
       { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
@@ -3141,7 +3144,7 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => {
       if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
       const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration", "pairLag"]), ...timingCurveArgs(a) };
-      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "staggerBy", "staggerSpacing", "seed"].some(k => a[k] !== undefined)) {
+      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "staggerBy", "staggerSpacing", "staggerOrigin", "seed"].some(k => a[k] !== undefined)) {
         const stagger: NonNullable<typeof patch.stagger> = {};
         if (a.staggerEach !== undefined) stagger.perMs = n(a.staggerEach);
         if (a.staggerTotal !== undefined) stagger.totalMs = n(a.staggerTotal);
@@ -3149,13 +3152,18 @@ export const VERBS: VerbDef[] = [
         if (a.staggerBy !== undefined) {
           // the CLI spelling: value / count / data-index name the data keys, the rest are the axes
           const by = s(a.staggerBy);
-          stagger.by = by === "value" ? { key: "value" } : by === "count" ? { key: "count" } : by === "data-index" ? { key: "index" } : by as "index" | "x" | "y" | "data";
+          stagger.by = by === "value" ? { key: "value" } : by === "count" ? { key: "count" } : by === "data-index" ? { key: "index" } : by as "index" | "x" | "y" | "data" | "radial";
         }
         if (a.staggerSpacing !== undefined) {
           if (a.staggerSpacing !== "even" && a.staggerSpacing !== "true") throw new ValidationError("stagger spacing must be even or true");
           stagger.spacing = a.staggerSpacing;
         }
         if (a.seed !== undefined) stagger.seed = n(a.seed);
+        if (a.staggerOrigin !== undefined) {
+          const xy = s(a.staggerOrigin).split(",").map(Number);
+          if (xy.length !== 2 || !xy.every(Number.isFinite)) throw new ValidationError("stagger origin must be x,y (numbers, the plot's data units)");
+          stagger.origin = { x: xy[0], y: xy[1] };
+        }
         if (a.staggerCurve !== undefined) {
           const curve = parseCurve(s(a.staggerCurve));
           if (!curve) throw new ValidationError("Invalid stagger curve");
