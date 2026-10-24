@@ -1309,6 +1309,16 @@ export function setBoxDim(el: Element, which: "w" | "h", v: number, base?: { w: 
   else el.height = v;
 }
 
+export function setPlotLayoutMode(project:Project,elIds:string[],mode:"stretch"|null):void {
+  if(!elIds.length)throw new Error("Choose at least one plot");
+  if(mode!==null&&mode!=="stretch")throw new Error("Layout mode must be auto or stretch");
+  const elements=elIds.map(id=>project.figures.flatMap(f=>f.elements).find(e=>e.id===id));
+  if(elements.some(e=>e?.type!=="plot"))throw new Error("Every layout target must be a plot");
+  for(const e of elements)if(e?.type==="plot"){if(mode)e.layoutMode=mode;else delete e.layoutMode;}
+}
+/** Plot layout operations are loaded only when invoked; the editor shell stays cold. */
+export const loadPlotRelayoutOps=()=>import('./plot/relayout/ops');
+
 // ---------------------------------------------------------------------------
 // Styling — element-level + semantic-plot per-part overrides
 // ---------------------------------------------------------------------------

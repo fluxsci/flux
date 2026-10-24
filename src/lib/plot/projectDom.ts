@@ -2,13 +2,15 @@
 // All identities, fits and guide values bind once; frames reuse numeric buffers.
 import type { PlotView, PlotAxisKey } from "../types";
 import type { FluxPlotManifest, FluxPlotSeries, FluxPlotAxis } from "./types";
-import { partDomId } from "./parse";
-import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, retickable,
+import { partDomId,applyTickGroupOverrides } from "./parse";
+import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, retickable,capturedAxis,
   seriesAxes, seriesVertices, seriesTweenable, viewFits, lerpData, type Fit, type Fits, type MorphPoint } from "./project";
 import { transformToAncestor } from "./svgMatrix";
 import { ticksFor, scalarLabels, formatTick } from "./ticks";
 import { effectiveScale, parseColormap, slotFor, normalize, INDEX_KINDS, rgbHex, shortFloat } from "./colorscale";
 import { colormapLut } from "../color/colormapLuts";
+import { ticksAt } from "./relayout/ticking";
+import {writeMathLabel} from "./relayout/mathLabel";
 import type { ColorScaleView } from "../types";
 
 interface Field { value: string | null; written: boolean }
@@ -112,6 +114,8 @@ export interface PlotViewOptions {
   series?: (a: FluxPlotSeries) => FluxPlotSeries | null;
   /** Panel ownership and pristine guide anchors for an asset transition. */
   toManifest?: FluxPlotManifest;
+  rawFromManifest?:FluxPlotManifest;
+  rawToManifest?:FluxPlotManifest;
   fromView?: PlotView;
   sourceRoot?: Element;
   targetRoot?: Element;
@@ -169,6 +173,7 @@ interface ShapeBinding {
 interface Projection {
   series: SeriesBinding[]; guides: GuideBinding[]; panels: Panel[]; shapes: ShapeBinding[];
   interpolated: boolean;
+  templates:Map<Element,Element>;
   /** Per panel and axis key: the view axis' tick scheme, for re-ticking at rest. */
   axesInfo: Map<string | undefined, Record<string, { locator?: string; formatter?: string; scale: string }>>;
 }
@@ -231,9 +236,15 @@ const paintOfGroup = (node: Element): "fill" | "stroke" | "both" => {
 };
 interface CachedProjection { manifest: FluxPlotManifest; view: PlotView | undefined; opts: PlotViewOptions | undefined; plan: Projection }
 const plans = new WeakMap<Element, CachedProjection[]>();
+/** A changed figsize supplies new pristine geometry on this same clone. */
+export function resetProjectionBindings(root:Element):void {
+  restoreProjection(root);
+  for(const el of roots.get(root)??[])pristine.delete(el);
+  roots.delete(root);plans.delete(root);
+}
 
 function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): Projection {
-  if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], shapes: [], interpolated: false, axesInfo: new Map() };
+  if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], shapes: [], interpolated: false, axesInfo: new Map(),templates:new Map() };
   const nodes = roots.get(root) ?? new Set<Element>(); roots.set(root, nodes);
   // One id index per bind (first element in document order wins, exactly what
   // root.querySelector('[id="…"]') returned): a per-leaf querySelector scanned
@@ -259,8 +270,8 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
       if (rec) info[key] = { locator: rec.tickLocator, formatter: rec.tickFormatter, scale: rec.scale };
     }
     axesInfo.set(ax.panelId, info);
-    const rawA = viewFits(manifest, undefined, ax.panelId);
-    const rawB = viewFits(opts?.toManifest ?? manifest, undefined, ax.panelId);
+    const rawA = viewFits(opts?.rawFromManifest??manifest, undefined, ax.panelId);
+    const rawB = viewFits(opts?.rawToManifest??opts?.toManifest ?? manifest, undefined, ax.panelId);
     const from = (manifest.axes.length === 1 ? opts?.from : undefined) ?? viewFits(manifest, opts?.fromView, ax.panelId);
     const to = (manifest.axes.length === 1 ? opts?.to : undefined) ?? viewFits(opts?.toManifest ?? manifest, view, ax.panelId);
     const endAxes = (opts?.toManifest ?? manifest).axes.find(a => a.panelId === ax.panelId);
@@ -364,7 +375,8 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
       const found = q(leaf);
       const path = pathOf(found);
       if (!path) continue;
-      const subpaths = polygonInData(path, root, sRaw);
+      const source=opts?.rawFromManifest?opts.sourceRoot?.querySelector(`[id="${leaf}"]`):null,sourcePath=source?pathOf(source):null;
+      const subpaths = polygonInData(sourcePath??path, sourcePath?opts!.sourceRoot!:root, sRaw);
       if (!subpaths) continue;
       const binding: ShapeBinding = { node: path, panel, from: sFrom, to: sTo, fits: sFits, subpaths };
       if (b && sRawB && opts?.targetRoot) {
@@ -384,8 +396,8 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     }
   }
   const guides: GuideBinding[] = [];
-  const data = guideData(manifest, opts?.sourceRoot ?? root, opts?.sourceRoot ? "" : elId);
-  const targetData = opts?.targetRoot ? guideData(opts.toManifest ?? manifest, opts.targetRoot) : data;
+  const data = guideData(opts?.rawFromManifest??manifest, opts?.sourceRoot ?? root, opts?.sourceRoot ? "" : elId);
+  const targetData = opts?.targetRoot ? guideData(opts.rawToManifest??opts.toManifest ?? manifest, opts.targetRoot) : data;
   for (const [leaf, g] of new Map([...targetData, ...data])) {
     const axes = guideAxes(manifest, leaf), panel = panels.get(axes?.panelId), node = q(leaf);
     if (!axes || !panel || !node) continue;
@@ -396,7 +408,7 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin: projectWith(rawFitA, g.value),
       end: projectWith(rawFitB, targetData.get(leaf)?.value ?? g.value), delta: g.axis.startsWith("x") ? { dx: 0 } : { dy: 0 }, leaf, kind });
   }
-  return { series, guides, panels: [...panels.values()], shapes, interpolated: opts?.geometryInterpolated ?? false, axesInfo };
+  return { series, guides, panels: [...panels.values()], shapes, interpolated: opts?.geometryInterpolated ?? false, axesInfo,templates:new Map(guides.map(g=>[g.node,g.node.cloneNode(true) as Element])) };
 }
 function projection(root: Element, manifest: FluxPlotManifest, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): Projection {
   let entries = plans.get(root);
@@ -473,7 +485,9 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
   const atRest = !!opts?.assetChange && (progress >= 1 && !view || progress <= 0 && !opts.fromView);
   // at rest with a view, an axis whose domain or scale changed gets ticks generated for the new
   // domain (its own scheme: nice 1·2·5 steps or decades) in place of the generated ones (F4)
-  const reticked = !opts && !!view ? retick(root, plan, view, manifest) : new Set<Element>();
+  const restingView=opts&&progress<=0?opts.fromView:view;
+  const restingManifest=opts&&progress>=1?opts.toManifest??manifest:manifest;
+  const reticked = (!opts||!!opts.rawFromManifest&&(progress<=0||progress>=1))&&restingView ? retick(root, plan, restingView, restingManifest,!!opts&&progress>=1) : new Set<Element>();
   if (!reticked.size) dropRetick(root);
   for (const g of plan.guides) {
     if (reticked.has(g.node)) continue;
@@ -496,13 +510,13 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
  *  decimals for a plain linear axis, 10ᵏ for a log one). Category, date, fixed and offset
  *  (sci) schemes keep the generated ticks, which the guide pass moves and fades instead.
  *  Returns the generated guide nodes that were replaced (hidden). */
-function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxPlotManifest): Set<Element> {
+function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxPlotManifest,atEnd=false): Set<Element> {
   dropRetick(root);
   const replaced = new Set<Element>();
   const clones: Element[] = [];
   const byAxis = new Map<string, GuideBinding[]>();
   for (const g of plan.guides) {
-    const key = `${plan.panels.indexOf(g.panel)}|${g.axis}`;
+    const key = `${plan.panels.indexOf(g.panel)}|${g.axis}|${g.leaf.includes('.secondary.')?'far':'near'}|${g.leaf.includes('.minor.')?'minor':'major'}`;
     (byAxis.get(key) ?? byAxis.set(key, []).get(key)!).push(g);
   }
   for (const [key, guides] of byAxis) {
@@ -511,15 +525,20 @@ function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxP
     const patch = view[axis];
     const panelId = [...(plan.axesInfo.keys())][Number(panelIndex)];
     if (!patch || !retickable(manifest, view, panelId, axis)) continue;
-    const fit = panel.fits[axis], raw = panel.rawA[axis];
+    const fit = panel.fits[axis], raw = (atEnd?panel.rawB:panel.rawA)[axis];
     if (!fit || !raw) continue;
-    const domain = patch.domain ?? [dataOfPixel(raw, (panel.ranges[axis] ?? panel.xRange)[0]), dataOfPixel(raw, (panel.ranges[axis] ?? panel.xRange)[1])];
+    const domain = patch.domain ?? [dataOfPixel(raw, ((atEnd?panel.endRanges:panel.ranges)[axis] ?? panel.xRange)[0]), dataOfPixel(raw, ((atEnd?panel.endRanges:panel.ranges)[axis] ?? panel.xRange)[1])];
     const log = fit.log;
-    const values = ticksFor(log ? "log" : "linear", Math.min(...domain), Math.max(...domain));
+    const captured=capturedAxis(manifest,panelId,axis);
+    const ck=axis.startsWith('x')?'x':'y',input=captured?.ticking[ck],rangeForPort=(atEnd?panel.endRanges:panel.ranges)[axis]??(axis.startsWith('x')?panel.xRange:panel.yRange);
+    const table=input?ticksAt({...input,domain,scale:log?'log':'linear',retick:true},Math.abs(rangeForPort[1]-rangeForPort[0]),manifest.layout!.fonts[captured!.axisStyle[ck].font]?.sizePt??10,ck==='y'):null;
+    const minor=key.endsWith('|minor');
+    if(minor&&(!input||input.minorRetick===false))continue;
+    const values = (minor?table?.minor:table?.values)??ticksFor(log ? "log" : "linear", Math.min(...domain), Math.max(...domain));
     if (!values.length) continue;
-    const range = panel.ranges[axis] ?? (axis.startsWith("x") ? panel.xRange : panel.yRange);
+    const range = (atEnd?panel.endRanges:panel.ranges)[axis] ?? (axis.startsWith("x") ? panel.xRange : panel.yRange);
     const lo = Math.min(...range), hi = Math.max(...range);
-    const labels: { text: string; base?: string; exponent?: string }[] = log ? values.map((v) => formatTick(v, "log")) : scalarLabels(values).map((text) => ({ text }));
+    const labels: { text: string; base?: string; exponent?: string }[] = table?(minor?table.minorLabels:table.labels).map(text=>{const m=/^\$\\mathdefault\{([\d.]+)\^\{([^}]+)\}\}\$$/.exec(text);return m?{text,base:m[1],exponent:m[2]}:{text:text.replace(/\$|\\mathdefault\{|[{}]/g,'')};}):log ? values.map((v) => formatTick(v, "log")) : scalarLabels(values).map((text) => ({ text }));
     const template = (kind: GuideBinding["kind"]) => guides.find((g) => g.kind === kind && (g.node as SVGElement).style.getPropertyValue("display") !== "none");
     const templates = { tick: template("tick"), "tick-label": template("tick-label"), gridline: template("gridline") };
     if (!templates.tick && !templates["tick-label"]) continue;
@@ -531,11 +550,12 @@ function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxP
       for (const kind of ["tick", "tick-label", "gridline"] as const) {
         const tpl = templates[kind];
         if (!tpl) continue;
-        const clone = tpl.node.cloneNode(true) as Element;
+        const clone = (plan.templates.get(tpl.node)??tpl.node).cloneNode(true) as Element;
         clone.setAttribute("id", `${tpl.node.getAttribute("id") ?? tpl.leaf}.view.${i}`);
-        clone.setAttribute("data-projection-tick", "");
+        for(const child of Array.from(clone.querySelectorAll("[id]")))child.removeAttribute("id");
+        clone.setAttribute("data-projection-tick", "");clone.setAttribute("data-relayout-source",tpl.leaf);clone.setAttribute("data-value",String(v));
         (clone as SVGElement).style.removeProperty("display");
-        const delta = pixel - tpl.origin;
+        const delta = pixel - (atEnd?tpl.end:tpl.origin);
         const original = tpl.node.getAttribute("transform");
         const pristineTransform = pristine.get(tpl.node)?.attrs.get("transform");
         const base = pristineTransform?.written ? pristineTransform.value : original;
@@ -544,7 +564,9 @@ function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxP
           const text = clone.tagName.toLowerCase() === "text" ? clone : clone.querySelector("text");
           if (text) {
             const label = labels[i];
-            if (label.exponent !== undefined) text.innerHTML = `${label.base}<tspan baseline-shift="super" style="font-size: 70%">${label.exponent}</tspan>`;
+            const native=manifest.layout?.texts[tpl.leaf],font=native?manifest.layout?.fonts[native.font]:undefined,rawLabel=table?(minor?table.minorLabels:table.labels)[i]:undefined;
+            if(rawLabel?.startsWith('$')&&native&&font)writeMathLabel(clone,rawLabel,native,font);
+            else if (label.exponent !== undefined) text.innerHTML = `${label.base}<tspan baseline-shift="super" style="font-size: 70%">${label.exponent}</tspan>`;
             else text.textContent = label.text;
           }
         }
@@ -555,6 +577,6 @@ function retick(root: Element, plan: Projection, view: PlotView, manifest: FluxP
       }
     });
   }
-  if (clones.length) retickClones.set(root, clones);
+  if (clones.length){retickClones.set(root, clones);applyTickGroupOverrides(root);}
   return replaced;
 }

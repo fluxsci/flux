@@ -535,6 +535,30 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name:"resize_plot",scope:"project",cli:"resize-plot",cliRoot:"flags",
+    summary:"Resize a plot's figsize without Python. Supported fluxplot layouts reflow; older or unsupported plots stretch with a reason. Content scale is respected.",
+    params:{figure:z.string().optional(),element:z.string(),width:z.number().positive().optional(),height:z.number().positive().optional(),unit:z.enum(["in","cm","pt","px"]).default("in"),keepAspect:z.boolean().optional()},
+    cliArgs:[{kind:"pos",at:0,into:"element",required:true},{kind:"flag",at:"figure",into:"figure"},{kind:"flag",at:"width",into:"width",as:"number"},{kind:"flag",at:"height",into:"height",as:"number"},{kind:"flag",at:"unit",into:"unit"},{kind:"flag",at:"keep-aspect",into:"keepAspect",as:"boolean"}],
+    handler:(ctx,a)=>core.resizePlot(ctx.root,a as Parameters<typeof core.resizePlot>[1]),
+    render:{human:r=>({out:JSON.stringify(r,null,2)}),mcp:r=>text(JSON.stringify(r))},
+  },
+  {
+    name:"match_plot_areas",scope:"project",cli:"match-plot-areas",cliRoot:"flags",
+    summary:"Match selected plots' data-area height, width or both in one edit. The explicit reference, else first element, keeps its figsize.",
+    params:{figure:z.string().optional(),elements:z.array(z.string()).min(2),dimension:z.enum(["height","width","both"]),reference:z.string().optional(),panel:z.string().optional()},
+    cliArgs:[{kind:"rest",at:0,into:"elements",required:true},{kind:"flag",at:"figure",into:"figure"},{kind:"flag",at:"dimension",into:"dimension",required:true},{kind:"flag",at:"reference",into:"reference"},{kind:"flag",at:"panel",into:"panel"}],
+    handler:(ctx,a)=>core.matchPlotAreas(ctx.root,a as Parameters<typeof core.matchPlotAreas>[1]),
+    render:{human:r=>({out:JSON.stringify(r,null,2)}),mcp:r=>text(JSON.stringify(r))},
+  },
+  {
+    name:"set_plot_layout_mode",scope:"project",cli:"set-plot-layout-mode",cliRoot:"flags",
+    summary:"Choose automatic elastic reflow or physical-ink stretch for plot elements. Auto is stored as absence.",
+    params:{figure:z.string().optional(),elements:z.array(z.string()).min(1),mode:z.enum(["auto","stretch"])},
+    cliArgs:[{kind:"rest",at:0,into:"elements",required:true},{kind:"flag",at:"figure",into:"figure"},{kind:"flag",at:"mode",into:"mode",required:true}],
+    handler:(ctx,a)=>core.setPlotLayoutMode(ctx.root,a as Parameters<typeof core.setPlotLayoutMode>[1]),
+    render:{human:r=>({out:JSON.stringify(r,null,2)}),mcp:r=>text(JSON.stringify(r))},
+  },
+  {
     name: "rotate_elements",
     scope: "project",
     cli: "rotate",
@@ -2498,8 +2522,8 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => core.validate(ctx.root, a.file as string | undefined),
     render: {
       human: (r) => {
-        const c = r as { ok: boolean; checked: number; errors: string[]; warnings?: string[] };
-        const lines = (c.warnings ?? []).map((w) => `⚠ ${w}`);
+        const c = r as { ok: boolean; checked: number; errors: string[]; warnings?: string[];infos?:string[] };
+        const lines = [...(c.infos??[]).map(i=>`ℹ ${i}`),...(c.warnings ?? []).map((w) => `⚠ ${w}`)];
         if (c.ok) {
           lines.push(`✓ valid (${c.checked} file(s) checked${c.warnings?.length ? `, ${c.warnings.length} warning(s)` : ""})`);
           return { err: lines.join("\n") };
@@ -2508,9 +2532,10 @@ export const VERBS: VerbDef[] = [
         return { err: lines.join("\n"), exit: 1 };
       },
       mcp: (r) => {
-        const c = r as { ok: boolean; checked: number; errors: string[]; warnings?: string[] };
+        const c = r as { ok: boolean; checked: number; errors: string[]; warnings?: string[];infos?:string[] };
+        const info=c.infos?.length?"\ninfo:\n"+c.infos.map(i=>"  "+i).join("\n"):"";
         const warn = c.warnings?.length ? `\nwarnings:\n` + c.warnings.map((w) => `  ${w}`).join("\n") : "";
-        return text(c.ok ? `valid (${c.checked} file(s) checked)${warn}` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n") + warn);
+        return text(c.ok ? `valid (${c.checked} file(s) checked)${warn}${info}` : `INVALID (${c.errors.length}):\n` + c.errors.join("\n") + warn+info);
       },
     },
   },

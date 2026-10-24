@@ -831,6 +831,14 @@ Deleting a referenced slide or removing its deck lists the affected documents, i
 open unsaved documents, before you can choose to proceed. Deleting a block in Paper does
 not delete the source. HTML exports retain manual playback; PDF and Word show step 0.
 
+## Plot resize changes
+
+A **Change** that resizes a fluxplot ≥ 0.4 plot reflows its axes while keeping text, strokes
+and markers at their physical sizes. Tick sets crossfade when a size change needs different
+ticks. Dense plots use a fast preview and settle to the exact layout at the endpoint.
+The same layout is used in exported presentations. Stretch and unsupported-layout reasons
+follow the plot's Layout setting.
+
 # Troubleshooting
 
 | Symptom | Cause → fix |

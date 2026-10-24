@@ -3,7 +3,7 @@ import type { SlideFrame } from "./compile";
 import type { Track, TargetRef, BecomeSpec } from "./types";
 import type { StageOutline } from "./stageOutline";
 import { trackRef, isWholeElementRef } from "./targets";
-import { targetOutlines, plotStageMapping, type GeometryCtx } from "./targetGeometry";
+import { targetOutlines, plotStageMapping, geometryPlotRoot, geometryPlotManifest, type GeometryCtx } from "./targetGeometry";
 import { planCorrespondence, type CorrespondencePlan, type DataHint } from "./correspondence";
 import { viewFits } from "../plot/project";
 
@@ -29,7 +29,7 @@ function axisHint(ref: TargetRef, outlines: StageOutline[], frame: SlideFrame, c
   if (ref.members) return undefined;
   const plot = frame.elements.find(el => el.id === ref.element);
   if (plot?.type !== "plot" || plot.rotation % 360 !== 0) return undefined;
-  const manifest = ctx.manifest(plot.assetId), root = ctx.plotRoot(plot.assetId);
+  const manifest = geometryPlotManifest(ctx,plot), root = geometryPlotRoot(ctx,plot);
   if (!manifest || !root) return undefined;
   const seriesId = outlines.find(o => o.owner.series)?.owner.series;
   const series = manifest.series?.find(s => s.id === seriesId);

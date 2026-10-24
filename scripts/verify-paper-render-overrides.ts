@@ -135,7 +135,6 @@ try {
   const lineEl = lineFig.elements.find(e => e.type === "plot")! as import("../src/lib/types").SemanticPlotElement;
   const lineManifest = JSON.parse(lineManifestText);
   const { cachePlot } = await import("../src/lib/plot/store");
-  const { plotToSvgMarkup } = await import("../src/lib/plot/export");
   const { buildPlotMarkup } = await import("../src/lib/plot/inlineMarkup");
   const { projectWith, viewFits } = await import("../src/lib/plot/project");
   const { setAssetData } = await import("../src/lib/assets");
@@ -148,8 +147,10 @@ try {
     __seedFigures([ref(lineFig.id)], { [lineFig.id]: lineFig }, { [lineEl.assetId]: `data:image/svg+xml;base64,${Buffer.from(lineText).toString("base64")}` }, [], { [lineEl.assetId]: lineManifest }, []);
     const headless = await core.renderFigureSvg(root, lineFig.id);
     h.ok(renderFigureSvgForDisk(lineFig.id) === headless, `paper/core byte parity with view=${!!view}`);
-    const liveExport = plotToSvgMarkup(lineEl), inline = buildPlotMarkup(lineText, lineEl, lineEl.overrides, lineManifest);
-    h.ok(liveExport === inline, `figure export/inline byte parity with view=${!!view}`);
+    const inline = buildPlotMarkup(lineText, lineEl, lineEl.overrides, lineManifest);
+    // The unused plot/export adapter was retired by elastic relayout: Figure,
+    // Paper and core all call the same inline builder. Test the actual embed.
+    h.ok(!!inline&&headless.includes(inline), `figure export embeds shared inline bytes with view=${!!view}`);
     if (view) {
       const parsed = new DOMParser().parseFromString(headless, "image/svg+xml");
       const d = parsed.querySelector(`[id="${lineEl.id}__2hz.line"] path`)!.getAttribute("d")!;

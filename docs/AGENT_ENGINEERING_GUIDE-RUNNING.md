@@ -179,6 +179,7 @@ The established shared cores — extend these, don't duplicate them:
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
+| Elastic plot layout, ticks, SVG frames, variants and size matching | `src/lib/plot/relayout/` (pure solver/apply; `ops.ts` loaded lazily by UI/bridge and flux-core adapter) | `group:relayout`, `group:relayout-native`; matplotlib oracle, parity, source-sync, UI and scale gates |
 | Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
@@ -4301,6 +4302,20 @@ outside this PNG packaging change.
   opt-in, and the zoom-proxy capture policy (a capture must not start while a button is down / should wait
   for a short pointer-still moment, or become incremental — ~7 ms of parse per 1k nodes today). Display facts for this desktop: two Dell 4K panels at 60 Hz that support 120 Hz; native Wayland is
   the right default (X11 renders 2.56× the pixels through Mutter's downsample).
+
+### Elastic plot reflow pipeline
+
+For layout-capable plots: clone pristine SVG → prefix IDs → reflow → prepare view → apply
+part overrides → project view. Reflow already preserves physical typography, so skip
+`compensatePtTrue`; Stretch keeps the existing compensation path. Never measure text in
+relayout: all metrics come from the matplotlib capture. Placement identity comes from `parse.ts`/`prefixIds`, independently of the CSS scope attribute:
+prepared SVGs can be style-less. Retick IDs follow original numeric
+values; new `.r<i>` ticks inherit group overrides only. A leaf override remains dormant when
+its original value disappears and returns when it reappears. Restore native bindings before
+switching a reused root back to Stretch. Geometry readers must use element-size variants and
+effective manifests rather than cached native boxes. Variants are immutable, limited to 16
+entries, and participate in the shared SVG node budget. Heavy relayout code stays behind
+mount or explicit command imports, outside the eager shell.
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -10760,3 +10775,38 @@ picks drew no canvas outline; undo was dead while the X-ray was open; x/v ignore
 **Verification:** verify-xray-context (pure, 78) + verify-xray-context-gui (new); the 13 X-ray GUI
 gates; verify-xray-tree's mirror extended to members; two gates moved from the stored
 `hidden: false` to the cleared flag (shown is now a cleared key) — tier results in the commit log.
+
+
+### 2026-10-23 — elastic plot relayout v1 (isolated feature worktrees)
+
+**Request:** implement `notes/elastic_relayout_2026-10-23/PLAN.md` across Flux and fluxplot,
+keep both implementations on `relayout/v1` worktrees, and regenerate Feature_test_proj for
+owner testing. No merge or push. Feature roots are `flux-wt/relayout-v1` and
+`flux-wt/fluxplot-relayout-v1`.
+
+**Changes:** fluxplot 0.4 captures deterministic layout/frames/font metrics, numeric tick
+rules and named refusals. Flux uses one pure model/solver/apply pipeline across Figure,
+inline/Paper and slides; effective manifests and bounded immutable variants feed geometry.
+Added lazy resize/match/layout-mode ops, CLI/MCP/live bridge, Inspector Layout controls,
+Arrange Match, rAF drag preview, dense release fallback, physical resize tweens and D2 sync.
+Retired the unused serialization adapter. Documentation and generated agent context updated.
+
+**Verification:** registered `relayout` and `relayout-native` groups and explicit pathMap
+pins. Corpus is 49 cases ×28 sizes, 2400 numeric major/minor tick rows and 480 solver rows.
+New checks cover values/strings/anchors, SVG vertices, image clips, legends/arrows, identity,
+overrides, variants, real CLI/MCP, source sync, browser authoring/tween/scale and native
+PNG/PDF/offline deck output. Final commands, receipts, project backup and launch instructions
+are recorded in the feature worktree's `notes/elastic_relayout_2026-10-23/` handoff.
+
+**Learnings:** retain scientific significant digits in layout JSON; decimal-place rounding
+can erase positive log limits. `set_layout_engine(None)` reselects global rcParams, so restore
+an absent engine with `"none"`. Reuse ticks with relative value tolerance, including tiny
+values. Raster-image clip groups can be untagged ancestors of the semantic image. Read-only
+extra tick feedback follows matplotlib's two geometry passes: mutating geometry a third time
+fails the oracle on aspect/colorbar cases. Mathtext extent quantization occurs at the 100pt
+font scale; capture raw width/advance and its quantum instead of adding already rounded widths.
+Native software/Xvfb output checks are distinct from hardware-GPU performance qualification.
+After acceptance-time HMR, restart Vite before the frozen cohort: cached imports with HMR
+timestamps can give direct test imports a second module instance (annotation initialization
+and source watchers failed despite the visible editor having a valid owner). A fresh server
+passed both unchanged gates. Keep diagnostic baseline builds outside the watched repository.

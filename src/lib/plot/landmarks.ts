@@ -220,10 +220,11 @@ function candidateGeometry(plot: SemanticPlotElement, candidate: SpineCandidate,
 export function plotSpineCandidates(plot: SemanticPlotElement, axis: SpineAxis, ctx: SpineContext): SpineCandidates {
   const manifest = ctx.manifest(plot.assetId);
   if (!manifest || isDerivedManifest(manifest) || manifest.spec !== 'fluxplot/manifest' || !manifest.axes?.length) return { candidates: [], reason: 'This plot has no semantic scientific axes' };
+  // relayout-native-root: availability/index check; stage geometry is read through targetGeometry variants
   const root = ctx.plotRoot(plot.assetId);
   if (!root) return { candidates: [], reason: 'Plot geometry is not prepared or is unavailable' };
   const indexed = indexRoot(root);
-  const key = JSON.stringify([manifestKey(manifest), plot.id, axis, plot.x, plot.y, plot.width, plot.height, plot.rotation, plot.flipX, plot.flipY, plot.crop, plot.contentScale, plot.opacity, plot.overrides]);
+  const key = JSON.stringify([manifestKey(manifest), plot.id, axis, plot.x, plot.y, plot.width, plot.height, plot.rotation, plot.flipX, plot.flipY, plot.crop, plot.contentScale, plot.layoutMode, plot.opacity, plot.overrides]);
   const cached = indexed.results.get(key);
   if (cached) return structuredClone(cached);
   const parts = buildPartIndex(manifest), ancestry = semanticAxes(manifest);

@@ -25,6 +25,7 @@ import { getAssetData, dataUrlToBytes } from "../assets";
 import { isDerivedManifest } from "./derive";
 import { storeTenant } from "../tenancy";
 import { hasContentScaleTargets } from "./compensate";
+import { plotVariantBudget } from "./variantBudget";
 
 export const plotManifests = writable<Record<Id, FluxPlotManifest>>({});
 export const plotRecipes = writable<Record<Id, unknown>>({});
@@ -79,6 +80,7 @@ const PARSE_SLICE_MS = 6; // per-task parse budget — keeps cull-entry parses o
 export const plotResidency = {
   nodeCap: 150_000,
   totalNodes: 0,
+  get variantNodes(): number { return plotVariantBudget.nodes; },
   parses: 0,
   evictions: 0,
   bakedSheets: 0, // <style> rules baked into attributes at parse (mounts insert no stylesheet)
@@ -103,6 +105,7 @@ function touchPlot(assetId: Id): void {
  *  Eviction keeps assetData/manifests/recipes — the plot re-shows instantly
  *  as <image> and re-parses on next view. */
 function evictOverCap(keep?: Id): void {
+  plotVariantBudget.trim(Math.max(0, plotResidency.nodeCap - plotResidency.totalNodes));
   if (storeTenant() !== "figure") return;
   if (plotResidency.totalNodes <= plotResidency.nodeCap) return;
   for (const id of plotLru.keys()) {
@@ -114,6 +117,7 @@ function evictOverCap(keep?: Id): void {
     plotNodeCount.delete(id);
     plotResidency.evictions++;
   }
+  plotVariantBudget.trim(Math.max(0,plotResidency.nodeCap-plotResidency.totalNodes));
 }
 
 /** Set the resident-node budget and apply it immediately (evicting LRU
@@ -227,7 +231,7 @@ export function ensurePlotDom(assetId: Id): boolean {
   return ok;
 }
 
-/** A PRISTINE parse of a plot for serialization (GUI exports, plotToSvgMarkup):
+/** A PRISTINE parse of a plot for serialization (GUI exports, inline markup):
  *  the same preparePlot seam flux-core runs, with none of the editor-only
  *  optimizations the cached DOM carries (baked styles, hoisted clips) — so a
  *  GUI export stays byte-identical to the headless one. Uncached; exports are

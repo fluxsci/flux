@@ -2,6 +2,7 @@
  * scrubs share Canvas's transform drive and never publish pointermove edits. */
 import { derived, get, writable } from 'svelte/store';
 import { project, selection, editorSelectionExclusions, partSelection, partSelections, activeFigureId, enteredGroupId, activeTool, projectDir, embeddedProjectRoot, arrange, lastArrangeRows, commit, mutateFigure, undo, redo, isEditorTargetExcluded } from '../store';
+import {pushToast} from '../toast';
 import { storeTenantState } from '../tenancy';
 import { editSession } from './editSession';
 import { unitOf } from '../groups';
@@ -360,6 +361,21 @@ export function alignPlotSpines(axis:Axis) {
   const plan=planPlotSpineAlignment(spineUnits(),axis,s.plot.referenceId,plotContext(),choices[axis]);
   if(plan.issues.length||!plan.translations.some(t=>t.dx||t.dy))return;
   write(()=>commit(p=>applyLayoutTranslations(p,f.id,plan.translations)));afterAlign();
+}
+export function canMatchPlotAreas():boolean {
+  const s=get(alignArrange),units=spineUnits();
+  if(!s||s.blockedReason||units.length<2)return false;
+  const manifests=get(plotManifests);
+  return units.every(u=>u.members.length===1&&u.members[0].type==='plot'&&u.members[0].layoutMode!=='stretch'&&manifests[u.members[0].assetId]?.layout?.supported);
+}
+export async function matchSelectedPlotAreas(dimension:'height'|'width'|'both') {
+  if(!canMatchPlotAreas())return;
+  const s=get(alignArrange)!,f=figure()!,units=spineUnits(),ids=units.map(u=>u.members[0].id);
+  const reference=units.find(u=>u.key===(s.plot?.referenceId??s.referenceId))?.members[0].id??ids[0];
+  const owner=s.id;const {matchPlotAreas}=await import('../plot/relayout/ops');
+  if(get(alignArrange)?.id!==owner||get(activeFigureId)!==f.id)return;
+  let result:ReturnType<typeof matchPlotAreas>=[];write(()=>commit(p=>{result=matchPlotAreas(p,ids,{dimension,reference},get(plotManifests));}));afterAlign();
+  const reasons=result.flatMap(r=>r.report.warnings.filter(w=>w.code.startsWith('match:')||w.code.startsWith('aspect-locked:')).map(w=>w.code.replaceAll(':',' ')));if(reasons.length)pushToast('info',[...new Set(reasons)].join('; '));
 }
 /** Called after shell, typing, node-edit, rail and modal ownership checks. */
 export function handleAlignArrangeKey(e:KeyboardEvent):boolean {

@@ -366,6 +366,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     // Missing plot roots are unavailable geometry, not proof of a raster pair.
     if ([...flight.source, ...flight.destination].some(key => {
       const el = transformPreState(slide, key.split("\0")[0], ct.beat);
+      // relayout-native-root: availability/index check; stage geometry is read through targetGeometry variants
       return el?.type === "plot" && !ctx.plotRoot(el.assetId);
     })) continue;
     const key = `${ct.beat}:${ct.start}`;

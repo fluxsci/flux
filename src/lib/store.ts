@@ -412,22 +412,22 @@ export const embeddedProjectRoot = writable<string | null>(null);
 
 // Accepted source bytes live outside Undo. Their intrinsic dimensions must
 // do the same, otherwise restoring an old edit stretches the current SVG.
-const acceptedFigureSourceSizes = new Map<string, { assetId: string; width: number; height: number }>();
+const acceptedFigureSourceSizes = new Map<string, { assetId: string; width: number; height: number; layoutSupported?:boolean }>();
 let figureSourceHistory = true;
 let acceptedFigureRoot: string | null = null;
 embeddedProjectRoot.subscribe((root) => {
   if (root !== acceptedFigureRoot) { acceptedFigureRoot = root; acceptedFigureSourceSizes.clear(); }
 });
-export function acceptFigureSourceSizes(updates: readonly { assetId: string; width: number; height: number }[]): void {
+export function acceptFigureSourceSizes(updates: readonly { assetId: string; width: number; height: number; layoutSupported?:boolean }[]): void {
   if (!figureSourceHistory || storeTenant() !== "figure") return;
   for (const update of updates) if (update.width > 0 && update.height > 0 && Number.isFinite(update.width + update.height)) {
-    acceptedFigureSourceSizes.set(update.assetId, { assetId: update.assetId, width: update.width, height: update.height });
+    acceptedFigureSourceSizes.set(update.assetId, { assetId: update.assetId, width: update.width, height: update.height, ...(update.layoutSupported!=null?{layoutSupported:update.layoutSupported}:{}) });
   }
 }
 
 /** Source acceptance is an external persisted revision, never a user undo entry.
  * Rebase its dimensions onto the latest edits only after disk publication. */
-export function publishAcceptedFigureSources(updates: readonly { assetId: string; width: number; height: number }[]): void {
+export function publishAcceptedFigureSources(updates: readonly { assetId: string; width: number; height: number; layoutSupported?:boolean }[]): void {
   if (!figureSourceHistory || storeTenant() !== "figure") throw new Error("Figure source publication requires its editor owner");
   const next = structuredClone(get(project));
   editorCore().applySourceUpdates(next, updates);

@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="288pt" height="460.8pt" viewBox="0 0 288 460.8" version="1.1" data-fluxplot="1" data-plot-type="plot">
+  <defs>
+    <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+    <linearGradient id="colorbar.color.solids.gradient" gradientUnits="userSpaceOnUse" x1="251.26272949999998" x2="251.26272949999998" y1="426.79897875" y2="18.11836500000003">
+      <stop offset="0.0" stop-color="#481f70"/>
+      <stop offset="0.1666666666666666" stop-color="#481f70"/>
+      <stop offset="0.1666666666666666" stop-color="#3b528b"/>
+      <stop offset="0.3333333333333333" stop-color="#3b528b"/>
+      <stop offset="0.3333333333333333" stop-color="#287c8e"/>
+      <stop offset="0.5000000000000001" stop-color="#287c8e"/>
+      <stop offset="0.5000000000000001" stop-color="#20a486"/>
+      <stop offset="0.6666666666666666" stop-color="#20a486"/>
+      <stop offset="0.6666666666666666" stop-color="#5ec962"/>
+      <stop offset="0.8333333333333333" stop-color="#5ec962"/>
+      <stop offset="0.8333333333333333" stop-color="#c8e020"/>
+      <stop offset="1.0" stop-color="#c8e020"/>
+    </linearGradient>
+  </defs>
+  <g id="figure" data-role="figure" data-kind="container">
+    <g id="figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
+      <path d="M 0 460.8  L 288 460.8  L 288 0  L 0 0  z " style="fill: #ffffff"/>
+    </g>
+    <g id="plot-area" data-role="plot-area" data-kind="container">
+      <g id="axes.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 48.283053 426.798979  L 228.836778 426.798979  L 228.836778 18.118365  L 48.283053 18.118365  z " style="fill: #ffffff"/>
+      </g>
+      <g id="extra.collection.0" data-color-scale="extra.collection.0" data-paint="fill" data-role="extra" data-index="0" data-kind="shape">
+        <path d="M 125.66322 343.68437  L 138.559915 346.927867  L 151.45661 343.68437  L 157.367595 339.224562  L 164.353304 332.44797  L 177.249999 311.596918  L 177.940893 310.033089  L 187.152818 280.841617  L 190.146694 265.029569  L 192.117022 251.650144  L 193.549988 222.458672  L 192.117022 193.267199  L 190.146694 179.887775  L 187.152818 164.075727  L 177.940893 134.884255  L 177.249999 133.320426  L 164.353304 112.469374  L 157.367595 105.692782  L 151.45661 101.232974  L 138.559915 97.989477  L 125.66322 101.232974  L 119.752235 105.692782  L 112.766526 112.469374  L 99.869831 133.320426  L 99.178937 134.884255  L 89.967012 164.075727  L 86.973136 179.887775  L 85.002808 193.267199  L 83.569842 222.458672  L 85.002808 251.650144  L 86.973136 265.029569  L 89.967012 280.841617  L 99.178937 310.033089  L 99.869831 311.596918  L 112.766526 332.44797  L 119.752235 339.224562  z " clip-path="url(#p5ecf0f0978)" style="fill: #481f70"/>
+        <path d="M 138.559915 399.29163  L 148.232436 397.607506  L 151.45661 396.944064  L 164.353304 388.982753  L 177.249999 375.713902  L 182.316558 368.416034  L 190.146694 354.631172  L 196.953283 339.224562  L 203.043388 321.501168  L 206.267562 310.033089  L 212.129696 280.841617  L 215.646976 251.650144  L 215.940083 244.352276  L 216.684123 222.458672  L 215.940083 200.565068  L 215.646976 193.267199  L 212.129696 164.075727  L 206.267562 134.884255  L 203.043388 123.416176  L 196.953283 105.692782  L 190.146694 90.286172  L 182.316558 76.50131  L 177.249999 69.203442  L 164.353304 55.934591  L 151.45661 47.97328  L 148.232436 47.309837  L 138.559915 45.625714  L 128.887394 47.309837  L 125.66322 47.97328  L 112.766526 55.934591  L 99.869831 69.203442  L 94.803273 76.50131  L 86.973136 90.286172  L 80.166548 105.692782  L 74.076442 123.416176  L 70.852268 134.884255  L 64.990134 164.075727  L 61.472854 193.267199  L 61.179747 200.565068  L 60.435707 222.458672  L 61.179747 244.352276  L 61.472854 251.650144  L 64.990134 280.841617  L 70.852268 310.033089  L 74.076442 321.501168  L 80.166548 339.224562  L 86.973136 354.631172  L 94.803273 368.416034  L 99.869831 375.713902  L 112.766526 388.982753  L 125.66322 396.944064  L 128.887394 397.607506  z M 119.752235 339.224562  L 112.766526 332.44797  L 99.869831 311.596918  L 99.178937 310.033089  L 89.967012 280.841617  L 86.973136 265.029569  L 85.002808 251.650144  L 83.569842 222.458672  L 85.002808 193.267199  L 86.973136 179.887775  L 89.967012 164.075727  L 99.178937 134.884255  L 99.869831 133.320426  L 112.766526 112.469374  L 119.752235 105.692782  L 125.66322 101.232974  L 138.559915 97.989477  L 151.45661 101.232974  L 157.367595 105.692782  L 164.353304 112.469374  L 177.249999 133.320426  L 177.940893 134.884255  L 187.152818 164.075727  L 190.146694 179.887775  L 192.117022 193.267199  L 193.549988 222.458672  L 192.117022 251.650144  L 190.146694 265.029569  L 187.152818 280.841617  L 177.940893 310.033089  L 177.249999 311.596918  L 164.353304 332.44797  L 157.367595 339.224562  L 151.45661 343.68437  L 138.559915 346.927867  L 125.66322 343.68437  z " clip-path="url(#p5ecf0f0978)" style="fill: #3b528b"/>
+        <path d="M 86.973136 404.624687  L 99.869831 420.343172  L 107.285431 426.798979  L 112.766526 426.798979  L 125.66322 426.798979  L 138.559915 426.798979  L 151.45661 426.798979  L 164.353304 426.798979  L 169.8344 426.798979  L 177.249999 420.343172  L 190.146694 404.624687  L 194.624713 397.607506  L 203.043388 382.016606  L 209.052076 368.416034  L 215.940083 349.360489  L 219.04025 339.224562  L 225.984624 310.033089  L 228.836778 293.247992  L 228.836778 280.841617  L 228.836778 251.650144  L 228.836778 222.458672  L 228.836778 193.267199  L 228.836778 164.075727  L 228.836778 151.669351  L 225.984624 134.884255  L 219.04025 105.692782  L 215.940083 95.556854  L 209.052076 76.50131  L 203.043388 62.900737  L 194.624713 47.309837  L 190.146694 40.292657  L 177.249999 24.574171  L 169.8344 18.118365  L 164.353304 18.118365  L 151.45661 18.118365  L 138.559915 18.118365  L 125.66322 18.118365  L 112.766526 18.118365  L 107.285431 18.118365  L 99.869831 24.574171  L 86.973136 40.292657  L 82.495117 47.309837  L 74.076442 62.900737  L 68.067755 76.50131  L 61.179747 95.556854  L 58.07958 105.692782  L 51.135206 134.884255  L 48.283053 151.669351  L 48.283053 164.075727  L 48.283053 193.267199  L 48.283053 222.458672  L 48.283053 251.650144  L 48.283053 280.841617  L 48.283053 293.247992  L 51.135206 310.033089  L 58.07958 339.224562  L 61.179747 349.360489  L 68.067755 368.416034  L 74.076442 382.016606  L 82.495117 397.607506  z M 128.887394 397.607506  L 125.66322 396.944064  L 112.766526 388.982753  L 99.869831 375.713902  L 94.803273 368.416034  L 86.973136 354.631172  L 80.166548 339.224562  L 74.076442 321.501168  L 70.852268 310.033089  L 64.990134 280.841617  L 61.472854 251.650144  L 61.179747 244.352276  L 60.435707 222.458672  L 61.179747 200.565068  L 61.472854 193.267199  L 64.990134 164.075727  L 70.852268 134.884255  L 74.076442 123.416176  L 80.166548 105.692782  L 86.973136 90.286172  L 94.803273 76.50131  L 99.869831 69.203442  L 112.766526 55.934591  L 125.66322 47.97328  L 128.887394 47.309837  L 138.559915 45.625714  L 148.232436 47.309837  L 151.45661 47.97328  L 164.353304 55.934591  L 177.249999 69.203442  L 182.316558 76.50131  L 190.146694 90.286172  L 196.953283 105.692782  L 203.043388 123.416176  L 206.267562 134.884255  L 212.129696 164.075727  L 215.646976 193.267199  L 215.940083 200.565068  L 216.684123 222.458672  L 215.940083 244.352276  L 215.646976 251.650144  L 212.129696 280.841617  L 206.267562 310.033089  L 203.043388 321.501168  L 196.953283 339.224562  L 190.146694 354.631172  L 182.316558 368.416034  L 177.249999 375.713902  L 164.353304 388.982753  L 151.45661 396.944064  L 148.232436 397.607506  L 138.559915 399.29163  z " clip-path="url(#p5ecf0f0978)" style="fill: #287c8e"/>
+        <path d="M 61.179747 400.975753  L 74.076442 425.67623  L 74.792925 426.798979  L 86.973136 426.798979  L 99.869831 426.798979  L 107.285431 426.798979  L 99.869831 420.343172  L 86.973136 404.624687  L 82.495117 397.607506  L 74.076442 382.016606  L 68.067755 368.416034  L 61.179747 349.360489  L 58.07958 339.224562  L 51.135206 310.033089  L 48.283053 293.247992  L 48.283053 310.033089  L 48.283053 339.224562  L 48.283053 366.794285  L 48.779079 368.416034  L 59.691667 397.607506  z M 177.249999 426.798979  L 190.146694 426.798979  L 202.326905 426.798979  L 203.043388 425.67623  L 215.940083 400.975753  L 217.428163 397.607506  L 228.340751 368.416034  L 228.836778 366.794285  L 228.836778 339.224562  L 228.836778 310.033089  L 228.836778 293.247992  L 225.984624 310.033089  L 219.04025 339.224562  L 215.940083 349.360489  L 209.052076 368.416034  L 203.043388 382.016606  L 194.624713 397.607506  L 190.146694 404.624687  L 177.249999 420.343172  L 169.8344 426.798979  z M 51.135206 134.884255  L 58.07958 105.692782  L 61.179747 95.556854  L 68.067755 76.50131  L 74.076442 62.900737  L 82.495117 47.309837  L 86.973136 40.292657  L 99.869831 24.574171  L 107.285431 18.118365  L 99.869831 18.118365  L 86.973136 18.118365  L 74.792925 18.118365  L 74.076442 19.241114  L 61.179747 43.941591  L 59.691667 47.309837  L 48.779079 76.50131  L 48.283053 78.123058  L 48.283053 105.692782  L 48.283053 134.884255  L 48.283053 151.669351  z M 228.836778 151.669351  L 228.836778 134.884255  L 228.836778 105.692782  L 228.836778 78.123058  L 228.340751 76.50131  L 217.428163 47.309837  L 215.940083 43.941591  L 203.043388 19.241114  L 202.326905 18.118365  L 190.146694 18.118365  L 177.249999 18.118365  L 169.8344 18.118365  L 177.249999 24.574171  L 190.146694 40.292657  L 194.624713 47.309837  L 203.043388 62.900737  L 209.052076 76.50131  L 215.940083 95.556854  L 219.04025 105.692782  L 225.984624 134.884255  z " clip-path="url(#p5ecf0f0978)" style="fill: #20a486"/>
+        <path d="M 61.179747 426.798979  L 74.076442 426.798979  L 74.792925 426.798979  L 74.076442 425.67623  L 61.179747 400.975753  L 59.691667 397.607506  L 48.779079 368.416034  L 48.283053 366.794285  L 48.283053 368.416034  L 48.283053 397.607506  L 48.283053 413.045304  L 54.35938 426.798979  z M 203.043388 426.798979  L 215.940083 426.798979  L 222.76045 426.798979  L 228.836778 413.045304  L 228.836778 397.607506  L 228.836778 368.416034  L 228.836778 366.794285  L 228.340751 368.416034  L 217.428163 397.607506  L 215.940083 400.975753  L 203.043388 425.67623  L 202.326905 426.798979  z M 48.779079 76.50131  L 59.691667 47.309837  L 61.179747 43.941591  L 74.076442 19.241114  L 74.792925 18.118365  L 74.076442 18.118365  L 61.179747 18.118365  L 54.35938 18.118365  L 48.283053 31.87204  L 48.283053 47.309837  L 48.283053 76.50131  L 48.283053 78.123058  z M 228.836778 78.123058  L 228.836778 76.50131  L 228.836778 47.309837  L 228.836778 31.87204  L 222.76045 18.118365  L 215.940083 18.118365  L 203.043388 18.118365  L 202.326905 18.118365  L 203.043388 19.241114  L 215.940083 43.941591  L 217.428163 47.309837  L 228.340751 76.50131  z " clip-path="url(#p5ecf0f0978)" style="fill: #5ec962"/>
+        <path d="M 48.283053 413.045304  L 48.283053 426.798979  L 54.35938 426.798979  z M 228.836778 426.798979  L 228.836778 413.045304  L 222.76045 426.798979  z M 54.35938 18.118365  L 48.283053 18.118365  L 48.283053 31.87204  z M 228.836778 31.87204  L 228.836778 18.118365  L 222.76045 18.118365  z " clip-path="url(#p5ecf0f0978)" style="fill: #c8e020"/>
+      </g>
+      <g id="axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
+        <g id="xtick_1">
+          <g id="axis.x.tick.0" data-role="tick" data-axis="x" data-index="0" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(48.283053 426.798979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.0" data-role="tick-label" data-axis="x" data-index="0" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="48.283053" y="441.396635" transform="rotate(-0 48.283053 441.396635)">−2</text>
+          </g>
+        </g>
+        <g id="xtick_2">
+          <g id="axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(93.421484 426.798979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="93.421484" y="441.396635" transform="rotate(-0 93.421484 441.396635)">−1</text>
+          </g>
+        </g>
+        <g id="xtick_3">
+          <g id="axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(138.559915 426.798979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="138.559915" y="441.396635" transform="rotate(-0 138.559915 441.396635)">0</text>
+          </g>
+        </g>
+        <g id="xtick_4">
+          <g id="axis.x.tick.3" data-role="tick" data-axis="x" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(183.698346 426.798979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.3" data-role="tick-label" data-axis="x" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="183.698346" y="441.396635" transform="rotate(-0 183.698346 441.396635)">1</text>
+          </g>
+        </g>
+        <g id="xtick_5">
+          <g id="axis.x.tick.4" data-role="tick" data-axis="x" data-index="4" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(228.836778 426.798979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.4" data-role="tick-label" data-axis="x" data-index="4" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="228.836778" y="441.396635" transform="rotate(-0 228.836778 441.396635)">2</text>
+          </g>
+        </g>
+        <g id="axis.x.title" data-role="axis-title" data-axis="x" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="138.559915" y="455.397416" transform="rotate(-0 138.559915 455.397416)">Time (s)</text>
+        </g>
+      </g>
+      <g id="axis.y" data-role="axis" data-axis="y" data-kind="container" data-ink-fill="axis">
+        <g id="ytick_1">
+          <g id="axis.y.tick.0" data-role="tick" data-axis="y" data-index="0" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 426.798979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.0" data-role="tick-label" data-axis="y" data-index="0" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="430.597807" transform="rotate(-0 41.283053 430.597807)">−2.0</text>
+          </g>
+        </g>
+        <g id="ytick_2">
+          <g id="axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 375.713902)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="379.51273" transform="rotate(-0 41.283053 379.51273)">−1.5</text>
+          </g>
+        </g>
+        <g id="ytick_3">
+          <g id="axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 324.628825)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="328.427653" transform="rotate(-0 41.283053 328.427653)">−1.0</text>
+          </g>
+        </g>
+        <g id="ytick_4">
+          <g id="axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 273.543749)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="277.342577" transform="rotate(-0 41.283053 277.342577)">−0.5</text>
+          </g>
+        </g>
+        <g id="ytick_5">
+          <g id="axis.y.tick.4" data-role="tick" data-axis="y" data-index="4" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 222.458672)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.4" data-role="tick-label" data-axis="y" data-index="4" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="226.2575" transform="rotate(-0 41.283053 226.2575)">0.0</text>
+          </g>
+        </g>
+        <g id="ytick_6">
+          <g id="axis.y.tick.5" data-role="tick" data-axis="y" data-index="5" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 171.373595)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.5" data-role="tick-label" data-axis="y" data-index="5" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="175.172423" transform="rotate(-0 41.283053 175.172423)">0.5</text>
+          </g>
+        </g>
+        <g id="ytick_7">
+          <g id="axis.y.tick.6" data-role="tick" data-axis="y" data-index="6" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 120.288518)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.6" data-role="tick-label" data-axis="y" data-index="6" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="124.087347" transform="rotate(-0 41.283053 124.087347)">1.0</text>
+          </g>
+        </g>
+        <g id="ytick_8">
+          <g id="axis.y.tick.7" data-role="tick" data-axis="y" data-index="7" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 69.203442)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.7" data-role="tick-label" data-axis="y" data-index="7" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="73.00227" transform="rotate(-0 41.283053 73.00227)">1.5</text>
+          </g>
+        </g>
+        <g id="ytick_9">
+          <g id="axis.y.tick.8" data-role="tick" data-axis="y" data-index="8" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(48.283053 18.118365)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.8" data-role="tick-label" data-axis="y" data-index="8" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="41.283053" y="21.917193" transform="rotate(-0 41.283053 21.917193)">2.0</text>
+          </g>
+        </g>
+        <g id="axis.y.title" data-role="axis-title" data-axis="y" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="10.597896" y="222.458672" transform="rotate(-90 10.597896 222.458672)">Response</text>
+        </g>
+      </g>
+      <g id="axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 48.283053 426.798979  L 48.283053 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 228.836778 426.798979  L 228.836778 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 48.283053 426.798979  L 228.836778 426.798979  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 48.283053 18.118365  L 228.836778 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="figure.title" data-role="title" data-kind="text" data-ink-fill="ink">
+        <text style="font-size: 12px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="138.559915" y="12.118365" transform="rotate(-0 138.559915 12.118365)">Experiment</text>
+      </g>
+    </g>
+    <g id="colorbar.color" data-role="colorbar" data-kind="container">
+      <g id="colorbar.color.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 241.045714 426.798979  L 261.479745 426.798979  L 261.479745 18.118365  L 241.045714 18.118365  z " style="fill: #ffffff"/>
+      </g>
+      <g id="colorbar.color.solids" data-role="colorbar-solids" data-kind="shape">
+        <rect x="241.045714" y="18.118365" width="20.434030999999976" height="408.680614" clip-path="url(#pb63ea548fc)" style="fill: url(#colorbar.color.solids.gradient); stroke: none"/>
+      </g>
+      <g id="matplotlib.axis_1"/>
+      <g id="matplotlib.axis_2">
+        <g id="ytick_10">
+          <g id="colorbar.color.tick.0" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(261.479745 426.798979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="colorbar.color.tick-label.0" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="268.479745" y="430.597807" transform="rotate(-0 268.479745 430.597807)">0.0</text>
+          </g>
+        </g>
+        <g id="ytick_11">
+          <g id="colorbar.color.tick.1" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(261.479745 358.685543)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="colorbar.color.tick-label.1" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="268.479745" y="362.484371" transform="rotate(-0 268.479745 362.484371)">1.5</text>
+          </g>
+        </g>
+        <g id="ytick_12">
+          <g id="colorbar.color.tick.2" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(261.479745 290.572108)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="colorbar.color.tick-label.2" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="268.479745" y="294.370936" transform="rotate(-0 268.479745 294.370936)">3.0</text>
+          </g>
+        </g>
+        <g id="ytick_13">
+          <g id="colorbar.color.tick.3" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(261.479745 222.458672)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="colorbar.color.tick-label.3" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="268.479745" y="226.2575" transform="rotate(-0 268.479745 226.2575)">4.5</text>
+          </g>
+        </g>
+        <g id="ytick_14">
+          <g id="colorbar.color.tick.4" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(261.479745 154.345236)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="colorbar.color.tick-label.4" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="268.479745" y="158.144064" transform="rotate(-0 268.479745 158.144064)">6.0</text>
+          </g>
+        </g>
+        <g id="ytick_15">
+          <g id="colorbar.color.tick.5" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(261.479745 86.231801)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="colorbar.color.tick-label.5" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="268.479745" y="90.030629" transform="rotate(-0 268.479745 90.030629)">7.5</text>
+          </g>
+        </g>
+        <g id="ytick_16">
+          <g id="colorbar.color.tick.6" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(261.479745 18.118365)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="colorbar.color.tick-label.6" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="268.479745" y="21.917193" transform="rotate(-0 268.479745 21.917193)">9.0</text>
+          </g>
+        </g>
+      </g>
+      <g id="colorbar.color.divider" data-role="colorbar-divider" data-kind="line"/>
+      <g id="colorbar.color.outline" data-role="colorbar-outline" data-kind="line" data-ink-stroke="axis">
+        <path d="M 241.045714 426.798979  L 251.262729 426.798979  L 261.479745 426.798979  L 261.479745 18.118365  L 251.262729 18.118365  L 241.045714 18.118365  L 241.045714 426.798979  z " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+    </g>
+  </g>
+  <defs>
+    <clipPath id="p5ecf0f0978">
+      <rect x="48.283053" y="18.118365" width="180.553725" height="408.680614"/>
+    </clipPath>
+    <clipPath id="pb63ea548fc">
+      <rect x="241.045714" y="18.118365" width="20.434031" height="408.680614"/>
+    </clipPath>
+  </defs>
+</svg>

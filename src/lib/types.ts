@@ -438,6 +438,8 @@ export interface SemanticPlotElement extends ElementBase {
   // Geometric content scale persisted by the K/Scale tool. Plain resize keeps
   // text/strokes pt-true (plot/compensate.ts); K multiplies this instead.
   contentScale?: number;
+  /** Absent = reflow when the generator supplied a supported layout contract. */
+  layoutMode?: "stretch";
   // The plot's DATA VIEW (animation v2): show the plot as if its axes had these
   // limits/scales — a data-space crop. Rendered by pure re-projection through
   // the manifest's axis fits (plot/project.ts) in every engine; absent = the

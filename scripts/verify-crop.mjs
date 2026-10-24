@@ -172,18 +172,19 @@ try {
   await shot(page, "crop-02-committed");
 
   // ---- 2. exported figure SVG carries the cropped viewBox ----
-  const svgOut = await page.evaluate(async () => {
+  const svgOut = await page.evaluate(async (svg) => {
     const { figureToSvg } = await import("/src/lib/export.ts");
-    const { plotToSvgMarkup } = await import("/src/lib/plot/export.ts");
+    const { buildPlotMarkup } = await import("/src/lib/plot/inlineMarkup.ts");
+    const { plotManifests } = await import("/src/lib/plot/store.ts");
     const { assetDisplaySize } = await import("/src/lib/ops.ts");
     const p = window.__flux.get(window.__flux.fig.project);
     return figureToSvg(
       p.figures[0],
       () => undefined,
-      (el) => (el.type === "plot" ? (plotToSvgMarkup(el) ?? undefined) : undefined),
+      (el) => (el.type === "plot" ? (buildPlotMarkup(svg, el, el.overrides, window.__flux.get(plotManifests)[el.assetId]) ?? undefined) : undefined),
       (id) => assetDisplaySize(p, id) ?? undefined,
     );
-  });
+  }, SVG);
   assert(svgOut.includes('viewBox="0 0 354 360"'), "exported figure SVG contains the cropped viewBox");
   assert(/overflow="hidden"/.test(svgOut), "exported plot clips (overflow hidden)");
 

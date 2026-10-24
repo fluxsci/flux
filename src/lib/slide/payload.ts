@@ -349,7 +349,7 @@ export function portablePayload(payload: ExportPayload, opts: { notes?: boolean 
     }
   };
   scrub(clean.deck);
-  const manifestFields = new Set(["spec", "schemaVersion", "plotType", "size", "panels", "axes", "series", "guides", "overlays", "parts", "build"]);
+  const manifestFields = new Set(["spec", "schemaVersion", "plotType", "size", "panels", "axes", "series", "guides", "overlays", "parts", "build", "layout", "generator"]);
   for (const plot of Object.values(clean.plots ?? {})) {
     plot.manifest = Object.fromEntries(Object.entries(plot.manifest).filter(([key]) => manifestFields.has(key))) as unknown as FluxPlotManifest;
     plot.manifest.svg = "";

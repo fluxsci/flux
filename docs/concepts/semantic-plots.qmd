@@ -61,6 +61,13 @@ rescales an import to fit — if a plot is bigger than its figure frame, it over
 (with a toast pointing at **Ctrl+Shift+I** to bring it inside). Sizing decisions belong to you
 and your plotting code, not to an importer.
 
+Fluxplot ≥ 0.4 also captures a `layout` block: layout-engine inputs, coordinate frames,
+font advances and numeric tick rules measured by matplotlib. Resizing in Flux re-solves
+that layout in physical points. The same solver serves Figure, Paper, Slide and exports;
+a generated matplotlib oracle checks axes, typography, ticks and data geometry across sizes.
+Older plots keep their existing resize behavior until regenerated. Unsupported layouts
+explain why they use Stretch.
+
 # Regenerate, don't re-save
 
 To change a plot, **re-run the script** rather than hand-editing the output. With the app open,

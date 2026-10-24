@@ -3,6 +3,7 @@
 // ticks the way fluxplot labels a log colour key (decades, 3×10ᵏ over short spans, minor
 // mantissas 2…9), and matplotlib-like labels (a shortest plain number, or 10ᵏ for a log
 // formatter).
+import { pyFloorDiv } from "./relayout/numberFormat";
 
 /** The 1·2·5 step that puts about `target` ticks across `span`. */
 export function niceStep(span: number, target = 5): number {
@@ -101,4 +102,42 @@ export function scalarLabels(values: number[]): string[] {
 /** The ticks for a norm's limits: decades on a log scale, nice steps otherwise. */
 export function ticksFor(kind: string, vmin: number, vmax: number, target = 5): number[] {
   return kind === "log" ? logTicks(vmin, vmax) : linearTicks(vmin, vmax, target);
+}
+
+export interface MaxNOptions {
+  nbins?: number; steps?: number[]; integer?: boolean; symmetric?: boolean;
+  prune?: "lower" | "upper" | "both" | null; minNTicks?: number;
+}
+/** Matplotlib 3.11 MaxNLocator, including extended staircase and edge tolerance.
+ * Callers resolve 'auto' with the captured font's physical tick space. */
+export function maxNTicks(vmin: number, vmax: number, o: MaxNOptions = {}): number[] {
+  if (!Number.isFinite(vmin) || !Number.isFinite(vmax)) return [];
+  if (vmax<vmin) [vmin,vmax]=[vmax,vmin];
+  if (o.symmetric) { vmax=Math.max(Math.abs(vmin),Math.abs(vmax));vmin=-vmax; }
+  if (vmin===vmax) {const d=Math.abs(vmin)*1e-13||1e-13;vmin-=d;vmax+=d;}
+  const nbins=Math.max(1,o.nbins??9), min=o.minNTicks??2;
+  const dv=vmax-vmin, mean=(vmax+vmin)/2;
+  const offset=Math.abs(mean)/dv<100?0:Math.sign(mean)*10**Math.floor(Math.log10(Math.abs(mean)));
+  const scale=Number(`1e${Math.floor(Math.log10(dv/nbins))}`);
+  const steps=o.steps??[1,1.5,2,2.5,3,4,5,6,8,10];
+  const all=[...steps.slice(0,-1).map(v=>v*.1),...steps,steps[1]*10].map(v=>v*scale)
+    .filter(v=>!o.integer||v<1||Math.abs(v-Math.round(v))<.001);
+  const lo=vmin-offset,hi=vmax-offset;
+  let at=all.findIndex(v=>v>=(hi-lo)/nbins); if(at<0)at=all.length-1;
+  let out:number[]=[];
+  for(let i=at;i>=0;i--){
+    const step=o.integer&&Math.floor(hi)-Math.ceil(lo)>=min-1?Math.max(1,all[i]):all[i];
+    const start=pyFloorDiv(lo,step)*step;
+    const tol=offset?Math.min(.4999,Math.max(1e-10,10**(Math.log10(Math.abs(offset)/step)-12))):1e-10;
+    const le=(v:number)=>{const d=Math.floor(v/step),r=v/step-d;return Math.abs(r-1)<tol?d+1:d;};
+    const ge=(v:number)=>{const d=Math.floor(v/step),r=v/step-d;return Math.abs(r)<tol?d:d+1;};
+    const low=le(lo-start),high=ge(hi-start);
+    if(high-low>10000) return [];
+    out=Array.from({length:Math.max(0,high-low+1)},(_,k)=>(low+k)*step+start);
+    if(out.filter(v=>v>=lo&&v<=hi).length>=min)break;
+  }
+  out=out.map(v=>v+offset);
+  if(o.prune==="lower"||o.prune==="both")out=out.slice(1);
+  if(o.prune==="upper"||o.prune==="both")out=out.slice(0,-1);
+  return out;
 }

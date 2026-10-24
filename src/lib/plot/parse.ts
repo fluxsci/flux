@@ -15,6 +15,12 @@ import { normalizeSvgForParts, deriveManifestFromSvg, isDrawableTag, insideDefs 
 
 const XLINK = "http://www.w3.org/1999/xlink";
 const SEP = "__";
+// Placement identity is independent of whether the SVG contains CSS to scope.
+const plotInstances=new WeakMap<Element,string>();
+export function plotPartPrefix(root:Element):string {
+  const id=plotInstances.get(root)??root.getAttribute('data-plot-scope');
+  return id?prefixOf(id):'';
+}
 
 /** Parse semantic SVG text into a detached <svg> root, or null if malformed. */
 export function parsePlotSvg(svgText: string): SVGSVGElement | null {
@@ -47,6 +53,7 @@ export function partIdFromDom(domId: string, elId: string): string | null {
 /** Rewrite every id and every internal id-reference under `root` with `prefix`,
  *  then scope the plot's <style> rules to `root` (see scopePlotStyles below). */
 export function prefixIds(root: Element, elementId: string): void {
+  plotInstances.set(root,elementId);
   const p = prefixOf(elementId);
   const map = new Map<string, string>();
   for (const el of [root, ...Array.from(root.querySelectorAll("[id]"))]) {
@@ -383,6 +390,25 @@ function declaredFill(el: Element): string | null {
 // replaces the translate instead of stacking prepends. Per DOM node, never
 // serialized; one-shot clone flows never notice it.
 const preOverrideTransform = new WeakMap<Element, string>();
+const translatedByRoot = new WeakMap<Element,Set<Element>>();
+/** A geometry pass replaces the base beneath dx/dy. Release the previous base first. */
+export function restoreOverrideTranslations(root:Element):void {
+  for(const el of translatedByRoot.get(root)??[]){
+    const original=preOverrideTransform.get(el);
+    if(original===undefined)continue;
+    if(original)el.setAttribute("transform",original);else el.removeAttribute("transform");
+    preOverrideTransform.delete(el);
+  }
+  translatedByRoot.delete(root);
+}
+
+const overridesByRoot=new WeakMap<Element,{overrides:Record<string,PartOverride>;elementId:string;manifest?:FluxPlotManifest}>();
+/** New tick values inherit group edits; a template's leaf edit never leaks. */
+export function applyTickGroupOverrides(root:Element):void {
+  const saved=overridesByRoot.get(root);if(!saved)return;
+  const groups=Object.fromEntries(Object.entries(saved.overrides).filter(([key])=>resolveTargets(saved.manifest,key).some(id=>id!==key)));
+  applyOverrides(root,groups,saved.elementId,saved.manifest);overridesByRoot.set(root,saved);
+}
 
 /** Apply per-part style overrides to the inlined DOM. A key may be a leaf semantic
  * id (`control.point.3`) or a group/container id (`axis.x.tick-labels`, `axis.x`),
@@ -394,20 +420,22 @@ export function applyOverrides(
   elementId: string,
   manifest?: FluxPlotManifest,
 ): void {
-  if (!overrides) return;
+  if (!overrides){overridesByRoot.delete(root);return;}
+  overridesByRoot.set(root,{overrides,elementId,manifest});
   const p = prefixOf(elementId);
   for (const [partId, ov] of Object.entries(overrides)) {
-    for (const tid of resolveTargets(manifest, partId)) {
+    for (const tid of resolveTargets(manifest, partId,root)) {
       const el = root.querySelector(`[id="${cssEscape(p + tid)}"]`) as SVGElement | null;
       if (!el) continue;
 
       // Wrapper-level: visibility, compositing opacity, translation.
       const s = el.style;
-      if (ov.hidden != null) s.display = ov.hidden ? "none" : "";
+      if (ov.hidden != null) s.display = ov.hidden || el.hasAttribute("data-relayout-hidden") ? "none" : "";
       if (ov.opacity != null) s.opacity = String(ov.opacity);
       if (ov.dx != null || ov.dy != null) {
         restorePlotClip(el);
         const dx = Number(ov.dx ?? 0) || 0;
+        let translated=translatedByRoot.get(root);if(!translated)translatedByRoot.set(root,translated=new Set());translated.add(el);
         const dy = Number(ov.dy ?? 0) || 0;
         // Compose the translate over the node's PRE-OVERRIDE transform. A
         // plain prepend was fine when every application ran on a pristine

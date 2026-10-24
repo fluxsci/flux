@@ -17,6 +17,8 @@ import type { SemanticPlotElement, CropRect, PartOverride, PlotView } from "../t
 import { plotGen, plotDom, plotManifests, sigCalls } from "./store";
 import { applyOverrides, prefixIds } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
+import { relayoutPlot } from "./relayout";
+import { registerRelayoutPreview } from "./relayout/previewPaint";
 
 // Content signature: anything that requires a fresh clone + override/compensate
 // pass. x/y are deliberately EXCLUDED (fast-path below).
@@ -32,6 +34,7 @@ function signature(e: SemanticPlotElement, gen: number, theme: DeckTheme | null)
     JSON.stringify(e.colorScale ?? null),
     JSON.stringify(e.view ?? null),
     e.contentScale ?? 1,
+    e.layoutMode ?? "auto",
     // the deck theme the scaffold ink follows (Slide mode; Figure passes none)
     themeKey(e, theme),
   ].join("|");
@@ -58,6 +61,7 @@ interface SigSnapshot {
   view: PlotView | undefined;
   colorScale: SemanticPlotElement["colorScale"];
   contentScale: number;
+  layoutMode: SemanticPlotElement["layoutMode"];
   theme: string;
 }
 const snap = (e: SemanticPlotElement, gen: number, theme: DeckTheme | null): SigSnapshot => ({
@@ -70,6 +74,7 @@ const snap = (e: SemanticPlotElement, gen: number, theme: DeckTheme | null): Sig
   view: e.view,
   colorScale: e.colorScale,
   contentScale: e.contentScale ?? 1,
+  layoutMode: e.layoutMode,
   theme: themeKey(e, theme),
 });
 const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number, theme: DeckTheme | null): boolean =>
@@ -82,6 +87,7 @@ const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number, theme: De
   a.view === e.view &&
   a.colorScale === e.colorScale && // ops.setPlotColorScale is copy-on-write like setPlotView
   a.contentScale === (e.contentScale ?? 1) &&
+  a.layoutMode === e.layoutMode &&
   a.theme === themeKey(e, theme);
 
 export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement; gen?: number; theme?: DeckTheme | null }) {
@@ -92,6 +98,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
   let last: SigSnapshot = snap(element, gen, theme);
   let inst: SVGSVGElement | null = null;
   let colorMapsRequested = false;
+  let unregisterPreview=()=>{};
 
   function place() {
     if (!inst) return;
@@ -100,6 +107,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
   }
 
   function render() {
+    unregisterPreview();
     host.replaceChildren();
     inst = null;
     const cached = plotDom.get(element.assetId);
@@ -119,7 +127,6 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
       inst.style.overflow = "visible";
     }
     const manifest = get(plotManifests)[element.assetId];
-    preparePlotView(inst, manifest, element.view, element.id);
     // the deck theme's ink (Slide mode) and live colour scales BEFORE overrides, so an explicit
     // per-part paint still wins
     applyPlotTheme(inst, manifest, theme && plotFollowsTheme(element, "slide") ? theme : null);
@@ -130,9 +137,11 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
       const assetId = element.assetId;
       void ensureColormapLuts().then(() => { if (colormapLutsLoaded()) plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 })); });
     }
-    applyOverrides(inst, element.overrides, element.id, manifest);
-    applyPlotView(inst, manifest, element.view, element.id);
-    compensatePtTrue(inst, {
+    const layout = relayoutPlot(inst, manifest, element);
+    preparePlotView(inst, layout.manifest, element.view, element.id);
+    applyOverrides(inst, element.overrides, element.id, layout.manifest);
+    applyPlotView(inst, layout.manifest, element.view, element.id);
+    if (!layout.reflow) compensatePtTrue(inst, {
       elW: element.width,
       elH: element.height,
       crop: element.crop ?? null,
@@ -140,6 +149,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
       intrinsic,
     });
     host.appendChild(inst);
+    unregisterPreview=registerRelayoutPreview(inst,manifest,element);
   }
 
   sig = signature(element, gen, theme);
@@ -166,6 +176,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
       render();
     },
     destroy() {
+      unregisterPreview();
       host.replaceChildren();
     },
   };

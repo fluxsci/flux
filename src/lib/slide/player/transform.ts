@@ -39,7 +39,10 @@ import { pathRender, pathD } from "../../path";
 import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan, tweenColorScales } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
-import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
+import { applyPlotView, preparePlotView, restoreProjection, resetProjectionBindings, type PlotViewOptions } from "../../plot/projectDom";
+import { buildRelayoutModel,targetFigureSize,relayoutPlot, restoreRelayout } from "../../plot/relayout";
+import { createTickTween } from "../../plot/relayout/tweenTicks";
+import { plotVariant } from "../../plot/relayout/variant";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { createTextMorph, layoutForMorph, type TextMorph } from "./textMorph";
@@ -151,7 +154,9 @@ export function createTransform(
   const glide = !boxOpts.skipTransform && pureMove(pre, end);
 
   // --- plot half: one projection writer for new data, a new view, or both --
+  // relayout-native-root: native asset for a fresh render or endpoint compilation; placement reflows it
   const sourceRoot = pre.type === "plot" ? (ctx.plotRoot ? ctx.plotRoot(pre.assetId) : plotDom.get(pre.assetId)) : undefined;
+  // relayout-native-root: native asset for a fresh render or endpoint compilation; placement reflows it
   const targetRoot = end.type === "plot" ? (ctx.plotRoot ? ctx.plotRoot(end.assetId) : plotDom.get(end.assetId)) : undefined;
   const project = isPlot &&
     (assetChange || plan.contentDirty && (!!pre.view || !!end.view));
@@ -165,8 +170,11 @@ export function createTransform(
   // A custom/legacy manifest may carry no series: nothing to project, never a throw.
   const bSeries = new Map(manifestB?.series?.map(s => [s.id, s]));
   const dataSeries = manifestA?.series?.filter(a => !assetChange || !!manifestB && seriesTweenable(a, bSeries.get(a.id), seriesAxes(manifestA, a), bSeries.has(a.id) ? seriesAxes(manifestB, bSeries.get(a.id)!) : undefined)) ?? [];
+  const elastic=isPlot&&(pre as SemanticPlotElement).layoutMode!=='stretch'&&buildRelayoutModel(manifestA).supported&&buildRelayoutModel(manifestB??manifestA).supported;
+  const geometryA=elastic&&sourceRoot?plotVariant(sourceRoot,manifestA,pre as SemanticPlotElement):null,geometryB=elastic&&targetRoot?plotVariant(targetRoot,manifestB??manifestA,end as SemanticPlotElement):null;
+  const unviewed=(el:SemanticPlotElement)=>({...el,overrides:undefined,view:undefined});
   const plotUpdate = project ? compilePlotContent(contentHost,
-    neutralPlot(pre as SemanticPlotElement, sourceRoot), neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
+    elastic?unviewed(pre as SemanticPlotElement):neutralPlot(pre as SemanticPlotElement, sourceRoot), elastic?unviewed(end as SemanticPlotElement):neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
       circles: new Set(dataSeries.flatMap(s => (s.points ?? []).map(p => partDomId(pre.id, p.svgId)))),
       lines: new Set(dataSeries.flatMap(s => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
     }) : null;
@@ -174,25 +182,29 @@ export function createTransform(
   if (project && !plotUpdate) plan.mode = "crossfade";
   if (project) plan.contentDirty = true;
   const projectionOptions: PlotViewOptions | undefined = project && manifestA ? {
-    t: 0, from: viewFits(manifestA!, (pre as SemanticPlotElement).view) ?? undefined,
-    to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
-    fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
-    sourceRoot, targetRoot, geometryInterpolated: true, assetChange,
+    t: 0, from: viewFits(geometryA?.manifest??manifestA!, (pre as SemanticPlotElement).view) ?? undefined,
+    to: viewFits(geometryB?.manifest??manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
+    fromView: (pre as SemanticPlotElement).view, toManifest: geometryB?.manifest??manifestB,
+    sourceRoot:geometryA?.root??sourceRoot, targetRoot:geometryB?.root??targetRoot, rawFromManifest:geometryA?.manifest,rawToManifest:geometryB?.manifest, geometryInterpolated: true, assetChange,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
   const intrinsic = (() => {
     if (!isPlot) return null;
+    // relayout-native-root: native asset for a fresh render or endpoint compilation; placement reflows it
     const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
     return cached ? svgIntrinsicPx(cached) : null;
   })();
   const naturalViewBox = (() => {
     if (!isPlot) return null;
+    // relayout-native-root: native asset for a fresh render or endpoint compilation; placement reflows it
     const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
     return cached?.getAttribute("viewBox") ?? null;
   })();
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
+  const denseElastic=elastic&&!!plotSvg&&plotSvg.querySelectorAll('*').length+1>2000;
+  const tickTween=elastic&&!project&&!denseElastic&&plotSvg&&sourceRoot&&manifestA?createTickTween(plotSvg,sourceRoot,manifestA,pre.id,targetFigureSize(pre as SemanticPlotElement),targetFigureSize(end as SemanticPlotElement),plotFollowsTheme(pre as SemanticPlotElement,'slide')?ctx.theme:null):null;
   const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
-  if (plotSvg && projectionOptions) preparePlotView(plotSvg, manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
+  if (plotSvg && projectionOptions) preparePlotView(plotSvg, geometryA?.manifest??manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
   const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
 
   // --- crossfade layers (built lazily on the first seek that needs them) ----
@@ -536,10 +548,12 @@ export function createTransform(
         // wall during playback. Restore the pristine state first, re-apply
         // the (lerped) overrides, then compensate for THIS frame's box —
         // exactly a fresh mount, idempotent at any t.
+        tickTween?.clear();
         restorePtTrue(inst, ptTrueBindings);
-        restoreProjection(inst);
+        if(elastic)resetProjectionBindings(inst);else restoreProjection(inst);
+        if(elastic&&!projectionOptions)restoreRelayout(inst);
         plotUpdate?.(content, t, raw);
-        if (naturalViewBox && intrinsic) {
+        if (naturalViewBox && intrinsic && !(elastic&&projectionOptions)) {
           if (p.crop) {
             inst.setAttribute("viewBox", cropViewBoxValue(naturalViewBox, intrinsic, p.crop));
             inst.style.overflow = "hidden";
@@ -554,13 +568,23 @@ export function createTransform(
         applyPlotTheme(inst, frameManifest, plotFollowsTheme(p, "slide") ? ctx.theme : null);
         const frameColorScale = tweenColorScales(frameManifest, (pre as SemanticPlotElement).colorScale, (end as SemanticPlotElement).colorScale, t, raw) ?? p.colorScale;
         applyPlotColorScale(inst, frameManifest, frameColorScale, p.id);
-        applyOverrides(inst, p.overrides, p.id, frameManifest);
+        // Asset/view morphs already interpolate two fully reflowed endpoint
+        // renders. Their data projection owns geometry for the whole interval.
+        // Size-only Changes use the exact per-frame layout solver below.
+        const layout = denseElastic&&raw>0&&raw<1&&!projectionOptions
+          ? {reflow:false,manifest:frameManifest}
+          : elastic&&projectionOptions&&geometryA
+          ? {reflow:true,manifest:geometryA.manifest}
+          : relayoutPlot(inst, frameManifest, p, raw <= 0 || raw >= 1 ? 'exact' : 'preview');
+        if(elastic||!projectionOptions)preparePlotView(inst,layout.manifest,p.view,p.id,projectionOptions);
+        applyOverrides(inst, p.overrides, p.id, layout.manifest);
         ghostOpacity?.(p);
         if (projectionOptions) {
           projectionOptions.t = t; projectionOptions.raw = raw; projectionOptions.colorScale = frameColorScale;
-          applyPlotView(inst, manifestA, (end as SemanticPlotElement).view, p.id, projectionOptions);
-        } else applyPlotView(inst, manifestA, p.view, p.id);
-        if (intrinsic) {
+          applyPlotView(inst, elastic?layout.manifest??manifestA:manifestA, (end as SemanticPlotElement).view, p.id, projectionOptions);
+        } else applyPlotView(inst, layout.manifest ?? manifestA, p.view, p.id);
+        if(tickTween&&raw>0&&raw<1&&'solution' in layout&&layout.solution)tickTween.paint(layout.solution,t,p.overrides);
+        if (intrinsic && !layout.reflow) {
           compensatePtTrue(inst, {
             elW: p.width,
             elH: p.height,
@@ -623,5 +647,5 @@ export function createTransform(
     warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
     return { seek, targetRoot: ensureMorphLayers().B };
   }
-  return { seek, targetRoot: layerB ?? contentHost };
+  return { seek, targetRoot: layerB ?? contentHost,dispose:()=>tickTween?.clear() };
 }

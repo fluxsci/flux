@@ -1,0 +1,1223 @@
+{
+  "artifact": {
+    "svgSha256": "f34eb68d06ca29f5a537bbf84de0736b01cea1aa037fb99e4333111d0b15dfc7"
+  },
+  "axes": [
+    {
+      "id": "plot-area",
+      "pixelBox": {
+        "x0": 47.50024,
+        "x1": 212.99975999999998,
+        "y0": 18.118365000000054,
+        "y1": 342.99897875
+      },
+      "projection": "rectilinear",
+      "svgId": "plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": 0.005623413251903487,
+            "svg": 47.50023999999999
+          },
+          {
+            "data": 1778.2794100389244,
+            "svg": 212.99975999999998
+          }
+        ],
+        "base": 10.0,
+        "domain": [
+          0.005623413251903487,
+          1778.2794100389244
+        ],
+        "label": "Time (s)",
+        "scale": "log",
+        "supported": true,
+        "tickFormatter": "log",
+        "tickLocator": "log",
+        "ticks": []
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 1.2589254117941654e-10,
+            "svg": 342.99897875
+          },
+          {
+            "data": 7943282347.2428255,
+            "svg": 18.118365000000054
+          }
+        ],
+        "base": 10.0,
+        "domain": [
+          1.2589254117941654e-10,
+          7943282347.2428255
+        ],
+        "label": "Response",
+        "scale": "log",
+        "supported": true,
+        "tickFormatter": "log",
+        "tickLocator": "log",
+        "ticks": [
+          {
+            "label": "$\\mathdefault{10^{-10}}$",
+            "value": 1e-10
+          },
+          {
+            "label": "$\\mathdefault{10^{-8}}$",
+            "value": 1e-08
+          },
+          {
+            "label": "$\\mathdefault{10^{-6}}$",
+            "value": 1e-06
+          },
+          {
+            "label": "$\\mathdefault{10^{-4}}$",
+            "value": 0.0001
+          },
+          {
+            "label": "$\\mathdefault{10^{-2}}$",
+            "value": 0.01
+          },
+          {
+            "label": "$\\mathdefault{10^{0}}$",
+            "value": 1.0
+          },
+          {
+            "label": "$\\mathdefault{10^{2}}$",
+            "value": 100.0
+          },
+          {
+            "label": "$\\mathdefault{10^{4}}$",
+            "value": 10000.0
+          },
+          {
+            "label": "$\\mathdefault{10^{6}}$",
+            "value": 1000000.0
+          },
+          {
+            "label": "$\\mathdefault{10^{8}}$",
+            "value": 100000000.0
+          },
+          {
+            "label": "$\\mathdefault{10^{10}}$",
+            "value": 10000000000.0
+          }
+        ]
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "axis.x",
+      "axis.y",
+      "figure.title",
+      "signal.line"
+    ],
+    "presets": {
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "line": {
+        "animation": "draw-on",
+        "durationMs": 800
+      },
+      "title": {
+        "animation": "fade-in",
+        "durationMs": 300
+      }
+    }
+  },
+  "figure": {
+    "background": "figure.background"
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.4.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "axis.x",
+      "role": "axis",
+      "svgId": "axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "axis.y",
+      "role": "axis",
+      "svgId": "axis.y"
+    }
+  ],
+  "idAliases": {
+    "axis.x.spine": "axis.x.spine.bottom",
+    "axis.x.spine-2": "axis.x.spine.top",
+    "axis.y.spine": "axis.y.spine.left",
+    "axis.y.spine-2": "axis.y.spine.right"
+  },
+  "layout": {
+    "axes": [
+      {
+        "adjustable": "box",
+        "anchor": "C",
+        "aspect": "auto",
+        "axisStyle": {
+          "x": {
+            "font": "f0",
+            "label": "axis.x.title",
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "center",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "bottom",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                212.99976,
+                345.99897875
+              ],
+              "font": "f0",
+              "ha": "right",
+              "id": "axis.x.offset-text",
+              "rotation": 0.0,
+              "va": "top"
+            },
+            "offsetText": null,
+            "side": "bottom",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          },
+          "y": {
+            "font": "f0",
+            "label": "axis.y.title",
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "right",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "left",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                47.50024,
+                15.118365
+              ],
+              "font": "f0",
+              "ha": "left",
+              "id": "axis.y.offset-text",
+              "rotation": 0.0,
+              "va": "baseline"
+            },
+            "offsetText": null,
+            "side": "left",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          }
+        },
+        "boxAspect": null,
+        "dataLim": {
+          "x": [
+            0.01,
+            1000.0
+          ],
+          "y": [
+            1e-09,
+            1000000000.0
+          ]
+        },
+        "dataRatio": 3.6,
+        "extraLayoutIds": [
+          "axis.y.spine.left",
+          "axis.y.spine.right",
+          "axis.x.spine.bottom",
+          "axis.x.spine.top",
+          "axes.background"
+        ],
+        "id": "plot-area",
+        "inLayout": true,
+        "initialDomain": {
+          "x": [
+            0.00562341325190349,
+            1778.27941003892
+          ],
+          "y": [
+            1.25892541179417e-10,
+            7943282347.24283
+          ]
+        },
+        "initialPosition": [
+          0.125,
+          0.11,
+          0.775,
+          0.77
+        ],
+        "inset": null,
+        "margins": [
+          44.5,
+          14.00078125,
+          0.0,
+          15.118125
+        ],
+        "pixelBox": [
+          47.50024,
+          18.118365,
+          212.99976,
+          342.99897875
+        ],
+        "position": [
+          0.219908518518519,
+          0.0472250590277778,
+          0.766201481481481,
+          0.902446149305556
+        ],
+        "positionMode": "grid",
+        "sharex": null,
+        "sharey": null,
+        "slot": {
+          "cols": [
+            0,
+            0
+          ],
+          "grid": "g0",
+          "rows": [
+            0,
+            0
+          ]
+        },
+        "ticking": {
+          "x": {
+            "domain": [
+              0.00562341325190349,
+              1778.27941003892
+            ],
+            "formatter": {
+              "base": 10.0,
+              "kind": "log-sci",
+              "labelOnlyBase": false,
+              "minExponent": 0,
+              "minorThresholds": [
+                "inf",
+                "inf"
+              ]
+            },
+            "labels": [],
+            "major": {
+              "base": 10.0,
+              "kind": "log",
+              "numticks": "auto",
+              "subs": [
+                1.0,
+                2.0,
+                5.0
+              ]
+            },
+            "minor": {
+              "base": 10.0,
+              "kind": "log",
+              "numticks": "auto",
+              "subs": "auto"
+            },
+            "minorFormatter": {
+              "base": 10.0,
+              "kind": "log-sci",
+              "labelOnlyBase": false,
+              "minExponent": 0,
+              "minorThresholds": [
+                1,
+                0.4
+              ]
+            },
+            "minorLabels": [],
+            "minorRetick": true,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": true,
+            "scale": "log",
+            "values": []
+          },
+          "y": {
+            "domain": [
+              1.25892541179417e-10,
+              7943282347.24283
+            ],
+            "formatter": {
+              "base": 10.0,
+              "kind": "log-sci",
+              "labelOnlyBase": false,
+              "minExponent": 0,
+              "minorThresholds": [
+                1,
+                0.4
+              ]
+            },
+            "labels": [
+              "$\\mathdefault{10^{-10}}$",
+              "$\\mathdefault{10^{-8}}$",
+              "$\\mathdefault{10^{-6}}$",
+              "$\\mathdefault{10^{-4}}$",
+              "$\\mathdefault{10^{-2}}$",
+              "$\\mathdefault{10^{0}}$",
+              "$\\mathdefault{10^{2}}$",
+              "$\\mathdefault{10^{4}}$",
+              "$\\mathdefault{10^{6}}$",
+              "$\\mathdefault{10^{8}}$",
+              "$\\mathdefault{10^{10}}$"
+            ],
+            "major": {
+              "base": 10.0,
+              "kind": "log",
+              "numticks": "auto",
+              "subs": [
+                1.0
+              ]
+            },
+            "minor": {
+              "base": 10.0,
+              "kind": "log",
+              "numticks": "auto",
+              "subs": "auto"
+            },
+            "minorFormatter": {
+              "base": 10.0,
+              "kind": "log-sci",
+              "labelOnlyBase": false,
+              "minExponent": 0,
+              "minorThresholds": [
+                1,
+                0.4
+              ]
+            },
+            "minorLabels": [],
+            "minorRetick": true,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": true,
+            "scale": "log",
+            "values": [
+              1e-10,
+              1e-08,
+              1e-06,
+              0.0001,
+              0.01,
+              1.0,
+              100.0,
+              10000.0,
+              1000000.0,
+              100000000.0,
+              10000000000.0
+            ]
+          }
+        },
+        "title": {
+          "center": "figure.title",
+          "left": null,
+          "padPt": 6.0,
+          "right": null
+        },
+        "twins": []
+      }
+    ],
+    "colorbars": [],
+    "engine": {
+      "hPad": 3.00024,
+      "hSpace": 0.02,
+      "kind": "constrained",
+      "rect": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "wPad": 3.00024,
+      "wSpace": 0.02
+    },
+    "figure": {
+      "auto": {
+        "suptitle": false,
+        "supxlabel": false,
+        "supylabel": false
+      },
+      "heightPt": 360.0,
+      "suptitle": null,
+      "supxlabel": null,
+      "supylabel": null,
+      "widthPt": 216.0
+    },
+    "fonts": {
+      "f0": {
+        "advances": {
+          " ": 3.178125,
+          "%": 9.5015625,
+          "(": 3.9015625,
+          ")": 3.9015625,
+          "+": 8.3796875,
+          ",": 3.178125,
+          "-": 3.6078125,
+          ".": 3.178125,
+          "0": 6.3625,
+          "1": 6.3625,
+          "2": 6.3625,
+          "3": 6.3625,
+          "4": 6.3625,
+          "5": 6.3625,
+          "6": 6.3625,
+          "7": 6.3625,
+          "8": 6.3625,
+          "9": 6.3625,
+          "E": 6.31875,
+          "e": 6.153125,
+          "×": 8.3796875,
+          "−": 8.3796875
+        },
+        "ascentPt": 7.5984375,
+        "descentPt": 2.0796875,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 12.8203125,
+          "coeffPrefixPt": 18.6376953125,
+          "minusAdvancePt": 5.865234375,
+          "powerDescentPt": 0.2,
+          "powerHeightPt": 9.6,
+          "powerRawWidthPt": 17.54736328125,
+          "powerWidthPt": 17.6,
+          "quantumPt": 0.1,
+          "supAdvancePt": 4.45361328125,
+          "supRisePt": 4.13,
+          "supScale": 0.7,
+          "timesPadPt": 1.948046875
+        },
+        "sizePt": 10.0,
+        "style": "normal",
+        "weight": "normal"
+      },
+      "f1": {
+        "advances": {
+          " ": 3.81375,
+          "%": 11.401875,
+          "(": 4.681875,
+          ")": 4.681875,
+          "+": 10.055625,
+          ",": 3.81375,
+          "-": 4.329375,
+          ".": 3.81375,
+          "0": 7.635,
+          "1": 7.635,
+          "2": 7.635,
+          "3": 7.635,
+          "4": 7.635,
+          "5": 7.635,
+          "6": 7.635,
+          "7": 7.635,
+          "8": 7.635,
+          "9": 7.635,
+          "E": 7.5825,
+          "e": 7.38375,
+          "×": 10.055625,
+          "−": 10.055625
+        },
+        "ascentPt": 9.118125,
+        "descentPt": 2.495625,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 15.384375,
+          "coeffPrefixPt": 22.365234375,
+          "minusAdvancePt": 7.03828125,
+          "powerDescentPt": 0.24,
+          "powerHeightPt": 11.52,
+          "powerRawWidthPt": 21.0568359375,
+          "powerWidthPt": 21.12,
+          "quantumPt": 0.12,
+          "supAdvancePt": 5.3443359375,
+          "supRisePt": 4.956,
+          "supScale": 0.7,
+          "timesPadPt": 2.33765625
+        },
+        "sizePt": 12.0,
+        "style": "normal",
+        "weight": "normal"
+      }
+    },
+    "frames": {
+      "axes.background": {
+        "axes": "plot-area",
+        "f": "axes",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "axis.x.spine.bottom": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "bottom"
+      },
+      "axis.x.spine.top": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "top"
+      },
+      "axis.x.title": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "title"
+      },
+      "axis.y.spine.left": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "left"
+      },
+      "axis.y.spine.right": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "right"
+      },
+      "axis.y.tick.1": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 1e-08
+      },
+      "axis.y.tick.2": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 1e-06
+      },
+      "axis.y.tick.3": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 0.0001
+      },
+      "axis.y.tick.4": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 0.01
+      },
+      "axis.y.tick.5": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 1.0
+      },
+      "axis.y.tick.6": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 100.0
+      },
+      "axis.y.tick.7": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 10000.0
+      },
+      "axis.y.tick.8": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 1000000.0
+      },
+      "axis.y.tick.9": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 100000000.0
+      },
+      "axis.y.ticklabel.1": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 1e-08
+      },
+      "axis.y.ticklabel.2": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 1e-06
+      },
+      "axis.y.ticklabel.3": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 0.0001
+      },
+      "axis.y.ticklabel.4": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 0.01
+      },
+      "axis.y.ticklabel.5": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 1.0
+      },
+      "axis.y.ticklabel.6": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 100.0
+      },
+      "axis.y.ticklabel.7": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 10000.0
+      },
+      "axis.y.ticklabel.8": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 1000000.0
+      },
+      "axis.y.ticklabel.9": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 100000000.0
+      },
+      "axis.y.title": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "title"
+      },
+      "figure.background": {
+        "f": "figure",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "figure.title": {
+        "axes": "plot-area",
+        "f": "title",
+        "slot": "center"
+      },
+      "signal.line": {
+        "axes": "plot-area",
+        "f": "data"
+      }
+    },
+    "grids": [
+      {
+        "heightRatios": [
+          1
+        ],
+        "hspace": null,
+        "id": "g0",
+        "ncols": 1,
+        "nrows": 1,
+        "parent": null,
+        "widthRatios": [
+          1
+        ],
+        "wspace": null
+      }
+    ],
+    "legends": [],
+    "reasons": [
+      "ticks:no-template:plot-area.x"
+    ],
+    "supported": false,
+    "texts": {
+      "axis.x.title": {
+        "anchor": [
+          130.25,
+          346.99897875
+        ],
+        "bbox": [
+          109.91875,
+          346.99897875,
+          150.58125,
+          356.99976
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "Time (s)",
+        "va": "top"
+      },
+      "axis.y.ticklabel.1": {
+        "anchor": [
+          40.50024,
+          311.823566319444
+        ],
+        "bbox": [
+          17.00024,
+          307.123566319444,
+          40.50024,
+          318.925910069444
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{-8}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.2": {
+        "anchor": [
+          40.50024,
+          279.007342708333
+        ],
+        "bbox": [
+          17.00024,
+          274.307342708333,
+          40.50024,
+          286.109686458333
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{-6}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.3": {
+        "anchor": [
+          40.50024,
+          246.191119097222
+        ],
+        "bbox": [
+          17.00024,
+          241.541119097222,
+          40.50024,
+          253.243462847222
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{-4}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.4": {
+        "anchor": [
+          40.50024,
+          213.374895486111
+        ],
+        "bbox": [
+          17.00024,
+          208.674895486111,
+          40.50024,
+          220.477239236111
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{-2}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.5": {
+        "anchor": [
+          40.50024,
+          180.558671875
+        ],
+        "bbox": [
+          22.90024,
+          175.858671875,
+          40.50024,
+          187.661015625
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{0}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.6": {
+        "anchor": [
+          40.50024,
+          147.742448263889
+        ],
+        "bbox": [
+          22.90024,
+          143.042448263889,
+          40.50024,
+          154.844792013889
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{2}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.7": {
+        "anchor": [
+          40.50024,
+          114.926224652778
+        ],
+        "bbox": [
+          22.90024,
+          110.276224652778,
+          40.50024,
+          121.978568402778
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{4}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.8": {
+        "anchor": [
+          40.50024,
+          82.1100010416667
+        ],
+        "bbox": [
+          22.90024,
+          77.4100010416667,
+          40.50024,
+          89.2123447916667
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{6}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.9": {
+        "anchor": [
+          40.50024,
+          49.2937774305556
+        ],
+        "bbox": [
+          22.90024,
+          44.5937774305556,
+          40.50024,
+          56.3961211805556
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "$\\mathdefault{10^{8}}$",
+        "va": "center_baseline"
+      },
+      "axis.y.title": {
+        "anchor": [
+          13.00024,
+          180.558671875
+        ],
+        "bbox": [
+          3.00024,
+          156.543828125,
+          13.00024,
+          204.573515625
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 90.0,
+        "text": "Response",
+        "va": "bottom"
+      },
+      "figure.title": {
+        "anchor": [
+          130.25,
+          12.118365
+        ],
+        "bbox": [
+          95.5821875,
+          3.00024000000002,
+          164.9178125,
+          15.0011775
+        ],
+        "font": "f1",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "Experiment",
+        "va": "baseline"
+      }
+    },
+    "version": 1
+  },
+  "overlays": [],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "kind": "shape",
+            "ref": "axes.background",
+            "role": "background"
+          },
+          {
+            "axis": "x",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.bottom",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.top",
+                "role": "spine"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.x.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.x",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "axis": "y",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.left",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.right",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.y.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.y.tick.1",
+                  "axis.y.tick.2",
+                  "axis.y.tick.3",
+                  "axis.y.tick.4",
+                  "axis.y.tick.5",
+                  "axis.y.tick.6",
+                  "axis.y.tick.7",
+                  "axis.y.tick.8",
+                  "axis.y.tick.9"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.y.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.y.ticklabel.1",
+                  "axis.y.ticklabel.2",
+                  "axis.y.ticklabel.3",
+                  "axis.y.ticklabel.4",
+                  "axis.y.ticklabel.5",
+                  "axis.y.ticklabel.6",
+                  "axis.y.ticklabel.7",
+                  "axis.y.ticklabel.8",
+                  "axis.y.ticklabel.9"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.y.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.y",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "children": [
+              {
+                "kind": "line",
+                "ref": "signal.line",
+                "role": "line"
+              }
+            ],
+            "id": "signal",
+            "kind": "container",
+            "label": "signal",
+            "role": "series"
+          }
+        ],
+        "id": "plot-area",
+        "kind": "container",
+        "role": "plot-area"
+      },
+      {
+        "kind": "text",
+        "ref": "figure.title",
+        "role": "title"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "line",
+  "schemaVersion": "0.4.0",
+  "series": [
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "capture": {
+        "data": "artist",
+        "identity": "artist-label"
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#1f77b4",
+        "palette": {
+          "index": 0,
+          "name": "cycle"
+        }
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "signal.line"
+        }
+      ],
+      "data": {
+        "x": [
+          0.01,
+          1000.0
+        ],
+        "y": [
+          1e-09,
+          1000000000.0
+        ]
+      },
+      "id": "signal",
+      "kind": "line",
+      "label": "signal",
+      "name": "signal",
+      "roles": [
+        "line"
+      ],
+      "svg": {
+        "line": "signal.line"
+      }
+    }
+  ],
+  "size": {
+    "height": 360.0,
+    "unit": "pt",
+    "width": 216.0
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": null,
+    "tokens": {
+      "axis": "#000000",
+      "grid": "#b0b0b0",
+      "ink": "#000000",
+      "label": "#000000",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#000000"
+    }
+  },
+  "svg": "size-27.svg"
+}
