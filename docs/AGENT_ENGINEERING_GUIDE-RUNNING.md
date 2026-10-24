@@ -10826,3 +10826,7 @@ semantic ids/edits using disposable projection clones; originals are parked and 
 Build those clones from pre-override templates so dx/dy is applied once and a template's
 leaf style cannot leak to new values. Portable deck payloads retain idAliases, and the
 coverage audit resolves aliases before warning about old tracks after source regeneration.
+
+
+### 2026-10-24 00:25 CDT — Elastic relayout accepted into main (Codex, main)
+**Work:** Fast-forwarded both approved `relayout/v1` branches into their respective main checkouts (Flux `80414134`, fluxplot `6ee758ce`), installed the locked solver dependency and updated the main provider environment. Main production/CLI/MCP build, renderer/headless checks, 22-page documentation build and provider suite (625 passed, one skipped) pass. Rebound the test project's source and active Figure/Slide recipes to main through supported sync/export operations, preserving the owner's latest Figure objects and authored slides; final integration receipts are in `notes/elastic_relayout_2026-10-23/main-integration/`. Existing native qualification and metadata-size limits remain in the feature handoff; no budgets were relaxed, no other worktrees integrated, and nothing pushed.
