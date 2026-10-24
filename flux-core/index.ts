@@ -154,6 +154,8 @@ export {
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
   suggestArcs,
+  focusVerb,
+  unfocusVerb,
   setPlotViewVerb,
   setPlotColorScaleVerb,
   getPlotColorScales,

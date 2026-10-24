@@ -39,7 +39,7 @@
 
   let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable") => void;
+    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable" | "focus" | "unfocus") => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
@@ -332,6 +332,8 @@
         </span>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Pulse the selection: a calm grow-and-return (add Circle it or Highlight from the Effect menu)">Emphasize</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("disappear")} title="Add an exit · Cmd/Ctrl+Shift+D">Disappear</button>
+        <button class="b" disabled={!sel.length} onclick={() => onAction?.("focus")} title="Dim everything else on the slide at this step (labels inside the selection stay bright)">Focus</button>
+        <button class="b" onclick={() => onAction?.("unfocus")} title="Bring back everything a dim left behind, smoothly from where it is">Unfocus</button>
         {#if selectedModels.length && selectedModels.length === sel.length && !$partSelections.length}
           <button class="b" onclick={() => onAction?.("turntable")} title="One full turn in 6 seconds, easing in and out — edit its Change track (curve Linear = constant speed, for loops)">Turntable</button>
         {/if}

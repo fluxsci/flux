@@ -1166,9 +1166,28 @@
     }
     animateTargets(req.targets, req.kind);
   }
-  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop"|"turntable") {
+  /** WP 4.4: Focus dims everything but the selection at this step (one track group); Unfocus brings back what a dim left behind. A step
+   *  is added when the slide has none (Design cannot animate). */
+  function focusAction(release: boolean) {
+    const sid = $activeFigureId, ids = selectionTargets();
+    if (!sid || !activeSlide || (!release && !ids.length)) return;
+    let bi = Math.max(1, $activeBeat), made: string[] = [], skipped: string[] = [];
+    commitDeckLive((d) => {
+      const slide = slideOps.slideById(d, sid); if (!slide) return;
+      if (slide.beats.length < 2) slideOps.addBeat(d, sid, { label: "Step 1", advance: "click" });
+      bi = Math.min(bi, slide.beats.length - 1);
+      const beatId = slide.beats[bi].id;
+      if (release) made = (slideOps.unfocus(d, sid, beatId) ?? []).map((t) => t.id!);
+      else { const r = slideOps.focusOn(d, sid, beatId, ids); made = r?.tracks.map((t) => t.id!) ?? []; skipped = r?.skipped ?? []; }
+    });
+    activeBeat.set(bi); selTrackIds.set(made); inspectorTab = "animation";
+    if (!made.length) pushToast("info", release ? "Nothing is dimmed at the start of this step." : "Nothing else on the slide is fully visible at this step.");
+    else if (skipped.length) pushToast("info", `Focus left ${skipped.length} object${skipped.length === 1 ? "" : "s"} alone (already dimmed, entering, or animating in this step).`);
+  }
+  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop"|"turntable"|"focus"|"unfocus") {
     stopPreview(); cancelBecome();
-    if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
+    if(action==="focus"||action==="unfocus")focusAction(action==="unfocus");
+    else if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
     else if(action==="turntable")addModelTurntable();
     else if(action==="ghost")openGhostDialog();
     else if(action==="change")addOrToggleTransform();

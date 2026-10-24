@@ -17,7 +17,8 @@ import { EASING_TOKENS, resolveCurve } from "../src/lib/slide/curves";
 import { smoothstep } from "../src/lib/motion/tokens";
 import { compileSlide } from "../src/lib/slide/compile";
 import { pptxPages } from "../src/lib/slide/export/pptxBuilds";
-import { createDeck } from "../src/lib/slide/ops";
+import { createDeck, addSlide, addElement, addBeat, setAnimation, focusOn, unfocus } from "../src/lib/slide/ops";
+import { focusPlan } from "../src/lib/slide/focus";
 import { addAppearanceTracks } from "../src/lib/slide/animateSelection";
 import { suggestElementTrack, autoAnimatePlot, elementEnterPreset, elementExitPreset, V2_PACE, CLASSIC_PACE } from "../src/lib/slide/autobuild";
 import { makeModel3dElement } from "../src/lib/model3d/make";
@@ -243,5 +244,36 @@ h.section("I. authoring: the Q3 defaults, Emphasize, the group origin (X1, X1b)"
   h.ok(child(CLASSIC_PACE).length > 0 && child(CLASSIC_PACE).every((c) => c === "fade") && child(V2_PACE).every((c) => c === "scaleIn"), "Auto-animate a scatter: classic points fade in (unchanged); V2 points grow in (stagger child scaleIn, n <= 150)");
   const points = autoAnimatePlot(manifest, "p").flatMap((b) => b.tracks).find((t) => t.preset === "stagger" && t.params?.child === "scaleIn")!;
   h.ok(points.params?.y === undefined && points.curve !== undefined, "a scaleIn point group carries the quick-smooth curve and NO fadeRise y");
+}
+h.section("J. Focus (WP 4.4): dim everything except the selection; Unfocus climbs back from the dim with no jump");
+{
+  const e = (id: string, x: number, y: number, w: number, hh: number, extra = {}) => ({ id, type: "rect", x, y, width: w, height: hh, rotation: 0, ...extra });
+  const els = [e("cardA", 0, 0, 200, 100), e("labelA", 10, 10, 80, 20), e("cardB", 220, 0, 200, 100), e("labelB", 230, 10, 80, 20), e("note", 0, 200, 100, 20), e("ghost", 0, 300, 10, 10, { hidden: true }), e("tagged", 500, 0, 40, 40, { groupId: "g" }), e("tagged2", 560, 0, 40, 40, { groupId: "g" })];
+  h.eq(focusPlan(els, ["cardA"]), { bright: ["cardA", "labelA"], dim: ["cardB", "labelB", "note", "tagged", "tagged2"] }, "Focus cardA: its label stays bright, the other card AND its label dim together, hidden elements are ignored");
+  h.eq(focusPlan(els, ["tagged"]).bright, ["tagged", "tagged2"], "a selected element brings its group along");
+  h.eq(focusPlan(els, ["cardA", "note"]), { bright: ["cardA", "labelA", "note"], dim: ["cardB", "labelB", "tagged", "tagged2"] }, "multi-selection");
+  // the op on a real deck: 5 objects + a label inside the focused card + one leaving in that step + one entering later
+  const d = createDeck({ id: "f", title: "f", withTitleSlide: false } as never); d.stage = stage as never;
+  const s = addSlide(d, { id: "s", layout: "blank" } as never);
+  const R = (id: string, x: number, y: number, w = 100, hh = 60) => addElement(d, s.id, { id, type: "rect", x, y, width: w, height: hh, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
+  R("A", 20, 20, 200, 120); R("inA", 40, 40, 60, 30); R("B", 300, 20); R("C", 300, 200); R("D", 20, 200); R("E", 450, 200); R("leaving", 450, 20); R("later", 520, 280, 40, 40);
+  const b1 = addBeat(d, s.id, { id: "b1" } as never)!, b2 = addBeat(d, s.id, { id: "b2" } as never)!, b0 = d.slides[0].beats[0];
+  setAnimation(d, s.id, b0.id === b1.id ? b1.id : b1.id, { target: "leaving", preset: "fadeOut", start: 0, duration: 500 } as never);
+  // "later" enters on b2: hidden before it
+  setAnimation(d, s.id, b2.id, { target: "later", preset: "fade", start: 0, duration: 500 } as never);
+  const f = focusOn(d, s.id, b1.id, ["A"])!;
+  h.eq([f.dimmed.sort(), f.skipped], [["B", "C", "D", "E"], ["leaving"]], "Focus A at step 1 dims B, C, D, E (its inner label stays bright); the object leaving in that step keeps its exit (skipped), the one not yet entered is not touched");
+  const beat1 = d.slides[0].beats[1];
+  h.ok(f.tracks.every((t) => t.preset === "dim" && t.params?.level === 0.3 && t.groupId === f.groupId) && !!beat1.groups?.some((g: any) => g.id === f.groupId && g.label === "Focus"), "...as ONE track group \"Focus\" of ordinary dim tracks at level 0.3");
+  h.ok(beat1.tracks.some((t) => t.target === "leaving" && t.preset === "fadeOut"), "...and the exit is intact");
+  const back = unfocus(d, s.id, b2.id)!;
+  h.eq(back.map((t) => t.target).sort(), ["B", "C", "D", "E"], "Unfocus at step 2 brings back exactly what the dim left behind");
+  h.ok(back.every((t) => t.preset === "highlight" && t.params?.level === 0.3 && t.params?.lead === 0), "...as highlights from the dim level with no dip (level = the opacity it rests at, lead 0)");
+  const c = compileSlide(d.slides[0], stage as never), op = (beat: number, t: number, id: string) => c.sample(beat, t).presentation.elementStates[id]?.opacity ?? 1;
+  h.ok(near(op(1, Infinity, "B"), 0.3) && near(op(1, Infinity, "inA"), 1) && near(op(1, Infinity, "A"), 1), "after the Focus step: B rests at 0.3, A and its label at 1");
+  let worst = 0, prev = op(2, 0, "B");
+  for (let t = 1; t <= 700; t++) { const o = op(2, t, "B"); worst = Math.max(worst, Math.abs(o - prev)); prev = o; }
+  h.ok(near(op(2, 0, "B"), 0.3) && worst < 0.01 && near(op(2, Infinity, "B"), 1), `Unfocus climbs from 0.3 to 1 with no jump (largest step per ms ${worst.toFixed(4)}; the old highlight started at 0.41)`);
+  h.eq(focusOn(d, s.id, d.slides[0].beats[0].id, ["A"]), null, "Focus refuses Design (step 0)");
 }
 await h.done();

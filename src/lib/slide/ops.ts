@@ -37,6 +37,7 @@ import { diffState, transformPreState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef, normalizeRef, refElementIds, DEFAULT_TRANSFORM_METHOD } from "./targets";
+import { focusPlan } from "./focus";
 import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
 import { modelBecomeResult, modelVideoHandoff } from "./model3dMorph";
 import {
@@ -1357,6 +1358,46 @@ export function setTransform(
   if (opts.arc !== undefined) setTrackArc(t, opts.arc);
   if (opts.turn !== undefined) setTrackTurn(t, opts.turn);
   return t;
+}
+
+/** WP 4.4 Focus: dim every element visible at the start of `beatId` except `ids` (and what belongs to them, `focusPlan`) to `level`
+ *  (default 0.3, the Dim preset's), as ONE track group of ordinary `dim` tracks. Elements not at full opacity then (mid-entrance, already
+ *  dimmed) and elements that already play another appearance in this step (an exit, a pulse: a dim would replace it) are left alone and
+ *  reported in `skipped`. Null when the beat is Design or nothing is selected. */
+const appearanceElsewhere = (beat: Beat, id: Id, own: string) => beat.tracks.some((t) => t.target === id && familyOf(t) === "appearance" && isWholeElementRef(trackRef(t)) && t.preset !== own);
+export interface FocusResult { tracks: Track[]; groupId: Id | null; dimmed: Id[]; skipped: Id[] }
+export function focusOn(deck: Deck, slideId: Id, beatId: Id, ids: readonly Id[], opts: { level?: number } = {}): FocusResult | null {
+  const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
+  if (!slide || bi <= 0 || !ids.length) return null;
+  const level = Math.max(0, Math.min(1, Number.isFinite(opts.level) ? opts.level! : 0.3));
+  const states = compileSlide(slide, deck.stage, { animStyles: deck.animStyles }).sample(bi - 1, Infinity).presentation.elementStates;
+  const shown = slide.elements.filter((e) => !e.hidden && (states[e.id]?.visible ?? true));
+  const plan = focusPlan(shown, ids), dimmed: Id[] = [], skipped: Id[] = [], tracks: Track[] = [];
+  for (const id of plan.dim) {
+    if ((states[id]?.opacity ?? 1) < 0.999 || appearanceElsewhere(slide.beats[bi], id, "dim")) { skipped.push(id); continue; }
+    const track: Track = { id: newId("track"), target: id, preset: "dim", ...authoredFields("dim"), params: { level }, start: 0 };
+    if (setAnimation(deck, slideId, beatId, track)) { tracks.push(slide.beats[bi].tracks.find((t) => t.target === id && t.preset === "dim")!); dimmed.push(id); }
+  }
+  if (!tracks.length) return { tracks, groupId: null, dimmed, skipped };
+  const groupId = tracks.length > 1 ? groupTracks(deck, slideId, beatId, tracks.map((t) => t.id!), "Focus") : null;
+  return { tracks, groupId, dimmed, skipped };
+}
+/** WP 4.4 Unfocus: every element a `dim` left below full opacity before `beatId` climbs back to 1 FROM where it is (a `highlight`
+ *  with `level` = its opacity at the beat's start and no dip: no 0.31 -> 0.41 jump, the exact inverse of the dim). */
+export function unfocus(deck: Deck, slideId: Id, beatId: Id): Track[] | null {
+  const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
+  if (!slide || bi <= 0) return null;
+  const dimmedBefore = new Set(slide.beats.slice(1, bi).flatMap((b) => b.tracks.filter((t) => t.preset === "dim" && !hasPartBinding(t)).map((t) => t.target)));
+  const states = compileSlide(slide, deck.stage, { animStyles: deck.animStyles }).sample(bi - 1, Infinity).presentation.elementStates;
+  const tracks: Track[] = [];
+  for (const id of dimmedBefore) {
+    const st = states[id];
+    if (!st?.visible || !(st.opacity < 0.999) || appearanceElsewhere(slide.beats[bi], id, "highlight")) continue;
+    const track: Track = { id: newId("track"), target: id, preset: "highlight", ...authoredFields("highlight"), params: { level: Math.round(st.opacity * 1e6) / 1e6, lead: 0 }, start: 0 };
+    if (setAnimation(deck, slideId, beatId, track)) tracks.push(slide.beats[bi].tracks.find((t) => t.target === id && t.preset === "highlight")!);
+  }
+  if (tracks.length > 1) groupTracks(deck, slideId, beatId, tracks.map((t) => t.id!), "Unfocus");
+  return tracks;
 }
 
 /** WP 4.5 (T7 D7): a new Turntable eases in and out (peak speed 1.25x the average) instead of jumping to full speed on the first frame;

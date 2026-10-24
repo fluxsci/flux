@@ -3436,6 +3436,46 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "focus",
+    scope: "project",
+    cli: "focus",
+    cliRoot: "flags",
+    summary:
+      "Focus (manim/3b1b): on ONE beat, dim every element visible at its start to 30 % (--level) except the given elements, the labels inside them and their groups, as one track group of ordinary dim tracks. Elements already below full opacity, or playing another appearance in that beat, are skipped and listed. Pair with `unfocus` on a later beat.",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), elementIds: z.array(z.string()).min(1), level: z.number().min(0).max(1).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "rest", at: 3, into: "elementIds", required: true },
+      { kind: "flag", at: "level", into: "level", as: "number" },
+    ],
+    handler: (ctx, a) => core.focusVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), a.elementIds as string[], a.level as number | undefined),
+    render: {
+      human: (r) => { const v = r as { trackIds: string[]; dimmed: string[]; skipped: string[] }; return { out: v.trackIds.join("\n"), err: `✓ dimmed ${v.dimmed.length}${v.skipped.length ? `; skipped ${v.skipped.join(", ")}` : ""}` }; },
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "unfocus",
+    scope: "project",
+    cli: "unfocus",
+    cliRoot: "flags",
+    summary:
+      "Undo a Focus on a later beat: every element a dim left below full opacity climbs back to 100 % from exactly where it is (a highlight with no dip), as one track group.",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+    ],
+    handler: (ctx, a) => core.unfocusVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId)),
+    render: {
+      human: (r) => { const v = r as { trackIds: string[] }; return { out: v.trackIds.join("\n"), err: v.trackIds.length ? `✓ ${v.trackIds.length} element(s) brought back` : "nothing is dimmed at this step" }; },
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "ghost_transform",
     scope: "project",
     cli: "ghost-transform",

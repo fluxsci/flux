@@ -160,6 +160,12 @@ to place multiple appearance effects on the same object in one step.
   leave nothing behind and add no PowerPoint page.
 - `highlight` takes `params.lead` (0-0.9, authored 0.25): it eases into its dip from where the object is;
   `dim` starts from the object's current opacity.
+- **Focus** (the 3b1b idiom): `flux focus <deck> <slideId> <beatId> <elementId...> [--level 0.3]` (`focus`) dims
+  every element fully visible at the start of that beat except the given ones, the labels inside them and their
+  groups (one "Focus" track group of `dim` tracks); objects already dimmed, entering, or playing another
+  appearance in that beat are skipped and listed. `flux unfocus <deck> <slideId> <beatId>` (`unfocus`) brings
+  back everything a dim left below full opacity, from exactly where it is (`highlight` with `level` = that
+  opacity and `lead` 0: no jump).
 - **Stroke order**: `drawOn`/`drawOff` `params.order: "sequence"` (+ `lag`, default 0.3) draws the strokes
   of one multi-path drawing one after another at one pen speed, weighted by length (a retreat takes the
   last stroke first); the Animator writes it for a Draw on an imported drawing with several strokes (never

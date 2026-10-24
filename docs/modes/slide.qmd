@@ -86,6 +86,9 @@ To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plo
   **Become** (**B**) turns the object into another one. See [Transforms](#transforms).
 - **Emphasize** — add a pulse (a calm swell and return); Highlight, Dim and Circle it are in the Effect menu.
 - **Disappear** / **Ctrl+Shift+D** — add an exit.
+- **Focus** — dim everything else on the slide to 30 % at this step, so the selection stands out (a label
+  inside a selected object, and anything grouped with it, stays bright). **Unfocus**, on a later step,
+  brings everything back smoothly from where it is. Both are ordinary Dim / Highlight effects, grouped.
 
 Text rises in, shapes and arrows grow, and lines and paths draw on. Adding another appearance keeps the existing
 effects; successive effects on the same target start after its existing effects by default.
