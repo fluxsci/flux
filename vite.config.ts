@@ -52,6 +52,9 @@ function cspStrict(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Worktrees can share node_modules. Their dependency graphs must not share
+  // Vite's default optimizer cache or one server invalidates another's imports.
+  cacheDir: path.resolve(".generated/vite-cache"),
   plugins: [svelte(), pdfjsAssets(), cspStrict(), {
     name: "flux-slide-embed-csp",
     transformIndexHtml(html) {

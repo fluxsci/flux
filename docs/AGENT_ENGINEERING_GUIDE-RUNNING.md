@@ -10810,3 +10810,6 @@ After acceptance-time HMR, restart Vite before the frozen cohort: cached imports
 timestamps can give direct test imports a second module instance (annotation initialization
 and source watchers failed despite the visible editor having a valid owner). A fresh server
 passed both unchanged gates. Keep diagnostic baseline builds outside the watched repository.
+Vite's cache lives in `.generated/vite-cache`, per worktree. A shared `node_modules/.vite`
+cache lets another active worktree replace optimized dependencies and cause stale-hash
+dynamic import failures even with frozen source and no HMR event in this server's log.
