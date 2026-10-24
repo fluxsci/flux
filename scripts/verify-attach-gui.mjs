@@ -102,7 +102,7 @@ try {
   const w0 = (await model("T")).width;
   const centredOnA = async () => { const t = await model("T"), A = await model("A"); return !!t.attach && Math.abs(t.x + t.width / 2 - (A.x + A.width / 2)) < 0.5; };
   const tl = await model("T"), tc = await pt(tl.x + 12, tl.y + tl.height * 0.6); // on the glyph ink of "la…" (left-aligned)
-  await page.mouse.click(tc.x, tc.y, { count: 2 }); await waitFor(page, () => !!document.querySelector("textarea.text-edit"));
+  await page.mouse.click(tc.x, tc.y, { count: 2 }); await waitFor(page, () => document.activeElement?.classList?.contains("text-edit") === true); // focused (it is focused a frame after it opens)
   await page.keyboard.press("End"); await page.keyboard.type(" text");
   await page.evaluate(() => document.querySelector("textarea.text-edit")?.blur()); await waitForFrame(page); // blur commits the edit
   await page.evaluate(() => window.__flux.fig.clearSelection()); await waitForFrame(page);

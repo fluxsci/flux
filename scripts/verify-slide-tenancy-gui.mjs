@@ -91,8 +91,10 @@ try {
     const root = f.get(f.shell.projectModel).root;
     const id = f.get(f.slide.deckOverlay).id;
     const text = await window.fig.readText(`${root}/slides/${id}/deck.json`).catch(() => "");
-    const { DECK_SCHEMA_VERSION } = await import('/src/lib/slide/types.ts');
-    return { hasMark: text.includes("slide-mark"), hasBeat: text.includes('"tb"'), version: !!text && JSON.parse(text).schemaVersion === DECK_SCHEMA_VERSION };
+    // WP 3.0: a deck is written in the format its content needs (the base unless it holds a newer feature): deckSchemaFor
+    const { deckSchemaFor } = await import('/src/lib/slide/schemaStamp.ts');
+    const disk = text ? JSON.parse(text) : null;
+    return { hasMark: text.includes("slide-mark"), hasBeat: text.includes('"tb"'), version: !!disk && disk.schemaVersion === deckSchemaFor(disk) };
   });
   ok(deckOnDisk.hasMark && deckOnDisk.hasBeat, "autosave wrote the edits (elements + beats recombined) to slides/<id>/deck.json");
   ok(deckOnDisk.version, "…in the current deck format");
