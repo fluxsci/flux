@@ -1332,14 +1332,15 @@
         // Turntable joins this step's existing whole-model Change and takes
         // over its timing; say so when that actually re-times something.
         const before = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && t.target === element.id && isWholeElementRef(trackRef(t)));
-        const timing = before && { start: before.start ?? 0, duration: before.duration, easing: before.easing, curve: !!before.curve || !!before.influence };
+        const curveKey = (t: { curve?: unknown; easing?: unknown; influence?: unknown }) => JSON.stringify(t.curve ?? t.influence ?? t.easing ?? null);
+        const timing = before && { start: before.start ?? 0, duration: before.duration, curve: curveKey(before) };
         const track = slideOps.addTurntable(deck, { slideId: sid, beatId: slide.beats[bi].id, target: element.id });
         if (track?.id) created.push(track.id);
-        if (timing && track === before && (timing.start !== 0 || timing.duration !== track.duration || timing.easing !== track.easing || timing.curve)) retimedMs = track.duration ?? 0;
+        if (timing && track === before && (timing.start !== 0 || timing.duration !== track.duration || timing.curve !== curveKey(track))) retimedMs = track.duration ?? 0;
       }
     });
     activeBeat.set(bi); selTrackIds.set(created); inspectorTab = "animation";
-    if (retimedMs) pushToast("info", `Turntable joined this step's Change — timing set to ${+(retimedMs / 1000).toFixed(2)} s, linear`);
+    if (retimedMs) pushToast("info", `Turntable joined this step's Change — timing set to ${+(retimedMs / 1000).toFixed(2)} s, soft start`);
   }
   function addVideoAction(preset: "videoStart" | "videoPause" | "videoStop") {
     const sid = $activeFigureId, selected = new Set(selectionTargets());

@@ -775,10 +775,11 @@ this changes the original camera. In **Edit after step N**, it writes that step'
 endpoint; the original view stays available. Picking a Become destination temporarily
 blocks orbit and tells you why, so a drag cannot accidentally change both actions.
 
-Select a model and choose **Turntable** to add a full, constant-speed turn. It is an ordinary
-Change effect: edit its duration or combine it with a Shape change. If the step already has a
-Change for that model, Turntable joins it and sets its timing to 6 seconds, linear, and Flux
-tells you when that re-times it. Complete turns remain complete turns, even when the starting
+Select a model and choose **Turntable** to add a full turn that eases in and out (it never
+jumps to full speed on its first frame). It is an ordinary Change effect: edit its duration or
+combine it with a Shape change; for a loop or spins chained step after step, set its curve to
+**Linear** for a constant speed. If the step already has a Change for that model, Turntable joins
+it and sets its timing to 6 seconds, soft start, and Flux tells you when that re-times it. Complete turns remain complete turns, even when the starting
 and ending views look identical. Zoom changes smoothly in proportion, and projection changes
 at the endpoint.
 

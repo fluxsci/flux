@@ -320,7 +320,11 @@ try {
   const turn=await run(['add-turntable',slideDeck.deckId,slide.slideId,step.beatId,slideModelId,'--root',root,'--turns','2','--direction','ccw','--duration','2400']);
   assert.equal(turn.code,0,turn.err);
   const track=(await core.loadDeck(root,slideDeck.deckId)).slides.find(s=>s.id===slide.slideId)!.beats.find(b=>b.id===step.beatId)!.tracks.find(t=>t.id===turn.out.trim())!;
-  h.ok(track?.to?.state?.orbitAzimuth===deckView.element.orbitAzimuth+720&&track.duration===2400&&track.easing==='linear','built Turntable writes linear unwrapped ordinary Change');
+  h.ok(track?.to?.state?.orbitAzimuth===deckView.element.orbitAzimuth+720&&track.duration===2400&&track.easing===undefined&&(track.curve as {kind?:string})?.kind==='bezier','built Turntable writes an unwrapped ordinary Change with a soft start and stop (WP 4.5)');
+  const constant=await run(['add-turntable',slideDeck.deckId,slide.slideId,step.beatId,slideModelId,'--root',root,'--duration','2400','--pace','constant']);
+  assert.equal(constant.code,0,constant.err);
+  const lin=(await core.loadDeck(root,slideDeck.deckId)).slides.find(s=>s.id===slide.slideId)!.beats.find(b=>b.id===step.beatId)!.tracks.find(t=>t.id===constant.out.trim())!;
+  h.ok(lin.easing==='linear'&&lin.curve===undefined,'--pace constant writes the linear spin');
   const refused=await run(['add-slide-model',slideDeck.deckId,slide.slideId,input('states'),'--root',root,'--no-poster']);
   h.ok(refused.code!==0,'built slide model import refuses an outside-project absolute source');
   const linkRefused=await run(['add-slide-model',slideDeck.deckId,slide.slideId,path.join(root,'plots/escape.glb'),'--root',root,'--no-poster']);

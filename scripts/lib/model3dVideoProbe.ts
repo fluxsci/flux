@@ -23,7 +23,7 @@ async function fixture(name:string,stems:string[]) {
  ids.push((await core.addSlideModel(root,deckId,slideId,`plots/${stem}.glb`,{x:120,y:30,width:400,height:300,noPoster:true})).elementId);}
  return {slideId,beatId,ids};
 }
-const turn=await fixture('Turntable',['named-parts']);await core.addSlideTurntable(root,deckId,turn.slideId,turn.beatId,turn.ids[0],{durationMs:1000,turns:1});
+const turn=await fixture('Turntable',['named-parts']);await core.addSlideTurntable(root,deckId,turn.slideId,turn.beatId,turn.ids[0],{durationMs:1000,turns:1,pace:'constant'}); // the probe checks fidelity against a LINEAR azimuth reference
 const morph=await fixture('Morph',['morph-a','morph-b']);await mutateDeck(root,deckId,'fixture_morph',d=>{becomeTransform(d,morph.slideId,morph.beatId,morph.ids[0],morph.ids[1],{mode:'handoff',duration:1000,curve:'linear'});});
 const encoder=path.resolve('build/video-encoder',`${process.platform}-${process.arch}`,process.platform==='win32'?'ffmpeg.exe':'ffmpeg');
 const options={height:1080 as const,fps:60 as const,startHoldMs:0,endHoldMs:100,stepDelayMs:0};

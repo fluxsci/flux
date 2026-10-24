@@ -62,7 +62,7 @@ try {
   const {compileSlide}=await import('../src/lib/slide/compile');
   const {resolveCurve}=await import('../src/lib/slide/curves');
   const turn=deck.slides[0].beats[1].tracks[0];
-  h.ok(turn.easing==='linear'&&turn.duration===8000&&resolveCurve(turn).fn(.5)===.5,'review Turntable is a real linear eight-second Change');
+  h.ok(turn.easing===undefined&&JSON.stringify(turn.curve)==='{"kind":"bezier","p":[0.2,0,0.8,1]}'&&turn.duration===8000&&Math.abs(resolveCurve(turn).fn(.5)-.5)<1e-9&&resolveCurve(turn).fn(.05)<.05,'review Turntable is a real eight-second Change that eases in and out (WP 4.5)');
   const neuronId=receipt.deck.examples.Turntable.modelIds[0],turntable=await compileDeckSlide(root,deck,deck.slides[0].id);
   h.eq(deck.slides[0].beats[2].id,receipt.deck.examples.Turntable.appearanceBeatId,'Turntable receipt identifies the separate next-step dendrite appearance');
   h.eq(deck.slides[0].beats[2].tracks.map(t=>[t.target,t.part,t.preset,t.duration]),[[neuronId,'neuron.dendrites','fade',1200]],'dendrite step uses one public semantic appearance track');

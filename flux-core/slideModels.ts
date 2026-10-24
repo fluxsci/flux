@@ -48,7 +48,7 @@ export async function addSlideModel(root: string, deckId: string, slideId: strin
   }
   return {elementId:element!.id,assetId:data.asset.id,warnings};
 }
-export async function addSlideTurntable(root:string,deckId:string,slideId:string,beatId:string,target:string,options:{turns?:number;direction?:'cw'|'ccw';durationMs?:number;start?:number}={}) {
+export async function addSlideTurntable(root:string,deckId:string,slideId:string,beatId:string,target:string,options:{turns?:number;direction?:'cw'|'ccw';durationMs?:number;start?:number;pace?:'soft'|'constant'}={}) {
   return mutateDeck(root,deckId,'add_turntable',deck=>{
     const track=turntable(deck,{slideId,beatId,target,...options});
     if(!track)throw new Error('Turntable requires a 3D model and valid slide step');

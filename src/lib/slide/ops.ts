@@ -1359,17 +1359,21 @@ export function setTransform(
   return t;
 }
 
-/** Turntable is an ordinary linear transform; all authoring surfaces and agents
+/** WP 4.5 (T7 D7): a new Turntable eases in and out (peak speed 1.25x the average) instead of jumping to full speed on the first frame;
+ *  `pace: "constant"` keeps the old linear spin (loops and chained spins). Saved tracks keep whatever curve they hold. */
+export const TURNTABLE_SOFT_CURVE: Curve = { kind: "bezier", p: [0.2, 0, 0.8, 1] };
+/** Turntable is an ordinary transform (soft start and stop, or constant speed); all authoring surfaces and agents
  * share this operation, including replacement and previous-beat endpoint rules. */
-export function addTurntable(deck: Deck, opts: { slideId: Id; beatId: Id; target: Id; turns?: number; direction?: "cw" | "ccw"; durationMs?: number; start?: number }): Track | null {
+export function addTurntable(deck: Deck, opts: { slideId: Id; beatId: Id; target: Id; turns?: number; direction?: "cw" | "ccw"; durationMs?: number; start?: number; pace?: "soft" | "constant" }): Track | null {
   const turns = opts.turns ?? 1, duration = opts.durationMs ?? 6000;
   if (!Number.isFinite(turns) || turns <= 0 || !Number.isFinite(duration) || duration <= 0 || (opts.start !== undefined && (!Number.isFinite(opts.start) || opts.start < 0))) throw new Error("Turntable needs positive turns and duration, and a nonnegative start");
   if (opts.direction !== undefined && opts.direction !== "cw" && opts.direction !== "ccw") throw new Error("Turntable direction must be cw or ccw");
+  if (opts.pace !== undefined && opts.pace !== "soft" && opts.pace !== "constant") throw new Error("Turntable pace must be soft or constant");
   const slide = slideById(deck, opts.slideId), bi = slide?.beats.findIndex(beat => beat.id === opts.beatId) ?? -1;
   if (!slide || bi <= 0) return null;
   const pre = transformPreState(slide, opts.target, bi);
   if (pre?.type !== "model3d") return null;
-  return setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { orbitAzimuth: pre.orbitAzimuth + (opts.direction === "ccw" ? 1 : -1) * 360 * turns }, duration, start: opts.start ?? 0, curve: "linear" });
+  return setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { orbitAzimuth: pre.orbitAzimuth + (opts.direction === "ccw" ? 1 : -1) * 360 * turns }, duration, start: opts.start ?? 0, curve: opts.pace === "constant" ? "linear" : structuredClone(TURNTABLE_SOFT_CURVE) });
 }
 export const turntable = addTurntable;
 

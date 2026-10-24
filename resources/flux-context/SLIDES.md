@@ -449,7 +449,7 @@ Import a GLB or a 3D fluxplot saved by `Scene3D.save` with its sibling manifest:
 
 ```sh
 flux add-slide-model <deck> <slideId> plots/neuron.glb --width 480 --height 360
-flux add-turntable <deck> <slideId> <beatId> <elementId> --turns 1 --duration 6000
+flux add-turntable <deck> <slideId> <beatId> <elementId> --turns 1 --duration 6000 [--pace soft|constant]
 ```
 
 Both commands return their created IDs. Model import also returns warnings in JSON/MCP;
@@ -458,9 +458,10 @@ inside the project; escaping paths and symlinks are refused. The source stays in
 and the prepared GLB and sidecars are stored under the deck's `assets/` directory.
 Deck JSON and its undo journal contain metadata, never GLB bytes.
 
-Turntable writes a normal Change track with linear timing and an unwrapped azimuth.
-An existing whole-model Change at that step is reused: its other keys then share the
-Turntable's timing (`--duration`, linear, `--start` or 0).
+Turntable writes a normal Change track with a soft start and stop (curve bezier 0.2,0,0.8,1; peak
+speed 1.25x the average) and an unwrapped azimuth; `--pace constant` writes linear timing (loops and
+spins chained step after step). An existing whole-model Change at that step is reused: its other keys
+then share the Turntable's timing (`--duration`, the pace's curve, `--start` or 0).
 `--direction cw|ccw` chooses direction; `--start` offsets it within the step. Orbit zoom
 interpolates geometrically, while azimuth retains complete turns. Projection switches
 at the endpoint. Shape weights and field ranges can share the same Change.

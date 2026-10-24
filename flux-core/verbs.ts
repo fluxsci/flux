@@ -2821,11 +2821,11 @@ export const VERBS: VerbDef[] = [
   {
     name:"add_turntable",scope:"project",cli:"add-turntable",cliRoot:"flags",
     notAPath:{direction:"clockwise/counterclockwise orbit enum"},
-    summary:"Turn a 3D model continuously on one slide step. Writes an ordinary Change with linear timing and unwrapped azimuth. Defaults: one clockwise turn over 6000 ms. Shape-state edits can share the same Change.",
-    params:{deckId:z.string(),slideId:z.string(),beatId:z.string(),target:z.string(),turns:z.number().positive().optional(),direction:z.enum(["cw","ccw"]).optional(),durationMs:z.number().positive().optional(),start:z.number().nonnegative().optional()},
+    summary:"Turn a 3D model on one slide step. Writes an ordinary Change with a soft start and stop (or constant speed with --pace constant, for loops and chained spins) and unwrapped azimuth. Defaults: one clockwise turn over 6000 ms. Shape-state edits can share the same Change.",
+    params:{deckId:z.string(),slideId:z.string(),beatId:z.string(),target:z.string(),turns:z.number().positive().optional(),direction:z.enum(["cw","ccw"]).optional(),durationMs:z.number().positive().optional(),start:z.number().nonnegative().optional(),pace:z.enum(["soft","constant"]).optional()},
     cliArgs:[{kind:"pos",at:0,into:"deckId",required:true},{kind:"pos",at:1,into:"slideId",required:true},{kind:"pos",at:2,into:"beatId",required:true},{kind:"pos",at:3,into:"target",required:true},
-      {kind:"flag",at:"turns",into:"turns",as:"number"},{kind:"flag",at:"direction",into:"direction"},{kind:"flag",at:"duration",into:"durationMs",as:"number"},{kind:"flag",at:"start",into:"start",as:"number"}],
-    handler:(ctx,a)=>core.addSlideTurntable(ctx.root,s(a.deckId),s(a.slideId),s(a.beatId),s(a.target),pick(a,["turns","direction","durationMs","start"])),
+      {kind:"flag",at:"turns",into:"turns",as:"number"},{kind:"flag",at:"direction",into:"direction"},{kind:"flag",at:"duration",into:"durationMs",as:"number"},{kind:"flag",at:"start",into:"start",as:"number"},{kind:"flag",at:"pace",into:"pace"}],
+    handler:(ctx,a)=>core.addSlideTurntable(ctx.root,s(a.deckId),s(a.slideId),s(a.beatId),s(a.target),pick(a,["turns","direction","durationMs","start","pace"])),
     render:{human:r=>({out:(r as {trackId:string}).trackId}),mcp:r=>text(JSON.stringify(r))},
   },
   {

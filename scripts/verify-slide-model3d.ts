@@ -35,7 +35,12 @@ const deck = createDeck({ withTitleSlide: false }); deck.assets = [asset];
 const slide = addSlide(deck); slide.elements.push(a);
 const beat = addBeat(deck, slide.id)!;
 const turn = addTurntable(deck, { slideId: slide.id, beatId: beat.id, target: a.id, turns: 2 })!;
-h.eq([turn.preset, turn.duration, turn.easing, turn.to?.state?.orbitAzimuth], ['transform', 6000, 'linear', a.orbitAzimuth - 720], 'Turntable authors an ordinary linear transform');
+h.eq([turn.preset, turn.duration, turn.easing, turn.curve, turn.to?.state?.orbitAzimuth], ['transform', 6000, undefined, { kind: 'bezier', p: [0.2, 0, 0.8, 1] }, a.orbitAzimuth - 720], 'Turntable authors an ordinary transform with a soft start and stop (WP 4.5)');
+{ const d2 = createDeck({ withTitleSlide: false }); d2.assets = [asset]; const s2 = addSlide(d2); s2.elements.push(structuredClone(a)); const b2 = addBeat(d2, s2.id)!;
+  const lin = addTurntable(d2, { slideId: s2.id, beatId: b2.id, target: a.id, pace: 'constant' })!;
+  h.eq([lin.easing, lin.curve], ['linear', undefined], "pace 'constant' keeps the linear spin (loops, chained spins)");
+  const snap = JSON.stringify(d2);
+  try { addTurntable(d2, { slideId: s2.id, beatId: b2.id, target: a.id, pace: 'bogus' as never }); h.ok(false, 'a bad pace is refused'); } catch { h.eq(JSON.stringify(d2), snap, 'a bad pace is refused before any mutation'); } }
 h.eq(addTurntable(deck, { slideId: slide.id, beatId: slide.beats[0].id, target: a.id }), null, 'Turntable refuses the resting beat');
 const next = addBeat(deck, slide.id)!;
 const ccw = addTurntable(deck, { slideId: slide.id, beatId: next.id, target: a.id, turns: .5, direction: 'ccw', durationMs: 900 })!;
