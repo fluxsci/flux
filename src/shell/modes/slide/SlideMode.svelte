@@ -1184,9 +1184,25 @@
     if (!made.length) pushToast("info", release ? "Nothing is dimmed at the start of this step." : "Nothing else on the slide is fully visible at this step.");
     else if (skipped.length) pushToast("info", `Focus left ${skipped.length} object${skipped.length === 1 ? "" : "s"} alone (already dimmed, entering, or animating in this step).`);
   }
-  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop"|"turntable"|"focus"|"unfocus") {
+  /** WP 4.2 Restore: every selected object gets a Change at this step back to its look at Design (or before the previous step). */
+  function restoreAction(previous: boolean) {
+    const sid = $activeFigureId, ids = selectionTargets(), bi = $activeBeat;
+    if (!sid || !activeSlide || !ids.length || bi < 1) return;
+    const made: string[] = [], refused: string[] = [];
+    commitDeckLive((d) => {
+      const slide = slideOps.slideById(d, sid); if (!slide) return;
+      // each object on its own: a refusal (it did not exist then, its content changed) never undoes the others (checks precede writes)
+      for (const id of ids) try { const r = slideOps.restoreState(d, sid, slide.beats[bi].id, id, { toBeat: previous ? bi - 1 : 0 }); if (r.track?.id) made.push(r.track.id); }
+        catch (err) { refused.push((err as Error).message); }
+    });
+    selTrackIds.set(made); inspectorTab = "animation";
+    if (refused.length) pushToast("error", [...new Set(refused)].join("; "));
+    else if (!made.length) pushToast("info", "Nothing to return: the selection already looks that way.");
+  }
+  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop"|"turntable"|"focus"|"unfocus"|"restore-design"|"restore-previous") {
     stopPreview(); cancelBecome();
-    if(action==="focus"||action==="unfocus")focusAction(action==="unfocus");
+    if(action==="restore-design"||action==="restore-previous")restoreAction(action==="restore-previous");
+    else if(action==="focus"||action==="unfocus")focusAction(action==="unfocus");
     else if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
     else if(action==="turntable")addModelTurntable();
     else if(action==="ghost")openGhostDialog();

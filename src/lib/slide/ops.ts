@@ -1360,6 +1360,32 @@ export function setTransform(
   return t;
 }
 
+/** WP 4.2 Restore (W3): at `beatId`, return `targetId` to the state it had BEFORE beat `toBeat` (`toBeat` 0 = Design): the difference
+ *  is merged into this beat's Change for it (an ordinary Change; a new one gets the authored timing, an existing one keeps its
+ *  timing and its other keys; keys the restore writes win and are reported as `overwritten`). `keys` narrows it (e.g. ["x", "y"]).
+ *  Refused with a reason: Design as the beat, `toBeat` not before it, the object absent then, or a content change (a different
+ *  plot / a Become) in the difference. Nothing to restore is not an error: `track` null and a `message`. */
+export interface RestoreResult { track: Track | null; restored: string[]; overwritten: string[]; message?: string }
+export function restoreState(deck: Deck, slideId: Id, beatId: Id, targetId: Id, opts: { toBeat: number; keys?: readonly string[] }): RestoreResult {
+  const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
+  if (!slide || bi < 0) throw new Error(`step not found: ${beatId}`);
+  if (bi === 0) throw new Error("Design cannot animate: choose a step to return in");
+  const to = opts.toBeat;
+  if (!Number.isInteger(to) || to < 0 || to >= bi) throw new Error(`return to Design (0) or to before an EARLIER step (1-${bi - 1}), not ${to}`);
+  const end = transformPreState(slide, targetId, to), cur = transformPreState(slide, targetId, bi);
+  if (!end) throw new Error(`${targetId} does not exist ${to === 0 ? "at Design" : `before step ${to}`}`);
+  if (!cur) throw new Error(`${targetId} does not exist at this step`);
+  if (end.type !== cur.type || (end as { assetId?: string }).assetId !== (cur as { assetId?: string }).assetId) throw new Error("the object's content changed since then (a Become or a new plot): Restore returns the look, not the content");
+  let patch = diffState(cur, end) ?? {};
+  if (opts.keys?.length) patch = Object.fromEntries(Object.entries(patch).filter(([k]) => opts.keys!.includes(k)));
+  const restored = Object.keys(patch);
+  if (!restored.length) return { track: null, restored, overwritten: [], message: "nothing differs: it already looks that way" };
+  const existing = slide.beats[bi].tracks.find((t) => familyOf(t) === "transform" && t.target === targetId && isWholeElementRef(trackRef(t)));
+  const overwritten = existing ? restored.filter((k) => k in (existing.to?.state ?? {})) : [];
+  const track = setTransform(deck, slideId, beatId, targetId, { state: patch });
+  return { track, restored, overwritten };
+}
+
 /** WP 4.4 Focus: dim every element visible at the start of `beatId` except `ids` (and what belongs to them, `focusPlan`) to `level`
  *  (default 0.3, the Dim preset's), as ONE track group of ordinary `dim` tracks. Elements not at full opacity then (mid-entrance, already
  *  dimmed) and elements that already play another appearance in this step (an exit, a pulse: a dim would replace it) are left alone and

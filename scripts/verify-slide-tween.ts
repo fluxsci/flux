@@ -497,6 +497,44 @@ function build(slide: Slide) {
   }
 }
 
+h.section("WP 4.2 Restore: return an element to an earlier look as an ordinary Change");
+{
+  const ops = await import("../src/lib/slide/ops");
+  const d = ops.createDeck({ id: "r", title: "r", withTitleSlide: false } as never);
+  const s = ops.addSlide(d, { id: "s", layout: "blank" } as never);
+  ops.addElement(d, s.id, { id: "A", type: "rect", x: 40, y: 40, width: 100, height: 60, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
+  ops.addElement(d, s.id, { id: "T", type: "text", x: 40, y: 200, width: 200, height: 30, rotation: 0, text: "bold word", runs: [{ from: 0, to: 4, fontWeight: 700 }], fontFamily: "Arial", fontSize: 20, fontWeight: 400, fontStyle: "normal", align: "left", color: "#100f0f", sizing: "fixed" } as never);
+  const b = [1, 2, 3, 4].map((k) => ops.addBeat(d, s.id, { id: "b" + k } as never)!);
+  ops.setTransform(d, s.id, b[0].id, "A", { state: { x: 300, fill: "#d14d41" } });
+  ops.setTransform(d, s.id, b[1].id, "A", { state: { y: 200, width: 180 } });
+  ops.setTransform(d, s.id, b[1].id, "T", { state: { fontSize: 32, color: "#d14d41" } });
+  // (needsLayout / lines are derived layout hints a metric change sets, not part of the look)
+  const sl = d.slides[0], pre = (beat: number, id = "A") => { const e: any = tween.transformPreState(sl, id, beat); delete e.needsLayout; delete e.lines; delete e.lineWidths; return e; };
+  const r0 = ops.restoreState(d, s.id, b[2].id, "A", { toBeat: 0 });
+  h.ok(!!r0.track && r0.restored.sort().join() === "fill,width,x,y" && r0.overwritten.length === 0, `Return to Design at step 3 writes one Change restoring ${r0.restored.join(", ")}`);
+  h.eq(JSON.stringify(pre(4)), JSON.stringify(pre(1)), "...after it, the element IS its Design state (deep-equal)");
+  const r2 = ops.restoreState(d, s.id, b[3].id, "A", { toBeat: 2 });
+  h.ok(!!r2.track, "Return to before step 2 at step 4 writes a Change");
+  h.eq(JSON.stringify(pre(5)), JSON.stringify(pre(2)), "...after it, the element is exactly its state before step 2 (deep-equal)");
+  const snap = JSON.stringify(d), again = ops.restoreState(d, s.id, b[3].id, "A", { toBeat: 2 });
+  h.ok(JSON.stringify(d) === snap && again.overwritten.length === again.restored.length, "the same Restore again changes nothing (idempotent: it re-writes its own keys)");
+  const none = ops.restoreState(d, s.id, b[0].id, "A", { toBeat: 0 });
+  h.ok(none.track === null && none.restored.length === 0 && !!none.message, "returning to a look it already has writes nothing (a message, not an error)");
+  const rt = ops.restoreState(d, s.id, b[2].id, "T", { toBeat: 0 });
+  h.ok(!!rt.track && JSON.stringify(pre(4, "T")) === JSON.stringify(pre(1, "T")), "a text with formatted runs round-trips to its Design look");
+  // an existing Change at the step keeps its other keys; the restored keys win and are reported
+  ops.setTransform(d, s.id, b[3].id, "T", { state: { x: 90, fontSize: 40 } });
+  const rm = ops.restoreState(d, s.id, b[3].id, "T", { toBeat: 3, keys: ["fontSize"] });
+  const tk = d.slides[0].beats[4].tracks.find((t: any) => t.target === "T" && t.preset === "transform")!;
+  h.ok(rm.overwritten.join() === "fontSize" && tk.to!.state!.x === 90 && tk.to!.state!.fontSize === 32, "merging into an existing Change: other keys kept (x 90), restored keys win (fontSize 32), the overwritten key reported");
+  const refuse = (fn: () => unknown) => { try { fn(); return ""; } catch (e) { return (e as Error).message; } };
+  h.ok(/EARLIER step/.test(refuse(() => ops.restoreState(d, s.id, b[1].id, "A", { toBeat: 2 }))), "refused: returning to a step that is not earlier");
+  h.ok(/Design cannot animate/.test(refuse(() => ops.restoreState(d, s.id, d.slides[0].beats[0].id, "A", { toBeat: 0 }))), "refused: Design as the step");
+  ops.addElement(d, s.id, { id: "P", type: "rect", x: 0, y: 0, width: 10, height: 10, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
+  ops.setTransform(d, s.id, b[0].id, "P", { state: { type: "ellipse" } });
+  h.ok(/content changed/.test(refuse(() => ops.restoreState(d, s.id, b[2].id, "P", { toBeat: 0 }))), "refused: the content changed since then (a retype / Become)");
+}
+
 console.log("\nSLIDE TWEEN (transform core + player drive): PASS");
 
 await h.done();

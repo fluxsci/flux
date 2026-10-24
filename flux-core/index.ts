@@ -155,6 +155,7 @@ export {
   setTransformTrack,
   suggestArcs,
   focusVerb,
+  restoreStateVerb,
   unfocusVerb,
   setPlotViewVerb,
   setPlotColorScaleVerb,

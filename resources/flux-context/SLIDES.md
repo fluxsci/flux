@@ -66,6 +66,7 @@ flux get-plot-color-scales <figureId|deckId/slideId> <elId> [--beat beatId]     
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state] [--curve 'spring(0.35)']
      [--start ms] [--duration ms] [--easing e] [--arc -1..1] [--turn rigid|shrink] [--to-asset id]   # (set_transform)  CHANGE: edit the object's own endpoint
+flux restore-state <deck> <slideId> <beatId> <elId> --to <N> [--keys x,y]   # (restore_state) a Change back to the look BEFORE step N (0 = Design), merged into this step's Change
 flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
      [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently

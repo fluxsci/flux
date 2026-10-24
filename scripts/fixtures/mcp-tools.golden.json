@@ -129,6 +129,7 @@
   "resize_figure_frame",
   "resolve_comment",
   "resolve_item",
+  "restore_state",
   "restyle_part",
   "rotate_elements",
   "scale_elements",

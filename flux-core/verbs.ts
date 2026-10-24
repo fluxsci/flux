@@ -3436,6 +3436,28 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "restore_state",
+    scope: "project",
+    cli: "restore-state",
+    cliRoot: "flags",
+    summary:
+      "Return an element, at one beat, to the state it had BEFORE an earlier beat (--to 0 = Design; --to N = before step N), as an ordinary Change merged into that beat's Change for it (a new Change gets the authored timing; an existing one keeps its timing and other keys, and the keys restored win). --keys narrows it (x,y). Refused for a content change since then (a Become, a new plot). Returns the track, the keys restored and the keys of an existing Change it overwrote.",
+    params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), targetId: z.string(), toBeat: z.number().int().min(0), keys: z.array(z.string()).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "pos", at: 3, into: "targetId", required: true },
+      { kind: "flag", at: "to", into: "toBeat", as: "number", required: true },
+      { kind: "flag", at: "keys", into: "keys", as: "csv" },
+    ],
+    handler: (ctx, a) => core.restoreStateVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.targetId), a.toBeat as number, a.keys as string[] | undefined),
+    render: {
+      human: (r) => { const v = r as { trackId: string | null; restored: string[]; overwritten: string[]; message?: string }; return { out: v.trackId ?? "", err: v.trackId ? `✓ restored ${v.restored.join(", ")}${v.overwritten.length ? ` (overwrote ${v.overwritten.join(", ")})` : ""}` : v.message ?? "" }; },
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "focus",
     scope: "project",
     cli: "focus",

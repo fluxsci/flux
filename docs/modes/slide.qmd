@@ -459,6 +459,16 @@ connects) or **Rigid** (it keeps its length, like a rotating arrow).
 flux set-transform talk slide1 step1 object1 --state '{"x":420,"y":160}' --arc 0.5
 ```
 
+**Return to Design** (in **Transform ▾**, or right-click a Change) brings an object back to how it
+looked at Design, as an ordinary Change at this step; **Return to before step N** brings it back to
+how it looked before that step. If the step already has a Change for the object, its other settings
+stay, and Flux tells you which of them the return replaced.
+
+```bash
+flux restore-state talk slide1 step3 object1 --to 0          # back to Design
+flux restore-state talk slide1 step3 object1 --to 2 --keys x,y  # back to its place before step 2
+```
+
 ### Ghost
 
 **Transform ▸ Ghost…** creates independent copies that move out from an object. For example,

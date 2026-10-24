@@ -39,7 +39,7 @@
 
   let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable" | "focus" | "unfocus") => void;
+    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable" | "focus" | "unfocus" | "restore-design" | "restore-previous") => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
@@ -85,6 +85,8 @@
     { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+C", disabled: !sel.length, action: () => onAction?.("change") },
     { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently · Cmd/Ctrl+Alt+G", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
     { label: "Become", hint: sourceGroup ? "Choose an object or plot parts as the Become source, rather than a group." : selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0 || sourceGroup, action: () => onAction?.("become") },
+    { label: "Return to Design", hint: "A Change at this step back to how the selection looks at Design", disabled: !sel.length || $activeBeat < 1, action: () => onAction?.("restore-design") },
+    ...($activeBeat >= 2 ? [{ label: `Return to before step ${$activeBeat - 1}`, hint: "A Change at this step that undoes what the previous step changed", disabled: !sel.length, action: () => onAction?.("restore-previous") }] : []),
   ]);
   // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
   // so the timeline stays legible; single-plot slides get no tags.

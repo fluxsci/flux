@@ -10,7 +10,7 @@
   import { pushToast } from "../../../../lib/toast";
   import { staggerSpan } from "../../../../lib/slide/stagger";
   import { familyOf } from "../../../../lib/slide/family";
-  import { slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
+  import { restoreState, slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat, TrackGroup } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
   import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, gridLineAt, isDanglingTrack, trackKindLabel, timeGrid } from "./shared";
@@ -131,7 +131,16 @@
       {label:"Group effects",action:groupSelection},{label:"Ungroup effects",action:ungroupSelection},
       ...($selTrackIds.length>1?[{label:"Cascade timing…",action:openTrackCascade}]:[]),
       ...slide.beats.slice(1).map((b,i)=>({label:`Move to ${i+1} · ${b.label||"Step"}`,action:()=>{moveSelectedToBeat(b.id);activeBeat.set(i+1);}})),
+      // WP 4.2 Restore: a Change that returns the object to an earlier look, merged into this step's Change for it
+      ...(familyOf(t)==="transform"&&!t.part&&!t.parts?.length&&!t.selector&&$activeBeat>0?[0,...slide.beats.slice(1,$activeBeat).map((_,i)=>i+1)].map(k=>({label:k===0?"Return to Design":`Return to before step ${k}`,hint:"An ordinary Change back to that look",action:()=>restoreTo(t.target,k)})):[]),
       {label:"Delete effects",danger:true,action:deleteSelectedTracks}]};
+  }
+  function restoreTo(target:string,toBeat:number) {
+    try {
+      const r=commitDeckLive(d=>restoreState(d,slide.id,beat.id,target,{toBeat}));
+      if(!r.track)pushToast("info",r.message??"Nothing to return.");
+      else{ if(r.track.id)selTrackIds.set([r.track.id]); if(r.overwritten.length)pushToast("info",`Returned ${r.restored.length} propert${r.restored.length===1?"y":"ies"}; this step's Change for it had set ${r.overwritten.join(", ")}.`); }
+    } catch(err){ pushToast("error",(err as Error).message); }
   }
   function stepMenu(e:MouseEvent,b:Beat,i:number) {
     e.preventDefault(); if(!i)return;

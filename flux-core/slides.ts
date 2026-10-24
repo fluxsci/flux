@@ -744,6 +744,14 @@ export async function suggestArcs(root: string, deckId: string, slideId: string,
   });
 }
 
+/** restore-state (WP 4.2): at a beat, return an element to its state before an earlier beat (0 = Design), merged into its Change. */
+export async function restoreStateVerb(root: string, deckId: string, slideId: string, beatId: string, targetId: string, toBeat: number, keys?: string[]): Promise<{ trackId: string | null; restored: string[]; overwritten: string[]; message?: string }> {
+  return mutateDeck(root, deckId, "restore_state", (deck) => {
+    mustSlide(deck, slideId);
+    const r = slideOps.restoreState(deck, slideId, beatId, targetId, { toBeat, keys });
+    return { trackId: r.track?.id ?? null, restored: r.restored, overwritten: r.overwritten, ...(r.message ? { message: r.message } : {}) };
+  });
+}
 /** focus (WP 4.4): dim everything visible at the start of the beat except `ids` (and the labels inside them / their groups). */
 export async function focusVerb(root: string, deckId: string, slideId: string, beatId: string, ids: string[], level?: number): Promise<{ trackIds: string[]; dimmed: string[]; skipped: string[] }> {
   return mutateDeck(root, deckId, "focus", (deck) => {
