@@ -2,7 +2,7 @@
 import type { BecomeSpec } from "../types";
 import type { StageOutline, OutlineOwner } from "../stageOutline";
 import type { CorrespondencePlan, CorrespondencePair, SampledPath } from "../correspondence";
-import { sampleCorrespondence, pairHeadPoints, arcOffset, planBends } from "../correspondence";
+import { sampleCorrespondence, pairHeadPoints, arcOffset, planBends, pairProgress } from "../correspondence";
 import { dashOffsetAt, strokeEndDirection } from "../outline";
 import type { MorphController } from "../../plot/project";
 import { prefixIds } from "../../plot/parse";
@@ -85,6 +85,13 @@ export interface HandoffOptions {
   /** Hand the flight over to copies of the real ends (default). A MERGE's landers share one destination: each would add its own copy of it, so the
    *  group lands as it always has (the pieces cover each other's seams). */
   handover?: boolean;
+  /** WP 4.3 `Track.pairLag` (0..1): the pieces of a PATH-driver flight peel off in reading order inside the SAME duration (manim's
+   *  lag_ratio). Needs `ease`; the glyph driver, a text morph and 3D media ignore it. */
+  pairLag?: number;
+  /** The track's own curve (un-held): each piece applies it to its own window, as a unison flight applies it to `raw`. */
+  ease?: (p: number) => number;
+  /** A merge lander's hold factor (its span / its own duration): the pieces' windows run over the first 1/holdK of raw. */
+  holdK?: number;
 }
 export interface HandoffController extends MorphController {
   /** The flight layer this controller draws into (one `g.sl-handoff`). */
@@ -104,7 +111,7 @@ export interface HandoffMedia {
 interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean; dir: [number, number] }
 interface PathDrawing { node: SVGPathElement; /** the stroke as a band between two contours (correspondence `band`), drawn over `node` */ band?: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement; defsMarkup?: string }
 let gradientSerial = 0;
-interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; aBox: Box; bBox: Box; travel: { dx: number; dy: number } }
+interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; index: number; aBox: Box; bBox: Box; travel: { dx: number; dy: number } }
 interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
 
 export function createHandoff(opts: HandoffOptions): HandoffController {
@@ -127,6 +134,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   const bend = { x: 0, y: 0 };
   let lastPhase = -1;
   const out: SampledPath[] = [], paths: PathDrawing[] = [], crosses: Crossfade[] = [], glyphs: Glyph[] = [];
+  const lagTs: number[] = [], lagRs: number[] = [];   // WP 4.3: the per-piece clocks of a lagged flight, reused every frame
   const clips = new Map<string, string>();
   // The text-morph layer: camera-local, stage px, BEFORE the flight svg so the
   // flight stays the camera's last child.
@@ -321,7 +329,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         }
         if (whole) { layer.appendChild(host); handover = { host, flight: flightGroup, a: ends.a, b: ends.b, refA: [], refB: [], look: 0 }; root = flightGroup; }
       }
-      for (const pair of plan.pairs) {
+      for (const [pairIndex, pair] of plan.pairs.entries()) {
         if (plan.driver === "glyph" && pair.a) {
           const bound = ctx.node(pair.a.owner);
           if (!bound || cloned.has(bound)) continue;
@@ -350,7 +358,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           const a = pair.a ? clone(pair.a, host) : undefined, b = pair.b ? clone(pair.b, host) : undefined;
           const aBox = pair.a?.paint.text ? a?.box : pair.a?.bbox, bBox = pair.b?.paint.text ? b?.box : pair.b?.bbox;
           const from = aBox ?? bBox!, to = bBox ?? aBox!;
-          crosses.push({ a, b, pair, aBox: from, bBox: to, travel: { dx: to.x + to.w / 2 - from.x - from.w / 2, dy: to.y + to.h / 2 - from.y - from.h / 2 } });
+          crosses.push({ a, b, pair, index: pairIndex, aBox: from, bBox: to, travel: { dx: to.x + to.w / 2 - from.x - from.w / 2, dy: to.y + to.h / 2 - from.y - from.h / 2 } });
           if (a && b) for (const c of [a, b]) c.node.style.setProperty("mix-blend-mode", "plus-lighter");
         } else if (plan.driver === "path" || !pair.a) {
           const node = document.createElementNS(NS, "path");
@@ -504,7 +512,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
 
   function seek(u: number, raw = clamp01(u)): void {
     if (disposed) return;
-    const t = clamp01(u), phase = raw <= 0 ? 0 : raw >= 1 ? 2 : 1;
+    const t = clamp01(u), tFlight = t, phase = raw <= 0 ? 0 : raw >= 1 ? 2 : 1;
     if (lastPhase !== phase) {
       for (const entry of sources) { entry.claim.active = phase !== 0; entry.claim.hidden = phase !== 0; }
       for (const entry of destinations) { entry.claim.active = phase !== 0; entry.claim.hidden = phase !== 2; }
@@ -538,12 +546,17 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       if (f.boxes) textWeight = Math.max(textWeight, w);
       set(f.clone.node, "transform", `translate(${f.clone.box.x} ${f.clone.box.y})`); set(f.clone.node, "opacity", String(w * f.clone.opacity));
     }
+    // WP 4.3: a lagged flight gives each piece of a PATH-driver plan its own clock (one array per frame, read by shapes, heads, interiors
+    // and crossfades alike); a unison flight shares `t`, byte for byte as before
+    const lagged = !!opts.pairLag && opts.pairLag > 0 && !!opts.ease && plan?.driver === "path";
+    const flightMs = opts.durationMs ?? 600;
+    const share = lagged ? pairProgress(sampled!, Math.min(1, raw * (opts.holdK ?? 1)), opts.pairLag!, opts.ease!, lagTs, lagRs) : 0;
     if (paths.length) {
-      sampleCorrespondence(sampled!, t, out, { raw, durationMs: opts.durationMs ?? 600, arc });
+      sampleCorrespondence(sampled!, t, out, lagged ? { raw, durationMs: flightMs, arc, ts: lagTs, rs: lagRs, ...(share > 0 ? { interiorMs: flightMs * share } : {}) } : { raw, durationMs: flightMs, arc });
       let i = 0;
       for (const drawing of paths) {
         while (sampled!.pairs[i] !== drawing.pair) i++;
-        drawPath(drawing, out[i], t, 1 - textWeight);
+        drawPath(drawing, out[i], lagged ? lagTs[i] : t, 1 - textWeight);
       }
       if (handover) {
         // how far the flight has come from its start render and has still to go to its end render (stage px; a change in place counts too)
@@ -568,6 +581,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       set(glyph.node, "opacity", String(glyph.opacity * fade));
     }
     for (const cross of crosses) {
+      const t = lagged ? lagTs[cross.index] : tFlight;
       const a = cross.aBox, b = cross.bBox, bent = arcOffset(cross.travel, t, arc, bend);
       const x = lerp(a.x, b.x, t) + bent.x, y = lerp(a.y, b.y, t) + bent.y, w = lerp(a.w, b.w, t), h = lerp(a.h, b.h, t);
       // A text clone scales UNIFORMLY (by height): glyphs never stretch with a

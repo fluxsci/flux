@@ -154,6 +154,14 @@ the tracks of one step whose flights collide, judged on their real clocks; more 
 moves are refused with a reason, and it never touches a track whose resolved arc is set (an
 authored 0 is a decision).
 
+**Piece lag (WP 4.3, `Track.pairLag`).** A hand-off Become's PIECES (the plan's non-interior pairs, ranked by destination
+centre, x then y: `correspondence.lagRanks`) each run the track's own curve over their own window of the same duration
+(`stagger.lagWindow`: `w = max(LAG_MIN_WINDOW 0.3, 1/(1+(n−1)·lag))`, start `(1−w)·rank/(n−1)`, exact 0/1 at the ends); a leaving
+interior runs over `[0, 1−w]`, an arriving one over `[w, 1]` (`pairProgress`, one array per frame read by shapes, heads, interiors and
+crossfades). Path driver only (glyph flights, text morphs and 3D ignore it); a merge lander's windows run over its own first
+`1/holdK`. Lag 0 is byte-identical to unison; a NEW hand-off of 3+ pieces is authored with 0.15 (`BECOME_PAIR_LAG_DEFAULT`, D4);
+ops refuse it on anything but a hand-off. Not stamped (Q8).
+
 **Attachments (WP 3.2).** `ElementBase.attach` makes an element's geometry a PURE function of other
 elements' boxes (`slide/attach.ts`): a line's ends stick to drivers (an `auto` end leaves its driver's outline
 toward the other end's point, or its driver's centre when that end is auto too; a side or `{fx,fy}` point is

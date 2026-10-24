@@ -3121,8 +3121,10 @@ export const VERBS: VerbDef[] = [
       start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
       curve: z.string().describe(CURVE_GRAMMAR).optional(),
+      pairLag: z.number().min(0).max(1).describe("A hand-off Become's piece lag (manim lag_ratio, 0..1): its pieces peel off in reading order inside the same duration; 0 = unison").optional(),
     },
     cliArgs: [
+      { kind: "flag", at: "pair-lag", into: "pairLag", as: "number" },
       { kind: "flag", at: "stagger-each", into: "staggerEach", as: "number" },
       { kind: "flag", at: "stagger-total", into: "staggerTotal", as: "number" },
       { kind: "flag", at: "stagger-curve", into: "staggerCurve" },
@@ -3138,7 +3140,7 @@ export const VERBS: VerbDef[] = [
     ],
     handler: (ctx, a) => {
       if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
-      const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration"]), ...timingCurveArgs(a) };
+      const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration", "pairLag"]), ...timingCurveArgs(a) };
       if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "staggerBy", "staggerSpacing", "seed"].some(k => a[k] !== undefined)) {
         const stagger: NonNullable<typeof patch.stagger> = {};
         if (a.staggerEach !== undefined) stagger.perMs = n(a.staggerEach);
@@ -3899,6 +3901,7 @@ export const VERBS: VerbDef[] = [
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      pairLag: z.number().min(0).max(1).describe("Hand-off only: piece lag 0..1 (manim lag_ratio; default 0.15 for a new hand-off of 3+ pieces, 0 = unison)").optional(),
       force: z.boolean().optional(),
     },
     cliArgs: [
@@ -3919,6 +3922,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
+      { kind: "flag", at: "pair-lag", into: "pairLag", as: "number" },
       { kind: "flag", at: "force", into: "force", as: "boolean" },
     ],
     handler: (ctx, a) =>
@@ -3935,6 +3939,7 @@ export const VERBS: VerbDef[] = [
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
         ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
+        ...(a.pairLag != null ? { pairLag: a.pairLag as number } : {}),
         ...(a.force ? { force: true } : {}),
       }),
     render: {

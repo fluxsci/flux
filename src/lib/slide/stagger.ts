@@ -64,6 +64,23 @@ export function staggerRanks(count: number, from = "start", coordinates?: readon
   return ranks;
 }
 
+/** WP 4.3 (W2): the smallest share of the run a lagged child may occupy. Below it the children stop reading as a wave and pop in a
+ *  hard sweep (400 pieces at lag 0.15 would otherwise get a 10 ms window each). */
+export const LAG_MIN_WINDOW = 0.3;
+/** manim `Animation.get_sub_alpha` (animation.py:380-391) with a total that cannot grow and a floor on the child window: child `rank` of
+ *  `n` runs over `w = max(LAG_MIN_WINDOW, 1/(1+(n-1)·lag))` of the run, starting at `(1-w)·rank/(n-1)`, so the last child always ends at
+ *  raw = 1 (without the floor it is manim's `rank·lag·w` start). Exact 0 and 1 at the ends (no float residue: a last child lands on its
+ *  authored chain, not on 0.9999999999999999). The ONE window law of a hand-off's piece lag (`Track.pairLag`); `planStagger` is the
+ *  track-level law, and neither imports the other. Signature frozen: (raw, rank, n, lag) -> 0..1. */
+export function lagWindow(raw: number, rank: number, n: number, lag: number): number {
+  if (raw <= 0) return 0;
+  if (raw >= 1) return 1;
+  if (n <= 1 || !(lag > 0)) return raw;
+  const w = Math.max(LAG_MIN_WINDOW, 1 / (1 + (n - 1) * Math.min(1, lag)));
+  const p = (raw - (1 - w) * rank / (n - 1)) / w;
+  return p <= 0 ? 0 : p >= 1 ? 1 : p;
+}
+
 const distributions = new WeakMap<Stagger, { spec: Stagger["curve"]; fn: (t: number) => number }>();
 /** The one delay law. Span calculation warms the curve before any frame reads it. */
 export function staggerDelay(track: Track, rank: number, maxRank: number): number {

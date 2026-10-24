@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { harness } from "./lib/harness.mjs";
 import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, opaque, expandPolygon } from "../src/lib/slide/correspondence";
 import { DEFAULT_TRANSFORM_METHOD } from "../src/lib/slide/targets";
-import { planCorrespondence as corePlan, sampleCorrespondence as coreSample, GLYPH_FLIGHT_THRESHOLD as coreBudget } from "../flux-core/index";
+import { planCorrespondence as corePlan, sampleCorrespondence as coreSample, GLYPH_FLIGHT_THRESHOLD as coreBudget, lagRanks as coreLagRanks, pairProgress as corePairProgress, lagWindow as coreLagWindow } from "../flux-core/index";
+import { lagRanks, pairProgress } from "../src/lib/slide/correspondence";
+import { lagWindow } from "../src/lib/slide/stagger";
 import { planOutlines, parameterize, pointAt, sampleNodes } from "../src/lib/slide/outline";
 import { nodesExtent } from "../src/lib/path";
 import { lerpColor, prepareColorLerp } from "../src/lib/color/interp";
@@ -26,6 +28,7 @@ const coords = (nodes: VectorNode[]) => nodes.map((n) => [n.x, n.y]);
 
 h.section("shared export and merged spines");
 h.ok(corePlan === planCorrespondence && coreSample === sampleCorrespondence, "both engines load exactly the same planner and sampler");
+h.ok(coreLagRanks === lagRanks && corePairProgress === pairProgress && coreLagWindow === lagWindow, "...and the same piece-lag clock (WP 4.3: lagRanks, pairProgress, lagWindow)");
 const spines = [outline("plot", [[30, 90], [30, 5]], false, { partId: "y.spine" }), outline("plot", [[30, 90], [177, 90]], false, { partId: "x.spine" })];
 const l = mergeChains(spines);
 h.eq(l.length, 1, "(a) two spines merge into ONE chain");

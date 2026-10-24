@@ -369,6 +369,9 @@ export interface Keyframe {
 /** One animation within a beat. `start`/`duration` form the within-beat
  *  mini-timeline (ms). `target` is an element id, or `@camera`/`@stage`. */
 export interface Track {
+  /** WP 4.3 (W2): a hand-off Become's PIECE lag, manim's lag_ratio across the pairs (0..1): the pieces of a set Become peel off in reading
+   *  order inside the track's own duration. Absent / 0 = every pair flies in unison. Hand-off Become tracks only (ops refuse it elsewhere). */
+  pairLag?: number;
   /** Ownership of automatic appearance regeneration, preserved by duplication. */
   generatedBy?: "auto-reveal";
   /** Stable identity for editor selection / timeline keying / reorder.

@@ -101,7 +101,7 @@ export { addModel, modelInfo, setModelViewCommand, setModelFieldCommand, renderM
 export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef, PAIR_POLICIES, PAIR_POLICY_IDS, normalizeRef, composeDestination, isSetRef, refMembers, refElementIds, mergeResolved, setLabel } from "../src/lib/slide/targets";
 export { PRESET_CATALOG, presetDef, defaultEasingFor, defaultTimingFor, authoredTiming, authoredParams, authoredFields, rewritesText, TEXT_TRANSFORM_PARAMS, autoBuildMs, withAuthoringTiming, QUICK_SMOOTH, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
 export { resolveCurve, parseCurve, formatCurve, springFn, bezierFn, stepsFn, catalogMatch, springStats, CURVE_CATALOG, EASING_TOKENS, SPRING_SETTLE, type Curve, type ResolvedCurve, type CurveCatalogEntry } from "../src/lib/slide/curves";
-export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
+export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, lagRanks, pairProgress, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
 export { planHandoff } from "../src/lib/slide/handoffPlan";
 export { targetOutlines, elementStageOutlines, partStageOutlines, plotStageMapping, type GeometryCtx } from "../src/lib/slide/targetGeometry";
 export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from "../src/lib/slide/handoffTargets";
@@ -109,7 +109,7 @@ export { setTrackCurve, becomeTransform, swapBecome, appearFrom as appearFromTra
 export { autoAnimateExcept } from "../src/lib/slide/autobuild";
 export { overshootBox, arcBox } from "../src/lib/slide/tween";
 export { setTrackArc } from "../src/lib/slide/ops";
-export { staggerDelay, staggerRanks, staggerSpan, staggerSeed, reshuffleSeed, patchStagger } from "../src/lib/slide/stagger";
+export { staggerDelay, staggerRanks, staggerSpan, staggerSeed, reshuffleSeed, patchStagger, lagWindow } from "../src/lib/slide/stagger";
 export { compileSlide, type CompiledSlide, type CompileOptions } from "../src/lib/slide/compile";
 export { sampleCamera, flyDuration, type CameraPose, type CameraPath } from "../src/lib/slide/camera";
 export {

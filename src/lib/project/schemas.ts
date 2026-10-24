@@ -85,6 +85,8 @@ const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: [
   seed: { type: "integer", minimum: 0, maximum: 4294967295 }, curve: STAGGER_CURVE,
 } };
 const ARC = { type: "number", minimum: -1, maximum: 1 };
+// WP 4.3: a hand-off Become's piece lag (manim lag_ratio), 0..1; not stamped (Q8: an older build plays it in unison)
+const PAIRLAG = { type: "number", minimum: 0, maximum: 1 };
 
 const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
 // Per-range text formatting (textRuns.ts). Lenient like every other element
@@ -660,6 +662,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         ...TIMING_CURVE_PROPS,
                         stagger: STAGGER,
                         arc: ARC,
+                        pairLag: PAIRLAG,
                         // 0.3.0: `to.state` carries a transform's sparse patch
                         to: { type: "object", properties: { path: { enum: ["pole", "fly"] }, become: BECOME } },
                         keyframes: { type: "array" },

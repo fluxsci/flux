@@ -909,6 +909,17 @@ export function setTrackArc(track: Track, arc: number): void {
   track.arc = arc;
 }
 
+/** WP 4.3 (D4): the piece lag a NEW hand-off Become with at least 3 pieces is authored with (a bar splitting into five dots peels apart
+ *  instead of flying as one slab). Saved decks keep what they hold; 0 is an authored "in unison". */
+export const BECOME_PAIR_LAG_DEFAULT = 0.15;
+/** Piece lag of a hand-off Become (0..1; null clears it). Refused on any other track: a silently ignored field is a trap. */
+export function setTrackPairLag(track: Track, lag: number | null): void {
+  if (lag === null) { delete track.pairLag; return; }
+  if (!isHandoff(track)) throw new Error("Piece lag applies to a hand-off Become (pieces that fly separately)");
+  if (!Number.isFinite(lag) || lag < 0 || lag > 1) throw new Error("Piece lag must be between 0 and 1");
+  track.pairLag = lag;
+}
+
 /** "Suggest arcs" (WP 3.3): give the colliding box moves of ONE beat an explicit arc (arcSuggest.suggestBeatArcs). Writes only tracks whose
  *  RESOLVED arc is unset (own or style-inherited; an authored 0 is a decision) through `setTrackArc`, i.e. exactly what the Arc slider writes,
  *  so it is ONE history step for the caller to seal. Returns what it did; `reason` explains an empty result that still had collisions. */
@@ -936,7 +947,7 @@ export function setTrackTurn(track: Track, turn: "rigid" | null): void {
 export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
   styleId?: Id | null; anchor?: Track["anchor"] | null;
   start?: number; duration?: number;
-  stagger?: Partial<Stagger>; arc?: number;
+  stagger?: Partial<Stagger>; arc?: number; pairLag?: number | null;
 } & TimingCurvePatch, manifestFor: ManifestFor = () => undefined): TrackEditResult {
   const found = findTrack(deck, trackId);
   if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
@@ -970,6 +981,7 @@ export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
       found.track.stagger = patchStagger(resolveTrackRaw(found.track, deck).stagger, patch.stagger); // RAW base: an explicit edit never inherits the tick compensation
     }
     if (patch.arc !== undefined) setTrackArc(found.track, patch.arc);
+    if (patch.pairLag !== undefined) setTrackPairLag(found.track, patch.pairLag);
   } catch (error) { return restore({ ok: false, reason: (error as Error).message }); }
   patchTimingCurve(found.track, patch);
   const refused = sweepClockRefusal(found.track, deck);
@@ -1460,6 +1472,8 @@ export interface BecomeOptions extends TimingCurvePatch {
   method?: BecomeSpec["method"];
   start?: number;
   duration?: number;
+  /** WP 4.3: piece lag (hand-off only, 0..1). Absent = BECOME_PAIR_LAG_DEFAULT for a NEW hand-off of at least 3 pieces, else unset. */
+  pairLag?: number;
   /** GUI may supply the compiler's manifest-aware evaluation of the slide. */
   compiled?: ReturnType<typeof compileSlide>;
 }
@@ -1510,6 +1524,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   if ((source.type === "video" || target.type === "video") && (!posterVideo || opts.mode === "consume")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
+  if (opts.pairLag !== undefined && (!Number.isFinite(opts.pairLag) || opts.pairLag < 0 || opts.pairLag > 1)) throw new Error("Piece lag must be between 0 and 1");
   const compiled = opts.compiled ?? compileSlide(slide, deck.stage, { ...deck, modelAsset: opts.modelAsset });
   const mode = opts.mode ?? (!posterVideo && isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && target.type !== "model3d" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
   const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
@@ -1546,12 +1561,17 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
         throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
     }
     // Only a whole object handing off to a whole object is a text morph; a set / part / group destination is not.
+    const fresh = !existing || !isHandoff(existing);
     const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...(isWholeElementRef(ref) ? { become: target } : { become: { type: "set" } }), ...timing })!;
     track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== DEFAULT_TRANSFORM_METHOD ? { method: opts.method } : {}) }, state: {} };
     delete track.disabled;
+    // WP 4.3 (D4): a NEW set hand-off of >= 3 pieces peels apart; an explicit value always wins; a re-Become keeps what the track had
+    if (opts.pairLag !== undefined) track.pairLag = opts.pairLag;
+    else if (fresh && Math.max(destination.length, sources.length) >= 3) track.pairLag = BECOME_PAIR_LAG_DEFAULT;
     return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
   }
   if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error(ref.members ? "Consume needs one whole destination object; a set of objects hands off. Use hand-off instead." : "Consume requires whole objects, without parts or groups. Use hand-off instead.");
+  if (opts.pairLag) throw new Error("Piece lag applies to a hand-off Become (pieces that fly separately); this one morphs one object into another.");
   if (compiled.births.some((b) => b.target === targetId)) throw new Error("A ghost copy cannot be a Become target. Duplicate it into an ordinary object first.");
   const frame = compiled.sample(bi);
   if (frame.presentation.unbornElementIds?.includes(sourceId)) throw new Error("The source is not yet born at this step. Choose a later step.");
@@ -1571,6 +1591,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     setTransform(deck, slideId, beatId, sourceId, { source: endEl.type === "plot" || endEl.type === "model3d" ? endEl.source ?? null : null });
   } else clearTransformContent(track);
   track.to!.become = { ref: structuredClone(ref), mode: "consume" };
+  delete track.pairLag;   // a morph has no pieces (a re-Become from a hand-off drops its lag)
   // consume the target: its element, every effect on it, and its group slots
   // (ghost copies born FROM the target keep their saved fallback and report
   // the missing source, exactly as when a source is deleted by hand)

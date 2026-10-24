@@ -155,6 +155,7 @@
       "verify-slide-present.ts",
       "verify-slide-rewind.ts",
       "verify-text-halo.ts",
+      "verify-pair-lag.ts",
       "verify-slide-rewind-browser.ts",
       "verify-present-core.ts",
       "verify-slide-scatter-showcase.ts",
@@ -3672,6 +3673,7 @@
     { "glob": "src/lib/slide/schemaStamp.ts", "run": ["verify-schema-stamp.ts", "verify-deck-schema.ts", "verify-fwdguard.ts", "verify-figfiles-parity.ts", "verify-loadgate.ts", "verify-model3d-import.ts"] },
     { "glob": "electron/deckSchemaSupport.cjs", "run": ["verify-schema-stamp.ts", "verify-model3d-import.ts"] },
     { "$why": "WP 3.2: attached connectors and labels: the solver, the compile / player / editor / write-point integration, the verbs.", "glob": "{src/lib/slide/attach.ts,src/lib/slide/player/attach.ts}", "run": ["verify-slide-attach.ts", "verify-slide-attach-browser.ts", "verify-attach-gui.mjs", "verify-schema-stamp.ts"] },
+    { "$why": "WP 4.3: piece lag (the window law, the per-pair clock, the hand-off driver).", "glob": "{src/lib/slide/stagger.ts,src/lib/slide/correspondence.ts,src/lib/slide/player/handoff.ts}", "run": ["verify-pair-lag.ts", "verify-correspondence.ts"] },
     { "$why": "WP 4.2: the text halo (one attribute law shared by the serializer, the slide player and the editor canvas).", "glob": "{src/lib/export.ts,src/lib/Element.svelte,src/lib/slide/player/textMorph.ts}", "run": ["verify-text-halo.ts"] },
     { "$why": "WP 4.4: Focus / Unfocus (the pure plan and the ops).", "glob": "src/lib/slide/focus.ts", "run": ["verify-appear-emphasis.ts"] },
     { "$why": "WP 4.1: animated Back: the rewind clock (timing.ts), the player's rewinding mode, Present / exported-deck plumbing.", "glob": "{src/lib/slide/timing.ts,src/lib/slide/player/player.ts,src/shell/modes/slide/PresentOverlay.svelte,src/lib/slide/export/runtime.ts}", "run": ["verify-slide-rewind.ts", "verify-slide-rewind-browser.ts", "verify-pace-defaults.ts", "verify-slide-present.ts"] },
@@ -7860,6 +7862,7 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-pair-lag.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 180000, "exclusive": false, "coverage": "behavior" },
     "verify-text-halo.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 180000, "exclusive": false, "coverage": "behavior" },
     "verify-slide-rewind.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 120000, "exclusive": false, "coverage": "behavior" },
     "verify-slide-rewind-browser.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 240000, "exclusive": false, "coverage": "behavior" },

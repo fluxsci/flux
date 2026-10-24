@@ -26,7 +26,7 @@
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc, suggestArcsForBeat, setTrackTurn } from "../../../../lib/slide/ops";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc, suggestArcsForBeat, setTrackTurn, setTrackPairLag } from "../../../../lib/slide/ops";
   import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES, TRANSFORM_METHODS, DEFAULT_TRANSFORM_METHOD } from "../../../../lib/slide/targets";
   import { autoAnimateExcept, canAutoAnimateRest, drawAlongX, sweepSeries } from "../../../../lib/slide/autobuild";
   import { guiPlotMeasures } from "../../../../lib/slide/partLengthGui";
@@ -341,6 +341,11 @@
   function arc(value: string) {
     const n = Number(value);
     if (Number.isFinite(n)) editFields(t => setTrackArc(t, Math.max(-1, Math.min(1, n))), "animator-arc");
+  }
+  /** WP 4.3: a hand-off's piece lag (its pieces peel off in reading order inside the same duration). */
+  function pairLag(value: string) {
+    const n = Number(value);
+    if (Number.isFinite(n)) editFields(t => { if (isHandoff(t)) setTrackPairLag(t, Math.max(0, Math.min(1, n))); }, "animator-pairlag");
   }
   /** "Suggest arcs" (WP 3.3): the moves of this step that cross each other mid-flight get an explicit arc. ONE undo step. */
   function suggestArcs() {
@@ -745,6 +750,12 @@
         <svg class="arc-preview" aria-hidden="true" width="32" height="28" viewBox="0 0 32 28"><path d={`M2 14 Q16 ${14 + 14 * (curTrack.arc ?? 0)} 30 14`} fill="none" stroke="currentColor"/></svg>
       </label>
       {@render overrideRow("arc")}
+      {#if handoff}
+        <label class="f arc-row" title="The pieces of a hand-off peel off one after another in reading order inside the same duration (manim's lag_ratio); 0 = they all fly together">Piece lag
+          <input aria-label="Piece lag" type="range" min="0" max="1" step="0.05" value={curTrack.pairLag ?? 0} oninput={e => pairLag(e.currentTarget.value)} onchange={() => sealHistory()}/>
+          <span class="arc-value">{mixed(t => t.pairLag ?? 0) ? "Mixed" : (curTrack.pairLag ?? 0).toFixed(2)}</span>
+        </label>
+      {/if}
       {#if !editingStyle}<div class="f"><button class="sg" title="Give the moves of this step that cross each other an arc (one undo step)" onclick={suggestArcs}>Suggest arcs</button></div>{/if}
       {#if !handoff && turnApplies(curTargetEl)}
         <label class="f" title="How a line turns when its ends move: Shrink lerps its ends straight (it shortens mid-turn, and stays joined to whatever it connects); Rigid keeps its length">Turn

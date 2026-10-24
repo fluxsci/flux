@@ -8,6 +8,7 @@ import type { StageOutline, OutlineOwner, OutlinePaint } from "./stageOutline";
 import { nodesExtent, reverseNodes, segPoint, segLength, splitSeg, type PathSeg } from "../path";
 import { lerpColor, prepareColorLerp } from "../color/interp";
 import { lerpDash } from "./tween";
+import { lagWindow, LAG_MIN_WINDOW } from "./stagger";
 import { axisFit, projectWith } from "../plot/project";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
@@ -53,7 +54,46 @@ export const INTERIOR_WINDOW: Record<InteriorSpec["method"], number> = { dissolv
 export const DISSOLVE_MS = 220;
 /** The flight's real timing, so time-based interiors (dissolve) can ignore its length; `arc` = the track's box-move curvature (−1…1),
  *  which bends every flight of the plan (WP 3.3). */
-export interface SampleTiming { raw: number; durationMs: number; arc?: number }
+export interface SampleTiming {
+  raw: number; durationMs: number; arc?: number;
+  /** WP 4.3, a lagged flight (`Track.pairLag`): per-pair eased progress from `pairProgress`, replacing the shared `t` pair by pair. */
+  ts?: ArrayLike<number>;
+  /** ...and per-pair RAW progress (only an interior reads it: a dissolve runs in real ms on its own window). */
+  rs?: ArrayLike<number>;
+  /** The real length of an interior's own window (its dissolve's ms scale). */
+  interiorMs?: number;
+}
+const lagRankCache = new WeakMap<CorrespondencePlan, { rank: number[]; count: number }>();
+/** WP 4.3: the lag order of a plan. PIECES (the non-interior pairs) are ranked by their destination's centre (a leaving piece: its own),
+ *  left to right, then top to bottom; an interior is not ranked (it rides the pieces' span). Cached per plan. */
+export function lagRanks(plan: CorrespondencePlan): { rank: number[]; count: number } {
+  let r = lagRankCache.get(plan);
+  if (!r) {
+    const idx = plan.pairs.map((_, i) => i).filter((i) => !plan.pairs[i].interior);
+    const c = plan.pairs.map((p) => center((p.b ?? p.a)!));
+    idx.sort((i, j) => c[i].x - c[j].x || c[i].y - c[j].y || i - j);
+    const rank = new Array<number>(plan.pairs.length).fill(-1); idx.forEach((pi, k) => { rank[pi] = k; });
+    lagRankCache.set(plan, r = { rank, count: idx.length });
+  }
+  return r;
+}
+/** WP 4.3: per-pair progress of a lagged flight, written into `ts` (eased, 0..1, clamped like the unison path: an overshooting curve never
+ *  overshoots a ring) and `rs` (each pair's raw window). `raw` is the track's OWN progress (a merge lander divides its hold out first);
+ *  `ease` its resolved curve. Pieces run `lagWindow`; a LEAVING interior (an a-only ring fill) runs over [0, 1-w] so it is gone exactly
+ *  when the last piece starts, an ARRIVING one over [w, 1]. Exact 0 / 1 at the ends. Returns the interior's share of the run, 1 - w. */
+export function pairProgress(plan: CorrespondencePlan, raw: number, lag: number, ease: (p: number) => number, ts: number[], rs: number[]): number {
+  const { rank, count } = lagRanks(plan);
+  const w = count > 1 ? Math.max(LAG_MIN_WINDOW, 1 / (1 + (count - 1) * Math.min(1, lag))) : 1;
+  for (let i = 0; i < plan.pairs.length; i++) {
+    const pair = plan.pairs[i];
+    const s = !pair.interior ? lagWindow(raw, rank[i], count, lag)
+      : w >= 1 ? clamp(raw) : pair.a ? Math.min(1, Math.max(0, raw) / (1 - w)) : Math.max(0, (Math.min(1, raw) - w) / (1 - w));
+    rs[i] = s;
+    ts[i] = s <= 0 ? 0 : s >= 1 ? 1 : clamp(ease(s));
+  }
+  ts.length = rs.length = plan.pairs.length;
+  return 1 - w;
+}
 /** The sideways displacement of a flight at eased progress t for a track `arc` (WP 3.3): the SAME quadratic bend `tween.arcBox` gives a box,
  *  arc·t(1−t) of the pair's centre travel turned 90°, so a flight's apex is arc·d/4 off the chord (arc = 2·tan(θ/4) is manim's path_arc θ).
  *  Flights bend about CENTRE travel on the clamped eased progress; arcBox bends a box's ORIGIN on the unclamped one: equal-size moves agree. */
@@ -832,9 +872,11 @@ function clipBeyond(poly: { x: number; y: number }[], centre: { x: number; y: nu
  *  chains (the aligned intermediate may have additional corner-preserving
  *  splits). Reuse out to retain every path, node, handle and dash buffer. */
 const bendScratch = { x: 0, y: 0 };
-export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: SampledPath[] = [], timing?: SampleTiming): SampledPath[] {
-  t = clamp(t);
+export function sampleCorrespondence(plan: CorrespondencePlan, tShared: number, out: SampledPath[] = [], timing?: SampleTiming): SampledPath[] {
+  tShared = clamp(tShared);
   for (let i = 0; i < plan.pairs.length; i++) {
+    // a lagged flight (WP 4.3) gives every pair its own clock; unison flights share one (byte for byte as before)
+    const t = timing?.ts ? timing.ts[i] : tShared;
     const pair = plan.pairs[i], { a, b } = pair;
     const aligned = ready.get(pair);
     if (pair.plan && !aligned) throw new Error("Call correspondence.prepare() before sampling");
@@ -861,9 +903,10 @@ export function sampleCorrespondence(plan: CorrespondencePlan, t: number, out: S
       const spec = pair.interior;
       // dissolve runs on REAL time when the caller has it (DISSOLVE_MS, clamped to the
       // flight); collapse and drain run on eased progress like the pieces they leave with
-      const timed = spec.method === "dissolve" && timing && timing.durationMs > 0;
-      const W = timed ? Math.min(1, Math.max(0.02, DISSOLVE_MS / timing.durationMs)) : INTERIOR_WINDOW[spec.method];
-      const u = timed ? clamp(timing.raw) : t;
+      const spanMs = timing?.interiorMs ?? timing?.durationMs ?? 0;
+      const timed = spec.method === "dissolve" && !!timing && spanMs > 0;
+      const W = timed ? Math.min(1, Math.max(0.02, DISSOLVE_MS / spanMs)) : INTERIOR_WINDOW[spec.method];
+      const u = timed ? clamp(timing!.rs ? timing!.rs[i] : timing!.raw) : t;
       const present = smooth(a ? 1 - clamp(u / W) : clamp((u - (1 - W)) / W));
       const base = a ? buf.a : buf.b;
       path.closed = true;

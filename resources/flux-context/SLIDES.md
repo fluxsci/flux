@@ -77,6 +77,8 @@ flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                
 flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>             # (appear_from) same hand-off from the destination side
      [--part id,id --source-part id,id --pair auto|spatial|order|data|tile --reveal flip|draw]
      [--method dissolve|shatter|collapse|drain --start ms --duration ms --easing e]
+     [--pair-lag 0..1]   # hand-off only: pieces peel off in reading order within the duration (manim lag_ratio;
+                         # a NEW hand-off of 3+ pieces is written with 0.15, 0 = unison; edit later: set-track --pair-lag)
 flux become <deck> <slideId> <beatId> <sourceId> --to <elId> --to <elId> [--to …]  # a destination SET: one hand-off into several objects
      [--members '[{"element":"plot1","parts":["s1.point.0"]},{"element":"ellipse2"}]']  # …or objects + parts of any plots; always a hand-off
 flux appear-from <deck> <slideId> <beatId> --members '<json>' --from <sourceId>       # the same set, authored from its destination side
