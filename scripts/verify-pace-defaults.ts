@@ -341,12 +341,17 @@ const frames = (n: number, ms = 16.7) => { for (let i = 0; i < n; i++) stepMs(ms
   h.ok(p.state().beat === 1 && p.state().playing && p.state().time < 140, "pause/resume of an ordinary forward cue stays on the wall clock");
   p.next(); frames(2); h.ok(p.state().beat === 1 && p.state().playing, "and a click after that resume still settles (the mode is 'forward', not stuck)");
   frames(10); h.eq(p.state().beat, 2, "...and chains the next cue"); p.destroy(); }
+{ const p = mkPlayer({ backAnimates: true }); // X14: Next during a rewind replays the undone beat on the forward clock and never settles
+  p.seek(0, 2, Infinity); p.prev(); frames(4); h.ok(p.state().reversing && p.state().beat === 2, "Back rewinds cue 2");
+  p.next(); const st = p.state(); h.ok(st.beat === 2 && st.playing && !st.reversing && st.time === 0, "Next mid-rewind lands it and replays cue 2 from its start (no settle of the rewind)");
+  frames(60); h.eq([p.state().beat, p.state().playing], [2, false], "...and cue 2 plays to its end, nothing chained"); p.destroy(); }
 { const p = mkPlayer(); // the last beat: a click goes to the next slide (none here); it never starts a settle
   p.seek(0, 3, Infinity); p.next(); h.eq([p.state().beat, p.state().playing], [3, false], "a click on the last beat settles nothing"); p.destroy(); }
 // X14: ONE clockMode variable and ONE time switch (WP 4.1 adds "rewinding" to the same switch)
 { const src = fs.readFileSync(new URL("../src/lib/slide/player/player.ts", import.meta.url), "utf8");
   h.eq([...src.matchAll(/\blet clockMode\b/g)].length, 1, "exactly one clockMode variable");
-  h.ok(/type ClockMode = "forward" \| "settling"/.test(src), "clockMode is \"forward\" | \"settling\" in Release 1 (\"rewinding\" joins in WP 4.1)");
+  h.ok(/type ClockMode = "forward" \| "settling" \| "rewinding"/.test(src), "clockMode is \"forward\" | \"settling\" | \"rewinding\" (WP 4.1 joined the same variable)");
+  h.eq([...src.matchAll(/\brewindTime\(/g)].length, 1, "rewindTime is called in exactly one place (clockTime)");
   h.ok(/function clockTime\(ts: number\)/.test(src) && /time = clockTime\(timestamp\)/.test(src), "tick computes time through the one clockTime(ts) switch");
   h.eq([...src.matchAll(/\bsettleTime\(/g)].length, 1, "settleTime is called in exactly one place (clockTime)");
   h.ok(/function cancelClock\(\)[^]*?clockMode = "forward"/.test(src), "cancelClock resets the mode to forward");

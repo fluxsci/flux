@@ -21,6 +21,27 @@ export function settleTime(t0: number, duration: number, spanMs: number, elapsed
   return t0 + remaining * (a * s + (1 - a) * s * s);
 }
 
+/** WP 4.1 (W1) animated Back: a rewind walks the SAME pure sampler backwards, so every rewind frame equals the static sample at its
+ *  time and the landing is a `seek` (the resting frame of a jump). Its wall time is the run's length / `rewindRate`, never above
+ *  REWIND_CAP_MS (a long autobuild beat is a fast rewind, not a long wait); a Back within BACK_BURST_MS of the previous one jumps (a
+ *  presenter hammering Back is navigating, not watching). */
+export const REWIND_CAP_MS = 800;
+export const BACK_BURST_MS = 350;
+export const BACK_SCALE_DEFAULT = 0.7;
+/** Beat ms per wall ms of a rewind of a run `runMs` long at speed `scale` (clamped to [0.25, 1.5]). Pure. */
+export function rewindRate(runMs: number, scale = BACK_SCALE_DEFAULT): number {
+  const s = Math.max(0.25, Math.min(1.5, Number.isFinite(scale) ? scale : BACK_SCALE_DEFAULT));
+  return Math.max(1 / s, runMs / REWIND_CAP_MS);
+}
+/** Beat time `elapsedMs` into a rewind that started at beat time `from`: an EASE-OUT clock, time = from·(1−x)². A plain reversal starts
+ *  at the END of every forward curve, where nothing moves (the first visible change took 117 ms, over the 100 ms budget); this one opens
+ *  at twice the speed (67 ms measured) and decelerates into the landing. Exactly `from` at 0 and exactly 0 at the end. Pure. */
+export function rewindTime(from: number, rate: number, elapsedMs: number): number {
+  if (!(from > 0)) return 0;
+  const x = Math.min(1, Math.max(0, elapsedMs * rate / from));
+  return x >= 1 ? 0 : from * (1 - x) * (1 - x);
+}
+
 /** Playback fallback for an `auto` beat that omits `autoDelayMs`. FROZEN: old decks never change. */
 export const AUTO_DELAY_FALLBACK_MS = 600;
 /** What authoring writes when a beat becomes "After previous" without a delay: near-continuous chaining

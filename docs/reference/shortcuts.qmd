@@ -239,7 +239,8 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 **← / Backspace / PageUp** previous (**+Shift**: previous slide) · **↑/↓** whole slides ·
 **Home/End** first/last · type a **number + Enter** to jump · **B**/**W** blank black/white ·
 **S** presenter notes · **F** fullscreen · **R** reset timer · **M** reduce motion ·
-**Escape** exit. Click left quarter = back, elsewhere = forward.
+**Escape** exit. Click left quarter = back, elsewhere = forward. Back rewinds the step you just saw
+(press it twice quickly to jump; **Settings → Figure → Slides** turns the rewind off).
 
 # Reader
 

@@ -18,6 +18,7 @@
   import { createAppModelPosters } from "../../../lib/model3d/appPosters";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
   import { project } from "../../../lib/store";
+  import { settings } from "../../../lib/settings";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
 
   let {
@@ -40,7 +41,7 @@
   let player: Player | undefined;
   let models: AppInlineModels | undefined;
   let nextPosters: AbortController | undefined;
-  let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, mediaPlaying: false, mediaPaused: false, issues: [] });
+  let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, reversing: false, mediaPlaying: false, mediaPaused: false, issues: [] });
   let blank = $state<"" | "black" | "white">("");
   let showNotes = $state(false);
   let elapsed = $state(0);
@@ -81,6 +82,8 @@
       deckBackground: deck.background,
       animStyles: deck.animStyles,
       reducedMotion,
+      // WP 4.1: Back plays the step in reverse (Settings "Back plays the step in reverse"; off = the jump)
+      backAnimates: get(settings).slideBackAnimates !== false,
     };
   }
   function buildPlayer(at: { slide: number; beat: number }) {

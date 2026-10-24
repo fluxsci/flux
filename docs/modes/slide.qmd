@@ -756,6 +756,13 @@ slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** togg
 fullscreen without leaving, **R** resets the timer, and one **Escape** leaves, even in
 fullscreen. Click zones work too: left quarter back, elsewhere forward.
 
+**Back plays the step in reverse.** Pressing Back rewinds the step you just saw (at about 70 % of
+its speed, never longer than 0.8 s) and lands exactly on the previous step, in Present and in
+exported decks. Back during a step rewinds it from where it is; Next during a rewind replays the
+step. Pressing Back twice quickly jumps (you are navigating, not watching), and slides with video
+or 3D, reduced motion (**M**) and slides embedded in Paper always cut. Turn it off in **Settings
+→ Figure → Slides**.
+
 # 3D models
 
 Drop a binary **GLB** onto the slide, or import a **3D fluxplot** saved from Python.

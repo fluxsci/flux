@@ -501,7 +501,9 @@ export timeline. For another deck import the clip again or use a portable whole-
 - **Present (in app):** the `▶ Present` button (or drive the player). Keymap: →/Space/PageDown/click
   advance (Shift = next slide), ←/Backspace/PageUp back, ↑/↓ jump slides, digits+Enter jump, **S**
   speaker-notes + timer, **R** reset timer, **B**/**W** blank, **F** fullscreen, Esc exit. Add
-  per-slide `notes` (markdown) to feed the speaker view.
+  per-slide `notes` (markdown) to feed the speaker view. Back REWINDS the step (the same frames in
+  reverse, <= 0.8 s, landing exactly on the previous step; Settings `slideBackAnimates`, default on);
+  a second Back within 350 ms, reduced motion and video/3D slides jump. Paper embeds always step.
 - **Export:** `flux export-deck <id>` → `exports/<id>.html`. One file, offline, double-click to
   present. This is the definition of done for a talk — verify by opening it with no network.
 - The **same player** drives in-app present AND the exported file → WYSIWYG. Never write a second

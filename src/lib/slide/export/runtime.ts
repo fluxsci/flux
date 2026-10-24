@@ -105,6 +105,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       assetSize: (id) => payload.assetSizes?.[id],
       plotManifest: (id) => get(plotManifests)[id],
       reducedMotion, // default OFF: a talk is meant to animate regardless of OS setting (C15)
+      backAnimates: true, // WP 4.1: Back plays the step in reverse, as in Present (a talk is meant to animate)
     });
     player.on("change", () => { renderHud(); renderPanel(); });
     player.goTo(at.slide, at.beat);
@@ -235,6 +236,8 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       resume: () => player.resume(),
       on: (ev: "change" | "beatStart" | "beatEnd" | "frame", cb: (s: import("../player/player").PlayerState) => void) => player.on(ev, cb),
       stop: () => player.stop(),
+      next: () => player.next(),
+      prev: () => player.prev(),
       state: () => player.state(),
       rasterBakes: () => player.rasterBakes(), settleRaster: () => player.settleRaster(),
       readyMedia: () => player.readyMedia(),

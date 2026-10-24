@@ -153,6 +153,8 @@
       "verify-slide-playback.ts",
       "verify-slide-player.ts",
       "verify-slide-present.ts",
+      "verify-slide-rewind.ts",
+      "verify-slide-rewind-browser.ts",
       "verify-present-core.ts",
       "verify-slide-scatter-showcase.ts",
       "verify-slide-track-ops.ts",
@@ -3669,6 +3671,7 @@
     { "glob": "src/lib/slide/schemaStamp.ts", "run": ["verify-schema-stamp.ts", "verify-deck-schema.ts", "verify-fwdguard.ts", "verify-figfiles-parity.ts", "verify-loadgate.ts", "verify-model3d-import.ts"] },
     { "glob": "electron/deckSchemaSupport.cjs", "run": ["verify-schema-stamp.ts", "verify-model3d-import.ts"] },
     { "$why": "WP 3.2: attached connectors and labels: the solver, the compile / player / editor / write-point integration, the verbs.", "glob": "{src/lib/slide/attach.ts,src/lib/slide/player/attach.ts}", "run": ["verify-slide-attach.ts", "verify-slide-attach-browser.ts", "verify-attach-gui.mjs", "verify-schema-stamp.ts"] },
+    { "$why": "WP 4.1: animated Back: the rewind clock (timing.ts), the player's rewinding mode, Present / exported-deck plumbing.", "glob": "{src/lib/slide/timing.ts,src/lib/slide/player/player.ts,src/shell/modes/slide/PresentOverlay.svelte,src/lib/slide/export/runtime.ts}", "run": ["verify-slide-rewind.ts", "verify-slide-rewind-browser.ts", "verify-pace-defaults.ts", "verify-slide-present.ts"] },
     { "$why": "WP 3.1: the x-clock sweep's pure geometry, its draw plan and lead dot, the marker spacing and the auto-build / draw-along-x writers.", "glob": "{src/lib/slide/sweep.ts,src/lib/slide/staggerData.ts}", "run": ["verify-slide-sweep.ts", "verify-slide-stagger.ts", "verify-animate-plot.ts"] }
   ],
   "retryOnce": [
@@ -7854,6 +7857,8 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-slide-rewind.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 120000, "exclusive": false, "coverage": "behavior" },
+    "verify-slide-rewind-browser.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 240000, "exclusive": false, "coverage": "behavior" },
     "verify-slide-attach-browser.ts": {
       "runtime": "tsx",
       "prerequisites": [],

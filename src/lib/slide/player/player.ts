@@ -7,7 +7,7 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
-import { beatDelayMs, settleTime, resolveTextLook, firstTickOrigin, FIRST_TICK_MAX_MS, PREROLL_MIN_MS, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS } from "../timing";
+import { beatDelayMs, settleTime, resolveTextLook, firstTickOrigin, FIRST_TICK_MAX_MS, PREROLL_MIN_MS, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS, BACK_BURST_MS, BACK_SCALE_DEFAULT, rewindRate, rewindTime } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
@@ -53,6 +53,12 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   /** false = a click mid-cue snaps that cue to its end (the pre-settle behaviour). Default true: the cue
    *  finishes within SETTLE_MAX_MS by clock warp, then the next starts. `manualSteps` embeds always snap. */
   settle?: boolean;
+  /** WP 4.1: Back plays the run in reverse (the same pure sampler walked backwards, timing.ts rewindTime) instead of cutting. Absent =
+   *  false: headless callers, embeds and every gate that does not ask keep the jump. Present passes the `slideBackAnimates` setting,
+   *  the exported deck `true`. */
+  backAnimates?: boolean;
+  /** Rewind speed against the run's own length (0.7 = 70 % of its forward time), clamped to [0.25, 1.5]. Default BACK_SCALE_DEFAULT. */
+  backScale?: number;
 }
 
 export { resolveEasing, resolveEasingFn } from "../easing";
@@ -885,6 +891,9 @@ export interface PlayerState {
   time: number;
   duration: number;
   playing: boolean;
+  /** True while Back walks the run in reverse (also while such a rewind is paused). `beat` stays the LATER beat until it lands, and a
+   *  rewind emits no beatStart / beatEnd (they are forward events). */
+  reversing: boolean;
   /** Native clips continue while the presenter waits between animation steps. */
   mediaPlaying: boolean;
   mediaPaused: boolean;
@@ -911,7 +920,7 @@ export interface Player {
   resume(): void;
   stop(): void;
   next(opts?: { animate?: boolean }): void;
-  prev(): void;
+  prev(opts?: { animate?: boolean }): void;
   nextSlide(): void;
   prevSlide(): void;
   state(): PlayerState;
@@ -951,28 +960,35 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let auto: ReturnType<typeof setTimeout> | undefined;
   let range: PlayRange | null = null;
   // ONE clock mode (X14): "forward" = wall clock; "settling" = the interrupted cue finishes on the warped clock
-  // (timing.ts settleTime). WP 4.1 adds "rewinding" here and nowhere else: `clockTime` is the single time switch.
-  type ClockMode = "forward" | "settling";
+  // (timing.ts settleTime); "rewinding" = Back walks the run backwards to its start (timing.ts rewindTime) and lands with a seek.
+  // `clockTime` is the single time switch.
+  type ClockMode = "forward" | "settling" | "rewinding";
   let clockMode: ClockMode = "forward";
   type SettleRun = { t0: number; start: number; span: number };
   let settleRun: SettleRun | null = null, queuedClicks = 0;
+  /** A rewind: from beat time `from` (the run's frame when Back was pressed) down to 0, then a seek to the end of beat `to`. */
+  type RewindRun = { from: number; to: number; rate: number };
+  let rewind: RewindRun | null = null, lastBackAt = -Infinity;
   // pause() parks the mode (and its run) so resume() restores it; any other clock change drops it (cancelClock).
-  let parked: { mode: ClockMode; run: SettleRun; queued: number; elapsed: number } | null = null;
+  let parked: { mode: ClockMode; run?: SettleRun; rewind?: RewindRun; queued: number; elapsed: number } | null = null;
+  /** The rewind in progress, running or paused. */
+  const pendingRewind = (): RewindRun | null => clockMode === "rewinding" ? rewind : parked?.mode === "rewinding" ? parked.rewind ?? null : null;
   let transition: Animation | null = null;
   const ctx: SlideRenderCtx = { ...opts, deckBackground: deck.background, videoPlayback: true };
   const beats = () => Math.max(1, deck.slides[si]?.beats.length ?? 0);
-  function state(): PlayerState { return { slide: si, beat: bi, totalBeats: beats(), totalSlides: deck.slides.length, time, duration, playing, issues, ...(media?.state() ?? { mediaPlaying: false, mediaPaused: false }) }; }
+  function state(): PlayerState { return { slide: si, beat: bi, totalBeats: beats(), totalSlides: deck.slides.length, time, duration, playing, reversing: !!pendingRewind(), issues, ...(media?.state() ?? { mediaPlaying: false, mediaPaused: false }) }; }
   const emit = (event: Ev) => { const value = state(); for (const listener of listeners[event]) listener(value); };
   function cancelClock(): void {
     generation++; if (raf) cancelAnimationFrame(raf); raf = 0;
     clearTimeout(auto); auto = undefined; playing = false;
-    clockMode = "forward"; settleRun = null; queuedClicks = 0; parked = null; firstTick = false; prerolling = false;
+    clockMode = "forward"; settleRun = null; rewind = null; queuedClicks = 0; parked = null; firstTick = false; prerolling = false;
     transition?.cancel(); transition = null;
   }
   /** Cue time for a frame at `ts`: the ONE place the clock mode picks its mapping (all sampling is a pure
    *  function of `time`, natives included, so a warped clock is exact). */
   function clockTime(ts: number): number {
     if (clockMode === "settling" && settleRun) return settleTime(settleRun.t0, duration, settleRun.span, ts - settleRun.start);
+    if (clockMode === "rewinding" && rewind) return rewindTime(rewind.from, rewind.rate, ts - origin);
     return Math.min(duration, Math.max(0, ts - origin));
   }
   function build(index: number): void {
@@ -1008,12 +1024,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     applyAt(runSpecs ?? specs, bi, time, native);
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
-    if (playing) media?.tick(time);
+    if (playing && clockMode !== "rewinding") media?.tick(time);
     if (playing && time < duration) {
       keeper.flying();
       // a camera flight EARLY_BAKE_LEAD_FRAMES from landing re-bakes now: the fresh layer rasterises the pose the flight lands on, under the
       // last of the motion (rasterKeeper). The lead is measured in cue time per presented frame (a settling clock runs faster than the wall).
-      for (const s of runSpecs ?? specs) if (s.refreshCamera && s.beatIndex === bi && time > s.delay && earlyBakeDue(s.delay + s.duration - time, frameDt)) keeper.early(s);
+      // A rewind lands with a seek, which re-bakes at rest.
+      if (clockMode !== "rewinding") for (const s of runSpecs ?? specs) if (s.refreshCamera && s.beatIndex === bi && time > s.delay && earlyBakeDue(s.delay + s.duration - time, frameDt)) keeper.early(s);
     } else keeper.rest(playing);   // playing && time >= duration = a flight just ended by itself
     emit("frame");
   }
@@ -1063,12 +1080,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     // Frame 0 must really have been PRESENTED before the first moving frame (a catch-up frame can arrive with the same timestamp): the
     // primed layers rasterise in it. Until a real frame (>= PREROLL_MIN_MS) has passed, wait.
     if (prerolling) { if (timestamp - origin < PREROLL_MIN_MS) { queueFrame(); return; } prerolling = false; }
-    if (firstTick) { firstTick = false; if (clockMode === "forward") origin = firstTickOrigin(origin, timestamp); }   // setup never eats the beginning (timing.ts)
+    if (firstTick) { firstTick = false; if (clockMode !== "settling") origin = firstTickOrigin(origin, timestamp); }   // setup never eats the beginning (timing.ts)
     const before = time;
     time = clockTime(timestamp);
-    frameDt = Math.min(60, Math.max(8, time - before));
+    frameDt = Math.min(60, Math.max(8, Math.abs(time - before)));
     paint(true);
     if (session !== generation) return;
+    if (clockMode === "rewinding") { if (time <= 0) finishRewind(); else queueFrame(); return; }
     // the next frame is the first of a delayed / staggered enter: present its node primed at rest (render.ts primeFlightLayers)
     if (time < duration && clockMode === "forward") primeFlightLayers(pendingGliders(gliders, bi, time, PRIME_AHEAD_MS));
     if (time >= duration) finish();
@@ -1147,6 +1165,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function nextCue(config: { animate?: boolean } = {}): void {
     range = null;
+    // Next during a rewind (X14): the rewind lands first; Present then replays the beat it was undoing (from its start, on the forward
+    // clock: it never settles); a document (manualSteps) only lands, one more Next replays.
+    const undoing = pendingRewind();
+    if (undoing) { seek(si, undoing.to, Infinity); if (opts.manualSteps) return; }
     if (opts.manualSteps && playing) { seek(si, bi, Infinity); return; }
     if (bi >= beats() - 1) { if (!opts.manualSteps) nextSlide(); return; }
     // Interrupt settle: a click on a moving cue finishes it (<= SETTLE_MAX_MS, velocity-continuous) before the
@@ -1164,12 +1186,40 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     if (!opts.manualSteps) end = cueEnd(deck.slides[si], end);
     begin(bi + 1, end, config.animate === false);
   }
-  function prev(): void {
+  /** WP 4.1: Back. With `backAnimates` the run plays in reverse from the frame on screen (mid-play too) and lands with the same `seek` a
+   *  jump makes; it jumps instead when asked not to animate, in a navigation burst, under reduced motion, in an Animator preview, on a
+   *  slide with video or 3D (their natives are forward-driven), while media / hand-offs are not ready, or when there is nothing to undo.
+   *  A Back during a rewind lands it first, so no press is ever lost. */
+  function prev(config: { animate?: boolean } = {}): void {
+    const stamp = performance.now(), burst = stamp - lastBackAt < BACK_BURST_MS; lastBackAt = stamp;
+    const undoing = pendingRewind();
+    if (undoing) seek(si, undoing.to, Infinity);
     if (bi <= 0) { if (!opts.manualSteps) prevSlide(); return; }
     let start = bi;
     while (!opts.manualSteps && start > 0 && deck.slides[si].beats[start]?.advance === "with-prev") start--;
-    seek(si, Math.max(0, start - 1), Infinity);
+    const target = Math.max(0, start - 1), runMs = Math.max(0, ...durations.slice(start, bi + 1));
+    // where the eye is: the running frame, a paused frame mid-run, else the run's end
+    const fromTime = Math.min(runMs, playing || (time > 0 && time < duration) ? time : runMs);
+    const live = deck.slides[si].elements.some((e) => e.type === "video" || e.type === "model3d");
+    const notReady = !!models && !models.isReady() || specs.some((sp) => sp.handoff && !sp.handoff.isReady() || sp.ready && !sp.ready.isReady());
+    if (!(config.animate ?? opts.backAnimates ?? false) || burst || reduced || range || live || notReady || !(fromTime > 0)) { seek(si, target, Infinity); return; }
+    cancelClock();
+    const session = generation;
+    selectRun(start, bi);
+    // the camera keyframes rebased exactly as a seek rebases them, so every rewind frame IS the static sample at its time
+    let cameraChanged = false;
+    for (const spec of specs) if (spec.refreshCamera) cameraChanged = spec.refreshCamera() || cameraChanged;
+    if (cameraChanged) { disposeSlideAnims(specs, false); if (runSpecs) disposeSlideAnims(runSpecs, false); }
+    duration = runMs; time = fromTime;
+    rewind = { from: fromTime, to: target, rate: rewindRate(runMs, opts.backScale ?? BACK_SCALE_DEFAULT) };
+    clockMode = "rewinding"; playing = true;
+    paint(); emit("change");
+    if (session !== generation) return;
+    origin = performance.now(); firstTick = true;
+    queueFrame();
   }
+  /** A rewind lands exactly where a jump lands: the same seek, so the resting frame is identical. */
+  function finishRewind(): void { const to = rewind?.to ?? Math.max(0, bi - 1); seek(si, to, Infinity); }
   function nextSlide(): void { if (si < deck.slides.length - 1) goTo(si + 1, 0); }
   function prevSlide(): void { if (si > 0) goTo(si - 1, Math.max(0, deck.slides[si - 1].beats.length - 1)); }
   function play(request: PlayRange): void {
@@ -1180,14 +1230,18 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     begin(from, from);
   }
   function pause(): void {
-    const park = clockMode === "forward" || !settleRun ? null : { mode: clockMode, run: settleRun, queued: queuedClicks, elapsed: performance.now() - settleRun.start };
+    const park = clockMode === "settling" && settleRun ? { mode: clockMode, run: settleRun, queued: queuedClicks, elapsed: performance.now() - settleRun.start }
+      : clockMode === "rewinding" && rewind ? { mode: clockMode, rewind, queued: 0, elapsed: playing ? performance.now() - origin : 0 } : null;
     cancelClock(); parked = park; media?.pause(true); paint(); emit("change");
   }
   function resume(): void {
     media?.pause(false);
-    if (playing || time >= duration) return;
+    if (playing || (parked?.mode !== "rewinding" && time >= duration)) return;
     clearTimeout(auto); playing = true; origin = performance.now() - time;
-    if (parked) { clockMode = parked.mode; settleRun = { ...parked.run, start: performance.now() - parked.elapsed }; queuedClicks = parked.queued; parked = null; }
+    if (parked?.mode === "settling" && parked.run) { clockMode = parked.mode; settleRun = { ...parked.run, start: performance.now() - parked.elapsed }; queuedClicks = parked.queued; }
+    // a paused rewind resumes BACKWARD, from the frame it froze on
+    else if (parked?.mode === "rewinding" && parked.rewind) { clockMode = parked.mode; rewind = parked.rewind; origin = performance.now() - parked.elapsed; }
+    parked = null;
     const session = generation;
     emit("change"); if (session === generation) queueFrame();
   }

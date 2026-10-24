@@ -33,6 +33,8 @@ export interface Settings {
   snapPixel: boolean; // round committed coords to whole pixels (crisp export)
   // WP 3.2: a line end released on a shape (drawn or dragged) sticks to it: a connector that follows the shape
   connectorsStick: boolean;
+  // WP 4.1: in Present (and exported decks) Back plays the step in reverse instead of cutting to the step before
+  slideBackAnimates: boolean;
   // Figure — the caption editor (Alt+C).
   captionFontSize: number; // Figure-Meta caption typing size in screen px
   // Figure — what a Plot gallery (Alt+G) search reaches (plot/galleryScope.ts).
@@ -100,6 +102,7 @@ const DEFAULTS: Settings = {
   snapGrid: false,
   snapPixel: false,
   connectorsStick: true,
+  slideBackAnimates: true,
   captionFontSize: 16,
   plotSearchScope: DEFAULT_PLOT_SEARCH_SCOPE,
   galleryFolderClickExpands: false,

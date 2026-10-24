@@ -1185,14 +1185,26 @@ Persistence invariants (all machine-checked — do not weaken):
   within one family AND phase. Ctrl/⌘+Alt on a bar branches before Follow timing and copy.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
-  **One clock mode (ruling X14):** `player.ts` has ONE `clockMode: "forward" | "settling"` (the
-  type gains `"rewinding"` in WP 4.1) and ONE `clockTime(ts)` switch used by `tick`; `cancelClock`
-  resets to forward; `pause` parks `{mode, run, queued, elapsed}` and `resume` restores it; a click
+  **One clock mode (ruling X14):** `player.ts` has ONE `clockMode: "forward" | "settling" |
+  "rewinding"` and ONE `clockTime(ts)` switch used by `tick`; `cancelClock`
+  resets to forward; `pause` parks `{mode, run | rewind, queued, elapsed}` and `resume` restores it; a click
   that lands mid-cue SETTLES that cue (`timing.settleTime`, `SETTLE_MAX_MS = 120`,
   `SETTLE_MIN_REMAINING_MS = 60`, velocity-continuous) and then chains the next (a burst settles
   each cue in turn; a click while settling only queues). `PlayerOpts.settle` is on by default;
   `manualSteps` embeds, reduced motion, seek/prev/goTo, video export, Animator preview and
-  `nextCue({animate:false})` never settle. `verify-pace-defaults` asserts exactly one `clockMode`,
+  `nextCue({animate:false})` never settle. **Animated Back (WP 4.1, `PlayerOpts.backAnimates`; Present
+  passes the `slideBackAnimates` setting, the exported runtime `true`, embeds nothing = the jump):**
+  `prev()` walks the SAME pure sampler backwards on `timing.rewindTime` (`time = from·(1−x)²`, an
+  ease-out so the first visible change is one frame away; `rewindRate` = max(1/scale, run/`REWIND_CAP_MS`
+  800), scale `BACK_SCALE_DEFAULT` 0.7) from the frame on screen (mid-play too), and LANDS with
+  `seek(si, target, Infinity)`: the resting frame is the jump's, pixel for pixel. A rewind emits no
+  beatStart/beatEnd (`state().reversing` instead; `beat` is the later beat until landing), no media
+  ticks and no early camera bakes. It jumps instead under reduced motion, in a `BACK_BURST_MS` (350)
+  burst, in an Animator range, on video/3D slides, while hand-offs/models are not ready. A Back or Next
+  during a rewind lands it first (no lost press; Next then replays the undone beat on the forward
+  clock, `manualSteps` only lands). Gates: `verify-slide-rewind` (linkedom: DOM mirror, cap, bursts,
+  X14) and `verify-slide-rewind-browser` (exported deck, fake clock: every rewind frame's pixels ==
+  the static seek's, landing == jump, first change <= 100 ms). `verify-pace-defaults` asserts exactly one `clockMode`,
   one `clockTime` and one `settleTime` call site: a new mode is a case in that switch, never a
   second clock. **The clock starts at the first presented frame (`timing.ts FIRST_TICK_MAX_MS` = 20,
   `firstTickOrigin`).** The first tick of a cue advances the clock by at most one frame; a first frame
