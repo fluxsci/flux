@@ -1096,10 +1096,11 @@
                 </select>
               </label>
               {#if end}
-                <select aria-label={`Connector ${which} anchor`} title="Where on the shape: auto aims at the other end; or a side, or the centre" value={typeof end.anchor === "string" ? end.anchor : "auto"} on:change={(e) => setEnd(which, { anchor: e.currentTarget.value as Anchor })}>
+                <select aria-label={`Connector ${which} anchor`} title="Where on the shape: auto aims at the other end; or a side, or the centre; spot = the exact place it was released on" value={typeof end.anchor === "object" ? "spot" : end.anchor ?? "auto"} on:change={(e) => { if (e.currentTarget.value !== "spot") setEnd(which, { anchor: e.currentTarget.value as Anchor }); }}>
                   {#each ANCHORS as a}<option value={a}>{a}</option>{/each}
+                  {#if typeof end.anchor === "object"}<option value="spot">spot</option>{/if}
                 </select>
-                <NumberField label="Gap" value={end.gap ?? 0} min={0} step={1} title="Space between the end and the shape (stage px)" on:commit={(e) => setEnd(which, { gap: Math.max(0, e.detail) })} />
+                {#if typeof end.anchor !== "object"}<NumberField label="Gap" value={end.gap ?? 0} min={0} step={1} title="Space between the end and the shape (stage px)" on:commit={(e) => setEnd(which, { gap: Math.max(0, e.detail) })} />{/if}
               {/if}
             </div>
           {/each}

@@ -32,7 +32,7 @@ import type { Element as FigElement, SemanticPlotElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
 import { applyOverrides, partDomId } from "../../plot/parse";
 import { compensatePtTrue, restorePtTrue, compilePtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
-import { applyTextLayout } from "../../text";
+import { applyTextLayout, canMeasureText } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox, dashAttr, channelOpacity } from "../../geometry";
 import { pathRender, pathD } from "../../path";
@@ -181,6 +181,18 @@ export function createTransform(
   const ownHost = (): HTMLElement => (ownContent && ownContent.parentElement as HTMLElement | null) || contentHost;
   const staticUpdate = pre.type !== "plot" && plan.contentDirty && plan.mode === "tween"
     ? compileStaticContent(contentHost, pre, end, ctx, undefined, ctx.turn === "rigid") : null;
+  // A hugging ("auto") text is re-measured every frame of its tween, but its STORED box (what the rest frames paint) need not equal its
+  // measured box: a deck authored headlessly (an agent, the CLI) was never measured. The tween keeps that difference, blended from the pre
+  // to the end state, so its first and last frames ARE the stored boxes (a box that snapped to the measured size on the first frame moved
+  // centred, right-aligned and attached text by the difference at once). Measured once here; nothing when the two agree.
+  const hugOffset = (() => {
+    if (pre.type !== "text" || end.type !== "text" || !canMeasureText()) return null;
+    const hug = (e: TextElement) => e.sizing === "auto" || !e.sizing;
+    if (!hug(pre) && !hug(end)) return null;
+    const off = (e: TextElement) => { if (!hug(e)) return { w: 0, h: 0 }; const m = structuredClone(e); applyTextLayout(m); return { w: e.width - m.width, h: e.height - m.height }; };
+    const a = off(pre as TextElement), b = off(end as TextElement);
+    return a.w || a.h || b.w || b.h ? { a, b } : null;
+  })();
   // Text wrapping can change node topology as metrics change. Keep that
   // deliberate fallback; shape topology changes use prebuilt crossfade layers.
   if (pre.type !== "plot" && pre.type !== "text" && plan.contentDirty && !staticUpdate && plan.mode === "tween") plan.mode = "crossfade";
@@ -652,7 +664,6 @@ export function createTransform(
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw, { turn: ctx.turn });
     const contentX = content.x, contentY = content.y;
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
-    ctx.boxes?.set(pre.id, { el: { ...el } as FigElement, moving: raw > 0 && raw < 1 });
     // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched).
     // Two limits, both deliberate: the separation is measured from the source's BIRTH pose (a source that moves in the same beat keeps the overlap
     // longer: no gate pins that case), and a same-beat appearance that owns the wrapper's opacity (`skipOpacity`) takes the law's share with it.
@@ -663,7 +674,13 @@ export function createTransform(
     // headless applyTextLayout deletes the cache and falls back (documented).
     // The text morph draws measured endpoints instead: its box simply lerps
     // (re-hugging a stepped text per frame made the box jump at t = 0.5).
-    if (content.type === "text" && content.needsLayout && !textLayers && !glyphLayers) applyTextLayout(content);
+    if (content.type === "text" && content.needsLayout && !textLayers && !glyphLayers) {
+      applyTextLayout(content);
+      if (hugOffset && (content.sizing === "auto" || !content.sizing)) { content.width += hugOffset.a.w + (hugOffset.b.w - hugOffset.a.w) * t; content.height += hugOffset.a.h + (hugOffset.b.h - hugOffset.a.h) * t; }
+    }
+    // this frame's element for the attachment driver (player/attach.ts), AFTER a text re-layout: a box recorded before it kept the old size
+    // while the content was laid out at the new one (an attached label's wrapper then stretched its text: a pop at the start, a snap at the end)
+    ctx.boxes?.set(pre.id, { el: (el === content ? { ...el } : { ...el, width: content.width, height: content.height }) as FigElement, moving: raw > 0 && raw < 1 });
     // A text tween re-lays its own glyphs out per frame (the compiled updater rewrites the viewBox), so its wrapper is placed by the same
     // law as its rest, a whole-pixel layout box plus a residual (about 1:1) transform, not by a frozen box scaled up 1.4x: that scale
     // rasterised the text softly in flight against the hinted rest text and snapped when the flight landed.

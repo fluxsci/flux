@@ -97,7 +97,8 @@ export interface ArcSuggestion {
 /** `fixed` arcs (authored or style-inherited, 0 included) are never changed and are honoured when judging a collision. */
 export function suggestArcs(boxes: FlightBox[], fixed: Record<string, number> = {}): ArcSuggestion {
   const pairs = collidingFlights(boxes, fixed);
-  const flagged = [...new Set(pairs.flat())].filter((n) => fixed[boxes[n].id] === undefined).sort((a, b) => a - b);
+  // only a flight that TRAVELS can bend (a colour Change that a mover passes through has nothing an arc could do)
+  const flagged = [...new Set(pairs.flat())].filter((n) => fixed[boxes[n].id] === undefined && travel(boxes[n]) >= 4).sort((a, b) => a - b);
   if (!pairs.length) return { arcs: {}, collisions: 0 };
   if (!flagged.length) return { arcs: {}, collisions: pairs.length, reason: "every colliding move already has an arc" };
   if (flagged.length > MAX_FLAGGED) return { arcs: {}, collisions: pairs.length, reason: `too many colliding moves (${flagged.length}); arcs cannot untangle them` };

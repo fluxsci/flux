@@ -32,6 +32,7 @@ import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/c
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox, lineRender } from "../../geometry";
 import { pathD } from "../../path";
+import { ATTACHED_GEOMETRY_ATTR } from "../strokeGeometry";
 import { elementOutline } from "../outline";
 import { barGrowWeight, type BarGrow } from "../growOrigin";
 import { prepareColorLerp } from "../../color/interp";
@@ -653,15 +654,21 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
   };
 }
 
-/** An ATTACHED connector's length changes every frame its drivers move, so a draw's dash windows measured at build would go stale. A fixed
- *  `pathLength` on its stroke puts every window in that scale (presets.ts `geoLength` honours it): draw progress is length-independent.
- *  Only an UNDASHED stroke: `pathLength` rescales an authored dash pattern too (a dashed connector keeps its pattern and its draw is
- *  measured at build, which only matters while it draws AND moves). Re-applied after every repaint (`updateStaticContent` drops attributes
- *  the serializer does not write). */
+/** An ATTACHED connector's geometry changes every frame its drivers move, so nothing a draw measured at build may be trusted. Its pieces
+ *  carry ATTACHED_GEOMETRY_ATTR and the draw samplers read them LIVE (presets.ts `pieceSampler`: the shaft's length, the heads' origins;
+ *  the attach driver repaints the geometry earlier in the same frame). An UNDASHED stroke also gets a fixed `pathLength`, so its draw
+ *  windows are length-independent as well; a dashed one keeps its authored pattern in stage px (`pathLength` would rescale it) and its
+ *  windows follow the live length instead. Re-applied after every repaint (`updateStaticContent` drops attributes the serializer does not
+ *  write). */
 export const ATTACH_PATH_LENGTH = 1000;
 export function normalizeAttachedDash(w: Element, el: FigElement): void {
-  if (el.type !== "line" || (el.dash?.length ?? 0) > 0) return;
-  for (const g of Array.from(w.querySelectorAll("line, path"))) if (g.getAttribute("pathLength") !== String(ATTACH_PATH_LENGTH)) g.setAttribute("pathLength", String(ATTACH_PATH_LENGTH));
+  if (el.type !== "line") return;
+  const dashed = (el.dash?.length ?? 0) > 0;
+  for (const g of Array.from(w.querySelectorAll("line, path, polygon, polyline"))) {
+    if (!g.hasAttribute(ATTACHED_GEOMETRY_ATTR)) g.setAttribute(ATTACHED_GEOMETRY_ATTR, "");
+    const tag = g.tagName.toLowerCase();
+    if (!dashed && (tag === "line" || tag === "path") && g.getAttribute("pathLength") !== String(ATTACH_PATH_LENGTH)) g.setAttribute("pathLength", String(ATTACH_PATH_LENGTH));
+  }
 }
 
 /** The ONE content dispatch — a plot mounts live inline SVG, everything else

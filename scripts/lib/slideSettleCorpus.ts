@@ -361,6 +361,24 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     setAttach(b.deck, s, "L", { start: { to: "A", gap: 4 }, end: { to: "B", gap: 4 } }); setAttach(b.deck, s, "T", { to: "A", side: "n", gap: 8 });
     const beat = b.beat(s); b.change(s, beat, "A", { x: 260, y: 240 }, { arc: 0.6 }); b.change(s, beat, "B", { x: 430, y: 40 }, { curve: { kind: "spring", bounce: 0.4 } });
     const slow = b.beat(s); b.change(s, slow, "A", { x: 120, y: 200 }, { duration: 2400, easing: "linear" });
+    // R3 review: connectors that DRAW while their drivers stretch them (an arrow: its head rides the pen; a dashed one: its pattern stays,
+    // no hole, no landing pop), and a label with its own size + colour Change while its driver moves (the rest law, never a scaled raster)
+    const d = b.slide("draw_moving");
+    b.add(d, el("rect", "P", 40, 60, { width: 90, height: 60, fill: C.blue, stroke: C.blueD, strokeWidth: 4 }));
+    b.add(d, el("rect", "Q", 200, 60, { width: 90, height: 60, fill: C.red, stroke: C.redD, strokeWidth: 4 }));
+    b.add(d, el("rect", "U", 40, 240, { width: 90, height: 60, fill: C.blue, stroke: C.blueD, strokeWidth: 4 }));
+    b.add(d, el("rect", "V", 200, 240, { width: 90, height: 60, fill: C.red, stroke: C.redD, strokeWidth: 4 }));
+    b.add(d, { id: "PQ", type: "line", x: 0, y: 0, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2: 10, y2: 0, stroke: C.ink, strokeWidth: 4, arrowEnd: true });
+    b.add(d, { id: "UV", type: "line", x: 0, y: 0, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2: 10, y2: 0, stroke: C.ink, strokeWidth: 4, dash: [10, 8] });
+    setAttach(b.deck, d, "PQ", { start: { to: "P", gap: 4 }, end: { to: "Q", gap: 4 } }); setAttach(b.deck, d, "UV", { start: { to: "U", gap: 4 }, end: { to: "V", gap: 4 } });
+    const grow = b.beat(d);
+    b.change(d, grow, "Q", { x: 520, y: 120 }); b.change(d, grow, "V", { x: 520, y: 200 });
+    b.anim(d, grow, "PQ", "drawOn", { duration: 1000 }); b.anim(d, grow, "UV", "drawOn", { duration: 1000 });
+    const r = b.slide("label_resize");
+    b.add(r, el("rect", "E", 100, 180, { width: 140, height: 90, fill: C.blue, stroke: C.blueD, strokeWidth: 4 }));
+    b.add(r, el("text", "N", 0, 0, { width: 140, height: 30 }));
+    setAttach(b.deck, r, "N", { to: "E", side: "n", gap: 8 });
+    const both = b.beat(r); b.change(r, both, "E", { x: 400, y: 160 }); b.change(r, both, "N", { fontSize: 30, height: 40, color: C.red });
     out.push({ name: "attach", payload: { deck: b.deck } });
   }
   {

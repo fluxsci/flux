@@ -17,6 +17,8 @@ export function inDefs(el: Element): boolean {
 /** The attribute of the lead dot an x-clock sweep inserts beside its line while the slide plays (presets.ts `sweepPen`): player-made,
  *  never geometry of the target, so no draw, measure or later track ever selects it. */
 export const SWEEP_PEN_ATTR = "data-flux-sweep-pen";
+/** Marks the geometry of an ATTACHED connector (render.ts normalizeAttachedDash): its draw samplers read it live (presets.ts). */
+export const ATTACHED_GEOMETRY_ATTR = "data-flux-attached";
 /** Geometry a draw may select: not a shared <defs> template, not a player-made lead dot. */
 export const drawable = (el: Element): boolean => !inDefs(el) && !el.hasAttribute?.(SWEEP_PEN_ATTR);
 

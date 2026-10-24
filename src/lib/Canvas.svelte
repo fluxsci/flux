@@ -86,7 +86,7 @@
     type Rect,
   } from "./geometry";
   import { createDrawElement, createTextElement, resizeRemap, scaleRemap, applyDrawModifiers, cropRemap, lineEndpointRemap, type CropRemapResult } from "./editing";
-  import { reattachClones, resolveAttachments, hasAttach, attachTargetAt, detachEnd, isLineAttach, CONNECTOR_GAP } from "./slide/attach";
+  import { reattachClones, resolveAttachments, hasAttach, attachTargetAt, detachEnd, isLineAttach, stickEnd } from "./slide/attach";
   import { nodesToPath, pathD, pathToNodes, constrain45, segsFromNodes, nearestTOnSeg, bendSegment, mergeNodeChains, reverseNodes } from "./path";
   import { nodeMoveAxes, constrainDelta, type Axis } from "./interact/nodeAxis";
   import { penSnap, type PenSnapResult, type PenAnchor } from "./interact/penSnap";
@@ -3282,8 +3282,10 @@
           if (!f) return;
           // WP 3.2: a line drawn from one shape to another is a connector: each end released on a (different) shape sticks to it
           if (el.type === "line" && stickConnectors) {
-            const { p1, p2 } = lineWorldEndpoints(el), a = attachTargetAt(f.elements, p1), z = attachTargetAt(f.elements, p2);
-            const start = a && a !== z ? { to: a, anchor: "auto" as const, gap: CONNECTOR_GAP } : undefined, end = z && z !== a ? { to: z, anchor: "auto" as const, gap: CONNECTOR_GAP } : undefined;
+            // on a shape an end connects to its outline; on a plot / image / 3D / video (or with Ctrl/⌘ held) it keeps the spot it was drawn to
+            const { p1, p2 } = lineWorldEndpoints(el), a = attachTargetAt(f.elements, p1), z = attachTargetAt(f.elements, p2), exact = e.ctrlKey || e.metaKey;
+            const byId = (id: string) => f.elements.find((x) => x.id === id)!;
+            const start = a && a !== z ? stickEnd(byId(a), p1, exact) : undefined, end = z && z !== a ? stickEnd(byId(z), p2, exact) : undefined;
             if (start || end) el.attach = { ...(start ? { start } : {}), ...(end ? { end } : {}) };
           }
           f.elements.push(el);
@@ -3396,7 +3398,8 @@
         detachEnd(el, which);
         const tip = lineWorldEndpoints(el)[g.which === 1 ? "p1" : "p2"];
         const to = stickConnectors ? attachTargetAt(f!.elements, tip, { exclude: el.id }) : null;
-        if (to && to !== other?.to) el.attach = { ...(isLineAttach(el.attach) ? el.attach : {}), [which]: { to, anchor: "auto", gap: CONNECTOR_GAP } };
+        const onto = to && to !== other?.to ? f!.elements.find((x) => x.id === to) : undefined;
+        if (onto) el.attach = { ...(isLineAttach(el.attach) ? el.attach : {}), [which]: stickEnd(onto, tip, e.ctrlKey || e.metaKey) };
       });
     } else if (g.kind === "marquee") {
       // P7: a plain background CLICK (no real marquee — the box never grew past

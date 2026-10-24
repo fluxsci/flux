@@ -14,7 +14,7 @@
   import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive, sealHistory, currentDeck, activeBeat } from "../../../../lib/slide/store";
   import { project, selection, setPartSelections } from "../../../../lib/store";
   import { modelPair, modelPairIssue } from "../../../../lib/slide/model3dMorph";
-  import { transformPreState, transformEndState } from "../../../../lib/slide/tween";
+  import { transformPreState, transformEndState, turnApplies } from "../../../../lib/slide/tween";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration, compileSlide } from "../../../../lib/slide/compile";
   import { patchStagger as staggerPatch, staggerSpan, staggerRanks, staggerSeed, reshuffleSeed } from "../../../../lib/slide/stagger";
@@ -746,7 +746,7 @@
       </label>
       {@render overrideRow("arc")}
       {#if !editingStyle}<div class="f"><button class="sg" title="Give the moves of this step that cross each other an arc (one undo step)" onclick={suggestArcs}>Suggest arcs</button></div>{/if}
-      {#if !handoff && (curTargetEl?.type === "line" || curTargetEl?.type === "path")}
+      {#if !handoff && turnApplies(curTargetEl)}
         <label class="f" title="How a line turns when its ends move: Shrink lerps its ends straight (it shortens mid-turn, and stays joined to whatever it connects); Rigid keeps its length">Turn
           <select aria-label="Line turn" value={curTrack.params?.turn === "rigid" ? "rigid" : "shrink"} onchange={(e) => editFields(t => setTrackTurn(t, e.currentTarget.value === "rigid" ? "rigid" : null), "animator-turn")}>
             <option value="shrink">Shrink</option><option value="rigid">Rigid</option>

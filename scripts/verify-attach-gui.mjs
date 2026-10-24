@@ -94,6 +94,47 @@ try {
   await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up(); await waitForFrame(page);
   const drawnEl = await page.evaluate(() => { const F = window.__flux; return F.get(F.fig.project).figures[0].elements.find((e) => e.type === "line"); });
   h.ok(drawnEl?.attach?.start?.to === "A" && drawnEl?.attach?.end?.to === "B", "both ends stuck: start on A, end on B");
+  h.section("R3 review: a label edited (typed in, bolded) stays stuck and re-centres");
+  await seed();
+  // an AUTO-size label (it hugs its text, so typing re-measures it wider: the reviewer's case)
+  await page.evaluate(() => { const s = window.__flux.fig; s.commit((p) => { const t = p.figures[0].elements.find((e) => e.id === "T"); t.sizing = "auto"; t.align = "left"; }); s.clearSelection(); });
+  await waitForFrame(page);
+  const w0 = (await model("T")).width;
+  const centredOnA = async () => { const t = await model("T"), A = await model("A"); return !!t.attach && Math.abs(t.x + t.width / 2 - (A.x + A.width / 2)) < 0.5; };
+  const tl = await model("T"), tc = await pt(tl.x + 12, tl.y + tl.height * 0.6); // on the glyph ink of "la…" (left-aligned)
+  await page.mouse.click(tc.x, tc.y, { count: 2 }); await waitFor(page, () => !!document.querySelector("textarea.text-edit"));
+  await page.keyboard.press("End"); await page.keyboard.type(" text");
+  await page.evaluate(() => document.querySelector("textarea.text-edit")?.blur()); await waitForFrame(page); // blur commits the edit
+  await page.evaluate(() => window.__flux.fig.clearSelection()); await waitForFrame(page);
+  const typed = await model("T");
+  h.ok(typed.text === "label text" && Math.abs(typed.width - w0) > 10 && await centredOnA(), `typing into an auto-size label (its box re-measured ${w0.toFixed(1)} -> ${typed.width.toFixed(1)} wide) keeps it stuck to A, re-centred (attach ${!!typed.attach})`);
+  await page.evaluate(() => window.__flux.fig.selection.set(new Set(["T"]))); await waitForFrame(page);
+  await page.keyboard.down("Control"); await page.keyboard.press("b"); await page.keyboard.up("Control"); await waitForFrame(page);
+  h.ok((await model("T")).fontWeight === 700 && await centredOnA(), "Ctrl+B on the selected label keeps it stuck, re-centred");
+  const ax = (await model("A")).x; await page.evaluate(() => { const s = window.__flux.fig; s.commit((p) => { p.figures[0].elements.find((e) => e.id === "A").x += 60; }); });
+  await waitForFrame(page);
+  h.ok((await model("A")).x === ax + 60 && await centredOnA(), "...and it still follows A");
+
+  h.section("R3 review: an arrow drawn into an image keeps the spot; Ctrl/⌘ keeps it on a shape");
+  await seed();
+  await page.evaluate(() => { const s = window.__flux.fig; s.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.id === "A" || e.id === "B");
+    p.figures[0].elements.push({ type: "image", id: "IMG", name: "Panel", x: 360, y: 60, width: 400, height: 260, rotation: 0, assetId: "missing" }); }); s.clearSelection(); s.activeTool.set("line"); });
+  await waitForFrame(page);
+  const onA = await pt(160, 250), into = await pt(520, 150);
+  await page.mouse.move(onA.x, onA.y); await page.mouse.down(); await page.mouse.move(into.x, into.y, { steps: 8 }); await page.mouse.up(); await waitForFrame(page);
+  const arrow = await page.evaluate(() => { const F = window.__flux; return F.get(F.fig.project).figures[0].elements.find((e) => e.type === "line"); });
+  const tipX = arrow.x + arrow.x2, tipY = arrow.y + arrow.y2;
+  h.ok(arrow?.attach?.end?.to === "IMG" && typeof arrow.attach.end.anchor === "object" && Math.hypot(tipX - 520, tipY - 150) < 1, `the end stays where it was drawn inside the image (${tipX.toFixed(1)}, ${tipY.toFixed(1)}) and is stuck to it`);
+  h.ok(arrow?.attach?.start?.to === "A" && arrow.attach.start.anchor === "auto", "...its start, on a shape, connects to the outline");
+  await page.evaluate(() => { const s = window.__flux.fig; s.commit((p) => { p.figures[0].elements.find((e) => e.id === "IMG").x += 40; }); });
+  await waitForFrame(page);
+  const moved = await page.evaluate(() => { const F = window.__flux; return F.get(F.fig.project).figures[0].elements.find((e) => e.type === "line"); });
+  h.ok(Math.abs(moved.x + moved.x2 - 560) < 1e-6, "the spot follows the image");
+  await page.evaluate(() => { const s = window.__flux.fig; s.commit((p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.type !== "line"); }); s.activeTool.set("line"); });
+  const inB = await pt(700, 300);
+  await page.mouse.move(onA.x, onA.y); await page.mouse.down(); await page.mouse.move(inB.x - 30, inB.y - 30, { steps: 6 }); await page.keyboard.down("Control"); await page.mouse.move(inB.x, inB.y, { steps: 2 }); await page.mouse.up(); await page.keyboard.up("Control"); await waitForFrame(page);
+  const exact = await page.evaluate(() => { const F = window.__flux; return F.get(F.fig.project).figures[0].elements.find((e) => e.type === "line"); });
+  h.ok(exact?.attach?.end?.to === "B" && typeof exact.attach.end.anchor === "object" && Math.hypot(exact.x + exact.x2 - 700, exact.y + exact.y2 - 300) < 1, "with Ctrl held at release, an end on a shape keeps the exact spot too");
   const errors = await realErrors(page);
   h.eq(errors, [], "no page errors");
 } catch (err) { h.fail(String(err?.stack ?? err)); }

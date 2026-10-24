@@ -9,9 +9,11 @@
 //    stretched by the compositor (a 26x scale): strokes stay crisp, and the effects layer is relative to the current box, so an appearance
 //    behaves exactly as on an unattached line.
 //  * LABELS (box dependents) glide like a moving element: while anything they hang on moves, a compositor composite over their constant
-//    Design layout box on a promoted layer (float-precise, no whole-pixel stepping); at rest, the rest law. Their flight MARK belongs to the
-//    player (applyAt `markFor`): computeSlideAnims gives each label a marker controller (`glide`) for every beat in which its drivers move,
-//    so the mark is armed before the motion's first frame and released by the same law as any gliding element.
+//    Design layout box on a promoted layer (float-precise, no whole-pixel stepping); at rest, the rest law. A label whose own Change resizes
+//    it this frame (a new font size, a re-measured box) is placed by the rest law even in flight, like any re-laid-out text (transform.ts):
+//    a composite would SCALE its Design raster and snap when it lands. Their flight MARK belongs to the player (applyAt `markFor`):
+//    computeSlideAnims gives each label a marker controller (`glide`) for every beat in which its drivers move, so the mark is armed before
+//    the motion's first frame and released by the same law as any gliding element.
 // ---------------------------------------------------------------------------
 import type { Element as FigElement } from "../../types";
 import { elementBBox } from "../../geometry";
@@ -58,7 +60,7 @@ export function createAttachDriver(elements: readonly FigElement[], wraps: Reado
         updateStaticContent(host, el, ctx);
         normalizeAttachedDash(host, el);
         applyWrapperBox(wrap, el, { skipOpacity: true });
-      } else if (flying) {
+      } else if (flying && el.width === dep.width && el.height === dep.height) {
         applyWrapperBoxComposite(wrap, el, baseOf.get(dep.id)!, { skipOpacity: true });
         promoteMovingWrapper(wrap);
       } else {

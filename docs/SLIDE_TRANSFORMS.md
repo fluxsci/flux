@@ -155,15 +155,24 @@ moves are refused with a reason, and it never touches a track whose resolved arc
 authored 0 is a decision).
 
 **Attachments (WP 3.2).** `ElementBase.attach` makes an element's geometry a PURE function of other
-elements' boxes (`slide/attach.ts`): a line's ends stick to drivers (`boundaryToward` along the ray
-toward the other end, or a side point), anything else sits beside one driver (`solveBox`). The solve runs
+elements' boxes (`slide/attach.ts`): a line's ends stick to drivers (an `auto` end leaves its driver's outline
+toward the other end's point, or its driver's centre when that end is auto too; a side or `{fx,fy}` point is
+placed), and a connector never points backwards (the ends meet, `lineRender` thins an attached connector
+below 4x its stroke width to nothing); anything else sits beside one driver by both boxes as SEEN (rotated
+boxes' AABBs, `solveBox`). The canvas sticks a released end with `stickEnd`: auto on a shape, the exact spot on
+a plot / image / 3D / video or with Ctrl/⌘. The solve runs
 in `compile.sample` after every Change, arc and overshoot and before appearance offsets (`resolveAttachments`),
 and in the player as ONE controller registered last (`player/attach.ts`): connectors re-serialised in place
-on their own tight box (the rest law, undashed strokes on `pathLength` 1000 so a draw stays length-free),
-labels composited over their Design layout box while anything they hang on moves (a per-beat marker
-controller carries their flight mark). Stored geometry is the Design solve: the editor store re-solves after
-every edit (`settleAttachments`; a dependent moved by hand while its drivers stayed is detached first,
-`detachHandMoved`), the deck and canvas write points re-solve on copies, `userDiff` keeps a dependent's solved
+on their own tight box (the rest law; their geometry carries `ATTACHED_GEOMETRY_ATTR` so a draw's samplers
+read the shaft length and head origins LIVE, and undashed strokes ride `pathLength` 1000), labels composited
+over their Design layout box while anything they hang on moves, unless their own Change resizes them (the
+rest law then; a per-beat marker controller carries their flight mark). `transform.ts` records the frame's
+box for the driver AFTER a text re-layout, and a hugging text's stored-vs-measured difference is blended
+from end to end (an unmeasured, agent-made label never jumps on a tween's first frame). Stored geometry is
+the Design solve: the editor store re-solves after every edit (`settleAttachments`, which also frees what hung
+on a deleted driver; a dependent MOVED by hand, position changed and size not, while its drivers stayed is
+detached first, `detachHandMoved`; typing, bold, a font size or a rotation keep it), an attachment set at a
+step re-solves the Design state at once, the deck and canvas write points re-solve on copies, `userDiff` keeps a dependent's solved
 geometry out of captured Changes. Clone sites remap or drop attachments (`reattachClones`); gaps scale with
 content. Schema: a deck with an attachment is 0.7.0, a canvas 0.3.0 (`schemaStamp.ts`).
 

@@ -9,7 +9,7 @@
 //   any other -> BoxAttach  { to, side, gap?, align? }  (sit beside a driver: labels, captions)
 // ---------------------------------------------------------------------------
 import type { Element, LineElement } from "../types";
-import { elementBBox } from "../geometry";
+import { elementBBox, rotatedAABB } from "../geometry";
 
 export type Anchor = "auto" | "center" | "n" | "e" | "s" | "w" | { fx: number; fy: number };
 export interface AttachEnd { to: string; anchor?: Anchor; gap?: number }
@@ -112,28 +112,24 @@ export function resolveAttachments(elements: Element[]): void {
 function solveLine(line: LineElement & { attach: LineAttach }, byId: Map<string, Boxy>): void {
   const fixed = (which: "start" | "end"): Pt => which === "start" ? { x: line.x + line.x1, y: line.y + line.y1 } : { x: line.x + line.x2, y: line.y + line.y2 };
   const drv = (end?: AttachEnd) => end && typeof end.to === "string" ? byId.get(end.to) : undefined;
-  const sA = drv(line.attach.start), eA = drv(line.attach.end);
-  // the point each end aims at: the other end's driver centre (or its fixed point)
-  const aimAt = (other?: Element, fallback?: Pt): Pt => other ? shapeOf(other).c : fallback!;
-  const anchorOf = (end: AttachEnd) => end.anchor !== undefined && (ANCHORS.has(end.anchor as string) || typeof end.anchor === "object") ? end.anchor : "auto";
-  const autoOrFree = (end: AttachEnd | undefined, el: Element | undefined) => !end || !el || anchorOf(end) === "auto" || anchorOf(end) === "center";
-  const resolve = (end: AttachEnd | undefined, el: Element | undefined, which: "start" | "end", other: Element | undefined): Pt => {
-    if (!end || !el) return fixed(which);
-    const anchor = anchorOf(end), gap = fin(end.gap, 0);
-    return anchor === "auto" ? boundaryToward(el, aimAt(other, fixed(which === "start" ? "end" : "start")), gap) : sidePoint(el, anchor, gap);
-  };
-  let p1 = resolve(line.attach.start, sA, "start", eA), p2 = resolve(line.attach.end, eA, "end", sA);
+  const { start, end } = line.attach, sA = drv(start), eA = drv(end);
+  const anchorOf = (e: AttachEnd) => e.anchor !== undefined && (ANCHORS.has(e.anchor as string) || typeof e.anchor === "object") ? e.anchor : "auto";
+  const isAuto = (e: AttachEnd | undefined, el: Element | undefined): el is Element => !!e && !!el && anchorOf(e) === "auto";
+  /** an end's point when it does not depend on the other end: free (its stored point) or anchored to a side / the centre / a point */
+  const placed = (e: AttachEnd | undefined, el: Element | undefined, which: "start" | "end"): Pt | null =>
+    !e || !el ? fixed(which) : anchorOf(e) === "auto" ? null : sidePoint(el, anchorOf(e) as Exclude<Anchor, "auto">, fin(e.gap, 0));
+  const q1 = placed(start, sA, "start"), q2 = placed(end, eA, "end");
+  // an AUTO end leaves its driver's outline on the line toward the other end: the other end's point when it has one, else its driver's centre
+  const ref1 = q1 ?? shapeOf(sA!).c, ref2 = q2 ?? shapeOf(eA!).c;
+  let p1 = q1 ?? boundaryToward(sA!, ref2, fin(start!.gap, 0)), p2 = q2 ?? boundaryToward(eA!, ref1, fin(end!.gap, 0));
   if (![p1.x, p1.y, p2.x, p2.y].every(Number.isFinite)) return;
-  // NEVER BACKWARDS. When every end is auto-anchored or free, both ends lie on the line between the end references (a driver's centre, or a
-  // free end's point). Overlapping drivers (or a free end inside its driver) would push them past each other and the arrow would point back
-  // at its source; instead the ends meet and the connector shrinks away (lineRender thins it to nothing). Continuous: the ends meet exactly
-  // where the order flips. A free end never moves (it is authored), so the attached end comes to it; side anchors are explicit and kept.
-  if ((sA || eA) && autoOrFree(line.attach.start, sA) && autoOrFree(line.attach.end, eA)) {
-    const r1 = sA ? shapeOf(sA).c : fixed("start"), r2 = eA ? shapeOf(eA).c : fixed("end");
-    if ((p2.x - p1.x) * (r2.x - r1.x) + (p2.y - p1.y) * (r2.y - r1.y) <= 0) {
-      const m = !sA ? p1 : !eA ? p2 : { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-      p1 = m; p2 = m;
-    }
+  // NEVER BACKWARDS. With an auto end, both ends lie on the line between the references (ref1 → ref2). Overlapping drivers (or a placed end
+  // inside the auto end's driver) would push them past each other and the arrow would point back at its source; instead the ends meet
+  // and the connector shrinks away (lineRender thins it to nothing). Continuous: they meet exactly where the order flips. A placed end
+  // never moves (it is the author's point), so the auto end comes to it; two placed ends are explicit and kept as they are.
+  if ((isAuto(start, sA) || isAuto(end, eA)) && (p2.x - p1.x) * (ref2.x - ref1.x) + (p2.y - p1.y) * (ref2.y - ref1.y) <= 0) {
+    const m = q1 ?? q2 ?? { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    p1 = m; p2 = m;
   }
   line.x = p1.x; line.y = p1.y; line.x1 = 0; line.y1 = 0; line.x2 = p2.x - p1.x; line.y2 = p2.y - p1.y;
   line.rotation = 0;
@@ -142,14 +138,16 @@ function solveLine(line: LineElement & { attach: LineAttach }, byId: Map<string,
 function solveBox(el: Boxy, n: BoxAttach, byId: Map<string, Boxy>): void {
   const d = byId.get(n.to);
   if (!d || d === el || !SIDES.has(n.side)) return;
-  const b = elementBBox({ ...d, rotation: 0 }), g = fin(n.gap, 0), w = el.width, h = el.height, al = ALIGNS.has(n.align as string) ? n.align! : "center";
+  // both boxes as they are SEEN (a rotated driver or label: its axis-aligned box), so a turned y-label sits `gap` beside its axis
+  const b = rotatedAABB(d), own = rotatedAABB(el), g = fin(n.gap, 0), w = own.w, h = own.h, al = ALIGNS.has(n.align as string) ? n.align! : "center";
   const along = (start: number, size: number, own: number) => al === "start" ? start : al === "end" ? start + size - own : start + (size - own) / 2;
   let x: number, y: number;
   if (n.side === "n") { x = along(b.x, b.w, w); y = b.y - g - h; }
   else if (n.side === "s") { x = along(b.x, b.w, w); y = b.y + b.h + g; }
   else if (n.side === "w") { x = b.x - g - w; y = along(b.y, b.h, h); }
   else { x = b.x + b.w + g; y = along(b.y, b.h, h); }
-  if (Number.isFinite(x) && Number.isFinite(y)) { el.x = x; el.y = y; }
+  // (x, y) places the seen box; the element turns about its centre, so its own box shares that centre
+  if (Number.isFinite(x) && Number.isFinite(y)) { el.x = x + (w - el.width) / 2; el.y = y + (h - el.height) / 2; }
 }
 
 // --- authoring ---------------------------------------------------------------------------------------------
@@ -297,10 +295,12 @@ export function snapshotAttachments(elements: readonly Element[]): AttachSnapsho
   for (const e of elements) if (geometry.has(e.id)) geometry.set(e.id, geometryKey(e));
   return { geometry, attach };
 }
-/** THE hand-move rule: an attached element the user moved while what it hangs on stayed put is detached (the move is the user's word), so a
- *  dragged, nudged or typed-in position sticks instead of snapping back. A connector is judged end by end (a dragged end frees itself, the
- *  other keeps following). An edit that changed the attachment itself (an attach / detach, a line end released on a shape) is left to it.
- *  Run after the edit, before the re-solve. */
+/** THE hand-move rule: an attached element the user MOVED while what it hangs on stayed put is detached (the move is the user's word), so a
+ *  dragged, nudged or typed-in position sticks instead of snapping back. A label is moved only when its position changed and its size did
+ *  not: typing in it, bolding it, a new font size or width (its box re-measured, whatever corner the editor kept) and a rotation keep it
+ *  stuck, and the re-solve places it again. A connector is judged end by end (a dragged end frees itself, the other keeps following). An
+ *  edit that changed the attachment itself (an attach / detach, a line end released on a shape) is left to it. Run after the edit, before
+ *  the re-solve. */
 export function detachHandMoved(elements: Element[], before: AttachSnapshot | null): void {
   if (!before) return;
   const byId = new Map(elements.map((e) => [e.id, e]));
@@ -308,7 +308,11 @@ export function detachHandMoved(elements: Element[], before: AttachSnapshot | nu
   for (const e of elements) {
     const a = (e as Boxy).attach, was = before.attach.get(e.id);
     if (!a || was === undefined || was !== JSON.stringify(a) || !moved(e.id)) continue;
-    if (isBoxAttach(a)) { if (!moved(a.to)) delete (e as Boxy).attach; continue; }
+    if (isBoxAttach(a)) {
+      const [x, y, w, h] = JSON.parse(before.geometry.get(e.id)!) as number[];
+      if (!moved(a.to) && w === e.width && h === e.height && (x !== e.x || y !== e.y)) delete (e as Boxy).attach;
+      continue;
+    }
     if (e.type !== "line") continue;
     const old = JSON.parse(before.geometry.get(e.id)!) as number[], now = ends(e as LineElement);
     const endMoved = (i: number) => Math.hypot(now[i].x - old[2 * i], now[i].y - old[2 * i + 1]) > 1e-6;
@@ -322,8 +326,10 @@ export function detachHandMoved(elements: Element[], before: AttachSnapshot | nu
  *  call this; `elements.some(hasAttach)` is the whole cost when nothing is attached (measured < 20 us / 5000 elements). */
 export function settleAttachments(elements: Element[]): boolean {
   if (!elements.some(hasAttach)) return false;
+  // a deleted driver frees what hung on it (the dependent keeps its last solved place; undo restores both)
+  detachMissing(elements, new Set(elements.map((e) => e.id)));
   resolveAttachments(elements);
-  return true;
+  return elements.some(hasAttach);
 }
 
 /** Keys a dependent's solve owns. The endpoint-edit capture (slide/store.registerSlideEditAdapter.after) must never turn the
@@ -347,4 +353,21 @@ export function attachTargetAt(elements: Element[], p: Pt, opts: { exclude?: str
     if (Math.abs(d.x) <= b.w / 2 + tol && Math.abs(d.y) <= b.h / 2 + tol && (!best || b.w * b.h < best.area)) best = { id: e.id, area: b.w * b.h };
   }
   return best?.id ?? null;
+}
+
+/** CONTENT a line points INTO (a plot, an image, a 3D model, a video): an end released on it keeps the exact spot. */
+const POINTS_INTO = new Set(["plot", "image", "model3d", "video"]);
+/** The point `p` as a fraction of `el`'s own (unrotated, unflipped) box: the `{ fx, fy }` anchor `sidePoint` maps back to `p`. */
+export function pointAnchor(el: Element, p: Pt): { fx: number; fy: number } {
+  const s = shapeOf(el), l = rot({ x: p.x - s.c.x, y: p.y - s.c.y }, -s.deg);
+  let fx = 0.5 + l.x / (2 * Math.max(s.hw, 1e-9)), fy = 0.5 + l.y / (2 * Math.max(s.hh, 1e-9));
+  if (s.flipX) fx = 1 - fx; if (s.flipY) fy = 1 - fy;
+  return { fx, fy };
+}
+/** How an end released at `p` on `el` sticks (the canvas's line tool and end drags). On a SHAPE it connects: anchor auto, the end on the
+ *  outline facing the other end, CONNECTOR_GAP off it. On CONTENT (plot, image, 3D, video) it keeps the spot it was released on, as it
+ *  does anywhere with `exact` (Ctrl / ⌘ held): pointing into a figure panel is the daily case, and the drawn geometry is the author's. */
+export function stickEnd(el: Element, p: Pt, exact = false): AttachEnd {
+  if (!exact && !POINTS_INTO.has(el.type)) return { to: el.id, anchor: "auto", gap: CONNECTOR_GAP };
+  return { to: el.id, anchor: pointAnchor(el, p), gap: 0 };
 }

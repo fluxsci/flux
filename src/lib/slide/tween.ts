@@ -560,6 +560,11 @@ export function rigidSegment(p1: Pt, p2: Pt, q1: Pt, q2: Pt, t: number): [Pt, Pt
   const cx = (p1.x + p2.x) / 2 + ((q1.x + q2.x) / 2 - (p1.x + p2.x) / 2) * t, cy = (p1.y + p2.y) / 2 + ((q1.y + q2.y) / 2 - (p1.y + p2.y) / 2) * t;
   return [{ x: cx - ux * len / 2, y: cy - uy * len / 2 }, { x: cx + ux * len / 2, y: cy + uy * len / 2 }];
 }
+/** Can a rigid turn act on this element? Any line; a path only when it is a straight, head-less, open 2-node stick (`stickOf`). The
+ *  Animator offers the Turn choice exactly there. */
+export function turnApplies(el: Element | null | undefined): boolean {
+  return !!el && (el.type === "line" || (el.type === "path" && !!stickOf(el)));
+}
 /** A straight, head-less, open 2-node path (a bond, a rung) as absolute end points, else null. */
 function stickOf(el: { x: number; y: number; closed?: boolean; d: string; nodes?: VectorNode[]; arrowStart?: boolean; arrowEnd?: boolean }): [Pt, Pt] | null {
   if (el.closed || el.arrowStart || el.arrowEnd) return null;

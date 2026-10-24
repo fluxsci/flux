@@ -215,7 +215,8 @@ h.section("slide editor flow (capture adapter never records a dependent's solved
 {
   const deck: any = createDeck({ id: "e", title: "e", withTitleSlide: false }); deck.stage = { width: 640, height: 360 };
   const s = addSlide(deck, { id: "s", layout: "blank" });
-  const els: any[] = [R("A", 40, 100), R("B", 400, 100), L("L", AUTO), T("T", { to: "A", side: "n", gap: 8 })]; att.resolveAttachments(els); for (const e of els) addElement(deck, s.id, e);
+  const els: any[] = [R("A", 40, 100), R("B", 400, 100), L("L", AUTO), T("T", { to: "A", side: "n", gap: 8 }), { ...T("X", undefined), x: 300, y: 300 }]; delete els[4].attach;
+  att.resolveAttachments(els); for (const e of els) addElement(deck, s.id, e);
   const b = addBeat(deck, s.id, { id: "b1" }); setTransform(deck, s.id, b.id, "B", { state: { x: 420, y: 160 }, duration: 600, easing: "smooth" });
   ss.loadDeckModel(deck); ss.selectSlide("s"); ss.setEditDestination({ kind: "after", beatId: "b1" }); ss.refreshBeatDisplay();
   const unreg = ss.registerSlideEditAdapter();
@@ -228,6 +229,11 @@ h.section("slide editor flow (capture adapter never records a dependent's solved
   h.eq(att.userDiff({ x: 1, text: "a" }, T("T", { to: "A", side: "n" })), { text: "a" }, "userDiff strips x/y/width/height/rotation/x1..y2 for dependents");
   h.eq(att.userDiff({ x: 1 }, T("T", { to: "A", side: "n" })), null, "…and returns null when nothing else changed");
   h.eq(att.userDiff({ x: 1 }, R("A", 0, 0)), { x: 1 }, "…and is the identity for ordinary elements");
+  store.mutateFigure("s", (p) => { const x: any = p.figures.find((f) => f.id === "s")!.elements.find((e) => e.id === "X"); x.attach = { to: "B", side: "s", gap: 5 }; });
+  const design = ss.composedSlide("s")!.elements, dx: any = design.find((e) => e.id === "X"), solved: any[] = structuredClone(design); att.resolveAttachments(solved);
+  const sx = solved.find((e) => e.id === "X");
+  h.ok(!!dx.attach && near(dx.x, sx.x) && near(dx.y, sx.y) && near(dx.y, 100 + 60 + 5), "an attachment set at a step holds from Design on, and the Design state takes its solve at once (not at the next edit)");
+  h.ok(!get(ss.deckOverlay)!.slides[0].beats[1].tracks.some((t: any) => t.target === "X"), "...and writes no Change track for it");
   unreg();
 }
 
@@ -288,6 +294,54 @@ h.section("the hand-move rule (store: an attached element moved by hand frees it
   store.mutateFigure("f1", (p) => { const l: any = p.figures[0].elements.find((e) => e.id === "L"); l.attach = { start: { to: "A" }, end: { to: "B" } }; l.x2 += 99; });
   h.ok(el("L").attach?.end?.to === "B", "an edit that sets the attachment itself is left to it (a line end released on a shape)");
   h.eq(att.detachHandMoved([R("A", 0, 0)] as any, null), undefined, "nothing attached: no snapshot, nothing to do");
+}
+
+h.section("R3 review fixes: a label edited (not moved) stays stuck; deleted drivers free; rotated labels; content ends keep their spot");
+{
+  const fig = { id: "f1", name: "F", canvasId: "c1", x: 0, y: 0, width: 640, height: 360, background: "#fff", elements: [R("A", 100, 120), T("T", { to: "A", side: "n", gap: 8 })] };
+  att.resolveAttachments(fig.elements as any);
+  store.project.set({ version: 2, name: "t", canvases: [{ id: "c1", name: "C" }], figures: [fig], assets: [], palette: [] } as any);
+  const el = (id: string): any => get(store.project).figures[0].elements.find((e) => e.id === id);
+  const edit = (fn: (t: any) => void) => store.mutateFigure("f1", (p) => fn(p.figures[0].elements.find((e) => e.id === "T")));
+  const centred = () => near(el("T").x + el("T").width / 2, 150) && near(el("T").y, 120 - 8 - el("T").height);
+  edit((t) => { t.text = "longer label"; t.width = 120; });
+  h.ok(!!el("T").attach && centred(), "typing (an auto-size label re-measured wider, x unchanged) keeps it stuck and re-centres it");
+  edit((t) => { t.fontWeight = 700; t.width = 96; t.x += 3; });
+  h.ok(!!el("T").attach && centred(), "bold (a narrower box, the editor kept another corner) keeps it stuck");
+  edit((t) => { t.fontSize = 24; t.height = 30; });
+  h.ok(!!el("T").attach && centred(), "a new font size keeps it stuck");
+  edit((t) => { t.rotation = 90; });
+  const r = el("T"), seen = { w: r.height, h: r.width };
+  h.ok(!!r.attach && near(r.y + r.height / 2 + seen.h / 2, 120 - 8), "a rotation keeps it stuck, and the TURNED label's seen box sits gap 8 above the shape");
+  edit((t) => { t.fill = "#f00"; t.color = "#f00"; });
+  h.ok(!!el("T").attach, "a colour edit keeps it stuck");
+  edit((t) => { t.x += 40; });
+  h.ok(!el("T").attach, "a move (position changed, size did not) frees it, as before");
+  // a deleted driver frees its dependents (no dangling attachment kept forever)
+  const f2 = { ...fig, elements: [R("A", 100, 120), R("B", 400, 120), L("L", { start: { to: "A", gap: 3 }, end: { to: "B", gap: 3 } }), T("T", { to: "B", side: "s", gap: 6 })] };
+  att.resolveAttachments(f2.elements as any);
+  store.project.set({ version: 2, name: "t", canvases: [{ id: "c1", name: "C" }], figures: [f2], assets: [], palette: [] } as any);
+  const lx = el("L").x2, ty = el("T").y;
+  store.mutateFigure("f1", (p) => { p.figures[0].elements = p.figures[0].elements.filter((e) => e.id !== "B"); });
+  h.ok(el("L").attach?.start?.to === "A" && !el("L").attach?.end && near(el("L").x2, lx) && !el("T").attach && near(el("T").y, ty), "deleting a driver frees exactly what hung on it, in place (the other end keeps its shape)");
+  // stickEnd: shapes connect to their outline, content keeps the spot, Ctrl/⌘ keeps it anywhere
+  const plot: any = { type: "plot", id: "P", x: 100, y: 50, width: 400, height: 300, rotation: 0, assetId: "p" }, box = R("Q", 0, 0, 100, 60);
+  h.eq(att.stickEnd(box, { x: 50, y: 30 }), { to: "Q", anchor: "auto", gap: att.CONNECTOR_GAP }, "on a shape: an auto end (the outline facing the other end)");
+  h.eq(att.stickEnd(plot, { x: 300, y: 200 }), { to: "P", anchor: { fx: 0.5, fy: 0.5 }, gap: 0 }, "on a plot: the exact spot, as a fraction of its box");
+  h.eq(att.stickEnd(box, { x: 25, y: 15 }, true), { to: "Q", anchor: { fx: 0.25, fy: 0.25 }, gap: 0 }, "exact (Ctrl/⌘): the spot on a shape too");
+  const tilted: any = { ...plot, rotation: 30, flipX: true }, spot = { x: 350, y: 180 }, back = att.sidePoint(tilted, att.pointAnchor(tilted, spot), 0);
+  h.ok(near(back.x, spot.x, 1e-9) && near(back.y, spot.y, 1e-9), "pointAnchor inverts sidePoint on a rotated, flipped element");
+  // a point-anchored end: the auto end aims AT it (not at the plot's centre), and the plot carries it along
+  const arrow: any[] = [box, plot, L("L", { start: { to: "Q", anchor: "auto", gap: 4 }, end: { to: "P", anchor: { fx: 0.9, fy: 0.2 }, gap: 0 } })];
+  att.resolveAttachments(arrow);
+  const la = arrow[2], tip = { x: la.x + la.x2, y: la.y + la.y2 }, tail = { x: la.x, y: la.y }, want = att.boundaryToward(box, tip, 4);
+  h.ok(near(tip.x, 100 + 0.9 * 400) && near(tip.y, 50 + 0.2 * 300) && near(tail.x, want.x) && near(tail.y, want.y), "the arrow ends on the plot's spot and leaves the box's outline facing that spot");
+  arrow[1].x += 60; att.resolveAttachments(arrow);
+  h.ok(near(arrow[2].x + arrow[2].x2, 160 + 0.9 * 400), "...and the spot follows the plot");
+  // never backwards with a placed end: the auto end comes to it
+  const into: any[] = [R("Q", 0, 0, 200, 200), plot, L("L", { start: { to: "Q", gap: 4 }, end: { to: "P", anchor: { fx: 0.05, fy: 0.5 }, gap: 0 } })];
+  into[1].x = 50; into[1].y = 20; att.resolveAttachments(into);
+  const li = into[2]; h.ok(li.x2 === 0 && li.y2 === 0 && near(li.x, 50 + 0.05 * 400) && near(li.y, 20 + 150), "a placed end inside the auto end's shape: the connector meets AT the placed end (never backwards)");
 }
 
 h.section("the write points keep stored == solved, and the format says what the file holds");

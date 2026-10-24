@@ -54,7 +54,7 @@ import { scene3dManifests } from '../model3d/store';
 import { diffState } from "./tween";
 import { applyTextLayout } from "../text";
 import { deckToProject, projectIntoDeck, DECK_CANVAS_ID, slideDefaultBackground } from "./deckProject";
-import { userDiff } from "./attach";
+import { userDiff, resolveAttachments } from "./attach";
 
 /** The live presentation overlay (null before a deck is loaded). Slides in
  *  here always have `elements: []` and no groups/guides/background — those
@@ -525,6 +525,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
       // (an attachment is whole-slide too: set while viewing a step, it attaches from Design on; the write point re-solves the base)
       const structural = ["name", "groupId", "locked", "hidden", "lockAspect", "styleId", "panelLabel", "source", "manifestRef", "attach"] as const;
       let compiled: ReturnType<typeof compileSlide> | null = null;
+      let attachChanged = false;
       for (const el of fig.elements) {
         const previous = previousElements.get(el.id);
         if (!previous) continue; // a new element is an ordinary document edit
@@ -542,6 +543,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
         }
         const base = baselines.get(el.id);
         if (!base) continue;
+        if (JSON.stringify(previous.attach ?? null) !== JSON.stringify(el.attach ?? null)) attachChanged = true;
         for (const key of structural) {
           const rec = el as unknown as Record<string,unknown>, dest = base as unknown as Record<string,unknown>;
           if (key in rec) dest[key] = structuredClone(rec[key]); else delete dest[key];
@@ -555,6 +557,9 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
         setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });
         changed = true;
       }
+      // an attachment set (or freed) at a step holds from Design on: the Design state (the baselines) takes its solve now, so going back to
+      // Design shows the label where it belongs (not where it was until the next edit or save re-solved it)
+      if (attachChanged) resolveAttachments(fig.elements.map(e => baselines.get(e.id) ?? structuredClone(e)));
       const surviving = new Set(fig.elements.map(e => e.id));
       const removedBirths = slide.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom && t.id && previousElements.has(t.target) && !surviving.has(t.target)).map(t => t.id!));
       if (removedBirths.length) { removeTracks(o, sid!, removedBirths); changed = true; }

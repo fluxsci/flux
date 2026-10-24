@@ -17,12 +17,16 @@ survives.
   **R** rectangle, **O** ellipse, **L** line, **Shift+L** arrow, **P** pen.
 - **Connectors and labels stick.** A line or arrow drawn from one shape to another sticks to
   both (a dashed outline shows the shape an end will stick to), and dragging one of its ends onto a
-  shape sticks that end; a filled end handle marks a stuck end. Move a shape and its connectors and
-  labels follow it, live while you drag. A connector never points backwards: as the shapes close in
-  it thins out, and while they overlap it is hidden. Any element can sit beside another: in the Inspector,
-  **Sticks to** picks the element, the side, the gap and the alignment (a line shows **Connector**
-  with its two ends instead). Moving a stuck element by hand frees it; **Settings → Connectors stick
-  to shapes** turns the sticking off. From the command line:
+  shape sticks that end; a filled end handle marks a stuck end. On a shape the end meets its
+  outline, facing the other end; on a plot, an image, a 3D model or a video it stays exactly where
+  you released it (hold **Ctrl**/**⌘** as you release to keep the exact spot on a shape too). Move a
+  shape and its connectors and labels follow it, live while you drag. A connector never points
+  backwards: as the shapes close in it thins out, and while they overlap it is hidden. Any element
+  can sit beside another: in the Inspector, **Sticks to** picks the element, the side, the gap and
+  the alignment (a line shows **Connector** with its two ends instead); a rotated label sits beside
+  it as it looks. Editing a stuck label (its text, bold, size, width or rotation) keeps it stuck;
+  moving it by hand frees it, and deleting the shape frees what hung on it. **Settings → Connectors
+  stick to shapes** turns the sticking off. From the command line:
   `flux figure-attach <figure> <element> --start A --end B:e:4` (a connector's ends,
   `<id>[:anchor[:gap]]`) or `--to A --side n --gap 8` (beside an element), `--detach` to free it.
   A canvas that holds a stuck element is saved in a newer format, which older Flux versions do not

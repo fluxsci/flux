@@ -10,7 +10,7 @@
 // builds while the scene is otherwise still. `transform`/`countUp` live elsewhere.
 // ---------------------------------------------------------------------------
 
-import { drawable, paintOf, GEO_TAGS, SWEEP_PEN_ATTR } from "../strokeGeometry";
+import { drawable, paintOf, GEO_TAGS, SWEEP_PEN_ATTR, ATTACHED_GEOMETRY_ATTR } from "../strokeGeometry";
 import { readPaint, parseStyleAttr } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
 import { PRESET_CATALOG, isEnterPreset, isExitPreset, presetParam, legacyScaleOf, legacyRotationOf, type PointParam } from "../presetCatalog";
@@ -296,6 +296,8 @@ interface Piece {
   pen: number;
   /** headFill: scale origin (user space). headVee: the tip is the polyline's mid-length. */
   origin?: [number, number];
+  /** a head piece: which end of its shaft it sits on */
+  head?: "start" | "end";
   /** a closed, solid stroke that starts on a corner: what its draw frames carry so the dash's seam does not open that corner (`drawSeam`) */
   seam?: { d?: string; strokeLinecap?: "square" | "round" };
 }
@@ -385,7 +387,7 @@ function drawUnits(node: TargetNode): Unit[] {
       const base: [number, number] = fill ? [(q[1][0] + q[2][0]) / 2, (q[1][1] + q[2][1]) / 2] : [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2];
       const pen = Math.hypot(tip[0] - base[0], tip[1] - base[1]) || 1;
       // an END head grows from its base (where the shaft arrives); a START head from its tip (where the pen begins)
-      const p = mk(g, fill ? "headFill" : "headVee"); p.pen = pen; if (fill) p.origin = which === "end" ? base : tip;
+      const p = mk(g, fill ? "headFill" : "headVee"); p.pen = pen; p.head = which; if (fill) p.origin = which === "end" ? base : tip;
       return p;
     };
     if (slot.start) pieces.push(head(slot.start, "start"));
@@ -407,6 +409,33 @@ function drawUnits(node: TargetNode): Unit[] {
   return units.sort((a, b) => order(a) - order(b));
 }
 
+/** The live twin of `pieceSampler` for an attached connector's shaft and filled heads (see there): the same windows, touch-down and head
+ *  growth, measured on the geometry as it stands this frame. */
+function liveConnectorSampler(piece: Piece, [a, b]: [number, number]): Forward {
+  const { geo, closed, pattern } = piece;
+  const clock = (raw: number, ease: (x: number) => number) => ease(clamp01(raw));
+  const slice = (c: number) => clamp01((c - a) / Math.max(1e-9, b - a));
+  if (piece.role === "headFill") {
+    // an END head grows from its base (where the shaft arrives), a START head from its tip (drawUnits)
+    return (raw, ease) => {
+      const q = pts(geo), [ox, oy] = piece.head === "start" ? q[0] : [(q[1][0] + q[2][0]) / 2, (q[1][1] + q[2][1]) / 2];
+      return { transform: `scale(${Math.max(1e-4, slice(clock(raw, ease)))})`, transformOrigin: `${ox}px ${oy}px` } as unknown as Keyframe;
+    };
+  }
+  const seam = piece.seam ?? {}, pen = penOf(geo, seam.strokeLinecap);
+  return (raw, ease) => {
+    const len = explicitPathLength(geo) ? geoLength(geo) : liveLength(geo), reach = drawReach(len, piece.tag), c = slice(clock(raw, ease));
+    const touch = pen == null ? {} : { strokeWidth: penWidth(pen, c * liveLength(geo)) };
+    return { ...(windowsDash({ len: reach, closed, pattern }, [[0, c * reach]]) ?? hiddenDash(reach)), ...touch, ...seam } as unknown as Keyframe;
+  };
+}
+/** The geometric length this frame (a `pathLength` attribute does not count): a line's from its attributes (exact, and DOM-free
+ *  headless), else the browser's. */
+function liveLength(geo: SVGElement): number {
+  if (geo.tagName.toLowerCase() === "line") { const n = (k: string) => Number(geo.getAttribute(k)) || 0; return Math.hypot(n("x2") - n("x1"), n("y2") - n("y1")); }
+  return trueLength(geo, 0);
+}
+
 /** A forward sampler: raw progress of the TRACK (0..1) and the track's curve. */
 type Forward = (raw: number, ease: (x: number) => number) => Keyframe;
 const win = (raw: number, w0: number, w1: number) => clamp01((raw - w0) / Math.max(1e-9, w1 - w0));
@@ -425,6 +454,9 @@ function penOf(geo: SVGElement, capOverride?: string): number | null {
  *  EASED pen clock. */
 function pieceSampler(piece: Piece, [a, b]: [number, number]): Forward {
   const { geo, len, closed, pattern } = piece;
+  // an attached connector (render.ts ATTACHED_GEOMETRY_ATTR) is re-drawn by the attach driver before this sampler runs in a frame: its
+  // shaft length and head origins are read live, so a draw keeps pace with a connector that stretches (no floating head, no dash hole)
+  if (geo.hasAttribute?.(ATTACHED_GEOMETRY_ATTR) && (piece.role === "stroke" || piece.role === "headFill")) return liveConnectorSampler(piece, [a, b]);
   const reach = drawReach(len, piece.tag);
   const spec = { len: reach, closed, pattern };
   const fillOp = parseFloat(rawPaintVal(geo, "fill-opacity")); const restFillOp = Number.isFinite(fillOp) && fillOp >= 0 ? fillOp : 1;

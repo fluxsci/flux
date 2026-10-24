@@ -9,7 +9,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createDeck, addSlide, addElement, addBeat, setTransform, setAttach } from "../src/lib/slide/ops";
+import { createDeck, addSlide, addElement, addBeat, setTransform, setAttach, setAnimation } from "../src/lib/slide/ops";
 import { compileSlide } from "../src/lib/slide/compile";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import { harness } from "./lib/harness.mjs";
@@ -29,6 +29,15 @@ try {
   const beat = addBeat(deck, s.id, { id: "b1" })!;
   setTransform(deck, s.id, beat.id, "A", { state: { x: 700, y: 700 }, duration: 1000, easing: "smooth", arc: 0.8 });
   setTransform(deck, s.id, beat.id, "B", { state: { x: 1500, y: 120 }, duration: 1000, curve: { kind: "spring", bounce: 0.5 } });
+  // slide 2 (R3 review): an arrow that DRAWS while its end's driver stretches it 3x: the head must grow from where the shaft arrives
+  const s2 = addSlide(deck, { id: "s2", layout: "blank" });
+  addElement(deck, s2.id, { id: "P", type: "rect", x: 100, y: 200, width: 160, height: 100, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
+  addElement(deck, s2.id, { id: "Q", type: "rect", x: 500, y: 200, width: 160, height: 100, rotation: 0, fill: "#d14d41", stroke: "none", strokeWidth: 0, cornerRadius: 0 } as never);
+  addElement(deck, s2.id, { id: "PQ", type: "line", x: 0, y: 0, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2: 10, y2: 0, stroke: "#100f0f", strokeWidth: 8, arrowEnd: true } as never);
+  setAttach(deck, s2.id, "PQ", { start: { to: "P", gap: 6 }, end: { to: "Q", gap: 6 } });
+  const g2 = addBeat(deck, s2.id, { id: "g2" })!;
+  setTransform(deck, s2.id, g2.id, "Q", { state: { x: 1600, y: 700 }, duration: 1000, easing: "smooth" });
+  setAnimation(deck, s2.id, g2.id, { target: "PQ", preset: "drawOn", start: 0, duration: 1000, easing: "smooth" } as never);
   const slide = deck.slides[0], c = compileSlide(slide, deck.stage, deck);
   const file = path.join(tmp, "attach.html"); await fs.writeFile(file, (await exportDeckHtml({ deck } as never)).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
@@ -59,6 +68,20 @@ try {
   h.eq(diffs, 0, "seek purity: backward and shuffled seeks paint the same DOM as the forward pass (300 seeks)");
   const rest = await read(5000), last = c.sample(1, Infinity).elements.find(e => e.id === "L") as never as { x: number; y: number; x1: number; y1: number; x2: number; y2: number };
   h.ok([last.x + last.x1, last.y + last.y1, last.x + last.x2, last.y + last.y2].every((v, i) => Math.abs(v - rest.line[i]) <= 0.05), "at rest the connector sits on the end state's solve");
+  // the arrow drawing while it stretches: the head's scale origin is its CURRENT base (the shaft's arrival), every frame
+  let worstHead = 0, framesWithHead = 0;
+  for (let i = 1; i < 40; i++) {
+    const r = await page.evaluate(`(() => { window.fluxDeck.seek(1, 1, ${i * 25});
+      const poly = document.querySelector('[data-el-id="PQ"] polygon'); if (!poly) return null;
+      const n = (poly.getAttribute("points") || "").split(/[\\s,]+/).filter(Boolean).map(Number); if (n.length < 6) return null;
+      const q = [[n[0], n[1]], [n[2], n[3]], [n[4], n[5]]];
+      const o = (poly.style.transformOrigin || "").split(/px|\\s+/).filter(Boolean).map(Number);
+      return { base: [(q[1][0] + q[2][0]) / 2, (q[1][1] + q[2][1]) / 2], origin: o };
+    })()`) as { base: number[]; origin?: number[] } | null;
+    if (!r?.origin) continue;
+    framesWithHead++; worstHead = Math.max(worstHead, Math.hypot(r.origin[0] - r.base[0], r.origin[1] - r.base[1]));
+  }
+  h.ok(framesWithHead >= 10 && worstHead < 0.01, `a drawing arrow that stretches 3x grows its head from the shaft's arrival every frame (${framesWithHead} frames, worst ${worstHead.toExponential(2)} px)`);
   h.eq(errors, [], "no page errors");
 } catch (err) { h.fail(String((err as Error).stack ?? err)); }
 finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }
