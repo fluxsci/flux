@@ -1,0 +1,40 @@
+{
+  "args": [
+    "make_meanmark_units.py"
+  ],
+  "command": "/home/driessen2/fluxplot/.venv/bin/python3",
+  "cwd": "../../home/driessen2/fluxplot",
+  "env": null,
+  "generatedAt": "2026-10-25T00:00:00Z",
+  "inputs": [],
+  "output": "meanmark-pp.svg",
+  "outputs": {
+    "manifest": "meanmark-pp.fluxplot.json",
+    "svg": "meanmark-pp.svg"
+  },
+  "params": {
+    "__fluxplot__": {
+      "theme": "light"
+    },
+    "variant": "pp"
+  },
+  "plot": "meanmark-pp",
+  "provenance": {
+    "git": {
+      "commit": "65b3aabeee4a8938dbde827e88961836ec3fa144",
+      "dirty": false
+    },
+    "packages": {
+      "fluxplot": "0.4.0",
+      "matplotlib": "3.11.0"
+    },
+    "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+    "python": "3.13.7",
+    "scriptDiscovery": "explicit"
+  },
+  "schemaVersion": "0.4.0",
+  "script": {
+    "path": "make_meanmark_units.py"
+  },
+  "spec": "fluxplot/recipe"
+}

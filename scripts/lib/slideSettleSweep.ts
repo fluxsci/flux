@@ -292,8 +292,8 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // end plot (END SNAP, 8.0) and the next step of a chain starts from the picture the controller left, not from the rest state (PRE-ROLL CHANGE 4,154; 132,822 px
   // in the browser). Same-size chains (bars5 <-> bars10) are exact. Found by the F3 review (pre-existing, the same on the base). The chain's PRE-ROLL is
   // fixed (2026-10-24: every step re-projects the MOUNTED asset's DOM with that asset's compensation and viewBox, render.plotAssetOf; the second step read
-  // its start asset's, 6,317 at devicePixelRatio 1.25). The END SNAP stays recorded, required: the entry fails when the per-frame intrinsic / viewBox lands.
-  [openKey("plot_chain", "sine_scatter_sine", 1, 1)]: { seek: ["END SNAP (2ms)"], max: { "END SNAP": 12 }, owner: "open: an asset Change between plots of different intrinsic size reads its compensation from the start asset (the end is not the static render)" },
+  // its start asset's, 6,317 at devicePixelRatio 1.25). Its END SNAP closed 2026-10-25 with the pixel law (project.lerpPixel: every projected mark lands
+  // on its end rest exactly) and the end's ticks resting on their own nodes; the entry is deleted.
   // (2026-10-24: the compound `hole_fills` START STEP R2 recorded as a pixel-aligned hole edge leaving the grid was the flight promoting a node whose box
   // stays put onto a layer for the flight; only a flight whose box travels rides a layer now (transform.ts). Entry deleted, the cue is gated clean.)
   // Not a corpus cue, recorded so it is findable: a REVERSED dashed ring (lane S deviation 1, `r2s/dashed_ring`) keeps its authored pairing and collapses

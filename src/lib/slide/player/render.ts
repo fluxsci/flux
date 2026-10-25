@@ -522,8 +522,11 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
       slotNode.parentNode!.insertBefore(replacement, slotNode.nextSibling);
       // Keep the destination's canonical ids for later tracks. The outgoing
       // copy has its own reference namespace, never duplicate document ids.
+      // (the outgoing copy names the part it stood for: the projection moves it with that part, projectDom bind)
+      const ownId = node.getAttribute("id");
       prefixIds(node, `${pre.id}-residue-${plotResidueId++}`);
       node.setAttribute("data-plot-residue", "");
+      if (ownId) node.setAttribute("data-residue-of", ownId);
       for (const [key, n] of next) { li.set(key, n); covered.add(key); }
       for (const key of xKeys.keys()) covered.add(key);
       fade(node, false, x); fade(replacement, true, y);

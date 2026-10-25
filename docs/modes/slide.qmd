@@ -696,7 +696,11 @@ dashed reference line, stay put. For multi-panel plots the same view applies to 
 placeholders show the first panel's limits.
 
 Asset Becomes and Changes of a data view use the same projection, so one Change may combine
-new data, axis limits and movement. Shared semantic parts tween; removed parts fade out in
+new data, axis limits and movement. Every mark travels in a straight line from where it sits in
+the first plot to where it sits in the second, even when the new version changes the axis'
+units or scale (a log ratio axis to percentage points); mean dots and outliers keep their size.
+When the two versions tick an axis at different values, the old ticks ride the moving axis and
+fade out while the new ones fade in. Shared semantic parts tween; removed parts fade out in
 the first 40% and added parts fade in during the last 40%. Between two versions of a plot whose
 members carry stable keys (fluxplot 0.3.2: bars by category, heatmap cells and hexagons by row
 and column), each member tweens to its namesake — a bar grows or shrinks to its new height (a bar that exists in

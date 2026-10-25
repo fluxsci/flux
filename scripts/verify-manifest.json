@@ -373,6 +373,7 @@
       "verify-plot-view-filled.ts",
       "verify-plot-view-twin.ts",
       "verify-plot-tick-handoff.ts",
+      "verify-plot-units-change.ts",
       "verify-count-up-slots.ts",
       "verify-bar-grow.ts",
       "verify-id-aliases.ts",
@@ -949,6 +950,7 @@
       "verify-preset-params.ts",
       "verify-slide-part-origin.ts",
       "verify-plot-tick-handoff.ts",
+      "verify-plot-units-change.ts",
       "verify-count-up-slots.ts",
       "verify-bar-grow.ts",
       "verify-appear-emphasis.ts",
@@ -3645,6 +3647,11 @@
       "$why": "2026-10-23 WP 2.3 (T8 D1): a view Change hands the generated ticks off to the nice ones in flight and ends on the static render.",
       "glob": "{src/lib/plot/project.ts,src/lib/plot/projectDom.ts,src/lib/slide/player/transform.ts}",
       "run": ["verify-plot-tick-handoff.ts", "verify-slide-ghost-runtime.ts", "tier:pure"]
+    },
+    {
+      "$why": "2026-10-25 owner deck, Plot Transforms: an asset Change onto other units walks every mark straight between its rests (the pixel law), moves mean dots whole, hands the ticks off when a shared index changes value, and fades a guide only outside the range.",
+      "glob": "{src/lib/plot/project.ts,src/lib/plot/projectDom.ts,src/lib/slide/player/render.ts,src/lib/slide/player/transform.ts}",
+      "run": ["verify-plot-units-change.ts", "tier:pure"]
     },
     {
       "$why": "2026-10-23 WP 2.3 (T8 D5): count-up place-value slots on SVG text (real glyph metrics in Chrome).",
@@ -10412,6 +10419,15 @@
       "coverage": "behavior"
     },
     "verify-plot-tick-handoff.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-units-change.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

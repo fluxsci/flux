@@ -91,8 +91,10 @@ try {
   const hA = dataOfPixel(rawA.y, topA), hB = dataOfPixel(rawB.y, topB);
   applyPlotView(rootA!, A.manifest, undefined, '', morph(0.5));
   const mid = top(rootA!, barId);
-  const midFitM = (rawA.y.m + rawB.y.m) / 2, midFitC = (rawA.y.c + rawB.y.c) / 2;
-  near(mid, midFitM * (hA + hB) / 2 + midFitC, 'half-way, the bar top is the midpoint height through the blended fit', 5e-2);
+  // the pixel law (project.lerpPixel): a mark walks the straight line between its two rest pixels. The old law lerped the value and
+  // the fit separately (a product of two lerps), which swung a mark whose axis changed units far outside both rests in flight.
+  near(mid, (topA + topB) / 2, 'half-way, the bar top is the midpoint of its two rest pixels (the pixel law)', 5e-2);
+  h.ok(hA !== hB, `the two heights differ in data too (${hA.toFixed(3)} vs ${hB.toFixed(3)})`);
   applyPlotView(rootA!, A.manifest, undefined, '', morph(1));
   near(top(rootA!, barId), topB, 'at the end the bar has the other version\'s geometry', 5e-2);
   // hexagons: geometry and colour value by row.col (measured on the restored, generated A)

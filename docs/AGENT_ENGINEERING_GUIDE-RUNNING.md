@@ -1887,8 +1887,7 @@ Persistence invariants (all machine-checked — do not weaken):
   on its layer's raster), re-entering a SHOWN part (`scatter_reenter`: pops by definition; making an enter on a
   shown part a no-op is an owner vocabulary decision and deletes the entry), a Become whose source and
   destination rest on different sides of a covering element (`become_depth`: the flight flies at the
-  destination's depth, so the source's side steps at the start), a chained asset Change between plots of
-  different intrinsic size (`plot_chain/sine_scatter_sine`: open, the landing pinned with `max`), and a hole
+  destination's depth, so the source's side steps at the start), and a hole
   that fills in (`compound/hole_fills`, a pixel-aligned edge leaving the grid). The 12 px stroked-ring seams
   and the flight onto a set of ellipses were closed by follow-up F3's hand-over law (`player/shapeHandover.ts`:
   the start render, the flight and the end render ADDED with weights from the distance still to travel). Not

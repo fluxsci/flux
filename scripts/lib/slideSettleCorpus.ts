@@ -181,10 +181,17 @@ async function plotDecks(compact: boolean): Promise<CorpusDeck[]> {
     { const s = b.slide("bars_chain"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [to("bars10"), to("bars5"), to("bars10")]); }
     { const s = b.slide("asset_then_view"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [to("bars10"), { state: zoom }]); }
     { const s = b.slide("view_then_asset"); place(b, s, "pl", "bars5", { x: 120, width: 400 }); chain(s, [{ state: zoom }, to("bars10")]); }
-    // an asset chain between plots of DIFFERENT intrinsic size (sine 360x108 pt, scatter 180x108 pt): open, see KNOWN_OPEN
+    // an asset chain between plots of DIFFERENT intrinsic size (sine 360x108 pt, scatter 180x108 pt): clean since 2026-10-25 (the pixel law)
     const sine = await readPlot("mpl_sine_waves"), scatter = await readPlot("mpl_scatter");
     { const s = b.slide("sine_scatter_sine"); place(b, s, "pl", "sine", { x: 120, width: 400 }); chain(s, [to("scatter"), to("sine")]); }
-    out.push({ name: "plot_chain", payload: { deck: b.deck, plots: { bars5, bars10, sine, scatter } } });
+    // an asset Change onto OTHER UNITS (fluxplot03/make_meanmark_units.py: a paired meanmark on a log ratio axis, then as percentage points on a
+    // linear one): the marks walk straight between their rests (the pixel law), the mean circles move whole, the y ticks hand off. Lerped in
+    // data through a lerped fit, the error bars swung ~200 px past the plot; the end's ticks at or below zero were dropped (matched in log units).
+    const fx03 = async (name: string) => ({ svg: await fs.readFile(path.resolve(here, `../fixtures/fluxplot03/${name}.svg`), "utf8"),
+      manifest: JSON.parse(await fs.readFile(path.resolve(here, `../fixtures/fluxplot03/${name}.fluxplot.json`), "utf8")) });
+    const ratio = await fx03("meanmark-ratio"), pp = await fx03("meanmark-pp");
+    { const s = b.slide("units_change"); place(b, s, "pl", "ratio", { x: 120, width: 400, height: 282 }); chain(s, [{ ...to("pp"), duration: 3000 }, { ...to("ratio"), duration: 3000 }]); }
+    out.push({ name: "plot_chain", payload: { deck: b.deck, plots: { bars5, bars10, sine, scatter, ratio, pp } } });
   }
   return out;
 }
