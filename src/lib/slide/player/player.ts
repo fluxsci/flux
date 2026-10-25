@@ -1030,6 +1030,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function build(index: number): void {
     if (index === si) return;
+    stageGridChanged();   // the new slide's stage: its device grid is read afresh (render.wrapperGrid)
     selectRun(-1, -1);
     disposeSlideAnims(specs);
     media?.destroy(); media = undefined;
@@ -1059,7 +1060,6 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     }, compiled.cues.map(c => c.tracks.map(t => t.track)));
   }
   function paint(native = false): void {
-    stageGridChanged();   // a rest snapped to the device grid reads the stage's grid of THIS paint (render.wrapperGrid)
     applyAt(runSpecs ?? specs, bi, time, native);
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
@@ -1299,7 +1299,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let fontsSeen = -1;
   const unsubscribeFonts = glyphFontsRevision.subscribe((rev) => { if (fontsSeen >= 0 && !playing && si >= 0 && specs.length) paint(); fontsSeen = rev; });
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, refresh: () => paint(), settleRaster: () => keeper.settle(), rasterBakes: () => keeper.count(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, refresh: () => { stageGridChanged(); paint(); }, settleRaster: () => keeper.settle(), rasterBakes: () => keeper.count(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : []), ...specs.flatMap(spec => spec.ready ? [spec.ready.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */

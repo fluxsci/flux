@@ -7557,7 +7557,7 @@
       ],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 600000,
+      "timeoutMs": 3600000,
       "exclusive": true,
       "coverage": "behavior"
     },

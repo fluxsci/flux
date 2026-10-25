@@ -64,15 +64,19 @@ export function snapDelta(grid: StageGrid, x: number, y: number): { dx: number; 
   return { dx: (Math.round(ax) - ax) / grid.s, dy: (Math.round(ay) - ay) / grid.s };
 }
 
-/** The live grid of a camera layer: its mount (the camera's parent) read through getBoundingClientRect (exact for transforms; the hosts keep
- *  their own layout offsets on the grid, gridFit), the stage width from the mount's layout box, the pose from the camera's inline transform.
- *  Null in a headless host or before the stage is laid out. */
-export function stageGrid(camera: HTMLElement): StageGrid | null {
+/** Where a camera layer's mount (its parent, the stage box) sits: CSS px position and fit scale. The one layout read of the grid. */
+export interface StageMount { left: number; top: number; scale: number }
+/** The mount box of a camera layer, read through getBoundingClientRect (exact for transforms; the hosts keep their own layout offsets on the
+ *  grid, gridFit) and the stage width from the mount's layout box. Null in a headless host or before the stage is laid out. */
+export function stageMountOf(camera: HTMLElement): StageMount | null {
   const mount = camera.parentElement;
   if (!mount || typeof mount.getBoundingClientRect !== "function" || typeof window === "undefined") return null;
   const width = mount.offsetWidth;
   if (!(width > 0)) return null;
   const r = mount.getBoundingClientRect();
-  if (!(r.width > 0)) return null;
-  return gridOf(r.left, r.top, r.width / width, devicePixelRatioOf(), camera.style.transform);
+  return r.width > 0 ? { left: r.left, top: r.top, scale: r.width / width } : null;
 }
+/** The grid of a camera layer from its mount box and its pose (the camera's inline transform), at the current devicePixelRatio. No layout. */
+export function gridOfMount(mount: StageMount, pose: string): StageGrid | null { return gridOf(mount.left, mount.top, mount.scale, devicePixelRatioOf(), pose); }
+/** The live grid of a camera layer (a layout read: stageMountOf). */
+export function stageGrid(camera: HTMLElement): StageGrid | null { const m = stageMountOf(camera); return m ? gridOfMount(m, camera.style.transform) : null; }

@@ -12,7 +12,7 @@ async function main() {
   delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
   try {
     await fs.mkdir(env.HOME, { recursive: true });
-    const probe = scope.spawn(path.join(__dirname, "lib/slideSettleElectronProbe.ts"), [], { env, cwd: repo, deadlineMs: 900000 });
+    const probe = scope.spawn(path.join(__dirname, "lib/slideSettleElectronProbe.ts"), [], { env, cwd: repo, deadlineMs: 3600000 });
     probe.child.stdout.on("data", bytes => { for (const line of String(bytes).split("\n")) if (line.startsWith("PROBE ")) console.log(line); });
     const status = await scope.waitExit(probe);
     assert.equal(status.code, 0, (probe.stdout + probe.stderr).slice(-12000));

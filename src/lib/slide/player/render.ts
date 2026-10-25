@@ -41,7 +41,7 @@ import { themeCssVars } from "../theme";
 import type { Model3dHost } from "../../model3d/host";
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from "../../model3d/types";
 import { fillModel3d } from "./model3d";
-import { devicePixelRatioOf, snapDelta, stageGrid, type StageGrid } from "./deviceGrid";
+import { devicePixelRatioOf, snapDelta, stageMountOf, gridOfMount, type StageGrid, type StageMount } from "./deviceGrid";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -131,14 +131,14 @@ export function layoutBoxOf(bb: { x: number; y: number; w: number; h: number }, 
 }
 /** The browser's layout snapping grid in local px per px: devicePixelRatio (browser zoom included); 1 in a headless host. */
 export function layoutGrid(): number { return devicePixelRatioOf(); }
-/** The device grid of a wrapper's stage (deviceGrid.stageGrid of its camera layer), read once per PAINT per stage: a static render places
- *  every node in one go and a layout read per node would be a forced layout each. The player starts every paint with stageGridChanged(), so
- *  a grid read before the host fitted the stage (the exported deck builds its first slide before its first fit) never outlives that paint
- *  (a time-based cache did, now and then: a rest snapped to the unfitted grid, 290 stage px^2 off its static render). Null off a camera layer
- *  or in a headless host. */
-const gridCache = new WeakMap<HTMLElement, { gen: number; grid: StageGrid | null }>();
+/** The device grid of a wrapper's stage. Its one LAYOUT input, the mount's box (where the host fitted the stage), is read once per host
+ *  change: the player calls stageGridChanged() when it builds a slide and when its host refits (`refresh`), never per frame (a read after a
+ *  frame's style writes forced a style and layout pass in the middle of every flight frame). A grid read before the stage was laid out is
+ *  not kept. The camera's pose (its inline transform) and devicePixelRatio are read on every call: neither needs layout. Null off a camera
+ *  layer or in a headless host. */
+const gridCache = new WeakMap<HTMLElement, { gen: number; mount: StageMount }>();
 let gridGeneration = 0;
-/** A paint begins (or the host refitted the stage): every stage grid is read afresh on its next use. */
+/** The host refitted the stage or a slide was built: every stage's mount box is read afresh on its next use. */
 export function stageGridChanged(): void { gridGeneration++; }
 /** The rest shift of a node that rides a layer: the local-space delta that puts its box origin (x, y) on a whole device pixel; null for a node
  *  painted in place (no flight mark), off a camera layer, or in a headless host. */
@@ -150,11 +150,14 @@ export function restGridShift(w: HTMLElement, x: number, y: number): { dx: numbe
 export function wrapperGrid(w: HTMLElement): StageGrid | null {
   const cam = w.parentElement;
   if (!cam || !cam.classList?.contains("sl-camera")) return null;
-  const hit = gridCache.get(cam);
-  if (hit && hit.gen === gridGeneration) return hit.grid;
-  const grid = stageGrid(cam);
-  gridCache.set(cam, { gen: gridGeneration, grid });
-  return grid;
+  let hit = gridCache.get(cam);
+  if (!hit || hit.gen !== gridGeneration) {
+    const mount = stageMountOf(cam);
+    if (!mount) return null;            // not laid out yet: read again on the next use
+    hit = { gen: gridGeneration, mount };
+    gridCache.set(cam, hit);
+  }
+  return gridOfMount(hit.mount, cam.style.transform);
 }
 /** `v` on the grid (multiples of 1 / grid), free of float dust (89.6, not 89.60000000000001). */
 function onGrid(v: number, grid: number): number { return grid === 1 ? Math.round(v) : Math.round(Math.round(v * grid) / grid * 1e6) / 1e6; }

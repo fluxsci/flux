@@ -271,12 +271,9 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // plain `smooth` (R4_T1 §3.4: "the one accepted residual", pinned by verify-pace-defaults); the real-time gate (the frames a viewer sees) reads the first flip
   // as the count's own first step (211 before 154) and passes without an entry.
   [openKey("preset_countUp", "p_countUp", 1, 1)]: { seek: ["START POP (2nd frame)"], owner: "inherent: a quantised count under plain smooth has no frame between 0 and 1 (plan R4_T1 keeps countUp on smooth; QUICK_SMOOTH moves the flip into the first 2 ms)" },
-  // TEXT that glides to a FRACTIONAL position rests on the gliding raster: a layer is rasterised once at its source phase and moved at float
-  // precision (the only way text glides), so it lands up to half a device pixel soft against a render painted in place there (25 stage px^2
-  // for a 22 px word). The alternative, demoting the layer at landing, measured a 44 stage px^2 sharpening STEP on the landing frame; manim's
-  // rule is that nothing pops, so the landing keeps the raster. Inherent to the glide (docs: layer hygiene), recorded here, not hidden.
-  [openKey("change", "change", 1, 1)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
-  [openKey("springs", "springs", 3, 3)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a gliding raster lands at its source phase (the alternative is a landing step)" },
+  // (2026-10-24: TEXT that glides to a FRACTIONAL position, which R2 recorded as resting half a device pixel soft on its gliding raster, now lands sharp
+  // and on the static render: a node that rides a layer rests on a whole device pixel and its glide flies between the snapped ends (deviceGrid.ts).
+  // Entries change#1 and springs#3 deleted; both cues are gated clean.)
   // Re-entering a part that is already SHOWN pops by definition: a node that is shown has to vanish before an enter can show it again, so every point
   // leaves (scale 0) and grows back at its own turn: the second `scaleIn` of the same points reads 22.7 before the cue and 22.8 on its second frame (one
   // 21 x 22 px point each; `fade` twice and `popIn` twice read the same: R2 F2 measured it, it is not a defect of scaleIn). Pinned here so that making
@@ -301,10 +298,8 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // stays put onto a layer for the flight; only a flight whose box travels rides a layer now (transform.ts). Entry deleted, the cue is gated clean.)
   // Not a corpus cue, recorded so it is findable: a REVERSED dashed ring (lane S deviation 1, `r2s/dashed_ring`) keeps its authored pairing and collapses
   // mid-flight; re-pairing moves the chain start the dash pattern is anchored at and a dash offset cannot make both seams exact (report R2_F1, 5.3).
-  // A turning TEXT rides the flight mark (a layer baked at rest): it turns smoothly from a clean first frame and lands without a step, but on its
-  // layer's raster, the hinted glyphs rotated by the compositor, which differs from a fresh render painted at the final angle (42 stage px^2 for a
-  // 210 px line; 0.0 to 16 elsewhere). Unpromoted it is exact at the end and ragged all along with a 9 to 66 jump at the start.
-  [openKey("change", "change", 16, 16)]: { rt: ["LANDING != REST RENDER"], owner: "inherent: a turning text lands on its layer's raster (the alternative is a start flip and a ragged turn)" },
+  // (2026-10-24: a turning TEXT, which R2 recorded as landing on its layer's raster (42 stage px^2 off a fresh render), lands on the fresh render: it rests
+  // on a whole device pixel at its exact size on a layer that is a constant of the slide. Entry deleted; the cue is gated clean.)
 };
 /** What this cue's flags leave over once its tolerated ones are removed, plus the stale entries (a required flag that did not fire). */
 export function judge(flags: string[], open: OpenCase | undefined, domain: "seek" | "rt", value: (flag: string) => number | undefined = flagValue): { failing: string[]; tolerated: string[]; stale: string[] } {
