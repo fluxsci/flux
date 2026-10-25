@@ -601,6 +601,9 @@ function groupStagger(pace: AutoPace, n: number, window: number, perMsHint: numb
 }
 
 const COMPOSITE = ["box", "whisker", "cap", "median", "mean", "flier"];
+/** A meanmark's reveal (owner, 2026-10-25): the mean draws on over `meanMs`; its error arms draw out of it from `armsAtMs`, its caps
+ *  close them from `capsAtMs` (offsets from the mean's start). Arms and caps end together, a little after the mean. */
+export const MEANMARK = { meanMs: 1000, armsAtMs: 312.5, armsMs: 750, capsAtMs: 562.5, capsMs: 500 } as const;
 const isSecondary = (role: string) => /^(errorbar|whisker|cap|median|mean|flier|segment)(-\d+)?$/.test(role);
 const win = (pt: PlanTrack, pace: AutoPace) => Math.max(pt.durationMs, pace.floor(pt.preset));
 /** The window of a staggered point group: the floor of the CHILD it plays (scaleIn 500, X1c), not of the `stagger` host (600, which
@@ -714,9 +717,29 @@ function choreograph(phases: PlanTrack[][], pace: AutoPace, lengths: Record<stri
         for (const pt of tracks) if (!comp.has(pt)) out.push(mk(pt, {}));
         return inOrder(out);
       }
+      // a MEANMARK (a series' mean marker with its error arms and caps, no box): the mean draws on, the arms draw out of it once it is
+      // under way and the caps close them, chained to the mean so retiming it carries them (owner, 2026-10-25; the plot's per-role
+      // presets faded the three in together). The mean enters where a secondary mark always has (its points or bars half done).
+      const meanmark = new Map<PlanTrack, Track>();
+      for (const meanPt of tracks.filter((t) => /\.means?$/.test(t.part))) {
+        const series = meanPt.part.replace(/\.means?$/, "");
+        const part = (re: RegExp) => tracks.find((t) => t.part.startsWith(series + ".") && re.test(t.part.slice(series.length + 1)));
+        if (part(/^box$/)) continue;   // a box plot keeps its own composite chain
+        const arms = part(/^error-?bars?$/), caps = part(/^caps?$/);
+        if (!arms && !caps) continue;
+        const primary = barsPt ?? pointsPt;
+        const mean = mk(meanPt, { preset: "drawOn", duration: MEANMARK.meanMs, start: primary ? 0 : meanPt.delayMs ?? 0,
+          ...(primary ? { anchor: { trackId: idOf(primary), edge: "start" as const, offsetMs: Math.round(0.5 * (barsPt ? barsWin : pointWin(pointsPt!, pace))) } } : {}) });
+        meanmark.set(meanPt, mean);
+        if (arms) meanmark.set(arms, mk(arms, { preset: "drawOn", duration: MEANMARK.armsMs, start: 0, anchor: { trackId: mean.id!, edge: "start", offsetMs: MEANMARK.armsAtMs } }));
+        if (caps) meanmark.set(caps, mk(caps, { preset: "drawOn", duration: MEANMARK.capsMs, start: 0, anchor: { trackId: mean.id!, edge: "start", offsetMs: MEANMARK.capsAtMs } }));
+      }
       for (const pt of tracks) {
         const fit = pointFit.get(pt);
-        if (fit) {
+        const marked = meanmark.get(pt);
+        if (marked) {
+          out.push(marked);
+        } else if (fit) {
           out.push(mk(pt, { duration: fit.duration, stagger: fit.stagger, params: { child: pace.pointChild(pt.nLeaves) } }));
         } else if (pt === barsPt) {
           out.push(barsFit ? mk(pt, { preset: "stagger", duration: barsFit.duration, stagger: barsFit.stagger, params: { child: "growBaseline" } }) : mk(pt, { preset: "growBaseline", duration: barsWin }));
