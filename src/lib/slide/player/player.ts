@@ -24,7 +24,7 @@ import { createEncircle, measureTextInk, type OverlayHandle } from "./overlay";
 import { encircleShape, encircleParams } from "../encircleGeometry";
 import { elementStageOutlines, partStageOutlines } from "../targetGeometry";
 import { groupPoint, type GrowElement } from "../growOrigin";
-import { unionRect } from "../../geometry";
+import { unionRect, elementBBox } from "../../geometry";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
@@ -33,7 +33,7 @@ import { attachRefs, hasAttach } from "../attach";
 import { modelHandoffMedia } from "./model3dHandoff";
 import { createHandoff, type HandoffController } from "./handoff";
 import { createGlyphProvider, glyphFontsRevision } from "./glyphProvider";
-import type { TextElement } from "../../types";
+import type { TextElement, Element as FigElement } from "../../types";
 import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState, turnOf } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
@@ -343,12 +343,19 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const planFrame = group.length > 1 ? compiled.sample(bi, Math.min(...group.map(c => c.start))) : preFrame;
           const lastLander = group.length > 1 && group[group.length - 1].track.id === track.id;
           // The flight draws at the DEPTH the destination rests at, so it is covered by exactly what covers the destination and the landing does not
-          // flip the paint order of anything it overlaps (an element above the destination that the flight crossed).
-          const flightSurface = rendered.flightAt?.(handoff.destination.flatMap(t => { const w = rendered.elements.get(t.elementId); return w ? [w] : []; })) ?? rendered.flight;
+          // flip the paint order of anything it overlaps (an element above the destination that the flight crossed). When something painted BETWEEN
+          // the source and the destination overlaps the flight (the two sit on different sides of it), no single depth is right at both ends: the
+          // flight then flies on the UPPER of the two depths and passes under those elements by a veil (handoff `covers`), faded in when the
+          // destination rests under them (it sinks) and out when the source did (it rises). It used to flip the paint order at the first frame.
+          const wrapsOf = (targets: ResolvedTarget[]) => targets.flatMap(t => { const w = rendered.elements.get(t.elementId); return w ? [w] : []; });
+          const srcWraps = wrapsOf(handoff.source), dstWraps = wrapsOf(handoff.destination);
+          const covering = flightCovers(cameraLayer, srcWraps, dstWraps, handoff, preFrame.elements);
+          const flightSurface = (covering?.sink ? rendered.flightAt?.(srcWraps) : rendered.flightAt?.(dstWraps)) ?? rendered.flight;
           const driver = createHandoff({ flight: flightSurface, handover: group.length <= 1, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration, arc: track.arc,
             // WP 4.3: piece lag on the track's own curve; a merge lander's raw spans its hold, its pieces run over its own first 1/holdK
             pairLag: track.pairLag, ease: ct.ease.fn, holdK: Math.max(1, (handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration) / Math.max(1e-9, ct.duration)),
             beneath: lastLander ? group.map(c => mergeLayers.get(c.track.id ?? "")).find(Boolean) : undefined,
+            covers: group.length <= 1 ? covering ?? undefined : undefined,
             plan: () => planHandoff(track, planFrame, geometry, group.length > 1 ? group.map(c => c.track) : undefined),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
@@ -689,6 +696,28 @@ function frameSampler(spec: Spec): (t: number) => Keyframe {
     }
     return frame as Keyframe;
   };
+}
+/** The elements painted BETWEEN a hand-off's source and destination that its flight crosses (the union of the two ends' boxes, padded by a fifth
+ *  for the travel and an arc), and whether the flight sinks under them (the source is painted above them, the destination below) or rises out
+ *  (the reverse). Null when nothing lies between, or the ends are not both wrappers of the stage. */
+function flightCovers(camera: HTMLElement, src: Element[], dst: Element[], handoff: { source: ResolvedTarget[]; destination: ResolvedTarget[] }, elements: readonly FigElement[]): { wrappers: HTMLElement[]; sink: boolean } | null {
+  if (!src.length || !dst.length) return null;
+  const kids = Array.from(camera.children), at = (ws: Element[]) => Math.max(...ws.map(w => kids.indexOf(w)));
+  const s = at(src), d = at(dst);
+  if (s < 0 || d < 0 || s === d) return null;
+  const box = (id: string) => { const el = elements.find(e => e.id === id); return el ? elementBBox(el) : null; };
+  const ends = [...handoff.source, ...handoff.destination].map(t => box(t.elementId)).filter((b): b is NonNullable<typeof b> => !!b);
+  if (!ends.length) return null;
+  let x0 = Math.min(...ends.map(b => b.x)), y0 = Math.min(...ends.map(b => b.y)), x1 = Math.max(...ends.map(b => b.x + b.w)), y1 = Math.max(...ends.map(b => b.y + b.h));
+  const px = (x1 - x0) * 0.2, py = (y1 - y0) * 0.2; x0 -= px; y0 -= py; x1 += px; y1 += py;
+  const ends_ = new Set([...src, ...dst]), wrappers: HTMLElement[] = [];
+  for (let i = Math.min(s, d) + 1; i < Math.max(s, d); i++) {
+    const w = kids[i] as HTMLElement;
+    if (!w.classList?.contains("sl-el") || ends_.has(w) || w.style.visibility === "hidden") continue;
+    const b = box(w.dataset.elId ?? "");
+    if (b && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0) wrappers.push(w);
+  }
+  return wrappers.length ? { wrappers, sink: s > d } : null;
 }
 function boundPlan(specs: Spec[]): BoundPlan {
   let plan = bindings.get(specs);

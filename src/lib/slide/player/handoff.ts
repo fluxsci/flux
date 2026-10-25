@@ -92,6 +92,12 @@ export interface HandoffOptions {
   ease?: (p: number) => number;
   /** A merge lander's hold factor (its span / its own duration): the pieces' windows run over the first 1/holdK of raw. */
   holdK?: number;
+  /** Elements painted BETWEEN the source and the destination that the flight crosses (player: the flight flies on the upper of the two depths).
+   *  A paint order cannot be crossfaded, so the flight passes under them by a VEIL: copies of their own rendered wrappers above the flight,
+   *  masked to the flight's coverage (dilated by about a device pixel, so the copies close over its anti-aliased edge) and faded with the
+   *  motion's progress: in (`sink`: the destination rests under them) or out (the source rested under them). Both ends are the real paint
+   *  order exactly (an opaque cover); the frames between sink the shape under the cover, or raise it out, instead of flipping it at the start. */
+  covers?: { wrappers: HTMLElement[]; sink: boolean };
 }
 export interface HandoffController extends MorphController {
   /** The flight layer this controller draws into (one `g.sl-handoff`). */
@@ -125,6 +131,39 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   layer.setAttribute("data-handoff", id);
   layer.setAttribute("visibility", "hidden");
   if (opts.beneath && opts.beneath.parentNode === flight) flight.insertBefore(layer, opts.beneath); else flight.appendChild(layer);
+  // The veil (opts.covers): built at the flight's first frame from the covers' wrappers as they rest then, removed with the controller.
+  let veil: { div: HTMLElement; defs: SVGElement[] } | null = null;
+  const VEIL_DILATE = 0.75;   // stage px: a device pixel and more at any stage fit above 1.33 device px per stage px
+  function ensureVeil(): HTMLElement | null {
+    if (veil || !opts.covers?.wrappers.length || !flight.parentElement) return veil?.div ?? null;
+    layer.setAttribute("id", id);
+    const fid = `${id}-veil-dilate`, mid = `${id}-veil-mask`;
+    const defs = document.createElementNS(NS, "defs");
+    const filter = document.createElementNS(NS, "filter");
+    for (const [k, v] of [["id", fid], ["filterUnits", "userSpaceOnUse"], ["x", "-1e4"], ["y", "-1e4"], ["width", "2e4"], ["height", "2e4"]]) filter.setAttribute(k, v);
+    const dilate = document.createElementNS(NS, "feMorphology"); dilate.setAttribute("operator", "dilate"); dilate.setAttribute("radius", String(VEIL_DILATE));
+    filter.appendChild(dilate);
+    const mask = document.createElementNS(NS, "mask");
+    for (const [k, v] of [["id", mid], ["maskUnits", "userSpaceOnUse"], ["maskContentUnits", "userSpaceOnUse"], ["x", "-1e4"], ["y", "-1e4"], ["width", "2e4"], ["height", "2e4"]]) mask.setAttribute(k, v);
+    mask.style.setProperty("mask-type", "alpha");
+    const use = document.createElementNS(NS, "use"); use.setAttribute("href", `#${id}`); use.setAttribute("filter", `url(#${fid})`);
+    mask.appendChild(use); defs.append(filter, mask); flight.insertBefore(defs, flight.firstChild);
+    const div = document.createElement("div");
+    div.className = "sl-handoff-veil";
+    div.style.cssText = "position:absolute;inset:0;pointer-events:none;visibility:hidden;";
+    div.style.setProperty("mask", `url(#${mid})`); div.style.setProperty("-webkit-mask", `url(#${mid})`);
+    for (const w of opts.covers.wrappers) {
+      const copy = w.cloneNode(true) as HTMLElement;
+      // a copy, never an element: no identity the player or a host could find, its internal references renamed with its ids
+      for (const n of [copy, ...Array.from(copy.querySelectorAll("[data-el-id]"))]) n.removeAttribute("data-el-id");
+      prefixIds(copy, `${id}-veil`);
+      copy.style.removeProperty("will-change"); copy.style.removeProperty("visibility");
+      div.appendChild(copy);
+    }
+    flight.after(div);
+    veil = { div, defs: [defs] };
+    return div;
+  }
   const custom = opts.media?.mount?.(layer);
   let readyState = !opts.media && !ctx.glyphs, preparation: Promise<void> | undefined;
   let disposed = false, prepared = false, plan: CorrespondencePlan | undefined, sampled: CorrespondencePlan | undefined;
@@ -521,6 +560,10 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       if (textLayer) textLayer.style.visibility = phase === 1 ? "" : "hidden";
       lastPhase = phase;
     }
+    if (opts.covers) {
+      if (phase !== 1) { if (veil && veil.div.style.visibility !== "hidden") veil.div.style.visibility = "hidden"; }
+      else { const div = ensureVeil(); if (div) { div.style.visibility = ""; div.style.opacity = String(Math.round((opts.covers.sink ? t : 1 - t) * 1e6) / 1e6); } }
+    }
     if (phase !== 1) { textMorph?.hide(); return; }
     if (textMorph && textOwns()) {
       // Anything the box fallback drew while the host could not measure yet stays hidden.
@@ -612,6 +655,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     dispose() {
       if (disposed) return;
       disposed = true; custom?.dispose(); opts.media?.dispose(); layer.remove();
+      if (veil) { veil.div.remove(); for (const d of veil.defs) d.remove(); veil = null; }
       textMorph?.dispose(); textLayer?.remove();
       if (flight.hasAttribute("data-depth") && !flight.childElementCount) flight.remove();   // a depth surface nothing flies on any more
       for (const entry of claims) {

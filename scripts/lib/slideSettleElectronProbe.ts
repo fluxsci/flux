@@ -38,7 +38,7 @@ export const PLAY: Record<string, string[]> = {
   // R2 follow-up F1: round hand-offs (one rasteriser at both ends), stroked corners, a cornerRadius Change, compound holes
   handoff_round: ["dot_int#1-1", "dot_grow#1-1", "ring_ring#1-1", "six_dots#1-1"],
   become_corners: ["tri_circle#1-1", "rect_circle#1-1", "arrow_circle#1-1", "arrow_circle_ho#1-1", "butt_line_rect#1-1", "ell_rect#1-1", "ell_rect_ho#1-1", "translucent#1-1", "rect_line_round#1-1", "line_rect_round#1-1", "circ_diamond_ho#1-1", "diamond_circ_ho#1-1"],
-  set_flights: ["rect_3ellipses#1-1", "six_ring#1-1"], become_depth: ["dest_under#1-1"],
+  set_flights: ["rect_3ellipses#1-1", "six_ring#1-1"], become_depth: ["dest_under#1-1", "src_over#1-1", "src_under#1-1"],
   corner_radius: ["path_20_0#1-1"], compound: ["hole_moves#1-1", "hole_fills#1-1", "hole_opens#1-1", "donut_circle#1-1", "donut_circle_ho#1-1", "donut_same_wind#1-1"],
 };
 /** Cues whose motion must be CONTINUOUS (a slow text glide): the presented frames inside the motion may not hop (slideSettleSweep `hops`). The stem edit
@@ -50,9 +50,10 @@ export const PLAY_DSF: Record<string, string[]> = {
   become: ["become#1-1", "become#2-2", "become#3-3", "become#4-4"], preset_move: ["p_move#1-1"], preset_fadeRise: ["p_fadeRise#1-1", "p_fadeRise#2-2"], preset_popIn: ["p_popIn#1-1"],
   preset_scaleIn: ["p_scaleIn#1-1"], preset_writeOn: ["p_writeOn#1-1"], preset_drawOn: ["p_drawOn#3-3"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"],
   chains: ["chains#1-1", "chains#2-2", "chains#3-3", "chains#4-6"], arcs_turns: ["arc_handoff#1-1", "arc_swap#1-1", "turn_rigid#1-1"], attach: ["follow#1-1", "follow#2-2", "draw_moving#1-1", "label_resize#1-1"],
-  handoff_round: ["dot_int#1-1", "six_dots#1-1"], camera: ["camera#1-1", "camera#2-2", "camera#3-3"],
+  handoff_round: ["dot_int#1-1", "six_dots#1-1"], camera: ["camera#1-1", "camera#2-2", "camera#3-3"], become_depth: ["src_over#1-1", "src_under#1-1"],
+  compound: ["hole_moves#1-1", "hole_fills#1-1", "hole_opens#1-1"], plot_chain: ["sine_scatter_sine#1-1", "sine_scatter_sine#2-2"],
 };
-const DSF_MIN_CUES = 45;
+const DSF_MIN_CUES = 52;
 const flagsOf = (c: Parameters<typeof rtFlags>[0], deck: string) => {
   const flags = rtFlags(c);
   if (SMOOTH.includes(c.name.slice(deck.length + 1)) && c.landedAt != null) {

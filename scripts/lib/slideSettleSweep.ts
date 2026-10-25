@@ -286,15 +286,10 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // `ell_rect_ho` starts, `set_flights/rect_3ellipses` landing. They were a rasteriser seam (the exact stroke band, or pieces cut at other stations, against the
   // resting path stroker) plus a raster step of the wrapper itself; a Become with a band or a flight made of pieces now hands over to the real renders at both
   // ends, and a morph that keeps its box no longer promotes its layer. See shapeHandover.ts and the F3 report.)
-  // The FLIGHT DEPTH law (RenderedSlide.flightAt: a hand-off flies on a surface right above its DESTINATION) puts the paint-order flip of a hand-off whose source and
-  // destination sit on different sides of a covering element X at the START instead of the landing (it used to be the landing: END SNAP 5,413 on the base). The
-  // source was above X (`src_over`) and the flight is under X from its first moving frame, or the source was under X (`src_under`) and the flight appears above it:
-  // 3,651 stage px^2 either way, where the landing is exact (0.0). A paint order cannot be crossfaded (two copies added across a covering element cannot be summed:
-  // coverage dips to 75 % where they overlap) and a surface switch needs a moment when the flight is clear of X, which a source drawn INSIDE X's area never has.
-  // Recorded with both numbers, required, so the entry fails the moment either end is fixed. The reverse pairing (`dest_under`, the owner's slide-style case where
-  // the destination sits under a later element and the source does not) is fixed and gated as a clean cue.
-  [openKey("become_depth", "src_over", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], owner: "inherent: source and destination on different sides of a covering element: the paint order flips once, here at the start (the base flipped it at the landing, END SNAP 5,413)" },
-  [openKey("become_depth", "src_under", 1, 1)]: { seek: ["START POP (2ms)", "START POP (frame)"], owner: "inherent: source and destination on different sides of a covering element: the paint order flips once, here at the start (3,651 on the base too)" },
+  // (2026-10-24: the FLIGHT DEPTH law's paint-order flip for a hand-off whose source and destination sit on different sides of a covering element X
+  // (`src_over` / `src_under`, 3,651 here, ~5,700 at devicePixelRatio 1.25) is fixed: the flight flies on the upper of the two depths and passes under X
+  // by a veil, copies of X's own wrapper above the flight masked to its dilated coverage and faded with the motion (handoff `covers`); both entries
+  // deleted, the cues are gated clean.)
   // An asset Change between plots of DIFFERENT intrinsic size (sine 360x108 pt -> scatter 180x108 pt) is not yet one law: the controller reads the pt-true
   // compensation (`intrinsic`, `naturalViewBox`, transform.ts) from the START asset for the whole flight, so its last frame is not the static render of the
   // end plot (END SNAP, 8.0) and the next step of a chain starts from the picture the controller left, not from the rest state (PRE-ROLL CHANGE 4,154; 132,822 px
@@ -302,9 +297,8 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // fixed (2026-10-24: every step re-projects the MOUNTED asset's DOM with that asset's compensation and viewBox, render.plotAssetOf; the second step read
   // its start asset's, 6,317 at devicePixelRatio 1.25). The END SNAP stays recorded, required: the entry fails when the per-frame intrinsic / viewBox lands.
   [openKey("plot_chain", "sine_scatter_sine", 1, 1)]: { seek: ["END SNAP (2ms)"], max: { "END SNAP": 12 }, owner: "open: an asset Change between plots of different intrinsic size reads its compensation from the start asset (the end is not the static render)" },
-  // A compound Change whose hole fills in (lerpCompoundD): the crisp, pixel-aligned hole edge leaves the pixel grid on the first frame whose 8-bit pixels
-  // change (9.3 against 0.0, then the next frames are sub-quantum); the same on the base. Physical, not a pop of the motion; tolerated with its magnitude.
-  [openKey("compound", "hole_fills", 1, 1)]: { rtMay: ["START STEP"], max: { "START STEP": 15 }, owner: "inherent: a pixel-aligned hole edge leaves the pixel grid on the first changed frame (9.3 then 0.0; same on the base)" },
+  // (2026-10-24: the compound `hole_fills` START STEP R2 recorded as a pixel-aligned hole edge leaving the grid was the flight promoting a node whose box
+  // stays put onto a layer for the flight; only a flight whose box travels rides a layer now (transform.ts). Entry deleted, the cue is gated clean.)
   // Not a corpus cue, recorded so it is findable: a REVERSED dashed ring (lane S deviation 1, `r2s/dashed_ring`) keeps its authored pairing and collapses
   // mid-flight; re-pairing moves the chain start the dash pattern is anchored at and a dash offset cannot make both seams exact (report R2_F1, 5.3).
   // A turning TEXT rides the flight mark (a layer baked at rest): it turns smoothly from a clean first frame and lands without a step, but on its
