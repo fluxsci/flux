@@ -909,9 +909,6 @@ export function setTrackArc(track: Track, arc: number): void {
   track.arc = arc;
 }
 
-/** WP 4.3 (D4): the piece lag a NEW hand-off Become with at least 3 pieces is authored with (a bar splitting into five dots peels apart
- *  instead of flying as one slab). Saved decks keep what they hold; 0 is an authored "in unison". */
-export const BECOME_PAIR_LAG_DEFAULT = 0.15;
 /** Piece lag of a hand-off Become (0..1; null clears it). Refused on any other track: a silently ignored field is a trap. */
 export function setTrackPairLag(track: Track, lag: number | null): void {
   if (lag === null) { delete track.pairLag; return; }
@@ -1483,7 +1480,7 @@ export interface BecomeOptions extends TimingCurvePatch {
   method?: BecomeSpec["method"];
   start?: number;
   duration?: number;
-  /** WP 4.3: piece lag (hand-off only, 0..1). Absent = BECOME_PAIR_LAG_DEFAULT for a NEW hand-off of at least 3 pieces, else unset. */
+  /** WP 4.3: piece lag (hand-off only, 0..1). Absent = unset (unison) for a new hand-off; a re-Become keeps the track's. */
   pairLag?: number;
   /** GUI may supply the compiler's manifest-aware evaluation of the slide. */
   compiled?: ReturnType<typeof compileSlide>;
@@ -1572,16 +1569,12 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
         throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
     }
     // Only a whole object handing off to a whole object is a text morph; a set / part / group destination is not.
-    const fresh = !existing || !isHandoff(existing);
     const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...(isWholeElementRef(ref) ? { become: target } : { become: { type: "set" } }), ...timing })!;
     track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== DEFAULT_TRANSFORM_METHOD ? { method: opts.method } : {}) }, state: {} };
     delete track.disabled;
-    // WP 4.3 (D4): a NEW set hand-off of >= 3 PIECES peels apart (a whole object is one piece, a part set as many pieces as parts); an
-    // explicit value always wins; a re-Become keeps what the track had. Not for text: letters and rewrites fly by their own driver.
-    const pieces = (ts: { partIds: string[] | null }[]) => ts.reduce((n, t) => n + Math.max(1, t.partIds?.length ?? 1), 0);
-    const textOnly = [...sources, ...destination].every((t) => slide.elements.find((e) => e.id === t.elementId)?.type === "text");
+    // WP 4.3: piece lag is authored only when asked for (owner, 2026-10-25: a new hand-off flies in unison; the lag is a choice, not a
+    // default); a re-Become keeps what the track had.
     if (opts.pairLag !== undefined) track.pairLag = opts.pairLag;
-    else if (fresh && !textOnly && Math.max(pieces(destination), pieces(sources)) >= 3) track.pairLag = BECOME_PAIR_LAG_DEFAULT;
     return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
   }
   if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error(ref.members ? "Consume needs one whole destination object; a set of objects hands off. Use hand-off instead." : "Consume requires whole objects, without parts or groups. Use hand-off instead.");

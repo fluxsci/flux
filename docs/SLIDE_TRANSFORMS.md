@@ -159,7 +159,7 @@ centre, x then y: `correspondence.lagRanks`) each run the track's own curve over
 (`stagger.lagWindow`: `w = max(LAG_MIN_WINDOW 0.3, 1/(1+(n−1)·lag))`, start `(1−w)·rank/(n−1)`, exact 0/1 at the ends); a leaving
 interior runs over `[0, 1−w]`, an arriving one over `[w, 1]` (`pairProgress`, one array per frame read by shapes, heads, interiors and
 crossfades). Path driver only (glyph flights, text morphs and 3D ignore it); a merge lander's windows run over its own first
-`1/holdK`. Lag 0 is byte-identical to unison; a NEW hand-off of 3+ pieces is authored with 0.15 (`BECOME_PAIR_LAG_DEFAULT`, D4);
+`1/holdK`. Lag 0 is byte-identical to unison; a new hand-off is authored with no lag (unison; owner 2026-10-25, replacing D4's 0.15 for 3+ pieces);
 ops refuse it on anything but a hand-off. Not stamped (Q8).
 
 **Attachments (WP 3.2).** `ElementBase.attach` makes an element's geometry a PURE function of other

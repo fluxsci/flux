@@ -41,7 +41,7 @@ const b = ops.addBeat(deck, s.id, { id: "b1" });
 ops.becomeTransform(deck, s.id, b.id, "bar", { element: "d0", members: xs.map((_, i) => ({ element: `d${i}` })) }, { mode: "handoff" });
 h.section("authoring (D4) and refusals");
 const authored = deck.slides[0].beats[1].tracks[0];
-h.eq(authored.pairLag, ops.BECOME_PAIR_LAG_DEFAULT, `a NEW set hand-off of 5 pieces is authored with pairLag ${ops.BECOME_PAIR_LAG_DEFAULT}`);
+h.eq(authored.pairLag, undefined, "a NEW set hand-off of 5 pieces flies in unison: no lag is authored unless asked for (owner, 2026-10-25)");
 { const d2 = ops.createDeck({ id: "e", title: "e", withTitleSlide: false }); const s2 = ops.addSlide(d2, { id: "two", layout: "blank" });
   ops.addElement(d2, s2.id, { type: "rect", id: "p", x: 0, y: 0, width: 100, height: 60, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
   ops.addElement(d2, s2.id, { type: "ellipse", id: "q", x: 300, y: 0, width: 60, height: 60, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0 });
@@ -68,7 +68,7 @@ h.eq(authored.pairLag, ops.BECOME_PAIR_LAG_DEFAULT, `a NEW set hand-off of 5 pie
   ops.addElement(d3, s3.id, { type: "rect", id: "src", x: 20, y: 20, width: 200, height: 60, rotation: 0, fill: "#000", stroke: "none", strokeWidth: 0, cornerRadius: 0 });
   const b3 = ops.addBeat(d3, s3.id, { id: "b" });
   ops.becomeTransform(d3, s3.id, b3.id, "src", { element: plotId, parts: bars }, { mode: "handoff", compiled: compileSlide(d3.slides[0], d3.stage, { plotManifest: () => manifest }) });
-  h.eq(d3.slides[0].beats[1].tracks[0].pairLag, ops.BECOME_PAIR_LAG_DEFAULT, `a box splitting into the ${bars.length} bars of ONE plot is ${bars.length} pieces: authored with the default lag`);
+  h.eq(d3.slides[0].beats[1].tracks[0].pairLag, undefined, `a box splitting into the ${bars.length} bars of ONE plot is authored in unison too`);
   const s4 = ops.addSlide(d3, { id: "texts", layout: "blank" });
   const T = (id: string, x: number) => ops.addElement(d3, s4.id, { type: "text", id, x, y: 100, width: 80, height: 30, rotation: 0, text: id, fontFamily: "Arial", fontSize: 20, fontWeight: 400, fontStyle: "normal", align: "left", color: "#000", sizing: "fixed" });
   T("word", 20); T("w1", 200); T("w2", 300); T("w3", 400);
