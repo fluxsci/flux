@@ -2,6 +2,7 @@
  * scrubs share Canvas's transform drive and never publish pointermove edits. */
 import { derived, get, writable } from 'svelte/store';
 import { project, selection, editorSelectionExclusions, partSelection, partSelections, activeFigureId, enteredGroupId, activeTool, projectDir, embeddedProjectRoot, arrange, lastArrangeRows, commit, mutateFigure, undo, redo, isEditorTargetExcluded } from '../store';
+import {pushToast} from '../toast';
 import { storeTenantState } from '../tenancy';
 import { editSession } from './editSession';
 import { unitOf } from '../groups';
@@ -18,7 +19,7 @@ export type ArrangementAnchor = { x: 0 | .5 | 1; y: 0 | .5 | 1 };
 type Anchor = ArrangementAnchor;
 type Mode = 'align' | 'arrange';
 export interface AlignArrangeState {
-  id: number; mode: Mode; figureId: string; count: number; excludedCount: number; blockedReason?: string;
+  id: number; mode: Mode; figureId: string; count: number; excludedCount: number; blockedReason?: string; matchPanels?: Record<string,string>;
   alignTarget: 'selection' | 'reference' | 'figure'; referenceId: string;
   units: { id: string; label: string }[];
   topology: 'row' | 'column' | 'grid'; rows: number; cols: number; status: string;
@@ -129,6 +130,20 @@ function label(f:Figure, ids:string[], key:string, elements?:Map<string,Element>
   const group=first && unitOf(f,first,captured?.scope).groupId;
   return (group ? f.groups?.[group]?.name : undefined) || (first && ('name' in first ? String(first.name || '') : '')) || `${first?.type ?? 'Object'} ${key.replace(/^[eg]:/,'').slice(0,8)}`;
 }
+/** A panel picked in X-ray scopes only that plot; other selected plots use their union. */
+function selectedMatchPanels(elements:readonly Element[]):Record<string,string>|undefined {
+  const picked=get(partSelections);if(!picked.length)return;
+  const plots=new Map(elements.filter(e=>e.type==='plot').map(e=>[e.id,e]));
+  const manifests=get(plotManifests),panels:Record<string,string>={};
+  for(const part of picked){
+    const plot=plots.get(part.elementId);if(plot?.type!=='plot')return;
+    const manifest=manifests[plot.assetId],record=manifest?.axes.find(a=>a.panelId===part.partId);
+    const axis=manifest?.layout?.axes.find(a=>a.id===part.partId||record&&(record.svgId??record.id)===a.id);
+    if(!axis||panels[plot.id]&&panels[plot.id]!==axis.id)return;
+    panels[plot.id]=axis.id;
+  }
+  return panels;
+}
 export function openAlignArrange(mode:Mode='align', panelVisible=true) {
   closeAlignArrange();
   const p=get(project), sel=get(selection), f=p.figures.find(f=>f.id===get(activeFigureId));
@@ -143,7 +158,8 @@ export function openAlignArrange(mode:Mode='align', panelVisible=true) {
   const elements=new Map(f?.elements.map(e=>[e.id,e])??[]);
   const editable=new Set(units.flatMap(u=>u.memberIds));
   const blockedReason=across?'Select objects within one figure':drilled?'Select whole objects to align':!count?'Select objects to align':undefined;
-  const state:AlignArrangeState={id:++serial,panelVisible,mode:'align',figureId:f?.id ?? '',count,excludedCount:[...sel].filter(id=>!editable.has(id)).length,blockedReason,
+  const matchPanels=selectedMatchPanels(units.flatMap(u=>u.memberIds.map(id=>elements.get(id)!).filter(Boolean)));
+  const state:AlignArrangeState={id:++serial,panelVisible,mode:'align',figureId:f?.id ?? '',...(matchPanels?{matchPanels}:{}),count,excludedCount:[...sel].filter(id=>!editable.has(id)).length,blockedReason,
     alignTarget:count===1?'figure':'selection',referenceId:ordered[0]??'',units:ordered.map(key=>{const u=unitMap.get(key)!;return {id:key,label:label(f!,u.memberIds,key,elements)};}),
     topology:snapshot?.topology??'row',rows:snapshot?.rowCount??0,cols:snapshot?.cols??0,status:'',gapX:snapshot?.gapX??0,gapY:snapshot?.gapY??0,anchor:{...get(arrangementAnchor)},linkedGaps:false,dragging:false,bounds:snapshot?.bounds??null,hover:null};
   choices={x:{},y:{}}; changed=false; activeTool.set('select'); publish(state); watchOwner(); refreshPlotChoices();
@@ -360,6 +376,22 @@ export function alignPlotSpines(axis:Axis) {
   const plan=planPlotSpineAlignment(spineUnits(),axis,s.plot.referenceId,plotContext(),choices[axis]);
   if(plan.issues.length||!plan.translations.some(t=>t.dx||t.dy))return;
   write(()=>commit(p=>applyLayoutTranslations(p,f.id,plan.translations)));afterAlign();
+}
+export function canMatchPlotAreas():boolean {
+  const s=get(alignArrange),units=spineUnits();
+  if(!s||s.blockedReason&&!(s.blockedReason==='Select whole objects to align'&&s.matchPanels)||units.length<2)return false;
+  const editable=new Set(snapshot?.units.map(u=>u.key));if(units.some(u=>!editable.has(u.key)))return false;
+  const manifests=get(plotManifests);
+  return units.every(u=>u.members.length===1&&u.members[0].type==='plot'&&u.members[0].layoutMode!=='stretch'&&manifests[u.members[0].assetId]?.layout?.supported);
+}
+export async function matchSelectedPlotAreas(dimension:'height'|'width'|'both') {
+  if(!canMatchPlotAreas())return;
+  const s=get(alignArrange)!,f=figure()!,units=spineUnits(),ids=units.map(u=>u.members[0].id);
+  const reference=units.find(u=>u.key===(s.plot?.referenceId??s.referenceId))?.members[0].id??ids[0];
+  const owner=s.id;const {matchPlotAreas}=await import('../plot/relayout/ops');
+  if(get(alignArrange)?.id!==owner||get(activeFigureId)!==f.id)return;
+  let result:ReturnType<typeof matchPlotAreas>=[];write(()=>commit(p=>{result=matchPlotAreas(p,ids,{dimension,reference,panels:s.matchPanels},get(plotManifests));}));afterAlign();
+  const reasons=result.flatMap(r=>r.report.warnings.filter(w=>w.code.startsWith('match:')||w.code.startsWith('aspect-locked:')).map(w=>w.code.replaceAll(':',' ')));if(reasons.length)pushToast('info',[...new Set(reasons)].join('; '));
 }
 /** Called after shell, typing, node-edit, rail and modal ownership checks. */
 export function handleAlignArrangeKey(e:KeyboardEvent):boolean {

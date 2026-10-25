@@ -127,8 +127,10 @@ To change a figure, **regenerate** rather than re-saving a new SVG:
 ```
 
 `render-figure` warns when a panel is stale vs `plots/` and tells you to `sync-figure`. A
-regenerated plot with a NEW physical size is reconciled by `sync-figure` (element resized
-true-size, frame grown) — re-`arrange` if the grid should reflow. For a figure-level script that
+regenerated plot's deliberate reflow size is preserved by `sync-figure`; an untouched plot
+follows its new native size. Use `resize-plot` (`resize_plot`) and `match-plot-areas`
+(`match_plot_areas`) to choose physical sizes or matching data areas without rerunning Python.
+Re-`arrange` if the figure grid should move. For a figure-level script that
 saves several plots, `rerun-plot <recipe> --only` regenerates just that recipe's plot (siblings
 stay untouched on disk; `--param` overrides then reach only the target). Without `--only`, every
 output regenerates and overrides leak into siblings.

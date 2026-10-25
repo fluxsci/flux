@@ -10,6 +10,7 @@
     setArrangementGap, setArrangementAnchor, setArrangementLinked, beginArrangementField,
     acceptArrangementField, cancelArrangementField, setArrangementFieldValidity, ownsArrangementField, setArrangementFieldInteraction,
     setPlotAlignReference, setPlotAlignChoice, alignPlotSpines, setAlignArrangeHover,
+    canMatchPlotAreas,matchSelectedPlotAreas,
   } from "./interact/alignArrange";
   import type { AlignKind } from "./geometry";
 
@@ -27,6 +28,7 @@
   $: state = active && $alignArrange?.panelVisible !== false ? $alignArrange : null;
   $: blocked = !state || !!state.blockedReason;
   $: arrangeDisabled = blocked || (state?.count ?? 0) < 2;
+  $: matchEnabled = !!state && canMatchPlotAreas();
 
 
   $: if (state && (!lifecycle.open || lifecycle.id !== state.id)) {
@@ -119,6 +121,13 @@
           </div></section>
           {#if state.plot}
         <section class="plots-section">
+          <h3>Match plot area</h3>
+          <div class="match-buttons" data-match-plot-area>
+            {#each ["height","width","both"] as dimension}
+              <button disabled={!matchEnabled} aria-label={`Match plot area ${dimension}`} on:click={(e)=>action(e,()=>matchSelectedPlotAreas(dimension as "height"|"width"|"both"))}>{dimension[0].toUpperCase()+dimension.slice(1)}</button>
+            {/each}
+          </div>
+          {#if state.matchPanels}<p class="hint" data-match-panel-scope>Matching the selected X-ray panels; other plots use their full data area.</p>{/if}
           <h3>Plot spines</h3>
           <div class="spine-buttons">
             <button disabled={blocked || !state.plot || state.plot.loading || !!state.plot.reasonX} title={state.plot?.reasonX ?? "Align horizontal X spines (X)"} on:click={(e) => action(e,()=>alignPlotSpines("x"))} on:mouseenter={() => hover("plot-x")} on:mouseleave={() => hover(null)} on:focus={() => hover("plot-x")} on:blur={() => hover(null)}><svg viewBox="0 0 56 32" aria-hidden="true"><path d="M6 6v20h19M32 12v14h18" /><path class="spine" d="M6 26h19M32 26h18" /></svg><span>X spines</span><kbd>X</kbd></button>
@@ -191,14 +200,14 @@
   .active kbd {color:var(--c-tx-muted)}
   /* Tiles: inset wells (the rail's tiles), a lift on hover, the tool colour when chosen. */
   .align-pad {display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:2px 0 0}
-  .alignment,.two button,.spine-buttons button,.topologies button {position:relative;background:var(--c-bg);border-color:var(--c-line)}
-  .alignment:hover:not(:disabled),.two button:hover:not(:disabled),.spine-buttons button:hover:not(:disabled),.topologies button:hover:not(:disabled) {background:var(--c-surface-2);border-color:var(--c-line-strong)}
+  .alignment,.two button,.spine-buttons button,.match-buttons button,.topologies button {position:relative;background:var(--c-bg);border-color:var(--c-line)}
+  .alignment:hover:not(:disabled),.two button:hover:not(:disabled),.spine-buttons button:hover:not(:disabled),.match-buttons button:hover:not(:disabled),.topologies button:hover:not(:disabled) {background:var(--c-surface-2);border-color:var(--c-line-strong)}
   .alignment {display:grid;place-items:center;height:36px;padding:0}
   .alignment kbd,.topologies kbd {position:absolute;right:4px;top:2px;line-height:1}
   section {margin-top:12px;padding-top:10px;border-top:1px solid var(--c-line)}
   h3 {margin:0 0 7px;font:600 9.5px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--c-tx-muted)}
-  .two,.spine-buttons {display:flex;gap:4px}
-  .two button,.spine-buttons button {display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:0;height:32px;padding:2px 6px;font-size:10.5px}
+  .two,.spine-buttons,.match-buttons {display:flex;gap:4px}
+  .two button,.spine-buttons button,.match-buttons button {display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:0;height:32px;padding:2px 6px;font-size:10.5px}
   .spine-buttons svg {width:30px;height:20px}.spine {stroke:var(--flx-green-400,var(--c-accent))}
   .spine-buttons kbd {margin-left:auto}
   .hint,.notice,.exclusions {font-size:10.5px;line-height:1.45;color:var(--c-tx-muted);margin:7px 0}

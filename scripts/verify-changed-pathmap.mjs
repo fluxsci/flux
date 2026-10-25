@@ -31,6 +31,13 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["src/lib/plot/relayout/solve.ts", ["group:relayout", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/plot/ticks.ts", ["verify-colorscale-dom.ts", "verify-colorscale-verb.ts", "verify-colorscale-gui.mjs", "verify-fluxplot03-gui.mjs", "verify-plot-view-gui.mjs", "tier:pure", "group:relayout"]],
+  ["src/lib/plot/variantBudget.ts", ["group:relayout", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/plot/LayoutControls.svelte", ["group:relayout", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["scripts/fixtures/relayout/solve.ts", ["group:relayout"]],
+  ["flux-core/plotRelayout.ts", ["group:relayout", "verify-registry-parity.ts", "tier:pure"]],
+
   ["src/lib/ElementSlot.svelte",["verify-render-optimizations.mjs","verify-figure-editing-gui.mjs","verify-v020-geometry-gui.mjs","verify-slide-canvas-presentation-gui.mjs","verify-cursor-gui.mjs","verify-cursor-press.mjs","verify-canvas-coverage.mjs","group:align-arrange","group:align-arrange-native"]],
   ["flux-core/plotAlignment.ts", ["verify-plot-landmarks.ts", "verify-plot-spines-gui.mjs", "verify-registry-parity.ts"]],
   ["src/lib/interact/sceneTransforms.ts",["verify-resize-preview.ts","verify-crop.mjs","verify-fig-esc.mjs","verify-f5-drag.mjs","verify-v020-geometry-gui.mjs","group:align-arrange","group:align-arrange-native","verify-scene-transforms.ts"]],

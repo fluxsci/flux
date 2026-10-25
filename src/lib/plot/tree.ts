@@ -7,6 +7,7 @@
 // "axis.x"); an override keyed by that id is re-resolved to its current leaf
 // members every mount, so "hide all x ticks" survives regeneration.
 
+import {plotPartPrefix} from "./parse";
 import type { FluxPlotManifest, PartNode } from "./types";
 
 // PartNode (the raw manifest scene-graph node) now lives in ./types alongside the
@@ -21,7 +22,7 @@ export type PartKind = "text" | "line" | "shape" | "container";
  *  on groups); this table answers for older manifests, id-inferred roles and role refs. Roles
  *  it does not name are shapes unless the DOM says otherwise (partStyle.partKind). */
 export const KIND_BY_ROLE: Record<string, PartKind> = {
-  "axis-title": "text", title: "text", subtitle: "text", "tick-label": "text", "legend-label": "text", label: "text",
+  "axis-title": "text", "tick-offset":"text", "legend-title":"text", "colorbar-offset":"text", "colorbar-divider":"line", "annotation-arrow":"line", title: "text", subtitle: "text", "tick-label": "text", "legend-label": "text", label: "text",
   annotation: "text", "colorbar-label": "text", "colorbar-tick-label": "text",
   line: "line", "reference-line": "line", gridline: "line", spine: "line", errorbar: "line", tick: "line", axis: "line",
   "significance-bracket": "line", "colorbar-tick": "line", "colorbar-outline": "line",
@@ -113,13 +114,18 @@ export function hiddenLeaves(manifest: FluxPlotManifest | undefined, overrides: 
 
 /** The concrete leaf ids an override key controls. Group/container → its leaves; leaf → itself.
  *  A key saved under an id an older fluxplot emitted is resolved through `idAliases` first. */
-export function resolveTargets(manifest: FluxPlotManifest | undefined, key_: string): string[] {
+export function resolveTargets(manifest: FluxPlotManifest | undefined, key_: string,root?:Element): string[] {
   const aliased = aliasPartId(manifest, key_);
   const tree = manifest?.parts as PartNode | undefined;
   if (!tree) return [aliased];
   const node = indexTree(tree).get(aliased);
   if (!node) return [aliased]; // a literal leaf id not present in the tree
-  if (node.role === "group" || (node.children && node.children.length)) return leavesUnder(node);
+  if (node.role === "group" || (node.children && node.children.length)) {
+    const leaves=leavesUnder(node);if(!root)return leaves;
+    const known=new Set(leaves),owners=new Set<string>();const collect=(n:PartNode)=>{if(n.id)owners.add(n.id);for(const c of n.children??[])collect(c);};collect(node);const prefix=plotPartPrefix(root);
+    for(const clone of Array.from(root.querySelectorAll('[data-relayout-source],[data-relayout-owner]'))){if(known.has(clone.getAttribute('data-relayout-source')!)||owners.has(clone.getAttribute('data-relayout-owner')!))leaves.push(clone.id.startsWith(prefix)?clone.id.slice(prefix.length):clone.id);}
+    return [...new Set(leaves)];
+  }
   return [aliased];
 }
 

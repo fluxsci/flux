@@ -9,6 +9,9 @@ import { prepareModelCopy, publishModelCopy } from './model3d/copy';
 import { storedAssetPath } from './project/assetPath';
 import type { Model3dElement, Scene3dManifest } from './model3d/types';
 import { storeTenant } from "./tenancy";
+import { svgIntrinsicSize } from "./plot/svgGeometry";
+import { applySourceUpdates } from "./plot/sourceSync";
+import { publishAcceptedFigureSources,mutateDisplay } from "./store";
 import { preparePlot } from "./plot/parse";
 import { buildPlotMarkup } from "./plot/inlineMarkup";
 import { validateIncomingPlot } from "./plot/contract";
@@ -62,7 +65,6 @@ import { parseTokens } from "./colors";
 import { cachePreparedPlot, cachePlot, clearPlots, ensurePlotDom, plotManifests, plotRecipes, primePlotSidecars } from "./plot/store";
 import { healPlotSources, toProjectRelativeSource, isUnderRoot } from "./plot/source";
 import { isDerivedManifest } from "./plot/derive";
-import { plotToSvgMarkup } from "./plot/export";
 import type { FluxPlotManifest } from "./plot/types";
 import { pushToast, errMsg } from "./toast";
 import { flushById } from "../shell/lifecycle";
@@ -87,6 +89,11 @@ export function reimportPlot(
   if (!ok) return false;
   setAssetData(assetId, bytesToDataUrl(new TextEncoder().encode(svgText), mimeFor("svg")));
   markAssetDirty(assetId); // W8: hot-swapped bytes → rewrite on next save
+  if(opts.markEdited!==false){
+    const size=svgIntrinsicSize(svgText),updates=[{assetId,width:size.w,height:size.h,layoutSupported:manifest?.layout?.supported===true}];
+    if(storeTenant()==="figure")publishAcceptedFigureSources(updates);
+    else mutateDisplay(p=>{applySourceUpdates(p,updates);});
+  }
   // Source bytes are an edit even when no geometry changes. The lifecycle
   // dirty registry must flush them before switching modes or closing.
   if (opts.markEdited !== false && get(project).assets.some((a) => a.id === assetId)) mutate(() => {});
@@ -865,7 +872,7 @@ export async function openProject() {
 
 /** Lazy-residency export gate (plan §5.6): parse any of this figure's plots
  *  that aren't resident (deferred at open, or LRU-evicted) before serializing,
- *  so plotToSvgMarkup bakes real vector parts + per-part overrides instead of
+ *  so buildPlotMarkup bakes real vector parts + per-part overrides instead of
  *  silently falling to the <image> fallback. Synchronous — the bytes are
  *  already resident in assetData. */
 export function ensureFigurePlots(fig: Figure): void {

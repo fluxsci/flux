@@ -470,7 +470,7 @@ their whole body stays grabbable; their corners still resize them from the outsi
 rotate, drag the knob above the box or simply drag from **just outside any corner**;
 **Shift** snaps to 15°. **Ctrl+drag** a handle or edge of an image or plot to crop instead
 (on a plot, **Ctrl** just inside the edge still picks the part under the pointer). Images and
-plots stretch freely by an edge, so use a corner or **Shift** when the proportions matter.
+plots resize freely by an edge, so use a corner or **Shift** when the proportions matter.
 
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
 duplicate, **Shift+drag** to constrain to an axis. To move something to a **different
@@ -559,13 +559,32 @@ elements and ruler guides adjust their local coordinates to stay in place. Artwo
 the new frame remains in the project and reappears if you enlarge the boundary again.
 Dragging the title still moves the whole figure. Slides use a shared deck stage size.
 
-**Resizing a plot and its content scale.** Resizing a placed plot changes its axes and data
-area but keeps its text and line widths at their true point size, the way changing a
-figure's size in matplotlib does. The Inspector's **Content scale** (or the **K** scale tool)
-is the other dial: it makes the plot's text and lines bigger or smaller inside the same box.
-Pictures that have no text or lines, such as a PNG saved inside an SVG, have nothing for
-content scale to change, so the Inspector says so instead of showing the field. Resize the
-box to make them bigger.
+## Resizing a plot
+
+Plots saved with fluxplot 0.4 or later include measured layout information. Drag a plot's
+edge or corner, or type its width and height in the Inspector, to **Reflow** it: axes and data
+areas change size, numeric ticks are recomputed, and text, strokes and markers keep their
+physical point sizes. **Native size** restores the dimensions from Python. A deliberate
+size chosen in Flux survives regeneration; an untouched plot follows the new Python size.
+
+The Layout controls offer **Stretch** for the previous resize behavior. The status line
+explains whether the result is exact, reflowed, approximate, or stretching, with a reason.
+Legacy plots need one regeneration to enable reflow. Polar plots, 3D, subfigures, compressed
+layout and unsupported transforms use Stretch with a named reason. Date, category and custom
+ticks keep their source positions and labels. Extremely small sizes may crowd decorations;
+enlarge the plot when the status reports this.
+
+**Content scale** (or the **K** scale tool) changes the physical size of text, strokes and
+markers within the chosen box. Crop boundaries remain figure fractions during reflow.
+Pictures without text or lines, such as a PNG inside an SVG, have nothing for content scale
+to change, so the Inspector explains this instead of showing the field.
+
+Select several reflow-capable plots and use **Match plot area → Width / Height / Both** in
+Arrange to match their data areas. The anchor pin is the reference when selected; otherwise
+the first selected plot is the reference. This is one undo step. Then **Align plot areas**
+can align their reflowed spines. Aspect constraints and infeasible sizes are reported.
+A single panel picked in X-ray scopes that plot's data area for Match; other selected plots
+use their full panel union. Locked or excluded plots cannot be changed by Match.
 
 ## Axis view
 
@@ -834,6 +853,9 @@ its resolution. PDF pages use the figure’s physical dimensions.
 |---|---|
 | Ctrl+click won't select a part | The plot isn't semantic (imported without its manifest) → re-save via `fp.save` and re-import, or check `flux validate-plot` |
 | An import landed huge / outside the frame | True-size import of a large plot → **Ctrl+Shift+I** to bring it inside, then resize deliberately |
+| My plot stretches instead of reflowing | Read the Layout status. Regenerate legacy plots with fluxplot ≥ 0.4; choose Reflow if Stretch was selected. Unsupported layouts name their reason. |
+| Ticks look crowded | Enlarge the plot or reduce Content scale; fixed date/category/custom labels do not retick. |
+| A label moved oddly | Check the Layout status and source transform. Use Stretch for a positional fallback, or correct the source annotation and regenerate. |
 | Restyles vanished after regenerating | The plot's series names changed in the script → keep `series=` names stable ([why](../concepts/semantic-plots.qmd)) |
 | I see a grey 3D tile | Read the message inside it. Restore a missing GLB, or enable graphics support if rendering is unavailable. Saved posters can still display when a new render cannot be made. |
 | Orbit won't start | A notice says why: the model is locked or hidden (unlock or show it), its file is missing, rendering is unavailable, or another editing mode owns the interaction. Resolve that condition, then choose Orbit again. |

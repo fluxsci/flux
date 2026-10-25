@@ -208,15 +208,22 @@ export function guideData(manifest: FluxPlotManifest, root: Element, elId = ""):
   for (const node of Array.from(root.querySelectorAll("[id]"))) {
     const id = node.getAttribute("id") ?? "";
     if (!id.startsWith(prefix)) continue;
-    const leaf = id.slice(prefix.length), match = /(?:^|\.)axis\.(x|y|x2|y2)\.(?:tick|gridline|ticklabel|tick-label)\.\d+$/.exec(leaf);
+    const leaf = id.slice(prefix.length), match = /(?:^|\.)axis\.(x|y|x2|y2)\.(?:(?:minor|secondary)\.)*(?:tick|gridline|ticklabel|tick-label)\.(?:(?:minor|secondary)\.)*(?:\d+|r\d+)$/.exec(leaf);
     if (!match) continue;
     const axis = match[1] as PlotAxisKey, axes = guideAxes(manifest, leaf);
     const record = axes ? (axes as unknown as Record<string, FluxPlotAxis | undefined>)[axis] : undefined;
     if (!record || !usableAxis(record)) continue;
     const px = guidePixel(node, root, axis.startsWith("x") ? "x" : "y");
-    if (px !== null) out.set(leaf, { axis, value: dataOfPixel(axisFit(record), px) });
+    const explicit=node.getAttribute("data-value")??manifest.layout?.frames[leaf]?.value;
+    if(explicit!=null&&Number.isFinite(Number(explicit)))out.set(leaf,{axis,value:Number(explicit)});
+    else if (px !== null) out.set(leaf, { axis, value: dataOfPixel(axisFit(record), px) });
   }
   return out;
+}
+
+export function capturedAxis(manifest:FluxPlotManifest,panelId:string|undefined,axis:PlotAxisKey){
+  const a=manifest.axes.find(a=>a.panelId===panelId),id=a?.svgId??a?.id;
+  return manifest.layout?.axes.find(a=>a.id===(axis==='x2'||axis==='y2'?id+'.'+axis:id));
 }
 
 /** Whether a static view re-ticks `axis` of `panelId` (F4): the view names that axis, its fit
@@ -230,7 +237,8 @@ export function retickable(manifest: FluxPlotManifest, view: PlotView | undefine
   const axes = seriesAxes(manifest, { panelId } as FluxPlotSeries);
   const record = axes ? (axes as unknown as Record<string, (FluxPlotAxis & { tickLocator?: string; tickFormatter?: string }) | undefined>)[axis] : undefined;
   if (!record) return false;
-  if (!["auto", "multiple", "log"].includes(record.tickLocator ?? "auto") || !["plain", "log"].includes(record.tickFormatter ?? "plain")) return false;
+  const captured=capturedAxis(manifest,panelId,axis),canRetick=captured?.ticking[axis.startsWith('x')?'x':'y'].retick;
+  if(canRetick===false||canRetick===undefined&&(!["auto", "multiple", "log"].includes(record.tickLocator ?? "auto") || !["plain", "log"].includes(record.tickFormatter ?? "plain")))return false;
   const raw = viewFits(manifest, undefined, panelId), fits = viewFits(manifest, view, panelId);
   const a = raw?.[axis], b = fits?.[axis];
   return !!a && !!b && (a.m !== b.m || a.c !== b.c || a.log !== b.log);

@@ -651,12 +651,12 @@
             on:scrubStart={captureDimensions}
             on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "height", e.detail, dimensionBaselines.get(el.id)))} />
         </div>
-        {#if !slideMode}
+        {#if !slideMode && !(single.type==="plot"&&$plotManifests[single.assetId]?.layout?.supported)}
           <!-- Physical units stay hidden in slide mode: a slide shares the 96/in
                ruler but has no FIXED physical size (it projects at any scale). -->
           <p class="note phys">
             {size(single.width, single.height)}
-            {#if physRef && !atPhys}
+            {#if physRef && !atPhys && !(single.type==="plot"&&$plotManifests[single.assetId]?.layout?.supported&&single.layoutMode!=="stretch")}
               <span class="off-phys">· {Math.round((single.width / physRef.width) * 100)}% of true size</span>
               <button class="true-size" title="Reset to the {elCrop ? 'crop window' : 'source'}'s true physical size ({size(physRef.width, physRef.height)})" on:click={resetToPhysical}>True size</button>
             {/if}
@@ -669,6 +669,9 @@
           </p>
         {/if}
         {#if single.type === "plot"}
+          {#await import("./plot/LayoutControls.svelte") then module}
+            <svelte:component this={module.default} elementId={single.id} />
+          {/await}
           {#await import("./plot/AxisView.svelte") then module}
             <svelte:component this={module.default} elementId={single.id} />
           {/await}

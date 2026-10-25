@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="216pt" height="360pt" viewBox="0 0 216 360" version="1.1" data-fluxplot="1" data-plot-type="plot">
+  <defs>
+    <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+  </defs>
+  <g id="figure" data-role="figure" data-kind="container">
+    <g id="figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
+      <path d="M 0 360  L 216 360  L 216 0  L 0 0  z " style="fill: #ffffff"/>
+    </g>
+    <g id="panel.fixed-0.plot-area" data-role="plot-area" data-kind="container">
+      <g id="panel.fixed-0.axes.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 38.743209 54.652222  L 69.90272 54.652222  L 69.90272 18.118365  L 38.743209 18.118365  z " style="fill: #ffffff"/>
+      </g>
+      <g id="panel.fixed-0.axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
+        <g id="xtick_1">
+          <g id="panel.fixed-0.axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(39.873421 54.652222)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-0.axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="39.873421" y="69.249879" transform="rotate(-0 39.873421 69.249879)">0</text>
+          </g>
+        </g>
+        <g id="xtick_2">
+          <g id="panel.fixed-0.axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(68.486379 54.652222)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-0.axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="68.486379" y="69.249879" transform="rotate(-0 68.486379 69.249879)">10</text>
+          </g>
+        </g>
+        <g id="panel.fixed-0.axis.x.title" data-role="axis-title" data-axis="x" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="54.322964" y="83.25066" transform="rotate(-0 54.322964 83.25066)">Time (s)</text>
+        </g>
+      </g>
+      <g id="panel.fixed-0.axis.y" data-role="axis" data-axis="y" data-kind="container" data-ink-fill="axis">
+        <g id="ytick_1">
+          <g id="panel.fixed-0.axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(38.743209 52.992076)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-0.axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="31.743209" y="56.790904" transform="rotate(-0 31.743209 56.790904)">−1</text>
+          </g>
+        </g>
+        <g id="ytick_2">
+          <g id="panel.fixed-0.axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(38.743209 36.29077)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-0.axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="31.743209" y="40.089598" transform="rotate(-0 31.743209 40.089598)">0</text>
+          </g>
+        </g>
+        <g id="ytick_3">
+          <g id="panel.fixed-0.axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(38.743209 19.589464)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-0.axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="31.743209" y="23.388293" transform="rotate(-0 31.743209 23.388293)">1</text>
+          </g>
+        </g>
+        <g id="panel.fixed-0.axis.y.title" data-role="axis-title" data-axis="y" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="10.598677" y="36.385294" transform="rotate(-90 10.598677 36.385294)">Response</text>
+        </g>
+      </g>
+      <g id="panel.fixed-0.extra.line.0" data-role="extra" data-index="0" data-kind="line">
+        <path d="M 40.15955 34.623422  L 41.103778 29.328484  L 42.048005 24.784883  L 42.992233 21.482943  L 43.936461 19.778995  L 44.880688 19.85692  L 45.824916 21.708309  L 46.769143 25.13337  L 47.713371 29.762484  L 48.657599 35.096101  L 49.601826 40.55864  L 50.546054 45.560612  L 51.490282 49.562225  L 52.434509 52.131645  L 53.378737 52.991592  L 54.322964 52.049265  L 55.267192 49.406355  L 56.21142 45.348072  L 57.155647 40.312368  L 58.099875 34.842672  L 59.044102 29.529248  L 59.98833 24.945496  L 60.932558 21.586072  L 61.876785 19.813511  L 62.821013 19.819098  L 63.765241 21.602231  L 64.709468 24.970482  L 65.653696 29.560366  L 66.597923 34.876563  L 67.542151 40.345375  L 68.486379 45.376633  " clip-path="url(#p8a239f01db)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-0.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 38.743209 54.652222  L 38.743209 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-0.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 69.90272 54.652222  L 69.90272 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-0.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 38.743209 54.652222  L 69.90272 54.652222  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-0.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 38.743209 18.118365  L 69.90272 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-0.figure.title" data-role="title" data-kind="text" data-ink-fill="ink">
+        <text style="font-size: 12px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="54.322964" y="12.118365" transform="rotate(-0 54.322964 12.118365)">Experiment</text>
+      </g>
+    </g>
+    <g id="panel.fixed-1.plot-area" data-role="plot-area" data-kind="container">
+      <g id="panel.fixed-1.axes.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 38.743209 130.498588  L 69.90272 130.498588  L 69.90272 93.964731  L 38.743209 93.964731  z " style="fill: #ffffff"/>
+      </g>
+      <g id="panel.fixed-1.axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
+        <g id="xtick_3">
+          <g id="panel.fixed-1.axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(39.873421 130.498588)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-1.axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="39.873421" y="145.096244" transform="rotate(-0 39.873421 145.096244)">0</text>
+          </g>
+        </g>
+        <g id="xtick_4">
+          <g id="panel.fixed-1.axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(68.486379 130.498588)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-1.axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="68.486379" y="145.096244" transform="rotate(-0 68.486379 145.096244)">10</text>
+          </g>
+        </g>
+        <g id="panel.fixed-1.axis.x.title" data-role="axis-title" data-axis="x" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="54.322964" y="159.097026" transform="rotate(-0 54.322964 159.097026)">Time</text>
+        </g>
+      </g>
+      <g id="panel.fixed-1.axis.y" data-role="axis" data-axis="y" data-kind="container" data-ink-fill="axis">
+        <g id="ytick_4">
+          <g id="panel.fixed-1.axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(38.743209 128.838442)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-1.axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="31.743209" y="132.63727" transform="rotate(-0 31.743209 132.63727)">−1</text>
+          </g>
+        </g>
+        <g id="ytick_5">
+          <g id="panel.fixed-1.axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(38.743209 112.137136)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-1.axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="31.743209" y="115.935964" transform="rotate(-0 31.743209 115.935964)">0</text>
+          </g>
+        </g>
+        <g id="ytick_6">
+          <g id="panel.fixed-1.axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(38.743209 95.43583)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-1.axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="31.743209" y="99.234658" transform="rotate(-0 31.743209 99.234658)">1</text>
+          </g>
+        </g>
+        <g id="panel.fixed-1.axis.y.title" data-role="axis-title" data-axis="y" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="10.598677" y="112.231659" transform="rotate(-90 10.598677 112.231659)">Value</text>
+        </g>
+      </g>
+      <g id="panel.fixed-1.extra.line.0" data-role="extra" data-index="0" data-kind="line">
+        <path d="M 40.15955 110.469788  L 41.103778 105.174849  L 42.048005 100.631248  L 42.992233 97.329309  L 43.936461 95.625361  L 44.880688 95.703286  L 45.824916 97.554675  L 46.769143 100.979735  L 47.713371 105.60885  L 48.657599 110.942467  L 49.601826 116.405006  L 50.546054 121.406977  L 51.490282 125.408591  L 52.434509 127.978011  L 53.378737 128.837958  L 54.322964 127.895631  L 55.267192 125.252721  L 56.21142 121.194438  L 57.155647 116.158734  L 58.099875 110.689038  L 59.044102 105.375614  L 59.98833 100.791861  L 60.932558 97.432438  L 61.876785 95.659876  L 62.821013 95.665464  L 63.765241 97.448597  L 64.709468 100.816848  L 65.653696 105.406732  L 66.597923 110.722929  L 67.542151 116.191741  L 68.486379 121.222999  " clip-path="url(#p53cf05ff44)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-1.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 38.743209 130.498588  L 38.743209 93.964731  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-1.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 69.90272 130.498588  L 69.90272 93.964731  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-1.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 38.743209 130.498588  L 69.90272 130.498588  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-1.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 38.743209 93.964731  L 69.90272 93.964731  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+    </g>
+    <g id="panel.fixed-2.plot-area" data-role="plot-area" data-kind="container">
+      <g id="panel.fixed-2.axes.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 132.40827 325.998979  L 210.170206 325.998979  L 210.170206 3.00024  L 132.40827 3.00024  z " style="fill: #ffffff"/>
+      </g>
+      <g id="panel.fixed-2.axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
+        <g id="xtick_5">
+          <g id="panel.fixed-2.axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(135.228836 325.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="135.228836" y="340.596635" transform="rotate(-0 135.228836 340.596635)">0</text>
+          </g>
+        </g>
+        <g id="xtick_6">
+          <g id="panel.fixed-2.axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(206.635572 325.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="206.635572" y="340.596635" transform="rotate(-0 206.635572 340.596635)">10</text>
+          </g>
+        </g>
+        <g id="panel.fixed-2.axis.x.title" data-role="axis-title" data-axis="x" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="171.289238" y="354.597416" transform="rotate(-0 171.289238 354.597416)">Time</text>
+        </g>
+      </g>
+      <g id="panel.fixed-2.axis.y" data-role="axis" data-axis="y" data-kind="container" data-ink-fill="axis">
+        <g id="ytick_7">
+          <g id="panel.fixed-2.axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 311.321495)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="315.120323" transform="rotate(-0 125.40827 315.120323)">−1.00</text>
+          </g>
+        </g>
+        <g id="ytick_8">
+          <g id="panel.fixed-2.axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 274.407101)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="278.205929" transform="rotate(-0 125.40827 278.205929)">−0.75</text>
+          </g>
+        </g>
+        <g id="ytick_9">
+          <g id="panel.fixed-2.axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 237.492708)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="241.291536" transform="rotate(-0 125.40827 241.291536)">−0.50</text>
+          </g>
+        </g>
+        <g id="ytick_10">
+          <g id="panel.fixed-2.axis.y.tick.4" data-role="tick" data-axis="y" data-index="4" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 200.578315)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.4" data-role="tick-label" data-axis="y" data-index="4" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="204.377143" transform="rotate(-0 125.40827 204.377143)">−0.25</text>
+          </g>
+        </g>
+        <g id="ytick_11">
+          <g id="panel.fixed-2.axis.y.tick.5" data-role="tick" data-axis="y" data-index="5" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 163.663921)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.5" data-role="tick-label" data-axis="y" data-index="5" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="167.462749" transform="rotate(-0 125.40827 167.462749)">0.00</text>
+          </g>
+        </g>
+        <g id="ytick_12">
+          <g id="panel.fixed-2.axis.y.tick.6" data-role="tick" data-axis="y" data-index="6" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 126.749528)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.6" data-role="tick-label" data-axis="y" data-index="6" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="130.548356" transform="rotate(-0 125.40827 130.548356)">0.25</text>
+          </g>
+        </g>
+        <g id="ytick_13">
+          <g id="panel.fixed-2.axis.y.tick.7" data-role="tick" data-axis="y" data-index="7" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 89.835134)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.7" data-role="tick-label" data-axis="y" data-index="7" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="93.633963" transform="rotate(-0 125.40827 93.633963)">0.50</text>
+          </g>
+        </g>
+        <g id="ytick_14">
+          <g id="panel.fixed-2.axis.y.tick.8" data-role="tick" data-axis="y" data-index="8" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 52.920741)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.8" data-role="tick-label" data-axis="y" data-index="8" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="56.719569" transform="rotate(-0 125.40827 56.719569)">0.75</text>
+          </g>
+        </g>
+        <g id="ytick_15">
+          <g id="panel.fixed-2.axis.y.tick.9" data-role="tick" data-axis="y" data-index="9" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(132.40827 16.006348)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.fixed-2.axis.y.ticklabel.9" data-role="tick-label" data-axis="y" data-index="9" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="125.40827" y="19.805176" transform="rotate(-0 125.40827 19.805176)">1.00</text>
+          </g>
+        </g>
+        <g id="panel.fixed-2.axis.y.title" data-role="axis-title" data-axis="y" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="88.360613" y="164.499609" transform="rotate(-90 88.360613 164.499609)">Value</text>
+        </g>
+      </g>
+      <g id="panel.fixed-2.extra.line.0" data-role="extra" data-index="0" data-kind="line">
+        <path d="M 135.942903 148.922761  L 138.299325 102.10979  L 140.655748 61.939452  L 143.01217 32.746742  L 145.368592 17.682001  L 147.725015 18.370944  L 150.081437 34.739224  L 152.437859 65.020453  L 154.794281 105.946823  L 157.150704 153.101752  L 159.507126 201.3965  L 161.863548 245.619326  L 164.219971 280.997908  L 166.576393 303.714356  L 168.932815 311.317218  L 171.289238 302.986028  L 173.64566 279.619849  L 176.002082 243.74025  L 178.358504 199.219189  L 180.714927 150.86117  L 183.071349 103.884764  L 185.427771 63.359445  L 187.784194 33.658514  L 190.140616 17.987157  L 192.497038 18.036554  L 194.853461 33.801374  L 197.209883 63.580352  L 199.566305 104.159879  L 201.922727 151.160803  L 204.27915 199.511005  L 206.635572 243.992758  " clip-path="url(#pdb3458ed93)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-2.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 132.40827 325.998979  L 132.40827 3.00024  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-2.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 210.170206 325.998979  L 210.170206 3.00024  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-2.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 132.40827 325.998979  L 210.170206 325.998979  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.fixed-2.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 132.40827 3.00024  L 210.170206 3.00024  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+    </g>
+  </g>
+  <defs>
+    <clipPath id="p8a239f01db">
+      <rect x="38.743209" y="18.118365" width="31.159511" height="36.533857"/>
+    </clipPath>
+    <clipPath id="p53cf05ff44">
+      <rect x="38.743209" y="93.964731" width="31.159511" height="36.533857"/>
+    </clipPath>
+    <clipPath id="pdb3458ed93">
+      <rect x="132.40827" y="3.00024" width="77.761936" height="322.998739"/>
+    </clipPath>
+  </defs>
+</svg>

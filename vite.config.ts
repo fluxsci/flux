@@ -52,6 +52,9 @@ function cspStrict(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Worktrees can share node_modules. Their dependency graphs must not share
+  // Vite's default optimizer cache or one server invalidates another's imports.
+  cacheDir: path.resolve(".generated/vite-cache"),
   plugins: [svelte(), pdfjsAssets(), cspStrict(), {
     name: "flux-slide-embed-csp",
     transformIndexHtml(html) {
@@ -75,7 +78,7 @@ export default defineConfig({
   // "dependency optimized: …"). Listing them here makes the cold crawl complete, so the dev
   // server never re-optimizes mid-run. verify-dev-prebundle.ts (pure) finds every worker entry
   // (`new Worker(new URL(…))` targets and `?worker` imports) and pins their imports into this list.
-  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs", "three", "three/examples/jsm/loaders/GLTFLoader.js"] },
+  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs", "three", "three/examples/jsm/loaders/GLTFLoader.js", "@lume/kiwi"] },
 
   clearScreen: false,
 
@@ -86,6 +89,9 @@ export default defineConfig({
   worker: { format: "es", rolldownOptions: { checks: { pluginTimings: false } } },
 
   server: {
+    // Generated evidence and local investigation trees are not application
+    // inputs. Watching them can exhaust Linux inotify limits during long runs.
+    watch: { ignored: ["**/notes/**", "**/test-results/**", "**/.generated/**"] },
     // Worktrees may share a dependency directory via symlink. Permit only that
     // real dependency tree so imported WASM/assets remain readable in dev.
     fs: { allow: [searchForWorkspaceRoot(process.cwd()), fs.realpathSync("node_modules")] },

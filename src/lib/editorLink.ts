@@ -8,7 +8,7 @@
 type Project = import("./types").Project;
 export interface EditorCore {
   autoLetterPanels(p: Project, figId: string): { changed: boolean; letters: string[] };
-  applySourceUpdates(p: Project, updates: readonly { assetId: string; width: number; height: number }[]): unknown;
+  applySourceUpdates(p: Project, updates: readonly { assetId: string; width: number; height: number; layoutSupported?:boolean }[]): unknown;
 }
 
 let core: EditorCore | null = null;

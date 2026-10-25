@@ -18,6 +18,7 @@ import * as caps from "../captions";
 import * as bridge from "../project/figbridge";
 import * as referenceSync from "../project/figureReferenceSync";
 import * as plot from "../plot/store";
+import {relayoutPreviewStats} from "../plot/relayout/preview";
 import * as io from "../io";
 import * as text from "../text";
 import * as slide from "../slide/store";
@@ -52,6 +53,7 @@ export interface FluxDevHandle {
   referenceSync: typeof referenceSync;
   /** Plot runtime stores (plotDom, plotManifests, plotRecipes, plotGen). */
   plot: typeof plot;
+  relayoutPreviewStats:typeof relayoutPreviewStats;
   /** Asset/plot I/O incl. reimportPlot (F2 hot-swap). */
   io: typeof io;
   /** Text layout core (blockLayout, applyTextLayout, reflowTexts) — a seeded
@@ -101,7 +103,7 @@ export function installDevHandle(): void {
     caps,
     bridge,
     referenceSync,
-    plot,
+    plot,relayoutPreviewStats,
     io,
     text,
     slide,

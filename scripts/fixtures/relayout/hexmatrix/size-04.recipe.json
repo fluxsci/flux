@@ -1,0 +1,26 @@
+{
+  "env": null,
+  "generatedAt": "2026-10-24T02:20:14Z",
+  "inputs": [],
+  "outputs": {
+    "manifest": "size-04.fluxplot.json",
+    "svg": "size-04.svg"
+  },
+  "params": {
+    "__fluxplot__": {
+      "matrix": {
+        "cmap": "viridis",
+        "extend": "neither",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 2.5093279500266057,
+        "vmin": -2.582471228690378
+      }
+    }
+  },
+  "plot": "size-04",
+  "schemaVersion": "0.4.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

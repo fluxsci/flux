@@ -1,0 +1,2395 @@
+{
+  "artifact": {
+    "svgSha256": "82b1eaa25260eae4831a64aea33b31d30362cdabba2ed55fecbb0ba7eb4c1628"
+  },
+  "axes": [
+    {
+      "id": "plot-area",
+      "pixelBox": {
+        "x0": 160.0159563840334,
+        "x1": 559.9840436159666,
+        "y0": 18.118365000000054,
+        "y1": 351.6389787500001
+      },
+      "projection": "rectilinear",
+      "svgId": "plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -1.0,
+            "svg": 160.0159563840334
+          },
+          {
+            "data": 13.99038105676658,
+            "svg": 559.9840436159666
+          }
+        ],
+        "domain": [
+          -1.0,
+          13.99038105676658
+        ],
+        "label": "Time (s)",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "fixed",
+        "ticks": []
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": -1.0,
+            "svg": 351.6389787500001
+          },
+          {
+            "data": 11.5,
+            "svg": 18.118365000000054
+          }
+        ],
+        "domain": [
+          -1.0,
+          11.5
+        ],
+        "label": "Response",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "fixed",
+        "ticks": []
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "axis.x",
+      "axis.y",
+      "colorbar.color",
+      "figure.title",
+      "matrix.hexes"
+    ],
+    "presets": {
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "colorbar": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "title": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "x-hex": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "value",
+        "staggerMs": 4
+      },
+      "x-hexbin": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "value",
+        "staggerMs": 4
+      }
+    }
+  },
+  "colorScales": [
+    {
+      "colorbars": [
+        "colorbar.color"
+      ],
+      "colormap": {
+        "N": 256,
+        "bad": "#00000000",
+        "discrete": false,
+        "lut": [
+          "#440154ff",
+          "#440256ff",
+          "#450457ff",
+          "#450559ff",
+          "#46075aff",
+          "#46085cff",
+          "#460a5dff",
+          "#460b5eff",
+          "#470d60ff",
+          "#470e61ff",
+          "#471063ff",
+          "#471164ff",
+          "#471365ff",
+          "#481467ff",
+          "#481668ff",
+          "#481769ff",
+          "#48186aff",
+          "#481a6cff",
+          "#481b6dff",
+          "#481c6eff",
+          "#481d6fff",
+          "#481f70ff",
+          "#482071ff",
+          "#482173ff",
+          "#482374ff",
+          "#482475ff",
+          "#482576ff",
+          "#482677ff",
+          "#482878ff",
+          "#482979ff",
+          "#472a7aff",
+          "#472c7aff",
+          "#472d7bff",
+          "#472e7cff",
+          "#472f7dff",
+          "#46307eff",
+          "#46327eff",
+          "#46337fff",
+          "#463480ff",
+          "#453581ff",
+          "#453781ff",
+          "#453882ff",
+          "#443983ff",
+          "#443a83ff",
+          "#443b84ff",
+          "#433d84ff",
+          "#433e85ff",
+          "#423f85ff",
+          "#424086ff",
+          "#424186ff",
+          "#414287ff",
+          "#414487ff",
+          "#404588ff",
+          "#404688ff",
+          "#3f4788ff",
+          "#3f4889ff",
+          "#3e4989ff",
+          "#3e4a89ff",
+          "#3e4c8aff",
+          "#3d4d8aff",
+          "#3d4e8aff",
+          "#3c4f8aff",
+          "#3c508bff",
+          "#3b518bff",
+          "#3b528bff",
+          "#3a538bff",
+          "#3a548cff",
+          "#39558cff",
+          "#39568cff",
+          "#38588cff",
+          "#38598cff",
+          "#375a8cff",
+          "#375b8dff",
+          "#365c8dff",
+          "#365d8dff",
+          "#355e8dff",
+          "#355f8dff",
+          "#34608dff",
+          "#34618dff",
+          "#33628dff",
+          "#33638dff",
+          "#32648eff",
+          "#32658eff",
+          "#31668eff",
+          "#31678eff",
+          "#31688eff",
+          "#30698eff",
+          "#306a8eff",
+          "#2f6b8eff",
+          "#2f6c8eff",
+          "#2e6d8eff",
+          "#2e6e8eff",
+          "#2e6f8eff",
+          "#2d708eff",
+          "#2d718eff",
+          "#2c718eff",
+          "#2c728eff",
+          "#2c738eff",
+          "#2b748eff",
+          "#2b758eff",
+          "#2a768eff",
+          "#2a778eff",
+          "#2a788eff",
+          "#29798eff",
+          "#297a8eff",
+          "#297b8eff",
+          "#287c8eff",
+          "#287d8eff",
+          "#277e8eff",
+          "#277f8eff",
+          "#27808eff",
+          "#26818eff",
+          "#26828eff",
+          "#26828eff",
+          "#25838eff",
+          "#25848eff",
+          "#25858eff",
+          "#24868eff",
+          "#24878eff",
+          "#23888eff",
+          "#23898eff",
+          "#238a8dff",
+          "#228b8dff",
+          "#228c8dff",
+          "#228d8dff",
+          "#218e8dff",
+          "#218f8dff",
+          "#21908dff",
+          "#21918cff",
+          "#20928cff",
+          "#20928cff",
+          "#20938cff",
+          "#1f948cff",
+          "#1f958bff",
+          "#1f968bff",
+          "#1f978bff",
+          "#1f988bff",
+          "#1f998aff",
+          "#1f9a8aff",
+          "#1e9b8aff",
+          "#1e9c89ff",
+          "#1e9d89ff",
+          "#1f9e89ff",
+          "#1f9f88ff",
+          "#1fa088ff",
+          "#1fa188ff",
+          "#1fa187ff",
+          "#1fa287ff",
+          "#20a386ff",
+          "#20a486ff",
+          "#21a585ff",
+          "#21a685ff",
+          "#22a785ff",
+          "#22a884ff",
+          "#23a983ff",
+          "#24aa83ff",
+          "#25ab82ff",
+          "#25ac82ff",
+          "#26ad81ff",
+          "#27ad81ff",
+          "#28ae80ff",
+          "#29af7fff",
+          "#2ab07fff",
+          "#2cb17eff",
+          "#2db27dff",
+          "#2eb37cff",
+          "#2fb47cff",
+          "#31b57bff",
+          "#32b67aff",
+          "#34b679ff",
+          "#35b779ff",
+          "#37b878ff",
+          "#38b977ff",
+          "#3aba76ff",
+          "#3bbb75ff",
+          "#3dbc74ff",
+          "#3fbc73ff",
+          "#40bd72ff",
+          "#42be71ff",
+          "#44bf70ff",
+          "#46c06fff",
+          "#48c16eff",
+          "#4ac16dff",
+          "#4cc26cff",
+          "#4ec36bff",
+          "#50c46aff",
+          "#52c569ff",
+          "#54c568ff",
+          "#56c667ff",
+          "#58c765ff",
+          "#5ac864ff",
+          "#5cc863ff",
+          "#5ec962ff",
+          "#60ca60ff",
+          "#63cb5fff",
+          "#65cb5eff",
+          "#67cc5cff",
+          "#69cd5bff",
+          "#6ccd5aff",
+          "#6ece58ff",
+          "#70cf57ff",
+          "#73d056ff",
+          "#75d054ff",
+          "#77d153ff",
+          "#7ad151ff",
+          "#7cd250ff",
+          "#7fd34eff",
+          "#81d34dff",
+          "#84d44bff",
+          "#86d549ff",
+          "#89d548ff",
+          "#8bd646ff",
+          "#8ed645ff",
+          "#90d743ff",
+          "#93d741ff",
+          "#95d840ff",
+          "#98d83eff",
+          "#9bd93cff",
+          "#9dd93bff",
+          "#a0da39ff",
+          "#a2da37ff",
+          "#a5db36ff",
+          "#a8db34ff",
+          "#aadc32ff",
+          "#addc30ff",
+          "#b0dd2fff",
+          "#b2dd2dff",
+          "#b5de2bff",
+          "#b8de29ff",
+          "#bade28ff",
+          "#bddf26ff",
+          "#c0df25ff",
+          "#c2df23ff",
+          "#c5e021ff",
+          "#c8e020ff",
+          "#cae11fff",
+          "#cde11dff",
+          "#d0e11cff",
+          "#d2e21bff",
+          "#d5e21aff",
+          "#d8e219ff",
+          "#dae319ff",
+          "#dde318ff",
+          "#dfe318ff",
+          "#e2e418ff",
+          "#e5e419ff",
+          "#e7e419ff",
+          "#eae51aff",
+          "#ece51bff",
+          "#efe51cff",
+          "#f1e51dff",
+          "#f4e61eff",
+          "#f6e620ff",
+          "#f8e621ff",
+          "#fbe723ff",
+          "#fde725ff"
+        ],
+        "name": "viridis",
+        "over": "#fde725ff",
+        "source": "matplotlib",
+        "under": "#440154ff"
+      },
+      "editable": {
+        "center": false,
+        "cmap": true,
+        "limits": true,
+        "normKinds": [
+          "linear",
+          "log",
+          "power",
+          "symlog"
+        ]
+      },
+      "id": "matrix",
+      "kind": "continuous",
+      "label": null,
+      "mappables": [
+        "matrix.hexes"
+      ],
+      "norm": {
+        "clip": false,
+        "extend": "neither",
+        "kind": "linear",
+        "vmax": 2.5093279500266057,
+        "vmin": -2.582471228690378
+      },
+      "recolor": "live"
+    }
+  ],
+  "figure": {
+    "background": "figure.background"
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.4.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "axis.x",
+      "role": "axis",
+      "svgId": "axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "axis.y",
+      "role": "axis",
+      "svgId": "axis.y"
+    },
+    {
+      "anchors": [
+        {
+          "svg": 351.63897875000004,
+          "value": -2.582471228690378
+        },
+        {
+          "svg": 18.118365000000054,
+          "value": 2.5093279500266057
+        }
+      ],
+      "axisLength": 333.52061375,
+      "cmap": "viridis",
+      "colorScale": "matrix",
+      "extend": "neither",
+      "id": "colorbar.color",
+      "label": "",
+      "mappable": "matrix.hexes",
+      "normalization": {
+        "clip": false,
+        "kind": "Normalize",
+        "vmax": 2.5093279500266057,
+        "vmin": -2.582471228690378
+      },
+      "orientation": "vertical",
+      "parts": [
+        {
+          "kind": "line",
+          "role": "colorbar-outline",
+          "svgId": "colorbar.color.outline"
+        },
+        {
+          "kind": "shape",
+          "role": "background",
+          "svgId": "colorbar.color.background"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-divider",
+          "svgId": "colorbar.color.divider"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.1"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.1"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.2"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.2"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.3"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.3"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.4"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.4"
+        },
+        {
+          "kind": "line",
+          "role": "colorbar-tick",
+          "svgId": "colorbar.color.tick.5"
+        },
+        {
+          "kind": "text",
+          "role": "colorbar-tick-label",
+          "svgId": "colorbar.color.tick-label.5"
+        },
+        {
+          "kind": "shape",
+          "role": "colorbar-solids",
+          "svgId": "colorbar.color.solids"
+        }
+      ],
+      "role": "colorbar",
+      "svgId": "colorbar.color",
+      "tickFormatter": "plain",
+      "tickLocator": "auto",
+      "ticks": [
+        -2.0,
+        -1.0,
+        0.0,
+        1.0,
+        2.0
+      ]
+    }
+  ],
+  "layout": {
+    "axes": [
+      {
+        "adjustable": "box",
+        "anchor": "C",
+        "aspect": 1.0,
+        "axisStyle": {
+          "x": {
+            "font": "f0",
+            "label": "axis.x.title",
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "center",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "bottom",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                559.984043615967,
+                354.63897875
+              ],
+              "font": "f0",
+              "ha": "right",
+              "id": "axis.x.offset-text",
+              "rotation": 0.0,
+              "va": "top"
+            },
+            "offsetText": null,
+            "side": "bottom",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          },
+          "y": {
+            "font": "f0",
+            "label": "axis.y.title",
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "right",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "left",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                160.015956384033,
+                15.118365
+              ],
+              "font": "f0",
+              "ha": "left",
+              "id": "axis.y.offset-text",
+              "rotation": 0.0,
+              "va": "baseline"
+            },
+            "offsetText": null,
+            "side": "left",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          }
+        },
+        "boxAspect": null,
+        "dataLim": {
+          "x": [
+            null,
+            null
+          ],
+          "y": [
+            null,
+            null
+          ]
+        },
+        "dataRatio": 0.83386806197015,
+        "extraLayoutIds": [
+          "colorbar.color",
+          "axes.background"
+        ],
+        "id": "plot-area",
+        "inLayout": true,
+        "initialDomain": {
+          "x": [
+            -1.0,
+            13.9903810567666
+          ],
+          "y": [
+            -1.0,
+            11.5
+          ]
+        },
+        "initialPosition": [
+          0.125,
+          0.11,
+          0.775,
+          0.77
+        ],
+        "inset": null,
+        "margins": [
+          14.0,
+          14.00078125,
+          0.0,
+          15.118125
+        ],
+        "pixelBox": [
+          160.015956384033,
+          18.118365,
+          559.984043615967,
+          351.63897875
+        ],
+        "position": [
+          0.004167,
+          0.0461182217068142,
+          0.991666,
+          0.904732567681207
+        ],
+        "positionMode": "grid",
+        "sharex": null,
+        "sharey": null,
+        "slot": {
+          "cols": [
+            0,
+            0
+          ],
+          "grid": "g0",
+          "rows": [
+            0,
+            0
+          ]
+        },
+        "ticking": {
+          "x": {
+            "domain": [
+              -1.0,
+              13.9903810567666
+            ],
+            "formatter": {
+              "kind": "scalar",
+              "offset": null,
+              "offsetThreshold": 4,
+              "powerlimits": [
+                -5,
+                6
+              ],
+              "scientific": true,
+              "unicodeMinus": true,
+              "useLocale": false,
+              "useMathText": false,
+              "useOffset": true
+            },
+            "labels": [],
+            "major": {
+              "kind": "fixed"
+            },
+            "minor": {
+              "kind": "null"
+            },
+            "minorFormatter": {
+              "kind": "fixed"
+            },
+            "minorLabels": [],
+            "minorRetick": false,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": false,
+            "scale": "linear",
+            "values": []
+          },
+          "y": {
+            "domain": [
+              -1.0,
+              11.5
+            ],
+            "formatter": {
+              "kind": "scalar",
+              "offset": null,
+              "offsetThreshold": 4,
+              "powerlimits": [
+                -5,
+                6
+              ],
+              "scientific": true,
+              "unicodeMinus": true,
+              "useLocale": false,
+              "useMathText": false,
+              "useOffset": true
+            },
+            "labels": [],
+            "major": {
+              "kind": "fixed"
+            },
+            "minor": {
+              "kind": "null"
+            },
+            "minorFormatter": {
+              "kind": "fixed"
+            },
+            "minorLabels": [],
+            "minorRetick": false,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": false,
+            "scale": "linear",
+            "values": []
+          }
+        },
+        "title": {
+          "center": "figure.title",
+          "left": null,
+          "padPt": 6.0,
+          "right": null
+        },
+        "twins": []
+      }
+    ],
+    "colorbars": [
+      {
+        "adjustable": "box",
+        "anchor": [
+          0,
+          0.5
+        ],
+        "aspect": 20,
+        "axisStyle": {
+          "x": {
+            "font": "f0",
+            "label": null,
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "center",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "bottom",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                595.981171466841,
+                354.63897875
+              ],
+              "font": "f0",
+              "ha": "right",
+              "id": null,
+              "rotation": 0.0,
+              "va": "top"
+            },
+            "offsetText": null,
+            "side": "bottom",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          },
+          "y": {
+            "font": "f0",
+            "label": null,
+            "labelAuto": true,
+            "labelBottom": false,
+            "labelHa": "left",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "right",
+            "labelTop": true,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                595.981171466841,
+                15.118365
+              ],
+              "font": "f0",
+              "ha": "right",
+              "id": "colorbar.color.offset",
+              "rotation": 0.0,
+              "va": "baseline"
+            },
+            "offsetText": null,
+            "side": "right",
+            "tickBottom": false,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": true,
+            "visible": true
+          }
+        },
+        "boxAspect": null,
+        "dataAspect": "auto",
+        "dataLim": {
+          "x": [
+            0.0,
+            1.0
+          ],
+          "y": [
+            -2.58247122869038,
+            2.50932795002661
+          ]
+        },
+        "dataRatio": 5.09179917871698,
+        "extendFrac": null,
+        "extraLayoutIds": [
+          "colorbar.color.divider",
+          "colorbar.color.outline",
+          "colorbar.color.background"
+        ],
+        "fraction": 0.15,
+        "id": "colorbar.color",
+        "inLayout": true,
+        "initialDomain": {
+          "x": [
+            0.0,
+            1.0
+          ],
+          "y": [
+            -2.58247122869038,
+            2.50932795002661
+          ]
+        },
+        "initialPosition": [
+          0.931,
+          0.11,
+          0.0387500000000001,
+          0.77
+        ],
+        "inset": {
+          "bounds": [
+            1.04,
+            0,
+            0.05,
+            1
+          ],
+          "frame": "axes",
+          "parent": "plot-area"
+        },
+        "location": "right",
+        "managed": false,
+        "margins": [
+          0.0,
+          0.0,
+          21.7421875,
+          0.0
+        ],
+        "orientation": "vertical",
+        "padFrac": 0.05,
+        "panchor": [
+          1,
+          0.5
+        ],
+        "parents": [
+          "plot-area"
+        ],
+        "pixelBox": [
+          575.982767105244,
+          18.118365,
+          595.981171466841,
+          351.63897875
+        ],
+        "position": [
+          0.931,
+          0.11,
+          0.0387500000000001,
+          0.77
+        ],
+        "positionMode": "inset",
+        "sharex": null,
+        "sharey": null,
+        "shrink": 1,
+        "slot": null,
+        "ticking": {
+          "x": {
+            "domain": [
+              0.0,
+              1.0
+            ],
+            "formatter": {
+              "kind": "scalar",
+              "offset": null,
+              "offsetThreshold": 4,
+              "powerlimits": [
+                -5,
+                6
+              ],
+              "scientific": true,
+              "unicodeMinus": true,
+              "useLocale": false,
+              "useMathText": false,
+              "useOffset": true
+            },
+            "labels": [],
+            "major": {
+              "kind": "fixed"
+            },
+            "minor": {
+              "kind": "fixed"
+            },
+            "minorFormatter": {
+              "kind": "fixed"
+            },
+            "minorLabels": [],
+            "minorRetick": false,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": false,
+            "scale": "linear",
+            "values": []
+          },
+          "y": {
+            "domain": [
+              -2.58247122869038,
+              2.50932795002661
+            ],
+            "formatter": {
+              "kind": "scalar",
+              "offset": null,
+              "offsetThreshold": 4,
+              "powerlimits": [
+                -5,
+                6
+              ],
+              "scientific": true,
+              "unicodeMinus": true,
+              "useLocale": false,
+              "useMathText": false,
+              "useOffset": true
+            },
+            "labels": [
+              "−3",
+              "−2",
+              "−1",
+              "0",
+              "1",
+              "2",
+              "3"
+            ],
+            "major": {
+              "integer": false,
+              "kind": "maxn",
+              "minNTicks": 2,
+              "nbins": "auto",
+              "prune": null,
+              "steps": [
+                1.0,
+                2.0,
+                2.5,
+                5.0,
+                10.0
+              ],
+              "symmetric": false
+            },
+            "minor": {
+              "kind": "null"
+            },
+            "minorFormatter": {
+              "kind": "fixed"
+            },
+            "minorLabels": [],
+            "minorRetick": false,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": true,
+            "scale": "linear",
+            "values": [
+              -3.0,
+              -2.0,
+              -1.0,
+              0.0,
+              1.0,
+              2.0,
+              3.0
+            ]
+          }
+        },
+        "title": {
+          "center": null,
+          "left": null,
+          "padPt": 6.0,
+          "right": null
+        },
+        "twins": []
+      }
+    ],
+    "engine": {
+      "hPad": 3.00024,
+      "hSpace": 0.02,
+      "kind": "constrained",
+      "rect": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "wPad": 3.00024,
+      "wSpace": 0.02
+    },
+    "figure": {
+      "auto": {
+        "suptitle": false,
+        "supxlabel": false,
+        "supylabel": false
+      },
+      "heightPt": 368.64,
+      "suptitle": null,
+      "supxlabel": null,
+      "supylabel": null,
+      "widthPt": 720.0
+    },
+    "fonts": {
+      "f0": {
+        "advances": {
+          " ": 3.178125,
+          "%": 9.5015625,
+          "(": 3.9015625,
+          ")": 3.9015625,
+          "+": 8.3796875,
+          ",": 3.178125,
+          "-": 3.6078125,
+          ".": 3.178125,
+          "0": 6.3625,
+          "1": 6.3625,
+          "2": 6.3625,
+          "3": 6.3625,
+          "4": 6.3625,
+          "5": 6.3625,
+          "6": 6.3625,
+          "7": 6.3625,
+          "8": 6.3625,
+          "9": 6.3625,
+          "E": 6.31875,
+          "e": 6.153125,
+          "×": 8.3796875,
+          "−": 8.3796875
+        },
+        "ascentPt": 7.5984375,
+        "descentPt": 2.0796875,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 12.8203125,
+          "coeffPrefixPt": 18.6376953125,
+          "minusAdvancePt": 5.865234375,
+          "powerDescentPt": 0.2,
+          "powerHeightPt": 9.6,
+          "powerRawWidthPt": 17.54736328125,
+          "powerWidthPt": 17.6,
+          "quantumPt": 0.1,
+          "supAdvancePt": 4.45361328125,
+          "supRisePt": 4.13,
+          "supScale": 0.7,
+          "timesPadPt": 1.948046875
+        },
+        "sizePt": 10.0,
+        "style": "normal",
+        "weight": "normal"
+      },
+      "f1": {
+        "advances": {
+          " ": 3.81375,
+          "%": 11.401875,
+          "(": 4.681875,
+          ")": 4.681875,
+          "+": 10.055625,
+          ",": 3.81375,
+          "-": 4.329375,
+          ".": 3.81375,
+          "0": 7.635,
+          "1": 7.635,
+          "2": 7.635,
+          "3": 7.635,
+          "4": 7.635,
+          "5": 7.635,
+          "6": 7.635,
+          "7": 7.635,
+          "8": 7.635,
+          "9": 7.635,
+          "E": 7.5825,
+          "e": 7.38375,
+          "×": 10.055625,
+          "−": 10.055625
+        },
+        "ascentPt": 9.118125,
+        "descentPt": 2.495625,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 15.384375,
+          "coeffPrefixPt": 22.365234375,
+          "minusAdvancePt": 7.03828125,
+          "powerDescentPt": 0.24,
+          "powerHeightPt": 11.52,
+          "powerRawWidthPt": 21.0568359375,
+          "powerWidthPt": 21.12,
+          "quantumPt": 0.12,
+          "supAdvancePt": 5.3443359375,
+          "supRisePt": 4.956,
+          "supScale": 0.7,
+          "timesPadPt": 2.33765625
+        },
+        "sizePt": 12.0,
+        "style": "normal",
+        "weight": "normal"
+      }
+    },
+    "frames": {
+      "axes.background": {
+        "axes": "plot-area",
+        "f": "axes",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "axis.x.title": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "title"
+      },
+      "axis.y.title": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "title"
+      },
+      "colorbar.color.background": {
+        "axes": "colorbar.color",
+        "f": "axes",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "colorbar.color.divider": {
+        "axes": "colorbar.color",
+        "f": "data"
+      },
+      "colorbar.color.outline": {
+        "axes": "colorbar.color",
+        "f": "axes",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "colorbar.color.solids": {
+        "axes": "colorbar.color",
+        "f": "data"
+      },
+      "colorbar.color.tick-label.1": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "right",
+        "value": -2.0
+      },
+      "colorbar.color.tick-label.2": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "right",
+        "value": -1.0
+      },
+      "colorbar.color.tick-label.3": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "right",
+        "value": 0.0
+      },
+      "colorbar.color.tick-label.4": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "right",
+        "value": 1.0
+      },
+      "colorbar.color.tick-label.5": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "right",
+        "value": 2.0
+      },
+      "colorbar.color.tick.1": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "right",
+        "value": -2.0
+      },
+      "colorbar.color.tick.2": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "right",
+        "value": -1.0
+      },
+      "colorbar.color.tick.3": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "right",
+        "value": 0.0
+      },
+      "colorbar.color.tick.4": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "right",
+        "value": 1.0
+      },
+      "colorbar.color.tick.5": {
+        "axes": "colorbar.color",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "right",
+        "value": 2.0
+      },
+      "figure.background": {
+        "f": "figure",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "figure.title": {
+        "axes": "plot-area",
+        "f": "title",
+        "slot": "center"
+      },
+      "matrix.hexes": {
+        "axes": "plot-area",
+        "f": "data"
+      }
+    },
+    "grids": [
+      {
+        "heightRatios": [
+          1
+        ],
+        "hspace": null,
+        "id": "g0",
+        "ncols": 1,
+        "nrows": 1,
+        "parent": null,
+        "widthRatios": [
+          1
+        ],
+        "wspace": null
+      }
+    ],
+    "legends": [],
+    "reasons": [],
+    "supported": true,
+    "texts": {
+      "axis.x.title": {
+        "anchor": [
+          360.0,
+          355.63897875
+        ],
+        "bbox": [
+          339.66875,
+          355.63897875,
+          380.33125,
+          365.63976
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "Time (s)",
+        "va": "top"
+      },
+      "axis.y.title": {
+        "anchor": [
+          156.015956384033,
+          184.878671875
+        ],
+        "bbox": [
+          146.015956384033,
+          160.863828125,
+          156.015956384033,
+          208.893515625
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 90.0,
+        "text": "Response",
+        "va": "bottom"
+      },
+      "colorbar.color.tick-label.1": {
+        "anchor": [
+          602.981171466841,
+          313.486224710419
+        ],
+        "bbox": [
+          602.981171466841,
+          309.687396585419,
+          617.723358966841,
+          319.687396585419
+        ],
+        "font": "f0",
+        "ha": "left",
+        "rotation": 0.0,
+        "text": "−2",
+        "va": "center_baseline"
+      },
+      "colorbar.color.tick-label.2": {
+        "anchor": [
+          602.981171466841,
+          247.984699209556
+        ],
+        "bbox": [
+          602.981171466841,
+          244.185871084556,
+          617.723358966841,
+          254.185871084556
+        ],
+        "font": "f0",
+        "ha": "left",
+        "rotation": 0.0,
+        "text": "−1",
+        "va": "center_baseline"
+      },
+      "colorbar.color.tick-label.3": {
+        "anchor": [
+          602.981171466841,
+          182.483173708694
+        ],
+        "bbox": [
+          602.981171466841,
+          178.684345583694,
+          609.343671466841,
+          188.684345583694
+        ],
+        "font": "f0",
+        "ha": "left",
+        "rotation": 0.0,
+        "text": "0",
+        "va": "center_baseline"
+      },
+      "colorbar.color.tick-label.4": {
+        "anchor": [
+          602.981171466841,
+          116.981648207832
+        ],
+        "bbox": [
+          602.981171466841,
+          113.182820082832,
+          609.343671466841,
+          123.182820082832
+        ],
+        "font": "f0",
+        "ha": "left",
+        "rotation": 0.0,
+        "text": "1",
+        "va": "center_baseline"
+      },
+      "colorbar.color.tick-label.5": {
+        "anchor": [
+          602.981171466841,
+          51.4801227069697
+        ],
+        "bbox": [
+          602.981171466841,
+          47.6812945819697,
+          609.343671466841,
+          57.6812945819697
+        ],
+        "font": "f0",
+        "ha": "left",
+        "rotation": 0.0,
+        "text": "2",
+        "va": "center_baseline"
+      },
+      "figure.title": {
+        "anchor": [
+          360.0,
+          12.118365
+        ],
+        "bbox": [
+          325.3321875,
+          3.00024000000002,
+          394.6678125,
+          15.0011775
+        ],
+        "font": "f1",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "Experiment",
+        "va": "baseline"
+      }
+    },
+    "version": 1
+  },
+  "overlays": [],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "kind": "shape",
+            "ref": "axes.background",
+            "role": "background"
+          },
+          {
+            "axis": "x",
+            "children": [
+              {
+                "kind": "text",
+                "ref": "axis.x.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.x",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "axis": "y",
+            "children": [
+              {
+                "kind": "text",
+                "ref": "axis.y.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.y",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "children": [
+              {
+                "groupRole": "x-hexbin",
+                "id": "matrix.hexes",
+                "kind": "shape",
+                "memberRole": "x-hex",
+                "members": [
+                  "matrix.hex.0.0",
+                  "matrix.hex.0.1",
+                  "matrix.hex.0.2",
+                  "matrix.hex.0.3",
+                  "matrix.hex.0.4",
+                  "matrix.hex.0.5",
+                  "matrix.hex.0.6",
+                  "matrix.hex.0.7",
+                  "matrix.hex.1.0",
+                  "matrix.hex.1.1",
+                  "matrix.hex.1.2",
+                  "matrix.hex.1.3",
+                  "matrix.hex.1.4",
+                  "matrix.hex.1.5",
+                  "matrix.hex.1.6",
+                  "matrix.hex.1.7",
+                  "matrix.hex.2.0",
+                  "matrix.hex.2.1",
+                  "matrix.hex.2.2",
+                  "matrix.hex.2.3",
+                  "matrix.hex.2.4",
+                  "matrix.hex.2.5",
+                  "matrix.hex.2.6",
+                  "matrix.hex.2.7",
+                  "matrix.hex.3.0",
+                  "matrix.hex.3.1",
+                  "matrix.hex.3.2",
+                  "matrix.hex.3.3",
+                  "matrix.hex.3.4",
+                  "matrix.hex.3.5",
+                  "matrix.hex.3.6",
+                  "matrix.hex.3.7",
+                  "matrix.hex.4.0",
+                  "matrix.hex.4.1",
+                  "matrix.hex.4.2",
+                  "matrix.hex.4.3",
+                  "matrix.hex.4.4",
+                  "matrix.hex.4.5",
+                  "matrix.hex.4.6",
+                  "matrix.hex.4.7",
+                  "matrix.hex.5.0",
+                  "matrix.hex.5.1",
+                  "matrix.hex.5.2",
+                  "matrix.hex.5.3",
+                  "matrix.hex.5.4",
+                  "matrix.hex.5.5",
+                  "matrix.hex.5.6",
+                  "matrix.hex.5.7",
+                  "matrix.hex.6.0",
+                  "matrix.hex.6.1",
+                  "matrix.hex.6.2",
+                  "matrix.hex.6.3",
+                  "matrix.hex.6.4",
+                  "matrix.hex.6.5",
+                  "matrix.hex.6.6",
+                  "matrix.hex.6.7",
+                  "matrix.hex.7.0",
+                  "matrix.hex.7.1",
+                  "matrix.hex.7.2",
+                  "matrix.hex.7.3",
+                  "matrix.hex.7.4",
+                  "matrix.hex.7.5",
+                  "matrix.hex.7.6",
+                  "matrix.hex.7.7"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "matrix",
+            "kind": "container",
+            "label": "matrix",
+            "role": "series"
+          }
+        ],
+        "id": "plot-area",
+        "kind": "container",
+        "role": "plot-area"
+      },
+      {
+        "kind": "text",
+        "ref": "figure.title",
+        "role": "title"
+      },
+      {
+        "children": [
+          {
+            "groupRole": "tick",
+            "id": "colorbar.color.ticks",
+            "kind": "line",
+            "memberRole": "tick",
+            "members": [
+              "colorbar.color.tick.1",
+              "colorbar.color.tick.2",
+              "colorbar.color.tick.3",
+              "colorbar.color.tick.4",
+              "colorbar.color.tick.5"
+            ],
+            "role": "group"
+          },
+          {
+            "groupRole": "tick-label",
+            "id": "colorbar.color.tick-labels",
+            "kind": "text",
+            "memberRole": "tick-label",
+            "members": [
+              "colorbar.color.tick-label.1",
+              "colorbar.color.tick-label.2",
+              "colorbar.color.tick-label.3",
+              "colorbar.color.tick-label.4",
+              "colorbar.color.tick-label.5"
+            ],
+            "role": "group"
+          },
+          {
+            "kind": "line",
+            "ref": "colorbar.color.outline",
+            "role": "colorbar-outline"
+          },
+          {
+            "kind": "shape",
+            "ref": "colorbar.color.background",
+            "role": "background"
+          },
+          {
+            "kind": "line",
+            "ref": "colorbar.color.divider",
+            "role": "colorbar-divider"
+          },
+          {
+            "kind": "shape",
+            "ref": "colorbar.color.solids",
+            "role": "colorbar-solids"
+          }
+        ],
+        "id": "colorbar.color",
+        "kind": "container",
+        "role": "colorbar"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "hexmatrix",
+  "schemaVersion": "0.4.0",
+  "series": [
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": true
+      },
+      "color": {
+        "hex": "varies",
+        "scale": "matrix"
+      },
+      "components": [
+        {
+          "memberRole": "x-hex",
+          "members": [
+            "matrix.hex.0.0",
+            "matrix.hex.0.1",
+            "matrix.hex.0.2",
+            "matrix.hex.0.3",
+            "matrix.hex.0.4",
+            "matrix.hex.0.5",
+            "matrix.hex.0.6",
+            "matrix.hex.0.7",
+            "matrix.hex.1.0",
+            "matrix.hex.1.1",
+            "matrix.hex.1.2",
+            "matrix.hex.1.3",
+            "matrix.hex.1.4",
+            "matrix.hex.1.5",
+            "matrix.hex.1.6",
+            "matrix.hex.1.7",
+            "matrix.hex.2.0",
+            "matrix.hex.2.1",
+            "matrix.hex.2.2",
+            "matrix.hex.2.3",
+            "matrix.hex.2.4",
+            "matrix.hex.2.5",
+            "matrix.hex.2.6",
+            "matrix.hex.2.7",
+            "matrix.hex.3.0",
+            "matrix.hex.3.1",
+            "matrix.hex.3.2",
+            "matrix.hex.3.3",
+            "matrix.hex.3.4",
+            "matrix.hex.3.5",
+            "matrix.hex.3.6",
+            "matrix.hex.3.7",
+            "matrix.hex.4.0",
+            "matrix.hex.4.1",
+            "matrix.hex.4.2",
+            "matrix.hex.4.3",
+            "matrix.hex.4.4",
+            "matrix.hex.4.5",
+            "matrix.hex.4.6",
+            "matrix.hex.4.7",
+            "matrix.hex.5.0",
+            "matrix.hex.5.1",
+            "matrix.hex.5.2",
+            "matrix.hex.5.3",
+            "matrix.hex.5.4",
+            "matrix.hex.5.5",
+            "matrix.hex.5.6",
+            "matrix.hex.5.7",
+            "matrix.hex.6.0",
+            "matrix.hex.6.1",
+            "matrix.hex.6.2",
+            "matrix.hex.6.3",
+            "matrix.hex.6.4",
+            "matrix.hex.6.5",
+            "matrix.hex.6.6",
+            "matrix.hex.6.7",
+            "matrix.hex.7.0",
+            "matrix.hex.7.1",
+            "matrix.hex.7.2",
+            "matrix.hex.7.3",
+            "matrix.hex.7.4",
+            "matrix.hex.7.5",
+            "matrix.hex.7.6",
+            "matrix.hex.7.7"
+          ],
+          "role": "x-hexbin",
+          "svgId": "matrix.hexes"
+        }
+      ],
+      "data": {},
+      "field": {
+        "cmap": "viridis",
+        "cmapSpec": "viridis",
+        "colorScale": "matrix",
+        "controlKey": "matrix",
+        "extend": "neither",
+        "kind": "hexbin",
+        "label": null,
+        "missingColor": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normalization": {
+          "clip": false,
+          "kind": "Normalize",
+          "vmax": 2.5093279500266057,
+          "vmin": -2.582471228690378
+        },
+        "overColor": [
+          0.993248,
+          0.906157,
+          0.143936,
+          1.0
+        ],
+        "shape": [
+          64
+        ],
+        "underColor": [
+          0.267004,
+          0.004874,
+          0.329415,
+          1.0
+        ]
+      },
+      "hexmatrix": {
+        "aspect": "auto",
+        "bins": [
+          {
+            "col": 0,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.0",
+            "value": -2.582471228690378,
+            "x": 0.0,
+            "y": 10.5
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.1",
+            "value": 0.6100816039907472,
+            "x": 1.7320508075688772,
+            "y": 10.5
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.2",
+            "value": -1.980335353854488,
+            "x": 3.4641016151377544,
+            "y": 10.5
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.3",
+            "value": -0.08225470584610527,
+            "x": 5.196152422706632,
+            "y": 10.5
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.4",
+            "value": 1.2588292467708195,
+            "x": 6.928203230275509,
+            "y": 10.5
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.5",
+            "value": 0.36669669639606944,
+            "x": 8.660254037844386,
+            "y": 10.5
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.6",
+            "value": 0.09154974598680497,
+            "x": 10.392304845413264,
+            "y": 10.5
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 0,
+            "svgId": "matrix.hex.0.7",
+            "value": 0.15259277323533993,
+            "x": 12.12435565298214,
+            "y": 10.5
+          },
+          {
+            "col": 0,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.0",
+            "value": -1.1568473303824844,
+            "x": 0.8660254037844386,
+            "y": 9.0
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.1",
+            "value": -0.543782816973701,
+            "x": 2.598076211353316,
+            "y": 9.0
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.2",
+            "value": -0.5587707186096801,
+            "x": 4.330127018922193,
+            "y": 9.0
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.3",
+            "value": -0.798892640855341,
+            "x": 6.06217782649107,
+            "y": 9.0
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.4",
+            "value": 0.6874864986002996,
+            "x": 7.794228634059947,
+            "y": 9.0
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.5",
+            "value": -0.5115764632542015,
+            "x": 9.526279441628825,
+            "y": 9.0
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.6",
+            "value": -1.4982607625627788,
+            "x": 11.258330249197703,
+            "y": 9.0
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 1,
+            "svgId": "matrix.hex.1.7",
+            "value": 0.39203131641721556,
+            "x": 12.99038105676658,
+            "y": 9.0
+          },
+          {
+            "col": 0,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.0",
+            "value": 1.5924032695850172,
+            "x": 0.0,
+            "y": 7.5
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.1",
+            "value": 0.2331409451922829,
+            "x": 1.7320508075688772,
+            "y": 7.5
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.2",
+            "value": 0.4812629070547312,
+            "x": 3.4641016151377544,
+            "y": 7.5
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.3",
+            "value": -0.06171704405222777,
+            "x": 5.196152422706632,
+            "y": 7.5
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.4",
+            "value": -1.2794562204350506,
+            "x": 6.928203230275509,
+            "y": 7.5
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.5",
+            "value": 0.5885205402657738,
+            "x": 8.660254037844386,
+            "y": 7.5
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.6",
+            "value": 0.16777378233836857,
+            "x": 10.392304845413264,
+            "y": 7.5
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 2,
+            "svgId": "matrix.hex.2.7",
+            "value": 0.7828848003269745,
+            "x": 12.12435565298214,
+            "y": 7.5
+          },
+          {
+            "col": 0,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.0",
+            "value": 0.2663509927823732,
+            "x": 0.8660254037844386,
+            "y": 6.0
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.1",
+            "value": -0.7718454464100151,
+            "x": 2.598076211353316,
+            "y": 6.0
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.2",
+            "value": 0.3413451049669524,
+            "x": 4.330127018922193,
+            "y": 6.0
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.3",
+            "value": 1.205887708646312,
+            "x": 6.06217782649107,
+            "y": 6.0
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.4",
+            "value": 0.5505840757229483,
+            "x": 7.794228634059947,
+            "y": 6.0
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.5",
+            "value": -0.1541805081540939,
+            "x": 9.526279441628825,
+            "y": 6.0
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.6",
+            "value": 0.4634181047303355,
+            "x": 11.258330249197703,
+            "y": 6.0
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 3,
+            "svgId": "matrix.hex.3.7",
+            "value": -0.41069281058734025,
+            "x": 12.99038105676658,
+            "y": 6.0
+          },
+          {
+            "col": 0,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.0",
+            "value": -0.47552748694422997,
+            "x": 0.0,
+            "y": 4.5
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.1",
+            "value": -0.27191623870217874,
+            "x": 1.7320508075688772,
+            "y": 4.5
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.2",
+            "value": 1.9417445931757042,
+            "x": 3.4641016151377544,
+            "y": 4.5
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.3",
+            "value": 0.315353099029521,
+            "x": 5.196152422706632,
+            "y": 4.5
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.4",
+            "value": 2.5093279500266057,
+            "x": 6.928203230275509,
+            "y": 4.5
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.5",
+            "value": 1.1786198450315362,
+            "x": 8.660254037844386,
+            "y": 4.5
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.6",
+            "value": 0.7101042267909252,
+            "x": 10.392304845413264,
+            "y": 4.5
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 4,
+            "svgId": "matrix.hex.4.7",
+            "value": -0.014370688526954148,
+            "x": 12.12435565298214,
+            "y": 4.5
+          },
+          {
+            "col": 0,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.0",
+            "value": 0.09233175240564698,
+            "x": 0.8660254037844386,
+            "y": 3.0
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.1",
+            "value": -0.7689225961112377,
+            "x": 2.598076211353316,
+            "y": 3.0
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.2",
+            "value": 1.2631992701159547,
+            "x": 4.330127018922193,
+            "y": 3.0
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.3",
+            "value": -0.3541471378837581,
+            "x": 6.06217782649107,
+            "y": 3.0
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.4",
+            "value": 1.1978040279145339,
+            "x": 7.794228634059947,
+            "y": 3.0
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.5",
+            "value": 0.03386185904710471,
+            "x": 9.526279441628825,
+            "y": 3.0
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.6",
+            "value": 0.49868224285707147,
+            "x": 11.258330249197703,
+            "y": 3.0
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 5,
+            "svgId": "matrix.hex.5.7",
+            "value": -1.0080140905069863,
+            "x": 12.99038105676658,
+            "y": 3.0
+          },
+          {
+            "col": 0,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.0",
+            "value": -0.04342454168784418,
+            "x": 0.0,
+            "y": 1.5
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.1",
+            "value": 2.045719807534297,
+            "x": 1.7320508075688772,
+            "y": 1.5
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.2",
+            "value": 0.24168046190180428,
+            "x": 3.4641016151377544,
+            "y": 1.5
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.3",
+            "value": 0.7212754070773503,
+            "x": 5.196152422706632,
+            "y": 1.5
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.4",
+            "value": 0.5140367215440453,
+            "x": 6.928203230275509,
+            "y": 1.5
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.5",
+            "value": 0.14011404569877844,
+            "x": 8.660254037844386,
+            "y": 1.5
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.6",
+            "value": -0.10912481169092463,
+            "x": 10.392304845413264,
+            "y": 1.5
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 6,
+            "svgId": "matrix.hex.6.7",
+            "value": 0.02976107394436272,
+            "x": 12.12435565298214,
+            "y": 1.5
+          },
+          {
+            "col": 0,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.0",
+            "value": -0.9231182942838944,
+            "x": 0.8660254037844386,
+            "y": 0.0
+          },
+          {
+            "col": 1,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.1",
+            "value": 0.8455374042212758,
+            "x": 2.598076211353316,
+            "y": 0.0
+          },
+          {
+            "col": 2,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.2",
+            "value": -1.623112574627207,
+            "x": 4.330127018922193,
+            "y": 0.0
+          },
+          {
+            "col": 3,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.3",
+            "value": -0.1992206193791919,
+            "x": 6.06217782649107,
+            "y": 0.0
+          },
+          {
+            "col": 4,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.4",
+            "value": -0.17656657004895393,
+            "x": 7.794228634059947,
+            "y": 0.0
+          },
+          {
+            "col": 5,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.5",
+            "value": -0.5578562860189062,
+            "x": 9.526279441628825,
+            "y": 0.0
+          },
+          {
+            "col": 6,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.6",
+            "value": -1.8744020942248367,
+            "x": 11.258330249197703,
+            "y": 0.0
+          },
+          {
+            "col": 7,
+            "count": null,
+            "row": 7,
+            "svgId": "matrix.hex.7.7",
+            "value": -0.25111727320828947,
+            "x": 12.99038105676658,
+            "y": 0.0
+          }
+        ],
+        "binwidth": null,
+        "gridsize": null,
+        "hexRadius": 1.0,
+        "mode": "matrix",
+        "nBins": 64,
+        "orientation": "pointy",
+        "origin": "upper",
+        "scale": {
+          "x": "linear",
+          "y": "linear"
+        },
+        "shape": [
+          8,
+          8
+        ],
+        "valueLabel": null
+      },
+      "id": "matrix",
+      "kind": "hexmatrix",
+      "name": "matrix",
+      "roles": [
+        "x-hexbin"
+      ],
+      "svg": {
+        "x-hexbin": "matrix.hexes"
+      }
+    }
+  ],
+  "size": {
+    "height": 368.6400000000001,
+    "unit": "pt",
+    "width": 720.0
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": null,
+    "tokens": {
+      "axis": "#000000",
+      "grid": "#b0b0b0",
+      "ink": "#000000",
+      "label": "#000000",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#000000"
+    }
+  },
+  "svg": "size-23.svg"
+}

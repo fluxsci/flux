@@ -16,11 +16,13 @@ import { svgIntrinsicPx, cropViewBoxValue, ptTrueFactors } from "../plot/compens
 import { parseStyleAttr, readPaint } from "../plot/paint";
 import { IDENTITY, compose, parseTransform, applyToNodes, applyToPoint, type SvgMatrix } from "../plot/svgMatrix";
 import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit, retickable, viewProjectsVertices } from "../plot/project";
+import { plotVariant, relayoutRootInfo } from "../plot/relayout/variant";
 
 export interface GeometryCtx {
   manifest(assetId: string): FluxPlotManifest | undefined;
   /** The PRISTINE prepared root (preparePlot's output, unprefixed ids). */
   plotRoot(assetId: string): Element | undefined;
+  plotRootFor?(el: SemanticPlotElement): Element | undefined;
   /** SlideFrame has no registry; callers pass the owning slide's group defs. */
   groups?: Record<string, GroupDef>;
   /** Letter outlines for a text element (oct2 W3): unrotated stage-px rings, one
@@ -28,6 +30,16 @@ export interface GeometryCtx {
    *  boxes stand in for letters with no font outline). When it yields outlines a
    *  text is no longer a box-only crossfade target. Sync and cache-backed. */
   glyphs?: (el: Extract<SceneElement, { type: "text" }>) => StageOutline[] | null;
+}
+
+export function geometryPlotRoot(ctx:GeometryCtx,el:SemanticPlotElement):Element|undefined {
+  // relayout-native-root: the single fallback from a native cache root to the element-size variant
+  const source=ctx.plotRootFor?.(el)??ctx.plotRoot(el.assetId);
+  return source?plotVariant(source,ctx.manifest(el.assetId),el).root:undefined;
+}
+export function geometryPlotManifest(ctx:GeometryCtx,el:SemanticPlotElement):FluxPlotManifest|undefined {
+  const root=geometryPlotRoot(ctx,el);
+  return root?relayoutRootInfo(root)?.manifest??ctx.manifest(el.assetId):ctx.manifest(el.assetId);
 }
 
 const translate = (x: number, y: number): SvgMatrix => [1, 0, 0, 1, x, y];
@@ -169,7 +181,7 @@ function localOutlines(node: Element, geo: PreparedGeometry): Outline[] {
 
 function plotMapping(plot: SemanticPlotElement, root: Element) {
   const intrinsic = svgIntrinsicPx(root);
-  const vbAttr = plot.crop ? cropViewBoxValue(root.getAttribute("viewBox"), intrinsic, plot.crop) : root.getAttribute("viewBox");
+  const vbAttr = plot.crop && !relayoutRootInfo(root)?.reflow ? cropViewBoxValue(root.getAttribute("viewBox"), intrinsic, plot.crop) : root.getAttribute("viewBox");
   const v = (vbAttr ?? "").trim().split(/[\s,]+/).map(Number);
   const vb = v.length === 4 && v.every(Number.isFinite) && v[2] > 0 && v[3] > 0
     ? { x: v[0], y: v[1], w: v[2], h: v[3] } : { x: 0, y: 0, ...intrinsic };
@@ -258,12 +270,12 @@ function projectedGeometry(plot: SemanticPlotElement, root: Element, manifest: F
 
 export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], ctx: GeometryCtx): StageOutline[] {
   if (!leafIds.length) return [];
-  const root = ctx.plotRoot(plot.assetId);
+  const root = geometryPlotRoot(ctx,plot);
   if (!root) return elementStageOutlines(plot);
-  const manifest = ctx.manifest(plot.assetId), index = indexFor(manifest), geo = geometryFor(root);
+  const manifest = relayoutRootInfo(root)?.manifest??ctx.manifest(plot.assetId), index = indexFor(manifest), geo = geometryFor(root);
   const { intrinsic, sx, sy, matrix: toStage } = plotMapping(plot, root);
   const projection = projectedGeometry(plot, root, manifest, geo);
-  const { fx, fy, fs } = ptTrueFactors({ elW: plot.width, elH: plot.height, crop: plot.crop, contentScale: plot.contentScale, intrinsic });
+  const { fx, fy, fs } = relayoutRootInfo(root)?.reflow?{fx:1,fy:1,fs:1}:ptTrueFactors({ elW: plot.width, elH: plot.height, crop: plot.crop, contentScale: plot.contentScale, intrinsic });
   // A stroke renders at declared × fs (compensatePtTrue's style write, or the glyph/text
   // transform) × the outer viewBox→box scale; rotation and flips are rigid. In stage px that is
   // declared × contentScale × (CSS px per user unit), whatever the box size (the pt-true contract).
@@ -360,9 +372,9 @@ export function targetOutlines(ref: TargetRef, frame: SlideFrame, ctx: GeometryC
   for (const leaf of resolveTargetLeaves(ref, { elements: frame.elements, groups: ctx.groups }, ctx.manifest)) {
     const el = elements.get(leaf.elementId)!;
     if (el.type !== "plot") { out.push(...elementStageOutlines(el, ctx)); continue; }
-    const root = ctx.plotRoot(el.assetId);
+    const root = geometryPlotRoot(ctx,el);
     if (!root) { out.push(...elementStageOutlines(el)); continue; }
-    const manifest = ctx.manifest(el.assetId);
+    const manifest = relayoutRootInfo(root)?.manifest??ctx.manifest(el.assetId);
     const ids = leaf.partIds ?? Object.keys(indexFor(manifest)).filter((id) => {
       const leaves = leavesOf(manifest, id);
       return leaves.length === 1 && leaves[0] === id;

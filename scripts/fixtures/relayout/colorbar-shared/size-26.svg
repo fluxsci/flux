@@ -1,0 +1,776 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="576pt" height="144pt" viewBox="0 0 576 144" version="1.1" data-fluxplot="1" data-plot-type="plot">
+  <defs>
+    <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+    <linearGradient id="panel.a.colorbar.color.solids.gradient" gradientUnits="userSpaceOnUse" x1="549.731823" x2="549.731823" y1="109.99897874999999" y2="18.118365000000022">
+      <stop offset="0.0" stop-color="#440154"/>
+      <stop offset="0.003906249999999985" stop-color="#440154"/>
+      <stop offset="0.003906249999999985" stop-color="#440256"/>
+      <stop offset="0.00781249999999997" stop-color="#440256"/>
+      <stop offset="0.00781249999999997" stop-color="#450457"/>
+      <stop offset="0.01171875000000011" stop-color="#450457"/>
+      <stop offset="0.01171875000000011" stop-color="#450559"/>
+      <stop offset="0.01562499999999994" stop-color="#450559"/>
+      <stop offset="0.01562499999999994" stop-color="#46075a"/>
+      <stop offset="0.019531249999999924" stop-color="#46075a"/>
+      <stop offset="0.019531249999999924" stop-color="#46085c"/>
+      <stop offset="0.02343749999999991" stop-color="#46085c"/>
+      <stop offset="0.02343749999999991" stop-color="#460a5d"/>
+      <stop offset="0.027343749999999896" stop-color="#460a5d"/>
+      <stop offset="0.027343749999999896" stop-color="#460b5e"/>
+      <stop offset="0.03125000000000019" stop-color="#460b5e"/>
+      <stop offset="0.03125000000000019" stop-color="#470d60"/>
+      <stop offset="0.035156250000000173" stop-color="#470d60"/>
+      <stop offset="0.035156250000000173" stop-color="#470e61"/>
+      <stop offset="0.03906250000000001" stop-color="#470e61"/>
+      <stop offset="0.03906250000000001" stop-color="#471063"/>
+      <stop offset="0.042968749999999986" stop-color="#471063"/>
+      <stop offset="0.042968749999999986" stop-color="#471164"/>
+      <stop offset="0.04687499999999997" stop-color="#471164"/>
+      <stop offset="0.04687499999999997" stop-color="#471365"/>
+      <stop offset="0.05078125000000011" stop-color="#471365"/>
+      <stop offset="0.05078125000000011" stop-color="#481467"/>
+      <stop offset="0.054687499999999944" stop-color="#481467"/>
+      <stop offset="0.054687499999999944" stop-color="#481668"/>
+      <stop offset="0.05859375000000008" stop-color="#481668"/>
+      <stop offset="0.05859375000000008" stop-color="#481769"/>
+      <stop offset="0.06250000000000007" stop-color="#481769"/>
+      <stop offset="0.06250000000000007" stop-color="#48186a"/>
+      <stop offset="0.06640625000000006" stop-color="#48186a"/>
+      <stop offset="0.06640625000000006" stop-color="#481a6c"/>
+      <stop offset="0.07031250000000004" stop-color="#481a6c"/>
+      <stop offset="0.07031250000000004" stop-color="#481b6d"/>
+      <stop offset="0.07421874999999986" stop-color="#481b6d"/>
+      <stop offset="0.07421874999999986" stop-color="#481c6e"/>
+      <stop offset="0.07812500000000001" stop-color="#481c6e"/>
+      <stop offset="0.07812500000000001" stop-color="#481d6f"/>
+      <stop offset="0.08203124999999999" stop-color="#481d6f"/>
+      <stop offset="0.08203124999999999" stop-color="#481f70"/>
+      <stop offset="0.08593750000000012" stop-color="#481f70"/>
+      <stop offset="0.08593750000000012" stop-color="#482071"/>
+      <stop offset="0.08984374999999996" stop-color="#482071"/>
+      <stop offset="0.08984374999999996" stop-color="#482173"/>
+      <stop offset="0.09374999999999994" stop-color="#482173"/>
+      <stop offset="0.09374999999999994" stop-color="#482374"/>
+      <stop offset="0.09765624999999993" stop-color="#482374"/>
+      <stop offset="0.09765624999999993" stop-color="#482475"/>
+      <stop offset="0.10156249999999992" stop-color="#482475"/>
+      <stop offset="0.10156249999999992" stop-color="#482576"/>
+      <stop offset="0.10546875000000006" stop-color="#482576"/>
+      <stop offset="0.10546875000000006" stop-color="#482677"/>
+      <stop offset="0.1093750000000002" stop-color="#482677"/>
+      <stop offset="0.1093750000000002" stop-color="#482878"/>
+      <stop offset="0.11328125000000003" stop-color="#482878"/>
+      <stop offset="0.11328125000000003" stop-color="#482979"/>
+      <stop offset="0.11718750000000001" stop-color="#482979"/>
+      <stop offset="0.11718750000000001" stop-color="#472a7a"/>
+      <stop offset="0.12109375" stop-color="#472a7a"/>
+      <stop offset="0.12109375" stop-color="#472c7a"/>
+      <stop offset="0.12499999999999982" stop-color="#472c7a"/>
+      <stop offset="0.12499999999999982" stop-color="#472d7b"/>
+      <stop offset="0.1289062499999998" stop-color="#472d7b"/>
+      <stop offset="0.1289062499999998" stop-color="#472e7c"/>
+      <stop offset="0.1328125000000001" stop-color="#472e7c"/>
+      <stop offset="0.1328125000000001" stop-color="#472f7d"/>
+      <stop offset="0.13671875000000008" stop-color="#472f7d"/>
+      <stop offset="0.13671875000000008" stop-color="#46307e"/>
+      <stop offset="0.14062500000000008" stop-color="#46307e"/>
+      <stop offset="0.14062500000000008" stop-color="#46327e"/>
+      <stop offset="0.14453125000000006" stop-color="#46327e"/>
+      <stop offset="0.14453125000000006" stop-color="#46337f"/>
+      <stop offset="0.1484374999999999" stop-color="#46337f"/>
+      <stop offset="0.1484374999999999" stop-color="#463480"/>
+      <stop offset="0.15234375000000003" stop-color="#463480"/>
+      <stop offset="0.15234375000000003" stop-color="#453581"/>
+      <stop offset="0.15625000000000003" stop-color="#453581"/>
+      <stop offset="0.15625000000000003" stop-color="#453781"/>
+      <stop offset="0.16015625000000017" stop-color="#453781"/>
+      <stop offset="0.16015625000000017" stop-color="#453882"/>
+      <stop offset="0.16406249999999997" stop-color="#453882"/>
+      <stop offset="0.16406249999999997" stop-color="#443983"/>
+      <stop offset="0.16796874999999997" stop-color="#443983"/>
+      <stop offset="0.16796874999999997" stop-color="#443a83"/>
+      <stop offset="0.17187499999999994" stop-color="#443a83"/>
+      <stop offset="0.17187499999999994" stop-color="#443b84"/>
+      <stop offset="0.17578124999999994" stop-color="#443b84"/>
+      <stop offset="0.17578124999999994" stop-color="#433d84"/>
+      <stop offset="0.17968750000000008" stop-color="#433d84"/>
+      <stop offset="0.17968750000000008" stop-color="#433e85"/>
+      <stop offset="0.18359375000000022" stop-color="#433e85"/>
+      <stop offset="0.18359375000000022" stop-color="#423f85"/>
+      <stop offset="0.18750000000000006" stop-color="#423f85"/>
+      <stop offset="0.18750000000000006" stop-color="#424086"/>
+      <stop offset="0.19140625000000003" stop-color="#424086"/>
+      <stop offset="0.19140625000000003" stop-color="#424186"/>
+      <stop offset="0.19531250000000003" stop-color="#424186"/>
+      <stop offset="0.19531250000000003" stop-color="#414287"/>
+      <stop offset="0.19921874999999986" stop-color="#414287"/>
+      <stop offset="0.19921874999999986" stop-color="#414487"/>
+      <stop offset="0.20312499999999983" stop-color="#414487"/>
+      <stop offset="0.20312499999999983" stop-color="#404588"/>
+      <stop offset="0.20703124999999997" stop-color="#404588"/>
+      <stop offset="0.20703124999999997" stop-color="#404688"/>
+      <stop offset="0.21093749999999994" stop-color="#404688"/>
+      <stop offset="0.21093749999999994" stop-color="#3f4788"/>
+      <stop offset="0.2148437500000001" stop-color="#3f4788"/>
+      <stop offset="0.2148437500000001" stop-color="#3f4889"/>
+      <stop offset="0.21875000000000008" stop-color="#3f4889"/>
+      <stop offset="0.21875000000000008" stop-color="#3e4989"/>
+      <stop offset="0.22265624999999992" stop-color="#3e4989"/>
+      <stop offset="0.22265624999999992" stop-color="#3e4a89"/>
+      <stop offset="0.22656250000000006" stop-color="#3e4a89"/>
+      <stop offset="0.22656250000000006" stop-color="#3e4c8a"/>
+      <stop offset="0.23046875000000003" stop-color="#3e4c8a"/>
+      <stop offset="0.23046875000000003" stop-color="#3d4d8a"/>
+      <stop offset="0.23437500000000017" stop-color="#3d4d8a"/>
+      <stop offset="0.23437500000000017" stop-color="#3d4e8a"/>
+      <stop offset="0.23828125" stop-color="#3d4e8a"/>
+      <stop offset="0.23828125" stop-color="#3c4f8a"/>
+      <stop offset="0.2421875" stop-color="#3c4f8a"/>
+      <stop offset="0.2421875" stop-color="#3c508b"/>
+      <stop offset="0.24609374999999997" stop-color="#3c508b"/>
+      <stop offset="0.24609374999999997" stop-color="#3b518b"/>
+      <stop offset="0.24999999999999997" stop-color="#3b518b"/>
+      <stop offset="0.24999999999999997" stop-color="#3b528b"/>
+      <stop offset="0.2539062500000001" stop-color="#3b528b"/>
+      <stop offset="0.2539062500000001" stop-color="#3a538b"/>
+      <stop offset="0.25781249999999994" stop-color="#3a538b"/>
+      <stop offset="0.25781249999999994" stop-color="#3a548c"/>
+      <stop offset="0.26171875000000006" stop-color="#3a548c"/>
+      <stop offset="0.26171875000000006" stop-color="#39558c"/>
+      <stop offset="0.26562500000000006" stop-color="#39558c"/>
+      <stop offset="0.26562500000000006" stop-color="#39568c"/>
+      <stop offset="0.26953125000000006" stop-color="#39568c"/>
+      <stop offset="0.26953125000000006" stop-color="#38588c"/>
+      <stop offset="0.2734374999999999" stop-color="#38588c"/>
+      <stop offset="0.2734374999999999" stop-color="#38598c"/>
+      <stop offset="0.27734374999999983" stop-color="#38598c"/>
+      <stop offset="0.27734374999999983" stop-color="#375a8c"/>
+      <stop offset="0.28125" stop-color="#375a8c"/>
+      <stop offset="0.28125" stop-color="#375b8d"/>
+      <stop offset="0.28515625" stop-color="#375b8d"/>
+      <stop offset="0.28515625" stop-color="#365c8d"/>
+      <stop offset="0.2890625000000001" stop-color="#365c8d"/>
+      <stop offset="0.2890625000000001" stop-color="#365d8d"/>
+      <stop offset="0.2929687500000001" stop-color="#365d8d"/>
+      <stop offset="0.2929687500000001" stop-color="#355e8d"/>
+      <stop offset="0.29687499999999994" stop-color="#355e8d"/>
+      <stop offset="0.29687499999999994" stop-color="#355f8d"/>
+      <stop offset="0.30078124999999994" stop-color="#355f8d"/>
+      <stop offset="0.30078124999999994" stop-color="#34608d"/>
+      <stop offset="0.30468750000000006" stop-color="#34608d"/>
+      <stop offset="0.30468750000000006" stop-color="#34618d"/>
+      <stop offset="0.3085937500000002" stop-color="#34618d"/>
+      <stop offset="0.3085937500000002" stop-color="#33628d"/>
+      <stop offset="0.31250000000000006" stop-color="#33628d"/>
+      <stop offset="0.31250000000000006" stop-color="#33638d"/>
+      <stop offset="0.31640625" stop-color="#33638d"/>
+      <stop offset="0.31640625" stop-color="#32648e"/>
+      <stop offset="0.3203125" stop-color="#32648e"/>
+      <stop offset="0.3203125" stop-color="#32658e"/>
+      <stop offset="0.32421875" stop-color="#32658e"/>
+      <stop offset="0.32421875" stop-color="#31668e"/>
+      <stop offset="0.32812499999999994" stop-color="#31668e"/>
+      <stop offset="0.32812499999999994" stop-color="#31678e"/>
+      <stop offset="0.3320312499999998" stop-color="#31678e"/>
+      <stop offset="0.3320312499999998" stop-color="#31688e"/>
+      <stop offset="0.33593749999999994" stop-color="#31688e"/>
+      <stop offset="0.33593749999999994" stop-color="#30698e"/>
+      <stop offset="0.33984374999999994" stop-color="#30698e"/>
+      <stop offset="0.33984374999999994" stop-color="#306a8e"/>
+      <stop offset="0.34375000000000006" stop-color="#306a8e"/>
+      <stop offset="0.34375000000000006" stop-color="#2f6b8e"/>
+      <stop offset="0.3476562499999999" stop-color="#2f6b8e"/>
+      <stop offset="0.3476562499999999" stop-color="#2f6c8e"/>
+      <stop offset="0.3515624999999999" stop-color="#2f6c8e"/>
+      <stop offset="0.3515624999999999" stop-color="#2e6d8e"/>
+      <stop offset="0.35546875" stop-color="#2e6d8e"/>
+      <stop offset="0.35546875" stop-color="#2e6e8e"/>
+      <stop offset="0.359375" stop-color="#2e6e8e"/>
+      <stop offset="0.359375" stop-color="#2e6f8e"/>
+      <stop offset="0.36328125000000017" stop-color="#2e6f8e"/>
+      <stop offset="0.36328125000000017" stop-color="#2d708e"/>
+      <stop offset="0.3671875000000001" stop-color="#2d708e"/>
+      <stop offset="0.3671875000000001" stop-color="#2d718e"/>
+      <stop offset="0.37109374999999994" stop-color="#2d718e"/>
+      <stop offset="0.37109374999999994" stop-color="#2c718e"/>
+      <stop offset="0.3750000000000001" stop-color="#2c718e"/>
+      <stop offset="0.3750000000000001" stop-color="#2c728e"/>
+      <stop offset="0.37890625000000006" stop-color="#2c728e"/>
+      <stop offset="0.37890625000000006" stop-color="#2c738e"/>
+      <stop offset="0.3828125000000002" stop-color="#2c738e"/>
+      <stop offset="0.3828125000000002" stop-color="#2b748e"/>
+      <stop offset="0.38671875000000006" stop-color="#2b748e"/>
+      <stop offset="0.38671875000000006" stop-color="#2b758e"/>
+      <stop offset="0.39062500000000006" stop-color="#2b758e"/>
+      <stop offset="0.39062500000000006" stop-color="#2a768e"/>
+      <stop offset="0.39453125" stop-color="#2a768e"/>
+      <stop offset="0.39453125" stop-color="#2a778e"/>
+      <stop offset="0.3984375" stop-color="#2a778e"/>
+      <stop offset="0.3984375" stop-color="#2a788e"/>
+      <stop offset="0.40234375" stop-color="#2a788e"/>
+      <stop offset="0.40234375" stop-color="#29798e"/>
+      <stop offset="0.40624999999999983" stop-color="#29798e"/>
+      <stop offset="0.40624999999999983" stop-color="#297a8e"/>
+      <stop offset="0.41015624999999994" stop-color="#297a8e"/>
+      <stop offset="0.41015624999999994" stop-color="#297b8e"/>
+      <stop offset="0.41406249999999994" stop-color="#297b8e"/>
+      <stop offset="0.41406249999999994" stop-color="#287c8e"/>
+      <stop offset="0.41796874999999994" stop-color="#287c8e"/>
+      <stop offset="0.41796874999999994" stop-color="#287d8e"/>
+      <stop offset="0.4218749999999999" stop-color="#287d8e"/>
+      <stop offset="0.4218749999999999" stop-color="#277e8e"/>
+      <stop offset="0.42578125000000006" stop-color="#277e8e"/>
+      <stop offset="0.42578125000000006" stop-color="#277f8e"/>
+      <stop offset="0.42968750000000006" stop-color="#277f8e"/>
+      <stop offset="0.42968750000000006" stop-color="#27808e"/>
+      <stop offset="0.43359375" stop-color="#27808e"/>
+      <stop offset="0.43359375" stop-color="#26818e"/>
+      <stop offset="0.4375" stop-color="#26818e"/>
+      <stop offset="0.4375" stop-color="#26828e"/>
+      <stop offset="0.44140625000000017" stop-color="#26828e"/>
+      <stop offset="0.44140625000000017" stop-color="#26828e"/>
+      <stop offset="0.4453125000000001" stop-color="#26828e"/>
+      <stop offset="0.4453125000000001" stop-color="#25838e"/>
+      <stop offset="0.4492187500000001" stop-color="#25838e"/>
+      <stop offset="0.4492187500000001" stop-color="#25848e"/>
+      <stop offset="0.4531250000000001" stop-color="#25848e"/>
+      <stop offset="0.4531250000000001" stop-color="#25858e"/>
+      <stop offset="0.4570312500000001" stop-color="#25858e"/>
+      <stop offset="0.4570312500000001" stop-color="#24868e"/>
+      <stop offset="0.46093750000000006" stop-color="#24868e"/>
+      <stop offset="0.46093750000000006" stop-color="#24878e"/>
+      <stop offset="0.46484375000000006" stop-color="#24878e"/>
+      <stop offset="0.46484375000000006" stop-color="#23888e"/>
+      <stop offset="0.46875000000000006" stop-color="#23888e"/>
+      <stop offset="0.46875000000000006" stop-color="#23898e"/>
+      <stop offset="0.47265625000000006" stop-color="#23898e"/>
+      <stop offset="0.47265625000000006" stop-color="#238a8d"/>
+      <stop offset="0.4765625" stop-color="#238a8d"/>
+      <stop offset="0.4765625" stop-color="#228b8d"/>
+      <stop offset="0.48046875" stop-color="#228b8d"/>
+      <stop offset="0.48046875" stop-color="#228c8d"/>
+      <stop offset="0.484375" stop-color="#228c8d"/>
+      <stop offset="0.484375" stop-color="#228d8d"/>
+      <stop offset="0.48828124999999994" stop-color="#228d8d"/>
+      <stop offset="0.48828124999999994" stop-color="#218e8d"/>
+      <stop offset="0.49218749999999994" stop-color="#218e8d"/>
+      <stop offset="0.49218749999999994" stop-color="#218f8d"/>
+      <stop offset="0.49609374999999994" stop-color="#218f8d"/>
+      <stop offset="0.49609374999999994" stop-color="#21908d"/>
+      <stop offset="0.49999999999999994" stop-color="#21908d"/>
+      <stop offset="0.49999999999999994" stop-color="#21918c"/>
+      <stop offset="0.5039062500000001" stop-color="#21918c"/>
+      <stop offset="0.5039062500000001" stop-color="#20928c"/>
+      <stop offset="0.5078125" stop-color="#20928c"/>
+      <stop offset="0.5078125" stop-color="#20928c"/>
+      <stop offset="0.51171875" stop-color="#20928c"/>
+      <stop offset="0.51171875" stop-color="#20938c"/>
+      <stop offset="0.5156250000000001" stop-color="#20938c"/>
+      <stop offset="0.5156250000000001" stop-color="#1f948c"/>
+      <stop offset="0.51953125" stop-color="#1f948c"/>
+      <stop offset="0.51953125" stop-color="#1f958b"/>
+      <stop offset="0.5234375" stop-color="#1f958b"/>
+      <stop offset="0.5234375" stop-color="#1f968b"/>
+      <stop offset="0.5273437500000001" stop-color="#1f968b"/>
+      <stop offset="0.5273437500000001" stop-color="#1f978b"/>
+      <stop offset="0.53125" stop-color="#1f978b"/>
+      <stop offset="0.53125" stop-color="#1f988b"/>
+      <stop offset="0.5351562500000002" stop-color="#1f988b"/>
+      <stop offset="0.5351562500000002" stop-color="#1f998a"/>
+      <stop offset="0.5390625000000001" stop-color="#1f998a"/>
+      <stop offset="0.5390625000000001" stop-color="#1f9a8a"/>
+      <stop offset="0.5429687500000001" stop-color="#1f9a8a"/>
+      <stop offset="0.5429687500000001" stop-color="#1e9b8a"/>
+      <stop offset="0.546875" stop-color="#1e9b8a"/>
+      <stop offset="0.546875" stop-color="#1e9c89"/>
+      <stop offset="0.55078125" stop-color="#1e9c89"/>
+      <stop offset="0.55078125" stop-color="#1e9d89"/>
+      <stop offset="0.5546875000000001" stop-color="#1e9d89"/>
+      <stop offset="0.5546875000000001" stop-color="#1f9e89"/>
+      <stop offset="0.55859375" stop-color="#1f9e89"/>
+      <stop offset="0.55859375" stop-color="#1f9f88"/>
+      <stop offset="0.5625" stop-color="#1f9f88"/>
+      <stop offset="0.5625" stop-color="#1fa088"/>
+      <stop offset="0.5664062499999999" stop-color="#1fa088"/>
+      <stop offset="0.5664062499999999" stop-color="#1fa188"/>
+      <stop offset="0.5703125" stop-color="#1fa188"/>
+      <stop offset="0.5703125" stop-color="#1fa187"/>
+      <stop offset="0.57421875" stop-color="#1fa187"/>
+      <stop offset="0.57421875" stop-color="#1fa287"/>
+      <stop offset="0.5781249999999999" stop-color="#1fa287"/>
+      <stop offset="0.5781249999999999" stop-color="#20a386"/>
+      <stop offset="0.5820312499999999" stop-color="#20a386"/>
+      <stop offset="0.5820312499999999" stop-color="#20a486"/>
+      <stop offset="0.5859375" stop-color="#20a486"/>
+      <stop offset="0.5859375" stop-color="#21a585"/>
+      <stop offset="0.5898437500000001" stop-color="#21a585"/>
+      <stop offset="0.5898437500000001" stop-color="#21a685"/>
+      <stop offset="0.59375" stop-color="#21a685"/>
+      <stop offset="0.59375" stop-color="#22a785"/>
+      <stop offset="0.59765625" stop-color="#22a785"/>
+      <stop offset="0.59765625" stop-color="#22a884"/>
+      <stop offset="0.6015625" stop-color="#22a884"/>
+      <stop offset="0.6015625" stop-color="#23a983"/>
+      <stop offset="0.6054687500000001" stop-color="#23a983"/>
+      <stop offset="0.6054687500000001" stop-color="#24aa83"/>
+      <stop offset="0.6093750000000002" stop-color="#24aa83"/>
+      <stop offset="0.6093750000000002" stop-color="#25ab82"/>
+      <stop offset="0.6132812500000001" stop-color="#25ab82"/>
+      <stop offset="0.6132812500000001" stop-color="#25ac82"/>
+      <stop offset="0.6171875000000001" stop-color="#25ac82"/>
+      <stop offset="0.6171875000000001" stop-color="#26ad81"/>
+      <stop offset="0.6210937500000001" stop-color="#26ad81"/>
+      <stop offset="0.6210937500000001" stop-color="#27ad81"/>
+      <stop offset="0.625" stop-color="#27ad81"/>
+      <stop offset="0.625" stop-color="#28ae80"/>
+      <stop offset="0.6289062500000001" stop-color="#28ae80"/>
+      <stop offset="0.6289062500000001" stop-color="#29af7f"/>
+      <stop offset="0.6328125" stop-color="#29af7f"/>
+      <stop offset="0.6328125" stop-color="#2ab07f"/>
+      <stop offset="0.63671875" stop-color="#2ab07f"/>
+      <stop offset="0.63671875" stop-color="#2cb17e"/>
+      <stop offset="0.6406249999999999" stop-color="#2cb17e"/>
+      <stop offset="0.6406249999999999" stop-color="#2db27d"/>
+      <stop offset="0.6445312500000001" stop-color="#2db27d"/>
+      <stop offset="0.6445312500000001" stop-color="#2eb37c"/>
+      <stop offset="0.6484375" stop-color="#2eb37c"/>
+      <stop offset="0.6484375" stop-color="#2fb47c"/>
+      <stop offset="0.65234375" stop-color="#2fb47c"/>
+      <stop offset="0.65234375" stop-color="#31b57b"/>
+      <stop offset="0.6562499999999999" stop-color="#31b57b"/>
+      <stop offset="0.6562499999999999" stop-color="#32b67a"/>
+      <stop offset="0.6601562499999999" stop-color="#32b67a"/>
+      <stop offset="0.6601562499999999" stop-color="#34b679"/>
+      <stop offset="0.6640625000000001" stop-color="#34b679"/>
+      <stop offset="0.6640625000000001" stop-color="#35b779"/>
+      <stop offset="0.66796875" stop-color="#35b779"/>
+      <stop offset="0.66796875" stop-color="#37b878"/>
+      <stop offset="0.671875" stop-color="#37b878"/>
+      <stop offset="0.671875" stop-color="#38b977"/>
+      <stop offset="0.67578125" stop-color="#38b977"/>
+      <stop offset="0.67578125" stop-color="#3aba76"/>
+      <stop offset="0.6796874999999999" stop-color="#3aba76"/>
+      <stop offset="0.6796874999999999" stop-color="#3bbb75"/>
+      <stop offset="0.6835937500000002" stop-color="#3bbb75"/>
+      <stop offset="0.6835937500000002" stop-color="#3dbc74"/>
+      <stop offset="0.6875000000000001" stop-color="#3dbc74"/>
+      <stop offset="0.6875000000000001" stop-color="#3fbc73"/>
+      <stop offset="0.6914062500000001" stop-color="#3fbc73"/>
+      <stop offset="0.6914062500000001" stop-color="#40bd72"/>
+      <stop offset="0.6953125000000001" stop-color="#40bd72"/>
+      <stop offset="0.6953125000000001" stop-color="#42be71"/>
+      <stop offset="0.6992187500000001" stop-color="#42be71"/>
+      <stop offset="0.6992187500000001" stop-color="#44bf70"/>
+      <stop offset="0.7031250000000001" stop-color="#44bf70"/>
+      <stop offset="0.7031250000000001" stop-color="#46c06f"/>
+      <stop offset="0.70703125" stop-color="#46c06f"/>
+      <stop offset="0.70703125" stop-color="#48c16e"/>
+      <stop offset="0.7109375" stop-color="#48c16e"/>
+      <stop offset="0.7109375" stop-color="#4ac16d"/>
+      <stop offset="0.71484375" stop-color="#4ac16d"/>
+      <stop offset="0.71484375" stop-color="#4cc26c"/>
+      <stop offset="0.71875" stop-color="#4cc26c"/>
+      <stop offset="0.71875" stop-color="#4ec36b"/>
+      <stop offset="0.72265625" stop-color="#4ec36b"/>
+      <stop offset="0.72265625" stop-color="#50c46a"/>
+      <stop offset="0.7265625" stop-color="#50c46a"/>
+      <stop offset="0.7265625" stop-color="#52c569"/>
+      <stop offset="0.73046875" stop-color="#52c569"/>
+      <stop offset="0.73046875" stop-color="#54c568"/>
+      <stop offset="0.7343749999999999" stop-color="#54c568"/>
+      <stop offset="0.7343749999999999" stop-color="#56c667"/>
+      <stop offset="0.7382812500000002" stop-color="#56c667"/>
+      <stop offset="0.7382812500000002" stop-color="#58c765"/>
+      <stop offset="0.7421875000000001" stop-color="#58c765"/>
+      <stop offset="0.7421875000000001" stop-color="#5ac864"/>
+      <stop offset="0.74609375" stop-color="#5ac864"/>
+      <stop offset="0.74609375" stop-color="#5cc863"/>
+      <stop offset="0.75" stop-color="#5cc863"/>
+      <stop offset="0.75" stop-color="#5ec962"/>
+      <stop offset="0.7539062499999999" stop-color="#5ec962"/>
+      <stop offset="0.7539062499999999" stop-color="#60ca60"/>
+      <stop offset="0.7578125000000001" stop-color="#60ca60"/>
+      <stop offset="0.7578125000000001" stop-color="#63cb5f"/>
+      <stop offset="0.76171875" stop-color="#63cb5f"/>
+      <stop offset="0.76171875" stop-color="#65cb5e"/>
+      <stop offset="0.765625" stop-color="#65cb5e"/>
+      <stop offset="0.765625" stop-color="#67cc5c"/>
+      <stop offset="0.7695312499999998" stop-color="#67cc5c"/>
+      <stop offset="0.7695312499999998" stop-color="#69cd5b"/>
+      <stop offset="0.7734375000000001" stop-color="#69cd5b"/>
+      <stop offset="0.7734375000000001" stop-color="#6ccd5a"/>
+      <stop offset="0.7773437500000001" stop-color="#6ccd5a"/>
+      <stop offset="0.7773437500000001" stop-color="#6ece58"/>
+      <stop offset="0.7812500000000001" stop-color="#6ece58"/>
+      <stop offset="0.7812500000000001" stop-color="#70cf57"/>
+      <stop offset="0.7851562500000001" stop-color="#70cf57"/>
+      <stop offset="0.7851562500000001" stop-color="#73d056"/>
+      <stop offset="0.7890625" stop-color="#73d056"/>
+      <stop offset="0.7890625" stop-color="#75d054"/>
+      <stop offset="0.79296875" stop-color="#75d054"/>
+      <stop offset="0.79296875" stop-color="#77d153"/>
+      <stop offset="0.796875" stop-color="#77d153"/>
+      <stop offset="0.796875" stop-color="#7ad151"/>
+      <stop offset="0.80078125" stop-color="#7ad151"/>
+      <stop offset="0.80078125" stop-color="#7cd250"/>
+      <stop offset="0.8046875" stop-color="#7cd250"/>
+      <stop offset="0.8046875" stop-color="#7fd34e"/>
+      <stop offset="0.80859375" stop-color="#7fd34e"/>
+      <stop offset="0.80859375" stop-color="#81d34d"/>
+      <stop offset="0.8125000000000002" stop-color="#81d34d"/>
+      <stop offset="0.8125000000000002" stop-color="#84d44b"/>
+      <stop offset="0.8164062500000001" stop-color="#84d44b"/>
+      <stop offset="0.8164062500000001" stop-color="#86d549"/>
+      <stop offset="0.8203125000000001" stop-color="#86d549"/>
+      <stop offset="0.8203125000000001" stop-color="#89d548"/>
+      <stop offset="0.8242187500000001" stop-color="#89d548"/>
+      <stop offset="0.8242187500000001" stop-color="#8bd646"/>
+      <stop offset="0.8281249999999999" stop-color="#8bd646"/>
+      <stop offset="0.8281249999999999" stop-color="#8ed645"/>
+      <stop offset="0.8320312500000002" stop-color="#8ed645"/>
+      <stop offset="0.8320312500000002" stop-color="#90d743"/>
+      <stop offset="0.8359375" stop-color="#90d743"/>
+      <stop offset="0.8359375" stop-color="#93d741"/>
+      <stop offset="0.83984375" stop-color="#93d741"/>
+      <stop offset="0.83984375" stop-color="#95d840"/>
+      <stop offset="0.8437499999999998" stop-color="#95d840"/>
+      <stop offset="0.8437499999999998" stop-color="#98d83e"/>
+      <stop offset="0.8476562500000001" stop-color="#98d83e"/>
+      <stop offset="0.8476562500000001" stop-color="#9bd93c"/>
+      <stop offset="0.8515625000000001" stop-color="#9bd93c"/>
+      <stop offset="0.8515625000000001" stop-color="#9dd93b"/>
+      <stop offset="0.8554687500000001" stop-color="#9dd93b"/>
+      <stop offset="0.8554687500000001" stop-color="#a0da39"/>
+      <stop offset="0.8593750000000001" stop-color="#a0da39"/>
+      <stop offset="0.8593750000000001" stop-color="#a2da37"/>
+      <stop offset="0.8632812500000001" stop-color="#a2da37"/>
+      <stop offset="0.8632812500000001" stop-color="#a5db36"/>
+      <stop offset="0.8671875" stop-color="#a5db36"/>
+      <stop offset="0.8671875" stop-color="#a8db34"/>
+      <stop offset="0.87109375" stop-color="#a8db34"/>
+      <stop offset="0.87109375" stop-color="#aadc32"/>
+      <stop offset="0.875" stop-color="#aadc32"/>
+      <stop offset="0.875" stop-color="#addc30"/>
+      <stop offset="0.87890625" stop-color="#addc30"/>
+      <stop offset="0.87890625" stop-color="#b0dd2f"/>
+      <stop offset="0.8828125" stop-color="#b0dd2f"/>
+      <stop offset="0.8828125" stop-color="#b2dd2d"/>
+      <stop offset="0.88671875" stop-color="#b2dd2d"/>
+      <stop offset="0.88671875" stop-color="#b5de2b"/>
+      <stop offset="0.8906250000000001" stop-color="#b5de2b"/>
+      <stop offset="0.8906250000000001" stop-color="#b8de29"/>
+      <stop offset="0.8945312500000001" stop-color="#b8de29"/>
+      <stop offset="0.8945312500000001" stop-color="#bade28"/>
+      <stop offset="0.8984375000000001" stop-color="#bade28"/>
+      <stop offset="0.8984375000000001" stop-color="#bddf26"/>
+      <stop offset="0.9023437499999999" stop-color="#bddf26"/>
+      <stop offset="0.9023437499999999" stop-color="#c0df25"/>
+      <stop offset="0.9062500000000002" stop-color="#c0df25"/>
+      <stop offset="0.9062500000000002" stop-color="#c2df23"/>
+      <stop offset="0.91015625" stop-color="#c2df23"/>
+      <stop offset="0.91015625" stop-color="#c5e021"/>
+      <stop offset="0.9140625" stop-color="#c5e021"/>
+      <stop offset="0.9140625" stop-color="#c8e020"/>
+      <stop offset="0.9179687499999999" stop-color="#c8e020"/>
+      <stop offset="0.9179687499999999" stop-color="#cae11f"/>
+      <stop offset="0.9218750000000001" stop-color="#cae11f"/>
+      <stop offset="0.9218750000000001" stop-color="#cde11d"/>
+      <stop offset="0.92578125" stop-color="#cde11d"/>
+      <stop offset="0.92578125" stop-color="#d0e11c"/>
+      <stop offset="0.9296875000000001" stop-color="#d0e11c"/>
+      <stop offset="0.9296875000000001" stop-color="#d2e21b"/>
+      <stop offset="0.9335937500000001" stop-color="#d2e21b"/>
+      <stop offset="0.9335937500000001" stop-color="#d5e21a"/>
+      <stop offset="0.9375000000000001" stop-color="#d5e21a"/>
+      <stop offset="0.9375000000000001" stop-color="#d8e219"/>
+      <stop offset="0.9414062500000001" stop-color="#d8e219"/>
+      <stop offset="0.9414062500000001" stop-color="#dae319"/>
+      <stop offset="0.9453125000000001" stop-color="#dae319"/>
+      <stop offset="0.9453125000000001" stop-color="#dde318"/>
+      <stop offset="0.94921875" stop-color="#dde318"/>
+      <stop offset="0.94921875" stop-color="#dfe318"/>
+      <stop offset="0.953125" stop-color="#dfe318"/>
+      <stop offset="0.953125" stop-color="#e2e418"/>
+      <stop offset="0.95703125" stop-color="#e2e418"/>
+      <stop offset="0.95703125" stop-color="#e5e419"/>
+      <stop offset="0.9609375" stop-color="#e5e419"/>
+      <stop offset="0.9609375" stop-color="#e7e419"/>
+      <stop offset="0.96484375" stop-color="#e7e419"/>
+      <stop offset="0.96484375" stop-color="#eae51a"/>
+      <stop offset="0.9687500000000001" stop-color="#eae51a"/>
+      <stop offset="0.9687500000000001" stop-color="#ece51b"/>
+      <stop offset="0.9726562500000001" stop-color="#ece51b"/>
+      <stop offset="0.9726562500000001" stop-color="#efe51c"/>
+      <stop offset="0.9765624999999999" stop-color="#efe51c"/>
+      <stop offset="0.9765624999999999" stop-color="#f1e51d"/>
+      <stop offset="0.9804687500000002" stop-color="#f1e51d"/>
+      <stop offset="0.9804687500000002" stop-color="#f4e61e"/>
+      <stop offset="0.9843750000000001" stop-color="#f4e61e"/>
+      <stop offset="0.9843750000000001" stop-color="#f6e620"/>
+      <stop offset="0.98828125" stop-color="#f6e620"/>
+      <stop offset="0.98828125" stop-color="#f8e621"/>
+      <stop offset="0.9921874999999999" stop-color="#f8e621"/>
+      <stop offset="0.9921874999999999" stop-color="#fbe723"/>
+      <stop offset="0.9960937500000002" stop-color="#fbe723"/>
+      <stop offset="0.9960937500000002" stop-color="#fde725"/>
+      <stop offset="1.0" stop-color="#fde725"/>
+    </linearGradient>
+  </defs>
+  <g id="figure" data-role="figure" data-kind="container">
+    <g id="figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
+      <path d="M 0 144  L 576 144  L 576 0  L 0 0  z " style="fill: #ffffff"/>
+    </g>
+    <g id="panel.a.plot-area" data-role="plot-area" data-kind="container">
+      <g id="panel.a.axes.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 30.36274 109.998979  L 266.906044 109.998979  L 266.906044 18.118365  L 30.36274 18.118365  z " style="fill: #ffffff"/>
+      </g>
+      <g clip-path="url(#p13927ce869)">
+        <image xlink:href="data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAUkAAACACAYAAACGGptgAAACd0lEQVR4nO3WS4pTURhG0ZikYh5VgqhU5mLfyTkEx+IEBO2JbWfgGwrLijPYLQ9HLmuN4Pu5sO959Prjq8tqoW6vvs6eMMx5+2X2hCHOmx+zJwxzu3mYPWGY55vT7AnDrGcPAPifiSRAEEmAIJIAQSQBgkgCBJEECCIJEEQSIIgkQBBJgCCSAEEkAYJIAgSRBAgiCRBEEiCIJEAQSYAgkgBBJAGCSAIEkQQIIgkQRBIgbN98ejl7wzDH/d3sCcM8WehtTx//mj1hmGcLvu3F7vvsCcN4SQIEkQQIIgkQRBIgiCRAEEmAIJIAQSQBgkgCBJEECCIJEEQSIIgkQBBJgCCSAEEkAYJIAgSRBAgiCRBEEiCIJEAQSYAgkgBBJAHCdv3hZvaGYX4ermdPGObbfvaCMT4fHmZPGOayX+5t68P97AnDeEkCBJEECCIJEEQSIIgkQBBJgCCSAEEkAYJIAgSRBAgiCRBEEiCIJEAQSYAgkgBBJAGCSAIEkQQIIgkQRBIgiCRAEEmAIJIAQSQBgkgChO353d3sDcPcHzezJwzz+7jM/9v9YZl3rVZLv+1q9oRhlvvVAP4BkQQIIgkQRBIgiCRAEEmAIJIAQSQBgkgCBJEECCIJEEQSIIgkQBBJgCCSAEEkAYJIAgSRBAgiCRBEEiCIJEAQSYAgkgBBJAHCdvv2/ewNw+xOp9kThlnfXM+eMMTl+jh7wjCX0372hGH+nHazJwzjJQkQRBIgiCRAEEmAIJIAQSQBgkgCBJEECCIJEEQSIIgkQBBJgCCSAEEkAYJIAgSRBAgiCRBEEiCIJEAQSYAgkgBBJAGCSAIEkQQIIgkQ/gJqGCLUf2njvgAAAABJRU5ErkJggg==" id="panel.a.extra.image.0" transform="scale(1 -1) translate(0 -92.16)" x="30.24" y="-18" width="236.88" height="92.16" data-color-scale="panel.a.extra.image.0" data-paint="fill" data-role="extra" data-index="0"/>
+      </g>
+      <g id="panel.a.axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
+        <g id="xtick_1">
+          <g id="panel.a.axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(50.074682 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="50.074682" y="124.596635" transform="rotate(-0 50.074682 124.596635)">0</text>
+          </g>
+        </g>
+        <g id="xtick_2">
+          <g id="panel.a.axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(89.498566 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="89.498566" y="124.596635" transform="rotate(-0 89.498566 124.596635)">1</text>
+          </g>
+        </g>
+        <g id="xtick_3">
+          <g id="panel.a.axis.x.tick.3" data-role="tick" data-axis="x" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(128.92245 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.x.ticklabel.3" data-role="tick-label" data-axis="x" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="128.92245" y="124.596635" transform="rotate(-0 128.92245 124.596635)">2</text>
+          </g>
+        </g>
+        <g id="xtick_4">
+          <g id="panel.a.axis.x.tick.4" data-role="tick" data-axis="x" data-index="4" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(168.346334 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.x.ticklabel.4" data-role="tick-label" data-axis="x" data-index="4" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="168.346334" y="124.596635" transform="rotate(-0 168.346334 124.596635)">3</text>
+          </g>
+        </g>
+        <g id="xtick_5">
+          <g id="panel.a.axis.x.tick.5" data-role="tick" data-axis="x" data-index="5" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(207.770218 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.x.ticklabel.5" data-role="tick-label" data-axis="x" data-index="5" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="207.770218" y="124.596635" transform="rotate(-0 207.770218 124.596635)">4</text>
+          </g>
+        </g>
+        <g id="xtick_6">
+          <g id="panel.a.axis.x.tick.6" data-role="tick" data-axis="x" data-index="6" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(247.194102 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.x.ticklabel.6" data-role="tick-label" data-axis="x" data-index="6" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="247.194102" y="124.596635" transform="rotate(-0 247.194102 124.596635)">5</text>
+          </g>
+        </g>
+        <g id="panel.a.axis.x.title" data-role="axis-title" data-axis="x" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="148.634392" y="138.597416" transform="rotate(-0 148.634392 138.597416)">Time (s)</text>
+        </g>
+      </g>
+      <g id="panel.a.axis.y" data-role="axis" data-axis="y" data-kind="container" data-ink-fill="axis">
+        <g id="ytick_1">
+          <g id="panel.a.axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(30.36274 27.306426)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="23.36274" y="31.105255" transform="rotate(-0 23.36274 31.105255)">0</text>
+          </g>
+        </g>
+        <g id="ytick_2">
+          <g id="panel.a.axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(30.36274 64.058672)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="23.36274" y="67.8575" transform="rotate(-0 23.36274 67.8575)">2</text>
+          </g>
+        </g>
+        <g id="ytick_3">
+          <g id="panel.a.axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(30.36274 100.810917)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="23.36274" y="104.609745" transform="rotate(-0 23.36274 104.609745)">4</text>
+          </g>
+        </g>
+        <g id="panel.a.axis.y.title" data-role="axis-title" data-axis="y" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="10.597896" y="64.058672" transform="rotate(-90 10.597896 64.058672)">Response</text>
+        </g>
+      </g>
+      <g id="panel.a.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 30.36274 109.998979  L 30.36274 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.a.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 266.906044 109.998979  L 266.906044 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.a.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 30.36274 109.998979  L 266.906044 109.998979  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.a.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 30.36274 18.118365  L 266.906044 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.a.figure.title" data-role="title" data-kind="text" data-ink-fill="ink">
+        <text style="font-size: 12px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="148.634392" y="12.118365" transform="rotate(-0 148.634392 12.118365)">Experiment</text>
+      </g>
+    </g>
+    <g id="panel.b.plot-area" data-role="plot-area" data-kind="container">
+      <g id="panel.b.axes.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 286.269024 109.998979  L 522.812328 109.998979  L 522.812328 18.118365  L 286.269024 18.118365  z " style="fill: #ffffff"/>
+      </g>
+      <g clip-path="url(#p25fe13412f)">
+        <image xlink:href="data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAAAUgAAACACAYAAABp2PBeAAACdElEQVR4nO3Wy4lUURhGUa2qbuvVgqh05eLc5AzBWExA0Jk4NgPf0Fh2GcGeeTh6WSuC7+fCvufhqw8vLw8W6Pbqy+wJw5w2n2dPGOa0/j57wjC36/vZE4Z4tj7MnjDMavYAgH+VQAIEgQQIAgkQBBIgCCRAEEiAIJAAQSABgkACBIEECAIJEAQSIAgkQBBIgCCQAEEgAYJAAgSBBAgCCRAEEiAIJEAQSIAgkABBIAHC5vXHF7M3DLHf3s2eMMzjBd/25NHP2ROGebrQ255ff5s9YRgvSIAgkABBIAGCQAIEgQQIAgkQBBIgCCRAEEiAIJAAQSABgkACBIEECAIJEAQSIAgkQBBIgCCQAEEgAYJAAgSBBAgCCRAEEiAIJEDYrN7fzN4wxI/dcfaEYb5uZy8Y59PufvaEYS7bZd622p1nTxjGCxIgCCRAEEiAIJAAQSABgkACBIEECAIJEAQSIAgkQBBIgCCQAEEgAYJAAgSBBAgCCRAEEiAIJEAQSIAgkABBIAGCQAIEgQQIAgkQBBIgbE5v72ZvGOK8X8+eMMyv/XL/a+ed2/43593V7AnDLPOLAfwFAgkQBBIgCCRAEEiAIJAAQSABgkACBIEECAIJEAQSIAgkQBBIgCCQAEEgAYJAAgSBBAgCCRAEEiAIJEAQSIAgkABBIAGCQAKEzebNu9kbhrg+HGZPGGZ1c5w9YZjLcT97wjCXw3b2hCF+H65nTxjGCxIgCCRAEEiAIJAAQSABgkACBIEECAIJEAQSIAgkQBBIgCCQAEEgAYJAAgSBBAgCCRAEEiAIJEAQSIAgkABBIAGCQAIEgQQIAgkQBBIg/AFnRyLUqpRRMgAAAABJRU5ErkJggg==" id="panel.b.extra.image.0" transform="scale(1 -1) translate(0 -92.16)" x="286.56" y="-18" width="236.16" height="92.16" data-color-scale="panel.b.extra.image.0" data-paint="fill" data-role="extra" data-index="0"/>
+      </g>
+      <g id="panel.b.axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
+        <g id="xtick_7">
+          <g id="panel.b.axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(305.980966 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="305.980966" y="124.596635" transform="rotate(-0 305.980966 124.596635)">0</text>
+          </g>
+        </g>
+        <g id="xtick_8">
+          <g id="panel.b.axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(345.40485 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="345.40485" y="124.596635" transform="rotate(-0 345.40485 124.596635)">1</text>
+          </g>
+        </g>
+        <g id="xtick_9">
+          <g id="panel.b.axis.x.tick.3" data-role="tick" data-axis="x" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(384.828734 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.x.ticklabel.3" data-role="tick-label" data-axis="x" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="384.828734" y="124.596635" transform="rotate(-0 384.828734 124.596635)">2</text>
+          </g>
+        </g>
+        <g id="xtick_10">
+          <g id="panel.b.axis.x.tick.4" data-role="tick" data-axis="x" data-index="4" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(424.252618 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.x.ticklabel.4" data-role="tick-label" data-axis="x" data-index="4" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="424.252618" y="124.596635" transform="rotate(-0 424.252618 124.596635)">3</text>
+          </g>
+        </g>
+        <g id="xtick_11">
+          <g id="panel.b.axis.x.tick.5" data-role="tick" data-axis="x" data-index="5" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(463.676502 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.x.ticklabel.5" data-role="tick-label" data-axis="x" data-index="5" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="463.676502" y="124.596635" transform="rotate(-0 463.676502 124.596635)">4</text>
+          </g>
+        </g>
+        <g id="xtick_12">
+          <g id="panel.b.axis.x.tick.6" data-role="tick" data-axis="x" data-index="6" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(503.100386 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.x.ticklabel.6" data-role="tick-label" data-axis="x" data-index="6" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="503.100386" y="124.596635" transform="rotate(-0 503.100386 124.596635)">5</text>
+          </g>
+        </g>
+      </g>
+      <g id="panel.b.axis.y" data-role="axis" data-axis="y" data-kind="container" data-ink-fill="axis">
+        <g id="ytick_4">
+          <g id="panel.b.axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(286.269024 27.306426)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="279.269024" y="31.105255" transform="rotate(-0 279.269024 31.105255)">0</text>
+          </g>
+        </g>
+        <g id="ytick_5">
+          <g id="panel.b.axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(286.269024 64.058672)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="279.269024" y="67.8575" transform="rotate(-0 279.269024 67.8575)">2</text>
+          </g>
+        </g>
+        <g id="ytick_6">
+          <g id="panel.b.axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(286.269024 100.810917)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.b.axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: end" x="279.269024" y="104.609745" transform="rotate(-0 279.269024 104.609745)">4</text>
+          </g>
+        </g>
+      </g>
+      <g id="panel.b.axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 286.269024 109.998979  L 286.269024 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.b.axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 522.812328 109.998979  L 522.812328 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.b.axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 286.269024 109.998979  L 522.812328 109.998979  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="panel.b.axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 286.269024 18.118365  L 522.812328 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+    </g>
+    <g id="panel.a.colorbar.color" data-role="colorbar" data-kind="container">
+      <g id="panel.a.colorbar.color.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 547.434808 109.998979  L 552.028838 109.998979  L 552.028838 18.118365  L 547.434808 18.118365  z " style="fill: #ffffff"/>
+      </g>
+      <g id="panel.a.colorbar.color.solids" data-role="colorbar-solids" data-kind="shape">
+        <rect x="547.434808" y="18.118365" width="4.594029999999975" height="91.88061400000001" clip-path="url(#p461019f83c)" style="fill: url(#panel.a.colorbar.color.solids.gradient); stroke: none"/>
+      </g>
+      <g id="matplotlib.axis_1"/>
+      <g id="matplotlib.axis_2">
+        <g id="ytick_7">
+          <g id="panel.a.colorbar.color.tick.0" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(552.028838 109.998979)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.colorbar.color.tick-label.0" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="559.028838" y="113.797807" transform="rotate(-0 559.028838 113.797807)">0</text>
+          </g>
+        </g>
+        <g id="ytick_8">
+          <g id="panel.a.colorbar.color.tick.1" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(552.028838 78.316008)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.colorbar.color.tick-label.1" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="559.028838" y="82.114837" transform="rotate(-0 559.028838 82.114837)">10</text>
+          </g>
+        </g>
+        <g id="ytick_9">
+          <g id="panel.a.colorbar.color.tick.2" data-role="colorbar-tick" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 3.5 0  " transform="translate(552.028838 46.633038)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="panel.a.colorbar.color.tick-label.2" data-role="colorbar-tick-label" data-kind="text" data-ink-fill="ink">
+            <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="559.028838" y="50.431866" transform="rotate(-0 559.028838 50.431866)">20</text>
+          </g>
+        </g>
+      </g>
+      <g id="panel.a.colorbar.color.divider" data-role="colorbar-divider" data-kind="line"/>
+      <g id="panel.a.colorbar.color.outline" data-role="colorbar-outline" data-kind="line" data-ink-stroke="axis">
+        <path d="M 547.434808 109.998979  L 549.731823 109.998979  L 552.028838 109.998979  L 552.028838 18.118365  L 549.731823 18.118365  L 547.434808 18.118365  L 547.434808 109.998979  z " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+    </g>
+  </g>
+  <defs>
+    <clipPath id="p13927ce869">
+      <rect x="30.36274" y="18.118365" width="236.543304" height="91.880614"/>
+    </clipPath>
+    <clipPath id="p25fe13412f">
+      <rect x="286.269024" y="18.118365" width="236.543304" height="91.880614"/>
+    </clipPath>
+    <clipPath id="p461019f83c">
+      <rect x="547.434808" y="18.118365" width="4.594031" height="91.880614"/>
+    </clipPath>
+  </defs>
+</svg>

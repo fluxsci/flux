@@ -192,6 +192,7 @@ The established shared cores — extend these, don't duplicate them:
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-plot-tick-handoff.ts` (view-Change tick hand-off, stills), `verify-slide-morph.ts`, paper/render and slide/export parity |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
+| Elastic plot layout, ticks, SVG frames, variants and size matching | `src/lib/plot/relayout/` (pure solver/apply; `ops.ts` loaded lazily by UI/bridge and flux-core adapter) | `group:relayout`, `group:relayout-native`; matplotlib oracle, parity, source-sync, UI and scale gates |
 | Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
@@ -4907,6 +4908,27 @@ outside this PNG packaging change.
   and Windows / Mac compositing of plus-lighter and priming (unmeasured). There is NO re-pace command (WP 2.6 cut
   by the owner): old talks play exactly as made, and a mixed-pace deck is legal. Letters travel and roll are the
   default for NEW text transforms; `params` stripped is the classic look.
+
+### Elastic plot reflow pipeline
+
+For layout-capable plots: clone pristine SVG → prefix IDs → reflow → prepare view → apply
+part overrides → project view. Reflow already preserves physical typography, so skip
+`compensatePtTrue`; Stretch keeps the existing compensation path. Never measure text in
+relayout: all metrics come from the matplotlib capture. Placement identity comes from `parse.ts`/`prefixIds`, independently of the CSS scope attribute:
+prepared SVGs can be style-less. Retick IDs follow original numeric
+values; new `.r<i>` ticks inherit group overrides only. A leaf override remains dormant when
+its original value disappears and returns when it reappears. Restore native bindings before
+switching a reused root back to Stretch. Geometry readers must use element-size variants and
+effective manifests rather than cached native boxes. Variants are immutable, limited to 16
+entries, and participate in the shared SVG node budget. Heavy relayout code stays behind
+mount or explicit command imports, outside the eager shell.
+Point-sized glyphs anchored to data are rebuilt from their captured geometry, never mapped
+affinely (that turns circles into ellipses and stretches caps): fluxbox boxes from `box`
+frames, meanmark circles/arms/caps from `mark` frames (a circle translates with its mean, an
+arm runs rim→bound, a cap keeps its point length and loses the part inside the circle). A
+tight engine's `rect` insets every edge on top of the decoration margins (matplotlib's second
+`get_tight_layout_figure` pass); a one-shot `fig.tight_layout()` instead freezes the figure to
+engine `none`, which can only scale its margins.
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -11427,3 +11449,64 @@ picks drew no canvas outline; undo was dead while the X-ray was open; x/v ignore
 **Verification:** verify-xray-context (pure, 78) + verify-xray-context-gui (new); the 13 X-ray GUI
 gates; verify-xray-tree's mirror extended to members; two gates moved from the stored
 `hidden: false` to the cleared flag (shown is now a cleared key) — tier results in the commit log.
+
+
+### 2026-10-23 — elastic plot relayout v1 (isolated feature worktrees)
+
+**Request:** implement `notes/elastic_relayout_2026-10-23/PLAN.md` across Flux and fluxplot,
+keep both implementations on `relayout/v1` worktrees, and regenerate Feature_test_proj for
+owner testing. No merge or push. Feature roots are `flux-wt/relayout-v1` and
+`flux-wt/fluxplot-relayout-v1`.
+
+**Changes:** fluxplot 0.4 captures deterministic layout/frames/font metrics, numeric tick
+rules and named refusals. Flux uses one pure model/solver/apply pipeline across Figure,
+inline/Paper and slides; effective manifests and bounded immutable variants feed geometry.
+Added lazy resize/match/layout-mode ops, CLI/MCP/live bridge, Inspector Layout controls,
+Arrange Match, rAF drag preview, dense release fallback, physical resize tweens and D2 sync.
+Retired the unused serialization adapter. Documentation and generated agent context updated.
+
+**Verification:** registered `relayout` and `relayout-native` groups and explicit pathMap
+pins. Corpus is 49 cases ×28 sizes, 2400 numeric major/minor tick rows and 480 solver rows.
+New checks cover values/strings/anchors, SVG vertices, image clips, legends/arrows, identity,
+overrides, variants, real CLI/MCP, source sync, browser authoring/tween/scale and native
+PNG/PDF/offline deck output. Final commands, receipts, project backup and launch instructions
+are recorded in the feature worktree's `notes/elastic_relayout_2026-10-23/` handoff.
+
+**Learnings:** retain scientific significant digits in layout JSON; decimal-place rounding
+can erase positive log limits. `set_layout_engine(None)` reselects global rcParams, so restore
+an absent engine with `"none"`. Reuse ticks with relative value tolerance, including tiny
+values. Raster-image clip groups can be untagged ancestors of the semantic image. Read-only
+extra tick feedback follows matplotlib's two geometry passes: mutating geometry a third time
+fails the oracle on aspect/colorbar cases. Mathtext extent quantization occurs at the 100pt
+font scale; capture raw width/advance and its quantum instead of adding already rounded widths.
+Native software/Xvfb output checks are distinct from hardware-GPU performance qualification.
+After acceptance-time HMR, restart Vite before the frozen cohort: cached imports with HMR
+timestamps can give direct test imports a second module instance (annotation initialization
+and source watchers failed despite the visible editor having a valid owner). A fresh server
+passed both unchanged gates. Keep diagnostic baseline builds outside the watched repository.
+Vite's cache lives in `.generated/vite-cache`, per worktree. A shared `node_modules/.vite`
+cache lets another active worktree replace optimized dependencies and cause stale-hash
+dynamic import failures even with frozen source and no HMR event in this server's log.
+The dev watcher excludes notes, generated output and test evidence: recursive baseline and
+acceptance artifacts can otherwise exhaust the machine's inotify limit during a long session.
+
+When a locator produces no visible ticks, remove their label padding and outward tick
+extent from axis-title placement as well as text height. The narrow log-subs oracle
+exercises this transition; retaining that spacing also changes vertical tick density.
+
+Match captures per-plot X-ray panel scopes while ordinary drilled-part alignment remains
+blocked, and refuses locked/excluded targets. Data-view reticks preserve retained-value
+semantic ids/edits using disposable projection clones; originals are parked and restored.
+Build those clones from pre-override templates so dx/dy is applied once and a template's
+leaf style cannot leak to new values. Portable deck payloads retain idAliases, and the
+coverage audit resolves aliases before warning about old tracks after source regeneration.
+
+
+### 2026-10-24 00:25 CDT — Elastic relayout accepted into main (Codex, main)
+**Work:** Fast-forwarded both approved `relayout/v1` branches into their respective main checkouts (Flux `80414134`, fluxplot `6ee758ce`), installed the locked solver dependency and updated the main provider environment. Main production/CLI/MCP build, renderer/headless checks, 22-page documentation build and provider suite (625 passed, one skipped) pass. Rebound the test project's source and active Figure/Slide recipes to main through supported sync/export operations, preserving the owner's latest Figure objects and authored slides; final integration receipts are in `notes/elastic_relayout_2026-10-23/main-integration/`. Existing native qualification and metadata-size limits remain in the feature handoff; no budgets were relaxed, no other worktrees integrated, and nothing pushed.
+
+### 2026-10-24 18:10 CDT — meanmark and tight-rect reflow (Claude Opus 5.5, main)
+**Work:** meanmark parts were layout refusals (`transform:custom`), so most paper group-summary plots could not reflow; fluxplot `65b3aabe` captures them as `mark` glyph frames and `apply.ts` rebuilds them; `solve.ts` now applies a tight engine's `rect`. New oracle cases `meanmark`, `meanmark-log`, `tight-rect` pass at 0.0000 pt; against matplotlib re-renders of 324 real paper plots at 1.35×1.2, 314 match within 0.5 pt.
+**Learnings:**
+- Promoted to the body ("Elastic plot reflow pipeline"): glyph geometry is rebuilt from captured frames, and tight `rect` semantics.
+- Remaining real-plot mismatches are solver limits, not capture bugs: a rotated y-label longer than its axes (its overhang shrinks as the axes grow) and figures saved with engine `none`.

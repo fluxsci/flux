@@ -64,6 +64,7 @@
     "@floating-ui/dom": "^1.7.6",
     "@lezer/highlight": "^1.2.3",
     "@lezer/markdown": "^1.6.4",
+    "@lume/kiwi": "^0.4.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@napi-rs/canvas": "1.0.2",
     "@replit/codemirror-vim": "^6.3.0",

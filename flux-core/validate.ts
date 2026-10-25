@@ -23,6 +23,9 @@ import { atomicWrite } from "./fsx";
 import { SCHEMAS, SCHEMA_FILENAMES, schemaForFile } from "./schemas";
 import { j } from "./journal";
 import { safeJoin, exists, loadManifest, readFigIndex, loadFigModel } from "./model";
+import {buildRelayoutModel,targetFigureSize} from "../src/lib/plot/relayout/model";
+import {solveRelayout} from "../src/lib/plot/relayout/solve";
+import {reportText} from "../src/lib/plot/relayout/report";
 import { scanAbsurdPathCoords, manifestHasLogAxis } from "./coordscan";
 import { readExpandedQmd } from "./manuscript";
 
@@ -47,6 +50,7 @@ export interface ValidateResult {
   errors: string[];
   /** non-fatal project lint (empty/unembedded figures, overlapping frames). */
   warnings?: string[];
+  infos?:string[];
 }
 
 /** Schema errors for one plot manifest: fluxplot's vendored schema for its 0.3+ output, the
@@ -108,7 +112,7 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
   // whole-canvas render exposes late: an empty leftover figure silently shifts
   // every figure number; a figure embedded in no document never compiles; two
   // frames overlapping on the canvas render on top of each other.
-  const warnings: string[] = [];
+  const warnings: string[] = [],infos:string[]=[];
   try {
     const m = await loadManifest(root);
     const { project, index } = await loadFigModel(root);
@@ -151,10 +155,20 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
     // WS-12: headless-edited text still awaiting a GUI re-wrap renders
     // differently here than in the app — name it.
     warnings.push(...textLayoutWarnings(project.figures));
+    const plotMetadata=new Map<string,FluxPlotManifest|undefined>();
+    for(const figure of project.figures)for(const element of figure.elements)if(element.type==='plot'&&element.layoutMode!=='stretch'){
+      if(!plotMetadata.has(element.assetId)){
+        const file=safeJoin(root,'fig/assets/'+element.assetId+'.fluxplot.json');
+        plotMetadata.set(element.assetId,await fs.readFile(file,'utf8').then(t=>JSON.parse(t)).catch(()=>undefined));
+      }
+      const model=buildRelayoutModel(plotMetadata.get(element.assetId));if(!model.supported)continue;
+      const report=solveRelayout(model,targetFigureSize(element)).report;
+      if(report.status==='approximate')infos.push(`plot ${element.id} in ${figure.id}: ${reportText(report)}`);
+    }
   } catch {
     /* lint is best-effort — schema validation is the contract */
   }
-  return { ok: errors.length === 0, checked, errors, warnings };
+  return { ok: errors.length === 0, checked, errors, warnings,...(infos.length?{infos}:{}) };
 }
 
 /** Validate a FluxPlot output (the WS7 contract): the manifest is schema-valid AND

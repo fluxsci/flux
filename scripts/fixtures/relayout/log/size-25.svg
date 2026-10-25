@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="172.8pt" height="432pt" viewBox="0 0 172.8 432" version="1.1" data-fluxplot="1" data-plot-type="plot">
+  <defs>
+    <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+  </defs>
+  <g id="figure" data-role="figure" data-kind="container">
+    <g id="figure.background" data-role="background" data-kind="shape" data-ink-fill="paper">
+      <path d="M 0 432  L 172.8 432  L 172.8 0  L 0 0  z " style="fill: #ffffff"/>
+    </g>
+    <g id="plot-area" data-role="plot-area" data-kind="container">
+      <g id="axes.background" data-role="background" data-kind="shape" data-ink-fill="plot">
+        <path d="M 47.50024 396.196635  L 166.435523 396.196635  L 166.435523 18.118365  L 47.50024 18.118365  z " style="fill: #ffffff"/>
+      </g>
+      <g id="axis.x" data-role="axis" data-axis="x" data-kind="container" data-ink-fill="axis">
+        <g id="xtick_1">
+          <g id="axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(52.906389 396.196635)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(41.156389 412.496635)">
+              <text>
+                <tspan x="0" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.892187" style="font-size: 7px; font-family: 'DejaVu Sans'">−</tspan>
+                <tspan x="18.685547" y="-4.892187" style="font-size: 7px; font-family: 'DejaVu Sans'">1</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="xtick_2">
+          <g id="axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(106.967882 396.196635)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(98.167882 412.596635)">
+              <text>
+                <tspan x="0" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.804688" style="font-size: 7px; font-family: 'DejaVu Sans'">0</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="xtick_3">
+          <g id="axis.x.tick.3" data-role="tick" data-axis="x" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 3.5  " transform="translate(161.029374 396.196635)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.x.ticklabel.3" data-role="tick-label" data-axis="x" data-index="3" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(152.229374 412.496635)">
+              <text>
+                <tspan x="0" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.892187" style="font-size: 7px; font-family: 'DejaVu Sans'">1</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="xtick_4">
+          <g id="axis.x.minor.tick.6" data-role="tick" data-axis="x" data-index="6" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(47.667289 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_5">
+          <g id="axis.x.minor.tick.7" data-role="tick" data-axis="x" data-index="7" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(50.432671 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_6">
+          <g id="axis.x.minor.tick.8" data-role="tick" data-axis="x" data-index="8" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(69.18052 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_7">
+          <g id="axis.x.minor.tick.9" data-role="tick" data-axis="x" data-index="9" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(78.700276 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_8">
+          <g id="axis.x.minor.tick.10" data-role="tick" data-axis="x" data-index="10" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(85.454651 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_9">
+          <g id="axis.x.minor.tick.11" data-role="tick" data-axis="x" data-index="11" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(90.693751 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_10">
+          <g id="axis.x.minor.tick.12" data-role="tick" data-axis="x" data-index="12" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(94.974407 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_11">
+          <g id="axis.x.minor.tick.13" data-role="tick" data-axis="x" data-index="13" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(98.593651 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_12">
+          <g id="axis.x.minor.tick.14" data-role="tick" data-axis="x" data-index="14" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(101.728782 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_13">
+          <g id="axis.x.minor.tick.15" data-role="tick" data-axis="x" data-index="15" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(104.494163 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_14">
+          <g id="axis.x.minor.tick.16" data-role="tick" data-axis="x" data-index="16" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(123.242012 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_15">
+          <g id="axis.x.minor.tick.17" data-role="tick" data-axis="x" data-index="17" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(132.761769 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_16">
+          <g id="axis.x.minor.tick.18" data-role="tick" data-axis="x" data-index="18" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(139.516143 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_17">
+          <g id="axis.x.minor.tick.19" data-role="tick" data-axis="x" data-index="19" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(144.755243 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_18">
+          <g id="axis.x.minor.tick.20" data-role="tick" data-axis="x" data-index="20" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(149.0359 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_19">
+          <g id="axis.x.minor.tick.21" data-role="tick" data-axis="x" data-index="21" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(152.655143 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_20">
+          <g id="axis.x.minor.tick.22" data-role="tick" data-axis="x" data-index="22" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(155.790274 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="xtick_21">
+          <g id="axis.x.minor.tick.23" data-role="tick" data-axis="x" data-index="23" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L 0 2  " transform="translate(158.555656 396.196635)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="axis.x.title" data-role="axis-title" data-axis="x" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="106.967882" y="426.597416" transform="rotate(-0 106.967882 426.597416)">Time (s)</text>
+        </g>
+      </g>
+      <g id="axis.y" data-role="axis" data-axis="y" data-kind="container" data-ink-fill="axis">
+        <g id="ytick_1">
+          <g id="axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(47.50024 379.011259)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(17.00024 383.711259)">
+              <text>
+                <tspan x="0" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.804688" style="font-size: 7px; font-family: 'DejaVu Sans'">−</tspan>
+                <tspan x="18.685547" y="-4.804688" style="font-size: 7px; font-family: 'DejaVu Sans'">2</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="ytick_2">
+          <g id="axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(47.50024 293.08438)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(17.00024 297.73438)">
+              <text>
+                <tspan x="0" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.892187" style="font-size: 7px; font-family: 'DejaVu Sans'">−</tspan>
+                <tspan x="18.685547" y="-4.892187" style="font-size: 7px; font-family: 'DejaVu Sans'">1</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="ytick_3">
+          <g id="axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(47.50024 207.1575)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(22.90024 211.8575)">
+              <text>
+                <tspan x="0" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.804688" style="font-size: 7px; font-family: 'DejaVu Sans'">0</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="ytick_4">
+          <g id="axis.y.tick.4" data-role="tick" data-axis="y" data-index="4" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(47.50024 121.23062)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.4" data-role="tick-label" data-axis="y" data-index="4" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(22.90024 125.88062)">
+              <text>
+                <tspan x="0" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.762187" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.892187" style="font-size: 7px; font-family: 'DejaVu Sans'">1</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="ytick_5">
+          <g id="axis.y.tick.5" data-role="tick" data-axis="y" data-index="5" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -3.5 0  " transform="translate(47.50024 35.303741)" style="stroke: #000000; stroke-width: 0.8"/>
+          </g>
+          <g id="axis.y.ticklabel.5" data-role="tick-label" data-axis="y" data-index="5" data-kind="text" data-ink-fill="ink">
+            <g transform="translate(22.90024 40.003741)">
+              <text>
+                <tspan x="0" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">1</tspan>
+                <tspan x="6.362305" y="-0.674688" style="font-size: 10px; font-family: 'DejaVu Sans'">0</tspan>
+                <tspan x="12.820312" y="-4.804688" style="font-size: 7px; font-family: 'DejaVu Sans'">2</tspan>
+              </text>
+            </g>
+          </g>
+        </g>
+        <g id="ytick_6">
+          <g id="axis.y.minor.tick.5" data-role="tick" data-axis="y" data-index="5" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 392.321501)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_7">
+          <g id="axis.y.minor.tick.6" data-role="tick" data-axis="y" data-index="6" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 387.338434)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_8">
+          <g id="axis.y.minor.tick.7" data-role="tick" data-axis="y" data-index="7" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 382.943057)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_9">
+          <g id="axis.y.minor.tick.8" data-role="tick" data-axis="y" data-index="8" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 353.144691)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_10">
+          <g id="axis.y.minor.tick.9" data-role="tick" data-axis="y" data-index="9" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 338.013719)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_11">
+          <g id="axis.y.minor.tick.10" data-role="tick" data-axis="y" data-index="10" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 327.278123)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_12">
+          <g id="axis.y.minor.tick.11" data-role="tick" data-axis="y" data-index="11" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 318.950948)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_13">
+          <g id="axis.y.minor.tick.12" data-role="tick" data-axis="y" data-index="12" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 312.14715)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_14">
+          <g id="axis.y.minor.tick.13" data-role="tick" data-axis="y" data-index="13" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 306.394622)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_15">
+          <g id="axis.y.minor.tick.14" data-role="tick" data-axis="y" data-index="14" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 301.411555)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_16">
+          <g id="axis.y.minor.tick.15" data-role="tick" data-axis="y" data-index="15" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 297.016178)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_17">
+          <g id="axis.y.minor.tick.16" data-role="tick" data-axis="y" data-index="16" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 267.217811)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_18">
+          <g id="axis.y.minor.tick.17" data-role="tick" data-axis="y" data-index="17" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 252.086839)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_19">
+          <g id="axis.y.minor.tick.18" data-role="tick" data-axis="y" data-index="18" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 241.351243)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_20">
+          <g id="axis.y.minor.tick.19" data-role="tick" data-axis="y" data-index="19" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 233.024068)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_21">
+          <g id="axis.y.minor.tick.20" data-role="tick" data-axis="y" data-index="20" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 226.220271)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_22">
+          <g id="axis.y.minor.tick.21" data-role="tick" data-axis="y" data-index="21" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 220.467742)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_23">
+          <g id="axis.y.minor.tick.22" data-role="tick" data-axis="y" data-index="22" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 215.484675)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_24">
+          <g id="axis.y.minor.tick.23" data-role="tick" data-axis="y" data-index="23" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 211.089298)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_25">
+          <g id="axis.y.minor.tick.24" data-role="tick" data-axis="y" data-index="24" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 181.290932)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_26">
+          <g id="axis.y.minor.tick.25" data-role="tick" data-axis="y" data-index="25" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 166.159959)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_27">
+          <g id="axis.y.minor.tick.26" data-role="tick" data-axis="y" data-index="26" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 155.424364)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_28">
+          <g id="axis.y.minor.tick.27" data-role="tick" data-axis="y" data-index="27" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 147.097189)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_29">
+          <g id="axis.y.minor.tick.28" data-role="tick" data-axis="y" data-index="28" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 140.293391)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_30">
+          <g id="axis.y.minor.tick.29" data-role="tick" data-axis="y" data-index="29" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 134.540863)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_31">
+          <g id="axis.y.minor.tick.30" data-role="tick" data-axis="y" data-index="30" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 129.557795)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_32">
+          <g id="axis.y.minor.tick.31" data-role="tick" data-axis="y" data-index="31" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 125.162419)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_33">
+          <g id="axis.y.minor.tick.32" data-role="tick" data-axis="y" data-index="32" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 95.364052)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_34">
+          <g id="axis.y.minor.tick.33" data-role="tick" data-axis="y" data-index="33" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 80.23308)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_35">
+          <g id="axis.y.minor.tick.34" data-role="tick" data-axis="y" data-index="34" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 69.497484)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_36">
+          <g id="axis.y.minor.tick.35" data-role="tick" data-axis="y" data-index="35" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 61.170309)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_37">
+          <g id="axis.y.minor.tick.36" data-role="tick" data-axis="y" data-index="36" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 54.366512)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_38">
+          <g id="axis.y.minor.tick.37" data-role="tick" data-axis="y" data-index="37" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 48.613983)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_39">
+          <g id="axis.y.minor.tick.38" data-role="tick" data-axis="y" data-index="38" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 43.630916)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="ytick_40">
+          <g id="axis.y.minor.tick.39" data-role="tick" data-axis="y" data-index="39" data-kind="line" data-ink-fill="tick" data-ink-stroke="tick">
+            <path d="M 0 0  L -2 0  " transform="translate(47.50024 39.235539)" style="stroke: #000000; stroke-width: 0.6"/>
+          </g>
+        </g>
+        <g id="axis.y.title" data-role="axis-title" data-axis="y" data-kind="text" data-ink-fill="label">
+          <text style="font-size: 10px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="10.597896" y="207.1575" transform="rotate(-90 10.597896 207.1575)">Response</text>
+        </g>
+      </g>
+      <g id="extra.line.0" data-role="extra" data-index="0" data-kind="line">
+        <path d="M 52.906389 379.011259  L 87.152639 270.147324  L 100.524487 227.640132  L 108.991214 200.725616  L 115.200817 180.986176  L 120.106881 165.390498  L 124.16286 152.49712  L 127.620293 141.506435  L 130.63333 131.92842  L 133.303309 123.440939  L 135.700425 115.82085  L 137.875314 108.907188  L 139.865707 102.580014  L 141.700472 96.747557  L 143.402192 91.338034  L 144.988863 86.294233  L 146.475062 81.569819  L 147.872759 77.126741  L 149.191904 72.933366  L 150.440859 68.963116  L 151.626718 65.19344  L 152.755551 61.605044  L 153.83259 58.181289  L 154.862382 54.907728  L 155.848897 51.771736  L 156.795628 48.762214  L 157.705659 45.869357  L 158.581729 43.084456  L 159.426282 40.399742  L 160.241508 37.808256  L 161.029374 35.303741  " clip-path="url(#p76d50cad58)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+      </g>
+      <g id="axis.y.spine.left" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 47.50024 396.196635  L 47.50024 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.y.spine.right" data-role="spine" data-axis="y" data-kind="line" data-ink-stroke="axis">
+        <path d="M 166.435523 396.196635  L 166.435523 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.x.spine.bottom" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 47.50024 396.196635  L 166.435523 396.196635  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.x.spine.top" data-role="spine" data-axis="x" data-kind="line" data-ink-stroke="axis">
+        <path d="M 47.50024 18.118365  L 166.435523 18.118365  " style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="figure.title" data-role="title" data-kind="text" data-ink-fill="ink">
+        <text style="font-size: 12px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: middle" x="106.967882" y="12.118365" transform="rotate(-0 106.967882 12.118365)">Experiment</text>
+      </g>
+    </g>
+  </g>
+  <defs>
+    <clipPath id="p76d50cad58">
+      <rect x="47.50024" y="18.118365" width="118.935283" height="378.07827"/>
+    </clipPath>
+  </defs>
+</svg>

@@ -7,9 +7,8 @@
 // preview/PDF, app-side materializeRenders) — so a part the user hid or
 // restyled in the figure editor stays hidden/restyled EVERYWHERE (the
 // 2026-08-12 double-title report: the paper path used to skip overrides
-// entirely and draw the raw plot). The GUI figure-editor export keeps its
-// live-store twin (plot/export.ts plotToSvgMarkup — same pipeline over the
-// cached pristine DOM); this module is the from-text equivalent.
+// entirely and draw the raw plot). The GUI figure-editor export uses this
+// same from-text builder; live mounts share its pipeline through relayout/.
 //
 // DOM dependency: uses the global DOMParser via preparePlot — native in the
 // renderer; headless callers register linkedom first (flux-core ensureDom()).
@@ -20,6 +19,7 @@ import type { ColorScaleView, PlotView } from "../types";
 import { preparePlot, prefixIds, applyOverrides } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
 import type { FluxPlotManifest } from "./types";
+import { relayoutPlot } from "./relayout";
 
 export interface PlacedPlotFrame {
   id: string;
@@ -29,6 +29,7 @@ export interface PlacedPlotFrame {
   height: number;
   crop?: { x: number; y: number; width: number; height: number };
   contentScale?: number;
+  layoutMode?: "stretch";
   view?: PlotView;
   /** Live colour-scale edits (colour-system plan A7), keyed by the manifest's colorScales[].id. */
   colorScale?: Record<string, ColorScaleView>;
@@ -108,16 +109,17 @@ export function buildPlotMarkup(
     );
     rootEl.setAttribute("overflow", "hidden");
   }
-  preparePlotView(rootEl, prepared.manifest, el.view, el.id);
   applyPlotColorScale(rootEl as unknown as globalThis.Element, prepared.manifest, el.colorScale, el.id);
+  const layout = relayoutPlot(rootEl as unknown as globalThis.Element, prepared.manifest, el);
+  preparePlotView(rootEl, layout.manifest, el.view, el.id);
   applyOverrides(
     rootEl as unknown as globalThis.Element,
     overrides as Parameters<typeof applyOverrides>[1],
     el.id,
-    prepared.manifest,
+    layout.manifest,
   );
-  applyPlotView(rootEl, prepared.manifest, el.view, el.id);
-  compensatePtTrue(rootEl as unknown as globalThis.Element, {
+  applyPlotView(rootEl, layout.manifest, el.view, el.id);
+  if (!layout.reflow) compensatePtTrue(rootEl as unknown as globalThis.Element, {
     elW: el.width,
     elH: el.height,
     crop: el.crop ?? null,

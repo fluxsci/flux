@@ -1,0 +1,26 @@
+{
+  "env": null,
+  "generatedAt": "2026-10-24T02:34:39Z",
+  "inputs": [],
+  "outputs": {
+    "manifest": "hexmatrix.fluxplot.json",
+    "svg": "hexmatrix.svg"
+  },
+  "params": {
+    "__fluxplot__": {
+      "dense": {
+        "cmap": "viridis",
+        "extend": "neither",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 3.03958584810201,
+        "vmin": -3.673561319408661
+      }
+    }
+  },
+  "plot": "hexmatrix",
+  "schemaVersion": "0.4.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

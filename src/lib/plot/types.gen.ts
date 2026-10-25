@@ -241,6 +241,7 @@ export interface FluxPlotManifestGen {
     extras?: string[];
     background?: string;
   };
+  layout?: FluxPlotLayout;
 }
 /**
  * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
@@ -341,7 +342,7 @@ export interface Series {
   };
   distribution?: Distribution;
   field?: Field;
-  glowbar?: SignatureStats;
+  meanmark?: SignatureStats;
   fluxbox?: SignatureStats;
   hexmatrix?: Hexmatrix;
   surface?: Surface;
@@ -485,7 +486,7 @@ export interface Normalization {
   boundaries?: (number | null)[];
 }
 /**
- * fp.glowbar / fp.fluxbox payload: part=summary carries the statistics drawn for a category; part=unit a unit's identity.
+ * fp.meanmark / fp.fluxbox payload: part=summary carries the statistics drawn for a category; part=unit a unit's identity.
  *
  * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
  * via the `definition` "signatureStats".
@@ -517,6 +518,12 @@ export interface SignatureStats {
   whiskerHigh?: number | null;
   outliers?: (number | null)[];
   palette?: string | string[] | null;
+  meanKind?: string;
+  scale?: string;
+  orientation?: "vertical" | "horizontal";
+  categoryPosition?: number;
+  y?: number;
+  confidence?: number | null;
 }
 /**
  * fp.hexmatrix payload: the lattice, the statistic and every hexagon drawn.
@@ -789,6 +796,396 @@ export interface ColorScale {
       vmax?: number | null;
     };
   };
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layout".
+ */
+export interface FluxPlotLayout {
+  version: 1;
+  supported: boolean;
+  reasons: string[];
+  figure: {
+    widthPt: number;
+    heightPt: number;
+    suptitle?: string | null;
+    supxlabel?: string | null;
+    supylabel?: string | null;
+    auto?: {
+      [k: string]: boolean;
+    };
+  };
+  engine: {
+    kind: "none" | "tight" | "constrained";
+    wPad?: number | null;
+    hPad?: number | null;
+    wSpace?: number;
+    hSpace?: number;
+    rect?: number[];
+    pad?: number;
+    fontPt?: number;
+    subplotpars?: {
+      left?: number;
+      right?: number;
+      bottom?: number;
+      top?: number;
+      wspace?: number;
+      hspace?: number;
+    };
+  };
+  grids: {
+    id: string;
+    nrows: number;
+    ncols: number;
+    widthRatios: number[];
+    heightRatios: number[];
+    wspace?: number | null;
+    hspace?: number | null;
+    parent?: LayoutSlot | null;
+  }[];
+  axes: LayoutAxis[];
+  colorbars: LayoutColorbar[];
+  legends: {
+    collision?: {
+      boxes?: number[][];
+      lines?: number[][][];
+      points?: number[][];
+    } | null;
+    id: string;
+    owner: string;
+    locRequested: string;
+    locResolved: string;
+    bboxToAnchor?: {
+      bbox?: number[];
+      frame?: string;
+    } | null;
+    borderAxesPadPt: number;
+    inLayout?: boolean;
+    sizePt: number[];
+    bbox: number[];
+  }[];
+  texts: {
+    [k: string]: {
+      bbox: number[];
+      anchor: number[];
+      ha: string;
+      va: string;
+      rotation: number;
+      font: string;
+      text: string;
+    };
+  };
+  frames: {
+    [k: string]: LayoutFrame;
+  };
+  fonts: {
+    [k: string]: {
+      family: string;
+      sizePt: number;
+      weight?: number | string;
+      style?: string;
+      ascentPt: number;
+      descentPt: number;
+      advances: {
+        [k: string]: number;
+      };
+      math?: {
+        powerRawWidthPt?: number;
+        supAdvancePt?: number;
+        minusAdvancePt?: number;
+        quantumPt?: number;
+        supScale?: number;
+        supRisePt?: number;
+        baseAdvance10?: number;
+        powerWidthPt?: number;
+        powerHeightPt?: number;
+        powerDescentPt?: number;
+        coeffPrefixPt?: number;
+        timesPadPt?: number;
+      };
+    };
+  };
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutSlot".
+ */
+export interface LayoutSlot {
+  grid: string;
+  rows: number[];
+  cols: number[];
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutAxis".
+ */
+export interface LayoutAxis {
+  id: string;
+  slot: LayoutSlot | null;
+  position: number[];
+  initialPosition?: number[];
+  extraLayoutIds?: string[];
+  positionMode: "grid" | "manual" | "inset";
+  initialDomain?: {
+    [k: string]: number[];
+  };
+  dataLim?: {
+    [k: string]: (number | null)[];
+  };
+  inset?: {
+    parent?: string | null;
+    bounds?: number[];
+    frame?: string;
+  } | null;
+  inLayout: boolean;
+  aspect: number | string;
+  dataRatio?: number;
+  dataAspect?: number | string;
+  managed?: boolean;
+  adjustable: string;
+  anchor: string | number[];
+  boxAspect?: number | null;
+  twins?: {
+    id?: string;
+    axis?: string;
+  }[];
+  sharex?: string | null;
+  sharey?: string | null;
+  title: {
+    left?: string | null;
+    center?: string | null;
+    right?: string | null;
+    padPt?: number;
+  };
+  axisStyle: {
+    [k: string]: LayoutAxisStyle;
+  };
+  ticking: {
+    [k: string]: LayoutTicking;
+  };
+  margins: number[];
+  pixelBox: number[];
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutAxisStyle".
+ */
+export interface LayoutAxisStyle {
+  side: string;
+  labelSide?: string;
+  tickDir?: string;
+  tickLenPt: number;
+  tickPadPt: number;
+  minorTickLenPt?: number;
+  labelPadPt: number;
+  labelAuto?: boolean;
+  font: string;
+  labelRotation?: number;
+  labelHa?: string;
+  offsetText?: string | null;
+  offsetSpec?: {
+    id: string | null;
+    anchor: number[];
+    font: string;
+    ha: string;
+    va: string;
+    rotation: number;
+  };
+  label?: string | null;
+  visible: boolean;
+  tickTop?: boolean;
+  labelTop?: boolean;
+  tickBottom?: boolean;
+  labelBottom?: boolean;
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutTicking".
+ */
+export interface LayoutTicking {
+  major: LayoutLocator;
+  minor: LayoutLocator;
+  formatter: LayoutFormatter;
+  retick: boolean;
+  minorFormatter?: LayoutFormatter;
+  minorValues?: number[];
+  minorLabels?: string[];
+  minorRetick?: boolean;
+  domain: number[];
+  scale: string;
+  values: number[];
+  labels?: string[];
+  offsetText?: string;
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutLocator".
+ */
+export interface LayoutLocator {
+  kind: "maxn" | "multiple" | "log" | "null" | "auto-minor" | "fixed" | "category" | "date" | "custom";
+  nbins?: number | "auto";
+  steps?: number[];
+  integer?: boolean;
+  symmetric?: boolean;
+  prune?: string | null;
+  minNTicks?: number;
+  base?: number;
+  offset?: number;
+  subs?: number[] | string | null;
+  numticks?: number | string;
+  n?: number | "auto" | null;
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutFormatter".
+ */
+export interface LayoutFormatter {
+  kind: "scalar" | "log-sci" | "percent" | "str-method" | "fixed" | "custom";
+  useOffset?: boolean;
+  offset?: number | null;
+  offsetThreshold?: number;
+  useMathText?: boolean;
+  powerlimits?: number[];
+  scientific?: boolean;
+  useLocale?: boolean;
+  unicodeMinus?: boolean;
+  base?: number;
+  labelOnlyBase?: boolean;
+  minorThresholds?: (number | ("inf" | "-inf"))[];
+  minExponent?: number;
+  xmax?: number;
+  decimals?: number | null;
+  symbol?: string;
+  fmt?: string;
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutColorbar".
+ */
+export interface LayoutColorbar {
+  id: string;
+  slot?: LayoutSlot | null;
+  position?: number[];
+  initialPosition?: number[];
+  extraLayoutIds?: string[];
+  positionMode?: "grid" | "manual" | "inset";
+  initialDomain?: {
+    [k: string]: number[];
+  };
+  dataLim?: {
+    [k: string]: (number | null)[];
+  };
+  inset?: {
+    parent?: string | null;
+    bounds?: number[];
+    frame?: string;
+  } | null;
+  inLayout?: boolean;
+  aspect: number | string;
+  dataRatio?: number;
+  dataAspect?: number | string;
+  managed?: boolean;
+  adjustable?: string;
+  anchor?: string | number[];
+  boxAspect?: number | null;
+  twins?: {
+    id?: string;
+    axis?: string;
+  }[];
+  sharex?: string | null;
+  sharey?: string | null;
+  title?: {
+    left?: string | null;
+    center?: string | null;
+    right?: string | null;
+    padPt?: number;
+  };
+  axisStyle: {
+    [k: string]: LayoutAxisStyle;
+  };
+  ticking: {
+    [k: string]: LayoutTicking;
+  };
+  margins: number[];
+  pixelBox: number[];
+  parents: string[];
+  location: string;
+  orientation: string;
+  fraction: number;
+  shrink: number;
+  padFrac: number;
+  panchor?: number[];
+  extendFrac?: number | number[] | string | null;
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutFrame".
+ */
+export interface LayoutFrame {
+  f:
+    | "data"
+    | "glyph"
+    | "blend"
+    | "image"
+    | "gradient"
+    | "clip"
+    | "axes"
+    | "offset"
+    | "arrow"
+    | "figure"
+    | "axis"
+    | "title"
+    | "legend";
+  box?: {
+    x?: number;
+    y0?: number;
+    y1?: number;
+    notch?: number | null;
+    widthPt?: number;
+    depthPt?: number;
+    heightPt?: number;
+  };
+  mark?: {
+    orientation: "vertical" | "horizontal";
+    position: number;
+    mean: number;
+    bound: number | null;
+    radiusPt: number;
+    capPt: number | null;
+  };
+  anchorsPt?: number[][];
+  axes?: string | null;
+  anchor?: string;
+  frac?: number[];
+  geometry?: boolean;
+  x?: string;
+  y?: string;
+  base?: LayoutEndpoint;
+  offsetPt?: number[];
+  textcoords?: string;
+  text?: string;
+  xy?: LayoutEndpoint;
+  shrinkA?: number;
+  shrinkB?: number;
+  style?: string;
+  connection?: string;
+  axis?: string;
+  part?: string;
+  value?: number | null;
+  minor?: boolean;
+  side?: string;
+  position?: (string | number)[];
+  slot?: string;
+}
+/**
+ * This interface was referenced by `FluxPlotManifestGen`'s JSON-Schema
+ * via the `definition` "layoutEndpoint".
+ */
+export interface LayoutEndpoint {
+  f: "data" | "axes" | "figure";
+  axes?: string | null;
+  pt: number[];
+  nativePt?: number[] | null;
 }
 
 export interface FluxPlotRecipeGen {

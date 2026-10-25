@@ -1,0 +1,1954 @@
+{
+  "artifact": {
+    "svgSha256": "661cfd508aa247d685b598b51e905930d6fc6b999796bfcb41a0c1dda614e5dc"
+  },
+  "axes": [
+    {
+      "id": "plot-area",
+      "pixelBox": {
+        "x0": 46.26586499999999,
+        "x1": 284.99976000000004,
+        "y0": 18.118365000000054,
+        "y1": 334.6389787500001
+      },
+      "projection": "rectilinear",
+      "svgId": "plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -0.5,
+            "svg": 46.26586499999999
+          },
+          {
+            "data": 10.5,
+            "svg": 284.99976000000004
+          }
+        ],
+        "domain": [
+          -0.5,
+          10.5
+        ],
+        "label": "Time (s)",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−2",
+            "value": -2.0
+          },
+          {
+            "label": "0",
+            "value": 0.0
+          },
+          {
+            "label": "2",
+            "value": 2.0
+          },
+          {
+            "label": "4",
+            "value": 4.0
+          },
+          {
+            "label": "6",
+            "value": 6.0
+          },
+          {
+            "label": "8",
+            "value": 8.0
+          },
+          {
+            "label": "10",
+            "value": 10.0
+          },
+          {
+            "label": "12",
+            "value": 12.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": -0.9727989444555315,
+            "svg": 334.6389787500001
+          },
+          {
+            "data": 20.42877783356616,
+            "svg": 18.118365000000054
+          }
+        ],
+        "domain": [
+          -0.9727989444555315,
+          20.42877783356616
+        ],
+        "label": "Response",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "plain",
+        "tickLocator": "auto",
+        "ticks": [
+          {
+            "label": "−2.5",
+            "value": -2.5
+          },
+          {
+            "label": "0.0",
+            "value": 0.0
+          },
+          {
+            "label": "2.5",
+            "value": 2.5
+          },
+          {
+            "label": "5.0",
+            "value": 5.0
+          },
+          {
+            "label": "7.5",
+            "value": 7.5
+          },
+          {
+            "label": "10.0",
+            "value": 10.0
+          },
+          {
+            "label": "12.5",
+            "value": 12.5
+          },
+          {
+            "label": "15.0",
+            "value": 15.0
+          },
+          {
+            "label": "17.5",
+            "value": 17.5
+          },
+          {
+            "label": "20.0",
+            "value": 20.0
+          },
+          {
+            "label": "22.5",
+            "value": 22.5
+          }
+        ]
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "axis.x",
+      "axis.y",
+      "figure.title",
+      "observations.points"
+    ],
+    "presets": {
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "point": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "index",
+        "staggerMs": 40
+      },
+      "title": {
+        "animation": "fade-in",
+        "durationMs": 300
+      }
+    }
+  },
+  "figure": {
+    "background": "figure.background"
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.4.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "axis.x",
+      "role": "axis",
+      "svgId": "axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "axis.y",
+      "role": "axis",
+      "svgId": "axis.y"
+    }
+  ],
+  "idAliases": {
+    "axis.x.spine": "axis.x.spine.bottom",
+    "axis.x.spine-2": "axis.x.spine.top",
+    "axis.y.spine": "axis.y.spine.left",
+    "axis.y.spine-2": "axis.y.spine.right"
+  },
+  "layout": {
+    "axes": [
+      {
+        "adjustable": "box",
+        "anchor": "C",
+        "aspect": "auto",
+        "axisStyle": {
+          "x": {
+            "font": "f0",
+            "label": "axis.x.title",
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "center",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "bottom",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                284.99976,
+                354.63897875
+              ],
+              "font": "f0",
+              "ha": "right",
+              "id": "axis.x.offset-text",
+              "rotation": 0.0,
+              "va": "top"
+            },
+            "offsetText": null,
+            "side": "bottom",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          },
+          "y": {
+            "font": "f0",
+            "label": "axis.y.title",
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "right",
+            "labelPadPt": 4.0,
+            "labelRotation": 0.0,
+            "labelSide": "left",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                46.265865,
+                15.118365
+              ],
+              "font": "f0",
+              "ha": "left",
+              "id": "axis.y.offset-text",
+              "rotation": 0.0,
+              "va": "baseline"
+            },
+            "offsetText": null,
+            "side": "left",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 3.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          }
+        },
+        "boxAspect": null,
+        "dataLim": {
+          "x": [
+            0.0,
+            10.0
+          ],
+          "y": [
+            0.0,
+            19.4559788891106
+          ]
+        },
+        "dataRatio": 1.94559788891106,
+        "extraLayoutIds": [
+          "axis.y.spine.left",
+          "axis.y.spine.right",
+          "axis.x.spine.bottom",
+          "axis.x.spine.top",
+          "axes.background"
+        ],
+        "id": "plot-area",
+        "inLayout": true,
+        "initialDomain": {
+          "x": [
+            -0.5,
+            10.5
+          ],
+          "y": [
+            -0.972798944455532,
+            20.4287778335662
+          ]
+        },
+        "initialPosition": [
+          0.125,
+          0.11,
+          0.775,
+          0.77
+        ],
+        "inset": null,
+        "margins": [
+          43.265625,
+          31.00078125,
+          0.0,
+          15.118125
+        ],
+        "pixelBox": [
+          46.265865,
+          18.118365,
+          284.99976,
+          334.63897875
+        ],
+        "position": [
+          0.160645364583333,
+          0.0922336730957031,
+          0.828937135416667,
+          0.858617116292318
+        ],
+        "positionMode": "grid",
+        "sharex": null,
+        "sharey": null,
+        "slot": {
+          "cols": [
+            0,
+            0
+          ],
+          "grid": "g0",
+          "rows": [
+            0,
+            0
+          ]
+        },
+        "ticking": {
+          "x": {
+            "domain": [
+              -0.5,
+              10.5
+            ],
+            "formatter": {
+              "kind": "scalar",
+              "offset": null,
+              "offsetThreshold": 4,
+              "powerlimits": [
+                -5,
+                6
+              ],
+              "scientific": true,
+              "unicodeMinus": true,
+              "useLocale": false,
+              "useMathText": false,
+              "useOffset": true
+            },
+            "labels": [
+              "−2",
+              "0",
+              "2",
+              "4",
+              "6",
+              "8",
+              "10",
+              "12"
+            ],
+            "major": {
+              "integer": false,
+              "kind": "maxn",
+              "minNTicks": 2,
+              "nbins": "auto",
+              "prune": null,
+              "steps": [
+                1.0,
+                2.0,
+                2.5,
+                5.0,
+                10.0
+              ],
+              "symmetric": false
+            },
+            "minor": {
+              "kind": "null"
+            },
+            "minorFormatter": {
+              "kind": "fixed"
+            },
+            "minorLabels": [],
+            "minorRetick": false,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": true,
+            "scale": "linear",
+            "values": [
+              -2.0,
+              0.0,
+              2.0,
+              4.0,
+              6.0,
+              8.0,
+              10.0,
+              12.0
+            ]
+          },
+          "y": {
+            "domain": [
+              -0.972798944455532,
+              20.4287778335662
+            ],
+            "formatter": {
+              "kind": "scalar",
+              "offset": null,
+              "offsetThreshold": 4,
+              "powerlimits": [
+                -5,
+                6
+              ],
+              "scientific": true,
+              "unicodeMinus": true,
+              "useLocale": false,
+              "useMathText": false,
+              "useOffset": true
+            },
+            "labels": [
+              "−2.5",
+              "0.0",
+              "2.5",
+              "5.0",
+              "7.5",
+              "10.0",
+              "12.5",
+              "15.0",
+              "17.5",
+              "20.0",
+              "22.5"
+            ],
+            "major": {
+              "integer": false,
+              "kind": "maxn",
+              "minNTicks": 2,
+              "nbins": "auto",
+              "prune": null,
+              "steps": [
+                1.0,
+                2.0,
+                2.5,
+                5.0,
+                10.0
+              ],
+              "symmetric": false
+            },
+            "minor": {
+              "kind": "null"
+            },
+            "minorFormatter": {
+              "kind": "fixed"
+            },
+            "minorLabels": [],
+            "minorRetick": false,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": true,
+            "scale": "linear",
+            "values": [
+              -2.5,
+              0.0,
+              2.5,
+              5.0,
+              7.5,
+              10.0,
+              12.5,
+              15.0,
+              17.5,
+              20.0,
+              22.5
+            ]
+          }
+        },
+        "title": {
+          "center": "figure.title",
+          "left": null,
+          "padPt": 6.0,
+          "right": null
+        },
+        "twins": []
+      }
+    ],
+    "colorbars": [],
+    "engine": {
+      "hPad": 3.00024,
+      "hSpace": 0.02,
+      "kind": "constrained",
+      "rect": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "wPad": 3.00024,
+      "wSpace": 0.02
+    },
+    "figure": {
+      "auto": {
+        "suptitle": false,
+        "supxlabel": false,
+        "supylabel": false
+      },
+      "heightPt": 368.64,
+      "suptitle": null,
+      "supxlabel": null,
+      "supylabel": null,
+      "widthPt": 288.0
+    },
+    "fonts": {
+      "f0": {
+        "advances": {
+          " ": 3.178125,
+          "%": 9.5015625,
+          "(": 3.9015625,
+          ")": 3.9015625,
+          "+": 8.3796875,
+          ",": 3.178125,
+          "-": 3.6078125,
+          ".": 3.178125,
+          "0": 6.3625,
+          "1": 6.3625,
+          "2": 6.3625,
+          "3": 6.3625,
+          "4": 6.3625,
+          "5": 6.3625,
+          "6": 6.3625,
+          "7": 6.3625,
+          "8": 6.3625,
+          "9": 6.3625,
+          "E": 6.31875,
+          "e": 6.153125,
+          "×": 8.3796875,
+          "−": 8.3796875
+        },
+        "ascentPt": 7.5984375,
+        "descentPt": 2.0796875,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 12.8203125,
+          "coeffPrefixPt": 18.6376953125,
+          "minusAdvancePt": 5.865234375,
+          "powerDescentPt": 0.2,
+          "powerHeightPt": 9.6,
+          "powerRawWidthPt": 17.54736328125,
+          "powerWidthPt": 17.6,
+          "quantumPt": 0.1,
+          "supAdvancePt": 4.45361328125,
+          "supRisePt": 4.13,
+          "supScale": 0.7,
+          "timesPadPt": 1.948046875
+        },
+        "sizePt": 10.0,
+        "style": "normal",
+        "weight": "normal"
+      },
+      "f1": {
+        "advances": {
+          " ": 3.81375,
+          "%": 11.401875,
+          "(": 4.681875,
+          ")": 4.681875,
+          "+": 10.055625,
+          ",": 3.81375,
+          "-": 4.329375,
+          ".": 3.81375,
+          "0": 7.635,
+          "1": 7.635,
+          "2": 7.635,
+          "3": 7.635,
+          "4": 7.635,
+          "5": 7.635,
+          "6": 7.635,
+          "7": 7.635,
+          "8": 7.635,
+          "9": 7.635,
+          "E": 7.5825,
+          "e": 7.38375,
+          "×": 10.055625,
+          "−": 10.055625
+        },
+        "ascentPt": 9.118125,
+        "descentPt": 2.495625,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 15.384375,
+          "coeffPrefixPt": 22.365234375,
+          "minusAdvancePt": 7.03828125,
+          "powerDescentPt": 0.24,
+          "powerHeightPt": 11.52,
+          "powerRawWidthPt": 21.0568359375,
+          "powerWidthPt": 21.12,
+          "quantumPt": 0.12,
+          "supAdvancePt": 5.3443359375,
+          "supRisePt": 4.956,
+          "supScale": 0.7,
+          "timesPadPt": 2.33765625
+        },
+        "sizePt": 12.0,
+        "style": "normal",
+        "weight": "normal"
+      }
+    },
+    "frames": {
+      "axes.background": {
+        "axes": "plot-area",
+        "f": "axes",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "axis.x.spine.bottom": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "bottom"
+      },
+      "axis.x.spine.top": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "top"
+      },
+      "axis.x.tick.1": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 0.0
+      },
+      "axis.x.tick.2": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 2.0
+      },
+      "axis.x.tick.3": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 4.0
+      },
+      "axis.x.tick.4": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 6.0
+      },
+      "axis.x.tick.5": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 8.0
+      },
+      "axis.x.tick.6": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 10.0
+      },
+      "axis.x.ticklabel.1": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 0.0
+      },
+      "axis.x.ticklabel.2": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 2.0
+      },
+      "axis.x.ticklabel.3": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 4.0
+      },
+      "axis.x.ticklabel.4": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 6.0
+      },
+      "axis.x.ticklabel.5": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 8.0
+      },
+      "axis.x.ticklabel.6": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 10.0
+      },
+      "axis.x.title": {
+        "axes": "plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "title"
+      },
+      "axis.y.spine.left": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "left"
+      },
+      "axis.y.spine.right": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "right"
+      },
+      "axis.y.tick.1": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 0.0
+      },
+      "axis.y.tick.2": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 2.5
+      },
+      "axis.y.tick.3": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 5.0
+      },
+      "axis.y.tick.4": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 7.5
+      },
+      "axis.y.tick.5": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 10.0
+      },
+      "axis.y.tick.6": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 12.5
+      },
+      "axis.y.tick.7": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 15.0
+      },
+      "axis.y.tick.8": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 17.5
+      },
+      "axis.y.tick.9": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 20.0
+      },
+      "axis.y.ticklabel.1": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 0.0
+      },
+      "axis.y.ticklabel.2": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 2.5
+      },
+      "axis.y.ticklabel.3": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 5.0
+      },
+      "axis.y.ticklabel.4": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 7.5
+      },
+      "axis.y.ticklabel.5": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 10.0
+      },
+      "axis.y.ticklabel.6": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 12.5
+      },
+      "axis.y.ticklabel.7": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 15.0
+      },
+      "axis.y.ticklabel.8": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 17.5
+      },
+      "axis.y.ticklabel.9": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 20.0
+      },
+      "axis.y.title": {
+        "axes": "plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "title"
+      },
+      "figure.background": {
+        "f": "figure",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "figure.title": {
+        "axes": "plot-area",
+        "f": "title",
+        "slot": "center"
+      },
+      "observations.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            57.1174056818182,
+            320.251678125
+          ],
+          [
+            64.3517661363636,
+            305.5528728917
+          ],
+          [
+            71.5861265909091,
+            291.386782748389
+          ],
+          [
+            78.8204870454545,
+            278.227478254464
+          ],
+          [
+            86.0548475,
+            266.438196856221
+          ],
+          [
+            93.2892079545454,
+            256.231355490348
+          ],
+          [
+            100.523568409091,
+            247.64516643022
+          ],
+          [
+            107.757928863636,
+            240.539430645473
+          ],
+          [
+            114.992289318182,
+            234.61097176751
+          ],
+          [
+            122.226649772727,
+            229.427011595771
+          ],
+          [
+            129.461010227273,
+            224.472812965185
+          ],
+          [
+            136.695370681818,
+            219.208345156992
+          ],
+          [
+            143.929731136364,
+            213.127733778432
+          ],
+          [
+            151.164091590909,
+            205.814950505461
+          ],
+          [
+            158.398452045455,
+            196.989612021503
+          ],
+          [
+            165.6328125,
+            186.537846325342
+          ],
+          [
+            172.867172954545,
+            174.524828456477
+          ],
+          [
+            180.101533409091,
+            161.187605628721
+          ],
+          [
+            187.335893863636,
+            146.909001625174
+          ],
+          [
+            194.570254318182,
+            132.175473218128
+          ],
+          [
+            201.804614772727,
+            117.523558036608
+          ],
+          [
+            209.038975227273,
+            103.480809227328
+          ],
+          [
+            216.273335681818,
+            90.5077191823425
+          ],
+          [
+            223.507696136364,
+            78.9470257241288
+          ],
+          [
+            230.742056590909,
+            68.9859814328642
+          ],
+          [
+            237.976417045455,
+            60.6357397387775
+          ],
+          [
+            245.2107775,
+            53.730127084432
+          ],
+          [
+            252.445137954545,
+            47.9439363248115
+          ],
+          [
+            259.679498409091,
+            42.8287275160043
+          ],
+          [
+            266.913858863636,
+            37.8621949230173
+          ],
+          [
+            274.148219318182,
+            32.505665625
+          ]
+        ],
+        "axes": "plot-area",
+        "f": "glyph"
+      }
+    },
+    "grids": [
+      {
+        "heightRatios": [
+          1
+        ],
+        "hspace": null,
+        "id": "g0",
+        "ncols": 1,
+        "nrows": 1,
+        "parent": null,
+        "widthRatios": [
+          1
+        ],
+        "wspace": null
+      }
+    ],
+    "legends": [],
+    "reasons": [],
+    "supported": true,
+    "texts": {
+      "axis.x.ticklabel.1": {
+        "anchor": [
+          57.1174056818182,
+          341.63897875
+        ],
+        "bbox": [
+          53.9361556818182,
+          341.63897875,
+          60.2986556818182,
+          351.63897875
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "0",
+        "va": "top"
+      },
+      "axis.x.ticklabel.2": {
+        "anchor": [
+          100.523568409091,
+          341.63897875
+        ],
+        "bbox": [
+          97.3423184090909,
+          341.63897875,
+          103.704818409091,
+          351.63897875
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "2",
+        "va": "top"
+      },
+      "axis.x.ticklabel.3": {
+        "anchor": [
+          143.929731136364,
+          341.63897875
+        ],
+        "bbox": [
+          140.748481136364,
+          341.63897875,
+          147.110981136364,
+          351.63897875
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "4",
+        "va": "top"
+      },
+      "axis.x.ticklabel.4": {
+        "anchor": [
+          187.335893863636,
+          341.63897875
+        ],
+        "bbox": [
+          184.154643863636,
+          341.63897875,
+          190.517143863636,
+          351.63897875
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "6",
+        "va": "top"
+      },
+      "axis.x.ticklabel.5": {
+        "anchor": [
+          230.742056590909,
+          341.63897875
+        ],
+        "bbox": [
+          227.560806590909,
+          341.63897875,
+          233.923306590909,
+          351.63897875
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "8",
+        "va": "top"
+      },
+      "axis.x.ticklabel.6": {
+        "anchor": [
+          274.148219318182,
+          341.63897875
+        ],
+        "bbox": [
+          267.785719318182,
+          341.63897875,
+          280.510719318182,
+          351.63897875
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "10",
+        "va": "top"
+      },
+      "axis.x.title": {
+        "anchor": [
+          165.6328125,
+          355.63897875
+        ],
+        "bbox": [
+          145.3015625,
+          355.63897875,
+          185.9640625,
+          365.63976
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "Time (s)",
+        "va": "top"
+      },
+      "axis.y.ticklabel.1": {
+        "anchor": [
+          39.265865,
+          320.251678125
+        ],
+        "bbox": [
+          23.36274,
+          316.45285,
+          39.265865,
+          326.45285
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "0.0",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.2": {
+        "anchor": [
+          39.265865,
+          283.277695199236
+        ],
+        "bbox": [
+          23.36274,
+          279.478867074236,
+          39.265865,
+          289.478867074236
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "2.5",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.3": {
+        "anchor": [
+          39.265865,
+          246.303712273472
+        ],
+        "bbox": [
+          23.36274,
+          242.504884148472,
+          39.265865,
+          252.504884148472
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "5.0",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.4": {
+        "anchor": [
+          39.265865,
+          209.329729347708
+        ],
+        "bbox": [
+          23.36274,
+          205.530901222708,
+          39.265865,
+          215.530901222708
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "7.5",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.5": {
+        "anchor": [
+          39.265865,
+          172.355746421944
+        ],
+        "bbox": [
+          17.00024,
+          168.556918296944,
+          39.265865,
+          178.556918296944
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "10.0",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.6": {
+        "anchor": [
+          39.265865,
+          135.38176349618
+        ],
+        "bbox": [
+          17.00024,
+          131.58293537118,
+          39.265865,
+          141.58293537118
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "12.5",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.7": {
+        "anchor": [
+          39.265865,
+          98.4077805704164
+        ],
+        "bbox": [
+          17.00024,
+          94.6089524454164,
+          39.265865,
+          104.608952445416
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "15.0",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.8": {
+        "anchor": [
+          39.265865,
+          61.4337976446525
+        ],
+        "bbox": [
+          17.00024,
+          57.6349695196525,
+          39.265865,
+          67.6349695196525
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "17.5",
+        "va": "center_baseline"
+      },
+      "axis.y.ticklabel.9": {
+        "anchor": [
+          39.265865,
+          24.4598147188885
+        ],
+        "bbox": [
+          17.00024,
+          20.6609865938885,
+          39.265865,
+          30.6609865938885
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "20.0",
+        "va": "center_baseline"
+      },
+      "axis.y.title": {
+        "anchor": [
+          13.00024,
+          176.378671875
+        ],
+        "bbox": [
+          3.00023999999999,
+          152.363828125,
+          13.00024,
+          200.393515625
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 90.0,
+        "text": "Response",
+        "va": "bottom"
+      },
+      "figure.title": {
+        "anchor": [
+          165.6328125,
+          12.118365
+        ],
+        "bbox": [
+          143.7215625,
+          3.00024000000002,
+          187.5440625,
+          15.0011775
+        ],
+        "font": "f1",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "Panel 1",
+        "va": "baseline"
+      }
+    },
+    "version": 1
+  },
+  "overlays": [],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "kind": "shape",
+            "ref": "axes.background",
+            "role": "background"
+          },
+          {
+            "axis": "x",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.bottom",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.x.spine.top",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.x.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.x.tick.1",
+                  "axis.x.tick.2",
+                  "axis.x.tick.3",
+                  "axis.x.tick.4",
+                  "axis.x.tick.5",
+                  "axis.x.tick.6"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.x.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.x.ticklabel.1",
+                  "axis.x.ticklabel.2",
+                  "axis.x.ticklabel.3",
+                  "axis.x.ticklabel.4",
+                  "axis.x.ticklabel.5",
+                  "axis.x.ticklabel.6"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.x.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.x",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "axis": "y",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.left",
+                "role": "spine"
+              },
+              {
+                "kind": "line",
+                "ref": "axis.y.spine.right",
+                "role": "spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.y.ticks",
+                "kind": "line",
+                "memberRole": "tick",
+                "members": [
+                  "axis.y.tick.1",
+                  "axis.y.tick.2",
+                  "axis.y.tick.3",
+                  "axis.y.tick.4",
+                  "axis.y.tick.5",
+                  "axis.y.tick.6",
+                  "axis.y.tick.7",
+                  "axis.y.tick.8",
+                  "axis.y.tick.9"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.y.tick-labels",
+                "kind": "text",
+                "memberRole": "tick-label",
+                "members": [
+                  "axis.y.ticklabel.1",
+                  "axis.y.ticklabel.2",
+                  "axis.y.ticklabel.3",
+                  "axis.y.ticklabel.4",
+                  "axis.y.ticklabel.5",
+                  "axis.y.ticklabel.6",
+                  "axis.y.ticklabel.7",
+                  "axis.y.ticklabel.8",
+                  "axis.y.ticklabel.9"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.y.title",
+                "role": "axis-title"
+              }
+            ],
+            "id": "axis.y",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "children": [
+              {
+                "groupRole": "point",
+                "id": "observations.points",
+                "kind": "shape",
+                "memberRole": "point",
+                "members": [
+                  "observations.point.0",
+                  "observations.point.1",
+                  "observations.point.2",
+                  "observations.point.3",
+                  "observations.point.4",
+                  "observations.point.5",
+                  "observations.point.6",
+                  "observations.point.7",
+                  "observations.point.8",
+                  "observations.point.9",
+                  "observations.point.10",
+                  "observations.point.11",
+                  "observations.point.12",
+                  "observations.point.13",
+                  "observations.point.14",
+                  "observations.point.15",
+                  "observations.point.16",
+                  "observations.point.17",
+                  "observations.point.18",
+                  "observations.point.19",
+                  "observations.point.20",
+                  "observations.point.21",
+                  "observations.point.22",
+                  "observations.point.23",
+                  "observations.point.24",
+                  "observations.point.25",
+                  "observations.point.26",
+                  "observations.point.27",
+                  "observations.point.28",
+                  "observations.point.29",
+                  "observations.point.30"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "observations",
+            "kind": "container",
+            "label": "observations",
+            "role": "series"
+          }
+        ],
+        "id": "plot-area",
+        "kind": "container",
+        "role": "plot-area"
+      },
+      {
+        "kind": "text",
+        "ref": "figure.title",
+        "role": "title"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "scatter",
+  "schemaVersion": "0.4.0",
+  "series": [
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "capture": {
+        "data": "artist",
+        "identity": "artist-label"
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#1f77b4",
+        "palette": {
+          "index": 0,
+          "name": "cycle"
+        }
+      },
+      "components": [
+        {
+          "memberRole": "point",
+          "members": [
+            "observations.point.0",
+            "observations.point.1",
+            "observations.point.2",
+            "observations.point.3",
+            "observations.point.4",
+            "observations.point.5",
+            "observations.point.6",
+            "observations.point.7",
+            "observations.point.8",
+            "observations.point.9",
+            "observations.point.10",
+            "observations.point.11",
+            "observations.point.12",
+            "observations.point.13",
+            "observations.point.14",
+            "observations.point.15",
+            "observations.point.16",
+            "observations.point.17",
+            "observations.point.18",
+            "observations.point.19",
+            "observations.point.20",
+            "observations.point.21",
+            "observations.point.22",
+            "observations.point.23",
+            "observations.point.24",
+            "observations.point.25",
+            "observations.point.26",
+            "observations.point.27",
+            "observations.point.28",
+            "observations.point.29",
+            "observations.point.30"
+          ],
+          "role": "point",
+          "svgId": "observations.points"
+        }
+      ],
+      "data": {
+        "x": [
+          0.0,
+          0.3333333333333333,
+          0.6666666666666666,
+          1.0,
+          1.3333333333333333,
+          1.6666666666666665,
+          2.0,
+          2.333333333333333,
+          2.6666666666666665,
+          3.0,
+          3.333333333333333,
+          3.6666666666666665,
+          4.0,
+          4.333333333333333,
+          4.666666666666666,
+          5.0,
+          5.333333333333333,
+          5.666666666666666,
+          6.0,
+          6.333333333333333,
+          6.666666666666666,
+          7.0,
+          7.333333333333333,
+          7.666666666666666,
+          8.0,
+          8.333333333333332,
+          8.666666666666666,
+          9.0,
+          9.333333333333332,
+          9.666666666666666,
+          10.0
+        ],
+        "y": [
+          0.0,
+          0.9938613634628188,
+          1.9517031364030704,
+          2.8414709848078967,
+          3.6386045680299794,
+          4.328741291085098,
+          4.909297426825682,
+          5.38975254840499,
+          5.790605959969145,
+          6.141120008059867,
+          6.476098703791181,
+          6.832056284744988,
+          7.243197504692072,
+          7.737652165395904,
+          8.334378416235404,
+          9.041075725336862,
+          9.853337275099086,
+          10.755135091589022,
+          11.720584501801074,
+          12.71679367654884,
+          13.70748456390455,
+          14.656986598718788,
+          15.534163536285472,
+          16.315841120319707,
+          16.989358246623382,
+          17.55396077476136,
+          18.020884548446393,
+          18.412118485241756,
+          18.757983902221415,
+          19.093796560203018,
+          19.45597888911063
+        ]
+      },
+      "id": "observations",
+      "kind": "scatter",
+      "label": "observations",
+      "name": "observations",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "observations.point.0",
+          "x": 0.0,
+          "y": 0.0
+        },
+        {
+          "index": 1,
+          "svgId": "observations.point.1",
+          "x": 0.3333333333333333,
+          "y": 0.9938613634628188
+        },
+        {
+          "index": 2,
+          "svgId": "observations.point.2",
+          "x": 0.6666666666666666,
+          "y": 1.9517031364030704
+        },
+        {
+          "index": 3,
+          "svgId": "observations.point.3",
+          "x": 1.0,
+          "y": 2.8414709848078967
+        },
+        {
+          "index": 4,
+          "svgId": "observations.point.4",
+          "x": 1.3333333333333333,
+          "y": 3.6386045680299794
+        },
+        {
+          "index": 5,
+          "svgId": "observations.point.5",
+          "x": 1.6666666666666665,
+          "y": 4.328741291085098
+        },
+        {
+          "index": 6,
+          "svgId": "observations.point.6",
+          "x": 2.0,
+          "y": 4.909297426825682
+        },
+        {
+          "index": 7,
+          "svgId": "observations.point.7",
+          "x": 2.333333333333333,
+          "y": 5.38975254840499
+        },
+        {
+          "index": 8,
+          "svgId": "observations.point.8",
+          "x": 2.6666666666666665,
+          "y": 5.790605959969145
+        },
+        {
+          "index": 9,
+          "svgId": "observations.point.9",
+          "x": 3.0,
+          "y": 6.141120008059867
+        },
+        {
+          "index": 10,
+          "svgId": "observations.point.10",
+          "x": 3.333333333333333,
+          "y": 6.476098703791181
+        },
+        {
+          "index": 11,
+          "svgId": "observations.point.11",
+          "x": 3.6666666666666665,
+          "y": 6.832056284744988
+        },
+        {
+          "index": 12,
+          "svgId": "observations.point.12",
+          "x": 4.0,
+          "y": 7.243197504692072
+        },
+        {
+          "index": 13,
+          "svgId": "observations.point.13",
+          "x": 4.333333333333333,
+          "y": 7.737652165395904
+        },
+        {
+          "index": 14,
+          "svgId": "observations.point.14",
+          "x": 4.666666666666666,
+          "y": 8.334378416235404
+        },
+        {
+          "index": 15,
+          "svgId": "observations.point.15",
+          "x": 5.0,
+          "y": 9.041075725336862
+        },
+        {
+          "index": 16,
+          "svgId": "observations.point.16",
+          "x": 5.333333333333333,
+          "y": 9.853337275099086
+        },
+        {
+          "index": 17,
+          "svgId": "observations.point.17",
+          "x": 5.666666666666666,
+          "y": 10.755135091589022
+        },
+        {
+          "index": 18,
+          "svgId": "observations.point.18",
+          "x": 6.0,
+          "y": 11.720584501801074
+        },
+        {
+          "index": 19,
+          "svgId": "observations.point.19",
+          "x": 6.333333333333333,
+          "y": 12.71679367654884
+        },
+        {
+          "index": 20,
+          "svgId": "observations.point.20",
+          "x": 6.666666666666666,
+          "y": 13.70748456390455
+        },
+        {
+          "index": 21,
+          "svgId": "observations.point.21",
+          "x": 7.0,
+          "y": 14.656986598718788
+        },
+        {
+          "index": 22,
+          "svgId": "observations.point.22",
+          "x": 7.333333333333333,
+          "y": 15.534163536285472
+        },
+        {
+          "index": 23,
+          "svgId": "observations.point.23",
+          "x": 7.666666666666666,
+          "y": 16.315841120319707
+        },
+        {
+          "index": 24,
+          "svgId": "observations.point.24",
+          "x": 8.0,
+          "y": 16.989358246623382
+        },
+        {
+          "index": 25,
+          "svgId": "observations.point.25",
+          "x": 8.333333333333332,
+          "y": 17.55396077476136
+        },
+        {
+          "index": 26,
+          "svgId": "observations.point.26",
+          "x": 8.666666666666666,
+          "y": 18.020884548446393
+        },
+        {
+          "index": 27,
+          "svgId": "observations.point.27",
+          "x": 9.0,
+          "y": 18.412118485241756
+        },
+        {
+          "index": 28,
+          "svgId": "observations.point.28",
+          "x": 9.333333333333332,
+          "y": 18.757983902221415
+        },
+        {
+          "index": 29,
+          "svgId": "observations.point.29",
+          "x": 9.666666666666666,
+          "y": 19.093796560203018
+        },
+        {
+          "index": 30,
+          "svgId": "observations.point.30",
+          "x": 10.0,
+          "y": 19.45597888911063
+        }
+      ],
+      "roles": [
+        "point"
+      ],
+      "svg": {
+        "points": "observations.points"
+      }
+    }
+  ],
+  "size": {
+    "height": 368.6400000000001,
+    "unit": "pt",
+    "width": 288.0
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": null,
+    "tokens": {
+      "axis": "#000000",
+      "grid": "#b0b0b0",
+      "ink": "#000000",
+      "label": "#000000",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#000000"
+    }
+  },
+  "svg": "size-08.svg"
+}

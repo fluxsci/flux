@@ -11,6 +11,7 @@
   const textEdits = editSession();
   import { transientSceneTransforms } from "./interact/sceneTransforms";
   import { resizePreviewTransform, transientResizeKind } from "./interact/resizePreview";
+  import { updateRelayoutPreviews } from "./plot/relayout/preview";
   const sceneTransforms = transientSceneTransforms();
   import { frameHandleRect } from "./interact/frameResize";
   import { figureFramePreview } from "./store";
@@ -4529,6 +4530,7 @@
   // LIVE scene group (no re-mount per move; one render at the release commit); every other kind
   // keeps the overlay copy. resizedEls[i] is the remap of gestureEls[i].
   $: overlayResizedEls = resizedEls.filter((el) => !transientResizeKind(el));
+  $: updateRelayoutPreviews(resizedEls);
   $: resizeTransforms = (() => {
     if (!dragging || gesture?.kind !== "resize" || gesture.crop || !resizedEls.length) return null;
     const m = new Map<string, string>();

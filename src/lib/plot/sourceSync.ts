@@ -15,7 +15,8 @@ export interface SourceIO {
   validateSvg?(text: string): boolean;
   watchSourceFiles?(root: string, scope: string, sources: LinkedSourceFiles[]): Promise<unknown>;
 }
-export interface SourceUpdate { assetId: string; from: string; resolved: string; bundle: PlotBundle; previous: PlotBundle; width: number; height: number }
+export interface SourceSize { assetId:string; width:number; height:number; layoutSupported?:boolean }
+export interface SourceUpdate extends SourceSize { from: string; resolved: string; bundle: PlotBundle; previous: PlotBundle }
 export interface SourceStatus {
   assetId: string;
   path: string;
@@ -140,7 +141,8 @@ export async function planSourceUpdates(root: string, project: Project, io: Sour
         if (lost.size) status.detail = `Preserved overrides for parts missing from the new source: ${[...lost].join(", ")}`;
       }
       const size = svgIntrinsicSize(fresh.svgText);
-      out.updates.push({ assetId, from: source.svgPath, resolved, bundle: fresh, previous, width: size.w, height: size.h });
+      const layoutSupported = [fresh.manifestText,previous.manifestText].some(text=>text&&JSON.parse(text).layout?.supported===true);
+      out.updates.push({ assetId, from: source.svgPath, resolved, bundle: fresh, previous, width: size.w, height: size.h, layoutSupported });
       status.status = "updating";
     } catch (e) { status.status = "error"; status.detail = String((e as Error)?.message ?? e); }
   }
@@ -150,7 +152,7 @@ export async function planSourceUpdates(root: string, project: Project, io: Sour
 /** Apply metadata and physical sizing to the latest model (not the snapshot
  * read before async IO). User placement scales, IDs, captions and overrides
  * survive. Each touched frame expands only when required to contain content. */
-export function applySourceUpdates(project: Project, updates: readonly Pick<SourceUpdate, "assetId" | "width" | "height">[]): { resized: { assetId: string; elementIds: string[]; from: { w: number; h: number }; to: { w: number; h: number } }[]; framed: { figId: string; from: { width: number; height: number }; to: { width: number; height: number } }[] } {
+export function applySourceUpdates(project: Project, updates: readonly SourceSize[]): { resized: { assetId: string; elementIds: string[]; from: { w: number; h: number }; to: { w: number; h: number } }[]; framed: { figId: string; from: { width: number; height: number }; to: { width: number; height: number } }[] } {
   const before = new Map(project.figures.map((f) => [f.id, unionRect(f.elements.map(elementBBox))]));
   const resized = [], framed = [];
   const affected = new Set<string>();
@@ -162,6 +164,8 @@ export function applySourceUpdates(project: Project, updates: readonly Pick<Sour
     if (Math.abs(prev.w - u.width) < 0.01 && Math.abs(prev.h - u.height) < 0.01) continue;
     const elementIds = [];
     for (const f of project.figures) for (const e of f.elements) if (e.type === "plot" && e.assetId === u.assetId) {
+      const cs=e.contentScale??1;
+      if(u.layoutSupported&&e.layoutMode!=="stretch"&&(Math.abs(e.width/cs-prev.w)*.75>.5||Math.abs(e.height/cs-prev.h)*.75>.5))continue;
       e.width *= u.width / prev.w; e.height *= u.height / prev.h;
       elementIds.push(e.id); affected.add(f.id);
     }

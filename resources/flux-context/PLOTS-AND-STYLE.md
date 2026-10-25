@@ -154,9 +154,13 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
   (`FLUXPLOT_ONLY` makes the sibling saves no-ops, so their files stay untouched). The script
   still executes fully, so `--param` overrides only reach the targeted plot's output. Without
   `--only`, the whole script's outputs regenerate and param overrides leak into siblings.
-- **Regenerated at a different size?** `sync-figure` resizes the element true-size (preserving a
-  deliberate hand-scale) and grows the figure frame if needed — re-`arrange` when the grid
-  should reflow around the new size.
+- **Resize without rerunning Python:** `resize-plot <id> --width 3.5 --height 2.4 --unit in`
+  reflows fluxplot ≥ 0.4 plots. `match-plot-areas <ids> --dimension height` matches data areas;
+  `set-plot-layout-mode <ids> --mode stretch` selects the legacy behavior (`auto` restores reflow).
+  MCP names are `resize_plot`, `match_plot_areas`, `set_plot_layout_mode`.
+- **Regenerated at a different size?** A deliberate reflow size chosen in Flux survives
+  `sync-figure`. An untouched plot follows the regenerated native size; Stretch keeps the
+  previous proportional behavior. Positions, captions and restyles survive.
 
 ## 3D fluxplots
 

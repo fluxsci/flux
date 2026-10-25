@@ -169,6 +169,7 @@ const ELEMENT_DEF = {
       colorScale: { type: "object", additionalProperties: COLOR_SCALE_VIEW },
       // colour-system plan B1: the scaffold ink follows the deck theme (absent = on for slides)
       followTheme: { type: "boolean" },
+      layoutMode: { enum: ["stretch"] },
     }),
     elementBranch("text", ["text"], {
       text: { type: "string" },

@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import { applyPlotView, preparePlotView } from "../../plot/projectDom";
+import { relayoutPlot } from "../../plot/relayout";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { get } from "svelte/store";
@@ -306,7 +307,7 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
       if (["fill", "stroke", "color", "stop-color", "flood-color"].includes(name)) return prepareColorLerp(a, b);
       // References, colours and arbitrary strings are discrete. Only equal
       // numeric templates (including path commands) can interpolate safely.
-      if (!a.includes("#") && !b.includes("#") && !name.startsWith("data-") && !name.endsWith("href") && a.replace(numbers, "~") === b.replace(numbers, "~")) {
+      if (!a.includes("#") && !b.includes("#") && !name.startsWith("data-") && !name.endsWith("href") && (name==="d"?a.replace(numbers,"~").replace(/[\s,]+/g,"").replace(/z/g,"Z"):a.replace(numbers,"~")) === (name==="d"?b.replace(numbers,"~").replace(/[\s,]+/g,"").replace(/z/g,"Z"):b.replace(numbers,"~"))) {
         const an = (a.match(numbers) ?? []).map(Number), bn = (b.match(numbers) ?? []).map(Number);
         const pieces = b.split(numbers);
         if (an.length && an.length === bn.length) return t => {
@@ -500,7 +501,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     if (x.tagName !== y.tagName) return false;
     const ownsLine = line || !!dataGeometry?.lines.has(x.getAttribute("id") ?? "");
     if (!ownsLine && x.tagName.toLowerCase() === "path" &&
-      (x.getAttribute("d") ?? "").replace(numbers, "~") !== (y.getAttribute("d") ?? "").replace(numbers, "~")) return false;
+      (x.getAttribute("d") ?? "").replace(numbers,"~").replace(/[\s,]+/g,"").replace(/z/g,"Z") !== (y.getAttribute("d") ?? "").replace(numbers,"~").replace(/[\s,]+/g,"").replace(/z/g,"Z")) return false;
     const xc = anonymous(x), yc = anonymous(y);
     return xc.length === yc.length && xc.every((child, i) => same(child, yc[i], ownsLine));
   };
@@ -780,6 +781,7 @@ export function compileGhostPartOpacity(scope: ParentNode, el: FigElement, ctx: 
 const mountedPlotAsset = new WeakMap<Element, string>();
 export function plotAssetOf(svg: Element | null | undefined): string | undefined { return svg ? mountedPlotAsset.get(svg) : undefined; }
 function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx: SlideRenderCtx): void {
+  // relayout-native-root: native asset for a fresh render or endpoint compilation; placement reflows it
   const cached = (ctx.plotRoot ? ctx.plotRoot(el.assetId) : plotDom.get(el.assetId));
   if (!cached) {
     // <image> fallback (same as the canvas): the asset bytes render, parts
@@ -815,14 +817,15 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
   // applyOverrides needs the live manifest; `get` from svelte/store is framework-neutral.
   const ghostOpacity = compileGhostPartOpacity(inst, el, ctx);
   const manifest = ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId];
-  preparePlotView(inst, manifest, el.view, el.id);
   // the deck's ink on the scaffold (plan B1) and the live colour scales, before overrides
   applyPlotTheme(inst, manifest, plotFollowsTheme(el, "slide") ? ctx.theme : null);
   applyPlotColorScale(inst, manifest, el.colorScale, el.id);
-  applyOverrides(inst, el.overrides, el.id, manifest);
+  const layout = relayoutPlot(inst, manifest, el);
+  preparePlotView(inst, layout.manifest, el.view, el.id);
+  applyOverrides(inst, el.overrides, el.id, layout.manifest);
   ghostOpacity?.(el);
-  applyPlotView(inst, manifest, el.view, el.id);
-  compensatePtTrue(inst, {
+  applyPlotView(inst, layout.manifest, el.view, el.id);
+  if (!layout.reflow) compensatePtTrue(inst, {
     elW: el.width,
     elH: el.height,
     crop: el.crop ?? null,

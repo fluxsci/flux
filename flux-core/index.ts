@@ -56,6 +56,7 @@ export * from "./model";
 
 // SVG intrinsic sizing + extreme-coordinate hygiene live in ./coordscan.
 export * from "./coordscan";
+export * from "./plotRelayout";
 
 // Headless rendering (figure/canvas SVG+PNG, ensureDom,
 // materializeRenders) lives in ./render.

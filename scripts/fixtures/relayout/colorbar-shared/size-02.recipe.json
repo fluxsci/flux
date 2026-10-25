@@ -1,0 +1,14 @@
+{
+  "env": null,
+  "generatedAt": "2026-10-24T02:18:41Z",
+  "inputs": [],
+  "outputs": {
+    "manifest": "size-02.fluxplot.json",
+    "svg": "size-02.svg"
+  },
+  "params": {},
+  "plot": "size-02",
+  "schemaVersion": "0.4.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

@@ -53,4 +53,6 @@ const msg = plotTooNew(future);
 assert.ok(msg && /newer fluxplot/.test(msg), "a future major is refused with a clear message");
 assert.deepEqual(plotContractErrors("<svg></svg>", future), [msg], "the contract check reports only the version refusal");
 assert.equal(plotTooNew({ schemaVersion: "0.9.4" }), null, "any 0.x is readable");
+const elastic=JSON.parse(await readFile(new URL('./fixtures/relayout/line/base.fluxplot.json',import.meta.url),'utf8')) as FluxPlotManifest;
+assert.equal(elastic.schemaVersion,'0.4.0');assert.ok(validate(elastic),JSON.stringify(validate.errors));assert.ok(elastic.layout?.supported&&elastic.layout.axes[0].ticking.x.major.kind==='maxn','0.4 typed layout accepted');
 console.log("verify-fluxplot-schema: PASS");

@@ -75,6 +75,7 @@ export const ALLOWED_COMMANDS = [
   "import_plots",
   // figure-v1 P5: set/clear an image/plot crop window (content-pinned).
   "set_crop",
+  "resize_plot", "match_plot_areas", "set_plot_layout_mode",
   // figure-v1 P3: text system — B/I/U toggle + named text styles.
   "toggle_text_style",
   "create_text_style",
@@ -275,6 +276,32 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       return { styled: list.length };
     }
 
+    case "resize_plot": {
+      const plotOps=await ops.loadPlotRelayoutOps();
+      const id=typeof c.element==="string"?c.element:typeof c.id==="string"?c.id:ids(c)[0];
+      if(!id)throw new Error("resize_plot: choose a plot");
+      if(c.unit!=null&&!["in","cm","pt","px"].includes(String(c.unit)))throw new Error("resize_plot: invalid unit");
+      let report;
+      store.commit(p=>{
+        const e=p.figures.flatMap(f=>f.elements).find(e=>e.id===id);
+        report=plotOps.resizePlot(p,id,{width:num(c.width),height:num(c.height),unit:c.unit as "in"|"cm"|"pt"|"px"|undefined,keepAspect:typeof c.keepAspect==="boolean"?c.keepAspect:undefined},e?.type==="plot"?get(plotManifests)[e.assetId]:undefined);
+      });
+      return {element:id,report};
+    }
+    case "set_plot_layout_mode": {
+      const list=Array.isArray(c.elements)?c.elements as string[]:ids(c);
+      if(c.mode!=="auto"&&c.mode!=="stretch")throw new Error("set_plot_layout_mode: choose auto or stretch");
+      store.commit(p=>ops.setPlotLayoutMode(p,list,c.mode==="auto"?null:"stretch"));
+      return {elements:list,mode:c.mode};
+    }
+    case "match_plot_areas": {
+      const plotOps=await ops.loadPlotRelayoutOps();
+      const list=Array.isArray(c.elements)?c.elements as string[]:ids(c);
+      if(!["height","width","both"].includes(String(c.dimension)))throw new Error("match_plot_areas: choose height, width or both");
+      let matched;
+      store.commit(p=>{matched=plotOps.matchPlotAreas(p,list,{dimension:c.dimension as "height"|"width"|"both",reference:typeof c.reference==="string"?c.reference:undefined,panel:typeof c.panel==="string"?c.panel:undefined},get(plotManifests));});
+      return {matched};
+    }
     case "set_crop": {
       // {id?, crop: {x,y,width,height} | null} — id defaults to the selection.
       // Same pure op as the ctrl-drag gesture commit / Inspector Reset crop:
