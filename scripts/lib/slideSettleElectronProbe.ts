@@ -38,12 +38,22 @@ export const PLAY: Record<string, string[]> = {
   // R2 follow-up F1: round hand-offs (one rasteriser at both ends), stroked corners, a cornerRadius Change, compound holes
   handoff_round: ["dot_int#1-1", "dot_grow#1-1", "ring_ring#1-1", "six_dots#1-1"],
   become_corners: ["tri_circle#1-1", "rect_circle#1-1", "arrow_circle#1-1", "arrow_circle_ho#1-1", "butt_line_rect#1-1", "ell_rect#1-1", "ell_rect_ho#1-1", "translucent#1-1", "rect_line_round#1-1", "line_rect_round#1-1", "circ_diamond_ho#1-1", "diamond_circ_ho#1-1"],
-  set_flights: ["rect_3ellipses#1-1", "six_ring#1-1"], become_depth: ["dest_under#1-1"],
+  set_flights: ["rect_3ellipses#1-1", "six_ring#1-1"], become_depth: ["dest_under#1-1", "src_over#1-1", "src_under#1-1"],
   corner_radius: ["path_20_0#1-1"], compound: ["hole_moves#1-1", "hole_fills#1-1", "hole_opens#1-1", "donut_circle#1-1", "donut_circle_ho#1-1", "donut_same_wind#1-1"],
 };
 /** Cues whose motion must be CONTINUOUS (a slow text glide): the presented frames inside the motion may not hop (slideSettleSweep `hops`). The stem edit
  *  painted in place stair-stepped (a ~23 unit hop every fourth frame at 1200 ms); on a compositor layer it is smooth. */
 export const SMOOTH = ["change#19-19"];
+/** The cues the DEVICE-SCALE pass plays (devicePixelRatio 1.25, below): every family whose start or landing a fractional display used to step. */
+export const PLAY_DSF: Record<string, string[]> = {
+  change: Array.from({ length: 20 }, (_, i) => `change#${i + 1}-${i + 1}`),
+  become: ["become#1-1", "become#2-2", "become#3-3", "become#4-4"], preset_move: ["p_move#1-1"], preset_fadeRise: ["p_fadeRise#1-1", "p_fadeRise#2-2"], preset_popIn: ["p_popIn#1-1"],
+  preset_scaleIn: ["p_scaleIn#1-1"], preset_writeOn: ["p_writeOn#1-1"], preset_drawOn: ["p_drawOn#3-3"], springs: ["springs#1-1", "springs#3-3", "springs#5-5"],
+  chains: ["chains#1-1", "chains#2-2", "chains#3-3", "chains#4-6"], arcs_turns: ["arc_handoff#1-1", "arc_swap#1-1", "turn_rigid#1-1"], attach: ["follow#1-1", "follow#2-2", "draw_moving#1-1", "label_resize#1-1"],
+  handoff_round: ["dot_int#1-1", "six_dots#1-1"], camera: ["camera#1-1", "camera#2-2", "camera#3-3"], become_depth: ["src_over#1-1", "src_under#1-1"],
+  compound: ["hole_moves#1-1", "hole_fills#1-1", "hole_opens#1-1"], plot_chain: ["sine_scatter_sine#1-1", "sine_scatter_sine#2-2"],
+};
+const DSF_MIN_CUES = 52;
 const flagsOf = (c: Parameters<typeof rtFlags>[0], deck: string) => {
   const flags = rtFlags(c);
   if (SMOOTH.includes(c.name.slice(deck.length + 1)) && c.landedAt != null) {
@@ -64,7 +74,7 @@ const flagsOf = (c: Parameters<typeof rtFlags>[0], deck: string) => {
 // 2 of the 3 runs. Every retried cue is printed and counted, and more than MAX_RETRIED of them fails the gate (a loaded machine or an
 // intermittent defect shows up as many retries, not as one). A defect that fires in fewer than ~1 run in 3 is below this gate's resolution:
 // measure its rate with the probe (REPEAT=<n> scripts/perf/slide-settle-realtime.mts) before and after a fix.
-const MAX_RETRIED = 4;
+const MAX_RETRIED = 4, MAX_RETRIED_DSF = 3;
 const cls = (flag: string) => flag.split(" (")[0];
 const failures: string[] = [], retried: string[] = [], played = new Set<string>();
 let cues = 0;
@@ -106,8 +116,45 @@ for (const d of decks) {
   }
 }
 for (const [key, open] of Object.entries(KNOWN_OPEN)) if (open.rt && !played.has(key)) failures.push(`${key}: KNOWN_OPEN names a real-time flag for a cue the gate does not play (add it to PLAY or delete the entry)`);
+
+// THE DEVICE-SCALE PASS (smoothness pass, 2026-10-24): the same judging on a FRACTIONALLY scaled display, devicePixelRatio 1.25 (the owner's
+// desktop), in a window whose size is a whole number of device pixels (1004 x 612 CSS = 1255 x 765: a real Wayland surface is one; an odd CSS
+// size at 1.25 is not, and its rounding moves the measurement, not the slide) and a stage scale that lands on no grid at all (1.96 device px
+// per stage px). Every move used to end with a 0.5-0.7 device px jump here and every glide's start / later cue stepped its anti-aliasing: the
+// pass at devicePixelRatio 1 could see neither (whole stage pixels are whole device pixels there). Judged with no KNOWN_OPEN tolerance beyond
+// the main pass's own entries; a stale entry is the main pass's business.
+const DSF = { dsf: 1.25, width: 1004, height: 612 };
+let dsfCues = 0;
+probe(`device-scale pass: devicePixelRatio ${DSF.dsf}, ${DSF.width}x${DSF.height}`);
+for (const d of decks) {
+  const want = PLAY_DSF[d.name]; if (!want) continue;
+  const run = (only: (slide: string, from: number, to: number) => boolean) => realtimeSweep(d.payload, d.name, { fresh: true, restMs: 350, tailMs: 450, only, ...DSF });
+  const r = await run((slide, from, to) => want.includes(`${slide}#${from}-${to}`));
+  for (const c of r.cues) {
+    dsfCues++;
+    probe(`dsf ${rtRow(c)}`);
+    const open = KNOWN_OPEN[c.name], attempts = [judge(flagsOf(c, d.name), open, "rt")];
+    if (attempts[0].failing.length) {
+      const only = c.name.slice(d.name.length + 1);
+      for (let i = 0; i < 2; i++) {
+        const again = (await run((slide, from, to) => `${slide}#${from}-${to}` === only)).cues[0];
+        if (!again) continue;
+        probe(`dsf retry ${i + 1} ${rtRow(again)}`);
+        attempts.push(judge(flagsOf(again, d.name), open, "rt"));
+      }
+      retried.push(`dsf ${c.name}`);
+    }
+    const seen = new Map<string, { n: number; text: string }>();
+    for (const a of attempts) for (const flag of new Set(a.failing.map(cls))) seen.set(flag, { n: (seen.get(flag)?.n ?? 0) + 1, text: a.failing.find(x => cls(x) === flag)! });
+    const failing = [...seen.values()].filter(v => v.n >= (attempts.length === 1 ? 1 : 2)).map(v => v.text);
+    if (failing.length) failures.push(`dsf ${c.name}: ${failing.join(", ")}`);
+  }
+}
+assert.ok(dsfCues >= DSF_MIN_CUES, `the device-scale pass measured ${dsfCues} cues`);
 probe(`retried ${retried.length} cue(s)${retried.length ? `: ${retried.join(", ")}` : ""}`);
 assert.ok(cues >= 46, `the real-time sweep measured ${cues} cues`);
-assert.ok(retried.length <= MAX_RETRIED, `${retried.length} cues needed a second look (more than ${MAX_RETRIED}: a loaded machine or an intermittent defect): ${retried.join(", ")}`);
+const retriedMain = retried.filter(n => !n.startsWith("dsf ")), retriedDsf = retried.filter(n => n.startsWith("dsf "));
+assert.ok(retriedMain.length <= MAX_RETRIED, `${retriedMain.length} cues needed a second look (more than ${MAX_RETRIED}: a loaded machine or an intermittent defect): ${retriedMain.join(", ")}`);
+assert.ok(retriedDsf.length <= MAX_RETRIED_DSF, `${retriedDsf.length} device-scale cues needed a second look (more than ${MAX_RETRIED_DSF}): ${retriedDsf.join(", ")}`);
 assert.equal(failures.length, 0, `real-time start/settle failures:\n${failures.join("\n")}`);
-console.log(`SLIDE SETTLE ELECTRON: PASS (${cues} cues, ${retried.length} retried)`);
+console.log(`SLIDE SETTLE ELECTRON: PASS (${cues} cues + ${dsfCues} at devicePixelRatio ${DSF.dsf}, ${retried.length} retried)`);

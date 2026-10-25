@@ -17,14 +17,14 @@ import { familyOf } from "../family";
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
 import { createRasterKeeper, earlyBakeDue, type RasterKeeper } from "./rasterKeeper";
-import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, takeFreshMarks, primeFlightLayers, type SlideRenderCtx, type RenderedSlide } from "./render";
+import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, takeFreshMarks, primeFlightLayers, stageGridChanged, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { KNOWN_PRESETS, presetParam, isExitPreset, type PointParam } from "../presetCatalog";
 import { createEncircle, measureTextInk, type OverlayHandle } from "./overlay";
 import { encircleShape, encircleParams } from "../encircleGeometry";
 import { elementStageOutlines, partStageOutlines } from "../targetGeometry";
 import { groupPoint, type GrowElement } from "../growOrigin";
-import { unionRect } from "../../geometry";
+import { unionRect, elementBBox } from "../../geometry";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
@@ -33,7 +33,7 @@ import { attachRefs, hasAttach } from "../attach";
 import { modelHandoffMedia } from "./model3dHandoff";
 import { createHandoff, type HandoffController } from "./handoff";
 import { createGlyphProvider, glyphFontsRevision } from "./glyphProvider";
-import type { TextElement } from "../../types";
+import type { TextElement, Element as FigElement } from "../../types";
 import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState, turnOf } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
@@ -343,12 +343,19 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const planFrame = group.length > 1 ? compiled.sample(bi, Math.min(...group.map(c => c.start))) : preFrame;
           const lastLander = group.length > 1 && group[group.length - 1].track.id === track.id;
           // The flight draws at the DEPTH the destination rests at, so it is covered by exactly what covers the destination and the landing does not
-          // flip the paint order of anything it overlaps (an element above the destination that the flight crossed).
-          const flightSurface = rendered.flightAt?.(handoff.destination.flatMap(t => { const w = rendered.elements.get(t.elementId); return w ? [w] : []; })) ?? rendered.flight;
+          // flip the paint order of anything it overlaps (an element above the destination that the flight crossed). When something painted BETWEEN
+          // the source and the destination overlaps the flight (the two sit on different sides of it), no single depth is right at both ends: the
+          // flight then flies on the UPPER of the two depths and passes under those elements by a veil (handoff `covers`), faded in when the
+          // destination rests under them (it sinks) and out when the source did (it rises). It used to flip the paint order at the first frame.
+          const wrapsOf = (targets: ResolvedTarget[]) => targets.flatMap(t => { const w = rendered.elements.get(t.elementId); return w ? [w] : []; });
+          const srcWraps = wrapsOf(handoff.source), dstWraps = wrapsOf(handoff.destination);
+          const covering = flightCovers(cameraLayer, srcWraps, dstWraps, handoff, preFrame.elements);
+          const flightSurface = (covering?.sink ? rendered.flightAt?.(srcWraps) : rendered.flightAt?.(dstWraps)) ?? rendered.flight;
           const driver = createHandoff({ flight: flightSurface, handover: group.length <= 1, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration, arc: track.arc,
             // WP 4.3: piece lag on the track's own curve; a merge lander's raw spans its hold, its pieces run over its own first 1/holdK
             pairLag: track.pairLag, ease: ct.ease.fn, holdK: Math.max(1, (handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration) / Math.max(1e-9, ct.duration)),
             beneath: lastLander ? group.map(c => mergeLayers.get(c.track.id ?? "")).find(Boolean) : undefined,
+            covers: group.length <= 1 ? covering ?? undefined : undefined,
             plan: () => planHandoff(track, planFrame, geometry, group.length > 1 ? group.map(c => c.track) : undefined),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
@@ -690,6 +697,28 @@ function frameSampler(spec: Spec): (t: number) => Keyframe {
     return frame as Keyframe;
   };
 }
+/** The elements painted BETWEEN a hand-off's source and destination that its flight crosses (the union of the two ends' boxes, padded by a fifth
+ *  for the travel and an arc), and whether the flight sinks under them (the source is painted above them, the destination below) or rises out
+ *  (the reverse). Null when nothing lies between, or the ends are not both wrappers of the stage. */
+function flightCovers(camera: HTMLElement, src: Element[], dst: Element[], handoff: { source: ResolvedTarget[]; destination: ResolvedTarget[] }, elements: readonly FigElement[]): { wrappers: HTMLElement[]; sink: boolean } | null {
+  if (!src.length || !dst.length) return null;
+  const kids = Array.from(camera.children), at = (ws: Element[]) => Math.max(...ws.map(w => kids.indexOf(w)));
+  const s = at(src), d = at(dst);
+  if (s < 0 || d < 0 || s === d) return null;
+  const box = (id: string) => { const el = elements.find(e => e.id === id); return el ? elementBBox(el) : null; };
+  const ends = [...handoff.source, ...handoff.destination].map(t => box(t.elementId)).filter((b): b is NonNullable<typeof b> => !!b);
+  if (!ends.length) return null;
+  let x0 = Math.min(...ends.map(b => b.x)), y0 = Math.min(...ends.map(b => b.y)), x1 = Math.max(...ends.map(b => b.x + b.w)), y1 = Math.max(...ends.map(b => b.y + b.h));
+  const px = (x1 - x0) * 0.2, py = (y1 - y0) * 0.2; x0 -= px; y0 -= py; x1 += px; y1 += py;
+  const ends_ = new Set([...src, ...dst]), wrappers: HTMLElement[] = [];
+  for (let i = Math.min(s, d) + 1; i < Math.max(s, d); i++) {
+    const w = kids[i] as HTMLElement;
+    if (!w.classList?.contains("sl-el") || ends_.has(w) || w.style.visibility === "hidden") continue;
+    const b = box(w.dataset.elId ?? "");
+    if (b && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0) wrappers.push(w);
+  }
+  return wrappers.length ? { wrappers, sink: s > d } : null;
+}
 function boundPlan(specs: Spec[]): BoundPlan {
   let plan = bindings.get(specs);
   if (plan) return plan;
@@ -707,6 +736,9 @@ function boundPlan(specs: Spec[]): BoundPlan {
     for (const s of keyframed) { const kind = transformFlight(s.keyframes); if (kind !== "none") flights.set(s, kind); }
     return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights, glides: [...flights.values()].includes("translate") };
   }), natives: new Map(), samplers: new Map(), restPivots: new Map() };
+  // The flight marks exist before anything is placed (glidesEver: compositing is a constant of the slide), so the first rest a gliding node
+  // is given is already its marked rest on the device grid (render.applyWrapperBox), never re-placed by a later frame
+  for (const group of plan.nodes) if (group.node.namespaceURI !== SVG_NS && !(group.node as HTMLElement).classList?.contains("sl-camera") && glidesEver(group)) armFlightMark(group.node as HTMLElement);
   // Materialize content layers in story order before a first random seek.
   // Otherwise seeking directly to a late text change could nest its layer
   // underneath an earlier change which is only materialized afterwards.
@@ -723,8 +755,10 @@ export function disposeSlideAnims(specs: Spec[], releaseControllers = true): voi
   const plan = bindings.get(specs);
   if (plan) {
     for (const animation of plan.natives.values()) { try { animation.cancel(); } catch { /* detached */ } }
-    // a slide torn down mid-flight leaves no promoted node behind
-    for (const group of plan.nodes) if (group.node.namespaceURI !== SVG_NS) releaseFlightMark(group.node as HTMLElement);
+    // a slide torn down mid-flight leaves no promoted node behind. A run swap (a with-previous group re-based, releaseControllers false) is not a
+    // teardown: the marks are a constant of the slide (glidesEver), and cancelling one to arm it again unmarked the node for a frame (a mark
+    // takes effect a frame after it is attached), a compositing switch on a still frame
+    if (releaseControllers) for (const group of plan.nodes) if (group.node.namespaceURI !== SVG_NS) releaseFlightMark(group.node as HTMLElement);
   }
   if (releaseControllers) {
     for (const spec of specs) { spec.morph?.dispose?.(); for (const node of spec.created ?? []) node.remove(); }
@@ -743,29 +777,24 @@ function progressAt(spec: Spec, beat: number, time: number): number {
 function pendingEnterGlide(node: BoundNode, beat: number, time: number, ahead: number): boolean {
   return node.keyframed.some(s => s.enter && node.flights.get(s) === "translate" && s.beatIndex === beat && progressAt(s, beat, time) <= 0 && s.delay - time <= ahead);
 }
-/** Does this node glide in `beat` (a pure-translation flight, or a turn of a text: it rides a compositor layer)? The flight mark exists exactly
- *  for the cues in which it does: armed at the cue's first frame (with a pre-roll frame, `begin`), kept through the landing (the layer was baked at
- *  the phase it lands on), released at the first frame of a later cue in which the node plays something that changes its picture (`markFor`). A
- *  mark kept on through a resize or a rewrite made the layer re-raster at fractional transforms the browser then did not snap: text that
- *  landed soft. */
-function glidesIn(node: BoundNode, beat: number): boolean {
-  return node.keyframed.some(s => node.flights.get(s) === "translate" && s.beatIndex === beat) || node.controllers.some(c => c.morph!.glide && c.beatIndex === beat);
+/** Does this node ever glide on this slide (a pure-translation flight, or a turn of a text: it rides a compositor layer in that cue)?
+ *
+ *  COMPOSITING IS A CONSTANT OF THE SLIDE (smoothness pass, 2026-10-24). Such a node carries its flight mark (render.ts armFlightMark: a paused
+ *  no-op transform animation, which makes Chromium composite it and treat its transform as animating) from the slide's first frame to its
+ *  teardown. The mark used to follow the beat: armed at the first frame of a gliding cue and released at the first frame of a later cue that
+ *  changes the node's picture. On a fractionally scaled display every such switch stepped the picture on a still frame, because a node drawn on
+ *  its own layer and the same node painted in place differ by a fraction of a device pixel of anti-aliasing (a stroked rect 20, a line 10, a
+ *  text 25, a text resized after a move 63 on the realtime probe at devicePixelRatio 1.25), and a mark also composites every element painted
+ *  after the node ("assumed overlap"), so the switch stepped THOSE too. Nothing switches now: no frame of a slide changes a node's compositing,
+ *  so no frame can step from it. A text that rewrites or resizes on its mark re-rasterises there (the reason the mark used to be released); that
+ *  re-raster is part of the animation, never a step. */
+function glidesEver(node: BoundNode): boolean {
+  return node.keyframed.some(s => node.flights.get(s) === "translate") || node.controllers.some(c => c.morph!.glide);
 }
-/** The latest beat up to `beat` in which this node plays something (-1: none). A node's flight mark is a function of THAT beat: the beats in
- *  which it does nothing leave it as it is (releasing it at the first frame of an UNRELATED cue stepped the node's picture while something
- *  else began to move), and a seek lands on the state playback would have left. */
-function lastBeatOf(node: BoundNode, beat: number): number {
-  let last = -1;
-  for (const s of node.keyframed) if (s.beatIndex <= beat && s.beatIndex > last) last = s.beatIndex;
-  for (const c of node.controllers) if (c.beatIndex <= beat && c.beatIndex > last) last = c.beatIndex;
-  return last;
-}
-/** The node's flight mark at (beat): armed while it glides (or is flying now), kept through the landing and through every beat it sits out,
- *  released when a beat that changes its picture begins. */
-function markFor(group: BoundNode, beat: number, flying: boolean): void {
-  const wrapper = group.node as HTMLElement, last = lastBeatOf(group, beat);
-  if (flying || (last >= 0 && glidesIn(group, last))) armFlightMark(wrapper);
-  else releaseFlightMark(wrapper);
+/** The node's flight mark: on for the whole slide when it ever glides (or is flying now), off otherwise (glidesEver). */
+function markFor(group: BoundNode, flying: boolean): void {
+  if (flying || glidesEver(group)) armFlightMark(group.node as HTMLElement);
+  else releaseFlightMark(group.node as HTMLElement);
 }
 /** The HTML nodes that have an entering translate flight in `beat` (computed once per cue: a dense build has thousands of nodes and the
  *  per-frame scan is then over these only). */
@@ -821,7 +850,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       // a gliding driver's wrapper: the mark follows the beat (a node with keyframed specs too is handled in the flight loop below)
       if (!group.keyframed.length && group.node.namespaceURI !== SVG_NS && controllers.some(c => c.morph!.glide)) {
         const cur = selected >= 0 ? controllers[selected] : undefined, p = cur ? progressAt(cur, beat, time) : -1;
-        markFor(group, beat, !!cur?.morph!.glide && p > 0 && p < 1);
+        markFor(group, !!cur?.morph!.glide && p > 0 && p < 1);
       }
     }
   }
@@ -880,7 +909,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       if (moving && moving === pureMoves) promoteMovingWrapper(node as HTMLElement);
       else {
         settleWrapper(node as HTMLElement);
-        markFor(group, beat, false);
+        markFor(group, false);
       }
     }
   }
@@ -1030,6 +1059,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     }, compiled.cues.map(c => c.tracks.map(t => t.track)));
   }
   function paint(native = false): void {
+    stageGridChanged();   // a rest snapped to the device grid reads the stage's grid of THIS paint (render.wrapperGrid)
     applyAt(runSpecs ?? specs, bi, time, native);
     // Mesh parts sample the same run as the re-based DOM specs (selectRun).
     models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);

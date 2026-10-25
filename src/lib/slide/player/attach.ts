@@ -64,7 +64,9 @@ export function createAttachDriver(elements: readonly FigElement[], wraps: Reado
         applyWrapperBoxComposite(wrap, el, baseOf.get(dep.id)!, { skipOpacity: true });
         promoteMovingWrapper(wrap);
       } else {
-        applyWrapperBox(wrap, el, { skipOpacity: true });
+        // exact: a label's flights follow what it hangs on frame by frame and cannot blend a rest shift (render.applyWrapperBox), so it rests
+        // where its numbers say (on its layer: no frame of the slide changes that, so nothing steps)
+        applyWrapperBox(wrap, el, { skipOpacity: true, exact: true });
         settleWrapper(wrap);
       }
     }

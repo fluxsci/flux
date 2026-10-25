@@ -4,7 +4,8 @@
 // presented frame and the static render of the end state, and the change AFTER the landing (a re-bake, a sharpness step, an
 // anti-aliasing flip). Columns and thresholds: scripts/lib/slideSettleRealtime.ts.
 //   ROOT=<project> DECK=<deckId> | DECKFILE=<deck.json> [PLOTS=<plots.json>] | CORPUS=synthetic|compact|rig|all [ONLY=<name part>]
-//   [CUES=slideId#from-to,...] [JSON=<file>] [REPEAT=<n>: n fresh runs per cue and the rate of every flag]   node --import tsx scripts/perf/slide-settle-realtime.mts
+//   [CUES=slideId#from-to,...] [JSON=<file>] [REPEAT=<n>: n fresh runs per cue and the rate of every flag]
+//   [WIDTH=<css px> HEIGHT=<css px> (default 1280x720)] [DSF=<device scale factor, e.g. 1.25: a fractionally scaled display>]   node --import tsx scripts/perf/slide-settle-realtime.mts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { realtimeSweep, rtFlags, rtRow, RT_HEAD, type RtCue } from "../lib/slideSettleRealtime";
@@ -29,7 +30,8 @@ const all: RtCue[] = [];
 console.log(RT_HEAD);
 for (const d of decks) {
   for (let rep = 0; rep < repeat; rep++) {
-    const r = await realtimeSweep(d.payload, d.name, { fresh: !!env.FRESH || repeat > 1, restMs: env.RESTMS ? Number(env.RESTMS) : undefined, preJs: env.PREJS, dump: env.DUMP, dumpAll: !!env.DUMPALL, only: want ? (s, f, t) => want.includes(`${s}#${f}-${t}`) : undefined });
+    const r = await realtimeSweep(d.payload, d.name, { fresh: !!env.FRESH || repeat > 1, restMs: env.RESTMS ? Number(env.RESTMS) : undefined, preJs: env.PREJS, dump: env.DUMP, dumpAll: !!env.DUMPALL, width: env.WIDTH ? Number(env.WIDTH) : undefined, height: env.HEIGHT ? Number(env.HEIGHT) : undefined,
+      dsf: env.DSF ? Number(env.DSF) : undefined, only: want ? (s, f, t) => want.includes(`${s}#${f}-${t}`) : undefined });
     if (!all.length) console.log(`# gpu: ${JSON.stringify(r.gpu)}`);
     for (const c of r.cues) { all.push(c); console.log(rtRow(c)); }
   }

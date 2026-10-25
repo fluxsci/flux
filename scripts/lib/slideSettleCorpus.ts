@@ -248,9 +248,10 @@ async function transformDecks(compact: boolean): Promise<CorpusDeck[]> {
     { const s = b.slide("dest_over"); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80 }));
       b.add(s, el("rectS", "x", 420, 130, { width: 140, height: 90, fill: "#f2f0e5" })); b.add(s, el("ellipse", "b", 330, 100, { width: 160, height: 100 }));
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }
-    // the MIRRORED configurations (the destination and the SOURCE sit on different sides of a covering element X): the flight draws at the destination's depth, so
-    // when the source was above X (`src_over`) the flight is covered by X from its first moving frame, and when the source was under X (`src_under`) it
-    // appears above X: a flip of the overlap's paint order at the START (3,651 on both; the landing is exact). KNOWN_OPEN, with the reason.
+    // the MIRRORED configurations (the destination and the SOURCE sit on different sides of a covering element X): the flight used to draw at the destination's
+    // depth, so when the source was above X (`src_over`) the flight was covered by X from its first moving frame, and when the source was under X (`src_under`)
+    // it appeared above X: a flip of the overlap's paint order at the START (3,651 on both). Now the flight flies on the upper depth and sinks under X (or
+    // rises out of it) by a veil faded with the motion (handoff `covers`): both ends are the real paint order, gated clean.
     { const s = b.slide("src_over"); b.add(s, { id: "b", type: "ellipse", x: 360, y: 100, width: 160, height: 100, rotation: 0, fill: C.red, stroke: "none", strokeWidth: 0 });
       b.add(s, el("rectS", "x", 40, 80, { width: 520, height: 160, stroke: "none", strokeWidth: 0 })); b.add(s, el("rect", "a", 60, 100, { width: 120, height: 80, cornerRadius: 0 }));
       b.become(s, b.beat(s), "a", { element: "b" }, { mode: "handoff" }); }

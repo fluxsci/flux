@@ -89,6 +89,7 @@
   import type { Deck, TransitionKind, TargetRef } from "../../../lib/slide/types";
   import type { Figure } from "../../../lib/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
+  import { gridFit, devicePixelRatioOf } from "../../../lib/slide/player/deviceGrid";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
   import { modelPair, modelPairIssue } from "../../../lib/slide/model3dMorph";
@@ -844,11 +845,22 @@
   $effect(()=>{if(!active&&previewing)stopPreview();});
   let lastPreviewSlide:string|null=null;
   $effect(()=>{const sid=$activeFigureId;if(sid!==lastPreviewSlide){lastPreviewSlide=sid;stopPreview();}});
+  // The preview stage's origin on the device grid (deviceGrid.gridFit), measured against the viewport's own position in the window (a flex
+  // item centred and scaled about its centre sat on a fraction of a device pixel the browser snapped by its own rule). Re-placed when the
+  // viewport resizes (pvW / pvH) and when the window does (a move between displays changes the device scale).
   $effect(()=>{
     if(!previewHost)return;
-    previewHost.style.transformOrigin="center center";
-    previewHost.style.transform=`scale(${pvScale})`;
-    player?.refresh();
+    const host=previewHost, stage=pvStage;void pvW;void pvH;
+    const place=()=>{
+      const box=host.parentElement?.getBoundingClientRect();
+      if(!box||!(box.width>0)||!(box.height>0))return;
+      const f=gridFit({left:box.left,top:box.top,width:box.width,height:box.height},stage,devicePixelRatioOf());
+      host.style.transformOrigin="0 0";host.style.left=`${f.left}px`;host.style.top=`${f.top}px`;host.style.transform=`scale(${f.scale})`;
+      player?.refresh();
+    };
+    place();
+    window.addEventListener("resize",place);
+    return ()=>window.removeEventListener("resize",place);
   });
 
   // A morph target is an asset dependency; choosing it never places a second
@@ -2173,7 +2185,7 @@
     background: var(--c-canvas-slide);
   }
   .preview-viewport { position: relative; flex: 1; align-self: stretch; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-  .preview-host { flex: 0 0 auto; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5); }
+  .preview-host { position: absolute; left: 0; top: 0; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5); }
   .preview-stop {
     position: absolute; top: 12px; right: 12px; z-index: 31;
     font: 12px var(--font-ui); color: var(--c-tx-hi); background: var(--c-surface);

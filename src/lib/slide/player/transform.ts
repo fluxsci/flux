@@ -53,7 +53,7 @@ import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
 import { barGrow, type BarGrow } from "../growOrigin";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, plotAssetOf, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 /** Stage px an invisible stroke inflates a band's ink bounds by (see `bandNode`): enough for a device pixel at any presentation scale >= 1/4. */
@@ -213,6 +213,9 @@ export function createTransform(
   // second, so the last flight frame is exactly the end's rest law (layout box + the same composite form) and the landing does not change the
   // wrapper's raster (a 12 px ring landing on a different layout box moved its edge by 10 stage px^2 at the swap to the rest box).
   const endBaseBox = layoutBoxOf(elementBBox({ ...end, rotation: 0 }));
+  // The exact boxes of the two ends: a node that rides a layer rests on whole device pixels (render.applyWrapperBox), so its frames in flight
+  // carry the shift blended from the start's rest to the end's (gridShift below) and arrive on the rest exactly.
+  const preBB = elementBBox({ ...pre, rotation: 0 }), endBB = elementBBox({ ...end, rotation: 0 });
   // A pure move rides its own compositor layer for the flight (render.ts,
   // layer hygiene): rasterized once, moved at float precision — text glides
   // instead of stepping, heavy content moves without repainting. Demoted at
@@ -262,16 +265,14 @@ export function createTransform(
     tickHandoff: true,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
-  const intrinsic = (() => {
-    if (!isPlot) return null;
-    const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
-    return cached ? svgIntrinsicPx(cached) : null;
-  })();
-  const naturalViewBox = (() => {
-    if (!isPlot) return null;
-    const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
-    return cached?.getAttribute("viewBox") ?? null;
-  })();
+  // The compensation and natural viewBox of the DOM this controller re-projects: the plot svg the slide MOUNTED (render.plotAssetOf), which is
+  // the design state's asset, not necessarily this Change's start. A chained asset Change (sine -> scatter -> sine) re-projects the sine DOM in
+  // both steps; reading the second step's from its start asset (the scatter's 180 x 108 pt on a 360 x 108 pt DOM) rescaled every glyph and
+  // marker on its first frame (6,317 stage px^2 at devicePixelRatio 1.25; the step before it had left the picture with the sine's).
+  const domAsset = isPlot ? (plotAssetOf(contentHost.querySelector("svg")) ?? (pre as SemanticPlotElement).assetId) : undefined;
+  const domRoot = domAsset ? (ctx.plotRoot ? ctx.plotRoot(domAsset) : plotDom.get(domAsset)) : undefined;
+  const intrinsic = isPlot && domRoot ? svgIntrinsicPx(domRoot) : null;
+  const naturalViewBox = isPlot ? domRoot?.getAttribute("viewBox") ?? null : null;
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
   const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
   if (plotSvg && projectionOptions) {
@@ -669,7 +670,13 @@ export function createTransform(
     // longer: no gate pins that case), and a same-beat appearance that owns the wrapper's opacity (`skipOpacity`) takes the law's share with it.
     // never 0: an opacity-0 node is culled and first rasterises in flight, at a fractional offset it then keeps (render.ts primeFlightLayers)
     const share = emerge ? Math.max(0.001, emerge(el, u)) : 1;
-    const wrapEl = share >= 1 ? el : { ...el, opacity: (el.opacity ?? 1) * share } as FigElement;
+    let wrapEl = share >= 1 ? el : { ...el, opacity: (el.opacity ?? 1) * share } as FigElement;
+    // in flight, a node that rests on whole device pixels flies from the start's snapped rest to the end's: the shift blends with the motion's
+    // own progress, so the first frame leaves the rest and the last arrives on it without a step (the endpoints themselves are snapped by the rest law)
+    if (raw > 0 && raw < 1) {
+      const a = restGridShift(wrap, preBB.x, preBB.y), b = a && restGridShift(wrap, endBB.x, endBB.y);
+      if (a && b) wrapEl = { ...wrapEl, x: wrapEl.x + a.dx + (b.dx - a.dx) * t, y: wrapEl.y + a.dy + (b.dy - a.dy) * t } as FigElement;
+    }
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
     // The text morph draws measured endpoints instead: its box simply lerps
@@ -687,12 +694,12 @@ export function createTransform(
     const relayoutsText = staticUpdate && pre.type === "text";
     if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
       applyWrapperBoxComposite(wrap, wrapEl, morphPlan && t >= 0.5 ? endBaseBox : baseBox, { skipOpacity: boxOpts.skipOpacity });
-      // a text morph's box rides a layer only when the box itself travels (its spans decide for themselves)
-      // ... and an outline morph's box only when it really travels: a Become that keeps its box (a ring into a rect) has nothing a layer could move,
-      // and promoting it re-rasters the whole picture at the first flight frame (a 6 stage px^2 step on the first moving frame)
-      if (glide && (!textLayers || displaced) && (!morphPlan || displaced)) promoteMovingWrapper(wrap);
+      // the box rides a layer only when it really travels: a flight that keeps its box (a text rewritten in place, a ring into a rect, a recolour,
+      // an outline whose hole moves) has nothing a layer could move, and promoting it switched the whole picture onto a layer for the flight: every
+      // curved edge stepped on the first moving frame and again at the landing (an outline with a moving hole, 19 and 25 at devicePixelRatio 1.25)
+      if (glide && displaced) promoteMovingWrapper(wrap);
     } else {
-      applyWrapperBox(wrap, wrapEl, boxOpts);
+      applyWrapperBox(wrap, wrapEl, raw > 0 && raw < 1 ? { ...boxOpts, exact: true } : boxOpts);
       if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)
     }
 
@@ -817,7 +824,11 @@ export function createTransform(
     // spans built; a seek that arrives first builds them on the spot.
     const L = textLayers;
     warmWhenIdle(() => { if (wrap.isConnected) L.morph.ensure(); });
-    return { seek, targetRoot: L.B, glide: marks, dispose: () => L.morph.dispose() } as MorphController;
+    // A rewrite whose box stays put promotes its spans (createTextMorph `promote`), and a promoted layer INSIDE the wrapper turns the wrapper
+    // into a layer too: its picture moved by its residual transform the moment the first span rose (0.74 device px on the first frame of an
+    // anagram at devicePixelRatio 1.25). The wrapper therefore carries the flight mark for the whole slide (player.glidesEver): it is a layer
+    // before, during and after, and the spans change nothing about it.
+    return { seek, targetRoot: L.B, glide: marks || !displaced, dispose: () => L.morph.dispose() } as MorphController;
   }
   if (morphPlan) {
     showMorphLayer(0);

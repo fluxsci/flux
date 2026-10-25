@@ -13,6 +13,7 @@ import { payloadModelHost, payloadModelContext } from "./model3dPayloadHost";
 import { get } from "svelte/store";
 import { cachePlot, plotManifests } from "../../plot/store";
 import { createPlayer, renderStaticAt, type Player } from "../player/player";
+import { gridFit, devicePixelRatioOf } from "../player/deviceGrid";
 import { reducePresentKey, hudModel, panelModel, clockText, NEXT_W, type PresentState } from "../present/core";
 import { resolveTheme } from "../theme";
 import type { Deck } from "../types";
@@ -54,7 +55,9 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   mount.tabIndex = 0;
 
   const fit = document.createElement("div");
-  fit.style.cssText = "position:absolute;top:50%;left:50%;transform-origin:center center;";
+  // placed by fitToViewport with its origin on the device grid (deviceGrid.gridFit), never `top/left: 50%` + `translate(-50%, -50%)`: that put
+  // the stage on a fraction of a device pixel the browser then snapped by its own rule
+  fit.style.cssText = "position:absolute;top:0;left:0;transform-origin:0 0;";
   fit.style.width = `${deck.stage.width}px`;
   fit.style.height = `${deck.stage.height}px`;
   const host = document.createElement("div");
@@ -114,8 +117,9 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   }
 
   function fitToViewport() {
-    const s = Math.min(window.innerWidth / deck.stage.width, window.innerHeight / deck.stage.height);
-    fit.style.transform = `translate(-50%,-50%) scale(${s})`;
+    const box = mount.getBoundingClientRect(), f = gridFit({ left: box.left, top: box.top, width: box.width, height: box.height }, deck.stage, devicePixelRatioOf());
+    fit.style.left = `${f.left}px`; fit.style.top = `${f.top}px`;
+    fit.style.transform = `scale(${f.scale})`;
     player?.refresh();
   }
   function renderHud() {

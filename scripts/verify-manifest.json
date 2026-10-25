@@ -359,6 +359,7 @@
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-settle-sweep.ts",
+      "verify-slide-device-grid.ts",
       "verify-plot-binding.ts",
       "verify-plot-view-verb.ts",
       "verify-colorscale-parity.ts",
@@ -3684,6 +3685,7 @@
     { "$why": "WP 4.3: piece lag (the window law, the per-pair clock, the hand-off driver).", "glob": "{src/lib/slide/stagger.ts,src/lib/slide/correspondence.ts,src/lib/slide/player/handoff.ts}", "run": ["verify-pair-lag.ts", "verify-correspondence.ts"] },
     { "$why": "WP 4.2: the text halo (one attribute law shared by the serializer, the slide player and the editor canvas).", "glob": "{src/lib/export.ts,src/lib/Element.svelte,src/lib/slide/player/textMorph.ts}", "run": ["verify-text-halo.ts"] },
     { "$why": "WP 4.4: Focus / Unfocus (the pure plan and the ops).", "glob": "src/lib/slide/focus.ts", "run": ["verify-appear-emphasis.ts"] },
+    { "$why": "Smoothness pass (2026-10-24): the device grid on fractionally scaled displays (layout box origin, constant flight marks, host fits, rests on whole device pixels).", "glob": "{src/lib/slide/player/deviceGrid.ts,src/lib/slide/player/render.ts,src/lib/slide/player/player.ts,src/lib/slide/player/transform.ts,src/lib/slide/player/attach.ts,src/lib/slide/export/runtime.ts,src/shell/modes/slide/PresentOverlay.svelte,src/shell/modes/slide/SlideMode.svelte}", "run": ["verify-slide-device-grid.ts", "verify-slide-settle-sweep.ts", "verify-slide-tween.ts", "verify-slide-player.ts"] },
     { "$why": "WP 4.1: animated Back: the rewind clock (timing.ts), the player's rewinding mode, Present / exported-deck plumbing.", "glob": "{src/lib/slide/timing.ts,src/lib/slide/player/player.ts,src/shell/modes/slide/PresentOverlay.svelte,src/lib/slide/export/runtime.ts}", "run": ["verify-slide-rewind.ts", "verify-slide-rewind-browser.ts", "verify-pace-defaults.ts", "verify-slide-present.ts"] },
     { "$why": "WP 3.1: the x-clock sweep's pure geometry, its draw plan and lead dot, the marker spacing and the auto-build / draw-along-x writers.", "glob": "{src/lib/slide/sweep.ts,src/lib/slide/staggerData.ts}", "run": ["verify-slide-sweep.ts", "verify-slide-stagger.ts", "verify-animate-plot.ts"] }
   ],
@@ -7872,6 +7874,7 @@
     },
     "verify-stagger-radial.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 180000, "exclusive": false, "coverage": "behavior" },
     "verify-pair-lag.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 180000, "exclusive": false, "coverage": "behavior" },
+    "verify-slide-device-grid.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 180000, "exclusive": false, "coverage": "behavior" },
     "verify-text-halo.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 180000, "exclusive": false, "coverage": "behavior" },
     "verify-slide-rewind.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 120000, "exclusive": false, "coverage": "behavior" },
     "verify-slide-rewind-browser.ts": { "runtime": "tsx", "prerequisites": [], "externalNetwork": false, "isolation": "scratch", "timeoutMs": 240000, "exclusive": false, "coverage": "behavior" },

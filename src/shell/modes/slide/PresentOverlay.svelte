@@ -11,6 +11,7 @@
   import { onMount, onDestroy } from "svelte";
   import { get } from "svelte/store";
   import { createPlayer, renderStaticAt, type Player, type PlayerState, type PlayerOpts } from "../../../lib/slide/player/player";
+  import { gridFit, devicePixelRatioOf } from "../../../lib/slide/player/deviceGrid";
   import { reducePresentKey, hudModel, panelModel, NEXT_W, type PresentState } from "../../../lib/slide/present/core";
   import { plotManifests } from "../../../lib/plot/store";
   import { getAssetData } from "../../../lib/assets";
@@ -55,7 +56,10 @@
   // Screen wake lock so the display never sleeps mid-talk (B18).
   let wakeLock: { release: () => Promise<void> } | null = null;
 
-  const scale = $derived(vw > 0 && vh > 0 ? Math.min(vw / deck.stage.width, vh / deck.stage.height) : 1);
+  // The stage's origin on the device grid (deviceGrid.gridFit): centred by `left/top: 50%` + `translate(-50%, -50%)` it sat on a fraction of a
+  // device pixel the browser snapped by its own rule, and a node on its own layer could never be told where a whole device pixel was.
+  const fit = $derived(vw > 0 && vh > 0 ? gridFit({ left: 0, top: 0, width: vw, height: vh }, deck.stage, devicePixelRatioOf()) : { scale: 1, left: 0, top: 0 });
+  const scale = $derived(fit.scale);
   // WS-3.3: HUD + presenter-panel view-models come from present/core — the ONE
   // logic shared with the exported runtime; this host binds them into Svelte.
   const hud = $derived(hudModel(st));
@@ -236,7 +240,7 @@
   bind:clientHeight={vh}
   tabindex="0"
   onclick={onClick}>
-  <div class="fit" style={`width:${deck.stage.width}px;height:${deck.stage.height}px;transform:translate(-50%,-50%) scale(${scale})`}>
+  <div class="fit" style={`width:${deck.stage.width}px;height:${deck.stage.height}px;left:${fit.left}px;top:${fit.top}px;transform:scale(${fit.scale})`}>
     <div class="mount" bind:this={mount}></div>
   </div>
 
@@ -284,7 +288,7 @@
     overflow: hidden;
   }
   .present.idle { cursor: none; }
-  .fit { position: absolute; top: 50%; left: 50%; transform-origin: center center; }
+  .fit { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
   .mount { position: absolute; inset: 0; }
   .blank { position: absolute; inset: 0; z-index: 5; }
   .jump {
