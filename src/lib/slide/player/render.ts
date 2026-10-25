@@ -1045,6 +1045,8 @@ export function armFlightMark(w: HTMLElement): void {
   animatingMarks.set(w, mark);
   freshMarks++;
 }
+/** Whether a node rides its flight mark (a compositor layer for the whole slide, player.glidesEver). */
+export function carriesFlightMark(w: HTMLElement): boolean { return animatingMarks.has(w); }
 /** Marks attached since the last call. A mark only takes effect a FRAME after it is attached (player `begin` holds the clock one
  *  presented frame when one was attached for the cue it is starting). */
 export function takeFreshMarks(): number { const n = freshMarks; freshMarks = 0; return n; }

@@ -23,11 +23,25 @@ export function devicePixelRatioOf(): number {
  *  device grid: `left` / `top` are relative to the box and land the origin on a whole device pixel; the host applies `scale(scale)` about
  *  its top-left corner (transform-origin 0 0). Pure. */
 export function gridFit(box: { left: number; top: number; width: number; height: number }, stage: { width: number; height: number }, dpr: number): { scale: number; left: number; top: number } {
-  const scale = Math.max(1e-6, Math.min(box.width / stage.width, box.height / stage.height));
+  // The stage's SIZE on whole device pixels too: the largest scale at most the fit whose device px per stage px is a multiple of
+  // 1 / gcd(width, height), so both edges far from the origin land on whole pixels (a 640 x 360 stage moves in steps of 16 x 9 device px).
+  // A fractional edge against the letterbox (or the editor around the preview) was anti-aliased once or twice depending on the slide's
+  // layers, and its row stepped when a cue began (48 -> 87 at the stage's bottom edge, 1003 x 611 at devicePixelRatio 1). Stage sizes
+  // that are not whole numbers keep the plain fit.
+  const fit = Math.max(1e-6, Math.min(box.width / stage.width, box.height / stage.height));
+  const g = gcd(stage.width, stage.height), device = g > 0 ? Math.floor(fit * dpr * g + 1e-9) / g : 0;
+  const scale = device > 0 ? device / dpr : fit;
   const on = (v: number) => Math.round(v * dpr) / dpr;
   const ax = box.left + (box.width - stage.width * scale) / 2, ay = box.top + (box.height - stage.height * scale) / 2;
   const tidy = (v: number) => Math.round(v * 1e6) / 1e6;
   return { scale, left: tidy(on(ax) - box.left), top: tidy(on(ay) - box.top) };
+}
+
+/** Greatest common divisor of two whole positive numbers; 0 when either is not one (a fractional stage size: no size grid). */
+function gcd(a: number, b: number): number {
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a <= 0 || b <= 0) return 0;
+  while (b) [a, b] = [b, a % b];
+  return a;
 }
 
 /** Where a camera layer's LOCAL coordinates land on the device: device = (fx, fy) + whole pixels + s · local. `s` is device px per local px

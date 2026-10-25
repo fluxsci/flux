@@ -55,6 +55,39 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
  *  window is a DISTANCE, not a time: a short move gets a long hand-over, a long one a short hand-over, and the glyphs are never more than
  *  `HANDOVER_EPS` apart while two copies show. `entry` (A -> spans) and `landing` (spans -> B) are pure functions of the frame. */
 export const HANDOVER_EPS = 0.75;
+/** The opacity a hand-over layer is drawn at when it shows alone (its weight is 1), and the scale of every weight: 254/255, so the browser
+ *  draws the layer through the SAME offscreen path at rest and in the hand-over. At full opacity it painted the layer in place, below it
+ *  through an offscreen layer, and on a fractionally scaled display the two rasterise text differently (a rewrite that moves shifted
+ *  0.66 device px and lost 5 % of its ink on the hand-over's first frame, devicePixelRatio 1.5; the landing stepped back). A layer kept on
+ *  the compositor instead rested on the raster of its first, mid-flight frame. The cost: a morphing text is drawn 0.4 % lighter, under one
+ *  grey level on dark text. */
+export const HANDOVER_CAP = 254 / 255;
+/** A hand-over weight as the layer's opacity: always a value (never "", full opacity), scaled by HANDOVER_CAP; a weight above 0 never rounds to
+ *  0 (a weight the browser would skip painting is HANDOVER_FLOOR's business: the callers floor the static renders). */
+export const handoverOpacity = (w: number): string => w > 0 ? String(Math.max(1e-6, Math.round(Math.min(1, w) * HANDOVER_CAP * 1e6) / 1e6)) : "0";
+/** The opacity of a static render that does not show (A after its hand-over, B before): still PAINTED, at a weight the 8-bit result never
+ *  sees (0.0005 of a level-255 ink is 0.13 of a level), because a hidden render's compositor layer is dropped and the browser builds a new
+ *  one the frame it shows again, mid-flight, at a fractional offset, and the new layer keeps that first raster's offset for the slide (a text
+ *  rewritten while it moved landed 0.66 device px above a fresh render of the same beat, devicePixelRatio 1.5). Above 0.0004, below which the
+ *  browser skips painting a layer as invisible. */
+export const HANDOVER_FLOOR = 0.0005;
+/** The BOUNDS HALO of a hand-over layer (smoothness pass, 2026-10-25). The browser rasterises a morphing text's layers into compositor layers
+ *  whose bounds are the union of what they paint, and a glyph span reaches past the static text's box (its font box, its lane): the frame the
+ *  spans first showed, the union grew up or left by whole stage px, the layer's raster grid moved with its origin, and the static text
+ *  re-rasterised at another sub-pixel phase, the whole word shifting by a few hundredths of a device pixel (a step of 65 on the first frame of a
+ *  rewrite that moves, at 1.55 device px per stage px; 72 for one stage px of growth; measured, offscreen Electron). Each static layer therefore
+ *  paints a rect `reach` beyond its box on every side at alpha 1e-4 (nothing in 8 bits, but a real display item that overlaps the text, so it
+ *  shares the text's layer and the layer's bounds include it): the spans stay inside it and never move the origin. */
+export const BOUNDS_HALO_CLASS = "sl-bounds-halo";
+export const boundsHaloReach = (...fontSizes: (number | undefined)[]): number => Math.ceil(Math.max(64, ...fontSizes.map(f => 3 * (f ?? 0))));
+export function appendBoundsHalo(layer: HTMLElement, reach: number): void {
+  if (layer.querySelector(`:scope > .${BOUNDS_HALO_CLASS}`)) return;
+  const a = document.createElement("div");
+  a.className = BOUNDS_HALO_CLASS;
+  a.setAttribute("aria-hidden", "true");
+  a.style.cssText = `position:absolute;inset:${-reach}px;pointer-events:none;background:rgba(0,0,0,0.0001)`;
+  layer.appendChild(a);
+}
 export interface Handover { entry: number; landing: number }
 /** The smoothstep of a hand-over window: 0 at no distance, 1 at `HANDOVER_EPS` stage px. ONE ease for text (here) and shapes (shapeHandover.ts). */
 export const handoverEase = (distance: number): number => { const q = clamp01(distance / HANDOVER_EPS); return q * q * (3 - 2 * q); };

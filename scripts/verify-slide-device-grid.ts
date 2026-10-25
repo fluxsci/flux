@@ -8,9 +8,11 @@
 //   1. the law (pure): Math.round at 1 (byte-identical to the old law), on the grid and within half a cell at 1.25 / 1.5 / 1.75 / 2 / 2.5
 //   2. the wrapper (linkedom, devicePixelRatio 1.25): rest and mid-flight frames realise the exact box, the layout origin is on the grid
 //   3. the transform driver: a pure move's effective position is continuous from the first frame through the landing at 1.25
-//   4. the device grid (deviceGrid.ts, pure): hosts fit the stage with its origin on a whole device pixel; a marked node's rest shift
+//   4. the device grid (deviceGrid.ts, pure): hosts fit the stage with its origin and size on whole device pixels; a marked node's rest shift
 //   5. compositing is a constant of the slide (headless Chrome, the exported player): a node that ever glides carries its flight mark from the
 //      slide's first frame through every cue; a node that never glides never does
+//   6. (2026-10-25) a marked node that resizes is laid out per frame (no frozen-box scale on a layer); a morphing text's static renders are
+//      painted at HANDOVER_FLOOR instead of hidden and carry one bounds halo each (textMorph.ts)
 // The compositor half (a real fractional display) is measured by verify-slide-settle-electron (its DSF pass): offscreen Electron with
 // `offscreen: { deviceScaleFactor: 1.25 }`. Headless Chrome's EMULATED device scale is not a display scale (it snaps differently) and
 // cannot stand in for it.
@@ -100,8 +102,10 @@ h.section("4. the device grid");
     const f = gridFit({ left: L, top: T, width: W, height: H }, stage, dpr);
     const ox = (L + f.left) * dpr, oy = (T + f.top) * dpr;
     const centredX = Math.abs((L + f.left) - (L + (W - 640 * f.scale) / 2)) <= 0.5 / dpr + 1e-9, centredY = Math.abs((T + f.top) - (T + (H - 360 * f.scale) / 2)) <= 0.5 / dpr + 1e-9;
-    h.ok(Math.abs(ox - Math.round(ox)) < 1e-6 && Math.abs(oy - Math.round(oy)) < 1e-6 && centredX && centredY && f.scale === Math.min(W / 640, H / 360),
-      `a ${W}x${H} box at (${L}, ${T}) @${dpr}: the stage origin lands on a whole device pixel (${ox.toFixed(3)}, ${oy.toFixed(3)}) within half a device pixel of centred, scale ${f.scale.toFixed(5)}`);
+    const fit = Math.min(W / 640, H / 360), dw = 640 * f.scale * dpr, dh = 360 * f.scale * dpr;
+    h.ok(Math.abs(ox - Math.round(ox)) < 1e-6 && Math.abs(oy - Math.round(oy)) < 1e-6 && centredX && centredY && Math.abs(dw - Math.round(dw)) < 1e-6 && Math.abs(dh - Math.round(dh)) < 1e-6
+      && f.scale <= fit + 1e-12 && (fit - f.scale) * dpr * 40 < 1 + 1e-9,
+      `a ${W}x${H} box at (${L}, ${T}) @${dpr}: the stage lands on whole device pixels, origin (${ox.toFixed(3)}, ${oy.toFixed(3)}) and size ${dw.toFixed(3)} x ${dh.toFixed(3)}, within one 16 x 9 step of the fit and half a device pixel of centred`);
   }
   h.eq(cameraPose(""), { x: 0, y: 0, z: 1 }, "an identity camera pose");
   h.eq(cameraPose("translate(-120.5px, 33px) scale(1.8)"), { x: -120.5, y: 33, z: 1.8 }, "the pose the player writes (baseCameraTransform)");
@@ -144,4 +148,55 @@ h.section("5. compositing is a constant of the slide (exported player, headless 
     h.ok(seen.every(([, st]) => st === 0), `a node that never glides (a recolour) never carries one (${seen.map(x => x[1]).join(" ")})`);
   } finally { await browser.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 }
+h.section("6. a marked node that resizes is laid out; a morphing text keeps its layers");
+{
+  setDpr(1.25);
+  const { createTransform } = await import("../src/lib/slide/player/transform");
+  const { fillContent, armFlightMark, releaseFlightMark } = await import("../src/lib/slide/player/render");
+  const { BUILTIN_THEMES } = await import("../src/lib/slide/theme");
+  const ctx = { theme: BUILTIN_THEMES["flux-paper"] } as never;
+  const pre = rect(60, 60), end = rect(60, 60, { width: 168.3, height: 112.1 });
+  const flight = (marked: boolean) => {
+    const wrap = document.createElement("div") as unknown as HTMLElement & { animate?: unknown };
+    // linkedom has no Web Animations: a stand-in for the paused no-op mark (render.armFlightMark only needs pause / finished / cancel)
+    wrap.animate = () => ({ pause() {}, cancel() {}, finished: new Promise(() => {}) });
+    if (marked) armFlightMark(wrap);
+    applyWrapperBox(wrap, pre); fillContent(wrap, pre, ctx);
+    const driver = createTransform(wrap, pre, end, ctx);
+    driver.seek(0.5, 0.5);
+    const out = { transform: wrap.style.transform, width: px(wrap.style.width), height: px(wrap.style.height) };
+    releaseFlightMark(wrap);
+    return out;
+  };
+  const painted = flight(false), layered = flight(true);
+  {
+    // a FIXED text resized on its mark: every frame's size is a whole sixteenth of a stage px between two rests on that grid
+    const tpre: any = { id: "t", type: "text", x: 60, y: 60, width: 150, height: 30, rotation: 0, text: "Flux 4.2", fontSize: 20, sizing: "fixed", fill: "#100f0f" };
+    const tend: any = { ...tpre, width: 210, height: 42 };
+    setDpr(1.25);
+    const wrap = document.createElement("div") as unknown as HTMLElement & { animate?: unknown };
+    wrap.animate = () => ({ pause() {}, cancel() {}, finished: new Promise(() => {}) });
+    armFlightMark(wrap); applyWrapperBox(wrap, tpre); fillContent(wrap, tpre, ctx);
+    const driver = createTransform(wrap, tpre, tend, ctx);
+    const sizes: number[] = [];
+    for (const u of [0.013, 0.37, 0.5, 0.91]) { driver.seek(u, u); sizes.push(px(wrap.style.width), px(wrap.style.height)); }
+    releaseFlightMark(wrap); setDpr(1);
+    h.ok(sizes.every(v => Math.abs(v * 16 - Math.round(v * 16)) < 1e-9) && sizes[0] > 150 && sizes[6] < 210,
+      `a fixed text resized on its mark flies through whole sixteenths of a stage px (${sizes.join(", ")}): its svg viewport is the browser's layout grid, so the glyphs map 1:1 as at rest`);
+  }
+  h.ok(/scale\(/.test(painted.transform) && painted.width === 120, `painted in place, a resize flies the frozen start box scaled (${painted.width} px wide, ${painted.transform})`);
+  h.ok(!/scale\(/.test(layered.transform) && Math.abs(layered.width - (120 + 168.3) / 2) < 1e-6 && Math.abs(layered.height - (80 + 112.1) / 2) < 1e-6,
+    `on its flight mark, a resize is laid out at the frame's exact box (${layered.width} x ${layered.height} px, no scale: a layer keeps its raster scale while it animates)`);
+  setDpr(1);
+  const { handoverOpacity, HANDOVER_FLOOR, HANDOVER_CAP, appendBoundsHalo, boundsHaloReach, BOUNDS_HALO_CLASS } = await import("../src/lib/slide/player/textMorph");
+  h.eq([handoverOpacity(0), handoverOpacity(-1), handoverOpacity(1e-9), handoverOpacity(1)], ["0", "0", "0.000001", String(Math.round(HANDOVER_CAP * 1e6) / 1e6)],
+    "a hand-over weight: 0 stays 0, a weight above 0 never rounds to 0, a full weight is drawn at the cap (one raster path at rest and in the hand-over)");
+  h.ok(HANDOVER_FLOOR > 0.0004 && HANDOVER_FLOOR * 255 < 0.5, `a render that does not show is still painted (${HANDOVER_FLOOR}: above the browser's 0.0004 invisible cutoff, under half an 8-bit level)`);
+  const layer = document.createElement("div") as unknown as HTMLElement;
+  appendBoundsHalo(layer, boundsHaloReach(22, 30)); appendBoundsHalo(layer, boundsHaloReach(22, 30));
+  const halos = layer.querySelectorAll(`.${BOUNDS_HALO_CLASS}`);
+  h.ok(halos.length === 1 && (halos[0] as HTMLElement).style.inset === "-90px" && (halos[0] as HTMLElement).style.pointerEvents === "none" && boundsHaloReach() === 64,
+    "a static render carries ONE bounds halo, three font sizes beyond its box (64 px at least), never a hit target");
+}
+
 await h.done();

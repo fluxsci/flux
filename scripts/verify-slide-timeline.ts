@@ -25,9 +25,10 @@ const text = { id: "t", type: "text" as const, x: 220, y: 60, width: 280, height
 const host = document.createElement("div") as unknown as HTMLElement;
 function build(slide: Slide) { const rendered = renderSlide(host, slide, stage, opts); return { rendered, specs: computeSlideAnims(slide, rendered, host, stage, opts) }; }
 function paintedTexts(): string[] {
-  // Unpainted = an ancestor at opacity 0 (crossfade layers) or hidden (the text
-  // morph's idle A / span / B layers, 2026-10-02).
-  return Array.from(host.querySelectorAll("text")).filter((el) => { for (let p: Element | null = el; p && p !== host; p = p.parentElement) if ((p as HTMLElement).style?.opacity === "0" || (p as HTMLElement).style?.visibility === "hidden") return false; return true; }).map((e) => e.textContent ?? "");
+  // Unpainted = an ancestor at opacity 0 (crossfade layers), hidden (the text
+  // morph's idle span layer, 2026-10-02) or at the hand-over floor (its idle A / B
+  // renders, painted at 0.0005 so their layers live for the slide, 2026-10-25).
+  return Array.from(host.querySelectorAll("text")).filter((el) => { for (let p: Element | null = el; p && p !== host; p = p.parentElement) if ((p as HTMLElement).style?.opacity !== "" && Number((p as HTMLElement).style?.opacity) < 0.001 || (p as HTMLElement).style?.visibility === "hidden") return false; return true; }).map((e) => e.textContent ?? "");
 }
 const slide: Slide = { id: "s", elements: [rect, text], beats: [
   { id: "base", tracks: [] },

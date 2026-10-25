@@ -5,7 +5,8 @@
 // anti-aliasing flip). Columns and thresholds: scripts/lib/slideSettleRealtime.ts.
 //   ROOT=<project> DECK=<deckId> | DECKFILE=<deck.json> [PLOTS=<plots.json>] | CORPUS=synthetic|compact|rig|all [ONLY=<name part>]
 //   [CUES=slideId#from-to,...] [JSON=<file>] [REPEAT=<n>: n fresh runs per cue and the rate of every flag]
-//   [WIDTH=<css px> HEIGHT=<css px> (default 1280x720)] [DSF=<device scale factor, e.g. 1.25: a fractionally scaled display>]   node --import tsx scripts/perf/slide-settle-realtime.mts
+//   [WIDTH=<css px> HEIGHT=<css px> (default 1280x720)] [DSF=<device scale factor, e.g. 1.25: a fractionally scaled display>]
+//   [RT_POPS=1: also flag MID-FLIGHT POPs, a diagnostic lead (slideSettleRealtime rtFlags)]   node --import tsx scripts/perf/slide-settle-realtime.mts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { realtimeSweep, rtFlags, rtRow, RT_HEAD, type RtCue } from "../lib/slideSettleRealtime";

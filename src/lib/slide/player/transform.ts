@@ -46,7 +46,7 @@ import { plotVariant } from "../../plot/relayout/variant";
 import { applyPlotColorScale } from "../../plot/colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { ghostEmergence } from "../ghost";
-import { createTextMorph, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
+import { appendBoundsHalo, boundsHaloReach, createTextMorph, HANDOVER_FLOOR, handoverOpacity, layoutForMorph, handoverWeights, HANDOVER_LAYER_STYLE, HANDOVER_PARENT_STYLE, type TextMorph } from "./textMorph";
 import { shapeWeights, snapWeights, maxShift, pathPoints, LOOK_TRAVEL } from "./shapeHandover";
 import type { GlyphProvider } from "./glyphProvider";
 import type { TextLook } from "../timing";
@@ -56,8 +56,9 @@ import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
 import { barGrow, type BarGrow } from "../growOrigin";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, plotAssetOf, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, carriesFlightMark, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, plotAssetOf, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
+import { devicePixelRatioOf } from "./deviceGrid";
 
 /** Stage px an invisible stroke inflates a band's ink bounds by (see `bandNode`): enough for a device pixel at any presentation scale >= 1/4. */
 const BAND_INK_GUARD = 8;
@@ -219,6 +220,23 @@ export function createTransform(
   // The exact boxes of the two ends: a node that rides a layer rests on whole device pixels (render.applyWrapperBox), so its frames in flight
   // carry the shift blended from the start's rest to the end's (gridShift below) and arrive on the rest exactly.
   const preBB = elementBBox({ ...pre, rotation: 0 }), endBB = elementBBox({ ...end, rotation: 0 });
+  // A flight that RESIZES a node riding its mark (a layer for the whole slide: it moved in another beat, player.glidesEver) is laid out at its
+  // exact size every frame, never the frozen start box scaled: Chromium keeps the raster scale of a layer it treats as animating, so the
+  // scaled frames were the start's raster stretched (soft, 1.4x) and the landing re-rasterised it crisp (a rect resized after a move
+  // stepped 17 at devicePixelRatio 1; Release 4 painted that flight in place). Laid out, each frame rasterises at its own size, like the rest.
+  const resizes = preBB.w !== endBB.w || preBB.h !== endBB.h;
+  const laidOut = () => resizes && carriesFlightMark(wrap);
+  // A FIXED text laid out per frame on its mark (relayoutsText in seek) draws its glyphs through the content svg's viewBox -> viewport mapping,
+  // and the viewport is the wrapper's laid-out size, which the browser keeps in 1/64 of a DEVICE px: a frame size off that grid mapped the
+  // text through a scale a hair off 1, another glyph-positioning path than the identity at rest (the whole text 0.07 device px aside for the
+  // whole flight: a text box resized after a move stepped 8.3 at both ends at devicePixelRatio 1.25). Between two rests on the grid, every
+  // frame's size is put on it too: 1/16 stage px, exact in binary and on the layout grid at any devicePixelRatio in quarter steps.
+  const onSixteenths = (v: number) => Math.abs(v * 16 - Math.round(v * 16)) < 1e-9;
+  const fixedText = (e: FigElement) => e.type === "text" && (e as TextElement).sizing === "fixed";
+  const sizeGrid = fixedText(pre) && fixedText(end) && [pre.width, pre.height, end.width, end.height].every(onSixteenths);
+  const textSizeGrid = () => sizeGrid && (devicePixelRatioOf() * 4) % 1 === 0 && carriesFlightMark(wrap);
+  // The wrapper's local frame for content writers: the frozen box scaled, or (laid out) the exact box itself at scale 1.
+  const frameOf = (el: FigElement) => laidOut() ? wrapperFrame(el, elementBBox({ ...el, rotation: 0 }), true) : wrapperFrame(el, baseBox, !boxOpts.skipTransform);
   // A pure move rides its own compositor layer for the flight (render.ts,
   // layer hygiene): rasterized once, moved at float precision — text glides
   // instead of stepping, heavy content moves without repainting. Demoted at
@@ -545,8 +563,12 @@ export function createTransform(
     // once, with the layers, and never toggled, like the crossfade layers (ensureLayers): a lone layer renders as it would anywhere.
     for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) contentHost.style.setProperty(k, v);
     for (const layer of [A, M, B]) for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) layer.style.setProperty(k, v);
+    // (each layer is drawn at HANDOVER_CAP at most, at rest too: one raster path for the whole slide; textMorph handoverOpacity)
     while (contentHost.firstChild) A.appendChild(contentHost.firstChild);
     fillContent(B, layoutForMorph(end as TextElement), ctx);
+    // each static render pins its layer's raster origin (textMorph BOUNDS HALO): the spans appearing never move the text's raster grid
+    const reach = boundsHaloReach((pre as TextElement).fontSize, (end as TextElement).fontSize);
+    appendBoundsHalo(A, reach); appendBoundsHalo(B, reach);
     contentHost.append(A, M, B);
     const pb = elementBBox({ ...pre, rotation: 0 }), eb = elementBBox({ ...end, rotation: 0 });
     textLayers = { A, M, B, morph: createTextMorph(pre as TextElement, end as TextElement, { layer: M, ctx, durationMs: ctx.durationMs ?? 600, textLook: ctx.textLook, stage: ctx.stage, residual: !boxOpts.skipTransform, promote: !displaced }),
@@ -557,22 +579,22 @@ export function createTransform(
     const style = (n: HTMLElement, props: Record<string, string>) => { for (const [k, v] of Object.entries(props)) if ((n.style as unknown as Record<string, string>)[k] !== v) (n.style as unknown as Record<string, string>)[k] = v; };
     if (raw <= 0 || raw >= 1) {
       L.morph.hide();
-      style(L.A, { visibility: raw <= 0 ? "" : "hidden", opacity: "", transform: "" });
-      style(L.B, { visibility: raw >= 1 ? "" : "hidden", opacity: "", transform: "" });
+      // a render that does not show is painted at HANDOVER_FLOOR, never hidden: its layer lives for the whole slide (textMorph)
+      style(L.A, { visibility: "", opacity: raw <= 0 ? handoverOpacity(1) : String(HANDOVER_FLOOR), transform: "" });
+      style(L.B, { visibility: "", opacity: raw >= 1 ? handoverOpacity(1) : String(HANDOVER_FLOOR), transform: "" });
       style(L.M, { visibility: "hidden", opacity: "", transform: "" });
       return;
     }
-    const f = wrapperFrame(el, baseBox, !boxOpts.skipTransform);
+    const f = frameOf(el);
     const n = (v: number) => Math.round(v * 1e6) / 1e6;
     if (L.morph.ensure()) {
       // A fades into the span layer as the spans leave it, the span layer into B as they settle onto it (textMorph HANDOVER_EPS)
       const h = L.morph.frame(u, raw, { x: f.bb.x - f.ox, y: f.bb.y - f.oy }, { x: f.sx, y: f.sy });
       const { a: wa, b: wb, m: wm } = handoverWeights(h);
-      const weight = (w: number) => w >= 1 ? "" : String(n(w));
-      style(L.A, { visibility: wa > 0 ? "" : "hidden", opacity: wa > 0 ? weight(wa) : "", transform: "" });
-      style(L.B, { visibility: wb > 0 ? "" : "hidden", opacity: wb > 0 ? weight(wb) : "", transform: "" });
+      style(L.A, { visibility: "", opacity: handoverOpacity(Math.max(wa, HANDOVER_FLOOR)), transform: "" });
+      style(L.B, { visibility: "", opacity: handoverOpacity(Math.max(wb, HANDOVER_FLOOR)), transform: "" });
       // the span layer is hidden by its OPACITY, never `visibility`: a span sets its own, which a hidden parent does not override
-      style(L.M, { visibility: "", opacity: weight(wm), transform: "" });
+      style(L.M, { visibility: "", opacity: handoverOpacity(wm), transform: "" });
       return;
     }
     // Fallback: both endpoint renders at their own natural size, anchored to the
@@ -631,7 +653,7 @@ export function createTransform(
       style(L.M, { visibility: "hidden" });
       return;
     }
-    const f = wrapperFrame(el, baseBox, !boxOpts.skipTransform);
+    const f = frameOf(el);
     const n = (v: number) => Math.round(v * 1e6) / 1e6;
     const plan = L.failed ? null : glyphPlan();
     // A layer PINNED at its own stage box (its content does not ride the box).
@@ -674,6 +696,9 @@ export function createTransform(
   function seek(u: number, raw = clamp01(u)): void {
     const t = clamp01(u);
     const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw, { turn: ctx.turn, haloBackground: ctx.haloBackground });
+    if (raw > 0 && raw < 1 && content !== pre && content !== end && staticUpdate && textSizeGrid()) {
+      content.width = Math.round(content.width * 16) / 16; content.height = Math.round(content.height * 16) / 16;
+    }
     const contentX = content.x, contentY = content.y;
     const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
     // a Ghost's birth: the copy's own ink emerges with its separation from the source (the wrapper alone carries it; content is untouched).
@@ -703,7 +728,7 @@ export function createTransform(
     // law as its rest, a whole-pixel layout box plus a residual (about 1:1) transform, not by a frozen box scaled up 1.4x: that scale
     // rasterised the text softly in flight against the hinted rest text and snapped when the flight landed.
     const relayoutsText = staticUpdate && pre.type === "text";
-    if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
+    if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText && !laidOut()) {
       applyWrapperBoxComposite(wrap, wrapEl, morphPlan && t >= 0.5 ? endBaseBox : baseBox, { skipOpacity: boxOpts.skipOpacity });
       // the box rides a layer only when it really travels: a flight that keeps its box (a text rewritten in place, a ring into a rect, a recolour,
       // an outline whose hole moves) has nothing a layer could move, and promoting it switched the whole picture onto a layer for the flight: every
