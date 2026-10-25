@@ -297,6 +297,7 @@ export function createTransform(
   // asset Change (sine -> scatter -> sine) re-projects the sine DOM in both steps; reading the second step's from its start asset (the
   // scatter's 180 x 108 pt on a 360 x 108 pt DOM) rescaled every glyph and marker on its first frame (6,317 stage px^2 at devicePixelRatio 1.25).
   const domAsset = isPlot ? (plotAssetOf(contentHost.querySelector("svg")) ?? (pre as SemanticPlotElement).assetId) : undefined;
+  // relayout-native-root: the mounted asset's native DOM, for its compensation and natural viewBox; placement reflows it
   const domRoot = domAsset ? (ctx.plotRoot ? ctx.plotRoot(domAsset) : plotDom.get(domAsset)) : undefined;
   const intrinsic = isPlot && domRoot ? svgIntrinsicPx(domRoot) : null;
   const naturalViewBox = isPlot ? domRoot?.getAttribute("viewBox") ?? null : null;
