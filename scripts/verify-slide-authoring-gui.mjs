@@ -68,8 +68,18 @@ try{
   const beforeScrub=await page.evaluate(()=>{const f=window.__flux;return {deck:JSON.stringify(f.slide.currentDeck()),destination:JSON.stringify(f.get(f.slide.editDestination)),dirty:f.get(f.fig.dirty)};});
   const ruler=await page.$eval('.ruler',e=>{const r=e.getBoundingClientRect();return{x:r.x+45,y:r.y+r.height/2};});
   await page.mouse.click(ruler.x,ruler.y);await paint();
-  const afterScrub=await page.evaluate(()=>{const f=window.__flux;return {deck:JSON.stringify(f.slide.currentDeck()),destination:JSON.stringify(f.get(f.slide.editDestination)),dirty:f.get(f.fig.dirty),preview:!!document.querySelector('.preview-overlay')};});
+  const afterScrub=await page.evaluate(()=>{const f=window.__flux;return {deck:JSON.stringify(f.slide.currentDeck()),destination:JSON.stringify(f.get(f.slide.editDestination)),dirty:f.get(f.fig.dirty),preview:!!document.querySelector('.preview-overlay'),frameWidth0:document.querySelector('.preview-host')?.getBoundingClientRect().width??0};});
   check(afterScrub.preview&&afterScrub.deck===beforeScrub.deck&&afterScrub.destination===beforeScrub.destination&&afterScrub.dirty===beforeScrub.dirty,'ruler scrubbing inspects a frame without authoring state or changing edit destination');
+  // The inspected frame sits where the editor's canvas draws the slide, and a zoom over it zooms the editor's view (owner, 2026-10-25: the
+  // frame was refitted, and pushed down-right by the player's own `position: relative` on the placed host)
+  const boxes=()=>page.evaluate(()=>{const R=e=>{const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};return {frame:R(document.querySelector('.preview-host')),canvas:R(document.querySelector('rect.figure-bg.active'))};});
+  const near=(a,b)=>a.every((v,i)=>Math.abs(v-b[i])<=1);
+  let placed=await boxes();
+  check(near(placed.frame,placed.canvas),`the inspected frame covers the canvas's own slide box (${placed.frame.map(Math.round)} vs ${placed.canvas.map(Math.round)})`);
+  const mid=await page.$eval('.preview-viewport',e=>{const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};});
+  await page.mouse.move(mid.x,mid.y);await page.keyboard.down('Control');await page.mouse.wheel({deltaY:-240});await page.keyboard.up('Control');
+  await new Promise(r=>setTimeout(r,500));await paint();placed=await boxes();
+  check(!!(await page.$('.preview-overlay'))&&near(placed.frame,placed.canvas)&&placed.frame[2]>afterScrub.frameWidth0,'Ctrl+wheel over the inspected frame zooms the editor view and the frame follows it');
   await clickText('.animator .transport button','■ Stop');
   // Preview owns a captured deck: every history route must invalidate it,
   // including the shared toolbar and keymap outside the animation dock.
