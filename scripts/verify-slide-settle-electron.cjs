@@ -21,7 +21,7 @@ async function main() {
 }
 import("./lib/harness.mjs").then(async ({ harness }) => {
   const h = harness("verify-slide-settle-electron");
-  try { await main(); h.ok(true, "offscreen Electron, real clicks: first moving frame one frame after frame 0, no long frame at landing, landing frame equals the static render, nothing changes after it, landing steps like its neighbours, an interrupt settles without a jump"); }
+  try { await main(); h.ok(true, "offscreen Electron, real clicks: first moving frame one frame after frame 0, no long frame at landing, landing frame equals the static render, nothing changes after it, landing steps like its neighbours, an interrupt settles without a jump; the same at devicePixelRatio 1.25 (a fractionally scaled display)"); }
   catch (error) { console.error(error); h.fail(String(error.message || error)); }
   await h.done();
 });

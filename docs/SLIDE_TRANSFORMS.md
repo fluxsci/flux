@@ -396,15 +396,46 @@ attributes, with no SVG serialization, parsing or geometry planning.
 Present or in an export. A draw is a pen: the stroke width grows with the ink laid down (`penWidth`), so a
 round cap never blinks a dot in on frame 1 or leaves one at the end of a drawOff. The clock starts at the
 first presented frame: the first tick of a cue advances it by at most 20 ms (`FIRST_TICK_MAX_MS`), so a
-frame delayed by setup is a hitch, never a skipped beginning. A gliding node's compositor layer is baked
-at rest and kept until the node next changes its picture: a hidden enter is primed once, invisibly, at its
-rest placement just before it flies, frame 0 is really presented before anything moves, and the flight
-mark follows the node's OWN latest beat, so text that rose in lands on the static render's raster instead
-of half a pixel off it. A camera flight re-bakes the stage raster for the pose it LANDS on under its last
-two frames (`EARLY_BAKE_LEAD_FRAMES`), so the landing finds it sharp. Text that glides to a fractional
-position, or turns, lands on its layer's raster (up to half a device pixel soft: demoting it at landing
-would be a visible sharpening step). Slide text is grayscale-antialiased end to end (the stage is a
-`will-change` layer), so a promotion cannot flip LCD to grayscale.
+frame delayed by setup is a hitch, never a skipped beginning. A hidden enter is primed once, invisibly, at
+its rest placement just before it flies, and frame 0 is really presented before anything moves. A camera
+flight re-bakes the stage raster for the pose it LANDS on under its last two frames
+(`EARLY_BAKE_LEAD_FRAMES`), so the landing finds it sharp. Slide text is grayscale-antialiased end to end
+(the stage is a `will-change` layer), so a promotion cannot flip LCD to grayscale.
+
+**Fractionally scaled displays (2026-10-24).** On a display scaled by 1.25 or 1.5 (devicePixelRatio not a
+whole number) a whole stage pixel is not a whole device pixel, and three laws keep every frame where its
+numbers say and every layer identical to the stage's own paint:
+
+1. *The layout box origin is on the device grid.* Blink snaps a box's paint offset (`left` / `top`) to
+   whole pixels of its local space at the device scale. `render.layoutBoxOf` quantises the origin to
+   multiples of 1 / devicePixelRatio (Math.round at 1, so nothing changed there) and the residual transform
+   carries the exact rest. Before, whole stage pixels were snapped by a different error at a move's start
+   box (its flight frames) and its end box (its landing): every move ended with a jump of up to 0.4 stage px
+   (0.7 device px in the editor preview), on main and in every release, made visible by the manim smooth
+   easing, which almost stops before the end.
+2. *Compositing is a constant of the slide.* A node that ever glides (a pure move, a text turn, a
+   translate preset, an attached label) carries its flight mark (`armFlightMark`, a paused no-op transform
+   animation) from the slide's first frame to its teardown (`player.glidesEver`, armed when the plan
+   binds, kept through a with-previous run's re-base). A node on its own layer and the same node painted
+   in place differ by a fraction of a device pixel of anti-aliasing, and a mark composites everything
+   painted after the node too ("assumed overlap"), so a mark that followed the beat stepped those nodes on
+   still frames at the start of a glide and of every later cue that changed the node's picture (a stroked
+   rect 20, a text resized after a move 63 stage px^2).
+3. *The device grid* (`player/deviceGrid.ts`). A layer and the stage's paint are pixel-identical only on a
+   whole device pixel (measured: 0 px differ there, up to 117 levels off it). The stage hosts put the stage
+   origin on the grid (`gridFit`: the exported deck, Present, the editor preview; `left: 50%` +
+   `translate(-50%, -50%)` landed on a fraction the browser snapped by its own rule, and getBoundingClientRect
+   no longer told where the stage was), and a marked node RESTS on a whole device pixel
+   (`applyWrapperBox` + `restGridShift`, the grid read once per paint): its glides fly between the snapped
+   ends (the transform driver blends the shift with the motion's progress), so the landing frame IS the
+   rest and both are crisp. Text that glides to a fractional position, or turns, therefore lands sharp.
+   An attached label rests `exact` (its flights follow what it hangs on frame by frame and cannot blend a
+   shift); mid-flight frames placed by the rest law are never snapped.
+
+Measured with `slide-settle-realtime.mts` at `DSF=1.25` (offscreen Electron, `offscreen: { deviceScaleFactor }`;
+headless Chrome's emulated device scale snaps differently and is no stand-in) on a window whose size is a
+whole number of device pixels (a real Wayland surface is; an odd CSS size at 1.25 is not); gated by
+`verify-slide-device-grid.ts` and the settle gate's device-scale pass.
 
 ## 5. UI
 
@@ -497,9 +528,8 @@ never jank):
    Chromium bakes a layer's fractional offset into its raster whenever it does not consider the
    transform animating, so a promoted element that also repaints per frame (MODE=recolor: a
    colour lerp, likewise a data morph) stepped again — a paused, additive, no-op transform
-   animation (`armFlightMark`: armed at the first frame of the beat in which the node glides, kept through
-   the landing, released at the first frame of a later beat in which it plays something that changes its
-   picture; Release 2) marks the transform as animating and the repainting text glides (Δy sd
+   animation (`armFlightMark`: on for the whole slide on every node that ever glides, 2026-10-24, see
+   "Fractionally scaled displays" in §4) marks the transform as animating and the repainting text glides (Δy sd
    0.135 → 0.010; a hidden enter is primed, rendered once at opacity 0.001 at its rest placement just before it
    flies, and frame 0 is presented first, because a layer bakes the fractional offset of its first raster); and the video capture runtime holds flight
    layers across frames (`holdFlightLayers`), since a fresh layer bakes its first frame's

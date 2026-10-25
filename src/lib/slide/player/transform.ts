@@ -696,10 +696,10 @@ export function createTransform(
     const relayoutsText = staticUpdate && pre.type === "text";
     if (raw > 0 && raw < 1 && !boxOpts.skipTransform && !relayoutsText) {
       applyWrapperBoxComposite(wrap, wrapEl, morphPlan && t >= 0.5 ? endBaseBox : baseBox, { skipOpacity: boxOpts.skipOpacity });
-      // a text morph's box rides a layer only when the box itself travels (its spans decide for themselves)
-      // ... and an outline morph's box only when it really travels: a Become that keeps its box (a ring into a rect) has nothing a layer could move,
-      // and promoting it re-rasters the whole picture at the first flight frame (a 6 stage px^2 step on the first moving frame)
-      if (glide && (!textLayers || displaced) && (!morphPlan || displaced)) promoteMovingWrapper(wrap);
+      // the box rides a layer only when it really travels: a flight that keeps its box (a text rewritten in place, a ring into a rect, a recolour,
+      // an outline whose hole moves) has nothing a layer could move, and promoting it switched the whole picture onto a layer for the flight: every
+      // curved edge stepped on the first moving frame and again at the landing (an outline with a moving hole, 19 and 25 at devicePixelRatio 1.25)
+      if (glide && displaced) promoteMovingWrapper(wrap);
     } else {
       applyWrapperBox(wrap, wrapEl, raw > 0 && raw < 1 ? { ...boxOpts, exact: true } : boxOpts);
       if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)
@@ -826,7 +826,11 @@ export function createTransform(
     // spans built; a seek that arrives first builds them on the spot.
     const L = textLayers;
     warmWhenIdle(() => { if (wrap.isConnected) L.morph.ensure(); });
-    return { seek, targetRoot: L.B, glide: marks, dispose: () => L.morph.dispose() } as MorphController;
+    // A rewrite whose box stays put promotes its spans (createTextMorph `promote`), and a promoted layer INSIDE the wrapper turns the wrapper
+    // into a layer too: its picture moved by its residual transform the moment the first span rose (0.74 device px on the first frame of an
+    // anagram at devicePixelRatio 1.25). The wrapper therefore carries the flight mark for the whole slide (player.glidesEver): it is a layer
+    // before, during and after, and the spans change nothing about it.
+    return { seek, targetRoot: L.B, glide: marks || !displaced, dispose: () => L.morph.dispose() } as MorphController;
   }
   if (morphPlan) {
     showMorphLayer(0);

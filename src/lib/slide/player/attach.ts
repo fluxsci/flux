@@ -18,7 +18,7 @@
 import type { Element as FigElement } from "../../types";
 import { elementBBox } from "../../geometry";
 import { attachRefs, hasAttach, resolveAttachments } from "../attach";
-import { applyWrapperBox, applyWrapperBoxComposite, armFlightMark, layoutBoxOf, normalizeAttachedDash, promoteMovingWrapper, settleWrapper, updateStaticContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, normalizeAttachedDash, promoteMovingWrapper, settleWrapper, updateStaticContent, type SlideRenderCtx } from "./render";
 import type { MorphController } from "../../plot/project";
 
 /** One element's state this frame, written by its transform controller: the sampled element, and whether it is in flight. */
@@ -34,9 +34,6 @@ export function createAttachDriver(elements: readonly FigElement[], wraps: Reado
   // a label's composite rides its DESIGN layout box (the stored geometry is the Design solve): a constant of the slide, so a frame's DOM never
   // depends on which frame was painted before it
   const baseOf = new Map(dependents.filter((e) => e.type !== "line").map((e) => [e.id, layoutBoxOf(elementBBox({ ...e, rotation: 0 }))] as const));
-  // a label rides a layer whenever what it hangs on moves: its compositing is a constant of the slide like every glider's (player.ts glidesEver),
-  // so the flight that promotes it and the landing that settles it never switch it between a layer and the stage (an anti-aliasing step)
-  for (const e of dependents) if (e.type !== "line") armFlightMark(wraps.get(e.id)!);
   let last = new Map<string, string>();
   /** In flight this frame: the element's own controller, or (transitively) anything it hangs on. */
   const moving = (id: string, memo: Map<string, boolean>, seen = new Set<string>()): boolean => {

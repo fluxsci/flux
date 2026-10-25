@@ -8,6 +8,9 @@
 //   1. the law (pure): Math.round at 1 (byte-identical to the old law), on the grid and within half a cell at 1.25 / 1.5 / 1.75 / 2 / 2.5
 //   2. the wrapper (linkedom, devicePixelRatio 1.25): rest and mid-flight frames realise the exact box, the layout origin is on the grid
 //   3. the transform driver: a pure move's effective position is continuous from the first frame through the landing at 1.25
+//   4. the device grid (deviceGrid.ts, pure): hosts fit the stage with its origin on a whole device pixel; a marked node's rest shift
+//   5. compositing is a constant of the slide (headless Chrome, the exported player): a node that ever glides carries its flight mark from the
+//      slide's first frame through every cue; a node that never glides never does
 // The compositor half (a real fractional display) is measured by verify-slide-settle-electron (its DSF pass): offscreen Electron with
 // `offscreen: { deviceScaleFactor: 1.25 }`. Headless Chrome's EMULATED device scale is not a display scale (it snaps differently) and
 // cannot stand in for it.
@@ -88,5 +91,57 @@ h.section("3. a pure move through its landing at devicePixelRatio 1.25");
   h.ok(Math.abs(travel(before, last) - 1e-4 * travel(pre, end)) < 1e-6, `the landing step is the motion's own last 0.01 % (${travel(before, last).toFixed(5)} stage px): no snap at the end`);
   h.ok(onGrid(px(wrap.style.left), 1.25) && onGrid(px(wrap.style.top), 1.25), "and the resting layout origin is on the device grid");
   setDpr(1);
+}
+h.section("4. the device grid");
+{
+  const { gridFit, gridOf, cameraPose, snapDelta } = await import("../src/lib/slide/player/deviceGrid");
+  const stage = { width: 640, height: 360 };
+  for (const [W, H, L, T, dpr] of [[900, 504, 0, 0, 1.25], [1004, 612, 0, 0, 1.25], [978, 404, 302.89, 136, 1.25], [1366, 768, 0, 0, 1], [1440, 900, 0, 47.3, 1.5], [3072, 1728, 0, 0, 1.25]] as const) {
+    const f = gridFit({ left: L, top: T, width: W, height: H }, stage, dpr);
+    const ox = (L + f.left) * dpr, oy = (T + f.top) * dpr;
+    const centredX = Math.abs((L + f.left) - (L + (W - 640 * f.scale) / 2)) <= 0.5 / dpr + 1e-9, centredY = Math.abs((T + f.top) - (T + (H - 360 * f.scale) / 2)) <= 0.5 / dpr + 1e-9;
+    h.ok(Math.abs(ox - Math.round(ox)) < 1e-6 && Math.abs(oy - Math.round(oy)) < 1e-6 && centredX && centredY && f.scale === Math.min(W / 640, H / 360),
+      `a ${W}x${H} box at (${L}, ${T}) @${dpr}: the stage origin lands on a whole device pixel (${ox.toFixed(3)}, ${oy.toFixed(3)}) within half a device pixel of centred, scale ${f.scale.toFixed(5)}`);
+  }
+  h.eq(cameraPose(""), { x: 0, y: 0, z: 1 }, "an identity camera pose");
+  h.eq(cameraPose("translate(-120.5px, 33px) scale(1.8)"), { x: -120.5, y: 33, z: 1.8 }, "the pose the player writes (baseCameraTransform)");
+  h.eq(cameraPose("translate(10px, 10px) rotate(3deg)"), null, "a pose the grid cannot follow (a rotation) is refused, never half-read");
+  const g = gridOf(302.89, 136.2, 1.1222, 1.25, "")!;
+  h.ok(Math.abs(g.s - 1.25 * 1.1222) < 1e-12 && g.fx >= 0 && g.fx < 1 && g.fy >= 0 && g.fy < 1, "the grid of a stage: device px per local px = dpr x fit x zoom, and the fractional device offset of its origin");
+  const zoomed = gridOf(0, 0, 1.4, 1.25, "translate(-100.3px, -40.1px) scale(2)")!;
+  h.ok(Math.abs(zoomed.s - 3.5) < 1e-12, "a camera zoom multiplies the grid (1.25 x 1.4 x 2 = 3.5 device px per local px)");
+  let worst = 0, onGrid = true;
+  for (const v of [0, 0.3, 33.37, 60, 90, 90.4, 419.6, -11.21]) {
+    const d = snapDelta(g, v, v), ax = g.fx + g.s * (v + d.dx), ay = g.fy + g.s * (v + d.dy);
+    worst = Math.max(worst, Math.abs(d.dx * g.s), Math.abs(d.dy * g.s)); onGrid &&= Math.abs(ax - Math.round(ax)) < 1e-6 && Math.abs(ay - Math.round(ay)) < 1e-6;
+  }
+  h.ok(onGrid && worst <= 0.5 + 1e-9, `a rest shift lands the box origin on a whole device pixel and moves it at most half a device pixel (worst ${worst.toFixed(3)})`);
+}
+
+h.section("5. compositing is a constant of the slide (exported player, headless Chrome)");
+{
+  const fs = await import("node:fs/promises"), os = await import("node:os"), path = await import("node:path");
+  const { launch } = await import("./lib/driver.mjs");
+  const { createDeck, addSlide, addElement, addBeat, setTransform } = await import("../src/lib/slide/ops");
+  const { exportDeckHtml } = await import("../src/lib/slide/export/exportDeck");
+  const deck = createDeck({ id: "grid", title: "grid", theme: "flux-paper", withTitleSlide: false }); deck.defaults.transition = "none";
+  const s = addSlide(deck, { id: "s", name: "s", layout: "blank" })!;
+  const mover = addElement(deck, s.id, rect(60, 60, { id: "mover" }))!, still = addElement(deck, s.id, rect(300, 200, { id: "still", fill: "#d14d41" }))!;
+  const b1 = addBeat(deck, s.id, { advance: "click" })!; addBeat(deck, s.id, { advance: "click" });
+  const b3 = addBeat(deck, s.id, { advance: "click" })!;
+  setTransform(deck, s.id, b3.id, mover, { state: { x: 400, y: 90 }, duration: 500 });   // the only glide: beat 3
+  setTransform(deck, s.id, b1.id, still, { state: { fill: "#879a39" }, duration: 400 });  // a picture change, never a glide
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-grid-")); const html = path.join(tmp, "d.html");
+  await fs.writeFile(html, (await exportDeckHtml({ deck })).html);
+  const { browser } = await launch({ width: 1004, height: 612 });
+  try {
+    const page = await browser.newPage(); await page.goto("file://" + html); await new Promise(r => setTimeout(r, 600));
+    const marks = () => page.evaluate(`(() => { const n = id => document.querySelector('[data-el-id="' + id + '"]').getAnimations().length; return [n('mover'), n('still')]; })()`) as Promise<number[]>;
+    const seen: number[][] = [await marks()];
+    for (const beat of [1, 2, 3]) { await page.evaluate(`window.fluxDeck.goTo(0, ${beat})`); await new Promise(r => setTimeout(r, 900)); seen.push(await marks()); }
+    await page.evaluate(`window.fluxDeck.goTo(0, 0)`); await new Promise(r => setTimeout(r, 300)); seen.push(await marks());
+    h.ok(seen.every(([m]) => m === 1), `the node that glides only in beat 3 carries its mark at the slide's first frame and at every beat, forward and back (${seen.map(x => x[0]).join(" ")})`);
+    h.ok(seen.every(([, st]) => st === 0), `a node that never glides (a recolour) never carries one (${seen.map(x => x[1]).join(" ")})`);
+  } finally { await browser.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 }
 await h.done();
