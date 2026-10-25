@@ -8,7 +8,7 @@
 //   1. the law (pure): Math.round at 1 (byte-identical to the old law), on the grid and within half a cell at 1.25 / 1.5 / 1.75 / 2 / 2.5
 //   2. the wrapper (linkedom, devicePixelRatio 1.25): rest and mid-flight frames realise the exact box, the layout origin is on the grid
 //   3. the transform driver: a pure move's effective position is continuous from the first frame through the landing at 1.25
-//   4. the device grid (deviceGrid.ts, pure): hosts fit the stage with its origin and size on whole device pixels; a marked node's rest shift
+//   4. the device grid (deviceGrid.ts, pure): hosts fit the stage with its origin on a whole device pixel; a marked node's rest shift
 //   5. compositing is a constant of the slide (headless Chrome, the exported player): a node that ever glides carries its flight mark from the
 //      slide's first frame through every cue; a node that never glides never does
 //   6. (2026-10-25) a marked node that resizes is laid out per frame (no frozen-box scale on a layer); a morphing text's static renders are
@@ -102,10 +102,8 @@ h.section("4. the device grid");
     const f = gridFit({ left: L, top: T, width: W, height: H }, stage, dpr);
     const ox = (L + f.left) * dpr, oy = (T + f.top) * dpr;
     const centredX = Math.abs((L + f.left) - (L + (W - 640 * f.scale) / 2)) <= 0.5 / dpr + 1e-9, centredY = Math.abs((T + f.top) - (T + (H - 360 * f.scale) / 2)) <= 0.5 / dpr + 1e-9;
-    const fit = Math.min(W / 640, H / 360), dw = 640 * f.scale * dpr, dh = 360 * f.scale * dpr;
-    h.ok(Math.abs(ox - Math.round(ox)) < 1e-6 && Math.abs(oy - Math.round(oy)) < 1e-6 && centredX && centredY && Math.abs(dw - Math.round(dw)) < 1e-6 && Math.abs(dh - Math.round(dh)) < 1e-6
-      && f.scale <= fit + 1e-12 && (fit - f.scale) * dpr * 40 < 1 + 1e-9,
-      `a ${W}x${H} box at (${L}, ${T}) @${dpr}: the stage lands on whole device pixels, origin (${ox.toFixed(3)}, ${oy.toFixed(3)}) and size ${dw.toFixed(3)} x ${dh.toFixed(3)}, within one 16 x 9 step of the fit and half a device pixel of centred`);
+    h.ok(Math.abs(ox - Math.round(ox)) < 1e-6 && Math.abs(oy - Math.round(oy)) < 1e-6 && centredX && centredY && f.scale === Math.min(W / 640, H / 360),
+      `a ${W}x${H} box at (${L}, ${T}) @${dpr}: the stage origin lands on a whole device pixel (${ox.toFixed(3)}, ${oy.toFixed(3)}) within half a device pixel of centred, scale ${f.scale.toFixed(5)}`);
   }
   h.eq(cameraPose(""), { x: 0, y: 0, z: 1 }, "an identity camera pose");
   h.eq(cameraPose("translate(-120.5px, 33px) scale(1.8)"), { x: -120.5, y: 33, z: 1.8 }, "the pose the player writes (baseCameraTransform)");
