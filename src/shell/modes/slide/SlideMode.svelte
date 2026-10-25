@@ -761,17 +761,23 @@
   // --- inline build preview (present-in-place via the ONE player) ---------------
   let previewing = $state(false);
   let previewHost = $state<HTMLElement | undefined>();
+  // The player's own mount, INSIDE the host: the player styles its mount (position, size, background), and the host is the box this mode
+  // places on the device grid. One element for both let the player's `position: relative` put the host back into the flex centring, under
+  // its grid offset too: every scrub frame showed the stage pushed down and right by the offset, partly out of view (owner, 2026-10-25).
+  let previewMount = $state<HTMLElement | undefined>();
   let pvW = $state(0);
   let pvH = $state(0);
   let player: Player | undefined;
   let previewModels: AppInlineModels | undefined;
   let pvStage = $state(slideOps.DEFAULT_STAGE);
   const pvScale = $derived(pvW > 0 && pvH > 0 ? Math.min(pvW / pvStage.width, pvH / pvStage.height) : 1);
+  /** The scale the inspected frame is actually placed at (the editor's view, below); the fit until it is placed. */
+  let pvPlacedScale = 0;
 
   function playerOpts(d: Deck) {
     return {
       theme: resolveTheme(d.theme),
-      ...previewModels, pixelScale: () => pvScale,
+      ...previewModels, pixelScale: () => pvPlacedScale || pvScale,
       assetUrl: (id: string) => getAssetData(id),
       assetSize: (id: string) => assetDisplaySize(get(project), id),
       plotGen: get(plotGen),
@@ -805,10 +811,10 @@
     previewModelGeneration=get(scene3dGeneration);
     pvStage=deck.stage;previewing=true;
     await tick();
-    if(generation!==previewGeneration||!previewHost)return;
+    if(generation!==previewGeneration||!previewHost||!previewMount)return;
     try {
       previewModels = createAppInlineModels(deck);
-      player=createPlayer(previewHost,deck,playerOpts(deck));
+      player=createPlayer(previewMount,deck,playerOpts(deck));
       unsubscribeFrame=player.on("frame",()=>{
         if(!player)return;
         const state=player.state();previewTime=state.time;previewPlaying=state.playing || state.mediaPlaying;
@@ -845,23 +851,41 @@
   $effect(()=>{if(!active&&previewing)stopPreview();});
   let lastPreviewSlide:string|null=null;
   $effect(()=>{const sid=$activeFigureId;if(sid!==lastPreviewSlide){lastPreviewSlide=sid;stopPreview();}});
-  // The preview stage's origin on the device grid (deviceGrid.gridFit), measured against the viewport's own position in the window (a flex
-  // item centred and scaled about its centre sat on a fraction of a device pixel the browser snapped by its own rule). Re-placed when the
-  // viewport resizes (pvW / pvH) and when the window does (a move between displays changes the device scale).
+  // The inspected frame sits exactly where the editor's canvas draws the slide, at its zoom (owner, 2026-10-25: a scrub that refitted the
+  // stage threw away the view the author was working in, and they could not zoom or pan while inspecting). The stage's screen box is the
+  // canvas's own mapping (its host box, the view's pan and zoom, the slide figure's place), its origin put on the device grid
+  // (deviceGrid.gridFit's law: a fraction of a device pixel there is a different raster); with no canvas box, the plain fit. Re-placed when
+  // the view changes (a wheel over the overlay goes to the canvas, forwardWheel), the overlay resizes, or the window does.
   $effect(()=>{
     if(!previewHost)return;
-    const host=previewHost, stage=pvStage;void pvW;void pvH;
+    const host=previewHost, stage=pvStage, sid=$activeFigureId;void pvW;void pvH;
     const place=()=>{
       const box=host.parentElement?.getBoundingClientRect();
       if(!box||!(box.width>0)||!(box.height>0))return;
-      const f=gridFit({left:box.left,top:box.top,width:box.width,height:box.height},stage,devicePixelRatioOf());
+      const dpr=devicePixelRatioOf();
+      // the canvas maps figure units to its host by the view (zoom about the host's origin, then the pan) and draws the slide at its figure's x / y
+      const canvasBox=canvasWrapEl?.querySelector(".canvas-host")?.getBoundingClientRect(), view=get(viewport);
+      const fig=get(project).figures.find(f=>f.id===sid);
+      const f=canvasBox&&canvasBox.width>0&&view.zoom>0
+        ?{scale:view.zoom,left:Math.round((canvasBox.left+view.panX+view.zoom*(fig?.x??0))*dpr)/dpr-box.left,top:Math.round((canvasBox.top+view.panY+view.zoom*(fig?.y??0))*dpr)/dpr-box.top}
+        :gridFit({left:box.left,top:box.top,width:box.width,height:box.height},stage,dpr);
       host.style.transformOrigin="0 0";host.style.left=`${f.left}px`;host.style.top=`${f.top}px`;host.style.transform=`scale(${f.scale})`;
+      pvPlacedScale=f.scale;
       player?.refresh();
     };
-    place();
-    window.addEventListener("resize",place);
-    return ()=>window.removeEventListener("resize",place);
+    let frame=0;
+    const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(place);};
+    const offView=viewport.subscribe(schedule);
+    window.addEventListener("resize",schedule);
+    return ()=>{cancelAnimationFrame(frame);offView();window.removeEventListener("resize",schedule);};
   });
+  /** A wheel over the inspected frame zooms / pans the editor's view, exactly as over the canvas (its own handler, so the gestures agree). */
+  function forwardWheel(e: WheelEvent) {
+    const target=canvasWrapEl?.querySelector(".canvas-host");
+    if(!target)return;
+    e.preventDefault();
+    target.dispatchEvent(new WheelEvent("wheel",{deltaX:e.deltaX,deltaY:e.deltaY,deltaZ:e.deltaZ,deltaMode:e.deltaMode,clientX:e.clientX,clientY:e.clientY,screenX:e.screenX,screenY:e.screenY,ctrlKey:e.ctrlKey,metaKey:e.metaKey,shiftKey:e.shiftKey,altKey:e.altKey,bubbles:true,cancelable:true}));
+  }
 
   // A morph target is an asset dependency; choosing it never places a second
   // object on the stage. Import uses the shared plot/sidecar loader.
@@ -1865,9 +1889,9 @@
           <AlignArrangePanel active={active && focused} />
           <CascadePopover tracks={trackCascadeAdapter} />
           {#if previewing}
-            <div class="preview-overlay">
+            <div class="preview-overlay" onwheel={forwardWheel}>
               <div class="preview-viewport" bind:clientWidth={pvW} bind:clientHeight={pvH}>
-                <div class="preview-host" bind:this={previewHost}></div>
+                <div class="preview-host" bind:this={previewHost}><div bind:this={previewMount}></div></div>
               </div>
               <button class="preview-stop" onclick={stopPreview} title="Stop preview">■ Stop</button>
             </div>

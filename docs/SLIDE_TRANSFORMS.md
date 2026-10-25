@@ -159,7 +159,7 @@ centre, x then y: `correspondence.lagRanks`) each run the track's own curve over
 (`stagger.lagWindow`: `w = max(LAG_MIN_WINDOW 0.3, 1/(1+(n−1)·lag))`, start `(1−w)·rank/(n−1)`, exact 0/1 at the ends); a leaving
 interior runs over `[0, 1−w]`, an arriving one over `[w, 1]` (`pairProgress`, one array per frame read by shapes, heads, interiors and
 crossfades). Path driver only (glyph flights, text morphs and 3D ignore it); a merge lander's windows run over its own first
-`1/holdK`. Lag 0 is byte-identical to unison; a NEW hand-off of 3+ pieces is authored with 0.15 (`BECOME_PAIR_LAG_DEFAULT`, D4);
+`1/holdK`. Lag 0 is byte-identical to unison; a new hand-off is authored with no lag (unison; owner 2026-10-25, replacing D4's 0.15 for 3+ pieces);
 ops refuse it on anything but a hand-off. Not stamped (Q8).
 
 **Attachments (WP 3.2).** `ElementBase.attach` makes an element's geometry a PURE function of other
@@ -360,8 +360,9 @@ law in `ghost.ts`): 0 while it coincides, 1 once it has left by a tenth of its s
 stage px); a copy that never separates fades in over the first quarter of its flight. Two layers of the
 same anti-aliased glyphs read bolder (1-(1-c)^2), which is what a copy born on its source used to show.
 
-**Data hand-offs (WP 2.3).** A plot view Change hands the axis ticks off in flight (asset Changes keep
-their guide pairing): ticks pair by data value (`matchTickSets`, within 2 % of the smaller step), matched
+**Data hand-offs (WP 2.3).** A plot view Change hands the axis ticks off in flight, and so does an asset
+Change whose two versions tick an axis at different values (an asset Change with the same tick values keeps
+the guide pairing); ticks pair by data value (`matchTickSets`, within 2 % of the smaller step), matched
 ticks walk to their new values, ticks only in the start leave over t .10-.45, ticks only in the end
 arrive over .45-.80, and a re-formatted label for the same value ("1" to "1.0") hard-swaps once at
 t = .5, never a glyph morph. Labels are placed against the tick of their own index. The last frame is the
@@ -379,8 +380,24 @@ slide MOUNTED (the design state's asset), so its pt-true compensation and natura
 size (sine 360 x 108 pt -> scatter 180 x 108 pt -> sine) began its second step with every glyph rescaled
 (2026-10-24). An asset Change whose start or end
 view re-ticks an axis hands the generated ticks off through the same pool as a view Change (each side's
-tick set read from its own version, the pool placed against the lerped anchor); a mark only the end version
-has stands where it rests under the end view and grows in place.
+tick set read from its own version, each pooled clone placed from the bytes it was cloned from: a tick the end version has is cloned from that
+version's own pristine node, so the last frame paints it with the identity on the end's exact bytes); a mark
+only the end version has stands where it rests under the end view and grows in place. An axis handed off
+only because the two versions tick it differently rests on each version's own generated ticks at t = 0 and
+t = 1 (the canonical parts later tracks address).
+
+**The pixel law (2026-10-25).** Every projected mark (series vertices and markers, filled marks, guides,
+pooled ticks) walks the straight line between its two rest pixels (`project.lerpPixel`): its start value
+through the start fit, its end value through the end fit. For a value that does not change this is the
+blended fit exactly, so a view Change is unchanged. A value that changes with its axis (a new version on
+other units: a log ratio axis 0.9-1.1 to percentage points -6..5) was lerped in data and projected through
+the lerped fit, a product of two lerps that swung error bars ~200 px past the plot mid-flight. Ticks match
+in log units only when both ends are log. A guide fades by how far its TICK has left the axis range,
+never inside it (a tick at the first category used to vanish on the first frame). Mean dots and fliers
+are markers: moved whole on their anchor, never re-projected vertex by vertex (a circle became an oval);
+a path is re-projected only when every command is an absolute M / L / C / Q / Z (control points map exactly
+under a linear fit). A part whose two versions differ in topology (a cap drawn in two pieces around its
+mean dot, one piece in the end) cross-fades, both copies riding the part's anchor walk.
 
 `ResolvedCurve` is retained once per track/spec; never parse easing or SVG during a frame.
 The channel law is:

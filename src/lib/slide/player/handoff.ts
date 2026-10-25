@@ -310,7 +310,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  destinations inside the flight, ADDED (plus-lighter, isolated) with the flight's own layer by distance still to travel, so the way the flight is
    *  rasterised (an exact stroke band, pieces re-cut at other stations than the resting ellipse) never shows as a seam on the first moving frame or
    *  the landing frame. Absent for a flight that carries text, rasters, glyphs, slices or media (their own laws hold the ends). */
-  let handover: { host: SVGGElement; flight: SVGGElement; a: HandoffClone[]; b: HandoffClone[]; refA: number[][]; refB: number[][]; look: number } | null = null;
+  let handover: { host: SVGGElement; flight: SVGGElement; sides: { a: SVGGElement; b: SVGGElement }; a: HandoffClone[]; b: HandoffClone[]; refA: number[][]; refB: number[][]; look: number } | null = null;
 
   function ensure(): void {
     if (prepared || disposed) return;
@@ -346,27 +346,49 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         // pixel outside the copies shifts the buffer's origin off the pixel grid and softens the copies' edges, measured as a 10 stage px^2 step when the flight
         // leaves): a transparent rect over the whole stage pins the bounds
         const [vx, vy, vw, vh] = (flight.getAttribute("viewBox") ?? "0 0 0 0").split(/\s+/).map(Number);
-        if (vw > 0 && vh > 0) { const pin = document.createElementNS(NS, "rect"); for (const [k, v] of [["x", vx], ["y", vy], ["width", vw], ["height", vh]] as const) pin.setAttribute(k, String(v)); pin.setAttribute("fill", "none"); pin.setAttribute("pointer-events", "none"); host.appendChild(pin); }
+        const stagePin = (painted: boolean) => { const pin = document.createElementNS(NS, "rect"); for (const [k, v] of [["x", vx], ["y", vy], ["width", vw], ["height", vh]] as const) pin.setAttribute(k, String(v)); pin.setAttribute("pointer-events", "none"); if (painted) { pin.setAttribute("fill", "#000"); pin.setAttribute("fill-opacity", "0.0001"); } else pin.setAttribute("fill", "none"); return pin; };
+        if (vw > 0 && vh > 0) host.appendChild(stagePin(false));
+        // Each ADDED layer (the two ends, the flight) opens with a stage-sized paint at alpha 1e-4 (nothing in 8 bits): Chromium keeps a blend group
+        // in its parent's layer only while its pieces merge into one, and pieces spread over the stage (a circle here, a path there) were split
+        // into compositor layers of their own, rasterised apart (the end render landed a step softer than the rest: 28 at devicePixelRatio 1.25).
+        // One stage-sized first paint makes the group one dense piece.
+        const pinned = (group: SVGGElement) => { if (vw > 0 && vh > 0) group.appendChild(stagePin(true)); return group; };
         flightGroup.setAttribute("class", "sl-handover-flight"); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) flightGroup.style.setProperty(k, v);
+        pinned(flightGroup);
+        // Each END is ONE added layer: its copies are painted inside it in their own paint order (a part over the part it overlaps), and the
+        // hand-over weight is the layer's. Added copy by copy, two overlapping parts summed where they overlap (a logo's touching circles
+        // flashed near-white along every overlap at both ends of a Become, the sum of two inks).
         const ends: { a: HandoffClone[]; b: HandoffClone[] } = { a: [], b: [] };
+        const sides = { a: document.createElementNS(NS, "g"), b: document.createElementNS(NS, "g") };
         let whole = true;
         for (const side of ["a", "b"] as const) {
           if (side === "b") host.appendChild(flightGroup);
-          const seen = new Set<string>();
+          const group = sides[side];
+          group.setAttribute("class", `sl-handover-${side}`); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) group.style.setProperty(k, v);
+          host.appendChild(pinned(group));
+          const seen = new Set<string>(), outlines: NonNullable<CorrespondencePair["a"]>[] = [];
           for (const pair of plan.pairs) {
             const outline = pair[side]; if (!outline) continue;
             const key = `${outline.owner.elementId}|${outline.owner.partId ?? ""}`;
             if (seen.has(key)) continue;
-            seen.add(key);
-            const copy = clone({ ...outline, paint: { ...outline.paint, text: true } }, host);
+            seen.add(key); outlines.push(outline);
+          }
+          // ... in the paint order of the renders they stand for, not the pairing's: a part pairs with whatever lies nearest, so a copy that came
+          // first in the pairing was painted under one it overlaps in the real render (the last frame of a line becoming a logo showed a purple
+          // circle over the pink it lies under, and the landing swapped them)
+          const nodeOf = (o: (typeof outlines)[number]) => ctx.node(o.owner);
+          outlines.sort((p, q) => { const a = nodeOf(p), b = nodeOf(q); return !a || !b || a === b ? 0 : a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
+          for (const outline of outlines) {
+            const copy = clone({ ...outline, paint: { ...outline.paint, text: true } }, group);
             if (!copy) { whole = false; break; }
-            copy.node.setAttribute("class", `sl-handover-${side}`); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) copy.node.style.setProperty(k, v);
+            copy.node.setAttribute("class", `sl-handover-copy`);
             set(copy.node, "transform", `translate(${copy.box.x} ${copy.box.y})`);
+            if (copy.opacity !== 1) set(copy.node, "opacity", String(copy.opacity));
             ends[side].push(copy);
           }
           if (!whole) break;
         }
-        if (whole) { layer.appendChild(host); handover = { host, flight: flightGroup, a: ends.a, b: ends.b, refA: [], refB: [], look: 0 }; root = flightGroup; }
+        if (whole) { layer.appendChild(host); handover = { host, flight: flightGroup, sides, a: ends.a, b: ends.b, refA: [], refB: [], look: 0 }; root = flightGroup; }
       }
       for (const [pairIndex, pair] of plan.pairs.entries()) {
         if (plan.driver === "glyph" && pair.a) {
@@ -612,8 +634,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           if (o > 0) node.removeAttribute("display"); else set(node, "display", "none");
           if (o !== 1 && o > 0) set(node, "opacity", String(o)); else node.removeAttribute("opacity");
         };
-        for (const c of handover.a) put(c.node, w.a, c.opacity);
-        for (const c of handover.b) put(c.node, w.b, c.opacity);
+        put(handover.sides.a, w.a);
+        put(handover.sides.b, w.b);
         put(handover.flight, w.m);
       }
     }

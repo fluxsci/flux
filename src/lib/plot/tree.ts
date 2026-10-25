@@ -120,7 +120,8 @@ export function resolveTargets(manifest: FluxPlotManifest | undefined, key_: str
   if (!tree) return [aliased];
   const node = indexTree(tree).get(aliased);
   if (!node) return [aliased]; // a literal leaf id not present in the tree
-  if (node.role === "group" || (node.children && node.children.length)) {
+  // a group, a container, or a part that owns more than its own drawable (members: a bracket and its label, parse.augmentManifestOrphans)
+  if (node.role === "group" || (node.children && node.children.length) || (node.members && node.members.length)) {
     const leaves=leavesUnder(node);if(!root)return leaves;
     const known=new Set(leaves),owners=new Set<string>();const collect=(n:PartNode)=>{if(n.id)owners.add(n.id);for(const c of n.children??[])collect(c);};collect(node);const prefix=plotPartPrefix(root);
     for(const clone of Array.from(root.querySelectorAll('[data-relayout-source],[data-relayout-owner]'))){if(known.has(clone.getAttribute('data-relayout-source')!)||owners.has(clone.getAttribute('data-relayout-owner')!))leaves.push(clone.id.startsWith(prefix)?clone.id.slice(prefix.length):clone.id);}

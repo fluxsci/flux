@@ -99,8 +99,10 @@ fading in alongside its own axis's ticks, which arrive one by one along the axis
 **Data** (lines draw on, bars grow from their baseline, points and hexagons stagger in, however
 many there are; a data line draws **along x**, at an even pace from left to right, with its confidence band
 opening behind the same front and its markers growing in as the line reaches each one, and a line
-without markers is led by a small dot), and last **Legend & annotations** (the legend's frame, then its entries, then
-annotations and brackets), each after the short delay the plot suggests. A multi-panel plot offers
+without markers is led by a small dot; a mean marker draws itself on as its points arrive, its error bars
+grow out of it and their caps close them), and last **Legend & annotations** (the legend's frame, then its entries, then
+annotations and brackets, each bracket with its own label), each after the short delay the plot suggests. Everything
+the plot draws is part of the build: nothing sits on the slide before its click. A multi-panel plot offers
 **panel by panel**: the same three clicks for each panel in turn (an inset right after its host),
 with the figure's title first and its shared legend last. The same build is available from the
 command line as `flux animate-plot`.
@@ -545,9 +547,9 @@ picking: every click on the canvas is a pick.
   whole group). The source's outline splits into one piece per destination, and each piece lands
   exactly on its own object. The lane and the Destination row name the set (**Rect → 3 ellipses**)
   and list its members; a set cannot be swapped — author the reverse hand-offs from each object.
-  With three or more pieces they **peel off one after another**, left to right, inside the same
-  duration (a bar splitting into five dots reads as five dots leaving, not one slab breaking). The
-  Animator's **Piece lag** slider sets how much (0 flies them together; new splits start at 0.15).
+  The pieces fly together by default; the Animator's **Piece lag** slider makes them **peel off one
+  after another**, left to right, inside the same duration (a bar splitting into five dots then reads
+  as five dots leaving, not one slab breaking).
 
 A loose drawn destination between whole objects uses **Consume**: its appearance becomes the source's After state
 and the destination is removed. The source keeps its identity; one Undo restores both.
@@ -694,7 +696,11 @@ dashed reference line, stay put. For multi-panel plots the same view applies to 
 placeholders show the first panel's limits.
 
 Asset Becomes and Changes of a data view use the same projection, so one Change may combine
-new data, axis limits and movement. Shared semantic parts tween; removed parts fade out in
+new data, axis limits and movement. Every mark travels in a straight line from where it sits in
+the first plot to where it sits in the second, even when the new version changes the axis'
+units or scale (a log ratio axis to percentage points); mean dots and outliers keep their size.
+When the two versions tick an axis at different values, the old ticks ride the moving axis and
+fade out while the new ones fade in. Shared semantic parts tween; removed parts fade out in
 the first 40% and added parts fade in during the last 40%. Between two versions of a plot whose
 members carry stable keys (fluxplot 0.3.2: bars by category, heatmap cells and hexagons by row
 and column), each member tweens to its namesake — a bar grows or shrinks to its new height (a bar that exists in

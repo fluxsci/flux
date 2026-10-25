@@ -67,7 +67,8 @@ try {
   await page.evaluate("window.fluxDeck.seek(1,1,500)");
   check((await dataFrame()).opacity === "0.2", "offline part entrance factors authored opacity at midpoint");
   await page.evaluate("window.fluxDeck.seek(1,2,500)"); const dataMid = await dataFrame();
-  check(Math.abs(dataMid.cy-62.5)<.05 && dataMid.opacity === "0.4", "offline noncircle marker has exact data-space position and preserves styled opacity after entrance");
+  // the pixel law (project.lerpPixel): half-way between its rests (80 and 60) the marker is at 70, never through the half-blended fit
+  check(Math.abs(dataMid.cy-70)<.05 && dataMid.opacity === "0.4", "offline noncircle marker walks straight between its rests and preserves styled opacity after entrance");
   await page.evaluate("window.fluxDeck.goTo(1,2)"); const dataEnd = await dataFrame();
   check(Math.abs(dataEnd.cy-60)<.05 && dataEnd.tick === "20", "offline data and axis-label endpoint match complete destination");
   await page.evaluate("window.fluxDeck.goTo(1,0)"); const dataBack = await dataFrame();

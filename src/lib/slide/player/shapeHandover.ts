@@ -30,8 +30,10 @@ export function shapeWeights(away: number, settle: number): { a: number; m: numb
 /** A layer whose weight is a thousandth short of 1 is drawn as an effect layer (group opacity), and the browser rounds gradients and translucent fills
  *  a level or two differently there than in the direct paint (a viridis fill: 223,000 px one to two levels off, which the settle sweep's raw windows
  *  read as a second-frame pop). The weights are therefore SNAPPED: a layer within SNAP of owning the picture owns it, the others are not drawn, so the
- *  frames before the hand-over really starts are exactly the end render and no layer state changes until a layer has a visible share. */
-export const SNAP = 0.001;
+ *  frames before the hand-over really starts are exactly the end render and no layer state changes until a layer has a visible share (one 8-bit level). */
+// A visible share is one 8-bit level: a weight under 1/255 adds nothing to the picture but still begins the crossfade's rounding (a corner sharpening's
+// second frame moved 0.3 % of weight onto the flight and read as a 29-unit raw step on a cue that hardly moves; 2026-10-25).
+export const SNAP = 1 / 255;
 export function snapWeights(w: { a: number; m: number; b: number }): { a: number; m: number; b: number } {
   for (const k of ["a", "m", "b"] as const) if (w[k] >= 1 - SNAP) return { a: 0, m: 0, b: 0, [k]: 1 } as { a: number; m: number; b: number };
   return { a: w.a < SNAP ? 0 : w.a, m: w.m < SNAP ? 0 : w.m, b: w.b < SNAP ? 0 : w.b };

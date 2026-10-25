@@ -409,23 +409,28 @@ export function createTransform(
     if (raw <= 0) w = { a: 1, m: 0, b: 0 }; else if (raw >= 1) w = { a: 0, m: 0, b: 1 };
     // (A, M and B are HTML layers hidden by `visibility`, unlike the hand-off's SVG pieces, which are `display: none` at weight 0: the invisible-child raster shift
     // belongs to an isolated SVG group holding a hidden path. Measured: the 20 become cues of the settle corpus read the same numbers with either.)
+    // (a hand-over layer that does not show is still painted, at HANDOVER_FLOOR, like a morphing text's static renders: textMorph.ts)
+    const capped = handoverOn === true;
     for (const [node, weight] of [[L.A, w.a], [L.M, w.m], [L.B, w.b]] as const) {
-      const v = weight > 0 ? "" : "hidden", o = weight >= 1 || weight <= 0 ? "" : String(Math.round(weight * 1e6) / 1e6);
+      const v = weight > 0 || capped ? "" : "hidden", o = capped ? handoverOpacity(Math.max(weight, HANDOVER_FLOOR)) : weight >= 1 || weight <= 0 ? "" : String(Math.round(weight * 1e6) / 1e6);
       if (node.style.visibility !== v) node.style.visibility = v;
       if (node.style.opacity !== o) node.style.opacity = o;
     }
   }
   /** A Become whose stroke is a BAND hands over to the real renders at its ends: the exact band against the path stroker (a ring) differs by ~0.1 px along
    *  the whole edge, a seam on the first moving frame and the landing frame. A pair without one strokes the same path the resting shape is (no seam, no
-   *  layer). Decided at the first flight frame (planning the band never costs the first preview), then the layers are ADDED with distance weights
-   *  (shapeHandover.ts): the host isolated and the three layers plus-lighter, set once and never toggled. */
+   *  layer). The layers are ADDED with distance weights (shapeHandover.ts): the host isolated and the three layers plus-lighter, each drawn at
+   *  HANDOVER_CAP at most, AT REST TOO, so the resting render goes through the one offscreen path it takes in the hand-over. Decided when the
+   *  controller is built, from whether the pair CAN carry a band (`bandable`: no deferred correspondence, the first preview never pays for it):
+   *  decided at the first flight frame, the resting render switched paths a frame or two in (its opacity left 1 for 0.997: a whole-edge step of 74
+   *  on the second frame of a corner sharpening, software raster). A bandable pair whose band turns out empty still hands over by distance. */
   let handoverOn: boolean | null = null;
   function handoverFor(): boolean {
     if (handoverOn !== null) return handoverOn;
     // (a gradient paint keeps the old law: the browser rounds a gradient one to two levels differently inside an alpha layer than in the direct paint, a
     // second-frame step of 223,000 px at 2 levels on the Release 1 deck's viridis fill, far above the 0.1 px seam it would hide)
     const gradient = (st: { fillMap?: unknown; strokeMap?: unknown }) => !!(st.fillMap || st.strokeMap);
-    handoverOn = !!morphPlan!.band?.() && !gradient(morphPlan!.preStyle) && !gradient(morphPlan!.endStyle);
+    handoverOn = (morphPlan!.bandable ?? !!morphPlan!.band?.()) && !gradient(morphPlan!.preStyle) && !gradient(morphPlan!.endStyle);
     if (handoverOn) {
       const L = ensureMorphLayers();
       for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) contentHost.style.setProperty(k, v);
@@ -880,6 +885,7 @@ export function createTransform(
     return { seek, targetRoot: L.B, glide: marks || !displaced, dispose: () => L.morph.dispose() } as MorphController;
   }
   if (morphPlan) {
+    handoverFor();
     showMorphLayer(0);
     // The node correspondence is deferred (outline.planElementMorph) so opening
     // the animator does not wait for it. Warm it while the browser is idle, so

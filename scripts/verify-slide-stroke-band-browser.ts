@@ -69,10 +69,10 @@ try {
   h.ok(mid.bodyStroke === "none" && /^#/.test(mid.bodyFill ?? "") && /^#/.test(mid.bandFill ?? ""), `the body paints the fill only (stroke ${mid.bodyStroke}); the band is filled with the lerped stroke colour (${mid.bandFill})`);
   h.ok(mid.bandStroke === "transparent" && Number(mid.bandSW) >= 4, `the band carries an invisible stroke (${mid.bandStroke} ${mid.bandSW}) so its ink bounds cover its anti-aliasing fringe`);
   await seek(0, 0); await settle();
-  const start = await page.evaluate(() => [...document.querySelectorAll('[data-el-id="a"] > div')].map(l => getComputedStyle(l as HTMLElement).visibility));
-  h.ok(start[0] !== "hidden" && start[1] === "hidden" && start[2] === "hidden", `t = 0: only layer A (the real rect) is shown (${start.join(", ")})`);
+  const start = await page.evaluate(() => [...document.querySelectorAll('[data-el-id="a"] > div')].map(l => getComputedStyle(l as HTMLElement).visibility !== "hidden" && Number(getComputedStyle(l as HTMLElement).opacity) > 0.001 ? "shown" : "hidden"));
+  h.ok(start[0] !== "hidden" && start[1] === "hidden" && start[2] === "hidden", `t = 0: only layer A (the real rect) is shown; the others are hidden or painted at the hand-over floor (${start.join(", ")})`);
   await seek(0, 1000); await settle();
-  const end = await page.evaluate(() => [...document.querySelectorAll('[data-el-id="a"] > div')].map(l => getComputedStyle(l as HTMLElement).visibility));
+  const end = await page.evaluate(() => [...document.querySelectorAll('[data-el-id="a"] > div')].map(l => getComputedStyle(l as HTMLElement).visibility !== "hidden" && Number(getComputedStyle(l as HTMLElement).opacity) > 0.001 ? "shown" : "hidden"));
   h.ok(end[0] === "hidden" && end[1] === "hidden" && end[2] !== "hidden", `t = 1: only layer B (the real ellipse) is shown (${end.join(", ")})`);
 
   h.section("hand-off driver: the band is drawn in flight and is hidden at rest on both sides");

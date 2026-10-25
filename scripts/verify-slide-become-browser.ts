@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createDeck, addSlide, addElement, addBeat, becomeTransform } from "../src/lib/slide/ops";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
+import { HANDOVER_CAP, HANDOVER_FLOOR } from "../src/lib/slide/player/textMorph";
 import type { Element } from "../src/lib/types";
 const { launch } = await import("./lib/driver.mjs");
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-become-browser-"));
@@ -41,7 +42,7 @@ try {
   const launched = await launch(); browser = launched.browser; const page = launched.page;
   const errors: string[] = []; page.on("pageerror", (e: Error) => errors.push(String(e)));
   await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.seek");
-  const inspect = (id: string) => page.evaluate((target: string) => {
+  const inspect = (id: string) => page.evaluate(({ target, floor }: { target: string; floor: number }) => {
     const el = document.querySelector(`[data-el-id="${target}"]`) as HTMLElement;
     const stage = el.closest(".sl-camera")!.getBoundingClientRect(), rect = el.getBoundingClientRect();
     const scale = stage.width / 640;
@@ -49,12 +50,14 @@ try {
     // descend through the visible layer until a layer holds markup itself
     let host: HTMLElement = (el.querySelector(":scope > .sl-effects") as HTMLElement) ?? el;
     let layers = [...host.querySelectorAll(":scope > div")] as HTMLElement[];
-    let visible = layers.filter((l) => getComputedStyle(l).visibility !== "hidden");
+    // shown: not hidden and above the hand-over floor (a hand-over pair paints the layers it does not show at HANDOVER_FLOOR, never hides
+    // them: transform.ts showMorphLayer); the floor is passed in, the page has no module scope (and no named helper: tsx's __name)
+    let visible = layers.filter((l) => getComputedStyle(l).visibility !== "hidden" && Number(l.style.opacity || 1) > floor * 2);
     const top = { layers: layers.length, visible: visible.length, opacity: layers.map((l) => l.style.opacity) };
     while (visible.length === 1 && visible[0].querySelector(":scope > div")) {
       host = visible[0];
       layers = [...host.querySelectorAll(":scope > div")] as HTMLElement[];
-      visible = layers.filter((l) => getComputedStyle(l).visibility !== "hidden");
+      visible = layers.filter((l) => getComputedStyle(l).visibility !== "hidden" && Number(l.style.opacity || 1) > floor * 2);
     }
     const shown = visible[0]?.querySelector("svg *:not(defs *)") as SVGElement | null;
     const body = visible[0]?.querySelector("path") as SVGPathElement | null;
@@ -65,7 +68,7 @@ try {
       d: body?.getAttribute("d") ?? null, fill: body?.getAttribute("fill") ?? null, dashes: body?.getAttribute("stroke-dasharray") ?? null,
       heads, transform: el.style.transform, layerOpacity: top.opacity,
     };
-  }, id);
+  }, { target: id, floor: HANDOVER_FLOOR });
   // --- t = 0: the original markup, untouched -----------------------------------
   await page.evaluate("window.fluxDeck.seek(0,1,0)");
   const at0 = await inspect("arrow");
@@ -124,10 +127,12 @@ try {
   const back = await inspect("arrow");
   check(back.tag === "line" && await page.evaluate(`window.__origLine===document.querySelector('[data-el-id="arrow"] line')`), "a reverse seek shows the SAME original <line> node (identity preserved, nothing re-rendered)");
   // --- real clock playback: every frame finite, monotone box ---------------------------
-  await page.evaluate(`window.__frames=[];const sample=()=>{const el=document.querySelector('[data-el-id="arrow"]');const d=el.querySelector('path')?.getAttribute('d')??'';window.__frames.push({t:window.fluxDeck.state().time,bad:/NaN|Infinity/.test(d),vis:[...el.querySelectorAll(':scope > div')].filter(l=>getComputedStyle(l).visibility!=='hidden').length});if(window.fluxDeck.state().playing)requestAnimationFrame(sample);};window.fluxDeck.play({slide:0,fromBeat:1,toBeat:1});requestAnimationFrame(sample)`);
+  await page.evaluate(`window.__frames=[];const sample=()=>{const el=document.querySelector('[data-el-id="arrow"]');const d=el.querySelector('path')?.getAttribute('d')??'';window.__frames.push({t:window.fluxDeck.state().time,bad:/NaN|Infinity/.test(d),vis:[...el.querySelectorAll(':scope > div')].filter(l=>getComputedStyle(l).visibility!=='hidden'&&Number(l.style.opacity||1)>${HANDOVER_FLOOR * 2}).length,sum:[...el.querySelectorAll(':scope > div')].filter(l=>getComputedStyle(l).visibility!=='hidden').reduce((a,l)=>a+Number(l.style.opacity||1),0)});if(window.fluxDeck.state().playing)requestAnimationFrame(sample);};window.fluxDeck.play({slide:0,fromBeat:1,toBeat:1});requestAnimationFrame(sample)`);
   await page.waitForFunction("!window.fluxDeck.state().playing && window.fluxDeck.state().time===1000", { timeout: 5000 });
-  const frames = await page.evaluate("window.__frames") as { t: number; bad: boolean; vis: number }[];
-  check(frames.length > 20 && frames.every((f) => !f.bad && f.vis === 1), `real playback: ${frames.length} frames, all finite, exactly one layer visible each frame`);
+  const frames = await page.evaluate("window.__frames") as { t: number; bad: boolean; vis: number; sum: number }[];
+  // one layer shows, or (a hand-over pair: shapeHandover.ts) the shown layers' distance weights add up to HANDOVER_CAP, floors included
+  const oneOrHandedOver = (f: { vis: number; sum: number }) => f.vis === 1 || f.vis > 1 && Math.abs(f.sum - HANDOVER_CAP - (3 - f.vis) * HANDOVER_FLOOR * HANDOVER_CAP) < 1e-3;
+  check(frames.length > 20 && frames.every((f) => !f.bad && oneOrHandedOver(f)), `real playback: ${frames.length} frames, all finite, one layer shown or the hand-over's weights summing to the cap each frame`);
   const { setTransform, addGhostTransform } = await import("../src/lib/slide/ops");
   const { projectSeries, viewFits } = await import("../src/lib/plot/project");
   const svg = await fs.readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.svg", import.meta.url), "utf8");

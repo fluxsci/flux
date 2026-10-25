@@ -596,9 +596,30 @@ export function augmentManifestOrphans(
     }
     return null;
   };
-  const host = findRole(cloned, "plot-area") ?? cloned;
-  host.children = host.children ?? [];
-  host.children.push({ id: "unclassified", role: "group", groupRole: "unclassified", members: orphans } as PartNode);
+  // An orphan whose id EXTENDS a part's id (fluxplot's dotted ownership: `significance-bracket.a-b.label` is the bracket's label, drawn as
+  // its own group the parts tree did not list) belongs to that part: it is styled, hidden, X-rayed and animated with it (owner,
+  // 2026-10-25: a bracket's "p < 0.001" sat alone on the slide before an auto-animated plot built, filed under "unclassified", which no
+  // build reveals). Only true strays (a raw line2d_N) are unclassified.
+  const byKey = new Map<string, PartNode>();
+  const index = (n: PartNode) => { const k = n.id ?? n.ref; if (k && !byKey.has(k)) byKey.set(k, n); (n.children ?? []).forEach(index); };
+  index(cloned);
+  const ownerOf = (id: string): PartNode | null => {
+    for (let at = id.lastIndexOf("."); at > 0; at = id.lastIndexOf(".", at - 1)) { const n = byKey.get(id.slice(0, at)); if (n && n !== cloned) return n; }
+    return null;
+  };
+  const strays: string[] = [];
+  for (const id of orphans) {
+    const owner = ownerOf(id);
+    if (!owner) { strays.push(id); continue; }
+    const ownKey = owner.id ?? owner.ref;
+    if (owner.children?.length) owner.children.push({ id, role: inferRole(id) } as PartNode);
+    else owner.members = owner.members?.length ? [...owner.members, id] : [...(ownKey ? [ownKey] : []), id];
+  }
+  if (strays.length) {
+    const host = findRole(cloned, "plot-area") ?? cloned;
+    host.children = host.children ?? [];
+    host.children.push({ id: "unclassified", role: "group", groupRole: "unclassified", members: strays } as PartNode);
+  }
   return { ...manifest, parts: cloned };
 }
 

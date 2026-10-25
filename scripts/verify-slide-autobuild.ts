@@ -208,4 +208,33 @@ const textish: FluxPlotManifest = structuredClone(pm);
 const capBeats = autoAnimatePlot(textish, "p", CLASSIC), cap = capBeats.flatMap((b) => b.tracks).find((t) => t.part === "panel.counts.significance-bracket.0");
 assert(cap?.preset === "fade" && capBeats.find((b) => b.tracks.includes(cap!))?.label === "Legend & annotations", "F2: an unknown role of kind text fades in with the annotations, never draws on");
 
+// 2026-10-25 (owner): every part the plot draws is built, a part's own label belongs to it, and a meanmark draws on as a chain
+{
+  const { preparePlot } = await import("../src/lib/plot/parse");
+  const { parseHTML } = await import("linkedom");
+  const { window } = parseHTML("<!doctype html><html><body></body></html>");
+  Object.assign(globalThis, { window, document: window.document, DOMParser: window.DOMParser, Element: window.Element, Node: window.Node });
+  const fx = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "plots");
+  const raw = JSON.parse(await fs.readFile(path.join(fx, "mpl_boxplot_FLUXPLOT.fluxplot.json"), "utf8")) as FluxPlotManifest;
+  const { manifest: boxM } = preparePlot(await fs.readFile(path.join(fx, "mpl_boxplot_FLUXPLOT.svg"), "utf8"), raw);
+  const boxTree = buildPartTree(boxM)!;
+  const bracket = findNode(boxTree, "significance-bracket.0");
+  assert(bracket?.targets.includes("significance-bracket.0.label") && !findNode(boxTree, "unclassified")?.targets.includes("significance-bracket.0.label"),
+    "a bracket's label (its own SVG group, absent from the parts tree) joins the bracket it extends, never the unclassified strays");
+  assert(targetPartIds({ parts: ["significance-bracket.0"] }, boxM).includes("significance-bracket.0.label"), "targeting the bracket targets its label: hiding, styling and animating it carry the label");
+  const built = new Set(autoAnimatePlot(boxM, "p", CLASSIC).flatMap((b) => b.tracks).flatMap((t) => findNode(boxTree, t.part!)?.targets ?? [t.part!]));
+  assert(boxTree.targets.every((l) => built.has(l)), `auto-animate builds every part the plot draws (unbuilt: ${boxTree.targets.filter((l) => !built.has(l)).join(", ") || "none"})`);
+  // a meanmark beside its points: the mean draws on, its arms draw out of it, its caps close them (chained to the mean)
+  const mm = { schemaVersion: "0.3", plotType: "strip", build: { order: ["a.points", "a.means", "a.errorbars", "a.caps"], presets: { mean: { animation: "fade-in" }, errorbar: { animation: "fade-in" }, cap: { animation: "fade-in" }, point: { animation: "stagger-in" } } },
+    parts: { id: "figure", role: "figure", children: [{ id: "plot-area", role: "plot-area", children: [{ id: "a", role: "series", children: [
+      { id: "a.points", role: "group", groupRole: "point", members: ["a.p0", "a.p1", "a.p2"] }, { id: "a.means", role: "mean", kind: "shape" },
+      { id: "a.errorbars", role: "group", groupRole: "errorbar", members: ["a.error-low", "a.error-high"] }, { id: "a.caps", role: "group", groupRole: "cap", members: ["a.cap-low", "a.cap-high"] }] }] }] } } as unknown as FluxPlotManifest;
+  const mt = autoAnimatePlot(mm, "p", {}).flatMap((b) => b.tracks), of = (part: string) => mt.find((t) => t.part === part)!;
+  const mean = of("a.means"), arms = of("a.errorbars"), caps = of("a.caps");
+  assert([mean, arms, caps].every((t) => t?.preset === "drawOn") && mean.duration === 1000 && arms.duration === 750 && caps.duration === 500,
+    `a meanmark draws on: mean 1000, arms 750, caps 500 ms (${[mean, arms, caps].map((t) => `${t?.preset} ${t?.duration}`).join(", ")})`);
+  assert(arms.anchor?.trackId === mean.id && arms.anchor?.offsetMs === 312.5 && caps.anchor?.trackId === mean.id && caps.anchor?.offsetMs === 562.5 && mean.anchor?.trackId === of("a.points").id,
+    "the arms start 312.5 ms and the caps 562.5 ms into the mean (chained to it); the mean enters with its points");
+}
+
 console.log("\nALL AUTOBUILD (anim 1.4) TESTS PASSED");

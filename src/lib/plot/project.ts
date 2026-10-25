@@ -170,12 +170,22 @@ export function pairVertices(a: FluxPlotSeries, b: FluxPlotSeries | null): { a: 
     return { a: from ?? to!, b: to ?? from! };
   });
 }
+/** THE PIXEL LAW: a projected mark walks the straight line between its two rest pixels (its start value through the start fit, its end
+ *  value through the end fit). For a value that does not change this IS the blended fit (a fit's slope and offset are lerped, so a
+ *  constant value's pixel is linear in t): a view Change is exactly what it was. A value that changes WITH its axis (an asset Change
+ *  whose new version re-scales or re-units the axis: Amplitude / Wake 0.9-1.1 -> percentage points -6..5) was lerped in data and
+ *  projected through the lerped fit, a product of two lerps: the mark swung ~200 px out of the plot and back (a mean CI's error bar
+ *  drawn to the x axis and past it in flight). */
+export function lerpPixel(from: Fit, to: Fit, a: number, b: number, t: number): number {
+  const pa = projectWith(from, a);
+  return t <= 0 ? pa : t >= 1 ? projectWith(to, b) : pa + (projectWith(to, b) - pa) * t;
+}
 export function sampleSeries(pairs: ReturnType<typeof pairVertices>, from: Fits, to: Fits, t: number, out: MorphPoint[], fits: Fits): void {
   blendFit(from.x, to.x, t, fits.x); blendFit(from.y, to.y, t, fits.y);
   for (let i = 0; i < pairs.length; i++) {
     const { a, b } = pairs[i];
-    out[i].x = projectWith(fits.x, lerpData(a.x, b.x, t, from.x.log && to.x.log));
-    out[i].y = projectWith(fits.y, lerpData(a.y, b.y, t, from.y.log && to.y.log));
+    out[i].x = lerpPixel(from.x, to.x, a.x, b.x, t);
+    out[i].y = lerpPixel(from.y, to.y, a.y, b.y, t);
   }
 }
 export function projectSeries(a: FluxPlotSeries, b: FluxPlotSeries | null, from: Fits, to: Fits, t: number): MorphPoint[] {
@@ -186,7 +196,7 @@ export function projectSeries(a: FluxPlotSeries, b: FluxPlotSeries | null, from:
 
 /** Recover a guide's anchor after its own/ancestor SVG attribute transforms.
  * This is deliberately attribute-only: it also runs in linkedom. */
-function guidePixel(node: Element, root: Element, axis: PlotAxisKey): number | null {
+export function guidePixel(node: Element, root: Element, axis: PlotAxisKey): number | null {
   const drawable = ["path", "text", "line", "use"].includes(node.tagName.toLowerCase()) ? node : node.querySelector("path,text,line,use");
   if (!drawable) return null;
   const nums = (s: string) => (s.match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi) ?? []).map(Number);

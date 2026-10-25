@@ -1,0 +1,2606 @@
+{
+  "artifact": {
+    "svgSha256": "4a44daf7bf8e9ffc61d4228e02e94a3b812a8fa142a37949443f130c4e268ad0"
+  },
+  "axes": [
+    {
+      "id": "panel.main.plot-area",
+      "panelId": "panel.main",
+      "pixelBox": {
+        "x0": 29.581099375,
+        "x1": 241.79976,
+        "y0": 3.0002399999999905,
+        "y1": 161.60737718749996
+      },
+      "projection": "rectilinear",
+      "svgId": "panel.main.plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -0.75,
+            "svg": 29.581099374999994
+          },
+          {
+            "data": 2.75,
+            "svg": 241.79975999999996
+          }
+        ],
+        "domain": [
+          -0.75,
+          2.75
+        ],
+        "label": "",
+        "scale": "linear",
+        "supported": true,
+        "tickFormatter": "custom",
+        "tickLocator": "fixed",
+        "ticks": [
+          {
+            "label": "wake",
+            "value": 0.0
+          },
+          {
+            "label": "nrem",
+            "value": 1.0
+          },
+          {
+            "label": "rem",
+            "value": 2.0
+          }
+        ]
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 0.88,
+            "svg": 161.60737718749996
+          },
+          {
+            "data": 1.17,
+            "svg": 3.0002399999999905
+          }
+        ],
+        "base": 10.0,
+        "domain": [
+          0.88,
+          1.17
+        ],
+        "label": "Amplitude / baseline",
+        "scale": "log",
+        "supported": true,
+        "tickFormatter": "custom",
+        "tickLocator": "fixed",
+        "ticks": [
+          {
+            "label": "0.9",
+            "value": 0.9
+          },
+          {
+            "label": "1",
+            "value": 1.0
+          },
+          {
+            "label": "1.1",
+            "value": 1.1
+          }
+        ]
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "panel.main.axis.x",
+      "panel.main.axis.y",
+      "panel.main.u0.line",
+      "panel.main.u1.line",
+      "panel.main.u2.line",
+      "panel.main.u3.line",
+      "panel.main.u4.line",
+      "panel.main.u5.line",
+      "panel.main.u6.line",
+      "panel.main.u7.line",
+      "panel.main.u0.points",
+      "panel.main.u1.points",
+      "panel.main.u2.points",
+      "panel.main.u3.points",
+      "panel.main.u4.points",
+      "panel.main.u5.points",
+      "panel.main.u6.points",
+      "panel.main.u7.points",
+      "panel.main.wake.error-low",
+      "panel.main.wake.cap-low",
+      "panel.main.wake.error-high",
+      "panel.main.wake.cap-high",
+      "panel.main.wake.mean",
+      "panel.main.nrem.error-low",
+      "panel.main.nrem.cap-low",
+      "panel.main.nrem.error-high",
+      "panel.main.nrem.cap-high",
+      "panel.main.nrem.mean",
+      "panel.main.rem.error-low",
+      "panel.main.rem.cap-low",
+      "panel.main.rem.error-high",
+      "panel.main.rem.cap-high",
+      "panel.main.rem.mean"
+    ],
+    "presets": {
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "cap": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "errorbar": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "line": {
+        "animation": "draw-on",
+        "durationMs": 800
+      },
+      "mean": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "point": {
+        "animation": "stagger-in",
+        "durationMs": 240,
+        "staggerBy": "index",
+        "staggerMs": 40
+      }
+    }
+  },
+  "figure": {
+    "background": "figure.background"
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.4.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "panel.main.axis.x",
+      "role": "axis",
+      "svgId": "panel.main.axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "panel.main.axis.y",
+      "role": "axis",
+      "svgId": "panel.main.axis.y"
+    }
+  ],
+  "idAliases": {
+    "panel.main.axis.x.spine": "panel.main.axis.x.spine.bottom",
+    "panel.main.axis.y.spine": "panel.main.axis.y.spine.left",
+    "panel.main.figure.background": "figure.background"
+  },
+  "layout": {
+    "axes": [
+      {
+        "adjustable": "box",
+        "anchor": "C",
+        "aspect": "auto",
+        "axisStyle": {
+          "x": {
+            "font": "f0",
+            "label": null,
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "center",
+            "labelPadPt": 6.0,
+            "labelRotation": 0.0,
+            "labelSide": "bottom",
+            "labelTop": false,
+            "minorTickLenPt": 2,
+            "offsetSpec": {
+              "anchor": [
+                241.79976,
+                172.79976
+              ],
+              "font": "f0",
+              "ha": "right",
+              "id": "panel.main.axis.x.offset-text",
+              "rotation": 0.0,
+              "va": "top"
+            },
+            "offsetText": null,
+            "side": "bottom",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 0,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          },
+          "y": {
+            "font": "f0",
+            "label": "panel.main.axis.y.title",
+            "labelAuto": true,
+            "labelBottom": true,
+            "labelHa": "right",
+            "labelPadPt": 6.0,
+            "labelRotation": 0.0,
+            "labelSide": "left",
+            "labelTop": false,
+            "minorTickLenPt": 2.0,
+            "offsetSpec": {
+              "anchor": [
+                29.581099375,
+                0.000239999999990914
+              ],
+              "font": "f0",
+              "ha": "left",
+              "id": "panel.main.axis.y.offset-text",
+              "rotation": 0.0,
+              "va": "baseline"
+            },
+            "offsetText": null,
+            "side": "left",
+            "tickBottom": true,
+            "tickDir": "out",
+            "tickLenPt": 4.5,
+            "tickPadPt": 3.5,
+            "tickTop": false,
+            "visible": true
+          }
+        },
+        "boxAspect": null,
+        "dataLim": {
+          "x": [
+            -0.06,
+            2.25
+          ],
+          "y": [
+            0.932963317805975,
+            1.06390606388917
+          ]
+        },
+        "dataRatio": 0.035343768455998,
+        "extraLayoutIds": [
+          "panel.main.axis.y.spine.left",
+          "panel.main.axis.x.spine.bottom",
+          "panel.main.axes.background"
+        ],
+        "id": "panel.main.plot-area",
+        "inLayout": true,
+        "initialDomain": {
+          "x": [
+            -0.75,
+            2.75
+          ],
+          "y": [
+            0.88,
+            1.17
+          ]
+        },
+        "initialPosition": [
+          0.125,
+          0.11,
+          0.775,
+          0.77
+        ],
+        "inset": null,
+        "margins": [
+          26.580859375,
+          8.1923828125,
+          0.0,
+          0.0
+        ],
+        "pixelBox": [
+          29.581099375,
+          3.00023999999999,
+          241.79976,
+          161.6073771875
+        ],
+        "position": [
+          0.120837824244281,
+          0.0647721227575232,
+          0.866906293402778,
+          0.917865377242477
+        ],
+        "positionMode": "grid",
+        "sharex": null,
+        "sharey": null,
+        "slot": {
+          "cols": [
+            0,
+            0
+          ],
+          "grid": "g0",
+          "rows": [
+            0,
+            0
+          ]
+        },
+        "ticking": {
+          "x": {
+            "domain": [
+              -0.75,
+              2.75
+            ],
+            "formatter": {
+              "kind": "custom"
+            },
+            "labels": [
+              "wake",
+              "nrem",
+              "rem"
+            ],
+            "major": {
+              "kind": "fixed"
+            },
+            "minor": {
+              "kind": "null"
+            },
+            "minorFormatter": {
+              "kind": "fixed"
+            },
+            "minorLabels": [],
+            "minorRetick": false,
+            "minorValues": [],
+            "offsetText": "",
+            "retick": false,
+            "scale": "linear",
+            "values": [
+              0.0,
+              1.0,
+              2.0
+            ]
+          },
+          "y": {
+            "domain": [
+              0.88,
+              1.17
+            ],
+            "formatter": {
+              "kind": "custom"
+            },
+            "labels": [
+              "0.9",
+              "1",
+              "1.1"
+            ],
+            "major": {
+              "kind": "fixed"
+            },
+            "minor": {
+              "base": 10.0,
+              "kind": "log",
+              "numticks": "auto",
+              "subs": "auto"
+            },
+            "minorFormatter": {
+              "base": 10.0,
+              "kind": "log-sci",
+              "labelOnlyBase": false,
+              "minExponent": 0,
+              "minorThresholds": [
+                1,
+                0.4
+              ]
+            },
+            "minorLabels": [
+              "$\\mathdefault{2\\times10^{-1}}$",
+              "$\\mathdefault{3\\times10^{-1}}$",
+              "$\\mathdefault{4\\times10^{-1}}$",
+              "$\\mathdefault{5\\times10^{-1}}$",
+              "$\\mathdefault{6\\times10^{-1}}$",
+              "$\\mathdefault{7\\times10^{-1}}$",
+              "$\\mathdefault{8\\times10^{-1}}$",
+              "$\\mathdefault{2\\times10^{0}}$",
+              "$\\mathdefault{3\\times10^{0}}$",
+              "$\\mathdefault{4\\times10^{0}}$",
+              "$\\mathdefault{5\\times10^{0}}$",
+              "$\\mathdefault{6\\times10^{0}}$",
+              "$\\mathdefault{7\\times10^{0}}$",
+              "$\\mathdefault{8\\times10^{0}}$",
+              "$\\mathdefault{9\\times10^{0}}$"
+            ],
+            "minorRetick": true,
+            "minorValues": [
+              0.2,
+              0.3,
+              0.4,
+              0.5,
+              0.6,
+              0.7,
+              0.8,
+              2.0,
+              3.0,
+              4.0,
+              5.0,
+              6.0,
+              7.0,
+              8.0,
+              9.0
+            ],
+            "offsetText": "",
+            "retick": false,
+            "scale": "log",
+            "values": [
+              0.9,
+              1.0,
+              1.1
+            ]
+          }
+        },
+        "title": {
+          "center": null,
+          "left": null,
+          "padPt": 12.0,
+          "right": null
+        },
+        "twins": []
+      }
+    ],
+    "colorbars": [],
+    "engine": {
+      "hPad": 3.00024,
+      "hSpace": 0.02,
+      "kind": "constrained",
+      "rect": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "wPad": 3.00024,
+      "wSpace": 0.02
+    },
+    "figure": {
+      "auto": {
+        "suptitle": false,
+        "supxlabel": false,
+        "supylabel": false
+      },
+      "heightPt": 172.8,
+      "suptitle": null,
+      "supxlabel": null,
+      "supylabel": null,
+      "widthPt": 244.8
+    },
+    "fonts": {
+      "f0": {
+        "advances": {
+          " ": 1.3890625,
+          "%": 4.44609375,
+          "(": 1.66484375,
+          ")": 1.66484375,
+          "+": 2.9203125,
+          ",": 1.3890625,
+          "-": 1.66484375,
+          ".": 1.3890625,
+          "0": 2.78046875,
+          "1": 2.78046875,
+          "2": 2.78046875,
+          "3": 2.78046875,
+          "4": 2.78046875,
+          "5": 2.78046875,
+          "6": 2.78046875,
+          "7": 2.78046875,
+          "8": 2.78046875,
+          "9": 2.78046875,
+          "E": 3.33515625,
+          "e": 2.78046875,
+          "×": 2.9203125,
+          "−": 2.9203125
+        },
+        "ascentPt": 3.57890625,
+        "descentPt": 0.99375,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 5.609375,
+          "coeffPrefixPt": 7.64892578125,
+          "minusAdvancePt": 2.0439453125,
+          "powerDescentPt": 0.1,
+          "powerHeightPt": 4.7,
+          "powerRawWidthPt": 7.692626953125,
+          "powerWidthPt": 7.7,
+          "quantumPt": 0.05,
+          "supAdvancePt": 1.946533203125,
+          "supRisePt": 2.065,
+          "supScale": 0.7,
+          "timesPadPt": 0.9744140625
+        },
+        "sizePt": 5.0,
+        "style": "normal",
+        "weight": "normal"
+      },
+      "f1": {
+        "advances": {
+          " ": 1.666875,
+          "%": 5.3353125,
+          "(": 1.9978125,
+          ")": 1.9978125,
+          "+": 3.504375,
+          ",": 1.666875,
+          "-": 1.9978125,
+          ".": 1.666875,
+          "0": 3.3365625,
+          "1": 3.3365625,
+          "2": 3.3365625,
+          "3": 3.3365625,
+          "4": 3.3365625,
+          "5": 3.3365625,
+          "6": 3.3365625,
+          "7": 3.3365625,
+          "8": 3.3365625,
+          "9": 3.3365625,
+          "E": 4.0021875,
+          "e": 3.3365625,
+          "×": 3.504375,
+          "−": 3.504375
+        },
+        "ascentPt": 4.2946875,
+        "descentPt": 1.1925,
+        "family": "sans-serif",
+        "math": {
+          "baseAdvance10": 6.73125,
+          "coeffPrefixPt": 9.1787109375,
+          "minusAdvancePt": 2.452734375,
+          "powerDescentPt": 0.12,
+          "powerHeightPt": 5.64,
+          "powerRawWidthPt": 9.23115234375,
+          "powerWidthPt": 9.24,
+          "quantumPt": 0.06,
+          "supAdvancePt": 2.33583984375,
+          "supRisePt": 2.478,
+          "supScale": 0.7,
+          "timesPadPt": 1.169296875
+        },
+        "sizePt": 6.0,
+        "style": "normal",
+        "weight": "normal"
+      }
+    },
+    "frames": {
+      "figure.background": {
+        "f": "figure",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "panel.main.axes.background": {
+        "axes": "panel.main.plot-area",
+        "f": "axes",
+        "frac": [
+          0,
+          0
+        ],
+        "geometry": true
+      },
+      "panel.main.axis.x.spine.bottom": {
+        "axes": "panel.main.plot-area",
+        "axis": "x",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "bottom"
+      },
+      "panel.main.axis.x.tick.0": {
+        "axes": "panel.main.plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 0
+      },
+      "panel.main.axis.x.tick.1": {
+        "axes": "panel.main.plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 1
+      },
+      "panel.main.axis.x.tick.2": {
+        "axes": "panel.main.plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "bottom",
+        "value": 2
+      },
+      "panel.main.axis.x.ticklabel.0": {
+        "axes": "panel.main.plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 0
+      },
+      "panel.main.axis.x.ticklabel.1": {
+        "axes": "panel.main.plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 1
+      },
+      "panel.main.axis.x.ticklabel.2": {
+        "axes": "panel.main.plot-area",
+        "axis": "x",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "bottom",
+        "value": 2
+      },
+      "panel.main.axis.y.spine.left": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "spine",
+        "position": [
+          "outward",
+          0.0
+        ],
+        "side": "left"
+      },
+      "panel.main.axis.y.tick.0": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 0.9
+      },
+      "panel.main.axis.y.tick.1": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 1.0
+      },
+      "panel.main.axis.y.tick.2": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "tick",
+        "side": "left",
+        "value": 1.1
+      },
+      "panel.main.axis.y.ticklabel.0": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 0.9
+      },
+      "panel.main.axis.y.ticklabel.1": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 1.0
+      },
+      "panel.main.axis.y.ticklabel.2": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "minor": false,
+        "part": "ticklabel",
+        "side": "left",
+        "value": 1.1
+      },
+      "panel.main.axis.y.title": {
+        "axes": "panel.main.plot-area",
+        "axis": "y",
+        "f": "axis",
+        "part": "title"
+      },
+      "panel.main.nrem.cap-high": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 1.05859083756206,
+          "capPt": 3.5,
+          "mean": 1.04893761304065,
+          "orientation": "vertical",
+          "position": 1.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.nrem.cap-low": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 1.03928438851923,
+          "capPt": 3.5,
+          "mean": 1.04893761304065,
+          "orientation": "vertical",
+          "position": 1.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.nrem.error-high": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 1.05859083756206,
+          "capPt": null,
+          "mean": 1.04893761304065,
+          "orientation": "vertical",
+          "position": 1.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.nrem.error-low": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 1.03928438851923,
+          "capPt": null,
+          "mean": 1.04893761304065,
+          "orientation": "vertical",
+          "position": 1.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.nrem.mean": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": null,
+          "capPt": null,
+          "mean": 1.04893761304065,
+          "orientation": "vertical",
+          "position": 1.25,
+          "radiusPt": 0
+        }
+      },
+      "panel.main.rem.cap-high": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.979387059740122,
+          "capPt": 3.5,
+          "mean": 0.959754003452252,
+          "orientation": "vertical",
+          "position": 2.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.rem.cap-low": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.940120947164382,
+          "capPt": 3.5,
+          "mean": 0.959754003452252,
+          "orientation": "vertical",
+          "position": 2.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.rem.error-high": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.979387059740122,
+          "capPt": null,
+          "mean": 0.959754003452252,
+          "orientation": "vertical",
+          "position": 2.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.rem.error-low": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.940120947164382,
+          "capPt": null,
+          "mean": 0.959754003452252,
+          "orientation": "vertical",
+          "position": 2.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.rem.mean": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": null,
+          "capPt": null,
+          "mean": 0.959754003452252,
+          "orientation": "vertical",
+          "position": 2.25,
+          "radiusPt": 0
+        }
+      },
+      "panel.main.u0.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u0.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            71.4184924696428,
+            98.8369674312797
+          ],
+          [
+            132.052395505357,
+            68.5024493568785
+          ],
+          [
+            192.686298541071,
+            119.178591993745
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.u1.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u1.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            72.4579308073979,
+            97.8287502318932
+          ],
+          [
+            133.091833843112,
+            69.8774833454421
+          ],
+          [
+            193.725736878826,
+            103.797462298081
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.u2.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u2.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            73.497369145153,
+            99.7717613481231
+          ],
+          [
+            134.131272180867,
+            58.0859390523458
+          ],
+          [
+            194.765175216582,
+            129.0637545652
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.u3.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u3.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            74.5368074829081,
+            101.870148856758
+          ],
+          [
+            135.170710518622,
+            59.4848295942444
+          ],
+          [
+            195.804613554337,
+            118.217640643469
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.u4.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u4.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            75.5762458206633,
+            100.385470667675
+          ],
+          [
+            136.210148856378,
+            62.1403562297312
+          ],
+          [
+            196.844051892092,
+            127.999623856101
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.u5.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u5.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            76.6156841584184,
+            102.214891182129
+          ],
+          [
+            137.249587194133,
+            73.214689140862
+          ],
+          [
+            197.883490229847,
+            100.002790492242
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.u6.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u6.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            77.6551224961735,
+            98.6371771115891
+          ],
+          [
+            138.289025531888,
+            63.5676401103512
+          ],
+          [
+            198.922928567602,
+            117.829854051931
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.u7.line": {
+        "axes": "panel.main.plot-area",
+        "f": "data"
+      },
+      "panel.main.u7.points": {
+        "anchor": "use-xy",
+        "anchorsPt": [
+          [
+            78.6945608339286,
+            94.3137387811412
+          ],
+          [
+            139.328463869643,
+            55.9310614130537
+          ],
+          [
+            199.962366905357,
+            91.4631758702597
+          ]
+        ],
+        "axes": "panel.main.plot-area",
+        "f": "glyph"
+      },
+      "panel.main.wake.cap-high": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.988034009760098,
+          "capPt": 3.5,
+          "mean": 0.984316965628548,
+          "orientation": "vertical",
+          "position": 0.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.wake.cap-low": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.980599921496998,
+          "capPt": 3.5,
+          "mean": 0.984316965628548,
+          "orientation": "vertical",
+          "position": 0.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.wake.error-high": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.988034009760098,
+          "capPt": null,
+          "mean": 0.984316965628548,
+          "orientation": "vertical",
+          "position": 0.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.wake.error-low": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": 0.980599921496998,
+          "capPt": null,
+          "mean": 0.984316965628548,
+          "orientation": "vertical",
+          "position": 0.25,
+          "radiusPt": 2.25
+        }
+      },
+      "panel.main.wake.mean": {
+        "axes": "panel.main.plot-area",
+        "f": "glyph",
+        "mark": {
+          "bound": null,
+          "capPt": null,
+          "mean": 0.984316965628548,
+          "orientation": "vertical",
+          "position": 0.25,
+          "radiusPt": 0
+        }
+      }
+    },
+    "grids": [
+      {
+        "heightRatios": [
+          1
+        ],
+        "hspace": null,
+        "id": "g0",
+        "ncols": 1,
+        "nrows": 1,
+        "parent": null,
+        "widthRatios": [
+          1
+        ],
+        "wspace": null
+      }
+    ],
+    "legends": [],
+    "reasons": [],
+    "supported": true,
+    "texts": {
+      "panel.main.axis.x.ticklabel.0": {
+        "anchor": [
+          75.0565266517857,
+          165.1073771875
+        ],
+        "bbox": [
+          69.2205891517857,
+          165.1073771875,
+          80.8924641517857,
+          169.79976
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "wake",
+        "va": "top"
+      },
+      "panel.main.axis.x.ticklabel.1": {
+        "anchor": [
+          135.6904296875,
+          165.1073771875
+        ],
+        "bbox": [
+          129.9951171875,
+          165.1073771875,
+          141.3857421875,
+          169.79976
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "nrem",
+        "va": "top"
+      },
+      "panel.main.axis.x.ticklabel.2": {
+        "anchor": [
+          196.324332723214,
+          165.1073771875
+        ],
+        "bbox": [
+          192.019254598214,
+          165.1073771875,
+          200.629410848214,
+          169.79976
+        ],
+        "font": "f0",
+        "ha": "center",
+        "rotation": 0.0,
+        "text": "rem",
+        "va": "top"
+      },
+      "panel.main.axis.y.ticklabel.0": {
+        "anchor": [
+          21.581099375,
+          149.093715600402
+        ],
+        "bbox": [
+          14.631099375,
+          147.273647241027,
+          21.581099375,
+          151.966030053527
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "0.9",
+        "va": "center_baseline"
+      },
+      "panel.main.axis.y.ticklabel.1": {
+        "anchor": [
+          21.581099375,
+          90.425344910728
+        ],
+        "bbox": [
+          18.800630625,
+          88.605276551353,
+          21.581099375,
+          93.297659363853
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "1",
+        "va": "center_baseline"
+      },
+      "panel.main.axis.y.ticklabel.2": {
+        "anchor": [
+          21.581099375,
+          37.3533480213102
+        ],
+        "bbox": [
+          14.631099375,
+          35.5332796619352,
+          21.581099375,
+          40.2256624744352
+        ],
+        "font": "f0",
+        "ha": "right",
+        "rotation": 0.0,
+        "text": "1.1",
+        "va": "center_baseline"
+      },
+      "panel.main.axis.y.title": {
+        "anchor": [
+          8.631099375,
+          82.30380859375
+        ],
+        "bbox": [
+          3.00024,
+          55.28927734375,
+          8.631099375,
+          109.31833984375
+        ],
+        "font": "f1",
+        "ha": "center",
+        "rotation": 90.0,
+        "text": "Amplitude / baseline",
+        "va": "bottom"
+      }
+    },
+    "version": 1
+  },
+  "overlays": [],
+  "panels": [
+    {
+      "id": "panel.main",
+      "index": 0,
+      "label": "main",
+      "svgId": "panel.main.plot-area"
+    }
+  ],
+  "parts": {
+    "children": [
+      {
+        "kind": "shape",
+        "ref": "figure.background",
+        "role": "background"
+      },
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "kind": "shape",
+                "ref": "panel.main.axes.background",
+                "role": "background"
+              },
+              {
+                "axis": "x",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.axis.x.spine.bottom",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.main.axis.x.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.main.axis.x.tick.0",
+                      "panel.main.axis.x.tick.1",
+                      "panel.main.axis.x.tick.2"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.main.axis.x.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.main.axis.x.ticklabel.0",
+                      "panel.main.axis.x.ticklabel.1",
+                      "panel.main.axis.x.ticklabel.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.axis.x",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "axis": "y",
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.axis.y.spine.left",
+                    "role": "spine"
+                  },
+                  {
+                    "groupRole": "tick",
+                    "id": "panel.main.axis.y.ticks",
+                    "kind": "line",
+                    "memberRole": "tick",
+                    "members": [
+                      "panel.main.axis.y.tick.0",
+                      "panel.main.axis.y.tick.1",
+                      "panel.main.axis.y.tick.2"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "tick-label",
+                    "id": "panel.main.axis.y.tick-labels",
+                    "kind": "text",
+                    "memberRole": "tick-label",
+                    "members": [
+                      "panel.main.axis.y.ticklabel.0",
+                      "panel.main.axis.y.ticklabel.1",
+                      "panel.main.axis.y.ticklabel.2"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "kind": "text",
+                    "ref": "panel.main.axis.y.title",
+                    "role": "axis-title"
+                  }
+                ],
+                "id": "panel.main.axis.y",
+                "kind": "container",
+                "role": "axis"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u0.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u0.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u0.point.0",
+                      "panel.main.u0.point.1",
+                      "panel.main.u0.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u0",
+                "kind": "container",
+                "label": "u0",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u1.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u1.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u1.point.0",
+                      "panel.main.u1.point.1",
+                      "panel.main.u1.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u1",
+                "kind": "container",
+                "label": "u1",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u2.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u2.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u2.point.0",
+                      "panel.main.u2.point.1",
+                      "panel.main.u2.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u2",
+                "kind": "container",
+                "label": "u2",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u3.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u3.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u3.point.0",
+                      "panel.main.u3.point.1",
+                      "panel.main.u3.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u3",
+                "kind": "container",
+                "label": "u3",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u4.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u4.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u4.point.0",
+                      "panel.main.u4.point.1",
+                      "panel.main.u4.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u4",
+                "kind": "container",
+                "label": "u4",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u5.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u5.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u5.point.0",
+                      "panel.main.u5.point.1",
+                      "panel.main.u5.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u5",
+                "kind": "container",
+                "label": "u5",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u6.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u6.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u6.point.0",
+                      "panel.main.u6.point.1",
+                      "panel.main.u6.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u6",
+                "kind": "container",
+                "label": "u6",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "kind": "line",
+                    "ref": "panel.main.u7.line",
+                    "role": "line"
+                  },
+                  {
+                    "groupRole": "point",
+                    "id": "panel.main.u7.points",
+                    "kind": "shape",
+                    "memberRole": "point",
+                    "members": [
+                      "panel.main.u7.point.0",
+                      "panel.main.u7.point.1",
+                      "panel.main.u7.point.2"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.u7",
+                "kind": "container",
+                "label": "u7",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "groupRole": "errorbar",
+                    "id": "panel.main.wake.errorbars",
+                    "kind": "line",
+                    "memberRole": "errorbar",
+                    "members": [
+                      "panel.main.wake.error-low",
+                      "panel.main.wake.error-high"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "cap",
+                    "id": "panel.main.wake.caps",
+                    "kind": "line",
+                    "memberRole": "cap",
+                    "members": [
+                      "panel.main.wake.cap-low",
+                      "panel.main.wake.cap-high"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "mean",
+                    "id": "panel.main.wake.means",
+                    "kind": "shape",
+                    "memberRole": "mean",
+                    "members": [
+                      "panel.main.wake.mean"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.wake",
+                "kind": "container",
+                "label": "wake",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "groupRole": "errorbar",
+                    "id": "panel.main.nrem.errorbars",
+                    "kind": "line",
+                    "memberRole": "errorbar",
+                    "members": [
+                      "panel.main.nrem.error-low",
+                      "panel.main.nrem.error-high"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "cap",
+                    "id": "panel.main.nrem.caps",
+                    "kind": "line",
+                    "memberRole": "cap",
+                    "members": [
+                      "panel.main.nrem.cap-low",
+                      "panel.main.nrem.cap-high"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "mean",
+                    "id": "panel.main.nrem.means",
+                    "kind": "shape",
+                    "memberRole": "mean",
+                    "members": [
+                      "panel.main.nrem.mean"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.nrem",
+                "kind": "container",
+                "label": "nrem",
+                "role": "series"
+              },
+              {
+                "children": [
+                  {
+                    "groupRole": "errorbar",
+                    "id": "panel.main.rem.errorbars",
+                    "kind": "line",
+                    "memberRole": "errorbar",
+                    "members": [
+                      "panel.main.rem.error-low",
+                      "panel.main.rem.error-high"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "cap",
+                    "id": "panel.main.rem.caps",
+                    "kind": "line",
+                    "memberRole": "cap",
+                    "members": [
+                      "panel.main.rem.cap-low",
+                      "panel.main.rem.cap-high"
+                    ],
+                    "role": "group"
+                  },
+                  {
+                    "groupRole": "mean",
+                    "id": "panel.main.rem.means",
+                    "kind": "shape",
+                    "memberRole": "mean",
+                    "members": [
+                      "panel.main.rem.mean"
+                    ],
+                    "role": "group"
+                  }
+                ],
+                "id": "panel.main.rem",
+                "kind": "container",
+                "label": "rem",
+                "role": "series"
+              }
+            ],
+            "id": "panel.main.plot-area",
+            "kind": "container",
+            "role": "plot-area"
+          }
+        ],
+        "id": "panel.main",
+        "kind": "container",
+        "label": "main",
+        "role": "panel"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "meanmark",
+  "schemaVersion": "0.4.0",
+  "series": [
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u0.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u0.point.0",
+            "panel.main.u0.point.1",
+            "panel.main.u0.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u0.points"
+        }
+      ],
+      "data": {
+        "x": [
+          -0.06,
+          0.94,
+          1.94
+        ],
+        "y": [
+          0.9850073809201448,
+          1.0401558696289734,
+          0.9496735635814475
+        ]
+      },
+      "id": "panel.main.u0",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u0",
+        "units": "unit"
+      },
+      "name": "u0",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u0.point.0",
+          "x": -0.06,
+          "y": 0.9850073809201448
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u0.point.1",
+          "x": 0.94,
+          "y": 1.0401558696289734
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u0.point.2",
+          "x": 1.94,
+          "y": 0.9496735635814475
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u0.line",
+        "points": "panel.main.u0.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u1.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u1.point.0",
+            "panel.main.u1.point.1",
+            "panel.main.u1.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u1.points"
+        }
+      ],
+      "data": {
+        "x": [
+          -0.04285714285714286,
+          0.9571428571428572,
+          1.957142857142857
+        ],
+        "y": [
+          0.9867924732250508,
+          1.0375905020036011,
+          0.9762715271687934
+        ]
+      },
+      "id": "panel.main.u1",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u1",
+        "units": "unit"
+      },
+      "name": "u1",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u1.point.0",
+          "x": -0.04285714285714286,
+          "y": 0.9867924732250508
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u1.point.1",
+          "x": 0.9571428571428572,
+          "y": 1.0375905020036011
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u1.point.2",
+          "x": 1.957142857142857,
+          "y": 0.9762715271687934
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u1.line",
+        "points": "panel.main.u1.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u2.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u2.point.0",
+            "panel.main.u2.point.1",
+            "panel.main.u2.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u2.points"
+        }
+      ],
+      "data": {
+        "x": [
+          -0.025714285714285714,
+          0.9742857142857143,
+          1.9742857142857142
+        ],
+        "y": [
+          0.9833551728678267,
+          1.059796841003704,
+          0.9329633178059746
+        ]
+      },
+      "id": "panel.main.u2",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u2",
+        "units": "unit"
+      },
+      "name": "u2",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u2.point.0",
+          "x": -0.025714285714285714,
+          "y": 0.9833551728678267
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u2.point.1",
+          "x": 0.9742857142857143,
+          "y": 1.059796841003704
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u2.point.2",
+          "x": 1.9742857142857142,
+          "y": 0.9329633178059746
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u2.line",
+        "points": "panel.main.u2.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u3.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u3.point.0",
+            "panel.main.u3.point.1",
+            "panel.main.u3.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u3.points"
+        }
+      ],
+      "data": {
+        "x": [
+          -0.008571428571428574,
+          0.9914285714285714,
+          1.9914285714285713
+        ],
+        "y": [
+          0.9796564489674563,
+          1.0571377401632012,
+          0.9513138678064507
+        ]
+      },
+      "id": "panel.main.u3",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u3",
+        "units": "unit"
+      },
+      "name": "u3",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u3.point.0",
+          "x": -0.008571428571428574,
+          "y": 0.9796564489674563
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u3.point.1",
+          "x": 0.9914285714285714,
+          "y": 1.0571377401632012
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u3.point.2",
+          "x": 1.9914285714285713,
+          "y": 0.9513138678064507
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u3.line",
+        "points": "panel.main.u3.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u4.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u4.point.0",
+            "panel.main.u4.point.1",
+            "panel.main.u4.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u4.points"
+        }
+      ],
+      "data": {
+        "x": [
+          0.008571428571428567,
+          1.0085714285714287,
+          2.0085714285714285
+        ],
+        "y": [
+          0.9822719752889697,
+          1.0521082849799581,
+          0.934747948866248
+        ]
+      },
+      "id": "panel.main.u4",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u4",
+        "units": "unit"
+      },
+      "name": "u4",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u4.point.0",
+          "x": 0.008571428571428567,
+          "y": 0.9822719752889697
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u4.point.1",
+          "x": 1.0085714285714287,
+          "y": 1.0521082849799581
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u4.point.2",
+          "x": 2.0085714285714285,
+          "y": 0.934747948866248
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u4.line",
+        "points": "panel.main.u4.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u5.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u5.point.0",
+            "panel.main.u5.point.1",
+            "panel.main.u5.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u5.points"
+        }
+      ],
+      "data": {
+        "x": [
+          0.025714285714285703,
+          1.0257142857142858,
+          2.025714285714286
+        ],
+        "y": [
+          0.9790501206700212,
+          1.031390639105836,
+          0.9829472660677595
+        ]
+      },
+      "id": "panel.main.u5",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u5",
+        "units": "unit"
+      },
+      "name": "u5",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u5.point.0",
+          "x": 0.025714285714285703,
+          "y": 0.9790501206700212
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u5.point.1",
+          "x": 1.0257142857142858,
+          "y": 1.031390639105836
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u5.point.2",
+          "x": 2.025714285714286,
+          "y": 0.9829472660677595
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u5.line",
+        "points": "panel.main.u5.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u6.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u6.point.0",
+            "panel.main.u6.point.1",
+            "panel.main.u6.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u6.points"
+        }
+      ],
+      "data": {
+        "x": [
+          0.04285714285714285,
+          1.042857142857143,
+          2.0428571428571427
+        ],
+        "y": [
+          0.9853608616155847,
+          1.0494149635507346,
+          0.951976605556689
+        ]
+      },
+      "id": "panel.main.u6",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u6",
+        "units": "unit"
+      },
+      "name": "u6",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u6.point.0",
+          "x": 0.04285714285714285,
+          "y": 0.9853608616155847
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u6.point.1",
+          "x": 1.042857142857143,
+          "y": 1.0494149635507346
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u6.point.2",
+          "x": 2.0428571428571427,
+          "y": 0.951976605556689
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u6.line",
+        "points": "panel.main.u6.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": true,
+        "valueMorph": false
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#5f5f5f"
+      },
+      "components": [
+        {
+          "role": "line",
+          "svgId": "panel.main.u7.line"
+        },
+        {
+          "memberRole": "point",
+          "members": [
+            "panel.main.u7.point.0",
+            "panel.main.u7.point.1",
+            "panel.main.u7.point.2"
+          ],
+          "role": "point",
+          "svgId": "panel.main.u7.points"
+        }
+      ],
+      "data": {
+        "x": [
+          0.06,
+          1.06,
+          2.06
+        ],
+        "y": [
+          0.9930412914733272,
+          1.0639060638891658,
+          0.9981379307646511
+        ]
+      },
+      "id": "panel.main.u7",
+      "kind": "line",
+      "meanmark": {
+        "categories": [
+          "wake",
+          "nrem",
+          "rem"
+        ],
+        "colors": [
+          "#225da8",
+          "#e2191c",
+          "#ad017e"
+        ],
+        "part": "unit",
+        "unit": "u7",
+        "units": "unit"
+      },
+      "name": "u7",
+      "panelId": "panel.main",
+      "points": [
+        {
+          "index": 0,
+          "svgId": "panel.main.u7.point.0",
+          "x": 0.06,
+          "y": 0.9930412914733272
+        },
+        {
+          "index": 1,
+          "svgId": "panel.main.u7.point.1",
+          "x": 1.06,
+          "y": 1.0639060638891658
+        },
+        {
+          "index": 2,
+          "svgId": "panel.main.u7.point.2",
+          "x": 2.06,
+          "y": 0.9981379307646511
+        }
+      ],
+      "roles": [
+        "line",
+        "point"
+      ],
+      "svg": {
+        "line": "panel.main.u7.line",
+        "points": "panel.main.u7.points"
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": true
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#225da8"
+      },
+      "components": [
+        {
+          "role": "errorbar",
+          "svgId": "panel.main.wake.error-low"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.main.wake.cap-low"
+        },
+        {
+          "role": "errorbar",
+          "svgId": "panel.main.wake.error-high"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.main.wake.cap-high"
+        },
+        {
+          "role": "mean",
+          "svgId": "panel.main.wake.mean"
+        }
+      ],
+      "data": {},
+      "id": "panel.main.wake",
+      "kind": "meanmark",
+      "meanmark": {
+        "category": "wake",
+        "categoryPosition": 0.25,
+        "confidence": 0.95,
+        "groupColor": "#225da8",
+        "high": 0.9880340097600979,
+        "interval": "ci",
+        "low": 0.9805999214969976,
+        "mean": 0.9843169656285478,
+        "meanKind": "arithmetic",
+        "n": 8,
+        "orientation": "vertical",
+        "palette": "YlGnBu",
+        "part": "summary",
+        "scale": "log",
+        "sd": 0.0044461137698615085,
+        "sem": 0.0015719385982979788,
+        "units": "unit",
+        "x": 0.25,
+        "y": 0.9843169656285478
+      },
+      "name": "wake",
+      "panelId": "panel.main",
+      "roles": [
+        "cap",
+        "errorbar",
+        "mean"
+      ],
+      "svg": {
+        "cap": "panel.main.wake.cap-low",
+        "caps": [
+          "panel.main.wake.cap-low",
+          "panel.main.wake.cap-high"
+        ],
+        "errorbar": "panel.main.wake.error-low",
+        "errorbars": [
+          "panel.main.wake.error-low",
+          "panel.main.wake.error-high"
+        ],
+        "mean": "panel.main.wake.mean",
+        "means": [
+          "panel.main.wake.mean"
+        ]
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": true
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#e2191c"
+      },
+      "components": [
+        {
+          "role": "errorbar",
+          "svgId": "panel.main.nrem.error-low"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.main.nrem.cap-low"
+        },
+        {
+          "role": "errorbar",
+          "svgId": "panel.main.nrem.error-high"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.main.nrem.cap-high"
+        },
+        {
+          "role": "mean",
+          "svgId": "panel.main.nrem.mean"
+        }
+      ],
+      "data": {},
+      "id": "panel.main.nrem",
+      "kind": "meanmark",
+      "meanmark": {
+        "category": "nrem",
+        "categoryPosition": 1.25,
+        "confidence": 0.95,
+        "groupColor": "#e2191c",
+        "high": 1.058590837562065,
+        "interval": "ci",
+        "low": 1.0392843885192284,
+        "mean": 1.0489376130406467,
+        "meanKind": "arithmetic",
+        "n": 8,
+        "orientation": "vertical",
+        "palette": "YlOrRd",
+        "part": "summary",
+        "scale": "log",
+        "sd": 0.011546630319490735,
+        "sem": 0.004082350299383045,
+        "units": "unit",
+        "x": 1.25,
+        "y": 1.0489376130406467
+      },
+      "name": "nrem",
+      "panelId": "panel.main",
+      "roles": [
+        "cap",
+        "errorbar",
+        "mean"
+      ],
+      "svg": {
+        "cap": "panel.main.nrem.cap-low",
+        "caps": [
+          "panel.main.nrem.cap-low",
+          "panel.main.nrem.cap-high"
+        ],
+        "errorbar": "panel.main.nrem.error-low",
+        "errorbars": [
+          "panel.main.nrem.error-low",
+          "panel.main.nrem.error-high"
+        ],
+        "mean": "panel.main.nrem.mean",
+        "means": [
+          "panel.main.nrem.mean"
+        ]
+      }
+    },
+    {
+      "capabilities": {
+        "dataMorph": false,
+        "valueMorph": true
+      },
+      "color": {
+        "alpha": 1.0,
+        "hex": "#ad017e"
+      },
+      "components": [
+        {
+          "role": "errorbar",
+          "svgId": "panel.main.rem.error-low"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.main.rem.cap-low"
+        },
+        {
+          "role": "errorbar",
+          "svgId": "panel.main.rem.error-high"
+        },
+        {
+          "role": "cap",
+          "svgId": "panel.main.rem.cap-high"
+        },
+        {
+          "role": "mean",
+          "svgId": "panel.main.rem.mean"
+        }
+      ],
+      "data": {},
+      "id": "panel.main.rem",
+      "kind": "meanmark",
+      "meanmark": {
+        "category": "rem",
+        "categoryPosition": 2.25,
+        "confidence": 0.95,
+        "groupColor": "#ad017e",
+        "high": 0.9793870597401216,
+        "interval": "ci",
+        "low": 0.940120947164382,
+        "mean": 0.9597540034522518,
+        "meanKind": "arithmetic",
+        "n": 8,
+        "orientation": "vertical",
+        "palette": "RdPu",
+        "part": "summary",
+        "scale": "log",
+        "sd": 0.023483929384922372,
+        "sem": 0.008302822858492319,
+        "units": "unit",
+        "x": 2.25,
+        "y": 0.9597540034522518
+      },
+      "name": "rem",
+      "panelId": "panel.main",
+      "roles": [
+        "cap",
+        "errorbar",
+        "mean"
+      ],
+      "svg": {
+        "cap": "panel.main.rem.cap-low",
+        "caps": [
+          "panel.main.rem.cap-low",
+          "panel.main.rem.cap-high"
+        ],
+        "errorbar": "panel.main.rem.error-low",
+        "errorbars": [
+          "panel.main.rem.error-low",
+          "panel.main.rem.error-high"
+        ],
+        "mean": "panel.main.rem.mean",
+        "means": [
+          "panel.main.rem.mean"
+        ]
+      }
+    }
+  ],
+  "size": {
+    "height": 172.79999999999998,
+    "unit": "pt",
+    "width": 244.79999999999998
+  },
+  "spec": "fluxplot/manifest",
+  "style": {
+    "theme": "light",
+    "tokens": {
+      "axis": "#575653",
+      "grid": "#dad8ce",
+      "ink": "#100f0f",
+      "label": "#100f0f",
+      "paper": "#ffffff",
+      "plot": "#ffffff",
+      "tick": "#575653"
+    }
+  },
+  "svg": "meanmark-ratio.svg"
+}

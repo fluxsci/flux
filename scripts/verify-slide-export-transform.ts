@@ -281,7 +281,12 @@ try {
   }, [beat, ms]);
   const plotStart = await samplePlot(1, 0), plotMiddle = await samplePlot(1, 500), plotEnd = await samplePlot(1, 1000);
   assert(plotMiddle.count === 1, "exported plot has one SVG, not complete crossfade layers");
-  assert(plotMiddle.d !== plotStart.d && plotMiddle.d !== plotEnd.d, "exported shared line tweens through different tick counts");
+  // the pixel law (project.lerpPixel): the shared line walks straight between its two rests, vertex by vertex (these two versions draw it
+  // at the same pixels, so it holds still; the old data-through-blended-fit law swung it away and back, which this check used to require)
+  const nums = (d: string) => (d.match(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi) ?? []).map(Number);
+  const [ns, nm, ne] = [plotStart.d, plotMiddle.d, plotEnd.d].map(nums);
+  assert(nm.length === ns.length && nm.length === ne.length && nm.every((v, i) => Math.abs(v - (ns[i] + ne[i]) / 2) < 1e-3),
+    "exported shared line stays bound through different tick counts: half-way it is the midpoint of its two rests");
   assert(plotMiddle.ticks.every(t => t.present && t.opacity === 0), "outgoing ticks remain bound but are hidden by the midpoint");
   assert(plotEnd.ticks.every(t => t.opacity === 0), "only destination ticks paint at t=1");
   const returnLate = await samplePlot(2, 800);
