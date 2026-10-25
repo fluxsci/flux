@@ -298,10 +298,10 @@ export const KNOWN_OPEN: Record<string, OpenCase> = {
   // An asset Change between plots of DIFFERENT intrinsic size (sine 360x108 pt -> scatter 180x108 pt) is not yet one law: the controller reads the pt-true
   // compensation (`intrinsic`, `naturalViewBox`, transform.ts) from the START asset for the whole flight, so its last frame is not the static render of the
   // end plot (END SNAP, 8.0) and the next step of a chain starts from the picture the controller left, not from the rest state (PRE-ROLL CHANGE 4,154; 132,822 px
-  // in the browser). Same-size chains (bars5 <-> bars10) are exact. Found by the F3 review (pre-existing, the same on the base); recorded, required: the entry
-  // fails when the per-frame intrinsic / viewBox of the asset a frame belongs to lands.
+  // in the browser). Same-size chains (bars5 <-> bars10) are exact. Found by the F3 review (pre-existing, the same on the base). The chain's PRE-ROLL is
+  // fixed (2026-10-24: every step re-projects the MOUNTED asset's DOM with that asset's compensation and viewBox, render.plotAssetOf; the second step read
+  // its start asset's, 6,317 at devicePixelRatio 1.25). The END SNAP stays recorded, required: the entry fails when the per-frame intrinsic / viewBox lands.
   [openKey("plot_chain", "sine_scatter_sine", 1, 1)]: { seek: ["END SNAP (2ms)"], max: { "END SNAP": 12 }, owner: "open: an asset Change between plots of different intrinsic size reads its compensation from the start asset (the end is not the static render)" },
-  [openKey("plot_chain", "sine_scatter_sine", 2, 2)]: { seek: ["PRE-ROLL CHANGE"], owner: "open: a chained asset Change between plots of different intrinsic size starts from the picture the step before it left, not from the rest state" },
   // A compound Change whose hole fills in (lerpCompoundD): the crisp, pixel-aligned hole edge leaves the pixel grid on the first frame whose 8-bit pixels
   // change (9.3 against 0.0, then the next frames are sub-quantum); the same on the base. Physical, not a pop of the motion; tolerated with its magnitude.
   [openKey("compound", "hole_fills", 1, 1)]: { rtMay: ["START STEP"], max: { "START STEP": 15 }, owner: "inherent: a pixel-aligned hole edge leaves the pixel grid on the first changed frame (9.3 then 0.0; same on the base)" },

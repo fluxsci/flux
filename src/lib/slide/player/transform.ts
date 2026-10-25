@@ -53,7 +53,7 @@ import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
 import { barGrow, type BarGrow } from "../growOrigin";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, plotAssetOf, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 /** Stage px an invisible stroke inflates a band's ink bounds by (see `bandNode`): enough for a device pixel at any presentation scale >= 1/4. */
@@ -265,16 +265,14 @@ export function createTransform(
     tickHandoff: true,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
-  const intrinsic = (() => {
-    if (!isPlot) return null;
-    const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
-    return cached ? svgIntrinsicPx(cached) : null;
-  })();
-  const naturalViewBox = (() => {
-    if (!isPlot) return null;
-    const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
-    return cached?.getAttribute("viewBox") ?? null;
-  })();
+  // The compensation and natural viewBox of the DOM this controller re-projects: the plot svg the slide MOUNTED (render.plotAssetOf), which is
+  // the design state's asset, not necessarily this Change's start. A chained asset Change (sine -> scatter -> sine) re-projects the sine DOM in
+  // both steps; reading the second step's from its start asset (the scatter's 180 x 108 pt on a 360 x 108 pt DOM) rescaled every glyph and
+  // marker on its first frame (6,317 stage px^2 at devicePixelRatio 1.25; the step before it had left the picture with the sine's).
+  const domAsset = isPlot ? (plotAssetOf(contentHost.querySelector("svg")) ?? (pre as SemanticPlotElement).assetId) : undefined;
+  const domRoot = domAsset ? (ctx.plotRoot ? ctx.plotRoot(domAsset) : plotDom.get(domAsset)) : undefined;
+  const intrinsic = isPlot && domRoot ? svgIntrinsicPx(domRoot) : null;
+  const naturalViewBox = isPlot ? domRoot?.getAttribute("viewBox") ?? null : null;
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
   const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
   if (plotSvg && projectionOptions) {

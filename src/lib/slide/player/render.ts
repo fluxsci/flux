@@ -772,6 +772,10 @@ export function compileGhostPartOpacity(scope: ParentNode, el: FigElement, ctx: 
  *  pt-true compensation matches the figure editor: resizing the plot element
  *  rescales geometry while text/glyph/stroke sizes stay at true points (the
  *  stage's own fit-scale above this is uniform CSS — unaffected). */
+/** The asset a mounted plot svg was cloned from. A plot's DOM is mounted once (the slide's design state) and every later asset Change
+ *  re-projects THAT DOM, so its size compensation and natural viewBox are this asset's, whichever asset a Change starts from. */
+const mountedPlotAsset = new WeakMap<Element, string>();
+export function plotAssetOf(svg: Element | null | undefined): string | undefined { return svg ? mountedPlotAsset.get(svg) : undefined; }
 function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx: SlideRenderCtx): void {
   const cached = (ctx.plotRoot ? ctx.plotRoot(el.assetId) : plotDom.get(el.assetId));
   if (!cached) {
@@ -793,6 +797,7 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
   }
   const intrinsic = svgIntrinsicPx(cached);
   const inst = document.importNode(cached, true) as SVGSVGElement;
+  mountedPlotAsset.set(inst, el.assetId);
   prefixIds(inst, el.id);
   inst.setAttribute("width", "100%");
   inst.setAttribute("height", "100%");
@@ -919,7 +924,12 @@ export function applyWrapperBox(w: HTMLElement, el: FigElement, opts: { skipOpac
   // moves: snapped, its motion would step a device pixel at a time; its caller blends the shift instead) and a rest whose flights cannot blend
   // the shift (an attached label: player/attach.ts).
   if (!opts.skipTransform && !opts.exact) { const d = restGridShift(w, bb.x, bb.y); if (d) bb = { ...bb, x: bb.x + d.dx, y: bb.y + d.dy }; }
-  const base = layoutBoxOf(bb);
+  // A node that rides a layer (a flight mark) takes its EXACT size: a residual scale on a layer Chromium treats as animating froze the raster
+  // scale of whichever frame rasterised it, so a text that re-laid out on its layer (a resize after a move) rested on a raster a few tenths of a
+  // percent off scale, resampled (7 to 34 stage px^2 against a fresh render of the same state). Its position still sits on the layout grid
+  // (layoutBoxOf); a box painted in place keeps the whole-pixel size and its residual scale, as before.
+  const base0 = layoutBoxOf(bb), exactSize = animatingMarks.has(w);
+  const base = exactSize ? { ...base0, w: Math.max(1, Math.round(bb.w * 1e6) / 1e6), h: Math.max(1, Math.round(bb.h * 1e6) / 1e6) } : base0;
   const s = w.style;
   const bx = `${base.x}px`, by = `${base.y}px`, bw = `${base.w}px`, bh = `${base.h}px`;
   if (s.left !== bx) s.left = bx;

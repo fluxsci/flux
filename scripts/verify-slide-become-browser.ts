@@ -158,9 +158,11 @@ try {
   const ghostFrame = await page.evaluate((id: string) => {
     const w = document.querySelector(`[data-el-id="${id}"]`) as HTMLElement;
     const p = w.querySelector('[id$="__2hz.line"] path') as SVGPathElement;
-    return { x: p.getPointAtLength(0).x, transform: w.style.transform };
+    const stage = w.closest(".sl-camera")!.getBoundingClientRect(), m = /translate\(\s*(-?[\d.e-]+)px,\s*(-?[\d.e-]+)px\)/.exec(w.style.transform);
+    return { x: p.getPointAtLength(0).x, tx: m ? Number(m[1]) : NaN, ty: m ? Number(m[2]) : NaN, cell: 0.5 / (stage.width / 640 * devicePixelRatio) };
   }, ghost);
-  check(Math.abs(ghostFrame.x - ghostExpected.x) < .5 && ghostFrame.transform.includes("translate(100px, 50px)"), "exported ghost floats and zooms from the source's prior view");
+  // the floating copy rests on whole device pixels and flies between its snapped ends (deviceGrid.ts): its translate is (100, 50) within half a device pixel
+  check(Math.abs(ghostFrame.x - ghostExpected.x) < .5 && Math.abs(ghostFrame.tx - 100) <= ghostFrame.cell + 1e-3 && Math.abs(ghostFrame.ty - 50) <= ghostFrame.cell + 1e-3, "exported ghost floats and zooms from the source's prior view");
   check(errors.length === 0, `offline Become runtime has a clean console: ${errors.join("; ")}`);
 } finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 console.log(`BECOME BROWSER: PASS (${checks} assertions)`);

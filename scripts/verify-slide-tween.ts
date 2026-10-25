@@ -399,8 +399,9 @@ function build(slide: Slide) {
 
 // Layer hygiene (render.ts): a PURE MOVE rides its own compositor layer for
 // the flight (will-change: transform — text glides instead of stepping a
-// device pixel at a time; heavy content moves without repainting) and is
-// demoted at either endpoint. A flight that scales (or rotates) never is.
+// device pixel at a time; heavy content moves without repainting), and its
+// flight mark keeps it a layer for the whole slide. A flight that scales (or
+// rotates) never is.
 {
   const slide: Slide = {
     id: "s7",
@@ -433,30 +434,33 @@ function build(slide: Slide) {
   const ctrl = (id: string) => (specs.find((s) => (s as { trackId?: string }).trackId === id) as unknown as { morph: { seek(t: number): void } }).morph;
   applyStatic(specs, 0);
   assert(!mv.style.willChange && !grow.style.willChange, "at rest nothing is promoted");
-  assert(marks.length === 0, "the flight mark follows the BEAT (lane J): a node whose glide is in a later beat has none yet (no layer kept for a flight that is not coming)");
-  applyAt(specs, 1, 0);
+  // COMPOSITING IS A CONSTANT OF THE SLIDE (2026-10-24, player.glidesEver): a node that ever glides carries its mark from the slide's first frame
+  // to its teardown. A mark that followed the beat switched the node (and everything painted after it) between a layer and the stage at the
+  // start of its glide and of every later cue that changed its picture: an anti-aliasing step on a still frame on a fractionally scaled display.
   assert(marks.some((m) => m.node === mv && m.paused && m.opts.composite === "add" && m.frames.every((f) => f.transform === "translate(0px, 0px)")),
-    "…armed at the first frame of the beat in which the pure mover glides: one paused additive no-op transform animation");
+    "the pure mover carries its mark from the slide's first frame (its glide is in beat 1): one paused additive no-op transform animation");
   assert(!marks.some((m) => m.node === grow || m.node === spin || m.node === tint), "a scaling flight, a turning SHAPE and a recolour that goes nowhere get none (a mark on a shape only adds a first-frame step; a recolour has nothing to carry)");
   assert(marks.some((m) => m.node === turn) && marks.length === 2, "a TURNING TEXT rides the mark (unpromoted it flips between a hinted and a rotated raster: a 9 to 66 stage px^2 jump at the first frames, ragged all along)");
+  applyAt(specs, 1, 0);
+  assert(marks.length === 2, "the first frame of the gliding beat arms nothing new: the node is already on its layer (nothing switches on a still frame)");
   ctrl("a").seek(0.5); ctrl("b").seek(0.5); ctrl("c").seek(0.5);
   assert(mv.style.willChange === "transform", "mid-flight a pure move (even one that recolors) rides its own layer");
   assert(!grow.style.willChange && !spin.style.willChange, "a scaling or rotating flight paints in place every frame (no resampled raster, no sharpen pop on settle)");
   ctrl("a").seek(1);
-  assert(!mv.style.willChange && mv.style.left === "200px", "the endpoint demotes the wrapper (crisp at rest)");
+  assert(!mv.style.willChange && mv.style.left === "200px", "the endpoint drops the flight's will-change (the mark keeps the layer: nothing switches)");
   ctrl("a").seek(0.25); ctrl("a").seek(0);
   assert(!mv.style.willChange && mv.style.left === "10px", "…and so does a seek back to the start");
   applyStatic(specs, 1);
   const mvMark = marks.find((m) => m.node === mv)!;
-  assert(marks.length === 2 && !mvMark.cancelled, "the mark outlives the flight and its landing (the layer is baked at the phase it lands on: nothing to demote)");
+  assert(marks.length === 2 && !mvMark.cancelled, "the mark outlives the flight and its landing");
   applyStatic(specs, 2);
-  assert(!mvMark.cancelled, "…and a beat the node sits out leaves it alone (releasing it at the first frame of an UNRELATED cue stepped the node's picture while something else began to move)");
+  assert(!mvMark.cancelled, "…a beat the node sits out leaves it alone");
   applyAt(specs, 3, 0);
-  assert(mvMark.cancelled, "…and it is released at the first frame of a beat in which the node plays something that changes its picture (a kept layer re-rasters a resize at fractional transforms and lands soft)");
+  assert(!mvMark.cancelled, "…and a later beat that changes its picture (a resize) keeps it too: releasing it there stepped the node's anti-aliasing on that cue's first frame (a text resized after a move 63 stage px^2 at devicePixelRatio 1.25)");
   applyAt(specs, 1, 0);
-  assert(marks.length === 3 && marks[2].node === mv && !marks[2].cancelled, "a seek back to the beat that glides arms a fresh mark (the mark is a function of the beat, not of history)");
+  assert(marks.length === 2 && !mvMark.cancelled, "a seek back arms nothing again: the one mark is the slide's");
   disposeSlideAnims(specs);
-  assert(marks[2].cancelled && marks.find((m) => m.node === turn)!.cancelled, "tearing the slide down cancels every mark (a paused animation would pin its detached node alive)");
+  assert(mvMark.cancelled && marks.find((m) => m.node === turn)!.cancelled, "tearing the slide down cancels every mark (a paused animation would pin its detached node alive)");
   delete (Object.getPrototypeOf(mv) as { animate?: unknown }).animate;
 }
 
