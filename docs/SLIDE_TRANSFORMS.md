@@ -414,7 +414,7 @@ flight re-bakes the stage raster for the pose it LANDS on under its last two fra
 (the stage is a `will-change` layer), so a promotion cannot flip LCD to grayscale.
 
 **Fractionally scaled displays (2026-10-24).** On a display scaled by 1.25 or 1.5 (devicePixelRatio not a
-whole number) a whole stage pixel is not a whole device pixel, and three laws keep every frame where its
+whole number) a whole stage pixel is not a whole device pixel, and these laws keep every frame where its
 numbers say and every layer identical to the stage's own paint:
 
 1. *The layout box origin is on the device grid.* Blink snaps a box's paint offset (`left` / `top`) to
@@ -446,6 +446,27 @@ numbers say and every layer identical to the stage's own paint:
    text that re-laid out on its layer (a resize after a move) rested on a raster a few tenths of a percent
    off scale. A text rewrite whose box stays put promotes its spans INSIDE the wrapper, which turns the
    wrapper into a layer: its driver reports `glide`, so that wrapper is marked for the slide too.
+4. *A marked node that resizes is laid out every frame* (2026-10-25). The frozen start box scaled onto the
+   frame's box is the right flight for a node painted in place, but on a layer Chromium keeps the raster
+   scale while the transform animates: the frames were the start's raster stretched (a rect resized after
+   a move stepped 17 at its landing at devicePixelRatio 1, where Release 4 painted it in place). Such a
+   flight writes the exact box per frame (`laidOut` in the transform driver) and its content writers take
+   that box as their frame (`frameOf`). A fixed text laid out per frame draws its glyphs through its svg's
+   viewBox -> viewport mapping, and the browser keeps the viewport in 1/64 of a device pixel: a frame size off
+   that grid mapped the glyphs through a scale a hair off 1, another glyph-positioning path than the
+   identity at rest (the whole text 0.07 device px aside for the whole flight, 8.3 at both ends of a text box
+   resized after a move). Between two rests whose sizes are whole sixteenths of a stage px, every frame's size
+   is a whole sixteenth too (exact in binary, on the layout grid at any devicePixelRatio in quarter steps).
+5. *A morphing text's static renders keep their layers* (2026-10-25). The browser rasterises the hand-over
+   layers (A, the spans, B) into compositor layers whose bounds are the union of what they paint, and a
+   layer built mid-flight keeps the sub-pixel offset of its first raster. Two rules: a render that does not
+   show is painted at `HANDOVER_FLOOR` (0.0005: nothing in 8 bits, above the 0.0004 below which the
+   browser skips it) instead of hidden, so its layer lives from the slide's first frame (hidden, B's layer
+   was built the frame it first showed and the text landed 0.66 device px off a fresh render of the same
+   beat); and each static render carries a BOUNDS HALO (`appendBoundsHalo`: a rect three font sizes beyond
+   its box at alpha 1e-4), so the spans, whose font boxes reach past the text's box, never grow the layer up
+   or left (one stage px of growth moved the text's raster grid and shifted the whole word: 65 on the first
+   frame of a rewrite that moves).
 
 Measured with `slide-settle-realtime.mts` at `DSF=1.25` (offscreen Electron, `offscreen: { deviceScaleFactor }`;
 headless Chrome's emulated device scale snaps differently and is no stand-in) on a window whose size is a

@@ -126,6 +126,21 @@ export function rtFlags(c: RtCue): string[] {
     const after = Math.max(frames[1]?.d ?? 0, frames[2]?.d ?? 0);
     if (c.restBeforeToFirst != null && c.restBeforeToFirst > Math.max(RT.startRatio * after, RT.stepFloor)) f.push(`FIRST FRAME != REST (${c.restBeforeToFirst.toFixed(1)} against ${after.toFixed(1)} after it)`);
   }
+  // DIAGNOSTIC (RT_POPS=1, never in a gate): a frame INSIDE the motion that changes far more than the frames around it, a pop (a raster that
+  // switches path for one frame, a layer rebuilt mid-flight). Against the median of the four presented frames on either side, so a pop and its
+  // pop-back both read. The change metric's dead band reads a slow colour fade as zeros with an occasional crossing, which this calls a pop
+  // too (every highlight preset), so it is a lead to look at, not a verdict.
+  if (process.env.RT_POPS && c.landedAt != null) {
+    const motion = c.frames.filter(x => x.t >= 0 && x.t <= c.landedAt! + 20);
+    const at = motion.findIndex(x => x.d > RT.moveEps);
+    let worst: { d: number; base: number; i: number } | null = null;
+    for (let i = at + 1; at >= 0 && i < motion.length - 1; i++) {
+      const around = [...motion.slice(Math.max(0, i - 4), i), ...motion.slice(i + 1, i + 5)].map(x => x.d).sort((p, q) => p - q);
+      const base = around.length ? around[Math.floor(around.length / 2)] : 0;
+      if (motion[i].d > Math.max(RT.stepRatio * base, RT.stepFloor) && (!worst || motion[i].d - base > worst.d - worst.base)) worst = { d: motion[i].d, base, i };
+    }
+    if (worst) f.push(`MID-FLIGHT POP (${worst.d.toFixed(1)} at frame ${worst.i} against ${worst.base.toFixed(1)} around it)`);
+  }
   // the landing frame: the last presented frame that belongs to the motion (page time <= landedAt + 20 ms) against the one before it
   if (c.landedAt != null) {
     const motion = c.frames.filter(x => x.t >= 0 && x.t <= c.landedAt! + 20);

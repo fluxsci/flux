@@ -133,7 +133,8 @@ try {
     const spans = Array.from(document.querySelectorAll<HTMLElement>(".sl-tm-span"));
     const matrix = (el: HTMLElement) => { const m = new DOMMatrix(getComputedStyle(el).transform === "none" ? undefined : getComputedStyle(el).transform); return { x: m.e, y: m.f, sx: m.a, sy: m.d }; };
     const morph = document.querySelector<HTMLElement>(".sl-text-morph");
-    const layers = morph ? Array.from(morph.parentElement!.children).map((n) => getComputedStyle(n).visibility) : [];
+    // a static render that does not show is painted at HANDOVER_FLOOR (0.0005), never hidden (textMorph.ts: its layer lives for the slide)
+    const layers = morph ? Array.from(morph.parentElement!.children).map((n) => getComputedStyle(n).visibility === "visible" && Number(getComputedStyle(n).opacity) > 0.001 ? "visible" : "hidden") : [];
     return {
       spans: spans.map((s) => ({ text: s.textContent, kind: s.dataset.kind, role: s.dataset.role, visible: getComputedStyle(s).visibility === "visible", opacity: Number(getComputedStyle(s).opacity), promoted: s.style.willChange === "transform", m: matrix(s),
         rect: (() => { const r = s.querySelector("text")!.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })() })),
@@ -145,7 +146,9 @@ try {
   /** Screen boxes of a substring of the live text inside `[data-el-id=id]`'s visible layer. */
   const liveBox = (id: string, needle: string) => page.evaluate(({ id, needle }) => {
     const wrap = document.querySelector(`[data-el-id="${id}"]`)!;
-    const texts = Array.from(wrap.querySelectorAll("text")).filter((t) => getComputedStyle(t).visibility !== "hidden" && !t.closest(".sl-text-morph"));
+    // (an idle static render is painted at the hand-over floor, 0.0005: not shown)
+    const shown = (t: Element) => { for (let p: Element | null = t; p && p !== wrap; p = p.parentElement) if (Number(getComputedStyle(p).opacity) < 0.001) return false; return true; };
+    const texts = Array.from(wrap.querySelectorAll("text")).filter((t) => getComputedStyle(t).visibility !== "hidden" && !t.closest(".sl-text-morph") && shown(t));
     for (const t of texts) {
       const all = t.textContent ?? "", at = all.indexOf(needle);
       if (at < 0) continue;

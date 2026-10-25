@@ -349,13 +349,15 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // destination rests under them (it sinks) and out when the source did (it rises). It used to flip the paint order at the first frame.
           const wrapsOf = (targets: ResolvedTarget[]) => targets.flatMap(t => { const w = rendered.elements.get(t.elementId); return w ? [w] : []; });
           const srcWraps = wrapsOf(handoff.source), dstWraps = wrapsOf(handoff.destination);
-          const covering = flightCovers(cameraLayer, srcWraps, dstWraps, handoff, preFrame.elements);
+          // (a merge's landers share ONE surface at the destination's depth: the last lander lies beneath the others, and the other sources are
+          // no covering elements of each other's flights)
+          const covering = group.length <= 1 ? flightCovers(cameraLayer, srcWraps, dstWraps, handoff, preFrame.elements) : null;
           const flightSurface = (covering?.sink ? rendered.flightAt?.(srcWraps) : rendered.flightAt?.(dstWraps)) ?? rendered.flight;
           const driver = createHandoff({ flight: flightSurface, handover: group.length <= 1, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration, arc: track.arc,
             // WP 4.3: piece lag on the track's own curve; a merge lander's raw spans its hold, its pieces run over its own first 1/holdK
             pairLag: track.pairLag, ease: ct.ease.fn, holdK: Math.max(1, (handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration) / Math.max(1e-9, ct.duration)),
             beneath: lastLander ? group.map(c => mergeLayers.get(c.track.id ?? "")).find(Boolean) : undefined,
-            covers: group.length <= 1 ? covering ?? undefined : undefined,
+            covers: covering ?? undefined,
             plan: () => planHandoff(track, planFrame, geometry, group.length > 1 ? group.map(c => c.track) : undefined),
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
