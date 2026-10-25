@@ -40,12 +40,33 @@ export function hasOutline(el: Pick<Element, "type">): boolean {
 }
 
 /** Two states of one element interpolate through an outline morph when their
- *  kinds differ (any pair of drawn kinds) or a path changes closedness. Same
- *  kind, same topology keeps the ordinary per-property tween. */
+ *  kinds differ (any pair of drawn kinds), a path changes closedness, or the
+ *  change is one an attribute tween cannot draw continuously (owner, 2026-10-25):
+ *  - the PAINT changes kind: a solid fill or stroke becomes a colour map (or the
+ *    reverse, or a map of another shape): the two renders differ in structure, and
+ *    the tween crossfaded the old picture out and the new one in; the morph
+ *    interpolates the paint itself (lerpGradientFill);
+ *  - a stroked rect's corner turns between SHARP and ROUND: a stroke's outer edge
+ *    around a corner arc of any radius is an arc half the stroke wider, so the first
+ *    frame of a rounding (or the last of a sharpening) jumped from a square corner
+ *    to a stroke-width round; the morph's stroke band grows it from nothing.
+ *  Same kind, same topology otherwise keeps the ordinary per-property tween. */
 export function outlineMorphable(pre: Element, end: Element): boolean {
   if (!hasOutline(pre) || !hasOutline(end)) return false;
   if (pre.type !== end.type) return true;
-  return pre.type === "path" && end.type === "path" && Boolean(pre.closed) !== Boolean(end.closed);
+  if (pre.type === "path" && end.type === "path" && Boolean(pre.closed) !== Boolean(end.closed)) return true;
+  return paintKindChanges(pre, end) || cornerTurnsSharpness(pre, end);
+}
+type MappedPaint = { fillMap?: GradientFill | null; strokeMap?: GradientFill | null };
+const mapShape = (m: GradientFill | null | undefined): string => (m?.stops?.length ? `${m.stops.length}|${m.axis ?? ""}|${m.discrete ? 1 : 0}` : "");
+function paintKindChanges(pre: Element, end: Element): boolean {
+  const a = pre as Element & MappedPaint, b = end as Element & MappedPaint;
+  return mapShape(a.fillMap) !== mapShape(b.fillMap) || mapShape(a.strokeMap) !== mapShape(b.strokeMap);
+}
+function cornerTurnsSharpness(pre: Element, end: Element): boolean {
+  if (pre.type !== "rect" || end.type !== "rect") return false;
+  const stroked = (e: Element) => (e as { stroke?: string }).stroke !== "none" && !!(e as { stroke?: string }).stroke && ((e as { strokeWidth?: number }).strokeWidth ?? 0) > 0;
+  return (stroked(pre) || stroked(end)) && (pre.cornerRadius > 0) !== (end.cornerRadius > 0);
 }
 
 const KAPPA = 0.5522847498307936; // 4/3·tan(π/8) — the cubic circle constant
@@ -715,6 +736,9 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
   /** The stroke drawn as a BAND between two morphing contours (see `planStrokeBand`), or null when the pair keeps the centreline
    *  law (no stroke, dashed, gradient stroke, non-convex, an inner contour that does not exist). Deferred like the correspondence. */
   band?: () => StrokeBandPlan | null;
+  /** Whether the pair can carry a band at all (a closed ring, no holes, a plain visible stroke on a side), known without the deferred
+   *  correspondence: the player decides the hand-over's layer structure from it when it builds the controller (transform.ts handoverFor). */
+  bandable?: boolean;
   /** The holes of a compound end (a donut), in their end's UNIT frame: a source's shrink to their centroid as t runs 0 -> 1, a destination's grow from theirs. */
   holes: HoleRing[];
 }
@@ -905,6 +929,7 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
      *  on screen, so the first morph frame never pays for it. */
     prepare() { outlines(); bandPlan(); },
     band: bandPlan,
+    bandable: closed && !holes.length && [preStyle, endStyle].some((st) => !isNoneColor(st.stroke) && st.strokeWidth > 0) && ![preStyle, endStyle].some((st) => !!st.strokeMap || !!st.dash?.length),
     pre, end, strategy, fixedHeads,
     preBox: pb, endBox: eb, preStyle, endStyle,
   };

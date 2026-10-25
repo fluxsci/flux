@@ -5,6 +5,7 @@
 // static-state at any beat reveals exactly the right set (an element/block is
 // hidden until its intro beat, shown after — accumulated per property).
 // Run: npx tsx scripts/verify-slide-player.ts
+import { HANDOVER_CAP, HANDOVER_FLOOR } from "../src/lib/slide/player/textMorph";
 import { parseHTML } from "linkedom";
 import { computeSlideAnims, applyStatic, applyAt, resolveEasing } from "../src/lib/slide/player/player";
 import { resolveCurve } from "../src/lib/slide/curves";
@@ -311,10 +312,12 @@ for (const raw of samples) {
   // The endpoints are exact (A alone at raw <= 0, B alone at raw >= 1) whatever the eased value does. A Become with a stroke band (this rect -> ellipse) hands the
   // start / end render and the flight over to each other by DISTANCE (shapeHandover.ts, R2 F3), so in flight any of the three may show, one at least always: a
   // spring that lands on its target early shows B alone before raw 1 (the picture is B within HANDOVER_EPS px), and never a blank wrapper.
-  const shown = (l: HTMLElement) => l.style.visibility !== "hidden";
-  // in flight the shown layers' opacities are weights of one picture and ADDED: they sum to 1 (no blank wrapper, no double-shown A and M)
-  const weightOf = (l: HTMLElement) => (shown(l) ? (l.style.opacity === "" ? 1 : Number(l.style.opacity)) : 0);
-  layersStable &&= layers.length === 3 && (raw <= 0 ? layers.map(shown).join() === "true,false,false" : raw >= 1 ? layers.map(shown).join() === "false,false,true" : Math.abs(layers.reduce((sum, l) => sum + weightOf(l), 0) - 1) < 1e-5);
+  // a hand-over layer that does not show is painted at HANDOVER_FLOOR, never hidden, and a shown one at HANDOVER_CAP at most (transform.ts showMorphLayer)
+  const opacityOf = (l: HTMLElement) => (l.style.visibility === "hidden" ? 0 : l.style.opacity === "" ? 1 : Number(l.style.opacity));
+  const shown = (l: HTMLElement) => opacityOf(l) > HANDOVER_FLOOR * 2;
+  // in flight the shown layers' opacities are weights of one picture and ADDED: they sum to the cap (no blank wrapper, no double-shown A and M)
+  const weightOf = (l: HTMLElement) => (shown(l) ? opacityOf(l) : 0);
+  layersStable &&= layers.length === 3 && (raw <= 0 ? layers.map(shown).join() === "true,false,false" : raw >= 1 ? layers.map(shown).join() === "false,false,true" : Math.abs(layers.reduce((sum, l) => sum + weightOf(l), 0) - HANDOVER_CAP) < 1e-5);
   bounded &&= Number(wrapper.style.opacity) >= .2 && Number(wrapper.style.opacity) <= .8;
   if (raw > 0 && raw < 1) {
     const fill = layers[1].querySelector("path")!.getAttribute("fill")!;
