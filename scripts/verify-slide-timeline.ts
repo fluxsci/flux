@@ -105,7 +105,9 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   const options = { ...opts, plotManifest: (id: string) => manifests[id] };
   const rendered = renderSlide(host, data, stage, options), specs = computeSlideAnims(data, rendered, host, stage, options);
   applyAt(specs, 2, 500); const marker = host.querySelector('[id="p__p0"]') as unknown as SVGElement;
-  check(marker.getAttribute("y") === "68" && marker.style.translate === "0.00px -7.50px" && marker.style.opacity === "1", "noncircle data-space midpoint composes with prior part entrance and axis rescale");
+  // the pixel law (project.lerpPixel): half-way the marker is the midpoint of its rests (80 and 60 px: 70), which the content binder's lerp of
+  // its bytes already draws (y 68 + half its 4 px); the old law put it through the half-blended fit (value 5 of 15: 72.5, translate -7.5)
+  check(marker.getAttribute("y") === "68" && /^0\.00px (-)?0\.00px$/.test(marker.style.translate) && marker.style.opacity === "1", "noncircle data-space midpoint composes with prior part entrance and axis rescale");
   applyStatic(specs, 2);
   check(marker.getAttribute("y") === "58" && marker.style.translate === "0.00px 0.00px" && host.querySelector('[id="p__tick"]')?.textContent === "20", "complete noncircle geometry and axis label reach target without double motion");
   applyStatic(specs, 0);

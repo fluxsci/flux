@@ -11,6 +11,7 @@ import { cornerJoinOf, morphJoin } from "../src/lib/strokeStyle";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { Slide } from "../src/lib/slide/types";
 import type { LineElement } from "../src/lib/types";
+import { HANDOVER_FLOOR } from "../src/lib/slide/player/textMorph";
 const { launch } = await import("./lib/driver.mjs");
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flux-arrow-browser-"));
 let browser: Awaited<ReturnType<typeof launch>>["browser"] | undefined;
@@ -77,7 +78,8 @@ try {
     check(staticJoin === cornerJoinOf({ type: src }), `${label}: the resting ${src} draws stroke-linejoin ${cornerJoinOf({ type: src })} (got ${staticJoin})`);
     for (const t of [0.2, 0.8]) {
       await page.evaluate((s, ms) => (window as any).fluxDeck.seek(s, 1, ms), si, t * 1000);
-      const live = await page.evaluate(`(() => { const body = [...document.querySelector('[data-el-id="a"]').querySelectorAll("svg > path:not([fill-rule])")].filter((p) => getComputedStyle(p).visibility !== "hidden"); return body.length === 1 ? getComputedStyle(body[0]).strokeLinejoin : "bodies:" + body.length; })()`);
+      // shown: not hidden and above the hand-over floor (a hand-over pair paints the layers it does not show at HANDOVER_FLOOR: transform.ts showMorphLayer)
+      const live = await page.evaluate(`(() => { const host = document.querySelector('[data-el-id="a"]'); const op = (n) => { let o = 1; for (let e = n; e && e !== host; e = e.parentElement) o *= Number(e.style?.opacity || 1); return o; }; const body = [...host.querySelectorAll("svg > path:not([fill-rule])")].filter((p) => getComputedStyle(p).visibility !== "hidden" && op(p) > ${HANDOVER_FLOOR * 2}); return body.length === 1 ? getComputedStyle(body[0]).strokeLinejoin : "bodies:" + body.length; })()`);
       check(live === morphJoin({ type: src }, { type: dst }, t), `${label} at t=${t}: the morph body draws stroke-linejoin ${morphJoin({ type: src }, { type: dst }, t)} (got ${live})`);
     }
   }
