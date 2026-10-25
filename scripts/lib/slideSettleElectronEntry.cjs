@@ -79,7 +79,7 @@ async function open(html, w, h) {
 const gotoRest = async (w, slide, beat, hold) => { await w.ev(`window.fluxDeck.goTo(${slide}, ${beat});${hold ? " window.fluxDeck.pause();" : ""}`); };
 // A reference render is the frame the compositor presents once the page has STOPPED painting (no paint for `quietMs`, at most `maxMs`): a fixed
 // sleep read a half-painted fresh page now and then (a fractional device scale, a loaded machine: references off by ~20,000)
-const quiet = async (w, quietMs = 250, maxMs = 1500) => { const t0 = now(); await sleep(quietMs); while (now() - t0 < maxMs && w.rec.last && now() - w.rec.last.t < quietMs) await sleep(40); };
+const quiet = async (w, quietMs = 200, maxMs = 800) => { const t0 = now(); await sleep(quietMs); while (now() - t0 < maxMs && w.rec.last && now() - w.rec.last.t < quietMs) await sleep(40); };
 const png = (f, file) => { if (f) fs.writeFileSync(file, nativeImage.createFromBitmap(f.bmp, f.size).toPNG()); };
 
 app.whenReady().then(async () => {
