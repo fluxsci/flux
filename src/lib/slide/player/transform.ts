@@ -53,7 +53,7 @@ import { hasOutline } from "../outline";
 import type { TextElement } from "../../types";
 import { morphJoin, pairJoin } from "../../strokeStyle";
 import { barGrow, type BarGrow } from "../growOrigin";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, rigidFlight, promoteMovingWrapper, settleWrapper, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, restGridShift, type SlideRenderCtx } from "./render";
 import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 /** Stage px an invisible stroke inflates a band's ink bounds by (see `bandNode`): enough for a device pixel at any presentation scale >= 1/4. */
@@ -213,6 +213,9 @@ export function createTransform(
   // second, so the last flight frame is exactly the end's rest law (layout box + the same composite form) and the landing does not change the
   // wrapper's raster (a 12 px ring landing on a different layout box moved its edge by 10 stage px^2 at the swap to the rest box).
   const endBaseBox = layoutBoxOf(elementBBox({ ...end, rotation: 0 }));
+  // The exact boxes of the two ends: a node that rides a layer rests on whole device pixels (render.applyWrapperBox), so its frames in flight
+  // carry the shift blended from the start's rest to the end's (gridShift below) and arrive on the rest exactly.
+  const preBB = elementBBox({ ...pre, rotation: 0 }), endBB = elementBBox({ ...end, rotation: 0 });
   // A pure move rides its own compositor layer for the flight (render.ts,
   // layer hygiene): rasterized once, moved at float precision — text glides
   // instead of stepping, heavy content moves without repainting. Demoted at
@@ -669,7 +672,13 @@ export function createTransform(
     // longer: no gate pins that case), and a same-beat appearance that owns the wrapper's opacity (`skipOpacity`) takes the law's share with it.
     // never 0: an opacity-0 node is culled and first rasterises in flight, at a fractional offset it then keeps (render.ts primeFlightLayers)
     const share = emerge ? Math.max(0.001, emerge(el, u)) : 1;
-    const wrapEl = share >= 1 ? el : { ...el, opacity: (el.opacity ?? 1) * share } as FigElement;
+    let wrapEl = share >= 1 ? el : { ...el, opacity: (el.opacity ?? 1) * share } as FigElement;
+    // in flight, a node that rests on whole device pixels flies from the start's snapped rest to the end's: the shift blends with the motion's
+    // own progress, so the first frame leaves the rest and the last arrives on it without a step (the endpoints themselves are snapped by the rest law)
+    if (raw > 0 && raw < 1) {
+      const a = restGridShift(wrap, preBB.x, preBB.y), b = a && restGridShift(wrap, endBB.x, endBB.y);
+      if (a && b) wrapEl = { ...wrapEl, x: wrapEl.x + a.dx + (b.dx - a.dx) * t, y: wrapEl.y + a.dy + (b.dy - a.dy) * t } as FigElement;
+    }
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
     // The text morph draws measured endpoints instead: its box simply lerps
@@ -692,7 +701,7 @@ export function createTransform(
       // and promoting it re-rasters the whole picture at the first flight frame (a 6 stage px^2 step on the first moving frame)
       if (glide && (!textLayers || displaced) && (!morphPlan || displaced)) promoteMovingWrapper(wrap);
     } else {
-      applyWrapperBox(wrap, wrapEl, boxOpts);
+      applyWrapperBox(wrap, wrapEl, raw > 0 && raw < 1 ? { ...boxOpts, exact: true } : boxOpts);
       if (glide) settleWrapper(wrap);   // the flight mark belongs to the player (applyAt)
     }
 

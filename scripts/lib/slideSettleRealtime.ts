@@ -25,7 +25,7 @@ export interface RtCue {
 }
 export interface RtResult { gpu: Record<string, string>; stageWidth: number; cues: RtCue[] }
 
-export interface RtOptions { fresh?: boolean; interrupts?: Record<string, number>; preJs?: string; dump?: string; dumpAll?: boolean; width?: number; height?: number; restMs?: number; tailMs?: number; only?: (slideId: string, from: number, to: number) => boolean; switches?: string[][]; maxMs?: number }
+export interface RtOptions { dsf?: number; fresh?: boolean; interrupts?: Record<string, number>; preJs?: string; dump?: string; dumpAll?: boolean; width?: number; height?: number; restMs?: number; tailMs?: number; only?: (slideId: string, from: number, to: number) => boolean; switches?: string[][]; maxMs?: number }
 
 /** Run every cue of `payload.deck` (or the filtered ones) and return the presented-frame measurements. */
 export async function realtimeSweep(payload: SweepPayload, name: string, opts: RtOptions = {}): Promise<RtResult> {
@@ -37,7 +37,7 @@ export async function realtimeSweep(payload: SweepPayload, name: string, opts: R
     await fs.writeFile(html, text);
     const cues = payload.deck.slides.flatMap((slide, si) => cuesOf(slide).filter(c => !opts.only || opts.only(slide.id, c.from, c.to)).map(c => ({ name: `${name}/${slide.id}#${c.from}-${c.to}`, slide: si, from: c.from, to: c.to, label: kindsOf(slide, c.from, c.to), auto: slide.beats[c.from]?.advance === "auto", ...(opts.interrupts?.[`${slide.id}#${c.from}-${c.to}`] ? { interruptAtMs: opts.interrupts[`${slide.id}#${c.from}-${c.to}`] } : {}) })));
     const width = opts.width ?? 1280, height = opts.height ?? 720;
-    const job = { html, out, cues, width, height, stageWidth: payload.deck.stage.width, restMs: opts.restMs ?? 450, tailMs: opts.tailMs ?? 900, maxMs: opts.maxMs ?? 9000, switches: opts.switches ?? [["force-color-profile", "srgb"]], dump: opts.dump, dumpAll: opts.dumpAll, fresh: opts.fresh, dead: Number(process.env.DEAD ?? 10) };
+    const job = { html, out, cues, width, height, stageWidth: payload.deck.stage.width, restMs: opts.restMs ?? 450, tailMs: opts.tailMs ?? 900, maxMs: opts.maxMs ?? 9000, switches: opts.switches ?? [["force-color-profile", "srgb"]], dump: opts.dump, dumpAll: opts.dumpAll, fresh: opts.fresh, dsf: opts.dsf, dead: Number(process.env.DEAD ?? 10) };
     const env: NodeJS.ProcessEnv = { ...process.env, FLUX_SETTLE_JOB: JSON.stringify(job) }; delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
     const args = [path.join(repo, "scripts/lib/slideSettleElectronEntry.cjs"), ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []), ...(env.FLUX_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox"] : [])];
     await new Promise<void>((resolve, reject) => {

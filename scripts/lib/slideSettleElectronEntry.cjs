@@ -56,7 +56,8 @@ function chroma(f) {
 }
 
 async function open(html, w, h) {
-  const win = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, webPreferences: { offscreen: true, backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  const win = new BrowserWindow({ show: false, width: w, height: h, useContentSize: true, webPreferences: { offscreen: job.dsf ? { deviceScaleFactor: job.dsf } : true, backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  // job.dsf: a fractionally scaled display (Wayland 1.25 / 1.5): the page renders and presents at that device scale (CSS px stay w x h)
   const wc = win.webContents;
   wc.setFrameRate(60);
   if (process.env.FLUX_SETTLE_DEBUG_FILE) wc.on("console-message", (_e, _l, msg) => fs.appendFileSync(process.env.FLUX_SETTLE_DEBUG_FILE, `[${(now() % 100000).toFixed(1)}] ${msg}\n`));
@@ -69,17 +70,22 @@ async function open(html, w, h) {
     if (rec.on) rec.frames.push(f);
   });
   await win.loadFile(html);
+  // the deck's fonts first: a fresh page read before its web fonts landed rendered its text in a fallback face (a reference off by ~290)
+  await wc.executeJavaScript("document.fonts.ready.then(() => true)");
   await sleep(500);
   return { win, wc, rec, ev: js => wc.executeJavaScript(js) };
 }
 // `hold` parks the player after the seek (pause() cancels the auto-advance timer): a reference render of a chain's step must not play on
 const gotoRest = async (w, slide, beat, hold) => { await w.ev(`window.fluxDeck.goTo(${slide}, ${beat});${hold ? " window.fluxDeck.pause();" : ""}`); };
+// A reference render is the frame the compositor presents once the page has STOPPED painting (no paint for `quietMs`, at most `maxMs`): a fixed
+// sleep read a half-painted fresh page now and then (a fractional device scale, a loaded machine: references off by ~20,000)
+const quiet = async (w, quietMs = 300, maxMs = 4000) => { const t0 = now(); await sleep(quietMs); while (now() - t0 < maxMs && w.rec.last && now() - w.rec.last.t < quietMs) await sleep(40); };
 const png = (f, file) => { if (f) fs.writeFileSync(file, nativeImage.createFromBitmap(f.bmp, f.size).toPNG()); };
 
 app.whenReady().then(async () => {
   fs.mkdirSync(job.out, { recursive: true });
   if (job.dump) fs.mkdirSync(job.dump, { recursive: true });
-  let A = await open(job.html, job.width, job.height); const B = await open(job.html, job.width, job.height);
+  let A = await open(job.html, job.width, job.height); let B = await open(job.html, job.width, job.height);
   const stageW = await A.ev(`(() => { const c = document.querySelector('.sl-camera'); return c.parentElement.getBoundingClientRect().width })()`);
   scale2 = (stageW / job.stageWidth) ** 2;
   const gpu = await app.getGPUFeatureStatus();
@@ -101,12 +107,13 @@ app.whenReady().then(async () => {
     const tag = String(n).padStart(3, "0");
     try {
       // a FRESH page per cue when asked: cues of one deck must not inherit each other's layers / marks / rewritten text
-      if (job.fresh) { A.win.destroy(); A = await open(job.html, job.width, job.height); await hook(A); await calibrate(A); }
+      // ... and a fresh reference window: a long-lived one drifted at a fractional device scale (every later reference read ~23,000)
+      if (job.fresh) { A.win.destroy(); A = await open(job.html, job.width, job.height); await hook(A); await calibrate(A); B.win.destroy(); B = await open(job.html, job.width, job.height); }
       // the reference renders, in window B
-      await gotoRest(B, cue.slide, cue.from - 1, true); await sleep(job.restMs); const restB = B.rec.last;
-      await gotoRest(B, cue.slide, cue.to, true); await sleep(job.restMs); const ref = B.rec.last;
+      await gotoRest(B, cue.slide, cue.from - 1, true); await sleep(job.restMs); await quiet(B); const restB = B.rec.last;
+      await gotoRest(B, cue.slide, cue.to, true); await sleep(job.restMs); await quiet(B); const ref = B.rec.last;
       // window A at the rest before the cue
-      await gotoRest(A, cue.slide, cue.from - 1); await sleep(cue.auto ? 0 : job.restMs);
+      await gotoRest(A, cue.slide, cue.from - 1); await sleep(cue.auto ? 0 : job.restMs); if (!cue.auto) await quiet(A);
       await A.ev(`window.__endAt = 0; window.__starts = []; window.__ticks = []; window.__click = 0`);
       const restBefore = cue.auto ? restB : A.rec.last;
       A.rec.frames = []; A.rec.on = true;

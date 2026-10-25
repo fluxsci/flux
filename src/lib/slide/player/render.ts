@@ -41,6 +41,7 @@ import { themeCssVars } from "../theme";
 import type { Model3dHost } from "../../model3d/host";
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from "../../model3d/types";
 import { fillModel3d } from "./model3d";
+import { devicePixelRatioOf, snapDelta, stageGrid, type StageGrid } from "./deviceGrid";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -109,10 +110,54 @@ function wrapper(el: FigElement): HTMLDivElement {
  *  pixels under the present/export fit-scale) away from where the same box
  *  painted mid-flight, so every transform ended with a visible jump as it
  *  settled. Rest and motion now share one placement law and the endpoint is
- *  the limit of the frames before it. */
-export function layoutBoxOf(bb: { x: number; y: number; w: number; h: number }): { x: number; y: number; w: number; h: number } {
-  return { x: Math.round(bb.x), y: Math.round(bb.y), w: Math.max(1, Math.round(bb.w)), h: Math.max(1, Math.round(bb.h)) };
+ *  the limit of the frames before it.
+ *
+ *  "Whole" means whole pixels of the grid the browser snaps to, which is the
+ *  DEVICE grid of the wrapper's transform space: Blink snaps a box's paint
+ *  offset to whole pixels of its local space at the device scale (local px x
+ *  devicePixelRatio), whatever scale an ancestor transform (the fit, the
+ *  editor preview's zoom) adds later. On a fractionally scaled display (1.25,
+ *  1.5) a whole stage pixel is not on that grid: `left: 90px` painted at
+ *  round(112.5) / 1.25 = 90.4 px, mid-flight frames (the frozen start box plus
+ *  an unsnapped transform) carried the START box's snap error and the landing
+ *  frame the END box's, and every move ended with a jump of up to 0.4 stage px
+ *  (0.7 device px in the editor preview at 1.25; measured on the owner's
+ *  display, 2026-10-24). The box origin is therefore quantised to multiples of
+ *  1 / devicePixelRatio: the browser's snap is then a no-op and the residual
+ *  transform carries the exact remainder, so every frame is exactly where its
+ *  numbers say. At devicePixelRatio 1 this is Math.round, as before. */
+export function layoutBoxOf(bb: { x: number; y: number; w: number; h: number }, grid = layoutGrid()): { x: number; y: number; w: number; h: number } {
+  return { x: onGrid(bb.x, grid), y: onGrid(bb.y, grid), w: Math.max(1, Math.round(bb.w)), h: Math.max(1, Math.round(bb.h)) };
 }
+/** The browser's layout snapping grid in local px per px: devicePixelRatio (browser zoom included); 1 in a headless host. */
+export function layoutGrid(): number { return devicePixelRatioOf(); }
+/** The device grid of a wrapper's stage (deviceGrid.stageGrid of its camera layer), read once per PAINT per stage: a static render places
+ *  every node in one go and a layout read per node would be a forced layout each. The player starts every paint with stageGridChanged(), so
+ *  a grid read before the host fitted the stage (the exported deck builds its first slide before its first fit) never outlives that paint
+ *  (a time-based cache did, now and then: a rest snapped to the unfitted grid, 290 stage px^2 off its static render). Null off a camera layer
+ *  or in a headless host. */
+const gridCache = new WeakMap<HTMLElement, { gen: number; grid: StageGrid | null }>();
+let gridGeneration = 0;
+/** A paint begins (or the host refitted the stage): every stage grid is read afresh on its next use. */
+export function stageGridChanged(): void { gridGeneration++; }
+/** The rest shift of a node that rides a layer: the local-space delta that puts its box origin (x, y) on a whole device pixel; null for a node
+ *  painted in place (no flight mark), off a camera layer, or in a headless host. */
+export function restGridShift(w: HTMLElement, x: number, y: number): { dx: number; dy: number } | null {
+  if (!animatingMarks.has(w)) return null;
+  const grid = wrapperGrid(w);
+  return grid ? snapDelta(grid, x, y) : null;
+}
+export function wrapperGrid(w: HTMLElement): StageGrid | null {
+  const cam = w.parentElement;
+  if (!cam || !cam.classList?.contains("sl-camera")) return null;
+  const hit = gridCache.get(cam);
+  if (hit && hit.gen === gridGeneration) return hit.grid;
+  const grid = stageGrid(cam);
+  gridCache.set(cam, { gen: gridGeneration, grid });
+  return grid;
+}
+/** `v` on the grid (multiples of 1 / grid), free of float dust (89.6, not 89.60000000000001). */
+function onGrid(v: number, grid: number): number { return grid === 1 ? Math.round(v) : Math.round(Math.round(v * grid) / grid * 1e6) / 1e6; }
 
 const RESIDUAL_EPS = 1e-4;
 
@@ -866,8 +911,14 @@ export function renderSlide(
  *  size) the difference rides a residual transform in the same composite form
  *  mid-flight frames use, so settling into place never snaps. An element on
  *  whole pixels gets the classic `rotate()`/flip transform about its centre. */
-export function applyWrapperBox(w: HTMLElement, el: FigElement, opts: { skipOpacity?: boolean; skipTransform?: boolean } = {}): void {
-  const bb = elementBBox({ ...el, rotation: 0 });
+export function applyWrapperBox(w: HTMLElement, el: FigElement, opts: { skipOpacity?: boolean; skipTransform?: boolean; exact?: boolean } = {}): void {
+  let bb = elementBBox({ ...el, rotation: 0 });
+  // A node that rides a layer (its flight mark, constant for the slide) RESTS on a whole device pixel: there its layer is pixel-identical to
+  // the stage's own paint and crisp (deviceGrid.ts). Its glides fly between the snapped ends (transform.ts restGridShift), so the landing
+  // frame is this rest. `exact` places the box where its numbers say: a mid-flight frame placed by this law (a text that re-lays out as it
+  // moves: snapped, its motion would step a device pixel at a time; its caller blends the shift instead) and a rest whose flights cannot blend
+  // the shift (an attached label: player/attach.ts).
+  if (!opts.skipTransform && !opts.exact) { const d = restGridShift(w, bb.x, bb.y); if (d) bb = { ...bb, x: bb.x + d.dx, y: bb.y + d.dy }; }
   const base = layoutBoxOf(bb);
   const s = w.style;
   const bx = `${base.x}px`, by = `${base.y}px`, bw = `${base.w}px`, bh = `${base.h}px`;
