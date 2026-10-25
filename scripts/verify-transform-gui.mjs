@@ -363,7 +363,9 @@ try {
   await sleep(500);
   const tm = await page.evaluate(() => {
     const spans = [...document.querySelectorAll(".present .mount .sl-tm-span")];
-    const painted = [...document.querySelectorAll(".present .mount text")].filter((t) => getComputedStyle(t).visibility !== "hidden" && !t.closest(".sl-tm-span")).map((t) => t.textContent);
+    // an idle static render of a rewrite is painted at the hand-over floor (0.0005, textMorph.ts HANDOVER_FLOOR): not shown
+    const shown = (t) => { for (let p = t; p; p = p.parentElement) if (Number(getComputedStyle(p).opacity) < 0.001) return false; return true; };
+    const painted = [...document.querySelectorAll(".present .mount text")].filter((t) => getComputedStyle(t).visibility !== "hidden" && !t.closest(".sl-tm-span") && shown(t)).map((t) => t.textContent);
     return { mid: window.__tmFrames.filter((f) => f.glides >= 3).length, restVisible: spans.filter((s) => getComputedStyle(s).visibility === "visible").length, promoted: spans.filter((s) => s.style.willChange).length, painted };
   });
   ok(tm.mid >= 5, `a presented text Change plays the span layer: ${tm.mid} frames with ≥ 3 gliding words`);
