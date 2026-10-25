@@ -761,7 +761,9 @@ function writeFlight(plan: Projection, t: number, progress = t): Set<Element> {
       if (!node || !tpl) return;
       if (!(opacity > 0.002) || !Number.isFinite(pixel)) { style(node, "display", "none"); return; }
       const own = cloneHome.get(node), h = own ?? fa.home[tpl.kind] ?? { pixel: tpl.origin, anchor: tpl.anchor };
-      const delta = pixel - h.anchor + (offset === undefined ? 0 : offset - (h.pixel - h.anchor)), original = tpl.node.getAttribute("transform");
+      // a clone of a version's own guide keeps that guide's own gap to its tick (measured off the same bytes it draws: the recovered
+      // label value is another reading of it, 1.8 px off where a layout reports text anchors); a template clone takes `offset`
+      const delta = pixel - h.anchor + (offset === undefined || own ? 0 : offset - (h.pixel - h.anchor)), original = tpl.node.getAttribute("transform");
       const pristineTransform = pristine.get(tpl.node)?.attrs.get("transform"), baseT = own ? own.transform : pristineTransform?.written ? pristineTransform.value : original;
       attr(node, "transform", `translate(${(isX ? delta : 0).toFixed(6)} ${(isX ? 0 : delta).toFixed(6)})${baseT ? ` ${baseT}` : ""}`);
       style(node, "opacity", String(opacity * b)); style(node, "display", "");
@@ -771,8 +773,8 @@ function writeFlight(plan: Projection, t: number, progress = t): Set<Element> {
       // the pixel law (lerpPixel): a tick walks from where its value sits on the start's axis to where it sits on the end's (for a tick
       // in one set, its one value on both: exactly the blended fit). A value one side cannot place (zero or below on a log axis: the
       // blended fit's log term made it NaN, so it stayed hidden until the landing frame drew it) stands at the place it has.
-      const pa = from ? projectWith(from, ft.a ? ft.va : ft.vb) : NaN, pb = to ? projectWith(to, ft.b ? ft.vb : ft.va) : NaN;
-      const pixel = Number.isFinite(pa) && Number.isFinite(pb) ? pa + (pb - pa) * t : Number.isFinite(pb) ? pb : Number.isFinite(pa) ? pa : projectWith(fit, ft.a ? ft.va : ft.vb);
+      const va = ft.a ? ft.va : ft.vb, vb = ft.b ? ft.vb : ft.va;
+      const pixel = from && to ? lerpPixel(from, to, va, vb, t) : projectWith(fit, va);
       const out = Math.max(lo - pixel, pixel - hi, 0) - 1e-6, edge = out <= 0 ? 1 : Math.max(0, 1 - out / soft);
       const w = ft.a && ft.b ? 1 : ft.a ? law.aOnly : law.bOnly;
       put(ft.tick, fa.origin.tick, pixel, w * edge, base.tick);

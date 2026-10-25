@@ -177,8 +177,12 @@ export function pairVertices(a: FluxPlotSeries, b: FluxPlotSeries | null): { a: 
  *  projected through the lerped fit, a product of two lerps: the mark swung ~200 px out of the plot and back (a mean CI's error bar
  *  drawn to the x axis and past it in flight). */
 export function lerpPixel(from: Fit, to: Fit, a: number, b: number, t: number): number {
-  const pa = projectWith(from, a);
-  return t <= 0 ? pa : t >= 1 ? projectWith(to, b) : pa + (projectWith(to, b) - pa) * t;
+  const pa = projectWith(from, a), pb = projectWith(to, b);
+  // a value one side cannot place (zero or below on a log axis: a log ratio axis becoming percentage points) stands where the other side
+  // places it: the end's "0" and "-2" ticks, NaN on the start's log axis, stayed hidden through the whole flight and appeared at the landing
+  if (!Number.isFinite(pa)) return pb;
+  if (!Number.isFinite(pb)) return pa;
+  return t <= 0 ? pa : t >= 1 ? pb : pa + (pb - pa) * t;
 }
 export function sampleSeries(pairs: ReturnType<typeof pairVertices>, from: Fits, to: Fits, t: number, out: MorphPoint[], fits: Fits): void {
   blendFit(from.x, to.x, t, fits.x); blendFit(from.y, to.y, t, fits.y);

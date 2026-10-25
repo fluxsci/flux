@@ -989,7 +989,7 @@ export const VERBS: VerbDef[] = [
     cli: "duplicate",
     cliRoot: "flags",
     summary:
-      "Duplicate elements within their figure `count` times, each stamp offset by k·(dx,dy), with fresh element + group ids (each stamp independent). Use to build even arrays — tick rows, marker series, panel scaffolds. Returns the last stamp's ids.",
+      "Duplicate elements `count` times, each stamp offset by k·(dx,dy). Each stamp gets fresh element + group ids (stamps are independent), within the same figure. Use to build even arrays — tick rows, marker series, panel scaffolds. Returns the last stamp's ids.",
     params: { figureId: z.string(), ids: z.array(z.string()), dx: z.number().optional(), dy: z.number().optional(), count: z.number().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "figureId", required: true },
@@ -3657,7 +3657,7 @@ export const VERBS: VerbDef[] = [
     cli: "apply-anim-template",
     cliRoot: "flags",
     summary:
-      "Apply a saved animation TEMPLATE (a bundle of preset slots with role/type matchers, from <FluxConfig>/presets/anim-templates/ by name, or an explicit .json path) onto a scope: `elementId` [+ `part`] binds part slots within that plot('s container subtree) by ROLE (an x-axis template lands on a y-axis); `elementIds` binds element slots by type + document order. Bound tracks land on `beatId` (default: the last build beat) as one labeled TrackGroup. Partial matches are reported, never invented.",
+      "Apply a saved animation TEMPLATE onto a scope. A template is a bundle of preset slots with role/type matchers, from <FluxConfig>/presets/anim-templates/ by name, or an explicit .json path: `elementId` [+ `part`] binds part slots within that plot('s container subtree) by ROLE (an x-axis template lands on a y-axis); `elementIds` binds element slots by type + document order. Bound tracks land on `beatId` (default: the last build beat) as one labeled TrackGroup. Partial matches are reported, never invented.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3704,7 +3704,7 @@ export const VERBS: VerbDef[] = [
     cli: "set-part-visibility",
     cliRoot: "flags",
     summary:
-      "A plot part's resting tri-state on a slide: 'show' (visible from beat 0), 'animate' (revealed by its track), 'mask' (always hidden). Mask/show DISABLE the part's tracks rather than deleting them.",
+      "Set a plot part's resting state on a slide: show, animate or mask. 'show' is visible from beat 0, 'animate' revealed by its track, 'mask' always hidden; mask/show DISABLE the part's tracks rather than deleting them.",
     params: { deckId: z.string(), elementId: z.string(), part: z.string(), mode: z.enum(["show", "animate", "mask"]) },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
