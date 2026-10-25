@@ -351,7 +351,11 @@ export function portablePayload(payload: ExportPayload, opts: { notes?: boolean 
   scrub(clean.deck);
   const manifestFields = new Set(["spec", "schemaVersion", "plotType", "size", "panels", "axes", "series", "guides", "overlays", "parts", "build"]);
   for (const plot of Object.values(clean.plots ?? {})) {
+    // the generated paint tokens ride along: a placed plot follows the deck theme by moving its own paper -> ink scale (plot/themeDom.ts),
+    // and without them a Present / export host fell back to the fixed role map the editor no longer uses (black ticks on a grey spine)
+    const tokens = (plot.manifest as { style?: { tokens?: unknown } }).style?.tokens;
     plot.manifest = Object.fromEntries(Object.entries(plot.manifest).filter(([key]) => manifestFields.has(key))) as unknown as FluxPlotManifest;
+    if (tokens && typeof tokens === "object") (plot.manifest as { style?: { tokens: unknown } }).style = { tokens };
     plot.manifest.svg = "";
   }
   for (const manifest of Object.values(clean.modelManifests ?? {})) { delete manifest.build; manifest.glb = "model.glb"; }
