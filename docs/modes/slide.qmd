@@ -99,8 +99,10 @@ fading in alongside its own axis's ticks, which arrive one by one along the axis
 **Data** (lines draw on, bars grow from their baseline, points and hexagons stagger in, however
 many there are; a data line draws **along x**, at an even pace from left to right, with its confidence band
 opening behind the same front and its markers growing in as the line reaches each one, and a line
-without markers is led by a small dot), and last **Legend & annotations** (the legend's frame, then its entries, then
-annotations and brackets), each after the short delay the plot suggests. A multi-panel plot offers
+without markers is led by a small dot; a mean marker draws itself on as its points arrive, its error bars
+grow out of it and their caps close them), and last **Legend & annotations** (the legend's frame, then its entries, then
+annotations and brackets, each bracket with its own label), each after the short delay the plot suggests. Everything
+the plot draws is part of the build: nothing sits on the slide before its click. A multi-panel plot offers
 **panel by panel**: the same three clicks for each panel in turn (an inset right after its host),
 with the figure's title first and its shared legend last. The same build is available from the
 command line as `flux animate-plot`.
