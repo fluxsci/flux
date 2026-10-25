@@ -100,7 +100,8 @@ export function resolveTargets(manifest: FluxPlotManifest | undefined, key_: str
   if (!tree) return [aliased];
   const node = indexTree(tree).get(aliased);
   if (!node) return [aliased]; // a literal leaf id not present in the tree
-  if (node.role === "group" || (node.children && node.children.length)) return leavesUnder(node);
+  // a group, a container, or a part that owns more than its own drawable (members: a bracket and its label, parse.augmentManifestOrphans)
+  if (node.role === "group" || (node.children && node.children.length) || (node.members && node.members.length)) return leavesUnder(node);
   return [aliased];
 }
 

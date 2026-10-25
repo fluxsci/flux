@@ -160,7 +160,7 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
 
 /** The phase-grouped plan for the build.order entries given; `prefix` restricts a role-ref
  *  ("gridlines") to one panel's nodes. */
-function planPhases(manifest: FluxPlotManifest, xray: XrayNode, order: readonly string[], prefix: string | null): PlanTrack[][] {
+function planPhases(manifest: FluxPlotManifest, xray: XrayNode, order: readonly string[], prefix: string | null, inScope: ((id: string) => boolean) | null = () => true): PlanTrack[][] {
   // index every node by id + by role, and every group MEMBER by its owning
   // group: fluxplot lists a bar series' components (counts.bar.0, .1, …) in
   // build.order while the tree groups them as counts.bars, so a member id
@@ -222,6 +222,23 @@ function planPhases(manifest: FluxPlotManifest, xray: XrayNode, order: readonly 
       for (const n of byRole.get(singular(entry)) ?? []) if (!prefix || n.id.startsWith(prefix)) emit(n);
     }
   }
+  // EVERYTHING the plot draws is built (owner, 2026-10-25: a part build.order does not name stood on the slide alone before the rest of the
+  // plot came in). The largest parts no step covered yet, each by its own role's phase and kind; the plot's own backgrounds with the axes.
+  const covered = new Set<string>();
+  for (const ph of phases) for (const t of ph) for (const leaf of byId.get(t.part)?.targets ?? [t.part]) covered.add(leaf);
+  // (`inScope`: which parts this plan may sweep; a per-panel build sweeps each panel in its own plan and the figure's own parts once)
+  const sweep = (n: XrayNode) => {
+    const leaves = n.targets.filter((l) => !covered.has(l));
+    if (!leaves.length) return;
+    if (n !== xray && leaves.length === n.targets.length && inScope!(n.id)) {
+      if (n.role === "background") { if (!seen.has(n.id)) { seen.add(n.id); phases[0].push({ part: n.id, role: n.role, preset: "fade", durationMs: presetDef("fade").autoBuildDurationMs ?? 400, nLeaves: n.targets.length }); } }
+      else emit(n);
+      for (const l of n.targets) covered.add(l);
+      return;
+    }
+    n.children.forEach(sweep);
+  };
+  if (inScope) sweep(xray);
   return phases;
 }
 
@@ -246,10 +263,16 @@ function autoAnimatePanels(manifest: FluxPlotManifest, elId: string, panels: { i
   if (figureLead.length) groups.push({ label: "Figure", entries: figureLead, prefix: null });
   for (const p of ordered) groups.push({ label: p.label ?? p.id, entries: order.filter((e) => e.startsWith(p.id + ".") || e === "gridlines"), prefix: p.id + "." });
   if (figureTail.length) groups.push({ label: "Figure", entries: figureTail, prefix: null });
+  // the figure's own parts no entry names are swept by a figure-scope group: an empty leading one when the plan has none
+  if (!groups.some((g) => g.prefix === null)) groups.unshift({ label: "Figure", entries: [], prefix: null });
   const beats: Beat[] = [];
   const pace = options.pace ?? DEFAULT_PACE, sweeps = planSweeps(manifest, pace, options.stagePerUnit), partPanels = seriesPanels(manifest);
+  const inPanel = (id: string) => panels.some((p) => id.startsWith(p.id + "."));
+  const lastFigure = groups.map((g) => g.prefix).lastIndexOf(null);
   groups.forEach((g, gi) => {
-    const plan = choreograph(planPhases(manifest, xray, g.entries, g.prefix), pace, options.lengths ?? {}, sweeps, partPanels);
+    // each panel sweeps its own parts; the figure's own (unprefixed) parts are swept once, by the last figure-scope group
+    const scope = g.prefix ? (id: string) => id.startsWith(g.prefix!) : gi === lastFigure ? (id: string) => !inPanel(id) : null;
+    const plan = choreograph(planPhases(manifest, xray, g.entries, g.prefix, scope), pace, options.lengths ?? {}, sweeps, partPanels);
     plan.phases.forEach((tracks, ph) => {
       if (!tracks.length) return;
       const ids = tracks.map(() => newId("track"));
