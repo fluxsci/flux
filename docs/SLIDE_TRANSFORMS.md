@@ -248,9 +248,16 @@ a stroke-BAND pair; the hand-off driver flies copies of its sources and destinat
 there is a seam (a band, or an owner cut into pieces). A plain round pair, a merge group, text, rasters,
 glyph flights, slices, media and gradient paints keep their own laws. A hand-off draws on a surface at the
 DEPTH its destination rests at (`RenderedSlide.flightAt`), so the element that covers the destination
-covers the flight and the landing never flips the paint order. A Become that keeps its box is not promoted
-to a compositor layer; the second half of an outline morph is laid on the END's layout box. A round-capped
-line carries a round join into the join law.
+covers the flight and the landing never flips the paint order. When an element painted BETWEEN the source
+and the destination overlaps the flight (the two sit on different sides of it), no single depth is right
+at both ends: the flight flies on the upper of the two depths and passes under that element by a veil
+(handoff `covers`, 2026-10-24): copies of its own rendered wrapper above the flight, masked to the
+flight's coverage dilated by 0.75 stage px and faded with the motion's progress, in when the destination
+rests under it (the shape sinks), out when the source did (it rises). Both ends are the real paint order
+(an opaque cover); it used to flip at the first frame. No flight whose box stays put is promoted to a
+compositor layer (a recolour, an outline morph, a rewrite in place: there is nothing a layer could move);
+the second half of an outline morph is laid on the END's layout box. A round-capped line carries a round
+join into the join law.
 
 A same-kind path Change (and a Consume of two paths) is paired by `tween.alignedPair`, not by the
 outline planner: a CLOSED ring keeps its authored index pairing unless another start node or direction
@@ -366,7 +373,11 @@ right-aligned numbers too (the hidden param `steadyDigits: false` restores the p
 **A plot Change starts from the plot the step before it left.** A transform is compiled while the live
 content still shows the element's BASE asset, so a filled mark (a bar) starts from the START asset's own
 pristine polygon (`projectDom.bind`, `opts.sourceRoot`), never from the live node: a chained Change (bars5
--> bars10 -> bars5) begins on exactly the bars the step before it left. An asset Change whose start or end
+-> bars10 -> bars5) begins on exactly the bars the step before it left. Every step re-projects the DOM the
+slide MOUNTED (the design state's asset), so its pt-true compensation and natural viewBox are that asset's
+(`render.plotAssetOf`), whichever asset the step starts from: a chain between plots of different intrinsic
+size (sine 360 x 108 pt -> scatter 180 x 108 pt -> sine) began its second step with every glyph rescaled
+(2026-10-24). An asset Change whose start or end
 view re-ticks an axis hands the generated ticks off through the same pool as a view Change (each side's
 tick set read from its own version, the pool placed against the lerped anchor); a mark only the end version
 has stands where it rests under the end view and grows in place.
@@ -430,7 +441,11 @@ numbers say and every layer identical to the stage's own paint:
    ends (the transform driver blends the shift with the motion's progress), so the landing frame IS the
    rest and both are crisp. Text that glides to a fractional position, or turns, therefore lands sharp.
    An attached label rests `exact` (its flights follow what it hangs on frame by frame and cannot blend a
-   shift); mid-flight frames placed by the rest law are never snapped.
+   shift); mid-flight frames placed by the rest law are never snapped. A marked node takes its EXACT layout
+   size (no residual scale): Chromium freezes the raster scale of a layer it treats as animating, so a
+   text that re-laid out on its layer (a resize after a move) rested on a raster a few tenths of a percent
+   off scale. A text rewrite whose box stays put promotes its spans INSIDE the wrapper, which turns the
+   wrapper into a layer: its driver reports `glide`, so that wrapper is marked for the slide too.
 
 Measured with `slide-settle-realtime.mts` at `DSF=1.25` (offscreen Electron, `offscreen: { deviceScaleFactor }`;
 headless Chrome's emulated device scale snaps differently and is no stand-in) on a window whose size is a

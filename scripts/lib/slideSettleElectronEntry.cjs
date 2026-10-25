@@ -79,7 +79,7 @@ async function open(html, w, h) {
 const gotoRest = async (w, slide, beat, hold) => { await w.ev(`window.fluxDeck.goTo(${slide}, ${beat});${hold ? " window.fluxDeck.pause();" : ""}`); };
 // A reference render is the frame the compositor presents once the page has STOPPED painting (no paint for `quietMs`, at most `maxMs`): a fixed
 // sleep read a half-painted fresh page now and then (a fractional device scale, a loaded machine: references off by ~20,000)
-const quiet = async (w, quietMs = 300, maxMs = 4000) => { const t0 = now(); await sleep(quietMs); while (now() - t0 < maxMs && w.rec.last && now() - w.rec.last.t < quietMs) await sleep(40); };
+const quiet = async (w, quietMs = 250, maxMs = 1500) => { const t0 = now(); await sleep(quietMs); while (now() - t0 < maxMs && w.rec.last && now() - w.rec.last.t < quietMs) await sleep(40); };
 const png = (f, file) => { if (f) fs.writeFileSync(file, nativeImage.createFromBitmap(f.bmp, f.size).toPNG()); };
 
 app.whenReady().then(async () => {
@@ -107,8 +107,8 @@ app.whenReady().then(async () => {
     const tag = String(n).padStart(3, "0");
     try {
       // a FRESH page per cue when asked: cues of one deck must not inherit each other's layers / marks / rewritten text
-      // ... and a fresh reference window: a long-lived one drifted at a fractional device scale (every later reference read ~23,000)
-      if (job.fresh) { A.win.destroy(); A = await open(job.html, job.width, job.height); await hook(A); await calibrate(A); B.win.destroy(); B = await open(job.html, job.width, job.height); }
+      // ... and, at a fractional device scale, a fresh reference window: a long-lived one drifted there (every later reference read ~23,000)
+      if (job.fresh) { A.win.destroy(); A = await open(job.html, job.width, job.height); await hook(A); await calibrate(A); if (job.dsf) { B.win.destroy(); B = await open(job.html, job.width, job.height); } }
       // the reference renders, in window B
       await gotoRest(B, cue.slide, cue.from - 1, true); await sleep(job.restMs); await quiet(B); const restB = B.rec.last;
       await gotoRest(B, cue.slide, cue.to, true); await sleep(job.restMs); await quiet(B); const ref = B.rec.last;

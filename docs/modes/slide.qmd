@@ -552,7 +552,10 @@ picking: every click on the canvas is a pick.
 A loose drawn destination between whole objects uses **Consume**: its appearance becomes the source's After state
 and the destination is removed. The source keeps its identity; one Undo restores both.
 Plots, images, groups and part sets use a **hand-off**: both objects stay in the slide,
-with the destination hidden before landing and the source hidden afterwards. For example,
+with the destination hidden before landing and the source hidden afterwards. When the source and
+the destination sit on different sides of an object the flight crosses (one above it, one below),
+the flying shape sinks under that object, or rises out of it, over the whole flight instead of
+jumping behind or in front of it on the first frame. For example,
 a drawn chevron can become a plot's X and Y axis spines, or a box on a plot can become a
 rectangle. The canvas lands in **Edit after step**, with the track selected in the
 **Animation** inspector. **Show hidden** lets you inspect hidden objects as faint ghosts.
