@@ -666,7 +666,7 @@ export function preparePlot(
 ): { root: SVGSVGElement | null; manifest?: FluxPlotManifest } {
   const root = parsePlotSvg(svgText);
   if (!root) return { root: null, manifest };
-  normalizeSvgForParts(root as unknown as Element, manifest);
+  normalizeSvgForParts(root as unknown as Element);
   // No sidecar manifest (a "vanilla" svg) → synthesize one from the DOM so ANY
   // svg is x-rayable/part-editable. NEVER persisted (see plot/derive.ts).
   if (!manifest) manifest = deriveManifestFromSvg(root as unknown as Element);

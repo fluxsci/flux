@@ -6,6 +6,8 @@ import { buildRelayoutModel,applyRelayout,solveRelayout,restoreRelayout } from '
 import { parseMplPath } from '../src/lib/plot/relayout/path';
 import { transformToAncestor,applyToPoint } from '../src/lib/plot/svgMatrix';
 import { legendGeometry } from '../src/lib/plot/relayout/legend';
+import { viewFits, projectWith, dataOfPixel } from '../src/lib/plot/project';
+import { applyPlotView } from '../src/lib/plot/projectDom';
 Object.assign(globalThis,{DOMParser,document:parseHTML('<html><body></body></html>').document});
 const h=harness('verify-plot-resize-fixes'),source=plotResizeFixFixture();
 for(const prefix of ['', 'placed']){
@@ -80,5 +82,17 @@ for(const title of [false,true])for(const prefix of ['', 'framed']){
   h.ok(plan.scale===1&&plan.width<=150,'wrapped row legend fits without shrinking');
   plan=legendGeometry(leg,model,{x0:0,y0:0,x1:500,y1:100},{x0:0,y0:0,x1:600,y1:300});
   h.eq(plan.entries.size,0,'a fitting row legend keeps its native layout');
+}
+{
+  // A data view (Plot Change) re-projects the band vertex by vertex: its offset
+  // lives in its vertices, not in a transform the projection would refuse.
+  const source=plotResizeFixFixture(),prepared=preparePlot(source.svg,source.manifest),root=prepared.root!,manifest=prepared.manifest!;
+  const band=root.querySelector('[id="confidence.band"] path')!,native=parseMplPath(band.getAttribute('d')!)!;
+  h.eq(band.getAttribute('transform'),null,'the band carries no placement transform');
+  const raw=viewFits(manifest)!,domain=manifest.axes[0].y.domain as [number,number],view={y:{domain:[domain[0]-(domain[1]-domain[0]),domain[1]] as [number,number]}},fits=viewFits(manifest,view)!;
+  applyPlotView(root,manifest,view,'');
+  const moved=parseMplPath(band.getAttribute('d')!)!;let error=0;
+  for(let i=1;i<native.vertices.length;i+=2)error=Math.max(error,Math.abs(moved.vertices[i]-projectWith(fits.y,dataOfPixel(raw.y,native.vertices[i]))));
+  h.ok(error<.001,`band vertices follow a y view (${error})`);
 }
 await h.done();

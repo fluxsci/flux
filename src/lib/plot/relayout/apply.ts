@@ -6,7 +6,6 @@ import { mplNumber as n, parseMplPath, writeMplPath, type MplPath } from "./path
 import { restoreOverrideTranslations, plotPartPrefix, drawablesUnder, restorePlotClip } from "../parse";
 import {writeMathLabel} from "./mathLabel";
 import { arrowPaths } from "./arrows";
-import { compose, parseTransform } from '../svgMatrix';
 import { legendGeometry, type LegendGeometry } from './legend';
 interface Affine {sx:number;sy:number;tx:number;ty:number}
 const affine=(a:Box,b:Box):Affine=>{const sx=width(b)/width(a),sy=height(b)/height(a);return {sx,sy,tx:b.x0-a.x0*sx,ty:b.y0-a.y0*sy};};
@@ -163,16 +162,7 @@ export function applyRelayout(root:Element,model:RelayoutModel,sol:RelayoutSolut
   const translate=(b:Binding,dx:number,dy:number)=>set(s,b.el,"transform",`translate(${n(dx)} ${n(dy)})${b.transform?" "+b.transform:""}`);
   for(const b of s.bindings){
     const f=b.frame;
-    if(b.path&&f.f==='data'&&!options.skipData){
-      const a=f.axes?dataFits.get(f.axes):fig;
-      if(a){
-        // A normalized collection path retains the <use>'s placement transform.
-        // Bake it BEFORE the data affine, retaining physical stroke widths.
-        if(b.transform){setPath(s,b,writeMplPath(b.path,compose([a.sx,0,0,a.sy,a.tx,a.ty],parseTransform(b.transform))));set(s,b.el,'transform','');}
-        else setPath(s,b,writeMplPath(b.path,a));
-      }
-      continue;
-    }
+    if(b.path&&f.f==='data'&&!options.skipData){const a=f.axes?dataFits.get(f.axes):fig;if(a)setPath(s,b,writeMplPath(b.path,a));continue;}
     if(options.skipData&&['data','glyph','blend','image'].includes(f.f))continue;const boxFit=f.axes?fits.get(f.axes):fig,dataFit=f.axes?dataFits.get(f.axes):fig;
     let a=boxFit;if(!a||!dataFit)continue;
     if(['data','glyph','image'].includes(f.f))a=dataFit;

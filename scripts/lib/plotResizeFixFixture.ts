@@ -8,6 +8,7 @@ export function plotResizeFixFixture(options:{frame?:boolean;title?:boolean;row?
   let svg=fs.readFileSync('scripts/fixtures/relayout/line/base.svg','utf8');
   const layout=manifest.layout!,font=Object.keys(layout.fonts)[0];
   layout.frames['confidence.band']={f:'data',axes:'plot-area'};
+  manifest.series.push({id:'confidence',name:'confidence',kind:'area',roles:['area'],components:[{role:'area',svgId:'confidence.band'}],svg:{area:'confidence.band'},data:{}} as unknown as FluxPlotManifest['series'][number]);
   layout.frames['confidence.mean']={f:'data',axes:'plot-area'};
   const band=`<g id="confidence.band" data-role="area"><defs><path id="confidence-path" d="M 70 -120 L 100 -100 L 140 -125 L 130 -140 Z"/></defs><use href="#confidence-path" x="0" y="230.4" style="fill:#777;fill-opacity:0.2"/></g>`;
   const marker=`<g id="confidence.mean" data-role="mean"><defs><path id="confidence-marker" d="M -3 0 L 3 0"/></defs><use href="#confidence-marker" x="100" y="120" style="stroke:#111;stroke-width:1"/></g>`;
