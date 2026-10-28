@@ -974,7 +974,7 @@
     if (k === "Escape" || (lk === "r" && !mod) || (e.altKey && e.code === "KeyR")) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      close();
+      if (!e.repeat || k === "Escape") close(); // the R that opened it may still be held
       return;
     }
     if (lk === "s" && !mod) {

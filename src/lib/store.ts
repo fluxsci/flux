@@ -326,7 +326,7 @@ export function setEditorSelectionExclusions(ids: ReadonlySet<Id>, parts: Readon
 // selection; pruned when the group disappears (undo/delete/ungroup).
 export const enteredGroupId = writable<Id | null>(null);
 
-// X-Ray viewer (Alt+R): a floating radiograph listing the structure of a plot
+// X-Ray viewer (R): a floating radiograph listing the structure of a plot
 // element OR a group (figure-v1 P8), with per-row show/hide + Show Properties.
 export const xrayOpen = writable<boolean>(false);
 

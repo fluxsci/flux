@@ -767,11 +767,10 @@ export function handleKey(e: KeyboardEvent) {
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
   // Alt+G — the Plots rail, in every mode that has one (Figure's [Layers | Plots], Slide's
-  // [Slides | Plots]: railState's host registry). Works while typing, so the round trip from
-  // the rail's own search box lands:
+  // [Slides | Plots]: railState's host registry). A toggle; it also works from the rail's own
+  // search box (other text fields keep the chord):
   //   rail hidden or showing its other view → show Plots, focus its search;
-  //   Plots showing, keyboard elsewhere → focus its search;
-  //   keyboard inside the rail → back to the other view, keyboard back to the canvas.
+  //   Plots showing → back to the other view, keyboard back to the canvas.
   // Shift+Alt+G opens the full gallery, pinned (unchanged).
   const railHost = e.altKey && !mod && e.code === "KeyG" && !e.shiftKey ? railHostFor(storeTenant()) : null;
   if (railHost && (!typing || inPlotsRailScope(e))) {
@@ -850,10 +849,12 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // R opens X-ray; Shift+Alt+R keeps the direct family drill shortcut.
+  // R opens the X-Ray for the selected plot(s) / group / drilled part; Shift+Alt+R
+  // opens it on the drilled parts' FAMILY (one tick label → all of them). A held R
+  // does not reopen it (the panel's own R closes it).
   if (!mod && e.code === "KeyR" && ((!e.altKey && !e.shiftKey) || (e.altKey && e.shiftKey))) {
     e.preventDefault();
-    openXray(e.shiftKey);
+    if (!e.repeat) openXray(e.shiftKey);
     return;
   }
   if (e.altKey && !mod && !e.shiftKey && e.code === "KeyR") {

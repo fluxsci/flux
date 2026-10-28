@@ -2210,7 +2210,8 @@ Persistence invariants (all machine-checked — do not weaken):
   hairline dividers, accent-tint selection with an inset rail (never solid accent fills), no
   blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
   motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
-  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G the Plots rail (Figure and Slide), Alt+T arrange,
+  (macOS Option+letter yields `e.key` "®"/"©"): R X-ray (owner, 2026-10-27; Alt+R is now the rectangle tool, Shift+Alt+R
+  the family X-ray), Alt+G the Plots rail (Figure and Slide), Alt+T arrange,
   Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and

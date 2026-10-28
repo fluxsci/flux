@@ -357,6 +357,7 @@ export class BecomePicker {
       return true;
     }
     if (!e.ctrlKey && !e.metaKey && e.code === "KeyR" && ((!e.altKey && !e.shiftKey) || (e.altKey && e.shiftKey))) {
+      if (e.repeat) return true;
       const fig = this.hooks.fig();
       // The hovered plot, else the last picked one, else the source (the old selection fallback).
       const ids = [this.hover?.unit.element, get(hoverId), ...[...t.units].reverse().map((u) => u.element), t.source.element];
