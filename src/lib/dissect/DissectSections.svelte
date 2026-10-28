@@ -108,6 +108,7 @@
   rowHeight={$dissectRowH}
   captionH={CAPTION_H}
   gap={10}
+  blockGap={2}
   padX={16}
   minAspect={0.5}
   selected={new Set(selected ? [selected] : [])}

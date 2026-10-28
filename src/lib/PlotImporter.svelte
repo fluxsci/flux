@@ -225,6 +225,7 @@
   // plots. Sizes come from header probes of the current listing, nearest the viewport first
   // (4:3 stands in meanwhile); each batch relays out with the top visible tile held in place.
   const FOLDER_ASPECT = 4 / 3;
+  const UP_BAR_H = 28;
   let sizes = new Map<string, { aspect: number; stamp: string }>();
   let settled = new Set<string>();
   const asked = new Set<string>();
@@ -292,11 +293,14 @@
   })();
   $: galleryCaptionH = labels ? ((q || similarTo) ? 34 : 20) : 0;
   $: glayout = viewMode === "gallery" ? layoutJustified([
-    ...(navCount ? [{ key: "folders", headerH: 26, aspects: rows.slice(0, navCount).map((r) => r.kind === "up" ? .5 : FOLDER_ASPECT) }] : []),
+    // Up is a slim bar on its own row (a page-sized card would spend a whole row on an arrow);
+    // the section header names child folders only.
+    ...(navCount ? [{ key: "folders", headerH: rows.slice(0, navCount).some((r) => r.kind === "dir") ? 26 : 0, aspects: rows.slice(0, navCount).map(() => FOLDER_ASPECT), blocks: rows.slice(0, navCount).map((r) => r.kind === "up" ? UP_BAR_H : 0) }] : []),
     ...(rows.length > navCount ? [{ key: "files", headerH: 26, aspects: rows.slice(navCount).map((r) => (r.abs && sizes.get(r.abs)?.aspect) || 4 / 3) }] : []),
   ], { width: Math.max(40, listWidth - 32), rowHeight: Math.round(previewSize * .75), gap: spacing, captionH: galleryCaptionH, padTop: 8, sectionGap: 14, minAspect: .5, maxAspect: 6, minRowH: 60 }) : null;
   $: folderCount = rows.slice(0, navCount).filter((r) => r.kind === "dir").length;
-  $: sectionTitle = (key: string) => key === "folders" ? (folderCount ? "Folders" : "Parent folder") : q || similarTo ? "Results" : relDir || (browseScope === "global" ? plotsRoot.split("/").pop() || "plot_library" : "plots");
+  $: parentName = (cwd.replace(/\/[^/]+$/, "") === plotsRoot ? "" : cwd.replace(/\/[^/]+$/, "").split("/").pop()) || (browseScope === "global" ? "plot_library" : "plots");
+  $: sectionTitle = (key: string) => key === "folders" ? "Folders" : q || similarTo ? "Results" : relDir || (browseScope === "global" ? plotsRoot.split("/").pop() || "plot_library" : "plots");
   $: gOverscan = Math.max(300, listHeight);
   $: gRows = ((): NonNullable<typeof glayout>["rows"] => {
     if (!glayout) return [];
@@ -886,7 +890,7 @@
           {#if glayout}
             <div class="items justified" style:height={`${glayout.height + 12}px`} data-layout-width={listWidth}>
               {#each glayout.sections as sec (sec.key)}
-                <div class="section-head" style:top={`${sec.y}px`} style:height={`${sec.headerH}px`}><span class="title">{sectionTitle(sec.key)}</span>{#if sec.key !== "folders" || folderCount}<span class="meta">· {sec.key === "folders" ? folderCount : fileCount}</span>{/if}</div>
+                {#if sec.headerH}<div class="section-head" style:top={`${sec.y}px`} style:height={`${sec.headerH}px`}><span class="title">{sectionTitle(sec.key)}</span><span class="meta">· {sec.key === "folders" ? folderCount : fileCount}</span></div>{/if}
               {/each}
               {#each gCells as { row, placed, r } (r.kind + (r.abs ?? r.name) + previewRevision)}
                   {@const i = placed.index}
@@ -899,6 +903,8 @@
                       {:else if settled.has(r.abs)}
                         <Tile path={r.abs} stamp={sizes.get(r.abs)?.stamp ?? "?"} aspect={sizes.get(r.abs)?.aspect || placed.w / row.h} w={placed.w} h={row.h} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} {selected} focused={i === index} priority={Math.abs(i - index)} glyph={r.snip ? "✂" : r.semantic ? "◆" : ""} glyphTitle={r.snip ? "Paper snip" : r.semantic ? "Fluxplot — editable parts and data" : ""} />
                       {:else}<span class="skeleton" style:height={`${row.h}px`}></span>{/if}
+                    {:else if r.kind === "up"}
+                      <span class="up-bar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 7 4-4 4 4M8 3v10"/></svg>Up to {parentName}</span>
                     {:else}
                       <span class="folder-page" style:height={`${row.h}px`}>
                         {#if folder?.plots.length}
@@ -911,7 +917,7 @@
                             </span>
                           {/each}
                         {:else}
-                          <svg class="folder-icon" viewBox="0 0 48 40" aria-hidden="true">{#if r.kind === "up"}<path d="m16 20 8-8 8 8m-8-8v18"/>{:else}<path d="M4 10V6h15l5 5h20v23H4Z"/>{/if}</svg>
+                          <svg class="folder-icon" viewBox="0 0 48 40" aria-hidden="true"><path d="M4 10V6h15l5 5h20v23H4Z"/></svg>
                         {/if}
                       </span>
                     {/if}
@@ -919,7 +925,7 @@
                       <span class="cap" style:top={`${row.h}px`} style:height={`${row.cap}px`}>
                         <span class="cap-line">
                           {#if r.kind !== "file"}<svg class="fglyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4V2.5h5l1.5 1.5h6.5v9.5h-13Z" /></svg>{:else if selected}<span class="ic">✓</span>{/if}
-                          <span class="nm">{r.kind === "up" ? "Up" : captionText(r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name, placed.w - (r.kind !== "file" || selected ? 15 : 0) - (folder?.count ? captionMeasure()(String(folder.count)) + 8 : 0))}</span>
+                          <span class="nm">{captionText(r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name, placed.w - (r.kind !== "file" || selected ? 15 : 0) - (folder?.count ? captionMeasure()(String(folder.count)) + 8 : 0))}</span>
                           {#if folder?.count}<span class="fcount">{folder.count}</span>{/if}
                         </span>
                         {#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}
@@ -1072,6 +1078,9 @@
   .gallery .row.folder.sel .folder-page { outline:1px solid var(--c-accent-bright, var(--c-accent)); outline-offset:3px; }
   .mosaic-cell { position:absolute; }
   .folder-icon { width:40px; height:34px; fill:none; stroke:var(--c-tx-muted); stroke-width:1.2; }
+  .up-bar { display:flex; align-items:center; gap:6px; height:100%; padding:0 10px; color:var(--c-tx-muted); font-size:11.5px; }
+  .up-bar svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; }
+  .row.sel .up-bar, .row:hover .up-bar { color:var(--c-tx); }
   .cap { position:absolute; left:0; right:0; display:flex; flex-direction:column; gap:1px; padding:3px 2px 0; overflow:hidden; text-align:left; }
   .cap-line { display:flex; align-items:center; gap:4px; min-width:0; }
   .gallery .nm { font:10.5px/15px var(--font-mono); color:var(--c-tx-muted); white-space:nowrap; overflow:hidden; text-overflow:clip; }

@@ -28,6 +28,8 @@ export interface JustifyOpts {
   rowHeight: number;
   /** Horizontal and vertical gap between tiles. */
   gap: number;
+  /** Vertical gap between consecutive BLOCK rows (a run of file rows); default `gap`. */
+  blockGap?: number;
   /** Caption strip below each tile (0 = none). */
   captionH: number;
   /** Space above the first section and between sections. */
@@ -94,6 +96,7 @@ export function layoutJustified(sections: JustifySectionIn[], o: JustifyOpts): J
   const minRowH = o.minRowH ?? 40;
   const maxH = h * (o.maxStretch ?? 1.5);
   const sectionGap = o.sectionGap ?? 0;
+  const blockGap = Math.max(0, Math.min(g, o.blockGap ?? g));
   const rows: LaidRow[] = [];
   const out: LaidSection[] = [];
   let total = 0;
@@ -118,6 +121,7 @@ export function layoutJustified(sections: JustifySectionIn[], o: JustifyOpts): J
     while (i < n) {
       if ((blocks[i] ?? 0) > 0) {
         const bh = blocks[i];
+        if (i > 0 && (blocks[i - 1] ?? 0) > 0) y -= g - blockGap;
         itemRow[flat + i] = rows.length;
         rows.push({ y, h: bh, cap: 0, section: si, items: [{ index: flat + i, x: 0, w: W }], block: true });
         y += bh + g;

@@ -43,6 +43,7 @@
     rowHeight,
     captionH,
     gap = 6,
+    blockGap,
     padX = 8,
     selected,
     focusId = "",
@@ -68,6 +69,7 @@
     rowHeight: number;
     captionH: number;
     gap?: number;
+    blockGap?: number;
     padX?: number;
     selected: Set<string>;
     focusId?: string;
@@ -113,7 +115,7 @@
   });
   const layout: JustifyLayout = $derived(layoutJustified(
     sections.map((s) => ({ key: s.key, headerH: s.headerH, aspects: s.collapsed ? [] : s.items.map((i) => i.aspect), blocks: s.collapsed ? [] : s.items.map((i) => i.block ?? 0) })),
-    { width: Math.max(40, width - 2 * padX), rowHeight, gap, captionH, padTop: 0, sectionGap: 4, minAspect, maxAspect: 6, minRowH: 40 },
+    { width: Math.max(40, width - 2 * padX), rowHeight, gap, blockGap, captionH, padTop: 0, sectionGap: 4, minAspect, maxAspect: 6, minRowH: 40 },
   ));
 
   const overscan = $derived(Math.max(200, height));
