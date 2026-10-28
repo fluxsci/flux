@@ -15,7 +15,7 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
 
-const { parsePlotSvg, bakePlotStyles, prefixIds, hoistPlotClips, applyOverrides } = await import("../src/lib/plot/parse");
+const { parsePlotSvg, bakePlotStyles, prefixIds, hoistPlotClips, restorePlotClip, applyOverrides } = await import("../src/lib/plot/parse");
 
 const h = harness("verify-plot-style-bake");
 const MPL = "*{stroke-linejoin: round; stroke-linecap: butt}";
@@ -106,6 +106,7 @@ for (const body of [
   '<defs><clipPath id="c"><rect width="5" height="5"/></clipPath></defs><path clip-path="url(#c)"><animateTransform attributeName="transform" type="translate" values="0;10" dur="1s"/></path><path clip-path="url(#c)"/>',
 ]) {
   const root = parsePlotSvg(wrap(body, ''))!;
+  bakePlotStyles(root as unknown as Element); // the same ordering as cachePreparedPlot
   const before = root.outerHTML;
   h.eq(hoistPlotClips(root as unknown as Element).hoisted, 0, 'unsafe clip run is left intact');
   h.eq(root.outerHTML, before, 'no geometry or selector semantics changed');
@@ -119,6 +120,46 @@ for (const body of [
   h.eq(a.getAttribute('clip-path'), 'url(#plot__c)', 'a translated part regains its own prefixed clip');
   h.eq(b.getAttribute('clip-path'), 'url(#plot__c)', 'its sibling retains the original clip');
   h.eq(a.parentElement!.getAttribute('clip-path'), null, 'no fixed parent clip truncates the moving part');
+}
+h.section("semantic singleton wrappers share clips without losing original clip owners");
+const wrapped = (attrs = '', leafAttrs = '') => `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><defs><clipPath id="c"><rect x="4" y="4" width="80" height="40"/></clipPath></defs><g id="axes"><g id="bar-a" data-role="bar" data-index="0" ${attrs}><path id="leaf-a" d="M0 0h50v40z" fill="red" clip-path="url(#c)" ${leafAttrs}/></g><g id="bar-b" data-role="bar" data-index="1" ${attrs}><path id="leaf-b" d="M30 0h50v40z" fill="blue" clip-path="url(#c)" ${leafAttrs}/></g></g></svg>`;
+for (const selected of ['bar-a', 'leaf-a']) {
+  const root = parsePlotSvg(wrapped())!;
+  const identities = [...root.querySelectorAll('[id]')];
+  h.eq(hoistPlotClips(root as unknown as Element), { groups: 1, hoisted: 2 }, 'adjacent singleton semantic wrappers share one user-space clip');
+  h.ok(identities.every(node => root.querySelector(`[id="${node.id}"]`) === node), 'all semantic wrapper/leaf IDs retain their original DOM identity');
+  h.eq(root.querySelector('#bar-a')!.parentElement, root.querySelector('#bar-b')!.parentElement, 'semantic wrappers remain separate siblings inside the clip run');
+  h.eq(root.querySelector('#bar-a')!.getAttribute('clip-path'), null, 'wrapper never acquires its leaf clip');
+  // This is the real mount seam: clone/import then placement prefixing.
+  const instance = root.cloneNode(true) as unknown as Element;
+  prefixIds(instance, 'placed');
+  restorePlotClip(instance.querySelector(`[id="placed__${selected}"]`)!);
+  h.eq(instance.querySelector('#placed__leaf-a')!.getAttribute('clip-path'), 'url(#placed__c)', `${selected}: restoration finds original leaf through a clone/prefix`);
+  h.eq(instance.querySelector('#placed__leaf-b')!.getAttribute('clip-path'), 'url(#placed__c)', 'sibling retains its own original prefixed clip');
+  h.eq(instance.querySelector('#placed__bar-a')!.getAttribute('clip-path'), null, 'semantic wrapper translation cannot inherit a different clip coordinate frame');
+  h.eq(instance.querySelectorAll('[data-flux-clip-run],[data-flux-clip-leaf]').length, 0, 'restoration removes all optimization ownership markers');
+  applyOverrides(instance, { [selected]: { dx: 13, dy: 7 } }, 'placed');
+  h.ok(instance.querySelector(`[id="placed__${selected}"]`)!.getAttribute('transform')?.startsWith('translate(13 7)'), 'either semantic group or geometry leaf still moves normally');
+}
+for (const attrs of ['transform="translate(1)"', 'style="fill:red"', 'filter="url(#f)"', 'mask="url(#m)"', 'opacity=".5"', 'clip-path="url(#c)"', 'class="spatial"', 'visibility="hidden"']) {
+  const root = parsePlotSvg(wrapped(attrs))!, before = root.outerHTML;
+  h.eq(hoistPlotClips(root as unknown as Element).hoisted, 0, `non-inert semantic wrapper refused: ${attrs}`);
+  h.eq(root.outerHTML, before, 'refused wrapper retains exact source structure');
+}
+for (const leafAttrs of ['transform="translate(1)"', 'filter="url(#f)"', 'mask="url(#m)"', 'style="clip-path:url(#c)"', 'opacity=".5"', 'style="opacity:.5"', 'style="translate:12px 5px"', 'style="rotate:12deg"', 'style="scale:.7"']) {
+  const root = parsePlotSvg(wrapped('', leafAttrs))!, before = root.outerHTML;
+  h.eq(hoistPlotClips(root as unknown as Element).hoisted, 0, `spatial leaf refused: ${leafAttrs}`);
+  h.eq(root.outerHTML, before, 'refused leaf retains exact source structure');
+}
+{
+  const root = parsePlotSvg(wrapped().replace('<defs>', '<style>*{stroke-linecap:butt;stroke-linejoin:round}</style><defs>'))!;
+  h.eq(hoistPlotClips(root as unknown as Element).hoisted, 2, 'recognized universal matplotlib defaults are baked before wrapper hoisting');
+  h.eq(root.querySelectorAll('style').length, 0, 'no recognized stylesheet remains to change structural matching');
+}
+for (const css of ['g > path{fill:red}', '@font-face{font-family:X;src:url(data:font/ttf;base64,AA==)}', '*{opacity:.5}', 'g{transform:translate(1px)}']) {
+  const root = parsePlotSvg(wrapped().replace('<defs>', `<style>${css}</style><defs>`))!, before = root.outerHTML;
+  h.eq(hoistPlotClips(root as unknown as Element).hoisted, 0, 'non-universal or structural stylesheet prevents all clip rewrites');
+  h.eq(root.outerHTML, before, 'unsupported sheets and authored structure remain byte-identical');
 }
 h.section("prepared render cache follows semantic source changes");
 {

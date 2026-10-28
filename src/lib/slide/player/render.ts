@@ -27,7 +27,7 @@ import { applyPlotTheme, plotFollowsTheme } from "../../plot/themeDom";
 import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
-import { prefixIds, applyOverrides, partDomId, partIdFromDom } from "../../plot/parse";
+import { prefixIds, applyOverrides, partDomId, partIdFromDom, restorePlotClip } from "../../plot/parse";
 import { isDerivedManifest } from "../../plot/derive";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
@@ -398,6 +398,14 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
   const from = document.createElement("div"), to = document.createElement("div");
   fillContent(from, pre, ctx); fillContent(to, end, ctx);
   const a = from.firstElementChild, b = to.firstElementChild, live = w.firstElementChild;
+  // Content tweens can fade a semantic wrapper and interpolate its leaf's
+  // attributes independently. Give all three endpoints the original clip
+  // owners before compiling bindings; otherwise an opacity override at only
+  // one endpoint could also switch the leaf's clip halfway through the tween.
+  // Keep the existing direct-leaf optimization and all node identities intact.
+  for (const root of [a, b, live]) if (root) for (const run of root.querySelectorAll("[data-flux-clip-run]")) {
+    if (Array.from(run.children).some(child => child.hasAttribute("data-flux-clip-leaf")) && run.firstElementChild) restorePlotClip(run.firstElementChild);
+  }
   const manifestOf = (el: FigElement) => el.type !== "plot" ? undefined : ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId];
   const named = new Set<string>();
   manifestNames(manifestOf(pre), named); manifestNames(manifestOf(end), named);
@@ -444,6 +452,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
   const bindings = contentBindings("plot", dataGeometry);
   const fades: { node: Element; opacity: string | null; style: string; display: string; entering: boolean; hidden: boolean; grow?: BarGrow }[] = [];
   const fade = (node: Element, entering: boolean, source = node) => {
+    restorePlotClip(node);
     // A keyed bar with no counterpart scales on its baseline instead of fading. A CSS `transform` replaces the node's own
     // `transform` attribute, so a bar that carries one keeps the fade (fluxplot bars do not).
     // Looked up by the binder's semantic key (`keyOf`), which survives the id prefixing of a replaced outgoing copy.
@@ -763,6 +772,7 @@ export function compileGhostPartOpacity(scope: ParentNode, el: FigElement, ctx: 
   const bindings = Object.entries(factors).flatMap(([part, state]) => {
     const node = scope.querySelector<SVGElement>(`[id="${partDomId(el.id, part)}"]`);
     if (!node) return [];
+    restorePlotClip(node);
     const raw = node.style.opacity || node.getAttribute("opacity") || "1";
     const base = ghostOpacityBase.get(node) ?? (Number.isFinite(Number(raw)) ? Number(raw) : 1);
     ghostOpacityBase.set(node, base);

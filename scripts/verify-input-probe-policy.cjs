@@ -1,9 +1,15 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { configureWindow, assertWindow, renderedCamera, deepZoomNotches, deepZoomDelivered } = require('./perf/input-probe-policy.cjs');
+const { configureWindow, assertWindow, renderedCamera, deepZoomNotches, deepZoomDelivered, wheelBurstCadence } = require('./perf/input-probe-policy.cjs');
 const { assertUsableDisplay, qualifiedNativeBounds, assertNativePointerTarget } = require('./lib/nativeWindowQualification.cjs');
 async function main() {
   const { harness } = await import('./lib/harness.mjs'); const h = harness('verify-input-probe-policy');
+  h.eq(wheelBurstCadence(), 8, 'ordinary diagnostic wheel stress retains its original 8ms injection cadence');
+  h.eq(wheelBurstCadence({ fixture: true, value: '16' }), 16, 'qualified dense fixture explicitly admits display-paced 16ms input without shortening its bursts');
+  h.eq(wheelBurstCadence({ fixture: true, value: '8' }), 8, 'dense fixture can still reproduce the original unphased 8ms diagnostic');
+  for (const value of ['16', '24', '0', 'NaN']) assert.throws(() => wheelBurstCadence({ value }), RangeError);
+  assert.throws(() => wheelBurstCadence({ fixture: true, value: '17' }), RangeError);
+  h.ok(true, 'ordinary probes cannot silently enable fixture cadence and unsupported pacing is refused');
   h.eq(renderedCamera({matrix:{a:1.25,e:3,f:-4},baked:2}),{zoom:2.5,panX:3,panY:-4,proxy:false},'live camera multiplies baked SVG scale by residual transform');
   const proxy={worldBox:'-10 -20 100 50',rasterSize:'200 100',matrix:{a:1.5,e:40,f:50}};
   h.eq(renderedCamera({proxy,matrix:{a:1,e:0,f:0},baked:.25}),{zoom:3,panX:70,panY:110,proxy:true},'active proxy camera uses world/raster geometry instead of the frozen live SVG');

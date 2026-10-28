@@ -41,7 +41,7 @@
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
 const { analyze: analyzeMarkerFrames } = require('./frame-oracle.cjs');
 const repo = path.resolve(__dirname, '..', '..');
-const { renderedCamera, deepZoomNotches, deepZoomDelivered } = require('./input-probe-policy.cjs');
+const { renderedCamera, deepZoomNotches, deepZoomDelivered, wheelBurstCadence } = require('./input-probe-policy.cjs');
 
 // ---------------------------------------------------------------------------
 // LAUNCHER (plain Node): copy the project, isolate config, spawn Electron on this file.
@@ -126,7 +126,7 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = '1';
 const { app, BrowserWindow, contentTracing, screen } = require('electron');
 const { configureWindow, assertWindow } = require('./input-probe-policy.cjs');
 const qualify = process.env.PROBE_QUALIFY === '1';
-let qualificationPolicy, model3dProbe;
+let qualificationPolicy, model3dProbe, denseZoomProbe;
 if (process.env.PROBE_MODEL3D_S8 && !qualify) throw Error('S8 requires --qualify');
 const out = process.env.PROBE_OUT;
 const scenarios = (process.env.PROBE_SCENARIOS || 'base').split(',').filter(Boolean);
@@ -175,6 +175,7 @@ const stats = (xs) => ({ n: xs.length, p50: q(xs, .5), p95: q(xs, .95), max: xs.
 function cpuSnapshot() { const o = {}; for (const p of app.getAppMetrics()) { const k = p.type === 'Tab' ? 'renderer' : p.type; o[k] = +((o[k] || 0) + p.cpu.percentCPUUsage).toFixed(3); } return o; }
 const mouse = (ev) => win.webContents.sendInputEvent(ev);
 const preciseWheel = process.env.PROBE_PRECISE_WHEEL === '1';
+const wheelCadenceMs = wheelBurstCadence({ fixture: process.env.PROBE_DENSE_ZOOM_TEST === '1', value: process.env.PROBE_WHEEL_CADENCE_MS || '8' });
 const wheel = (x, y, dx, dy, modifiers = []) => mouse({ type: 'mouseWheel', x, y, deltaX: dx, deltaY: dy, canScroll: true, hasPreciseScrollingDeltas: preciseWheel, modifiers });
 // A synthetic ctrl+wheel needs the KEY down too (the first events of a wheel gesture
 // otherwise latch as a scroll without the modifier): hold Control around zoom bursts.
@@ -191,7 +192,7 @@ async function click(x, y, hold = 10) { mouse({ type: 'mouseDown', button: 'left
 // Delivery barriers belong between semantic stages, never between injections.
 async function nativeWheelBurst(x,y,dx,dy,count,modifiers=[]) {
   const before=await js('({wheels:window.__p.wheels,deltaX:window.__p.wheelDeltaX,deltaY:window.__p.wheelDeltaY})');
-  for(let i=0;i<count;i++){wheel(x,y,dx,dy,modifiers);await sleep(8)}
+  for(let i=0;i<count;i++){wheel(x,y,dx,dy,modifiers);await sleep(wheelCadenceMs)}
   const expected={count:before.wheels+count,deltaX:before.deltaX-dx*count,deltaY:before.deltaY-dy*count,
     tolerance:Math.max(.01,(Math.abs(dx)+Math.abs(dy))*count*1e-5),precise:preciseWheel};
   const actual=await js(`window.__p.waitForWheels(${JSON.stringify(expected)})`);
@@ -437,8 +438,9 @@ async function main() {
   await wait(() => js("!!document.querySelector('button[aria-label=Figure]')"), 'shell');
   try { win.webContents.debugger.attach('1.3'); await win.webContents.debugger.sendCommand('Performance.enable'); cdpOk = true; } catch (e) { log('cdp', { err: String(e) }); }
   log('gpu', app.getGPUFeatureStatus());
-  fs.writeFileSync(path.join(out, 'runtime.json'), JSON.stringify({ versions: process.versions, gpu: app.getGPUFeatureStatus(), qualification: qualificationPolicy, preciseWheel, displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea})), viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'), switches: process.argv.filter(a => a.startsWith('--')) }, null, 2));
+  fs.writeFileSync(path.join(out, 'runtime.json'), JSON.stringify({ versions: process.versions, gpu: app.getGPUFeatureStatus(), qualification: qualificationPolicy, preciseWheel, wheelCadenceMs, displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea})), viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'), switches: process.argv.filter(a => a.startsWith('--')) }, null, 2));
   await js(INSTR);
+  if (process.env.PROBE_DENSE_ZOOM_TEST === '1') denseZoomProbe = require('../lib/denseZoomProbe.cjs')({ win, js, wait, sleep, mouse, nativeWheelBurst, ctrlDown, ctrlUp, out, project: process.env.PROBE_PROJECT });
   if (process.env.PROBE_MODEL3D_S8) model3dProbe = await require('./input-probe-model3d.cjs')({ win, js, wait, wheel, mouse, sleep, out, variant: process.env.PROBE_MODEL3D_S8, project: process.env.PROBE_PROJECT });
   if (surface === 'paper' || surface === 'both') await paperPhases();
   if (surface === 'figure' || surface === 'both') await figurePhases();
@@ -629,6 +631,7 @@ async function figurePhases(mode = 'figure') {
     if (wantPhase('zoomDeep') && process.env.PROBE_PRE_REST) await sleep(+process.env.PROBE_PRE_REST); // zoom-path: let the zoom proxy land first
     if (wantPhase('zoomDeep')) {
       const deepZoom={target:16,cycles:[]},cameraJs=renderedCameraJs(modeRoot);
+      await denseZoomProbe?.prepare({ mode, sc, cx, cy, cameraJs });
       const save=()=>fs.writeFileSync(path.join(out,`deep-stages-${mode}-${sc}.json`),JSON.stringify(deepZoom,null,2));
       R.zoomDeep=await measureFrames(`${mode}:${sc}:zoomDeep`,region,async()=>{
         ctrlDown();
@@ -647,11 +650,13 @@ async function figurePhases(mode = 'figure') {
             if(row.afterIn.zoom<16||row.afterIn.zoom>16*Math.exp(.18)+1e-4)throw Error('deep zoom missed16x target: '+JSON.stringify(row.afterIn));
             await wait(()=>js(`(()=>{const c=${cameraJs};return !c.proxy&&c.baked>=16&&Math.abs(c.residual-1)<1e-5})()`),'deep zoom reached and folded');
             row.folded=await js(cameraJs);save();
+            await denseZoomProbe?.stage('deep-fold', cycle + 1);
             await sleep(250); // include the original cold high-resolution raster
             row.out=await nativeWheelBurst(cx,cy,0,-120,36,['control']);
             row.afterOut=await js(cameraJs);save();
             await wait(()=>js(`(()=>{const c=${cameraJs};return !c.proxy&&Math.abs(c.residual-1)<1e-5})()`),'wide zoom delivered and folded');
             row.settled=await js(cameraJs);save();
+            await denseZoomProbe?.stage('wide-fold', cycle + 1);
           }
         } finally { ctrlUp(); save(); }
         await sleep(600);
@@ -659,6 +664,7 @@ async function figurePhases(mode = 'figure') {
       R.zoomDeep.deepZoom=deepZoom;
       if(!deepZoomDelivered(R.zoomDeep))throw Error('deep zoom actual event/cycle contract failed');
       log('deepZoom',deepZoom);
+      await denseZoomProbe?.finish();
     }
     if (wantPhase('zoomFast')) R.zoomFast = await measureFrames(`${mode}:${sc}:zoomFast`, region, async () => { ctrlDown(); for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); await sleep(600); }, tr('zoomFast'));
     if (wantPhase('zoomBursts')) R.zoomBursts = await measureFrames(`${mode}:${sc}:zoomBursts`, region, async () => { ctrlDown(); for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(16); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(16); } await sleep(320); } ctrlUp(); await sleep(600); }, tr('zoomBursts'));

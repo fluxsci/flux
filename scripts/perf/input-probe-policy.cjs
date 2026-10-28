@@ -26,6 +26,14 @@ function deepZoomNotches(zoom) {
   if (!Number.isFinite(zoom)||!(zoom>0)) throw RangeError('Invalid deep zoom start');
   return Math.max(1,Math.ceil(Math.log(16/zoom)/.18));
 }
+// Default diagnostic stress remains the original 8ms injection. A qualified
+// portable fixture may explicitly use the display's 60Hz (16ms) cadence so
+// Chromium's notch-wheel dispatch queue does not dominate end-to-end timing.
+function wheelBurstCadence({ fixture = false, value = '8' } = {}) {
+  const cadence = Number(value);
+  if (cadence === 8 || fixture && cadence === 16) return cadence;
+  throw RangeError('Wheel burst cadence must be 8ms, or explicit 16ms for the dense fixture');
+}
 function deepZoomDelivered(phase) {
   const cycles=phase.deepZoom?.cycles;
   if (phase.deepZoom?.target!==16||!Array.isArray(cycles)||cycles.length!==3) return false;
@@ -39,4 +47,4 @@ function deepZoomDelivered(phase) {
   }
   return phase.wheels===delivered;
 }
-module.exports = { configureWindow, assertWindow: assertFocusedWindow, renderedCamera, deepZoomNotches, deepZoomDelivered };
+module.exports = { configureWindow, assertWindow: assertFocusedWindow, renderedCamera, deepZoomNotches, deepZoomDelivered, wheelBurstCadence };

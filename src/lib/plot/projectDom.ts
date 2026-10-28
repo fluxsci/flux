@@ -2,7 +2,7 @@
 // All identities, fits and guide values bind once; frames reuse numeric buffers.
 import type { PlotView, PlotAxisKey } from "../types";
 import type { FluxPlotManifest, FluxPlotSeries, FluxPlotAxis } from "./types";
-import { partDomId, applyTickGroupOverrides } from "./parse";
+import { partDomId, applyTickGroupOverrides, restorePlotClip } from "./parse";
 import { axisFit, blendFit, guideAxes, guideData, guidePixel, matchTickSets, pairVertices, projectWith, sampleSeries, seriesFits, dataOfPixel, filledLeaves, viewProjectsVertices, retickable, tickFlightLaw, capturedAxis, type TickSpec,
   seriesAxes, seriesVertices, seriesTweenable, viewFits, lerpData, lerpPixel, type Fit, type Fits, type MorphPoint } from "./project";
 import { transformToAncestor } from "./svgMatrix";
@@ -44,6 +44,7 @@ function attr(node: Element, name: string, value: string | null): void {
   if (value === null) node.removeAttribute(name); else node.setAttribute(name, value);
 }
 function style(node: Element, name: string, value: string): void {
+  if (name === "opacity" || name === "translate") restorePlotClip(node);
   const rec = record(node), st = (node as SVGElement).style;
   let field = rec.styles.get(name);
   if (!field) { field = { value: null, written: false }; rec.styles.set(name, field); }

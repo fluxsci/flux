@@ -588,6 +588,7 @@
   let cullRect: Rect = ALL_RECT; // the MOUNT rect
   let cullRectOut: Rect = ALL_RECT; // the UNMOUNT rect (hysteresis)
   let cullKey = "";
+  let retainedRasterMounts: Map<string, Set<string>> | null = null;
   $: {
     // Resting culls use the baked scale and quantized pan. During a gesture,
     // keep that set until the visible viewport exhausts its mounting buffer.
@@ -606,10 +607,17 @@
     // The first large zoom tick can exhaust the cull buffer before the fold
     // scheduler activates the available proxy later in this same flush.
     const rasterCoversAll = paneActive && proxyMatte !== null && !Object.keys($modelPreviews).length &&
-      (proxyActive || $viewport.zoom !== renderZoom) && zoomSnap && snapshotScene?.snapshot === zoomSnap &&
+      zoomSnap && snapshotScene?.snapshot === zoomSnap &&
       snapshotScene.complete && snapshotScene.contentKey === sceneContentKey && sceneBox &&
       proxyCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH });
-    if (!rasterCoversAll && ((!sceneHot && !zoomUnsettled && key !== cullKey) || !covered)) {
+    // Retain a dense capture's already mounted artwork across folds. Rebuilding
+    // these same SVGs on every reversal is much slower than their one repaint.
+    // The ordinary resting rect still admits newly visible, captured-only
+    // placements; this is a bounded superset, never a frozen incomplete scene.
+    const retained = rasterCoversAll && snapshotScene!.nodes > SNAPSHOT_MAX_NODES ? snapshotScene!.mounts : null;
+    if (retainedRasterMounts !== retained) retainedRasterMounts = retained;
+    const rasterCarriesGesture = rasterCoversAll && (proxyActive || $viewport.zoom !== renderZoom);
+    if (!rasterCarriesGesture && ((!sceneHot && !zoomUnsettled && key !== cullKey) || !covered)) {
       // No proxy abort here: a re-cull that changes the mounted set bumps
       // mountedGen / visibleFigures, i.e. the snapshot's sceneKey, and the
       // key check below ends the proxy in this same flush. A re-cull that
@@ -637,6 +645,7 @@
         const next = canvasFigures.filter(
           (f) =>
             f.id === $activeFigureId ||
+            (retainedRasterMounts?.has(f.id) && mountedFigs.has(f.id)) ||
             rectsIntersect(figRect(f), cullRect) ||
             (mountedFigs.has(f.id) && rectsIntersect(figRect(f), cullRectOut)),
         );
@@ -670,6 +679,7 @@
     // not vanish while its spun corners are still visible (unrotated = same fast path).
     const els = fig.elements.filter((el) => {
       if (effHidden(el)) return false;
+      if (was?.has(el.id) && retainedRasterMounts?.get(fig.id)?.has(el.id)) return true;
       if ($selection.has(el.id) && fig.id !== layoutFigureId) return true;
       const box = rotatedAABB(el);
       const delta = fig.id === layoutFigureId ? layoutDeltas.get(el.id) : undefined;
@@ -709,6 +719,8 @@
     // throttle's own `cullKey` let and forced a re-cull every pan frame.
     cullRef: null as Rect | null,
     cullGen: 0,
+    retained: null as Map<string, Set<string>> | null,
+    retainedGen: 0,
     layoutFigure: null as string | null,
     layoutDeltas: null as typeof layoutDeltas | null,
     layoutGen: 0,
@@ -731,6 +743,10 @@
         visMemoBox.cullRef = cullRect;
         visMemoBox.cullGen++;
       }
+      if (retainedRasterMounts !== visMemoBox.retained) {
+        visMemoBox.retained = retainedRasterMounts;
+        visMemoBox.retainedGen++;
+      }
       if (layoutFigureId !== visMemoBox.layoutFigure || layoutDeltas !== visMemoBox.layoutDeltas || layoutViewKey !== visMemoBox.layoutViewKey) {
         visMemoBox.layoutFigure = layoutFigureId;
         visMemoBox.layoutDeltas = layoutDeltas;
@@ -740,7 +756,7 @@
       const next = new Map<string, { key: string; els: Element[] }>();
       const m = new Map<string, Element[]>();
       for (const f of visibleFigures) {
-        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}`;
+        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.retainedGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}`;
         let mm = visMemoBox.map.get(f.id);
         if (!mm || mm.key !== key) {
           perfCounters.visRecomputes++;
@@ -959,7 +975,7 @@
   let snapScheduled = false;
   let snapGen = 0; // bumps on every scheduling — a stale async snapshot is dropped
   let snapSerial = 0; // identifies a landed snapshot (data-snap on the proxy; gates compare it)
-  let snapshotScene: { snapshot: ZoomSnapshot; contentKey: string; mounts: Map<string, Set<string>>; complete: boolean } | null = null;
+  let snapshotScene: { snapshot: ZoomSnapshot; contentKey: string; mounts: Map<string, Set<string>>; complete: boolean; nodes: number } | null = null;
   // Everything that changes what the MOUNTED scene looks like. Not the viewport,
   // not the baked zoom: the snapshot is drawn in world units at its own raster
   // scale, so pans and folds never invalidate it (only content does).
@@ -1300,7 +1316,7 @@
       const ids = mounts.get(figure.id);
       return !!ids && figure.elements.every(element => effectiveHidden(figure, element) || ids.has(element.id));
     });
-    snapshotScene = { snapshot: next, contentKey: sceneContentKey, mounts, complete };
+    snapshotScene = { snapshot: next, contentKey: sceneContentKey, mounts, complete, nodes: sceneSvgEl?.getElementsByTagName("*").length ?? 0 };
     proxyMatte = hostEl ? snapshotMatte(hostEl) : null;
     zoomSnap = next;
     if (previous) revokeSnapshot(previous);

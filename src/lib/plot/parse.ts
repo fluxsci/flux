@@ -177,41 +177,59 @@ export function bakePlotStyles(root: Element): { baked: number; kept: number; at
 // selection change or overlay repaint — 4 ms per dense plot, ~10 ms per click
 // on a 21-plot figure (2026-09-16). Wrapping each run of consecutive siblings
 // that share a static user-space clip in ONE clipped <g> can reduce these
-// chunks substantially. Only eligible leaf geometry is grouped: bounding-box
-// clips, text, transforms, definitions and any stylesheet keep their original
-// structure. Part translation restores the original per-child clips before
-// moving. Editor cache only — exports serialize the pristine parse.
+// chunks substantially. Eligible leaf geometry and inert singleton semantic wrappers are grouped:
+// bounding-box clips, text, transforms, definitions and unsupported stylesheets
+// keep their original structure. Translation and part opacity restore original
+// per-leaf clips before editing. Editor cache only — exports serialize the pristine parse.
 
 /** Wrap runs of ≥2 consecutive element siblings sharing a clip-path (and
  *  carrying no transform) in one clipped <g>. Returns counts for the gates. */
 export function hoistPlotClips(root: Element): { groups: number; hoisted: number } {
   let groups = 0;
   let hoisted = 0;
-  if (root.querySelector("style")) return { groups, hoisted };
+  // The existing atomic baker accepts only universal cap/join declarations.
+  // Any structural/conditional/other stylesheet (including embedded faces)
+  // still opts out rather than guessing whether a new ancestor changes CSS.
+  if (root.querySelector("style") && bakePlotStyles(root).kept) return { groups, hoisted };
   const clips = new Map(Array.from(root.querySelectorAll("clipPath[id]")).map(el => [el.id, el]));
   const safeClip = (el: Element): string | null => {
     if (!/^(path|rect|circle|ellipse|line|polyline|polygon)$/.test(el.localName) || el.hasAttribute("data-flux-glyph")) return null;
     if (el.children.length) return null; // Includes animate/animateTransform: this must be a static leaf.
-    if (/(^|;)\s*(transform|clip-path)\s*:/i.test(el.getAttribute("style") ?? "")) return null;
+    if (el.hasAttribute("filter") || el.hasAttribute("mask") || el.hasAttribute("opacity") || /(^|;)\s*(transform|translate|rotate|scale|clip-path|filter|mask|opacity)\s*:/i.test(el.getAttribute("style") ?? "")) return null;
     const cp = el.getAttribute("clip-path");
     const id = cp && /^url\(#([^()]+)\)$/.exec(cp)?.[1];
     const clip = id ? clips.get(id) : null;
     return clip && (clip.getAttribute("clipPathUnits") ?? "userSpaceOnUse") === "userSpaceOnUse" ? cp : null;
   };
   const hasTransform = (el: Element) => el.hasAttribute("transform") || /(^|;)\s*transform\s*:/.test(el.getAttribute("style") ?? "");
+  const wrappedLeaf = "data-flux-clip-leaf";
+  const candidate = (el: Element): { clip: string; leaf: Element } | null => {
+    let leaf = el;
+    if (el.localName === "g") {
+      // fluxplot's semantic artist wrapper is retained, including its ID and
+      // data metadata. Only an inert singleton can share its leaf's user space.
+      // Whitelisting avoids moving a clip across opacity, masking, filters,
+      // CSS geometry, animations or an authored transform/style.
+      if (el.children.length !== 1 || el.hasAttribute(wrappedLeaf) || Array.from(el.attributes).some(a =>
+        a.name !== "id" && !a.name.startsWith("data-") && a.name !== "stroke-linecap" && a.name !== "stroke-linejoin")) return null;
+      leaf = el.firstElementChild!;
+    }
+    const clip = safeClip(leaf);
+    return clip && !hasTransform(leaf) ? { clip, leaf } : null;
+  };
   const parents = [root, ...Array.from(root.querySelectorAll("g, svg, a"))];
   for (const parent of parents) {
     if (insideDefs(parent) || parent.closest("clipPath, mask, pattern, marker, symbol")) continue;
     const kids = Array.from(parent.children);
     let i = 0;
     while (i < kids.length) {
-      const cp = safeClip(kids[i]);
-      if (!cp || hasTransform(kids[i])) {
+      const first = candidate(kids[i]), cp = first?.clip;
+      if (!cp) {
         i++;
         continue;
       }
       let j = i + 1;
-      while (j < kids.length && safeClip(kids[j]) === cp && !hasTransform(kids[j])) j++;
+      while (j < kids.length && candidate(kids[j])?.clip === cp) j++;
       if (j - i >= 2) {
         const doc = parent.ownerDocument ?? document;
         const g = doc.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -219,7 +237,9 @@ export function hoistPlotClips(root: Element): { groups: number; hoisted: number
         g.setAttribute("data-flux-clip-run", "");
         parent.insertBefore(g, kids[i]);
         for (let k = i; k < j; k++) {
-          kids[k].removeAttribute("clip-path");
+          const leaf = candidate(kids[k])!.leaf;
+          leaf.removeAttribute("clip-path");
+          if (leaf !== kids[k]) kids[k].setAttribute(wrappedLeaf, "");
           g.appendChild(kids[k]);
         }
         groups++;
@@ -236,10 +256,19 @@ export function hoistPlotClips(root: Element): { groups: number; hoisted: number
  *  as it does in exports. The identity wrapper stays: live gesture references
  *  and traversal order remain valid. */
 export function restorePlotClip(el: Element): void {
-  const parent = el.parentElement;
+  // A picked leaf may sit inside a retained semantic wrapper. Restore onto
+  // the ORIGINAL leaf, so translating either that leaf or its wrapper matches
+  // pristine SVG clip coordinates. Clone/import/prefix preserve this marker.
+  let child = el;
+  while (child.parentElement && !child.parentElement.hasAttribute("data-flux-clip-run")) child = child.parentElement;
+  const parent = child.parentElement;
   if (!parent?.hasAttribute("data-flux-clip-run")) return;
   const cp = parent.getAttribute("clip-path");
-  if (cp) for (const child of Array.from(parent.children)) child.setAttribute("clip-path", cp);
+  if (cp) for (const child of Array.from(parent.children)) {
+    const target = child.hasAttribute("data-flux-clip-leaf") ? child.firstElementChild : child;
+    target?.setAttribute("clip-path", cp);
+    child.removeAttribute("data-flux-clip-leaf");
+  }
   parent.removeAttribute("clip-path");
   parent.removeAttribute("data-flux-clip-run");
 }
@@ -429,6 +458,7 @@ export function applyOverrides(
 
       // Wrapper-level: visibility, compositing opacity, translation.
       const s = el.style;
+      if (ov.opacity != null) restorePlotClip(el);
       if (ov.hidden != null) s.display = ov.hidden || el.hasAttribute("data-relayout-hidden") || el.hasAttribute("data-projection-hidden") ? "none" : "";
       if (ov.opacity != null) s.opacity = String(ov.opacity);
       if (ov.dx != null || ov.dy != null) {

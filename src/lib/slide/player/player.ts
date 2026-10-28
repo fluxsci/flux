@@ -10,7 +10,7 @@
 import { beatDelayMs, settleTime, resolveTextLook, firstTickOrigin, FIRST_TICK_MAX_MS, PREROLL_MIN_MS, SETTLE_MAX_MS, SETTLE_MIN_REMAINING_MS, BACK_BURST_MS, BACK_SCALE_DEFAULT, rewindRate, rewindTime } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
-import { partDomId } from "../../plot/parse";
+import { partDomId, restorePlotClip } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
 import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
 import { familyOf } from "../family";
@@ -440,6 +440,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       }
       const nodes = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots);
       if (!nodes.length) continue;
+      if (hasPartBinding(track)) for (const node of nodes) restorePlotClip(node);
       // encircle: a synthetic overlay (a rounded band traced round the target), a controller in the stage-space flight layer
       if (track.preset === "encircle") {
         if (live) {

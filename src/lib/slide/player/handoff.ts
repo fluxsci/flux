@@ -5,7 +5,7 @@ import type { CorrespondencePlan, CorrespondencePair, SampledPath } from "../cor
 import { sampleCorrespondence, pairHeadPoints, arcOffset, planBends, pairProgress } from "../correspondence";
 import { dashOffsetAt, strokeEndDirection } from "../outline";
 import type { MorphController } from "../../plot/project";
-import { prefixIds } from "../../plot/parse";
+import { prefixIds, restorePlotClip } from "../../plot/parse";
 import { pathD, pathRender } from "../../path";
 import { gradientDef, gradientId, gradientSvg } from "../../color/gradient";
 import { warmWhenIdle } from "./transform";
@@ -239,6 +239,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     const original = bound?.namespaceURI === NS ? bound as SVGGraphicsElement : bound?.querySelector<SVGGraphicsElement>("svg");
     // (no layout engine, e.g. a headless linkedom player: nothing to measure, so no copy; the callers fall back to their plain law)
     if (!original || typeof original.getBBox !== "function" || typeof original.getScreenCTM !== "function") return undefined;
+    if (outline.owner.partId) restorePlotClip(original);
     const g = document.createElementNS(NS, "g"), content = document.createElementNS(NS, "g");
     // Read layout once, before the first flight frame. Text anchors supplied by
     // the pure bridge may have no size; the actual glyph run supplies its box.

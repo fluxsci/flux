@@ -16,6 +16,7 @@ try {
     const wrap = body => `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" viewBox="0 0 160 80">${body}</svg>`;
     const body = '<path id="a" class="paint strong" d="M10 10h60v50h-60z"/><path id="b" class="paint" d="M85 10h60v50h-60z"/>';
     const clip = units => `<defs><clipPath id="c" clipPathUnits="${units}"><rect width="${units === 'objectBoundingBox' ? '.5' : '55'}" height="${units === 'objectBoundingBox' ? '1' : '80'}"/></clipPath></defs><path id="a" fill="red" d="M0 10h60v30h-60z" clip-path="url(#c)"/><path id="b" fill="blue" d="M80 10h60v30h-60z" clip-path="url(#c)"/>`;
+    const singleton = '<defs><clipPath id="c"><circle cx="75" cy="35" r="28.4"/></clipPath></defs><g id="bar-a" data-role="bar"><path id="leaf-a" d="M0 0H160V80H0z" fill="red" clip-path="url(#c)"/></g><g id="bar-b" data-role="bar"><path id="leaf-b" d="M0 0H160V80H0z" fill="blue" clip-path="url(#c)"/></g>';
     const fixtures = [
       ['overlapping curved clip', '<defs><clipPath id="c"><circle cx="75" cy="35" r="28.4"/></clipPath></defs><path d="M0 0H160V80H0z" fill="red" clip-path="url(#c)"/><path d="M0 0H160V80H0z" fill="blue" clip-path="url(#c)"/>'],
       ['overlapping fractional rect clip', '<defs><clipPath id="c"><rect x="25.3" y="12.3" width="60.3" height="48.3"/></clipPath></defs><path d="M0 0H160V80H0z" fill="red" clip-path="url(#c)"/><path d="M0 0H160V80H0z" fill="blue" clip-path="url(#c)"/>'],
@@ -28,6 +29,16 @@ try {
       ['bounding-box clips', clip('objectBoundingBox')],
       ['user-space clips', clip('userSpaceOnUse')],
       ['moving clipped part', clip('userSpaceOnUse'), { a: { dx: 30 } }],
+      ['singleton curved clip', singleton],
+      ['moving singleton semantic wrapper', singleton, { 'bar-a': { dx: 37, dy: 5 } }],
+      ['moving singleton geometry leaf', singleton, { 'leaf-a': { dx: 37, dy: 5 } }],
+      ['hidden singleton semantic part', singleton, { 'bar-b': { hidden: true } }],
+      ['transparent singleton semantic part', singleton, { 'bar-b': { opacity: .4 } }],
+      ['authored singleton leaf opacity', singleton.replaceAll('fill="blue"', 'fill="blue" opacity=".4"')],
+      ['authored singleton leaf fill opacity', singleton.replaceAll('fill="blue"', 'fill="blue" fill-opacity=".4"')],
+      ['authored singleton leaf CSS translate', singleton.replaceAll('fill="blue"', 'fill="blue" style="translate:12px 5px"')],
+      ['authored singleton leaf CSS rotate', singleton.replaceAll('fill="blue"', 'fill="blue" style="rotate:12deg"')],
+      ['authored singleton leaf CSS scale', singleton.replaceAll('fill="blue"', 'fill="blue" style="scale:.7"')],
       ['CSS tree selectors', '<style>svg > path{fill:red}</style>' + clip('userSpaceOnUse')],
     ];
     const pixels = async root => {
@@ -40,15 +51,112 @@ try {
       } finally { URL.revokeObjectURL(url); }
     };
     const result = [];
+    const compare = async (name, pristine, optimized) => {
+      const a = await pixels(pristine), b = await pixels(optimized);
+      let changed = 0;
+      for (let i = 0; i < a.length; i += 4) if ([0, 1, 2, 3].some(c => a[i + c] !== b[i + c])) changed++;
+      result.push({ name, changed });
+    };
     for (const [name, body, overrides] of fixtures) {
       const pristine = P.preparePlot(wrap(body)).root;
       const optimized = pristine.cloneNode(true);
       P.bakePlotStyles(optimized); P.hoistPlotClips(optimized);
       for (const root of [pristine, optimized]) { P.prefixIds(root, 'plot'); P.applyOverrides(root, overrides, 'plot'); }
-      const a = await pixels(pristine), b = await pixels(optimized);
-      let changed = 0;
-      for (let i = 0; i < a.length; i += 4) if ([0, 1, 2, 3].some(c => a[i + c] !== b[i + c])) changed++;
-      result.push({ name, changed });
+      await compare(name, pristine, optimized);
+    }
+    const E = await import('/src/lib/editorPresentationDom.ts');
+    const S = await import('/src/lib/slide/player/render.ts');
+    const settled = () => new Promise(requestAnimationFrame);
+    const fresh = () => {
+      const pristine = P.preparePlot(wrap(singleton)).root, optimized = pristine.cloneNode(true);
+      P.hoistPlotClips(optimized);
+      for (const root of [pristine, optimized]) P.prefixIds(root, 'plot');
+      return { pristine, optimized };
+    };
+    // Exercise the actual editor action on an optimized cached instance. Its
+    // asynchronous state update and cleanup must preserve the original clip
+    // compositing, including hidden-part ghost previews.
+    {
+      const { pristine, optimized } = fresh();
+      const host = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      host.append(optimized);
+      const action = E.presentEditorParts(host, { elementId: 'plot', states: { 'bar-b': { opacity: .4 } } });
+      try {
+        await settled();
+        P.applyOverrides(pristine, { 'bar-b': { opacity: .4 } }, 'plot');
+        await compare('editor derived part opacity', pristine, optimized);
+        action.update({ elementId: 'plot', states: { 'bar-b': { visible: false } }, ghost: true });
+        await settled();
+        P.applyOverrides(pristine, { 'bar-b': { opacity: .25 } }, 'plot');
+        await compare('editor hidden-part ghost opacity', pristine, optimized);
+        action.update({ elementId: 'plot', states: {} });
+        await settled();
+        P.applyOverrides(pristine, { 'bar-b': { opacity: 1 } }, 'plot');
+        await compare('editor part opacity reset', pristine, optimized);
+      } finally { action.destroy(); }
+      await compare('editor part action destroy', pristine, optimized);
+    }
+    // The player binds inherited part factors once and reuses the same DOM
+    // across seeks/overrides. Test that real helper rather than a copied write.
+    {
+      const { pristine, optimized } = fresh();
+      const element = { id: 'plot', type: 'plot', assetId: 'source' };
+      const bind = S.compileGhostPartOpacity(optimized, element, { ghostPartFactors: { plot: { 'bar-b': { opacity: .4 } } } });
+      bind(element);
+      P.applyOverrides(pristine, { 'bar-b': { opacity: .4 } }, 'plot');
+      await compare('player inherited part opacity', pristine, optimized);
+      bind({ ...element, overrides: { 'bar-b': { opacity: .7 } } });
+      P.applyOverrides(pristine, { 'bar-b': { opacity: .7 * .4 } }, 'plot');
+      await compare('player reused part explicit opacity', pristine, optimized);
+      const rebound = S.compileGhostPartOpacity(optimized, element, { ghostPartFactors: { plot: { 'bar-b': { opacity: .4 } } } });
+      rebound(element);
+      P.applyOverrides(pristine, { 'bar-b': { opacity: .4 } }, 'plot');
+      await compare('player reused part baseline is not compounded', pristine, optimized);
+    }
+    {
+      const V = await import('/src/lib/plot/projectDom.ts');
+      const { pristine, optimized } = fresh();
+      V.writeGuide(optimized.querySelector('#plot__bar-b'), { dx: 0, dy: 0 }, .4);
+      P.applyOverrides(pristine, { 'bar-b': { opacity: .4 } }, 'plot');
+      await compare('projected guide edge fade', pristine, optimized);
+    }
+    {
+      const V = await import('/src/lib/plot/projectDom.ts');
+      const { pristine, optimized } = fresh();
+      for (const root of [pristine, optimized]) V.writeMarker(root.querySelector('#plot__bar-b'), 98, 43, 75, 35);
+      await compare('projected marker semantic-wrapper translation', pristine, optimized);
+    }
+    {
+      const R = await import('/src/lib/plot/relayout/apply.ts');
+      const { pristine, optimized } = fresh();
+      // A clipped annotation arrow is a singleton semantic group too. Exercise
+      // the real preview writer with a solved annotation displacement.
+      const model = { axes: new Map(), paths: new Map(), layout: {
+        figure: { widthPt: 160, heightPt: 80 }, legends: [],
+        frames: { 'bar-b': { f: 'arrow', text: 'annotation' } },
+        texts: { annotation: { anchor: [0, 0] } },
+      } };
+      const solution = { wPt: 160, hPt: 80, identity: false, axesBox: {}, fits: {}, decor: { annotation: [23, 8] } };
+      for (const root of [pristine, optimized]) R.applyRelayout(root, model, solution, 'preview');
+      await compare('relayout annotation semantic-wrapper translation', pristine, optimized);
+    }
+    {
+      // The content binder reuses the original DOM across endpoint seeks. An
+      // override only at B must not let its leaf clip vanish at A or mid-tween.
+      const source = P.preparePlot(wrap(singleton)).root, cached = source.cloneNode(true);
+      P.hoistPlotClips(cached);
+      const pre = { id: 'plot', type: 'plot', assetId: 'source', x: 0, y: 0, width: 160, height: 80, followTheme: false };
+      const end = { ...pre, overrides: { 'bar-b': { opacity: .4 } } };
+      const hosts = [source, cached].map(root => {
+        const host = document.createElement('div');
+        const ctx = { plotRoot: () => root, plotManifest: () => undefined };
+        S.fillContent(host, pre, ctx);
+        return { host, update: S.compilePlotContent(host, pre, end, ctx) };
+      });
+      for (const t of [0, .25, .5, 1, 0]) {
+        for (const item of hosts) item.update(pre, t);
+        await compare(`player content opacity seek ${t}`, hosts[0].host.firstElementChild, hosts[1].host.firstElementChild);
+      }
     }
     return result;
   });

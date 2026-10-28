@@ -1,5 +1,5 @@
 import { tick } from "svelte";
-import { partDomId } from "./plot/parse";
+import { partDomId, restorePlotClip } from "./plot/parse";
 
 interface PartDisplay {
   elementId: string;
@@ -30,6 +30,7 @@ export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
     for (const [partId, state] of Object.entries(params.states ?? {})) {
       const node = host.querySelector<SVGElement>(`[id="${CSS.escape(partDomId(params.elementId, partId))}"]`);
       if (!node) continue;
+      restorePlotClip(node);
       originals.set(node, { opacity: node.style.opacity, pointerEvents: node.style.pointerEvents, display: node.style.display });
       const hidden = state.visible === false || state.opacity === 0;
       const authored = node.style.opacity ? Number(node.style.opacity) : Number(node.getAttribute("opacity") ?? 1);

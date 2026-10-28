@@ -449,7 +449,8 @@
       "verify-plot-notes.ts",
       "verify-language-profiles.ts",
       "verify-scene-raster.ts",
-      "verify-scene-capture-supplement.ts"
+      "verify-scene-capture-supplement.ts",
+      "verify-dense-zoom-policy.cjs"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -763,7 +764,8 @@
       "verify-slide-model3d-scale-electron.cjs",
       "verify-plots-rail-electron.cjs",
       "verify-relayout-export-electron.cjs",
-      "verify-scene-raster-electron.cjs"
+      "verify-scene-raster-electron.cjs",
+      "verify-dense-zoom-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -1446,10 +1448,23 @@
     ],
     "scene-raster-native": [
       "verify-scene-raster-electron.cjs"
+    ],
+    "dense-zoom-native": [
+      "verify-dense-zoom-policy.cjs",
+      "verify-dense-zoom-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "$why": "Portable dense native navigation fixture, input hooks, and planted-failure-tested acceptance oracle.",
+      "glob": "{scripts/lib/denseZoom*.{cjs,ts},scripts/perf/input-probe.cjs}",
+      "run": [
+        "group:dense-zoom-native",
+        "verify-input-probe-policy.cjs",
+        "tier:pure"
+      ]
+    },
     {
       "$why": "Bounded detached completion of viewport snapshots; preserve default pure coverage and validate shared Canvas serialization.",
       "glob": "src/lib/interact/sceneCaptureSupplement.ts",
@@ -2260,6 +2275,7 @@
       "glob": "scripts/perf/input-probe-policy.cjs",
       "run": [
         "verify-input-probe-policy.cjs",
+        "group:dense-zoom-native",
         "tier:pure"
       ]
     },
@@ -3072,8 +3088,48 @@
       ]
     },
     {
+      "$why": "Dense navigation keeps all captured live artwork resident across deep folds; preserve the existing Canvas/zoom-proxy regression routes.",
+      "glob": "{src/lib/Canvas.svelte,src/lib/interact/zoomProxy.ts}",
+      "run": [
+        "verify-cursor-family.ts",
+        "verify-cursor-policy.ts",
+        "verify-cursor-gui.mjs",
+        "verify-cursor-press.mjs",
+        "verify-selection-zones-gui.mjs",
+        "verify-bbox-grab-gui.mjs",
+        "verify-interact-core.ts",
+        "verify-fig-esc.mjs",
+        "figenh-16-groups-ui.mjs",
+        "verify-crop.mjs",
+        "verify-figure-editing-gui.mjs",
+        "verify-v020-geometry-gui.mjs",
+        "figenh-15-partmove.mjs",
+        "verify-line-pivot.mjs",
+        "verify-f5-drag.mjs",
+        "verify-figure-input-hygiene.mjs",
+        "verify-zoom-proxy.mjs",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-render-optimizations.mjs",
+        "verify-canvas-coverage.mjs",
+        "verify-canvas-zoom-raster.mjs",
+        "verify-text-arrange-gui.mjs",
+        "verify-cross-figure-drag.mjs",
+        "verify-model3d-snapshot-quiet.mjs",
+        "verify-become-picker-gui.mjs",
+        "group:plots-rail",
+        "group:align-arrange",
+        "verify-xray-context-gui.mjs",
+        "group:oct27-figure",
+        "group:dense-zoom-native"
+      ]
+    },
+    {
       "$why": "2026-09-15 the crosshair cursor family — Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
-      "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte,src/lib/interact/compositorDrive.ts,src/lib/interact/zoomProxy.ts}",
+      "glob": "{src/styles/cursors.css,src/app.css,src/lib/interact/compositorDrive.ts}",
       "run": [
         "verify-cursor-family.ts",
         "verify-cursor-policy.ts",
@@ -11466,6 +11522,26 @@
       "isolation": "scratch",
       "timeoutMs": 60000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-dense-zoom-policy.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-dense-zoom-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

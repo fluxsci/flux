@@ -641,6 +641,40 @@ try {
   assert(m.ps === null && m.sel.length === 1 && m.sel[0] === "plot1", "ctrl-click on whitespace (no drag) selects the whole plot without drilling");
   assert(m.x === 40, "…and moves nothing");
 
+  // ---- 17. singleton semantic clip wrappers restore the ORIGINAL leaf on move ----
+  await page.evaluate(() => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="140" viewBox="0 0 240 140"><defs><clipPath id="clip"><rect x="8" y="8" width="210" height="110"/></clipPath></defs><g id="bars"><g id="bar-a" data-role="bar"><path id="leaf-a" d="M20 20h60v65H20z" fill="#4385be" clip-path="url(#clip)"/></g><g id="bar-b" data-role="bar"><path id="leaf-b" d="M120 20h60v65h-60z" fill="#d67720" clip-path="url(#clip)"/></g></g></svg>';
+    const manifest = { spec: 'fluxplot/manifest', schemaVersion: '0.2.0', series: [],
+      parts: { id: 'figure', role: 'figure', children: [{ id: 'bars', role: 'group', children: [{ id: 'bar-a', role: 'bar' }, { id: 'bar-b', role: 'bar' }] }] } };
+    window.__flux.io.reimportPlot('clip-wrapper-asset', svg, manifest);
+    const F = window.__flux.fig;
+    F.commit(p => { p.figures[0].elements = [{ id: 'clip-wrapper-plot', type: 'plot', assetId: 'clip-wrapper-asset', x: 40, y: 40, width: 240, height: 140, rotation: 0, overrides: {} }]; });
+    F.clearSelection(); F.viewport.set({ panX: 140, panY: 140, zoom: 1 }); F.resetHistory(); F.dirty.set(false);
+  });
+  await waitFor(page, () => !!document.querySelector('#clip-wrapper-plot__bar-a[data-flux-clip-leaf]'), null, { label: 'singleton semantic clip is hoisted in actual cache mount' });
+  await waitFor(page, viewportSettled, null, { label: 'clipped part viewport settled' });
+  const clipPoint = await page.$eval('#clip-wrapper-plot__leaf-a', n => { const r = n.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await page.keyboard.down('Control'); await page.mouse.move(clipPoint.x, clipPoint.y); await page.mouse.down();
+  await page.mouse.move(clipPoint.x + 24, clipPoint.y + 13, { steps: 4 }); await page.mouse.up(); await page.keyboard.up('Control');
+  await waitFor(page, () => window.__flux.figures().flatMap(f => f.elements).find(e => e.id === 'clip-wrapper-plot')?.overrides?.['bar-a']?.dx === 24,
+    null, { label: 'semantic clipped-wrapper drag commits exact override' });
+  const clipMoved = await page.evaluate(() => {
+    const root = document.querySelector('[data-editor-element-id="clip-wrapper-plot"]'), group = document.getElementById('clip-wrapper-plot__bar-a');
+    return { picked: window.__flux.get(window.__flux.fig.partSelection)?.partId,
+      clip: document.getElementById('clip-wrapper-plot__leaf-a').getAttribute('clip-path'),
+      sibling: document.getElementById('clip-wrapper-plot__leaf-b').getAttribute('clip-path'),
+      groupClip: group.getAttribute('clip-path'), run: root.querySelectorAll('[data-flux-clip-run]').length,
+      transform: group.getAttribute('transform'), history: window.__flux.fig.historyStats().past };
+  });
+  assert(clipMoved.picked === 'bar-a' && clipMoved.clip === 'url(#clip-wrapper-plot__clip)' && clipMoved.sibling === clipMoved.clip &&
+    clipMoved.groupClip === null && clipMoved.run === 0 && clipMoved.transform.startsWith('translate(24 13)') && clipMoved.history === 1,
+    `native pointer semantic-part move restores leaf clips and creates one Undo (${JSON.stringify(clipMoved)})`);
+  await page.evaluate(() => { window.__flux.fig.undo(); window.__flux.fig.dirty.set(false); });
+  await waitFor(page, () => !window.__flux.figures().flatMap(f => f.elements).find(e => e.id === 'clip-wrapper-plot')?.overrides?.['bar-a'], null, { label: 'Undo restores unclipped semantic source state' });
+  assert(await page.evaluate(() => document.querySelectorAll('[data-editor-element-id="clip-wrapper-plot"] [data-flux-clip-run]').length === 1 &&
+    !document.getElementById('clip-wrapper-plot__bar-a').getAttribute('transform') &&
+    !document.getElementById('clip-wrapper-plot__leaf-a').getAttribute('clip-path')), 'Undo remounts the same optimized untouched clip geometry');
+
   const errs = realErrors(page);
   assert(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

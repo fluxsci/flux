@@ -3,7 +3,7 @@ import { asBox, width, height } from "./model";
 import { solveRelayout,type RelayoutSolution } from "./solve";
 import type { LayoutFrame, LayoutEndpoint } from "../types.gen";
 import { mplNumber as n, parseMplPath, writeMplPath, type MplPath } from "./path";
-import { restoreOverrideTranslations, plotPartPrefix, drawablesUnder } from "../parse";
+import { restoreOverrideTranslations, plotPartPrefix, drawablesUnder, restorePlotClip } from "../parse";
 import {writeMathLabel} from "./mathLabel";
 import { arrowPaths } from "./arrows";
 import { compose, parseTransform } from '../svgMatrix';
@@ -15,6 +15,7 @@ interface Binding {el:Element;frame:LayoutFrame;id:string;path?:MplPath;x?:numbe
 interface State {root:Element;model:RelayoutModel;bindings:Binding[];ids:Map<string,Element>;pristine:Map<Element,Record<string,string|null>>;added:Element[];prefix:string;templates:Map<string,Element>; arrowPaths:Map<Element,string[]>; textContents:Map<Element,string>;pathChanges:Binding[]}
 const states=new WeakMap<Element,State>();
 function set(s:State,el:Element,key:string,value:string|null){
+  if(key==='transform'&&el.getAttribute(key)!==value)restorePlotClip(el);
   let rec=s.pristine.get(el);if(!rec)s.pristine.set(el,rec={});
   if(!(key in rec))rec[key]=el.getAttribute(key);
   if(value==null)el.removeAttribute(key);else if(el.getAttribute(key)!==value)el.setAttribute(key,value);
