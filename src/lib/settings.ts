@@ -131,24 +131,19 @@ const DEFAULTS: Settings = {
 // Forgery", then the docked FluxFig Menu) had size / position / nudge / opacity
 // / entrance / X-ray-dock settings; since the 2026-09-15 surface redesign both
 // panels anchor themselves beside the selection and open instantly, so every
-// one of those keys — legacy "forgery*" spellings included — is simply dropped.
+// one of those keys — legacy "forgery*" spellings included — is simply dropped,
+// as are retired Paper caret and correction preferences.
 const RETIRED_KEYS = [
   "forgerySize", "forgeryPos", "forgeryAnim", "forgeryOpacity",
   "fluxFigMenuSize", "fluxFigMenuPos", "fluxFigMenuDx", "fluxFigMenuDy",
   "fluxFigMenuAnim", "fluxFigMenuOpacity", "xrayPos", "xrayDx", "xrayDy",
+  "paperCaretFeel", "paperCaretMs", "paperCaretSoftBlink", "paperSmoothLineScroll",
+  "paperContextualCorrections", "paperCorrectionProvider", "paperCorrectionModel",
+  "paperCorrectionAggressiveness", "paperCorrectionGuidance",
 ];
 function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...raw };
   for (const k of RETIRED_KEYS) delete out[k];
-  delete out.paperCaretFeel;
-  delete out.paperContextualCorrections;
-  delete out.paperCorrectionProvider;
-  delete out.paperCorrectionModel;
-  delete out.paperCorrectionAggressiveness;
-  delete out.paperCorrectionGuidance;
-  delete out.paperCaretMs;
-  delete out.paperCaretSoftBlink;
-  delete out.paperSmoothLineScroll;
   if (typeof out.paperLocalCorrections !== "boolean") delete out.paperLocalCorrections;
   if (!["american", "british", "canadian", "australian"].includes(String(out.paperCorrectionDialect))) delete out.paperCorrectionDialect;
   // Cursor (2026-10-21, same day): the first cut had a colour SCHEME and a halo

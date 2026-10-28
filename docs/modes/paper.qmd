@@ -137,8 +137,8 @@ term through **Word tools**, and your removal remains in effect after reopening 
 
 Opening an existing document also scans its prose in the background and flags possible issues
 without changing the text. The scan skips the sentence you are writing in, code, math, tables,
-citations, links and front matter. The checker runs entirely on your device, without a model
-installation or a network request. **Settings → Corrections** offers English dialect selection
+citations, links and front matter. The checker runs entirely on your device and never sends
+your text anywhere. **Settings → Corrections** offers English dialect selection
 and **Reset correction learning**, which clears automatic “leave alone” lessons while preserving
 your dictionaries and aliases.
 
@@ -354,8 +354,8 @@ For keyboard fans, **Ctrl+K → Enable Vim mode** turns on modal editing, with t
 plain **Vim**, or **flux-ViM** — Vim plus Flux's opt-in refinements (the first: `jj` in insert
 mode is Escape). If none of this means anything to you, ignore it happily.
 
-The caret follows your typing with Chase motion: it arrives quickly and settles softly.
-Large jumps move directly to the new position; the caret rests after its brief idle blink.
+The caret glides after your typing: it arrives quickly and settles softly. Large jumps move
+directly to the new position, and the caret blinks softly once you pause.
 
 # Troubleshooting
 

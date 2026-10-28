@@ -191,7 +191,7 @@
     }
   }
 
-  // Open: refresh the displayed path / provider state and move focus into the
+  // Open: refresh the displayed library path and move focus into the
   // dialog. Close: clear the transient notice and hand focus back to wherever
   // it was.
   $effect(() => {
