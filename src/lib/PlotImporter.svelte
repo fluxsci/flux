@@ -897,7 +897,7 @@
                       {#if r.video || r.model3d}
                         <span class="media" style:height={`${row.h}px`}><GalleryPreview path={r.abs} {previews} />{#if r.model3d}<Model3dChip path={r.abs} {previews} initial={r.semantic} tile />{/if}</span>
                       {:else if settled.has(r.abs)}
-                        <Tile path={r.abs} stamp={sizes.get(r.abs)?.stamp ?? "?"} aspect={sizes.get(r.abs)?.aspect || placed.w / row.h} w={placed.w} h={row.h} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} {selected} focused={i === index} priority={Math.abs(i - index)} glyph={r.semantic ? "◆" : r.snip ? "✂" : ""} glyphTitle={r.semantic ? "Fluxplot" : r.snip ? "Paper snip" : ""} />
+                        <Tile path={r.abs} stamp={sizes.get(r.abs)?.stamp ?? "?"} aspect={sizes.get(r.abs)?.aspect || placed.w / row.h} w={placed.w} h={row.h} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} {selected} focused={i === index} priority={Math.abs(i - index)} glyph={r.snip ? "✂" : r.semantic ? "◆" : ""} glyphTitle={r.snip ? "Paper snip" : r.semantic ? "Fluxplot — editable parts and data" : ""} />
                       {:else}<span class="skeleton" style:height={`${row.h}px`}></span>{/if}
                     {:else}
                       <span class="folder-page" style:height={`${row.h}px`}>
