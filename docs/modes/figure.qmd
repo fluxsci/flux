@@ -132,9 +132,10 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   **Backspace** in an empty search comes back out. **Proj** / **Glob** (**Alt+1** /
   **Alt+2**) switch between this project and your global plot library.
 - **Alt+/** switches the lower pane between Dissections and **Folders**. The tree shows the
-  plot folders, with a search box for finding a nested directory. Choose a folder to show
-  only its plots; **↑/↓**, **←/→**, and **Enter** navigate and choose from the tree. Companion
-  directories stay out of this tree. Use **Alt+/** again to return to dissections.
+  plot folders and how many plots each holds, with a search box for finding a nested
+  directory. Choose a folder to show only its plots; **↑/↓**, **←/→**, and **Enter** navigate
+  and choose from the tree. The folder stays chosen while you flip to Layers and back.
+  Companion directories stay out of this tree. Use **Alt+/** again to return to dissections.
 - Plots sit at their true shape, several to a row, and every one is drawn on a background
   chosen so **all of it shows**: dark ink on paper, white ink (a plot made for a dark slide)
   on dark, both on grey, and a plot's own paper colour when it declares one. The **⋯** menu
@@ -187,11 +188,11 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   plot showing; the **pin** keeps it while you click elsewhere. **Double-click**, **Enter** or
   **Space** opens a file in the Dissect viewer; drag a panel onto a figure to place it.
 - **Notes** in Dissections lets you create and edit ordinary `.txt` companions with **+ Note**.
-  A plot can have several named notes. They save automatically; **Ctrl+Enter** saves now.
+  A plot can have several named notes. They save as you type; **Ctrl+S** saves now.
   The full Dissect viewer has the same **Notes** control. To search their contents across the
   project, switch on **Notes** beside the gallery search and type a word or tag such as
-  `#TODO`; choose a matching note to open it. If another writer changed a note, Flux keeps your
-  draft and explains the conflict before replacing anything.
+  `#TODO`; choose a match to select its plot and open the note here. If another writer changed
+  a note, Flux keeps your draft and explains the conflict before replacing anything.
 - Drag the line between the two parts to share the height; drag it to an edge to fold a
   part away; double-click it to reset. Files that appear or change in `plots/` show up on
   their own.

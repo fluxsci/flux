@@ -46,3 +46,12 @@ export function openPlotsRail(tenant: string): boolean {
   requestRailFocus();
   return true;
 }
+
+/** Browsing that outlives one mount of the rail: Alt+G flips Plots ↔ Layers (or Slides), and a
+ *  gallery scoped to one folder must come back scoped. Per root|scope|collection, this session
+ *  only — a restart opens the whole tree. */
+const railFolders = new Map<string, string>();
+export function railFolder(owner: string): string { return railFolders.get(owner) ?? ""; }
+export function rememberRailFolder(owner: string, dir: string): void { if (dir) railFolders.set(owner, dir); else railFolders.delete(owner); }
+/** The lower pane shows the folder navigator (Alt+/) instead of Dissections. */
+export const railFoldersOpen = writable(false);

@@ -56,8 +56,12 @@
   } = $props();
 
   const GROUP_CAP = 60;
-  let noteView = $state(false);
   const CAPPED_SHOW = 12;
+  // Files | Notes: the lower pane can show the plot's .txt notes as an editor instead.
+  let noteView = $state(false);
+  let noteFocus = $state.raw<{ group: string; name: string; seq: number } | null>(null);
+  let noteSeq = 0;
+  function openNote(group: string, name: string) { noteFocus = { group, name, seq: ++noteSeq }; noteView = true; }
 
   const root = $derived($embeddedProjectRoot || $projectDir || "");
   const focus = $derived($focusPlot);
@@ -67,6 +71,8 @@
   $effect(() => model.subscribe((v) => { ds = v; }));
 
   const wantKey = $derived(target && (target.kind === "plot" || target.kind === "sourceless") ? target.key : "");
+  // A focus that names a note (a Notes search hit) opens it.
+  $effect(() => { const f = target?.file; if (f && /\.txt$/i.test(f.name)) untrack(() => openNote(f.group, f.name)); });
   $effect(() => {
     const r = root, k = wantKey;
     if (!active) return;
@@ -184,7 +190,11 @@
   }
 
   function openInViewer(it: DissectItem) {
-    if (it.kind === "other") { void fileBridge()?.openPath?.(it.abs); return; }
+    if (it.kind === "other") {
+      if (/\.txt$/i.test(it.name)) openNote(it.group, it.name);
+      else void fileBridge()?.openPath?.(it.abs);
+      return;
+    }
     if (!ds.key) return;
     dissectTarget.set({ key: ds.key, displayName: ds.key.split("/").pop() ?? ds.key, initial: { group: it.group, name: it.name } });
   }
@@ -329,11 +339,11 @@
     <nav class="pane-views" aria-label="Plot companion views">
       <button class:chosen={!noteView} aria-pressed={!noteView} onclick={() => noteView = false}>Files</button>
       <button class:chosen={noteView} aria-label="Plot text notes" aria-pressed={noteView} disabled={!wantKey} onclick={() => noteView = !noteView} data-plot-notes-toggle>✎ Notes</button>
-      <span class="grow"></span><button aria-label="Browse plot folders" title="Browse folders (Alt+/)" onclick={onDirectories} data-directory-toggle>▰ Folders <kbd>Alt+/</kbd></button>
+      <span class="grow"></span><button aria-label="Browse plot folders" title="Browse the plot folders (Alt+/)" onclick={onDirectories} data-directory-toggle><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4V2.5h5l1.5 1.5h6.5v9.5h-13Z" /></svg>Folders <kbd>Alt+/</kbd></button>
     </nav>
     <div class="body" class:dim={!noteView && loading && viewTotal > 0}>
       {#if noteView && wantKey}
-        {#key `${root}|${wantKey}`}<PlotNotes {root} plotKey={wantKey} onChanged={() => void model.refresh()} />{/key}
+        {#key `${root}|${wantKey}`}<PlotNotes {root} plotKey={wantKey} focus={noteFocus} onChanged={() => void model.refresh()} />{/key}
       {:else if !target}
         <p class="state">Click a plot — on the canvas or above — to see its dissections.</p>
       {:else if target.kind === "external"}
@@ -382,7 +392,7 @@
             {:else if d.kind === "table"}
               <TableCard name={d.name} preview={tables.get(d.abs) ?? null} selected={flags.selected} focused={flags.focused} />
             {:else if d.kind === "other"}
-              <div class="other" class:selected={flags.selected} title={`${d.name} — double-click to open`}><span class="ic">📄</span>{d.name}</div>
+              <div class="other" class:selected={flags.selected} title={d.name.toLowerCase().endsWith(".txt") ? `${d.name} — double-click to edit it in Notes` : `${d.name} — double-click to open`}><span class="ic">{d.name.toLowerCase().endsWith(".txt") ? "✎" : "📄"}</span>{d.name}</div>
             {:else}
               <Tile
                 path={d.abs}
@@ -428,7 +438,7 @@
   .hb svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; vertical-align: -2px; }
   .hb.on svg { fill: currentColor; }
   .body { display: flex; flex-direction: column; flex: 1; min-height: 0; transition: opacity 80ms linear; }
-  .pane-views { display:flex; align-items:center; gap:2px; min-height:25px; flex-shrink:0; padding:0 5px; border-bottom:1px solid var(--c-line); background:var(--c-bg-raised); } .pane-views button { padding:3px 5px; border:0; border-radius:var(--r-ui); background:none; color:var(--c-tx-muted); font:10.5px var(--font-ui); cursor:var(--cursor-cross-hover); } .pane-views button:hover { background:var(--c-surface-2); color:var(--c-tx-hi); } .pane-views .chosen { background:var(--c-accent-tint); color:var(--c-accent); } .pane-views button:disabled { opacity:.4; } .pane-views kbd { margin-left:4px; color:var(--c-tx-faint); font:9px var(--font-mono); }
+  .pane-views { display:flex; align-items:center; gap:2px; min-height:25px; flex-shrink:0; padding:0 5px; border-bottom:1px solid var(--c-line); background:var(--c-bg-raised); } .pane-views button { padding:3px 5px; border:0; border-radius:var(--r-ui); background:none; color:var(--c-tx-muted); font:10.5px var(--font-ui); cursor:var(--cursor-cross-hover); } .pane-views button:hover { background:var(--c-surface-2); color:var(--c-tx-hi); } .pane-views .chosen { background:var(--c-accent-tint); color:var(--c-accent); } .pane-views button:disabled { opacity:.4; } .pane-views kbd { margin-left:4px; color:var(--c-tx-faint); font:9px var(--font-mono); } .pane-views svg { width:11px; height:11px; margin-right:4px; vertical-align:-1.5px; fill:none; stroke:currentColor; stroke-width:1.2; stroke-linejoin:round; }
   .body.dim { opacity: .6; }
   .state { margin: 0; padding: 12px; color: var(--c-tx-muted); font: 11.5px/1.45 var(--font-ui); }
   .state p { margin: 0 0 6px; }

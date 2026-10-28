@@ -48,14 +48,21 @@ export async function indexPlotNotes(root: string, plots: { abs: string }[], sig
   }));
   return { notes, incomplete, errors };
 }
-export function matchPlotNotes(notes: IndexedPlotNote[], query: string): (IndexedPlotNote & { snippet: string; line: number })[] {
+const lowered = new WeakMap<IndexedPlotNote, string>();
+/** The first hit per note: its line number and that line, windowed around the hit (`at` is the
+ *  hit's offset in `snippet`, `length` the query's) so the result can mark it. */
+export function matchPlotNotes(notes: IndexedPlotNote[], query: string): (IndexedPlotNote & { snippet: string; line: number; at: number; length: number })[] {
   const q = query.trim().toLocaleLowerCase();
   if (!q) return [];
   return notes.flatMap(note => {
-    const i = note.text.toLocaleLowerCase().indexOf(q);
+    let lower = lowered.get(note);
+    if (lower === undefined) lowered.set(note, lower = note.text.toLocaleLowerCase());
+    const i = lower.indexOf(q);
     if (i < 0) return [];
-    const start = note.text.lastIndexOf("\n", i) + 1;
-    const end = note.text.indexOf("\n", i);
-    return [{ ...note, line: note.text.slice(0, start).split("\n").length, snippet: note.text.slice(start, end < 0 ? undefined : end).slice(0, 240) }];
+    const lineStart = note.text.lastIndexOf("\n", i) + 1;
+    const lineEnd = note.text.indexOf("\n", i) < 0 ? note.text.length : note.text.indexOf("\n", i);
+    const start = i - lineStart > 80 ? i - 60 : lineStart, end = Math.min(lineEnd, Math.max(start + 240, i + q.length));
+    const lead = start > lineStart ? "…" : "";
+    return [{ ...note, line: note.text.slice(0, lineStart).split("\n").length, snippet: lead + note.text.slice(start, end), at: lead.length + i - start, length: q.length }];
   });
 }
