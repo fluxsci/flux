@@ -59,8 +59,8 @@ the command palette (**Ctrl+K → Set up Flux…**).
 | **Plots** | semantic, restylable plots | nothing to install in Flux: add **fluxplot** to your analysis environment (below) |
 | **AI agents** | Claude Code or Codex working inside your projects | detects them, links to their installers, and connects them to Flux |
 
-Everything else ships inside the app, including Flux's own PDF export, its video encoder,
-the local writing-correction model and the offline help.
+Everything else ships inside the app, including Flux's own PDF export, its video encoder
+and the offline help.
 
 # The companions in detail
 

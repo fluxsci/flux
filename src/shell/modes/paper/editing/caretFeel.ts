@@ -89,7 +89,6 @@ class CaretFeelPlugin {
     // blink on every cursor layer (incl. vim's) in favor of the idle pulse.
     view.scrollDOM.classList.add("cf-softblink");
     this.measureReq = { read: () => null, write: () => this.syncFromLayer(), key: this };
-
   }
 
   update(u: ViewUpdate) {

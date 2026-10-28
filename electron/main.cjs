@@ -730,7 +730,6 @@ app.on("will-quit", () => {
   } catch {
     /* not created yet */
   }
-
 });
 
 // W12 (SHL-8): a kill / Ctrl-C / SIGTERM used to leave a live-looking bridge.json

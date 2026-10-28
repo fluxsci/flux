@@ -81,6 +81,8 @@ interface RecentCorrection {
   kind: PlannedLocalCorrection["kind"] | "alias";
   message: string;
   aliasScope?: LocalLanguageScope;
+  /** A remembered spelling correction rather than an authored abbreviation. */
+  learned?: boolean;
   delay: number;
   expiresAt: number;
 }
@@ -93,6 +95,9 @@ interface CorrectionVisualState {
   recent: RecentCorrection[];
   issues: SpellingIssue[];
   openId: string | null;
+  /** The open menu was summoned by hovering, not a click: it closes when the
+   *  pointer leaves or typing resumes. */
+  hover: boolean;
   decorations: DecorationSet;
 }
 
@@ -100,8 +105,10 @@ type RevertMode = "undo" | "add-word" | "remove-alias";
 
 interface CorrectionActions {
   revert(view: EditorView, correction: RecentCorrection, mode: RevertMode): void;
-  correct(issue: SpellingIssue, replacement: string): void;
+  correct(issue: SpellingIssue, replacement: string, typed: boolean): void;
   recognize(issue: SpellingIssue): void;
+  /** Pointer entered (true) or left (false) a hover-opened spelling menu. */
+  hoverMenu(inside: boolean): void;
 }
 
 const correctionActions = Facet.define<CorrectionActions, CorrectionActions>({
@@ -121,6 +128,7 @@ const addRecent = StateEffect.define<RecentCorrection[]>({
 });
 const removeRecent = StateEffect.define<string[]>();
 const openRecent = StateEffect.define<string | null>();
+const hoverIssue = StateEffect.define<string>();
 const upsertSpellingIssues = StateEffect.define<SpellingIssue[]>({
   map(value, changes) {
     return value.map((issue) => ({
@@ -163,7 +171,7 @@ function buildDecorations(recent: readonly RecentCorrection[], issues: readonly 
 }
 
 const correctionVisualField = StateField.define<CorrectionVisualState>({
-  create: () => ({ recent: [], issues: [], openId: null, decorations: Decoration.none }),
+  create: () => ({ recent: [], issues: [], openId: null, hover: false, decorations: Decoration.none }),
   update(value, tr) {
     let recent = value.recent.map((c) => ({
       ...c,
@@ -175,7 +183,8 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
       from: tr.changes.mapPos(issue.from, 1),
       to: tr.changes.mapPos(issue.to, -1),
     }));
-    let openId = value.openId;
+    let openId = value.openId, hover = value.hover;
+    if (hover && (tr.isUserEvent("input") || tr.isUserEvent("delete"))) openId = null;
 
     if (tr.docChanged) {
       recent = recent.filter(
@@ -198,6 +207,10 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
         if (openId && ids.has(openId)) openId = null;
       } else if (effect.is(openRecent)) {
         openId = effect.value;
+        hover = false;
+      } else if (effect.is(hoverIssue)) {
+        openId = effect.value;
+        hover = true;
       } else if (effect.is(upsertSpellingIssues)) {
         for (const issue of effect.value) {
           issues = issues.filter((existing) => !(
@@ -215,7 +228,7 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
         if (openId && !recent.some((c) => c.id === openId)) openId = null;
       }
     }
-    return { recent, issues, openId, decorations: buildDecorations(recent, issues) };
+    return { recent, issues, openId, hover: openId != null && hover, decorations: buildDecorations(recent, issues) };
   },
   provide: (field) => [
     EditorView.decorations.from(field, (value) => value.decorations),
@@ -237,18 +250,22 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
             dom.setAttribute("aria-label", `Correct ${issue.original}`);
             dom.addEventListener("mousedown", (event) => event.stopPropagation());
             const actions = view.state.facet(correctionActions);
+            dom.addEventListener("mouseenter", () => actions.hoverMenu(true));
+            dom.addEventListener("mouseleave", () => actions.hoverMenu(false));
             const header = document.createElement("div");
             header.className = "cm-spelling-header";
             const word = document.createElement("strong");
             word.textContent = issue.original;
             const add = document.createElement("button");
             add.type = "button";
+            add.className = "icon";
             add.textContent = "+";
-            add.title = "Add to personal dictionary";
+            add.title = "Add to your personal dictionary";
             add.setAttribute("aria-label", `Add ${issue.original} to personal dictionary`);
             add.onclick = () => actions.recognize(issue);
             const close = document.createElement("button");
             close.type = "button";
+            close.className = "icon";
             close.textContent = "×";
             close.setAttribute("aria-label", "Close spelling suggestions");
             close.onclick = () => { view.dispatch({ effects: openRecent.of(null) }); view.focus(); };
@@ -260,8 +277,14 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
               choice.type = "button";
               choice.textContent = replacement;
               choice.dataset.spellingSuggestion = replacement;
-              choice.onclick = () => actions.correct(issue, replacement);
+              choice.onclick = () => actions.correct(issue, replacement, false);
               choices.append(choice);
+            }
+            if (!issue.suggestions.length) {
+              const none = document.createElement("span");
+              none.className = "empty";
+              none.textContent = "No suggestions";
+              choices.append(none);
             }
             const form = document.createElement("form");
             form.className = "cm-spelling-custom";
@@ -270,27 +293,33 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
             input.spellcheck = false;
             input.autocomplete = "off";
             input.maxLength = 64;
-            input.placeholder = "Type the word you meant…";
+            input.placeholder = "Type the word you meant";
             input.setAttribute("aria-label", "Custom spelling correction");
             const save = document.createElement("button");
             save.type = "submit";
             save.textContent = "Replace";
             save.disabled = true;
             input.oninput = () => { save.disabled = !/^[\p{L}\p{M}\d][\p{L}\p{M}\d_'’.-]{0,63}$/u.test(input.value.trim()) || input.value.trim() === issue.original; };
-            form.onsubmit = (event) => { event.preventDefault(); if (!save.disabled) actions.correct(issue, input.value.trim()); };
+            form.onsubmit = (event) => { event.preventDefault(); if (!save.disabled) actions.correct(issue, input.value.trim(), true); };
             dom.onkeydown = (event) => {
               event.stopPropagation();
-              if (event.key === "Escape") { event.preventDefault(); close.click(); }
-              if ((event.key === "ArrowDown" || event.key === "ArrowUp") && event.target !== input) {
-                const buttons = [...choices.querySelectorAll("button"), input];
-                const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
-                const next = event.key === "ArrowDown" ? (at + 1) % buttons.length : (at - 1 + buttons.length) % buttons.length;
-                event.preventDefault(); buttons[next]?.focus();
+              if (event.key === "Escape") { event.preventDefault(); close.click(); return; }
+              if (event.target === input) return;
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                const stops = [...choices.querySelectorAll("button"), input];
+                const at = stops.indexOf(document.activeElement as HTMLButtonElement);
+                const next = event.key === "ArrowDown" ? (at + 1) % stops.length : (at - 1 + stops.length) % stops.length;
+                event.preventDefault(); stops[next]?.focus();
+              } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                input.focus(); // typing on a suggestion starts a custom correction
               }
             };
             form.append(input, save);
             dom.append(header, choices, form);
-            return { dom };
+            // A click asks for the menu: arrows and Enter work at once. A hover
+            // only shows it and leaves the keyboard in the manuscript.
+            const clicked = !view.state.field(correctionVisualField).hover;
+            return { dom, mount: () => { if (clicked) (choices.querySelector("button") ?? input).focus({ preventScroll: true }); } };
           },
         };
       }
@@ -310,7 +339,7 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
           const copy = document.createElement("div");
           copy.className = "cm-local-correction-copy";
           const label = document.createElement("span");
-          label.textContent = resolvedCorrection.kind === "alias" ? "Expanded alias" : "Corrected";
+          label.textContent = resolvedCorrection.kind === "alias" && !resolvedCorrection.learned ? "Expanded alias" : "Corrected";
           const change = document.createElement("span");
           change.className = "cm-local-correction-change";
           change.textContent = `${resolvedCorrection.original} → ${resolvedCorrection.replacement}`;
@@ -330,8 +359,10 @@ const correctionVisualField = StateField.define<CorrectionVisualState>({
           if (resolvedCorrection.kind === "alias" && resolvedCorrection.aliasScope) {
             const remove = document.createElement("button");
             remove.type = "button";
-            remove.textContent = "Remove alias";
-            remove.title = `Remove “${resolvedCorrection.original}” from the ${resolvedCorrection.aliasScope === "personal" ? "personal" : "project"} aliases`;
+            remove.textContent = resolvedCorrection.learned ? "Forget" : "Remove alias";
+            remove.title = resolvedCorrection.learned
+              ? `Stop correcting “${resolvedCorrection.original}” to “${resolvedCorrection.replacement}”`
+              : `Remove “${resolvedCorrection.original}” from the ${resolvedCorrection.aliasScope === "personal" ? "personal" : "project"} aliases`;
             remove.onclick = () => view.state.facet(correctionActions).revert(view, resolvedCorrection, "remove-alias");
             controls.append(remove);
           } else if (!/\s/.test(resolvedCorrection.original)) {
@@ -520,6 +551,8 @@ class CorrectionController {
   private failedNoticeShown = false;
   private enabledState: boolean;
   private dialectState: CorrectionDialect;
+  /** Flagged words the user is retyping by hand (see learnHandCorrections). */
+  private editedIssues: Array<{ from: number; original: string; suggestions: string[]; until: number }> = [];
   private readonly resetLearning = () => {
     this.profile.clearBlockedPairs();
     this.projectWords.clear();
@@ -684,7 +717,10 @@ class CorrectionController {
       }
     }
 
-    if (update.docChanged) this.scheduleVocabularyRefresh();
+    if (update.docChanged) {
+      this.learnHandCorrections(update);
+      this.scheduleVocabularyRefresh();
+    }
     if (!enabled) {
       this.options.onStatus?.("off");
       return;
@@ -699,6 +735,36 @@ class CorrectionController {
     const boundaries = insertedBoundaries(update);
     if (boundaries.has("word")) this.scheduleCorrection("word");
     if (boundaries.has("sentence")) this.scheduleCorrection("sentence");
+  }
+
+  /** A flagged word the user fixes by hand teaches the same mapping as picking
+   *  it from the menu — but only when the finished word is one of the checker's
+   *  own suggestions for it, so an unrelated rewrite never becomes an alias. */
+  private learnHandCorrections(update: ViewUpdate): void {
+    const now = Date.now();
+    this.editedIssues = this.editedIssues
+      .filter((edited) => edited.until > now)
+      .map((edited) => ({ ...edited, from: update.changes.mapPos(edited.from, -1) }));
+    if (!update.transactions.some((tr) => tr.isUserEvent("input.type") || tr.isUserEvent("delete"))) return;
+    const kept = new Set(update.state.field(correctionVisualField, false)?.issues.map((issue) => issue.id));
+    for (const issue of update.startState.field(correctionVisualField, false)?.issues ?? []) {
+      if (kept.has(issue.id) || !issue.suggestions.length || !changesTouchRange(update, issue.from, issue.to)) continue;
+      this.editedIssues = [...this.editedIssues, { from: update.changes.mapPos(issue.from, -1), original: issue.original, suggestions: issue.suggestions, until: now + 30_000 }].slice(-8);
+    }
+    if (!this.editedIssues.length || !insertedBoundaries(update).has("word")) return;
+    const doc = update.state.doc;
+    for (const edited of this.editedIssues) {
+      let to = edited.from;
+      while (to < doc.length && /[\p{L}\p{M}\d_'’.-]/u.test(doc.sliceString(to, to + 1))) to += 1;
+      const word = doc.sliceString(edited.from, to);
+      const at = update.state.selection.main.head;
+      if (to === edited.from || at <= to || at > to + 1) continue; // learn when the word's own delimiter lands
+      const choice = edited.suggestions.find((suggestion) => suggestion.toLocaleLowerCase() === word.toLocaleLowerCase());
+      edited.until = 0;
+      if (!choice || word === edited.original) continue;
+      this.profile.setAlias(edited.original, word, "personal", true);
+      this.broadcastLanguageChange("personal");
+    }
   }
 
   destroy(): void {
@@ -1007,7 +1073,7 @@ class CorrectionController {
       tr.isUserEvent("input.type.compose")
     ) return tr;
 
-    const matches = new Map<number, { from: number; to: number; original: string; replacement: string; scope: LocalLanguageScope }>();
+    const matches = new Map<number, { from: number; to: number; original: string; replacement: string; scope: LocalLanguageScope; learned: boolean }>();
     tr.changes.iterChanges((_fromA, _toA, fromB, _toB, inserted) => {
       const text = inserted.toString();
       for (let i = 0; i < text.length; i += 1) {
@@ -1025,6 +1091,7 @@ class CorrectionController {
           original,
           replacement: alias.expansion,
           scope: alias.scope,
+          learned: !!alias.learned,
         });
       }
     });
@@ -1045,6 +1112,7 @@ class CorrectionController {
         kind: "alias",
         message: `${match.scope === "personal" ? "Personal" : "Project"} alias`,
         aliasScope: match.scope,
+        learned: match.learned,
         delay: index,
         expiresAt: now + 9_000,
       };
@@ -1096,12 +1164,13 @@ class CorrectionController {
     }));
   }
 
-  correctIssue(issue: SpellingIssue, replacement: string): void {
+  correctIssue(issue: SpellingIssue, replacement: string, typed: boolean): void {
     const current = this.view.state.field(correctionVisualField, false)?.issues.find((candidate) => candidate.id === issue.id);
     if (!current || this.view.state.doc.sliceString(current.from, current.to) !== current.original) return;
     if (!/^[\p{L}\p{M}\d][\p{L}\p{M}\d_'’.-]{0,63}$/u.test(replacement) || replacement === current.original) return;
     this.profile.setAlias(current.original, replacement, "personal", true);
-    this.profile.addWord(replacement, "personal");
+    // A typed word the checker did not suggest is one it does not know yet.
+    if (typed && !current.suggestions.includes(replacement)) this.profile.addWord(replacement, "personal");
     this.profile.unblock(current.original, replacement);
     this.broadcastLanguageChange("personal");
     this.view.dispatch({
@@ -1199,6 +1268,21 @@ class CorrectionController {
 
 export function localCorrections(options: LocalCorrectionsOptions): Extension {
   let controller: CorrectionController | null = null;
+  let hoverView: EditorView | null = null;
+  let hoverClose: ReturnType<typeof setTimeout> | null = null;
+  // A hover-opened menu closes shortly after the pointer leaves both the word
+  // and the menu (the gap between them must not close it).
+  const hoverMenu = (inside: boolean) => {
+    if (hoverClose) clearTimeout(hoverClose);
+    hoverClose = null;
+    if (inside || !hoverView) return;
+    const view = hoverView;
+    hoverClose = setTimeout(() => {
+      hoverClose = null;
+      const state = view.state.field(correctionVisualField, false);
+      if (state?.hover && !view.dom.querySelector(".cm-spelling-menu")?.contains(document.activeElement)) view.dispatch({ effects: openRecent.of(null) });
+    }, 300);
+  };
   const controllerPlugin = ViewPlugin.define(
     (view) => (controller = new CorrectionController(view, options)),
     {
@@ -1206,7 +1290,16 @@ export function localCorrections(options: LocalCorrectionsOptions): Extension {
         mouseover(event, view) {
           const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-flux-spelling-issue]") : null;
           const id = target?.dataset.fluxSpellingIssue;
-          if (id && view.state.field(correctionVisualField, false)?.openId !== id) view.dispatch({ effects: openRecent.of(id) });
+          if (!id) return false;
+          hoverView = view;
+          hoverMenu(true);
+          if (view.state.field(correctionVisualField, false)?.openId !== id) view.dispatch({ effects: hoverIssue.of(id) });
+          return false;
+        },
+        mouseout(event, view) {
+          const from = event.target instanceof Element ? event.target.closest("[data-flux-spelling-issue]") : null;
+          const to = event.relatedTarget instanceof Element ? event.relatedTarget.closest("[data-flux-spelling-issue]") : null;
+          if (from && from !== to && view.state.field(correctionVisualField, false)?.hover) hoverMenu(false);
           return false;
         },
         mousedown(event, view) {
@@ -1234,8 +1327,9 @@ export function localCorrections(options: LocalCorrectionsOptions): Extension {
     correctionVisualField,
     correctionActions.of({
       revert(_view, correction, mode) { controller?.revert(correction, mode); },
-      correct(issue, replacement) { controller?.correctIssue(issue, replacement); },
+      correct(issue, replacement, typed) { controller?.correctIssue(issue, replacement, typed); },
       recognize(issue) { controller?.recognizeIssue(issue); },
+      hoverMenu,
     }),
     EditorState.transactionFilter.of((tr) => controller?.expandAliases(tr) ?? tr),
     localWordTools(() => {

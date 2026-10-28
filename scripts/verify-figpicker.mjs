@@ -78,15 +78,23 @@ try {
   h.ok(m.scrollH > m.clientH + 200, `grid overflows and scrolls (scroll ${m.scrollH} vs client ${m.clientH})`);
   await waitFor(page, () => {
     const img = document.querySelector('.picker .cell[data-i="0"] img');
-    return img?.complete && img.naturalWidth === 1000;
+    return img?.dataset.figureState === "ready" && img.complete && img.naturalWidth > 0;
   }, null, { timeout: 5000, label: "first figure thumbnail decoded" });
   const pixel = await page.evaluate(() => {
     const img = document.querySelector('.picker .cell[data-i="0"] img');
     const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 240;
-    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, 1000, 240);
     return [...ctx.getImageData(140, 120, 1, 1).data];
   });
   h.eq(pixel, [15, 118, 110, 255], 'thumbnail paints the fixture ellipse, not a missing-preview placeholder');
+  // Grid cells show a PNG sized to the cell, never the vector render: GPU raster
+  // replays a whole SVG <img> whenever its tile is invalidated (hover, scroll).
+  // (The fixture's vector render is 1000 px wide; thumbnails come in 160/320/640/1280.)
+  const thumb = await page.evaluate(() => {
+    const img = document.querySelector('.picker .cell[data-i="0"] img');
+    return { width: img.naturalWidth, box: Math.round(img.getBoundingClientRect().width * devicePixelRatio) };
+  });
+  h.ok([160, 320, 640, 1280].includes(thumb.width) && thumb.width >= thumb.box, `grid thumbnails are cell-sized bitmaps (${JSON.stringify(thumb)})`);
   await shot(page, 'figpicker-painted-grid');
 
   const reach = await page.evaluate(() => {
@@ -100,7 +108,7 @@ try {
   h.ok(reach, "scrolling reaches the last cell at full size");
   await waitFor(page, () => {
     const img = document.querySelector('.picker .cell[data-i="45"] img');
-    return img?.complete && img.naturalWidth === 1000;
+    return img?.dataset.figureState === "ready" && img.complete && img.naturalWidth > 0;
   }, null, { timeout: 5000, label: "last figure thumbnail decoded after scrolling" });
   h.ok(true, 'scrolling to the last figure loads its real thumbnail');
 
@@ -157,19 +165,22 @@ try {
     window.__fluxMargin.summon("figure");
   });
   await waitFor(page, () => !!document.querySelector('[data-pane-id="figure"] .acts'), null, { label: "figure margin" });
-  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .insert-mode button')].find(button => button.textContent === "Reference")?.click());
+  await waitFor(page, () => document.querySelector('[data-pane-id="figure"] .thumbs img')?.dataset.figureState === "ready", null, { timeout: 5000, label: "margin thumbnail" });
+  const stripWidth = await page.evaluate(() => document.querySelector('[data-pane-id="figure"] .thumbs img').naturalWidth);
+  h.ok([160, 320, 640].includes(stripWidth), `the margin's thumbnail strip draws bitmaps, so typing beside it never replays vector figures (${stripWidth}px)`);
+  const actions = () => page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].map(button => button.textContent.trim()));
+  h.eq(await actions(), ["Insert figure", "Insert Fig. 1", "Open in Figure"], "the margin offers the inline figure and its cross-reference side by side");
   await page.click('[data-pane-id="figure"] button[aria-label="Panel b"]');
-  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].find(button => button.textContent === "Insert reference")?.click());
+  h.eq((await actions())[1], "Insert Fig. 1b", "choosing a panel names the exact reference the button inserts");
+  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .acts button')][1].click());
   h.eq(await page.evaluate(() => window.__fluxView.state.doc.toString()), "A result @fig-fig1-b", "margin inserts a semantic panel reference at the current caret");
   h.ok(await page.evaluate(() => document.activeElement === window.__fluxView.contentDOM), "reference insertion returns focus to the editor");
+  await page.click('[data-pane-id="figure"] button[aria-label="Panel b"]');
   await page.evaluate(() => {
-    const view = window.__fluxView;
-    view.dispatch({ selection: { anchor: 2, head: 8 } });
-    [...document.querySelectorAll('[data-pane-id="figure"] .panel-choices button')].find(button => button.textContent === "Whole figure")?.click();
-    [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].find(button => button.textContent === "Insert reference")?.click();
+    window.__fluxView.dispatch({ selection: { anchor: 2, head: 8 } });
+    [...document.querySelectorAll('[data-pane-id="figure"] .acts button')][1].click();
   });
   h.eq(await page.evaluate(() => window.__fluxView.state.doc.toString()), "A @fig-fig1 @fig-fig1-b", "whole-figure reference replaces the selected text");
-  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .insert-mode button')].find(button => button.textContent === "Figure")?.click());
   await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].find(button => button.textContent === "Insert figure")?.click());
   h.ok(await page.evaluate(() => window.__fluxView.state.doc.toString().includes("{#fig-fig1}")), "the same margin picker still inserts an inline figure render");
   const stableBinding = await page.evaluate(async () => {

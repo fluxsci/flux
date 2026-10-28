@@ -1,4 +1,4 @@
-import { SCIENTIFIC_VOCABULARY, SCIENTIFIC_VOCABULARY_VERSION } from "./scientificVocabulary";
+import { RETIRED_SEED_WORDS, SCIENTIFIC_VOCABULARY_BY_VERSION, SCIENTIFIC_VOCABULARY_VERSION } from "./scientificVocabulary";
 import { correctionPairKey } from "./localCorrectionCore";
 import { fileBridge } from "../../../../lib/project/types";
 
@@ -355,12 +355,18 @@ export class LocalCorrectionProfile {
     this.persist("project");
   }
 
+  /** Adds only the vocabulary blocks newer than the profile's version, so a
+   *  removed seed word never returns; a withdrawn seed word leaves only while
+   *  it is still seed-provided (re-adding a word makes it the user's). */
   private seedScientificVocabulary(): boolean {
-    if ((this.personal.scientificVocabularyVersion ?? 0) >= SCIENTIFIC_VOCABULARY_VERSION) return false;
-    const authored = new Set(this.personal.words.map(word => word.toLocaleLowerCase()));
-    const inserted = SCIENTIFIC_VOCABULARY.filter(word => !authored.has(word.toLocaleLowerCase()));
-    this.personal.words = cleanWords([...inserted, ...this.personal.words]);
-    this.personal.scientificSeedWords = cleanWords([...(this.personal.scientificSeedWords ?? []), ...inserted]);
+    const from = this.personal.scientificVocabularyVersion ?? 0;
+    if (from >= SCIENTIFIC_VOCABULARY_VERSION) return false;
+    const known = new Set(this.personal.words.map(word => word.toLocaleLowerCase()));
+    const inserted = SCIENTIFIC_VOCABULARY_BY_VERSION.slice(from).flat().filter(word => !known.has(word.toLocaleLowerCase()));
+    const seeded = this.personal.scientificSeedWords ?? [];
+    const retired = new Set(from ? RETIRED_SEED_WORDS.filter(word => seeded.includes(word)) : []);
+    this.personal.words = cleanWords([...inserted, ...this.personal.words.filter(word => !retired.has(word))]);
+    this.personal.scientificSeedWords = cleanWords([...seeded.filter(word => !retired.has(word)), ...inserted]);
     this.personal.scientificVocabularyVersion = SCIENTIFIC_VOCABULARY_VERSION;
     return true;
   }

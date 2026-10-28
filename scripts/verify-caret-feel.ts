@@ -5,6 +5,7 @@
 // multi-cursor safeguards, exact cursor geometry and finite soft blink.
 
 import { readFileSync } from "node:fs";
+import { decodeSettings } from "../src/lib/settings";
 
 let failed = 0;
 function assert(cond: unknown, msg: string) {
@@ -21,7 +22,8 @@ const read = (p: string) => readFileSync(p, "utf8");
 // ---- 1. Chase is now unconditional (owner October 27 issue list).
 const settings = read("src/lib/settings.ts");
 assert(!/paperCaretFeel:\s*PaperCaretFeel/.test(settings), "no configurable caret mode remains");
-assert(/delete out\.paperCaretFeel/.test(settings), "old caret-mode preferences are discarded safely");
+const decoded = decodeSettings({ paperCaretFeel: "smooth", paperCaretMs: 90, paperLocalCorrections: false }) as unknown as Record<string, unknown>;
+assert(!("paperCaretFeel" in decoded) && !("paperCaretMs" in decoded) && decoded.paperLocalCorrections === false, "old caret-mode preferences are discarded safely");
 
 // ---- 2. The plugin: transient ticker, safety rails ---------------------------
 const cf = read("src/shell/modes/paper/editing/caretFeel.ts");

@@ -12,17 +12,24 @@
 import { fileBridge } from "../project/types";
 
 const GRACE_MS = 10_000;
+// Typing touches the lock on every keystroke; each held=true call is a lease
+// renew on disk in main. The heartbeat already renews held leases, so a
+// streak re-sends at most this often (which also retries a refused acquire).
+const RESEND_MS = 2_000;
 
-const held = new Set<string>();
+const held = new Map<string, number>(); // name → when lockSet(true) was last sent
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** Mark activity on `name` ("project" | "manuscript" | "slides"): hold the lock
- *  now (restamping if already held) and schedule release GRACE_MS from now. */
+ *  now and schedule release GRACE_MS from now. */
 export function touchActivityLock(name: string): void {
   const fb = fileBridge();
   if (!fb?.lockSet) return;
-  if (!held.has(name)) held.add(name);
-  void fb.lockSet(name, true); // main restamps `ts` on every call
+  const now = Date.now();
+  if (now - (held.get(name) ?? -Infinity) >= RESEND_MS) {
+    held.set(name, now);
+    void fb.lockSet(name, true);
+  }
   const t = timers.get(name);
   if (t) clearTimeout(t);
   timers.set(
