@@ -73,7 +73,10 @@ try {
       return fig.elements.map((e) => e.type);
     });
   const before = await countTypes();
-  await drag("r", cx - 200, cy - 100, cx - 120, cy - 40);
+  await page.keyboard.down("Alt");
+  await page.keyboard.press("KeyR");
+  await page.keyboard.up("Alt");
+  await drag(null, cx - 200, cy - 100, cx - 120, cy - 40);
   await drag("o", cx - 90, cy - 100, cx - 20, cy - 30);
   await drag("l", cx + 10, cy - 90, cx + 90, cy - 40);
   await page.keyboard.down("Shift");
