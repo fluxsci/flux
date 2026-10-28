@@ -9,13 +9,15 @@ const { assertNativePointerTarget } = require('./nativeWindowQualification.cjs')
 function sampleScene() {
   const test = window.__denseZoomTest, root = document.querySelector('.figure-mode');
   const byID = new Map([...root.querySelectorAll('[data-editor-element-id]')].map(n => [n.dataset.editorElementId, n]));
+  // Parked (display:none) placements are resident but not displayed.
+  const shown = [...byID].filter(([, n]) => !n.closest('.parked')).map(([id]) => id);
   const canvases = [...root.querySelectorAll('.zoom-proxy canvas,.zoom-proxy-coarse canvas')];
-  return { ids: [...byID.keys()], frames: [...root.querySelectorAll('[data-annotation-figure]')].map(n => n.dataset.annotationFigure),
+  return { ids: shown, resident: [...byID.keys()], frames: [...root.querySelectorAll('[data-annotation-figure]')].map(n => n.dataset.annotationFigure),
     changedInitial: [...test.initial].filter(([id, node]) => byID.get(id) !== node).map(([id]) => id),
     nodes: root.querySelector('.scene-svg').getElementsByTagName('*').length,
     canvasCount: canvases.length, canvasPixels: canvases.reduce((sum, n) => sum + n.width * n.height, 0),
     canvasSizes: canvases.map(n => [n.width, n.height]),
-    live: !!root.querySelector('.zoom-proxy.live'), liveOpacity: getComputedStyle(root.querySelector('.scene-svg')).opacity,
+    live: !!root.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live'), liveOpacity: getComputedStyle(root.querySelector('.scene-svg')).opacity,
     additions: test.additions.slice(), removals: test.removals.slice() };
 }
 
@@ -101,7 +103,7 @@ module.exports = function denseZoomProbe({ win, js, wait, sleep, mouse, nativeWh
       assert.equal(value.mode, 'figure'); assert.equal(value.sc, 'base');
       // An observed real cache, rather than a fixed sleep, makes the test
       // portable across machines and ensures that it exercises retention.
-      await wait(() => js("document.querySelectorAll('.figure-mode .zoom-proxy canvas,.figure-mode .zoom-proxy-coarse canvas').length===2"), 'two-plane dense proxy is warm', 60000);
+      await wait(() => js("!!document.querySelector('.figure-mode .zoom-proxy-coarse[data-overview] canvas')"), 'dense canvas overview is warm', 60000);
       await js(`(()=>{const root=document.querySelector('.figure-mode'),initial=new Map([...root.querySelectorAll('[data-editor-element-id]')].map(n=>[n.dataset.editorElementId,n]));
         const test=window.__denseZoomTest={initial,additions:[],removals:[],removed:new Set()};
         const relevant=new Set(${JSON.stringify(fixture.modelIDs)});
@@ -114,7 +116,7 @@ module.exports = function denseZoomProbe({ win, js, wait, sleep, mouse, nativeWh
       assert(Math.abs(receipt.initial.camera.zoom - fixture.initialZoom) < 1e-6, 'Fixture begins at the real default 0.6 zoom');
       assert(receipt.initial.nodes >= 60000 && receipt.initial.nodes <= 90000, 'Initial live DOM contains the dense 60–90k-node workload');
       assert(fixture.frameIDs.every(id => receipt.initial.frames.includes(id)), 'Both neighboring frames are initially mounted');
-      assert(fixture.supplementIDs.every(id => !receipt.initial.ids.includes(id)), 'Supplement-only placements begin outside live DOM');
+      assert(fixture.supplementIDs.every(id => !receipt.initial.ids.includes(id)), 'Supplement-only placements begin outside the displayed scene');
     },
     async stage(label, cycle) {
       receipt.stages.push({ label, cycle, ...await sample() }); save();
@@ -149,7 +151,7 @@ module.exports = function denseZoomProbe({ win, js, wait, sleep, mouse, nativeWh
       await wait(async () => Math.abs((await center(fixture.markerID)).x - original.x) < .1, 'native setup undo restores marker geometry');
       await paint();
       receipt.setupKeyPaint = (await js('window.__p.stop()')).keyPaint;
-      await wait(() => js("document.querySelectorAll('.figure-mode .zoom-proxy canvas,.figure-mode .zoom-proxy-coarse canvas').length===2&&document.querySelector('.figure-mode .zoom-proxy canvas')!==window.__denseBeforeSelectionCanvas"), 'fresh post-selection proxy is ready before the edit', 60000);
+      await wait(() => js("!!document.querySelector('.figure-mode .zoom-proxy-coarse[data-overview] canvas')&&!!document.querySelector('.figure-mode .zoom-proxy canvas')&&document.querySelector('.figure-mode .zoom-proxy canvas')!==window.__denseBeforeSelectionCanvas"), 'fresh post-selection sharp plane and overview are ready before the edit', 60000);
       const before = await center(fixture.markerID);
       receipt.beforeEditPixel = await pixelAt(before, 'dense-before-edit.png');
       await js('window.__p.start()'); ctrlDown();
@@ -157,7 +159,7 @@ module.exports = function denseZoomProbe({ win, js, wait, sleep, mouse, nativeWh
       // the proxy carries the camera and the live SVG remains frozen.
       try { await nativeWheelBurst(Math.round(before.x), Math.round(before.y), 0, 40, 1, ['control']); }
       finally { ctrlUp(); }
-      assert(await js("!!document.querySelector('.figure-mode .zoom-proxy.live')"), 'The edit begins while a captured raster is actively displayed');
+      assert(await js("!!document.querySelector('.figure-mode .zoom-proxy.live,.figure-mode .zoom-proxy-coarse.live')"), 'The edit begins while a captured raster is actively displayed');
       // Record the marker's actual screen position through the current
       // production scene transform, then delete it via the native key path.
       const oldPoint = await center(fixture.markerID);

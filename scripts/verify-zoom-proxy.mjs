@@ -12,7 +12,7 @@
 //   · a pan does NOT re-key it (world-space snapshot);
 //   · View-as changes sharp/coarse pixels during a burst without recapture;
 //   · cooperative serialization preserves XML/pixels and cancels between slices;
-//   · a sharper subset keeps whole-scene backing through reversal until a real edit;
+//   · a sharper subset frees retired planes; reversal and offscreen edits stay fresh;
 //   · transparent art/shadows composite once across the sharp/coarse seam and backdrop.
 //   node scripts/verify-zoom-proxy.mjs
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -370,10 +370,13 @@ ok(serialization.fonts && serialization.colored > 500 && serialization.textInk >
 ok(serialization.cancelled && serialization.refused && serialization.limits, 'capture cancellation at the first yield and ownership/node/character bounds return no partial snapshot');
 ok(serialization.untouched, 'cooperative completion and cancellation never mutate live scene DOM');
 
-// --- 7. subset reuse, retained coarse ownership, immediate reversal and offscreen edits ---
+// --- 7. subset capture after a deep settle, reversal and offscreen edits ---------
 // Both small frames mount initially, while the second lies outside the sharp
-// region. A deep settle evicts its DOM. The subsequent sharper subset must
-// retain the same coarse CANVAS, rather than claim coverage using freed pixels.
+// region. A deep settle evicts its DOM. Without the Electron canvas overview the
+// sharper subset brings only its own coarse copy: the old planes are freed, a
+// wide reversal never shows freed or stale pixels, and the evicted frame
+// paints from live DOM. (The Electron overview, which carries this reversal
+// on the raster, is pinned by verify-dense-zoom-electron.cjs.)
 const beforeRetention = await page.$eval('.zoom-proxy', p => p.dataset.snap);
 const retainedFixture = await page.evaluate(() => {
   const F = window.__flux.fig, width = document.querySelector('.canvas-host').clientWidth;
@@ -411,65 +414,43 @@ await waitFor(page, other => {
   return !document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`) &&
     proxy?.dataset.snap !== saved.serial && !proxy.classList.contains('live') && proxy.firstElementChild?.width > 0;
 }, retainedFixture.other, { timeout: 20000, label: 'deep zoom settles, culls second frame and retakes sharper subset' });
-const retainedOwnership = await page.evaluate(() => {
+const released = await page.evaluate(() => {
   const saved = window.__zpRetainedCanvases, current = document.querySelector('.zoom-proxy canvas');
-  return current !== saved.sharp && saved.sharp.width === 0 && saved.sharp.height === 0 &&
-    document.querySelector('.zoom-proxy-coarse canvas') === saved.coarse && saved.coarse.width > 0 && saved.coarse.height > 0;
+  return current !== saved.sharp && saved.sharp.width === 0 && saved.sharp.height === 0 && saved.coarse.width === 0 && saved.coarse.height === 0 &&
+    document.querySelector('.zoom-proxy-coarse canvas') !== saved.coarse;
 });
-ok(retainedOwnership, 'sharper subset releases old sharp pixels and transfers the still-populated whole-scene coarse canvas');
-const subsetSerial = await page.$eval('.zoom-proxy', p => p.dataset.snap);
-// Keep this functional burst alive during screenshots; the separate dense
-// native-input/per-tick assertions above remain the performance measurement.
-await page.evaluate(({ x, y }) => {
-  const host = document.querySelector('.canvas-host'); let direction = 1;
-  window.__zpRetainPulse = setInterval(() => {
-    host.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: direction,
-      clientX: x, clientY: y, bubbles: true, cancelable: true })); direction *= -1;
-  }, 40);
-}, redAnchor);
-try {
-  await page.keyboard.down('Control'); await page.mouse.wheel({ deltaY: Math.log(8 / 0.4) / 0.0015 }); await page.keyboard.up('Control');
-  await waitFor(page, () => document.querySelector('.zoom-proxy')?.classList.contains('live'), null, { timeout: 1000, label: 'wide reversal uses retained coarse raster' });
-  await page.keyboard.down('Shift'); await page.mouse.wheel({ deltaY: 150 }); await page.keyboard.up('Shift');
-  const retainedState = await page.evaluate(({ serial, other }) => {
-    const proxy = document.querySelector('.zoom-proxy'), coarse = document.querySelector('.zoom-proxy-coarse');
-    return { sameSerial: proxy.dataset.snap === serial, sharpLive: proxy.classList.contains('live'),
-      coarseLive: !!coarse?.classList.contains('live'), sceneCovered: window.__zpSceneCovered(),
-      sameBacking: coarse?.firstElementChild === window.__zpRetainedCanvases.coarse, populatedBacking: coarse?.firstElementChild?.width > 0,
-      otherCulled: !document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`) };
-  }, { serial: subsetSerial, other: retainedFixture.other });
-  ok(Object.values(retainedState).every(Boolean), `wide reversal and Shift-pan keep the same covered raster while the other frame remains unmounted (${JSON.stringify(retainedState)})`);
-  const otherPoint = () => page.evaluate(other => {
-    const F = window.__flux.fig, view = window.__flux.get(F.viewport), figure = window.__flux.get(F.project).figures.find(f => f.id === other),
-      element = figure.elements[0], host = document.querySelector('.canvas-host').getBoundingClientRect();
-    return { x: host.x + view.panX + (figure.x + element.x + element.width / 2) * view.zoom,
-      y: host.y + view.panY + (figure.y + element.y + element.height / 2) * view.zoom };
-  }, retainedFixture.other);
-  const coarsePixels = await screenPixels([await otherPoint()], 'retained-coarse-reversal');
-  ok(near(coarsePixels[0], [22, 163, 74]), `retained offscreen frame paints correct coarse pixels after reversal/pan (${JSON.stringify(coarsePixels[0])})`);
-  const edited = await page.evaluate(async other => {
-    const F = window.__flux.fig;
-    const wasCulled = !document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`);
-    F.mutateFigure(other, p => { p.figures.find(f => f.id === other).elements[0].fill = '#246bdb'; });
-    F.dirty.set(false);
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return { wasCulled, retired: !document.querySelector('.zoom-proxy').classList.contains('live'),
-      liveVisible: getComputedStyle(document.querySelector('.scene')).opacity === '1',
-      maskRetired: !document.querySelector('.zoom-proxy-backdrop')?.classList.contains('live'),
-      otherMounted: !!document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`) };
-  }, retainedFixture.other);
-  ok(Object.values(edited).every(Boolean), `scoped edit to a frame absent from live DOM immediately retires retained pixels and mounts fresh content (${JSON.stringify(edited)})`);
-  const editedPixels = await screenPixels([await otherPoint()], 'retained-offscreen-edit');
-  ok(near(editedPixels[0], [36, 107, 219]), `fresh scoped edit paints blue during the same input burst (${JSON.stringify(editedPixels[0])})`);
-} finally {
-  await page.evaluate(() => { clearInterval(window.__zpRetainPulse); delete window.__zpRetainPulse; });
-}
-await waitFor(page, previous => {
-  const proxy = document.querySelector('.zoom-proxy'), saved = window.__zpRetainedCanvases;
-  return proxy?.dataset.snap !== previous && proxy?.firstElementChild?.width > 0 && !proxy.classList.contains('live') &&
-    saved.sharp.width === 0 && saved.coarse.width === 0 && saved.coarse.height === 0;
-}, subsetSerial, { timeout: 20000, label: 'edited capture retires the old retained backing' });
-ok(true, 'a real content revision eventually frees the retired whole-scene coarse backing');
+ok(released, 'the sharper subset capture frees both retired planes instead of keeping unvalidated pixels');
+const otherPoint = () => page.evaluate(other => {
+  const F = window.__flux.fig, view = window.__flux.get(F.viewport), figure = window.__flux.get(F.project).figures.find(f => f.id === other),
+    element = figure.elements[0], host = document.querySelector('.canvas-host').getBoundingClientRect();
+  return { x: host.x + view.panX + (figure.x + element.x + element.width / 2) * view.zoom,
+    y: host.y + view.panY + (figure.y + element.y + element.height / 2) * view.zoom };
+}, retainedFixture.other);
+await page.keyboard.down('Control'); await page.mouse.wheel({ deltaY: Math.log(8 / 0.4) / 0.0015 }); await page.keyboard.up('Control');
+await page.keyboard.down('Shift'); await page.mouse.wheel({ deltaY: 150 }); await page.keyboard.up('Shift');
+await waitFor(page, other => !!document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`), retainedFixture.other,
+  { timeout: 5000, label: 'wide reversal mounts the evicted frame' });
+const reversal = await page.evaluate(() => {
+  const coarse = document.querySelector('.zoom-proxy-coarse');
+  return { coversWhenLive: !document.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live') || window.__zpSceneCovered(),
+    noFreedBacking: !coarse || coarse.firstElementChild?.width > 0 };
+});
+ok(Object.values(reversal).every(Boolean), `a wide reversal never shows freed or uncovered raster pixels (${JSON.stringify(reversal)})`);
+const reversalPixels = await screenPixels([await otherPoint()], 'retained-coarse-reversal');
+ok(near(reversalPixels[0], [22, 163, 74]), `the evicted frame paints correct pixels after reversal/pan (${JSON.stringify(reversalPixels[0])})`);
+const edited = await page.evaluate(async other => {
+  const F = window.__flux.fig;
+  F.mutateFigure(other, p => { p.figures.find(f => f.id === other).elements[0].fill = '#246bdb'; });
+  F.dirty.set(false);
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return { retired: !document.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live'),
+    liveVisible: getComputedStyle(document.querySelector('.scene')).opacity === '1',
+    maskRetired: !document.querySelector('.zoom-proxy-backdrop')?.classList.contains('live'),
+    otherMounted: !!document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`) };
+}, retainedFixture.other);
+ok(Object.values(edited).every(Boolean), `a scoped edit to the other frame shows fresh live content (${JSON.stringify(edited)})`);
+const editedPixels = await screenPixels([await otherPoint()], 'retained-offscreen-edit');
+ok(near(editedPixels[0], [36, 107, 219]), `fresh scoped edit paints blue (${JSON.stringify(editedPixels[0])})`);
 await page.evaluate(() => { delete window.__zpRetainedCanvases; });
 
 // --- 8. full composited pixels: no live-scene bleed or double sharp/coarse alpha ----------
@@ -691,11 +672,11 @@ async function pointerFixture(kind = 'rect') {
   });
   await waitFor(page, () => !document.querySelector('[data-editor-element-id="zp-pointer-far"]'), null, { timeout: 3000, label: 'far placement culled after capture' });
 }
-async function proxyPointer(id, ratio = .6, world = null) {
+async function proxyPointer(id, ratio = .6, world = null, requireLive = true) {
   const anchor = await page.$eval('.canvas-host', host => { const b = host.getBoundingClientRect(); return { x: b.x + 30, y: b.y + 50 }; });
   await page.mouse.move(anchor.x, anchor.y); await page.keyboard.down('Control');
   await page.mouse.wheel({ deltaY: -Math.log(ratio) / .0015 }); await page.keyboard.up('Control');
-  await waitFor(page, () => document.querySelector('.zoom-proxy')?.classList.contains('live'), null, { timeout: 1000, label: 'pointer burst active' });
+  if (requireLive) await waitFor(page, () => document.querySelector('.zoom-proxy')?.classList.contains('live'), null, { timeout: 1000, label: 'pointer burst active' });
   return page.evaluate(({ id, world }) => {
     const F = window.__flux.fig, p = window.__flux.get(F.project), f = p.figures[0], e = f.elements.find(e => e.id === id),
       view = window.__flux.get(F.viewport), host = document.querySelector('.canvas-host').getBoundingClientRect(),
@@ -725,10 +706,12 @@ try {
   ok(Math.abs(moved.x - (600 + 37 / b.zoom)) < .01 && Math.abs(moved.y - (150 + 43 / b.zoom)) < .01 && unmoved.x === 320 && !dragged.captured,
     `native movement/release after retarget moves only B by the exact world delta and releases capture (${JSON.stringify({ moved, zoom: b.zoom, captured: dragged.captured })})`);
   await pointerFixture();
-  const far = await proxyPointer('zp-pointer-far', .1);
-  ok(far.active && far.absent, 'formerly culled placement is displayed only in the retained proxy before its press');
+  // Without the Electron overview this wide zoom-out leaves the subset raster's
+  // coverage and mounts live (verify-dense-zoom-electron.cjs presses art shown
+  // only by the overview); either way the press must land on the far placement.
+  const far = await proxyPointer('zp-pointer-far', .1, null, false);
   await page.mouse.click(far.x, far.y);
-  ok((await pointerState()).selected.join() === 'zp-pointer-far', 'capture fold mounts and targets the formerly culled placement');
+  ok((await pointerState()).selected.join() === 'zp-pointer-far', 'a press after a wide zoom-out mounts and targets the formerly culled placement');
   await pointerFixture('group');
   const grouped = await proxyPointer('zp-pointer-b'); await page.mouse.click(grouped.x, grouped.y, { count: 2, delay: 40 });
   const doubled = await pointerState();
@@ -760,9 +743,9 @@ try {
   });
 }
 
-// A wide host's sharp half-host margin is wider than the 600px mount margin.
-// A new opaque sharp plane must not mask art retained only in the old coarse
-// image. Observe that a real retake retires its new canvases, then verify pixels.
+// A wide host's sharp half-host margin is wider than the 600px mount margin:
+// art there may not be mounted when a subset is captured. Coming back to it,
+// it must paint (from a covering raster or live), never as a masked blank.
 await page.setViewport({ width: 3200, height: 1000 });
 const marginPrevious = await page.$eval('.zoom-proxy', p => p.dataset.snap);
 const marginFixture = await page.evaluate(() => {
@@ -786,39 +769,19 @@ await page.mouse.move(marginAnchor.x, marginAnchor.y); await page.keyboard.down(
 await page.mouse.wheel({ deltaY: -Math.log(8) / .0015 }); await page.keyboard.up('Control');
 await waitFor(page, previous => document.querySelector('.zoom-proxy')?.dataset.snap !== previous &&
   !document.querySelector('[data-editor-element-id="zp-margin-far"]') && !document.querySelector('.zoom-proxy').classList.contains('live'),
-  marginWhole, { timeout: 20000, label: 'deep subset retains complete coarse coverage' });
-const marginDeep = await page.$eval('.zoom-proxy', p => p.dataset.snap);
-await page.evaluate(() => {
-  window.__zpMarginOriginalCreate = document.createElement;
-  window.__zpMarginRetakes = [];
-  document.createElement = function(name, options) {
-    const node = window.__zpMarginOriginalCreate.call(this, name, options);
-    if (name.toLowerCase() === 'canvas') {
-      const listen = node.addEventListener;
-      node.addEventListener = function(type, ...args) { if (type === 'contextlost') window.__zpMarginRetakes.push(this); return listen.call(this, type, ...args); };
-    }
-    return node;
-  };
-  window.__flux.fig.viewport.set({ zoom: 1, panX: 20, panY: 60 });
-});
+  marginWhole, { timeout: 20000, label: 'deep subset capture without the far margin art' });
+await page.evaluate(() => { window.__flux.fig.viewport.set({ zoom: 1, panX: 20, panY: 60 }); });
+ok(marginFixture.width > 1600, 'the wide host puts the far art inside the sharp margin but outside the mount margin');
+const marginFar = await proxyPointer('zp-margin-far', .65, null, false);
 try {
-  await waitFor(page, () => window.__zpMarginRetakes.length >= 2 && window.__zpMarginRetakes.every(c => c.width === 0 && c.height === 0),
-    null, { timeout: 20000, label: 'incomplete sharp-margin retake is retired' });
-  const marginRetained = await page.evaluate(serial => ({ serial: document.querySelector('.zoom-proxy').dataset.snap === serial,
-    coarse: document.querySelector('.zoom-proxy-coarse canvas').width > 0,
-    farAbsent: !document.querySelector('[data-editor-element-id="zp-margin-far"]') }), marginDeep);
-  ok(marginFixture.width > 1600 && Object.values(marginRetained).every(Boolean),
-    'wide-host retake that omits prior artwork inside its opaque sharp margin keeps the previous valid planes');
-  await page.evaluate(() => { document.createElement = window.__zpMarginOriginalCreate; });
-  const far = await proxyPointer('zp-margin-far', .65);
   await page.evaluate(() => {
     const host = document.querySelector('.canvas-host'); let sign = 1;
     window.__zpMarginPulse = setInterval(() => { host.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: sign * .01, clientX: 220, clientY: 140, bubbles: true, cancelable: true })); sign *= -1; }, 40);
   });
-  const paint = await screenPixels([far], 'retained-sharp-margin');
-  ok(near(paint[0], [22, 163, 74]), `retained coarse artwork remains green after entering the formerly missing sharp margin (${JSON.stringify(paint[0])})`);
+  const paint = await screenPixels([marginFar], 'margin-art-after-return');
+  ok(near(paint[0], [22, 163, 74]), `far margin art paints green after the return, never masked by an opaque plane (${JSON.stringify(paint[0])})`);
 } finally {
-  await page.evaluate(() => { document.createElement = window.__zpMarginOriginalCreate; clearInterval(window.__zpMarginPulse); delete window.__zpMarginOriginalCreate; delete window.__zpMarginRetakes; });
+  await page.evaluate(() => { clearInterval(window.__zpMarginPulse); delete window.__zpMarginPulse; });
 }
 
 const errs = await realErrors(page);

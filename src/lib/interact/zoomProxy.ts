@@ -197,6 +197,69 @@ export function serializeSceneSnapshot(sceneSvg: SVGSVGElement, box: WorldBox, S
   return { svg, w, h };
 }
 
+/** The sharp plane's source when an overview carries the rest: only the
+ *  displayed artwork that can paint inside `box`, cloned figure by figure
+ *  (a deep clone of a dense scene costs ~75 ms of main thread). `keep` decides
+ *  from the model; parked subtrees never qualify. Null above `maxNodes`:
+ *  Chromium decodes an SVG image synchronously on the main thread. */
+export function serializeSceneRegion(
+  sceneSvg: SVGSVGElement, box: WorldBox, S: number,
+  keep: (figureId: string, elementId?: string) => boolean, maxNodes: number,
+): { svg: string; w: number; h: number } | null {
+  const root = sceneSvg.firstElementChild;
+  if (!root) return null;
+  const rootCopy = root.cloneNode(false) as SVGElement;
+  rootCopy.removeAttribute("transform"); // world units: the viewBox maps them
+  const pairs: [Element, Element][] = [];
+  let nodes = 0;
+  const copy = (live: Element, into: Element) => {
+    nodes += live.getElementsByTagName("*").length + 1;
+    const c = live.cloneNode(true) as Element;
+    into.appendChild(c);
+    pairs.push([live, c]);
+  };
+  for (const outer of Array.from(root.children)) {
+    const figure = outer.firstElementChild, id = figure?.getAttribute("data-annotation-figure");
+    if (outer.classList.contains("parked") || !figure || !id || !keep(id)) continue;
+    const outerCopy = outer.cloneNode(false) as Element, figureCopy = figure.cloneNode(false) as Element;
+    outerCopy.appendChild(figureCopy);
+    rootCopy.appendChild(outerCopy);
+    for (const child of Array.from(figure.children)) {
+      if (child.localName !== "g" || !child.hasAttribute("clip-path")) { copy(child, figureCopy); continue; }
+      const layer = child.cloneNode(false) as Element; // the frame-clipped element layer
+      figureCopy.appendChild(layer);
+      for (const el of Array.from(child.children)) {
+        const elementId = el.getAttribute("data-editor-element-id");
+        if (el.classList.contains("parked") || (elementId !== null && !keep(id, elementId))) continue;
+        copy(el, layer);
+      }
+    }
+    if (nodes > maxNodes) return null;
+  }
+  for (const [live, c] of pairs) {
+    for (const cls of STYLED_CLASSES) {
+      const lives = [live, ...Array.from(live.getElementsByClassName(cls))].filter((n) => n.classList.contains(cls));
+      const copies = [c, ...Array.from(c.getElementsByClassName(cls))].filter((n) => n.classList.contains(cls));
+      for (let i = 0; i < lives.length && i < copies.length; i++) {
+        const cs = getComputedStyle(lives[i]);
+        for (const p of INLINE_PROPS) {
+          const v = cs.getPropertyValue(p);
+          if (v) (copies[i] as SVGElement).style.setProperty(p, v);
+        }
+      }
+    }
+  }
+  const inherited = getComputedStyle(sceneSvg);
+  for (const p of ["font-family", "font-size", "font-weight", "font-style", "color", "letter-spacing", "text-rendering", "-webkit-font-smoothing"])
+    rootCopy.style.setProperty(p, inherited.getPropertyValue(p));
+  const w = Math.max(1, Math.floor(box.bw * S)), h = Math.max(1, Math.floor(box.bh * S));
+  const body = new XMLSerializer().serializeToString(rootCopy);
+  return {
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${body}</svg>`,
+    w, h,
+  };
+}
+
 export interface SnapshotSerializationOptions {
   /** Capture ownership is checked again after every cooperative yield. */
   current: () => boolean;

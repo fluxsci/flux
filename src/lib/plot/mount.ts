@@ -48,8 +48,13 @@ const themeKey = (e: SemanticPlotElement, theme: DeckTheme | null): string =>
 // A lazy asset can finish while its kept-alive pane is display:none. Retain
 // last-good bounds and retry only when a pane is shown, never on a timer.
 const pendingBounds=new Map<SVGSVGElement,()=>void>();
+/** Publish bounds deferred while their plot was display:none (a hidden pane or
+ * a parked Canvas placement). Callers run it once the subtree shows again. */
+export function flushPendingPlotBounds():void {
+  for(const [root,publish]of pendingBounds)if(root.isConnected&&root.getClientRects().length){pendingBounds.delete(root);publish();}
+}
 if(typeof window!=='undefined')window.addEventListener('flux:pane-shown',()=>{
-  if(pendingBounds.size)queueMicrotask(()=>{for(const [root,publish]of pendingBounds)if(root.isConnected&&root.getClientRects().length){pendingBounds.delete(root);publish();}});
+  if(pendingBounds.size)queueMicrotask(flushPendingPlotBounds);
 });
 
 // WS-1 Fix 1: the fields whose CHANGE forces a re-clone, snapshotted by value/

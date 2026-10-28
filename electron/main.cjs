@@ -16,6 +16,17 @@ const ipcContract = require("./ipc/contract.cjs").wrapIpcMain(rawIpcMain, { vali
   } catch { return false; }
 } });
 const ipcMain = { handle: ipcContract.handle, on: ipcContract.on };
+// Quit cleanup: ONE will-quit listener runs every family's disposer in
+// registration order, each isolated (an emitter stops at the first throw).
+// A listener per family passed Node's 10-listener leak warning.
+const quitDisposers = [];
+const onQuit = (dispose) => { quitDisposers.push(dispose); };
+app.on("will-quit", () => {
+  for (const dispose of quitDisposers) {
+    try { Promise.resolve(dispose()).catch((error) => console.warn(`[quit] cleanup failed: ${error?.message ?? error}`)); }
+    catch (error) { console.warn(`[quit] cleanup failed: ${error?.message ?? error}`); }
+  }
+});
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -283,7 +294,7 @@ const runnerFamily = require("./ipc/runner.cjs").createRunnerFamily({
   preferences: readPrefs,
 });
 runnerFamily.registerHandlers(ipcMain);
-app.on("will-quit", () => runnerFamily.dispose());
+onQuit(() => runnerFamily.dispose());
 
 // ---------------------------------------------------------------------------
 // WS6: provenance journal + advisory locks. The renderer (human) and the bridge
@@ -722,7 +733,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => { quitting = true; });
-app.on("will-quit", () => {
+onQuit(() => {
   releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
   stopAllBridges(); // W12 (SHL-8): remove every .meta/live/bridge.json (+ tokens) on quit
   try {
@@ -1153,7 +1164,7 @@ ipcMain.handle("update:install", async () => {
 fileCore.registerHandlers(ipcMain);
 const readerContextFamily = require("./ipc/readerContext.cjs").createReaderContext({rootFor:()=>getFluxLibRoot(),windowFor:sender=>BrowserWindow.fromWebContents(sender),atomicWrite:fileCore.atomicWriteMain,guard:(e,p)=>fileCore.fsGuard(p,e.sender.id)});
 readerContextFamily.registerHandlers(ipcMain);
-app.on("will-quit",()=>readerContextFamily.dispose());
+onQuit(() => readerContextFamily.dispose());
 sourceWatchCore.registerHandlers(ipcMain);
 
 // ---------------------------------------------------------------------------
@@ -1199,7 +1210,7 @@ const screenColorPicker = require("./ipc/colorPicker.cjs").createColorPicker();
 screenColorPicker.registerHandlers(ipcMain);
 app.on("before-quit", () => screenColorPicker.cancelAll());
 const captureDir = captureFamily.captureDir;
-app.on("will-quit", () => { void captureFamily.dispose(); });
+onQuit(() => captureFamily.dispose());
 
 // ---------------------------------------------------------------------------
 // The watcher split (multi-window A3.4). One PROCESS-WIDE watcher covers the
@@ -1212,7 +1223,7 @@ app.on("will-quit", () => { void captureFamily.dispose(); });
 const globalLibraryWatcher = require("./globalLibraryWatcher.cjs").createGlobalLibraryWatcher({loadChokidar,fluxLibDir,captureDir,readPrefs,liveWindows,writeOrigin:fileCore.writeOrigin,notifyRenderer,TMP_WRITE_RE,onLibraryChange:(root,abs)=>nativeReadJobs.libraryChanged(root,abs)});
 const closeGlobalWatcher = () => globalLibraryWatcher.close();
 const rebuildGlobalWatcher = () => globalLibraryWatcher.rebuild();
-app.on("will-quit", () => { void globalLibraryWatcher.dispose(); });
+onQuit(() => globalLibraryWatcher.dispose());
 
 ipcMain.handle("watch:setRoot", async (e, root) => {
   sceneRasterFamily.cancelOwner(e.sender.id);
@@ -1473,15 +1484,15 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {}, jobId = requir
 const nativeReadJobs = require("./ipc/readJobs.cjs").createReadJobs({app,appRoot:path.resolve(__dirname,".."),fluxLibDir});
 const fluxCliArgs = nativeReadJobs.fluxCliArgs;
 nativeReadJobs.registerHandlers(ipcMain);
-app.on("will-quit", () => nativeReadJobs.dispose());
+onQuit(() => nativeReadJobs.dispose());
 
 // Video jobs belong to their requesting window and cancel when it closes.
 const slideVideoCore = require("./ipc/slideVideo.cjs").createSlideVideoCore({ app, dialog, BrowserWindow, rootFor, fluxCliArgs, fsGuard, approveDir, noteWrite });
 slideVideoCore.registerHandlers(ipcMain);
-app.on("will-quit", () => slideVideoCore.cancelAll());
+onQuit(() => slideVideoCore.cancelAll());
 const videoMediaCore = require("./ipc/videoMedia.cjs").createVideoMediaCore({ app, protocol, rootFor, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 videoMediaCore.registerHandlers(ipcMain);
-app.on("will-quit", () => videoMediaCore.cancelAll());
+onQuit(() => videoMediaCore.cancelAll());
 const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 model3dCore.registerHandlers(ipcMain);
 // Letter outlines for text ↔ shape Becomes: system font bytes for a CSS request.
@@ -1507,9 +1518,9 @@ const sceneRasterFamily = require("./ipc/sceneRaster.cjs").createSceneRasterFami
   fontIndexFile: () => path.join(fluxPaths.userDataDir(), "cache", "scene-fonts.json"),
 });
 sceneRasterFamily.registerHandlers(ipcMain);
-app.on("will-quit", () => sceneRasterFamily.shutdown());
+onQuit(() => sceneRasterFamily.shutdown());
 require("./ipc/dissectNotes.cjs").createDissectNotesFamily({ rootFor, atomicWrite: fileCore.atomicWriteMain }).registerHandlers(ipcMain);
-app.on("will-quit", () => plotThumbsFamily.shutdown());
+onQuit(() => plotThumbsFamily.shutdown());
 const setupFamily = require("./ipc/setup.cjs").createSetupFamily({
   isPackaged: () => app.isPackaged,
   readPrefs,
@@ -1517,7 +1528,7 @@ const setupFamily = require("./ipc/setup.cjs").createSetupFamily({
   installLaunchers: (events, options) => fluxPaths.installLaunchers(events, options),
 });
 setupFamily.registerHandlers(ipcMain);
-app.on("will-quit", () => setupFamily.dispose());
+onQuit(() => setupFamily.dispose());
 
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
 // Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`
@@ -1553,7 +1564,7 @@ ipcMain.handle("slides:exportDeck", async (e, { root, deckId }) => {
 
 const staticPrint = require("./ipc/staticPrint.cjs").createStaticPrint({BrowserWindow,session,underDir,atomicWriteMain,fsGuard,rootFor,appRoot:path.resolve(__dirname,"..")});
 staticPrint.registerHandlers(ipcMain);
-app.on("will-quit", () => staticPrint.dispose());
+onQuit(() => staticPrint.dispose());
 
 // WS-9.4b: the NETWORK family (keys, cite:*, pdf:netGet, EZProxy machinery)
 // lives in ipc/network.cjs.
