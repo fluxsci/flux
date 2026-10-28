@@ -1580,6 +1580,7 @@ require("./ipc/languageProfiles.cjs").registerLanguageProfiles(ipcMain, {
   configRoot: () => getFluxConfigRoot(),
   rootForSender: (e) => rootFor(e),
   atomicWrite: atomicWriteSync,
+  otherRenderers: (sender) => BrowserWindow.getAllWindows().map((w) => w.webContents).filter((wc) => wc !== sender && !wc.isDestroyed()),
 });
 
 ipcMain.handle("shell:openExternal", (_e, url) => {

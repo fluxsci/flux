@@ -406,6 +406,8 @@ export interface FileBridge {
   onFulltextProgress?(cb: (progress: {requestId: string; ownerId?: string; phase: "checking" | "indexing" | "searching"; completed: number; total: number}) => void): () => void;
   correctionProfileGet?(projectRoot: string): Promise<unknown>;
   correctionProfileSet?(payload: { projectRoot: string; scope: "personal" | "project"; data: unknown }): Promise<boolean>;
+  /** Another window saved a language profile (personal, or this project's). */
+  onCorrectionProfileChanged?(cb: (change: { scope: "personal" | "project"; projectRoot: string }) => void): () => void;
   // F1 file-watch live reload. Optional: only the Electron bridge (and the dev
   // fixture) provide them.
   watchRoot?(root: string | null): Promise<boolean> | boolean;

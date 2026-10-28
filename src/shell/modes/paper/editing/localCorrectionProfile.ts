@@ -42,6 +42,19 @@ const LEGACY_STORAGE_KEY = "flux.paper.localCorrections.v1";
 export const LOCAL_CORRECTION_RESET_EVENT = "flux:local-corrections-reset";
 export const LOCAL_LANGUAGE_CHANGED_EVENT = "flux:local-language-changed";
 export const LOCAL_LANGUAGE_ERROR_EVENT = "flux:local-language-error";
+
+let watchingOtherWindows = false;
+/** Re-announce another window's profile save as a local language change, so
+ *  this window re-reads the profile before it next saves its own copy. */
+export function watchOtherWindowProfiles(): void {
+  if (watchingOtherWindows || typeof window === "undefined") return;
+  const bridge = fileBridge();
+  if (!bridge?.onCorrectionProfileChanged) return;
+  watchingOtherWindows = true;
+  bridge.onCorrectionProfileChanged(({ scope, projectRoot }) => {
+    window.dispatchEvent(new CustomEvent(LOCAL_LANGUAGE_CHANGED_EVENT, { detail: { projectKey: projectRoot, scope } }));
+  });
+}
 const MAX_WORDS = 5000;
 const MAX_ALIASES = 2000;
 const MAX_BLOCKED_PAIRS = 500;

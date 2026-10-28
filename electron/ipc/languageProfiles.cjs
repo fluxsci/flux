@@ -4,7 +4,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-function registerLanguageProfiles(ipc, { configRoot, rootForSender, atomicWrite }) {
+function registerLanguageProfiles(ipc, { configRoot, rootForSender, atomicWrite, otherRenderers = () => [] }) {
   function confinedFile(root, ...parts) {
     const base = fs.realpathSync(root);
     const file = path.join(root, ...parts);
@@ -73,6 +73,10 @@ function registerLanguageProfiles(ipc, { configRoot, rootForSender, atomicWrite 
     // never be treated as empty and overwritten by initial vocabulary seeds.
     readProfile(file, null);
     atomicWrite(file, JSON.stringify(data, null, 2) + "\n");
+    // Every window holds its own copy and saves it whole: tell the others to
+    // re-read, so their underlines clear and their next save keeps this edit.
+    const change = { scope: payload.scope, projectRoot: payload.scope === "project" ? payload.projectRoot || root : "" };
+    for (const wc of otherRenderers(event.sender)) wc.send("correction:profileChanged", change);
     return true;
   });
 }

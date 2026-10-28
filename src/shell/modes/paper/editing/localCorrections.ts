@@ -48,6 +48,7 @@ import {
   LOCAL_LANGUAGE_CHANGED_EVENT,
   LOCAL_LANGUAGE_ERROR_EVENT,
   LocalCorrectionProfile,
+  watchOtherWindowProfiles,
   type LocalLanguageScope,
 } from "./localCorrectionProfile";
 import {
@@ -600,6 +601,7 @@ class CorrectionController {
     window.addEventListener(LOCAL_CORRECTION_RESET_EVENT, this.resetLearning);
     window.addEventListener(LOCAL_LANGUAGE_CHANGED_EVENT, this.languageChanged);
     window.addEventListener(LOCAL_LANGUAGE_ERROR_EVENT, this.languageError);
+    watchOtherWindowProfiles();
     if (options.enabled()) this.scheduleWarm();
     else options.onStatus?.("off");
   }

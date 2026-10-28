@@ -143,6 +143,7 @@ const CHANNELS = [
   // --- Personal/project language profiles ------------------------------------
   { channel: "correction:profileGet", kind: "invoke", scope: "read" },
   { channel: "correction:profileSet", kind: "invoke", scope: "write" },
+  { channel: "correction:profileChanged", kind: "push", scope: "read" },
   // --- FluxChat runner -------------------------------------------------------
   { channel: "runner:capabilities", kind: "invoke", scope: "read" },
   { channel: "runner:start", kind: "invoke", scope: "spawn" },

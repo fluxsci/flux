@@ -246,6 +246,11 @@ contextBridge.exposeInMainWorld("fig", {
   },
   correctionProfileGet: (projectRoot) => ipcRenderer.invoke("correction:profileGet", projectRoot),
   correctionProfileSet: (payload) => ipcRenderer.invoke("correction:profileSet", payload),
+  onCorrectionProfileChanged: (cb) => {
+    const handler = (_e, change) => cb(change);
+    ipcRenderer.on("correction:profileChanged", handler);
+    return () => ipcRenderer.removeListener("correction:profileChanged", handler);
+  },
   onFsChanged: (cb) => {
     const handler = (_e, info) => cb(info);
     ipcRenderer.on("fs:changed", handler);
