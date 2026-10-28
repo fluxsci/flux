@@ -37,7 +37,7 @@ async function key(keyCode, modifiers = []) { stage = `key ${keyCode}`; await fo
 async function previewSize(label) {
   let measured;
   await wait(async () => {
-    measured = await js(`(()=>{const box=document.querySelector('.importer .list .preview'),page=box?.querySelector('.page'),image=page?.querySelector('img');if(!box||!page||!image?.naturalWidth)return null;const expectedW=Math.min(box.clientWidth-6,(box.clientHeight-6)*image.naturalWidth/image.naturalHeight),expectedH=expectedW*image.naturalHeight/image.naturalWidth;const r=page.getBoundingClientRect();return{width:box.clientWidth,height:box.clientHeight,pageW:r.width,pageH:r.height,expectedW,expectedH,document:box.ownerDocument.URL,matches:Math.abs(r.width-expectedW)<.1&&Math.abs(r.height-expectedH)<.1}})()`);
+    measured = await js(`(()=>{const box=document.querySelector('.importer .list .preview'),page=box?.querySelector('.page'),image=page?.querySelector('img');if(!box||!page||!image?.naturalWidth)return null;const b=box.getBoundingClientRect(),expectedW=Math.min(b.width-6,(b.height-6)*image.naturalWidth/image.naturalHeight),expectedH=expectedW*image.naturalHeight/image.naturalWidth;const r=page.getBoundingClientRect();return{width:b.width,height:b.height,pageW:r.width,pageH:r.height,expectedW,expectedH,document:box.ownerDocument.URL,matches:Math.abs(r.width-expectedW)<.1&&Math.abs(r.height-expectedH)<.1}})()`);
     return measured?.matches;
   }, `${label}: thumbnail fit follows actual owner geometry`, 2000).catch(error => { throw new Error(`${error.message}: ${JSON.stringify(measured)}`); });
   check(measured.matches && measured.width > 0 && measured.height > 0, `${label}: thumbnail fit matches its actual owner-window box (${JSON.stringify(measured)})`);
