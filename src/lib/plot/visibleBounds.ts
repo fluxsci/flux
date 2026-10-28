@@ -133,7 +133,9 @@ export const hidesPlotParts=(element:Pick<SemanticPlotElement,'overrides'>)=>Obj
 // A measurement is a function of the mounted content alone: the cached source
 // DOM and its mount signature. Re-mounting the same content (culling, figure
 // switches, Undo of a hide) reuses it instead of walking the plot again.
-const measured=new WeakMap<Element,Map<string,Rect|null>>();
+// A late web font changes text extents, so it retires every cached measurement.
+let measured=new WeakMap<Element,Map<string,Rect|null>>();
+if(typeof document!=='undefined')document.fonts?.addEventListener?.('loadingdone',()=>{measured=new WeakMap();});
 export interface PlotBoundsSource {dom:Element;key:string}
 export const hasMeasuredPlotBounds=(source:PlotBoundsSource)=>!!measured.get(source.dom)?.has(source.key);
 export function updatePlotVisibleBounds(root:SVGSVGElement,element:SemanticPlotElement,source?:PlotBoundsSource):Rect|null|undefined {
