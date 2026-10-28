@@ -22,8 +22,6 @@ await page.evaluateOnNewDocument(() => {
   localStorage.setItem("flux.settings", JSON.stringify({
     ...current,
     paperLocalCorrections: true,
-    paperContextualCorrections: true,
-    paperCorrectionGuidance: "Preserve named sensors and scientific identifiers.",
   }));
 });
 await gotoApp(page, { url: `${APP_URL}?fixture=demo`, settle: 1000 });
@@ -159,201 +157,26 @@ await page.keyboard.type(cutTrap, { delay: 1 });
 await new Promise((resolve) => setTimeout(resolve, 900));
 const cutState = await page.evaluate(() => ({
   text: window.__fluxView.state.doc.toString(),
-  issues: [...document.querySelectorAll(".cm-context-issue")].map((el) => el.textContent),
+  issues: [...document.querySelectorAll(".cm-spelling-issue")].map((el) => el.textContent),
 }));
 h.eq(cutState.text, cutTrap, "correct prose is left exactly as typed");
 h.eq(cutState.issues, [], "no word in a correct sentence is flagged by where a window was cut");
 
-// The positive control: the guard is surgical, not a mute button. A sentence
-// that really does open in lowercase is still flagged.
+// Sentence-position grammar cannot enter the learned spelling UI. The
+// mechanical planner remains unchanged, and no global capitalization alias
+// may be created from an otherwise valid word.
 await replaceDoc();
-await page.keyboard.type("The recordings were noisy. they were discarded from the pooled analysis. ", { delay: 1 });
+const lowercaseSentence = "The recordings were noisy. they were discarded from the pooled analysis. ";
+await page.keyboard.type(lowercaseSentence, { delay: 1 });
+await new Promise((resolve) => setTimeout(resolve, 700));
+h.eq(await doc(), lowercaseSentence, "sentence-dependent capitalization stays outside automatic word substitutions");
+h.ok(await page.evaluate(() => ![...document.querySelectorAll(".cm-spelling-issue")].some(el => el.textContent === "they")), "valid words cannot teach a global spelling alias from a grammar diagnostic");
+
+await replaceDoc();
+await page.keyboard.type("The experiemnt was recorded. ", { delay: 2 });
 await waitFor(
   page,
-  () => [...document.querySelectorAll(".cm-context-issue")].some((el) => el.textContent === "they"),
-  null,
-  { timeout: 6000, label: "genuine lowercase sentence opener" },
-);
-h.ok(true, "a sentence that truly opens in lowercase is still flagged");
-
-h.section("sentence judgment lane");
-await page.evaluate(() => {
-  window.__contextPackets = [];
-  window.__contextDelay = 30;
-  window.__contextCancelled = [];
-  window.fig.correctionDecide = async ({ packet }) => {
-    window.__contextPackets.push(packet);
-    await new Promise((resolve) => setTimeout(resolve, window.__contextDelay));
-    const decisions = packet.candidates.map((candidate) => {
-      if (candidate.original.toLowerCase() === "conext") {
-        return { candidateId: candidate.id, action: "rescue", replacement: "context" };
-      }
-      if (candidate.original.toLowerCase() === "wayus" && candidate.rescueSuggestions?.includes("ways")) {
-        return { candidateId: candidate.id, action: "rescue", replacement: "ways" };
-      }
-      if (candidate.original.toLowerCase() === "recoreded") {
-        return { candidateId: candidate.id, action: "rescue", replacement: "recorded" };
-      }
-      const use = candidate.original.toLowerCase() === "cite" && candidate.from === packet.text.lastIndexOf("cite");
-      const wanted = "site";
-      const found = candidate.suggestions.findIndex((suggestion) => suggestion.replacement.toLowerCase() === wanted);
-      return { candidateId: candidate.id, action: use ? "use" : "keep", suggestionIndex: Math.max(0, found) };
-    });
-    return {
-      version: 1,
-      requestId: packet.requestId,
-      decisions,
-      diagnostics: decisions.map((decision) => ({
-        candidateId: decision.candidateId,
-        stage: decision.action === "keep" ? "kept" : decision.action === "rescue" ? "accepted-rescue" : "accepted-suggestion",
-        ...(decision.replacement ? { replacement: decision.replacement } : {}),
-      })),
-    };
-  };
-  window.fig.correctionCancel = async (requestId) => {
-    window.__contextCancelled.push(requestId);
-    return true;
-  };
-});
-await replaceDoc();
-await page.keyboard.type("Please cite the recording cite in the methods. ", { delay: 2 });
-await waitFor(
-  page,
-  () => window.__fluxView.state.doc.toString() === "Please cite the recording site in the methods. ",
-  null,
-  { timeout: 8000, label: "contextual real-word correction" },
-);
-const contextual = await page.evaluate(() => ({
-  text: window.__fluxView.state.doc.toString(),
-  caret: window.__fluxView.state.selection.main.head,
-  marked: [...document.querySelectorAll(".cm-local-correction")].some((element) => element.textContent === "site"),
-  packet: window.__contextPackets.at(-1),
-}));
-h.eq(contextual.caret, contextual.text.length, "a sentence-level correction preserves the live caret");
-h.ok(contextual.marked, "a contextual decision carries a transient correction mark");
-h.ok(await page.evaluate(() => !!document.querySelector(".cm-local-correction-contextual")), "a smart correction uses the dedicated red-to-blue underline morph");
-h.ok(
-  contextual.packet?.projectContext?.personalGuidance === "Preserve named sensors and scientific identifiers." && contextual.packet?.candidates?.every((candidate) => Array.isArray(candidate.suggestions)),
-  "the provider receives bounded candidates plus durable guidance, never rewrite authority",
-);
-
-await replaceDoc();
-await page.evaluate(() => { window.__contextDelay = 300; });
-await page.keyboard.type("The wayus ", { delay: 2 });
-await waitFor(page, () => document.querySelector(".cm-context-issue-deferred")?.textContent === "wayus", null, { timeout: 4000, label: "deferred issue underline" });
-h.ok(true, "Harper deferral fades in as a red underline at the completed-word boundary");
-h.eq(
-  await page.evaluate(() => document.querySelector(".cm-context-issue-deferred")?.getAttribute("spellcheck")),
-  "false",
-  "a tracked issue suppresses Chromium's competing native spelling marker",
-);
-await page.keyboard.type("in which the system acts remain unclear. ", { delay: 2 });
-await waitFor(page, () => document.querySelector(".cm-context-issue-pending")?.textContent === "wayus", null, { timeout: 4000, label: "pending issue underline" });
-h.ok(true, "the same red underline remains visible while sentence judgment is running");
-await shot(page, "paper-context-issue-pending");
-await waitFor(
-  page,
-  () => window.__fluxView.state.doc.toString() === "The ways in which the system acts remain unclear. ",
-  null,
-  { timeout: 8000, label: "lexicon-expanded wayus correction" },
-);
-await page.evaluate(() => { window.__contextDelay = 30; });
-const wayusPacket = await page.evaluate(() => window.__contextPackets.at(-1));
-const wayusCandidate = wayusPacket?.candidates?.find((candidate) => candidate.original.toLowerCase() === "wayus");
-h.ok(
-  wayusCandidate?.suggestions?.length === 0 && wayusCandidate?.rescueSuggestions?.includes("ways"),
-  "the real Harper worker isolates ways as a locally verified rescue proposal",
-);
-
-await replaceDoc();
-await page.keyboard.type("The conext made the intended meaning clear. ", { delay: 2 });
-await waitFor(
-  page,
-  () => window.__fluxView.state.doc.toString() === "The context made the intended meaning clear. ",
-  null,
-  { timeout: 8000, label: "model-originated rescue correction" },
-);
-const fallbackPacket = await page.evaluate(() => window.__contextPackets.at(-1));
-const fallbackCandidate = fallbackPacket?.candidates?.find((candidate) => candidate.original.toLowerCase() === "conext");
-h.ok(
-  fallbackCandidate?.rescueEligible
-    && !fallbackCandidate.suggestions.some((suggestion) => suggestion.replacement === "context")
-    && !fallbackCandidate.rescueSuggestions.includes("context"),
-  "a model-originated word crosses the editor only when Harper omitted it and the local worker independently accepts it",
-);
-
-await page.evaluate(() => { window.__contextDelay = 180; });
-await replaceDoc();
-await page.keyboard.type("The recording cite identified cortex. The next idea keeps moving.", { delay: 1 });
-await waitFor(
-  page,
-  () => window.__fluxView.state.doc.toString() === "The recording site identified cortex. The next idea keeps moving.",
-  null,
-  { timeout: 8000, label: "contextual result behind continued typing" },
-);
-h.eq(
-  await page.evaluate(() => window.__fluxView.state.selection.main.head),
-  (await doc()).length,
-  "a delayed contextual result maps behind uninterrupted typing without moving the caret",
-);
-
-await page.evaluate(() => {
-  window.__contextPackets.length = 0;
-  window.__contextDelay = 180;
-});
-await replaceDoc();
-const continuousSource = "The recording cite marked cortex. The injection cite marked thalamus. The target cite marked striatum. ";
-const continuousExpected = continuousSource.replaceAll("cite", "site");
-await page.keyboard.type(continuousSource, { delay: 1 });
-try {
-  await waitFor(
-    page,
-    (expected) => window.__fluxView.state.doc.toString() === expected,
-    continuousExpected,
-    { timeout: 8000, label: "continuous sentence backfill" },
-  );
-} catch (error) {
-  console.error("continuous sentence debug", await page.evaluate(() => ({
-    text: window.__fluxView.state.doc.toString(),
-    packets: window.__contextPackets,
-  })));
-  throw error;
-}
-h.eq(await page.evaluate(() => window.__contextPackets.length), 3, "bounded contextual FIFO examines every sentence during continuous fast typing");
-h.eq(await page.evaluate(() => window.__fluxView.state.selection.main.head), continuousExpected.length, "continuous sentence backfill preserves the live caret");
-
-await page.evaluate(() => { window.__contextDelay = 350; });
-await replaceDoc();
-await page.keyboard.type("The recording cite marked cortex. ", { delay: 1 });
-await new Promise((resolve) => setTimeout(resolve, 90));
-await page.evaluate(() => {
-  const view = window.__fluxView;
-  const from = view.state.doc.toString().indexOf("cite");
-  view.dispatch({ changes: { from, to: from + 4, insert: "shape" }, selection: { anchor: from + 5 } });
-});
-await new Promise((resolve) => setTimeout(resolve, 500));
-h.eq(await doc(), "The recording shape marked cortex. ", "editing a pending span cancels the stale contextual mutation");
-h.ok(await page.evaluate(() => window.__contextCancelled.length > 0), "stale in-flight work is cancelled at the provider boundary");
-
-await page.evaluate(() => { window.__contextDelay = 20; });
-await replaceDoc();
-await page.keyboard.type("The blue label was a compliment to the orange trace. ", { delay: 1 });
-await waitFor(page, () => !!document.querySelector(".cm-context-issue-declined"), null, { timeout: 4000, label: "declined orange issue" });
-h.eq(await doc(), "The blue label was a compliment to the orange trace. ", "a contextual keep decision leaves intentional real-word prose byte-identical");
-await page.evaluate(() => {
-  document.querySelector(".cm-context-issue-declined")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-});
-await waitFor(page, () => !!document.querySelector('[data-flux-context-issue-details="declined"]'), null, { label: "declined issue details" });
-const declinedDetails = await page.evaluate(() => document.querySelector(".cm-context-issue-menu")?.textContent ?? "");
-h.ok(declinedDetails.includes("Left unchanged") && declinedDetails.includes("preferred the original wording"), "clicking an orange issue explains the structured abstention without exposing model chain-of-thought");
-await shot(page, "paper-context-issue-declined-details");
-await page.keyboard.press("Escape");
-
-await replaceDoc();
-await page.keyboard.type("The signal was recoreded. ", { delay: 2 });
-await waitFor(
-  page,
-  () => window.__fluxView.state.doc.toString() === "The signal was recorded. ",
+  () => window.__fluxView.state.doc.toString() === "The experiment was recorded. ",
   null,
   { timeout: 8000, label: "dictionary candidate correction" },
 );
@@ -368,14 +191,14 @@ await page.evaluate(() => {
 });
 await waitFor(
   page,
-  () => window.__fluxView.state.doc.toString() === "The signal was recoreded. ",
+  () => window.__fluxView.state.doc.toString() === "The experiemnt was recorded. ",
   null,
   { label: "dictionary restores original" },
 );
 await replaceDoc();
-await page.keyboard.type("The signal was recoreded. ", { delay: 2 });
+await page.keyboard.type("The experiemnt was recorded. ", { delay: 2 });
 await new Promise((resolve) => setTimeout(resolve, 700));
-h.eq(await doc(), "The signal was recoreded. ", "Add to dictionary restores and learns a project-specific term");
+h.eq(await doc(), "The experiemnt was recorded. ", "Add to dictionary restores and learns a project-specific term");
 
 h.section("word tools and instantaneous aliases");
 await page.evaluate(() => {
@@ -399,7 +222,7 @@ const initialTools = await page.evaluate(() => ({
   project: document.querySelector('[data-word-scope="project"]')?.getAttribute("aria-pressed"),
   personal: document.querySelector('[data-word-scope="personal"]')?.getAttribute("aria-pressed"),
 }));
-h.ok(initialTools.text.includes("iGluSnFR4f") && initialTools.project === "false" && initialTools.personal === "false", "selection toolbar opens scoped Word tools for the exact scientific term");
+h.ok(initialTools.text.includes("iGluSnFR4f") && initialTools.project === "false" && initialTools.personal === "true", "selection toolbar opens scoped Word tools for the exact scientific term");
 await shot(page, "paper-local-word-tools-empty");
 
 await page.click('[data-word-scope="project"]');
@@ -464,7 +287,7 @@ await page.evaluate(() => {
   view.focus();
 });
 await pressLocalChord(page, "KeyD", { shift: true }); // existing project entry toggles OUT
-await pressLocalChord(page, "KeyD"); // personal entry toggles IN
+await pressLocalChord(page, "KeyD"); // seeded personal entry toggles OUT
 await pressLocalChord(page, "KeyW", { shift: true });
 await waitFor(page, () => !!document.querySelector(".cm-local-word-tools"), null, { label: "word tools from hotkey" });
 await waitFor(page, () => document.activeElement?.matches(".cm-local-alias-form input") ?? false, null, { label: "alias input focus" });
@@ -473,9 +296,9 @@ const hotkeyScopes = await page.evaluate(() => ({
   personal: document.querySelector('[data-word-scope="personal"]')?.getAttribute("aria-pressed"),
   aliasFocused: document.activeElement?.matches(".cm-local-alias-form input") ?? false,
 }));
-h.eq(hotkeyScopes, { project: "false", personal: "true", aliasFocused: true }, "scope hotkeys toggle independently and the alias hotkey focuses its input");
+h.eq(hotkeyScopes, { project: "false", personal: "false", aliasFocused: true }, "scope hotkeys toggle independently and the alias hotkey focuses its input");
 await page.keyboard.press("Escape");
-await pressLocalChord(page, "KeyD"); // personal OUT
+await pressLocalChord(page, "KeyD"); // personal IN
 await pressLocalChord(page, "KeyD", { shift: true }); // project IN
 
 await replaceDoc();
@@ -519,31 +342,30 @@ await page.evaluate(() => {
 });
 await waitFor(
   page,
-  () => [...document.querySelectorAll(".cm-context-issue-flagged")].some((el) => el.textContent === "enviroment"),
+  () => [...document.querySelectorAll(".cm-spelling-issue")].some((el) => el.textContent === "enviroment"),
   null,
   { timeout: 10000, label: "flagged backlog underline" },
 );
 const backlog = await page.evaluate(() => ({
-  flagged: [...document.querySelectorAll(".cm-context-issue-flagged")].map((el) => el.textContent),
+  flagged: [...document.querySelectorAll(".cm-spelling-issue")].map((el) => el.textContent),
   text: window.__fluxView.state.doc.toString(),
 }));
 h.eq(backlog.flagged, ["enviroment"], "the prose typo is flagged once; the fenced-code copy stays unmarked");
 h.ok(backlog.text.startsWith("The chamber enviroment remained stable"), "backlog flagging never edits the document");
-// Give any wrongly-scheduled judgment/correction time to appear, then pin its absence.
+// Give any wrongly-scheduled automatic correction time to appear, then pin its absence.
 await new Promise((resolve) => setTimeout(resolve, 900));
 const backlogSettled = await page.evaluate(() => ({
-  pending: document.querySelectorAll(".cm-context-issue-pending").length,
   corrected: document.querySelectorAll(".cm-local-correction").length,
-  stillFlagged: [...document.querySelectorAll(".cm-context-issue-flagged")].map((el) => el.textContent),
+  stillFlagged: [...document.querySelectorAll(".cm-spelling-issue")].map((el) => el.textContent),
 }));
-h.eq([backlogSettled.pending, backlogSettled.corrected], [0, 0], "backlog flags never invoke the smart layer and never auto-correct");
+h.eq(backlogSettled.corrected, 0, "backlog flags never auto-correct");
 h.eq(backlogSettled.stillFlagged, ["enviroment"], "the flag persists until the text is edited");
 await page.evaluate(() => {
-  document.querySelector(".cm-context-issue-flagged")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  document.querySelector(".cm-spelling-issue")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
 });
-await waitFor(page, () => document.querySelector(".cm-context-issue-menu")?.dataset.fluxContextIssueDetails === "flagged", null, { label: "flagged details tooltip" });
-const flaggedMenu = await page.evaluate(() => document.querySelector(".cm-context-issue-menu")?.textContent ?? "");
-h.ok(flaggedMenu.includes("Flagged by the local checker"), "clicking a flagged span explains who flagged it and why");
+await waitFor(page, () => !!document.querySelector(".cm-spelling-menu"), null, { label: "flagged details tooltip" });
+const flaggedMenu = await page.evaluate(() => document.querySelector(".cm-spelling-menu")?.textContent ?? "");
+h.ok(flaggedMenu.includes("environment") && flaggedMenu.includes("Replace"), "clicking a flagged word offers useful spelling choices and a custom correction");
 await page.keyboard.press("Escape");
 
 await page.click("[data-correction-status]");
@@ -566,23 +388,12 @@ await waitFor(
 );
 h.ok(true, "re-enabling reuses the warm local worker");
 
-h.section("managed-local settings UX");
+h.section("fast-correction settings UX");
 await page.click('button[aria-label="Settings"]');
 await waitFor(page, () => !!document.querySelector('.modal[aria-label="Settings"]'), null, { label: "Settings modal" });
-const settingsModel = await page.evaluate(() => ({
-  provider: document.querySelector('.correction-grid select')?.value,
-  text: document.querySelector('.modal[aria-label="Settings"]')?.textContent ?? "",
-  judgmentOptions: [...document.querySelectorAll('.correction-grid select')]
-    .flatMap((select) => [...select.options].map((option) => option.value))
-    .filter((value) => value.includes("aggressive") || value === "standard"),
-}));
-h.eq(settingsModel.provider, "flux", "the Flux-managed local provider is the product default");
-h.ok(settingsModel.text.includes("Install local model") && settingsModel.text.includes("resumable and SHA-256 verified"), "Settings exposes explicit install, verification, and removal lifecycle UX");
-h.eq(settingsModel.judgmentOptions, ["standard", "aggressive", "really-aggressive"], "Settings exposes Standard, Aggressive, and Really aggressive judgment modes");
-await page.evaluate(() => {
-  const done = [...document.querySelectorAll('.modal[aria-label="Settings"] button')].find((button) => button.textContent === "Done");
-  done?.click();
-});
+const settingsText = await page.evaluate(() => document.querySelector('.modal[aria-label="Settings"]')?.textContent ?? "");
+h.ok(settingsText.includes("English dialect") && !settingsText.includes("Sentence judgment") && !settingsText.includes("Install local model"), "Settings retains fast corrections and dialect with the inference UI removed");
+await page.evaluate(() => [...document.querySelectorAll('.modal[aria-label="Settings"] button')].find((button) => button.textContent === "Done")?.click());
 await waitFor(page, () => !document.querySelector('.modal[aria-label="Settings"]'), null, { label: "Settings modal closed" });
 
 h.section("runtime hygiene");

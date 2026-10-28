@@ -40,7 +40,7 @@ try{
  for(const [platform,arch,names] of [['linux','x64',['Flux-linux-amd64.deb']],['darwin','arm64',['Flux-mac-arm64.zip']],['darwin','x64',['Flux-mac-x64.zip']]]){
    const directory=path.join(reportsRoot,`${platform}-${arch}`);await fs.mkdir(path.join(directory,'artifacts'),{recursive:true});
    const artifacts=[];for(const name of names){const bytes=Buffer.from(`${platform}-${arch}:${name}`),file=path.join(directory,'artifacts',name);await fs.writeFile(file,bytes);expectedArtifacts.push(file);artifacts.push({name,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')});}
-   const value={status:'qualified',platform,arch,tag:'v0.2.0',version:'0.2.0',identity:actual,checks:Object.fromEntries([...REQUIRED_CHECKS,'package','packaged-smoke','fetch-correction-runtime','fetch-video-encoder'].map(k=>[k,{status:'passed'}])),artifacts};
+   const value={status:'qualified',platform,arch,tag:'v0.2.0',version:'0.2.0',identity:actual,checks:Object.fromEntries([...REQUIRED_CHECKS,'package','packaged-smoke','fetch-video-encoder'].map(k=>[k,{status:'passed'}])),artifacts};
    const file=path.join(directory,'qualification.json');await fs.writeFile(file,JSON.stringify(value));records.push({value,file});
  }
  const validator=path.resolve(import.meta.dirname,'verify-release-evidence.mjs');

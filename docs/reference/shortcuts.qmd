@@ -111,7 +111,7 @@ see the [Paper guide](../modes/paper.qmd#vim-and-how-the-caret-feels).
 
 # Figure
 
-Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · **R** rectangle ·
+Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rectangle ·
 **O** ellipse · **L** line · **Shift+L** arrow · **P** pen.
 
 | Shortcut | Action |
@@ -122,7 +122,11 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **v** on an X-ray axis row | Axis view… — focus that axis in the Inspector |
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
-| **Alt+G** | Show the Plots view of the sidebar and search it (again, from inside it: back to Layers) |
+| **Alt+G** | Toggle Plots / Layers; a hidden sidebar opens to Plots with search focused |
+| **Alt+/** *(Plots view)* | Switch the lower pane between Dissections and the searchable folder tree |
+| **Alt+Shift+C** | Copy the selected plot's full source path |
+| **Ctrl+K → New figure** | Click to place a new figure at the closest free position; **Escape** cancels |
+| **Alt+drag** *(figure title)* | Duplicate the entire figure in its family |
 | **Shift+Alt+G** | Open the full Plot gallery in its own window (the toolbar's **Gallery** opens it in place) — also from the Plots view's search box |
 | **Shift+Space** *(Plots view)* | Peek at the selected plot (again: close) — hovering a plot for a moment peeks too |
 | **Enter** / *double-click* *(Plots view, a stack)* | Open a variant stack in place (**⋯ → Stack variants**) |
@@ -130,7 +134,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Alt+1** / **Alt+2** | In the Plots view or the Plot gallery: this project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
-| **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **Shift+A** the same part on every plot of the figure, **←** / **→** up to a row's family / down into it, **x** hides the pick, **Enter** or **F** opens their properties, **Ctrl+Z** undoes, **double-click** re-roots |
+| **R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, a press-and-drag sweeps a run (**Ctrl** at the press adds), **Ctrl+A** all, **Alt+A** every search result, **a** the siblings (counterpart parts first, then everything under the parent), **Shift+A** the same part on every plot of the figure, **←** / **→** up to a row's family / down into it, **x** hides the pick, **Enter** or **F** opens their properties, **Ctrl+Z** undoes, **double-click** re-roots |
 | **Shift+Alt+R** | X-ray the drilled part's **family** (one tick label → all the tick labels), selected on the canvas too |
 | **Alt+M** / **Shift+Alt+M** | Figure-Meta / open it pinned (Figure and Paper) |
 | **Alt+L** | Mark selected text as a panel label |
@@ -199,7 +203,7 @@ Everything in the Figure table works on the stage. Additionally:
 | **F5** / **Shift+F5** | Present from the start / from the current slide |
 | **↓** / **↑** (nothing selected) | Next / previous slide |
 | **Ctrl+B** (nothing text-like selected) | Hide/show the left rail (filmstrip or Plots) |
-| **Alt+G** | Show the left rail's Plots view and search it (again, from inside it: back to the filmstrip) |
+| **Alt+G** | Toggle Plots / Slides; a hidden rail opens to Plots with search focused |
 | **Ctrl+Shift+A** | Add appearance for the selection *(animator open)* |
 | **Ctrl+Shift+D** | Add disappearance *(animator open)* |
 | **Ctrl+Shift+C** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
@@ -216,8 +220,8 @@ Everything in the Figure table works on the stage. Additionally:
 | **A** *(Become pick)* | Widen the last pick to its siblings |
 | **Backspace** *(Become pick)* | Drop the last pick |
 | **B** / **Enter** *(Become pick)* | Confirm the pick |
-| **R O L P T** *(Become pick)* · **Ctrl+P** · placing from the Plots rail | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
-| **Alt+R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live (**Shift+Alt+R**: with the picks' families) |
+| **Alt+R**, **O L P T** *(Become pick)* · **Ctrl+P** · placing from the Plots rail | Add mode: draw or insert objects; each one joins the pick (**Enter** returns to picking) |
+| **R** *(Become pick)* | X-ray the hovered plot; its rows join or leave the pick live (**Shift+Alt+R**: with the picks' families) |
 | **B** *(X-ray while Become is armed)* | Become: confirm the whole pick |
 | **Escape** *(Become / Appear from… pick)* | Leave Add mode or close the X-ray first; then cancel without creating a transform |
 | **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |

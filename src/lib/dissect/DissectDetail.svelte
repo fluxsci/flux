@@ -8,6 +8,9 @@
   // Tables render the windowed DissectTable; other files say so honestly.
   import DissectTable from "./DissectTable.svelte";
   import { imageUrl, tableText, type DissectFile } from "./loader";
+  import { previewBackdrop } from "../plot/previewBackdrop";
+  import TextNoteEditor from "./TextNoteEditor.svelte";
+  import { plotNote } from "./notes";
 
   let {
     file,
@@ -16,6 +19,7 @@
     groupName,
     onClose,
     keyboardTarget,
+    noteOwner,
   }: {
     file: DissectFile;
     pos: number;
@@ -24,6 +28,7 @@
     onClose: () => void;
     /** Expanded gallery previews scope hand-tool keys to their own modal. */
     keyboardTarget?: HTMLElement;
+    noteOwner?: { root: string; key: string; group: string };
   } = $props();
 
   let stage = $state<HTMLDivElement | null>(null);
@@ -177,7 +182,7 @@
       if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       if (e.code !== "Space") return;
       const target = e.target as HTMLElement | null;
-      if (keyboardTarget && (target?.isContentEditable || target?.closest?.("button,input,textarea,select,video,a[href],[role='button']"))) return;
+      if (target?.isContentEditable || target?.closest?.("button,input,textarea,select,video,a[href],[role='button']")) return;
       spaceHeld = true;
       e.preventDefault();
     };
@@ -238,6 +243,7 @@
       class:panready={spaceHeld && userZoomed}
       class:dragging
       bind:this={stage}
+      use:previewBackdrop={{ path: file.abs, version: file }}
       use:nativeClick={onStageClick}
       use:nativePointerDown={onPointerDown}
       use:nativePointerMove={onPointerMove}
@@ -267,6 +273,8 @@
     {:else if text !== null}
       <DissectTable {text} {inputTruncated} name={file.name} />
     {/if}
+  {:else if /\.txt$/i.test(file.name) && noteOwner}
+    <TextNoteEditor note={plotNote(noteOwner.root, noteOwner.key, noteOwner.group, file.name)} />
   {:else}
     <div class="stage">
       <div class="absent">

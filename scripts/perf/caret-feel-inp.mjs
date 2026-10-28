@@ -1,6 +1,6 @@
-// Diagnostic: per-caret-mode keystroke INP in REAL Electron (caret-feel branch).
+// Diagnostic: Chase caret keystroke INP in REAL Electron.
 // Adapted from scripts/verify-writer-latency-inp.mjs. Ambient background stays
-// ON (shipped condition). For each caret mode we set localStorage, reload the
+// ON (shipped condition). Reload the
 // page (clean module graph), reopen the scaffolded project, type a fast burst,
 // and report keydown Event-Timing p50/p95. The E43 question: does the transient
 // caret rAF ticker (which is effectively continuous DURING sustained typing)
@@ -118,7 +118,7 @@ async function openAndSeed() {
     });
     try { eo.observe({ type: "event", durationThreshold: 0 }); } catch { eo.observe({ type: "event" }); }
     view.focus();
-    return { ok: true, feel: JSON.parse(localStorage.getItem("flux.settings") || "{}").paperCaretFeel };
+    return { ok: true, feel: "chase" };
   }, PROJ);
   if (r.error) errorOut(r.error);
   return r;
@@ -140,25 +140,17 @@ async function typeBurst() {
   return await page.evaluate(() => window.__perf.inp.slice());
 }
 
-const results = {};
-for (const mode of ["chase", "smooth"]) {
-  await page.evaluate((m) => {
-    const cur = JSON.parse(localStorage.getItem("flux.settings") || "{}");
-    localStorage.setItem("flux.settings", JSON.stringify({ ...cur, paperCaretFeel: m }));
-  }, mode);
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await sleep(1500);
-  const opened = await openAndSeed();
-  if (opened.feel !== mode) errorOut(`mode did not stick (${opened.feel} != ${mode})`);
-  await typeBurst(); // warmup
-  const a = await typeBurst();
-  const b = await typeBurst();
-  const all = [...a, ...b];
-  results[mode] = { n: all.length, p50: round(quant(all, 0.5)), p95: round(quant(all, 0.95)) };
-  console.log(`  ${mode.padEnd(12)} n=${all.length} p50=${results[mode].p50}ms p95=${results[mode].p95}ms`);
-}
+await page.reload({ waitUntil: "domcontentloaded" });
+await sleep(1500);
+const opened = await openAndSeed();
+if (opened.feel !== "chase") errorOut(`Chase caret unavailable (${opened.feel})`);
+await typeBurst(); // warmup
+const a = await typeBurst();
+const b = await typeBurst();
+const all = [...a, ...b];
+const result = { n: all.length, p50: round(quant(all, 0.5)), p95: round(quant(all, 0.95)) };
+console.log(`  Chase n=${all.length} p50=${result.p50}ms p95=${result.p95}ms`);
 
-console.log(`\nsmooth − chase p95 delta: ${round(results.smooth.p95 - results.chase.p95)}ms`);
 clearTimeout(hardExit);
 cleanup();
 process.exit(0);

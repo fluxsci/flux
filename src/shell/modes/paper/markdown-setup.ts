@@ -80,15 +80,15 @@ export function createEditorExtensions(
     markdown({ extensions: [GFM] }),
     syntaxHighlighting(fluxHighlight),
     fluxTheme,
-    // The overlay caret (chase/smooth motion + built-in soft blink). Must sit
+    // The overlay caret (chase motion + built-in soft blink). Must sit
     // AFTER drawSelection so its measure pass runs after the cursor layer's
     // (it mirrors that geometry).
     caretFeel(),
     search({ top: true }), // PAP-10: find/replace (Cmd/Ctrl-F, Cmd/Ctrl-Alt-F)
     searchPanelTheme,
-    // PAP-11: native spellcheck on the editable content (off by default in CodeMirror). Grammar-
-    // aware red squiggles + the OS/Electron suggestion menu, without correcting mid-word.
-    EditorView.contentAttributes.of({ spellcheck: "true", autocapitalize: "off", autocorrect: "off" }),
+    // Flux owns spelling diagnostics and suggestions. Suppress Chromium's
+    // additional red squiggles so there is one consistent spelling UI.
+    EditorView.contentAttributes.of({ spellcheck: "false", autocapitalize: "off", autocorrect: "off" }),
     // Section folding (lang-markdown ships the heading foldService; commands
     // in editing/folding.ts). No gutter — the themed "⋯" pill is the marker.
     codeFolding({

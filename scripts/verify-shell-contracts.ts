@@ -41,7 +41,7 @@ const row={name:'Valid',path:'/good',openedAt:1};assert.deepEqual(decodeRecents(
 const defaults=decodeSettings(null);assert.equal(decodeSettings({showGrid:'yes',gridSize:NaN,paperMarginScene:'unknown'}).showGrid,defaults.showGrid);
 assert.equal(decodeSettings({gridSize:-5,captionFontSize:100,paperCaretFeel:'monkeytype'}).gridSize,1);
 assert.equal(decodeSettings({captionFontSize:100}).captionFontSize,28);
-assert.equal(decodeSettings({paperCaretFeel:'monkeytype'}).paperCaretFeel,'smooth');
+assert.equal('paperCaretFeel' in decodeSettings({paperCaretFeel:'monkeytype'}),false);
 assert.deepEqual(decodePreferences({width:'bad',enabled:1,extra:true},{width:200,enabled:false},{width:{min:100,max:500}}),{width:200,enabled:false});
 console.log('CLI handler coercion, parser, error taxonomy, live endpoint metadata, preference migration/validation PASS');
 

@@ -19,6 +19,40 @@ import { reattachClones } from "./slide/attach";
 // CLI, and agents agree).
 export const BLANK_FIGURE = { width: 680, height: 850, background: "#ffffff" } as const;
 
+/** Closest upper-left point whose frame clears every existing frame. The
+ * forbidden positions are open rectangles (Minkowski sums); a nearest free
+ * point lies at the requested x or a rectangle's vertical boundary. For each
+ * such x, merge its forbidden y intervals and project to the closest endpoint.
+ * O(n² log n), once per placement; no grid quantization or unbounded spiral. */
+export function nearestFigurePosition(
+  figures: readonly Pick<Figure, "x" | "y" | "width" | "height">[],
+  at: { x: number; y: number },
+  size: { width: number; height: number } = BLANK_FIGURE,
+  gap = 24,
+): { x: number; y: number } {
+  if (![at.x, at.y, size.width, size.height, gap].every(Number.isFinite) || size.width <= 0 || size.height <= 0 || gap < 0)
+    throw new Error("Invalid figure placement");
+  const boxes = figures.map(f => ({ left: f.x - size.width - gap, right: f.x + f.width + gap, top: f.y - size.height - gap, bottom: f.y + f.height + gap }));
+  const xs = [...new Set([at.x, ...boxes.flatMap(b => [b.left, b.right])])].sort((a,b) => Math.abs(a-at.x)-Math.abs(b-at.x) || a-b);
+  let best = { ...at }, distance = Infinity;
+  for (const x of xs) {
+    const dx2 = (x-at.x)**2;
+    if (dx2 > distance) break;
+    const intervals = boxes.filter(b => x > b.left && x < b.right).sort((a,b) => a.top-b.top);
+    let y = at.y;
+    for (let i = 0; i < intervals.length; i++) {
+      const top = intervals[i].top;
+      let bottom = intervals[i].bottom;
+      while (i + 1 < intervals.length && intervals[i+1].top < bottom) bottom = Math.max(bottom, intervals[++i].bottom);
+      if (y > top && y < bottom) { y = y-top <= bottom-y ? top : bottom; break; }
+    }
+    const d = dx2 + (y-at.y)**2;
+    if (d < distance) { distance = d; best = { x, y }; }
+    if (!distance) break;
+  }
+  return best;
+}
+
 // ---------------------------------------------------------------------------
 // Figure (frame) lifecycle
 // ---------------------------------------------------------------------------

@@ -169,7 +169,7 @@ try {
 
   h.section("Add mode — drawn objects join the pick");
   await seed(); await armBecome();
-  await page.keyboard.press("r"); await paint();
+  await page.keyboard.down("Alt"); await page.keyboard.press("r"); await page.keyboard.up("Alt"); await paint();
   h.ok(await layer() === "add" && await barKind() === "add", "a drawing tool key enters Add mode (inner hairline, \"Adding…\" bar)");
   const before = (await slideState()).slide.elements.map((e) => e.id);
   await drag({ x: wrap.x + wrap.w * 0.18, y: wrap.y + wrap.h * 0.08 }, { x: wrap.x + wrap.w * 0.24, y: wrap.y + wrap.h * 0.16 });
@@ -206,7 +206,7 @@ try {
   await page.mouse.click(p0.x, p0.y); await paint();
   const pc = await center("pk-plot");
   await page.mouse.move(pc.x, pc.y);
-  await page.keyboard.down("Alt"); await page.keyboard.press("KeyR"); await page.keyboard.up("Alt");
+  await page.keyboard.press("KeyR");
   await waitFor(page, () => document.activeElement?.classList.contains("xray"), null, { label: "X-ray focus" });
   const spineRow = '.xray [data-rid="part:pk-plot__axis.x.spine"]';
   if (!(await page.$(spineRow))) await page.$eval('.xray [data-rid="part:pk-plot__axis.x"] .tw', (e) => e.click());
@@ -231,7 +231,7 @@ try {
   await page.keyboard.press("Escape"); await paint();
   h.ok(!(await page.$(".xray")) && await layer() === "pick" && (await units()).length === 2, "closing the X-ray keeps the picks and the mode");
   await page.mouse.move(pc.x, pc.y);
-  await page.keyboard.down("Alt"); await page.keyboard.press("KeyR"); await page.keyboard.up("Alt");
+  await page.keyboard.press("KeyR");
   await waitFor(page, () => document.activeElement?.classList.contains("xray"), null, { label: "X-ray focus again" });
   await page.keyboard.press("Space"); await paint();
   handoff = (await tracks()).find((t) => t.to?.become);

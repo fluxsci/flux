@@ -366,9 +366,19 @@ async function renderFigureSvgInSlices(id: string, rev: number): Promise<string 
 /** The display render as an <img> source (blob URL; cached per figure per
  *  fig-revision alongside renderFigureSvg). Consumers that only SHOW a figure
  *  use this — never inline the svg string into the editor document. */
+const pendingImageRenders = new Map<string, { rev: number; promise: Promise<string | undefined> }>();
 export async function renderFigureImageUrl(id: string): Promise<string | undefined> {
   if (imageUrlCache.has(id)) return imageUrlCache.get(id);
+  const pending = pendingImageRenders.get(id);
+  if (pending?.rev === figuresRev) return pending.promise;
   const rev = figuresRev;
+  const promise = renderFigureImageUrlUncached(id, rev);
+  const job = { rev, promise };
+  pendingImageRenders.set(id, job);
+  try { return await promise; }
+  finally { if (pendingImageRenders.get(id) === job) pendingImageRenders.delete(id); }
+}
+async function renderFigureImageUrlUncached(id: string, rev: number): Promise<string | undefined> {
   let svg = await renderFigureSvgInSlices(id, rev);
   if (rev !== figuresRev) return undefined;
   const url = svg ? await figureSvgImageUrl(svg) : undefined;
@@ -446,6 +456,10 @@ function scheduleRenderDrain(): void {
 }
 async function drainRenderQueue(): Promise<void> {
   renderScheduled = false;
+  // A timed-out idle callback can run in front of queued keyboard input.
+  // Yield one task in that case; preview work never owns the typing path.
+  const scheduling = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { scheduling?: { isInputPending(): boolean } }).scheduling;
+  if (scheduling?.isInputPending()) { scheduleRenderDrain(); return; }
 
   for (const [id, waiters] of renderWaiters) {
     // Drop waiters whose element is gone; skip figures nobody visible wants.
@@ -546,6 +560,11 @@ export function figureImage(node: HTMLImageElement, id: string): { update(id: st
   let cancel = bindFigureImage(node, id);
   return {
     update(next: string) {
+      // A getter-backed margin host may invalidate its children on editor
+      // updates. Keep an unchanged image subscribed; rebinding clears src,
+      // allocates an observer and starts the same preview request again.
+      if (next === id) return;
+      id = next;
       cancel();
       cancel = bindFigureImage(node, next);
     },

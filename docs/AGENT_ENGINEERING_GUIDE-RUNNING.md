@@ -791,6 +791,9 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
   bumps `globalRev` (under-invalidation impossible by construction). Expensive derived work keys
   on `${figureRev[id]}|${globalRev}|…` and memoizes in **non-reactive `const` boxes**.
+  Rail width variables belong on their consuming LeftRail/Inspector subtree, never the
+  FigureMode body above the scene. An inherited custom-property write restyles every mounted
+  SVG node even when the scene does not use it; use explicit width props to confine that work.
 - Mutations go through `commit`/`mutate`/`mutateFigure` in `src/lib/store.ts`; gestures are
   `beginGesture` → transient preview → one commit on release. Undo history is byte-budgeted
   (64MB / 200 entries). `beginGesture` returns an owned checkpoint: cancellation restores
@@ -818,6 +821,16 @@ Persistence invariants (all machine-checked — do not weaken):
   Keep it in `PlotElement.svelte`, outside the cached/exported SVG, under the same placement
   transforms, and inherit scene pointer policy so hidden presentation objects cannot catch clicks.
   `verify-plot-hit-area.mjs` covers transparent margins, crop/rotation, stacking, locks and export.
+  When semantic parts are hidden, `plot/visibleBounds.ts` caches the remaining drawn bounds
+  after content mount. Selection/hover/drag/resize chrome, whitespace hits and marquee all use
+  that cache; saved placement geometry remains unchanged. Compose relative screen matrices
+  (nested SVG getCTM roots differ), rotate/flip around the original pivot, and defer measurement
+  while hidden until `flux:pane-shown`. Pointer/viewport updates never scan the plot DOM.
+  Crop grabs retain the original placement frame so hiding a panel cannot jump the crop.
+  Raw getBBox (including Chromium's ignored clipped:true option) includes clipped-away data.
+  Content-time bounds intersect cached clip chains, clip/child transforms, owner-relative
+  objectBoundingBox units and viewport overflow. Complex clip shapes use conservative bounds;
+  explicitly visible root overflow remains unbounded. Never move that work to viewport updates.
 - **How a text element's lines sit in its box is ONE pure layout** (2026-09-18):
   `text.ts blockLayout(el)` returns the anchor x + `text-anchor`, the first baseline, each
   line's `dy` and each justified line's target width, from `align`
@@ -895,7 +908,12 @@ Persistence invariants (all machine-checked — do not weaken):
   invalidating all keyed Elements on first drag costs a full scene update. Frame resize previews
   only the boundary and Inspector dimensions, then `ops.resizeFigureFrame` commits once. Its
   pure operation offsets elements/guides oppositely to origin changes, preserving world position,
-  physical size, hidden/out-of-bounds artwork, assets and references. CLI/MCP/live bridge expose
+  physical size, hidden/out-of-bounds artwork, assets and references. Ctrl+K New figure arms a
+  project/canvas-owned point request; `figureLifecycle.nearestFigurePosition` finds the exact
+  closest nonoverlap position (24px gap), preserving fractional/negative world coordinates.
+  Tool, project, canvas changes and Escape cancel the request. Alt-dragging a figure title
+  duplicates only past drag slop through the shared lifecycle; the checkpoint owns identity,
+  caption/group remaps and cancellation. Whole-frame Shift drags keep an axis. CLI/MCP/live bridge expose
   `resize_figure_frame`; the live bridge refuses it in Slide mode (stage size belongs to the deck).
 - **Element resize contract:** handles describe world-axis bounds. Cardinal rotations map
   the axes exactly; oblique boxes constrain the gesture to uniform scaling because arbitrary
@@ -1021,72 +1039,36 @@ Persistence invariants (all machine-checked — do not weaken):
   the browser process and the renderer would never see Ctrl+/−/0 (verify-w6-flush §4 pins
   it). Gates: `verify-paper-textscale.ts` (pure) + `verify-paper-textsize-gui.mjs` (ui,
   paper-gate), and `src/styles/tokens.css` maps to both.
-  **Local corrections** (2026-08-04, contextual lane 2026-08-05) live in
-  `editing/localCorrections.ts`: an abbreviation-aware shared segmenter schedules a
-  completed-word lane and a separate completed-sentence lane. Both lint through the dedicated
-  module worker (`localCorrection.worker.ts`, Harper slim WASM), then revalidate exact source
-  against the current document before applying each accepted batch in isolated history.
-  **TWO WORKER LANES (2026-09-22):** `localCorrectionService` runs a `live` linter and a lazy
-  `background` one, and `lint()` picks by mode — `repair` is live, `lintOnly` is background.
-  One `linter.lint()` is a single INDIVISIBLE WASM call (17 unknown scientific words measured
-  at 1.6s of pure WASM time), so the worker's queue priority cannot preempt a backlog window
-  that has already started; only a second thread keeps the live lanes responsive, which is
-  what `verify-v020-paper-workers`' sub-second budget pins. A `lintOnly` check that is itself
-  latency-bound passes `"live"` explicitly — the rescue-word validation does, because it sits
-  inside the 1.5s application window. Vocabulary and dialect messages broadcast to every live
-  lane; the published engine status is the live lane's.
-  **THE WINDOW RULE (2026-08-09):** every window is a SLICE, but the linter reads each one as a
-  whole document, so a window must carry enough language to be read correctly and must declare
-  what it may change. The word lane submits the SENTENCE SO FAR with a `focus` — the final two
-  completed tokens — and only the focus is correctable (`scopeWindowLints` + `withinFocus` in the
-  pure core bound the lints AND every span the planners synthesize from the window text; the
-  protected-range veto and the worker's per-word mechanical rescue search are focus-scoped too).
-  A window that does not begin a real sentence (`windowStartsSentence`) additionally drops
-  sentence-OPENING verdicts about its first sentence — that is the residual guard for the
-  sentence lane's 760-char clamp and the backlog scan's whitespace fallback cut. Never shrink a
-  window to "just the interesting tokens": a bare two-token slice made Harper report the tail of
-  one sentence as the lowercase head of another, a mid-sentence adverb as a discourse marker owed
-  a comma, and both halves of "et al." as unknown words.
-  The synchronous keystroke path never calls the linter. `localCorrectionCore.ts` is deliberately
-  conservative: mechanical edits only; arbitrary one-letter substitutions, scientific compound
-  styling, phrase/style lints, technical tokens, and protected Markdown never auto-apply. Visual
-  marks are zero-layout; immediate native Undo restores the batch and persists per-project vetoes.
-  Explicit language data is a separate v2 profile (`localCorrectionProfile.ts`, lossless v1
-  migration): project + device-wide Personal dictionaries and aliases, with project aliases
-  taking precedence. `localWordTools.ts` owns the selection toolbar/popover and Vim-proof
-  `Prec.highest` chords. Alias expansion is synchronous but tiny: a transaction filter appends
-  the replacement to the delimiter's SAME transaction (one exact Undo), while the worker remains
-  entirely off the keystroke path. Explicit mixed-case terms feed a conservative mechanical
-  matcher in the pure core; arbitrary substitutions and version-like identifiers stay protected.
-  Reset learning clears automatic vetoes but preserves explicit words/aliases. The worker and
-  WASM stay lazy outside the startup graph. A deferred span receives a Flux-owned red underline;
-  sentence judgment changes it to a transient blue correction line or a persistent, clickable
-  orange abstention with structured (non-chain-of-thought) diagnostics. Native Chromium spelling
-  decoration is suppressed only inside those owned spans so it cannot conflict with the state.
-  A programmatically loaded document (open/switch/external reload — any docChanged with no
-  userEvent) additionally gets a BACKLOG SCAN (2026-08-06): idle-paced chunks
-  (`backlogScanWindows`, paragraph blocks cut at sentence boundaries) lint through the same
-  worker and mark Harper-flagged spans with status `flagged` (red, persistent, capped at 300)
-  — candidates come from `harperLintsOnly` normalization (no confusion-table/vocab synthesis,
-  which would mark every "there"), the scan never edits, never calls the judgment model, skips
-  the caret's own chunk (live lanes own it — this also keeps typed-fixture gates deterministic),
-  and never downgrades an existing issue's status. Editing a flagged sentence hands it to the
-  normal lanes.
-  Unresolved sentence candidates may cross the bounded main-process seam in
-  `electron/ipc/corrections.cjs`. The model first adjudicates supplied options; for a plain
-  unresolved spelling token it may enter a bounded rescue protocol that proposes one
-  case-preserving word. The persisted `standard` mode permits one edit for short tokens and two
-  otherwise; `aggressive` permits three for 9+ letters; opt-in `really-aggressive` permits three
-  for 7+ and four for 10+ letters and examines every bounded candidate.
-  Recognizable scientific morphology gets a separate preservation veto, every proposal needs a
-  fresh contextual approval, and the renderer independently requires Harper lexicon proof.
-  `contextualCorrectionCore.ts` retains mutation authority, stale-source validation, policy gates,
-  exact-span/edit-distance enforcement, and protected-range checks. The default managed provider lives in
-  `electron/ipc/correctionRuntime.cjs`: a checksummed, main-owned `llama-server` helper on random
-  authenticated loopback, with an explicit resumable Qwen model under
-  `<FluxConfig>/Models/corrections/`. Ollama is an advanced local provider; OpenAI is explicit,
-  `safeStorage`-keyed, `store:false`, and never a fallback. Personal language state is durable in
-  `<FluxConfig>/Language/corrections.json`; project state is `.flux/corrections.json`.
+  **Local corrections** live in `editing/localCorrections.ts`, using Harper slim WASM
+  in lazy module workers. An abbreviation-aware segmenter schedules completed-word and
+  completed-sentence mechanical checks; exact current source and protected Markdown are
+  revalidated before applying a batch. Nothing calls a linter on the synchronous keystroke
+  path. `localCorrectionCore.ts` permits conservative mechanical repairs; arbitrary substitutions,
+  scientific compounds, technical identifiers and style suggestions require explicit choice.
+  Immediate Undo restores an automatic batch and persists its per-project veto.
+  **TWO WORKER LANES:** `localCorrectionService` keeps `live` and lazy `background` linters.
+  A single WASM lint is indivisible, so backlog scans cannot share a thread with latency-bound
+  repairs. Vocabulary/dialect messages reach both. `verify-v020-paper-workers` pins this separation.
+  **THE WINDOW RULE:** a window contains the sentence so far plus a final-two-token focus;
+  `scopeWindowLints`/`withinFocus` confine all synthesized repairs to that focus. A window cut
+  inside a sentence drops sentence-opening verdicts (`windowStartsSentence`). Never replace a
+  contextual slice with two isolated tokens: that misdiagnoses sentence starts and abbreviations.
+  Programmatically opened/reloaded documents get idle-paced, annotation-only backlog scans
+  (`backlogScanWindows`), bounded to 300 red diagnostics and excluding the live caret's chunk.
+  `localSpelling.ts` normalizes Harper options. The issue popover offers ranked corrections,
+  a custom correction field and a + Personal-dictionary action; accepted corrections become
+  explicit durable mappings for future delimiter-triggered expansion. Profile revisions remove
+  accepted diagnostics immediately in active Paper editors in the same window; Chromium spellchecking is disabled
+  across the editor to prevent a second competing underline.
+  Project and Personal language data use the versioned `localCorrectionProfile.ts` profile.
+  Project aliases take precedence. Explicit alias expansion joins the delimiter's transaction,
+  so Undo is exact. The neuroscience/biology seed is applied once per vocabulary version to the
+  Personal profile; user additions, edits and subsequent removals survive reopen. Personal
+  data persists through `electron/ipc/languageProfiles.cjs` in
+  `<FluxConfig>/Language/corrections.json`; project data is `.flux/corrections.json`.
+  `localWordTools.ts` owns dictionary/alias controls and their Vim-proof `Prec.highest` chords.
+  Reset learning preserves explicit words and mappings. The Paper caret always uses Chase
+  (`editing/caretFeel.ts`); old cursor-mode preferences do not select an alternate implementation.
   **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
   `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
   markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,
@@ -2112,7 +2094,7 @@ Persistence invariants (all machine-checked — do not weaken):
   widths in `slideLayout` `leftView`/`plotsRailW`, the film gutter sizing whichever shows). **Alt+G**
   (handled ABOVE `handleKey`'s `typing` return) asks the store tenant's RAIL HOST
   (`railState.registerRailHost`: `figureRailHost.ts` at import, SlideMode on mount) — shows Plots
-  + focuses its search / from inside the rail returns to the other view; with the full gallery
+  + focuses its search / if Plots is already showing returns to the other view; with the full gallery
   pinned it still focuses that window. The full gallery opens from the toolbar
   (`data-open-gallery`) or **Shift+Alt+G** (pinned; also from the rail's search box). Slide places
   through a `PlaceAdapter` (its `importSlideItems`: deck/slide guards, clips; a rail job is not
@@ -2152,6 +2134,17 @@ Persistence invariants (all machine-checked — do not weaken):
   per-FigureMode `interact/canvasHitBridge.ts` (never a singleton) + `placeIncoming(…, at)`.
   Gates: `group:plots-rail` (five pure + `verify-plots-rail.mjs`, `-p3.mjs`, `-slide.mjs`),
   `verify-asar-unpack-closure.ts`, `group:plots-rail-native`.
+  **Folders/notes:** Alt+/ swaps the lower pane to a searchable, windowed full plot-folder
+  tree excluding reserved companion folders. Plot Notes creates multiple ordinary .txt
+  companions; the gallery's Notes search indexes their contents once per source revision,
+  then filters in memory across the project. `dissect:saveNote` checks the sender's project,
+  strict portable names, symlink-free containment and exact old text before atomic writes.
+  `noteDraftCore` drains new edits arriving during an in-flight write; `noteDrafts` retains
+  dirty/conflicting owners in the shell flush registry across view eviction. Keep conflicts
+  visible and preserve drafts, including pinned utility views. `previewBackdrop` shares the
+  rail's ink-analysis law with Space/fullscreen/gallery/dissection image previews; it keys
+  thumbnail analysis by stamp and cancels stale callbacks. Tile names stay in aria-labels,
+  without a native title tooltip obscuring Peek.
 - **The Plot gallery (Shift+Alt+G pinned; the toolbar's Gallery) is an editor-owned utility view.** Gallery/list, preview size
   (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
   `GalleryTree` reads only expanded directories, windows its rows and includes explicit
@@ -2580,10 +2573,9 @@ Persistence invariants (all machine-checked — do not weaken):
     plot's margin or a photo's border near its edge is still a grab-and-move; the bands run
     between the corner squares' inward extents, exist only when two squares fit along the edge
     AND the box is ≥ 12 px deep across them), and an L-shaped ROTATE zone 16 px deep outside
-    each corner (the stem + knob stay; the knob is rotate zone `n`). Every zone is CLIPPED to the
-    active figure's frame plus the bands' outer reach — but only 3 px above the frame's top
-    (`zoneClipForFrame`): the figure title bar lives there, and an element flush with the top edge
-    once covered it with its rotate L (the native polish gate's title-bar click rotated instead). **Small sides
+    each corner (the stem + knob stay; the knob is rotate zone `n`). Figure zones extend
+    outside the frame, with title-bar rectangles subtracted (`excludeZones`) so frame titles
+    retain their move gesture. Slide stage zones retain `zoneClipForFrame`. **Small sides
     (`ZONE_SMALL_SIDE` 24 px): no inward reach at all on that axis**, so a 10 px label has no
     bands, a 2 px scale bar and a zero-height row of lines are grabbable along their whole
     length, and every box — 0 × N included — keeps a free centre (pure invariant). A press on a
@@ -4928,6 +4920,16 @@ arm runs rim→bound, a cap keeps its point length and loses the part inside the
 tight engine's `rect` insets every edge on top of the decoration margins (matplotlib's second
 `get_tight_layout_figure` pass); a one-shot `fig.tight_layout()` instead freezes the figure to
 engine `none`, which can only scale its margins.
+
+Defs-backed `<use>` is not necessarily a fixed-size glyph: fill_between collections also use
+that representation. `preparePlot` passes captured frame semantics to normalization, retaining
+data-area geometry. Compose the referenced geometry's original affine before applying the new
+axes affine; point-sized marks still retain their physical size. Legends share `legend.ts`'s
+metric-only plan between solver and SVG writer: reduce columns before uniformly fitting an
+otherwise oversized single column. Reserve outside-figure legend margins (including wrapped
+height), and never feed beside-axes legend widths back into their own remaining axes width.
+Native-size attributes and wide→narrow→wide restoration remain exact. Gates include
+`verify-plot-resize-fixes.ts` and `verify-plot-visible-bounds.mjs` alongside `group:relayout`.
 
 ## 11. Session log (append-only; newest last — see maintenance rules at top)
 
@@ -11509,3 +11511,8 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Learnings:**
 - Promoted to the body ("Elastic plot reflow pipeline"): glyph geometry is rebuilt from captured frames, and tight `rect` semantics.
 - Remaining real-plot mismatches are solver limits, not capture bugs: a rotated y-label longer than its axes (its overhang shrinks as the axes grow) and figures saved with engine `none`.
+
+### 2026-10-28 03:14 CDT — October 27 issue-list core fixes (Codex, OCT-27-FIX-LIST)
+**Work:** Implemented the issue list's plot scaling/visible bounds, Paper corrections/pickers, gallery notes/navigation/previews and Figure interaction changes in an isolated worktree. Independent domain reviews found and fixed hidden-only selection, resize preview, placement ownership, accepted-asset path, contextual alias, seed provenance and delayed-note-save defects; the final zoom/pan investigation follows the non-performance qualification cohort. Detailed item/evidence handoff is `docs/for_agents/oct-27-fix-list.md`.
+**Learnings:**
+- Promoted to the body: coordinate-frame-aware SVG use normalization, transient visible geometry, rail-local CSS variables, versioned dictionary provenance and shared note drain/flush ownership.

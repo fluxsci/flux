@@ -7,8 +7,11 @@
   import { hasPlotDom, plotGen, requestPlotDom, retainPlot, releasePlot } from "./plot/store";
   import { mountPlot } from "./plot/mount";
   import { plotTheme } from "./plot/themeDom";
+  import type { Rect } from './geometry';
 
   export let element: SemanticPlotElement;
+  let visibleBounds:Rect|null|undefined=undefined;
+  const onBounds=(bounds:Rect|null|undefined)=>{visibleBounds=bounds;};
   $: e = element;
 
   // F2: re-clone when the plot is regenerated (cached DOM bumped) in place.
@@ -50,10 +53,10 @@
      the artwork so semantic parts still receive deep clicks; inherit pointer
      policy from the scene so hidden presentation elements stay noninteractive.
      Element.svelte supplies rotation/flips, and the placement box honors crop. -->
-<rect class="plot-hit-area" x={e.x} y={e.y} width={e.width} height={e.height} fill="transparent" />
+<rect class="plot-hit-area" x={e.x+(visibleBounds?.x??0)} y={e.y+(visibleBounds?.y??0)} width={visibleBounds===null?0:visibleBounds?.w??e.width} height={visibleBounds===null?0:visibleBounds?.h??e.height} fill="transparent" />
 
 {#if inline}
-  <g use:mountPlot={{ element: e, gen, theme: $plotTheme }}></g>
+  <g use:mountPlot={{ element: e, gen, theme: $plotTheme, onBounds }}></g>
 {:else if $assetData[e.assetId]}
   <!-- Crop honored on the <image> fallback too (P5): nested-svg viewport, same
        window semantics as the inline mount's viewBox sub-rect. Read `$project`

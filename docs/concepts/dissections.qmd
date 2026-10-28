@@ -29,8 +29,8 @@ The name mirrors the plot's path under `plots/` (so `plots/models/fit.svg` owns
 work too — they're keyed by their file name.
 
 That's the whole contract. There is no manifest and no registration: **the folder is the
-API**. Your analysis script (or an agent) drops files in; Flux never writes or reorganizes
-anything there except when you ask it to create the folder.
+API**. Your analysis script (or an agent) drops files in. Flux can create a dissection folder
+and write the text notes you edit there; it leaves your images, tables and other files alone.
 
 # What goes in
 
@@ -40,6 +40,7 @@ Anything that explains the plot. Typical dissections:
 - **Alternative analyses** — the same question answered another way (different model,
   different normalization), kept honest next to the version you published.
 - **Statistics** — `_stats/` CSVs with the tests behind the asterisks.
+- **Notes** — one or more `.txt` files with observations, decisions and searchable tags.
 - Images of any kind (**svg**, **png**, **jpg**, **webp** — fluxplot outputs included) and
   **csv**/**tsv** tables are first-class in the viewer; other files are listed by name.
 
@@ -76,6 +77,28 @@ to a floating window you can keep beside the canvas:
 
 The viewer is live: files dropped into the folder while it's open simply appear.
 
+# Notes and finding plots
+
+Click the **✎** button in the sidebar's Dissections header, or **Notes** in the full viewer,
+then **+ Note** to create a text file. Give each note a name; Flux adds `.txt` if needed.
+Select a file to edit it. Notes save automatically after typing or when you leave the field;
+**Ctrl+Enter** saves immediately. A failed save keeps your draft, and an external edit is
+reported instead of being overwritten. The text files remain readable in any editor.
+
+In the gallery search, turn on **Notes** to search note contents across every plot in the
+project. For example, `#TODO` finds that tag wherever you wrote it. Each result shows the
+plot, note, line and matching text; click it to open that exact note. Switch **Notes** off
+to return to searching plot names.
+
+To browse folders, click **▰** in the sidebar's Dissections header or press **Alt+/**.
+The lower pane becomes a searchable folder tree. Click a folder to show its plots, use
+**Arrow keys** and **Enter** to navigate, and press **Alt+/** again to restore Dissections.
+Companion collections such as `_dissections` stay out of this tree.
+
+Plot previews use the same readable background in the sidebar, fullscreen gallery and
+Dissect viewer. Transparent dark text sits on paper; light text sits on a dark surface.
+An image's own background remains part of the image.
+
 For scripts and agents, `flux list-dissections [plot]` prints a plot's groups and files (or,
 with no argument, every plot that has dissections) — see the
 [CLI reference](../reference/cli.qmd).
@@ -92,5 +115,8 @@ with no argument, every plot that has dissections) — see the
 - **Renamed a plot?** Flux never renames files in `plots/`, so rename the matching folder
   under `plots/_dissections/` yourself — until you do, the plot reports no dissections
   (nothing breaks, and the folder is never deleted).
-- **A file shows as a name card with no preview** — only images and CSV/TSV files have
-  viewers today. The file is still listed so you know it's there.
+- **A file shows as a name card with no preview** — images and CSV/TSV files have previews;
+  `.txt` notes open in the text editor. Other files remain listed by name.
+- **A note won't save** — text notes are limited to 1 MiB and cannot follow symbolic links.
+  If another editor changed the file, copy any draft text you want to keep, then choose
+  **Discard draft and reload** to read the disk version before editing again.

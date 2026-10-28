@@ -1231,10 +1231,10 @@
   function insertFigRef(text: string) {
     figRefPickerOpen = false;
     if (!view) return;
-    const pos = view.state.selection.main.head;
+    const range = view.state.selection.main;
     view.dispatch({
-      changes: { from: pos, to: pos, insert: text },
-      selection: { anchor: pos + text.length },
+      changes: { from: range.from, to: range.to, insert: text },
+      selection: { anchor: range.from + text.length },
       userEvent: "input",
     });
     view.focus();
@@ -1622,16 +1622,7 @@
           enabled: () => get(settings).paperLocalCorrections,
           projectKey: () => pm?.root ?? "demo",
           contextStrings: localCorrectionContextStrings,
-          contextualEnabled: () => get(settings).paperContextualCorrections,
-          contextualProvider: () => get(settings).paperCorrectionProvider,
-          contextualModel: () => get(settings).paperCorrectionProvider === "openai"
-            ? "gpt-5.6-luna"
-            : get(settings).paperCorrectionProvider === "flux"
-              ? "qwen3-4b-q4_k_m"
-              : get(settings).paperCorrectionModel,
-          contextualDialect: () => get(settings).paperCorrectionDialect,
-          contextualAggressiveness: () => get(settings).paperCorrectionAggressiveness,
-          personalGuidance: () => get(settings).paperCorrectionGuidance,
+          dialect: () => get(settings).paperCorrectionDialect,
           onStatus: (status) => (localCorrectionStatus = status),
           onError: (message) => pushToast("error", message),
           onNotice: (message) => pushToast("info", message),
@@ -2322,6 +2313,7 @@
     citationAtCaret: () =>
       view ? citationGroupAt(view.state, view.state.selection.main.head) : null,
     insertFigure,
+    insertFigureReference: insertFigRef,
     addDoi: addDoiFromPanel,
     focusEditor: () => view?.focus(),
     openFigure: (id) => revealFigure(id),

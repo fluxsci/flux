@@ -115,8 +115,6 @@ mac:
       to: docs
     - from: build/video-encoder/darwin-${arch}/
       to: video-encoder/
-    - from: build/correction-runtime/darwin-${arch}/
-      to: corrections/runtime/
     # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
     # rather than merging, so the entries are repeated here deliberately).
     - from: extension/dist
@@ -155,8 +153,6 @@ linux:
       to: docs
     - from: build/video-encoder/linux-${arch}/
       to: video-encoder/
-    - from: build/correction-runtime/linux-${arch}/
-      to: corrections/runtime/
     # Web capture ships with the app (platform blocks REPLACE the top-level extraResources
     # rather than merging, so the entries are repeated here deliberately).
     - from: extension/dist

@@ -65,7 +65,7 @@
       <span class="pb-hover" data-pick-readout title={hover ? [hover.label, hover.readout, hover.detail].filter(Boolean).join(" · ") : ""}>
         {#if hover}<b>{hover.label}</b>{#if hover.context}<span class="ctx">{hover.context}</span>{/if}{#if hover.readout}<span class="ro">{hover.readout}</span>{/if}{#if hover.detail}<i>{hover.detail}</i>{/if}
         {:else if units.length}<i>click toggles · drag a box · <kbd>a</kbd> siblings · Alt+click whole object</i>
-        {:else}<i>click parts or objects · drag a box around them · Alt+R X-ray</i>{/if}
+        {:else}<i>click parts or objects · drag a box around them · R X-ray</i>{/if}
       </span>
     {/if}
     {#if modelFeedback}<span class="morph-badge" data-model-morph-badge title={modelFeedback.reason ?? "Same mesh structure — the shape morphs smoothly."}>{modelFeedback.label}</span>{/if}

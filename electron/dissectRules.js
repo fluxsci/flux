@@ -96,6 +96,15 @@ export function dissectionRootRelFor(key) {
 
 export const DISSECT_IMAGE_RE = /\.(svg|png|jpe?g|gif|webp)$/i;
 export const DISSECT_TABLE_RE = /\.(csv|tsv)$/i;
+export const DISSECT_NOTE_MAX_BYTES = 1024 * 1024;
+/** Portable, confined .txt companion names. Reject traversal and Windows device names. */
+export function dissectionNoteRel(key, group, name) {
+  const valid = (s) => typeof s === "string" && s.length > 0 && s.length <= 240 && !/[\\/\0-\x1f<>:"|?*]/.test(s) && s !== "." && s !== ".." && !/[. ]$/.test(s) && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(s);
+  if (typeof key !== "string" || key.length > 4096 || !key.split("/").every(valid)) throw new Error("Invalid plot note owner");
+  if (typeof group !== "string" || group && !valid(group)) throw new Error("Invalid plot note group");
+  if (!valid(name) || !/\.txt$/i.test(name)) throw new Error("Choose a plain .txt file name without folders");
+  return `${DISSECT_REL}/${key}/${group ? group + "/" : ""}${name}`;
+}
 const SIDECAR_RE = /\.(fluxplot|recipe|snip)\.json$/i;
 
 /**

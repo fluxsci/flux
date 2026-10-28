@@ -69,6 +69,7 @@ export interface MarginHost {
   removeCite: (key: string) => void;
   citationAtCaret: () => CitationGroup | null;
   insertFigure: (ref: FigureRef) => void;
+  insertFigureReference: (text: string) => void;
   addDoi: (doi: string) => Promise<string | null>;
   focusEditor: () => void;
   openFigure: (id: string) => void;

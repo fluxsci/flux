@@ -12,7 +12,6 @@ import {isolatedEnv} from './lib/verifyRuntime.mjs';
 import {recordBrowserRuntime} from './lib/runtimeEvidence.mjs';
 import {assertPackagedApp} from './lib/releasePolicy.mjs';
 import {validateDocumentation} from './build-docs.mjs';
-import {verifyCorrectionRuntime} from './fetch-correction-runtime.mjs';
 import {verifyVideoEncoder,videoEncoderContract} from './fetch-video-encoder.mjs';
 const args=process.argv.slice(2),arg=name=>args[args.indexOf(name)+1];
 const directory=path.resolve(arg('--directory')),platform=arg('--platform'),arch=arg('--arch');
@@ -22,9 +21,9 @@ const files=await walk(directory),cli=files.find(f=>f.endsWith('app.asar.unpacke
 assert.ok(cli,'fresh packaged CLI required');
 const resources=path.dirname(path.dirname(path.dirname(cli))),app=platform==='darwin'?path.dirname(resources):path.dirname(resources);
 const executable=platform==='darwin'?path.join(app,'MacOS','Flux'):path.join(app,'flux'); // flux-cap-ok packaged product executable, not configuration
-const dist=path.dirname(cli),encoder=path.join(resources,'video-encoder'),correction=path.join(resources,'corrections/runtime');
-await assertPackagedApp({executable,cli,mcp:path.join(dist,'flux-mcp.mjs'),worker:path.join(dist,'flux-fulltext-worker.mjs'),assets:path.join(dist,'slide-export-assets.json'),resources:{encoder:path.join(encoder,'ffmpeg'),correction:path.join(correction,'llama-server')}});
-await verifyCorrectionRuntime(correction,{platform,arch});await verifyVideoEncoder(encoder,{platform,arch,...await videoEncoderContract()});
+const dist=path.dirname(cli),encoder=path.join(resources,'video-encoder');
+await assertPackagedApp({executable,cli,mcp:path.join(dist,'flux-mcp.mjs'),worker:path.join(dist,'flux-fulltext-worker.mjs'),assets:path.join(dist,'slide-export-assets.json'),resources:{encoder:path.join(encoder,'ffmpeg')}});
+await verifyVideoEncoder(encoder,{platform,arch,...await videoEncoderContract()});
 const docs=path.join(resources,'docs'),docsInventory=JSON.parse(await fs.readFile(path.join(docs,'.flux-docs.json'),'utf8'));
 assert.equal(docsInventory.version,1);assert.ok(docsInventory.pages.includes('index.html'));
 assert.deepEqual(await validateDocumentation(docs,docsInventory.pages),docsInventory.files,'packaged offline help must retain every validated page and resource byte');
@@ -66,7 +65,6 @@ try{
  mcp.child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'packaged-smoke',version:'1'}}})+'\n');assert.match(JSON.stringify(await response),/Packaged scientific smoke/);await scope.reap(mcp);
  await command(path.join(encoder,'ffmpeg'),['-v','error','-f','lavfi','-i','color=c=red:s=32x24:d=0.1','-frames:v','1',path.join(evidence,'encoder.png')]);
  const png=await fs.readFile(path.join(evidence,'encoder.png'));assert.equal(png.readUInt32BE(16),32);assert.equal(png.readUInt32BE(20),24);
- assert.match(await command(path.join(correction,'llama-server'),['--version']),/version|build|b10288/i);
  // Use the installed CLI and installed app entry dispatch, not a hand-copied
  // source helper, so missing unpacked worker dependencies cannot pass unnoticed.
  const manifest=JSON.parse(await fs.readFile(path.join(project,'project.json'),'utf8'));
@@ -200,7 +198,7 @@ try{
  const documentationResults=await help.$$eval('.aa-Item',items=>items.map(el=>({text:el.textContent,href:el.querySelector('a')?.href})));
  assert.ok(documentationResults.some(item=>/semantic/i.test(item.text)));assert.deepEqual(documentationErrors,[]);assert.deepEqual(documentationDialogs,[]);
  await help.screenshot({path:path.join(evidence,'packaged-docs-search.png'),fullPage:true});await docsBrowser.close();docsBrowser=null;
- await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
+ await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
 }catch(error){
  if(nativeApp)console.error('--- packaged app stderr (tail) ---\n'+String(nativeApp.stderr??'').split('\n').filter(l=>!/dbus|object_proxy/.test(l)).slice(-40).join('\n'));

@@ -110,7 +110,7 @@ function mergeUseStyle(target: Element, use: Element): void {
  *  keeps the USE's identity (semantic id, if any); the def's id is stripped
  *  from the clone (it would collide across instances). Defs that end up with
  *  no remaining <use> references are removed. */
-function inlineDefUses(root: Element): void {
+function inlineDefUses(root: Element, manifest?: FluxPlotManifest): void {
   const doc = root.ownerDocument;
   if (!doc) return;
   const inlinedDefIds = new Set<string>();
@@ -148,12 +148,17 @@ function inlineDefUses(root: Element): void {
       if (attr.name.startsWith("data-")) replacement.setAttribute(attr.name, attr.value);
     }
 
-    // Mark the clone as a GLYPH: a fixed-size symbol (tick mark, scatter
-    // marker) whose size is in points, not data units. pt-true resize
-    // compensation (plot/compensate.ts) keys off this to counter-scale the
-    // glyph's geometry about its translate anchor — matplotlib semantics
-    // (markersize/tick length in points).
-    replacement.setAttribute("data-flux-glyph", "1");
+    // A <use> is storage, not a coordinate-frame declaration: matplotlib also
+    // emits fill_between polygons this way (negative y, figure-height translate).
+    // The captured frame takes precedence over the fixed-size symbol fallback.
+    let frame: NonNullable<FluxPlotManifest['layout']>['frames'][string] | undefined;
+    let glyphRole=false,dataRole=false;
+    for (let owner: Element | null = use; owner && !frame; owner = owner.parentElement) {
+      if(['point','marker','tick','cap','mean','median'].includes(owner.getAttribute('data-role')??''))glyphRole=true;
+      if(['area','region','cell','contour-level'].includes(owner.getAttribute('data-role')??''))dataRole=true;
+      frame = manifest?.layout?.frames[owner.getAttribute('id') ?? ''];
+    }
+    if (glyphRole || (frame ? !['data', 'axes', 'blend', 'figure', 'image'].includes(frame.f) : !dataRole)) replacement.setAttribute("data-flux-glyph", "1");
     use.replaceWith(replacement);
     inlinedDefIds.add(refId);
   }
@@ -199,9 +204,9 @@ function stampIds(root: Element): void {
 /** Mutates the cached pristine DOM in place. Idempotent: running twice yields
  *  the same tree (sanitize removes nothing new, all defs-uses already inlined,
  *  id stamping only fills gaps deterministically). */
-export function normalizeSvgForParts(root: Element): void {
+export function normalizeSvgForParts(root: Element, manifest?: FluxPlotManifest): void {
   sanitize(root);
-  inlineDefUses(root);
+  inlineDefUses(root, manifest);
   stampIds(root);
 }
 

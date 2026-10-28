@@ -54,7 +54,7 @@ try{
  // This bridge seam exercises the actual X-ray result-to-Update user flow.
  const beforeRegen=(await state()).element.assetId;
  await page.evaluate(()=>{window.fig.runRecipe=async(recipePath,params)=>{const s=window.__sourceTest,m=JSON.parse(await window.fig.readText(s.meta));m.parts.find(p=>p.node).color='#8B5CF6';await window.fig.writeText(s.meta,JSON.stringify(m));window.__sourceRecipeCall={recipePath,params};return {code:0,glbPath:s.source,manifestPath:s.meta,svgText:null,manifestText:JSON.stringify(m),recipeText:await window.fig.readText(recipePath)};};});
- await page.keyboard.down('Alt');await page.keyboard.press('r');await page.keyboard.up('Alt');
+ await page.keyboard.press('r');
  await waitFor(page,()=>document.querySelector('.xray .regen'),null,{label:'model Xray Regenerate'});
  await page.click('.xray .regen');
  await waitFor(page,old=>window.__flux.figures()[0].elements[0].assetId!==old,beforeRegen,{label:'GLB Regenerate uses immutable Update'});await settled();

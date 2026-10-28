@@ -10,7 +10,7 @@
 //   · nothing animates at rest (document.getAnimations() empty ≥ 200ms after
 //     open) and prefers-reduced-motion opens with no entrance animation at all
 //   · it opens beside the selection: the panel never covers the selection box
-//   · Alt+R opens it (the chord moved to the left hand)
+//   · R opens it (the chord moved to the left hand)
 //   Run (dev server on :1420): node scripts/verify-xray-theme.mjs
 import { readFileSync } from "node:fs";
 import { launch, gotoApp, clickMode, shot, sleep, realErrors } from "./lib/driver.mjs";
@@ -58,11 +58,9 @@ try {
   await page.mouse.move(300, 300);
 
   // --- open with the left-hand chord -------------------------------------------
-  await page.keyboard.down("Alt");
   await page.keyboard.press("KeyR");
-  await page.keyboard.up("Alt");
   await sleep(300);
-  ok(await page.evaluate(() => !!document.querySelector(".xray")), "Alt+R opens the X-ray");
+  ok(await page.evaluate(() => !!document.querySelector(".xray")), "R opens the X-ray");
   const rest = await page.evaluate(() => document.getAnimations().length);
   ok(rest === 0, `document.getAnimations().length === 0 after open (${rest}) — nothing animates at rest`);
 
@@ -142,9 +140,7 @@ try {
   await page.keyboard.press("Escape");
   await sleep(300);
   await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
-  await page.keyboard.down("Alt");
   await page.keyboard.press("KeyR");
-  await page.keyboard.up("Alt");
   await sleep(60);
   const reduced = await page.evaluate(() => ({
     anim: getComputedStyle(document.querySelector(".xray")).animationName,

@@ -139,7 +139,7 @@ ok(isCross(c) && !/circle/.test(c), "release returns to the plain crosshair");
 }
 
 // --- 4. tools: draw = plain cross, pan = grab, text = I-beam --------------------------
-await page.keyboard.press("r");
+await page.keyboard.down("Alt"); await page.keyboard.press("r"); await page.keyboard.up("Alt");
 await sleep(60);
 c = await cursorOf();
 ok(isCross(c) && !/circle/.test(c), "the rect tool uses the plain crosshair");

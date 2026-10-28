@@ -88,7 +88,7 @@ export async function verifyLinkedStyles(page, ok) {
   // The X-ray keeps its selection in the shared stores; use its actual chord and row.
   await page.evaluate(targets=>{document.activeElement?.blur();window.__flux.fig.selection.set(new Set(targets));},targets.slice(0,2));
   await page.keyboard.down(mod);await page.keyboard.press('KeyG');await page.keyboard.up(mod);
-  await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');await page.waitForSelector('.xray');
+  await page.keyboard.press("KeyR");await page.waitForSelector('.xray');
   await waitFor(page,()=>!!document.activeElement?.closest('.xray'),null,{label:'X-ray keyboard focus'});
   await page.keyboard.press('6');await paint(page);
   ok(!!await page.$('[aria-label="Animate like pick"]')&&!await page.$('.xray'),'X-ray 6 arms Animate like from its real object selection');

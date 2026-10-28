@@ -14,7 +14,7 @@ const expected=new Set(['linux-x64','darwin-arm64','darwin-x64']);
 const current=await sourceIdentity(process.cwd());
 let digest; const verifiedArtifacts=[];
 for(const report of reports){const target=`${report.platform}-${report.arch}`;if(!expected.delete(target))throw Error(`Unexpected or duplicate target ${target}`);if(report.status!=='qualified'||report.tag!==tag||report.version!==pkg.version||report.identity.commit!==commit)throw Error(`Unqualified/stale target ${target}`);assertChecks(report,report.identity);if(report.identity.digest!==current.digest)throw Error("Qualification source differs from release checkout");if(digest&&digest!==report.identity.digest)throw Error('Targets were built from different source');digest=report.identity.digest;
- for(const name of ['package','packaged-smoke','fetch-correction-runtime','fetch-video-encoder'])if(report.checks[name]?.status!=='passed')throw Error(`Missing ${target} ${name}`);
+ for(const name of ['package','packaged-smoke','fetch-video-encoder'])if(report.checks[name]?.status!=='passed')throw Error(`Missing ${target} ${name}`);
  if(!Array.isArray(report.artifacts))throw Error(`Missing artifact manifest for ${target}`);
  assertArtifactSet(report.artifacts.map(a=>a.name),report.platform,[report.arch]);
  const names=new Set();

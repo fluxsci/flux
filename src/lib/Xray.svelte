@@ -1,7 +1,7 @@
 <script lang="ts">
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
-  // X-Ray (Alt+R) — figure-v1 P8, rebuilt as a surface (2026-09-15). One
+  // X-Ray (R) — figure-v1 P8, rebuilt as a surface (2026-09-15). One
   // radiograph panel over ANY x-rayable target: a semantic plot (its manifest
   // part tree), SEVERAL plots at once (each under a synthetic "N plots" row,
   // plus the parts they share — hide the x-axis of four plots in one keystroke),

@@ -1,4 +1,4 @@
-// Build-time asset boundary, shared by correction and encoder fetchers.
+// Build-time asset boundary, used by the encoder fetcher.
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { stat, lstat, readdir, realpath, rename, rm, open, mkdir } from 'node:fs/promises';

@@ -2,15 +2,8 @@
 // Shipped 2026-07 from the caret-feel lab (owner A/B decision); supersedes the
 // old .cm-cursor CSS-transition glide (--flux-caret-ms, removed with it).
 //
-// Two motion models, Settings › Paper › "Caret motion":
-//   chase (default) — frame-rate-independent exponential pursuit
-//                     (x += Δ·(1−exp(−dt/τ))): velocity-continuous, arrives
-//                     fast and settles softly. τ is regime-split: small
-//                     same-line steps chase tighter than navigation moves.
-//   smooth          — monkeytype's recipe: a fixed-duration (90ms) near-linear
-//                     inOut(1.25) tween that RETARGETS from the caret's
-//                     current mid-flight position on every move (never
-//                     queues, never waits).
+// Frame-rate-independent exponential pursuit: velocity-continuous motion,
+// tighter for typing-sized steps than larger navigation moves.
 //
 // Soft blink is built-in (no setting): the caret is solid while typing/moving,
 // pulses gently only after ~0.65s of rest, and the finite iteration count
@@ -45,11 +38,8 @@
 
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
-import { settings, type Settings } from "../../../../lib/settings";
 
 // ---- tunables --------------------------------------------------------------
-const SMOOTH_DUR_MS = 90; // "smooth" tween duration (monkeytype fast=85 / medium=100)
-const SMOOTH_EASE_EXP = 1.25; // monkeytype's inOut(1.25) power ease
 const TAU_TYPE_MS = 22; // chase τ for typing-sized steps
 const TAU_NAV_MS = 40; // chase τ for larger in-page moves
 const TYPING_STEP_PX = 32; // ≤ this horizontally & same line ⇒ typing regime
@@ -60,9 +50,6 @@ const BLINK_IDLE_MS = 650; // soft blink starts after this much caret rest
 const CARET_W = 2; // overlay bar width (stock: 2px border-left)
 const CARET_NUDGE = -0.6; // stock .cm-cursor margin-left — keep placement equal
 
-const smoothEase = (t: number): number =>
-  t < 0.5 ? Math.pow(2 * t, SMOOTH_EASE_EXP) / 2 : 1 - Math.pow(2 * (1 - t), SMOOTH_EASE_EXP) / 2;
-
 interface Pt {
   x: number;
   y: number;
@@ -72,14 +59,11 @@ class CaretFeelPlugin {
   private view: EditorView;
   private wrap: HTMLDivElement;
   private el: HTMLDivElement;
-  private unsub: () => void;
-  private mode: Settings["paperCaretFeel"] = "chase";
 
   // caret animation state (document-relative px)
   private cur: Pt = { x: 0, y: 0 };
   private target: Pt & { h: number } = { x: 0, y: 0, h: 0 };
   private shown = false;
-  private tween: { fx: number; fy: number; t0: number } | null = null;
   private tau = TAU_NAV_MS;
 
   // ticker (transient — see header)
@@ -105,13 +89,7 @@ class CaretFeelPlugin {
     // blink on every cursor layer (incl. vim's) in favor of the idle pulse.
     view.scrollDOM.classList.add("cf-softblink");
     this.measureReq = { read: () => null, write: () => this.syncFromLayer(), key: this };
-    this.unsub = settings.subscribe((s) => {
-      if (s.paperCaretFeel !== this.mode) {
-        this.mode = s.paperCaretFeel;
-        this.tween = null;
-        this.view.requestMeasure(this.measureReq);
-      }
-    });
+
   }
 
   update(u: ViewUpdate) {
@@ -174,18 +152,13 @@ class CaretFeelPlugin {
       Math.abs(dx) > GATE_DX_PX;
     if (teleport) {
       this.cur = { x: this.target.x, y: this.target.y };
-      this.tween = null;
       this.shown = true;
       this.el.style.display = "";
       this.render(true);
       return;
     }
-    if (this.mode === "smooth") {
-      this.tween = { fx: this.cur.x, fy: this.cur.y, t0: performance.now() };
-    } else {
-      const typing = Math.abs(dy) < h * 0.6 && Math.abs(dx) <= TYPING_STEP_PX;
-      this.tau = typing ? TAU_TYPE_MS : TAU_NAV_MS;
-    }
+    const typing = Math.abs(dy) < h * 0.6 && Math.abs(dx) <= TYPING_STEP_PX;
+    this.tau = typing ? TAU_TYPE_MS : TAU_NAV_MS;
     this.ensureTicker();
   }
 
@@ -202,29 +175,14 @@ class CaretFeelPlugin {
     let busy = false;
 
     if (this.shown) {
-      if (this.tween) {
-        const t = (now - this.tween.t0) / SMOOTH_DUR_MS;
-        if (t >= 1) {
-          this.cur = { x: this.target.x, y: this.target.y };
-          this.tween = null;
-        } else {
-          const e = smoothEase(t);
-          this.cur = {
-            x: this.tween.fx + (this.target.x - this.tween.fx) * e,
-            y: this.tween.fy + (this.target.y - this.tween.fy) * e,
-          };
-          busy = true;
-        }
-      } else {
-        const k = 1 - Math.exp(-dt / this.tau);
-        this.cur.x += (this.target.x - this.cur.x) * k;
-        this.cur.y += (this.target.y - this.cur.y) * k;
-        const done =
-          Math.abs(this.target.x - this.cur.x) < SETTLE_EPS &&
-          Math.abs(this.target.y - this.cur.y) < SETTLE_EPS;
-        if (done) this.cur = { x: this.target.x, y: this.target.y };
-        else busy = true;
-      }
+      const k = 1 - Math.exp(-dt / this.tau);
+      this.cur.x += (this.target.x - this.cur.x) * k;
+      this.cur.y += (this.target.y - this.cur.y) * k;
+      const done =
+        Math.abs(this.target.x - this.cur.x) < SETTLE_EPS &&
+        Math.abs(this.target.y - this.cur.y) < SETTLE_EPS;
+      if (done) this.cur = { x: this.target.x, y: this.target.y };
+      else busy = true;
       this.render(!busy);
     }
 
@@ -264,7 +222,6 @@ class CaretFeelPlugin {
   }
 
   destroy() {
-    this.unsub();
     if (this.raf) cancelAnimationFrame(this.raf);
     if (this.blinkTimer) clearTimeout(this.blinkTimer);
     this.wrap.remove();

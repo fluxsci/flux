@@ -22,7 +22,20 @@ async function clickText(selector, text) {
   await js(`(()=>{const n=[...document.querySelectorAll(${JSON.stringify(selector)})].find(n=>n.textContent.trim()===${JSON.stringify(text)});if(!n)throw Error('Missing text');n.dataset.nativeHit='1'})()`);
   await click('[data-native-hit="1"]'); await js("document.querySelector('[data-native-hit]')?.removeAttribute('data-native-hit')");
 }
-async function key(keyCode) { await focus(); win.webContents.sendInputEvent({ type: "keyDown", keyCode }); win.webContents.sendInputEvent({ type: "keyUp", keyCode }); await paint(); }
+async function key(keyCode, modifiers = []) { await focus(); win.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers }); win.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers }); await paint(); }
+async function noteKeyboardNavigation(label) {
+  await js("document.querySelector('.expanded-preview').focus()");
+  let reached = false;
+  for (let i = 0; i < 16; i++) {
+    await key("Tab");
+    if (await js("document.activeElement?.tagName==='TEXTAREA'")) { reached = true; break; }
+  }
+  check(reached, `${label}: Tab reaches the note textarea from preview controls`);
+  await key("Tab");
+  check(await js("document.activeElement?.getAttribute('aria-label')==='Find similar names'"), `${label}: Tab after the textarea wraps within the preview`);
+  await key("Tab", ["shift"]);
+  check(await js("document.activeElement?.tagName==='TEXTAREA'"), `${label}: Shift+Tab wraps back into the note textarea`);
+}
 async function search(value) { await js(`(()=>{const n=document.querySelector('.search-in');n.value=${JSON.stringify(value)};n.dispatchEvent(new Event('input',{bubbles:true}))})()`); await paint(); }
 async function armPreviewTiming() {
   await js(`(()=>{window.__previewTiming=null;document.addEventListener('pointerdown',()=>{const start=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>{window.__previewTiming={ms:performance.now()-start,visible:!!document.querySelector('[aria-label="Expanded plot preview"]')}}))},{capture:true,once:true})})()`);
@@ -47,19 +60,43 @@ async function main() {
   await wait(() => js(`!!document.querySelector('${modal} img')?.naturalWidth`), "full image decoded");
   check(await js(`(()=>{const n=document.querySelector('${modal}'),r=n.getBoundingClientRect();const box=document.querySelector('.iwrap').getBoundingClientRect();return Math.abs(r.width-box.width)<1&&Math.abs(r.height-box.height)<1&&Math.abs(r.x-box.x)<1&&Math.abs(r.y-box.y)<1&&!document.querySelector('.importer .row.picked')})()`), "Ctrl-click opens a full-window image without changing picks");
   timings.push({label:"image preview",...await js("window.__previewTiming")});
-  await key("D"); await wait(() => js("document.querySelectorAll('[data-dissect-cell]').length===1"), "dissection group loaded");
-  await click("[data-dissect-cell]"); await click("[data-dissect-cell]", [], 2);
+  await key("D"); await wait(() => js("document.querySelectorAll('[data-dissect-cell]').length===2"), "dissection group loaded");
+  await click('[data-dissect-cell][data-name="subject.svg"]'); await click('[data-dissect-cell][data-name="subject.svg"]', [], 2);
   await wait(() => js("!!document.querySelector('.dissection-detail img')?.naturalWidth"), "dissection image decoded");
   check(await js(`document.activeElement===document.querySelector('${modal}')`), "opening dissection detail retains keyboard focus inside the preview");
   await click(`${modal} [aria-label="Zoom in"]`);
   check(await js("document.querySelector('[data-dissect-zoom]')?.textContent!=='fit'"), "dissections reuse working image zoom controls");
   await fs.writeFile(path.join(output, "native-dissection.png"), (await win.webContents.capturePage()).toPNG());
   await key("Escape"); check(await js("!!document.querySelector('[data-dissect-grid]')"), "Escape returns from dissection detail to its grid");
-  await key("Escape"); check(await js(`!document.querySelector('${modal}')&&!!document.querySelector('.importer')`), "second Escape closes only preview and preserves gallery");
+  await click('[data-dissect-cell][data-name="review.txt"]', [], 2);
+  await wait(() => js("!!document.querySelector('textarea:not(:disabled)')"), "native note editor loaded");
+  await noteKeyboardNavigation("Docked note");
+  await click('textarea');
+  win.webContents.sendInputEvent({ type:"keyDown", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
+  win.webContents.sendInputEvent({ type:"keyUp", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
+  await win.webContents.insertText("Native note #TODO persisted on close");
+  // Close immediately, before the idle-save timer: blur/unmount must flush the captured draft.
+  await click('[aria-label="Close preview"]');
+  await wait(async()=>await fs.readFile(path.join(root,"plots/_dissections/study/source/by_subject/review.txt"),"utf8")==="Native note #TODO persisted on close","native note persisted after immediate close");
+  check(true,"actual native note typing persists through the real confined preload channel on immediate close");
+  check(await js(`!document.querySelector('${modal}')&&!!document.querySelector('.importer')`), "closing the note preview preserves the gallery");
   await click(".pinbtn");
   win = await wait(() => BrowserWindow.getAllWindows().find(candidate => candidate !== owner), "pinned window"); win.show();
   win.webContents.on("console-message", event => { if (event.level === "error") errors.push(event.message); });
   await wait(() => js("!!document.querySelector('.detached .importer')"), "gallery moved into pinned window");
+  await search("source.svg"); await click(row("svg"), [process.platform === "darwin" ? "meta" : "control"]);
+  await wait(() => js(`!!document.querySelector('${modal} img')?.naturalWidth`), "pinned image preview loaded");
+  await key("D"); await wait(() => js("document.querySelectorAll('[data-dissect-cell]').length===2"), "pinned note group loaded");
+  await click('[data-dissect-cell][data-name="review.txt"]', [], 2);
+  await wait(() => js("!!document.querySelector('textarea:not(:disabled)')"), "pinned note editor loaded");
+  await noteKeyboardNavigation("Pinned note");
+  await click('textarea');
+  win.webContents.sendInputEvent({ type:"keyDown", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
+  win.webContents.sendInputEvent({ type:"keyUp", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
+  await win.webContents.insertText("Pinned native note #TODO persisted on close");
+  await click('[aria-label="Close preview"]');
+  await wait(async()=>await fs.readFile(path.join(root,"plots/_dissections/study/source/by_subject/review.txt"),"utf8")==="Pinned native note #TODO persisted on close","pinned native note saved");
+  check(true,"note editing and save listeners survive moving the gallery into its native utility window");
   await search("source.mp4"); await wait(() => js(`!!document.querySelector(${JSON.stringify(row("mp4"))})`), "movie listed");
   await armPreviewTiming();
   await click(row("mp4"), [process.platform === "darwin" ? "meta" : "control"]);

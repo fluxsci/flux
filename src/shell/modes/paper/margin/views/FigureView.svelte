@@ -1,10 +1,15 @@
 <script lang="ts">
   import type { MarginHost, MarginApi } from "../types";
-  import { figureImage } from "../../scholar/figures";
+  import { figureImage, figRefText } from "../../scholar/figures";
 
   let { host }: { host: MarginHost; margin: MarginApi } = $props();
 
   let selId = $state<string | null>(null);
+  let insertion = $state<"figure" | "reference">("figure");
+  let panels = $state<string[]>([]);
+  function togglePanel(panel: string) {
+    panels = panels.includes(panel) ? panels.filter((value) => value !== panel) : [...panels, panel];
+  }
   const figures = $derived(host.figures);
   const current = $derived(figures.find((f) => f.id === selId) ?? figures[0]);
 
@@ -23,6 +28,7 @@
   // A new figure gets a fresh view — the previous crop rarely fits it.
   $effect(() => {
     void current?.id;
+    panels = [];
     zoom = 1;
     panX = 0;
     panY = 0;
@@ -93,8 +99,20 @@
     {#if current}
       <div class="meta">
         <p class="cap"><b>{current.captionLabel.trimEnd()}</b> {current.caption || current.nickname || ""}</p>
+        <div class="insert-mode" role="group" aria-label="Insert as">
+          <button class:chosen={insertion === "figure"} aria-pressed={insertion === "figure"} onclick={() => (insertion = "figure")}>Figure</button>
+          <button class:chosen={insertion === "reference"} aria-pressed={insertion === "reference"} onclick={() => (insertion = "reference")}>Reference</button>
+        </div>
+        {#if insertion === "reference" && current.panels.length}
+          <div class="panel-choices" role="group" aria-label="Reference panels">
+            <button class:chosen={panels.length === 0} aria-pressed={panels.length === 0} onclick={() => (panels = [])}>Whole figure</button>
+            {#each current.panels as panel}
+              <button class:chosen={panels.includes(panel)} aria-pressed={panels.includes(panel)} aria-label={`Panel ${panel}`} onclick={() => togglePanel(panel)}>{panel}</button>
+            {/each}
+          </div>
+        {/if}
         <div class="acts">
-          <button onclick={() => host.insertFigure(current)}>Insert</button>
+          <button onclick={() => insertion === "figure" ? host.insertFigure(current) : host.insertFigureReference(figRefText(current, panels))}>{insertion === "figure" ? "Insert figure" : "Insert reference"}</button>
           <button class="ghost" onclick={() => host.openFigure(current.id)}>Open in Figure</button>
         </div>
       </div>
@@ -140,6 +158,7 @@
     overflow: hidden;
     cursor: grab;
     touch-action: none;
+    contain: layout paint;
   }
   .stage.dragging {
     cursor: grabbing;
@@ -193,6 +212,9 @@
   .cap b {
     color: var(--c-accent-bright);
   }
+  .insert-mode, .panel-choices { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--sp-2); }
+  .insert-mode button, .panel-choices button { font: inherit; font-size: var(--ts-sm); padding: 4px 8px; border: 1px solid var(--c-line); border-radius: var(--r-1); background: var(--c-surface); color: var(--c-tx-2); }
+  .insert-mode button.chosen, .panel-choices button.chosen { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-tint); }
   .acts {
     display: flex;
     gap: var(--sp-2);

@@ -45,7 +45,7 @@ try {
   await check('renderer',npmCli,['run','check']);await check('headless',npmCli,['run','check:headless']);
   const audit=await check('audit',npmCli,['audit','--json']);const parsed=JSON.parse(await fs.readFile(path.join(audit.directory,'stdout.log'),'utf8'));
   if(!parsed.metadata?.vulnerabilities||parsed.metadata.vulnerabilities.total!==0)throw Error('Dependency audit has untriaged findings; record and qualify an explicit exception before release');
-  for(const helper of ['correction-runtime','video-encoder'])await check(`fetch-${helper}`,`scripts/fetch-${helper}.mjs`,['--platform',platform,'--arches',arch]);
+  for(const helper of ['video-encoder'])await check(`fetch-${helper}`,`scripts/fetch-${helper}.mjs`,['--platform',platform,'--arches',arch]);
   await check('build',npmCli,['run','build']);
   await cohort('pure',['--tier','pure','--jobs','3']);
   await cohort('bundle',['--tier','bundle']);await cohort('startup',['--tier','startup']);
@@ -62,7 +62,7 @@ try {
  if(skipPack){report.status='partial';console.log('\nPreflight checks passed. PARTIAL: packaging, packaged smokes and distribution approval were not performed.');}
  else{
   // Every emitted target is fetched before builder; cached inventory is rehashed.
-  for(const helper of ['correction-runtime','video-encoder'])await check(`fetch-${helper}`,`scripts/fetch-${helper}.mjs`,['--platform',platform,'--arches',arch]);
+  for(const helper of ['video-encoder'])await check(`fetch-${helper}`,`scripts/fetch-${helper}.mjs`,['--platform',platform,'--arches',arch]);
   const builderArgs=[platform==='darwin'?'--mac':'--linux',`--${arch}`,'--publish','never',`-c.directories.output=${path.join(output,'artifacts')}`];
   if(platform==='darwin'){
    if(process.env.CSC_LINK){if(!process.env.APPLE_TEAM_ID)throw Error('Signed macOS qualification requires notarization team identity');builderArgs.push(`-c.mac.notarize.teamId=${process.env.APPLE_TEAM_ID}`);report.signing='Developer ID + notarization';}

@@ -5,6 +5,7 @@
   // one is ready (never a blank frame); a generation counter drops stale responses. Tables
   // and other files render as name cards (the detail view renders tables for real).
   import { imageUrl, type DissectFile } from "./loader";
+  import { previewBackdrop } from "../plot/previewBackdrop";
 
   let {
     file,
@@ -73,7 +74,7 @@
   use:nativeClick={onSelect}
   use:nativeDoubleClick={onOpen}
 >
-  <div class="surface" style:height={`${cellH}px`}>
+  <div class="surface" style:height={`${cellH}px`} use:previewBackdrop={{ path: file.kind === "image" ? file.abs : "", version: file }}>
     {#if file.kind === "image"}
       {#if src}
         <img {src} alt={file.name} draggable="false" />
@@ -102,14 +103,14 @@
     padding: 0;
     font-family: inherit;
     cursor: var(--cursor-cross-hover);
-    border-radius: var(--r-2, 6px);
+    border-radius: var(--r-0);
   }
   .surface {
     display: flex;
     align-items: center;
     justify-content: center;
     background: color-mix(in oklab, var(--c-tx-hi) 3%, var(--c-bg));
-    border-radius: var(--r-2, 6px);
+    border-radius: var(--r-0);
     overflow: hidden;
     outline: 1px solid var(--c-line);
     outline-offset: -1px;
@@ -159,7 +160,7 @@
     align-items: center;
     gap: 4px;
     color: var(--c-tx-muted);
-    font-size: 11px;
+    font: 10.5px var(--font-mono);
     line-height: 20px;
     overflow: hidden;
     text-overflow: ellipsis;

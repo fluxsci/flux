@@ -182,7 +182,7 @@ and imported copies; MANUSCRIPT.md covers authoring/export.
 | Track | A timed appearance, transform or media command within a beat. |
 | UserContext | The user's background, global rules, reference material and skills. |
 | Watch mode | An explicitly requested inbox wait/work/reply loop; never implied by connecting. |
-| X-ray | Alt+R: inspect and select semantic plot parts or object structure; Shift+Alt+R opens on a drilled part's family (one tick label → all of them). Rows show their place (X axis › Tick labels) and values. |
+| X-ray | R: inspect and select semantic plot parts or object structure; Shift+Alt+R opens on a drilled part's family (one tick label → all of them). Rows show their place (X axis › Tick labels) and values. |
 
 ## 5 · fluxplot in one screen
 

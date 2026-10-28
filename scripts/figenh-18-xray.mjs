@@ -1,5 +1,5 @@
 // figure-v1 P8 gate (browser) — the UNIFIED X-ray, driven for real:
-//   · grouped content incl. a fluxplot; select the group; Alt+R → GROUP tree:
+//   · grouped content incl. a fluxplot; select the group; R → GROUP tree:
 //     nested child-group row (by name) + the plot expanding under its own
 //     figure root ("Plot area" et al.) next to sibling shapes
 //   · eye on a group row removes its members from the LIVE scene DOM
@@ -127,17 +127,15 @@ try {
   const regenPresent = () => page.evaluate(() => !!document.querySelector(".xray .regen"));
 
   // === open on the GROUP =====================================================
-  console.log("Group x-ray (Alt+R):");
+  console.log("Group x-ray (R):");
   await page.evaluate(() => window.__flux.fig.selection.set(new Set(["rA", "rB", "px", "rC"])));
   await waitForFrame(page);
-  await page.keyboard.down("Alt");
   await page.keyboard.press("KeyR");
-  await page.keyboard.up("Alt");
   await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, {
     label: "x-ray open with rows",
   }).catch(() => {});
 
-  ok(await page.evaluate(() => !!document.querySelector(".xray")), "Alt+R over a group selection opens the X-ray");
+  ok(await page.evaluate(() => !!document.querySelector(".xray")), "R over a group selection opens the X-ray");
   let rows = await rowLabels();
   ok(rows[0]?.label === "Both Panels" && rows[0]?.kind === "group", `root row = the group, by NAME (${rows[0]?.label})`);
   ok(rows.some((r) => r.label === "Panel A" && r.kind === "group"), "nested child group row present (by name)");
@@ -279,8 +277,8 @@ try {
   ok(rows[0]?.label === "Both Panels" && cr.length === 1, "Backspace pops the root stack back to the group");
   ok(!(await regenPresent()), "…and Regenerate disappears with the plot root");
 
-  // === scope-aware openXray: inside an entered group, Alt+R roots on it ======
-  console.log("Entered-scope Alt+R:");
+  // === scope-aware openXray: inside an entered group, R roots on it ======
+  console.log("Entered-scope R:");
   await page.keyboard.press("Escape"); // close the x-ray
   await waitForGone(page, ".xray").catch(() => {});
   await page.evaluate(() => {
@@ -290,15 +288,13 @@ try {
     F.selection.set(new Set(["rA", "rB"])); // its direct members = loose units at scope
   });
   await waitForFrame(page);
-  await page.keyboard.down("Alt");
   await page.keyboard.press("KeyR");
-  await page.keyboard.up("Alt");
   await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, {
     label: "x-ray reopened at the entered scope",
   }).catch(() => {});
   rows = await rowLabels();
   ok(rows[0]?.label === "Panel A" && rows[0]?.kind === "group",
-    `Alt+R inside the entered group roots on THAT group (${rows[0]?.label})`);
+    `R inside the entered group roots on THAT group (${rows[0]?.label})`);
   await page.keyboard.press("Escape");
   await waitForGone(page, ".xray").catch(() => {});
 

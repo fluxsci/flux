@@ -91,7 +91,7 @@ ok(
 ok(s.inspBtn && s.inspCount === "8", `Inspector shows the Dissections button with its count (${s.inspCount || "none"})`);
 
 // ---- modality: tool keys must not leak beneath ----------------------------------
-await page.keyboard.press("r"); // rect tool if it leaked
+await page.keyboard.down("Alt");await page.keyboard.press("r");await page.keyboard.up("Alt"); // rect tool if it leaked
 s = await snap();
 ok(s.tool === "select", "keyboard is modal — tool keys don't reach the canvas", s.tool);
 

@@ -90,7 +90,7 @@ function margins(model:RelayoutModel,a:LayoutAxis|LayoutColorbar,b:Box,ticks:Rec
   for(const id of a.extraLayoutIds??[]){
     const leg=model.layout.legends.find(l=>l.id===id);
     let extra:Box|undefined;
-    if(leg)extra=placeLegend(leg,b,{x0:0,y0:0,x1:model.layout.figure.widthPt,y1:model.layout.figure.heightPt});
+    if(leg)extra=placeLegend(leg,b,{x0:0,y0:0,x1:model.layout.figure.widthPt,y1:model.layout.figure.heightPt},leg.locRequested,model);
     const text=model.layout.texts[id],frame=model.layout.frames[id];
     if(text&&frame){
       const point=framePoint(model,frame,b,{wPt:model.layout.figure.widthPt,hPt:model.layout.figure.heightPt});
@@ -238,7 +238,7 @@ export function solveRelayout(model:RelayoutModel,target:{wPt:number;hPt:number}
   for(const leg of l.legends){
     const owner=leg.owner==="figure"?{x0:0,y0:0,x1:w,y1:h}:boxes[leg.owner];if(!owner)continue;
     const figure={x0:0,y0:0,x1:w,y1:h};
-    legend[leg.id]=leg.locRequested==='best'?bestLegend(leg,model,owner,figure,fits):placeLegend(leg,owner,figure);
+    legend[leg.id]=leg.locRequested==='best'?bestLegend(leg,model,owner,figure,fits):placeLegend(leg,owner,figure,leg.locRequested,model);
   }
   const retickedAxes=[...new Set([...model.axes.values()].flatMap(a=>Object.entries(ticks[a.id]??{}).filter(([k,t])=>t.reticked&&(JSON.stringify(t.values)!==JSON.stringify(a.ticking[k].values)||JSON.stringify(t.labels)!==JSON.stringify(a.ticking[k].labels))).map(([k])=>k)))];
   const report:RelayoutReport={status:identity||l.engine.kind==='none'&&!retickedAxes.length?'exact':'reflowed',warnings:[],...(retickedAxes.length&&!identity?{retickedAxes}:{})};

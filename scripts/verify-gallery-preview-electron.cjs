@@ -20,6 +20,7 @@ async function main() {
     const image = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="white"/><circle cx="320" cy="180" r="95" fill="#4385be"/><text x="320" y="320" text-anchor="middle" font-size="28">Source preview</text></svg>';
     await fs.writeFile(path.join(root, "plots/study/source.svg"), image);
     await fs.writeFile(path.join(root, "plots/_dissections/study/source/by_subject/subject.svg"), image.replace("Source preview", "Subject detail"));
+    await fs.writeFile(path.join(root, "plots/_dissections/study/source/by_subject/review.txt"), "Native note baseline");
     await fs.copyFile(path.join(__dirname, "fixtures/slide-video-clips/moving-box.mp4"), path.join(root, "plots/study/source.mp4"));
     const baseline = await fs.readFile(path.join(root, "slides/stash-deck/deck.json"));
     if (process.platform === "linux") {
@@ -35,6 +36,7 @@ async function main() {
     assert.equal(status.code, 0, (native.stdout + native.stderr).slice(-16000));
     assert.deepEqual(await fs.readFile(path.join(root, "slides/stash-deck/deck.json")), baseline, "previewing never imports or changes the saved deck");
     assert.equal(await fs.readFile(path.join(root, "plots/study/source.svg"), "utf8"), image);
+    assert.equal(await fs.readFile(path.join(root, "plots/_dissections/study/source/by_subject/review.txt"), "utf8"), "Pinned native note #TODO persisted on close");
   } finally { await scope.dispose(); await fs.rm(scratch, { recursive: true, force: true }); }
 }
 import("./lib/harness.mjs").then(async ({ harness }) => {

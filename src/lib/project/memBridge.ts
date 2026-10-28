@@ -16,7 +16,7 @@ import type { Model3dImportRequest, Model3dImportResult, Model3dImportOwnership 
 import { GLB_LIMITS } from '../model3d/glbCore.mjs';
 import { RESERVED_PLOT_DIRNAMES } from "./plotsFolders";
 import { supportsDeckSchema } from "../slide/schemaStamp";
-import { DISSECT_REL, dissectionRootRelFor, classifyDissectionFile } from "../dissect/rules";
+import { DISSECT_REL, dissectionRootRelFor, classifyDissectionFile, dissectionNoteRel, DISSECT_NOTE_MAX_BYTES } from "../dissect/rules";
 import { probeImageSize } from "../plotsRail/rules";
 import type { PlotIndexEntry } from "./types";
 
@@ -336,6 +336,18 @@ export function createMemBridge(): FileBridge & {
         if (any) out[key] = n;
       }
       return out;
+    },
+    async saveDissectionNote(request) {
+      if (request.root !== watchedRoot) throw new Error("The plot's project is no longer open");
+      const target = joinPath(request.root, dissectionNoteRel(request.key, request.group, request.name));
+      if (enc.encode(request.text).byteLength > DISSECT_NOTE_MAX_BYTES) throw new Error("Plot notes are limited to 1 MiB");
+      const current = files.get(target);
+      const text = current === undefined ? null : typeof current === "string" ? current : dec.decode(current);
+      if (text !== request.expected) throw new Error("This note changed outside Flux. Your draft is kept; reopen the note to compare before saving.");
+      ensureParent(target);
+      files.set(norm(target), enc.encode(request.text));
+      mtimes.set(norm(target), Date.now());
+      return { path: target };
     },
     onFsChangedBatch(cb) {
       batchListeners.add(cb);

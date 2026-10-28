@@ -132,7 +132,7 @@
   const caption = $derived(showCaption ? middleEllipsis(name, w - 4, captionMeasure()) : "");
 </script>
 
-<div class="tile" class:selected class:focused class:linked title={title || name} data-tile={path} data-backdrop={choice.kind} data-fresh={fresh ? "" : undefined} data-stack={stack || undefined}>
+<div class="tile" class:selected class:focused class:linked aria-label={title || name} data-tile={path} data-backdrop={choice.kind} data-fresh={fresh ? "" : undefined} data-stack={stack || undefined}>
   <div
     class="page {tone === 'light' ? 'cursor-on-light' : 'cursor-on-dark'}"
     class:stacked={stack > 0}

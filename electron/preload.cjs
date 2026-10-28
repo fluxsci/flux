@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("fig", {
   plotThumb: (request) => ipcRenderer.invoke("thumbs:get", request),
   plotThumbCancel: (rids) => ipcRenderer.invoke("thumbs:cancel", rids),
   dissectCounts: (keys) => ipcRenderer.invoke("dissect:counts", keys),
+  saveDissectionNote: (request) => ipcRenderer.invoke("dissect:saveNote", request),
   openFiles: (filters) => ipcRenderer.invoke("dlg:open", { multiple: true, filters }),
   openDirectory: (title) => ipcRenderer.invoke("dlg:open", { directory: true, title }),
   save: (defaultPath, filters) => ipcRenderer.invoke("dlg:save", { defaultPath, filters }),
@@ -241,25 +242,8 @@ contextBridge.exposeInMainWorld("fig", {
     ipcRenderer.on("fulltext:progress", handler);
     return () => ipcRenderer.removeListener("fulltext:progress", handler);
   },
-  correctionStatus: (provider, model) => ipcRenderer.invoke("correction:status", provider, model),
-  correctionWarm: (request) => ipcRenderer.invoke("correction:warm", request),
-  correctionDecide: (request) => ipcRenderer.invoke("correction:decide", request),
-  correctionCancel: (requestId) => ipcRenderer.invoke("correction:cancel", requestId),
-  correctionCloudKeyStatus: () => ipcRenderer.invoke("correction:cloudKeyStatus"),
-  correctionCloudKeySet: (key) => ipcRenderer.invoke("correction:cloudKeySet", key),
   correctionProfileGet: (projectRoot) => ipcRenderer.invoke("correction:profileGet", projectRoot),
   correctionProfileSet: (payload) => ipcRenderer.invoke("correction:profileSet", payload),
-  correctionModelStatus: () => ipcRenderer.invoke("correction:modelStatus"),
-  correctionModelInstall: () => ipcRenderer.invoke("correction:modelInstall"),
-  correctionModelCancel: () => ipcRenderer.invoke("correction:modelCancel"),
-  correctionModelRemove: () => ipcRenderer.invoke("correction:modelRemove"),
-  correctionModelUnload: () => ipcRenderer.invoke("correction:modelUnload"),
-  correctionModelWarm: () => ipcRenderer.invoke("correction:modelWarm"),
-  onCorrectionModelProgress: (cb) => {
-    const handler = (_e, progress) => cb(progress);
-    ipcRenderer.on("correction:modelProgress", handler);
-    return () => ipcRenderer.removeListener("correction:modelProgress", handler);
-  },
   onFsChanged: (cb) => {
     const handler = (_e, info) => cb(info);
     ipcRenderer.on("fs:changed", handler);

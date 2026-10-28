@@ -7,6 +7,8 @@ export const DISSECT_DIRNAME: string;
 export const DISSECT_REL: string;
 export const DISSECT_IMAGE_RE: RegExp;
 export const DISSECT_TABLE_RE: RegExp;
+export const DISSECT_NOTE_MAX_BYTES: number;
+export function dissectionNoteRel(key: string, group: string, name: string): string;
 export function isDissectDirName(name: string): boolean;
 export function isDissectionProjectRel(rel: string): boolean;
 export function isDissectionPlotsRel(rel: string): boolean;

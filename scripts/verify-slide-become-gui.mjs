@@ -139,7 +139,7 @@ try{
   };
   const clickObject=async(id,shift=false,alt=false)=>{const p=await center(id);if(shift)await page.keyboard.down('Shift');if(alt)await page.keyboard.down('Alt');await page.mouse.click(p.x,p.y);if(alt)await page.keyboard.up('Alt');if(shift)await page.keyboard.up('Shift');await paint();};
   const openPlotXray=async()=>{
-    const p=await center('bh-plot');await page.mouse.move(p.x,p.y);await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');
+    const p=await center('bh-plot');await page.mouse.move(p.x,p.y);await page.keyboard.press("KeyR");
     await waitFor(page,()=>document.activeElement?.classList.contains('xray'),null,{label:'X-ray keyboard focus'});
   };
   const pickRows=async()=>{

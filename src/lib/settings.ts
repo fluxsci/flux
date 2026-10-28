@@ -9,14 +9,7 @@ import {
   CURSOR_SIZE_RANGE, CURSOR_STROKE_RANGE, CURSOR_STYLES, cursorHex, type CursorCentre, type CursorResizeStyle, type CursorStyle,
 } from "./cursor/cursorFamily";
 
-// Paper caret motion model (src/shell/modes/paper/editing/caretFeel.ts):
-// "chase" = exponential pursuit (default); "smooth" = fixed-duration
-// monkeytype-style tween. Owner decision 2026-07-21 out of the caret-feel lab
-// (classic CSS glide and chase-trail were cut; soft blink is built-in).
-export type PaperCaretFeel = "chase" | "smooth";
-export type CorrectionProvider = "flux" | "ollama" | "openai";
 export type CorrectionDialect = "american" | "british" | "canadian" | "australian";
-export type CorrectionAggressiveness = "standard" | "aggressive" | "really-aggressive";
 
 export interface Settings {
   allowAgentView: boolean;
@@ -77,14 +70,8 @@ export interface Settings {
   paperMarginScene: "harmonograph" | "neurons" | "inkwind" | "loom" | "vines";
   paperMaxMarginPanes: number; // max dynamic panes open at once
   paperCleanMargin: boolean; // close all panes whenever focus returns to the editor
-  paperCaretFeel: PaperCaretFeel; // caret motion model — chase (default) | smooth
   paperLocalCorrections: boolean; // private on-device typo + spacing correction
-  paperContextualCorrections: boolean; // sentence-level candidate adjudication
-  paperCorrectionProvider: CorrectionProvider;
-  paperCorrectionModel: string;
   paperCorrectionDialect: CorrectionDialect;
-  paperCorrectionAggressiveness: CorrectionAggressiveness;
-  paperCorrectionGuidance: string;
   // App — updates.
   updateCheck: boolean; // check GitHub releases for a newer version (packaged app only)
 }
@@ -135,14 +122,8 @@ const DEFAULTS: Settings = {
   paperMarginScene: "inkwind",
   paperMaxMarginPanes: 4,
   paperCleanMargin: false,
-  paperCaretFeel: "chase",
   paperLocalCorrections: true,
-  paperContextualCorrections: true,
-  paperCorrectionProvider: "flux",
-  paperCorrectionModel: "qwen3-4b-q4_k_m",
   paperCorrectionDialect: "american",
-  paperCorrectionAggressiveness: "standard",
-  paperCorrectionGuidance: "Preserve scientific terminology, identifiers, and capitalization.",
   updateCheck: true,
 };
 
@@ -159,21 +140,17 @@ const RETIRED_KEYS = [
 function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...raw };
   for (const k of RETIRED_KEYS) delete out[k];
-  // caret-feel (2026-07-21): the lab collapsed to chase|smooth — "monkeytype"
-  // was renamed "smooth"; "classic"/"chase-trail" and the soft-blink /
-  // line-scroll / glide-ms settings were retired (soft blink is built-in).
-  if (out.paperCaretFeel === "monkeytype") out.paperCaretFeel = "smooth";
-  else if (out.paperCaretFeel !== "smooth" && out.paperCaretFeel !== "chase") delete out.paperCaretFeel;
+  delete out.paperCaretFeel;
+  delete out.paperContextualCorrections;
+  delete out.paperCorrectionProvider;
+  delete out.paperCorrectionModel;
+  delete out.paperCorrectionAggressiveness;
+  delete out.paperCorrectionGuidance;
   delete out.paperCaretMs;
   delete out.paperCaretSoftBlink;
   delete out.paperSmoothLineScroll;
   if (typeof out.paperLocalCorrections !== "boolean") delete out.paperLocalCorrections;
-  if (typeof out.paperContextualCorrections !== "boolean") delete out.paperContextualCorrections;
-  if (out.paperCorrectionProvider !== "flux" && out.paperCorrectionProvider !== "ollama" && out.paperCorrectionProvider !== "openai") delete out.paperCorrectionProvider;
-  if (typeof out.paperCorrectionModel !== "string" || out.paperCorrectionModel.length > 120) delete out.paperCorrectionModel;
   if (!["american", "british", "canadian", "australian"].includes(String(out.paperCorrectionDialect))) delete out.paperCorrectionDialect;
-  if (!["standard", "aggressive", "really-aggressive"].includes(String(out.paperCorrectionAggressiveness))) delete out.paperCorrectionAggressiveness;
-  if (typeof out.paperCorrectionGuidance !== "string" || out.paperCorrectionGuidance.length > 500) delete out.paperCorrectionGuidance;
   // Cursor (2026-10-21, same day): the first cut had a colour SCHEME and a halo
   // ENUM; the owner asked for the colours and widths directly. Translate the
   // short-lived keys so a worktree build's settings carry over, then drop them.
@@ -215,10 +192,7 @@ export function decodeSettings(value: unknown): Settings {
     arrowOutlineWidth: { ...ARROW_OUTLINE_RANGE }, arrowRounding: { ...ARROW_ROUNDING_RANGE }, arrowShadow: { ...ARROW_SHADOW_RANGE }, arrowTilt: { ...ARROW_TILT_RANGE },
     cursorPressDepth: { ...CURSOR_PRESS_DEPTH_RANGE }, cursorPressReturnMs: { ...CURSOR_PRESS_RETURN_RANGE },
     cursorCentre: { enum: CURSOR_CENTRES }, cursorResizeStyle: { enum: CURSOR_RESIZE_STYLES },
-    paperCaretFeel: { enum: ["chase", "smooth"] }, paperCorrectionProvider: { enum: ["flux", "ollama", "openai"] },
     paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },
-    paperCorrectionAggressiveness: { enum: ["standard", "aggressive", "really-aggressive"] },
-    paperCorrectionModel: { maxLength: 120 }, paperCorrectionGuidance: { maxLength: 500 },
   });
 }
 

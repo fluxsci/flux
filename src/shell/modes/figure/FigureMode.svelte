@@ -266,10 +266,9 @@
   <div
     class="body"
     bind:this={bodyEl}
-    bind:clientWidth={bodyW}
-    style={`--sb-w:${leftW}px; --insp-w:${$figureLayout.inspectorW}px`}>
+    bind:clientWidth={bodyW}>
     {#if !$leftRailHidden}
-      <LeftRail paneActive={active} {hitBridge} />
+      <LeftRail paneActive={active} {hitBridge} width={leftW} />
       <div
         class="rail-gutter"
         role="separator"
@@ -296,7 +295,7 @@
         onpointerdown={startInspDrag}
         ondblclick={resetInspW}>
       </div>
-      <Inspector />
+      <Inspector width={$figureLayout.inspectorW} />
     {:else}
       <button class="edgetab right" title="Show right rail (Ctrl+Shift+B)" onclick={() => inspectorHidden.set(false)}>‹</button>
     {/if}

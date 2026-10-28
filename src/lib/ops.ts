@@ -151,7 +151,7 @@ function targetEls(fig: Figure, ids?: Id[], excludedIds?: ReadonlySet<Id>): Elem
 // Figure (frame) lifecycle — createFigure / deleteFigure / deleteCanvas / duplicateFigure and
 // BLANK_FIGURE live in the light ./figureLifecycle leaf (the app shell's store needs them; it must
 // not statically reach this whole core). Re-exported here, so every `ops.*` caller is unchanged.
-export { BLANK_FIGURE, figById, createFigure, deleteFigure, deleteCanvas, duplicateFigure, type CreateFigureOpts } from "./figureLifecycle";
+export { BLANK_FIGURE, nearestFigurePosition, figById, createFigure, deleteFigure, deleteCanvas, duplicateFigure, type CreateFigureOpts } from "./figureLifecycle";
 import { BLANK_FIGURE, figById, createFigure } from "./figureLifecycle";
 
 /** Move one or more figures to a position in their CANVAS's order — the

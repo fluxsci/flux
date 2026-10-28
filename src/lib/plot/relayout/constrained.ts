@@ -1,6 +1,7 @@
 import {ticksAt} from './ticking';
 import { LayoutGrid,Solver } from "./layoutGrid";
 import { asBox,unionBoxes,width,height,type Box,type RelayoutModel,type LayoutAxis,type LayoutColorbar } from "./model";
+import { legendBox } from './legend';
 type Axis=LayoutAxis|LayoutColorbar;
 const expanded=(box:Box,m:number[]):Box=>({x0:box.x0-m[0],x1:box.x1+m[2],y0:box.y0-m[3],y1:box.y1+m[1]});
 const max=(v:number[])=>Math.max(0,...v);
@@ -51,6 +52,18 @@ export function constrainedLayout(model:RelayoutModel,w:number,h:number,initial:
     }
     for(const [id,side]of [[l.figure.suptitle,"top"],[l.figure.supxlabel,"bottom"],[l.figure.supylabel,"left"]] as const){
       const t=id?l.texts[id]:null;if(t)figure.edit(side,0,(side==="left"?t.bbox[2]-t.bbox[0]+2*(e.wPad??3):t.bbox[3]-t.bbox[1]+2*(e.hPad??3)));
+    }
+    // Figure legends captured outside the native axes need their own figure
+    // margin. Otherwise the first reflow lets the axes occupy that space;
+    // wrapping a narrow legend makes the overlap even more obvious.
+    const native=l.axes.filter(a=>a.inLayout&&!a.inset?.parent).map(a=>asBox(a.pixelBox)),extent=native.length?unionBoxes(native):null;
+    if(extent)for(const leg of l.legends){
+      if(leg.owner!=='figure'||!leg.inLayout)continue;
+      const box=legendBox(leg,{x0:0,y0:0,x1:w,y1:h},{x0:0,y0:0,x1:w,y1:h},leg.locRequested,model),hp=e.hPad??3,wp=e.wPad??3;
+      if(leg.bbox[3]<=extent.y0)figure.edit('top',0,box.y1+hp);
+      else if(leg.bbox[1]>=extent.y1)figure.edit('bottom',0,h-box.y0+hp);
+      else if(leg.bbox[2]<=extent.x0)figure.edit('left',0,box.x1+wp);
+      else if(leg.bbox[0]>=extent.x1)figure.edit('right',0,w-box.x0+wp);
     }
     // match_submerged_margins across every spanning slot, including distinct grids.
     for(const orientation of ["cols","rows"] as const){

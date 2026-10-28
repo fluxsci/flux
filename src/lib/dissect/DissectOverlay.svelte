@@ -22,6 +22,7 @@
   } from "./loader";
   import DissectGrid from "./DissectGrid.svelte";
   import DissectDetail from "./DissectDetail.svelte";
+  import PlotNotes from "./PlotNotes.svelte";
 
   const LAYOUT_KEY = "flux-dissect-layout";
   interface Layout {
@@ -59,6 +60,7 @@
   let groupIdx = $state(0);
   let selectedIdx = $state(0);
   let detailIdx = $state<number | null>(null);
+  let notesOpen = $state(false);
   let detailRef = $state<{ toggleFit: () => void; zoomBy: (f: number) => void; resetZoom: () => void } | null>(null);
   let panelEl = $state<HTMLDivElement | null>(null);
 
@@ -105,6 +107,7 @@
     if (identity === lastKey) return;
     lastKey = identity;
     listing = null;
+    notesOpen = false;
     groupIdx = 0;
     selectedIdx = 0;
     // Opened on a file (the Plots rail): land in its detail view. refresh() keeps a detail
@@ -164,6 +167,8 @@
     if (!target) return;
     if (e.code === "Space" && detailIdx !== null) return; // the hand tool owns held-Space
     if (e.key === "Alt" || e.key === "Control" || e.key === "Shift" || e.key === "Meta") return;
+    const typing = (e.target as HTMLElement | null)?.closest("input,textarea,select,[contenteditable='true']");
+    if (typing) return;
     e.stopPropagation();
     const inDetail = detailIdx !== null;
     if (e.key === "Escape") {
@@ -271,6 +276,7 @@
         </span>
       {/if}
       <span class="grow"></span>
+      <button class="hb" class:on={notesOpen} title="Read and edit plot notes" aria-label="Plot text notes" onclick={() => notesOpen = !notesOpen}>✎ Notes</button>
       <button
         class="hb"
         title={layout.mode === "full" ? "Shrink to a window" : "Expand to full screen"}
@@ -282,7 +288,9 @@
     </div>
 
     <div class="dbody">
-      {#if !listing}
+      {#if notesOpen}
+        <PlotNotes root={dissectRoot()} plotKey={target.key} onChanged={() => void refresh()} />
+      {:else if !listing}
         <div class="empty">Loading…</div>
       {:else if listing.groups === null}
         <div class="empty" data-dissect-empty>
@@ -307,6 +315,7 @@
             count={files.length}
             groupName={group?.name ?? ""}
             onClose={backToGrid}
+            noteOwner={{ root: dissectRoot(), key: target.key, group: group?.name ?? "" }}
           />
         {/if}
       {/if}
@@ -346,7 +355,7 @@
     background: var(--c-bg);
     border: 1px solid var(--c-line-strong);
     color: var(--c-tx);
-    font-family: var(--font-serif);
+    font: 12px/1.35 var(--font-ui);
     overflow: hidden;
     z-index: 331;
     box-shadow: var(--elev-3, 0 12px 40px rgba(0, 0, 0, 0.5));
@@ -354,7 +363,7 @@
   .dpanel.full {
     position: fixed;
     inset: 14px;
-    border-radius: var(--r-3, 10px);
+    border-radius: var(--r-panel);
   }
   .dpanel.win {
     position: fixed;
@@ -370,7 +379,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 12px;
+    padding: 4px 8px;
+    min-height: 30px;
     background: var(--c-bg-raised);
     border-bottom: 1px solid var(--c-line);
     user-select: none;
@@ -382,13 +392,13 @@
     cursor: grabbing;
   }
   .ttl {
-    font-size: 11px;
+    font: 600 10px var(--font-mono);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--c-tx-faint);
   }
   .plot {
-    font-size: 15px;
+    font-size: 12px;
     color: var(--c-tx-hi);
     white-space: nowrap;
     overflow: hidden;
@@ -407,10 +417,10 @@
     border: 1px solid var(--c-line);
     background: none;
     color: var(--c-tx-2);
-    border-radius: 999px;
-    padding: 2px 10px;
+    border-radius: var(--r-ui);
+    padding: 3px 7px;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 11px;
     cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
@@ -444,12 +454,14 @@
   .hb:hover {
     color: var(--c-accent-bright);
   }
+  .hb.on { background: var(--c-accent-tint); color: var(--c-accent); }
   .dbody {
     flex: 1;
     min-height: 0;
     position: relative;
     display: flex;
     flex-direction: column;
+    background: var(--c-bg-raised);
   }
   .empty {
     flex: 1;
@@ -494,9 +506,9 @@
     flex: 0 0 auto;
     display: flex;
     gap: 16px;
-    padding: 7px 14px;
+    padding: 5px 10px;
     border-top: 1px solid var(--c-line);
-    font-size: 12px;
+    font: 10.5px var(--font-mono);
     color: var(--c-tx-muted);
   }
   .dfoot b {

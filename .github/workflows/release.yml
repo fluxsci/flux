@@ -117,7 +117,6 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Fetch the bundled helpers for this target
         run: |
-          node scripts/fetch-correction-runtime.mjs --platform ${{ matrix.platform }} --arches ${{ matrix.arch }}
           node scripts/fetch-video-encoder.mjs --platform ${{ matrix.platform }} --arches ${{ matrix.arch }}
       - name: Build (renderer, CLI/MCP bundles, offline help)
         run: npm run build && npm run build:docs

@@ -19,6 +19,8 @@ import { applyOverrides, prefixIds } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
 import { relayoutPlot } from "./relayout";
 import { registerRelayoutPreview } from "./relayout/previewPaint";
+import { updatePlotVisibleBounds, clearPlotVisibleBounds } from './visibleBounds';
+import type { Rect } from '../geometry';
 
 // Content signature: anything that requires a fresh clone + override/compensate
 // pass. x/y are deliberately EXCLUDED (fast-path below).
@@ -42,6 +44,13 @@ function signature(e: SemanticPlotElement, gen: number, theme: DeckTheme | null)
 
 const themeKey = (e: SemanticPlotElement, theme: DeckTheme | null): string =>
   theme && plotFollowsTheme(e, "slide") ? `${theme.text}/${theme.textMuted}/${theme.background}` : "";
+
+// A lazy asset can finish while its kept-alive pane is display:none. Retain
+// last-good bounds and retry only when a pane is shown, never on a timer.
+const pendingBounds=new Map<SVGSVGElement,()=>void>();
+if(typeof window!=='undefined')window.addEventListener('flux:pane-shown',()=>{
+  if(pendingBounds.size)queueMicrotask(()=>{for(const [root,publish]of pendingBounds)if(root.isConnected&&root.getClientRects().length){pendingBounds.delete(root);publish();}});
+});
 
 // WS-1 Fix 1: the fields whose CHANGE forces a re-clone, snapshotted by value/
 // reference after each update. ops.setPartOverride/setCrop are copy-on-write
@@ -90,7 +99,7 @@ const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number, theme: De
   a.layoutMode === e.layoutMode &&
   a.theme === themeKey(e, theme);
 
-export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement; gen?: number; theme?: DeckTheme | null }) {
+export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement; gen?: number; theme?: DeckTheme | null; onBounds?:(bounds:Rect|null|undefined)=>void }) {
   let element = params.element;
   let gen = params.gen ?? 0;
   let theme: DeckTheme | null = params.theme ?? null;
@@ -99,6 +108,9 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
   let inst: SVGSVGElement | null = null;
   let colorMapsRequested = false;
   let unregisterPreview=()=>{};
+  let onBounds=params.onBounds;
+  let measureGeneration=0;
+  let boundsRoot:SVGSVGElement|null=null;
 
   function place() {
     if (!inst) return;
@@ -108,10 +120,12 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
 
   function render() {
     unregisterPreview();
+    const previous=inst;
+    if(previous)pendingBounds.delete(previous);
     host.replaceChildren();
     inst = null;
     const cached = plotDom.get(element.assetId);
-    if (!cached) return; // PlotElement shows the <image> fallback instead
+    if (!cached) {if(boundsRoot)clearPlotVisibleBounds(element.id,boundsRoot);boundsRoot=null;onBounds?.(undefined);return;} // raster fallback
     // importNode adopts the node into this document (the cache lives in a parsed XML doc).
     inst = document.importNode(cached, true) as SVGSVGElement;
     const intrinsic = svgIntrinsicPx(cached); // BEFORE width/height are overwritten
@@ -150,14 +164,24 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     });
     host.appendChild(inst);
     unregisterPreview=registerRelayoutPreview(inst,manifest,element);
+    // Actions may run before the outer scene is attached. A microtask observes
+    // the completed DOM commit; stale callbacks never publish a prior mount.
+    const generation=++measureGeneration,current=inst;
+    const publish=()=>{if(generation===measureGeneration&&current.isConnected){boundsRoot=current;onBounds?.(updatePlotVisibleBounds(current,element));}};
+    queueMicrotask(()=>{
+      if(generation!==measureGeneration||!current.isConnected)return;
+      if(!Object.values(element.overrides??{}).some(ov=>ov.hidden===true||ov.opacity===0)||current.getClientRects().length)publish();
+      else pendingBounds.set(current,publish);
+    });
   }
 
   sig = signature(element, gen, theme);
   render();
 
   return {
-    update(next: { element: SemanticPlotElement; gen?: number; theme?: DeckTheme | null }) {
+    update(next: { element: SemanticPlotElement; gen?: number; theme?: DeckTheme | null; onBounds?:(bounds:Rect|null|undefined)=>void }) {
       element = next.element;
+      onBounds=next.onBounds;
       gen = next.gen ?? 0;
       theme = next.theme ?? null;
       // Fast path (WS-1 Fix 1): snapshot equality ⇒ content unchanged ⇒ no
@@ -176,6 +200,9 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
       render();
     },
     destroy() {
+      measureGeneration++;
+      if(inst)pendingBounds.delete(inst);
+      if(boundsRoot)clearPlotVisibleBounds(element.id,boundsRoot);
       unregisterPreview();
       host.replaceChildren();
     },

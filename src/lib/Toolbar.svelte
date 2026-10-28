@@ -32,7 +32,7 @@
     { id: "scale", label: "Scale", key: "K" },
     { id: "hand", label: "Pan", key: "H" },
     { id: "text", label: "Text", key: "T" },
-    { id: "rect", label: "Rect", key: "R" },
+    { id: "rect", label: "Rect", key: "Alt+R" },
     { id: "ellipse", label: "Ellipse", key: "O" },
     { id: "line", label: "Line", key: "L" },
     { id: "arrow", label: "Arrow", key: "Shift+L" },

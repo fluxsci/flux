@@ -29,6 +29,9 @@
   import { insertPlots, destinationName, type PlaceAdapter } from "./insert";
   import { RESERVED_PLOT_FOLDERS, VIDEO_DIRNAME } from "../project/plotsFolders";
   import { plotKeyFor } from "../dissect/rules";
+  import { indexPlotNotes, matchPlotNotes, notesRevision, type IndexedPlotNote } from "../dissect/notes";
+  import { dissectTarget } from "../dissect/state";
+  import { dissectionsRevision } from "../../shell/scholar/revisions";
   import { fileBridge, joinPath } from "../project/types";
   import { project, activeFigureId, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
   import { pushToast } from "../toast";
@@ -43,6 +46,8 @@
     onShowDissections,
     accept = "svg,png,glb",
     place = null,
+    onBrowseChange,
+    folderRequest = null,
   }: {
     active?: boolean;
     hitBridge?: HitBridgeHolder | null;
@@ -54,6 +59,8 @@
     accept?: string;
     /** The mode's placement route (Slide); the shared pipeline when null. */
     place?: PlaceAdapter | null;
+    onBrowseChange?: (view: { base: string; folder: string }) => void;
+    folderRequest?: { id: number; folder: string } | null;
   } = $props();
 
   const root = $derived($embeddedProjectRoot || $projectDir || "");
@@ -132,18 +139,40 @@
   // ---- narrowing: focus folder → search → filters (→ similar names)
   let folderState = $state({ dir: "", owner: "" });
   const focusDir = $derived(folderState.owner === `${root}|${scope}|${collection}` ? folderState.dir : "");
+  $effect(() => { onBrowseChange?.({ base, folder: focusDir }); });
+  $effect(() => { const request = folderRequest; if (request) untrack(() => { search = ""; focusFolder(request.folder); }); });
+  let noteMode = $state(false), notesLoading = $state(false), notesError = $state("");
+  let noteIndex = $state.raw<IndexedPlotNote[]>([]);
+  const noteOwners = $derived(ix.items.map(i => i.abs).join("\n"));
+  $effect(() => {
+    const enabled = noteMode && scope === "project" && !collection, r = root;
+    noteOwners; $notesRevision; $dissectionsRevision;
+    noteIndex = []; notesError = "";
+    if (!enabled || !r) return;
+    const abort = new AbortController();
+    notesLoading = true;
+    void indexPlotNotes(r, untrack(() => ix.items), abort.signal).then(result => {
+      if (abort.signal.aborted) return;
+      noteIndex = result.notes;
+      notesError = result.incomplete ? "Note search reached its limit; some notes are not included." : result.errors ? `${result.errors} notes or folders could not be read.` : "";
+    }).catch(e => { if (!abort.signal.aborted) notesError = String(e?.message ?? e); }).finally(() => { if (!abort.signal.aborted) notesLoading = false; });
+    return () => abort.abort();
+  });
+  const noteMatches = $derived(matchPlotNotes(noteIndex, search));
+  const searchingNotes = $derived(noteMode && scope === "project" && !collection);
+  const noteMatchPlots = $derived(new Set(noteMatches.map(n => n.plot)));
   let similarState = $state.raw<{ item: PlotItem | null; owner: string }>({ item: null, owner: "" });
   const similar = $derived(similarState.owner === `${root}|${scope}|${collection}` ? similarState.item : null);
   const filters = $derived({ unused: $railPrefs.filterUnused, fluxplot: $railPrefs.filterFluxplot, dissected: $railPrefs.filterDissected && scope === "project" && !collection });
   const filtering = $derived(anyFilter(filters));
   const matches = $derived.by(() => {
     void ix.version;
-    if (q.startsWith("_") && !collection) return [];
+    if (q.startsWith("_") && !collection && !searchingNotes) return [];
     // Similar names ranks the whole tree — across folders, past the folder focus and filters.
     if (similar) return similarTo(ix.items.some((it) => it.abs === similar.abs) ? ix.items : [similar, ...ix.items], similar);
     let out = ix.items;
-    if (focusDir) out = out.filter((it) => inFolder(it.dir, focusDir));
-    if (q) out = out.filter((it) => it.rel.toLowerCase().includes(q));
+    if (focusDir && !searchingNotes) out = out.filter((it) => inFolder(it.dir, focusDir));
+    if (q) out = searchingNotes ? out.filter(it => noteMatchPlots.has(it.abs)) : out.filter((it) => it.rel.toLowerCase().includes(q));
     if (filtering) out = applyFilters(out, filters, (it) => (placedSet.has(slash(it.abs)) ? 1 : 0), (it) => { const n = counts.get(plotKeyFor(it.abs, root)); return n === undefined ? null : n; });
     return out;
   });
@@ -167,7 +196,7 @@
   const sections: GridSection[] = $derived.by(() => {
     void ix.version;
     const out: GridSection[] = [];
-    if (q.startsWith("_") && !collection) {
+    if (q.startsWith("_") && !collection && !searchingNotes) {
       const rows = reservedHere.filter((f) => f.name.includes(q));
       out.push({ key: "reserved", title: "Companion collections", meta: rows.length ? "" : " · none here", depth: 0, collapsed: false, collapsible: false, headerH: 24,
         items: rows.map((f) => ({ id: `reserved:${f.name}`, aspect: 1, block: 30, data: { reserved: f } })) });
@@ -666,17 +695,28 @@
       bind:value={search}
       class="search"
       aria-label="Search plots"
-      placeholder={scope === "global" ? "Search the library" : collection ? `Search ${collection}` : "Search plots"}
+      placeholder={noteMode && scope === "project" && !collection ? "Search all plot notes · #TODO" : scope === "global" ? "Search the library" : collection ? `Search ${collection}` : "Search plots"}
       title="Search by name or folder · type _ for the companion collections"
       spellcheck="false"
       onkeydown={onSearchKey}
       data-plots-search />
     {#if search}<button class="clear" aria-label="Clear search" onclick={() => { search = ""; searchEl?.focus(); }}>×</button>{/if}
+    {#if scope === "project" && !collection}<button class="notes-toggle" class:on={noteMode} aria-pressed={noteMode} title="Search note contents across all project plots" onclick={() => { noteMode = !noteMode; searchEl?.focus(); }} data-notes-search>Notes</button>{/if}
     <div class="scope" role="group" aria-label="Plot scope">
       <button class:chosen={scope === "project"} aria-pressed={scope === "project"} title="This project's plots (Alt+1)" onclick={() => setScope("project")} data-scope="project">Proj</button>
       <button class:chosen={scope === "global"} aria-pressed={scope === "global"} disabled={!libraryRoot} title={libraryRoot ? "Your global plot library (Alt+2)" : "The global plot library needs the desktop app"} onclick={() => setScope("global")} data-scope="global">Glob</button>
     </div>
   </div>
+  {#if noteMode && scope === "project" && !collection}
+    <div class="note-results" data-note-results>
+      {#if notesLoading}<p>Reading plot notes…</p>{/if}
+      {#if notesError}<p role="status">{notesError}</p>{/if}
+      {#if !q}<p>Search the text of every plot's .txt notes, including tags such as #TODO.</p>{/if}
+      {#each noteMatches.slice(0, 200) as match (match.path)}<button onclick={() => dissectTarget.set({ key: match.key, displayName: match.key.split("/").pop() || match.key, initial: { group: match.group, name: match.name } })}><b>{match.key} · {match.name}:{match.line}</b><span>{match.snippet}</span></button>{/each}
+      {#if noteMatches.length > 200}<p>Showing 200 matching notes. Narrow the search to see more.</p>{/if}
+      {#if q && !notesLoading && !noteMatches.length}<p>No matching plot notes.</p>{/if}
+    </div>
+  {/if}
   {#if filterChips.length}
     <div class="filter-line" data-filter-chips>
       <span class="fl">Only</span>
@@ -769,6 +809,8 @@
 
 <style>
   .gallery { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .notes-toggle { flex-shrink:0; padding:1px 4px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:none; color:var(--c-tx-muted); font:10px var(--font-ui); } .notes-toggle.on { color:var(--c-accent); border-color:var(--c-accent); background:var(--c-accent-tint); }
+  .note-results { flex-shrink:0; max-height:42%; overflow:auto; border-bottom:1px solid var(--c-line); } .note-results p { margin:0; padding:5px 8px; color:var(--c-tx-muted); font:10.5px/1.4 var(--font-ui); } .note-results button { display:flex; flex-direction:column; gap:3px; width:100%; padding:6px 8px; border:0; border-bottom:1px solid var(--c-line); background:none; color:var(--c-tx-2); text-align:left; font:10.5px var(--font-mono); cursor:var(--cursor-cross-hover); } .note-results button:hover { background:var(--c-surface-2); } .note-results b { color:var(--c-tx-hi); font-weight:500; overflow-wrap:anywhere; } .note-results span { white-space:pre-wrap; overflow-wrap:anywhere; }
   .search-row { display: flex; align-items: center; gap: 6px; height: 26px; flex-shrink: 0; padding: 0 6px 0 8px; border-bottom: 1px solid var(--c-line); background: var(--c-bg); }
   .search-row:focus-within { border-bottom-color: var(--c-accent); }
   .mag { width: 12px; height: 12px; flex-shrink: 0; fill: none; stroke: var(--c-tx-muted); stroke-width: 1.7; }

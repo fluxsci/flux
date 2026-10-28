@@ -28,13 +28,8 @@ import {
   isSentenceBoundaryAt,
   windowStartsSentence,
 } from "../src/shell/modes/paper/editing/localCorrectionBoundary";
-import {
-  guardContextCorrectionResult,
-  makeContextCorrectionPacket,
-  normalizeCorrectionCandidates,
-  rescueApprovalKey,
-  rescueReplacementAllowed,
-} from "../src/shell/modes/paper/editing/contextualCorrectionCore";
+import { normalizeSpellingCandidates } from "../src/shell/modes/paper/editing/localSpelling";
+import { SCIENTIFIC_VOCABULARY } from "../src/shell/modes/paper/editing/scientificVocabulary";
 
 const h = harness("verify-local-corrections");
 const lint = (
@@ -72,7 +67,7 @@ h.section("mechanical ranking");
   h.eq(
     planLocalCorrections(scientific, [lint(scientific, "somata", "Spelling", ["sonata"])]),
     [],
-    "a short adjacent-key scientific neighbor remains contextual",
+    "a short adjacent-key scientific neighbor requires an explicit choice",
   );
 }
 {
@@ -92,7 +87,7 @@ h.section("mechanical ranking");
     h.eq(
       planLocalCorrections(source, [lint(source, problem, "Spelling", [...suggestions])]),
       [],
-      `${problem} waits for sentence context instead of guessing among insertion/deletion neighbors`,
+      `${problem} requires an explicit choice instead of guessing among insertion/deletion neighbors`,
     );
   }
   const splitTrap = "The bilogical response increased.";
@@ -111,7 +106,7 @@ h.section("mechanical ranking");
   h.eq(
     planLocalCorrections(shortDeletionTrap, [lint(shortDeletionTrap, "sice", "Spelling", ["sic", "sick", "side"])]),
     [],
-    "a short deletion ambiguity waits for context instead of choosing Harper's shortest word",
+    "a short deletion ambiguity requires a choice instead of choosing Harper's shortest word",
   );
 }
 
@@ -221,7 +216,7 @@ h.section("profile learning");
   const reloaded = new LocalCorrectionProfile("project-a", storage);
   h.ok(reloaded.blockedPairs().has(correctionPairKey("compelx", "complex")), "reverted pair persists per project");
   h.eq(reloaded.words(), ["iGluSnFR4f"], "explicit project dictionary persists");
-  h.eq(reloaded.words("personal"), ["NREM"], "explicit personal dictionary persists");
+  h.ok(reloaded.hasWord("NREM", "personal") && reloaded.hasWord("glutamatergic", "personal"), "personal dictionary retains authored and seeded scientific terms");
   h.eq(reloaded.resolveAlias("IGF")?.expansion, "iGluSnFR4f", "project alias lookup is case-insensitive");
   const source = "A very compelx object.";
   h.eq(
@@ -231,7 +226,7 @@ h.section("profile learning");
   );
   const other = new LocalCorrectionProfile("project-b", storage);
   h.eq(other.words(), [], "project dictionary decisions do not leak between projects");
-  h.eq(other.words("personal"), ["NREM"], "personal dictionary is shared across projects");
+  h.eq(other.words("personal"), reloaded.words("personal"), "personal dictionary is shared across projects");
   h.eq(other.resolveAlias("nr")?.expansion, "NREM", "personal aliases are shared across projects");
   h.eq(other.resolveAlias("igf"), null, "project aliases do not leak between projects");
   reloaded.setAlias("nr", "project-NREM", "project");
@@ -248,7 +243,7 @@ h.section("profile learning");
 
   clearLocalCorrectionProfiles(storage);
   const cleared = new LocalCorrectionProfile("project-a", storage);
-  h.ok(cleared.words().length === 0 && cleared.words("personal").length === 0 && !cleared.resolveAlias("igf"), "full profile clear removes both scopes and aliases");
+  h.ok(cleared.words().length === 0 && cleared.words("personal").length === SCIENTIFIC_VOCABULARY.length && !cleared.resolveAlias("igf"), "full profile clear removes authored data and restores the scientific seed");
 }
 {
   const map = new Map<string, string>();
@@ -342,8 +337,8 @@ h.section("a window cut never invents a lint");
   // bound their OUTPUT, not just their input.
   const synth = "The somata depolarized more then a compelx control";
   const focusOnLastTwo = { from: synth.indexOf("compelx"), to: synth.length };
-  const synthesized = normalizeCorrectionCandidates(synth, [lint(synth, "compelx", "Spelling", ["complex"])], "sentence");
-  h.ok(synthesized.some((c) => c.original === "then"), "the confusion table reaches words the linter never flagged");
+  const synthesized = normalizeSpellingCandidates(synth, [lint(synth, "compelx", "Spelling", ["complex"])]);
+  h.ok(!synthesized.some((c) => c.original === "then"), "diagnostics never invent unflagged confusion-word candidates");
   h.eq(
     withinFocus(synthesized, focusOnLastTwo).map((c) => c.original),
     ["compelx"],
@@ -375,194 +370,47 @@ h.section("a window cut never invents a lint");
   }
 }
 
-h.section("context candidate contract and guard");
+h.section("explicit spelling choices and vocabulary seed");
 {
-  const source = "The somata depolarized more then controls.";
-  const records = [
-    lint(source, "somata", "Spelling", ["sonata"]),
-    lint(source, "then", "WordChoice", ["than"]),
-  ];
-  const candidates = normalizeCorrectionCandidates(source, records, "sentence");
-  h.eq(candidates.length, 2, "declined Harper lints remain bounded contextual candidates");
-  const packet = makeContextCorrectionPacket("r1", source, candidates, {
-    revision: "ctx-1", dialect: "american", sectionPath: [], canonicalTerms: [], contextHints: [],
-  });
-  const guarded = guardContextCorrectionResult(packet, {
-    version: 1,
-    requestId: "r1",
-    decisions: [{ candidateId: candidates[1].id, action: "use", suggestionIndex: 0 }],
-  }, source);
-  h.eq(guarded.map((plan) => [plan.original, plan.replacement]), [["then", "than"]], "missing decisions mean keep and an enumerated decision applies");
-  h.eq(guardContextCorrectionResult(packet, { version: 1, requestId: "stale", decisions: [] }, source), [], "wrong request IDs fail closed");
-  h.eq(guardContextCorrectionResult(packet, { version: 1, requestId: "r1", decisions: [{ candidateId: "unknown", action: "use", suggestionIndex: 0 }] }, source), [], "unknown candidate IDs fail closed");
-}
-{
-  for (const [source, original, replacement] of [
-    ["The signal came from the cortex.", "from", "form"],
-    ["The device retained its calibration.", "its", "it's"],
-    ["Please cite the recording site.", "cite", "site"],
-  ] as const) {
-    const [candidate] = normalizeCorrectionCandidates(source, [lint(source, original, "WordChoice", [replacement])], "sentence");
-    const packet = makeContextCorrectionPacket(`real-${original}`, source, [candidate], {
-      revision: "ctx-real-word", dialect: "american", sectionPath: [], canonicalTerms: [], contextHints: [],
-    });
-    h.eq(
-      guardContextCorrectionResult(packet, {
-        version: 1,
-        requestId: `real-${original}`,
-        decisions: [{ candidateId: candidate.id, action: "use", suggestionIndex: 0 }],
-      }, source),
-      [],
-      `${original} → ${replacement} is blocked when the original is syntactically coherent`,
-    );
-  }
-  const source = "Please cite the recording cite in the methods.";
-  const candidates = normalizeCorrectionCandidates(source, [
-    { ...lint(source, "cite", "WordChoice", ["site"]), from: source.lastIndexOf("cite"), to: source.lastIndexOf("cite") + 4 },
-  ], "sentence");
-  const packet = makeContextCorrectionPacket("noun-site", source, candidates, {
-    revision: "ctx-noun-site", dialect: "american", sectionPath: [], canonicalTerms: [], contextHints: [],
-  });
-  h.eq(
-    guardContextCorrectionResult(packet, {
-      version: 1,
-      requestId: "noun-site",
-      decisions: [{ candidateId: candidates[0].id, action: "use", suggestionIndex: 0 }],
-    }, source).map((plan) => [plan.original, plan.replacement]),
-    [["cite", "site"]],
-    "a noun-position cite → site correction remains available",
-  );
-}
-{
-  const source = "The wayus in which the system acts remain unclear.";
-  const record = {
-    ...lint(source, "wayus", "Typo", ["way us"]),
-    rescueSuggestions: ["ways"],
-  };
-  const [candidate] = normalizeCorrectionCandidates(source, [record], "sentence");
-  h.eq(candidate.suggestions, [], "an unsafe Harper spacing option cannot enter the first-pass selectable set");
-  h.eq(candidate.rescueSuggestions, ["ways"], "a locally verified word is isolated as an optional rescue proposal");
-  h.eq(candidate.rejectedSuggestions, ["way us"], "unsafe Harper text remains visible only to the proposal rejection contract");
-  const packet = makeContextCorrectionPacket("wayus", source, [candidate], {
-    revision: "ctx-wayus", dialect: "american", sectionPath: [], canonicalTerms: [], contextHints: [],
-  });
-  h.eq(
-    guardContextCorrectionResult(packet, {
-      version: 1,
-      requestId: "wayus",
-      decisions: [{ candidateId: candidate.id, action: "rescue", replacement: "ways" }],
-    }, source, { approvedRescues: new Set([rescueApprovalKey(candidate.id, "ways")]) }).map((plan) => [plan.original, plan.replacement]),
-    [["wayus", "ways"]],
-    "context may approve Flux's isolated rescue proposal after rejecting Harper's spacing option",
-  );
-}
-{
-  const source = "The image used a seperate reference.";
-  const [candidate] = normalizeCorrectionCandidates(source, [lint(source, "seperate", "Spelling", ["separate", "otherwise"])], "sentence");
-  h.ok(candidate.rescueSuggestions.includes("separate"), "a bounded but mechanically non-dominant Harper word remains recoverable as a Flux proposal");
-  h.ok(!candidate.rejectedSuggestions.includes("separate") && candidate.rejectedSuggestions.includes("otherwise"), "only distant Harper spellings are forbidden during rescue");
-}
-{
-  const source = "The analysiz remained reproducible.";
-  const [candidate] = normalizeCorrectionCandidates(source, [lint(source, "analysiz", "Spelling", [])], "sentence");
-  h.ok(candidate.rescueEligible && candidate.suggestions.length === 0, "a flagged word with no supplied suggestion survives for bounded rescue");
-  const packet = makeContextCorrectionPacket("rescue", source, [candidate], {
-    revision: "ctx-rescue", dialect: "american", sectionPath: [], canonicalTerms: [], contextHints: [],
-  });
-  const result = {
-    version: 1 as const,
-    requestId: "rescue",
-    decisions: [{ candidateId: candidate.id, action: "rescue" as const, replacement: "analysis" }],
-  };
-  h.eq(guardContextCorrectionResult(packet, result, source), [], "a generated replacement cannot self-approve");
-  h.eq(
-    guardContextCorrectionResult(packet, result, source, {
-      approvedRescues: new Set([rescueApprovalKey(candidate.id, "analysis")]),
-    }).map((plan) => [plan.original, plan.replacement]),
-    [["analysiz", "analysis"]],
-    "a close exact-span proposal applies only after independent lexical approval",
-  );
-  h.eq(
-    guardContextCorrectionResult(packet, {
-      ...result,
-      decisions: [{ candidateId: candidate.id, action: "rescue", replacement: "analytical" }],
-    }, source, { approvedRescues: new Set([rescueApprovalKey(candidate.id, "analytical")]) }),
-    [],
-    "a distant model proposal remains outside the silent mutation contract",
-  );
-}
-{
-  const source = "The control grop remained stable.";
-  const [candidate] = normalizeCorrectionCandidates(source, [lint(source, "grop", "Spelling", ["grip"])], "sentence");
-  const packet = makeContextCorrectionPacket("short-rescue", source, [candidate], {
-    revision: "ctx-short", dialect: "american", sectionPath: [], canonicalTerms: [], contextHints: [],
-  });
-  h.eq(
-    guardContextCorrectionResult(packet, {
-      version: 1,
-      requestId: "short-rescue",
-      decisions: [{ candidateId: candidate.id, action: "rescue", replacement: "grip" }],
-    }, source, { approvedRescues: new Set([rescueApprovalKey(candidate.id, "grip")]) }),
-    [{
-      from: source.indexOf("grop"),
-      to: source.indexOf("grop") + 4,
-      original: "grop",
-      replacement: "grip",
-      kind: "spelling",
-      message: "candidate",
-    }],
-    "a short bounded word applies only after the separate model and local-lexicon approvals",
-  );
-}
-{
-  const words = extractProjectVocabulary([
-    "NREM iGluSnFR4f SLAP2 glutamate glutamate glutamate oneoff",
-  ]);
-  h.ok(words.includes("NREM") && words.includes("iGluSnFR4f") && words.includes("SLAP2"), "technical forms enter the project vocabulary immediately");
-  h.ok(words.includes("glutamate") && !words.includes("oneoff"), "ordinary terms require recurrence before learning");
-}
-
-h.section("judgment aggressiveness envelopes");
-{
-  const candidateFor = (original: string, mode: "standard" | "aggressive" | "really-aggressive") => {
-    const source = `The ${original} result remained stable.`;
-    return normalizeCorrectionCandidates(source, [lint(source, original, "Spelling", [])], "sentence", { aggressiveness: mode })[0];
-  };
-  const standardLong = candidateFor("subseqeubn", "standard");
-  const aggressiveLong = candidateFor("subseqeubn", "aggressive");
-  const reallyMedium = candidateFor("exxqplez", "really-aggressive");
-  const reallyLong = candidateFor("subseqxxbn", "really-aggressive");
-  h.eq(
-    [standardLong.rescueMaxDistance, aggressiveLong.rescueMaxDistance, reallyMedium.rescueMaxDistance, reallyLong.rescueMaxDistance],
-    [2, 3, 3, 4],
-    "standard, aggressive, and really aggressive expose distinct renderer-owned edit ceilings",
-  );
-  h.eq(
-    [
-      rescueReplacementAllowed(standardLong, "subsequent"),
-      rescueReplacementAllowed(aggressiveLong, "subsequent"),
-      rescueReplacementAllowed(reallyMedium, "example"),
-      rescueReplacementAllowed(reallyLong, "subsequent"),
-    ],
-    [false, true, true, true],
-    "the wider modes admit three/four-edit long-word repairs while standard remains unchanged",
-  );
-  const short = candidateFor("grop", "really-aggressive");
-  h.eq(short.rescueMaxDistance, 1, "really aggressive never widens the ambiguous short-word neighborhood");
-  const plural = candidateFor("segmentations", "really-aggressive");
-  h.ok(!rescueReplacementAllowed(plural, "segmentation"), "generated spelling rescue cannot silently remove an intact plural inflection");
-  const scientificPrefix = candidateFor("hyperpolarizing", "really-aggressive");
-  h.ok(!rescueReplacementAllowed(scientificPrefix, "depolarizing"), "generated rescue cannot remove a meaning-bearing scientific prefix");
-  const grammarSource = "Background flxorscenz was subtracted before analysis.";
-  const grammarCandidate = normalizeCorrectionCandidates(grammarSource, [lint(grammarSource, "flxorscenz", "Spelling", [])], "sentence", { aggressiveness: "really-aggressive" })[0];
-  const grammarPacket = makeContextCorrectionPacket("grammar-rescue", grammarSource, [grammarCandidate], {
-    revision: "grammar", dialect: "american", sectionPath: [], canonicalTerms: [], contextHints: [],
-  }, { sectionPath: [] }, "sentence", "really-aggressive");
-  h.eq(guardContextCorrectionResult(grammarPacket, {
-    version: 1,
-    requestId: grammarPacket.requestId,
-    decisions: [{ candidateId: grammarCandidate.id, action: "rescue", replacement: "fluorescent" }],
-  }, grammarSource, { approvedRescues: new Set([rescueApprovalKey(grammarCandidate.id, "fluorescent")]) }), [], "final grammar shape guard rejects an adjective in a nominal subject slot");
+  for (const [source, original, kind, replacement] of [
+    ["This is a example.", "a", "WordChoice", "an"],
+    ["the cell remained stable.", "the", "Capitalization", "The"],
+    ["There are more then two cells.", "then", "WordChoice", "than"],
+  ]) h.eq(normalizeSpellingCandidates(source, [lint(source, original, kind, [replacement])]), [], `${original} → ${replacement} is sentence-dependent and cannot enter the learned spelling menu`);
+  const source = "A seperate enviroment.";
+  const choices = normalizeSpellingCandidates(source, [lint(source, "seperate", "Spelling", ["otherwise", "separate", "separation", "separate"])]);
+  h.eq(choices[0].suggestions[0], "separate", "nearby spelling is ranked before a distant word");
+  h.eq(new Set(choices[0].suggestions).size, choices[0].suggestions.length, "choices are deduplicated");
+  h.eq(normalizeSpellingCandidates(source, [lint(source, "seperate", "Spelling", ["separate"])], ["SEPERATE"]), [], "personal dictionary suppresses an existing flag regardless of case");
+  h.eq(normalizeSpellingCandidates("`enviroment`", [lint("`enviroment`", "enviroment", "Spelling", ["environment"])]), [], "protected markup never becomes an explicit spelling target");
+  const map = new Map<string,string>();
+  const storage = { getItem: (key:string) => map.get(key) ?? null, setItem: (key:string,value:string) => void map.set(key,value) };
+  const profile = new LocalCorrectionProfile("seed-test",storage);
+  await profile.ready();
+  h.ok(profile.words("personal").length >= 700, "the personal dictionary starts with broad neuroscience and biology coverage");
+  for (const word of ["NREM", "glutamate", "synaptogenesis", "pupillometry", "iGluSnFR4f", "oligodendrocytes", "transcriptomics", "immunohistochemistry"]) h.ok(profile.hasWord(word,"personal"), `${word} is recognized out of the box`);
+  h.eq(profile.explicitCorrectionWords(), [], "the scientific seed does not widen automatic technical near-matching");
+  profile.addWord("iGluSnFR4f", "project");
+  h.eq(planLocalCorrections("We measured IgluSnrf4.", [], { explicitWords: profile.explicitCorrectionWords() }).map(plan => plan.replacement), ["iGluSnFR4f"], "authored canonical terms retain precise correction even beside similar seeded sensors");
+  profile.addWord("iGluSnFR4f", "personal");
+  h.ok(profile.explicitCorrectionWords().includes("iGluSnFR4f"), "explicit addition promotes a supplied Personal word to an authored canonical target");
+  const oldValues = new Map<string, string>([["flux.paper.localLanguage.v2", JSON.stringify({ version: 2, personal: { words: ["iGluSnFR4f"], aliases: [] }, projects: {} })]]);
+  const legacyStorage = { getItem: (key: string) => oldValues.get(key) ?? null, setItem: (key: string, value: string) => void oldValues.set(key, value) };
+  const legacyPersonal = new LocalCorrectionProfile("legacy-authored", legacyStorage);
+  await legacyPersonal.ready();
+  h.eq(legacyPersonal.explicitCorrectionWords(), ["iGluSnFR4f"], "seeding preserves a Personal term authored before that word entered the seed catalog");
+  h.eq(planLocalCorrections("We measured IgluSnrf4.", [], { explicitWords: legacyPersonal.explicitCorrectionWords() }).map(plan => plan.replacement), ["iGluSnFR4f"], "preexisting Personal scientific terms retain their canonical near-match correction behavior");
+  h.ok(!legacyPersonal.explicitCorrectionWords().includes("iGluSnFR3") && legacyPersonal.hasWord("iGluSnFR3", "personal"), "newly supplied related sensor names teach recognition without widening authored correction targets");
+  const legacyReopen = new LocalCorrectionProfile("legacy-authored", legacyStorage);
+  await legacyReopen.ready();
+  h.eq(legacyReopen.explicitCorrectionWords(), ["iGluSnFR4f"], "authored-versus-seeded provenance survives reopening");
+  profile.removeWord("glutamate","personal");
+  const reopened = new LocalCorrectionProfile("seed-test",storage);
+  await reopened.ready();
+  h.ok(!reopened.hasWord("glutamate","personal"), "an intentional removal stays removed after profile reopen");
+  profile.setAlias("enviroment","environment","personal");
+  const learned = new LocalCorrectionProfile("other-project",storage);
+  h.eq(learned.resolveAlias("enviroment")?.expansion,"environment","a personal correction mapping survives reopening and follows the user across projects");
 }
 
 h.section("backlog scan windows and Harper-only candidates");
@@ -581,19 +429,8 @@ h.section("backlog scan windows and Harper-only candidates");
   h.ok(boundarySplit.every((w) => /[.!?]$/.test(w.text)), "long paragraphs split at sentence boundaries, not mid-sentence");
 
   const source = "We know there is a compelx site here.";
-  const harperOnly = normalizeCorrectionCandidates(
-    source,
-    [lint(source, "compelx", "Spelling", ["complex"])],
-    "sentence",
-    { harperLintsOnly: true, explicitWords: ["FluxSite2"] },
-  );
-  h.eq(harperOnly.map((candidate) => candidate.original), ["compelx"], "harperLintsOnly yields exactly the Harper-flagged span");
-  const withSynthetic = normalizeCorrectionCandidates(
-    source,
-    [lint(source, "compelx", "Spelling", ["complex"])],
-    "sentence",
-  );
-  h.ok(withSynthetic.some((candidate) => candidate.original === "site" || candidate.original === "there"), "without the flag, confusion-table candidates still join the sentence lane");
+  const harperOnly = normalizeSpellingCandidates(source, [lint(source, "compelx", "Spelling", ["complex"])], ["FluxSite2"]);
+  h.eq(harperOnly.map((candidate) => candidate.original), ["compelx"], "the scan shows only spans Harper actually flagged");
 }
 
 h.section("architecture pins");
@@ -611,8 +448,8 @@ h.section("architecture pins");
   h.ok(/transactionFilter/.test(editor) && /sequential:\s*true/.test(editor), "alias expansion joins the delimiter's original transaction");
   h.ok(/Prec\.highest/.test(wordTools) && /KeyD/.test(wordTools) && /KeyW/.test(wordTools), "dictionary chords precede Vim's DOM key handler");
   h.ok(/tr\.newDoc\.sliceString\(floor, ceiling\)/.test(editor) && !/classifyTypedBoundaries\(tr\.newDoc\.toString\(\)/.test(editor), "keystroke boundary detection reads a bounded slice, never the whole manuscript");
-  h.ok(/cm-context-issue-deferred/.test(styles) && /cm-context-issue-declined/.test(styles) && /flux-context-correction-line/.test(styles), "deferred, declined, and contextual-correction visual states have explicit zero-layout styling");
-  h.ok(/really-aggressive/.test(settings) && /Really aggressive/.test(settings), "Settings exposes all three judgment modes");
+  h.ok(/cm-spelling-issue/.test(styles) && /text-underline-offset/.test(styles), "spelling diagnostics use zero-layout underlines");
+  h.ok(!/Sentence judgment|correctionModelInstall|paperCorrectionProvider/.test(settings), "Settings contains only the fast local correction controls");
   h.ok(!/fetch\(|https?:\/\//.test(worker + service), "local correction code contains no cloud/network path");
 }
 

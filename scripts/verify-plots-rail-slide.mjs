@@ -279,6 +279,9 @@ h.section("F5 and clips");
   // Back in Slide: the clip Figure never listed is not "new" (each listing kind keeps its own past).
   await clickMode(page, "Slide");
   await page.mouse.click(760, 520);
+  h.eq(await view(), "plots", "Slide retains its Plots view across the mode switch");
+  await alt("KeyG");
+  h.eq(await view(), "slides", "Alt+G returns an open Plots view to the slide list");
   await alt("KeyG");
   await waitFor(page, () => !!document.querySelector('[data-plots-gallery] [data-tile$="/loose_clip.mp4"]'), null, { label: "loose clip listed", timeout: 8000 });
   h.ok(!(await page.evaluate(() => document.querySelector('[data-plots-gallery] [data-tile$="/loose_clip.mp4"]').hasAttribute("data-fresh"))), "switching from Figure to Slide marks no clip as new");

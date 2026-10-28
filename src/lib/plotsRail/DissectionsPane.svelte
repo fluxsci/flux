@@ -26,6 +26,7 @@
   import { dissectTarget } from "../dissect/state";
   import { createDissectionRoot, dissectionRootAbs } from "../dissect/loader";
   import { DISSECT_TABLE_RE } from "../dissect/rules";
+  import PlotNotes from "../dissect/PlotNotes.svelte";
   import { fileBridge } from "../project/types";
   import { project, activeFigureId, embeddedProjectRoot, projectDir } from "../store";
   import { pushToast } from "../toast";
@@ -39,6 +40,7 @@
     onCollapse,
     onMaximize,
     place = null,
+    onDirectories,
   }: {
     active?: boolean;
     hitBridge?: HitBridgeHolder | null;
@@ -50,9 +52,11 @@
     onMaximize?: () => void;
     /** The mode's placement route (Slide); the shared pipeline when null. */
     place?: PlaceAdapter | null;
+    onDirectories?: () => void;
   } = $props();
 
   const GROUP_CAP = 60;
+  let noteView = $state(false);
   const CAPPED_SHOW = 12;
 
   const root = $derived($embeddedProjectRoot || $projectDir || "");
@@ -90,6 +94,7 @@
   // until the next is complete — never a blank frame between two plots.
   let view = $state.raw<{ key: string; rev: number; sections: DissectionSection[] }>({ key: "", rev: -1, sections: [] });
   $effect(() => {
+    if (noteView) return;
     const rev = ds.rev;
     const st = untrack(() => ds);
     const files = st.sections.flatMap((s) => s.files);
@@ -321,8 +326,15 @@
     <button class="hb" title={collapsed ? "Show Dissections" : "Collapse Dissections"} onclick={() => onCollapse?.()} aria-label={collapsed ? "Show dissections" : "Collapse dissections"} aria-expanded={!collapsed}>{collapsed ? "▴" : "▾"}</button>
   </header>
   {#if !collapsed}
-    <div class="body" class:dim={loading && viewTotal > 0}>
-      {#if !target}
+    <nav class="pane-views" aria-label="Plot companion views">
+      <button class:chosen={!noteView} aria-pressed={!noteView} onclick={() => noteView = false}>Files</button>
+      <button class:chosen={noteView} aria-label="Plot text notes" aria-pressed={noteView} disabled={!wantKey} onclick={() => noteView = !noteView} data-plot-notes-toggle>✎ Notes</button>
+      <span class="grow"></span><button aria-label="Browse plot folders" title="Browse folders (Alt+/)" onclick={onDirectories} data-directory-toggle>▰ Folders <kbd>Alt+/</kbd></button>
+    </nav>
+    <div class="body" class:dim={!noteView && loading && viewTotal > 0}>
+      {#if noteView && wantKey}
+        {#key `${root}|${wantKey}`}<PlotNotes {root} plotKey={wantKey} onChanged={() => void model.refresh()} />{/key}
+      {:else if !target}
         <p class="state">Click a plot — on the canvas or above — to see its dissections.</p>
       {:else if target.kind === "external"}
         <p class="state">Library plots have no dissections. Dissections live in a project's <code>plots/_dissections</code>.</p>
@@ -416,6 +428,7 @@
   .hb svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; vertical-align: -2px; }
   .hb.on svg { fill: currentColor; }
   .body { display: flex; flex-direction: column; flex: 1; min-height: 0; transition: opacity 80ms linear; }
+  .pane-views { display:flex; align-items:center; gap:2px; min-height:25px; flex-shrink:0; padding:0 5px; border-bottom:1px solid var(--c-line); background:var(--c-bg-raised); } .pane-views button { padding:3px 5px; border:0; border-radius:var(--r-ui); background:none; color:var(--c-tx-muted); font:10.5px var(--font-ui); cursor:var(--cursor-cross-hover); } .pane-views button:hover { background:var(--c-surface-2); color:var(--c-tx-hi); } .pane-views .chosen { background:var(--c-accent-tint); color:var(--c-accent); } .pane-views button:disabled { opacity:.4; } .pane-views kbd { margin-left:4px; color:var(--c-tx-faint); font:9px var(--font-mono); }
   .body.dim { opacity: .6; }
   .state { margin: 0; padding: 12px; color: var(--c-tx-muted); font: 11.5px/1.45 var(--font-ui); }
   .state p { margin: 0 0 6px; }

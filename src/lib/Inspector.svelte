@@ -1,4 +1,5 @@
 <script lang="ts">
+  export let width: number | undefined = undefined;
   import "./editorCore"; // links the editor core into the store (./editorLink)
   import { openFigureMeta } from "./figure/metadataState";
   import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./interact/elementProperties";
@@ -543,7 +544,7 @@
   }
 </script>
 
-<aside class="inspector">
+<aside class="inspector" style:--insp-w={width == null ? undefined : `${width}px`}>
   <!-- SELECTED PLOT PART(S): the same fields the property menu shows, applied
        to every picked part (five series, or the x-axis of four plots). -->
   {#if partInfo}

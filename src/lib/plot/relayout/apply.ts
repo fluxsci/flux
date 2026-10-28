@@ -3,9 +3,11 @@ import { asBox, width, height } from "./model";
 import { solveRelayout,type RelayoutSolution } from "./solve";
 import type { LayoutFrame, LayoutEndpoint } from "../types.gen";
 import { mplNumber as n, parseMplPath, writeMplPath, type MplPath } from "./path";
-import { restoreOverrideTranslations, plotPartPrefix } from "../parse";
+import { restoreOverrideTranslations, plotPartPrefix, drawablesUnder } from "../parse";
 import {writeMathLabel} from "./mathLabel";
 import { arrowPaths } from "./arrows";
+import { compose, parseTransform } from '../svgMatrix';
+import { legendGeometry, type LegendGeometry } from './legend';
 interface Affine {sx:number;sy:number;tx:number;ty:number}
 const affine=(a:Box,b:Box):Affine=>{const sx=width(b)/width(a),sy=height(b)/height(a);return {sx,sy,tx:b.x0-a.x0*sx,ty:b.y0-a.y0*sy};};
 const mapped=(a:Affine,x:number,y:number):[number,number]=>[x*a.sx+a.tx,y*a.sy+a.ty];
@@ -20,6 +22,25 @@ function set(s:State,el:Element,key:string,value:string|null){
 function setPath(s:State,b:Binding,value:string){
   if(!b.pathWritten){s.pathChanges.push(b);b.pathWritten=true;}
   if(b.el.getAttribute('d')!==value)b.el.setAttribute('d',value);
+}
+function resizeLegendBackground(s:State,legend:Element,old:RelayoutModel['layout']['legends'][number],plan:LegendGeometry):void {
+  if(!(old.sizePt[0]>0&&old.sizePt[1]>0))return;
+  const sx=plan.width/old.sizePt[0],sy=plan.height/old.sizePt[1],fit={sx,sy,tx:old.bbox[0]*(1-sx),ty:old.bbox[1]*(1-sy)};
+  for(const frame of Array.from(legend.querySelectorAll('[data-role="background"]')))for(const node of drawablesUnder(frame)){
+    const pristine=s.pristine.get(node),original=(key:string)=>pristine&&key in pristine?pristine[key]:node.getAttribute(key);
+    if(!plan.entries.size){
+      // A wider size can stop wrapping without returning to native dimensions.
+      for(const key of ['d','x','y','width','height'])if(pristine&&key in pristine)set(s,node,key,pristine[key]);
+      continue;
+    }
+    const tag=node.tagName.toLowerCase();
+    if(tag==='path'){
+      const path=parseMplPath(original('d')??'');if(path)set(s,node,'d',writeMplPath(path,fit));
+    }else if(tag==='rect'){
+      const x=Number(original('x')??0),y=Number(original('y')??0),w=Number(original('width')??0),h=Number(original('height')??0);
+      for(const [key,value]of Object.entries({x:x*sx+fit.tx,y:y*sy+fit.ty,width:w*sx,height:h*sy}))set(s,node,key,n(value));
+    }
+  }
 }
 export function restoreRelayout(root:Element):void {
   restoreOverrideTranslations(root);
@@ -137,7 +158,16 @@ export function applyRelayout(root:Element,model:RelayoutModel,sol:RelayoutSolut
   const translate=(b:Binding,dx:number,dy:number)=>set(s,b.el,"transform",`translate(${n(dx)} ${n(dy)})${b.transform?" "+b.transform:""}`);
   for(const b of s.bindings){
     const f=b.frame;
-    if(b.path&&f.f==='data'&&!options.skipData){const a=f.axes?dataFits.get(f.axes):fig;if(a)setPath(s,b,writeMplPath(b.path,a));continue;}
+    if(b.path&&f.f==='data'&&!options.skipData){
+      const a=f.axes?dataFits.get(f.axes):fig;
+      if(a){
+        // A normalized collection path retains the <use>'s placement transform.
+        // Bake it BEFORE the data affine, retaining physical stroke widths.
+        if(b.transform){setPath(s,b,writeMplPath(b.path,compose([a.sx,0,0,a.sy,a.tx,a.ty],parseTransform(b.transform))));set(s,b.el,'transform','');}
+        else setPath(s,b,writeMplPath(b.path,a));
+      }
+      continue;
+    }
     if(options.skipData&&['data','glyph','blend','image'].includes(f.f))continue;const boxFit=f.axes?fits.get(f.axes):fig,dataFit=f.axes?dataFits.get(f.axes):fig;
     let a=boxFit;if(!a||!dataFit)continue;
     if(['data','glyph','image'].includes(f.f))a=dataFit;
@@ -148,7 +178,25 @@ export function applyRelayout(root:Element,model:RelayoutModel,sol:RelayoutSolut
       for(const [key,value]of Object.entries({x:p[0],y:p[1],width:original('width')*a.sx,height:original('height')*a.sy}))set(s,b.el,key,n(value));continue;
     }
     if(f.f==="legend"){
-      const old=model.layout.legends.find(l=>l.id===b.id),box=sol.legend[b.id];if(old&&box)translate(b,box.x0-old.bbox[0],box.y0-old.bbox[1]);continue;
+      const old=model.layout.legends.find(l=>l.id===b.id),box=sol.legend[b.id];
+      if(old&&box){
+        const figure={x0:0,y0:0,x1:sol.wPt,y1:sol.hPt},owner=old.owner==='figure'?figure:sol.axesBox[old.owner];
+        if(owner){
+          const plan=legendGeometry(old,model,owner,figure);
+          resizeLegendBackground(s,b.el,old,plan);
+          for(const el of Array.from(b.el.querySelectorAll('[id]'))){
+            const id=el.id.startsWith(s.prefix)?el.id.slice(s.prefix.length):el.id;
+            const match=id.startsWith(b.id+'.entry.')?/^(.*\.entry\.\d+)(?:\.|$)/.exec(id):null;if(!match)continue;
+            const parent=el.parentElement?.id??'';if(parent===(s.prefix+match[1])||parent.startsWith(s.prefix+match[1]+'.'))continue;
+            const pristine=s.pristine.get(el),original=pristine&&'transform'in pristine?pristine.transform:el.getAttribute('transform'),offset=plan.entries.get(match[1]);
+            if(offset)set(s,el,'transform',`translate(${n(offset.dx)} ${n(offset.dy)})${original?' '+original:''}`);
+            else if(pristine&&'transform'in pristine)set(s,el,'transform',original);
+          }
+          if(plan.scale===1)translate(b,box.x0-old.bbox[0],box.y0-old.bbox[1]);
+          else set(s,b.el,'transform',`translate(${n(box.x0)} ${n(box.y0)}) scale(${plan.scale}) translate(${n(-old.bbox[0])} ${n(-old.bbox[1])})${b.transform?' '+b.transform:''}`);
+        }
+      }
+      continue;
     }
     const text=model.layout.texts[b.id];
     if(text){

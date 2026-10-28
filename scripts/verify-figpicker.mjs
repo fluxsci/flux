@@ -31,7 +31,7 @@ try {
       data[`a${i}`] = `data:image/svg+xml;base64,${btoa(strip(i))}`;
       refs.push({ id, label: `fig-${id}`, name: `Figure ${i}`, family: "figure", number: i,
         display: `Fig. ${i}`, captionLabel: `Figure ${i} | `, order: i,
-        canvas: i <= 20 ? "c1" : "c2", caption: `strip caption ${i}`, panels: [] });
+        canvas: i <= 20 ? "c1" : "c2", caption: `strip caption ${i}`, panels: i === 1 ? ["a", "b"] : [] });
       figs[id] = { id, name: `F${i}`, canvasId: i <= 20 ? "c1" : "c2", x: 0, y: 0, width: 1000, height: 240,
         elements: [{ type: "plot", id: `pl${i}`, assetId: `a${i}`, x: 0, y: 0, width: 1000, height: 240, rotation: 0, overrides: {} }] };
     }
@@ -149,6 +149,42 @@ try {
   h.ok(await page.evaluate(() =>
     (window.__flux?.editors ?? [])[0]?.state.doc.toString().includes("{#fig-fig1}")),
     "Enter inserts the selected figure's embed");
+
+  h.section("margin figure and panel reference insertion");
+  await page.evaluate(() => {
+    const view = window.__fluxView;
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "A result " }, selection: { anchor: 9 } });
+    window.__fluxMargin.summon("figure");
+  });
+  await waitFor(page, () => !!document.querySelector('[data-pane-id="figure"] .acts'), null, { label: "figure margin" });
+  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .insert-mode button')].find(button => button.textContent === "Reference")?.click());
+  await page.click('[data-pane-id="figure"] button[aria-label="Panel b"]');
+  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].find(button => button.textContent === "Insert reference")?.click());
+  h.eq(await page.evaluate(() => window.__fluxView.state.doc.toString()), "A result @fig-fig1-b", "margin inserts a semantic panel reference at the current caret");
+  h.ok(await page.evaluate(() => document.activeElement === window.__fluxView.contentDOM), "reference insertion returns focus to the editor");
+  await page.evaluate(() => {
+    const view = window.__fluxView;
+    view.dispatch({ selection: { anchor: 2, head: 8 } });
+    [...document.querySelectorAll('[data-pane-id="figure"] .panel-choices button')].find(button => button.textContent === "Whole figure")?.click();
+    [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].find(button => button.textContent === "Insert reference")?.click();
+  });
+  h.eq(await page.evaluate(() => window.__fluxView.state.doc.toString()), "A @fig-fig1 @fig-fig1-b", "whole-figure reference replaces the selected text");
+  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .insert-mode button')].find(button => button.textContent === "Figure")?.click());
+  await page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].find(button => button.textContent === "Insert figure")?.click());
+  h.ok(await page.evaluate(() => window.__fluxView.state.doc.toString().includes("{#fig-fig1}")), "the same margin picker still inserts an inline figure render");
+  const stableBinding = await page.evaluate(async () => {
+    const { figureImage } = await import('/src/shell/modes/paper/scholar/figures.ts');
+    const image = document.createElement('img');
+    const action = figureImage(image, 'fig1');
+    const observer = new MutationObserver(() => {});
+    observer.observe(image, { attributes: true });
+    for (let index = 0; index < 100; index++) action.update('fig1');
+    const mutations = observer.takeRecords().length;
+    action.destroy(); observer.disconnect();
+    return mutations;
+  });
+  h.eq(stableBinding, 0, "unchanged preview bindings perform zero image/observer reset mutations across 100 updates");
+  await shot(page, 'paper-margin-figure-reference');
 
   const errs = realErrors(page);
   h.ok(errs.length === 0, `console clean (${errs.length ? errs[0].slice(0, 120) : "no errors"})`);

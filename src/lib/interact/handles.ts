@@ -201,6 +201,28 @@ export function clipZones(zones: HitZone[], clip: Rect): HitZone[] {
   return out;
 }
 
+/** Keep handles outside the artwork frame, while reserving figure title bars
+ * for moving the frame. Rectangle subtraction preserves all remaining reach. */
+export function excludeZones(zones: HitZone[], avoid: readonly Rect[]): HitZone[] {
+  for (const a of avoid) {
+    const next: HitZone[] = [];
+    for (const z of zones) {
+      const r = z.rect, x0 = Math.max(r.x, a.x), y0 = Math.max(r.y, a.y);
+      const x1 = Math.min(r.x+r.w, a.x+a.w), y1 = Math.min(r.y+r.h, a.y+a.h);
+      if (x1 <= x0 || y1 <= y0) { next.push(z); continue; }
+      const pieces = [
+        { x: r.x, y: r.y, w: r.w, h: y0-r.y },
+        { x: r.x, y: y1, w: r.w, h: r.y+r.h-y1 },
+        { x: r.x, y: y0, w: x0-r.x, h: y1-y0 },
+        { x: x1, y: y0, w: r.x+r.w-x1, h: y1-y0 },
+      ];
+      for (const rect of pieces) if (rect.w > 0 && rect.h > 0) next.push({ ...z, rect });
+    }
+    zones = next;
+  }
+  return zones;
+}
+
 /** The clip a figure gives its selection zones (screen px): the frame plus the
  *  bands' outer reach on three sides, but only `TITLEBAR_GAP` above the top —
  *  the figure title bar sits just above the frame and must stay clickable. */

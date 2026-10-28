@@ -1,0 +1,136 @@
+// Curated seed for the personal dictionary. Versioned so user removals remain
+// removed; profile migrations add a new seed only once, never on every open.
+export const SCIENTIFIC_VOCABULARY_VERSION = 1;
+export const SCIENTIFIC_VOCABULARY: readonly string[] = Object.freeze([...new Set(`
+neuroscience neuroscientific neurobiology neurobiological neurophysiology neurophysiological
+neuroanatomy neuroanatomical neuropathology neuropathological neurodevelopment neurodevelopmental
+neuroplasticity neurodegeneration neurodegenerative neurogenesis neurogenic neuroinflammation
+neuroimaging neurovascular neuromodulation neuromodulatory neuromodulator neuromodulators
+neuron neurons neuronal interneuron interneurons interneuronal motoneuron motoneurons
+pyramidal somatodendritic soma somata somatic dendrite dendrites dendritic dendritically
+dendritogenesis dendritogenetic axon axons axonal axonally axodendritic axosomatic axoaxonic
+synapse synapses synaptic synaptically presynapse presynapses postsynapse postsynapses
+presynaptic postsynaptic perisynaptic extrasynaptic synaptogenesis synaptogenic synaptosome
+synaptosomes synaptosomal synaptophysin synapsin synaptotagmin synaptobrevin synaptopodin
+bouton boutons varicosity varicosities filopodium filopodia filopodial neuropil neuropils
+spine spines spinogenesis spinule spinules connectome connectomes connectomics connectomic
+microcircuit microcircuits microcircuitry circuitry monosynaptic disynaptic polysynaptic
+intrasynaptic intersynaptic intrasomatic intracellular extracellular intercellular subcellular
+excitatory inhibitory excitation inhibition excitability hyperexcitability hypoexcitability
+excitation-inhibition glutamate glutamatergic glutamatergically GABA GABAergic GABAergically
+glycine glycinergic acetylcholine cholinergic cholinergically dopamine dopaminergic
+dopaminergically serotonin serotonergic serotonergically noradrenaline noradrenergic
+norepinephrine adrenergic histamine histaminergic adenosine adenosinergic orexin orexinergic
+hypocretin hypocretinergic melatonin melatonergic endocannabinoid endocannabinoids
+endocannabinoidergic anandamide neuropeptide neuropeptides peptidergic somatostatin
+somatostatinergic parvalbumin calbindin calretinin vasoactive neuropeptide-Y neurotensin
+substance-P enkephalin dynorphin endorphin opioidergic nicotinic muscarinic ionotropic
+metabotropic NMDA NMDAR NMDARs AMPA AMPAR AMPARs kainate GABA-A GABA-B mGluR mGluRs
+receptor receptors autoreceptor heteroreceptor mechanoreceptor photoreceptor chemoreceptor
+neurotransmitter neurotransmitters neurotransmission neuromodulated neuromodulating
+vesicle vesicles vesicular exocytosis endocytosis clathrin endosome endosomes endosomal
+lysosome lysosomes lysosomal autophagosome autophagosomes autophagy autophagic proteasome
+proteasomes proteasomal proteostasis ubiquitin ubiquitination ubiquitinated deubiquitination
+actin tubulin microtubule microtubules microtubular microfilament cytoskeleton cytoskeletal
+scaffold scaffolding dendrin drebrin cofilin profilin PSD95 PSD-95 Homer Shank gephyrin
+SAP97 neuroligin neurexin cadherin integrin laminin extracellular-matrix
+plasticity potentiation depotentiation depression facilitation metaplasticity homeostatic
+homeostasis allostasis renormalize renormalization upregulation downregulation upregulated
+downregulated desensitization sensitization habituation dishabituation Hebbian anti-Hebbian
+heterosynaptic homosynaptic spike-timing-dependent STDP LTP LTD EPSP EPSPs IPSP IPSPs
+EPSC EPSCs IPSC IPSCs mEPSC mEPSCs mIPSC mIPSCs sEPSC sEPSCs sIPSC sIPSCs fEPSP
+membrane membranes transmembrane depolarization repolarization hyperpolarization
+depolarize depolarized depolarizing repolarized hyperpolarized hyperpolarizing
+conductance conductances rectification rectifying inwardly outwardly electrophysiology
+electrophysiological electrophysiologically electrogenic electrotonic electrotonically
+patch-clamp patch-clamping whole-cell cell-attached juxtacellular intracellularly
+extracellularly optogenetics optogenetic optogenetically chemogenetics chemogenetic
+chemogenetically DREADD DREADDs channelrhodopsin halorhodopsin archaerhodopsin opsin opsins
+photostimulation photoinhibition photomanipulation photocurrent photocurrents photometry
+fiber-photometry photobleaching photobleached phototoxicity photoactivation photoconversion
+fluorescence fluorescent fluorescein autofluorescence autofluorescent fluorophore
+fluorophores fluorophore-conjugated biosensor biosensors biosensing bioluminescence
+bioluminescent calcium calmodulin calcineurin CaMKII CaMKIV cAMP cGMP PKA PKC ERK MAPK
+CREB BDNF NGF TrkB mTOR GCaMP GCaMP6 GCaMP6f GCaMP6s GCaMP7 GCaMP8 jGCaMP8f jGCaMP8s
+jRGECO1a RGECO iGluSnFR iGluSnFR4f iGluSnFR3 iGABASnFR dLight GRAB-ACh GRAB-DA
+SLAP2 two-photon multiphoton confocal epifluorescence light-sheet stereotaxic
+stereotactic stereology stereological histology histological histochemistry
+immunohistochemistry immunohistochemical immunocytochemistry immunofluorescence
+immunofluorescent immunoreactivity immunoreactive antibody antibodies antigen antigens
+immunostaining immunostained counterstain counterstaining Nissl NeuN GFAP Iba1 MAP2
+oligodendrocyte oligodendrocytes oligodendroglial astrocyte astrocytes astrocytic astroglia
+astroglial microglia microglial microgliosis gliosis gliogenesis glial glia myelin
+myelination myelinated unmyelinated demyelination demyelinated remyelination Schwann
+ependymal ependyma pericyte pericytes endothelium endothelial perivascular blood-brain
+meninges meningeal pia pial dura dural arachnoid cerebrospinal CSF choroid choroidal
+cortex cortices cortical cortically neocortex neocortical allocortex isocortex
+hippocampus hippocampi hippocampal hippocampally dentate subiculum subicular CA1 CA2 CA3
+entorhinal perirhinal retrosplenial cingulate prefrontal orbitofrontal infralimbic
+prelimbic somatosensory somatomotor sensorimotor visual auditory olfactory piriform
+thalamus thalamic hypothalamus hypothalamic epithalamus epithalamic subthalamic
+striatum striatal corticostriatal thalamocortical corticothalamic corticocortical
+corticospinal callosal commissural corticofugal cortico-hippocampal basal-ganglia
+caudate putamen pallidum pallidal amygdala amygdalar amygdaloid basolateral central-amygdala
+habenula habenular accumbens substantia nigra nigral nigrostriatal mesolimbic mesocortical
+tegmentum tegmental raphe locus-coeruleus parabrachial preoptic suprachiasmatic
+paraventricular supraoptic ventrolateral dorsolateral ventromedial dorsomedial
+rostral caudal rostrocaudal mediolateral dorsoventral ipsilateral contralateral bilateral
+cerebellum cerebellar cerebellar-cortex Purkinje granule-cell brainstem midbrain hindbrain
+forebrain prosencephalon mesencephalon rhombencephalon telencephalon diencephalon
+medulla medullary pons pontine reticular periaqueductal colliculus colliculi collicular
+tectum tectal substantia-innominata septohippocampal septum septal fimbria fornix
+lamina laminae laminar supragranular infragranular layer-specific suprathreshold
+subthreshold thresholding supralinear sublinear nonlinear nonlinearity nonlinearities
+sleep wake wakefulness NREM REM non-REM slow-wave slow-waves SWA EEG ECoG EMG EOG LFP
+polysomnography polysomnographic electroencephalography electroencephalographic
+electrocorticography electromyography electromyographic electrooculography
+pupillometry pupillometric pupilometry arousal microarousal microarousals sleep-wake
+circadian ultradian circadianly sleep-dependent wake-dependent sleep-deprived
+sleep-deprivation sleep-pressure hypnogram hypnograms vigilance behavioral behaviour
+oscillation oscillations oscillatory synchrony synchronization synchronized synchronizing
+desynchronization desynchronized desynchronizing autocorrelation autocorrelations
+cross-correlation cross-correlations correlogram correlograms spectrogram spectrograms
+spatiotemporal spatiotemporally retinotopic tonotopic somatotopic topographic topography
+receptive-field tuning-curve population-code population-coding place-cell grid-cell
+tetrode tetrodes neuropixel Neuropixels multiunit single-unit extracellular-unit
+spike-train spike-trains spike-sorting calcium-imaging deconvolution deconvolved
+coactivation coactivated coexpression coexpressed coexpressing colocalization colocalized
+cotransmission cotransmitter coagonist interevent interspike intertrial intratrial
+peristimulus peri-event perievent PSTH peri-stimulus
+biology biological biologically molecular biochemistry biochemical biophysics
+biophysical bioinformatics biostatistics biostatistical biomarker biomarkers
+transcriptome transcriptomes transcriptomic transcriptomics proteome proteomes proteomic
+proteomics metabolome metabolomics epigenome epigenomic epigenomics genome genomic
+genomics genotype genotypes genotypic phenotype phenotypes phenotypic phenotyping
+transgene transgenes transgenic transfection transfected transduction transduced
+lentivirus lentiviral adenovirus adenoviral adeno-associated AAV AAVs retrovirus
+retroviral plasmid plasmids lentivector promoter promoters enhancer enhancers
+recombinase recombination Cre CreER CreERT2 loxP floxed knockout knockin knockdown
+CRISPR Cas9 sgRNA shRNA siRNA miRNA mRNA rRNA tRNA cDNA qPCR RT-PCR RNA-seq scRNA-seq
+in-situ single-cell single-nucleus hybridization hybridized multiplexing multiplexed
+polymerase phosphatase kinase kinases phosphorylation phosphorylated dephosphorylation
+ATP ADP AMP NADH NADPH GTP GDP ATPase GTPase phospholipid phospholipids lipid lipids
+lipidomic lipidomics mitochondrion mitochondria mitochondrial mitochondrially
+endoplasmic reticulum Golgi ribosome ribosomes ribosomal nucleolus nucleoli nucleolar
+nucleus nuclei nuclear cytoplasm cytoplasmic cytosol cytosolic organelle organelles
+apoptosis apoptotic necrosis necrotic ferroptosis mitosis mitotic meiosis meiotic
+proliferation proliferative differentiation differentiated progenitor progenitors
+stem-cell pluripotent multipotent totipotent pluripotency mesenchymal hematopoietic
+hepatocyte hepatocytes cardiomyocyte cardiomyocytes fibroblast fibroblasts
+keratinocyte keratinocytes osteoblast osteoblasts osteoclast osteoclasts chondrocyte
+chondrocytes macrophage macrophages monocyte monocytes lymphocyte lymphocytes
+leukocyte leukocytes neutrophil neutrophils eosinophil eosinophils basophil basophils
+erythrocyte erythrocytes platelet platelets cytokine cytokines chemokine chemokines
+interleukin interleukins interferon interferons inflammasome inflammasomes phagocytosis
+phagocytic phagosome phagosomes phagolysosome microenvironment extracellular-vesicle
+exosome exosomes paracrine autocrine endocrine exocrine homeobox morphogen morphogens
+morphogenesis morphogenetic embryogenesis embryonic postnatal prenatal perinatal
+postmitotic postmortem in-vivo ex-vivo in-vitro wild-type heterozygous homozygous
+heterozygosity homozygosity littermate littermates immunoprecipitation western-blot
+centrifugation ultracentrifugation supernatant lysate lysates homogenate homogenates
+aliquot aliquots aliquoted cryosection cryosections cryostat cryopreservation
+fixative paraformaldehyde formalin perfusion perfused perfusing vibratome microtome
+hematoxylin eosin DAPI Hoechst biotin streptavidin avidin dextran agarose acrylamide
+polyacrylamide electrophoresis electrophoretic chromatography chromatographic
+mass-spectrometry spectrometry spectrophotometry absorbance absorbances fluorimetry
+`.trim().split(/\s+/))]);

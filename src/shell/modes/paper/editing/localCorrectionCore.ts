@@ -503,7 +503,7 @@ export function planLocalCorrections(
           // Missing spaces next to very short function words ("objectis")
           // are mechanical. Open/closed scientific compounds ("timepoint",
           // "brainstem", "wildtype") and nonsense fragments such as
-          // "bi logical" are editorial/model questions, not local fixes.
+          // "bi logical" require an explicit user choice.
           (lint.partsAreKnown !== true && safeTypoBoundary(lint.problem, candidate));
         const locallyKnown = projectWords.has(candidate.toLocaleLowerCase());
         const mechanicalTypo = /\s/.test(candidate)
@@ -527,7 +527,7 @@ export function planLocalCorrections(
     if (!replacement || replacement === lint.problem) continue;
     if (looksTechnical(replacement) || blocked.has(correctionPairKey(lint.problem, replacement))) continue;
     // This first local tier never changes punctuation, case alone, or more than
-    // two edit operations. Phrase-level intent belongs to the future model tier.
+    // two edit operations. Phrase-level edits require an explicit user choice.
     if (lettersOnly(lint.problem) === lettersOnly(replacement)) {
       // spacing/transposition is allowed
     } else if (damerauLevenshtein(lint.problem, replacement) > 2) {

@@ -148,6 +148,7 @@
       {#if poor}
         <div class="warn" data-peek-warning>⚠ Some of this plot's ink reads poorly on {destName}'s background ({destBg}).</div>
       {/if}
+      {#if c.kind === "plot"}<div class="muted">Enter · place　Space · preview　Drag · place on a figure</div>{/if}
     </div>
   </div>
 {/if}

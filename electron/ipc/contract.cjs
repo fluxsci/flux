@@ -138,22 +138,9 @@ const CHANNELS = [
   { channel: "fulltext:search", kind: "invoke", scope: "read" },
   { channel: "fulltext:cancel", kind: "invoke", scope: "read" },
   { channel: "fulltext:progress", kind: "push", scope: "read" },
-  // --- Paper contextual corrections -------------------------------------------
-  { channel: "correction:status", kind: "invoke", scope: "read" },
-  { channel: "correction:warm", kind: "invoke", scope: "spawn" },
-  { channel: "correction:decide", kind: "invoke", scope: "read" },
-  { channel: "correction:cancel", kind: "invoke", scope: "read" },
-  { channel: "correction:cloudKeyStatus", kind: "invoke", scope: "read" },
-  { channel: "correction:cloudKeySet", kind: "invoke", scope: "write" },
+  // --- Personal/project language profiles ------------------------------------
   { channel: "correction:profileGet", kind: "invoke", scope: "read" },
   { channel: "correction:profileSet", kind: "invoke", scope: "write" },
-  { channel: "correction:modelStatus", kind: "invoke", scope: "read" },
-  { channel: "correction:modelInstall", kind: "invoke", scope: "write" },
-  { channel: "correction:modelCancel", kind: "invoke", scope: "write" },
-  { channel: "correction:modelRemove", kind: "invoke", scope: "write" },
-  { channel: "correction:modelUnload", kind: "invoke", scope: "spawn" },
-  { channel: "correction:modelWarm", kind: "invoke", scope: "spawn" },
-  { channel: "correction:modelProgress", kind: "push", scope: "read" },
   // --- FluxChat runner -------------------------------------------------------
   { channel: "runner:capabilities", kind: "invoke", scope: "read" },
   { channel: "runner:start", kind: "invoke", scope: "spawn" },
@@ -205,6 +192,7 @@ const CHANNELS = [
   { channel: "thumbs:get", kind: "invoke", scope: "read" },
   { channel: "thumbs:cancel", kind: "invoke", scope: "read" },
   { channel: "dissect:counts", kind: "invoke", scope: "read" },
+  { channel: "dissect:saveNote", kind: "invoke", scope: "write" },
   // --- text styles (machine-global library) --------------------------------------------
   { channel: "textstyles:get", kind: "invoke", scope: "read" },
   { channel: "textstyles:set", kind: "invoke", scope: "write" },

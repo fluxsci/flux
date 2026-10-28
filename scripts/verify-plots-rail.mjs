@@ -109,7 +109,9 @@ h.section("switching views");
   await alt("KeyG");
   await page.mouse.click(900, 600); // keyboard to the canvas, Plots still showing
   await alt("KeyG");
-  h.ok((await view()) === "plots" && (await activeIsSearch()), "Alt+G with Plots showing but the keyboard elsewhere focuses the search (no switch)");
+  h.eq(await view(), "layers", "Alt+G with Plots showing returns to Layers even when the keyboard moved to the canvas");
+  await alt("KeyG");
+  h.ok((await view()) === "plots" && (await activeIsSearch()), "Alt+G returns to Plots and focuses search");
   await ctrl("KeyB");
   h.eq(await view(), "hidden", "Ctrl+B from the rail's search hides the rail");
   await page.mouse.click(900, 600);
@@ -333,7 +335,9 @@ h.section("review regressions: one-shot Alt+G, typing, the app's own writes");
   await page.click('[data-rail-tab="plots"]');
   await sleep(250);
   h.ok(!!(await page.$("[data-gallery-collapsed]")) && !(await activeIsSearch()), "re-opening Plots by its tab does not replay an old Alt+G");
-  await alt("KeyG"); // a FRESH Alt+G still lands in a visible search box
+  await alt("KeyG");
+  h.eq(await view(), "layers", "Alt+G leaves the already-open Plots view even when its gallery is collapsed");
+  await alt("KeyG"); // returning to Plots lands in a visible search box
   await waitFor(page, () => document.activeElement?.hasAttribute("data-plots-search"), null, { label: "fresh Alt+G" });
   h.ok(!(await page.$("[data-gallery-collapsed]")), "a fresh Alt+G un-collapses the gallery to reach its search");
   // Typing in a field outside the rail: Alt+G is not the rail's (Option+G types © on macOS).

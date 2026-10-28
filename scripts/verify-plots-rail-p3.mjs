@@ -26,6 +26,7 @@ const FIX = path.join(import.meta.dirname, "fixtures", "plots-rail");
 const fixture = (n) => readFileSync(path.join(FIX, n), "utf8");
 
 const { browser, page } = await launch({ width: 1500, height: 960 });
+await page.evaluateOnNewDocument(() => performance.setResourceTimingBufferSize(10000));
 const errs = realErrors(page);
 await gotoApp(page, { url: `${APP_URL}?fixture=demo`, settle: 2500 });
 await clickMode(page, "Figure");
@@ -197,12 +198,12 @@ h.section("Peek");
   const pf = await page.evaluate(() => document.querySelector("[data-plots-peek] .facts")?.textContent.replace(/\s+/g, " ").trim() ?? "");
   h.ok(/1\.00 × 0\.67 in · 1c/.test(pf) && /modified/.test(pf), `a dissection panel peeks with its printed size and age (${pf})`);
   // Settings → Figure → Physical sizes: millimetres.
-  await page.evaluate(async () => { const m = await import("/src/lib/settings.ts"); m.settings.update((v) => ({ ...v, physicalUnit: "mm" })); });
+  await page.evaluate(() => window.__flux.settings.update((v) => ({ ...v, physicalUnit: "mm" })));
   await page.mouse.move(800, 500);
   await page.mouse.move(panel.x, panel.y - 30); await page.mouse.move(panel.x, panel.y);
   await waitFor(page, () => /25\.4 × 16\.9 mm · 1c/.test(document.querySelector("[data-plots-peek] .facts")?.textContent ?? ""), null, { label: "mm peek" });
   h.ok(true, "with millimetres chosen in Settings, Peek gives millimetres");
-  await page.evaluate(async () => { const m = await import("/src/lib/settings.ts"); m.settings.update((v) => ({ ...v, physicalUnit: "in" })); });
+  await page.evaluate(() => window.__flux.settings.update((v) => ({ ...v, physicalUnit: "in" })));
   await page.mouse.move(800, 500);
 }
 
@@ -351,7 +352,10 @@ h.section("pre-warm");
   await write({ [`${P}/deep/er/a__kills_worker__.svg`]: svg("#af3029"), ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`${P}/deep/er/z_after_${i}.svg`, svg("#5e409d")])) });
   await page.evaluate(() => { window.__fluxPrewarmed = []; });
   await emit(`${P}/deep/er/a__kills_worker__.svg`);
-  await waitFor(page, async () => (await import("/src/lib/plotsRail/thumbClient.ts")).prewarmState().disabled, null, { label: "pre-warm stopped", timeout: 15000 });
+  await waitFor(page, async () => {
+    const url = performance.getEntriesByType("resource").find(entry => entry.name.includes("/src/lib/plotsRail/thumbClient.ts")).name;
+    return (await import(url)).prewarmState().disabled;
+  }, null, { label: "pre-warm stopped", timeout: 15000 });
   await sleep(1500);
   h.ok(!(await page.evaluate(() => (window.__fluxPrewarmed ?? []).some((p) => /z_after_/.test(p)))), "a worker-killing file stops pre-warm for the session (nothing after it is warmed)");
 }

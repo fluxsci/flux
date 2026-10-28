@@ -93,7 +93,12 @@
     event.stopPropagation();
     if (event.key === "Escape") { event.preventDefault(); detailIndex !== null ? back() : onClose(); return; }
     if (event.key === "Tab" && host) {
-      const candidates = [...host.querySelectorAll<HTMLElement>('button:not(:disabled), input, select, video[controls], [tabindex="0"]')].filter(node => node.getClientRects().length);
+      const candidates = [...host.querySelectorAll<HTMLElement>('button, input:not([type="hidden"]), select, textarea, video[controls], a[href], [contenteditable]:not([contenteditable="false"]), [tabindex]')].filter(node => {
+        if (node.matches(":disabled") || node.closest("[hidden], [inert], [aria-hidden='true']") || !node.getClientRects().length) return false;
+        if (node.hasAttribute("tabindex") && node.tabIndex < 0) return false;
+        const visibility = node.ownerDocument.defaultView?.getComputedStyle(node).visibility;
+        return visibility !== "hidden" && visibility !== "collapse";
+      });
       if (!candidates.length) { event.preventDefault(); host.focus(); return; }
       const first = candidates[0], last = candidates[candidates.length - 1], active = host.ownerDocument.activeElement;
       if (event.shiftKey && (active === first || active === host)) { event.preventDefault(); last.focus(); }
@@ -176,7 +181,7 @@
       {:else if !listing.total}<div class="empty"><strong>No dissections yet</strong><p>Companion images and tables for this plot appear here.</p><code>plots/_dissections/{key}/</code></div>
       {:else if detailFile}
         <button class="back" use:nativeClick={back}>← Back to dissections</button>
-        <div class="dissection-detail"><DissectDetail file={detailFile} pos={detailIndex ?? 0} count={files.length} groupName={group?.name || ""} onClose={back} keyboardTarget={host} bind:this={detail}/></div>
+        <div class="dissection-detail"><DissectDetail file={detailFile} pos={detailIndex ?? 0} count={files.length} groupName={group?.name || ""} onClose={back} keyboardTarget={host} noteOwner={{ root, key, group: group?.name || "" }} bind:this={detail}/></div>
       {:else}<DissectGrid {files} cols={4} selectedIdx={selectedIndex} onSelect={(i) => selectedIndex = i} onOpen={openDetail}/>{/if}
     </main>
   {/if}

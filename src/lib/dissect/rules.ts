@@ -7,6 +7,8 @@ export {
   DISSECT_REL,
   DISSECT_IMAGE_RE,
   DISSECT_TABLE_RE,
+  DISSECT_NOTE_MAX_BYTES,
+  dissectionNoteRel,
   isDissectDirName,
   isDissectionProjectRel,
   isDissectionPlotsRel,

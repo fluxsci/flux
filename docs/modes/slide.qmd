@@ -29,7 +29,7 @@ inner edge (the filmstrip too; **Ctrl+B** hides it when no text is selected).
 The left rail has two views: **Slides** (the deck list and filmstrip) and **Plots** — the same
 plot gallery and live dissections Figure has ([Figure: the Plots rail](figure.qmd#the-plots-rail)).
 **Alt+G** shows Plots with the cursor in its search box (and opens a hidden rail); **Alt+G**
-again from inside it returns to the filmstrip. The two views keep their own widths.
+again returns to the filmstrip. The two views keep their own widths.
 
 - **Double-click** or **Enter** places a plot on the active slide (**→ Title** at the top names
   it; click it to switch slides). **Drag** a plot onto the stage to place it where you let go,
@@ -179,7 +179,7 @@ CLI and MCP twin:
 flux inherit-track talk slide1 --from rect2 --to e3,e4,e5,e6 [--include-start]
 ```
 
-The **X-ray** (**Alt+R**) animates too: select one plot — or several — press **Alt+R**, pick
+The **X-ray** (**R**) animates too: select one plot — or several — press **R**, pick
 the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
 a multi-plot X-ray lists the parts every plot shares), then press **M** and choose
 **Appear**, **Emphasize**, **Disappear** or **Change**. Appearance actions give each picked part
@@ -530,13 +530,13 @@ picking: every click on the canvas is a pick.
   without creating a transform and puts the source selection back. Changing slides or steps also
   cancels.
 - **Add mode** lets the source become something that does not exist yet. Press a drawing tool
-  key (**R** rect, **O** ellipse, **L** line, **P** pen, **T** text), **Ctrl+P** for a preset,
+  key (**Alt+R** rect, **O** ellipse, **L** line, **P** pen, **T** text), **Ctrl+P** for a preset,
   or place a plot from the [Plots rail](#the-plots-rail) (**Alt+G**; or **Add ▾ → Plot…**), or
   choose from **Add ▾** on the bar. The outline gains an inner
   dashed line and the editor works as usual: everything you draw or insert joins the pick.
   **Enter** or **Done** returns to picking with those objects picked; **Escape** also returns,
   and a second **Escape** cancels.
-- **X-ray**: hover a plot and press **Alt+R**. Rows you select join the pick and rows you clear
+- **X-ray**: hover a plot and press **R**. Rows you select join the pick and rows you clear
   leave it, live on the canvas; points picked on the canvas stay picked. Axis rows include their
   spine, ticks and labels; expand them to choose only the spine. **Space** (or **B**) in the X-ray
   confirms the whole pick, and closing the X-ray keeps it.

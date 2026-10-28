@@ -13,8 +13,8 @@ survives.
 
 # The workspace
 
-- **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
-  **R** rectangle, **O** ellipse, **L** line, **Shift+L** arrow, **P** pen.
+- **Tools** use **V** select, **K** scale, **H** hand (pan), **T** text,
+  **Alt+R** rectangle, **O** ellipse, **L** line, **Shift+L** arrow, **P** pen.
 - **Connectors and labels stick.** A line or arrow drawn from one shape to another sticks to
   both (a dashed outline shows the shape an end will stick to), and dragging one of its ends onto a
   shape sticks that end; a filled end handle marks a stuck end. On a shape the end meets its
@@ -57,6 +57,16 @@ survives.
 
 # Finding and naming figures
 
+Press **Ctrl+K**, choose **New figure**, then click the canvas where its upper-left corner
+should go. Flux uses that point when it is free, or the closest position that leaves a small
+gap between frames. **Escape** cancels placement. Hold **Alt** while dragging a figure's
+title to duplicate the whole figure, including its panels, captions and guides. The copy
+inherits its family and receives the next number and a new permanent reference. A click
+without a drag creates no copy; **Escape** cancels a duplicate drag and **Ctrl+Z** undoes it.
+
+Selection handles remain usable when an element overhangs its frame. You can also begin a
+selection rectangle in the empty canvas outside the active frame and drag across its elements.
+
 Open **All…** in the Figure sidebar, or **Reference, sources & used in…** in the Inspector,
 for the project-wide figure catalog. Search by title, designation, reference key, or canvas.
 Each result has a preview, source status, and links to the saved documents that use it.
@@ -83,6 +93,10 @@ filename, and you do not need to rename stored files to rename a figure.
 
 # Keeping linked sources current
 
+Select a plot and press **Alt+Shift+C** to copy its full source path. **Ctrl+K → Copy selected
+plot path** does the same. A plot imported without a linked source copies the path of its saved
+SVG in the project.
+
 Imported plots retain an accepted SVG and its semantic metadata in the project. When analysis
 regenerates a linked source, Flux updates that accepted bundle automatically, including changes
 only to a manifest or recipe. Figure, Paper, and slides read the accepted version. Edits also
@@ -107,7 +121,7 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
 **gallery** on top, and below it the **dissections** of whichever plot you last clicked.
 
 - **Alt+G** shows it and puts the cursor in its search box — it also opens a hidden sidebar.
-  Press **Alt+G** again while you are in it to go back to **Layers**; **Shift+Alt+G** opens
+  Press **Alt+G** again to go back to **Layers**; **Shift+Alt+G** opens
   the full gallery in its own window, from anywhere. Slide mode has the same rail beside its
   slide list ([Slide: the Plots rail](slide.qmd#the-plots-rail)). The two views keep
   their own widths (drag the sidebar's edge), and the canvas stays where it is when you switch.
@@ -117,6 +131,10 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   the companion collections (`_dissections`, `_lighttable`) — **Enter** goes in,
   **Backspace** in an empty search comes back out. **Proj** / **Glob** (**Alt+1** /
   **Alt+2**) switch between this project and your global plot library.
+- **Alt+/** switches the lower pane between Dissections and **Folders**. The tree shows the
+  plot folders, with a search box for finding a nested directory. Choose a folder to show
+  only its plots; **↑/↓**, **←/→**, and **Enter** navigate and choose from the tree. Companion
+  directories stay out of this tree. Use **Alt+/** again to return to dissections.
 - Plots sit at their true shape, several to a row, and every one is drawn on a background
   chosen so **all of it shows**: dark ink on paper, white ink (a plot made for a dark slide)
   on dark, both on grey, and a plot's own paper colour when it declares one. The **⋯** menu
@@ -168,6 +186,12 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
   same place, so you can compare subjects plot to plot. Clicking an empty spot keeps the last
   plot showing; the **pin** keeps it while you click elsewhere. **Double-click**, **Enter** or
   **Space** opens a file in the Dissect viewer; drag a panel onto a figure to place it.
+- **Notes** in Dissections lets you create and edit ordinary `.txt` companions with **+ Note**.
+  A plot can have several named notes. They save automatically; **Ctrl+Enter** saves now.
+  The full Dissect viewer has the same **Notes** control. To search their contents across the
+  project, switch on **Notes** beside the gallery search and type a word or tag such as
+  `#TODO`; choose a matching note to open it. If another writer changed a note, Flux keeps your
+  draft and explains the conflict before replacing anything.
 - Drag the line between the two parts to share the height; drag it to an edge to fold a
   part away; double-click it to reset. Files that appear or change in `plots/` show up on
   their own.
@@ -309,7 +333,7 @@ almost straight down one axis shrinks it to a short stub. Its tick labels are th
 rather than stacked on top of each other, and so is its title if the title is longer than
 the stub. The axis line, ticks and grid stay.
 
-Use **Alt+R** for the model's **X-ray**. Named mesh parts can be recoloured, hidden or made
+Use **R** for the model's **X-ray**. Named mesh parts can be recoloured, hidden or made
 transparent; labels can be restyled independently. Mesh-part colours show while **Colours**
 is **From file**, so painting a mesh part on a Uniform model switches it to From file (one
 undo, with a notice). For a continuous value field, change its colormap and **Min / Max** under
@@ -370,7 +394,7 @@ regeneration like any part edit, with **reset** to return to the generated colou
 colour-mapped series (a heatmap, a hexbin, a scatter coloured by value) has no series colour: edit
 its **Colour scale** instead. The headless twin is `set-series-color`.
 
-**Alt+R** opens the **X-ray**: the anatomy of the selected plot (or group) as a tree, placed
+**R** opens the **X-ray**: the anatomy of the selected plot (or group) as a tree, placed
 beside the selection. Walk it with the arrow keys, hide/show any part with **x**, press
 **Enter** (or **F**) to select the picked parts and open their properties, and — for recipe-backed
 plots — hit **Regenerate** to re-run the script that made it, right from the panel. Rows
@@ -381,7 +405,7 @@ rows picks the run you sweep (hold **Ctrl** when you press to add a second sweep
 *X axis › Tick marks* adds *Y axis › Tick marks* — then, pressed again, every row under the same
 parent. **x**, **Enter** and the property menu then act on all of them — hide five series at
 once, or restyle them together. Select **several plots** before
-pressing **Alt+R** and the X-ray shows each plot's tree plus a **Common parts** list of
+pressing **R** and the X-ray shows each plot's tree plus a **Common parts** list of
 what they all share, so hiding the x-axis of four plots is one row and one keypress.
 **Double-click** a row (or **Ctrl+Enter**) to re-root the X-ray on it. Keyboard navigation
 keeps the active row in view. You can inspect another plot while a recipe runs; its result
@@ -405,7 +429,7 @@ Hovering a row outlines its parts on the canvas — on every plot, for a common 
 
 A group's members are rows too: open *Tick labels* to see each tick label and its text (big
 groups show their first 60, then **+ N more**). **Ctrl+click** one tick label on the canvas and
-press **Alt+R**: the X-ray opens on it. **←** then steps up to its family — all the tick labels —
+press **R**: the X-ray opens on it. **←** then steps up to its family — all the tick labels —
 and **→** back down; **Shift+Alt+R** opens on the family directly, and selects it on the canvas.
 **Shift+A** takes the picked part to every plot in the figure that has it (the X-ray re-roots on
 those plots with the part picked on all of them; **⌫** comes back). Hiding a family with **x**
@@ -566,6 +590,16 @@ edge or corner, or type its width and height in the Inspector, to **Reflow** it:
 areas change size, numeric ticks are recomputed, and text, strokes and markers keep their
 physical point sizes. **Native size** restores the dimensions from Python. A deliberate
 size chosen in Flux survives regeneration; an untouched plot follows the new Python size.
+
+Legends use fewer columns when they need more room, keeping their labels and swatches at
+their original size where possible. A legend that still cannot fit shrinks together with its
+frame; a titled legend keeps its composition and shrinks as a unit. Returning to a wider plot
+restores the original legend layout.
+
+Hiding plot parts in **X-ray** tightens the selection and hover outline around the remaining
+visible content. The plot keeps its saved dimensions, so showing those parts restores its
+original frame. Selection, dragging and resize previews use the visible bounds; cropping
+continues to work against the saved plot frame.
 
 The Layout controls offer **Stretch** for the previous resize behavior. The status line
 explains whether the result is exact, reflowed, approximate, or stretching, with a reason.

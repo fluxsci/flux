@@ -9,7 +9,6 @@ import { crc32, gzipSync } from 'node:zlib';
 import { hashBytes, downloadAsset, inventory, replacePrepared, recoverPrevious, gunzipBounded, verifyExecutable } from './lib/runtimeAssets.mjs';
 import { fileLinksSupported, fileLinkSkipNote } from './lib/symlinks.mjs';
 import { fetchVideoEncoder, verifyVideoEncoder, videoEncoderContract, pinnedTarget } from './fetch-video-encoder.mjs';
-import { fetchCorrectionRuntime, verifyCorrectionRuntime } from './fetch-correction-runtime.mjs';
 const root=await mkdtemp(path.join(os.tmpdir(),'flux-runtime-assets-'));let checks=0;
 const pass=()=>checks++;
 const reject=async(fn,pattern)=>{await assert.rejects(fn,pattern);pass();};
@@ -85,16 +84,6 @@ try{
   await replacePrepared(prepared,target);assert.equal(await readFile(path.join(target,'bytes'),'utf8'),'replacement');pass();
   if(fileLinksSupported()){await symlink(badArch,path.join(target,'escape'));await reject(()=>inventory(target),/escapes/);}
   else console.log(fileLinkSkipNote('runtime inventory refuses a link escaping its bundle'));
-  // Correction bundle cache must rehash every library, not just the server.
-  const archive=Buffer.from('pinned correction archive fixture');const asset={name:'fixture.tar.gz',size:archive.length,sha256:hashBytes(archive),acceleration:'vulkan',backendPrefix:'libggml-vulkan'};
-  const extract=async(_archive,dir)=>{await writeFile(path.join(dir,'llama-server'),elf);for(const name of ['LICENSE','libllama.so','libggml-base.so','libggml-vulkan.so'])await writeFile(path.join(dir,name),'correct resource');};
-  const correction={platform:'linux',arch:'x64',root:path.join(root,'correction'),asset,extract,fetchImpl:async()=>new Response(archive)};
-  const installed=await fetchCorrectionRuntime(correction);await verifyCorrectionRuntime(installed.target,correction);pass();
-  assert.equal((await fetchCorrectionRuntime({...correction,fetchImpl:()=>{throw Error('cache used network');}})).cached,true);pass();
-  await writeFile(path.join(installed.target,'libggml-base.so'),'corrupted library');await reject(()=>verifyCorrectionRuntime(installed.target,correction),/checksum mismatch/);
-  await reject(()=>fetchCorrectionRuntime({...correction,extract:async(_a,dir)=>{await extract(_a,dir);await rm(path.join(dir,'LICENSE'));}}),/resource missing/);assert.equal(await readFile(path.join(installed.target,'libggml-base.so'),'utf8'),'corrupted library');pass();
-  await fetchCorrectionRuntime(correction);await rm(path.join(installed.target,'libggml-vulkan.so'));await reject(()=>verifyCorrectionRuntime(installed.target,correction),/missing or unexpected/);
-  assert.equal((await readdir(correction.root)).filter(n=>n.startsWith('.fetch-')).length,0);pass();
   const concurrent={...opts,root:path.join(root,'concurrent')};const startDownloads=downloads;const pair=await Promise.all([fetchVideoEncoder(concurrent),fetchVideoEncoder(concurrent)]);assert.equal(pair.filter(item=>item.cached).length,1);assert.equal(downloads-startDownloads,2);pass();
   console.log(`Runtime assets: ${checks} checks PASS (bounded download, full cache inventory, architecture, executability, required resources, preserved replacement bytes)`);
 }finally{await rm(root,{recursive:true,force:true});}

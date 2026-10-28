@@ -106,6 +106,12 @@
   import ElementSlot from "./ElementSlot.svelte";
   import type { HitBridgeHolder, CanvasHits } from "./interact/canvasHitBridge";
   import { inPlotsRailScope } from "./plotsRail/keyScope";
+  import { figurePlacement } from "./figure/placement";
+  import { excludeZones } from "./interact/handles";
+  import { plotAwareSelectionBBox, plotBoundsRevision, plotAwareRectIntersectsElement, plotVisiblePointContains, localPlotVisibleBounds } from "./plot/visibleBounds";
+  $: if (!paneActive && !frame) figurePlacement.set(null);
+  $: if (!frame && $figurePlacement && ($activeTool !== "select" || $figurePlacement.canvasId !== $activeCanvasId || $figurePlacement.root !== ($embeddedProjectRoot || $projectDir))) figurePlacement.set(null);
+  onDestroy(() => { if (!frame) figurePlacement.set(null); });
 
   // ===========================================================================
   // Rendering architecture (performance-critical):
@@ -273,6 +279,8 @@
         oy: number;
         xs: number[];
         ys: number[];
+        duplicate: boolean;
+        duplicated?: boolean;
       }
     | {
         // Move the picked PARTS of semantic plots (the drag writes an id-keyed
@@ -744,11 +752,12 @@
 
   // selection bbox in active-figure-local coords
   $: overlayBox = (() => {
+    void $plotBoundsRevision;
     void absentPresentationIds;
     const fig = $project.figures.find((f) => f.id === $activeFigureId);
     if (!fig) return null;
     const editable = selectionTargets(fig, $selection, { editable: true, excluded: absentPresentationIds });
-    return selectionBBox(editable.length ? editable : selectionTargets(fig, $selection, { visible: true, excluded: absentPresentationIds }));
+    return plotAwareSelectionBBox(editable.length ? editable : selectionTargets(fig, $selection, { visible: true, excluded: absentPresentationIds }));
   })();
 
   // --- one repaint per zoom gesture + will-change lifecycle (figure-v1 P6) ---
@@ -1302,7 +1311,28 @@
       }
       exitNodeEdit(); // click on empty canvas leaves node-edit
     }
-    if ($activeTool === "select") clearSelection();
+    if (af && e.button === 0 && ($activeTool === "select" || $activeTool === "scale")) onFigureDown(e, af);
+    else if ($activeTool === "select") clearSelection();
+  }
+
+  function placeFigure(e: PointerEvent) {
+    const request = $figurePlacement;
+    if (!request || frame || !paneActive || $storeTenantState !== "figure" || e.button !== 0 || spaceDown || $activeTool === "hand") return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const at = clientToWorld(e.clientX, e.clientY);
+    if (!$project.canvases.some(c => c.id === request.canvasId)) { figurePlacement.set(null); return; }
+    const pos = ops.nearestFigurePosition($project.figures.filter(f => f.canvasId === request.canvasId), at);
+    ensureCommitted();
+    let id = "";
+    mutate(p => { id = ops.createFigure(p, { canvasId: request.canvasId, ...pos }).id; });
+    finishGesture(checkpoint);
+    resetGestureTransients();
+    activeCanvasId.set(request.canvasId);
+    activeFigureId.set(id);
+    clearSelection();
+    selectFrame(id);
+    figurePlacement.set(null);
   }
 
   function onFigureDown(e: PointerEvent, fig: Figure) {
@@ -2105,6 +2135,10 @@
       const point = localPoint(e.clientX, e.clientY, fig);
       if (preferred && !effHidden(preferred) && !effLocked(preferred) && rectIntersectsElement({x:point.x,y:point.y,w:0.1,h:0.1}, preferred)) el = preferred;
     }
+    if (el.type === "plot" && localPlotVisibleBounds(el.id) !== undefined && !plotVisiblePointContains(el, localPoint(e.clientX, e.clientY, fig))) {
+      onFigureDown(e, fig);
+      return;
+    }
     pressTone = elementTone(el, el.type === "plot" ? $plotManifests[el.assetId] : null) ?? figureTone(fig);
     if (startPanIfNeeded(e)) return;
     // Pen/delete sub-modes: a click on ANY element routes like a figure click
@@ -2288,7 +2322,7 @@
     altDupDone = false;
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
-    const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
+    const ob = plotAwareSelectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
     const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
     const w0 = clientToWorld(e.clientX, e.clientY);
     gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, wx: w0.x, wy: w0.y, origs, ob, xs, ys };
@@ -2514,6 +2548,7 @@
   // edges/centres to neighbouring figures. Reuses the flicker-free path (a transient
   // GPU transform on the live figure group; the model commits on pointer-up).
   function startFigMove(e: PointerEvent, fig: Figure) {
+    if (e.button !== 0 || startPanIfNeeded(e)) return;
     e.stopPropagation();
     selectFrame(fig.id);
     enteredGroupId.set(null); // P7: frame selection is a full scope exit
@@ -2525,12 +2560,13 @@
       xs.push(f.x, f.x + f.width, f.x + f.width / 2);
       ys.push(f.y, f.y + f.height, f.y + f.height / 2);
     }
-    gesture = { kind: "figmove", figId: fig.id, sx: e.clientX, sy: e.clientY, ox: fig.x, oy: fig.y, xs, ys };
+    gesture = { kind: "figmove", figId: fig.id, sx: e.clientX, sy: e.clientY, ox: fig.x, oy: fig.y, xs, ys, duplicate: e.altKey };
     gestureFig = fig;
     committed = false;
     dragging = false;
     fDX = 0;
     fDY = 0;
+    gestureAltDup = e.altKey;
     hostEl.setPointerCapture(e.pointerId);
   }
 
@@ -2714,7 +2750,7 @@
       }
     }
     const lp0 = localPoint(e.clientX, e.clientY, fig);
-    const [ex, ey] = handlePos(handle, overlayBox);
+    const [ex, ey] = handlePos(handle, crop ? selectionBBox(sel) ?? overlayBox : overlayBox);
     const grab = {
       dx: handle.includes("e") || handle.includes("w") ? lp0.x - ex : 0,
       dy: handle.includes("n") || handle.includes("s") ? lp0.y - ey : 0,
@@ -2944,10 +2980,29 @@
     if (!fig) return;
 
     if (g.kind === "figmove") {
+      if (!dragging && Math.hypot(e.clientX-g.sx, e.clientY-g.sy) < DRAG_SLOP) return;
+      if (g.duplicate && !g.duplicated) {
+        ensureCommitted();
+        let id: string | null = null;
+        mutate(p => {
+          id = ops.duplicateFigure(p, g.figId);
+          const copy = p.figures.find(f => f.id === id);
+          if (copy) { copy.x = g.ox; copy.y = g.oy; }
+        });
+        if (!id) { cancelGesture(); return; }
+        g.figId = id;
+        g.duplicated = true;
+        gestureFig = $project.figures.find(f => f.id === id) ?? null;
+        activeFigureId.set(id);
+        selectFrame(id);
+        gesture = { ...g };
+      }
       const rawDx = (e.clientX - g.sx) / $viewport.zoom;
       const rawDy = (e.clientY - g.sy) / $viewport.zoom;
-      let dx = rawDx;
-      let dy = rawDy;
+      const lockX = e.shiftKey && Math.abs(rawDy) > Math.abs(rawDx);
+      const lockY = e.shiftKey && !lockX;
+      let dx = lockX ? 0 : rawDx;
+      let dy = lockY ? 0 : rawDy;
       const nextGuides: { x?: number; y?: number }[] = [];
       if (!e.altKey) {
         const thr = 6 / $viewport.zoom;
@@ -2955,11 +3010,11 @@
         const fy = g.oy + dy;
         const sX = snap([fx, fx + fig.width / 2, fx + fig.width], g.xs, thr);
         const sY = snap([fy, fy + fig.height / 2, fy + fig.height], g.ys, thr);
-        if (sX.line != null) {
+        if (!lockX && sX.line != null) {
           dx += sX.off;
           nextGuides.push({ x: sX.line });
         }
-        if (sY.line != null) {
+        if (!lockY && sY.line != null) {
           dy += sY.off;
           nextGuides.push({ y: sY.line });
         }
@@ -3134,7 +3189,7 @@
       // FIG-4: honor rotation — the empty AABB corners of a tilted element don't count.
       // P7: group-locked/-hidden members (effective state) don't marquee-select.
       for (const el of fig.elements)
-        if (!effLocked(el) && !effHidden(el) && rectIntersectsElement(r, el)) hit.add(el.id);
+        if (!effLocked(el) && !effHidden(el) && plotAwareRectIntersectsElement(r, el)) hit.add(el.id);
       // FIG-1: dragging the marquee re-ran expandGroups + every selection-dependent
       // reactive (handles, inspector, bbox) on EACH pointermove even when the hit set
       // hadn't changed. Only push a new selection when the result actually differs.
@@ -3823,6 +3878,7 @@
   // dragging, editing, read-only (caption), with a non-select tool, or when the
   // hovered thing is already selected (the selection box already shows it).
   $: hoverInfo = (() => {
+    void $plotBoundsRevision;
     if (
       !$hoverId ||
       zoomUnsettled || // artwork moving under a stationary pointer is not a new hover target
@@ -3844,7 +3900,7 @@
     if (effLocked(found.element) || effHidden(found.element)) return null;
     // P7: preview the unit a click would select — bounded by the entered scope.
     const grp = expandGroups($project, new Set([$hoverId]), $enteredGroupId);
-    const b = selectionBBox(found.figure.elements.filter((e) => grp.has(e.id) && !absentPresentationIds.has(e.id)));
+    const b = plotAwareSelectionBBox(found.figure.elements.filter((e) => grp.has(e.id) && !absentPresentationIds.has(e.id)));
     if (!b) return null;
     // Outset ~1.5px (screen) so the outline sits just outside the element's own
     // border and stays visible even on a same-hue shape (Figma-style).
@@ -3888,7 +3944,7 @@
     const ids = [...new Set(tips.map((p) => attachTargetAt(fig.elements, p, { exclude })).filter((x): x is string => !!x))];
     if (g.kind === "draw" && ids.length === 1 && tips.every((p) => attachTargetAt(fig.elements, p) === ids[0])) return []; // both ends on one shape: not a connector
     return ids.flatMap((id) => {
-      const el = fig.elements.find((e) => e.id === id), b = el ? selectionBBox([el]) : null;
+      const el = fig.elements.find((e) => e.id === id), b = el ? plotAwareSelectionBBox([el]) : null;
       return b ? [{ x: $viewport.panX + (fig.x + b.x) * $viewport.zoom - 3, y: $viewport.panY + (fig.y + b.y) * $viewport.zoom - 3, w: b.w * $viewport.zoom + 6, h: b.h * $viewport.zoom + 6 }] : [];
     });
   })();
@@ -3952,15 +4008,14 @@
   // Zones exist only at rest: during any gesture the pointer is captured on
   // the host, so they would only rewrite their geometry per frame of a resize;
   // while the Become picker owns presses they must not catch any.
-  // Zones are clipped to the active figure's frame (plus the bands' outer reach,
-  // and only 3 px above its top): the title bar above the frame and the next
-  // figure's own frame bands stay clickable beside a selection flush with an edge.
+  // Figure selections can overhang their frame. Reserve title bars, rather
+  // than clipping away their out-of-frame handles. Slide keeps its stage clip.
   $: selZones =
     selChrome && af && !selLocked && !gesture && !presentation?.picking
-      ? selectionHitZones(selChrome, {
+      ? excludeZones(selectionHitZones(selChrome, {
           hs: HS,
-          clip: zoneClipForFrame({ x: $viewport.panX + af.x * $viewport.zoom, y: $viewport.panY + af.y * $viewport.zoom, w: af.width * $viewport.zoom, h: af.height * $viewport.zoom }),
-        })
+          ...(frame ? { clip: zoneClipForFrame({ x: $viewport.panX + af.x * $viewport.zoom, y: $viewport.panY + af.y * $viewport.zoom, w: af.width * $viewport.zoom, h: af.height * $viewport.zoom }) } : {}),
+        }), frame ? [] : visibleFigures.map(f => ({ x: $viewport.panX + f.x*$viewport.zoom, y: $viewport.panY + f.y*$viewport.zoom - 22*$viewport.zoom/renderZoom, w: Math.max(f.width*$viewport.zoom, 120*$viewport.zoom/renderZoom), h: 18*$viewport.zoom/renderZoom })))
       : [];
   // The live size while resizing (Figma's W × H under the selection), the
   // rot-tip's twin. World units; a tenth shown only when fractional.
@@ -4194,7 +4249,7 @@
     if (!altDown || !af || gesture || dragging || editPathId || $activeTool !== "select" || presentation?.picking) return null;
     const sel = af.elements.filter((e) => $selection.has(e.id) && !absentPresentationIds.has(e.id));
     if (!sel.length) return null;
-    const S = selectionBBox(sel);
+    const S = plotAwareSelectionBBox(sel);
     if (!S) return null;
     const r = (v: number) => `${Math.round(v)}`;
     const lines: { x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
@@ -4525,7 +4580,7 @@
     const g=gesture;
     return gestureEls.map(original=>{const el={...original};remapResize(el,original,g,gNb!);return el;});
   })();
-  $: if (dragging && gesture?.kind==="resize" && !gesture.crop && resizedEls.length) liveBox=selectionBBox(resizedEls);
+  $: if (dragging && gesture?.kind==="resize" && !gesture.crop && resizedEls.length) liveBox=plotAwareSelectionBBox(resizedEls);
   // Resize preview split (perf 2026-09-30): plots follow the box by a transient transform on their
   // LIVE scene group (no re-mount per move; one render at the release commit); every other kind
   // keeps the overlay copy. resizedEls[i] is the remap of gestureEls[i].
@@ -4698,6 +4753,7 @@
   on:pointerdown|capture={foldZoomNow}
   on:pointerdown|capture={beginPress}
   on:pointerdown|capture={retireTextRange}
+  on:pointerdown|capture={placeFigure}
   on:pointerdown={onCanvasDown}
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
@@ -4712,6 +4768,9 @@
   on:dragleave={onDragLeave}
   on:drop={onDrop}
 >
+  {#if $figurePlacement && !frame && paneActive}
+    <div class="placement-hint" role="status">Click to place the new figure · Esc to cancel</div>
+  {/if}
   <!-- SCENE: panned via the compositor drive. Live zoom uses a non-animated
        residual scale(zoom/renderZoom), allowing the raster to shrink; a valid
        bounded proxy freezes this scene. Settle folds scale into the SVG.
@@ -5358,6 +5417,7 @@
 </div>
 
 <style>
+  .placement-hint { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; padding: 8px 12px; background: var(--c-surface); border: 1px solid var(--c-line-strong); color: var(--c-tx); font: 12px var(--font-ui); }
   .frame-resize-handle { fill: transparent; pointer-events: all; }
   .frame-resize-handle:hover { fill: var(--c-accent); fill-opacity: 0.25; }
   .frame-resize-handle.corner { fill: var(--c-bg); stroke: var(--c-accent); stroke-width: 1.5; }

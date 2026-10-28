@@ -2,12 +2,12 @@
 //   · search "tick" over two plots: every row says X or Y axis, hits group under a header
 //     naming their PLOT (its distinctive key), the search row counts them
 //   · the Common section nests (X axis › Tick labels …); a value that differs reads "varies"
-//   · a ctrl-clicked tick label + Alt+R opens WITH that tick label picked (it is a row);
+//   · a ctrl-clicked tick label + R opens WITH that tick label picked (it is a row);
 //     ↓ walks its siblings, ← picks its family; the canvas outlines the family's leaves
 //   · Shift+Alt+R opens on the family directly; ⇧A takes a part to every plot that has it
 //   · hovering a row outlines its parts on the canvas; the detail strip names the row
 //   · x hides, Ctrl+Z undoes it without leaving the X-ray; ◐ marks a partly hidden family
-//   · Ctrl+A (plots + a loose shape) + Alt+R x-rays the plots; a big group's members cap
+//   · Ctrl+A (plots + a loose shape) + R x-rays the plots; a big group's members cap
 //   · the property menu's header names the part's place ("Y axis › Tick labels")
 //   Run (dev server on :1420): node scripts/verify-xray-context-gui.mjs
 import { launch, gotoApp, clickMode, shot, sleep, realErrors, waitFor, waitForGone } from "./lib/driver.mjs";
@@ -48,7 +48,7 @@ try {
   const altR = async (shift = false) => {
     await page.mouse.move(1300, 150);
     if (shift) await page.keyboard.down("Shift");
-    await page.keyboard.down("Alt"); await page.keyboard.press("KeyR"); await page.keyboard.up("Alt");
+    if (shift) await page.keyboard.down("Alt"); await page.keyboard.press("KeyR"); if (shift) await page.keyboard.up("Alt");
     if (shift) await page.keyboard.up("Shift");
     await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, { label: "x-ray rows" });
     await sleep(150);

@@ -11,7 +11,7 @@
   import { fade } from "svelte/transition";
   import { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS } from "./color/collections";
   import { PLOT_SEARCH_SCOPES } from "./plot/galleryScope";
-  import { onDestroy, untrack } from "svelte";
+  import { untrack } from "svelte";
   import { settings, settingsOpen, type Settings } from "./settings";
   import {
     buildCursorFamily, buildCursorFamilyDark, cursorPresetOf, isDefaultCursorParams, CURSOR_DEFAULTS, CURSOR_GAP_RANGE, CURSOR_HALO_OPACITY_RANGE, CURSOR_HALO_WIDTH_RANGE,
@@ -147,21 +147,6 @@
   let libNotice = $state("");
   let libBusy = $state(false);
   let correctionLearningReset = $state(false);
-  let correctionProviderStatus = $state("Checking…");
-  let correctionModels = $state<string[]>([]);
-  let correctionCloudKey = $state("");
-  let correctionCloudConfigured = $state(false);
-  let correctionCloudCost = $state(0);
-  let correctionPersonalProfile: Record<string, unknown> = { words: [], aliases: [], guidance: "" };
-  let correctionProjectProfile: Record<string, unknown> = { words: [], aliases: [], blockedPairs: [], guidance: "" };
-  let correctionProjectGuidance = $state("");
-  let correctionVetoes = $state<string[]>([]);
-  type ManagedModelStatus = { available: boolean; installed: boolean; updateRequired?: boolean; running: boolean; ready?: boolean; downloading: boolean; model: { id: string; displayName: string; bytes: number; license: string }; runtime?: string | null; acceleration?: "metal" | "vulkan" | "cpu"; contextPerSlot?: number; parallelSlots?: number; error?: string };
-  type ManagedModelProgress = { received: number; total: number; verifying?: boolean; complete?: boolean };
-  let correctionModelStatus = $state<ManagedModelStatus | null>(null);
-  let correctionModelProgress = $state<ManagedModelProgress | null>(null);
-  let correctionModelBusy = $state(false);
-  let stopCorrectionProgress: (() => void) | null = null;
   let modalEl = $state<HTMLDivElement | null>(null);
   let prevFocus: HTMLElement | null = null;
 
@@ -176,159 +161,6 @@
       libPath = "";
       plotLibPath = "";
     }
-    await loadCorrectionProvider();
-  }
-
-  async function loadCorrectionProvider() {
-    const fb = fileBridge();
-    if (!fb?.correctionStatus) {
-      correctionProviderStatus = "Smart sentence corrections require the desktop app";
-      return;
-    }
-    try {
-      const provider = $settings.paperCorrectionProvider;
-      if (!stopCorrectionProgress && fb.onCorrectionModelProgress) {
-        stopCorrectionProgress = fb.onCorrectionModelProgress((progress) => {
-          correctionModelProgress = progress;
-        });
-      }
-      const selectedModel = $settings.paperCorrectionModel;
-      const [status, key, managed] = await Promise.all([
-        fb.correctionStatus(provider, selectedModel),
-        fb.correctionCloudKeyStatus?.(),
-        fb.correctionModelStatus?.(),
-      ]);
-      correctionModelStatus = managed ?? null;
-      correctionModels = status.models ?? [];
-      if (provider === "ollama" && correctionModels.length && !correctionModels.includes($settings.paperCorrectionModel)) {
-        // Switching from the managed provider should work immediately when an
-        // existing Ollama model is present, rather than leaving the managed
-        // model ID in a field Ollama cannot resolve.
-        settings.update((value) => ({ ...value, paperCorrectionModel: correctionModels[0] }));
-      }
-      correctionCloudConfigured = key?.configured ?? false;
-      correctionCloudCost = provider === "openai"
-        ? ((status.stats?.inputTokens ?? 0) / 1_000_000) + ((status.stats?.outputTokens ?? 0) / 1_000_000 * 6)
-        : 0;
-      correctionProviderStatus = status.available
-        ? provider === "flux"
-          ? managed?.ready
-            ? `Flux local model ready · ${accelerationLabel(managed.acceleration)}`
-            : managed?.running ? "Flux local model is loading and priming…" : "Flux local model installed · idle"
-          : provider === "ollama"
-            ? status.ready ? `Ollama model ready${correctionModels.length ? ` · ${correctionModels.length} installed` : ""}` : `Ollama available${correctionModels.length ? ` · ${correctionModels.length} model${correctionModels.length === 1 ? "" : "s"}` : ""}`
-            : "Cloud key ready"
-        : status.error || (provider === "openai"
-          ? "Add an API key to enable cloud judgment"
-          : provider === "flux"
-            // `runtime` is the staged llama-server's release stamp. Null means the
-            // helper itself is absent — a state only source checkouts can reach
-            // (packaged builds ship it), and one more model installs cannot fix.
-            ? managed && managed.runtime == null
-              ? "Correction runtime missing from this build — run npm run fetch:correction-runtime in the Flux checkout"
-              : managed?.updateRequired ? "Flux local model update required" : "Install the Flux local model to enable sentence judgment"
-            : "Ollama is not available");
-      const profile = await fb.correctionProfileGet?.("") as { personal?: Record<string, unknown>; project?: Record<string, unknown> } | undefined;
-      if (profile?.personal) {
-        correctionPersonalProfile = profile.personal;
-        const guidance = typeof profile.personal.guidance === "string" ? profile.personal.guidance : "";
-        if (guidance && guidance !== $settings.paperCorrectionGuidance) {
-          settings.update((value) => ({ ...value, paperCorrectionGuidance: guidance.slice(0, 500) }));
-        }
-      }
-      if (profile?.project) {
-        correctionProjectProfile = profile.project;
-        correctionProjectGuidance = typeof profile.project.guidance === "string" ? profile.project.guidance.slice(0, 500) : "";
-        correctionVetoes = Array.isArray(profile.project.blockedPairs)
-          ? profile.project.blockedPairs.filter((value): value is string => typeof value === "string")
-          : [];
-      }
-    } catch (error) {
-      correctionProviderStatus = (error as Error).message;
-    }
-  }
-
-  async function installCorrectionModel() {
-    const fb = fileBridge();
-    if (!fb?.correctionModelInstall) return;
-    correctionModelBusy = true;
-    correctionModelProgress = { received: 0, total: correctionModelStatus?.model.bytes ?? 0 };
-    try {
-      await fb.correctionModelInstall();
-      if ($settings.paperContextualCorrections && $settings.paperCorrectionProvider === "flux") {
-        correctionProviderStatus = "Loading and priming the Flux local model…";
-        await fb.correctionWarm?.({ provider: "flux", model: $settings.paperCorrectionModel });
-      }
-    }
-    catch (error) { correctionProviderStatus = (error as Error).message; }
-    finally { correctionModelBusy = false; await loadCorrectionProvider(); }
-  }
-
-  async function cancelCorrectionModel() {
-    await fileBridge()?.correctionModelCancel?.();
-    correctionModelBusy = false;
-  }
-
-  async function removeCorrectionModel() {
-    await fileBridge()?.correctionModelRemove?.();
-    correctionModelProgress = null;
-    await loadCorrectionProvider();
-  }
-
-  function sizeLabel(bytes: number) {
-    return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
-  }
-
-  function accelerationLabel(value?: "metal" | "vulkan" | "cpu") {
-    return value === "metal" ? "Metal GPU" : value === "vulkan" ? "Vulkan GPU when available" : "CPU";
-  }
-
-  async function activateCorrectionProvider(provider: Settings["paperCorrectionProvider"]) {
-    settings.update((value) => ({ ...value, paperCorrectionProvider: provider }));
-    await loadCorrectionProvider();
-    if (provider !== "openai" && $settings.paperContextualCorrections) {
-      correctionProviderStatus = "Loading and priming the local model…";
-      await fileBridge()?.correctionWarm?.({ provider, model: $settings.paperCorrectionModel }).catch(() => false);
-      await loadCorrectionProvider();
-    }
-  }
-
-  async function activateCorrectionModel(model: string) {
-    settings.update((value) => ({ ...value, paperCorrectionModel: model.trim() }));
-    if ($settings.paperCorrectionProvider === "ollama" && model.trim() && $settings.paperContextualCorrections) {
-      correctionProviderStatus = "Loading and priming the Ollama model…";
-      await fileBridge()?.correctionWarm?.({ provider: "ollama", model: model.trim() }).catch(() => false);
-      await loadCorrectionProvider();
-    }
-  }
-
-  onDestroy(() => stopCorrectionProgress?.());
-
-  async function saveCorrectionCloudKey() {
-    const result = await fileBridge()?.correctionCloudKeySet?.(correctionCloudKey.trim());
-    correctionCloudKey = "";
-    correctionCloudConfigured = result?.configured ?? false;
-    await loadCorrectionProvider();
-  }
-
-  async function saveCorrectionGuidance(scope: "personal" | "project") {
-    const fb = fileBridge();
-    if (!fb?.correctionProfileSet) return;
-    if (scope === "personal") {
-      correctionPersonalProfile = { ...correctionPersonalProfile, guidance: $settings.paperCorrectionGuidance.slice(0, 500) };
-      await fb.correctionProfileSet({ projectRoot: "", scope, data: correctionPersonalProfile });
-    } else {
-      correctionProjectProfile = { ...correctionProjectProfile, guidance: correctionProjectGuidance.slice(0, 500) };
-      await fb.correctionProfileSet({ projectRoot: "", scope, data: correctionProjectProfile });
-    }
-    window.dispatchEvent(new CustomEvent("flux:local-language-changed", { detail: { scope } }));
-  }
-
-  async function removeCorrectionVeto(pair: string) {
-    correctionVetoes = correctionVetoes.filter((value) => value !== pair);
-    correctionProjectProfile = { ...correctionProjectProfile, blockedPairs: [...correctionVetoes] };
-    await fileBridge()?.correctionProfileSet?.({ projectRoot: "", scope: "project", data: correctionProjectProfile });
-    window.dispatchEvent(new CustomEvent("flux:local-language-changed", { detail: { scope: "project" } }));
   }
 
   async function revealCfg() {
@@ -395,11 +227,6 @@
   const fadeMs = () =>
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 80;
 
-  // Paper caret motion — see editing/caretFeel.ts.
-  const caretFeels: { v: Settings["paperCaretFeel"]; l: string }[] = [
-    { v: "chase", l: "Chase" },
-    { v: "smooth", l: "Smooth" },
-  ];
   const marginScenes: { v: Settings["paperMarginScene"]; l: string }[] = [
     { v: "harmonograph", l: "Harmonograph" },
     { v: "neurons", l: "Neurons" },
@@ -786,13 +613,6 @@
               Clean dynamic margin — close all panes when focus returns to the editor
             </label>
 
-            <h3>Caret motion</h3>
-            <div class="seg">
-              {#each caretFeels as f}
-                <button class:on={$settings.paperCaretFeel === f.v} onclick={() => settings.update((v) => ({ ...v, paperCaretFeel: f.v }))}>{f.l}</button>
-              {/each}
-            </div>
-            <p class="hint">Chase — the caret pursues its target, arriving fast and settling softly. Smooth — a constant-pace 90&nbsp;ms glide.</p>
           </div>
 
           <!-- ------------------------------------------------------ Corrections -->
@@ -811,129 +631,14 @@
               {correctionLearningReset ? "Learning reset" : "Reset correction learning"}
             </button>
 
-            <h3>Sentence judgment</h3>
-            <label class="chk">
-              <input
-                type="checkbox"
-                checked={$settings.paperContextualCorrections}
-                onchange={(e) => {
-                  const checked = e.currentTarget.checked;
-                  settings.update((v) => ({ ...v, paperContextualCorrections: checked }));
-                  if (checked) void activateCorrectionProvider($settings.paperCorrectionProvider);
-                }}
-              />
-              Judge unresolved corrections with sentence context
-            </label>
-            <p class="hint">The model judges exact Harper-flagged spans. It may keep the text, choose a nearby candidate, or propose one bounded spelling repair; it cannot rewrite the sentence. Local inference is the default, and cloud is never used as a fallback.</p>
-
-            <div class="correction-grid">
-              <label>
-                Provider
-                <select value={$settings.paperCorrectionProvider} onchange={(e) => void activateCorrectionProvider(e.currentTarget.value as Settings["paperCorrectionProvider"])}>
-                  <option value="flux">Local · Flux managed</option>
-                  <option value="ollama">Local · Ollama</option>
-                  <option value="openai">Cloud · GPT-5.6 Luna</option>
-                </select>
-              </label>
-              <label>
-                Dialect
-                <select value={$settings.paperCorrectionDialect} onchange={(e) => settings.update((v) => ({ ...v, paperCorrectionDialect: e.currentTarget.value as Settings["paperCorrectionDialect"] }))}>
-                  <option value="american">US English</option>
-                  <option value="british">British English</option>
-                  <option value="canadian">Canadian English</option>
-                  <option value="australian">Australian English</option>
-                </select>
-              </label>
-              <label>
-                Judgment
-                <select
-                  value={$settings.paperCorrectionAggressiveness}
-                  onchange={(e) => settings.update((v) => ({
-                    ...v,
-                    paperCorrectionAggressiveness: e.currentTarget.value as Settings["paperCorrectionAggressiveness"],
-                  }))}
-                >
-                  <option value="standard">Standard</option>
-                  <option value="aggressive">Aggressive</option>
-                  <option value="really-aggressive">Really aggressive</option>
-                </select>
-              </label>
-            </div>
-            <p class="hint">Aggressive tries harder on genuine spelling flags and permits three edits from nine letters. Really aggressive examines every bounded flag, permits three edits from seven letters and four from ten. Both retain the same no-rewrite, scientific-term, syntax, dictionary, and final lexical safety checks.</p>
-
-            {#if $settings.paperCorrectionProvider === "flux"}
-              <div class="managed-model">
-                <strong>{correctionModelStatus?.model.displayName ?? "Qwen3 4B Instruct 2507 · Q4_K_M"}</strong>
-                <span>{correctionModelStatus?.model.bytes ? sizeLabel(correctionModelStatus.model.bytes) : "2.33 GB"} · {correctionModelStatus?.model.license ?? "Apache-2.0"} · {accelerationLabel(correctionModelStatus?.acceleration)}</span>
-                {#if correctionModelProgress && correctionModelBusy}
-                  <progress max={correctionModelProgress.total || 1} value={correctionModelProgress.received}></progress>
-                  <small>{correctionModelProgress.verifying ? "Verifying SHA-256…" : `${Math.round(correctionModelProgress.received / Math.max(1, correctionModelProgress.total) * 100)}% downloaded`}</small>
-                {/if}
-                <div class="key-row">
-                  {#if correctionModelStatus?.installed}
-                    <button class="ghost" onclick={() => void fileBridge()?.correctionModelUnload?.()}>Unload</button>
-                    <button class="ghost danger" onclick={() => void removeCorrectionModel()}>Remove model</button>
-                  {:else if correctionModelBusy}
-                    <button class="ghost" disabled={correctionModelProgress?.complete} onclick={() => void cancelCorrectionModel()}>{correctionModelProgress?.complete ? "Loading model…" : "Cancel download"}</button>
-                  {:else}
-                    <button class="ghost" onclick={() => void installCorrectionModel()}>{correctionModelStatus?.updateRequired ? "Update local model" : "Install local model"}</button>
-                  {/if}
-                </div>
-                <p class="hint">{correctionModelStatus?.updateRequired ? "This replaces the older Qwen3 hybrid artifact with the held-out-selected Instruct 2507 model. " : ""}Downloaded only when you ask, resumable and SHA-256 verified under FluxConfig. It stays local and can be removed here.</p>
-              </div>
-            {:else if $settings.paperCorrectionProvider === "ollama"}
-              <label class="field-label">
-                Local model
-                <input
-                  list="flux-correction-models"
-                  value={$settings.paperCorrectionModel}
-                  maxlength="120"
-                  onchange={(e) => void activateCorrectionModel(e.currentTarget.value)}
-                />
-              </label>
-              <datalist id="flux-correction-models">
-                {#each correctionModels as model}<option value={model}></option>{/each}
-              </datalist>
-            {:else}
-              <label class="field-label">
-                OpenAI API key {correctionCloudConfigured ? "· configured" : ""}
-                <div class="key-row">
-                  <input type="password" bind:value={correctionCloudKey} autocomplete="off" placeholder={correctionCloudConfigured ? "Replace encrypted key" : "sk-…"} />
-                  <button class="ghost" disabled={!correctionCloudKey.trim()} onclick={saveCorrectionCloudKey}>Save</button>
-                  {#if correctionCloudConfigured}<button class="ghost" onclick={() => { correctionCloudKey = ""; void saveCorrectionCloudKey(); }}>Clear</button>{/if}
-                </div>
-              </label>
-              <p class="hint cloud-disclosure">Cloud mode sends the completed sentence, bounded nearby context, candidates, and configured project guidance to OpenAI with <code>store: false</code>. It is opt-in and never activated by a local failure.</p>
-              <p class="hint">This-session API estimate: ${correctionCloudCost.toFixed(4)} at GPT-5.6 Luna’s current $1/M input and $6/M output rates.</p>
-            {/if}
-            <p class="provider-status">{correctionProviderStatus}</p>
-
-            <h3>Guidance</h3>
-            <label class="field-label">
-              Personal correction guidance
-              <textarea
-                rows="2"
-                maxlength="500"
-                value={$settings.paperCorrectionGuidance}
-                oninput={(e) => settings.update((v) => ({ ...v, paperCorrectionGuidance: e.currentTarget.value.slice(0, 500) }))}
-                onchange={() => void saveCorrectionGuidance("personal")}
-              ></textarea>
-            </label>
-            <label class="field-label">
-              Project correction guidance
-              <textarea rows="2" maxlength="500" bind:value={correctionProjectGuidance} onchange={() => void saveCorrectionGuidance("project")}></textarea>
-            </label>
-            {#if correctionVetoes.length}
-              <details class="veto-list">
-                <summary>Learned “leave alone” corrections ({correctionVetoes.length})</summary>
-                {#each correctionVetoes as pair}
-                  <div class="veto-row">
-                    <code>{pair.replace("\u0000", " → ")}</code>
-                    <button class="ghost" onclick={() => void removeCorrectionVeto(pair)}>Remove</button>
-                  </div>
-                {/each}
-              </details>
-            {/if}
+            <h3>English dialect</h3>
+            <select aria-label="Correction dialect" value={$settings.paperCorrectionDialect} onchange={(e) => settings.update((v) => ({ ...v, paperCorrectionDialect: e.currentTarget.value as Settings["paperCorrectionDialect"] }))}>
+              <option value="american">US English</option>
+              <option value="british">British English</option>
+              <option value="canadian">Canadian English</option>
+              <option value="australian">Australian English</option>
+            </select>
+            <p class="hint">Click or hover an underlined word for spelling suggestions, type your own correction, or add it to your personal dictionary. Accepted corrections are remembered across projects. Common neuroscience and biology terms are included in your personal dictionary.</p>
           </div>
         </div>
       </div>
@@ -1187,9 +892,6 @@
     opacity: 0.4;
     cursor: var(--cursor-cross);
   }
-  .danger {
-    color: var(--c-danger);
-  }
   .close {
     height: 24px;
     padding: 3px 14px;
@@ -1263,10 +965,7 @@
     width: 64px;
   }
   input[type="number"],
-  .row select,
-  .field-label input,
-  .correction-grid select,
-  .field-label textarea {
+  select {
     min-width: 0;
     height: 24px;
     padding: 2px 6px;
@@ -1277,30 +976,12 @@
     font: 12px var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
-  .correction-grid select,
-  .row select {
-    width: 100%;
-    font-family: var(--font-ui);
-  }
-  .field-label input,
-  .field-label textarea {
-    width: 100%;
-  }
-  .field-label textarea {
-    height: auto;
-    min-height: 48px;
-    resize: vertical;
-    font-family: var(--font-ui);
-    line-height: 1.35;
-  }
   input:not([type="checkbox"]):focus,
-  select:focus,
-  textarea:focus {
+  select:focus {
     outline: none;
     border-color: var(--c-accent);
   }
   button:focus-visible,
-  summary:focus-visible,
   input[type="checkbox"]:focus-visible {
     outline: 1px solid var(--c-accent);
     outline-offset: 1px;
@@ -1329,83 +1010,5 @@
   /* ---- Corrections --------------------------------------------------------- */
   .learning-reset {
     margin-top: 8px;
-  }
-  .correction-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 10px;
-  }
-  .correction-grid label,
-  .field-label {
-    display: grid;
-    gap: 4px;
-    margin-top: 8px;
-    color: var(--c-tx-muted);
-    font: 11px var(--font-ui);
-  }
-  .correction-grid label {
-    margin-top: 0;
-  }
-  .managed-model {
-    display: grid;
-    gap: 6px;
-    margin-top: 10px;
-    padding: 8px 10px;
-    background: var(--c-bg-raised);
-    border-radius: var(--r-ui);
-  }
-  .managed-model strong {
-    color: var(--c-tx-hi);
-    font-weight: 600;
-  }
-  .managed-model > span,
-  .managed-model small {
-    color: var(--c-tx-muted);
-    font-size: 11px;
-  }
-  .managed-model progress {
-    width: 100%;
-    height: 4px;
-    accent-color: var(--c-accent);
-  }
-  .key-row {
-    display: flex;
-    gap: 6px;
-  }
-  .key-row input {
-    flex: 1;
-  }
-  .key-row .ghost {
-    flex: 0 0 auto;
-  }
-  .provider-status {
-    margin: 8px 0 0;
-    color: var(--c-tx-muted);
-    font: 11px var(--font-mono);
-  }
-  .veto-list {
-    margin-top: 10px;
-    color: var(--c-tx-muted);
-    font-size: 11px;
-  }
-  .veto-list summary {
-    cursor: var(--cursor-cross-hover);
-  }
-  .veto-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-top: 5px;
-  }
-  .veto-row code {
-    overflow: hidden;
-    color: var(--c-tx);
-    font: 11px var(--font-mono);
-    text-overflow: ellipsis;
-  }
-  .cloud-disclosure code {
-    font-family: var(--font-mono);
   }
 </style>

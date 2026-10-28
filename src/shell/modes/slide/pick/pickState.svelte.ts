@@ -287,7 +287,7 @@ export class BecomePicker {
     this.setUnits(addUnits(kept, next, t.source, this.unitContext()));
   }
   #xrayOwned = new Set<string>();
-  /** Alt+R: open the X-ray on a plot, its current picks pre-selected as rows — a
+  /** R: open the X-ray on a plot, its current picks pre-selected as rows — a
    *  picked point or tick label included (group members are rows of their own).
    *  Shift+Alt+R pre-selects their FAMILY instead (one point → the series' points). */
   openXray(plotId: string, family = false) {
@@ -356,13 +356,13 @@ export class BecomePicker {
       if (t.units.length) this.setUnits(t.units.slice(0, -1));
       return true;
     }
-    if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyR") {
+    if (!e.ctrlKey && !e.metaKey && e.code === "KeyR" && ((!e.altKey && !e.shiftKey) || (e.altKey && e.shiftKey))) {
       const fig = this.hooks.fig();
       // The hovered plot, else the last picked one, else the source (the old selection fallback).
       const ids = [this.hover?.unit.element, get(hoverId), ...[...t.units].reverse().map((u) => u.element), t.source.element];
       const plot = ids.map((id) => fig?.elements.find((el) => el.id === id && el.type === "plot")).find(Boolean);
       if (plot) this.openXray(plot.id, e.shiftKey);
-      else pushToast("info", "Hover a plot, then press Alt+R to pick its parts.");
+      else pushToast("info", "Hover a plot, then press R to pick its parts.");
       return true;
     }
     return false;

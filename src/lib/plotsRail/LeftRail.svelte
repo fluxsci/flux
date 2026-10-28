@@ -29,6 +29,7 @@
     place = null,
     accept,
     status = null,
+    width,
   }: {
     paneActive?: boolean;
     hitBridge?: HitBridgeHolder | null;
@@ -44,6 +45,7 @@
     accept?: string;
     /** A long placement in progress (Slide's clip import): its progress, and Cancel. */
     status?: { text: string; cancel?: () => void } | null;
+    width?: number;
   } = $props();
 
   const slide = $derived(unit === "slide");
@@ -125,7 +127,7 @@
   }
 </script>
 
-<div class="left-rail" data-left-rail={plots ? "plots" : otherKey}>
+<div class="left-rail" data-left-rail={plots ? "plots" : otherKey} style:--sb-w={width == null ? undefined : `${width}px`}>
   <div class="rail-tabs" role="tablist" aria-label="Left rail">
     {#if slide}
       <button role="tab" class="rail-tab" aria-selected={!plots} class:chosen={!plots} title="The deck's slides" onclick={() => setView("other")} data-rail-tab="slides">

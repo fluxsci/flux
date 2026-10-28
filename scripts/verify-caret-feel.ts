@@ -1,28 +1,8 @@
 // Caret-motion guard (hermetic, pure tier).
 //
-// The overlay caret (src/shell/modes/paper/editing/caretFeel.ts) is the paper
-// caret: chase (default) | smooth motion, built-in soft blink. Shipped
-// 2026-07-21 from the caret-feel lab (owner A/B decision); it SUPERSEDED the
-// old .cm-cursor CSS transition + --flux-caret-ms/paperCaretMs setting — this
-// gate replaced verify-writer-latency.ts's section 2 pins of that contract.
-// Invariants pinned here:
-//
-//   1. THE CONTRACT — modes are exactly chase|smooth, default "chase"; the
-//      retired lab settings (paperCaretMs, paperCaretSoftBlink,
-//      paperSmoothLineScroll) stay gone and their persisted values migrate.
-//   2. NO AMBIENT ANIMATION LOOP — the ticker must self-terminate (the E43
-//      lesson: a continuous rAF loop deepens the compositor pipeline and adds
-//      ~50ms editor INP). No setInterval, and the rAF reschedule must be
-//      conditional on in-flight work.
-//   3. VIM/MULTI-CURSOR SAFETY — the overlay only ever replaces the thin
-//      stock-layer caret: the hide rule must exclude the vim cursor layer,
-//      and vim-mode/multi-cursor bail to stock.
-//   4. MOTION IS NEVER GATED ON prefers-reduced-motion (guide §9: this
-//      desktop's real Chrome/Electron reports `reduce`).
-//   5. THE OLD CSS GLIDE STAYS RETIRED — no --flux-caret-ms / .cm-cursor
-//      transition anywhere in the paper module.
-//
-// Run: npx tsx scripts/verify-caret-feel.ts
+// The October 27 owner request supersedes the old two-mode lab contract:
+// Chase is the sole built-in behavior. Keep its transient ticker, Vim/IME/
+// multi-cursor safeguards, exact cursor geometry and finite soft blink.
 
 import { readFileSync } from "node:fs";
 
@@ -38,33 +18,10 @@ function assert(cond: unknown, msg: string) {
 
 const read = (p: string) => readFileSync(p, "utf8");
 
-// ---- 1. Settings: the chase|smooth contract ---------------------------------
+// ---- 1. Chase is now unconditional (owner October 27 issue list).
 const settings = read("src/lib/settings.ts");
-assert(
-  /paperCaretFeel:\s*PaperCaretFeel/.test(settings),
-  "Settings type declares paperCaretFeel: PaperCaretFeel",
-);
-assert(
-  /PaperCaretFeel = "chase" \| "smooth"/.test(settings),
-  "PaperCaretFeel is exactly chase|smooth",
-);
-assert(/paperCaretFeel:\s*"chase"/.test(settings), 'paperCaretFeel default is "chase"');
-for (const gone of ["paperCaretMs", "paperCaretSoftBlink", "paperSmoothLineScroll"]) {
-  assert(
-    !new RegExp(`${gone}:\\s*(number|boolean)`).test(settings),
-    `retired setting ${gone} is not declared`,
-  );
-}
-assert(
-  /paperCaretFeel === "monkeytype"\) out\.paperCaretFeel = "smooth"/.test(settings),
-  'migration maps persisted "monkeytype" → "smooth"',
-);
-assert(
-  /delete out\.paperCaretMs/.test(settings) &&
-    /delete out\.paperCaretSoftBlink/.test(settings) &&
-    /delete out\.paperSmoothLineScroll/.test(settings),
-  "migration deletes the retired lab keys",
-);
+assert(!/paperCaretFeel:\s*PaperCaretFeel/.test(settings), "no configurable caret mode remains");
+assert(/delete out\.paperCaretFeel/.test(settings), "old caret-mode preferences are discarded safely");
 
 // ---- 2. The plugin: transient ticker, safety rails ---------------------------
 const cf = read("src/shell/modes/paper/editing/caretFeel.ts");
@@ -85,7 +42,7 @@ assert(
 assert(/cm-vimMode/.test(cf) && /cursors\.length !== 1/.test(cf), "vim mode and multi-cursor bail to the stock caret");
 assert(/this\.view\.composing/.test(cf), "IME composition teleports instead of animating");
 assert(/GATE_DY_LINES/.test(cf) && /GATE_DX_PX/.test(cf), "large jumps teleport (distance gates exist)");
-assert(/SMOOTH_DUR_MS = 90/.test(cf) && /SMOOTH_EASE_EXP = 1\.25/.test(cf), "smooth mode: 90ms inOut(1.25) tween constants");
+assert(!/SMOOTH_|smoothEase|this\.mode|settings\.subscribe/.test(cf), "only Chase motion remains, with no settings subscription");
 assert(
   /write: \(\) => this\.syncFromLayer\(\)/.test(cf),
   "overlay geometry is read in the measure WRITE phase (after the cursor layer's write)",
@@ -110,7 +67,7 @@ assert(
 );
 
 const ui = read("src/lib/Settings.svelte");
-assert(/paperCaretFeel/.test(ui), "Settings UI exposes the caret-motion picker");
+assert(!/paperCaretFeel|caretFeels/.test(ui), "Settings no longer exposes a caret-motion picker");
 assert(
   !/paperCaretMs|paperCaretSoftBlink|paperSmoothLineScroll/.test(ui),
   "Settings UI does not expose the retired lab settings",

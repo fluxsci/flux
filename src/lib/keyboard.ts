@@ -75,6 +75,8 @@ import * as ops from "./ops";
 import { modelOrbit } from "./model3d/orbitSession";
 import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey } from "./interact/alignArrange";
 import { reattachClones } from "./slide/attach";
+import { copySelectedPlotPath } from "./figure/commands";
+import { figurePlacement } from "./figure/placement";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -621,7 +623,6 @@ const TOOL_KEYS: Record<string, Tool> = {
   k: "scale",
   h: "hand",
   t: "text",
-  r: "rect",
   o: "ellipse",
   l: "line",
   p: "pen",
@@ -631,9 +632,9 @@ const TOOL_KEYS: Record<string, Tool> = {
 //   1. a drilled part → its OWNING PLOT element;
 //   2. a single selected plot element → that element;
 //   3. a selection entirely under ONE group unit (respecting the entered-group
-//      scope) → that group — covers "click a group, Alt+R" (members expand to
+//      scope) → that group — covers "click a group, R" (members expand to
 //      the whole set) and any member subset of a single group.
-//   4. otherwise the plots / models among the selection (Ctrl+A, then Alt+R) —
+//   4. otherwise the plots / models among the selection (Ctrl+A, then R) —
 //      after the group rule, so a group holding a plot still roots on the group.
 // Nothing x-rayable in the selection keeps today's no-op.
 //
@@ -679,7 +680,7 @@ function openXray(family = false) {
     for (const e of els) {
       // Unit at the current scope; a DIRECT member of the entered group is its
       // own unit (groupId null) — those root on the entered group itself, so
-      // Alt+R inside a group still x-rays "the group I'm standing in".
+      // R inside a group still x-rays "the group I'm standing in".
       const u = unitOf(fig, e, scope);
       const g = u.groupId ?? (scope && ancestorsOf(fig, e.groupId).includes(scope) ? scope : null);
       if (!g) return null; // a loose element in the mix — nothing to root on
@@ -780,7 +781,7 @@ export function handleKey(e: KeyboardEvent) {
     e.preventDefault();
     if (!(get(embeddedProjectRoot) || get(projectDir))) return;
     const hidden = get(leftRailHidden), plots = railHost.isPlots();
-    if (!hidden && plots && inPlotsRailScope(e)) {
+    if (!hidden && plots) {
       railHost.setPlots(false);
       (e.target as HTMLElement | null)?.blur?.();
       return;
@@ -849,12 +850,17 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Alt+R: open the X-Ray for the selected plot(s) / group / drilled part;
-  // Shift+Alt+R opens it on the drilled parts' FAMILY (one tick label → all of them).
-  if (e.altKey && !mod && e.code === "KeyR") {
+  // R opens X-ray; Shift+Alt+R keeps the direct family drill shortcut.
+  if (!mod && e.code === "KeyR" && ((!e.altKey && !e.shiftKey) || (e.altKey && e.shiftKey))) {
     e.preventDefault();
     openXray(e.shiftKey);
     return;
+  }
+  if (e.altKey && !mod && !e.shiftKey && e.code === "KeyR") {
+    e.preventDefault(); activeTool.set("rect"); return;
+  }
+  if (e.altKey && !mod && e.shiftKey && e.code === "KeyC") {
+    e.preventDefault(); void copySelectedPlotPath(); return;
   }
 
   // Shift+Alt+G: the full Plot Gallery, pinned (Alt+G alone, in a mode without a Plots rail).
@@ -1041,6 +1047,7 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
   if (e.key === "Escape") {
+    if (get(figurePlacement)) { e.preventDefault(); figurePlacement.set(null); return; }
     // FIG-12: an in-flight drag/resize/rotate aborts FIRST — the selection (and the
     // element's pre-gesture position) survive; a second Esc then clears as before.
     if (gestureCancelHook.fn?.()) {

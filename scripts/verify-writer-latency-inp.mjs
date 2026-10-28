@@ -159,7 +159,6 @@ const seeded = await page.evaluate(async (proj, corrections) => {
   window.__flux.settings?.update?.((value) => ({
     ...value,
     paperLocalCorrections: corrections,
-    paperContextualCorrections: corrections,
   }));
   try {
     const scaffold = await import("/src/lib/project/scaffold.ts");
@@ -286,7 +285,6 @@ if (CORRECTIONS) {
     window.__flux.settings.update((value) => ({
       ...value,
       paperLocalCorrections: false,
-      paperContextualCorrections: false,
     }));
     window.__fluxView.dispatch({});
   });
@@ -299,7 +297,7 @@ if (CORRECTIONS) {
 // Start real worker jobs in the first native keydown; no delayed/mock replies.
 // Promise settlement records prove each measured key overlapped pending work.
 await page.evaluate(()=>{
-  window.__flux.settings.update(value=>({...value,paperLocalCorrections:true,paperContextualCorrections:true}));
+  window.__flux.settings.update(value=>({...value,paperLocalCorrections:true}));
   window.__fluxView.dispatch({});
 });
 const backlogAmbient = await setAmbient(true);

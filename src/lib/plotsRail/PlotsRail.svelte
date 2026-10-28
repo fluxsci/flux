@@ -11,6 +11,7 @@
   import { get } from "svelte/store";
   import GalleryPane from "./GalleryPane.svelte";
   import DissectionsPane from "./DissectionsPane.svelte";
+  import DirectoryPane from "./DirectoryPane.svelte";
   import Peek from "./Peek.svelte";
   import { hidePeek, setPeekOnHover } from "./peek";
   import { holdPrewarm } from "./thumbClient";
@@ -41,6 +42,11 @@
   const MIN_PANE = 96;
   let body = $state<HTMLDivElement>();
   let bodyH = $state(0);
+  let directories = $state(false);
+  let browse = $state.raw({ base: "", folder: "" });
+  let folderRequest = $state.raw<{ id: number; folder: string } | null>(null);
+  let folderSeq = 0;
+  function toggleDirectories() { directories = !directories; if (dissectCollapsed) showDissections(); }
   const root = $derived($embeddedProjectRoot || $projectDir || "");
 
   const layout = $derived($figureLayout);
@@ -136,6 +142,11 @@
     // Any key hides it (Shift+Space toggles it — the panes handle that one).
     const key = (e: KeyboardEvent) => {
       if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "Slash") {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest("input,textarea,[contenteditable='true']") && !body?.contains(target)) return;
+        e.preventDefault(); e.stopImmediatePropagation(); toggleDirectories(); return;
+      }
       if (!(e.code === "Space" && e.shiftKey) && e.key !== "Shift") hidePeek();
     };
     window.addEventListener("keydown", key, true);
@@ -153,13 +164,17 @@
     </button>
   {:else}
     <div class="gallery-slot" style:height={`${galleryH}px`}>
-      <GalleryPane {active} {hitBridge} {refreshKey} {accept} {place} onShowDissections={showDissections} />
+      <GalleryPane {active} {hitBridge} {refreshKey} {accept} {place} {folderRequest} onBrowseChange={(view) => browse = view} onShowDissections={() => { directories = false; showDissections(); }} />
     </div>
   {/if}
   {#if !galleryCollapsed && !dissectCollapsed}
     <div class="splitter" role="separator" aria-orientation="horizontal" aria-label="Resize gallery and dissections (double-click resets)" onpointerdown={startSplit} ondblclick={resetSplit} data-plots-splitter></div>
   {/if}
-  <DissectionsPane {active} {hitBridge} {place} collapsed={dissectCollapsed} {galleryCollapsed} onCollapse={toggleDissections} onMaximize={toggleMaximize} />
+  {#if directories && !dissectCollapsed}
+    <DirectoryPane base={browse.base} selected={browse.folder} onChoose={(folder) => folderRequest = { id: ++folderSeq, folder }} onClose={() => directories = false} />
+  {:else}
+    <DissectionsPane {active} {hitBridge} {place} collapsed={dissectCollapsed} {galleryCollapsed} onCollapse={toggleDissections} onMaximize={toggleMaximize} onDirectories={toggleDirectories} />
+  {/if}
 </div>
 {#if active}<Peek {unit} railEl={body} />{/if}
 

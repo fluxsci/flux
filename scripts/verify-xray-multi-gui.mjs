@@ -1,6 +1,6 @@
 // 2026-09-15 surface redesign gate (browser) — the X-ray's MULTI-SELECT and
 // MULTI-PLOT roots, and "Animate selected" in Slide mode:
-//   · two plots selected + Alt+R → ONE X-ray: a `set` root, both plots as
+//   · two plots selected + R → ONE X-ray: a `set` root, both plots as
 //     element rows, and a "Common parts" list of what they share
 //   · picking a common row selects that part on EVERY plot (partSelections);
 //     x hides it on all of them, x again shows all
@@ -62,9 +62,7 @@ try {
 
   // --- 1. multi-plot root -------------------------------------------------------------
   await page.mouse.move(300, 300);
-  await page.keyboard.down("Alt");
   await page.keyboard.press("KeyR");
-  await page.keyboard.up("Alt");
   await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, { label: "x-ray rows" });
   let rows = await rowsOf();
   ok(rows.some((r) => r.kind === "set" && r.label === "2 plots"), "two selected plots x-ray together under a `2 plots` root");
@@ -91,7 +89,7 @@ try {
   ok(await page.evaluate(() => [...document.querySelectorAll('.xray .row[data-kind="common"]')].find((r) => r.querySelector(".rlabel")?.textContent.trim() === "X axis")?.querySelector(".eye")?.textContent.trim() === "◉"), "…and the common row's eye reads shown");
 
   await page.keyboard.press('Escape'); await waitForGone(page, '.xray');
-  await page.keyboard.down('Alt'); await page.keyboard.press('KeyR'); await page.keyboard.up('Alt');
+  await page.keyboard.press("KeyR");
   await waitFor(page, () => !!document.querySelector('.xray .row[data-kind="set"]'), null, { label: 'reopened multi-plot root' });
   ok((await parts()).length === 2, "reopening a common-part pick preserves every plot and its selected parts");
   await clickRow("common", "X axis");
@@ -242,9 +240,7 @@ try {
   ok(seeded, "a plot is seeded on the active slide");
   await sleep(400);
   await page.mouse.move(300, 300);
-  await page.keyboard.down("Alt");
   await page.keyboard.press("KeyR");
-  await page.keyboard.up("Alt");
   await waitFor(page, () => document.querySelectorAll(".xray .row").length > 0, null, { label: "slide x-ray" });
   rows = await rowsOf();
   const p2 = rows.filter((r) => r.kind === "part");
@@ -278,7 +274,7 @@ try {
   // The same axis picked through Common parts and its individual plot row
   // must not animate twice or inflate the chooser's target count.
   await page.evaluate(() => window.__flux.fig.selection.set(new Set(["xm-s", "xm-t"])));
-  await page.keyboard.down("Alt"); await page.keyboard.press("KeyR"); await page.keyboard.up("Alt");
+  await page.keyboard.press("KeyR");
   await page.waitForSelector('.xray .search-in');
   await page.click('.xray .search-in'); await page.type('.xray .search-in', 'X axis');
   await waitFor(page, () => document.querySelectorAll('.xray .row[data-kind="part"]').length >= 2);
@@ -299,7 +295,7 @@ try {
   await waitFor(page, () => !!document.querySelector('.become-bar'));
   const plotBox=await page.$eval('[data-editor-element-id="xm-t"]', el => {const r=el.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};});
   await page.mouse.move(plotBox.x,plotBox.y);
-  await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');
+  await page.keyboard.press("KeyR");
   await waitFor(page, () => document.activeElement?.classList.contains('xray'));
   await clickRow('part','X axis');await page.keyboard.press('m');
   await waitFor(page, () => !!document.querySelector('.xray .animmenu'));
@@ -307,7 +303,7 @@ try {
   ok(await page.$eval('.xray .am-ttl', el => el.textContent.includes('becomes…')), 'armed X-ray menu header names a waiting source');
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');await waitForGone(page,'.xray');await page.keyboard.press('Escape');
   await page.evaluate(() => window.__flux.fig.selectOnly('xm-t'));
-  await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');
+  await page.keyboard.press("KeyR");
   await waitFor(page, () => document.activeElement?.classList.contains('xray'));
   await clickRow('part','X axis');await page.keyboard.press('m');
   await waitFor(page, () => !!document.querySelector('.xray .animmenu'));

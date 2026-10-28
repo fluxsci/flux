@@ -788,7 +788,7 @@
             {#each shown as r, offset (r.kind + (r.abs ?? r.name) + previewRevision)}
               {@const i = start + offset}
               {@const selected = r.kind === "file" && !!r.abs && picked.has(r.abs)}
-              <button class="row" class:sel={i === index} class:picked={selected} class:folder={r.kind !== "file"} data-i={i} data-kind={r.kind} data-path={r.abs} aria-pressed={r.kind === "file" ? selected : undefined} title={r.hint || (r.kind === "file" ? `${relFor(r)} · Ctrl/⌘-click to preview` : r.name)} on:focus={() => index = i} on:pointerenter={() => index = i} on:click={e => onRowClick(e, r)} on:dblclick={e => onRowDblClick(e, r)}>
+              <button class="row" class:sel={i === index} class:picked={selected} class:folder={r.kind !== "file"} data-i={i} data-kind={r.kind} data-path={r.abs} aria-pressed={r.kind === "file" ? selected : undefined} aria-label={r.hint || (r.kind === "file" ? `${relFor(r)} · Ctrl/⌘-click to preview` : r.name)} on:focus={() => index = i} on:pointerenter={() => index = i} on:click={e => onRowClick(e, r)} on:dblclick={e => onRowDblClick(e, r)}>
                 {#if viewMode === "gallery"}
                   <span class="tile-preview">
                     {#if r.kind === "file" && r.abs}<GalleryPreview path={r.abs} {previews} />
@@ -905,7 +905,7 @@
   /* body: folder sidebar | list */
   .gallery-body { display:flex; flex:1; min-height:0; overflow:hidden; position:relative; }
   .folder-sidebar { flex:0 0 auto; width:240px; min-width:150px; max-width:40%; border-right:1px solid var(--c-line); background:var(--c-bg-raised); resize:horizontal; overflow:auto; }
-  .list { flex:1; min-width:0; min-height:0; overflow:auto; padding:16px; background:var(--c-bg); scrollbar-gutter:stable; }
+  .list { flex:1; min-width:0; min-height:0; overflow:auto; padding:12px; background:var(--c-bg-raised); scrollbar-gutter:stable; }
   .list:not(.gallery) { padding:0; }
   .items { display:grid; grid-template-columns:repeat(var(--columns), minmax(0,1fr)); gap:var(--gap); grid-auto-rows:var(--cell-height); }
   /* list rows: 28px, hairline-separated */
@@ -916,8 +916,8 @@
   .row.picked.sel { background:color-mix(in oklab, var(--c-accent) 24%, transparent); }
   .list:not(.gallery) .names { flex-direction:row; align-items:baseline; gap:8px; }
   /* gallery tiles: square, flat, quiet */
-  .gallery .row { flex-direction:column; align-items:stretch; padding:6px; border:1px solid var(--c-line); background:var(--c-bg-raised); box-shadow:none; }
-  .gallery .row:hover, .gallery .row.sel { border-color:var(--c-line-strong); background:var(--c-surface); }
+  .gallery .row { flex-direction:column; align-items:stretch; padding:3px; border:1px solid transparent; background:transparent; box-shadow:none; }
+  .gallery .row:hover, .gallery .row.sel { border-color:var(--c-line-strong); background:var(--c-surface-2); }
   .gallery .row.picked { border-color:var(--c-accent); background:var(--c-accent-tint); box-shadow:none; }
   .gallery .row.picked.sel { background:color-mix(in oklab, var(--c-accent) 24%, transparent); }
   .tile-preview { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:var(--r-0); overflow:hidden; }
@@ -925,7 +925,9 @@
   .folder-icon { width:40px; height:34px; fill:none; stroke:var(--c-tx-muted); stroke-width:1.2; }
   .folder-caption { margin-top:8px; font:600 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; color:var(--c-tx-muted); }
   .row-meta { display:flex; align-items:center; width:100%; min-width:0; gap:8px; }
-  .gallery .row-meta { height:38px; flex-shrink:0; padding:6px 2px 0; }
+  .gallery .row-meta { height:30px; flex-shrink:0; padding:4px 2px 0; }
+  .gallery .nm { font:10.5px var(--font-mono); color:var(--c-tx-muted); }
+  .gallery .row.picked :global(.page) { box-shadow:0 0 0 2px var(--c-accent); }
   .names { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
   .nm { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
   .rel { font:10px var(--font-mono); color:var(--c-tx-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

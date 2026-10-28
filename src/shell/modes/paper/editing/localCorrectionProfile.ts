@@ -1,3 +1,4 @@
+import { SCIENTIFIC_VOCABULARY, SCIENTIFIC_VOCABULARY_VERSION } from "./scientificVocabulary";
 import { correctionPairKey } from "./localCorrectionCore";
 import { fileBridge } from "../../../../lib/project/types";
 
@@ -6,12 +7,15 @@ export type LocalLanguageScope = "project" | "personal";
 export interface LocalAlias {
   trigger: string;
   expansion: string;
+  learned?: boolean;
 }
 
 export interface LocalLanguageData {
   words: string[];
   aliases: LocalAlias[];
-  guidance?: string;
+  scientificVocabularyVersion?: number;
+  /** Only words actually inserted by the seeder; preexisting Personal words stay authored. */
+  scientificSeedWords?: string[];
 }
 
 export interface LocalCorrectionProjectData extends LocalLanguageData {
@@ -37,18 +41,18 @@ const STORAGE_KEY = "flux.paper.localLanguage.v2";
 const LEGACY_STORAGE_KEY = "flux.paper.localCorrections.v1";
 export const LOCAL_CORRECTION_RESET_EVENT = "flux:local-corrections-reset";
 export const LOCAL_LANGUAGE_CHANGED_EVENT = "flux:local-language-changed";
-const MAX_WORDS = 500;
-const MAX_ALIASES = 300;
+export const LOCAL_LANGUAGE_ERROR_EVENT = "flux:local-language-error";
+const MAX_WORDS = 5000;
+const MAX_ALIASES = 2000;
 const MAX_BLOCKED_PAIRS = 500;
 const WORD_TOKEN = /^[\p{L}\p{M}\d][\p{L}\p{M}\d_'’.-]{0,63}$/u;
 const ALIAS_TOKEN = /^[\p{L}\p{M}\d][\p{L}\p{M}\d_-]{0,31}$/u;
 
-const emptyLanguage = (): LocalLanguageData => ({ words: [], aliases: [], guidance: "" });
+const emptyLanguage = (): LocalLanguageData => ({ words: [], aliases: [] });
 const emptyProject = (): LocalCorrectionProjectData => ({
   words: [],
   aliases: [],
   blockedPairs: [],
-  guidance: "",
 });
 
 function cleanWords(value: unknown): string[] {
@@ -70,8 +74,9 @@ function cleanAliases(value: unknown): LocalAlias[] {
     if (!item || typeof item !== "object") continue;
     const trigger = "trigger" in item && typeof item.trigger === "string" ? item.trigger.trim() : "";
     const expansion = "expansion" in item && typeof item.expansion === "string" ? item.expansion.trim() : "";
-    if (!ALIAS_TOKEN.test(trigger) || !WORD_TOKEN.test(expansion)) continue;
-    out.set(trigger.toLocaleLowerCase(), { trigger, expansion });
+    const learned = "learned" in item && item.learned === true;
+    if (!(learned ? WORD_TOKEN : ALIAS_TOKEN).test(trigger) || !WORD_TOKEN.test(expansion)) continue;
+    out.set(trigger.toLocaleLowerCase(), { trigger, expansion, ...(learned ? { learned: true } : {}) });
   }
   return [...out.values()].slice(-MAX_ALIASES);
 }
@@ -81,7 +86,8 @@ function cleanLanguage(value: unknown): LocalLanguageData {
   return {
     words: cleanWords("words" in data ? data.words : []),
     aliases: cleanAliases("aliases" in data ? data.aliases : []),
-    guidance: "guidance" in data && typeof data.guidance === "string" ? data.guidance.slice(0, 500) : "",
+    ...("scientificVocabularyVersion" in data && typeof data.scientificVocabularyVersion === "number" ? { scientificVocabularyVersion: data.scientificVocabularyVersion } : {}),
+    ...("scientificSeedWords" in data && Array.isArray(data.scientificSeedWords) ? { scientificSeedWords: cleanWords(data.scientificSeedWords) } : {}),
   };
 }
 
@@ -161,6 +167,7 @@ export class LocalCorrectionProfile {
   private personal: LocalLanguageData;
   private project: LocalCorrectionProjectData;
   private mutationRevision = 0;
+  private durableError = "";
   private hydration: Promise<boolean>;
 
   constructor(
@@ -170,11 +177,33 @@ export class LocalCorrectionProfile {
     const stored = readAll(storage);
     this.personal = cleanLanguage(stored.personal);
     this.project = cleanProject(stored.projects[projectKey] ?? emptyProject());
-    this.hydration = this.hydrateDurable();
+    const seeded = this.seedScientificVocabulary();
+    const bridge = typeof window === "undefined" ? null : fileBridge();
+    if (!bridge?.correctionProfileGet || !bridge.correctionProfileSet) {
+      if (seeded) this.persist("personal");
+      this.hydration = Promise.resolve(false);
+    } else {
+      this.hydration = this.hydrateDurable().then((hydrated) => {
+        if (this.seedScientificVocabulary()) this.persist("personal");
+        return hydrated;
+      });
+    }
   }
 
   ready(): Promise<boolean> {
     return this.hydration;
+  }
+
+  error(): string { return this.durableError; }
+
+  private reportError(error: unknown): void {
+    const detail = error instanceof Error ? error.message : String(error);
+    const message = `Language profile could not be saved or opened. Existing files are preserved. ${detail}`;
+    if (message === this.durableError) return;
+    this.durableError = message;
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent(LOCAL_LANGUAGE_ERROR_EVENT, { detail: { projectKey: this.projectKey, message } }));
+    }
   }
 
   words(scope: LocalLanguageScope = "project"): string[] {
@@ -191,6 +220,14 @@ export class LocalCorrectionProfile {
     return [...words.values()];
   }
 
+  /** Seed words recognize valid science, without widening automatic technical
+   * near-match edits to every known sensor/version. Authored Personal/Project
+   * terms retain explicit canonical matching, including words that predate the seed. */
+  explicitCorrectionWords(): string[] {
+    const seeded = new Set((this.personal.scientificSeedWords ?? []).map((word) => word.toLocaleLowerCase()));
+    return [...this.personal.words.filter((word) => !seeded.has(word.toLocaleLowerCase())), ...this.project.words];
+  }
+
   hasWord(word: string, scope: LocalLanguageScope): boolean {
     const key = word.trim().toLocaleLowerCase();
     return (scope === "personal" ? this.personal.words : this.project.words)
@@ -199,9 +236,15 @@ export class LocalCorrectionProfile {
 
   addWord(word: string, scope: LocalLanguageScope = "project"): boolean {
     const clean = word.trim();
-    if (!WORD_TOKEN.test(clean) || this.hasWord(clean, scope)) return false;
+    if (!WORD_TOKEN.test(clean)) return false;
     const data = scope === "personal" ? this.personal : this.project;
-    data.words = [...data.words, clean].slice(-MAX_WORDS);
+    const key = clean.toLocaleLowerCase();
+    const promoteSeed = scope === "personal" && data.scientificSeedWords?.some(word => word.toLocaleLowerCase() === key);
+    if (this.hasWord(clean, scope) && !promoteSeed) return false;
+    // Explicitly adding/re-adding a seed word makes it the user's canonical
+    // term. The seed's provenance must never erase an authored preference.
+    if (promoteSeed) data.scientificSeedWords = data.scientificSeedWords?.filter(word => word.toLocaleLowerCase() !== key);
+    data.words = [...data.words.filter(word => word.toLocaleLowerCase() !== key), clean].slice(-MAX_WORDS);
     this.persist(scope);
     return true;
   }
@@ -242,20 +285,29 @@ export class LocalCorrectionProfile {
   resolveAlias(trigger: string): ResolvedLocalAlias | null {
     const key = trigger.trim().toLocaleLowerCase();
     const project = this.project.aliases.find((alias) => alias.trigger.toLocaleLowerCase() === key);
-    if (project) return { ...project, scope: "project" };
     const personal = this.personal.aliases.find((alias) => alias.trigger.toLocaleLowerCase() === key);
-    return personal ? { ...personal, scope: "personal" } : null;
+    const alias = project ?? personal;
+    if (!alias) return null;
+    let expansion = alias.expansion;
+    // Explicit aliases keep authored canonical case. A learned ordinary-word
+    // correction follows title/upper-case typing, while scientific identifiers
+    // (iGluSnFR, NREM) keep their canonical spelling.
+    if (alias.learned && expansion === expansion.toLocaleLowerCase()) {
+      if (trigger === trigger.toLocaleUpperCase()) expansion = expansion.toLocaleUpperCase();
+      else if (/^\p{Lu}\p{Ll}/u.test(trigger)) expansion = expansion[0].toLocaleUpperCase() + expansion.slice(1);
+    }
+    return { ...alias, expansion, scope: project ? "project" : "personal" };
   }
 
-  setAlias(trigger: string, expansion: string, scope: LocalLanguageScope): void {
+  setAlias(trigger: string, expansion: string, scope: LocalLanguageScope, learned = false): void {
     const cleanTrigger = trigger.trim();
     const cleanExpansion = expansion.trim();
-    if (!ALIAS_TOKEN.test(cleanTrigger) || !WORD_TOKEN.test(cleanExpansion)) return;
+    if (!(learned ? WORD_TOKEN : ALIAS_TOKEN).test(cleanTrigger) || !WORD_TOKEN.test(cleanExpansion)) return;
     const data = scope === "personal" ? this.personal : this.project;
     const key = cleanTrigger.toLocaleLowerCase();
     data.aliases = [
       ...data.aliases.filter((alias) => alias.trigger.toLocaleLowerCase() !== key),
-      { trigger: cleanTrigger, expansion: cleanExpansion },
+      { trigger: cleanTrigger, expansion: cleanExpansion, ...(learned ? { learned: true } : {}) },
     ].slice(-MAX_ALIASES);
     this.persist(scope);
   }
@@ -303,18 +355,18 @@ export class LocalCorrectionProfile {
     this.persist("project");
   }
 
-  guidance(scope: LocalLanguageScope): string {
-    return (scope === "personal" ? this.personal.guidance : this.project.guidance) ?? "";
-  }
-
-  setGuidance(value: string, scope: LocalLanguageScope): void {
-    const data = scope === "personal" ? this.personal : this.project;
-    data.guidance = value.slice(0, 500);
-    this.persist(scope);
+  private seedScientificVocabulary(): boolean {
+    if ((this.personal.scientificVocabularyVersion ?? 0) >= SCIENTIFIC_VOCABULARY_VERSION) return false;
+    const authored = new Set(this.personal.words.map(word => word.toLocaleLowerCase()));
+    const inserted = SCIENTIFIC_VOCABULARY.filter(word => !authored.has(word.toLocaleLowerCase()));
+    this.personal.words = cleanWords([...inserted, ...this.personal.words]);
+    this.personal.scientificSeedWords = cleanWords([...(this.personal.scientificSeedWords ?? []), ...inserted]);
+    this.personal.scientificVocabularyVersion = SCIENTIFIC_VOCABULARY_VERSION;
+    return true;
   }
 
   private hasData(data: LocalLanguageData | LocalCorrectionProjectData): boolean {
-    return !!(data.words.length || data.aliases.length || data.guidance || ("blockedPairs" in data && data.blockedPairs.length));
+    return !!(data.words.length || data.aliases.length || data.scientificVocabularyVersion != null || ("blockedPairs" in data && data.blockedPairs.length));
   }
 
   private async hydrateDurable(): Promise<boolean> {
@@ -331,16 +383,17 @@ export class LocalCorrectionProfile {
       const project = cleanProject(remote?.project);
       const migratePersonal = !this.hasData(personal) && this.hasData(this.personal);
       const migrateProject = !this.hasData(project) && this.hasData(this.project);
-      if (migratePersonal) void bridge.correctionProfileSet({ projectRoot: this.projectKey, scope: "personal", data: this.personal });
+      if (migratePersonal) void bridge.correctionProfileSet({ projectRoot: this.projectKey, scope: "personal", data: this.personal }).catch(error => this.reportError(error));
       else this.personal = personal;
-      if (migrateProject) void bridge.correctionProfileSet({ projectRoot: this.projectKey, scope: "project", data: this.project });
+      if (migrateProject) void bridge.correctionProfileSet({ projectRoot: this.projectKey, scope: "project", data: this.project }).catch(error => this.reportError(error));
       else this.project = project;
       const all = readAll(this.storage);
       all.personal = cleanLanguage(this.personal);
       all.projects[this.projectKey] = cleanProject(this.project);
       this.storage.setItem(STORAGE_KEY, JSON.stringify(all));
       return true;
-    } catch {
+    } catch (error) {
+      this.reportError(error);
       return false;
     }
   }
@@ -355,7 +408,7 @@ export class LocalCorrectionProfile {
       if (typeof window !== "undefined") {
         const bridge = fileBridge();
         const data = scope === "personal" ? cleanLanguage(this.personal) : cleanProject(this.project);
-        void bridge?.correctionProfileSet?.({ projectRoot: this.projectKey, scope, data }).catch(() => false);
+        if (!this.durableError) void bridge?.correctionProfileSet?.({ projectRoot: this.projectKey, scope, data }).catch(error => this.reportError(error));
       }
     } catch {
       // Private mode/storage exhaustion degrades to this session's in-memory profile.
