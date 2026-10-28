@@ -49,7 +49,10 @@
     if (galleryCollapsed) { figureLayout.update((l) => ({ ...l, galleryCollapsed: false })); await tick(); }
     gallery?.showFolder(folder);
   }
-  function toggleDirectories() { railFoldersOpen.update((open) => !open); if (dissectCollapsed) showDissections(); }
+  function toggleDirectories() { railFoldersOpen.update((open) => !open); }
+  // The navigator takes the lower pane, so opening it (Alt+/ is handled in keyboard.ts)
+  // unfolds a collapsed Dissections pane.
+  $effect(() => { if ($railFoldersOpen) untrack(() => showDissections()); });
   const root = $derived($embeddedProjectRoot || $projectDir || "");
 
   const layout = $derived($figureLayout);
@@ -145,11 +148,6 @@
     // Any key hides it (Shift+Space toggles it — the panes handle that one).
     const key = (e: KeyboardEvent) => {
       if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "Slash") {
-        const target = e.target as HTMLElement | null;
-        if (target?.closest("input,textarea,[contenteditable='true']") && !body?.contains(target)) return;
-        e.preventDefault(); e.stopImmediatePropagation(); toggleDirectories(); return;
-      }
       if (!(e.code === "Space" && e.shiftKey) && e.key !== "Shift") hidePeek();
     };
     window.addEventListener("keydown", key, true);

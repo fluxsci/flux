@@ -165,6 +165,10 @@ try{
   await page.click('[data-rail-tab="layers"]');await page.click('[data-rail-tab="plots"]');
   await waitFor(page,()=>document.querySelector('[data-focus-folder]')?.getAttribute('data-focus-folder')==='other'&&!!document.querySelector('[data-plots-directories]'),null,{label:'folder scope survives a rail view switch'});
   h.ok(true,'the folder scope and the open folder navigator survive Layers → Plots');
+  await page.click('[data-rail-tab="layers"]');await page.click('.canvas-wrap');
+  await page.keyboard.down('Alt');await page.keyboard.press('Slash');await page.keyboard.up('Alt');
+  await waitFor(page,()=>document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='plots'&&!!document.querySelector('[data-plots-directories]'),null,{label:'Alt+/ from Layers'});
+  h.ok(true,'Alt+/ from the Layers view shows Plots with the folder navigator');
   await shot('folders');
   await page.keyboard.down('Alt');await page.keyboard.press('Slash');await page.keyboard.up('Alt');
   h.ok(!(await page.$('[data-plots-directories]'))&&!!(await page.$('[data-plots-dissections]')),'Alt+/ returns the lower pane to dissections');

@@ -91,7 +91,8 @@ project. For example, `#TODO` finds that tag wherever you wrote it. Each result 
 plot, note, line and the matching text; click it to select that plot and open the note in the
 Notes pane below. Switch **Notes** off to return to searching plot names.
 
-To browse folders, click **Folders** in the Dissections pane or press **Alt+/**. The lower
+To browse folders, click **Folders** in the Dissections pane or press **Alt+/** (from anywhere
+in Figure or Slide; it opens the Plots view if needed). The lower
 pane becomes a searchable folder tree with the number of plots under each folder. Click a
 folder (or use **Arrow keys** and **Enter**) to show only its plots; choose the top folder to
 see everything again. Press **Alt+/** again, or **Esc**, to restore Dissections. The chosen
