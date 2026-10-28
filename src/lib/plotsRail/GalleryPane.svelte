@@ -728,7 +728,7 @@
       {#if !q}<p>Search the text of every plot's .txt notes, including tags such as #TODO.</p>{/if}
       {#each noteMatches.slice(0, 200) as match (match.path)}
         <button onclick={() => openNoteMatch(match)} data-note-match={match.path}>
-          <span class="where"><b>{match.key.split("/").pop()}</b> · {match.group ? `${match.group}/` : ""}{match.name}<span class="ln">:{match.line}</span></span>
+          <span class="where"><b>{match.key.split("/").pop()}</b><span class="note">· {match.group ? `${match.group}/` : ""}{match.name}<span class="ln">:{match.line}</span></span></span>
           <span class="snip">{match.snippet.slice(0, match.at)}<mark>{match.snippet.slice(match.at, match.at + match.length)}</mark>{match.snippet.slice(match.at + match.length)}</span>
         </button>
       {/each}
@@ -829,7 +829,7 @@
 <style>
   .gallery { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   .notes-toggle { flex-shrink:0; padding:1px 4px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:none; color:var(--c-tx-muted); font:10px var(--font-ui); } .notes-toggle.on { color:var(--c-accent); border-color:var(--c-accent); background:var(--c-accent-tint); }
-  .note-results { flex-shrink:0; max-height:42%; overflow:auto; border-bottom:1px solid var(--c-line); } .note-results p { margin:0; padding:5px 8px; color:var(--c-tx-muted); font:10.5px/1.4 var(--font-ui); } .note-results button { display:flex; flex-direction:column; gap:2px; width:100%; padding:5px 8px; border:0; border-bottom:1px solid var(--c-line); background:none; color:var(--c-tx-muted); text-align:left; font:10.5px var(--font-mono); cursor:var(--cursor-cross-hover); } .note-results button:hover { background:var(--c-surface-2); } .note-results .where { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .note-results b { color:var(--c-tx-hi); font-weight:500; } .note-results .ln { color:var(--c-tx-faint); } .note-results .snip { color:var(--c-tx-2); white-space:pre-wrap; overflow-wrap:anywhere; } .note-results mark { background:var(--c-accent-tint); color:var(--c-accent-bright); }
+  .note-results { flex-shrink:0; max-height:42%; overflow:auto; border-bottom:1px solid var(--c-line); } .note-results p { margin:0; padding:5px 8px; color:var(--c-tx-muted); font:10.5px/1.4 var(--font-ui); } .note-results button { display:flex; flex-direction:column; gap:2px; width:100%; padding:5px 8px; border:0; border-bottom:1px solid var(--c-line); background:none; color:var(--c-tx-muted); text-align:left; font:10.5px var(--font-mono); cursor:var(--cursor-cross-hover); } .note-results button:hover { background:var(--c-surface-2); } .note-results .where { display:flex; gap:4px; min-width:0; white-space:nowrap; } .note-results b { min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--c-tx-hi); font-weight:500; } .note-results .note { flex-shrink:0; } .note-results .ln { color:var(--c-tx-faint); } .note-results .snip { color:var(--c-tx-2); white-space:pre-wrap; overflow-wrap:anywhere; } .note-results mark { background:var(--c-accent-tint); color:var(--c-accent-bright); }
   .search-row { display: flex; align-items: center; gap: 6px; height: 26px; flex-shrink: 0; padding: 0 6px 0 8px; border-bottom: 1px solid var(--c-line); background: var(--c-bg); }
   .search-row:focus-within { border-bottom-color: var(--c-accent); }
   .mag { width: 12px; height: 12px; flex-shrink: 0; fill: none; stroke: var(--c-tx-muted); stroke-width: 1.7; }
