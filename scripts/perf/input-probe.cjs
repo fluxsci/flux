@@ -18,6 +18,9 @@
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
 //        --phases=zoomNavigate: quiet → rapid wide zoom-out → Shift-wheel to another figure → rezoom
+//          (PROBE_NAV_PREP=edit|editPan nudges a plot first — the owner's working rhythm; PROBE_NAV_REST=ms
+//          sets the rest before the burst, default 3500; PROBE_NAV_WARM=1 logs when the sharp plane and
+//          the canvas overview land after it)
 //        --precise-wheel: optional Electron trackpad deltas; records coalesced delivery separately
 //        [--layers] mid-drag compositor layer snapshot (CDP LayerTree: count, top layers, owning node, compositing reasons,
 //        the dragged element's will-change + document.getAnimations()) into results.layers — STRUCTURE ONLY: the LayerTree
@@ -199,7 +202,7 @@ async function nativeWheelBurst(x,y,dx,dy,count,modifiers=[]) {
   return {sent:count,delivered:actual.wheels-before.wheels,complete:true,expected,...actual};
 }
 function renderedCameraJs(root) {
-  return `(()=>{const sc=document.querySelector('${root} .scene'),g=document.querySelector('${root} .scene-svg > g'),proxy=document.querySelector('${root} .zoom-proxy.live');
+  return `(()=>{const sc=document.querySelector('${root} .scene'),g=document.querySelector('${root} .scene-svg > g'),proxy=document.querySelector('${root} .zoom-proxy.live')??document.querySelector('${root} .zoom-proxy-coarse.live');
     const matrix=n=>{const m=new DOMMatrix(getComputedStyle(n).transform);return{a:m.a,e:m.e,f:m.f}};
     const baked=Number(/scale\\(([-\\d.e]+)/.exec(g.getAttribute('transform'))?.[1]);
     const camera=(${renderedCamera.toString()})({proxy:proxy?{worldBox:proxy.dataset.worldBox,rasterSize:proxy.dataset.rasterSize,matrix:matrix(proxy)}:null,matrix:matrix(sc),baked});
@@ -220,7 +223,7 @@ window.addEventListener('wheel',(e)=>{
  const sample={index:p.wheels,timeStamp:stamp,entry,queueDelay:entry-stamp,deltaX:e.deltaX,deltaY:e.deltaY,ctrl:e.ctrlKey,shift:e.shiftKey};
  p.wheelSamples.push(sample);p.wheelQueueDelay.push(sample.queueDelay);
  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(phase!==p.phase||!p.running)return;const end=performance.now();sample.paint=end;sample.entryPaint=end-entry;sample.timestampPaint=end-stamp;p.wheelPaint.push(sample.timestampPaint);p.wheelEntryPaint.push(sample.entryPaint)}));
- if(e.ctrlKey)requestAnimationFrame(()=>{if(phase!==p.phase||!p.running)return;p.zoomTicks++;const live=!!document.querySelector('.zoom-proxy.live');if(live)p.proxyTicks++;if(p.mountLog&&p.proxyObserved&&!live&&!p.proxyAbort)p.proxyAbort=[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId);p.proxyObserved=live})
+ if(e.ctrlKey)requestAnimationFrame(()=>{if(phase!==p.phase||!p.running)return;p.zoomTicks++;const live=!!document.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live');if(live)p.proxyTicks++;if(p.mountLog&&p.proxyObserved&&!live&&!p.proxyAbort)p.proxyAbort=[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId);p.proxyObserved=live})
 },{capture:true,passive:true});
 // A query can overtake Electron's native wheel queue. At semantic stage
 // boundaries wait for actual delivery AND each delivered event's second rAF;
@@ -669,9 +672,30 @@ async function figurePhases(mode = 'figure') {
     if (wantPhase('zoomFast')) R.zoomFast = await measureFrames(`${mode}:${sc}:zoomFast`, region, async () => { ctrlDown(); for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); await sleep(600); }, tr('zoomFast'));
     if (wantPhase('zoomBursts')) R.zoomBursts = await measureFrames(`${mode}:${sc}:zoomBursts`, region, async () => { ctrlDown(); for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(16); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(16); } await sleep(320); } ctrlUp(); await sleep(600); }, tr('zoomBursts'));
     if (mode === 'figure' && wantPhase('zoomNavigate')) {
-      await sleep(3500);
+      // PROBE_NAV_PREP=edit|editPan: the owner's working rhythm before navigating
+      // away — nudge a plot (a content revision), optionally pan inside the
+      // figure, then rest PROBE_NAV_REST ms (default 3500) before the burst.
+      const prep = process.env.PROBE_NAV_PREP || '';
+      if (prep) {
+        await click(A.x, A.y, 20); await sleep(300);
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' });
+        await sleep(400);
+        if (prep === 'editPan') { for (let i = 0; i < 6; i++) { wheel(cx, cy, 0, 60); await sleep(16); } await sleep(400); }
+        await click(geo.empty.x, geo.empty.y, 10); await sleep(100);
+        log('navPrep', { prep });
+      }
+      {
+        if (process.env.PROBE_NAV_WARM === '1') {
+          // Diagnostic: when does a replacement capture land after the edit?
+          const snapAt = () => js(`(document.querySelector('${modeRoot} .zoom-proxy')?.dataset.snap ?? '-') + '/' + (document.querySelector('${modeRoot} .zoom-proxy-coarse[data-overview]')?.dataset.worldBox ?? 'no-overview')`);
+          const before = await snapAt(), t0 = Date.now(), seen = [];
+          while (Date.now() - t0 < 12000) { const v = await snapAt(); if (v !== (seen.at(-1)?.snap ?? before)) seen.push({ ms: Date.now() - t0, snap: v }); await sleep(50); }
+          log('navWarm', { before, seen });
+        }
+      }
+      await sleep(+(process.env.PROBE_NAV_REST || 3500));
       const navigation = `(()=>{const host=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
-        const proxy=document.querySelector('${modeRoot} .zoom-proxy.live');let panX,panY,zoom;
+        const proxy=document.querySelector('${modeRoot} .zoom-proxy.live')??document.querySelector('${modeRoot} .zoom-proxy-coarse.live');let panX,panY,zoom;
         if(proxy){const box=proxy.dataset.worldBox.split(' ').map(Number),size=proxy.dataset.rasterSize.split(' ').map(Number),m=new DOMMatrix(getComputedStyle(proxy).transform);zoom=m.a*size[0]/box[2];panX=m.e-zoom*box[0];panY=m.f-zoom*box[1];}
         else{const m=new DOMMatrix(getComputedStyle(document.querySelector('${modeRoot} .scene')).transform),g=document.querySelector('${modeRoot} .scene-svg > g');zoom=m.a*(Number(/scale\\(([-\\d.e]+)/.exec(g.getAttribute('transform'))?.[1])||1);panX=m.e;panY=m.f;}
         const frames=[...document.querySelectorAll('${modeRoot} g[data-annotation-figure]')].map(g=>{const r=g.querySelector(':scope > rect.figure-bg'),m=g.transform.baseVal.numberOfItems?g.transform.baseVal.getItem(0).matrix:null;return r?{id:g.dataset.annotationFigure,x:(m?.e||0)+Number(r.getAttribute('x'))+Number(r.getAttribute('width'))/2,y:(m?.f||0)+Number(r.getAttribute('y'))+Number(r.getAttribute('height'))/2}:null}).filter(Boolean);
@@ -731,7 +755,7 @@ async function figurePhases(mode = 'figure') {
         const at=await js(`(()=>{const host=document.querySelector('${modeRoot} .canvas-host');
           const frame=[...host.querySelectorAll('g[data-annotation-figure]')].find(n=>n.dataset.annotationFigure===${JSON.stringify(destination.id)});
           const element=${JSON.stringify(destination.elementId||null)}?host.querySelector('[data-editor-element-id="'+CSS.escape(${JSON.stringify(destination.elementId||'')})+'"]'):null;
-          const node=${JSON.stringify(destination.elementId||null)}?element:frame,b=node?.getBoundingClientRect();return{mounted:!!node,box:b?{left:b.left,top:b.top,right:b.right,bottom:b.bottom}:null}})()`);
+          const node=${JSON.stringify(destination.elementId||null)}?element:frame,b=node?.getBoundingClientRect();const parked=node?.closest('.parked');return{mounted:!!node,parkedBy:parked?(parked.getAttribute('data-editor-element-id')??parked.firstElementChild?.getAttribute('data-annotation-figure')??parked.className.baseVal):null,box:b?{left:b.left,top:b.top,right:b.right,bottom:b.bottom}:null}})()`);
         const ratio=end.zoom/moved.zoom;
         const landed={local,wheelAnchor:{x:px,y:py},expectedClient:{x:px+(aimed.x-px)*ratio,y:py+(aimed.y-py)*ratio},actualClient:{x:end.host.l+local.x,y:end.host.t+local.y},...at};
         const visible=local.x>=0&&local.x<=end.host.w&&local.y>=0&&local.y<=end.host.h;
