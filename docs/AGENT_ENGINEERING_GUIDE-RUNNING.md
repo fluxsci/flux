@@ -1055,15 +1055,21 @@ Persistence invariants (all machine-checked — do not weaken):
   contextual slice with two isolated tokens: that misdiagnoses sentence starts and abbreviations.
   Programmatically opened/reloaded documents get idle-paced, annotation-only backlog scans
   (`backlogScanWindows`), bounded to 300 red diagnostics and excluding the live caret's chunk.
-  `localSpelling.ts` normalizes Harper options. The issue popover offers ranked corrections,
-  a custom correction field and a + Personal-dictionary action; accepted corrections become
-  explicit durable mappings for future delimiter-triggered expansion. Profile revisions remove
-  accepted diagnostics immediately in active Paper editors in the same window; Chromium spellchecking is disabled
-  across the editor to prevent a second competing underline.
+  `localSpelling.ts` normalizes Harper options (Spelling/Typo kinds only: a/an or the/The
+  depend on position and must never become aliases). The issue popover offers ranked
+  corrections, a custom correction field and a + Personal-dictionary action; hover shows it
+  (closing on pointer exit or typing), a click gives it the keyboard. A picked, typed, or
+  hand-retyped-as-a-suggestion fix becomes a `learned` Personal alias for future
+  delimiter-triggered expansion; only a typed word Harper did not suggest joins the
+  dictionary. Profile revisions remove accepted diagnostics immediately in active Paper
+  editors in the same window; Chromium spellchecking is disabled across the editor so there
+  is one underline system.
   Project and Personal language data use the versioned `localCorrectionProfile.ts` profile.
   Project aliases take precedence. Explicit alias expansion joins the delimiter's transaction,
-  so Undo is exact. The neuroscience/biology seed is applied once per vocabulary version to the
-  Personal profile; user additions, edits and subsequent removals survive reopen. Personal
+  so Undo is exact. The neuroscience/biology seed (`scientificVocabulary.ts`) is versioned
+  blocks: a profile receives only blocks newer than its version, so removals survive; a
+  withdrawn entry leaves only while still seed-provided. Seed entries are single words —
+  Harper checks `in-vivo` as `in` + `vivo`, so a joined phrase never matched. Personal
   data persists through `electron/ipc/languageProfiles.cjs` in
   `<FluxConfig>/Language/corrections.json`; project data is `.flux/corrections.json`.
   `localWordTools.ts` owns dictionary/alias controls and their Vim-proof `Prec.highest` chords.

@@ -29,7 +29,7 @@ import {
   windowStartsSentence,
 } from "../src/shell/modes/paper/editing/localCorrectionBoundary";
 import { normalizeSpellingCandidates } from "../src/shell/modes/paper/editing/localSpelling";
-import { SCIENTIFIC_VOCABULARY } from "../src/shell/modes/paper/editing/scientificVocabulary";
+import { RETIRED_SEED_WORDS, SCIENTIFIC_VOCABULARY, SCIENTIFIC_VOCABULARY_BY_VERSION } from "../src/shell/modes/paper/editing/scientificVocabulary";
 
 const h = harness("verify-local-corrections");
 const lint = (
@@ -408,6 +408,16 @@ h.section("explicit spelling choices and vocabulary seed");
   const reopened = new LocalCorrectionProfile("seed-test",storage);
   await reopened.ready();
   h.ok(!reopened.hasWord("glutamate","personal"), "an intentional removal stays removed after profile reopen");
+  // A version-1 profile (the first seed) upgrades by adding only newer blocks.
+  const v1Seed = SCIENTIFIC_VOCABULARY_BY_VERSION[0].filter(word => word !== "glutamate");
+  const v1Values = new Map<string, string>([["flux.paper.localLanguage.v2", JSON.stringify({ version: 2, personal: { words: [...v1Seed, "in-vivo", "slow-wave", "ipsilateral"], aliases: [], scientificVocabularyVersion: 1, scientificSeedWords: [...v1Seed, "in-vivo", "behaviour"] }, projects: {} })]]);
+  const v1Storage = { getItem: (key: string) => v1Values.get(key) ?? null, setItem: (key: string, value: string) => void v1Values.set(key, value) };
+  const upgraded = new LocalCorrectionProfile("v1-profile", v1Storage);
+  await upgraded.ready();
+  h.ok(["vivo", "coeruleus", "tdTomato", "ANOVA"].every(word => upgraded.hasWord(word, "personal")), "upgrading a version-1 profile adds the newer vocabulary block");
+  h.ok(!upgraded.hasWord("glutamate", "personal"), "a seed word the user removed under version 1 stays removed after the upgrade");
+  h.ok(!upgraded.hasWord("in-vivo", "personal") && upgraded.hasWord("slow-wave", "personal") && upgraded.hasWord("ipsilateral", "personal"), "withdrawn seed entries leave while user-authored words, even matching ones, stay");
+  h.ok(RETIRED_SEED_WORDS.every(word => !SCIENTIFIC_VOCABULARY.includes(word)) && SCIENTIFIC_VOCABULARY.every(word => !word.includes("-")), "the catalog holds single words, as Harper checks them");
   profile.setAlias("enviroment","environment","personal");
   const learned = new LocalCorrectionProfile("other-project",storage);
   h.eq(learned.resolveAlias("enviroment")?.expansion,"environment","a personal correction mapping survives reopening and follows the user across projects");

@@ -6,6 +6,7 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 import {fileLinksSupported} from './lib/symlinks.mjs';
 import {LocalCorrectionProfile} from '../src/shell/modes/paper/editing/localCorrectionProfile';
+import {SCIENTIFIC_VOCABULARY_VERSION} from '../src/shell/modes/paper/editing/scientificVocabulary';
 const require=createRequire(import.meta.url);
 const {registerLanguageProfiles}=require('../electron/ipc/languageProfiles.cjs');
 const root=mkdtempSync(path.join(tmpdir(),'flux-language-profile-'));
@@ -74,7 +75,7 @@ try{
   await Promise.resolve();
   assert.equal(writes,0,'neither initial seed nor explicit mutations overwrite an unreadable native profile');
   assert.ok(notices.some(message=>message.includes('injected corrupt profile')),'the failure is visible to the editor UI');
-  (globalThis as any).window={fig:{correctionProfileGet:async()=>({personal:{words:[],aliases:[],scientificVocabularyVersion:1},project:{words:[],aliases:[],blockedPairs:[]}}),correctionProfileSet:async()=>{writes++;throw Error('disk full');}},dispatchEvent:(event:CustomEvent)=>{notices.push(event.detail.message);return true;}};
+  (globalThis as any).window={fig:{correctionProfileGet:async()=>({personal:{words:[],aliases:[],scientificVocabularyVersion:SCIENTIFIC_VOCABULARY_VERSION},project:{words:[],aliases:[],blockedPairs:[]}}),correctionProfileSet:async()=>{writes++;throw Error('disk full');}},dispatchEvent:(event:CustomEvent)=>{notices.push(event.detail.message);return true;}};
   const clean=new LocalCorrectionProfile('clean-test',storage);assert.equal(await clean.ready(),true);
   assert.deepEqual(clean.words('personal'),[],'an intentionally empty, versioned durable dictionary stays empty');
   clean.addWord('authoredWord','personal');await Promise.resolve();await Promise.resolve();
