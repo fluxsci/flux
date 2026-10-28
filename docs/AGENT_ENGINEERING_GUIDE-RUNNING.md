@@ -2135,16 +2135,26 @@ Persistence invariants (all machine-checked — do not weaken):
   Gates: `group:plots-rail` (five pure + `verify-plots-rail.mjs`, `-p3.mjs`, `-slide.mjs`),
   `verify-asar-unpack-closure.ts`, `group:plots-rail-native`.
   **Folders/notes:** Alt+/ swaps the lower pane to a searchable, windowed full plot-folder
-  tree excluding reserved companion folders. Plot Notes creates multiple ordinary .txt
-  companions; the gallery's Notes search indexes their contents once per source revision,
-  then filters in memory across the project. `dissect:saveNote` checks the sender's project,
+  tree excluding reserved companion folders, with per-folder counts from the gallery's own
+  index (`folderCounts`); it calls `GalleryPane.showFolder` directly. The chosen folder and the
+  open navigator live in `railState` (`railFolder`, `railFoldersOpen`) for the session: Alt+G
+  unmounts the gallery, and a scope that reset on every flip was the bug. Plot Notes creates
+  multiple ordinary .txt companions; the gallery's Notes search indexes their contents once per
+  source revision, then filters in memory across the project. A hit calls `offerFile` on the
+  note's own path, so the focus target carries `file: {group, name}` and DissectionsPane opens
+  that note in its Notes view (a double-clicked .txt does the same) — no fullscreen detour.
+  `dissect:saveNote` checks the sender's project,
   strict portable names, symlink-free containment and exact old text before atomic writes.
   `noteDraftCore` drains new edits arriving during an in-flight write; `noteDrafts` retains
   dirty/conflicting owners in the shell flush registry across view eviction. Keep conflicts
   visible and preserve drafts, including pinned utility views. `previewBackdrop` shares the
   rail's ink-analysis law with Space/fullscreen/gallery/dissection image previews; it keys
-  thumbnail analysis by stamp and cancels stale callbacks. Tile names stay in aria-labels,
-  without a native title tooltip obscuring Peek.
+  thumbnail analysis by stamp and cancels stale callbacks. Apply it to a PAGE sized to the
+  image (DissectDetail's `.page`, DissectCell's and GalleryPreview's), never to the whole
+  stage or cell — a flooded stage reads as a cream wall around a small plot. Fit those pages
+  in CSS container units (`min(100cqw, 100cqh * aspect)`), not per-tile ResizeObservers:
+  observers bound in the opener stop delivering once the subtree is adopted by a utility
+  window. Tile names stay in aria-labels, without a native title tooltip obscuring Peek.
 - **The Plot gallery (Shift+Alt+G pinned; the toolbar's Gallery) is an editor-owned utility view.** Gallery/list, preview size
   (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
   `GalleryTree` reads only expanded directories, windows its rows and includes explicit
