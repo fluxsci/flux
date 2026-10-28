@@ -5,7 +5,7 @@ import { writable } from 'svelte/store';
 import type { Element as SceneElement, SemanticPlotElement } from '../types';
 import { rotatedAABB, rotatePoint, rectIntersectsElement, unionRect, type Rect } from '../geometry';
 import { insideDefs } from './derive';
-import { applyToPoint, compose, parseTransform, transformToAncestor, type SvgMatrix } from './svgMatrix';
+import { compose, parseTransform, transformToAncestor, type SvgMatrix } from './svgMatrix';
 
 const bounds=new Map<string,{root:SVGSVGElement;rect:Rect|null;width:number;height:number}>();
 export const plotBoundsRevision=writable(0);
@@ -34,10 +34,11 @@ export function measureVisiblePlotBounds(root:SVGSVGElement,element:Pick<Semanti
   const styleOf=(node:Element)=>{let style=styles.get(node);if(!style){style=getComputedStyle(node);styles.set(node,style);}return style;};
   const placement:SvgMatrix=[element.width/view[2],0,0,element.height/view[3],-view[0]*element.width/view[2],-view[1]*element.height/view[3]];
   const screenUnitsToPlacement=compose(placement,[inverse.a,inverse.b,inverse.c,inverse.d,inverse.e,inverse.f]);
-  const screenToPlacement=(matrix:DOMMatrix):SvgMatrix=>{const m=inverse.multiply(matrix);return compose(placement,[m.a,m.b,m.c,m.d,m.e,m.f]);};
-  const mappedBox=(box:{x:number;y:number;width:number;height:number},matrix:SvgMatrix):Rect=>{
-    const points=[[box.x,box.y],[box.x+box.width,box.y],[box.x+box.width,box.y+box.height],[box.x,box.y+box.height]].map(([x,y])=>applyToPoint({x,y},matrix));
-    const x=Math.min(...points.map(p=>p.x)),y=Math.min(...points.map(p=>p.y));return{x,y,w:Math.max(...points.map(p=>p.x))-x,h:Math.max(...points.map(p=>p.y))-y};
+  const screenToPlacement=(m:DOMMatrix):SvgMatrix=>compose(screenUnitsToPlacement,[m.a,m.b,m.c,m.d,m.e,m.f]);
+  // An affine image of a rectangle: its extent is the centre ± the absolute half-axes.
+  const mappedBox=(box:{x:number;y:number;width:number;height:number},[a,b,c,d,e,f]:SvgMatrix):Rect=>{
+    const hw=box.width/2,hh=box.height/2,cx=box.x+hw,cy=box.y+hh,w=Math.abs(a)*hw+Math.abs(c)*hh,h=Math.abs(b)*hw+Math.abs(d)*hh;
+    return{x:a*cx+c*cy+e-w,y:b*cx+d*cy+f-h,w:2*w,h:2*h};
   };
   const clipsOverflow=(value:string)=>['hidden','clip','scroll','auto'].includes(value);
   const crop=!!element.crop,rootStyle=styleOf(root),clipX=crop||clipsOverflow(rootStyle.overflowX),clipY=crop||clipsOverflow(rootStyle.overflowY);
@@ -99,9 +100,9 @@ export function measureVisiblePlotBounds(root:SVGSVGElement,element:Pick<Semanti
   };
   const isHidden=(node:Element):boolean=>{
     const known=hidden.get(node);if(known!==undefined)return known;
-    const style=styleOf(node);
-    const invisible=node!==root&&!!node.parentElement&&isHidden(node.parentElement)||style.display==='none'||Number(style.opacity||1)===0||node.getAttribute('data-role')==='background';
-    hidden.set(node,!!invisible);return !!invisible;
+    let invisible=node!==root&&!!node.parentElement&&isHidden(node.parentElement)||node.getAttribute('data-role')==='background';
+    if(!invisible){const style=styleOf(node);invisible=style.display==='none'||Number(style.opacity||1)===0;}
+    hidden.set(node,invisible);return invisible;
   };
   for(const node of Array.from(root.querySelectorAll<SVGGraphicsElement>(drawables))){
     if(insideDefs(node)||isHidden(node)||typeof node.getBBox!=='function')continue;
@@ -128,11 +129,26 @@ export function measureVisiblePlotBounds(root:SVGSVGElement,element:Pick<Semanti
   visiblePlotBoundsStats.lastMs=performance.now()-started;return unionRect(rects);
 }
 
-export function updatePlotVisibleBounds(root:SVGSVGElement,element:SemanticPlotElement):Rect|null|undefined {
-  if(!Object.values(element.overrides??{}).some(ov=>ov.hidden===true||ov.opacity===0)){
+export const hidesPlotParts=(element:Pick<SemanticPlotElement,'overrides'>)=>Object.values(element.overrides??{}).some(ov=>ov.hidden===true||ov.opacity===0);
+// A measurement is a function of the mounted content alone: the cached source
+// DOM and its mount signature. Re-mounting the same content (culling, figure
+// switches, Undo of a hide) reuses it instead of walking the plot again.
+// A late web font changes text extents, so it retires every cached measurement.
+let measured=new WeakMap<Element,Map<string,Rect|null>>();
+if(typeof document!=='undefined')document.fonts?.addEventListener?.('loadingdone',()=>{measured=new WeakMap();});
+export interface PlotBoundsSource {dom:Element;key:string}
+export const hasMeasuredPlotBounds=(source:PlotBoundsSource)=>!!measured.get(source.dom)?.has(source.key);
+export function updatePlotVisibleBounds(root:SVGSVGElement,element:SemanticPlotElement,source?:PlotBoundsSource):Rect|null|undefined {
+  if(!hidesPlotParts(element)){
     const previous=bounds.get(element.id);if(previous){bounds.delete(element.id);plotBoundsRevision.update(n=>n+1);}return undefined;
   }
-  const rect=measureVisiblePlotBounds(root,element),previous=bounds.get(element.id);
+  let cache=source&&measured.get(source.dom),rect:Rect|null;
+  if(source&&cache?.has(source.key))rect=cache.get(source.key)!;
+  else{
+    rect=measureVisiblePlotBounds(root,element);
+    if(source){if(!cache)measured.set(source.dom,cache=new Map());if(cache.size>=32)cache.delete(cache.keys().next().value!);cache.set(source.key,rect);}
+  }
+  const previous=bounds.get(element.id);
   bounds.set(element.id,{root,rect,width:element.width,height:element.height});if(!previous||!same(previous.rect,rect))plotBoundsRevision.update(n=>n+1);
   return rect;
 }

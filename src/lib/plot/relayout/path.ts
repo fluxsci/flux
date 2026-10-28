@@ -1,5 +1,4 @@
 /** Matplotlib's absolute SVG path dialect. No DOM and no font measurement. */
-import type { SvgMatrix } from '../svgMatrix';
 export interface MplPath { commands: string[]; vertices: Float64Array }
 const arity: Record<string, number> = { M: 2, L: 2, Q: 4, C: 6, Z: 0 };
 export function parseMplPath(source: string): MplPath | null {
@@ -29,12 +28,11 @@ export const mplNumber = (v: number): string => {
   if (!Number.isFinite(v)) throw new Error("Non-finite relayout coordinate");
   return String(Math.round(v*1e6)/1e6);
 };
-export function writeMplPath(path: MplPath, affine: {sx:number;sy:number;tx:number;ty:number} | SvgMatrix = { sx: 1, sy: 1, tx: 0, ty: 0 }): string {
-  const m: SvgMatrix = 'sx' in affine ? [affine.sx, 0, 0, affine.sy, affine.tx, affine.ty] : affine;
+export function writeMplPath(path: MplPath, affine = { sx: 1, sy: 1, tx: 0, ty: 0 }): string {
   let i=0,out='',separator='';
   for(const cmd of path.commands){
     out+=separator+cmd;separator=' ';
-    for(let j=0;j<arity[cmd];j+=2){const x=path.vertices[i++],y=path.vertices[i++];out+=' '+mplNumber(x*m[0]+y*m[2]+m[4])+' '+mplNumber(x*m[1]+y*m[3]+m[5]);}
+    for(let j=0;j<arity[cmd];j+=2)out+=' '+mplNumber(path.vertices[i++]*affine.sx+affine.tx)+' '+mplNumber(path.vertices[i++]*affine.sy+affine.ty);
   }
   return out;
 }

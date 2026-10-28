@@ -2509,6 +2509,10 @@
   // only when the press never became a drag.
   let pendingClickSelect: Set<string> | null = null;
 
+  // Snapping, spacing and the caliper measure to what a plot with hidden parts
+  // still draws, like its selection outline (null: nothing left to align to).
+  const visibleBox = (el: Element) => el.type === "plot" && localPlotVisibleBounds(el.id) !== undefined ? plotAwareSelectionBBox([el]) : elementBBox(el);
+
   function beginMove(e: PointerEvent, fig: Figure) {
     const sel = selectedEls(fig);
     // Alt-drag = duplicate-on-drag (Figma-style). FIG-9: the duplication is DEFERRED
@@ -2520,7 +2524,7 @@
     const origs = new Map<string, Element>();
     for (const el of sel) origs.set(el.id, structuredClone(el));
     const ob = plotAwareSelectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
-    const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
+    const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides, visibleBox);
     const w0 = clientToWorld(e.clientX, e.clientY);
     gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, wx: w0.x, wy: w0.y, origs, ob, xs, ys };
     gestureFig = fig;
@@ -2736,7 +2740,7 @@
     const origs = new Map<string, Element>();
     for (const el of copies) origs.set(el.id, structuredClone(el));
     g.origs = origs;
-    const t = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(newIds), { w: fig.width, h: fig.height }, fig.guides);
+    const t = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(newIds), { w: fig.width, h: fig.height }, fig.guides, visibleBox);
     g.xs = t.xs;
     g.ys = t.ys;
   }
@@ -2952,7 +2956,7 @@
       dx: handle.includes("e") || handle.includes("w") ? lp0.x - ex : 0,
       dy: handle.includes("n") || handle.includes("s") ? lp0.y - ey : 0,
     };
-    const { xs, ys } = boxSnapTargets(fig.elements.filter((el) => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
+    const { xs, ys } = boxSnapTargets(fig.elements.filter((el) => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides, visibleBox);
     gesture = { kind: "resize", figId: fig.id, handle, ob: { ...overlayBox }, origs, scale: $activeTool === "scale", crop, grab, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
@@ -3251,7 +3255,7 @@
         const sY = snap([my, my + g.ob.h / 2, my + g.ob.h], g.ys, thr);
         // sibling bboxes for equal-spacing (F7) — excludes the moving set + hidden
         const movedIds = new Set(gestureEls.map((el) => el.id));
-        const sibs = fig.elements.filter((el) => !movedIds.has(el.id) && !el.hidden && !absentPresentationIds.has(el.id)).map(elementBBox);
+        const sibs = fig.elements.filter((el) => !movedIds.has(el.id) && !el.hidden && !absentPresentationIds.has(el.id)).map(visibleBox).filter((b): b is NonNullable<typeof b> => !!b);
         if (sX.line != null && lockAxis !== "y") {
           dx += sX.off;
           nextGuides.push({ x: sX.line });
@@ -4452,7 +4456,8 @@
     const lines: { x1: number; y1: number; x2: number; y2: number; label: string }[] = [];
     const tgt = $hoverId && !$selection.has($hoverId) ? af.elements.find((e) => e.id === $hoverId && !e.hidden && !absentPresentationIds.has(e.id)) : null;
     if (tgt) {
-      const T = elementBBox(tgt);
+      const T = visibleBox(tgt);
+      if (!T) return null;
       const g = gapBetween(S, T);
       if (!g.overlapX) {
         const L = S.x < T.x ? S : T;

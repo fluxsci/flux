@@ -26,18 +26,21 @@ export function snap(edges: number[], targets: number[], thr: number): { off: nu
 
 /** Snap targets from a frame (edges + centre) plus every non-excluded element's
  *  bbox edges/centres, plus optional ruler guides. Preserves both originals
- *  exactly: no hidden-element filtering (Canvas never filtered here). */
+ *  exactly: no hidden-element filtering (Canvas never filtered here). `boxOf`
+ *  lets Canvas snap to what a plot with hidden parts still draws (null: nothing). */
 export function boxSnapTargets<E extends ElementBase>(
   els: readonly E[],
   excludeIds: Set<string>,
   frame: { w: number; h: number },
   guides?: { x?: number[]; y?: number[] },
+  boxOf: (el: E) => { x: number; y: number; w: number; h: number } | null = elementBBox,
 ): { xs: number[]; ys: number[] } {
   const xs = [0, frame.w, frame.w / 2];
   const ys = [0, frame.h, frame.h / 2];
   for (const el of els) {
     if (excludeIds.has(el.id)) continue;
-    const b = elementBBox(el);
+    const b = boxOf(el);
+    if (!b) continue;
     xs.push(b.x, b.x + b.w, b.x + b.w / 2);
     ys.push(b.y, b.y + b.h, b.y + b.h / 2);
   }

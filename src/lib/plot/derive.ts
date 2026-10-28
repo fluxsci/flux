@@ -105,12 +105,30 @@ function mergeUseStyle(target: Element, use: Element): void {
   if (changed) target.setAttribute("style", styleString(own));
 }
 
+const NUMBER = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
+/** matplotlib routes two different things through <defs> + <use>. Markers
+ *  (draw_markers) are drawn in points about the origin and the use places
+ *  them. A single-path collection (fill_between, hexbin) is already in display
+ *  coordinates; the use adds only the collection offset. Returns that path with
+ *  the offset baked into its absolute vertices, or null for anything else. */
+function displaySpacePath(def: Element, x: number, y: number): string | null {
+  const d = def.getAttribute("d");
+  if (def.localName !== "path" || def.hasAttribute("transform") || !d || !/^[\sMLCQZz\d.eE+,-]+$/.test(d)) return null;
+  const v = d.match(NUMBER)?.map(Number) ?? [];
+  if (v.length < 2 || v.length % 2) return null;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < v.length; i += 2) { x0 = Math.min(x0, v[i]); x1 = Math.max(x1, v[i]); y0 = Math.min(y0, v[i + 1]); y1 = Math.max(y1, v[i + 1]); }
+  if (x0 <= 0 && x1 >= 0 && y0 <= 0 && y1 >= 0) return null; // centred on the origin: a marker
+  let i = 0;
+  return d.replace(NUMBER, (n) => String(Math.round((Number(n) + (i++ % 2 ? y : x)) * 1e6) / 1e6));
+}
+
 /** Replace every `<use href="#X">` that references <defs> content with its own
  *  cloned copy of X, so each instance is independently styleable. The clone
  *  keeps the USE's identity (semantic id, if any); the def's id is stripped
  *  from the clone (it would collide across instances). Defs that end up with
  *  no remaining <use> references are removed. */
-function inlineDefUses(root: Element, manifest?: FluxPlotManifest): void {
+function inlineDefUses(root: Element): void {
   const doc = root.ownerDocument;
   if (!doc) return;
   const inlinedDefIds = new Set<string>();
@@ -128,11 +146,15 @@ function inlineDefUses(root: Element, manifest?: FluxPlotManifest): void {
     mergeUseStyle(clone, use);
 
     // Carry the use's placement: x/y become a translate prepended to the use's
-    // own transform (matplotlib puts tick/marker positions on the <use>).
+    // own transform (matplotlib puts tick/marker positions on the <use>). A
+    // display-space collection path takes its offset into its vertices instead:
+    // it is data geometry, which relayout and view projection move vertex-wise.
     const x = parseFloat(use.getAttribute("x") ?? "0") || 0;
     const y = parseFloat(use.getAttribute("y") ?? "0") || 0;
     const useTransform = use.getAttribute("transform") ?? "";
-    const translate = x || y ? `translate(${x} ${y})` : "";
+    const data = useTransform ? null : displaySpacePath(target, x, y);
+    if (data) clone.setAttribute("d", data);
+    const translate = (x || y) && !data ? `translate(${x} ${y})` : "";
     const combined = [translate, useTransform].filter(Boolean).join(" ");
 
     // The clone IS the replacement: identity + placement land directly on it.
@@ -148,17 +170,10 @@ function inlineDefUses(root: Element, manifest?: FluxPlotManifest): void {
       if (attr.name.startsWith("data-")) replacement.setAttribute(attr.name, attr.value);
     }
 
-    // A <use> is storage, not a coordinate-frame declaration: matplotlib also
-    // emits fill_between polygons this way (negative y, figure-height translate).
-    // The captured frame takes precedence over the fixed-size symbol fallback.
-    let frame: NonNullable<FluxPlotManifest['layout']>['frames'][string] | undefined;
-    let glyphRole=false,dataRole=false;
-    for (let owner: Element | null = use; owner && !frame; owner = owner.parentElement) {
-      if(['point','marker','tick','cap','mean','median'].includes(owner.getAttribute('data-role')??''))glyphRole=true;
-      if(['area','region','cell','contour-level'].includes(owner.getAttribute('data-role')??''))dataRole=true;
-      frame = manifest?.layout?.frames[owner.getAttribute('id') ?? ''];
-    }
-    if (glyphRole || (frame ? !['data', 'axes', 'blend', 'figure', 'image'].includes(frame.f) : !dataRole)) replacement.setAttribute("data-flux-glyph", "1");
+    // Everything else is a fixed-size GLYPH (tick, marker, path text): its size
+    // is in points, not data units, and pt-true compensation and relayout
+    // counter-scale it about its anchor.
+    if (!data) replacement.setAttribute("data-flux-glyph", "1");
     use.replaceWith(replacement);
     inlinedDefIds.add(refId);
   }
@@ -204,9 +219,9 @@ function stampIds(root: Element): void {
 /** Mutates the cached pristine DOM in place. Idempotent: running twice yields
  *  the same tree (sanitize removes nothing new, all defs-uses already inlined,
  *  id stamping only fills gaps deterministically). */
-export function normalizeSvgForParts(root: Element, manifest?: FluxPlotManifest): void {
+export function normalizeSvgForParts(root: Element): void {
   sanitize(root);
-  inlineDefUses(root, manifest);
+  inlineDefUses(root);
   stampIds(root);
 }
 

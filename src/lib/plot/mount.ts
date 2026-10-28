@@ -19,7 +19,7 @@ import { applyOverrides, prefixIds } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
 import { relayoutPlot } from "./relayout";
 import { registerRelayoutPreview } from "./relayout/previewPaint";
-import { updatePlotVisibleBounds, clearPlotVisibleBounds } from './visibleBounds';
+import { updatePlotVisibleBounds, clearPlotVisibleBounds, hidesPlotParts, hasMeasuredPlotBounds } from './visibleBounds';
 import type { Rect } from '../geometry';
 
 // Content signature: anything that requires a fresh clone + override/compensate
@@ -166,11 +166,11 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     unregisterPreview=registerRelayoutPreview(inst,manifest,element);
     // Actions may run before the outer scene is attached. A microtask observes
     // the completed DOM commit; stale callbacks never publish a prior mount.
-    const generation=++measureGeneration,current=inst;
-    const publish=()=>{if(generation===measureGeneration&&current.isConnected){boundsRoot=current;onBounds?.(updatePlotVisibleBounds(current,element));}};
+    const generation=++measureGeneration,current=inst,source={dom:cached,key:sig};
+    const publish=()=>{if(generation===measureGeneration&&current.isConnected){boundsRoot=current;onBounds?.(updatePlotVisibleBounds(current,element,source));}};
     queueMicrotask(()=>{
       if(generation!==measureGeneration||!current.isConnected)return;
-      if(!Object.values(element.overrides??{}).some(ov=>ov.hidden===true||ov.opacity===0)||current.getClientRects().length)publish();
+      if(!hidesPlotParts(element)||hasMeasuredPlotBounds(source)||current.getClientRects().length)publish();
       else pendingBounds.set(current,publish);
     });
   }

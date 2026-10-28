@@ -6,7 +6,6 @@ import { mplNumber as n, parseMplPath, writeMplPath, type MplPath } from "./path
 import { restoreOverrideTranslations, plotPartPrefix, drawablesUnder, restorePlotClip } from "../parse";
 import {writeMathLabel} from "./mathLabel";
 import { arrowPaths } from "./arrows";
-import { compose, parseTransform } from '../svgMatrix';
 import { legendGeometry, type LegendGeometry } from './legend';
 interface Affine {sx:number;sy:number;tx:number;ty:number}
 const affine=(a:Box,b:Box):Affine=>{const sx=width(b)/width(a),sy=height(b)/height(a);return {sx,sy,tx:b.x0-a.x0*sx,ty:b.y0-a.y0*sy};};
@@ -25,8 +24,11 @@ function setPath(s:State,b:Binding,value:string){
   if(b.el.getAttribute('d')!==value)b.el.setAttribute('d',value);
 }
 function resizeLegendBackground(s:State,legend:Element,old:RelayoutModel['layout']['legends'][number],plan:LegendGeometry):void {
-  if(!(old.sizePt[0]>0&&old.sizePt[1]>0))return;
-  const sx=plan.width/old.sizePt[0],sy=plan.height/old.sizePt[1],fit={sx,sy,tx:old.bbox[0]*(1-sx),ty:old.bbox[1]*(1-sy)};
+  const [x0,y0]=old.bbox,[w0,h0]=old.sizePt;
+  if(!(w0>0&&h0>0))return;
+  // Nine-slice: each vertex keeps its distance to the nearer edge, so a fancybox
+  // frame's rounded corners keep their radius while the wrapped legend reshapes it.
+  const along=(v:number,o:number,size:number,next:number)=>v-o<=size/2?v:v+next-size,x=(v:number)=>along(v,x0,w0,plan.width),y=(v:number)=>along(v,y0,h0,plan.height);
   for(const frame of Array.from(legend.querySelectorAll('[data-role="background"]')))for(const node of drawablesUnder(frame)){
     const pristine=s.pristine.get(node),original=(key:string)=>pristine&&key in pristine?pristine[key]:node.getAttribute(key);
     if(!plan.entries.size){
@@ -36,10 +38,11 @@ function resizeLegendBackground(s:State,legend:Element,old:RelayoutModel['layout
     }
     const tag=node.tagName.toLowerCase();
     if(tag==='path'){
-      const path=parseMplPath(original('d')??'');if(path)set(s,node,'d',writeMplPath(path,fit));
+      const path=parseMplPath(original('d')??'');if(!path)continue;
+      const vertices=path.vertices.map((v,i)=>i%2?y(v):x(v));set(s,node,'d',writeMplPath({commands:path.commands,vertices}));
     }else if(tag==='rect'){
-      const x=Number(original('x')??0),y=Number(original('y')??0),w=Number(original('width')??0),h=Number(original('height')??0);
-      for(const [key,value]of Object.entries({x:x*sx+fit.tx,y:y*sy+fit.ty,width:w*sx,height:h*sy}))set(s,node,key,n(value));
+      const rx=Number(original('x')??0),ry=Number(original('y')??0),rw=Number(original('width')??0),rh=Number(original('height')??0);
+      for(const [key,value]of Object.entries({x:x(rx),y:y(ry),width:x(rx+rw)-x(rx),height:y(ry+rh)-y(ry)}))set(s,node,key,n(value));
     }
   }
 }
@@ -159,16 +162,7 @@ export function applyRelayout(root:Element,model:RelayoutModel,sol:RelayoutSolut
   const translate=(b:Binding,dx:number,dy:number)=>set(s,b.el,"transform",`translate(${n(dx)} ${n(dy)})${b.transform?" "+b.transform:""}`);
   for(const b of s.bindings){
     const f=b.frame;
-    if(b.path&&f.f==='data'&&!options.skipData){
-      const a=f.axes?dataFits.get(f.axes):fig;
-      if(a){
-        // A normalized collection path retains the <use>'s placement transform.
-        // Bake it BEFORE the data affine, retaining physical stroke widths.
-        if(b.transform){setPath(s,b,writeMplPath(b.path,compose([a.sx,0,0,a.sy,a.tx,a.ty],parseTransform(b.transform))));set(s,b.el,'transform','');}
-        else setPath(s,b,writeMplPath(b.path,a));
-      }
-      continue;
-    }
+    if(b.path&&f.f==='data'&&!options.skipData){const a=f.axes?dataFits.get(f.axes):fig;if(a)setPath(s,b,writeMplPath(b.path,a));continue;}
     if(options.skipData&&['data','glyph','blend','image'].includes(f.f))continue;const boxFit=f.axes?fits.get(f.axes):fig,dataFit=f.axes?dataFits.get(f.axes):fig;
     let a=boxFit;if(!a||!dataFit)continue;
     if(['data','glyph','image'].includes(f.f))a=dataFit;
