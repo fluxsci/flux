@@ -641,7 +641,7 @@ const TOOL_KEYS: Record<string, Tool> = {
 // Shift+Alt+R opens on the FAMILY: each drilled part widens one level first
 // (one tick label → its tick labels; an axis title → its axis — rowContext
 // partFamily), and that pick is published to the canvas before the X-ray opens.
-function openXray(family = false) {
+function openXray(family = false): boolean {
   if (family) widenPartsToFamily();
   const p = get(project);
   const ps = get(partSelection);
@@ -654,25 +654,25 @@ function openXray(family = false) {
       if (el && (el.type === "plot" || el.type === "model3d")) {
         xrayRoot.set({ kind: "element", figId: f.id, elementId: el.id });
         xrayOpen.set(true);
-        return;
+        return true;
       }
     }
   }
-  if (sel.size === 0) return;
+  if (sel.size === 0) return false;
   const fig = p.figures.find((f) => f.elements.some((e) => sel.has(e.id)));
-  if (!fig) return;
+  if (!fig) return false;
   const els = fig.elements.filter((e) => sel.has(e.id));
   if (els.length === 1 && (els[0].type === "plot" || els[0].type === "model3d")) {
     xrayRoot.set({ kind: "element", figId: fig.id, elementId: els[0].id });
     xrayOpen.set(true);
-    return;
+    return true;
   }
   // Several plots selected → ONE multi-plot x-ray: each plot's tree side by
   // side, plus the parts they all share (hide the x-axis of four plots at once).
   if (els.length > 1 && els.every((e) => e.type === "plot" || e.type === "model3d")) {
     xrayRoot.set({ kind: "elements", figId: fig.id, elementIds: els.map((e) => e.id) });
     xrayOpen.set(true);
-    return;
+    return true;
   }
   const scope = get(enteredGroupId);
   const groupRoot = (): string | null => {
@@ -693,14 +693,15 @@ function openXray(family = false) {
   if (gid) {
     xrayRoot.set({ kind: "group", figId: fig.id, groupId: gid });
     xrayOpen.set(true);
-    return;
+    return true;
   }
   // A mixed selection (Ctrl+A: plots + panel letters + text): x-ray its plots.
   const plots = els.filter((e) => e.type === "plot" || e.type === "model3d");
   if (plots.length === 1) xrayRoot.set({ kind: "element", figId: fig.id, elementId: plots[0].id });
   else if (plots.length > 1) xrayRoot.set({ kind: "elements", figId: fig.id, elementIds: plots.map((e) => e.id) });
-  else return;
+  else return false;
   xrayOpen.set(true);
+  return true;
 }
 
 /** Every drilled plot part → its family, one level up (deduped). A part at the top of its plot
@@ -767,11 +768,10 @@ export function handleKey(e: KeyboardEvent) {
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
   // Alt+G — the Plots rail, in every mode that has one (Figure's [Layers | Plots], Slide's
-  // [Slides | Plots]: railState's host registry). Works while typing, so the round trip from
-  // the rail's own search box lands:
+  // [Slides | Plots]: railState's host registry). A toggle; it also works from the rail's own
+  // search box (other text fields keep the chord):
   //   rail hidden or showing its other view → show Plots, focus its search;
-  //   Plots showing, keyboard elsewhere → focus its search;
-  //   keyboard inside the rail → back to the other view, keyboard back to the canvas.
+  //   Plots showing → back to the other view, keyboard back to the canvas.
   // Shift+Alt+G opens the full gallery, pinned (unchanged).
   const railHost = e.altKey && !mod && e.code === "KeyG" && !e.shiftKey ? railHostFor(storeTenant()) : null;
   if (railHost && (!typing || inPlotsRailScope(e))) {
@@ -864,10 +864,12 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // R opens X-ray; Shift+Alt+R keeps the direct family drill shortcut.
+  // R opens the X-Ray for the selected plot(s) / group / drilled part; Shift+Alt+R
+  // opens it on the drilled parts' FAMILY (one tick label → all of them). A held R
+  // does not reopen it (the panel's own R closes it).
   if (!mod && e.code === "KeyR" && ((!e.altKey && !e.shiftKey) || (e.altKey && e.shiftKey))) {
     e.preventDefault();
-    openXray(e.shiftKey);
+    if (!e.repeat && !openXray(e.shiftKey)) pushToast("info", "R opens the X-ray of a selected plot or group (Alt+R draws a rectangle)");
     return;
   }
   if (e.altKey && !mod && !e.shiftKey && e.code === "KeyR") {

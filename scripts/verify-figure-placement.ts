@@ -22,6 +22,8 @@ for (let trial = 0; trial < 100; trial++) {
 assert.deepEqual(nearestFigurePosition([], {x:-3.25,y:4.125}), {x:-3.25,y:4.125});
 assert.throws(() => nearestFigurePosition([], {x:NaN,y:0}));
 assert.deepEqual(nearestFigurePosition([{x:0,y:0,width:10,height:10}], {x:34,y:0}, {width:10,height:10}), {x:34,y:0},"exact gap is permitted");
+assert.deepEqual(nearestFigurePosition([{x:0,y:0,width:500,height:350}], {x:100,y:100}), {x:100,y:430},"below a frame, the vertical gap leaves room for the new frame's title");
+assert.deepEqual(nearestFigurePosition([{x:0,y:0,width:500,height:350}], {x:400,y:-400}), {x:524,y:-400},"beside a frame, the side gap applies");
 
 const project: Project = {version:2,name:"Frames",canvases:[{id:"c",name:"Canvas"}],figures:[],assets:[],palette:[]};
 const first = createFigure(project, {canvasId:"c",family:"figure",nickname:"Synapses"});

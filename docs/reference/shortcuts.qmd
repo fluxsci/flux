@@ -124,7 +124,7 @@ Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rect
 | **D** | Dissect — view the selected plot's companion material |
 | **Alt+G** | Toggle Plots / Layers; a hidden sidebar opens to Plots with search focused |
 | **Alt+/** | Show the Plots view's searchable folder tree; again, back to Dissections |
-| **Alt+Shift+C** | Copy the selected plot's full source path |
+| **Alt+Shift+C** | Copy the selected plot's full source path (several plots: one path per line) |
 | **Ctrl+K → New figure** | Click to place a new figure at the closest free position; **Escape** cancels |
 | **Alt+drag** *(figure title)* | Duplicate the entire figure in its family |
 | **Shift+Alt+G** | Open the full Plot gallery in its own window (the toolbar's **Gallery** opens it in place) — also from the Plots view's search box |

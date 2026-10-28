@@ -318,6 +318,28 @@ h.ok(
 );
 h.eq(renders.x, "12", "the nudged-and-restored element paints its current position");
 
+// Structural: dragging a sidebar edge resizes the canvas host (a re-cull per move)
+// but must not re-feed a single mounted element (2026-10-28: every move re-rendered
+// all 1,600, ~36 ms of dev script per move).
+for (const side of ["sidebar", "inspector"]) {
+  const gutter = await page.$(`.figure-mode [aria-label^="Resize ${side}"]`);
+  const box = gutter && (await gutter.boundingBox());
+  if (!box) { h.ok(false, `${side} gutter present`); continue; }
+  const x = box.x + box.width / 2, y = box.y + box.height / 2;
+  const before = await page.evaluate(() => window.__flux.perf.slotChecks);
+  const hostW0 = await page.evaluate(() => document.querySelector(".figure-mode .canvas-host").clientWidth);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 12; i++) await page.mouse.move(x + (side === "sidebar" ? 1 : -1) * i * 6, y);
+  const hostW1 = await page.evaluate(() => document.querySelector(".figure-mode .canvas-host").clientWidth);
+  await page.mouse.move(x, y);
+  await page.mouse.up();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const checks = await page.evaluate(() => window.__flux.perf.slotChecks) - before;
+  console.log(`  · ${side} drag: host ${hostW0}→${hostW1}px, element slot checks ${checks}`);
+  h.ok(hostW1 !== hostW0 && checks === 0, `${side} drag resizes the canvas (${hostW0}→${hostW1}px) and re-feeds 0 of 1,600 mounted elements (${checks})`);
+}
+
 h.section("sidebar profile (5,000 elements)");
 const t5k0 = Date.now();
 await seed(5000);

@@ -1807,12 +1807,15 @@
   <!-- the SHARED figure toolbar: tools, undo/redo, rulers, zoom -->
   <Toolbar saveStatus={$autosaveStatus} saveError={$autosaveError} retrySave={() => void autosave.flush()} />
 
-  <div class="body" bind:this={slideBodyEl} bind:clientWidth={slideBodyW} style={`--film-w:${shownFilmW}px; --sb-w:${$slideLayout.leftView === "plots" ? shownLeftRailW($slideLayout.plotsRailW, 220, slideBodyW, $inspectorHidden ? 0 : $slideLayout.inspectorW) : shownFilmW}px; --insp-w:${$slideLayout.inspectorW}px;`}>
+  <!-- Rail widths go on the rails themselves, never this body: an inherited custom-property
+       write restyles every node below it, the stage's whole scene included. -->
+  <div class="body" bind:this={slideBodyEl} bind:clientWidth={slideBodyW}>
     {#if $leftRailHidden}
       <button class="edgetab left" title={$slideLayout.leftView === "plots" ? "Show the Plots rail (Ctrl+B)" : "Show slides (Ctrl+B)"} onclick={() => leftRailHidden.set(false)}>›</button>
     {:else}
     <!-- the left rail: [Slides | Plots] (Alt+G) -->
     <LeftRail unit="slide" paneActive={active} hitBridge={railHitBridge} slideView={$slideLayout.leftView} onSlideView={setLeftView}
+      width={$slideLayout.leftView === "plots" ? shownLeftRailW($slideLayout.plotsRailW, 220, slideBodyW, $inspectorHidden ? 0 : $slideLayout.inspectorW) : shownFilmW}
       onPickSlide={(id) => selectSlide(id)} place={placeFromRail}
       status={videoImport?.rail ? { text: videoImportStatus || "Preparing the clip…", cancel: videoImport.cancelled ? undefined : cancelClipImport } : null}>
     {#snippet slides()}
@@ -1915,7 +1918,7 @@
     {#if !$inspectorHidden}
     <div class="film-gutter" class:active={railResize} role="separator" aria-orientation="vertical"
       aria-label="Resize right rail" onpointerdown={startRailDrag} ondblclick={resetRailW}><span class="grip"></span></div>
-    <aside class="rail">
+    <aside class="rail" style:--insp-w={`${$slideLayout.inspectorW}px`}>
       <nav class="inspector-tabs" aria-label="Slide inspector">
         {#each ["object","animation","slide","deck"] as tab}
           <button class:chosen={inspectorTab===tab} onclick={()=>inspectorTab=tab as typeof inspectorTab}>{tab[0].toUpperCase()+tab.slice(1)}</button>

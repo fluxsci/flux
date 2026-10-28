@@ -34,6 +34,7 @@
     clearSelection,
     selectFrame,
     selectedFrameId,
+    figureSelection,
     beginGesture,
     rollbackGesture,
     finishGesture,
@@ -256,6 +257,9 @@
         // scope entirely (Figma: background click = full exit; a real marquee
         // keeps the scope it selected within).
         bgClick: boolean;
+        // World press point of a marquee begun OUTSIDE every frame: it selects
+        // in whichever frame it covers most (the active one until it covers any).
+        outside?: { x: number; y: number };
       }
     | { kind: "draw"; figId: string; x0: number; y0: number }
     // The T tool: a click hugs, a drag draws a PARAGRAPH box (auto-h at that width).
@@ -639,20 +643,32 @@
   const mountedFigs = new Set<string>();
   const mountedEls = new Map<string, Set<string>>();
   const figRect = (f: Figure): Rect => ({ x: f.x, y: f.y, w: f.width, h: f.height });
-  $: visibleFigures = frame
-    ? canvasFigures.filter((f) => f.id === $activeFigureId)
-    : (() => {
-        const next = canvasFigures.filter(
+  // A re-cull that keeps the same figures (every sidebar-drag move changes the
+  // host size) must not hand the figure {#each} a new array: in legacy mode that
+  // re-renders every figure and re-feeds every mounted element its props. Model
+  // edits mutate figures in place, so a new canvasFigures list still propagates.
+  let visibleFigures: Figure[] = [];
+  const visibleFiguresMemo = { from: null as Figure[] | null, figs: [] as Figure[] }; // non-reactive
+  $: {
+    const next = frame
+      ? canvasFigures.filter((f) => f.id === $activeFigureId)
+      : canvasFigures.filter(
           (f) =>
             f.id === $activeFigureId ||
             (retainedRasterMounts?.has(f.id) && mountedFigs.has(f.id)) ||
             rectsIntersect(figRect(f), cullRect) ||
             (mountedFigs.has(f.id) && rectsIntersect(figRect(f), cullRectOut)),
         );
-        mountedFigs.clear();
-        for (const f of next) mountedFigs.add(f.id);
-        return next;
-      })();
+    if (!frame) {
+      mountedFigs.clear();
+      for (const f of next) mountedFigs.add(f.id);
+    }
+    const memo = visibleFiguresMemo;
+    if (canvasFigures !== memo.from || next.length !== memo.figs.length || next.some((f, i) => f !== memo.figs[i])) {
+      memo.from = canvasFigures;
+      visibleFigures = memo.figs = next;
+    }
+  }
   // Layout previews may bring previously offscreen objects into view. Cull
   // against BOTH model and preview bounds; retain model sources for the whole
   // gesture so visible artwork is never replaced while its spacing changes.
@@ -1508,9 +1524,42 @@
       }
       exitNodeEdit(); // click on empty canvas leaves node-edit
     }
-    if (af && e.button === 0 && ($activeTool === "select" || $activeTool === "scale")) onFigureDown(e, af);
-    else if ($activeTool === "select") clearSelection();
+    // Outside every frame, a press is still a marquee (handles and selections
+    // can overhang a frame); a plain click there deselects as before.
+    if (af && e.button === 0 && ($activeTool === "select" || $activeTool === "scale")) {
+      figureSelection.set(new Set());
+      onFigureDown(e, af);
+      if (gesture?.kind === "marquee") gesture.outside = clientToWorld(e.clientX, e.clientY);
+    } else if ($activeTool === "select") clearSelection();
   }
+
+  function retargetOutsideMarquee(g: Extract<Gesture, { kind: "marquee" }>, at: { x: number; y: number }) {
+    const o = g.outside!, box = { x: Math.min(o.x, at.x), y: Math.min(o.y, at.y), w: Math.abs(at.x - o.x), h: Math.abs(at.y - o.y) };
+    let best: Figure | null = null, most = 0;
+    for (const f of visibleFigures) {
+      const w = Math.min(box.x + box.w, f.x + f.width) - Math.max(box.x, f.x), h = Math.min(box.y + box.h, f.y + f.height) - Math.max(box.y, f.y);
+      if (w > 0 && h > 0 && w * h > most) { most = w * h; best = f; }
+    }
+    if (!best || best.id === g.figId) return;
+    g.figId = best.id;
+    g.x0 = o.x - best.x;
+    g.y0 = o.y - best.y;
+    g.add = new Set(); // a Shift-marquee's earlier picks belong to the other frame
+    gestureFig = best;
+    lastMarqueeKey = "\0";
+    activeFigureId.set(best.id);
+  }
+
+  // New figure: the frame it would create, under the pointer (nearest free spot).
+  let placementPointer: { x: number; y: number } | null = null;
+  $: if (!$figurePlacement) placementPointer = null;
+  $: placementGhost = (() => {
+    const pt = placementPointer, v = $viewport;
+    if (!$figurePlacement || !pt || !hostEl || frame) return null;
+    const r = hostEl.getBoundingClientRect();
+    const pos = ops.nearestFigurePosition(canvasFigures, { x: (pt.x - r.left - v.panX) / v.zoom, y: (pt.y - r.top - v.panY) / v.zoom });
+    return { x: v.panX + pos.x * v.zoom, y: v.panY + pos.y * v.zoom, w: ops.BLANK_FIGURE.width * v.zoom, h: ops.BLANK_FIGURE.height * v.zoom };
+  })();
 
   function placeFigure(e: PointerEvent) {
     const request = $figurePlacement;
@@ -3051,6 +3100,7 @@
 
   function onPointerMove(e: PointerEvent) {
     if (gesture && e.isTrusted) lastMoveEvent = e;
+    if ($figurePlacement) placementPointer = { x: e.clientX, y: e.clientY };
     // Hover does NOT postpone the zoom snapshot (2026-09-30): the quiet timer
     // restarts only on content changes and gestures. Restarting it on every
     // move meant anyone who moved the mouse and then zoomed within the quiet
@@ -3177,6 +3227,7 @@
       return;
     }
 
+    if (g.kind === "marquee" && g.outside) retargetOutsideMarquee(g, clientToWorld(e.clientX, e.clientY));
     const fig = $project.figures.find((f) => f.id === g.figId);
     if (!fig) return;
 
@@ -4736,7 +4787,7 @@
             : gesture?.kind === "rotate"
               ? rotateCursorVar(gesture.zone, pressTone)
               : (gesture?.kind === "move" || gesture?.kind === "figmove") && dragging
-                ? gestureAltDup && gesture.kind === "move"
+                ? gestureAltDup
                   ? `var(--cursor-move-copy-${pressTone})`
                   : `var(--cursor-move-${pressTone})`
                 : gesture || pressing
@@ -4972,6 +5023,9 @@
 >
   {#if $figurePlacement && !frame && paneActive}
     <div class="placement-hint" role="status">Click to place the new figure · Esc to cancel</div>
+    {#if placementGhost}
+      <div class="placement-ghost" style:transform={`translate(${placementGhost.x}px, ${placementGhost.y}px)`} style:width={`${placementGhost.w}px`} style:height={`${placementGhost.h}px`}></div>
+    {/if}
   {/if}
   <!-- SCENE: panned via the compositor drive. Live zoom uses a non-animated
        residual scale(zoom/renderZoom), allowing the raster to shrink; a valid
@@ -5626,6 +5680,7 @@
 
 <style>
   .placement-hint { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; padding: 8px 12px; background: var(--c-surface); border: 1px solid var(--c-line-strong); color: var(--c-tx); font: 12px var(--font-ui); }
+  .placement-ghost { position: absolute; left: 0; top: 0; z-index: 9; pointer-events: none; box-sizing: border-box; border: 1px dashed var(--c-accent); background: color-mix(in srgb, var(--c-accent) 6%, transparent); }
   .frame-resize-handle { fill: transparent; pointer-events: all; }
   .frame-resize-handle:hover { fill: var(--c-accent); fill-opacity: 0.25; }
   .frame-resize-handle.corner { fill: var(--c-bg); stroke: var(--c-accent); stroke-width: 1.5; }
@@ -5680,8 +5735,11 @@
   .scene-svg {
     position: absolute;
     inset: 0;
-    width: 100%;
-    height: 100%;
+    /* Window-sized, not host-sized (the host clips it): resizing an SVG root lays
+       out and repaints all of its content, so a host-sized scene re-laid tens of
+       thousands of plot nodes on every move of a sidebar drag. */
+    width: 100vw;
+    height: 100vh;
     overflow: visible;
     display: block;
   }

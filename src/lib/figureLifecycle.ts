@@ -19,6 +19,10 @@ import { reattachClones } from "./slide/attach";
 // CLI, and agents agree).
 export const BLANK_FIGURE = { width: 680, height: 850, background: "#ffffff" } as const;
 
+/** The space New figure keeps between frames: a small side gap, and the
+ *  default stacking gap vertically, where a frame's title sits above it. */
+export const FIGURE_GAP = { x: 24, y: 80 } as const;
+
 /** Closest upper-left point whose frame clears every existing frame. The
  * forbidden positions are open rectangles (Minkowski sums); a nearest free
  * point lies at the requested x or a rectangle's vertical boundary. For each
@@ -28,11 +32,12 @@ export function nearestFigurePosition(
   figures: readonly Pick<Figure, "x" | "y" | "width" | "height">[],
   at: { x: number; y: number },
   size: { width: number; height: number } = BLANK_FIGURE,
-  gap = 24,
+  gap: number | { x: number; y: number } = FIGURE_GAP,
 ): { x: number; y: number } {
-  if (![at.x, at.y, size.width, size.height, gap].every(Number.isFinite) || size.width <= 0 || size.height <= 0 || gap < 0)
+  const gx = typeof gap === "number" ? gap : gap.x, gy = typeof gap === "number" ? gap : gap.y;
+  if (![at.x, at.y, size.width, size.height, gx, gy].every(Number.isFinite) || size.width <= 0 || size.height <= 0 || gx < 0 || gy < 0)
     throw new Error("Invalid figure placement");
-  const boxes = figures.map(f => ({ left: f.x - size.width - gap, right: f.x + f.width + gap, top: f.y - size.height - gap, bottom: f.y + f.height + gap }));
+  const boxes = figures.map(f => ({ left: f.x - size.width - gx, right: f.x + f.width + gx, top: f.y - size.height - gy, bottom: f.y + f.height + gy }));
   const xs = [...new Set([at.x, ...boxes.flatMap(b => [b.left, b.right])])].sort((a,b) => Math.abs(a-at.x)-Math.abs(b-at.x) || a-b);
   let best = { ...at }, distance = Infinity;
   for (const x of xs) {

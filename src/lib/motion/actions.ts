@@ -7,6 +7,15 @@ import { cubicOut, quintOut } from "svelte/easing";
 import { DUR, EASE } from "./tokens";
 import { prefersReducedMotion } from "./motion";
 
+/** The node's own transform, which a transition's `transform` must compose with
+ *  rather than replace (a `translateX(-50%)`-centred dialog otherwise opens
+ *  half its width to the right, then jumps). Small surfaces only: it reads
+ *  computed style, so whole-pane entrances (fadeRise) do not use it. */
+const baseTransform = (node: Element): string => {
+  const t = getComputedStyle(node).transform;
+  return t && t !== "none" ? `${t} ` : "";
+};
+
 /** Fade + a small upward rise. The house "enter" for content. */
 export function fadeRise(
   _node: Element,
@@ -24,15 +33,16 @@ export function fadeRise(
 
 /** Scale up slightly + fade. For small surfaces (chips, cards, popovers). */
 export function popIn(
-  _node: Element,
+  node: Element,
   { duration = DUR.quick, delay = 0, from = 0.96, easing = cubicOut } = {},
 ) {
   if (prefersReducedMotion()) return { duration: 0, delay };
+  const base = baseTransform(node);
   return {
     duration,
     delay,
     easing,
-    css: (t: number) => `opacity:${t}; transform: scale(${from + (1 - from) * t});`,
+    css: (t: number) => `opacity:${t}; transform: ${base}scale(${from + (1 - from) * t});`,
   };
 }
 

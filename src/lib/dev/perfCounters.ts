@@ -14,6 +14,9 @@ export const perfCounters = {
   /** Scene elements passed on to their renderer by ElementSlot (mounts and
    *  changed elements; an unchanged element costs a content compare only). */
   elementRenders: 0,
+  /** ElementSlot content checks: every time a mounted element is re-fed its props
+   *  (a re-rendered figure {#each}), changed or not. Zero for a sidebar drag. */
+  slotChecks: 0,
   /** Slide Become picker: pointer moves its hover handled, the ms they cost in
    *  total, the worst one, and how many resolved a NEW unit (re-measured). */
   pickHoverMoves: 0,

@@ -791,9 +791,16 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
   bumps `globalRev` (under-invalidation impossible by construction). Expensive derived work keys
   on `${figureRev[id]}|${globalRev}|…` and memoizes in **non-reactive `const` boxes**.
-  Rail width variables belong on their consuming LeftRail/Inspector subtree, never the
-  FigureMode body above the scene. An inherited custom-property write restyles every mounted
-  SVG node even when the scene does not use it; use explicit width props to confine that work.
+  Rail widths are props on the consuming rail, never custom properties on the Figure/Slide
+  body above the scene: an inherited custom-property write restyles every node below it, used
+  or not. LeftRail applies its `width` as its own width/flex-basis (not `--sb-w`), since Slide's
+  filmstrip thumbnails hold whole slides (film-gutter drag: 1,071 → 6 ms style per 36 moves);
+  the Inspector keeps a local `--insp-w`.
+  A sidebar drag resizes the canvas host on every move, which re-culls: Canvas's
+  `visibleFigures` keeps its array while membership is unchanged (a new array re-fed every
+  mounted element its props — 36 ms/move at 1,600 objects), and `.scene-svg` is window-sized
+  (resizing a host-sized SVG root re-laid out its content — ~2 ms/move of layout and a 33 ms p95
+  frame at 46k plot nodes). `verify-scale-figure` pins zero `perf.slotChecks` per sidebar drag.
 - Mutations go through `commit`/`mutate`/`mutateFigure` in `src/lib/store.ts`; gestures are
   `beginGesture` → transient preview → one commit on release. Undo history is byte-budgeted
   (64MB / 200 entries). `beginGesture` returns an owned checkpoint: cancellation restores
@@ -912,7 +919,7 @@ Persistence invariants (all machine-checked — do not weaken):
   pure operation offsets elements/guides oppositely to origin changes, preserving world position,
   physical size, hidden/out-of-bounds artwork, assets and references. Ctrl+K New figure arms a
   project/canvas-owned point request; `figureLifecycle.nearestFigurePosition` finds the exact
-  closest nonoverlap position (24px gap), preserving fractional/negative world coordinates.
+  closest nonoverlap position (`FIGURE_GAP`: 24 px beside, 80 px above/below where titles sit), preserving fractional/negative world coordinates.
   Tool, project, canvas changes and Escape cancel the request. Alt-dragging a figure title
   duplicates only past drag slop through the shared lifecycle; the checkpoint owns identity,
   caption/group remaps and cancellation. Whole-frame Shift drags keep an axis. CLI/MCP/live bridge expose
@@ -2223,7 +2230,8 @@ Persistence invariants (all machine-checked — do not weaken):
   hairline dividers, accent-tint selection with an inset rail (never solid accent fills), no
   blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
   motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
-  (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G the Plots rail (Figure and Slide), Alt+T arrange,
+  (macOS Option+letter yields `e.key` "®"/"©"): R X-ray (owner, 2026-10-27; Alt+R is now the rectangle tool, Shift+Alt+R
+  the family X-ray), Alt+G the Plots rail (Figure and Slide), Alt+T arrange,
   Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
@@ -2593,7 +2601,9 @@ Persistence invariants (all machine-checked — do not weaken):
     AND the box is ≥ 12 px deep across them), and an L-shaped ROTATE zone 16 px deep outside
     each corner (the stem + knob stay; the knob is rotate zone `n`). Figure zones extend
     outside the frame, with title-bar rectangles subtracted (`excludeZones`) so frame titles
-    retain their move gesture. Slide stage zones retain `zoneClipForFrame`. **Small sides
+    retain their move gesture. Slide stage zones retain `zoneClipForFrame`. A select-tool press on
+    the bare canvas starts a marquee (`onCanvasDown`): it selects in the frame the box overlaps
+    most, the active frame until it overlaps one; a plain click there still deselects. **Small sides
     (`ZONE_SMALL_SIDE` 24 px): no inward reach at all on that axis**, so a 10 px label has no
     bands, a 2 px scale bar and a zero-height row of lines are grabbable along their whole
     length, and every box — 0 × N included — keeps a free centre (pure invariant). A press on a
