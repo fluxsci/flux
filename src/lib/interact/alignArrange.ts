@@ -38,21 +38,25 @@ export const alignArrange = writable<AlignArrangeState | null>(null);
 export const arrangementPreview = writable<{figureId:string; plan:ArrangementPlan; transforms:Map<string,string>} | null>(null);
 export const arrangementLayout = writable<ArrangementPlan | null>(null);
 export const alignmentGuides = writable<{x1:number;y1:number;x2:number;y2:number}[]>([]);
-/** Recognition is read-only and independent of the panel. Never tidy an
- * irregular selection merely because it was selected. */
-export const passiveArrangement = derived(
+/** Keep the immutable recognition baseline as well as its optional chrome.
+ * Opening the tool can reuse this exact computation instead of walking and
+ * sorting the settled selection again. Every targeting/model input remains a
+ * dependency; an active owner never consumes passive recognition. */
+const arrangementRecognition = derived(
   [project, selection, activeFigureId, enteredGroupId, editorSelectionExclusions, partSelection, partSelections, activeTool, alignArrange],
-  ([$project,$selection,$figureId,$scope,$excluded,$part,$parts,$tool,$owner]): ArrangementPlan|null => {
+  ([$project,$selection,$figureId,$scope,$excluded,$part,$parts,$tool,$owner]) => {
     if($owner || $selection.size<2 || $part || $parts.length || ($tool!=='select'&&$tool!=='scale'))return null;
     const figures=$project.figures.filter(f=>f.elements.some(e=>$selection.has(e.id)));
     if(figures.length!==1 || figures[0].id!==$figureId)return null;
     try {
       const base=createArrangementSnapshot(figures[0],[...$selection],{scope:$scope,excluded:$excluded});
-      if(base.units.length<2 || base.suggested || !base.regularX || !base.regularY)return null;
-      const plan=planArrangement(base,{mode:'tidy'});
-      return plan.identity?plan:null;
+      const plan=base.units.length>=2&&!base.suggested&&base.regularX&&base.regularY?planArrangement(base,{mode:'tidy'}):null;
+      return {figure:figures[0],selection:$selection,scope:$scope,excluded:$excluded,snapshot:base,plan:plan?.identity?plan:null};
     } catch {return null;}
   });
+/** Recognition is read-only and independent of the panel. Never tidy an
+ * irregular selection merely because it was selected. */
+export const passiveArrangement = derived(arrangementRecognition, recognized => recognized?.plan ?? null);
 let serial = 0;
 let captured: {figureId:string; ids:string[]; scope:string|null; excluded:ReadonlySet<string>} | null = null;
 let snapshot: LayoutSnapshot | null = null;
@@ -123,7 +127,16 @@ function watchOwner() {
 }
 function makeSnapshot() {
   const f=figure();
-  return f && captured ? createArrangementSnapshot(f,captured.ids,{scope:captured.scope,excluded:captured.excluded}):null;
+  if(!f||!captured)return null;
+  if(!get(alignArrange)) {
+    const recognized=get(arrangementRecognition);
+    if(recognized&&recognized.figure===f&&recognized.scope===captured.scope&&
+      recognized.selection===get(selection)&&recognized.excluded===get(editorSelectionExclusions)&&
+      captured.ids.length===recognized.selection.size&&captured.ids.every(id=>recognized.selection.has(id))&&
+      captured.excluded.size===recognized.excluded.size&&[...captured.excluded].every(id=>recognized.excluded.has(id)))
+      return recognized.snapshot;
+  }
+  return createArrangementSnapshot(f,captured.ids,{scope:captured.scope,excluded:captured.excluded});
 }
 function label(f:Figure, ids:string[], key:string, elements?:Map<string,Element>) {
   const first=elements ? elements.get(ids[0]) : f.elements.find(e=>ids.includes(e.id));

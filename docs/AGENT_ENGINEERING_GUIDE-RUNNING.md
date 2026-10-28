@@ -2640,40 +2640,65 @@ Persistence invariants (all machine-checked — do not weaken):
     count from the resting baked zoom because it used to lean on the old ceiling to land
     at exactly 16×.
   - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
-    After 1.5 s of quiet and an idle slot, eligible mounted scenes (≤20k nodes) are
-    serialized in world units and drawn once into a 2D canvas that IS the proxy
-    bitmap (2026-09-30: `canvas.toBlob` → PNG blocked the main thread 24–81 ms on a
-    synchronous GPU flush/readback; the hosted canvas is rasterized by the GPU
-    process). Caps are 4096 px / 3 MP INCLUDING device scale for the sharp region
-    (view ± ½ host); a coarse whole-mounted-scene canvas (≤1 MP) from the SAME
-    parse sits behind it, so a zoom-out from deep zoom stays covered. A lost
-    canvas context drops the snapshot. The serializer must emit XML: `innerHTML`
-    writes U+00A0 as `&nbsp;`, which made every snapshot of a matplotlib scene
-    fail to decode (no proxy at all, silently) until 2026-09-30. A re-cull
-    during a proxied burst does not end the proxy by itself; a changed mounted
-    set changes the scene key, and the key check ends it in the same flush. The fully invisible resting image becomes visible only
-    while its scene key and world coverage are valid. It shares `.scene-clip` with
-    the live SVG, including Slide camera clipping. The key includes model/plot
-    revisions, mounted set, presentation, grid and editing chrome. Check coverage
-    throughout the gesture; edits or escaping its bounds restore the live scene
-    immediately. Above the density cap, during capture, or without a current image,
-    use live rendering. Cancel queued/async captures on changes, pane hide and teardown.
-    Pointer motion without a gesture does NOT restart or cancel the snapshot
-    (2026-09-30; it used to, and every "move the mouse, then zoom" ran live):
-    only content changes and gestures do. The quiet is 1.5 s after a content
-    change, 300 ms when the change lands as a pointer/wheel gesture cools (drag →
-    zoom is the common flow; keyboard nudges keep 1.5 s — a 300 ms quiet for them
-    put a ~70 ms snapshot after every nudge). The idle callback has a 300 ms timeout
-    after the quiet (real displays postpone idle callbacks on frameless windows).
-    Quality refresh compares zoom with the CAPTURE zoom, not the pixel-capped raster
-    scale (the latter caused endless idle captures at high DPI). At settle, demote
-    the live layer before its repaint and restore sharp content. Copy inherited
-    `-webkit-font-smoothing` into the standalone SVG too: on macOS its omission
-    makes snapshot text visibly heavier (the pixel fidelity gate catches it).
-    Screencasts sample
-    frames and cannot establish atomic display presentation. Gates:
-    `verify-zoom-proxy.mjs`, `verify-canvas-coverage.mjs`,
-    `verify-render-optimizations.mjs`, `verify-slide-canvas-presentation-gui.mjs`.
+    After 1.5 s of quiet and an idle slot, small mounted scenes (≤20k elements)
+    use the browser serializer/decoder. Dense Electron scenes (≤150k elements,
+    ≤64 MiB UTF-8) use a cancellable cooperative XML walk (6 ms slices), then
+    `scene:rasterize` in a dedicated supervised child. Never raise the synchronous
+    clone/serialization cap: the owner's 73k-node project cost about 200 ms there.
+    The child validates resources/fonts once, renders the two bounded regions
+    asynchronously, and returns binary PNGs. It cannot read arbitrary SVG resource
+    URLs. Unsupported font/style/vector-effect/resource cases fall back live.
+    Gelasio faces are exact redistributable TTF derivatives in `resources/fonts/`;
+    renderer and worker font resolution must agree. Package all worker companions
+    unpacked. The worker owns one active and one latest pending request per window;
+    cancellation, project replacement and teardown terminate stale work.
+
+    Caps remain 4096 px / 3 MP INCLUDING device scale for the sharp region
+    (view ± ½ host), plus a ≤1 MP coarse whole-scene backing. Hosted canvases avoid
+    renderer `toBlob` GPU readback (24–81 ms in September). Every serializer must
+    emit XML: `innerHTML` writes U+00A0 as `&nbsp;`, which silently breaks image
+    decoding. The cooperative path preserves namespaces, inherited typography,
+    computed text/tspan/textPath font tuples and Canvas-owned classes. Cancellation
+    is checked between slices; never mutate the live scene during capture.
+
+    Cache validity separates content revision from mounted membership. Culling a
+    subset of already captured placements is safe; introducing uncaptured content
+    retires the proxy in the same flush. Include revisions of culled figures, not
+    just mounted ones. A sharper subset capture may inherit the previous complete
+    coarse backing by explicit ownership transfer; free all other retired canvases.
+    For already-live figure frames only, a bounded supplement may serialize missing
+    eligible placements without mounting them (≤32 placements, ≤2 MiB source/model
+    payload, ≤10k extra nodes, total scene still ≤150k). Unsupported cases fall back
+    live. Never introduce per-figure rasters or eagerly mount the entire project.
+    Fully captured, valid, covering proxies may hold the mounted set through a
+    camera burst, including its first tick. Partial images must never prevent fresh
+    content mounting. Coverage includes Slide camera clipping and is checked on
+    every viewport/content change, not just at activation.
+
+    Keep the frozen dense SVG's display/opacity unchanged during handoff: changing
+    its opacity caused 84–95 ms repaint/layerization tasks in the real project.
+    A shared opaque host-color backdrop and opaque per-plane mattes cover it instead.
+    Compute a known solid matte through translucent ancestors; unsupported gradients,
+    images or compositing fall back live. Apply View-as filters to each canvas child,
+    never to its matte. The sharp plane covers the coarse plane with its own matte:
+    no clip-hole antialias seam or doubled translucent artwork. Both layers are fully
+    invisible at rest. Content changes, lost context, invalid coverage, pane hide or
+    teardown restore live rendering and cancel capture. Pointer gesture entry must
+    fold to current geometry before selecting or dragging; do not trust a hit target
+    picked from the frozen pre-camera scene.
+
+    Pointer motion without a gesture does NOT restart or cancel the snapshot.
+    Quiet is 1.5 s after content changes, 300 ms when a pointer/wheel gesture cools;
+    keyboard nudges retain 1.5 s. The idle callback has a 300 ms timeout because real
+    displays postpone idle callbacks on frameless windows. Quality refresh compares
+    zoom with CAPTURE zoom, not capped raster scale. At settle, demote the live layer
+    before repaint and restore sharp content. Preserve inherited
+    `-webkit-font-smoothing`; its absence makes macOS snapshot text heavier.
+    Screencasts sample frames and cannot establish atomic physical presentation.
+    Gates: `verify-zoom-proxy.mjs`, `verify-canvas-coverage.mjs`,
+    `verify-scene-raster.ts`, `verify-scene-capture-supplement.ts`,
+    `verify-scene-raster-electron.cjs`, `verify-render-optimizations.mjs`,
+    `verify-slide-canvas-presentation-gui.mjs`.
   - **No hover outline during unsettled zoom.** Content sweeping under a still pointer
     must not flash changing outlines. Suppress while `zoomUnsettled`, not throughout the
     post-interaction `sceneHot` cooldown: a newly hovered settled target still responds

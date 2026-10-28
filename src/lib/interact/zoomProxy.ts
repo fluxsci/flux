@@ -11,6 +11,31 @@
 // image (the snapshot) and the transform that keeps the snapshot glued to the
 // live viewport. Canvas.svelte owns the lifecycle.
 
+import { parseColor } from "../color/interp";
+
+/** An opaque matte INSIDE the canvas host's paint context. Transparent hosts
+ * may use solid ancestor backgrounds; gradients/images/filters remain live. */
+export function snapshotMatte(host: HTMLElement): string | null {
+  const colors: string[] = [];
+  let foundOpaque = false;
+  for (let node: HTMLElement | null = host, depth = 0; node && depth < 32; node = node.parentElement, depth++) {
+    const style = getComputedStyle(node), color = parseColor(style.backgroundColor);
+    if (!color || (style.backgroundImage || "none") !== "none") return null;
+    colors.push(style.backgroundColor);
+    if (color.a === 1) { foundOpaque = true; break; }
+    if ((style.filter || "none") !== "none" || (style.backdropFilter || "none") !== "none" || (style.mixBlendMode || "normal") !== "normal") return null;
+  }
+  if (!foundOpaque) return null;
+  if (colors.length === 1) return colors[0];
+  const canvas = document.createElement("canvas"); canvas.width = canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  for (const color of colors.reverse()) { context.fillStyle = color; context.fillRect(0, 0, 1, 1); }
+  const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+  canvas.width = canvas.height = 0;
+  return alpha === 255 ? `rgb(${r}, ${g}, ${b})` : null;
+}
+
 export interface WorldBox {
   bx: number;
   by: number;
@@ -170,6 +195,109 @@ export function serializeSceneSnapshot(sceneSvg: SVGSVGElement, box: WorldBox, S
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" ` +
     `viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${style}${body}</svg>`;
   return { svg, w, h };
+}
+
+export interface SnapshotSerializationOptions {
+  /** Capture ownership is checked again after every cooperative yield. */
+  current: () => boolean;
+  yield?: () => Promise<void>;
+  budgetMs?: number;
+  maxNodes?: number;
+  maxChars?: number;
+  /** Bounded detached markup prepared by the shared renderer for culled art. */
+  before?: ReadonlyMap<Node, string>;
+  after?: ReadonlyMap<Node, string>;
+  append?: ReadonlyMap<Node, string>;
+}
+
+/** Prepare a dense scene without one deep clone or one whole-tree serializer call.
+ * Each shallow node retains XML namespaces/escaping through XMLSerializer. Only
+ * component-owned styles need computed-style reads; plot attributes stay authored.
+ * The caller may retire the capture between slices without ever touching live DOM. */
+export async function serializeSceneSnapshotCooperative(
+  sceneSvg: SVGSVGElement, box: WorldBox, S: number, options: SnapshotSerializationOptions,
+): Promise<{ svg: string; w: number; h: number } | null> {
+  if (!options.current() || !sceneSvg.isConnected) return null;
+  const yieldWork = options.yield ?? (() => new Promise<void>(resolve => setTimeout(resolve, 0)));
+  const budget = Math.max(1, Math.min(12, options.budgetMs ?? 6));
+  // Includes whitespace/comment nodes as well as the renderer's bounded
+  // 150k drawable-element residency; source SVG indentation is not artwork.
+  const maxNodes = options.maxNodes ?? 450_000;
+  const maxChars = options.maxChars ?? 64 * 1024 * 1024;
+  const serializer = new XMLSerializer();
+  const styled = new Set(STYLED_CLASSES);
+  const root = sceneSvg.firstElementChild;
+  const inherited = getComputedStyle(sceneSvg);
+  const inheritance = ["font-family", "font-size", "font-weight", "font-style", "color", "letter-spacing", "text-rendering", "-webkit-font-smoothing"]
+    .map(key => [key, inherited.getPropertyValue(key)] as const);
+  const parts: string[] = [];
+  type Work = { node: Node } | { close: string; node: Node };
+  const stack: Work[] = [];
+  for (let n = sceneSvg.lastChild; n; n = n.previousSibling) stack.push({ node: n });
+  let nodes = 0, chars = 0, slice = performance.now();
+  const append = (text: string) => { chars += text.length; parts.push(text); return chars <= maxChars; };
+  while (stack.length) {
+    if (!options.current() || !sceneSvg.isConnected) return null;
+    const work = stack.pop()!;
+    if ("close" in work) {
+      if (!append(options.append?.get(work.node) ?? "") || !append(work.close) || !append(options.after?.get(work.node) ?? "")) return null;
+    } else {
+      const node = work.node;
+      if (++nodes > maxNodes) return null;
+      if (!append(options.before?.get(node) ?? "")) return null;
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const live = node as SVGElement, copy = live.cloneNode(false) as SVGElement;
+        if ([...live.classList].some(cls => styled.has(cls))) {
+          const style = getComputedStyle(live);
+          for (const key of INLINE_PROPS) {
+            const value = style.getPropertyValue(key);
+            if (value) copy.style.setProperty(key, value);
+          }
+        }
+        // Resolve the browser's font cascade once while preparing the capture.
+        // A child rasterizer must not infer an unrelated plot's italic CSS from
+        // a frame label's family, or silently substitute an unsupported face.
+        if (["text", "tspan", "textPath"].includes(live.localName)) {
+          const style = getComputedStyle(live);
+          for (const key of ["font-family", "font-size", "font-weight", "font-style"])
+            copy.style.setProperty(key, style.getPropertyValue(key));
+        }
+        if (node === root) {
+          copy.removeAttribute("transform");
+          for (const [key, value] of inheritance) copy.style.setProperty(key, value);
+        }
+        let shallow = serializer.serializeToString(copy);
+        if (live.namespaceURI === "http://www.w3.org/2000/svg" &&
+          (!live.parentElement || live.parentNode === sceneSvg || live.parentElement.namespaceURI === live.namespaceURI))
+          shallow = shallow.replace(' xmlns="http://www.w3.org/2000/svg"', "");
+        if (!node.firstChild && !options.append?.has(node)) {
+          if (!append(shallow) || !append(options.after?.get(node) ?? "")) return null;
+        } else {
+          // XMLSerializer emits an empty XML element for a shallow SVG clone.
+          // HTML foreignObject descendants may instead have an explicit end tag.
+          const name = /^<([^\s/>]+)/.exec(shallow)?.[1];
+          if (!name) return null;
+          const close = `</${name}>`;
+          const open = shallow.endsWith("/>") ? shallow.slice(0, -2) + ">"
+            : shallow.endsWith(close) ? shallow.slice(0, -close.length) : null;
+          if (open === null || !append(open)) return null;
+          stack.push({ close, node });
+          for (let n = node.lastChild; n; n = n.previousSibling) stack.push({ node: n });
+        }
+      } else if (!append(serializer.serializeToString(node)) || !append(options.after?.get(node) ?? "")) return null;
+    }
+    if (performance.now() - slice >= budget && stack.length) {
+      await yieldWork();
+      slice = performance.now();
+    }
+  }
+  if (!options.current() || !sceneSvg.isConnected) return null;
+  const w = Math.max(1, Math.floor(box.bw * S)), h = Math.max(1, Math.floor(box.bh * S));
+  const body = parts.join("");
+  return {
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${body}</svg>`,
+    w, h,
+  };
 }
 
 /** The proxy image's transform for the live viewport: image-local (u, v) is world

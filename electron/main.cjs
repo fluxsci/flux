@@ -1216,6 +1216,7 @@ const rebuildGlobalWatcher = () => globalLibraryWatcher.rebuild();
 app.on("will-quit", () => { void globalLibraryWatcher.dispose(); });
 
 ipcMain.handle("watch:setRoot", async (e, root) => {
+  sceneRasterFamily.cancelOwner(e.sender.id);
   if (rootFor(e) !== root) runnerFamily.cancelOwner(e.sender.id);
   const s = sessionFor(e);
   if (!s) return false;
@@ -1501,6 +1502,13 @@ const plotThumbsFamily = require("./ipc/plotThumbs.cjs").createPlotThumbsFamily(
   log: (msg, detail) => console.warn(`[plots] ${msg}${detail ? `: ${detail}` : ""}`),
 });
 plotThumbsFamily.registerHandlers(ipcMain);
+const sceneRasterFamily = require("./ipc/sceneRaster.cjs").createSceneRasterFamily({
+  app, appRoot: path.resolve(__dirname, ".."), rootFor,
+  generationFor: e => sessionFor(e)?.watchGen,
+  fontIndexFile: () => path.join(fluxPaths.userDataDir(), "cache", "scene-fonts.json"),
+});
+sceneRasterFamily.registerHandlers(ipcMain);
+app.on("will-quit", () => sceneRasterFamily.shutdown());
 require("./ipc/dissectNotes.cjs").createDissectNotesFamily({ rootFor, atomicWrite: fileCore.atomicWriteMain }).registerHandlers(ipcMain);
 app.on("will-quit", () => plotThumbsFamily.shutdown());
 const setupFamily = require("./ipc/setup.cjs").createSetupFamily({

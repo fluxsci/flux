@@ -191,6 +191,9 @@ export type SetupProgress =
   | { task: "quarto"; phase: "download" | "verify" | "extract" | "done"; done: number; total: number }
   | { task: "tinytex"; phase: "log"; line: string };
 export interface FileBridge {
+  /** Transient scene snapshots: dedicated child, bounded raster allocations. */
+  rasterizeScene?(request: { rid: string; svg: string; regions: { bx: number; by: number; bw: number; bh: number; width: number; height: number }[] }): Promise<{ rasters?: { bytes: Uint8Array; width: number; height: number }[]; error?: string; cancelled?: boolean }>;
+  cancelSceneRaster?(rid: string): Promise<void>;
   importModel3d?(request: import('../model3d/importData').Model3dImportRequest): Promise<import('../model3d/importData').Model3dImportResult>;
   importDroppedModel3d?(file: File, request: Omit<import('../model3d/importData').Model3dImportRequest, 'sourcePath'>): Promise<import('../model3d/importData').Model3dImportResult>;
   adoptModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;

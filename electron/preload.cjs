@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("fig", {
   model3dSourceFingerprint: request => ipcRenderer.invoke("model3d:sourceFingerprint", request),
   model3dAvailability: () => ipcRenderer.invoke("model3d:availability"),
   fontLookup: (request) => ipcRenderer.invoke("fonts:lookup", request),
+  rasterizeScene: (request) => ipcRenderer.invoke("scene:rasterize", request),
+  cancelSceneRaster: (rid) => ipcRenderer.invoke("scene:cancelRaster", rid),
   plotsList: (request) => ipcRenderer.invoke("plots:list", request),
   plotsProbe: (paths) => ipcRenderer.invoke("plots:probe", paths),
   plotThumb: (request) => ipcRenderer.invoke("thumbs:get", request),

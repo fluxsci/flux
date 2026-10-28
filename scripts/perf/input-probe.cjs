@@ -17,6 +17,7 @@
 //        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,dragHeavy,altDupDrag,idleAfterDup,resizeHeavy,cropHeavy,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
+//        --phases=zoomNavigate: quiet → rapid wide zoom-out → Shift-wheel to another figure → rezoom
 //        [--layers] mid-drag compositor layer snapshot (CDP LayerTree: count, top layers, owning node, compositing reasons,
 //        the dragged element's will-change + document.getAnimations()) into results.layers — STRUCTURE ONLY: the LayerTree
 //        agent inflates Paint/browser time, never time a --layers run. Scenarios combine with '+' (e.g. noOverlay+ovSel).
@@ -143,6 +144,20 @@ if (process.env.PROBE_IPC === '1') {
   const o0 = ipcMain.on.bind(ipcMain);
   ipcMain.on = (ch, fn) => o0(ch, (ev, ...args) => { const t = performance.now(); try { return fn(ev, ...args); } finally { rec('on:' + ch, performance.now() - t, sz(args), sz(ev.returnValue)); } });
 }
+if (process.env.PROBE_SCENE_RASTER_LOG === '1') {
+  // Unlike the broad IPC byte ledger, this never JSON-serializes a dense SVG
+  // merely to measure it. Only timings, sizes and error messages cross stdout.
+  const { ipcMain } = require('electron'), handle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (channel, fn) => handle(channel, channel === 'scene:rasterize' ? async (event, request) => {
+    const started = performance.now(); let result; console.log('PROBE sceneRasterStart ' + JSON.stringify({at:started,chars:request?.svg?.length}));
+    if (process.env.PROBE_SCENE_SVG_OUT && !fs.existsSync(process.env.PROBE_SCENE_SVG_OUT)) {
+      fs.writeFileSync(process.env.PROBE_SCENE_SVG_OUT, request.svg);
+      fs.writeFileSync(process.env.PROBE_SCENE_SVG_OUT + '.json', JSON.stringify({ rid: request.rid, regions: request.regions }));
+    }
+    try { return result = await fn(event, request); }
+    finally { console.log('PROBE sceneRaster ' + JSON.stringify({ ms: performance.now() - started, chars: request?.svg?.length, error: result?.error, cancelled: result?.cancelled, rasters: result?.rasters?.map(r => ({ width: r.width, height: r.height, bytes: r.bytes?.byteLength })) })); }
+  } : fn);
+}
 require(path.join(repo, 'electron/main.cjs'));
 
 let win;
@@ -172,18 +187,18 @@ async function click(x, y, hold = 10) { mouse({ type: 'mouseDown', button: 'left
 
 // Renderer-side instrumentation: rAF gaps, delivered pointer events, pointerdown→paint,
 // long tasks, slow event-timing entries. Installed once per page.
-const INSTR = `(()=>{if(window.__p)return 'ok';const p=window.__p={running:false,raf:0,frames:[],moves:0,downs:0,wheels:0,scrolls:0,keys:0,downPaint:[],keyPaint:[],longtasks:[],evts:[]};
+const INSTR = `(()=>{if(window.__p)return 'ok';const p=window.__p={running:false,raf:0,frames:[],moves:0,downs:0,wheels:0,scrolls:0,keys:0,downPaint:[],keyPaint:[],wheelPaint:[],longtasks:[],evts:[]};
 const qualificationState=()=>({time:performance.now(),visible:document.visibilityState,focused:document.hasFocus()});
 for(const type of ['focus','blur','visibilitychange'])window.addEventListener(type,()=>{if(p.running)p.qualification.push({...qualificationState(),event:type})},true);
 window.addEventListener('pointermove',()=>{p.moves++},true);
 window.addEventListener('pointerdown',(e)=>{p.downs++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.downPaint.push(performance.now()-t0)))},true);
-window.addEventListener('wheel',(e)=>{p.wheels++;if(e.ctrlKey)requestAnimationFrame(()=>{p.zoomTicks++;if(document.querySelector('.zoom-proxy.live'))p.proxyTicks++})},{capture:true,passive:true});
+window.addEventListener('wheel',(e)=>{p.wheels++;const t=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.wheelPaint.push(performance.now()-t)));if(e.ctrlKey)requestAnimationFrame(()=>{p.zoomTicks++;const live=!!document.querySelector('.zoom-proxy.live');if(live)p.proxyTicks++;if(p.mountLog&&p.proxyObserved&&!live&&!p.proxyAbort)p.proxyAbort=[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId);p.proxyObserved=live})},{capture:true,passive:true});
 window.addEventListener('scroll',()=>{p.scrolls++},{capture:true,passive:true});
 window.addEventListener('keydown',(e)=>{p.keys++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.longtasks.push(Math.round(e.duration))}).observe({type:'longtask'})}catch{}
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.evts.push({n:e.name,d:Math.round(e.duration),proc:Math.round(e.processingEnd-e.processingStart)})}).observe({type:'event',durationThreshold:16})}catch{}
-p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.zoomTicks=0;p.proxyTicks=0;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
-p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice()};return {zoomTicks:p.zoomTicks,proxyTicks:p.proxyTicks,qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
+p.start=()=>{p.mountLog=${process.env.PROBE_MOUNT_LOG === '1'};p.membersStart=p.mountLog?[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId):null;p.proxyObserved=false;p.proxyAbort=null;cancelAnimationFrame(p.raf);p.running=true;p.zoomTicks=0;p.proxyTicks=0;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.wheelPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
+p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice(),wheelPaint:p.wheelPaint.slice()};return {membersStart:p.membersStart,proxyAbort:p.proxyAbort,zoomTicks:p.zoomTicks,proxyTicks:p.proxyTicks,qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),wheelPaint:p.wheelPaint.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
 return 'installed'})()`;
 
 // CSS scenarios — bisect knobs. `base` is the shipped app.
@@ -264,7 +279,7 @@ async function measure(label, run, traceName) {
   const snap = await js('(()=>{const L=window.__snapLog;window.__snapLog=null;return L?L.c:null})()').catch(() => null);
   const foldLog = await js('(()=>{const k=window.__foldLog;window.__foldLog=null;return k})()').catch(() => null);
   const abortKeys = await js('(()=>{const k=window.__abortKeys;window.__abortKeys=null;return k})()').catch(() => null);
-  const res = { snapEv, foldLog, abortKeys, zoomTicks: r.zoomTicks, proxyTicks: r.proxyTicks, snapBefore, snap, label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
+  const res = { membersStart:r.membersStart,proxyAbort:r.proxyAbort,snapEv, foldLog, abortKeys, zoomTicks: r.zoomTicks, proxyTicks: r.proxyTicks, snapBefore, snap, label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), wheelPaint: stats(r.wheelPaint ?? []), rawTimings: r.rawTimings, longtasks: r.longtasks,
     cursorChanges: cursorLog.length, cursorSeq: seq.slice(0, 40).map((s) => `${s.k}x${s.n}@${s.t}`), slowEvents: r.evts.slice(0, 12), trace };
   if (process.env.PROBE_DUMP_JS) { try { res.dump = await js(process.env.PROBE_DUMP_JS); } catch (e) { res.dump = String(e); } }
   if (ipcLedger.size) { res.ipc = Object.fromEntries([...ipcLedger].sort((a, b) => b[1].ms - a[1].ms).map(([k, v]) => [k, { n: v.n, ms: +v.ms.toFixed(1), maxMs: +v.maxMs.toFixed(1), argKB: +(v.argB / 1024).toFixed(1), resKB: +(v.resB / 1024).toFixed(1), maxResKB: +(v.maxResB / 1024).toFixed(1) }])); }
@@ -454,6 +469,7 @@ async function figurePhases(mode = 'figure') {
   // fold (180 ms) and the zoom-proxy snapshot (1.5 s quiet + idle). The owner's lag is worst zoomed in.
   const zoomSteps = +(process.env.PROBE_ZOOM_STEPS || 0);
   if (zoomSteps > 0) {
+    if (process.env.PROBE_PRE_ZOOM_REST) await sleep(+process.env.PROBE_PRE_ZOOM_REST);
     const zx = target ? target.x : Math.round((geo.host.l + geo.host.r) / 2), zy = target ? target.y : Math.round((geo.host.t + geo.host.b) / 2);
     const bakedJs = `Number(/scale\\(([-\\d.e]+)/.exec(document.querySelector('${modeRoot} .scene-svg > g').getAttribute('transform'))[1])`;
     const z0 = await js(bakedJs);
@@ -596,6 +612,54 @@ async function figurePhases(mode = 'figure') {
     }, tr('zoomDeep'));
     if (wantPhase('zoomFast')) R.zoomFast = await measureFrames(`${mode}:${sc}:zoomFast`, region, async () => { ctrlDown(); for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); await sleep(600); }, tr('zoomFast'));
     if (wantPhase('zoomBursts')) R.zoomBursts = await measureFrames(`${mode}:${sc}:zoomBursts`, region, async () => { ctrlDown(); for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(16); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(16); } await sleep(320); } ctrlUp(); await sleep(600); }, tr('zoomBursts'));
+    if (mode === 'figure' && wantPhase('zoomNavigate')) {
+      await sleep(3500);
+      const navigation = `(()=>{const host=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
+        const proxy=document.querySelector('${modeRoot} .zoom-proxy.live');let panX,panY,zoom;
+        if(proxy){const box=proxy.dataset.worldBox.split(' ').map(Number),size=proxy.dataset.rasterSize.split(' ').map(Number),m=new DOMMatrix(getComputedStyle(proxy).transform);zoom=m.a*size[0]/box[2];panX=m.e-zoom*box[0];panY=m.f-zoom*box[1];}
+        else{const m=new DOMMatrix(getComputedStyle(document.querySelector('${modeRoot} .scene')).transform),g=document.querySelector('${modeRoot} .scene-svg > g');zoom=m.a*(Number(/scale\\(([-\\d.e]+)/.exec(g.getAttribute('transform'))?.[1])||1);panX=m.e;panY=m.f;}
+        const frames=[...document.querySelectorAll('${modeRoot} g[data-annotation-figure]')].map(g=>{const r=g.querySelector(':scope > rect.figure-bg'),m=g.transform.baseVal.numberOfItems?g.transform.baseVal.getItem(0).matrix:null;return r?{id:g.dataset.annotationFigure,x:(m?.e||0)+Number(r.getAttribute('x'))+Number(r.getAttribute('width'))/2,y:(m?.f||0)+Number(r.getAttribute('y'))+Number(r.getAttribute('height'))/2}:null}).filter(Boolean);
+        return{panX,panY,zoom,frames,host:{l:host.left,t:host.top,w:host.width,h:host.height},proxy:!!proxy}})()`;
+      const start = await js(navigation);
+      const near = start.frames.slice().sort((a,b)=>Math.hypot(start.panX+start.zoom*a.x-start.host.w/2,start.panY+start.zoom*a.y-start.host.h/2)-Math.hypot(start.panX+start.zoom*b.x-start.host.w/2,start.panY+start.zoom*b.y-start.host.h/2));
+      if (near.length < 2) throw Error('zoomNavigate needs two mounted figures');
+      const origin=near[0];
+      let destinations=near.slice(1);
+      // The copied committed canvas supplies offscreen frame/plot coordinates;
+      // reading it does not mount those objects or require a production debug API.
+      try {
+        const directory=path.join(process.env.PROBE_PROJECT,'fig','canvases');
+        for(const name of fs.readdirSync(directory).filter(name=>name.endsWith('.json'))){
+          const canvas=JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'));
+          if(!canvas.figures?.some(figure=>figure.id===origin.id))continue;
+          destinations=canvas.figures.filter(figure=>figure.id!==origin.id).map(figure=>{
+            const plot=figure.elements.filter(element=>element.type==='plot'&&!element.hidden).sort((a,b)=>(b.x+b.width/2)-(a.x+a.width/2))[0];
+            return{id:figure.id,elementId:plot?.id,x:figure.x+(plot?plot.x+plot.width/2:figure.width/2),y:figure.y+(plot?plot.y+plot.height/2:figure.height/2)};
+          });break;
+        }
+      } catch { /* Older project layouts use the currently mounted frame geometry. */ }
+      const destination=destinations.sort((a,b)=>Math.abs(b.x-origin.x)-Math.abs(a.x-origin.x))[0];
+      const stages=[];
+      R.zoomNavigate=await measureFrames(`${mode}:${sc}:zoomNavigate`,region,async()=>{
+        ctrlDown();for(let i=0;i<18;i++){wheel(cx,cy,0,-120,['control']);await sleep(8)}ctrlUp();
+        const wide=await js(navigation);stages.push({stage:'wide',...wide,frames:wide.frames.length});
+        const shift=wide.host.w/2-wide.panX-wide.zoom*destination.x;
+        mouse({type:'keyDown',keyCode:'Shift'});
+        for(let i=0;i<12;i++){wheel(cx,cy,0,shift/12,['shift']);await sleep(8)}
+        mouse({type:'keyUp',keyCode:'Shift'});
+        let moved=await js(navigation);
+        const y=moved.panY+moved.zoom*destination.y;
+        if(y<40||y>moved.host.h-40){const delta=moved.host.h/2-y;for(let i=0;i<8;i++){wheel(cx,cy,0,delta/8);await sleep(8)}moved=await js(navigation)}
+        stages.push({stage:'pan',...moved,frames:moved.frames.length});
+        const px=Math.round(moved.host.l+moved.panX+moved.zoom*destination.x),py=Math.round(moved.host.t+moved.panY+moved.zoom*destination.y);
+        if(px<moved.host.l||px>moved.host.l+moved.host.w||py<moved.host.t||py>moved.host.t+moved.host.h)throw Error('navigation destination is outside the canvas');
+        const notches=Math.max(1,Math.ceil(Math.log(start.zoom/moved.zoom)/.18));
+        ctrlDown();for(let i=0;i<notches;i++){wheel(px,py,0,120,['control']);await sleep(8)}ctrlUp();
+        await sleep(800);const end=await js(navigation);stages.push({stage:'settled',...end,frames:end.frames.length});
+      },tr('zoomNavigate'));
+      R.zoomNavigate.navigation={origin,destination,initialZoom:start.zoom,stages};
+      log('navigation',R.zoomNavigate.navigation);
+    }
     // 10. FAST pan and pan in bursts (cool-downs → demotion + re-cull between)
     if (wantPhase('panFast')) R.panFast = await measureFrames(`${mode}:${sc}:panFast`, region, async () => { for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, 80); await sleep(8); } for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, -80); await sleep(8); } await sleep(600); }, tr('panFast'));
     if (wantPhase('panBursts')) R.panBursts = await measureFrames(`${mode}:${sc}:panBursts`, region, async () => { for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60); await sleep(8); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60); await sleep(8); } await sleep(320); } await sleep(600); }, tr('panBursts'));
@@ -607,7 +671,7 @@ async function figurePhases(mode = 'figure') {
     const backToCentre = async () => { mouse({ type: 'mouseMove', x: cx, y: cy }); };
     const seqGap = +(process.env.PROBE_SEQ_GAP || 0);
     if (wantPhase('ricTest')) { const rows = []; for (let k = 0; k < 4; k++) { await sleep(1500); rows.push(await js(`new Promise(r=>{const t=performance.now();const tm=setTimeout(()=>r({ric:null,vis:document.visibilityState,focus:document.hasFocus()}),4000);requestIdleCallback(()=>{clearTimeout(tm);r({ric:Math.round(performance.now()-t),vis:document.visibilityState,focus:document.hasFocus()})})})`)); } log('ricTest', rows); R.ricTest = rows; }
-    if (wantPhase('seqRestZoom')) { await sleep(3500); R.seqRestZoom = await measure(`${mode}:${sc}:seqRestZoom`, async () => { await zb(); await sleep(600); }, tr('seqRestZoom')); }
+    if (wantPhase('seqRestZoom')) { await sleep(+(process.env.PROBE_PRE_REST || 3500)); R.seqRestZoom = await measure(`${mode}:${sc}:seqRestZoom`, async () => { await zb(); await sleep(600); }, tr('seqRestZoom')); }
     if (wantPhase('seqDragZoom')) { await sleep(2000); R.seqDragZoom = await measure(`${mode}:${sc}:seqDragZoom`, async () => { await shortDrag(); await backToCentre(); await sleep(seqGap || 500); await zb(); await sleep(600); }, tr('seqDragZoom')); await undo(); }
     if (wantPhase('seqPanZoom')) { await sleep(2000); R.seqPanZoom = await measure(`${mode}:${sc}:seqPanZoom`, async () => { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 25); await sleep(8); } await sleep(seqGap || 300); await zb(); await sleep(600); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -25); await sleep(8); } await sleep(300); }, tr('seqPanZoom')); }
     if (wantPhase('seqZoomZoom')) { await sleep(2000); R.seqZoomZoom = await measure(`${mode}:${sc}:seqZoomZoom`, async () => { await zb(); await sleep(seqGap || 300); await zb(); await sleep(600); }, tr('seqZoomZoom')); }

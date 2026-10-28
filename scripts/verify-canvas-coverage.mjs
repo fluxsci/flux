@@ -31,9 +31,24 @@ try {
   await page.keyboard.down('Control'); await page.mouse.wheel({ deltaY: -10 });
   h.ok(await page.evaluate(() => {
     const p = document.querySelector('.zoom-proxy'), sc = document.querySelector('.scene');
-    if (getComputedStyle(sc).opacity === '1') return true;
-    const r = p.getBoundingClientRect(), host = document.querySelector('.canvas-host').getBoundingClientRect();
-    return p.classList.contains('live') && r.right > host.left && r.left < host.right && r.bottom > host.top && r.top < host.bottom;
+    const mask = document.querySelector('.zoom-proxy-backdrop'), canvas = document.querySelector('.canvas-host');
+    const opacity = getComputedStyle(sc).opacity;
+    if (!p?.classList.contains('live')) return opacity === '1' && !mask?.classList.contains('live');
+    const host = canvas.getBoundingClientRect();
+    let covered = false;
+    if (opacity === '1' && mask?.classList.contains('live')) {
+      const style = getComputedStyle(mask), box = mask.getBoundingClientRect();
+      const pixel = document.createElement('canvas'); pixel.width = pixel.height = 1;
+      const ctx = pixel.getContext('2d'); ctx.fillStyle = style.backgroundColor; ctx.fillRect(0, 0, 1, 1);
+      covered = style.opacity === '1' && style.display !== 'none' && style.visibility === 'visible' &&
+        ctx.getImageData(0, 0, 1, 1).data[3] === 255 &&
+        [...document.querySelectorAll('.zoom-proxy.live,.zoom-proxy-coarse.live')].every(plane => getComputedStyle(plane).backgroundColor === style.backgroundColor) &&
+        box.left <= host.left && box.top <= host.top && box.right >= host.right && box.bottom >= host.bottom;
+    }
+    return covered && [...document.querySelectorAll('.zoom-proxy.live,.zoom-proxy-coarse.live')].some(plane => {
+      const r = plane.getBoundingClientRect();
+      return plane.firstElementChild?.width > 0 && r.right > host.left && r.left < host.right && r.bottom > host.top && r.top < host.bottom;
+    });
   }), 'zoom immediately after a long pan keeps visible scene coverage');
   await page.keyboard.up('Control'); await sleep(600);
 

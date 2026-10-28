@@ -31,6 +31,10 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["src/lib/interact/sceneCaptureSupplement.ts", ["group:scene-raster", "verify-zoom-proxy.mjs", "verify-canvas-coverage.mjs", "tier:pure"]],
+  ["electron/sceneRasterWorker.mjs", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure"]],
+  ["electron/ipc/sceneRaster.cjs", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure"]],
+  ["resources/fonts/Gelasio-Regular.ttf", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure"]],
   ["src/lib/plot/relayout/solve.ts", ["group:relayout", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/plot/ticks.ts", ["verify-colorscale-dom.ts", "verify-colorscale-verb.ts", "verify-colorscale-gui.mjs", "verify-fluxplot03-gui.mjs", "verify-plot-view-gui.mjs", "tier:pure", "group:relayout"]],
   ["src/lib/plot/variantBudget.ts", ["group:relayout", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],

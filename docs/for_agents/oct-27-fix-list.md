@@ -35,7 +35,7 @@ No application installation, main-branch integration or remote publication is pa
 | 19 | R opens X-ray; Alt+R selects Rectangle. Shift+Alt+R still opens a drilled part's family, and Shift+R keeps rulers. Figure/Slide and the Become picker use the same intended routing. | Keyboard, tool labels, Become UI, Help, user manuals and stock context updated together. Reader/Paper Alt+R keeps its unrelated reference-search behavior. Existing X-ray/Slide UI fixtures exercise real keys under the new contract. |
 | 20 | Ctrl+K → New figure arms point placement at the requested upper-left, or the mathematically closest free frame position with a 24px gap. Alt-dragging a frame title duplicates its complete figure in the same family with the next number and a fresh reference. | Shared `figureLifecycle.nearestFigurePosition` uses forbidden position intervals, preserving fractional/negative coordinates. Project/canvas/tool changes and Escape cancel placement. Duplication starts only past slop and uses the shared identity/group/caption/attachment core and one checkpoint. Shift locks its dominant axis. Pure independent exhaustive oracle and actual GUI placement/cancel/duplicate/Undo/Redo tests guard this. |
 | 21 | Selection edge/corner handles remain reachable beyond a figure frame; a marquee can start in outside canvas space and select active-figure elements. | `interact/handles.excludeZones` reserves title bars by subtraction instead of clipping all zones to the frame. Slide retains its stage policy. Existing interaction/selection/crop/frame gates plus actual outside-handle/marquee gestures validate hit priority and history. |
-| 22 | Final rapid zoom/pan investigation — pending the non-performance acceptance cohort. | Use the October 1 overview for existing proxy/culling/compositor context. Do not implement its structural roadmap or mutate the real Synaptic Sleep project. Record the actual regression, bounded repair, before/after numbers and settle/input/export checks here. |
+| 22 | Large native scenes now prepare snapshots cooperatively and rasterize in a bounded cancellable child; a valid complete coarse backing survives subset culling and reverse zoom. Opaque host-color mattes cover the frozen SVG without repainting it or doubling transparent art. | `zoomProxy.ts`, `sceneCaptureSupplement.ts`, Canvas lifecycle, scene raster IPC/worker. Existing 20k synchronous/browser cap remains; dense native cap is 150k elements/64 MiB, sharp 3 MP + coarse 1 MP. Unsupported resources/fonts/compositing fall back live. Final timing, pointer and regression acceptance is recorded below when complete. |
 
 ## Review findings that changed the implementation
 
@@ -94,6 +94,43 @@ Recorded integrated checks so far:
 Full pure/Paper/affected Figure–Slide suites, production build/native acceptance, final source
 identity, real-project performance results and preservation hashes remain to be filled before
 this record is marked complete. No passing browser fixture is called physical GPU qualification.
+
+## Final responsiveness investigation (item 22)
+
+The non-performance core was committed and qualified before this investigation. The October 1
+context document was read in full; its structural roadmap was not implemented. Read-only history
+showed the 20k proxy cap and quiet/culling policy already existed in September. The supplied scene
+crossed that cap (about 73k–75k SVG nodes); this establishes an unhandled density case, without
+claiming a particular recent source commit caused the user's regression.
+
+Retained software-native baseline on a full disposable copy: a fixed 24-event rapid reverse zoom
+observed 13 wheel events, no proxy ticks, frame gaps 83.4 ms median / 150 ms p95, 250.5 ms SVG layout
+and 984.1 ms renderer task time (`/tmp/oct27-zoom-baseline-rest/`). A direct preparation diagnostic
+cost 200.3 ms (clone 74.7 + component styles 13.1 + serialization 112.5) on 34.8 million SVG characters.
+Raising the synchronous density limit would therefore move substantial work into input handling.
+
+The bounded repair retains the existing scene/proxy architecture. Dense serialization yields in
+6 ms slices; native parsing/rendering runs outside the renderer. Two raster planes remain capped
+at 3 MP/1 MP and 4096 px. Admission, fonts, non-scaling strokes, resource confinement, cancellation,
+project/sender ownership, timeout/crash recovery and stale replies have dedicated registered gates.
+Only a bounded set of missing placements in already-live frames may supplement a capture; this
+prevents four just-offscreen plots in the real project from aborting an otherwise complete proxy.
+A culled subset can reuse a captured superset, but new content or offscreen edits invalidate it.
+A subset quality refresh explicitly transfers ownership of the complete coarse backing.
+
+Tracing the initial dense repair found 84/95 ms handoff/fold tasks in SVG paint and layerization
+when opacity changed. The final composition leaves that frozen SVG unchanged and covers it with
+opaque host-color planes. Filters apply to artwork only. Strict whole-image tests compare opaque,
+RGBA-over-solid and colored-host grayscale composites against independent raw-alpha references:
+**zero differing pixels**, including the sharp/coarse seam. Unsupported gradient backgrounds use
+live rendering and also match exactly. A gesture starting during the proxy must resolve its hit
+against the current folded geometry, including placements not mounted before the camera move.
+
+Final native repetitions, navigation/settle screenshots, Arrange timing and frozen acceptance
+receipts will replace this paragraph before the record is marked complete. The retained 104.3 ms
+Arrange entry failure prompted dependency-checked reuse of its already computed recognition
+snapshot; its 100 ms budget is unchanged. Browser fixtures and software-native input do not
+establish physical GPU/display presentation, and no such claim is made.
 
 ## Reproduction rules
 

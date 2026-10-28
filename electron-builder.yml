@@ -22,6 +22,7 @@ files:
   # fonts:lookup resolves system font files through the shared resolver.
   - src/lib/text/fontFiles.mjs
   - src/lib/text/fontRequest.mjs
+  - resources/fonts/**/*
   - dist/**/*
   - package.json
   - "!**/node_modules/**/*"
@@ -35,6 +36,7 @@ files:
   - node_modules/readdirp/**/*
   # PNG rendering stays in a child process; ship its wrapper + platform prebuilt.
   - node_modules/@resvg/**/*
+  - node_modules/@xmldom/xmldom/**/*
   - node_modules/pdf-lib/cjs/**/*
   - node_modules/pdf-lib/package.json
   - node_modules/pdf-lib/LICENSE.md
@@ -60,6 +62,13 @@ asarUnpack:
   - resources/agent-skills/**/*
   # Native prebuilt and JS wrapper must both resolve from Electron-as-Node.
   - node_modules/@resvg/**
+  - node_modules/@xmldom/xmldom/**
+  - resources/fonts/**
+  - electron/sceneRasterWorker.mjs
+  - electron/sceneRasterEngine.mjs
+  - electron/sceneRasterProtocol.cjs
+  - electron/sceneRasterRules.cjs
+  - electron/sceneRasterStrokes.mjs
   # W13: the slide-export CLI runs in a child launched with ELECTRON_RUN_AS_NODE,
   # which has NO asar support — so the bundle + its prebaked export assets must be
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.

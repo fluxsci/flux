@@ -20,6 +20,8 @@
 //     missing/extra/undeclared channels.
 
 const CHANNELS = [
+  { channel: "scene:rasterize", kind: "invoke", scope: "read" },
+  { channel: "scene:cancelRaster", kind: "invoke", scope: "read" },
   { channel: "agentsetup:status", kind: "invoke", scope: "read" },
   { channel: "agentsetup:doctor", kind: "invoke", scope: "read" },
   { channel: "agentsetup:apply", kind: "invoke", scope: "write" },

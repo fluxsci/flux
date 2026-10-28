@@ -447,7 +447,9 @@
       "verify-figure-placement.ts",
       "verify-plot-resize-fixes.ts",
       "verify-plot-notes.ts",
-      "verify-language-profiles.ts"
+      "verify-language-profiles.ts",
+      "verify-scene-raster.ts",
+      "verify-scene-capture-supplement.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -760,7 +762,8 @@
       "verify-model3d-video-electron.cjs",
       "verify-slide-model3d-scale-electron.cjs",
       "verify-plots-rail-electron.cjs",
-      "verify-relayout-export-electron.cjs"
+      "verify-relayout-export-electron.cjs",
+      "verify-scene-raster-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -1436,10 +1439,38 @@
       "verify-docs.ts",
       "verify-fluxconfig.ts",
       "verify-language-profiles.ts"
+    ],
+    "scene-raster": [
+      "verify-scene-raster.ts",
+      "verify-scene-capture-supplement.ts"
+    ],
+    "scene-raster-native": [
+      "verify-scene-raster-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "$why": "Bounded detached completion of viewport snapshots; preserve default pure coverage and validate shared Canvas serialization.",
+      "glob": "src/lib/interact/sceneCaptureSupplement.ts",
+      "run": [
+        "group:scene-raster",
+        "verify-zoom-proxy.mjs",
+        "verify-canvas-coverage.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "Dense viewport snapshots: bounded child rasterization, raw framing, resource/font fidelity and cancellation; preserve broad Electron presence checks.",
+      "glob": "{electron/sceneRaster*.{cjs,mjs},electron/ipc/sceneRaster.cjs,resources/fonts/**,scripts/build-scene-fonts.py}",
+      "run": [
+        "group:scene-raster",
+        "group:scene-raster-native",
+        "verify-asar-unpack-closure.ts",
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
     {
       "$why": "October 27 issue-list acceptance; preserve broad regression coverage.",
       "glob": "src/lib/figure/{commands,placement}.ts",
@@ -11407,6 +11438,33 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-scene-raster.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-scene-raster-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scene-capture-supplement.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
       "exclusive": false,
       "coverage": "behavior"
     }
