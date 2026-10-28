@@ -18,7 +18,7 @@ plots/
 └── _dissections/
     └── growth/                     # ← growth.svg's dissections
         ├── overview.svg            #   loose files form the default group
-        ├── by_subject/             #   a subfolder is a named group (a tab in the viewer)
+        ├── by_subject/             #   a subfolder is a named group (a section in the viewer)
         │   ├── subj01.svg …
         └── _stats/
             └── anova.csv           #   CSVs/TSVs open as sortable tables
@@ -66,10 +66,12 @@ holds the pane on one plot while you work elsewhere.
 
 **Full screen.** In the figure editor, select a plot and press **D** (or click **Dissections** in the
 Inspector — it shows a count). The viewer opens full-screen, and the **⧉** button shrinks it
-to a floating window you can keep beside the canvas:
+to a floating window you can keep beside the canvas. It is the rail's pane at full size: tables
+first as Summary previews, then each folder of panels as its own section at the panels' own
+shapes, then the remaining files as a list:
 
-- **Arrow keys** move through the grid; **[** / **]** change the column count; **1–9** switch
-  group tabs.
+- **Arrow keys** move through the files; **[** / **]** (or **Ctrl+scroll**) make the tiles
+  smaller or larger; **1–9** jump to a section; a section's ▾ folds it.
 - **Enter** expands a file. Images zoom at the cursor with **Ctrl+scroll**, pan with
   **Space+drag** or plain scroll, and toggle fit/1:1 with **Enter**. CSV/TSV files open as
   tables with a sticky header — click a column to sort, numeric columns right-align.

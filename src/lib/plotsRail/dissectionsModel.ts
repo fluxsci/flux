@@ -11,6 +11,9 @@
 
 import { writable, get } from "svelte/store";
 import { listDissections, type DissectListing, type DissectFile } from "../dissect/loader";
+import { DISSECT_TABLE_RE } from "../dissect/rules";
+import { fileBridge } from "../project/types";
+import { tablePreview, type TablePreview } from "./tableCard";
 
 export type DissectionSectionKind = "summary" | "images" | "other";
 export interface DissectionSection {
@@ -98,4 +101,28 @@ export function createDissectionsModel() {
     refresh: () => load(root, wanted, true),
     current: () => get(state),
   };
+}
+
+export interface DissectionImageSize { w: number; h: number; stamp: string; physMm: [number, number] | null; mtimeMs: number }
+const UNREADABLE: TablePreview = { header: [], rows: [], rowCount: 0, complete: true, cols: 0, transposed: false, error: "Unreadable" };
+/** What a grid needs before it lays out a listing: every image's header size + version stamp
+ *  (one plotsProbe), and each table's bounded head as a card preview (plus a longer Peek look). */
+export async function probeDissectionFiles(files: DissectFile[], peekRows = 0): Promise<{ sizes: Map<string, DissectionImageSize>; tables: Map<string, TablePreview>; peekTables: Map<string, TablePreview> }> {
+  const fb = fileBridge();
+  const sizes = new Map<string, DissectionImageSize>();
+  const images = files.filter((f) => f.kind === "image").map((f) => f.abs);
+  if (images.length && fb?.plotsProbe) {
+    try {
+      for (const p of await fb.plotsProbe(images)) sizes.set(p.abs, { w: p.w ?? 0, h: p.h ?? 0, stamp: `${p.size ?? 0}:${p.mtimeMs ?? 0}`, physMm: p.physMm ?? null, mtimeMs: p.mtimeMs ?? 0 });
+    } catch { /* layout falls back to 4:3 */ }
+  }
+  const tables = new Map<string, TablePreview>(), peekTables = new Map<string, TablePreview>();
+  await Promise.all(files.filter((f) => f.kind === "table" || DISSECT_TABLE_RE.test(f.name)).map(async (f) => {
+    try {
+      const r = await fb?.readTextBounded?.(f.abs, 64 * 1024);
+      tables.set(f.abs, r ? tablePreview(r.text, f.name, r.truncated) : UNREADABLE);
+      if (r && peekRows) peekTables.set(f.abs, tablePreview(r.text, f.name, r.truncated, peekRows));
+    } catch { tables.set(f.abs, UNREADABLE); }
+  }));
+  return { sizes, tables, peekTables };
 }

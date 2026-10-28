@@ -11,6 +11,7 @@
   import { previewBackdrop } from "../plot/previewBackdrop";
   import TextNoteEditor from "./TextNoteEditor.svelte";
   import { plotNote } from "./notes";
+  import { fileBridge } from "../project/types";
 
   let {
     file,
@@ -291,6 +292,7 @@
       <div class="absent">
         <span class="k">{file.name}</span>
         <span>no viewer for this file type yet</span>
+        {#if fileBridge()?.openPath}<button class="open-ext" use:nativeClick={() => void fileBridge()?.openPath?.(file.abs)}>Open in its app</button>{/if}
       </div>
     </div>
   {/if}
@@ -353,6 +355,21 @@
   .absent .k {
     font-style: normal;
     color: var(--c-tx-2);
+  }
+  .open-ext {
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui);
+    background: none;
+    color: var(--c-tx);
+    font: 12px var(--font-ui);
+    font-style: normal;
+    cursor: var(--cursor-cross-hover);
+  }
+  .open-ext:hover {
+    border-color: var(--c-tx-muted);
+    color: var(--c-tx-hi);
   }
   .caption-bar {
     display: flex;

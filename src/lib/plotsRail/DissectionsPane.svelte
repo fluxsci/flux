@@ -14,10 +14,10 @@
   import JustifiedGrid, { type GridItem, type GridSection, type TileFlags } from "./JustifiedGrid.svelte";
   import Tile from "./Tile.svelte";
   import TableCard from "./TableCard.svelte";
-  import { tablePreview, tableCardHeight, type TablePreview } from "./tableCard";
+  import { tableCardHeight, type TablePreview } from "./tableCard";
   import RailMenu, { type RailMenuItem } from "./RailMenu.svelte";
   import { focusPlot, setPinned } from "./focusPlot";
-  import { createDissectionsModel, type DissectionSection, type DissectionsState } from "./dissectionsModel";
+  import { createDissectionsModel, probeDissectionFiles, type DissectionImageSize, type DissectionSection, type DissectionsState } from "./dissectionsModel";
   import { railPrefs, dissectGroupState, saveDissectGroupState, TILE_H_MIN, TILE_H_MAX } from "./railPrefs";
   import { beginPlotDrag } from "./dragPlace";
   import { insertPlots, type PlaceAdapter } from "./insert";
@@ -25,7 +25,6 @@
   import { acquireThumb } from "./thumbClient";
   import { dissectTarget } from "../dissect/state";
   import { createDissectionRoot, dissectionRootAbs } from "../dissect/loader";
-  import { DISSECT_TABLE_RE } from "../dissect/rules";
   import PlotNotes from "../dissect/PlotNotes.svelte";
   import { fileBridge } from "../project/types";
   import { project, activeFigureId, embeddedProjectRoot, projectDir } from "../store";
@@ -92,7 +91,7 @@
   });
 
   // ------------------------------------------------------------------ sizes, stamps, tables
-  let sizes = $state.raw<Map<string, { w: number; h: number; stamp: string; physMm: [number, number] | null; mtimeMs: number }>>(new Map());
+  let sizes = $state.raw<Map<string, DissectionImageSize>>(new Map());
   let tables = $state.raw<Map<string, TablePreview>>(new Map());
   // Peek's longer look at a table: its first 20 rows (the card shows 6).
   let peekTables = $state.raw<Map<string, TablePreview>>(new Map());
@@ -103,27 +102,15 @@
     if (noteView) return;
     const rev = ds.rev;
     const st = untrack(() => ds);
+    // This listing is already on screen: re-applying it would consume the aligned-flip anchor
+    // twice (the second pass, anchorless, would drop the selection).
+    if (untrack(() => view.key === st.key && view.rev === rev)) return;
     const files = st.sections.flatMap((s) => s.files);
     let alive = true;
     void (async () => {
-      const fb = fileBridge();
-      const images = files.filter((f) => f.kind === "image").map((f) => f.abs);
-      const nextSizes = new Map<string, { w: number; h: number; stamp: string; physMm: [number, number] | null; mtimeMs: number }>();
-      if (images.length && fb?.plotsProbe) {
-        try {
-          for (const p of await fb.plotsProbe(images)) nextSizes.set(p.abs, { w: p.w ?? 0, h: p.h ?? 0, stamp: `${p.size ?? 0}:${p.mtimeMs ?? 0}`, physMm: p.physMm ?? null, mtimeMs: p.mtimeMs ?? 0 });
-        } catch { /* layout falls back to 4:3 */ }
-      }
-      const nextTables = new Map<string, TablePreview>(), nextPeek = new Map<string, TablePreview>();
-      await Promise.all(files.filter((f) => f.kind === "table" || DISSECT_TABLE_RE.test(f.name)).map(async (f) => {
-        try {
-          const r = await fb?.readTextBounded?.(f.abs, 64 * 1024);
-          nextTables.set(f.abs, r ? tablePreview(r.text, f.name, r.truncated) : { header: [], rows: [], rowCount: 0, complete: true, cols: 0, transposed: false, error: "Unreadable" });
-          if (r) nextPeek.set(f.abs, tablePreview(r.text, f.name, r.truncated, 20));
-        } catch { nextTables.set(f.abs, { header: [], rows: [], rowCount: 0, complete: true, cols: 0, transposed: false, error: "Unreadable" }); }
-      }));
+      const next = await probeDissectionFiles(files, 20);
       if (!alive) return;
-      sizes = nextSizes; tables = nextTables; peekTables = nextPeek; view = { key: st.key, rev, sections: st.sections };
+      sizes = next.sizes; tables = next.tables; peekTables = next.peekTables; view = { key: st.key, rev, sections: st.sections };
       await tick();
       applyAnchor();
     })();

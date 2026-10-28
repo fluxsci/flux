@@ -209,12 +209,14 @@
     return node ? node.getBoundingClientRect() : null;
   }
 
-  function keydown(e: KeyboardEvent) {
+  /** Arrows, Home/End and PageUp/PageDown move the focus (true: the key was one of them).
+   *  Exported for hosts that capture keys before the grid sees them. */
+  export function navigate(e: KeyboardEvent): boolean {
     const focused = focusId ? flat[indexOf.get(focusId) ?? -1] ?? null : null;
     const dirs: Record<string, "left" | "right" | "up" | "down"> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
     if (!e.altKey && !e.ctrlKey && !e.metaKey && (dirs[e.key] || ["Home", "End", "PageUp", "PageDown"].includes(e.key))) {
       e.preventDefault();
-      if (!flat.length) return;
+      if (!flat.length) return true;
       let i = focused ? indexOf.get(focused.id)! : -1;
       if (dirs[e.key]) i = i < 0 ? 0 : moveIndex(layout, i, dirs[e.key]);
       else if (e.key === "Home") i = 0;
@@ -230,9 +232,12 @@
       }
       const item = flat[i];
       if (item) { onFocusChange?.(item, "keyboard"); reveal(item.id); }
-      return;
+      return true;
     }
-    onKeyDown?.(e, focused);
+    return false;
+  }
+  function keydown(e: KeyboardEvent) {
+    if (!navigate(e)) onKeyDown?.(e, focusId ? flat[indexOf.get(focusId) ?? -1] ?? null : null);
   }
 
   // Hover, delegated: one listener for every cell. Pointer MOVES (not just `over`), so a pointer
