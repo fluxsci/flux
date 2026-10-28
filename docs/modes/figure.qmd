@@ -58,14 +58,16 @@ survives.
 # Finding and naming figures
 
 Press **Ctrl+K**, choose **New figure**, then click the canvas where its upper-left corner
-should go. Flux uses that point when it is free, or the closest position that leaves a small
-gap between frames. **Escape** cancels placement. Hold **Alt** while dragging a figure's
-title to duplicate the whole figure, including its panels, captions and guides. The copy
-inherits its family and receives the next number and a new permanent reference. A click
-without a drag creates no copy; **Escape** cancels a duplicate drag and **Ctrl+Z** undoes it.
+should go; a dashed outline follows the pointer to show where it will land. Flux uses that
+point when it is free, or the closest position that keeps clear of other frames and their
+titles. **Escape** cancels placement. Hold **Alt** while dragging a figure's title to duplicate
+the whole figure, including its panels, captions and guides. The copy inherits its family and
+takes the next number (later figures of the family shift up by one) and a new permanent
+reference. A click without a drag creates no copy; **Escape** cancels a duplicate drag and
+**Ctrl+Z** undoes it.
 
 Selection handles remain usable when an element overhangs its frame. You can also begin a
-selection rectangle in the empty canvas outside the active frame and drag across its elements.
+selection rectangle in the empty canvas outside a frame: it selects in the frame it covers.
 
 Open **All…** in the Figure sidebar, or **Reference, sources & used in…** in the Inspector,
 for the project-wide figure catalog. Search by title, designation, reference key, or canvas.
@@ -93,9 +95,9 @@ filename, and you do not need to rename stored files to rename a figure.
 
 # Keeping linked sources current
 
-Select a plot and press **Alt+Shift+C** to copy its full source path. **Ctrl+K → Copy selected
-plot path** does the same. A plot imported without a linked source copies the path of its saved
-SVG in the project.
+Select a plot and press **Alt+Shift+C** to copy its full source path (with several plots
+selected, one path per line). **Ctrl+K → Copy selected plot path** does the same. A plot
+imported without a linked source copies the path of its saved SVG in the project.
 
 Imported plots retain an accepted SVG and its semantic metadata in the project. When analysis
 regenerates a linked source, Flux updates that accepted bundle automatically, including changes

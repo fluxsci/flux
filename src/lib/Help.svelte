@@ -153,7 +153,7 @@
             ["⌃⇧K", "Import PNG/SVG files"],
             ["Alt + G", "Toggle Plots / Layers (Slide: Plots / Slides); a hidden sidebar opens to Plots"],
             ["Alt + /", "Plots rail: folder tree / dissections"],
-            ["Alt + Shift + C", "Copy the selected plot's full path"],
+            ["Alt + Shift + C", "Copy the selected plots' full paths"],
             ["Ctrl+K → New figure", "Click to place a frame; Esc cancels"],
             ["Alt + drag figure title", "Duplicate the whole figure in its family"],
             ["R", "X-ray (⇧/⌃-click or drag picks rows; ← family, a siblings, ⇧A every plot, Alt+A all results, f properties, m animates in Slide)"],

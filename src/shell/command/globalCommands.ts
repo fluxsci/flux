@@ -11,11 +11,10 @@ import { openFigureMeta } from "../../lib/figure/metadataState";
 import { get } from "svelte/store";
 import type { Command } from "./commands";
 import { requestOpenDoc } from "./commandBus";
-import { setFocusedMode } from "../paneStore";
+import { focusedMode, setFocusedMode } from "../paneStore";
 import { currentProject } from "../shellStore";
 import { fileBridge } from "../../lib/project/types";
 import { CONTEXT_PATHS } from "../../lib/project/contextTemplates";
-import { focusedMode } from "../paneStore";
 
 function openInPaper(rel: string): void {
   setFocusedMode("paper");
@@ -36,10 +35,9 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
   const openDoc = opts.openDoc ?? openInPaper;
   const hasProject = !!get(currentProject)?.path;
   const cmds: Command[] = [{ id: "figure-metadata", title: "Figure-Meta: captions and names", hint: "Alt+M", keywords: "figure metadata caption name family", run: () => openFigureMeta() }];
-  if (get(focusedMode) === "figure") cmds.push(
-    { id: "new-figure", title: "New figure", hint: "Figure", keywords: "create frame place canvas", run: () => { void import("../../lib/figure/commands").then(m => m.requestFigurePlacement()); } },
-    { id: "copy-plot-path", title: "Copy selected plot path", hint: "Alt+Shift+C", keywords: "source file clipboard fluxplot", run: () => { void import("../../lib/figure/commands").then(m => m.copySelectedPlotPath()); } },
-  );
+  const mode = get(focusedMode);
+  if (mode === "figure") cmds.push({ id: "new-figure", title: "New figure", hint: "Figure", keywords: "create frame place canvas", run: () => { void import("../../lib/figure/commands").then(m => m.requestFigurePlacement()); } });
+  if (mode === "figure" || mode === "slide") cmds.push({ id: "copy-plot-path", title: "Copy selected plot path", hint: "Alt+Shift+C", keywords: "source file clipboard fluxplot", run: () => { void import("../../lib/figure/commands").then(m => m.copySelectedPlotPath()); } });
   if (hasProject) {
     cmds.push(
       { id: "inbox", title: "Inbox", hint: "Alt+Q", keywords: "annotations comments review replies", run: () => requestInbox() },

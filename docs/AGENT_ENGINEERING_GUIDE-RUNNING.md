@@ -915,7 +915,7 @@ Persistence invariants (all machine-checked — do not weaken):
   pure operation offsets elements/guides oppositely to origin changes, preserving world position,
   physical size, hidden/out-of-bounds artwork, assets and references. Ctrl+K New figure arms a
   project/canvas-owned point request; `figureLifecycle.nearestFigurePosition` finds the exact
-  closest nonoverlap position (24px gap), preserving fractional/negative world coordinates.
+  closest nonoverlap position (`FIGURE_GAP`: 24 px beside, 80 px above/below where titles sit), preserving fractional/negative world coordinates.
   Tool, project, canvas changes and Escape cancel the request. Alt-dragging a figure title
   duplicates only past drag slop through the shared lifecycle; the checkpoint owns identity,
   caption/group remaps and cancellation. Whole-frame Shift drags keep an axis. CLI/MCP/live bridge expose
@@ -2581,7 +2581,9 @@ Persistence invariants (all machine-checked — do not weaken):
     AND the box is ≥ 12 px deep across them), and an L-shaped ROTATE zone 16 px deep outside
     each corner (the stem + knob stay; the knob is rotate zone `n`). Figure zones extend
     outside the frame, with title-bar rectangles subtracted (`excludeZones`) so frame titles
-    retain their move gesture. Slide stage zones retain `zoneClipForFrame`. **Small sides
+    retain their move gesture. Slide stage zones retain `zoneClipForFrame`. A select-tool press on
+    the bare canvas starts a marquee (`onCanvasDown`): it selects in the frame the box overlaps
+    most, the active frame until it overlaps one; a plain click there still deselects. **Small sides
     (`ZONE_SMALL_SIDE` 24 px): no inward reach at all on that axis**, so a 10 px label has no
     bands, a 2 px scale bar and a zero-height row of lines are grabbable along their whole
     length, and every box — 0 × N included — keeps a free centre (pure invariant). A press on a
