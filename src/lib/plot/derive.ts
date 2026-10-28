@@ -105,6 +105,19 @@ function mergeUseStyle(target: Element, use: Element): void {
   if (changed) target.setAttribute("style", styleString(own));
 }
 
+/** A defs path in matplotlib's absolute dialect whose extent excludes the
+ *  origin. Marker paths are centred on it; display-space collection paths
+ *  (negative y, figure-height offset) are not. Anything else stays a glyph. */
+function displaySpaceGeometry(def: Element): boolean {
+  const d = def.getAttribute("d");
+  if (def.localName !== "path" || def.hasAttribute("transform") || !d || !/^[\sMLCQZz\d.eE+,-]+$/.test(d)) return false;
+  const v = d.match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g)?.map(Number) ?? [];
+  if (v.length < 2 || v.length % 2) return false;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < v.length; i += 2) { x0 = Math.min(x0, v[i]); x1 = Math.max(x1, v[i]); y0 = Math.min(y0, v[i + 1]); y1 = Math.max(y1, v[i + 1]); }
+  return x0 > 0 || x1 < 0 || y0 > 0 || y1 < 0;
+}
+
 /** Replace every `<use href="#X">` that references <defs> content with its own
  *  cloned copy of X, so each instance is independently styleable. The clone
  *  keeps the USE's identity (semantic id, if any); the def's id is stripped
@@ -148,17 +161,16 @@ function inlineDefUses(root: Element, manifest?: FluxPlotManifest): void {
       if (attr.name.startsWith("data-")) replacement.setAttribute(attr.name, attr.value);
     }
 
-    // A <use> is storage, not a coordinate-frame declaration: matplotlib also
-    // emits fill_between polygons this way (negative y, figure-height translate).
-    // The captured frame takes precedence over the fixed-size symbol fallback.
-    let frame: NonNullable<FluxPlotManifest['layout']>['frames'][string] | undefined;
-    let glyphRole=false,dataRole=false;
-    for (let owner: Element | null = use; owner && !frame; owner = owner.parentElement) {
-      if(['point','marker','tick','cap','mean','median'].includes(owner.getAttribute('data-role')??''))glyphRole=true;
-      if(['area','region','cell','contour-level'].includes(owner.getAttribute('data-role')??''))dataRole=true;
-      frame = manifest?.layout?.frames[owner.getAttribute('id') ?? ''];
-    }
-    if (glyphRole || (frame ? !['data', 'axes', 'blend', 'figure', 'image'].includes(frame.f) : !dataRole)) replacement.setAttribute("data-flux-glyph", "1");
+    // matplotlib routes two different things through <defs> + <use>. Markers
+    // (draw_markers) are drawn in points about the origin and the use places
+    // them: fixed-size GLYPHS, whose size is in points, not data units (pt-true
+    // compensation and relayout counter-scale them about their anchor). A
+    // single-path collection (fill_between, hexbin) is already in display
+    // coordinates and the use adds only the collection offset: that is data
+    // geometry and must follow the axes. A captured scatter frame stays a glyph.
+    let frame: NonNullable<FluxPlotManifest["layout"]>["frames"][string] | undefined;
+    for (let owner: Element | null = use; owner && !frame; owner = owner.parentElement) frame = manifest?.layout?.frames[owner.getAttribute("id") ?? ""];
+    if (frame?.f === "glyph" || useTransform || !displaySpaceGeometry(target)) replacement.setAttribute("data-flux-glyph", "1");
     use.replaceWith(replacement);
     inlinedDefIds.add(refId);
   }

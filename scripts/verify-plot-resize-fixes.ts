@@ -16,6 +16,10 @@ for(const prefix of ['', 'placed']){
   const marker=root.querySelector(`[id="${id('confidence.mean')}"] path`)!;
   h.eq(band.getAttribute('data-flux-glyph'),null,`${prefix}: confidence band is data geometry`);
   h.eq(marker.getAttribute('data-flux-glyph'),'1',`${prefix}: mean stays a point-sized glyph`);
+  const lineMarkers=Array.from(root.querySelectorAll(`[id="${id('extra.line.0')}"] path`)),hexes=Array.from(root.querySelectorAll(`[id="${id('density.hex')}"] path`));
+  h.ok(lineMarkers.length===2&&lineMarkers.every(m=>m.getAttribute('data-flux-glyph')==='1'),`${prefix}: untagged line markers under a data frame stay glyphs`);
+  h.ok(hexes.length===2&&hexes.every(m=>m.getAttribute('data-flux-glyph')===null),`${prefix}: display-space hexbin cells are data geometry`);
+  const nativeHexes=hexes.map(el=>({path:parseMplPath(el.getAttribute('d')!)!,matrix:transformToAncestor(el,root)})),markerSizes=lineMarkers.map(el=>{const m=transformToAncestor(el,root);return Math.hypot(m[0],m[1]);});
   const original=String(root),native=parseMplPath(band.getAttribute('d')!)!,oldTransform=transformToAncestor(band,root),old=model.axes.get('plot-area')!.pixelBox;
   for(const size of [{wPt:180,hPt:230.4},{wPt:360,hPt:115.2},{wPt:500,hPt:300},{wPt:155,hPt:170}]){
     const solution=solveRelayout(model,size);applyRelayout(root,model,solution);
@@ -27,6 +31,13 @@ for(const prefix of ['', 'placed']){
       error=Math.max(error,Math.hypot(actual.x-expected.x,actual.y-expected.y));
     }
     h.ok(error<.00001,`${prefix}/${size.wPt}×${size.hPt}: every band vertex follows axes (${error})`);
+    let hexError=0;
+    hexes.forEach((el,k)=>{const path=parseMplPath(el.getAttribute('d')!)!,matrix=transformToAncestor(el,root);for(let i=0;i<path.vertices.length;i+=2){
+      const before=applyToPoint({x:nativeHexes[k].path.vertices[i],y:nativeHexes[k].path.vertices[i+1]},nativeHexes[k].matrix),actual=applyToPoint({x:path.vertices[i],y:path.vertices[i+1]},matrix);
+      hexError=Math.max(hexError,Math.hypot(actual.x-(box.x0+(before.x-old[0])/(old[2]-old[0])*(box.x1-box.x0)),actual.y-(box.y0+(before.y-old[1])/(old[3]-old[1])*(box.y1-box.y0))));
+    }});
+    h.ok(hexError<.00001,`${prefix}/${size.wPt}×${size.hPt}: every hexbin vertex follows axes (${hexError})`);
+    h.ok(lineMarkers.every((el,k)=>{const m=transformToAncestor(el,root);return Math.abs(Math.hypot(m[0],m[1])-markerSizes[k])<1e-9&&Math.abs(Math.hypot(m[2],m[3])-markerSizes[k])<1e-9;}),`${prefix}/${size.wPt}: line markers keep their point size`);
     const geometry=legendGeometry(model.layout.legends[0],model,box,{x0:0,y0:0,x1:size.wPt,y1:size.hPt});
     h.ok(geometry.width*geometry.scale<=box.x1-box.x0+1e-6,`${prefix}/${size.wPt}: legend fits resized owner`);
     if(size.wPt===180){h.eq(geometry.entries.size,4,`${prefix}: legend reflows into one column before shrinking`);h.ok(geometry.scale>.9,`${prefix}: reflow retains readable typography`);}

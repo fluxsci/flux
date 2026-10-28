@@ -11,6 +11,12 @@ export function plotResizeFixFixture(options:{frame?:boolean;title?:boolean;row?
   layout.frames['confidence.mean']={f:'data',axes:'plot-area'};
   const band=`<g id="confidence.band" data-role="area"><defs><path id="confidence-path" d="M 70 -120 L 100 -100 L 140 -125 L 130 -140 Z"/></defs><use href="#confidence-path" x="0" y="230.4" style="fill:#777;fill-opacity:0.2"/></g>`;
   const marker=`<g id="confidence.mean" data-role="mean"><defs><path id="confidence-marker" d="M -3 0 L 3 0"/></defs><use href="#confidence-marker" x="100" y="120" style="stroke:#111;stroke-width:1"/></g>`;
+  // An untagged Line2D's markers (fluxplot sweeps it as "extra"): a data frame, no glyph role.
+  layout.frames['extra.line.0']={f:'data',axes:'plot-area'};
+  const lineMarkers=`<g id="extra.line.0" data-role="extra"><defs><path id="extra-marker" d="M 0 1.3 C 0.7 1.3 1.3 0.7 1.3 0 C 1.3 -0.7 0.7 -1.3 0 -1.3 C -0.7 -1.3 -1.3 -0.7 -1.3 0 C -1.3 0.7 -0.7 1.3 0 1.3 z"/></defs><use href="#extra-marker" x="90" y="110" style="fill:#205ea6"/><use href="#extra-marker" x="120" y="100" style="fill:#205ea6"/></g>`;
+  // hexbin: one display-space hexagon, the uses add each cell's offset.
+  layout.frames['density.hex']={f:'data',axes:'plot-area'};
+  const hexes=`<g id="density.hex" data-role="x-hexbin"><defs><path id="hex-cell" d="M 82 -96 L 82 -100 L 78 -102 L 74 -100 L 74 -96 L 78 -94 z"/></defs><use href="#hex-cell" x="0" y="230.4" style="fill:#c00"/><use href="#hex-cell" x="12" y="224" style="fill:#0c0"/></g>`;
   // A single-row (ncol = entries) legend, or the default two columns of two.
   const names=options.row?['QW','AW','SWS','Sigma','REM']:['Condition A','Condition B','Condition C','Condition D'];
   const entries=names.map((text,i)=>{
@@ -25,7 +31,7 @@ export function plotResizeFixFixture(options:{frame?:boolean;title?:boolean;row?
   const background=options.frame?`<g id="legend.background" data-role="background"><path d="M 37 ${height} L 218 ${height} Q 220 ${height} 220 ${height-2} L 220 2 Q 220 0 218 0 L 37 0 Q 35 0 35 2 L 35 ${height-2} Q 35 ${height} 37 ${height} Z" style="fill:white;stroke:#ccc;stroke-width:1"/></g>`:'';
   let title='';
   if(options.title){layout.texts['legend.title']={text:'Conditions',font,anchor:[90,7],bbox:[90,1,145,7],ha:'left',va:'baseline',rotation:0};title='<g id="legend.title" data-role="legend-title"><text x="90" y="7" style="font-size:6px">Conditions</text></g>';}
-  svg=svg.replace('</svg>',`${band}${marker}<g id="legend" data-role="legend">${background}${title}${entries}</g></svg>`);
+  svg=svg.replace('</svg>',`${band}${marker}${lineMarkers}${hexes}<g id="legend" data-role="legend">${background}${title}${entries}</g></svg>`);
   return {svg,manifest};
 }
 
