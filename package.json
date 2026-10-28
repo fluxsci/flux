@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "electron/entry.cjs",
-  "description": "Flux \u2014 a local app for joining plots into figures, figures into papers, and slides",
+  "description": "Flux — a local app for joining plots into figures, figures into papers, and slides",
   "author": {
     "name": "Kort Driessen",
     "email": "sleepanimal@gmail.com"
