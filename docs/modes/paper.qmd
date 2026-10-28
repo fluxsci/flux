@@ -125,10 +125,12 @@ off. The same switch is in **Settings › Corrections › Local corrections** an
 This conservative local layer does not rephrase, make stylistic edits, or guess at scientific
 compound spelling; those are choices, not safe automatic corrections.
 
-An unresolved word is underlined in red. Hover or click it to see up to five ranked spelling
-suggestions. Click the spelling you meant, or type it in the box and press **Enter**. Flux
-remembers either choice in your Personal aliases and uses it automatically the next time you type
-that misspelling followed by a space or punctuation. One **Ctrl+Z** restores the original.
+An unresolved word is underlined in red. Hover over it to see up to five ranked spelling
+suggestions, or click it to put the keyboard in the list: arrows move, **Enter** picks, and
+typing starts your own spelling in the box below. Flux remembers the correction — picked, typed,
+or retyped by hand as one of the suggestions — and applies it automatically the next time you
+type that misspelling followed by a space or punctuation. One **Ctrl+Z** restores the original,
+and clicking an automatic correction offers **Forget** to stop making it.
 
 If the word is correct, use the **+** button to add it to your Personal dictionary. Its underline
 disappears immediately, including other occurrences in open documents. Flux supplies common

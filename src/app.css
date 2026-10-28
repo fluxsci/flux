@@ -162,21 +162,106 @@ textarea,
   font-size: 15px;
 }
 .paper .cm-spelling-menu {
-  width: min(290px, calc(100vw - 32px));
-  padding: 8px;
-  font: var(--ts-sm)/1.4 var(--font-ui);
+  width: min(260px, calc(100vw - 32px));
+  padding: 6px;
+  font-family: var(--font-serif);
+  font-size: var(--ts-sm);
+  line-height: 1.35;
   white-space: normal;
 }
-.paper .cm-spelling-header { display: flex; align-items: center; gap: 6px; padding: 0 2px 6px; }
-.paper .cm-spelling-header strong { flex: 1; overflow-wrap: anywhere; }
-.paper .cm-spelling-header button { border: 0; background: transparent; padding: 2px 6px; color: var(--c-tx-2); font: inherit; }
-.paper .cm-spelling-choices { display: flex; flex-direction: column; gap: 2px; }
-.paper .cm-spelling-choices button { text-align: left; border: 0; background: transparent; color: var(--c-tx); border-radius: 3px; padding: 5px 7px; font: inherit; }
-.paper .cm-spelling-choices button:hover, .paper .cm-spelling-choices button:focus-visible { background: var(--c-accent-tint); color: var(--c-accent); outline: none; }
-.paper .cm-spelling-custom { display: flex; gap: 5px; border-top: 1px solid var(--c-line); padding-top: 7px; margin-top: 6px; }
-.paper .cm-spelling-custom input { min-width: 0; flex: 1; border: 1px solid var(--c-line); border-radius: 3px; background: var(--c-bg); color: var(--c-tx); padding: 5px; font: inherit; }
-.paper .cm-spelling-custom button { border: 1px solid var(--c-line); border-radius: 3px; padding: 4px 6px; background: var(--c-surface); color: var(--c-tx); font: inherit; }
-.paper .cm-spelling-custom button:disabled { opacity: 0.4; }
+.paper .cm-spelling-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 5px 6px;
+  border-bottom: 1px solid var(--c-line);
+}
+.paper .cm-spelling-header strong {
+  flex: 1;
+  overflow-wrap: anywhere;
+  color: var(--c-tx-muted);
+  font-weight: 500;
+  text-decoration: underline 1.5px color-mix(in srgb, var(--flx-red-400) 70%, transparent);
+  text-underline-offset: 3px;
+}
+.paper .cm-spelling-menu button {
+  font: inherit;
+  color: var(--c-tx);
+  cursor: var(--cursor-cross-hover);
+}
+.paper .cm-spelling-header button.icon {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--c-tx-faint);
+  font-size: 15px;
+  line-height: 1;
+}
+.paper .cm-spelling-header button.icon:hover,
+.paper .cm-spelling-header button.icon:focus-visible {
+  background: var(--c-accent-tint);
+  color: var(--c-accent);
+  outline: none;
+}
+.paper .cm-spelling-choices {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+.paper .cm-spelling-choices button {
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  padding: 4px 8px;
+  text-align: left;
+}
+.paper .cm-spelling-choices button:hover,
+.paper .cm-spelling-choices button:focus-visible {
+  background: var(--c-accent-tint);
+  color: var(--c-accent);
+  outline: none;
+}
+.paper .cm-spelling-choices .empty {
+  padding: 4px 8px;
+  color: var(--c-tx-faint);
+  font-style: italic;
+}
+.paper .cm-spelling-custom {
+  display: flex;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-line);
+}
+.paper .cm-spelling-custom input {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 7px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-1);
+  background: var(--c-bg);
+  color: var(--c-tx);
+  font: inherit;
+}
+.paper .cm-spelling-custom input:focus {
+  border-color: var(--c-accent);
+  outline: none;
+}
+.paper .cm-spelling-custom button {
+  padding: 3px 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-1);
+  background: var(--c-bg-raised);
+}
+.paper .cm-spelling-custom button:hover:not(:disabled) {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+.paper .cm-spelling-custom button:disabled {
+  opacity: 0.45;
+  cursor: var(--cursor-cross);
+}
 
 .paper .cm-local-word-tools {
   width: 286px;
