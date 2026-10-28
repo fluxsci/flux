@@ -2670,9 +2670,15 @@ Persistence invariants (all machine-checked — do not weaken):
     eligible placements without mounting them (≤32 placements, ≤2 MiB source/model
     payload, ≤10k extra nodes, total scene still ≤150k). Unsupported cases fall back
     live. Never introduce per-figure rasters or eagerly mount the entire project.
-    Fully captured, valid, covering proxies may hold the mounted set through a
-    camera burst, including its first tick. Partial images must never prevent fresh
-    content mounting. Coverage includes Slide camera clipping and is checked on
+    Fully captured, valid, covering proxies hold membership through a camera
+    burst, including its first tick. Dense captures (>20k nodes) also retain
+    already-mounted captured figures/placements through SETTLE folds: otherwise a
+    deep→wide reversal destroys/remounts tens of thousands of unchanged SVG nodes.
+    Resting re-culls still admit newly visible IDs, including captured-only
+    supplements. This is a bounded captured superset, not a permanent freeze;
+    content revisions, incomplete membership, lost context, unsupported matte or
+    coverage exit restore ordinary culling. Partial images must never prevent
+    fresh mounting. Coverage includes Slide camera clipping and is checked on
     every viewport/content change, not just at activation.
 
     Keep the frozen dense SVG's display/opacity unchanged during handoff: changing
@@ -2697,8 +2703,14 @@ Persistence invariants (all machine-checked — do not weaken):
     Screencasts sample frames and cannot establish atomic physical presentation.
     Gates: `verify-zoom-proxy.mjs`, `verify-canvas-coverage.mjs`,
     `verify-scene-raster.ts`, `verify-scene-capture-supplement.ts`,
-    `verify-scene-raster-electron.cjs`, `verify-render-optimizations.mjs`,
-    `verify-slide-canvas-presentation-gui.mjs`.
+    `verify-scene-raster-electron.cjs`, `verify-dense-zoom-electron.cjs`,
+    `verify-dense-zoom-policy.cjs`, `verify-render-optimizations.mjs`,
+    `verify-slide-canvas-presentation-gui.mjs`. Native probe camera queries must
+    wait for actual delivered-wheel/paint barriers; executeJavaScript can overtake
+    Electron's injected input queue. Read the active proxy camera while the SVG is
+    frozen. Report timestamp→entry queue delay separately from entry→paint. The
+    portable qualified fixture explicitly uses 16 ms cadence; ordinary diagnostic
+    bursts remain 8 ms. Never pace the product or loosen a budget to hide a queue.
   - **No hover outline during unsettled zoom.** Content sweeping under a still pointer
     must not flash changing outlines. Suppress while `zoomUnsettled`, not throughout the
     post-interaction `sceneHot` cooldown: a newly hovered settled target still responds
@@ -2716,12 +2728,18 @@ Persistence invariants (all machine-checked — do not weaken):
     only removes uniform matplotlib `*` stroke-cap/join defaults when EVERY sheet
     is in that safe subset. Arbitrary or conditional CSS stays intact and scoped;
     never partially compile CSS into attributes (cascade priority and selector
-    matching change). `hoistPlotClips` only groups static geometry leaves sharing
-    user-space clips, without residual sheets, transforms, glyphs or definitions.
-    Bounding-box clips stay per element. `restorePlotClip` restores each child's
-    clip before a semantic translation. Exports keep `pristinePlotRoot()` for
-    GUI/headless parity. Pixel gates compare optimized art to the pristine path,
-    including multiple sheets, selector interactions and moved clipped parts.
+    matching change). `hoistPlotClips` groups adjacent static user-space geometry
+    or inert singleton semantic wrappers, preserving every original node/ID. Only
+    the atomic universal cap/join stylesheet subset is allowed; unsupported CSS,
+    transforms (including individual CSS transforms), wrapper opacity, filters,
+    masks, glyphs and animations opt out. Bounding-box clips stay per element.
+    `data-flux-clip-leaf` records original leaf ownership through clone/prefix.
+    `restorePlotClip` reinstates those original leaf clips before part opacity or
+    translation, projection/relayout transforms, effect binding, semantic content
+    tweening or extraction. Restoration belongs at the actual mutation seams;
+    unrestricted group-level clipping changes alpha/coordinate semantics. Exports
+    keep `pristinePlotRoot()` for GUI/headless parity. Exact-zero-pixel cases and
+    trusted part-drag/Undo gates cover these rules.
   - **Paper shows figures as IMAGES from an idle render queue** (`scholar/figures.ts`,
     2026-09-16). Embeds, hover cards, the pickers and the margin view all use
     `<img use:figureImage={id}>` / `bindFigureImage` over `renderFigureImageUrl` (a blob URL
@@ -11541,3 +11559,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Work:** Implemented the issue list's plot scaling/visible bounds, Paper corrections/pickers, gallery notes/navigation/previews and Figure interaction changes in an isolated worktree. Independent domain reviews found and fixed hidden-only selection, resize preview, placement ownership, accepted-asset path, contextual alias, seed provenance and delayed-note-save defects; the final zoom/pan investigation follows the non-performance qualification cohort. Detailed item/evidence handoff is `docs/for_agents/oct-27-fix-list.md`.
 **Learnings:**
 - Promoted to the body: coordinate-frame-aware SVG use normalization, transient visible geometry, rail-local CSS variables, versioned dictionary provenance and shared note drain/flush ownership.
+
+
+### 2026-10-28 14:26 UTC — October 27 issue list qualified (Codex, OCT-27-FIX-LIST)
+**Work:** Completed all 22 requests in the isolated branch, preserving the original issue input and saved science-project files. Final performance work extended the bounded transient proxy to dense scenes, retained captured mounts through folds, removed redundant singleton clip chunks and restored original clips at proven opacity/spatial/effect seams. Added native input/pixel/identity acceptance and fixed gallery observer ownership across adoption. No install, main merge or push. Full item mapping, receipts and reproduction: `docs/for_agents/oct-27-fix-list.md`.
+**Verification:** Reconciled 449 pure, 263 UI/Paper (including Paper 70/70), 4 scale, 6 bundle/startup and 8 native targets pass. All registered cohorts are source-stable; application code was frozen at 5b6fc5a8 and later changes only reconcile explicit legacy test contracts/documentation. Renderer 0/0, headless/production/docs builds pass. The qualified 72k-node native fixture carries 193/193 zooms without remounting, p95 frame 16.8 ms/entry 19.5 ms, native Delete 66.6 ms/Undo 33.6 ms; every budget remains unchanged. Supplied-project software diagnostics retain their extreme 117.8 ms entry/103 ms task and are not universal physical-GPU qualification. Only the pre-existing live-session metadata advances; all 3,732 other files match the baseline.
+**Learnings:** Promoted to the body: cooperative/dedicated capture, content versus captured membership, bounded supplement/coarse ownership, opaque matte/filter composition, current-camera pointer retargeting, dense settle retention, semantic clip restoration and native delivery/presentation barriers. Quarto packaging can use a temporary XDG cache when the host cache is unwritable. Keep negative attempts and distinguish virtual/software evidence from physical presentation.
