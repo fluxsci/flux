@@ -61,6 +61,7 @@ for(const title of [false,true])for(const prefix of ['', 'framed']){
     h.ok(Math.max(...actual.map((v,i)=>Math.abs(v-[box.x0,box.y0,box.x1,box.y1][i])))<.00001,`${prefix}/${title?'titled':'wrapped'}/${wPt}: actual background fits solved legend geometry`);
     h.ok(actual[2]-actual[0]<=solution.axesBox['plot-area'].x1-solution.axesBox['plot-area'].x0+.00001,`${prefix}/${title}/${wPt}: framed legend fits owner`);
     if(wPt===500)h.eq(background.getAttribute('d'),nativePath,`${prefix}/${title}: wider nonnative size restores original background`);
+    else if(!title){const xs=Array.from(path.vertices).filter((_,i)=>i%2===0);h.ok(Math.abs(path.vertices[0]-Math.min(...xs)-2)<1e-6&&Math.abs(Math.max(...xs)-path.vertices[2]-2)<1e-6,`${prefix}/${wPt}: reshaped frame keeps its corner radius`);}
     if(title){const plan=legendGeometry(model.layout.legends[0],model,solution.axesBox['plot-area'],{x0:0,y0:0,x1:wPt,y1:230.4}),text=root.querySelector(`[id="${id('legend.title')}"] text`)!,m=transformToAncestor(text,root);h.eq(plan.entries.size,0,'titled legend retains its authored composition');h.ok(Math.abs(Math.hypot(m[0],m[1])-plan.scale)<.00001,'title shares uniform fit with frame and entries');}
     const once=String(root);applyRelayout(root,model,solution);h.eq(String(root),once,`${prefix}/${title}/${wPt}: framed resize repeats exactly`);
   }
