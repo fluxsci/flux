@@ -34,6 +34,9 @@
   // events only, coalesced to one per frame; nothing runs at rest.
   import type { Snippet } from "svelte";
   import { layoutJustified, firstRowAt, sectionAt, moveIndex, type JustifyLayout } from "./justify";
+  // Native listeners, not Svelte's delegated ones: the Dissect viewers mount this grid inside
+  // the Plot gallery, whose subtree can be adopted by a pinned utility window.
+  import { nativeClick, nativeDoubleClick, nativeContextMenu, nativePointerDown, nativePointerMove, nativeKeyDown } from "../ui/nativeEvents";
 
   let {
     sections,
@@ -277,21 +280,21 @@
     aria-multiselectable="true"
     aria-activedescendant={focusId && indexOf.has(focusId) ? `${uid}-${indexOf.get(focusId)}` : undefined}
     onscroll={onScroll}
-    onkeydown={keydown}
+    use:nativeKeyDown={keydown}
     onwheel={wheel}
-    onpointermove={pointerOver}
+    use:nativePointerMove={pointerOver}
     onpointerleave={pointerLeave}>
     <div class="spacer" style:height={`${layout.height + 8}px`}>
       {#each visibleSections as si (sections[si].key)}
         {@const sec = sections[si]}
         {@const place = layout.sections[si]}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="section-head" role="presentation" oncontextmenu={(e) => { if (onHeaderContext) { e.preventDefault(); onHeaderContext(sec, e); } }} style:top={`${place.y}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX + sec.depth * 8}px`} data-section={sec.key}>
+        <div class="section-head" role="presentation" use:nativeContextMenu={(e) => { if (onHeaderContext) { e.preventDefault(); onHeaderContext(sec, e); } }} style:top={`${place.y}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX + sec.depth * 8}px`} data-section={sec.key}>
           {#if sec.collapsible}
-            <button class="chev" aria-expanded={!sec.collapsed} aria-label={`${sec.collapsed ? "Expand" : "Collapse"} ${sec.title}`} onclick={(e) => onHeaderToggle?.(sec, e)}>{sec.collapsed ? "▸" : "▾"}</button>
+            <button class="chev" aria-expanded={!sec.collapsed} aria-label={`${sec.collapsed ? "Expand" : "Collapse"} ${sec.title}`} use:nativeClick={(e) => onHeaderToggle?.(sec, e)}>{sec.collapsed ? "▸" : "▾"}</button>
           {/if}
           {#if sec.onHeaderMenu}
-            <button class="title as-menu" title="Jump to a group" onclick={(e) => sec.onHeaderMenu?.(e)}>{sec.title}<span class="meta">{sec.meta ?? ""}</span><span class="caret">▾</span></button>
+            <button class="title as-menu" title="Jump to a group" use:nativeClick={(e) => sec.onHeaderMenu?.(e)}>{sec.title}<span class="meta">{sec.meta ?? ""}</span><span class="caret">▾</span></button>
           {:else}
             <span class="title" title={sec.title}>{sec.title}<span class="meta">{sec.meta ?? ""}</span></span>
           {/if}
@@ -316,10 +319,10 @@
               style:top={`${row.y}px`}
               style:width={`${placed.w}px`}
               style:height={`${row.h + row.cap}px`}
-              onclick={(e) => onItemPress?.(item, e)}
-              ondblclick={(e) => onItemOpen?.(item, e)}
-              oncontextmenu={(e) => onItemContext?.(item, e)}
-              onpointerdown={(e) => onItemPointerDown?.(item, e)}>
+              use:nativeClick={(e) => onItemPress?.(item, e)}
+              use:nativeDoubleClick={(e) => onItemOpen?.(item, e)}
+              use:nativeContextMenu={(e) => onItemContext?.(item, e)}
+              use:nativePointerDown={(e) => onItemPointerDown?.(item, e as PointerEvent)}>
               {@render tile(item, placed.w, row.h, flags)}
             </div>
           {/if}
@@ -333,12 +336,12 @@
   {#if stuck}
     {@const sec = sections[stuck.index]}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="section-head stuck" role="presentation" oncontextmenu={(e) => { if (onHeaderContext) { e.preventDefault(); onHeaderContext(sec, e); } }} style:top={`${stuck.offset}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX}px`} data-stuck={sec.key}>
+    <div class="section-head stuck" role="presentation" use:nativeContextMenu={(e) => { if (onHeaderContext) { e.preventDefault(); onHeaderContext(sec, e); } }} style:top={`${stuck.offset}px`} style:height={`${sec.headerH}px`} style:padding-left={`${padX}px`} data-stuck={sec.key}>
       {#if sec.collapsible}
-        <button class="chev" aria-expanded={!sec.collapsed} aria-label={`Collapse ${sec.title}`} onclick={(e) => onHeaderToggle?.(sec, e)}>▾</button>
+        <button class="chev" aria-expanded={!sec.collapsed} aria-label={`Collapse ${sec.title}`} use:nativeClick={(e) => onHeaderToggle?.(sec, e)}>▾</button>
       {/if}
       {#if sec.onHeaderMenu}
-        <button class="title as-menu" title="Jump to a group" onclick={(e) => sec.onHeaderMenu?.(e)}>{sec.title}<span class="meta">{sec.meta ?? ""}</span><span class="caret">▾</span></button>
+        <button class="title as-menu" title="Jump to a group" use:nativeClick={(e) => sec.onHeaderMenu?.(e)}>{sec.title}<span class="meta">{sec.meta ?? ""}</span><span class="caret">▾</span></button>
       {:else}
         <span class="title" title={sec.title}>{sec.title}<span class="meta">{sec.meta ?? ""}</span></span>
       {/if}

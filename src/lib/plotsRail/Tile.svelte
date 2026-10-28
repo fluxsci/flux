@@ -17,6 +17,9 @@
   import { acquireThumb, setThumbPriority, type ThumbState } from "./thumbClient";
   import { bucketFor, chooseBackdrop, backdropTone, BACKDROPS, type BackdropMode, type BackdropChoice, type InkStats } from "./rules";
   import { middleEllipsis } from "./ellipsis";
+  // Native, like the grid cell's own listeners: stopping propagation must happen before the
+  // event reaches the cell, which a delegated (document-root) handler is too late for.
+  import { nativeClick, nativeDoubleClick, nativePointerDown } from "../ui/nativeEvents";
 
   let {
     path,
@@ -153,13 +156,13 @@
     <span class="chip use" class:active={inUse.active} title={inUse.active ? `Placed here${inUse.count > 1 ? ` (${inUse.count} placements in all)` : ""}` : `Placed elsewhere (${inUse.count} ${inUse.count === 1 ? "placement" : "placements"})`} style:left={`${page.x + 3}px`} style:top={`${page.y + 3}px`}>●{#if inUse.count > 1}<span class="n">{inUse.count}</span>{/if}</span>
   {/if}
   {#if dissections > 0}
-    <button class="chip dis" title={`${dissections} dissection ${dissections === 1 ? "file" : "files"} — show them`} style:right={`${w - page.x - page.w + 3}px`} style:top={`${page.y + 3}px`} onclick={(e) => { e.stopPropagation(); onDissections?.(); }} ondblclick={(e) => e.stopPropagation()} data-dissections-chip>⧉ {dissections}</button>
+    <button class="chip dis" title={`${dissections} dissection ${dissections === 1 ? "file" : "files"} — show them`} style:right={`${w - page.x - page.w + 3}px`} style:top={`${page.y + 3}px`} use:nativeClick={(e) => { e.stopPropagation(); onDissections?.(); }} use:nativeDoubleClick={(e) => e.stopPropagation()} data-dissections-chip>⧉ {dissections}</button>
   {/if}
   {#if glyph || badge}
     <span class="chip kind" title={[glyphTitle, badge?.title].filter(Boolean).join("\n")} style:right={`${w - page.x - page.w + 3}px`} style:bottom={`${h - page.y - page.h + 3}px`} data-width-badge={badge?.label}>{glyph}{#if badge}<span class="wc">{badge.label}</span>{/if}</span>
   {/if}
   {#if stack > 0 || stackHead > 0}
-    <button class="chip stackchip" class:head={stackHead > 0} title={stack > 0 ? `${stack} variants — show them all (Enter)` : `Stack these ${stackHead} variants again`} style:left={`${page.x + 3}px`} style:bottom={`${h - page.y - page.h + 3}px`} onclick={(e) => { e.stopPropagation(); onStackToggle?.(); }} ondblclick={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()} data-stack-toggle>{stack > 0 ? `×${stack} ▸` : `◂ ${stackHead}`}</button>
+    <button class="chip stackchip" class:head={stackHead > 0} title={stack > 0 ? `${stack} variants — show them all (Enter)` : `Stack these ${stackHead} variants again`} style:left={`${page.x + 3}px`} style:bottom={`${h - page.y - page.h + 3}px`} use:nativeClick={(e) => { e.stopPropagation(); onStackToggle?.(); }} use:nativeDoubleClick={(e) => e.stopPropagation()} use:nativePointerDown={(e) => e.stopPropagation()} data-stack-toggle>{stack > 0 ? `×${stack} ▸` : `◂ ${stackHead}`}</button>
   {/if}
   {#if fresh}
     <span class="fresh" title="New or changed since the rail last listed it" style:left={`${page.x - 3}px`} style:top={`${page.y - 3}px`}></span>

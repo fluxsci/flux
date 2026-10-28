@@ -884,7 +884,7 @@
         {:else if !rows.length && !loading}<div class="empty"><strong>{modelsOnly ? "No matching 3D models" : q || similarTo ? "No matching files" : "A little space for your next result"}</strong><span>{modelsOnly ? "Choose another folder or turn off the 3D filter." : q || similarTo ? "Try another name or return to browsing." : browseVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : allowModels ? "Save SVG plots, PNG images or GLB models into this folder to see them here." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
         {:else}
           {#if glayout}
-            <div class="items justified" style:height={`${glayout.height + 12}px`}>
+            <div class="items justified" style:height={`${glayout.height + 12}px`} data-layout-width={listWidth}>
               {#each glayout.sections as sec (sec.key)}
                 <div class="section-head" style:top={`${sec.y}px`} style:height={`${sec.headerH}px`}><span class="title">{sectionTitle(sec.key)}</span>{#if sec.key !== "folders" || folderCount}<span class="meta">· {sec.key === "folders" ? folderCount : fileCount}</span>{/if}</div>
               {/each}
