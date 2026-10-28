@@ -20,6 +20,8 @@
     onClose,
     keyboardTarget,
     noteOwner,
+    caption = true,
+    zoomLabel = $bindable("fit"),
   }: {
     file: DissectFile;
     pos: number;
@@ -29,6 +31,9 @@
     /** Expanded gallery previews scope hand-tool keys to their own modal. */
     keyboardTarget?: HTMLElement;
     noteOwner?: { root: string; key: string; group: string };
+    /** A host that names the file itself (the gallery's Preview tab) hides the caption bar. */
+    caption?: boolean;
+    zoomLabel?: string;
   } = $props();
 
   let stage = $state<HTMLDivElement | null>(null);
@@ -46,9 +51,14 @@
   let ty = $state(0);
   let gen = 0;
 
-  // Match img.fit's object-fit:contain content box, including its 16px padding
-  // and upscaling, so the first zoom starts from the size already on screen.
+  // The fitted page keeps a 16px margin and may upscale, so the first zoom starts from the
+  // size already on screen.
   const fitScale = $derived(natW && natH && sw && sh ? Math.min(Math.max(1, sw - 32) / natW, Math.max(1, sh - 32) / natH) : 1);
+  // The image sits on its own page (the rail's tile law): the readable backdrop hugs the
+  // artwork instead of flooding the stage. An image without intrinsic size fills the stage.
+  const pageW = $derived(userZoomed ? natW : natW && natH ? natW * fitScale : Math.max(1, sw - 32));
+  const pageH = $derived(userZoomed ? natH : natW && natH ? natH * fitScale : Math.max(1, sh - 32));
+  $effect(() => { zoomLabel = userZoomed ? `${Math.round(z * 100)}%` : "fit"; });
 
   $effect(() => {
     const el = stage;
@@ -243,7 +253,6 @@
       class:panready={spaceHeld && userZoomed}
       class:dragging
       bind:this={stage}
-      use:previewBackdrop={{ path: file.abs, version: file }}
       use:nativeClick={onStageClick}
       use:nativePointerDown={onPointerDown}
       use:nativePointerMove={onPointerMove}
@@ -252,18 +261,20 @@
     >
       {#if failed}
         <div class="absent">couldn't read {file.name}</div>
-      {:else if !userZoomed}
-        {#if src}<img class="fit" {src} alt={file.name} draggable="false" />{/if}
       {:else}
+        <!-- Mounted before the image decodes, so the backdrop analysis overlaps the decode. -->
         <div
-          class="zoomwrap"
-          style:width={`${natW}px`}
-          style:height={`${natH}px`}
-          style:margin-left={`${-natW / 2}px`}
-          style:margin-top={`${-natH / 2}px`}
-          style:transform={`translate(${tx}px, ${ty}px) scale(${z})`}
+          class="page"
+          class:ready={!!src}
+          data-dissect-page
+          style:width={`${pageW}px`}
+          style:height={`${pageH}px`}
+          style:margin-left={`${-pageW / 2}px`}
+          style:margin-top={`${-pageH / 2}px`}
+          style:transform={userZoomed ? `translate(${tx}px, ${ty}px) scale(${z})` : null}
+          use:previewBackdrop={{ path: file.abs, version: file }}
         >
-          <img {src} alt={file.name} draggable="false" />
+          {#if src}<img {src} alt={file.name} draggable="false" />{/if}
         </div>
       {/if}
     </div>
@@ -283,15 +294,15 @@
       </div>
     </div>
   {/if}
-  <div class="caption-bar">
+  {#if caption}<div class="caption-bar">
     <span class="fname">{file.name}</span>
     {#if groupName}<span class="dot">·</span><span class="gname">{groupName}</span>{/if}
     <span class="grow"></span>
     <span class="pos">{pos + 1} / {count}</span>
     {#if file.kind === "image"}
-      <span class="zoom" data-dissect-zoom>{userZoomed ? `${Math.round(z * 100)}%` : "fit"}</span>
+      <span class="zoom" data-dissect-zoom>{zoomLabel}</span>
     {/if}
-  </div>
+  </div>{/if}
 </div>
 
 <style>
@@ -310,29 +321,26 @@
     justify-content: center;
     overflow: hidden;
   }
-  img.fit {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    padding: 16px;
-    box-sizing: border-box;
-  }
   .stage.panready {
     cursor: grab;
   }
   .stage.dragging {
     cursor: grabbing;
   }
-  .zoomwrap {
+  .page {
     position: absolute;
     left: 50%;
     top: 50%;
+    box-shadow: 0 0 0 1px var(--c-line);
   }
-  .zoomwrap img {
+  .page:not(.ready) {
+    visibility: hidden;
+  }
+  .page img {
+    display: block;
     width: 100%;
     height: 100%;
+    object-fit: contain;
   }
   .absent {
     display: flex;
