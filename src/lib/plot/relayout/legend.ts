@@ -2,9 +2,22 @@ import { asBox,width,height,type Box,type RelayoutModel } from './model';
 import type { RelayoutSolution } from './solve';
 type Legend=RelayoutModel['layout']['legends'][number];
 export interface LegendGeometry {width:number;height:number;scale:number;entries:Map<string,{dx:number;dy:number}>}
-/** Keep captured typography while it fits. When narrowing a multicolumn legend,
- * first use fewer columns; uniformly shrink only a still-oversized single row.
- * All metrics come from the capture, shared by the solver and SVG writer. */
+type Label={id:string;text:RelayoutModel['layout']['texts'][string]};
+const labelCache=new WeakMap<Legend,Label[]>();
+function legendLabels(leg:Legend,model:RelayoutModel):Label[] {
+  let labels=labelCache.get(leg);if(labels)return labels;
+  const prefix=leg.id+'.entry.';
+  labels=Object.entries(model.layout.texts).flatMap(([id,text])=>{
+    const match=id.startsWith(prefix)?/^(\d+)\.label$/.exec(id.slice(prefix.length)):null;
+    return match?[{id:prefix+match[1],index:Number(match[1]),text}]:[];
+  }).sort((a,b)=>a.index-b.index).map(({id,text})=>({id,text}));
+  labelCache.set(leg,labels);return labels;
+}
+/** Keep captured typography while it fits. A narrowed multicolumn legend first
+ * takes the fewest rows that fit, in the narrowest arrangement of that height:
+ * a single-row legend wraps like text (left to right), a column-major one keeps
+ * matplotlib's column fill. Only a legend still too wide in one column shrinks
+ * uniformly. All metrics come from the capture, shared by solver and writer. */
 export function legendGeometry(leg:Legend,model:RelayoutModel|undefined,owner:Box,figure:Box):LegendGeometry {
   const anchor=leg.bboxToAnchor?.bbox;
   // A legend placed beside the axes owns a dedicated horizontal margin. Its
@@ -13,32 +26,30 @@ export function legendGeometry(leg:Legend,model:RelayoutModel|undefined,owner:Bo
   const available=beside?Infinity:Math.max(.01,width(leg.bboxToAnchor?.frame==='figure'?figure:owner)-2*leg.borderAxesPadPt);
   const [nativeW,nativeH]=leg.sizePt,result:LegendGeometry={width:nativeW,height:nativeH,scale:1,entries:new Map()};
   if(nativeW<=available+1e-6)return result;
-  const prefix=leg.id+'.entry.';
-  const labels=Object.entries(model?.layout.texts??{}).flatMap(([id,t])=>{
-    const suffix=id.startsWith(prefix)?id.slice(prefix.length):'',match=/^(\d+)\.label$/.exec(suffix);
-    return match?[{id:prefix+match[1],index:Number(match[1]),text:t}]:[];
-  }).sort((a,b)=>a.index-b.index);
-  if(labels.length){
-    const columns:number[]=[];for(const {text}of labels)if(!columns.some(x=>Math.abs(x-text.anchor[0])<1))columns.push(text.anchor[0]);columns.sort((a,b)=>a-b);
-    if(columns.length>1&&!model?.layout.texts[leg.id+'.title']){
-      const inset=columns[0]-leg.bbox[0],right=Math.max(0,leg.bbox[2]-Math.max(...labels.map(v=>v.text.bbox[2])));
-      const top=Math.max(0,Math.min(...labels.map(v=>v.text.bbox[1]))-leg.bbox[1]),bottom=Math.max(0,leg.bbox[3]-Math.max(...labels.map(v=>v.text.bbox[3])));
-      const rowH=Math.max(...labels.map(v=>v.text.bbox[3]-v.text.bbox[1]));
-      const nativeRows=labels.filter(v=>Math.abs(v.text.anchor[0]-columns[0])<1).sort((a,b)=>a.text.bbox[1]-b.text.bbox[1]);
-      const rowStep=nativeRows.length>1?(nativeRows.at(-1)!.text.bbox[1]-nativeRows[0].text.bbox[1])/(nativeRows.length-1):rowH+top+bottom;
-      const columnGap=Math.max(0,columns[1]-inset-Math.max(...nativeRows.map(v=>v.text.bbox[2])));
-      for(let count=columns.length-1;count>=1;count--){
-        const groups:typeof labels[]=[],base=Math.floor(labels.length/count),extra=labels.length%count;let at=0;
-        for(let c=0;c<count;c++){const n=base+Number(c<extra);groups.push(labels.slice(at,at+n));at+=n;}
-        const widths=groups.map(g=>inset+Math.max(...g.map(v=>v.text.bbox[2]-v.text.anchor[0])));
-        const w=widths.reduce((a,b)=>a+b,0)+columnGap*(count-1)+right;
-        result.width=w;result.height=top+rowH+(Math.max(...groups.map(g=>g.length))-1)*Math.max(rowH,rowStep)+bottom;result.entries.clear();let x=leg.bbox[0];
-        for(let c=0;c<groups.length;c++){
-          groups[c].forEach(({id,text},row)=>result.entries.set(id,{dx:x+inset-text.anchor[0],dy:leg.bbox[1]+top+row*Math.max(rowH,rowStep)-text.bbox[1]}));
-          x+=widths[c]+columnGap;
-        }
-        if(w<=available+1e-6)break;
-      }
+  const labels=model&&!model.layout.texts[leg.id+'.title']?legendLabels(leg,model):[],n=labels.length;
+  const columns:number[]=[];for(const {text}of labels)if(!columns.some(x=>Math.abs(x-text.anchor[0])<1))columns.push(text.anchor[0]);columns.sort((a,b)=>a-b);
+  if(columns.length>1){
+    const inset=columns[0]-leg.bbox[0],right=Math.max(0,leg.bbox[2]-Math.max(...labels.map(v=>v.text.bbox[2])));
+    const top=Math.max(0,Math.min(...labels.map(v=>v.text.bbox[1]))-leg.bbox[1]),bottom=Math.max(0,leg.bbox[3]-Math.max(...labels.map(v=>v.text.bbox[3])));
+    const rowH=Math.max(...labels.map(v=>v.text.bbox[3]-v.text.bbox[1]));
+    const nativeRows=labels.filter(v=>Math.abs(v.text.anchor[0]-columns[0])<1).sort((a,b)=>a.text.bbox[1]-b.text.bbox[1]);
+    const step=Math.max(rowH,nativeRows.length>1?(nativeRows.at(-1)!.text.bbox[1]-nativeRows[0].text.bbox[1])/(nativeRows.length-1):rowH+top+bottom);
+    const columnGap=Math.max(0,columns[1]-inset-Math.max(...nativeRows.map(v=>v.text.bbox[2])));
+    for(let rows=nativeRows.length+1,last=columns.length;rows<=n;rows++){
+      const count=Math.ceil(n/rows);if(count>=last)continue;last=count;
+      // [column, row] per entry; matplotlib gives the leading columns the extra rows.
+      const cells=labels.map((_,i):[number,number]=>{
+        if(nativeRows.length===1)return [i%count,Math.floor(i/count)];
+        const tall=n%count||count,height=Math.ceil(n/count),c=i<tall*height?Math.floor(i/height):tall+Math.floor((i-tall*height)/(height-1));
+        return [c,i<tall*height?i%height:(i-tall*height)%(height-1)];
+      });
+      const widths=Array.from({length:count},(_,c)=>inset+Math.max(...labels.filter((_,i)=>cells[i][0]===c).map(v=>v.text.bbox[2]-v.text.anchor[0])));
+      result.width=widths.reduce((a,b)=>a+b,0)+columnGap*(count-1)+right;
+      result.height=top+rowH+(Math.max(...cells.map(c=>c[1])))*step+bottom;
+      result.entries.clear();
+      const x0=widths.map((_,c)=>leg.bbox[0]+widths.slice(0,c).reduce((a,b)=>a+b+columnGap,0));
+      labels.forEach(({id,text},i)=>result.entries.set(id,{dx:x0[cells[i][0]]+inset-text.anchor[0],dy:leg.bbox[1]+top+cells[i][1]*step-text.bbox[1]}));
+      if(result.width<=available+1e-6)break;
     }
   }
   result.scale=Math.min(1,available/Math.max(.01,result.width));

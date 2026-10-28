@@ -55,4 +55,18 @@ for(const title of [false,true])for(const prefix of ['', 'framed']){
   }
   restoreRelayout(root);h.eq(String(root),native,`${prefix}/${title}: framed legend restores exact native bytes`);
 }
+{
+  // A single-row legend wraps like text: the fewest rows that fit, filled left
+  // to right, in the narrowest arrangement of that height (3 + 2, never 4 + 1).
+  const source=plotResizeFixFixture({row:true}),model=buildRelayoutModel(preparePlot(source.svg,source.manifest).manifest);if(!model.supported)throw Error('Row legend must reflow');
+  const leg=model.layout.legends[0],row=(i:number)=>{const e=plan.entries.get(`legend.entry.${i}`)!,t=model.layout.texts[`legend.entry.${i}.label`];return [Math.round(t.anchor[0]+e.dx),Math.round(t.bbox[1]+e.dy)];};
+  let plan=legendGeometry(leg,model,{x0:0,y0:0,x1:150,y1:100},{x0:0,y0:0,x1:400,y1:300});
+  const cells=[0,1,2,3,4].map(row);
+  h.eq(new Set(cells.map(c=>c[1])).size,2,'single-row legend wraps onto two rows');
+  h.ok(cells[0][1]===cells[2][1]&&cells[3][1]===cells[4][1]&&cells[3][1]>cells[0][1],'wrapped entries keep left-to-right reading order (3 + 2)');
+  h.ok(cells[0][0]<cells[1][0]&&cells[1][0]<cells[2][0]&&cells[3][0]===cells[0][0]&&cells[4][0]===cells[1][0],'wrapped entries share column alignment');
+  h.ok(plan.scale===1&&plan.width<=150,'wrapped row legend fits without shrinking');
+  plan=legendGeometry(leg,model,{x0:0,y0:0,x1:500,y1:100},{x0:0,y0:0,x1:600,y1:300});
+  h.eq(plan.entries.size,0,'a fitting row legend keeps its native layout');
+}
 await h.done();
