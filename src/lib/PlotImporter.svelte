@@ -157,9 +157,14 @@
     try { localStorage.setItem("flux-plot-gallery", JSON.stringify({ view: viewMode, size: previewSize, spacing, labels, sidebar, scope: browseScope })); } catch {}
   }
   function focusInput() { void tick().then(() => inputEl?.focus()); }
+  function reconnectGallerySize() {
+    reconnectListSize(); tree?.reconnect();
+    for (const preview of wrapEl?.querySelectorAll('[data-gallery-preview-size]') ?? [])
+      preview.dispatchEvent(new Event('flux:document-change'));
+  }
   function pin() {
     try {
-      popup = openGalleryWindow(wrapEl, close, () => { reconnectListSize(); tree?.reconnect(); });
+      popup = openGalleryWindow(wrapEl, close, reconnectGallerySize);
       detached = true;
       importerDetached.set(true);
     } catch (e) { error = errMsg(e); }

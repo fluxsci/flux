@@ -6,12 +6,22 @@ if (!root || !scratch || !appRoot || !output || !root.startsWith(scratch + path.
 require(path.join(appRoot, "electron/entry.cjs"));
 let owner, win;
 const checks = [], errors = [], timings = [];
+let stage = 'startup';
+const errorWindows = new WeakSet();
+function watchErrors(window) {
+  if (errorWindows.has(window)) return;
+  errorWindows.add(window);
+  window.webContents.on('console-message', event => {
+    if (event.level === 'error') errors.push(`[window ${window.webContents.id}; ${stage}] ${event.message}`);
+  });
+}
 const js = code => win.webContents.executeJavaScript(code, true);
 const paint = () => js("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
 const check = (value, label) => { checks.push({ ok: !!value, label }); console.log("PROBE " + JSON.stringify(checks.at(-1))); if (!value) throw new Error(label); };
 async function wait(fn, label, timeout = 25000) { const start = Date.now(); while (Date.now() - start < timeout) { try { const value = await fn(); if (value) return value; } catch {} await new Promise(resolve => setTimeout(resolve, 60)); } throw new Error(`Timeout: ${label}`); }
 async function focus() { await wait(async () => { app.focus({ steal: true }); win.focus(); win.webContents.focus(); return win.isFocused() && await js("document.hasFocus()"); }, "private display focus"); }
 async function click(selector, modifiers = [], clickCount = 1) {
+  stage = `click ${selector}`;
   await focus();
   const point = await js(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)return{error:'Missing control'};const b=n.getBoundingClientRect();if(!b.width||!b.height)return{error:'Control is hidden',tag:n.tagName};const x=Math.round(b.x+b.width/2),y=Math.round(b.y+b.height/2),hit=document.elementFromPoint(x,y);if(!n.contains(hit))return{error:'Control is covered',tag:n.tagName,hit:hit?.tagName,hitClass:hit?.className};return{x,y}})()`);
   if (point.error) throw new Error(`${point.error}: ${selector} (${JSON.stringify(point)})`);
@@ -23,7 +33,15 @@ async function clickText(selector, text) {
   await js(`(()=>{const n=[...document.querySelectorAll(${JSON.stringify(selector)})].find(n=>n.textContent.trim()===${JSON.stringify(text)});if(!n)throw Error('Missing text');n.dataset.nativeHit='1'})()`);
   await click('[data-native-hit="1"]'); await js("document.querySelector('[data-native-hit]')?.removeAttribute('data-native-hit')");
 }
-async function key(keyCode, modifiers = []) { await focus(); win.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers }); win.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers }); await paint(); }
+async function key(keyCode, modifiers = []) { stage = `key ${keyCode}`; await focus(); win.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers }); win.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers }); await paint(); }
+async function previewSize(label) {
+  let measured;
+  await wait(async () => {
+    measured = await js(`(()=>{const box=document.querySelector('.importer .list .preview'),page=box?.querySelector('.page'),image=page?.querySelector('img');if(!box||!page||!image?.naturalWidth)return null;const expectedW=Math.min(box.clientWidth,box.clientHeight*image.naturalWidth/image.naturalHeight),expectedH=expectedW*image.naturalHeight/image.naturalWidth;return{width:box.clientWidth,height:box.clientHeight,pageW:parseFloat(page.style.width),pageH:parseFloat(page.style.height),expectedW,expectedH,document:box.ownerDocument.URL,matches:Math.abs(parseFloat(page.style.width)-expectedW)<.01&&Math.abs(parseFloat(page.style.height)-expectedH)<.01}})()`);
+    return measured?.matches;
+  }, `${label}: thumbnail fit follows actual owner geometry`, 2000).catch(error => { throw new Error(`${error.message}: ${JSON.stringify(measured)}`); });
+  check(measured.matches && measured.width > 0 && measured.height > 0, `${label}: thumbnail fit matches its actual owner-window box (${JSON.stringify(measured)})`);
+}
 async function noteKeyboardNavigation(label) {
   await js("document.querySelector('.expanded-preview').focus()");
   let reached = false;
@@ -46,7 +64,7 @@ const row = extension => `.importer .row[data-path="${root.replaceAll("\\", "/")
 async function main() {
   owner = win = await wait(() => BrowserWindow.getAllWindows()[0], "app window");
   win.setSize(1440, 1000); win.show();
-  win.webContents.on("console-message", event => { if (event.level === "error") errors.push(event.message); });
+  watchErrors(win);
   await wait(() => js("!!document.querySelector('button[aria-label=Slide]')&&!!document.querySelector('.cm-editor,.slide-mode')"), "scratch project opened");
   check(app.getPath("userData").startsWith(scratch + path.sep) && await js("!window.__flux&&location.protocol==='file:'"), "built production app runs actual preload with isolated config and no development handles");
   await click('button[aria-label="Slide"]');
@@ -83,7 +101,7 @@ async function main() {
   check(await js(`!document.querySelector('${modal}')&&!!document.querySelector('.importer')`), "closing the note preview preserves the gallery");
   await click(".pinbtn");
   win = await wait(() => BrowserWindow.getAllWindows().find(candidate => candidate !== owner), "pinned window"); win.show();
-  win.webContents.on("console-message", event => { if (event.level === "error") errors.push(event.message); });
+  watchErrors(win);
   await wait(() => js("!!document.querySelector('.detached .importer')"), "gallery moved into pinned window");
   await search("source.svg"); await click(row("svg"), [process.platform === "darwin" ? "meta" : "control"]);
   await wait(() => js(`!!document.querySelector('${modal} img')?.naturalWidth`), "pinned image preview loaded");
@@ -112,6 +130,29 @@ async function main() {
   check(await js("window.__previousVideo.paused&&!window.__previousVideo.getAttribute('src')"), "switching to dissections releases the video decoder and sound");
   await key("Escape");
   check(await js(`!document.querySelector('${modal}')&&!!document.querySelector('.importer')&&!document.querySelector('.importer .row.picked')`), "native pinned preview closes without selecting or importing the movie");
+  // Size observers must follow the adopted DOM even when the opener stops
+  // painting. Then return the same mounted thumbnails and resize them again.
+  await search('source.svg'); await previewSize('Pinned initial');
+  owner.hide();
+  for (const [width, height] of [[1180, 820], [982, 760]]) {
+    stage = `pinned resize ${width}x${height}`;
+    win.setSize(width, height); await previewSize(stage);
+  }
+  stage = 'dock gallery into opener';
+  await focus();
+  const pinned = win, dockPoint = await js("(()=>{const r=document.querySelector('.pinbtn').getBoundingClientRect();return{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()");
+  win.webContents.sendInputEvent({ type: 'mouseMove', ...dockPoint });
+  win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...dockPoint });
+  win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...dockPoint });
+  win = owner; owner.show();
+  await wait(() => pinned.isDestroyed(), 'pinned window closes after docking');
+  await wait(() => js("!!document.querySelector('.iwrap:not(.detached) .importer')"), 'same mounted gallery returns to opener');
+  owner.setSize(1502, 1010); await previewSize('Docked after return and resize');
+  await click('.pinbtn');
+  win = await wait(() => BrowserWindow.getAllWindows().find(candidate => candidate !== owner), 'gallery repins after size-observer return');
+  watchErrors(win); win.show();
+  await wait(() => js("!!document.querySelector('.detached .importer')"), 'repinned gallery mounted');
+  await previewSize('Repinned after return');
   check(timings.every(t=>t.visible&&t.ms<=100), `preview controls paint within 100ms: ${JSON.stringify(timings)}`);
   check(errors.length === 0, `production renderer consoles clean: ${errors.join('; ')}`);
   await fs.writeFile(path.join(output, "native.json"), JSON.stringify({ checks, timings }, null, 2));

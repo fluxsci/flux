@@ -9,9 +9,27 @@
   $: pageW = Math.min(width, height * aspect);
   $: pageH = pageW / aspect;
   onMount(() => previews.acquire(path, value => { url = value; ready = true; }));
+
+  // The same mounted tile moves into/out of a native utility document.
+  // Svelte's shared bind:size observer stays in the opener; reconnect the
+  // observer to the actual owner window after each DOM adoption instead.
+  function trackSize(node: HTMLSpanElement) {
+    let observer: ResizeObserver;
+    const measure = () => { width = node.clientWidth; height = node.clientHeight; };
+    const reconnect = () => {
+      observer?.disconnect();
+      const owner = node.ownerDocument.defaultView as Window & typeof globalThis;
+      observer = new owner.ResizeObserver(measure);
+      observer.observe(node);
+      measure();
+    };
+    node.addEventListener('flux:document-change', reconnect);
+    reconnect();
+    return { destroy() { observer.disconnect(); node.removeEventListener('flux:document-change', reconnect); } };
+  }
 </script>
 
-<span class="preview" class:failed bind:clientWidth={width} bind:clientHeight={height}>
+<span class="preview" class:failed data-gallery-preview-size use:trackSize>
   <span class="page" style:width={`${pageW}px`} style:height={`${pageH}px`} use:previewBackdrop={{ path }}>
     {#if url && !failed}
       <img src={url} alt="" decoding="async" on:load={e => { const im = e.currentTarget as HTMLImageElement; if (im.naturalHeight) aspect = im.naturalWidth / im.naturalHeight; }} on:error={() => failed = true} />
