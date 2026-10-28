@@ -822,8 +822,10 @@ Persistence invariants (all machine-checked — do not weaken):
   transforms, and inherit scene pointer policy so hidden presentation objects cannot catch clicks.
   `verify-plot-hit-area.mjs` covers transparent margins, crop/rotation, stacking, locks and export.
   When semantic parts are hidden, `plot/visibleBounds.ts` caches the remaining drawn bounds
-  after content mount. Selection/hover/drag/resize chrome, whitespace hits and marquee all use
-  that cache; saved placement geometry remains unchanged. Compose relative screen matrices
+  after content mount, keyed by the cached source DOM and mount signature so a re-mount of the
+  same content (culling, figure switch, Undo) never walks the plot again. Selection/hover/drag/
+  resize chrome, whitespace hits, marquee, snapping, equal spacing and the Alt caliper all use
+  them; saved placement geometry remains unchanged. Compose relative screen matrices
   (nested SVG getCTM roots differ), rotate/flip around the original pivot, and defer measurement
   while hidden until `flux:pane-shown`. Pointer/viewport updates never scan the plot DOM.
   Crop grabs retain the original placement frame so hiding a panel cannot jump the crop.
@@ -4964,13 +4966,18 @@ tight engine's `rect` insets every edge on top of the decoration margins (matplo
 `get_tight_layout_figure` pass); a one-shot `fig.tight_layout()` instead freezes the figure to
 engine `none`, which can only scale its margins.
 
-Defs-backed `<use>` is not necessarily a fixed-size glyph: fill_between collections also use
-that representation. `preparePlot` passes captured frame semantics to normalization, retaining
-data-area geometry. Compose the referenced geometry's original affine before applying the new
-axes affine; point-sized marks still retain their physical size. Legends share `legend.ts`'s
-metric-only plan between solver and SVG writer: reduce columns before uniformly fitting an
-otherwise oversized single column. Reserve outside-figure legend margins (including wrapped
-height), and never feed beside-axes legend widths back into their own remaining axes width.
+Defs-backed `<use>` is not necessarily a fixed-size glyph. matplotlib's draw_markers draws a
+marker in points about the origin and the use places it; a single-path collection (fill_between,
+violin, hexbin) is already in display coordinates and the use adds only the collection offset.
+`derive.ts` tells them apart by that geometry (never by role or frame: untagged Line2D markers sit
+under data frames) and writes a collection's offset into its absolute vertices, so bands are plain
+data polygons for relayout, view projection and morphs; everything else stays `data-flux-glyph`.
+Legends share `legend.ts`'s metric-only plan between solver and SVG writer: a narrowed legend
+takes the fewest rows that fit in the narrowest arrangement of that height (a single-row legend
+wraps left to right, a column-major one keeps matplotlib's fill), and only a still-oversized
+single column shrinks uniformly. A reflowed frame is nine-sliced so rounded corners keep their
+radius. Reserve outside-figure legend margins (including wrapped height), and never feed
+beside-axes legend widths back into their own remaining axes width.
 Native-size attributes and wide→narrow→wide restoration remain exact. Gates include
 `verify-plot-resize-fixes.ts` and `verify-plot-visible-bounds.mjs` alongside `group:relayout`.
 

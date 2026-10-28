@@ -591,15 +591,17 @@ areas change size, numeric ticks are recomputed, and text, strokes and markers k
 physical point sizes. **Native size** restores the dimensions from Python. A deliberate
 size chosen in Flux survives regeneration; an untouched plot follows the new Python size.
 
-Legends use fewer columns when they need more room, keeping their labels and swatches at
-their original size where possible. A legend that still cannot fit shrinks together with its
-frame; a titled legend keeps its composition and shrinks as a unit. Returning to a wider plot
-restores the original legend layout.
+Legends wrap onto more rows when they need more room, keeping their labels and swatches at
+their original size where possible: a one-row legend wraps left to right like text, and a
+multi-column legend drops columns. A legend that still cannot fit shrinks together with its
+frame; a titled legend keeps its composition and shrinks as a unit. Shaded confidence bands
+follow the axes like the lines they surround. Returning to a wider plot restores the original
+legend layout.
 
 Hiding plot parts in **X-ray** tightens the selection and hover outline around the remaining
 visible content. The plot keeps its saved dimensions, so showing those parts restores its
-original frame. Selection, dragging and resize previews use the visible bounds; cropping
-continues to work against the saved plot frame.
+original frame. Selection, dragging, snapping and resize previews use the visible bounds;
+cropping continues to work against the saved plot frame.
 
 The Layout controls offer **Stretch** for the previous resize behavior. The status line
 explains whether the result is exact, reflowed, approximate, or stretching, with a reason.
