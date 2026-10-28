@@ -27,6 +27,7 @@
   let groupIndex = $state(0), selectedIndex = $state(0), detailIndex = $state<number | null>(null);
   let mediaUrl = $state(""), mediaError = $state("");
   let detail = $state<{ zoomBy: (factor: number) => void; resetZoom: () => void; toggleFit: () => void }>();
+  let zoomLabel = $state("fit");
   const video = $derived(isGalleryVideo(file));
   const model3d = $derived(isGalleryModel3d(file));
   let modelUrl = $state(""), modelError = $state("");
@@ -153,7 +154,7 @@
     <!-- Dissections are plot companions; a 3D model has none, so no dead tab. -->
     {#if !model3d}<button class:chosen={tab === "dissections"} aria-pressed={tab === "dissections"} aria-label="Dissections" disabled={!key} title="Show companion material (D)" use:nativeClick={() => switchTab("dissections")}>Dissections{listing ? ` (${listing.total})` : ""}<kbd>D</kbd></button>{/if}
     <span class="grow"></span>
-    {#if showingImage}<button aria-label="Zoom out" use:nativeClick={() => detail?.zoomBy(.8)}>−</button><button aria-label="Fit preview" use:nativeClick={() => detail?.resetZoom()}>Fit</button><button aria-label="Zoom in" use:nativeClick={() => detail?.zoomBy(1.25)}>+</button>{/if}
+    {#if showingImage}<button aria-label="Zoom out" use:nativeClick={() => detail?.zoomBy(.8)}>−</button><button class="zoom" aria-label="Fit preview" title="Fit (0)" use:nativeClick={() => detail?.resetZoom()} data-preview-zoom>{zoomLabel === "fit" ? "Fit" : zoomLabel}</button><button aria-label="Zoom in" use:nativeClick={() => detail?.zoomBy(1.25)}>+</button>{/if}
     {#if tab === "preview" && (onPrevious || onNext)}<button aria-label="Previous preview" disabled={!onPrevious} use:nativeClick={onPrevious}>←</button><button aria-label="Next preview" disabled={!onNext} use:nativeClick={onNext}>→</button>{/if}
   </nav>
   {#if tab === "preview"}
@@ -169,7 +170,7 @@
           <video data-gallery-preview-media src={mediaUrl} controls playsinline preload="metadata" autoplay={initialAutoplay} use:videoLifetime use:nativeError={() => { mediaError = "This recording could not be played. Its video or audio codec may not be supported."; }}></video>
         {:else}<div class="empty">Opening recording…</div>{/if}
       {:else}
-        <div class="image-detail" data-gallery-preview-media><DissectDetail file={sourceFile} pos={0} count={1} groupName="" onClose={() => {}} keyboardTarget={host} bind:this={detail}/></div>
+        <div class="image-detail" data-gallery-preview-media><DissectDetail file={sourceFile} pos={0} count={1} groupName="" onClose={() => {}} keyboardTarget={host} caption={false} bind:zoomLabel bind:this={detail}/></div>
       {/if}
     </main>
   {:else}
@@ -181,7 +182,7 @@
       {:else if !listing.total}<div class="empty"><strong>No dissections yet</strong><p>Companion images and tables for this plot appear here.</p><code>plots/_dissections/{key}/</code></div>
       {:else if detailFile}
         <button class="back" use:nativeClick={back}>← Back to dissections</button>
-        <div class="dissection-detail"><DissectDetail file={detailFile} pos={detailIndex ?? 0} count={files.length} groupName={group?.name || ""} onClose={back} keyboardTarget={host} noteOwner={{ root, key, group: group?.name || "" }} bind:this={detail}/></div>
+        <div class="dissection-detail"><DissectDetail file={detailFile} pos={detailIndex ?? 0} count={files.length} groupName={group?.name || ""} onClose={back} keyboardTarget={host} noteOwner={{ root, key, group: group?.name || "" }} bind:zoomLabel bind:this={detail}/></div>
       {:else}<DissectGrid {files} cols={4} selectedIdx={selectedIndex} onSelect={(i) => selectedIndex = i} onOpen={openDetail}/>{/if}
     </main>
   {/if}
@@ -208,6 +209,7 @@
   nav > button:hover { color:var(--c-tx-hi); }
   nav > .chosen { color:var(--c-tx-hi); box-shadow:inset 0 -2px 0 var(--c-accent); }
   nav > .grow ~ button { height:22px; padding:0 7px; margin-left:4px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); color:var(--c-tx); box-shadow:none; }
+  nav > .zoom { min-width:44px; font:11px var(--font-mono); font-variant-numeric:tabular-nums; }
   kbd { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:8px; border-radius:var(--r-ui); background:var(--c-accent-tint); color:var(--c-accent); font:600 10px var(--font-mono); }
   .grow { flex:1; }
   .media,.dissections { flex:1; min-width:0; min-height:0; position:relative; display:flex; flex-direction:column; overflow:hidden; }

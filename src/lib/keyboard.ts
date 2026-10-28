@@ -64,7 +64,7 @@ import { saveProject, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen, shellModalOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { dissectTarget, openDissectForSelection } from "./dissect/state";
-import { requestRailFocus, railQuickLook, railHostFor } from "./plotsRail/railState";
+import { requestRailFocus, railQuickLook, railHostFor, railFoldersOpen } from "./plotsRail/railState";
 import "./plotsRail/figureRailHost";
 import { plotsRailOwnsKey, inPlotsRailScope } from "./plotsRail/keyScope";
 import { reflowTexts } from "./text";
@@ -805,6 +805,20 @@ export function handleKey(e: KeyboardEvent) {
     e.preventDefault();
     leftRailHidden.update((v) => !v);
     return;
+  }
+
+  // Alt+/: the Plots rail's folder navigator. From anywhere it shows the rail's Plots view with
+  // Folders below; with the Plots view already showing it flips Folders ↔ Dissections.
+  if (e.altKey && !mod && !e.shiftKey && e.code === "Slash" && (!typing || inPlotsRailScope(e))) {
+    const host = railHostFor(storeTenant());
+    if (host && (get(embeddedProjectRoot) || get(projectDir))) {
+      e.preventDefault();
+      if (!get(leftRailHidden) && host.isPlots()) { railFoldersOpen.update((open) => !open); return; }
+      leftRailHidden.set(false);
+      host.setPlots(true);
+      railFoldersOpen.set(true);
+      return;
+    }
   }
 
   // Shortcuts that work even while typing: save/open, rail toggle.

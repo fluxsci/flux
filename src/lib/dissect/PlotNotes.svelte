@@ -2,7 +2,13 @@
   import { listPlotNotes, plotNote, savePlotNote, notesRevision, type PlotNote } from "./notes";
   import { dissectionsRevision } from "../../shell/scholar/revisions";
   import TextNoteEditor from "./TextNoteEditor.svelte";
-  let { root, plotKey, onChanged }: { root: string; plotKey: string; onChanged?: () => void } = $props();
+  import { untrack } from "svelte";
+  let { root, plotKey, onChanged, focus = null }: {
+    root: string; plotKey: string; onChanged?: () => void;
+    /** Open this note (a search hit, a double-clicked .txt); `seq` repeats a request. */
+    focus?: { group: string; name: string; seq: number } | null;
+  } = $props();
+  const wanted = (files: PlotNote[]) => focus ? files.find(n => n.group === focus.group && n.name === focus.name) : undefined;
   let notes = $state.raw<PlotNote[]>([]), chosen = $state.raw<PlotNote | null>(null), name = $state(""), adding = $state(false), error = $state("");
   let editor = $state<ReturnType<typeof TextNoteEditor>>();
   let revision = $state(0);
@@ -20,11 +26,16 @@
         error = "This note was removed outside Flux. Your draft is kept; copy it or restore the note.";
       } else {
         notes = files;
-        if (!chosen || missingChosen) chosen = files[0] ?? null;
+        if (!chosen || missingChosen) chosen = untrack(() => wanted(files)) ?? files[0] ?? null;
         missingChosen = false;
       }
     }).catch(e => { if (alive) error = String(e?.message ?? e); });
     return () => { alive = false; };
+  });
+  $effect(() => {
+    void focus?.seq;
+    const note = untrack(() => wanted(notes));
+    if (note && note.path !== untrack(() => chosen?.path)) void select(note);
   });
   async function select(note: PlotNote) { if (editor && !(await editor.flush())) { error = "The current note could not be saved. Your draft is kept."; return; } error = ""; chosen = note; }
   async function create() {
@@ -46,7 +57,7 @@
   </div>
   {#if adding}<form onsubmit={e => { e.preventDefault(); void create(); }}><input aria-label="New note name" bind:value={name} placeholder="notes.txt" spellcheck="false" /><button>Create</button></form>{/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
-  {#if chosen}<TextNoteEditor note={chosen} missing={missingChosen} bind:this={editor} onSaved={onChanged} />{:else}<p class="empty">Add a text note to this plot. Notes are stored with its dissections; search their contents with Notes in the gallery search.</p>{/if}
+  {#if chosen}<TextNoteEditor note={chosen} missing={missingChosen} named={false} bind:this={editor} onSaved={onChanged} />{:else}<p class="empty">Add a text note to this plot. Notes are stored with its dissections; search their contents with Notes in the gallery search.</p>{/if}
 </div>
 <style>
   .notes { display:flex; flex-direction:column; flex:1; min-height:0; } .files { display:flex; flex-wrap:wrap; gap:4px; padding:5px 8px; border-bottom:1px solid var(--c-line); }

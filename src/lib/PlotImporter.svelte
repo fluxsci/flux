@@ -157,14 +157,9 @@
     try { localStorage.setItem("flux-plot-gallery", JSON.stringify({ view: viewMode, size: previewSize, spacing, labels, sidebar, scope: browseScope })); } catch {}
   }
   function focusInput() { void tick().then(() => inputEl?.focus()); }
-  function reconnectGallerySize() {
-    reconnectListSize(); tree?.reconnect();
-    for (const preview of wrapEl?.querySelectorAll('[data-gallery-preview-size]') ?? [])
-      preview.dispatchEvent(new Event('flux:document-change'));
-  }
   function pin() {
     try {
-      popup = openGalleryWindow(wrapEl, close, reconnectGallerySize);
+      popup = openGalleryWindow(wrapEl, close, () => { reconnectListSize(); tree?.reconnect(); });
       detached = true;
       importerDetached.set(true);
     } catch (e) { error = errMsg(e); }
@@ -920,11 +915,15 @@
   .row.picked { background:var(--c-accent-tint); box-shadow:inset 2px 0 0 var(--c-accent); color:var(--c-tx-hi); }
   .row.picked.sel { background:color-mix(in oklab, var(--c-accent) 24%, transparent); }
   .list:not(.gallery) .names { flex-direction:row; align-items:baseline; gap:8px; }
-  /* gallery tiles: square, flat, quiet */
+  /* gallery tiles: the Plots rail's language — each plot a page on the dark ground; the page
+     carries hover, the current tile and picks (rings), the caption the pick tint. */
   .gallery .row { flex-direction:column; align-items:stretch; padding:3px; border:1px solid transparent; background:transparent; box-shadow:none; }
-  .gallery .row:hover, .gallery .row.sel { border-color:var(--c-line-strong); background:var(--c-surface-2); }
-  .gallery .row.picked { border-color:var(--c-accent); background:var(--c-accent-tint); box-shadow:none; }
-  .gallery .row.picked.sel { background:color-mix(in oklab, var(--c-accent) 24%, transparent); }
+  .gallery .row.picked, .gallery .row.picked.sel { background:transparent; box-shadow:none; }
+  .gallery .row.folder:hover, .gallery .row.folder.sel { border-color:var(--c-line-strong); background:var(--c-surface-2); }
+  .gallery .row:not(.folder):hover :global(.page) { box-shadow:0 0 0 1px var(--c-line-strong); }
+  .gallery .row.sel:not(.folder) :global(.page) { box-shadow:0 0 0 1px var(--c-accent-bright, var(--c-accent)); }
+  .gallery .row.picked .row-meta { background:var(--c-accent-tint); }
+  .gallery .row.picked .nm { color:var(--c-tx-hi); }
   .tile-preview { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:var(--r-0); overflow:hidden; }
   .folder .tile-preview { background:var(--c-surface); }
   .folder-icon { width:40px; height:34px; fill:none; stroke:var(--c-tx-muted); stroke-width:1.2; }
@@ -932,7 +931,6 @@
   .row-meta { display:flex; align-items:center; width:100%; min-width:0; gap:8px; }
   .gallery .row-meta { height:30px; flex-shrink:0; padding:4px 2px 0; }
   .gallery .nm { font:10.5px var(--font-mono); color:var(--c-tx-muted); }
-  .gallery .row.picked :global(.page) { box-shadow:0 0 0 2px var(--c-accent); }
   .names { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
   .nm { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
   .rel { font:10px var(--font-mono); color:var(--c-tx-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

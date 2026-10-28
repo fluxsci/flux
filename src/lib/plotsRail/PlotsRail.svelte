@@ -7,7 +7,7 @@
   // It also feeds the Dissections pane's FOCUS from the canvas: a selection that resolves to a
   // plot, and every press on the canvas (re-clicking the already-selected plot changes no
   // selection store, yet must take the focus back from a gallery click).
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { get } from "svelte/store";
   import GalleryPane from "./GalleryPane.svelte";
   import DissectionsPane from "./DissectionsPane.svelte";
@@ -21,7 +21,7 @@
   import { figureLayout, FIGURE_LAYOUT_DEFAULTS } from "../figureLayoutStore";
   import { pointerDrag } from "../ui/pointerDrag";
   import { resolvePlotElement, offerElement, resetFocus } from "./focusPlot";
-  import { plotsRailFocusRequest, railFocusPending } from "./railState";
+  import { plotsRailFocusRequest, railFocusPending, railFoldersOpen } from "./railState";
   import { PLOTS_RAIL_SCOPE } from "./keyScope";
   import { project, selection, partSelection, embeddedProjectRoot, projectDir } from "../store";
   import type { HitBridgeHolder } from "../interact/canvasHitBridge";
@@ -42,11 +42,17 @@
   const MIN_PANE = 96;
   let body = $state<HTMLDivElement>();
   let bodyH = $state(0);
-  let directories = $state(false);
-  let browse = $state.raw({ base: "", folder: "" });
-  let folderRequest = $state.raw<{ id: number; folder: string } | null>(null);
-  let folderSeq = 0;
-  function toggleDirectories() { directories = !directories; if (dissectCollapsed) showDissections(); }
+  let browse = $state.raw<{ base: string; folder: string; counts: ReadonlyMap<string, number> }>({ base: "", folder: "", counts: new Map() });
+  let gallery = $state<ReturnType<typeof GalleryPane>>();
+  /** The folder navigator's choice scopes the gallery (shown again if it was collapsed). */
+  async function showFolder(folder: string) {
+    if (galleryCollapsed) { figureLayout.update((l) => ({ ...l, galleryCollapsed: false })); await tick(); }
+    gallery?.showFolder(folder);
+  }
+  function toggleDirectories() { railFoldersOpen.update((open) => !open); }
+  // The navigator takes the lower pane, so opening it (Alt+/ is handled in keyboard.ts)
+  // unfolds a collapsed Dissections pane.
+  $effect(() => { if ($railFoldersOpen) untrack(() => showDissections()); });
   const root = $derived($embeddedProjectRoot || $projectDir || "");
 
   const layout = $derived($figureLayout);
@@ -142,11 +148,6 @@
     // Any key hides it (Shift+Space toggles it — the panes handle that one).
     const key = (e: KeyboardEvent) => {
       if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "Slash") {
-        const target = e.target as HTMLElement | null;
-        if (target?.closest("input,textarea,[contenteditable='true']") && !body?.contains(target)) return;
-        e.preventDefault(); e.stopImmediatePropagation(); toggleDirectories(); return;
-      }
       if (!(e.code === "Space" && e.shiftKey) && e.key !== "Shift") hidePeek();
     };
     window.addEventListener("keydown", key, true);
@@ -164,14 +165,14 @@
     </button>
   {:else}
     <div class="gallery-slot" style:height={`${galleryH}px`}>
-      <GalleryPane {active} {hitBridge} {refreshKey} {accept} {place} {folderRequest} onBrowseChange={(view) => browse = view} onShowDissections={() => { directories = false; showDissections(); }} />
+      <GalleryPane bind:this={gallery} {active} {hitBridge} {refreshKey} {accept} {place} onBrowseChange={(view) => browse = view} onShowDissections={() => { railFoldersOpen.set(false); showDissections(); }} />
     </div>
   {/if}
   {#if !galleryCollapsed && !dissectCollapsed}
     <div class="splitter" role="separator" aria-orientation="horizontal" aria-label="Resize gallery and dissections (double-click resets)" onpointerdown={startSplit} ondblclick={resetSplit} data-plots-splitter></div>
   {/if}
-  {#if directories && !dissectCollapsed}
-    <DirectoryPane base={browse.base} selected={browse.folder} onChoose={(folder) => folderRequest = { id: ++folderSeq, folder }} onClose={() => directories = false} />
+  {#if $railFoldersOpen && !dissectCollapsed}
+    <DirectoryPane base={browse.base} selected={browse.folder} counts={browse.counts} onChoose={(folder) => void showFolder(folder)} onClose={() => railFoldersOpen.set(false)} />
   {:else}
     <DissectionsPane {active} {hitBridge} {place} collapsed={dissectCollapsed} {galleryCollapsed} onCollapse={toggleDissections} onMaximize={toggleMaximize} onDirectories={toggleDirectories} />
   {/if}

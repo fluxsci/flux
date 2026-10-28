@@ -269,14 +269,14 @@
       {#if groups && groups.length > 0}
         <span class="tabs">
           {#each groups as g, i}
-            <button class="tab" class:cur={i === groupIdx} data-dissect-tab={g.name || "·"} onclick={() => switchGroup(i)}>
-              {g.name || "·"}<span class="cnt">{g.files.length}</span>
+            <button class="tab" class:cur={!notesOpen && i === groupIdx} data-dissect-tab={g.name || "·"} onclick={() => { notesOpen = false; switchGroup(i); }}>
+              {g.name || "Overview"}<span class="cnt">{g.files.length}</span>
             </button>
           {/each}
         </span>
       {/if}
       <span class="grow"></span>
-      <button class="hb" class:on={notesOpen} title="Read and edit plot notes" aria-label="Plot text notes" onclick={() => notesOpen = !notesOpen}>✎ Notes</button>
+      <button class="tab" class:cur={notesOpen} aria-pressed={notesOpen} aria-label="Plot text notes" onclick={() => notesOpen = !notesOpen}>✎ Notes</button>
       <button
         class="hb"
         title={layout.mode === "full" ? "Shrink to a window" : "Expand to full screen"}
@@ -454,7 +454,6 @@
   .hb:hover {
     color: var(--c-accent-bright);
   }
-  .hb.on { background: var(--c-accent-tint); color: var(--c-accent); }
   .dbody {
     flex: 1;
     min-height: 0;

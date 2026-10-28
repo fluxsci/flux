@@ -123,7 +123,7 @@ Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rect
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
 | **Alt+G** | Toggle Plots / Layers; a hidden sidebar opens to Plots with search focused |
-| **Alt+/** *(Plots view)* | Switch the lower pane between Dissections and the searchable folder tree |
+| **Alt+/** | Show the Plots view's searchable folder tree; again, back to Dissections |
 | **Alt+Shift+C** | Copy the selected plot's full source path |
 | **Ctrl+K → New figure** | Click to place a new figure at the closest free position; **Escape** cancels |
 | **Alt+drag** *(figure title)* | Duplicate the entire figure in its family |

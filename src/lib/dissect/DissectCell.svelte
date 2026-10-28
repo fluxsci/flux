@@ -6,6 +6,9 @@
   // and other files render as name cards (the detail view renders tables for real).
   import { imageUrl, type DissectFile } from "./loader";
   import { previewBackdrop } from "../plot/previewBackdrop";
+  import { fileBridge } from "../project/types";
+  import TableCard from "../plotsRail/TableCard.svelte";
+  import { tablePreview, type TablePreview } from "../plotsRail/tableCard";
 
   let {
     file,
@@ -29,12 +32,21 @@
 
   let src = $state<string | null>(null);
   let failed = $state(false);
+  let aspect = $state(0);
+  let table = $state.raw<TablePreview | null>(null);
   let gen = 0;
 
   $effect(() => {
     const abs = file.abs;
     const kind = file.kind;
     const my = ++gen;
+    if (kind === "table") {
+      // The rail's mini-table, read from the same bounded head of the file.
+      table = null;
+      void fileBridge()?.readTextBounded?.(abs, 64 * 1024).then(
+        (r) => { if (my === gen) table = tablePreview(r.text, file.name, r.truncated); },
+        () => { if (my === gen) table = { header: [], rows: [], rowCount: 0, complete: true, cols: 0, transposed: false, error: "Unreadable" }; });
+    }
     if (kind !== "image") {
       src = null;
       return;
@@ -56,6 +68,7 @@
       }
       if (my !== gen) return;
       reportAspect(im.naturalWidth, im.naturalHeight);
+      aspect = im.naturalWidth && im.naturalHeight ? im.naturalWidth / im.naturalHeight : 0;
       src = url;
     })();
     return () => { ++gen; };
@@ -70,21 +83,21 @@
   data-kind={file.kind}
   style:width={`${cellW}px`}
   tabindex="-1"
-  title={file.name}
   use:nativeClick={onSelect}
   use:nativeDoubleClick={onOpen}
 >
-  <div class="surface" style:height={`${cellH}px`} use:previewBackdrop={{ path: file.kind === "image" ? file.abs : "", version: file }}>
-    {#if file.kind === "image"}
-      {#if src}
-        <img {src} alt={file.name} draggable="false" />
-      {:else if failed}
-        <div class="card"><span class="ic">⚠</span><span class="lbl">unreadable</span></div>
-      {/if}
+  <div class="surface" class:image={file.kind === "image" && !failed} class:table={file.kind === "table"} style:height={`${cellH}px`}>
+    {#if file.kind === "image" && !failed}
+      <!-- The image on its own page at its own aspect, on the rail's readable backdrop. -->
+      <div class="page" class:ready={!!src} style:--aspect={aspect || cellW / cellH} use:previewBackdrop={{ path: file.abs, version: file }}>
+        {#if src}<img {src} alt={file.name} draggable="false" />{/if}
+      </div>
+    {:else if file.kind === "image"}
+      <div class="card"><span class="ic">⚠</span><span class="lbl">unreadable</span></div>
     {:else if file.kind === "table"}
-      <div class="card"><span class="ic">▦</span><span class="lbl">{file.name.replace(/\.(csv|tsv)$/i, "")}</span><span class="sub">{file.name.toLowerCase().endsWith(".tsv") ? "TSV" : "CSV"}</span></div>
+      <TableCard name={file.name} preview={table} {selected} />
     {:else}
-      <div class="card"><span class="ic">📄</span><span class="lbl">{file.name}</span></div>
+      <div class="card"><span class="ic">{file.name.toLowerCase().endsWith(".txt") ? "✎" : "📄"}</span><span class="lbl">{file.name}</span></div>
     {/if}
   </div>
   {#if capH > 0}
@@ -115,15 +128,39 @@
     outline: 1px solid var(--c-line);
     outline-offset: -1px;
   }
+  .surface.table {
+    position: relative;
+    background: none;
+    outline: none;
+  }
+  .surface.image {
+    container-type: size;
+    overflow: visible;
+    background: none;
+    outline: none;
+  }
+  .page {
+    width: min(100cqw, 100cqh * var(--aspect));
+    aspect-ratio: var(--aspect);
+    box-shadow: 0 0 0 1px var(--c-line);
+  }
+  .page:not(.ready) {
+    visibility: hidden;
+  }
   .cell:hover .surface {
     outline-color: var(--c-line-strong);
   }
-  .cell.selected .surface {
+  .cell:hover .page {
+    box-shadow: 0 0 0 1px var(--c-line-strong);
+  }
+  .cell.selected .surface:not(.image, .table),
+  .cell.selected .page {
     outline: 2px solid var(--c-accent);
     outline-offset: 0;
     box-shadow: 0 0 0 3px var(--c-accent-tint);
   }
   img {
+    display: block;
     width: 100%;
     height: 100%;
     object-fit: contain;
@@ -140,20 +177,15 @@
     color: var(--c-tx-2);
   }
   .card .ic {
-    font-size: 26px;
-    color: var(--c-accent-bright);
+    font-size: 18px;
+    color: var(--c-tx-muted);
   }
   .card .lbl {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12.5px;
-  }
-  .card .sub {
-    font-size: 10px;
-    letter-spacing: 0.4px;
-    color: var(--c-tx-muted);
+    font: 11px var(--font-mono);
   }
   .caption {
     display: flex;
