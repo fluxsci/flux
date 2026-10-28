@@ -1,9 +1,29 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { configureWindow, assertWindow } = require('./perf/input-probe-policy.cjs');
+const { configureWindow, assertWindow, renderedCamera, deepZoomNotches, deepZoomDelivered } = require('./perf/input-probe-policy.cjs');
 const { assertUsableDisplay, qualifiedNativeBounds, assertNativePointerTarget } = require('./lib/nativeWindowQualification.cjs');
 async function main() {
   const { harness } = await import('./lib/harness.mjs'); const h = harness('verify-input-probe-policy');
+  h.eq(renderedCamera({matrix:{a:1.25,e:3,f:-4},baked:2}),{zoom:2.5,panX:3,panY:-4,proxy:false},'live camera multiplies baked SVG scale by residual transform');
+  const proxy={worldBox:'-10 -20 100 50',rasterSize:'200 100',matrix:{a:1.5,e:40,f:50}};
+  h.eq(renderedCamera({proxy,matrix:{a:1,e:0,f:0},baked:.25}),{zoom:3,panX:70,panY:110,proxy:true},'active proxy camera uses world/raster geometry instead of the frozen live SVG');
+  for(const bad of [{...proxy,rasterSize:'0 100'},{...proxy,worldBox:'0 0 0 50'},{...proxy,matrix:{a:NaN,e:0,f:0}}]) assert.throws(()=>renderedCamera({proxy:bad,matrix:{a:1,e:0,f:0},baked:1}),/proxy camera/);
+  assert.throws(()=>renderedCamera({matrix:{a:1,e:0,f:0},baked:NaN}),/live camera/);
+  h.ok(true,'invalid proxy/live camera fails instead of topping up against false geometry');
+  h.eq([deepZoomNotches(1.2326599263863325),deepZoomNotches(.05)],[15,33],'deep in-bursts derive actual notch counts from two different resting scales');
+  assert.throws(()=>deepZoomNotches(0),RangeError);assert.throws(()=>deepZoomNotches(Infinity),RangeError);
+  h.ok(true,'invalid deep starting zoom cannot fabricate an injection count');
+  const batch=sent=>({sent,delivered:sent,complete:true});
+  const deepPhase={preciseWheel:false,wheels:189,deepZoom:{target:16,cycles:[15,33,33].map(n=>({afterIn:{zoom:18},inBatches:[batch(n)],out:batch(36)}))}};
+  h.ok(deepZoomDelivered(deepPhase),'three exact16x cycles with36out each accept189 actual delivered inputs rather than a hardcoded216');
+  const invalid=[];
+  {const p=structuredClone(deepPhase);p.wheels--;invalid.push(p);}
+  {const p=structuredClone(deepPhase);p.deepZoom.cycles[0].out.delivered--;invalid.push(p);}
+  {const p=structuredClone(deepPhase);p.deepZoom.cycles[0].afterIn.zoom=256;invalid.push(p);}
+  {const p=structuredClone(deepPhase);p.deepZoom.cycles[0].afterIn.zoom=1.23;invalid.push(p);}
+  {const p=structuredClone(deepPhase);p.deepZoom.cycles.pop();invalid.push(p);}
+  {const p=structuredClone(deepPhase);p.deepZoom.cycles[0].out.sent=35;invalid.push(p);}
+  h.ok(invalid.every(p=>!deepZoomDelivered(p)),'lost events, accidental256x, frozen-camera scale, missing cycle and shortened out burst all fail the deep contract');
   const calls = [], win = { webContents: { setBackgroundThrottling: value=>calls.push(value) }, isVisible:()=>true, isFocused:()=>true };
   const displays = [{ bounds: { width: 1920, height: 1080 } }];
   h.eq(configureWindow({qualify:false,win,displays}).mode,'diagnostic','default probe remains explicitly diagnostic');

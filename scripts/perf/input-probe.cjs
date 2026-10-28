@@ -18,6 +18,7 @@
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
 //        --phases=zoomNavigate: quiet → rapid wide zoom-out → Shift-wheel to another figure → rezoom
+//        --precise-wheel: optional Electron trackpad deltas; records coalesced delivery separately
 //        [--layers] mid-drag compositor layer snapshot (CDP LayerTree: count, top layers, owning node, compositing reasons,
 //        the dragged element's will-change + document.getAnimations()) into results.layers — STRUCTURE ONLY: the LayerTree
 //        agent inflates Paint/browser time, never time a --layers run. Scenarios combine with '+' (e.g. noOverlay+ovSel).
@@ -40,6 +41,7 @@
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
 const { analyze: analyzeMarkerFrames } = require('./frame-oracle.cjs');
 const repo = path.resolve(__dirname, '..', '..');
+const { renderedCamera, deepZoomNotches, deepZoomDelivered } = require('./input-probe-policy.cjs');
 
 // ---------------------------------------------------------------------------
 // LAUNCHER (plain Node): copy the project, isolate config, spawn Electron on this file.
@@ -58,7 +60,7 @@ if (!process.versions.electron) {
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
-    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8'), PROBE_LAYERS: args.includes('--layers') ? '1' : '0' };
+    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8'), PROBE_LAYERS: args.includes('--layers') ? '1' : '0', PROBE_PRECISE_WHEEL: args.includes('--precise-wheel') ? '1' : (process.env.PROBE_PRECISE_WHEEL || '0') };
   delete env.VITE_DEV_SERVER_URL; delete env.ELECTRON_RUN_AS_NODE;
   const electronArgs = [__filename, project];
   if (process.platform === 'linux') electronArgs.push('--no-sandbox', `--ozone-platform=${ozone}`);
@@ -105,7 +107,7 @@ if (!process.versions.electron) {
       const data = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
       const phases = Object.values(data).flatMap(mode => Object.values(mode).flatMap(scenario => Object.values(scenario).filter(p => p?.label?.endsWith(':zoomDeep'))));
       const warnings = (stderr.match(/tile memory limits exceeded/g) || []).length;
-      const passed = phases.length > 0 && warnings === 0 && phases.every(p => p.wheels === 216 && p.framesOracle?.frames > 60 && p.framesOracle.blankFrames.length === 0 && p.framesOracle.flashFrames.length === 0);
+      const passed = phases.length > 0 && warnings === 0 && phases.every(p => deepZoomDelivered(p) && p.framesOracle?.frames > 60 && p.framesOracle.blankFrames.length === 0 && p.framesOracle.flashFrames.length === 0);
       const verdict = { ok: passed, phases: phases.length, tileWarnings: warnings, sampledFrames: phases.map(p => p.framesOracle?.frames) };
       fs.writeFileSync(path.join(out, 'flicker-verdict.json'), JSON.stringify(verdict, null, 2));
       console.log('PROBE flicker-verdict ' + JSON.stringify(verdict));
@@ -172,7 +174,8 @@ const q = (xs, p) => { if (!xs.length) return null; const s = [...xs].sort((a, b
 const stats = (xs) => ({ n: xs.length, p50: q(xs, .5), p95: q(xs, .95), max: xs.length ? Math.max(...xs) : null });
 function cpuSnapshot() { const o = {}; for (const p of app.getAppMetrics()) { const k = p.type === 'Tab' ? 'renderer' : p.type; o[k] = +((o[k] || 0) + p.cpu.percentCPUUsage).toFixed(3); } return o; }
 const mouse = (ev) => win.webContents.sendInputEvent(ev);
-const wheel = (x, y, dx, dy, modifiers = []) => mouse({ type: 'mouseWheel', x, y, deltaX: dx, deltaY: dy, canScroll: true, modifiers });
+const preciseWheel = process.env.PROBE_PRECISE_WHEEL === '1';
+const wheel = (x, y, dx, dy, modifiers = []) => mouse({ type: 'mouseWheel', x, y, deltaX: dx, deltaY: dy, canScroll: true, hasPreciseScrollingDeltas: preciseWheel, modifiers });
 // A synthetic ctrl+wheel needs the KEY down too (the first events of a wheel gesture
 // otherwise latch as a scroll without the modifier): hold Control around zoom bursts.
 const ctrlDown = () => win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Control' });
@@ -185,20 +188,53 @@ async function cdpMetrics() {
 const cdpDelta = (a, b) => (a && b) ? { styleMs: +((b.RecalcStyleDuration - a.RecalcStyleDuration) * 1000).toFixed(1), layoutMs: +((b.LayoutDuration - a.LayoutDuration) * 1000).toFixed(1), scriptMs: +((b.ScriptDuration - a.ScriptDuration) * 1000).toFixed(1), taskMs: +((b.TaskDuration - a.TaskDuration) * 1000).toFixed(1), layouts: b.LayoutCount - a.LayoutCount, recalcs: b.RecalcStyleCount - a.RecalcStyleCount } : null;
 async function click(x, y, hold = 10) { mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x, y }); await sleep(hold); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x, y }); }
 
+// Delivery barriers belong between semantic stages, never between injections.
+async function nativeWheelBurst(x,y,dx,dy,count,modifiers=[]) {
+  const before=await js('({wheels:window.__p.wheels,deltaX:window.__p.wheelDeltaX,deltaY:window.__p.wheelDeltaY})');
+  for(let i=0;i<count;i++){wheel(x,y,dx,dy,modifiers);await sleep(8)}
+  const expected={count:before.wheels+count,deltaX:before.deltaX-dx*count,deltaY:before.deltaY-dy*count,
+    tolerance:Math.max(.01,(Math.abs(dx)+Math.abs(dy))*count*1e-5),precise:preciseWheel};
+  const actual=await js(`window.__p.waitForWheels(${JSON.stringify(expected)})`);
+  return {sent:count,delivered:actual.wheels-before.wheels,complete:true,expected,...actual};
+}
+function renderedCameraJs(root) {
+  return `(()=>{const sc=document.querySelector('${root} .scene'),g=document.querySelector('${root} .scene-svg > g'),proxy=document.querySelector('${root} .zoom-proxy.live');
+    const matrix=n=>{const m=new DOMMatrix(getComputedStyle(n).transform);return{a:m.a,e:m.e,f:m.f}};
+    const baked=Number(/scale\\(([-\\d.e]+)/.exec(g.getAttribute('transform'))?.[1]);
+    const camera=(${renderedCamera.toString()})({proxy:proxy?{worldBox:proxy.dataset.worldBox,rasterSize:proxy.dataset.rasterSize,matrix:matrix(proxy)}:null,matrix:matrix(sc),baked});
+    return {...camera,baked,residual:matrix(sc).a}})()`;
+}
+
 // Renderer-side instrumentation: rAF gaps, delivered pointer events, pointerdown→paint,
 // long tasks, slow event-timing entries. Installed once per page.
-const INSTR = `(()=>{if(window.__p)return 'ok';const p=window.__p={running:false,raf:0,frames:[],moves:0,downs:0,wheels:0,scrolls:0,keys:0,downPaint:[],keyPaint:[],wheelPaint:[],longtasks:[],evts:[]};
+const INSTR = `(()=>{if(window.__p)return 'ok';const p=window.__p={running:false,raf:0,frames:[],moves:0,downs:0,wheels:0,scrolls:0,keys:0,downPaint:[],keyPaint:[],wheelPaint:[],wheelEntryPaint:[],wheelQueueDelay:[],wheelSamples:[],wheelDeltaX:0,wheelDeltaY:0,phase:0,longtasks:[],evts:[]};
 const qualificationState=()=>({time:performance.now(),visible:document.visibilityState,focused:document.hasFocus()});
 for(const type of ['focus','blur','visibilitychange'])window.addEventListener(type,()=>{if(p.running)p.qualification.push({...qualificationState(),event:type})},true);
 window.addEventListener('pointermove',()=>{p.moves++},true);
 window.addEventListener('pointerdown',(e)=>{p.downs++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.downPaint.push(performance.now()-t0)))},true);
-window.addEventListener('wheel',(e)=>{p.wheels++;const t=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.wheelPaint.push(performance.now()-t)));if(e.ctrlKey)requestAnimationFrame(()=>{p.zoomTicks++;const live=!!document.querySelector('.zoom-proxy.live');if(live)p.proxyTicks++;if(p.mountLog&&p.proxyObserved&&!live&&!p.proxyAbort)p.proxyAbort=[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId);p.proxyObserved=live})},{capture:true,passive:true});
+window.addEventListener('wheel',(e)=>{
+ if(!p.running)return;
+ const entry=performance.now(),stamp=e.timeStamp,phase=p.phase;
+ p.wheels++;p.wheelDeltaX+=e.deltaX;p.wheelDeltaY+=e.deltaY;
+ const sample={index:p.wheels,timeStamp:stamp,entry,queueDelay:entry-stamp,deltaX:e.deltaX,deltaY:e.deltaY,ctrl:e.ctrlKey,shift:e.shiftKey};
+ p.wheelSamples.push(sample);p.wheelQueueDelay.push(sample.queueDelay);
+ requestAnimationFrame(()=>requestAnimationFrame(()=>{if(phase!==p.phase||!p.running)return;const end=performance.now();sample.paint=end;sample.entryPaint=end-entry;sample.timestampPaint=end-stamp;p.wheelPaint.push(sample.timestampPaint);p.wheelEntryPaint.push(sample.entryPaint)}));
+ if(e.ctrlKey)requestAnimationFrame(()=>{if(phase!==p.phase||!p.running)return;p.zoomTicks++;const live=!!document.querySelector('.zoom-proxy.live');if(live)p.proxyTicks++;if(p.mountLog&&p.proxyObserved&&!live&&!p.proxyAbort)p.proxyAbort=[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId);p.proxyObserved=live})
+},{capture:true,passive:true});
+// A query can overtake Electron's native wheel queue. At semantic stage
+// boundaries wait for actual delivery AND each delivered event's second rAF;
+// no extra pacing is inserted within any burst and queue latency stays visible.
+p.waitForWheels=expected=>new Promise((resolve,reject)=>{
+ let raf=0;const timer=setTimeout(()=>{cancelAnimationFrame(raf);reject(Error('wheel delivery barrier timed out: '+JSON.stringify({expected,wheels:p.wheels,painted:p.wheelPaint.length,deltaX:p.wheelDeltaX,deltaY:p.wheelDeltaY})))},15000);
+ const poll=()=>{const delivered=expected.precise?Math.abs(p.wheelDeltaX-expected.deltaX)<=expected.tolerance&&Math.abs(p.wheelDeltaY-expected.deltaY)<=expected.tolerance:p.wheels===expected.count;
+  if(delivered&&p.wheelPaint.length===p.wheels){clearTimeout(timer);resolve({wheels:p.wheels,painted:p.wheelPaint.length,deltaX:p.wheelDeltaX,deltaY:p.wheelDeltaY});return}raf=requestAnimationFrame(poll)};poll();
+});
 window.addEventListener('scroll',()=>{p.scrolls++},{capture:true,passive:true});
 window.addEventListener('keydown',(e)=>{p.keys++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.longtasks.push(Math.round(e.duration))}).observe({type:'longtask'})}catch{}
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.evts.push({n:e.name,d:Math.round(e.duration),proc:Math.round(e.processingEnd-e.processingStart)})}).observe({type:'event',durationThreshold:16})}catch{}
-p.start=()=>{p.mountLog=${process.env.PROBE_MOUNT_LOG === '1'};p.membersStart=p.mountLog?[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId):null;p.proxyObserved=false;p.proxyAbort=null;cancelAnimationFrame(p.raf);p.running=true;p.zoomTicks=0;p.proxyTicks=0;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.wheelPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
-p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice(),wheelPaint:p.wheelPaint.slice()};return {membersStart:p.membersStart,proxyAbort:p.proxyAbort,zoomTicks:p.zoomTicks,proxyTicks:p.proxyTicks,qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),wheelPaint:p.wheelPaint.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
+p.start=()=>{p.phase++;p.mountLog=${process.env.PROBE_MOUNT_LOG === '1'};p.membersStart=p.mountLog?[...document.querySelectorAll('.figure-mode [data-editor-element-id]')].map(n=>n.dataset.editorElementId):null;p.proxyObserved=false;p.proxyAbort=null;cancelAnimationFrame(p.raf);p.running=true;p.zoomTicks=0;p.proxyTicks=0;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.wheelPaint=[];p.wheelEntryPaint=[];p.wheelQueueDelay=[];p.wheelSamples=[];p.wheelDeltaX=0;p.wheelDeltaY=0;p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
+p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const frameGaps=[];for(let i=1;i<p.frames.length;i++)frameGaps.push(p.frames[i]-p.frames[i-1]);const rawTimings={frameGaps,downPaint:p.downPaint.slice(),keyPaint:p.keyPaint.slice(),wheelPaint:p.wheelPaint.slice(),wheelEntryPaint:p.wheelEntryPaint.slice(),wheelQueueDelay:p.wheelQueueDelay.slice(),wheelSamples:p.wheelSamples.map(s=>({...s}))};return {membersStart:p.membersStart,proxyAbort:p.proxyAbort,zoomTicks:p.zoomTicks,proxyTicks:p.proxyTicks,qualification:p.qualification,frames:p.frames.length,gaps:frameGaps.map(x=>+x.toFixed(1)),moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),wheelPaint:p.wheelPaint.map(x=>+x.toFixed(1)),wheelEntryPaint:p.wheelEntryPaint.map(x=>+x.toFixed(1)),wheelQueueDelay:p.wheelQueueDelay.map(x=>+x.toFixed(1)),rawTimings,longtasks:p.longtasks,evts:p.evts}};
 return 'installed'})()`;
 
 // CSS scenarios — bisect knobs. `base` is the shipped app.
@@ -262,7 +298,8 @@ async function measure(label, run, traceName) {
   if (traceName) await contentTracing.startRecording({ included_categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing', 'cc', 'input', 'ui', 'viz', 'gpu', 'toplevel', 'latencyInfo', 'benchmark', ...(process.env.PROBE_INVALIDATION === '1' ? ['disabled-by-default-devtools.timeline.invalidationTracking', 'disabled-by-default-blink.invalidation'] : [])], excluded_categories: ['*'] });
   const prof = cdpOk && (process.env.PROBE_PROFILE || '').split(',').includes(label.split(':').pop());
   if (prof) { await win.webContents.debugger.sendCommand('Profiler.enable'); await win.webContents.debugger.sendCommand('Profiler.setSamplingInterval', { interval: 100 }); await win.webContents.debugger.sendCommand('Profiler.start'); }
-  await run();
+  let runError = null;
+  try { await run(); } catch (error) { runError = error; }
   if (prof) { const { profile } = await win.webContents.debugger.sendCommand('Profiler.stop'); fs.writeFileSync(path.join(out, `profile-${label.replace(/[^a-z0-9]+/gi, '-')}.cpuprofile`), JSON.stringify(profile)); }
   const wallMs = Date.now() - t0; const cpu = cpuSnapshot(); const m1 = await cdpMetrics();
   let trace = null; if (traceName) trace = await contentTracing.stopRecording(path.join(out, traceName + '.json'));
@@ -279,11 +316,12 @@ async function measure(label, run, traceName) {
   const snap = await js('(()=>{const L=window.__snapLog;window.__snapLog=null;return L?L.c:null})()').catch(() => null);
   const foldLog = await js('(()=>{const k=window.__foldLog;window.__foldLog=null;return k})()').catch(() => null);
   const abortKeys = await js('(()=>{const k=window.__abortKeys;window.__abortKeys=null;return k})()').catch(() => null);
-  const res = { membersStart:r.membersStart,proxyAbort:r.proxyAbort,snapEv, foldLog, abortKeys, zoomTicks: r.zoomTicks, proxyTicks: r.proxyTicks, snapBefore, snap, label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), wheelPaint: stats(r.wheelPaint ?? []), rawTimings: r.rawTimings, longtasks: r.longtasks,
+  const res = { membersStart:r.membersStart,proxyAbort:r.proxyAbort,snapEv, foldLog, abortKeys, zoomTicks: r.zoomTicks, proxyTicks: r.proxyTicks, snapBefore, snap, label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), wheelPaint: stats(r.wheelPaint ?? []), wheelEntryPaint: stats(r.wheelEntryPaint ?? []), wheelQueueDelay: stats(r.wheelQueueDelay ?? []), preciseWheel, rawTimings: r.rawTimings, longtasks: r.longtasks,
     cursorChanges: cursorLog.length, cursorSeq: seq.slice(0, 40).map((s) => `${s.k}x${s.n}@${s.t}`), slowEvents: r.evts.slice(0, 12), trace };
   if (process.env.PROBE_DUMP_JS) { try { res.dump = await js(process.env.PROBE_DUMP_JS); } catch (e) { res.dump = String(e); } }
   if (ipcLedger.size) { res.ipc = Object.fromEntries([...ipcLedger].sort((a, b) => b[1].ms - a[1].ms).map(([k, v]) => [k, { n: v.n, ms: +v.ms.toFixed(1), maxMs: +v.maxMs.toFixed(1), argKB: +(v.argB / 1024).toFixed(1), resKB: +(v.resB / 1024).toFixed(1), maxResKB: +(v.maxResB / 1024).toFixed(1) }])); }
-  log('measure', res); return res;
+  if (runError) { res.error = String(runError?.stack || runError); fs.writeFileSync(path.join(out, `failure-${label.replace(/[^a-z0-9]+/gi,'-')}.json`), JSON.stringify(res,null,2)); }
+  log('measure', res); if (runError) throw runError; return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +437,7 @@ async function main() {
   await wait(() => js("!!document.querySelector('button[aria-label=Figure]')"), 'shell');
   try { win.webContents.debugger.attach('1.3'); await win.webContents.debugger.sendCommand('Performance.enable'); cdpOk = true; } catch (e) { log('cdp', { err: String(e) }); }
   log('gpu', app.getGPUFeatureStatus());
-  fs.writeFileSync(path.join(out, 'runtime.json'), JSON.stringify({ versions: process.versions, gpu: app.getGPUFeatureStatus(), qualification: qualificationPolicy, displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea})), viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'), switches: process.argv.filter(a => a.startsWith('--')) }, null, 2));
+  fs.writeFileSync(path.join(out, 'runtime.json'), JSON.stringify({ versions: process.versions, gpu: app.getGPUFeatureStatus(), qualification: qualificationPolicy, preciseWheel, displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea})), viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'), switches: process.argv.filter(a => a.startsWith('--')) }, null, 2));
   await js(INSTR);
   if (process.env.PROBE_MODEL3D_S8) model3dProbe = await require('./input-probe-model3d.cjs')({ win, js, wait, wheel, mouse, sleep, out, variant: process.env.PROBE_MODEL3D_S8, project: process.env.PROBE_PROJECT });
   if (surface === 'paper' || surface === 'both') await paperPhases();
@@ -589,27 +627,39 @@ async function figurePhases(mode = 'figure') {
     // The older phases mostly ran below fit zoom and never exercised a deep
     // baked raster followed by a rapid zoom-out, the owner's reported failure.
     if (wantPhase('zoomDeep') && process.env.PROBE_PRE_REST) await sleep(+process.env.PROBE_PRE_REST); // zoom-path: let the zoom proxy land first
-    if (wantPhase('zoomDeep')) R.zoomDeep = await measureFrames(`${mode}:${sc}:zoomDeep`, region, async () => {
-      ctrlDown();
-      // This burst used to lean on the wheel CEILING (16×) to land at exactly 16. The
-      // ceiling is 256× since 2026-09-25 (src/lib/interact/zoomLimits.ts), so the notch
-      // count is derived from the resting baked zoom instead — the ~16× deep raster the
-      // phase measures is unchanged. 120 px per notch is ×e^0.18 (Canvas.svelte's wheel
-      // law); a bounded top-up covers a platform that scales wheel deltas.
-      const bakedJs = `Number(/scale\\(([-\\d.e]+)/.exec(document.querySelector('${modeRoot} .scene-svg > g').getAttribute('transform'))[1])`;
-      const effectiveJs = `(new DOMMatrix(getComputedStyle(document.querySelector('${modeRoot} .scene')).transform).a * ${bakedJs})`;
-      for (let cycle = 0; cycle < 3; cycle++) {
-        const z0 = await js(bakedJs);
-        const notches = Math.max(1, Math.ceil(Math.log(16 / z0) / 0.18));
-        for (let i = 0; i < notches; i++) { wheel(cx, cy, 0, 120, ['control']); await sleep(8); }
-        for (let guard = 0; guard < 60 && (await js(effectiveJs)) < 16; guard++) { wheel(cx, cy, 0, 120, ['control']); await sleep(8); }
-        await wait(() => js(`${bakedJs} >= 16`), 'deep zoom reached and folded');
-        await sleep(250); // include a cold high-resolution raster before revealing the full scene
-        for (let i = 0; i < 36; i++) { wheel(cx, cy, 0, -120, ['control']); await sleep(8); }
-        await sleep(350);
-      }
-      ctrlUp(); await sleep(600);
-    }, tr('zoomDeep'));
+    if (wantPhase('zoomDeep')) {
+      const deepZoom={target:16,cycles:[]},cameraJs=renderedCameraJs(modeRoot);
+      const save=()=>fs.writeFileSync(path.join(out,`deep-stages-${mode}-${sc}.json`),JSON.stringify(deepZoom,null,2));
+      R.zoomDeep=await measureFrames(`${mode}:${sc}:zoomDeep`,region,async()=>{
+        ctrlDown();
+        try {
+          for(let cycle=0;cycle<3;cycle++){
+            const row={cycle:cycle+1,start:await js(cameraJs),inBatches:[]};deepZoom.cycles.push(row);save();
+            const notches=deepZoomNotches(row.start.zoom);
+            row.inBatches.push(await nativeWheelBurst(cx,cy,0,120,notches,['control']));
+            row.afterIn=await js(cameraJs);save();
+            // Query only AFTER delivered paint; a frozen SVG or an overtaken
+            // native queue must never cause an accidental run to the 256x cap.
+            for(let guard=0;guard<60&&row.afterIn.zoom<16;guard++){
+              row.inBatches.push(await nativeWheelBurst(cx,cy,0,120,1,['control']));
+              row.afterIn=await js(cameraJs);save();
+            }
+            if(row.afterIn.zoom<16||row.afterIn.zoom>16*Math.exp(.18)+1e-4)throw Error('deep zoom missed16x target: '+JSON.stringify(row.afterIn));
+            await wait(()=>js(`(()=>{const c=${cameraJs};return !c.proxy&&c.baked>=16&&Math.abs(c.residual-1)<1e-5})()`),'deep zoom reached and folded');
+            row.folded=await js(cameraJs);save();
+            await sleep(250); // include the original cold high-resolution raster
+            row.out=await nativeWheelBurst(cx,cy,0,-120,36,['control']);
+            row.afterOut=await js(cameraJs);save();
+            await wait(()=>js(`(()=>{const c=${cameraJs};return !c.proxy&&Math.abs(c.residual-1)<1e-5})()`),'wide zoom delivered and folded');
+            row.settled=await js(cameraJs);save();
+          }
+        } finally { ctrlUp(); save(); }
+        await sleep(600);
+      },tr('zoomDeep'));
+      R.zoomDeep.deepZoom=deepZoom;
+      if(!deepZoomDelivered(R.zoomDeep))throw Error('deep zoom actual event/cycle contract failed');
+      log('deepZoom',deepZoom);
+    }
     if (wantPhase('zoomFast')) R.zoomFast = await measureFrames(`${mode}:${sc}:zoomFast`, region, async () => { ctrlDown(); for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); await sleep(600); }, tr('zoomFast'));
     if (wantPhase('zoomBursts')) R.zoomBursts = await measureFrames(`${mode}:${sc}:zoomBursts`, region, async () => { ctrlDown(); for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(16); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(16); } await sleep(320); } ctrlUp(); await sleep(600); }, tr('zoomBursts'));
     if (mode === 'figure' && wantPhase('zoomNavigate')) {
@@ -639,25 +689,54 @@ async function figurePhases(mode = 'figure') {
         }
       } catch { /* Older project layouts use the currently mounted frame geometry. */ }
       const destination=destinations.sort((a,b)=>Math.abs(b.x-origin.x)-Math.abs(a.x-origin.x))[0];
+      if (!(start.host.w > 0 && start.host.h > 0)) throw Error('zoomNavigate requires a nonzero canvas host');
       const stages=[];
+      const navigationFile=path.join(out,`navigation-${mode}-${sc}.json`);
+      const record=async(stage,delivery=null)=>{
+        const state=await js(navigation);
+        const row={stage,...state,frames:state.frames.length,delivery};stages.push(row);
+        fs.writeFileSync(navigationFile,JSON.stringify({origin,destination,initialZoom:start.zoom,preciseWheel,stages},null,2));
+        return state;
+      };
+      const burst=async(stage,x,y,dx,dy,count,modifiers=[])=>{
+        try { return record(stage,await nativeWheelBurst(x,y,dx,dy,count,modifiers)); }
+        catch(error){await record(stage+'-delivery-failed',{sent:count,error:String(error)});throw error;}
+      };
       R.zoomNavigate=await measureFrames(`${mode}:${sc}:zoomNavigate`,region,async()=>{
-        ctrlDown();for(let i=0;i<18;i++){wheel(cx,cy,0,-120,['control']);await sleep(8)}ctrlUp();
-        const wide=await js(navigation);stages.push({stage:'wide',...wide,frames:wide.frames.length});
+        let wide;
+        ctrlDown();try{wide=await burst('wide',cx,cy,0,-120,18,['control'])}finally{ctrlUp()}
         const shift=wide.host.w/2-wide.panX-wide.zoom*destination.x;
+        let moved;
         mouse({type:'keyDown',keyCode:'Shift'});
-        for(let i=0;i<12;i++){wheel(cx,cy,0,shift/12,['shift']);await sleep(8)}
-        mouse({type:'keyUp',keyCode:'Shift'});
-        let moved=await js(navigation);
+        try{moved=await burst('pan-x',cx,cy,0,shift/12,12,['shift'])}finally{mouse({type:'keyUp',keyCode:'Shift'})}
         const y=moved.panY+moved.zoom*destination.y;
-        if(y<40||y>moved.host.h-40){const delta=moved.host.h/2-y;for(let i=0;i<8;i++){wheel(cx,cy,0,delta/8);await sleep(8)}moved=await js(navigation)}
-        stages.push({stage:'pan',...moved,frames:moved.frames.length});
-        const px=Math.round(moved.host.l+moved.panX+moved.zoom*destination.x),py=Math.round(moved.host.t+moved.panY+moved.zoom*destination.y);
-        if(px<moved.host.l||px>moved.host.l+moved.host.w||py<moved.host.t||py>moved.host.t+moved.host.h)throw Error('navigation destination is outside the canvas');
+        if(y<40||y>moved.host.h-40)moved=await burst('pan-y',cx,cy,0,(moved.host.h/2-y)/8,8);
+        const aimed={x:moved.host.l+moved.panX+moved.zoom*destination.x,y:moved.host.t+moved.panY+moved.zoom*destination.y};
+        const px=Math.round(aimed.x),py=Math.round(aimed.y);
+        if(px<moved.host.l||px>moved.host.l+moved.host.w||py<moved.host.t||py>moved.host.t+moved.host.h)throw Error('navigation destination is outside the canvas after delivered pan');
         const notches=Math.max(1,Math.ceil(Math.log(start.zoom/moved.zoom)/.18));
-        ctrlDown();for(let i=0;i<notches;i++){wheel(px,py,0,120,['control']);await sleep(8)}ctrlUp();
-        await sleep(800);const end=await js(navigation);stages.push({stage:'settled',...end,frames:end.frames.length});
+        let zoomed;
+        ctrlDown();try{zoomed=await burst('rezoom',px,py,0,120,notches,['control'])}finally{ctrlUp()}
+        // Wait on the actual rendered fold, never assume a fixed delay drains
+        // native input. Every requested event already reached its second rAF.
+        await wait(()=>js(`(()=>{const s=${navigation};return !s.proxy&&Math.abs(s.zoom-${zoomed.zoom})<1e-5})()`),'navigation final camera fold');
+        const end=await record('settled');
+        const local={x:end.panX+end.zoom*destination.x,y:end.panY+end.zoom*destination.y};
+        const at=await js(`(()=>{const host=document.querySelector('${modeRoot} .canvas-host');
+          const frame=[...host.querySelectorAll('g[data-annotation-figure]')].find(n=>n.dataset.annotationFigure===${JSON.stringify(destination.id)});
+          const element=${JSON.stringify(destination.elementId||null)}?host.querySelector('[data-editor-element-id="'+CSS.escape(${JSON.stringify(destination.elementId||'')})+'"]'):null;
+          const node=${JSON.stringify(destination.elementId||null)}?element:frame,b=node?.getBoundingClientRect();return{mounted:!!node,box:b?{left:b.left,top:b.top,right:b.right,bottom:b.bottom}:null}})()`);
+        const ratio=end.zoom/moved.zoom;
+        const landed={local,wheelAnchor:{x:px,y:py},expectedClient:{x:px+(aimed.x-px)*ratio,y:py+(aimed.y-py)*ratio},actualClient:{x:end.host.l+local.x,y:end.host.t+local.y},...at};
+        const visible=local.x>=0&&local.x<=end.host.w&&local.y>=0&&local.y<=end.host.h;
+        const anchored=Math.abs(landed.actualClient.x-landed.expectedClient.x)<=2&&Math.abs(landed.actualClient.y-landed.expectedClient.y)<=2;
+        const restoredZoom=end.zoom>=start.zoom*.99;
+        const covered=at.box&&landed.actualClient.x>=at.box.left-1&&landed.actualClient.x<=at.box.right+1&&landed.actualClient.y>=at.box.top-1&&landed.actualClient.y<=at.box.bottom+1;
+        stages.push({stage:'destination-assertion',ok:!!(visible&&anchored&&restoredZoom&&covered),visible,anchored,restoredZoom,...landed});
+        fs.writeFileSync(navigationFile,JSON.stringify({origin,destination,initialZoom:start.zoom,preciseWheel,stages},null,2));
+        if(!visible||!anchored||!restoredZoom||!covered)throw Error('navigation did not land on its actual final destination: '+JSON.stringify(stages.at(-1)));
       },tr('zoomNavigate'));
-      R.zoomNavigate.navigation={origin,destination,initialZoom:start.zoom,stages};
+      R.zoomNavigate.navigation={origin,destination,initialZoom:start.zoom,preciseWheel,stages};
       log('navigation',R.zoomNavigate.navigation);
     }
     // 10. FAST pan and pan in bursts (cool-downs → demotion + re-cull between)
