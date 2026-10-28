@@ -54,8 +54,12 @@ async function main(){
   // its actual rAF loop and double-rAF key listener, then consume the same
   // qualification adapter as S8; rounded public summaries remain unchanged.
   const probeSource=await fs.readFile(new URL('./perf/input-probe.cjs','file://'+__filename),'utf8');
-  const instrument=probeSource.match(/const INSTR = `([\s\S]*?)`;/)?.[1];
-  assert.ok(instrument,'native renderer instrumentation found');
+  const instrumentTemplate=probeSource.match(/const INSTR = (`[\s\S]*?`);/)?.[1];
+  assert.ok(instrumentTemplate,'native renderer instrumentation found');
+  // Expand the actual Node-side template, including diagnostic flags, before
+  // executing the resulting renderer program just as the native probe does.
+  const instrument=vm.runInNewContext(instrumentTemplate,{process:{env:{}}},{timeout:1000});
+  h.ok(typeof instrument==='string','native renderer template expands its Node-side diagnostic flags');
   function probeTiming(step){
     let now=0,next=0;const callbacks=new Map(),listeners=new Map();
     const window={addEventListener:(name,fn)=>listeners.set(name,fn)};

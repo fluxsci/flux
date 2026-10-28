@@ -1,5 +1,5 @@
 // P5 — Paper UX completeness. Drives the real editor: Cmd/Ctrl-F opens the find/replace panel
-// (PAP-10) and the content DOM carries native spellcheck (PAP-11). Chip hint (PAP-22) is a
+// (PAP-10) and the content DOM disables duplicate native spellcheck (PAP-11, superseded by October 27 item 06). Chip hint (PAP-22) is a
 // static title attribute, asserted present.
 //   Run (dev server on :1420 must be up): node scripts/verify-p5-paper.mjs
 import * as fs from "node:fs/promises";
@@ -51,8 +51,8 @@ if (res.error) {
   console.error("\nP5 PAPER VERIFY: FAIL —", res.error);
   process.exit(1);
 }
-console.log("PAP-11 — native spellcheck on the content DOM:");
-assert(res.spellcheck === "true", "the editor content DOM has spellcheck=\"true\"");
+console.log("PAP-11 — Flux spelling owns the content DOM (native checking disabled):");
+assert(res.spellcheck === "false", "the editor content DOM has spellcheck=\"false\" to prevent duplicate system underlines");
 console.log("PAP-10 — find/replace panel opens on Cmd/Ctrl-F:");
 assert(res.searchPanel, "the .cm-search panel is present after Cmd/Ctrl-F");
 assert(res.hasInput, "the search panel has a query input");

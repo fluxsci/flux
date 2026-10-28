@@ -58,9 +58,17 @@ try {
   await waitForSelector(page, ".inspector .pop .cs", { label: "the text-colour picker opens" });
   h.ok(true, "the Inspector's text-colour picker opens");
 
+  // Width is scoped to its consuming Inspector (not its shared mode parent).
+  // Keep the existing inline value so this sweep restores the actual host state.
+  const originalInspectorWidth = await page.$eval(".inspector", (el) => ({
+    value: el.style.getPropertyValue("--insp-w"),
+    priority: el.style.getPropertyPriority("--insp-w"),
+  }));
   for (const width of [900, 760, 620, 520, 420, 320, 248]) {
-    await page.evaluate((w) => document.querySelector(".inspector").parentElement.style.setProperty("--insp-w", w + "px"), width);
+    await page.$eval(".inspector", (el, w) => el.style.setProperty("--insp-w", w + "px"), width);
     await waitForFrame(page); // the layout has painted at the new width
+    const actualWidth = await page.$eval(".inspector", (el) => el.getBoundingClientRect().width);
+    h.eq(actualWidth, width, `Inspector width sweep really renders ${width}px`);
     const g = await page.evaluate(geometry, ".inspector .pop");
     h.ok(g && !g.overlap && !g.overflow, `Inspector ${width}px: no swatch under the spectrum or past the edge (${JSON.stringify(g)})`);
     if (width >= 760) h.ok(g && !g.stacked && g.sideWidth === 204, `Inspector ${width}px keeps the spectrum beside the palette at 204px`);
@@ -70,7 +78,10 @@ try {
 
   // The F menu's colour mode is a fixed 620px: it must keep the side-by-side
   // layout it was designed with, for every bundled collection.
-  await page.evaluate(() => document.querySelector(".inspector").parentElement.style.removeProperty("--insp-w"));
+  await page.$eval(".inspector", (el, saved) => {
+    if (saved.value) el.style.setProperty("--insp-w", saved.value, saved.priority);
+    else el.style.removeProperty("--insp-w");
+  }, originalInspectorWidth);
   await page.evaluate(() => document.activeElement?.blur());
   await page.mouse.click(900, 600); // an empty canvas spot: closes the picker, clears the selection
   await waitFor(page, () => !document.querySelector(".inspector .pop .cs"), null, { label: "the Inspector picker closed" });

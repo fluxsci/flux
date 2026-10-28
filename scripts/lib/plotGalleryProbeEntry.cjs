@@ -26,20 +26,20 @@ async function main(){
  const library=process.env.PROBE_LIBRARY;
  const focused="document.activeElement===document.querySelector('.importer .search-in')";
  await wait(()=>js(win,focused),'gallery search focused');
- key(win,'2',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[title=logos]')"),'global library listed');
+ key(win,'2',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[data-kind=dir][aria-label=logos]')"),'global library listed');
  check(await js(win,"document.querySelector('.rootbtn').textContent.trim()==='plot_library'"),'native Global scope browses FluxConfig/plot_library');
- await click(win,'.row[title=logos]');await wait(()=>js(win,"!!document.querySelector('.list .row[data-kind=\"file\"][data-path$=\"/badge.svg\"]')"),'library subfolder');
+ await click(win,'.row[data-kind=dir][aria-label=logos]');await wait(()=>js(win,"!!document.querySelector('.list .row[data-kind=\"file\"][data-path$=\"/badge.svg\"]')"),'library subfolder');
  const beforeGlobal=saved().elements.length;
  await click(win,'.list .row[data-kind="file"][data-path$="/badge.svg"]');await click(win,'.insbtn');
  await wait(()=>saved().elements.length===beforeGlobal+1,'global insert persisted');
  const badge=saved().elements.at(-1);
  check(badge.type==='plot'&&badge.source?.external===true&&badge.source.svgPath===path.join(library,'logos','badge.svg'),'native global insert is saved as an external library source');
  check(badge.width===48&&badge.height===48,'global plot keeps its physical size');
- await click(win,'[data-open-gallery]');await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[title=logos]')"),'gallery reopens on Global');
+ await click(win,'[data-open-gallery]');await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[data-kind=dir][aria-label=logos]')"),'gallery reopens on Global');
  await wait(()=>js(win,focused),'reopened gallery search focused');
- key(win,'1',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='project'&&!!document.querySelector('.row[title=study]')"),'back to Project');
+ key(win,'1',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='project'&&!!document.querySelector('.row[data-kind=dir][aria-label=study]')"),'back to Project');
  check(true,'Alt+1 returns to the project plots');
- await click(win,'.row[title=study]');await wait(()=>js(win,"!!document.querySelector('.preview img')?.naturalWidth"),'SVG thumbnail');
+ await click(win,'.row[data-kind=dir][aria-label=study]');await wait(()=>js(win,"!!document.querySelector('.preview img')?.naturalWidth"),'SVG thumbnail');
  await click(win,'.list .row[data-kind="file"][data-path$="/growth.svg"]');await pin();
  check(child.isResizable(),'native child is resizable');
  check(await js(child,"!window.fig && !window.__flux && !window.require"),'gallery has no preload bridge or independent project runtime');
@@ -57,7 +57,7 @@ async function main(){
   check(true,`native gallery reflows at ${width}px with hidden owner`);
  }
  win.show();
- await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=other]')"),'root navigation');await click(child,'.row[title=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other folder');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
+ await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[data-kind=dir][aria-label=other]')"),'root navigation');await click(child,'.row[data-kind=dir][aria-label=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other folder');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
  check(await js(child,"document.querySelector('.pickpill').textContent==='2 selected'"),'pinned gallery navigates entire plots tree');
  const before=saved().elements.length;
  await click(child,'.insbtn');await wait(()=>saved().elements.length===before+2,'insert persisted');
@@ -69,8 +69,8 @@ async function main(){
  key(win,'z',[process.platform==='darwin'?'meta':'control']);await wait(()=>saved().elements.at(-1).x===added[1].x,'nudge undo');
  key(win,'z',[process.platform==='darwin'?'meta':'control']);await wait(()=>saved().elements.length===before,'import undo');check(true,'batch is one durable undo step');
  check(await js(child,"!document.querySelector('.pickpill')"),'canvas Undo does not restore gallery batch picks');
- child.focus();await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=study]')"),'root before repick');await click(child,'.row[title=study]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='study'"),'study before repick');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
- await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[title=other]')"),'other before repick');await click(child,'.row[title=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other repick');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
+ child.focus();await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[data-kind=dir][aria-label=study]')"),'root before repick');await click(child,'.row[data-kind=dir][aria-label=study]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='study'"),'study before repick');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
+ await click(child,'.rootbtn');await wait(()=>js(child,"!!document.querySelector('.row[data-kind=dir][aria-label=other]')"),'other before repick');await click(child,'.row[data-kind=dir][aria-label=other]');await wait(()=>js(child,"document.querySelector('.cur').textContent==='other'"),'other repick');await click(child,'.list .row[data-kind="file"][data-path$="/growth.svg"]');
  await click(child,'.insbtn');await wait(()=>saved().elements.length===before+2,'repeat insertion after explicit repick');
  fs.writeFileSync(path.resolve(__dirname,'../../test-results/plot-gallery-native.png'),(await child.webContents.capturePage()).toPNG());
  // Navigation has no route to turn this utility into an external/privileged page.

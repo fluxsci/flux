@@ -134,19 +134,49 @@ const collectionRows = selectRows.filter(r => /colou?rmap collection|palette col
 ok(collectionRows.length === 2 && collectionRows[0].x === collectionRows[1].x && collectionRows[1].y >= collectionRows[0].y + collectionRows[0].height,
   "palette and colormap defaults have aligned, separate control rows");
 ok(selectRows.length >= 3 && selectRows.every(r => r.height === 24 && r.font === "12px"), "Figure select rows (collections + plot search reach) use the shared compact control sizing");
-await page.setViewport({ width: 1024, height: 620 });
-await page.click("#settings-tab-corrections");
-await page.$eval("#settings-pane-corrections", el => { el.scrollTop = 220; });
-const correctionScroll = await page.$eval("#settings-pane-corrections", el => el.scrollTop);
-await page.click("#settings-tab-figure");
-ok(await page.$eval("#settings-pane-figure", el => el.scrollTop === 0), "Figure opens at its own top after scrolling Corrections");
-await page.click("#settings-tab-corrections");
-ok(correctionScroll > 0 && await page.$eval("#settings-pane-corrections", (el, y) => el.scrollTop === y, correctionScroll),
-  "returning to Corrections preserves its scroll position");
-await page.keyboard.press("Home");
-ok(await page.$eval("#settings-tab-general", el => document.activeElement === el && el.getAttribute("aria-selected") === "true"), "Home selects and focuses the first settings tab");
-await page.click("#settings-tab-figure");
-await page.setViewport({ width: 1440, height: 900 });
+// Corrections now contains only the local controls. Exercise real short windows
+// rather than assuming that the removed sentence-model controls still overflow.
+// No fake settings content or CSS height override is added to manufacture it.
+const settingsViewport = page.viewport();
+try {
+  for (const viewport of [{ width: 1024, height: 400 }, { width: 760, height: 360 }]) {
+    const label = `${viewport.width}×${viewport.height}`;
+    await page.setViewport(viewport);
+    await page.click("#settings-tab-corrections");
+    await waitFor(page, () => {
+      const pane = document.querySelector("#settings-pane-corrections");
+      return pane && !pane.hidden && pane.clientHeight > 0;
+    }, null, { label: `Corrections visible in ${label} window` });
+    const paneGeometry = await page.$eval("#settings-pane-corrections", el => ({
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      overflowY: getComputedStyle(el).overflowY,
+    }));
+    ok(paneGeometry.scrollHeight > paneGeometry.clientHeight && paneGeometry.overflowY === "auto",
+      `${label}: real Corrections content overflows its own pane`, JSON.stringify(paneGeometry));
+    // Choose an interior integer offset so exact retention cannot pass because
+    // both visits were clamped to the top or the content's trailing edge.
+    const desiredScroll = Math.min(220, Math.floor((paneGeometry.scrollHeight - paneGeometry.clientHeight) / 2));
+    await page.$eval("#settings-pane-corrections", (el, y) => { el.scrollTop = y; }, desiredScroll);
+    const correctionScroll = await page.$eval("#settings-pane-corrections", el => el.scrollTop);
+    ok(desiredScroll > 0 && correctionScroll === desiredScroll,
+      `${label}: Corrections reaches the requested nonzero interior offset`,
+      `requested=${desiredScroll} actual=${correctionScroll}`);
+    await page.click("#settings-tab-figure");
+    ok(await page.$eval("#settings-pane-figure", el => el.scrollTop === 0),
+      `${label}: Figure opens at its own top after scrolling Corrections`);
+    await page.click("#settings-tab-corrections");
+    const retainedScroll = await page.$eval("#settings-pane-corrections", el => el.scrollTop);
+    ok(correctionScroll > 0 && retainedScroll === correctionScroll,
+      `${label}: returning to Corrections preserves its exact scroll position`,
+      `before=${correctionScroll} after=${retainedScroll}`);
+  }
+  await page.keyboard.press("Home");
+  ok(await page.$eval("#settings-tab-general", el => document.activeElement === el && el.getAttribute("aria-selected") === "true"), "Home selects and focuses the first settings tab");
+  await page.click("#settings-tab-figure");
+} finally {
+  await page.setViewport(settingsViewport);
+}
 await shot(page, "settings-refined");
 await page.keyboard.press("Escape");
 await sleep(200);
