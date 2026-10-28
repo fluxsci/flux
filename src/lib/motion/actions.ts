@@ -9,7 +9,8 @@ import { prefersReducedMotion } from "./motion";
 
 /** The node's own transform, which a transition's `transform` must compose with
  *  rather than replace (a `translateX(-50%)`-centred dialog otherwise opens
- *  half its width to the right, then jumps). */
+ *  half its width to the right, then jumps). Small surfaces only: it reads
+ *  computed style, so whole-pane entrances (fadeRise) do not use it. */
 const baseTransform = (node: Element): string => {
   const t = getComputedStyle(node).transform;
   return t && t !== "none" ? `${t} ` : "";
@@ -17,17 +18,16 @@ const baseTransform = (node: Element): string => {
 
 /** Fade + a small upward rise. The house "enter" for content. */
 export function fadeRise(
-  node: Element,
+  _node: Element,
   { duration = DUR.gentle, delay = 0, y = 10, easing = quintOut } = {},
 ) {
   if (prefersReducedMotion()) return { duration: 0, delay };
-  const base = baseTransform(node);
   return {
     duration,
     delay,
     easing,
     css: (t: number, u: number) =>
-      `opacity:${t}; transform: ${base}translate3d(0, ${u * y}px, 0);`,
+      `opacity:${t}; transform: translate3d(0, ${u * y}px, 0);`,
   };
 }
 
