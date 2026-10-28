@@ -171,7 +171,7 @@ async function main(){
  for(const width of [940,1024,1440]){win.setSize(width,900);await sleep(120);check(await js("[...document.querySelectorAll('.figure-mode .toolbar button')].every(n=>{const b=n.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight})"),`toolbar reachable at native ${width}px`)}
  // Resize the frame using actual OS pointer events, wait for autosave, then
  // undo through the shared toolbar. The artwork must keep its own dimensions.
- await click('.figure-titlebar');await wait(()=>js("!!document.querySelector('[data-frame-handle=e]')"),'frame resize handles');
+ await click('[data-annotation-figure="native-5"] .figure-titlebar');await wait(()=>js("!!document.querySelector('[data-frame-handle=e]')"),'frame resize handles');
  fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-frame.png'),(await win.webContents.capturePage()).toPNG());
  const handle=await js("(()=>{const b=document.querySelector('[data-frame-handle=e]').getBoundingClientRect();return{x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}})()");
  win.webContents.sendInputEvent({type:'mouseMove',...handle});

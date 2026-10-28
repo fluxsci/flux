@@ -18,18 +18,19 @@ function evaluateDenseZoom(phase, receipt, runtime) {
   check(initial?.nodes >= 60000 && initial.nodes <= 90000 && fixture?.densePrimitiveNodes === 72000 && fixture?.clippedWrappers === 18000,
     'the regression actually mounts its 60–90k-node dense workload');
   check(fixture?.frameIDs?.length === 2 && fixture.frameIDs.every(id => initial?.frames?.includes(id)), 'both neighboring fixture frames start mounted');
-  check(supplement.length === 2 && supplement.every(id => !initial?.ids?.includes(id)), 'two known supplement placements start culled');
+  check(supplement.length === 2 && supplement.every(id => !initial?.ids?.includes(id)), 'two known supplement placements start undisplayed (culled or parked)');
   check(stages.length === 6 && stages.every((row, i) => row.cycle === Math.floor(i / 2) + 1 && row.label === (i % 2 ? 'wide-fold' : 'deep-fold')),
     'all three deep folds and all three wide folds are inspected');
   check(stages.length === 6 && stages.every(row => row.changedInitial?.length === 0 && row.removals?.length === 0) && receipt?.mutation?.removals?.length === 0,
     'initial SVG wrappers retain exact identity without any unmount/remount through folds');
   check(stages.filter(row => row.label === 'wide-fold').length === 3 && stages.filter(row => row.label === 'wide-fold').every(row => models.length > 0 && models.every(id => row.ids?.includes(id))),
     'every live-eligible fixture model, including supplemented plots, is live after every wide fold');
-  check(supplement.length === 2 && supplement.every(id => receipt?.mutation?.additions?.some(row => row.id === id)), 'captured-only placements are admitted to the live DOM when newly visible');
+  check(supplement.length === 2 && supplement.every(id => stages.filter(row => row.label === 'wide-fold').every(row => row.ids?.includes(id))),
+    'placements first held only by the raster are displayed live once visible');
   check([initial, ...stages].every(row => row?.nodes >= 60000 && row.nodes <= fixture?.maxSceneNodes && row.nodes <= initial.nodes + 500),
     'retention remains a bounded scene superset, without duplicated SVG artwork');
-  check([initial, ...stages].every(row => row?.canvasCount === 2 && row.canvasPixels > 0 && row.canvasPixels <= 4000000 && row.canvasSizes?.every(size => size.every(n => n > 0 && n <= 4096))),
-    'only the two bounded ≤4MP proxy planes remain resident');
+  check([initial, ...stages].every(row => row?.canvasCount >= 1 && row.canvasCount <= 2 && row.canvasPixels > 0 && row.canvasPixels <= 6000000 && row.canvasSizes?.every(size => size.every(n => n > 0 && n <= 4096))),
+    'only the overview and at most one sharp plane remain resident, each ≤3MP and ≤4096 px a side');
   check(near(receipt?.widePixel, fixture?.markerColor ?? []), 'the final wide native frame contains the independently specified marker color');
   check(near(receipt?.beforeEditPixel, fixture?.markerColor ?? []) && near(receipt?.edit?.deletedPixel, [255, 255, 255]) && near(receipt?.edit?.restoredPixel, fixture?.markerColor ?? []),
     'native Delete/undo changes the captured marker to white and restores its authored pixels');

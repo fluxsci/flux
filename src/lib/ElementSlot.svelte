@@ -26,7 +26,7 @@
     element, figure, sceneTransforms, onPointerDown, onDoubleClick,
     plotManifest = null, generation = 0, partStates = undefined,
     ghost = false, hidden = false, opacity = 1, absent = false,
-    editingHidden = false, gestureHidden = false, override = null,
+    editingHidden = false, gestureHidden = false, override = null, parked = false,
   }: {
     element: Element;
     figure: Figure;
@@ -43,6 +43,8 @@
     editingHidden?: boolean;
     gestureHidden?: boolean;
     override?: Element | null;
+    /** Mounted but display:none past the cull hysteresis (Canvas parking). */
+    parked?: boolean;
   } = $props();
 
   let uncomparable = 0;
@@ -83,6 +85,7 @@
   opacity={hidden ? (ghost ? 0.25 : 0) : opacity}
   style:pointer-events={absent ? "none" : null}
   class:editing-hidden={editingHidden}
+  class:parked
   style:visibility={gestureHidden ? "hidden" : null}
   use:sceneTransforms.register={current.element.id}
   onpointerdown={(event) => onPointerDown(event, current.element, figure)}
@@ -100,6 +103,8 @@
 
 <style>
   .editing-hidden { opacity: 0; }
+  /* A class, never an inline style: zoom snapshots must still paint it. */
+  .parked { display: none; }
   .el {
     /* Cursor firewall: host cursor changes must stop at the wrapper instead
        of restyling the plot's entire SVG subtree. Never use inherit here. */

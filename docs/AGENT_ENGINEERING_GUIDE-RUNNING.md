@@ -2640,59 +2640,48 @@ Persistence invariants (all machine-checked — do not weaken):
     count from the resting baked zoom because it used to lean on the old ceiling to land
     at exactly 16×.
   - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
-    After 1.5 s of quiet and an idle slot, small mounted scenes (≤20k elements)
-    use the browser serializer/decoder. Dense Electron scenes (≤150k elements,
-    ≤64 MiB UTF-8) use a cancellable cooperative XML walk (6 ms slices), then
-    `scene:rasterize` in a dedicated supervised child. Never raise the synchronous
-    clone/serialization cap: the owner's 73k-node project cost about 200 ms there.
-    The child validates resources/fonts once, renders the two bounded regions
-    asynchronously, and returns binary PNGs. It cannot read arbitrary SVG resource
-    URLs. Unsupported font/style/vector-effect/resource cases fall back live.
-    Gelasio faces are exact redistributable TTF derivatives in `resources/fonts/`;
-    renderer and worker font resolution must agree. Package all worker companions
-    unpacked. The worker owns one active and one latest pending request per window;
-    cancellation, project replacement and teardown terminate stale work.
-
-    Caps remain 4096 px / 3 MP INCLUDING device scale for the sharp region
-    (view ± ½ host), plus a ≤1 MP coarse whole-scene backing. Hosted canvases avoid
-    renderer `toBlob` GPU readback (24–81 ms in September). Every serializer must
-    emit XML: `innerHTML` writes U+00A0 as `&nbsp;`, which silently breaks image
-    decoding. The cooperative path preserves namespaces, inherited typography,
-    computed text/tspan/textPath font tuples and Canvas-owned classes. Cancellation
-    is checked between slices; never mutate the live scene during capture.
-
-    Cache validity separates content revision from mounted membership. Culling a
-    subset of already captured placements is safe; introducing uncaptured content
-    retires the proxy in the same flush. Include revisions of culled figures, not
-    just mounted ones. A sharper subset capture may inherit the previous complete
-    coarse backing by explicit ownership transfer; free all other retired canvases.
-    For already-live figure frames only, a bounded supplement may serialize missing
-    eligible placements without mounting them (≤32 placements, ≤2 MiB source/model
-    payload, ≤10k extra nodes, total scene still ≤150k). Unsupported cases fall back
-    live. Never introduce per-figure rasters or eagerly mount the entire project.
-    Fully captured, valid, covering proxies hold membership through a camera
-    burst, including its first tick. Dense captures (>20k nodes) also retain
-    already-mounted captured figures/placements through SETTLE folds: otherwise a
-    deep→wide reversal destroys/remounts tens of thousands of unchanged SVG nodes.
-    Resting re-culls still admit newly visible IDs, including captured-only
-    supplements. This is a bounded captured superset, not a permanent freeze;
-    content revisions, incomplete membership, lost context, unsupported matte or
-    coverage exit restore ordinary culling. Partial images must never prevent
-    fresh mounting. Coverage includes Slide camera clipping and is checked on
-    every viewport/content change, not just at activation.
-
-    Keep the frozen dense SVG's display/opacity unchanged during handoff: changing
-    its opacity caused 84–95 ms repaint/layerization tasks in the real project.
-    A shared opaque host-color backdrop and opaque per-plane mattes cover it instead.
-    Compute a known solid matte through translucent ancestors; unsupported gradients,
-    images or compositing fall back live. Apply View-as filters to each canvas child,
-    never to its matte. The sharp plane covers the coarse plane with its own matte:
-    no clip-hole antialias seam or doubled translucent artwork. Both layers are fully
-    invisible at rest. Content changes, lost context, invalid coverage, pane hide or
-    teardown restore live rendering and cancel capture. Pointer gesture entry must
-    fold to current geometry before selecting or dragging; do not trust a hit target
-    picked from the frozen pre-camera scene.
-
+    After 1.5 s of quiet and an idle slot the view is rasterized into at most two
+    bounded planes (≤3 MP each INCLUDING device scale, ≤4096 px a side) that carry
+    zoom/pan bursts on the compositor. SHARP plane: view ± ½ host. Up to 20k mounted
+    nodes, the browser serializer/decoder renders it together with a whole-scene coarse
+    copy from the same parse. Dense Electron scenes (>20k, ≤150k nodes) instead get a
+    canvas OVERVIEW from the `scene:rasterize` child (resvg, whole scene, ≤3 MP) plus a
+    sharp plane either from the same child request (when the scene lies within 1.5
+    region sizes of the sharp box) or from Chromium over a selective clone of the
+    displayed art inside it (`serializeSceneRegion`, ≤20k nodes).
+    **resvg-js 2.6.2 aborts the child process** (`geom.rs:27` unwrap) on ANY layered
+    node — clip-path even on a leaf, mask, filter, opacity < 1 — lying entirely outside
+    about [−2, 3]× its canvas. Every frame has a clip and matplotlib clips nearly every
+    leaf, so never ask the child for a sub-region that far content can fall outside;
+    whole-scene regions are safe. A capture of the owner's 75k-node project costs
+    ≈0.7 s of 6 ms walk slices plus ≈2.4 s in the child (34.8 MB SVG; parse-bound, so
+    1 MP and 3 MP cost the same) — recaptures must stay rare.
+    The overview is valid exactly while every figure's key (revision, plot generations,
+    frame/active/selected/drop/editing state) matches; edits inside a fresh sharp box
+    are PATCHED into it from that capture (`patchOverview`), so a zoom-out right after
+    editing does not wait seconds. A complete, current overview covers the whole scene
+    and holds culling still for the burst (first tick only before the proxy begins —
+    once a proxy ends mid-burst, culling must resume: float drift between live and baked
+    zoom otherwise froze a blank destination). **Parking** keeps Electron canvases with
+    ≤1,000 elements and ≤150k nodes complete: frames/elements past the hysteresis rect
+    stay mounted as `display:none` (`.parked`, a class — the snapshot serializes the DOM
+    without component CSS), so hit testing/style/paint cost what a culled scene costs.
+    Parked slots are still reconciled on every global revision (~14 µs each; 6,600 of
+    them added 60–90 ms native key-to-paint), hence the element budget. `mount.ts`
+    defers visible-bounds measurement while a plot is display:none and retries via
+    `flushPendingPlotBounds` when it shows. DOM queries in gates must not take the
+    first `.figure-titlebar`/element match: it may be parked.
+    Hosted canvases avoid renderer `toBlob` GPU readback (24–81 ms in September). Every
+    serializer must emit XML: `innerHTML` writes U+00A0 as `&nbsp;`, which silently
+    breaks image decoding. The cooperative walk preserves namespaces, inherited
+    typography, computed text/tspan/textPath font tuples and Canvas-owned classes, waits
+    out gestures between slices, and is retired only by content or mounted-set changes.
+    Keep the frozen dense SVG's display/opacity unchanged during handoff (opacity changes
+    cost 84–95 ms repaint/layerization); a shared opaque host-color backdrop and
+    per-plane mattes cover it, View-as filters apply to the canvases only, and an opaque
+    sharp plane must never mask art the plane below holds but it lacks (the sharp box
+    shrinks to the mount rect when unmounted art lies inside). Pointer gesture entry
+    folds to current geometry before selecting or dragging.
     Pointer motion without a gesture does NOT restart or cancel the snapshot.
     Quiet is 1.5 s after content changes, 300 ms when a pointer/wheel gesture cools;
     keyboard nudges retain 1.5 s. The idle callback has a 300 ms timeout because real
@@ -2705,11 +2694,13 @@ Persistence invariants (all machine-checked — do not weaken):
     `verify-scene-raster.ts`, `verify-scene-capture-supplement.ts`,
     `verify-scene-raster-electron.cjs`, `verify-dense-zoom-electron.cjs`,
     `verify-dense-zoom-policy.cjs`, `verify-render-optimizations.mjs`,
-    `verify-slide-canvas-presentation-gui.mjs`. Native probe camera queries must
-    wait for actual delivered-wheel/paint barriers; executeJavaScript can overtake
-    Electron's injected input queue. Read the active proxy camera while the SVG is
-    frozen. Report timestamp→entry queue delay separately from entry→paint. The
-    portable qualified fixture explicitly uses 16 ms cadence; ordinary diagnostic
+    `verify-slide-canvas-presentation-gui.mjs`, `verify-figure-polish-electron.cjs`
+    (key-to-paint with parking live). For the owner's flow use `input-probe.cjs
+    --phases=zoomNavigate --zoomSteps=8` with `PROBE_NAV_PREP=edit`: starting at fit
+    zoom hides every residency/staleness bug. Native probe camera queries must wait for
+    actual delivered-wheel/paint barriers and read whichever proxy plane is live while
+    the SVG is frozen. Report timestamp→entry queue delay separately from entry→paint.
+    The portable qualified fixture explicitly uses 16 ms cadence; ordinary diagnostic
     bursts remain 8 ms. Never pace the product or loosen a budget to hide a queue.
   - **No hover outline during unsettled zoom.** Content sweeping under a still pointer
     must not flash changing outlines. Suppress while `zoomUnsettled`, not throughout the
@@ -11565,3 +11556,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Work:** Completed all 22 requests in the isolated branch, preserving the original issue input and saved science-project files. Final performance work extended the bounded transient proxy to dense scenes, retained captured mounts through folds, removed redundant singleton clip chunks and restored original clips at proven opacity/spatial/effect seams. Added native input/pixel/identity acceptance and fixed gallery observer ownership across adoption. No install, main merge or push. Full item mapping, receipts and reproduction: `docs/for_agents/oct-27-fix-list.md`.
 **Verification:** Reconciled 449 pure, 263 UI/Paper (including Paper 70/70), 4 scale, 6 bundle/startup and 8 native targets pass. All registered cohorts are source-stable; application code was frozen at 5b6fc5a8 and later changes only reconcile explicit legacy test contracts/documentation. Renderer 0/0, headless/production/docs builds pass. The qualified 72k-node native fixture carries 193/193 zooms without remounting, p95 frame 16.8 ms/entry 19.5 ms, native Delete 66.6 ms/Undo 33.6 ms; every budget remains unchanged. Supplied-project software diagnostics retain their extreme 117.8 ms entry/103 ms task and are not universal physical-GPU qualification. Only the pre-existing live-session metadata advances; all 3,732 other files match the baseline.
 **Learnings:** Promoted to the body: cooperative/dedicated capture, content versus captured membership, bounded supplement/coarse ownership, opaque matte/filter composition, current-camera pointer retargeting, dense settle retention, semantic clip restoration and native delivery/presentation barriers. Quarto packaging can use a temporary XDG cache when the host cache is unwritable. Keep negative attempts and distinguish virtual/software evidence from physical presentation.
+
+### 2026-10-28 — Item 22 review: the owner's zoom flow after an edit (Claude Opus 5.5, oct27r/perf)
+**Work:** Measured the owner's actual flow (zoomed in, edit, fast zoom-out, Shift-pan, rezoom) on a copy of the 75k-node project. Main and the first item-22 implementation both proxied 3 of ~37 ticks after any edit (150–180 ms p95 frames, 3–4 s of long tasks); it only worked from a fit-zoom start. Reworked the capture lifecycle (parking, whole-scene child overview, patched in-view edits, panic-safe child regions) to 37/37 at 16.7 ms p95 with native key-to-paint unchanged. Consolidated twelve will-quit listeners into one.
+**Learnings:**
+- Promoted to the body: resvg's out-of-canvas layer abort, parking and its element budget, overview validity/patching, the first-tick-only cull hold, parked-node DOM-query trap.
+- Start owner-flow perf probes zoomed in and edit first: a fit-zoom start passes with broken residency.
