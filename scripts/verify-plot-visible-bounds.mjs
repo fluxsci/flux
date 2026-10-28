@@ -36,6 +36,16 @@ try{
  // Repeated viewport updates project cached world geometry; they never remeasure.
  await page.evaluate(()=>{const s=window.__flux.fig;for(let i=0;i<20;i++)s.viewport.set({panX:60+i,panY:60,zoom:1+i*.005});});await waitForFrame(page);
  assert.equal((await read()).measurements,hidden.measurements,'pan/zoom does not measure plot ink');
+ // Re-mounting identical content (Undo of a hide, culling, figure switches) reuses its measurement.
+ await change({overrides:{}});await change({overrides:{'panel.right':{hidden:true}}});const remounted=await read();
+ assert.equal(remounted.measurements,hidden.measurements,'re-mounting measured content does not walk the plot again');assert.deepEqual(remounted.visible,hidden.visible,'reused bounds match the measured ones');
+ // Snapping aligns to the drawn panel, not to the hidden half's placement edge.
+ await page.evaluate(()=>{const F=window.__flux,s=F.fig;s.commit(p=>{p.figures.find(f=>f.id===F.get(s.activeFigureId)).elements.push({id:'snap-probe',type:'rect',name:'Probe',x:300,y:340,width:40,height:30,rotation:0,fill:'#888',stroke:'none',strokeWidth:0,cornerRadius:0});});s.selection.set(new Set(['snap-probe']));});await waitForFrame(page);
+ const visibleRight=80+remounted.visible.x+remounted.visible.w,from=await client(320,355),to=await client(320+visibleRight+3-300,355);
+ await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(to.x,to.y,{steps:8});await page.mouse.up();await waitForFrame(page);
+ const probeX=await page.evaluate(()=>{const F=window.__flux;return F.get(F.fig.project).figures.flatMap(f=>f.elements).find(e=>e.id==='snap-probe').x;});
+ assert(Math.abs(probeX-visibleRight)<.01,`a moved element snaps to the visible edge (${probeX} vs ${visibleRight})`);
+ await page.evaluate(()=>{const F=window.__flux,s=F.fig;s.commit(p=>{const f=p.figures.find(f=>f.id===F.get(s.activeFigureId));f.elements=f.elements.filter(e=>e.id!=='snap-probe');});s.selection.set(new Set(['hidden-plot']));s.resetHistory();});await waitForFrame(page);
  await page.evaluate(()=>window.__flux.fig.viewport.set({panX:60,panY:60,zoom:1}));await waitForFrame(page);
  // Real resize anchored to the visible corner; artwork and Undo must stay coherent.
  await page.evaluate(()=>window.__flux.fig.resetHistory());const corner=await page.$('.sel-chrome .zone.corner[data-h="se"]');assert(corner);const cb=await corner.boundingBox();
