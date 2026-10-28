@@ -1,6 +1,6 @@
 // Dissect viewer gate (browser, demo fixture): `d` on a selected plot opens the overlay on
-// plots/_dissections/<key>/ — group tabs (loose files = the · default group, subfolders =
-// named groups), windowed image grid, Enter → detail with fit/1:1 zoom, CSV rendered as a
+// plots/_dissections/<key>/ in the Plots rail's sections (Summary tables, the loose images as
+// Overview, one section per subfolder, Other files; 1–9 jump between them), windowed grid, Enter → detail with fit/1:1 zoom, CSV rendered as a
 // real table (sticky header, sortable, numeric right-align), Esc ladder (detail → grid →
 // closed), the keyboard modal while open (tool keys must NOT leak to the canvas), the
 // empty-state create-folder affordance, and live re-list on a dissections watcher bump.
@@ -44,10 +44,11 @@ const snap = () =>
       open: !!q("[data-dissect]"),
       empty: !!q("[data-dissect-empty]"),
       createBtn: !!q("[data-dissect-create]"),
-      tabs: [...document.querySelectorAll("[data-dissect-tab]")].map((t) => t.getAttribute("data-dissect-tab")),
+      sections: [...document.querySelectorAll("[data-dissect-grid] .section-head[data-section]")].map((t) => t.getAttribute("data-section")),
       cells: [...document.querySelectorAll("[data-dissect-cell]")].map((c) => ({
         name: c.getAttribute("data-name"),
         kind: c.getAttribute("data-kind"),
+        group: c.getAttribute("data-group"),
         selected: c.classList.contains("selected"),
         hasImg: !!c.querySelector("img"),
       })),
@@ -72,17 +73,17 @@ await page.evaluate(async (root) => {
 }, ROOT);
 await sleep(400);
 await page.keyboard.press("d");
-await sleep(600); // listing + first image decodes
+await page.waitForFunction(() => document.querySelector('[data-dissect-cell][data-name="overview.svg"] img'), { timeout: 10000 }).catch(() => {});
 let s = await snap();
 ok(s.open, "d on a selected plot opens the Dissect overlay");
 ok(
-  JSON.stringify(s.tabs) === JSON.stringify(["·", "_stats", "by_subject"]),
-  "groups: loose files = · default, subfolders alphabetical",
-  s.tabs.join(","),
+  JSON.stringify(s.sections) === JSON.stringify(["summary", "images:", "images:by_subject", "other"]),
+  "sections: Summary tables, loose images (Overview), subfolders alphabetical, Other files",
+  s.sections.join(","),
 );
 ok(
-  s.cells.some((c) => c.name === "overview.svg" && c.kind === "image" && c.hasImg),
-  "default group shows the loose image, decoded",
+  s.cells.some((c) => c.name === "overview.svg" && c.kind === "image" && c.group === "" && c.hasImg),
+  "Overview shows the loose image, decoded",
 );
 ok(
   s.cells.some((c) => c.name === "methods-note.md" && c.kind === "other"),
@@ -96,7 +97,7 @@ s = await snap();
 ok(s.tool === "select", "keyboard is modal — tool keys don't reach the canvas", s.tool);
 
 // ---- grid nav + image detail ----------------------------------------------------
-// Default group sorts [methods-note.md, overview.svg] — ArrowRight lands on the image.
+// Reading order is anova.csv (Summary, selected on open) → overview.svg — ArrowRight lands on the image.
 await page.keyboard.press("ArrowRight");
 s = await snap();
 ok(s.cells.some((c) => c.selected && c.name === "overview.svg"), "arrows move the grid selection", JSON.stringify(s.cells));
@@ -115,17 +116,19 @@ await page.keyboard.press("Escape");
 s = await snap();
 ok(s.open && !s.detail, "Esc steps detail → grid (overlay stays open)");
 
-// ---- the by_subject group + sidecar exclusion -----------------------------------
-await page.click('[data-dissect-tab="by_subject"]');
-await sleep(400);
+// ---- the by_subject section + sidecar exclusion ---------------------------------
+await page.keyboard.press("3"); // the third section: by_subject
+await sleep(200);
 s = await snap();
-ok(s.cells.length === 5, `by_subject lists the 5 panels (${s.cells.length})`);
+const bySubject = s.cells.filter((c) => c.group === "by_subject");
+ok(bySubject.length === 5 && bySubject.every((c) => c.kind === "image"), `by_subject lists the 5 panels (${bySubject.length})`);
+ok(s.cells.some((c) => c.selected && c.name === "subj01.svg"), "3 jumps to the by_subject section's first panel", JSON.stringify(s.cells.filter((c) => c.selected)));
 ok(!s.cells.some((c) => c.name?.endsWith(".fluxplot.json")), "sidecars are never listed as cells");
 
 // ---- CSV → a real table ---------------------------------------------------------
-await page.click('[data-dissect-tab="_stats"]');
+await page.keyboard.press("1"); // Summary: anova.csv
 await sleep(200);
-await page.keyboard.press("Enter"); // the only file: anova.csv
+await page.keyboard.press("Enter");
 await sleep(400);
 s = await snap();
 ok(s.table, "Enter on a CSV renders the table view");

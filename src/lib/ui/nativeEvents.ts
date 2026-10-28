@@ -16,5 +16,7 @@ export const nativeDoubleClick = nativeEvent("dblclick");
 export const nativePointerDown = nativeEvent("pointerdown");
 export const nativePointerMove = nativeEvent("pointermove");
 export const nativePointerUp = nativeEvent("pointerup");
+export const nativeKeyDown = nativeEvent("keydown");
+export const nativeContextMenu = nativeEvent("contextmenu");
 export const nativeScroll = nativeEvent("scroll");
 export const nativeError = nativeEvent("error");

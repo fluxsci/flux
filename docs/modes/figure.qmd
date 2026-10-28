@@ -203,8 +203,11 @@ The sidebar's **Plots** view keeps your plots beside the canvas while you compos
 
 - The toolbar's **Gallery** opens the full **Plot gallery** (**Shift+Alt+G** opens it in its
   own window), showing SVG and PNG previews in the current
-  folder, including GLB meshes marked **3D**. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
-  the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
+  folder, including GLB meshes marked **3D**. **Gallery** lays plots out as the Plots rail
+  does — rows of pages at each plot's own shape, under a folder header — and each subfolder
+  previews the first plots inside it, with a count. **List** shows one name per row. Adjust
+  **Size**, **Space**, and **Names** to make the contact sheet comfortable. Size reaches
+  **800 px** for large previews. **Folders**
   shows or collapses a directory tree; clicking a folder shows what is in it, and the **›**
   arrow beside it expands or collapses its branches, so you can browse files without losing
   your picks (**Settings → Plot gallery** can make the click do both). Flux remembers these

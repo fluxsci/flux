@@ -34,6 +34,10 @@
   import { onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
   import GalleryPreview from "./plot/GalleryPreview.svelte";
+  import Tile, { captionMeasure } from "./plotsRail/Tile.svelte";
+  import { middleEllipsis } from "./plotsRail/ellipsis";
+  import { layoutJustified, firstRowAt, moveIndex } from "./plotsRail/justify";
+  import { railPrefs } from "./plotsRail/railPrefs";
   import GalleryTree from "./plot/GalleryTree.svelte";
   import GalleryExpandedPreview from "./plot/GalleryExpandedPreview.svelte";
   import { createGalleryPreviews } from "./plot/galleryPreviews";
@@ -51,7 +55,7 @@
     type SearchPlan,
     type SearchSource,
   } from "./plot/galleryScope";
-  import { fileBridge, joinPath } from "./project/types";
+  import { fileBridge, joinPath, type PlotProbe } from "./project/types";
   import { importPlotsFromPaths } from "./io";
   import { pushToast, errMsg } from "./toast";
   import {
@@ -183,7 +187,7 @@
     detached = false; importerDetached.set(false);
     dirGeneration++; scanGeneration++; scopeGeneration++;
     caches = new Map(); plotsRoot = "";
-    resetPreviews();
+    resetPreviews(); resetSizes();
   }
   onDestroy(() => {
     teardown(); previews.dispose();
@@ -209,13 +213,107 @@
     reconnectListSize();
     return { destroy() { observer.disconnect(); reconnectListSize = () => {}; } };
   }
-  $: columns = viewMode === "gallery" ? Math.max(1, Math.floor((listWidth - 32 + spacing) / (previewSize + spacing))) : 1;
-  $: cellHeight = viewMode === "gallery" ? Math.round(Math.min(previewSize, Math.max(120, listWidth - 32)) * .72) + (labels ? 54 : 18) : 28;
-  $: gap = viewMode === "gallery" ? spacing : 0;
-  $: stride = cellHeight + gap;
-  $: start = Math.max(0, Math.min(Math.ceil(rows.length / columns) - 1, Math.floor(scrollTop / stride) - 2)) * columns;
-  $: end = Math.min(rows.length, start + (Math.ceil(listHeight / stride) + 5) * columns);
+  // List view: 28px rows, windowed by index.
+  const LIST_ROW = 28;
+  $: start = viewMode === "list" ? Math.max(0, Math.floor(scrollTop / LIST_ROW) - 2) : 0;
+  $: end = viewMode === "list" ? Math.min(rows.length, start + Math.ceil(listHeight / LIST_ROW) + 5) : 0;
   $: shown = rows.slice(start, end);
+
+  // Gallery view: the Plots rail's language at full size — justified rows of plot pages at
+  // their true aspect (plotsRail/justify), the rail's tiles (raster thumbnails, the readable
+  // backdrop law, mono captions) under rail section headers, and folders previewing their
+  // plots. Sizes come from header probes of the current listing, nearest the viewport first
+  // (4:3 stands in meanwhile); each batch relays out with the top visible tile held in place.
+  const FOLDER_ASPECT = 4 / 3;
+  let sizes = new Map<string, { aspect: number; stamp: string }>();
+  let settled = new Set<string>();
+  const asked = new Set<string>();
+  let sizeQueue: string[] = [], sizing = false, sizeGeneration = 0;
+  /** Replace the pending probes with these paths (the listing changed or scrolled). */
+  function queueSizes(paths: string[]) {
+    sizeQueue = paths.filter((p) => /\.(svg|png)$/i.test(p) && !asked.has(p));
+    void pumpSizes();
+  }
+  async function pumpSizes() {
+    const fb = fileBridge();
+    if (sizing || !fb?.plotsProbe) return;
+    sizing = true;
+    const generation = sizeGeneration;
+    try {
+      while (sizeQueue.length && generation === sizeGeneration) {
+        const batch = sizeQueue.splice(0, 200).filter((p) => !asked.has(p));
+        for (const p of batch) asked.add(p);
+        let probes: PlotProbe[] = [];
+        try { probes = await fb.plotsProbe(batch); } catch { /* 4:3 stands in */ }
+        if (generation !== sizeGeneration) break;
+        const anchor = scrollAnchor();
+        for (const p of probes) sizes.set(p.abs, { aspect: p.w && p.h ? p.w / p.h : 0, stamp: `${p.size ?? 0}:${p.mtimeMs ?? 0}` });
+        for (const path of batch) settled.add(path);
+        sizes = sizes; settled = settled;
+        await tick();
+        restoreScrollAnchor(anchor);
+      }
+    } finally { sizing = false; }
+  }
+  /** The tile to hold still across a relayout: the keyboard's, when on screen, else the top one. */
+  function scrollAnchor(): { index: number; offset: number } | null {
+    if (!glayout || !listEl) return null;
+    const visible = (i: number) => { const r = glayout!.rows[glayout!.itemRow[i]]; return r && r.y + r.h > scrollTop && r.y < scrollTop + listHeight ? r : null; };
+    const own = index >= 0 && index < rows.length ? visible(index) : null;
+    const top = glayout.rows[firstRowAt(glayout, scrollTop)];
+    const at = own ? index : top?.items[0]?.index ?? -1, row = own ?? top;
+    return row && at >= 0 ? { index: at, offset: row.y - scrollTop } : null;
+  }
+  function restoreScrollAnchor(anchor: { index: number; offset: number } | null) {
+    const row = anchor && glayout?.rows[glayout.itemRow[anchor.index]];
+    if (!row || !listEl || scrollTop === 0 && anchor!.offset >= 0) return;
+    listEl.scrollTop = Math.max(0, row.y - anchor!.offset);
+    scrollTop = listEl.scrollTop;
+  }
+  function resetSizes() { sizeGeneration++; sizes = new Map(); settled = new Set(); asked.clear(); sizeQueue = []; }
+  $: navCount = (() => { let n = 0; while (n < rows.length && rows[n].kind !== "file") n++; return n; })();
+  // Each folder row previews (up to) four of the plots under it, from the search walk.
+  $: folderPreviews = ((): Map<string, { count: number; plots: string[] }> => {
+    const map = new Map<string, { count: number; plots: string[] }>();
+    if (viewMode !== "gallery" || !navCount) return map;
+    for (const r of rows.slice(0, navCount)) if (r.kind === "dir") map.set(r.abs ?? joinPath(cwd, r.name), { count: 0, plots: [] });
+    const all = new Map<string, string[]>();
+    for (const p of planCaches.flatMap((c) => c?.recs ?? [])) {
+      if (p.video || p.model3d || !p.abs.startsWith(cwd + "/")) continue;
+      const rest = p.abs.slice(cwd.length + 1), slash = rest.indexOf("/");
+      const entry = slash > 0 ? map.get(joinPath(cwd, rest.slice(0, slash))) : undefined;
+      if (!entry) continue;
+      entry.count++;
+      const key = joinPath(cwd, rest.slice(0, slash));
+      (all.get(key) ?? all.set(key, []).get(key)!).push(p.abs);
+    }
+    for (const [key, list] of all) map.get(key)!.plots = list.sort().slice(0, 4);
+    return map;
+  })();
+  $: galleryCaptionH = labels ? ((q || similarTo) ? 34 : 20) : 0;
+  $: glayout = viewMode === "gallery" ? layoutJustified([
+    ...(navCount ? [{ key: "folders", headerH: 26, aspects: rows.slice(0, navCount).map((r) => r.kind === "up" ? .5 : FOLDER_ASPECT) }] : []),
+    ...(rows.length > navCount ? [{ key: "files", headerH: 26, aspects: rows.slice(navCount).map((r) => (r.abs && sizes.get(r.abs)?.aspect) || 4 / 3) }] : []),
+  ], { width: Math.max(40, listWidth - 32), rowHeight: Math.round(previewSize * .75), gap: spacing, captionH: galleryCaptionH, padTop: 8, sectionGap: 14, minAspect: .5, maxAspect: 6, minRowH: 60 }) : null;
+  $: folderCount = rows.slice(0, navCount).filter((r) => r.kind === "dir").length;
+  $: sectionTitle = (key: string) => key === "folders" ? (folderCount ? "Folders" : "Parent folder") : q || similarTo ? "Results" : relDir || (browseScope === "global" ? plotsRoot.split("/").pop() || "plot_library" : "plots");
+  $: gOverscan = Math.max(300, listHeight);
+  $: gRows = ((): NonNullable<typeof glayout>["rows"] => {
+    if (!glayout) return [];
+    const out = [], bottom = scrollTop + listHeight + gOverscan;
+    for (let r = firstRowAt(glayout, scrollTop - gOverscan); r < glayout.rows.length && glayout.rows[r].y < bottom; r++) out.push(glayout.rows[r]);
+    return out;
+  })();
+  $: gCells = gRows.flatMap((row) => row.items.map((placed) => ({ row, placed, r: rows[placed.index] })));
+  $: if (glayout && $importerOpen) {
+    const lo = gRows[0]?.items[0]?.index ?? 0;
+    queueSizes([
+      ...[...folderPreviews.values()].flatMap((f) => f.plots),
+      ...rows.slice(lo).map((r) => r.abs ?? ""),
+      ...rows.slice(0, lo).reverse().map((r) => r.abs ?? ""),
+    ]);
+  }
+  $: captionText = (name: string, w: number) => middleEllipsis(name, w - 6, captionMeasure());
   $: fileCount = rows.filter(r => r.kind === "file").length;
   function resetScroll() { scrollTop = 0; if (listEl) listEl.scrollTop = 0; }
   $: { search; similarTo; viewMode; previewSize; spacing; labels; resetScroll(); }
@@ -489,14 +587,15 @@
   async function ensureVisible(focusRow = false) {
     if (!listEl) return;
     const targetIndex = index;
-    const top = Math.floor(targetIndex / columns) * stride;
-    if (top < listEl.scrollTop) listEl.scrollTop = top;
-    else if (top + cellHeight > listEl.scrollTop + listHeight) listEl.scrollTop = top + cellHeight - listHeight;
+    const row = glayout?.rows[glayout.itemRow[targetIndex]];
+    const top = row ? row.y : targetIndex * LIST_ROW, bottom = row ? row.y + row.h + row.cap : top + LIST_ROW;
+    if (top < listEl.scrollTop) listEl.scrollTop = Math.max(0, top - (row ? 8 : 0));
+    else if (bottom > listEl.scrollTop + listHeight) listEl.scrollTop = bottom - listHeight + (row ? 8 : 0);
     scrollTop = listEl.scrollTop;
     if (focusRow) { await tick(); listEl.querySelector<HTMLButtonElement>(`[data-i="${targetIndex}"]`)?.focus(); }
   }
   async function refresh() {
-    error = ""; status = ""; resetPreviews(); clearDissectCache(); treeRevision++;
+    error = ""; status = ""; resetPreviews(); resetSizes(); clearDissectCache(); treeRevision++;
     scanGeneration++; caches = new Map();
     await loadDir(cwd);
     ensureScans(plan);
@@ -636,16 +735,17 @@
     }
     if (target.matches('input[type="range"], input[type="checkbox"], select')) return;
     if (target !== inputEl && !target.closest(".row")) return;
-    const step = target === inputEl ? 1 : columns;
+    // From the search box ↑/↓ step one result; on the tiles they move between justified rows.
+    const vertical = (dir: "up" | "down") => glayout && target !== inputEl ? moveIndex(glayout, index, dir) : Math.max(0, Math.min(rows.length - 1, index + (dir === "down" ? 1 : -1)));
     if (e.key === "F4") {
       e.preventDefault(); previewRow(rows[index]);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      index = Math.min(rows.length - 1, index + step);
+      index = vertical("down");
       void ensureVisible(target !== inputEl);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      index = Math.max(0, index - step);
+      index = vertical("up");
       void ensureVisible(target !== inputEl);
     } else if (target !== inputEl && (e.key === "Home" || e.key === "End")) {
       e.preventDefault(); index = e.key === "Home" ? 0 : rows.length - 1; void ensureVisible(true);
@@ -777,25 +877,64 @@
       {#if similarTo}<div class="similar-filter"><span>Names similar to <strong>{similarTo}</strong>{#if !scanned} · Scanning…{/if}</span><button aria-label="Clear similar names" on:click={() => { similarTo = ""; index = 0; focusInput(); }}>× Clear</button></div>{/if}
       <div class="gallery-body">
       {#if sidebar}<aside class="folder-sidebar"><GalleryTree bind:this={tree} root={plotsRoot} currentDirectory={cwd} selectedPath={rows[index]?.abs || ""} allowVideos={browseVideos} {allowModels} {modelsOnly} refreshKey={treeRevision} onNavigate={navigateTree} onSelectFile={selectTreeFile} onPreviewFile={previewTreeFile} onInsertFile={insertTreeFile} /></aside>{/if}
-      <div class="list" class:gallery={viewMode === "gallery"} class:without-labels={!labels} bind:this={listEl} use:trackListSize on:scroll={() => scrollTop = listEl.scrollTop}>
+      <div class="list" class:gallery={viewMode === "gallery"} bind:this={listEl} use:trackListSize on:scroll={() => scrollTop = listEl.scrollTop}>
         {#if !root}<div class="empty">Open a Flux project to browse its plots.</div>
         {:else if !fileBridge()?.readdir}<div class="empty">Folder browsing isn't available in this build.</div>
         {:else if !rows.length && !loading && !q && !similarTo && !modelsOnly && browseScope === "global" && cwd === plotsRoot}<div class="empty" data-global-empty><strong>Your global plot library is empty</strong><span>Save SVG plots, PNG images{allowModels ? " or GLB models" : ""} into <code>{plotsRoot}</code> — in any folders you like — and every project can insert them from here.</span>{#if fileBridge()?.openPath}<button class="previewbtn open-library" on:click={() => void fileBridge()?.openPath?.(plotsRoot)}>Open folder</button>{/if}</div>
         {:else if !rows.length && !loading}<div class="empty"><strong>{modelsOnly ? "No matching 3D models" : q || similarTo ? "No matching files" : "A little space for your next result"}</strong><span>{modelsOnly ? "Choose another folder or turn off the 3D filter." : q || similarTo ? "Try another name or return to browsing." : browseVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : allowModels ? "Save SVG plots, PNG images or GLB models into this folder to see them here." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
         {:else}
-          <div style={`height:${Math.floor(start / columns) * stride}px`} aria-hidden="true"></div>
-          <div class="items" style={`--columns:${columns}; --cell-height:${cellHeight}px; --gap:${gap}px`}>
+          {#if glayout}
+            <div class="items justified" style:height={`${glayout.height + 12}px`} data-layout-width={listWidth}>
+              {#each glayout.sections as sec (sec.key)}
+                <div class="section-head" style:top={`${sec.y}px`} style:height={`${sec.headerH}px`}><span class="title">{sectionTitle(sec.key)}</span>{#if sec.key !== "folders" || folderCount}<span class="meta">· {sec.key === "folders" ? folderCount : fileCount}</span>{/if}</div>
+              {/each}
+              {#each gCells as { row, placed, r } (r.kind + (r.abs ?? r.name) + previewRevision)}
+                  {@const i = placed.index}
+                  {@const selected = r.kind === "file" && !!r.abs && picked.has(r.abs)}
+                  {@const folder = r.kind === "dir" ? folderPreviews.get(r.abs ?? joinPath(cwd, r.name)) : undefined}
+                  <button class="row" class:sel={i === index} class:picked={selected} class:folder={r.kind !== "file"} data-i={i} data-kind={r.kind} data-path={r.abs} aria-pressed={r.kind === "file" ? selected : undefined} aria-label={r.hint || (r.kind === "file" ? `${relFor(r)} · Ctrl/⌘-click to preview` : r.name)} style:left={`${16 + placed.x}px`} style:top={`${row.y}px`} style:width={`${placed.w}px`} style:height={`${row.h + row.cap}px`} on:focus={() => index = i} on:pointerenter={() => index = i} on:click={e => onRowClick(e, r)} on:dblclick={e => onRowDblClick(e, r)}>
+                    {#if r.kind === "file" && r.abs}
+                      {#if r.video || r.model3d}
+                        <span class="media" style:height={`${row.h}px`}><GalleryPreview path={r.abs} {previews} />{#if r.model3d}<Model3dChip path={r.abs} {previews} initial={r.semantic} tile />{/if}</span>
+                      {:else if settled.has(r.abs)}
+                        <Tile path={r.abs} stamp={sizes.get(r.abs)?.stamp ?? "?"} aspect={sizes.get(r.abs)?.aspect || placed.w / row.h} w={placed.w} h={row.h} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} {selected} focused={i === index} priority={Math.abs(i - index)} glyph={r.snip ? "✂" : r.semantic ? "◆" : ""} glyphTitle={r.snip ? "Paper snip" : r.semantic ? "Fluxplot — editable parts and data" : ""} />
+                      {:else}<span class="skeleton" style:height={`${row.h}px`}></span>{/if}
+                    {:else}
+                      <span class="folder-page" style:height={`${row.h}px`}>
+                        {#if folder?.plots.length}
+                          {@const n = folder.plots.length}
+                          {@const cw = n === 1 ? placed.w : (placed.w - 3) / 2}
+                          {@const ch = n <= 2 ? row.h : (row.h - 3) / 2}
+                          {#each folder.plots as plot, k (plot)}
+                            <span class="mosaic-cell" style:left={`${(k % 2) * (cw + 3)}px`} style:top={`${Math.floor(k / 2) * (ch + 3)}px`} style:width={`${cw}px`} style:height={`${ch}px`}>
+                              {#if settled.has(plot)}<Tile path={plot} stamp={sizes.get(plot)?.stamp ?? "?"} aspect={cw / ch} w={cw} h={ch} captionH={0} name="" backdrop={$railPrefs.backdrop} destination={destination?.background ?? null} priority={50 + Math.abs(i - index)} />{/if}
+                            </span>
+                          {/each}
+                        {:else}
+                          <svg class="folder-icon" viewBox="0 0 48 40" aria-hidden="true">{#if r.kind === "up"}<path d="m16 20 8-8 8 8m-8-8v18"/>{:else}<path d="M4 10V6h15l5 5h20v23H4Z"/>{/if}</svg>
+                        {/if}
+                      </span>
+                    {/if}
+                    {#if row.cap}
+                      <span class="cap" style:top={`${row.h}px`} style:height={`${row.cap}px`}>
+                        <span class="cap-line">
+                          {#if r.kind !== "file"}<svg class="fglyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4V2.5h5l1.5 1.5h6.5v9.5h-13Z" /></svg>{:else if selected}<span class="ic">✓</span>{/if}
+                          <span class="nm">{r.kind === "up" ? "Up" : captionText(r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name, placed.w - (r.kind !== "file" || selected ? 15 : 0) - (folder?.count ? captionMeasure()(String(folder.count)) + 8 : 0))}</span>
+                          {#if folder?.count}<span class="fcount">{folder.count}</span>{/if}
+                        </span>
+                        {#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}
+                      </span>
+                    {/if}
+                  </button>
+              {/each}
+            </div>
+          {:else}
+          <div style={`height:${start * LIST_ROW}px`} aria-hidden="true"></div>
+          <div class="items">
             {#each shown as r, offset (r.kind + (r.abs ?? r.name) + previewRevision)}
               {@const i = start + offset}
               {@const selected = r.kind === "file" && !!r.abs && picked.has(r.abs)}
               <button class="row" class:sel={i === index} class:picked={selected} class:folder={r.kind !== "file"} data-i={i} data-kind={r.kind} data-path={r.abs} aria-pressed={r.kind === "file" ? selected : undefined} aria-label={r.hint || (r.kind === "file" ? `${relFor(r)} · Ctrl/⌘-click to preview` : r.name)} on:focus={() => index = i} on:pointerenter={() => index = i} on:click={e => onRowClick(e, r)} on:dblclick={e => onRowDblClick(e, r)}>
-                {#if viewMode === "gallery"}
-                  <span class="tile-preview">
-                    {#if r.kind === "file" && r.abs}<GalleryPreview path={r.abs} {previews} />
-                    {#if r.model3d}<Model3dChip path={r.abs!} {previews} initial={r.semantic} tile />{/if}
-                    {:else}<svg class="folder-icon" viewBox="0 0 48 40" aria-hidden="true"><path d="M4 10V6h15l5 5h20v23H4Z"/>{#if r.kind === "up"}<path d="m18 23 6-6 6 6m-6-6v13"/>{/if}</svg><span class="folder-caption">{r.kind === "up" ? "Parent folder" : "Folder"}</span>{/if}
-                  </span>
-                {/if}
                 <span class="row-meta">
                   <span class="ic">{#if r.model3d && !selected}<Model3dIcon />{:else}{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶"  : r.semantic ? "◆" : "◇"}{/if}</span>
                   <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}</span>
@@ -804,11 +943,11 @@
                   {#if r.snip}<span class="badge">snip</span>{/if}
                   {#if r.video}<span class="badge">video</span>{/if}
                 </span>
-                {#if viewMode === "gallery" && selected}<span class="pick-mark" aria-hidden="true">✓</span>{/if}
               </button>
             {/each}
           </div>
-          <div style={`height:${Math.max(0, Math.ceil(rows.length / columns) - Math.ceil(end / columns)) * stride}px`} aria-hidden="true"></div>
+          <div style={`height:${Math.max(0, rows.length - end) * LIST_ROW}px`} aria-hidden="true"></div>
+          {/if}
           {#if truncated}<div class="note">Search covers the first 20,000 plots and 20 folder levels of each scope. Browse a folder to see all of its images.</div>{/if}
         {/if}
       </div>
@@ -907,7 +1046,8 @@
   .folder-sidebar { flex:0 0 auto; width:240px; min-width:150px; max-width:40%; border-right:1px solid var(--c-line); background:var(--c-bg-raised); resize:horizontal; overflow:auto; }
   .list { flex:1; min-width:0; min-height:0; overflow:auto; padding:12px; background:var(--c-bg-raised); scrollbar-gutter:stable; }
   .list:not(.gallery) { padding:0; }
-  .items { display:grid; grid-template-columns:repeat(var(--columns), minmax(0,1fr)); gap:var(--gap); grid-auto-rows:var(--cell-height); }
+  .list.gallery { padding:0; }
+  .items { display:grid; grid-auto-rows:28px; }
   /* list rows: 28px, hairline-separated */
   .row { position:relative; display:flex; align-items:center; min-width:0; padding:0 12px; border:0; border-bottom:1px solid var(--c-line); border-radius:var(--r-0); background:transparent; text-align:left; overflow:hidden; }
   .row:focus-visible { outline-offset:-1px; }
@@ -915,33 +1055,39 @@
   .row.picked { background:var(--c-accent-tint); box-shadow:inset 2px 0 0 var(--c-accent); color:var(--c-tx-hi); }
   .row.picked.sel { background:color-mix(in oklab, var(--c-accent) 24%, transparent); }
   .list:not(.gallery) .names { flex-direction:row; align-items:baseline; gap:8px; }
-  /* gallery tiles: the Plots rail's language — each plot a page on the dark ground; the page
-     carries hover, the current tile and picks (rings), the caption the pick tint. */
-  .gallery .row { flex-direction:column; align-items:stretch; padding:3px; border:1px solid transparent; background:transparent; box-shadow:none; }
-  .gallery .row.picked, .gallery .row.picked.sel { background:transparent; box-shadow:none; }
-  .gallery .row.folder:hover, .gallery .row.folder.sel { border-color:var(--c-line-strong); background:var(--c-surface-2); }
+  /* gallery: the Plots rail's language at full size — rail section headers, each plot a page
+     on the dark ground (Tile), hover/current/picks as rings on the page, mono captions. */
+  .items.justified { display:block; position:relative; }
+  .section-head { position:absolute; left:16px; right:16px; display:flex; align-items:center; gap:6px; font:600 10.5px var(--font-mono); letter-spacing:.02em; color:var(--c-tx-2); white-space:nowrap; overflow:hidden; }
+  .section-head .meta { color:var(--c-tx-faint); font-weight:400; }
+  .gallery .row { position:absolute; display:block; padding:0; border:0; background:none; box-shadow:none; overflow:visible; }
+  .gallery .row:hover, .gallery .row.sel, .gallery .row.picked, .gallery .row.picked.sel { background:none; box-shadow:none; }
   .gallery .row:not(.folder):hover :global(.page) { box-shadow:0 0 0 1px var(--c-line-strong); }
-  .gallery .row.sel:not(.folder) :global(.page) { box-shadow:0 0 0 1px var(--c-accent-bright, var(--c-accent)); }
-  .gallery .row.picked .row-meta { background:var(--c-accent-tint); }
-  .gallery .row.picked .nm { color:var(--c-tx-hi); }
-  .tile-preview { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:var(--r-0); overflow:hidden; }
-  .folder .tile-preview { background:var(--c-surface); }
+  .gallery .row.picked :global(.page) { box-shadow:0 0 0 2px var(--c-accent); }
+  .media, .skeleton, .folder-page { position:absolute; left:0; right:0; top:0; }
+  .media { display:flex; }
+  .skeleton { background:var(--c-surface-2); }
+  .folder-page { display:flex; align-items:center; justify-content:center; overflow:hidden; background:var(--c-surface); box-shadow:0 0 0 1px var(--c-line); }
+  .gallery .row.folder:hover .folder-page { box-shadow:0 0 0 1px var(--c-line-strong); }
+  .gallery .row.folder.sel .folder-page { outline:1px solid var(--c-accent-bright, var(--c-accent)); outline-offset:3px; }
+  .mosaic-cell { position:absolute; }
   .folder-icon { width:40px; height:34px; fill:none; stroke:var(--c-tx-muted); stroke-width:1.2; }
-  .folder-caption { margin-top:8px; font:600 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; color:var(--c-tx-muted); }
+  .cap { position:absolute; left:0; right:0; display:flex; flex-direction:column; gap:1px; padding:3px 2px 0; overflow:hidden; text-align:left; }
+  .cap-line { display:flex; align-items:center; gap:4px; min-width:0; }
+  .gallery .nm { font:10.5px/15px var(--font-mono); color:var(--c-tx-muted); white-space:nowrap; overflow:hidden; text-overflow:clip; }
+  .gallery .row.sel .nm, .gallery .row.picked .nm { color:var(--c-tx-hi); }
+  .gallery .row.picked .cap-line { background:var(--c-accent-tint); }
+  .gallery .rel { padding-left:1px; }
+  .gallery .ic { width:auto; flex:0 0 auto; }
+  .fglyph { width:11px; height:11px; flex:0 0 11px; fill:none; stroke:var(--c-tx-muted); stroke-width:1.2; stroke-linejoin:round; }
+  .fcount { margin-left:auto; flex-shrink:0; color:var(--c-tx-faint); font:10px var(--font-mono); }
   .row-meta { display:flex; align-items:center; width:100%; min-width:0; gap:8px; }
-  .gallery .row-meta { height:30px; flex-shrink:0; padding:4px 2px 0; }
-  .gallery .nm { font:10.5px var(--font-mono); color:var(--c-tx-muted); }
   .names { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
   .nm { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
   .rel { font:10px var(--font-mono); color:var(--c-tx-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .ic { width:14px; flex:0 0 14px; text-align:center; color:var(--c-tx-muted); font-size:11px; }
   .picked .ic { color:var(--c-accent); }
   .badge { margin-left:auto; padding:0 4px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); font:600 9px/14px var(--font-mono); text-transform:uppercase; letter-spacing:.06em; color:var(--c-tx-muted); }
-  .gallery .badge { display:none; }
-  /* One 3D mark per tile: the tile-corner chip; the caption keeps its glyph. */
-  .gallery :global(.model-chip:not(.tile)) { display:none; }
-  .pick-mark { position:absolute; right:10px; top:10px; width:16px; height:16px; background:var(--c-accent); color:var(--c-on-accent); border-radius:var(--r-ui); text-align:center; font:600 11px/16px var(--font-mono); }
-  .gallery.without-labels .row:not(.folder) .row-meta { display:none; }
   .empty { display:flex; flex-direction:column; gap:6px; padding:60px 20px; text-align:center; color:var(--c-tx-muted); font-size:12px; }
   .empty strong { font-size:13px; font-weight:600; color:var(--c-tx); }
   .note { padding:8px 12px; color:var(--c-tx-muted); font-size:11px; }

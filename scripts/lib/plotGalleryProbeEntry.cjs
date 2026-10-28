@@ -39,7 +39,7 @@ async function main(){
  await wait(()=>js(win,focused),'reopened gallery search focused');
  key(win,'1',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='project'&&!!document.querySelector('.row[data-kind=dir][aria-label=study]')"),'back to Project');
  check(true,'Alt+1 returns to the project plots');
- await click(win,'.row[data-kind=dir][aria-label=study]');await wait(()=>js(win,"!!document.querySelector('.preview img')?.naturalWidth"),'SVG thumbnail');
+ await click(win,'.row[data-kind=dir][aria-label=study]');await wait(()=>js(win,"!!document.querySelector('.importer [data-tile] img')?.naturalWidth"),'SVG thumbnail');
  await click(win,'.list .row[data-kind="file"][data-path$="/growth.svg"]');await pin();
  check(child.isResizable(),'native child is resizable');
  check(await js(child,"!window.fig && !window.__flux && !window.require"),'gallery has no preload bridge or independent project runtime');
@@ -50,10 +50,11 @@ async function main(){
  // has no rendering frames. Its mounted Svelte state still belongs to that editor.
  win.hide();child.focus();
  await js(child,"(()=>{const n=document.querySelector('[aria-label=\"Preview size\"]');n.value='320';n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}))})()");
- for(const [width,height,columns]of [[520,600,1],[1100,820,3]]){
+ for(const [width,height]of [[520,600],[1100,820]]){
   child.setSize(width,height);await wait(()=>js(child,`innerWidth>=${width-30}&&innerWidth<=${width}`),'window resized');
   check(await js(child,"(()=>{const b=document.querySelector('.insbtn').getBoundingClientRect();return b.right<=innerWidth&&b.bottom<=innerHeight})()"),`controls fit native ${width}px window`);
-  await wait(()=>js(child,`getComputedStyle(document.querySelector('.items')).gridTemplateColumns.split(' ').length===${columns}`),'grid reflows with hidden owner');
+  // Justified rows lay out from the width the list measured in its own window.
+  await wait(()=>js(child,"(()=>{const l=document.querySelector('.importer .list'),i=l?.querySelector('.items');return !!i&&Number(i.dataset.layoutWidth)===l.clientWidth&&l.clientWidth>0})()"),'grid reflows with hidden owner');
   check(true,`native gallery reflows at ${width}px with hidden owner`);
  }
  win.show();

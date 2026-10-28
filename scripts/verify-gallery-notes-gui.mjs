@@ -203,7 +203,7 @@ try{
   await waitFor(page,()=>document.querySelector('[data-gallery-preview-media] [data-dissect-page]')?.dataset.backdrop==='dark',null,{label:'light ink backdrop'});
   h.ok(true,'light ink gets the shared dark backdrop');await page.click('[aria-label="Close preview"]');
   await openGalleryDialog(page);await input('.search-in','beta');
-  await waitFor(page,()=>!!document.querySelector('.importer .preview [data-backdrop="paper"]'));
+  await waitFor(page,()=>!!document.querySelector('.importer [data-tile][data-backdrop="paper"]'));
   h.ok(true,'fullscreen gallery tiles use the same readable background law');await shot('gallery');
   await page.click('.closebtn');
   h.eq(await page.evaluate(async p=>await window.fig.readText(p),`${plots}/study/alpha.svg`),svg(),'all note and browsing flows preserve the plot source bytes');

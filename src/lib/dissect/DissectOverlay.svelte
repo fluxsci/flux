@@ -3,9 +3,9 @@
 
   // The Dissect viewer (plain `d` on a selected plot): full-screen overlay by default,
   // shrinkable to a draggable/resizable floating window (the FigurePanel chrome), showing a
-  // plot's companion material from plots/_dissections/<key>/ — subfolders are group tabs,
-  // loose files the default group. Grid → Enter → detail (zoom/pan for images, a real table
-  // for CSV/TSV). The keyboard is modal while open (keyboard.ts yields; this handler runs in
+  // plot's companion material from plots/_dissections/<key>/ in the Plots rail's sections
+  // (Summary tables, one section per group, Other files; DissectSections). Grid → Enter →
+  // detail (zoom/pan for images, a real table for CSV/TSV). The keyboard is modal while open (keyboard.ts yields; this handler runs in
   // the capture phase so canvas-level window listeners never see swallowed keys — except
   // Space, which the detail's hand tool owns). Live: a watcher bump on the dissections
   // subsystem re-lists in place, keeping the selection by name.
@@ -20,7 +20,8 @@
     type DissectListing,
     type DissectFile,
   } from "./loader";
-  import DissectGrid from "./DissectGrid.svelte";
+  import DissectSections, { zoomDissectRows } from "./DissectSections.svelte";
+  import { arrangeDissections } from "../plotsRail/dissectionsModel";
   import DissectDetail from "./DissectDetail.svelte";
   import PlotNotes from "./PlotNotes.svelte";
 
@@ -31,14 +32,13 @@
     y: number;
     w: number;
     h: number;
-    cols: number;
   }
-  const defaults: Layout = { mode: "full", x: 90, y: 70, w: 940, h: 640, cols: 4 };
+  const defaults: Layout = { mode: "full", x: 90, y: 70, w: 940, h: 640 };
   function loadLayout(): Layout {
     try {
       const raw = localStorage.getItem(LAYOUT_KEY);
       const p = raw ? JSON.parse(raw) : null;
-      return p && typeof p === "object" ? { ...defaults, ...p } : { ...defaults };
+      return p && typeof p === "object" ? { mode: p.mode === "win" ? "win" : "full", x: +p.x || defaults.x, y: +p.y || defaults.y, w: +p.w || defaults.w, h: +p.h || defaults.h } : { ...defaults };
     } catch {
       return { ...defaults };
     }
@@ -56,40 +56,36 @@
     }, 300);
   });
 
-  let listing = $state<DissectListing | null>(null);
-  let groupIdx = $state(0);
-  let selectedIdx = $state(0);
-  let detailIdx = $state<number | null>(null);
+  let listing = $state.raw<DissectListing | null>(null);
+  // Files are named by group + name: a re-list keeps them across fresh absolute paths.
+  type Ref = { group: string; name: string };
+  let selectedRef = $state.raw<Ref | null>(null);
+  let detailAt = $state.raw<Ref | null>(null);
   let notesOpen = $state(false);
-  let detailRef = $state<{ toggleFit: () => void; zoomBy: (f: number) => void; resetZoom: () => void } | null>(null);
+  let sectionsRef = $state<ReturnType<typeof DissectSections> | null>(null);
+  let detailView = $state<{ toggleFit: () => void; zoomBy: (f: number) => void; resetZoom: () => void } | null>(null);
   let panelEl = $state<HTMLDivElement | null>(null);
 
   const target = $derived($dissectTarget);
-  const groups = $derived(listing?.groups ?? null);
-  const group = $derived(groups && groups.length ? groups[Math.min(groupIdx, groups.length - 1)] : null);
-  const files = $derived<DissectFile[]>(group?.files ?? []);
+  const sections = $derived(arrangeDissections(listing));
+  const files = $derived(sections.flatMap((sec) => sec.files));
   const relPath = $derived(target ? `plots/_dissections/${target.key}/` : "");
-  const detailFile = $derived(detailIdx !== null && files[detailIdx] ? files[detailIdx] : null);
+  const find = (r: Ref | null) => (r ? files.find((f) => f.group === r.group && f.name === r.name) ?? files.find((f) => f.name === r.name) ?? null : null);
+  const selectedFile = $derived(find(selectedRef) ?? files[0] ?? null);
+  const detailFile = $derived(find(detailAt));
+  const detailPos = $derived(detailFile ? files.indexOf(detailFile) : 0);
 
   let refreshEpoch = 0;
   onDestroy(() => { refreshEpoch++; });
-  async function refresh(keepBy?: { sel?: string; detail?: string; group?: string }) {
+  async function refresh() {
     const t = target, epoch = ++refreshEpoch, root = dissectRoot();
     if (!t) return;
     let next: DissectListing;
     try { next = await listDissections(root, t.key); } catch { return; }
     if (epoch !== refreshEpoch || target !== t || dissectRoot() !== root) return; // switched/closed while listing
     listing = next;
-    const gs = next.groups ?? [];
-    const gi = keepBy?.group ? gs.findIndex((g) => g.name === keepBy.group) : -1;
-    groupIdx = gi >= 0 ? gi : Math.min(groupIdx, Math.max(0, gs.length - 1));
-    const fs = gs[groupIdx]?.files ?? [];
-    const si = keepBy?.sel ? fs.findIndex((f) => f.name === keepBy.sel) : -1;
-    selectedIdx = si >= 0 ? si : Math.min(selectedIdx, Math.max(0, fs.length - 1));
-    if (detailIdx !== null) {
-      const di = keepBy?.detail ? fs.findIndex((f) => f.name === keepBy.detail) : -1;
-      detailIdx = di >= 0 ? di : null; // the open file vanished → back to the grid
-    }
+    // The open file vanished → back to the grid.
+    if (detailAt && !find(detailAt)) detailAt = null;
   }
 
   // Open / retarget: fresh listing, top of the first group.
@@ -100,7 +96,7 @@
       refreshEpoch++;
       lastKey = null;
       listing = null;
-      detailIdx = null;
+      detailAt = null;
       return;
     }
     const identity = `${dissectRoot()}\0${t.key}\0${t.initial ? `${t.initial.group}/${t.initial.name}` : ""}`;
@@ -108,12 +104,10 @@
     lastKey = identity;
     listing = null;
     notesOpen = false;
-    groupIdx = 0;
-    selectedIdx = 0;
-    // Opened on a file (the Plots rail): land in its detail view. refresh() keeps a detail
-    // index only while one is open, so mark one open and let it resolve the name.
-    detailIdx = t.initial ? 0 : null;
-    void refresh(t.initial ? { group: t.initial.group, sel: t.initial.name, detail: t.initial.name } : undefined);
+    // Opened on a file (the Plots rail): land in its detail view.
+    selectedRef = t.initial ?? null;
+    detailAt = t.initial ?? null;
+    void refresh();
   });
 
   // Live: external writes under _dissections bump the revision → re-list in place,
@@ -131,28 +125,23 @@
     }
     lastRev = rev;
     clearDissectCache();
-    void refresh({
-      group: group?.name,
-      sel: files[selectedIdx]?.name,
-      detail: detailFile?.name ?? undefined,
-    });
+    void refresh();
   });
 
   function close() {
     closeDissect();
   }
-  function openDetail(i: number) {
-    selectedIdx = i;
-    detailIdx = i;
+  const refOf = (f: DissectFile & { group: string }): Ref => ({ group: f.group, name: f.name });
+  function openDetail(f: DissectFile & { group: string }) {
+    selectedRef = detailAt = refOf(f);
   }
   function backToGrid() {
-    detailIdx = null;
+    detailAt = null;
+    queueMicrotask(() => { if (selectedFile) sectionsRef?.reveal(selectedFile.abs); });
   }
-  function switchGroup(i: number) {
-    if (!groups || i < 0 || i >= groups.length || i === groupIdx) return;
-    groupIdx = i;
-    selectedIdx = 0;
-    detailIdx = null;
+  function showNotes() {
+    notesOpen = true;
+    detailAt = null;
   }
   async function createFolder() {
     const t = target;
@@ -165,45 +154,39 @@
   function onKeyDown(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!target) return;
-    if (e.code === "Space" && detailIdx !== null) return; // the hand tool owns held-Space
+    if (e.code === "Space" && detailFile) return; // the hand tool owns held-Space
     if (e.key === "Alt" || e.key === "Control" || e.key === "Shift" || e.key === "Meta") return;
     const typing = (e.target as HTMLElement | null)?.closest("input,textarea,select,[contenteditable='true']");
     if (typing) return;
     e.stopPropagation();
-    const inDetail = detailIdx !== null;
+    const inDetail = !!detailFile;
     if (e.key === "Escape") {
       e.preventDefault();
       inDetail ? backToGrid() : close();
       return;
     }
-    if (/^[1-9]$/.test(e.key) && groups && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (notesOpen) return;
+    if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      switchGroup(Number(e.key) - 1);
+      detailAt = null;
+      sectionsRef?.jumpTo(Number(e.key) - 1);
       return;
     }
     if (inDetail) {
-      if (e.key === "ArrowLeft" && detailIdx! > 0) openDetail(detailIdx! - 1);
-      else if (e.key === "ArrowRight" && detailIdx! < files.length - 1) openDetail(detailIdx! + 1);
-      else if (e.key === "Enter") detailRef?.toggleFit();
-      else if (e.key === "+" || e.key === "=") detailRef?.zoomBy(1.25);
-      else if (e.key === "-") detailRef?.zoomBy(1 / 1.25);
-      else if (e.key === "0") detailRef?.resetZoom();
+      if (e.key === "ArrowLeft" && detailPos > 0) openDetail(files[detailPos - 1]);
+      else if (e.key === "ArrowRight" && detailPos < files.length - 1) openDetail(files[detailPos + 1]);
+      else if (e.key === "Enter") detailView?.toggleFit();
+      else if (e.key === "+" || e.key === "=") detailView?.zoomBy(1.25);
+      else if (e.key === "-") detailView?.zoomBy(1 / 1.25);
+      else if (e.key === "0") detailView?.resetZoom();
       else return; // unhandled: swallowed (stopPropagation), no preventDefault
       e.preventDefault();
       return;
     }
-    const n = files.length;
-    if (!n) return;
-    const cols = layout.cols;
-    if (e.key === "ArrowLeft") selectedIdx = Math.max(0, selectedIdx - 1);
-    else if (e.key === "ArrowRight") selectedIdx = Math.min(n - 1, selectedIdx + 1);
-    else if (e.key === "ArrowUp") selectedIdx = Math.max(0, selectedIdx - cols);
-    else if (e.key === "ArrowDown") selectedIdx = Math.min(n - 1, selectedIdx + cols);
-    else if (e.key === "Home") selectedIdx = 0;
-    else if (e.key === "End") selectedIdx = n - 1;
-    else if (e.key === "Enter" || e.code === "Space") openDetail(selectedIdx);
-    else if (e.key === "[") layout.cols = Math.max(1, layout.cols - 1);
-    else if (e.key === "]") layout.cols = Math.min(8, layout.cols + 1);
+    if (!files.length) return;
+    if (sectionsRef?.navigate(e)) return;
+    if ((e.key === "Enter" || e.code === "Space") && selectedFile) openDetail(selectedFile);
+    else if (e.key === "[" || e.key === "]") zoomDissectRows(e.key === "]" ? 1 : -1);
     else return;
     e.preventDefault();
   }
@@ -266,17 +249,12 @@
     <div class="dhead" class:draggable={layout.mode === "win"} onmousedown={headerDown}>
       <span class="ttl">Dissect</span>
       <span class="plot" title={relPath}>{target.displayName}</span>
-      {#if groups && groups.length > 0}
-        <span class="tabs">
-          {#each groups as g, i}
-            <button class="tab" class:cur={!notesOpen && i === groupIdx} data-dissect-tab={g.name || "·"} onclick={() => { notesOpen = false; switchGroup(i); }}>
-              {g.name || "Overview"}<span class="cnt">{g.files.length}</span>
-            </button>
-          {/each}
-        </span>
-      {/if}
+      {#if listing?.total}<span class="count">{listing.total}</span>{/if}
+      <nav class="views" aria-label="Plot companion views">
+        <button class:chosen={!notesOpen} aria-pressed={!notesOpen} onclick={() => { notesOpen = false; }}>Files</button>
+        <button class:chosen={notesOpen} aria-pressed={notesOpen} aria-label="Plot text notes" onclick={() => notesOpen ? (notesOpen = false) : showNotes()}>✎ Notes</button>
+      </nav>
       <span class="grow"></span>
-      <button class="tab" class:cur={notesOpen} aria-pressed={notesOpen} aria-label="Plot text notes" onclick={() => notesOpen = !notesOpen}>✎ Notes</button>
       <button
         class="hb"
         title={layout.mode === "full" ? "Shrink to a window" : "Expand to full screen"}
@@ -297,45 +275,52 @@
           <p>No dissections yet for <b>{target.displayName}</b>.</p>
           <p class="path">{relPath}</p>
           <button class="mkbtn" data-dissect-create onclick={createFolder}>Create dissection folder</button>
-          <p class="hint">Drop per-subject panels, alternative analyses, or _stats CSVs there — subfolders become tabs.</p>
+          <p class="hint">Drop per-subject panels, alternative analyses, or _stats CSVs there — subfolders become sections.</p>
         </div>
       {:else if listing.total === 0}
         <div class="empty" data-dissect-empty>
           <p>The dissection folder is empty.</p>
           <p class="path">{relPath}</p>
-          <p class="hint">Drop images (svg/png) and CSVs there — subfolders become tabs. They appear here live.</p>
+          <p class="hint">Drop images (svg/png) and CSVs there — subfolders become sections. They appear here live.</p>
         </div>
       {:else}
-        <DissectGrid {files} cols={layout.cols} {selectedIdx} onSelect={(i) => (selectedIdx = i)} onOpen={openDetail} />
+        <DissectSections
+          bind:this={sectionsRef}
+          {listing}
+          selected={selectedFile?.abs ?? ""}
+          onSelect={(f) => (selectedRef = refOf(f))}
+          onOpen={openDetail} />
         {#if detailFile}
           <DissectDetail
-            bind:this={detailRef}
+            bind:this={detailView}
             file={detailFile}
-            pos={detailIdx ?? 0}
+            pos={detailPos}
             count={files.length}
-            groupName={group?.name ?? ""}
+            groupName={detailFile.group}
             onClose={backToGrid}
-            noteOwner={{ root: dissectRoot(), key: target.key, group: group?.name ?? "" }}
+            noteOwner={{ root: dissectRoot(), key: target.key, group: detailFile.group }}
           />
         {/if}
       {/if}
     </div>
 
     <div class="dfoot">
-      {#if detailIdx !== null}
+      {#if notesOpen}
+        <span><b>esc</b> close</span>
+      {:else if detailFile}
         <span><b>←→</b> prev/next</span>
-        {#if detailFile?.kind === "image"}
+        {#if detailFile.kind === "image"}
           <span><b>ctrl+scroll</b> zoom</span>
           <span><b>space+drag</b> pan</span>
           <span><b>↵</b> fit/1:1</span>
           <span><b>0</b> reset</span>
         {/if}
-        <span><b>esc</b> grid</span>
+        <span><b>esc</b> back</span>
       {:else}
         <span><b>←→↑↓</b> navigate</span>
         <span><b>↵</b> open</span>
-        <span><b>[ ]</b> columns</span>
-        {#if (groups?.length ?? 0) > 1}<span><b>1–9</b> tab</span>{/if}
+        <span><b>[ ]</b> size</span>
+        {#if sections.length > 1}<span><b>1–{Math.min(9, sections.length)}</b> section</span>{/if}
         <span><b>esc</b> close</span>
       {/if}
     </div>
@@ -378,8 +363,8 @@
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 4px 8px;
+    gap: 8px;
+    padding: 0 4px 0 10px;
     min-height: 30px;
     background: var(--c-bg-raised);
     border-bottom: 1px solid var(--c-line);
@@ -404,40 +389,33 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .tabs {
-    display: flex;
-    gap: 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .count {
+    flex-shrink: 0;
+    color: var(--c-tx-faint);
+    font: 10.5px var(--font-mono);
   }
-  .tab {
+  /* Files | Notes: the rail pane's view switch. */
+  .views {
     display: flex;
-    align-items: center;
-    gap: 5px;
-    border: 1px solid var(--c-line);
-    background: none;
-    color: var(--c-tx-2);
-    border-radius: var(--r-ui);
+    gap: 2px;
+    margin-left: 6px;
+  }
+  .views button {
     padding: 3px 7px;
-    font-family: inherit;
-    font-size: 11px;
-    cursor: var(--cursor-cross-hover);
-    white-space: nowrap;
-  }
-  .tab:hover {
-    border-color: var(--c-line-strong);
-  }
-  .tab.cur {
-    border-color: var(--c-accent);
-    background: var(--c-accent-tint);
-    color: var(--c-accent-bright);
-  }
-  .cnt {
-    font-size: 10px;
+    border: 0;
+    border-radius: var(--r-ui);
+    background: none;
     color: var(--c-tx-muted);
+    font: 11px var(--font-ui);
+    cursor: var(--cursor-cross-hover);
   }
-  .tab.cur .cnt {
-    color: var(--c-accent-bright);
+  .views button:hover {
+    background: var(--c-surface-2);
+    color: var(--c-tx-hi);
+  }
+  .views .chosen {
+    background: var(--c-accent-tint);
+    color: var(--c-accent);
   }
   .grow {
     flex: 1;
@@ -452,7 +430,8 @@
     border-radius: var(--r-1, 4px);
   }
   .hb:hover {
-    color: var(--c-accent-bright);
+    background: var(--c-surface-2);
+    color: var(--c-tx-hi);
   }
   .dbody {
     flex: 1;

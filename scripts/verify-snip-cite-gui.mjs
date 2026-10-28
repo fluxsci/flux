@@ -85,10 +85,11 @@ try {
   await sleep(400);
   const row = await page.evaluate(() => {
     const r = document.querySelector(".row[data-i]");
-    return r ? { name: r.querySelector(".nm")?.textContent, badges: [...r.querySelectorAll(".badge")].map((b) => b.textContent) } : null;
+    // List rows carry a "snip" badge; gallery tiles the Plots rail's ✂ kind chip.
+    return r ? { name: r.querySelector(".nm")?.textContent, badges: [...r.querySelectorAll(".badge")].map((b) => b.textContent), kind: r.querySelector(".chip.kind")?.getAttribute("title") } : null;
   });
   ok("search lists the snip PNG", row?.name === `${KEY}-p1`, JSON.stringify(row));
-  ok("row carries the snip badge", !!row?.badges?.includes("snip"), JSON.stringify(row?.badges));
+  ok("row carries the snip mark", !!row?.badges?.includes("snip") || row?.kind === "Paper snip", JSON.stringify(row));
   await page.keyboard.down("Control");
   await page.keyboard.press("Enter");
   await page.keyboard.up("Control");

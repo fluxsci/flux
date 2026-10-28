@@ -1,7 +1,8 @@
 <script lang="ts">
   import { nativeClick, nativeError } from "../ui/nativeEvents";
   import { tick } from "svelte";
-  import DissectGrid from "../dissect/DissectGrid.svelte";
+  import DissectSections, { zoomDissectRows } from "../dissect/DissectSections.svelte";
+  import { arrangeDissections } from "../plotsRail/dissectionsModel";
   import DissectDetail from "../dissect/DissectDetail.svelte";
   import { listDissections, clearDissectCache, type DissectListing, type DissectFile } from "../dissect/loader";
   import { dissectionsRevision } from "../../shell/scholar/revisions";
@@ -24,7 +25,8 @@
   let tab = $state<"preview" | "dissections">("preview");
   let listing = $state<DissectListing | null>(null);
   let listingError = $state("");
-  let groupIndex = $state(0), selectedIndex = $state(0), detailIndex = $state<number | null>(null);
+  let selectedAbs = $state(""), detailAbs = $state<string | null>(null);
+  let sections = $state<ReturnType<typeof DissectSections>>();
   let mediaUrl = $state(""), mediaError = $state("");
   let detail = $state<{ zoomBy: (factor: number) => void; resetZoom: () => void; toggleFit: () => void }>();
   let zoomLabel = $state("fit");
@@ -32,16 +34,15 @@
   const model3d = $derived(isGalleryModel3d(file));
   let modelUrl = $state(""), modelError = $state("");
   const key = $derived(dissections && !model3d ? galleryDissectionKey(file, root) : "");
-  const groups = $derived(listing?.groups ?? []);
-  const group = $derived(groups[groupIndex]);
-  const files = $derived(group?.files ?? []);
-  const detailFile = $derived(detailIndex === null ? null : files[detailIndex]);
+  const files = $derived(arrangeDissections(listing).flatMap((sec) => sec.files));
+  const detailIndex = $derived(detailAbs === null ? -1 : files.findIndex((f) => f.abs === detailAbs));
+  const detailFile = $derived(detailIndex < 0 ? null : files[detailIndex]);
   const sourceFile = $derived<DissectFile>({ abs: file.abs, name: file.name, kind: "image" });
   const showingImage = $derived(tab === "preview" ? !video && !model3d : detailFile?.kind === "image");
 
   $effect(() => {
     file.abs; root; refreshKey;
-    listing = null; listingError = ""; groupIndex = 0; selectedIndex = 0; detailIndex = null;
+    listing = null; listingError = ""; selectedAbs = ""; detailAbs = null;
   });
   $effect(() => {
     const requestedKey = key, requestedRoot = root, revision = refreshKey;
@@ -85,14 +86,14 @@
     owner.addEventListener("visibilitychange", pauseHidden);
     return { destroy() { owner.removeEventListener("visibilitychange", pauseHidden); node.pause(); node.removeAttribute("src"); node.load(); } };
   }
-  function switchTab(value: "preview" | "dissections") { tab = value; detailIndex = null; void tick().then(() => host?.focus()); }
-  function openDetail(index: number) { selectedIndex = index; detailIndex = index; void tick().then(() => host?.focus()); }
-  function back() { detailIndex = null; void tick().then(() => host?.focus()); }
+  function switchTab(value: "preview" | "dissections") { tab = value; detailAbs = null; void tick().then(() => host?.focus()); }
+  function openDetail(abs: string) { selectedAbs = abs; detailAbs = abs; void tick().then(() => host?.focus()); }
+  function back() { detailAbs = null; void tick().then(() => { host?.focus(); if (selectedAbs) sections?.reveal(selectedAbs); }); }
   function onKey(event: KeyboardEvent) {
     // The preview lives inside the importer, including in a pinned window.
     // Handle keys on its actual DOM host, then stop the importer's shortcuts.
     event.stopPropagation();
-    if (event.key === "Escape") { event.preventDefault(); detailIndex !== null ? back() : onClose(); return; }
+    if (event.key === "Escape") { event.preventDefault(); detailFile ? back() : onClose(); return; }
     if (event.key === "Tab" && host) {
       const candidates = [...host.querySelectorAll<HTMLElement>('button, input:not([type="hidden"]), select, textarea, video[controls], a[href], [contenteditable]:not([contenteditable="false"]), [tabindex]')].filter(node => {
         if (node.matches(":disabled") || node.closest("[hidden], [inert], [aria-hidden='true']") || !node.getClientRects().length) return false;
@@ -113,15 +114,15 @@
     if (tab === "preview") {
       if (event.key === "ArrowLeft" && onPrevious) { event.preventDefault(); onPrevious(); }
       if (event.key === "ArrowRight" && onNext) { event.preventDefault(); onNext(); }
-    } else if (detailIndex !== null) {
-      if (event.key === "ArrowLeft") { event.preventDefault(); openDetail(Math.max(0, detailIndex - 1)); }
-      if (event.key === "ArrowRight") { event.preventDefault(); openDetail(Math.min(files.length - 1, detailIndex + 1)); }
-    } else if (files.length) {
-      if (event.key === "ArrowLeft") selectedIndex = Math.max(0, selectedIndex - 1);
-      else if (event.key === "ArrowRight") selectedIndex = Math.min(files.length - 1, selectedIndex + 1);
-      else if (event.key === "ArrowUp") selectedIndex = Math.max(0, selectedIndex - 4);
-      else if (event.key === "ArrowDown") selectedIndex = Math.min(files.length - 1, selectedIndex + 4);
-      else if (event.key === "Enter") openDetail(selectedIndex);
+    } else if (detailFile) {
+      if (event.key === "ArrowLeft") { event.preventDefault(); openDetail(files[Math.max(0, detailIndex - 1)].abs); }
+      if (event.key === "ArrowRight") { event.preventDefault(); openDetail(files[Math.min(files.length - 1, detailIndex + 1)].abs); }
+    } else if (files.length && !event.defaultPrevented) {
+      // The focused grid already handled its own keys (defaultPrevented); from the host, drive it.
+      if (sections?.navigate(event)) return;
+      if (/^[1-9]$/.test(event.key)) sections?.jumpTo(Number(event.key) - 1);
+      else if (event.key === "[" || event.key === "]") zoomDissectRows(event.key === "]" ? 1 : -1);
+      else if (event.key === "Enter") openDetail(selectedAbs || files[0].abs);
       else return;
       event.preventDefault();
     }
@@ -174,7 +175,6 @@
       {/if}
     </main>
   {:else}
-    {#if groups.length && detailIndex === null}<div class="groups" aria-label="Dissection groups">{#each groups as value, i}<button class:chosen={groupIndex === i} use:nativeClick={() => { groupIndex = i; selectedIndex = 0; }}>{value.name || "Overview"}<span>{value.files.length}</span></button>{/each}</div>{/if}
     <main class="dissections">
       {#if listingError}<div class="empty"><strong>Could not read dissections</strong><p>{listingError}</p></div>
       {:else if !key}<div class="empty">This file has no companion dissection folder.</div>
@@ -182,11 +182,11 @@
       {:else if !listing.total}<div class="empty"><strong>No dissections yet</strong><p>Companion images and tables for this plot appear here.</p><code>plots/_dissections/{key}/</code></div>
       {:else if detailFile}
         <button class="back" use:nativeClick={back}>← Back to dissections</button>
-        <div class="dissection-detail"><DissectDetail file={detailFile} pos={detailIndex ?? 0} count={files.length} groupName={group?.name || ""} onClose={back} keyboardTarget={host} noteOwner={{ root, key, group: group?.name || "" }} bind:zoomLabel bind:this={detail}/></div>
-      {:else}<DissectGrid {files} cols={4} selectedIdx={selectedIndex} onSelect={(i) => selectedIndex = i} onOpen={openDetail}/>{/if}
+        <div class="dissection-detail"><DissectDetail file={detailFile} pos={detailIndex} count={files.length} groupName={detailFile.group} onClose={back} keyboardTarget={host} noteOwner={{ root, key, group: detailFile.group }} bind:zoomLabel bind:this={detail}/></div>
+      {:else}<DissectSections bind:this={sections} {listing} selected={selectedAbs || files[0]?.abs || ""} onSelect={(f) => selectedAbs = f.abs} onOpen={(f) => openDetail(f.abs)} />{/if}
     </main>
   {/if}
-  <footer><span>{file.rel || file.name}</span><span>{tab === "dissections" && detailIndex !== null ? "Esc · back" : "Esc · close"}{!video && showingImage ? "   ·   + / − · zoom   ·   Space + drag · pan" : ""}</span></footer>
+  <footer><span>{file.rel || file.name}</span><span>{tab === "dissections" && detailFile ? "Esc · back" : "Esc · close"}{!video && showingImage ? "   ·   + / − · zoom   ·   Space + drag · pan" : ""}</span></footer>
 </div>
 
 <style>
@@ -221,10 +221,6 @@
   .empty strong { color:var(--c-tx); font-size:13px; font-weight:600; }
   .empty p { margin:0; }
   .empty code { margin-top:8px; max-width:100%; overflow-wrap:anywhere; font:11px var(--font-mono); }
-  .groups { display:flex; gap:4px; flex-shrink:0; padding:4px 12px; overflow-x:auto; background:var(--c-bg-raised); border-bottom:1px solid var(--c-line); }
-  .groups button { height:22px; white-space:nowrap; }
-  .groups .chosen { background:var(--c-accent-tint); border-color:var(--c-accent); color:var(--c-tx-hi); }
-  .groups span { margin-left:8px; color:var(--c-tx-muted); font:11px var(--font-mono); font-variant-numeric:tabular-nums; }
   .back { align-self:flex-start; margin:8px 12px 0; }
   footer { display:flex; align-items:center; justify-content:space-between; gap:20px; height:26px; flex-shrink:0; padding:0 12px; border-top:1px solid var(--c-line); background:var(--c-bg-raised); font:10.5px var(--font-mono); color:var(--c-tx-muted); }
   footer span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

@@ -99,7 +99,7 @@ try {
   check(!(await page.$('.gallery-tree')), 'folder sidebar collapses independently of the gallery');
   await page.$eval('[aria-label="Preview size"]', el => { el.value = '600'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }); await frame(page);
   check(await page.$eval('[aria-label="Preview size"]', el => Number(el.value)) === 600, 'thumbnail size extends beyond the former 360 limit');
-  check(await page.$eval('.importer .list .row .tile-preview', el => el.getBoundingClientRect().width) > 400, 'larger preview size changes the actual painted thumbnail geometry');
+  check(await page.$eval('.importer .list .row[data-kind="file"]', el => el.getBoundingClientRect().width) > 400, 'larger preview size changes the actual painted thumbnail geometry');
   await page.$eval('[aria-label="Preview size"]', el => { el.value = '300'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }); await frame(page);
   await clickTile(page, 'rate_REM_subject02');
   const beforePreview = await canvas(), beforePicks = await picks(page);
@@ -120,10 +120,10 @@ try {
   await page.keyboard.press('KeyD');
   await waitFor(page, () => document.querySelector('[data-dissect-cell][data-name="overview.svg"] img')?.naturalWidth > 0);
   check(await page.$eval('[data-dissect-cell][data-name="overview.svg"] img', img => img.naturalWidth > 0), 'D reveals the current plot companion dissection images');
-  const groupButton = await page.evaluateHandle(() => [...document.querySelectorAll('[aria-label="Dissection groups"] button')].find(el => el.textContent.trim().startsWith('by_subject')));
-  assert.ok(groupButton.asElement(), 'by_subject dissection group'); await groupButton.click(); await groupButton.dispose(); await frame(page);
+  // The rail's sections: the subfolder is its own section beside the loose Overview images.
+  assert.ok(await page.$('[data-dissect-grid] .section-head[data-section="images:by_subject"]'), 'by_subject dissection section');
   await waitFor(page, () => document.querySelector('[data-dissect-cell][data-name="subj01.svg"] img')?.naturalWidth > 0); await frame(page);
-  check(await page.$$eval('[data-dissect-cell]', els => els.length) === 1, 'dissection groups omit manifest sidecars');
+  check(await page.$$eval('[data-dissect-cell][data-group="by_subject"]', els => els.length) === 1 && !(await page.$('[data-dissect-cell][data-name$=".fluxplot.json"]')), 'dissection groups omit manifest sidecars');
   await page.click('[data-dissect-cell][data-name="subj01.svg"]', { count: 2 });
   await waitFor(page, () => document.querySelector('[data-dissect-detail] img')?.naturalWidth > 0);
   check(await page.$eval('[data-dissect-detail] img', img => img.naturalWidth > 0), 'a dissection image expands for inspection');
