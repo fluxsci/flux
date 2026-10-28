@@ -112,6 +112,7 @@ const renderCache = new Map<string, string | undefined>();
 // rule sets and restyled on every CodeMirror viewport re-entry (2026-09-16:
 // 60–130 ms long tasks while scrolling a 34-line manuscript). Same revision
 // lifetime as renderCache; revoked together.
+// Keys are figure ids, or `<id>#<px>` for a thumbnail (figureThumb).
 const imageUrlCache = new Map<string, string | undefined>();
 // The PREVIOUS revision's URLs, kept alive until a fresh render replaces each
 // one: an embed shows the last picture instantly after a figure edit and swaps
@@ -128,15 +129,16 @@ export function getFiguresRev(): number {
 }
 function revokeImageUrls(reset = false): void {
   figuresRev++;
-  for (const [id, url] of staleImageUrls) if (reset || !figuresById[id]) {
+  const gone = (key: string) => reset || !figuresById[key.split("#")[0]];
+  for (const [key, url] of staleImageUrls) if (gone(key)) {
     if (url) URL.revokeObjectURL(url);
-    staleImageUrls.delete(id);
+    staleImageUrls.delete(key);
   }
-  for (const [id, url] of imageUrlCache) {
-    const prev = staleImageUrls.get(id);
+  for (const [key, url] of imageUrlCache) {
+    const prev = staleImageUrls.get(key);
     if (prev && prev !== url) URL.revokeObjectURL(prev);
-    if (reset || !figuresById[id]) { if (url) URL.revokeObjectURL(url); }
-    else staleImageUrls.set(id, url);
+    if (gone(key)) { if (url) URL.revokeObjectURL(url); }
+    else staleImageUrls.set(key, url);
   }
   imageUrlCache.clear();
   imageRevision.set(figuresRev); // Every mounted image follows source revisions, even with the same id.
@@ -367,27 +369,53 @@ async function renderFigureSvgInSlices(id: string, rev: number): Promise<string 
  *  fig-revision alongside renderFigureSvg). Consumers that only SHOW a figure
  *  use this — never inline the svg string into the editor document. */
 const pendingImageRenders = new Map<string, { rev: number; promise: Promise<string | undefined> }>();
-export async function renderFigureImageUrl(id: string): Promise<string | undefined> {
-  if (imageUrlCache.has(id)) return imageUrlCache.get(id);
-  const pending = pendingImageRenders.get(id);
+function cachedRender(key: string, render: (rev: number) => Promise<string | undefined>): Promise<string | undefined> {
+  if (imageUrlCache.has(key)) return Promise.resolve(imageUrlCache.get(key));
+  const pending = pendingImageRenders.get(key);
   if (pending?.rev === figuresRev) return pending.promise;
   const rev = figuresRev;
-  const promise = renderFigureImageUrlUncached(id, rev);
-  const job = { rev, promise };
-  pendingImageRenders.set(id, job);
-  try { return await promise; }
-  finally { if (pendingImageRenders.get(id) === job) pendingImageRenders.delete(id); }
+  const promise = render(rev).then((url) => {
+    if (rev !== figuresRev) { if (url) URL.revokeObjectURL(url); return undefined; }
+    imageUrlCache.set(key, url);
+    const stale = staleImageUrls.get(key);
+    if (stale && stale !== url) URL.revokeObjectURL(stale);
+    staleImageUrls.delete(key);
+    return url;
+  }).finally(() => { if (pendingImageRenders.get(key)?.promise === promise) pendingImageRenders.delete(key); });
+  pendingImageRenders.set(key, { rev, promise });
+  return promise;
 }
-async function renderFigureImageUrlUncached(id: string, rev: number): Promise<string | undefined> {
-  let svg = await renderFigureSvgInSlices(id, rev);
-  if (rev !== figuresRev) return undefined;
-  const url = svg ? await figureSvgImageUrl(svg) : undefined;
-  if (rev !== figuresRev) { if (url) URL.revokeObjectURL(url); return undefined; }
-  imageUrlCache.set(id, url);
-  const stale = staleImageUrls.get(id);
-  if (stale && stale !== url) URL.revokeObjectURL(stale);
-  staleImageUrls.delete(id);
-  return url;
+export function renderFigureImageUrl(id: string): Promise<string | undefined> {
+  return cachedRender(id, async (rev) => {
+    const svg = await renderFigureSvgInSlices(id, rev);
+    return svg && rev === figuresRev ? figureSvgImageUrl(svg) : undefined;
+  });
+}
+
+// Small pictures (margin strip, picker grids) are PNGs drawn once from the
+// display render. GPU raster has no partial raster: when anything invalidates
+// a tile holding an SVG <img>, the whole figure's vector scene replays. With
+// Alt+F open every keystroke re-rastered the margin's thumbnail strip, ~70 ms
+// per frame on the real project (2026-10-28) — typing fell to ~10 fps.
+const THUMB_PX = [160, 320, 640, 1280];
+const thumbPx = (devicePx: number) => THUMB_PX.find((w) => w >= devicePx) ?? THUMB_PX[THUMB_PX.length - 1];
+function renderFigureThumbUrl(id: string, width: number): Promise<string | undefined> {
+  return cachedRender(`${id}#${width}`, async () => {
+    const svgUrl = await renderFigureImageUrl(id);
+    const dims = figureDims(id);
+    if (!svgUrl || !dims) return undefined;
+    try {
+      const img = new Image();
+      img.src = svgUrl;
+      await img.decode(); // the display render's document, already parsed
+      const w = Math.min(width, Math.ceil(dims.w * 2)), h = Math.max(1, Math.round((w * dims.h) / dims.w));
+      const canvas = new OffscreenCanvas(w, h);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+      return URL.createObjectURL(await canvas.convertToBlob({ type: "image/png" }));
+    } catch {
+      return undefined;
+    }
+  });
 }
 
 /** Standalone image renderer shared by Paper and live Figure-Meta previews.
@@ -461,21 +489,22 @@ async function drainRenderQueue(): Promise<void> {
   const scheduling = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { scheduling?: { isInputPending(): boolean } }).scheduling;
   if (scheduling?.isInputPending()) { scheduleRenderDrain(); return; }
 
-  for (const [id, waiters] of renderWaiters) {
+  for (const [key, waiters] of renderWaiters) {
     // Drop waiters whose element is gone; skip figures nobody visible wants.
     for (const w of waiters) if (waiterEl.has(w) && !waiterEl.get(w)!.isConnected) waiters.delete(w);
     if (!waiters.size) {
-      renderWaiters.delete(id);
+      renderWaiters.delete(key);
       continue;
     }
     if (![...waiters].some(waiterVisible)) {
       continue;
     }
-    renderWaiters.delete(id);
+    renderWaiters.delete(key);
     const rev = figuresRev;
     renderRunning = true;
     try {
-      const url = await renderFigureImageUrl(id); // ONE figure per slice
+      const [id, px] = key.split("#");
+      const url = await (px ? renderFigureThumbUrl(id, Number(px)) : renderFigureImageUrl(id)); // ONE figure per slice
       if (rev === figuresRev) for (const w of waiters) w(url);
     } finally {
       renderRunning = false;
@@ -484,30 +513,33 @@ async function drainRenderQueue(): Promise<void> {
   }
   if ([...renderWaiters.values()].some((set) => [...set].some(waiterVisible))) scheduleRenderDrain();
 }
-/** Resolve to the current revision's URL, rendering in an idle slice if needed.
+/** Resolve to the current revision's URL (an image-cache key: the figure id,
+ *  or `<id>#<px>` for a thumbnail), rendering in an idle slice if needed.
  *  `el` (the <img> being fed) lets the queue defer while its pane is hidden. */
-export function requestFigureImageUrl(id: string, cb: (url: string | undefined) => void, el?: globalThis.Element): () => void {
-  if (imageUrlCache.has(id)) {
-    cb(imageUrlCache.get(id));
+function requestFigureImageUrl(key: string, cb: (url: string | undefined) => void, el?: globalThis.Element): () => void {
+  if (imageUrlCache.has(key)) {
+    cb(imageUrlCache.get(key));
     return () => {};
   }
   if (el) waiterEl.set(cb, el);
-  let set = renderWaiters.get(id);
-  if (!set) renderWaiters.set(id, (set = new Set()));
+  let set = renderWaiters.get(key);
+  if (!set) renderWaiters.set(key, (set = new Set()));
   set.add(cb);
   scheduleRenderDrain();
   return () => {
     set!.delete(cb);
-    if (!set!.size && renderWaiters.get(id) === set) renderWaiters.delete(id);
+    if (!set!.size && renderWaiters.get(key) === set) renderWaiters.delete(key);
   };
 }
 
 /** Bind an <img> to a figure: shows the cached or previous picture at once,
  *  reserves the model box (no layout shift), and swaps in the fresh render when
- *  the idle queue delivers it. Returns a cancel. */
-export function bindFigureImage(img: HTMLImageElement, id: string): () => void {
+ *  the idle queue delivers it. A `thumb` binding shows a PNG sized to the
+ *  image's box instead of the vector render. Returns a cancel. */
+export function bindFigureImage(img: HTMLImageElement, id: string, thumb = false): () => void {
   let cancel = () => {};
   let inView = typeof IntersectionObserver === "undefined";
+  let boxWidth = 0;
   let live = true;
   // Do not carry another figure/project's image into an unrendered selection.
   img.removeAttribute("src");
@@ -537,42 +569,47 @@ export function bindFigureImage(img: HTMLImageElement, id: string): () => void {
       img.style.setProperty("--figure-width", `${dims.w}px`);
       img.style.setProperty("--figure-ratio", String(dims.w / dims.h));
     }
-    const cached = cachedFigureImageUrl(id);
+    const key = thumb ? `${id}#${thumbPx((boxWidth || 160) * (globalThis.devicePixelRatio || 1))}` : id;
+    const cached = cachedFigureImageUrl(key);
     if (cached) show(cached);
     else {
       img.removeAttribute("src");
       img.alt = dims ? "" : "Figure preview unavailable";
       img.dataset.figureState = dims ? "pending" : "missing";
     }
-    if (dims && inView) cancel = requestFigureImageUrl(id, show, img);
+    if (dims && inView) cancel = requestFigureImageUrl(key, show, img);
   };
   const observer = typeof IntersectionObserver !== "undefined" ? new IntersectionObserver(entries => {
-    const next = entries.some(e => e.isIntersecting);
-    if (next !== inView) { inView = next; refresh(); }
+    const entry = entries[entries.length - 1];
+    boxWidth = entry.boundingClientRect.width;
+    if (entry.isIntersecting !== inView) { inView = entry.isIntersecting; refresh(); }
   }, { rootMargin: "200px" }) : null;
   observer?.observe(img);
   const unsubscribe = imageRevision.subscribe(refresh);
   return () => { live = false; cancel(); unsubscribe(); observer?.disconnect(); };
 }
 
-/** Svelte action form of bindFigureImage: `<img use:figureImage={figId} />`. */
-export function figureImage(node: HTMLImageElement, id: string): { update(id: string): void; destroy(): void } {
-  let cancel = bindFigureImage(node, id);
-  return {
-    update(next: string) {
-      // A getter-backed margin host may invalidate its children on editor
-      // updates. Keep an unchanged image subscribed; rebinding clears src,
-      // allocates an observer and starts the same preview request again.
-      if (next === id) return;
-      id = next;
-      cancel();
-      cancel = bindFigureImage(node, next);
-    },
-    destroy() {
-      cancel();
-    },
+function imageAction(thumb: boolean) {
+  return (node: HTMLImageElement, id: string): { update(id: string): void; destroy(): void } => {
+    let cancel = bindFigureImage(node, id, thumb);
+    return {
+      update(next: string) {
+        // Rebinding clears src and restarts the request: only a new id earns it.
+        if (next === id) return;
+        id = next;
+        cancel();
+        cancel = bindFigureImage(node, next, thumb);
+      },
+      destroy() {
+        cancel();
+      },
+    };
   };
 }
+/** Svelte action form of bindFigureImage: `<img use:figureImage={figId} />`. */
+export const figureImage = imageAction(false);
+/** The thumbnail form, for small or many pictures: `<img use:figureThumb={figId} />`. */
+export const figureThumb = imageAction(true);
 
 /** The DISK render (materializeRenders → fig/renders/<id>.svg for Quarto/DOCX):
  *  UN-namespaced and uncached, byte-identical to flux-core's renderFigureSvg

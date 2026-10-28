@@ -3,7 +3,7 @@
 
   import { onMount } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
-  import { type FigureRef, figureImage } from "./figures";
+  import { type FigureRef, figureThumb } from "./figures";
 
   let {
     figures,
@@ -136,7 +136,7 @@
             onclick={() => onSelect(f)}>
             <div class="thumb">
               {#if f.id}
-                <img use:figureImage={f.id} alt="" draggable="false" />
+                <img use:figureThumb={f.id} alt="" draggable="false" />
               {:else}
                 <span class="ph">no preview</span>
               {/if}

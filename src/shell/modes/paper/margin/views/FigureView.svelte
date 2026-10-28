@@ -1,17 +1,19 @@
 <script lang="ts">
   import type { MarginHost, MarginApi } from "../types";
-  import { figureImage, figRefText } from "../../scholar/figures";
+  import { figureImage, figureThumb, figRefText, resolveFigure } from "../../scholar/figures";
 
   let { host }: { host: MarginHost; margin: MarginApi } = $props();
 
   let selId = $state<string | null>(null);
-  let insertion = $state<"figure" | "reference">("figure");
+  // Panels the reference button cites; none = the whole figure.
   let panels = $state<string[]>([]);
   function togglePanel(panel: string) {
     panels = panels.includes(panel) ? panels.filter((value) => value !== panel) : [...panels, panel];
   }
   const figures = $derived(host.figures);
   const current = $derived(figures.find((f) => f.id === selId) ?? figures[0]);
+  const reference = $derived(current ? figRefText(current, panels) : "");
+  const referenceLabel = $derived(resolveFigure(reference.slice(1))?.display ?? current?.display ?? "");
 
   // Zoom/pan on the selected figure (wheel = zoom toward the cursor, drag =
   // pan, double-click = reset) — pure transforms on the stage content, no
@@ -99,20 +101,17 @@
     {#if current}
       <div class="meta">
         <p class="cap"><b>{current.captionLabel.trimEnd()}</b> {current.caption || current.nickname || ""}</p>
-        <div class="insert-mode" role="group" aria-label="Insert as">
-          <button class:chosen={insertion === "figure"} aria-pressed={insertion === "figure"} onclick={() => (insertion = "figure")}>Figure</button>
-          <button class:chosen={insertion === "reference"} aria-pressed={insertion === "reference"} onclick={() => (insertion = "reference")}>Reference</button>
-        </div>
-        {#if insertion === "reference" && current.panels.length}
-          <div class="panel-choices" role="group" aria-label="Reference panels">
-            <button class:chosen={panels.length === 0} aria-pressed={panels.length === 0} onclick={() => (panels = [])}>Whole figure</button>
+        {#if current.panels.length}
+          <div class="panels" role="group" aria-label="Panels to reference">
+            <span>Panels</span>
             {#each current.panels as panel}
               <button class:chosen={panels.includes(panel)} aria-pressed={panels.includes(panel)} aria-label={`Panel ${panel}`} onclick={() => togglePanel(panel)}>{panel}</button>
             {/each}
           </div>
         {/if}
         <div class="acts">
-          <button onclick={() => insertion === "figure" ? host.insertFigure(current) : host.insertFigureReference(figRefText(current, panels))}>{insertion === "figure" ? "Insert figure" : "Insert reference"}</button>
+          <button onclick={() => host.insertFigure(current)} title="Insert the figure itself">Insert figure</button>
+          <button class="ghost" onclick={() => host.insertFigureReference(reference)} title={`Insert a cross-reference (${reference})`}>Insert {referenceLabel}</button>
           <button class="ghost" onclick={() => host.openFigure(current.id)}>Open in Figure</button>
         </div>
       </div>
@@ -124,7 +123,7 @@
           class:sel={f.id === current?.id}
           title={f.nickname ? `${f.name} — ${f.nickname}` : f.name}
           onclick={() => (selId = f.id)}>
-          <div class="art"><img use:figureImage={f.id} alt="" draggable="false" /></div>
+          <div class="art"><img use:figureThumb={f.id} alt="" draggable="false" /></div>
           <span class="tn">{f.display}</span>
         </button>
       {/each}
@@ -212,11 +211,36 @@
   .cap b {
     color: var(--c-accent-bright);
   }
-  .insert-mode, .panel-choices { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--sp-2); }
-  .insert-mode button, .panel-choices button { font: inherit; font-size: var(--ts-sm); padding: 4px 8px; border: 1px solid var(--c-line); border-radius: var(--r-1); background: var(--c-surface); color: var(--c-tx-2); }
-  .insert-mode button.chosen, .panel-choices button.chosen { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-tint); }
+  .panels {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: var(--sp-2);
+    font-size: var(--ts-xs);
+    color: var(--c-tx-muted);
+  }
+  .panels span {
+    margin-right: 2px;
+  }
+  .panels button {
+    font: inherit;
+    min-width: 24px;
+    padding: 2px 6px;
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-1);
+    background: var(--c-surface);
+    color: var(--c-tx-2);
+    cursor: var(--cursor-cross-hover);
+  }
+  .panels button.chosen {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+    background: var(--c-accent-tint);
+  }
   .acts {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--sp-2);
   }
   .acts button {
