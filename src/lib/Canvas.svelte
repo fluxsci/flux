@@ -639,20 +639,32 @@
   const mountedFigs = new Set<string>();
   const mountedEls = new Map<string, Set<string>>();
   const figRect = (f: Figure): Rect => ({ x: f.x, y: f.y, w: f.width, h: f.height });
-  $: visibleFigures = frame
-    ? canvasFigures.filter((f) => f.id === $activeFigureId)
-    : (() => {
-        const next = canvasFigures.filter(
+  // A re-cull that keeps the same figures (every sidebar-drag move changes the
+  // host size) must not hand the figure {#each} a new array: in legacy mode that
+  // re-renders every figure and re-feeds every mounted element its props. Model
+  // edits mutate figures in place, so a new canvasFigures list still propagates.
+  let visibleFigures: Figure[] = [];
+  const visibleFiguresMemo = { from: null as Figure[] | null, figs: [] as Figure[] }; // non-reactive
+  $: {
+    const next = frame
+      ? canvasFigures.filter((f) => f.id === $activeFigureId)
+      : canvasFigures.filter(
           (f) =>
             f.id === $activeFigureId ||
             (retainedRasterMounts?.has(f.id) && mountedFigs.has(f.id)) ||
             rectsIntersect(figRect(f), cullRect) ||
             (mountedFigs.has(f.id) && rectsIntersect(figRect(f), cullRectOut)),
         );
-        mountedFigs.clear();
-        for (const f of next) mountedFigs.add(f.id);
-        return next;
-      })();
+    if (!frame) {
+      mountedFigs.clear();
+      for (const f of next) mountedFigs.add(f.id);
+    }
+    const memo = visibleFiguresMemo;
+    if (canvasFigures !== memo.from || next.length !== memo.figs.length || next.some((f, i) => f !== memo.figs[i])) {
+      memo.from = canvasFigures;
+      visibleFigures = memo.figs = next;
+    }
+  }
   // Layout previews may bring previously offscreen objects into view. Cull
   // against BOTH model and preview bounds; retain model sources for the whole
   // gesture so visible artwork is never replaced while its spacing changes.
@@ -5675,8 +5687,11 @@
   .scene-svg {
     position: absolute;
     inset: 0;
-    width: 100%;
-    height: 100%;
+    /* Window-sized, not host-sized (the host clips it): resizing an SVG root lays
+       out and repaints all of its content, so a host-sized scene re-laid tens of
+       thousands of plot nodes on every move of a sidebar drag. */
+    width: 100vw;
+    height: 100vh;
     overflow: visible;
     display: block;
   }

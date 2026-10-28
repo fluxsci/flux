@@ -794,6 +794,11 @@ Persistence invariants (all machine-checked — do not weaken):
   Rail width variables belong on their consuming LeftRail/Inspector subtree, never the
   FigureMode body above the scene. An inherited custom-property write restyles every mounted
   SVG node even when the scene does not use it; use explicit width props to confine that work.
+  A sidebar drag resizes the canvas host on every move, which re-culls: Canvas's
+  `visibleFigures` keeps its array while membership is unchanged (a new array re-fed every
+  mounted element its props — 36 ms/move at 1,600 objects), and `.scene-svg` is window-sized
+  (resizing a host-sized SVG root re-laid out its content — ~2 ms/move of layout and a 33 ms p95
+  frame at 46k plot nodes). `verify-scale-figure` pins zero `perf.slotChecks` per sidebar drag.
 - Mutations go through `commit`/`mutate`/`mutateFigure` in `src/lib/store.ts`; gestures are
   `beginGesture` → transient preview → one commit on release. Undo history is byte-budgeted
   (64MB / 200 entries). `beginGesture` returns an owned checkpoint: cancellation restores

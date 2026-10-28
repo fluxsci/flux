@@ -56,6 +56,7 @@
   // nothing changed, so its dependents do not re-run.
   let last: { element: Element; content: string } | null = null;
   const current = $derived.by(() => {
+    perfCounters.slotChecks++;
     const content = contentOf(element);
     if (last && last.element === element && last.content === content) return last;
     perfCounters.elementRenders++;
