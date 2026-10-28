@@ -13,7 +13,8 @@ async function wait(fn, label, timeout = 25000) { const start = Date.now(); whil
 async function focus() { await wait(async () => { app.focus({ steal: true }); win.focus(); win.webContents.focus(); return win.isFocused() && await js("document.hasFocus()"); }, "private display focus"); }
 async function click(selector, modifiers = [], clickCount = 1) {
   await focus();
-  const point = await js(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)throw Error('Missing control');const b=n.getBoundingClientRect();if(!b.width||!b.height)throw Error('Control is hidden');const x=Math.round(b.x+b.width/2),y=Math.round(b.y+b.height/2);if(!n.contains(document.elementFromPoint(x,y)))throw Error('Control is covered');return{x,y}})()`);
+  const point = await js(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)return{error:'Missing control'};const b=n.getBoundingClientRect();if(!b.width||!b.height)return{error:'Control is hidden',tag:n.tagName};const x=Math.round(b.x+b.width/2),y=Math.round(b.y+b.height/2),hit=document.elementFromPoint(x,y);if(!n.contains(hit))return{error:'Control is covered',tag:n.tagName,hit:hit?.tagName,hitClass:hit?.className};return{x,y}})()`);
+  if (point.error) throw new Error(`${point.error}: ${selector} (${JSON.stringify(point)})`);
   win.webContents.sendInputEvent({ type: "mouseMove", ...point });
   win.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount, modifiers, ...point });
   win.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount, modifiers, ...point }); await paint();
@@ -69,9 +70,9 @@ async function main() {
   await fs.writeFile(path.join(output, "native-dissection.png"), (await win.webContents.capturePage()).toPNG());
   await key("Escape"); check(await js("!!document.querySelector('[data-dissect-grid]')"), "Escape returns from dissection detail to its grid");
   await click('[data-dissect-cell][data-name="review.txt"]', [], 2);
-  await wait(() => js("!!document.querySelector('textarea:not(:disabled)')"), "native note editor loaded");
+  await wait(() => js(`!!document.querySelector('${modal} textarea:not(:disabled)')`), "native note editor loaded");
   await noteKeyboardNavigation("Docked note");
-  await click('textarea');
+  await click(`${modal} textarea`);
   win.webContents.sendInputEvent({ type:"keyDown", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
   win.webContents.sendInputEvent({ type:"keyUp", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
   await win.webContents.insertText("Native note #TODO persisted on close");
@@ -88,9 +89,9 @@ async function main() {
   await wait(() => js(`!!document.querySelector('${modal} img')?.naturalWidth`), "pinned image preview loaded");
   await key("D"); await wait(() => js("document.querySelectorAll('[data-dissect-cell]').length===2"), "pinned note group loaded");
   await click('[data-dissect-cell][data-name="review.txt"]', [], 2);
-  await wait(() => js("!!document.querySelector('textarea:not(:disabled)')"), "pinned note editor loaded");
+  await wait(() => js(`!!document.querySelector('${modal} textarea:not(:disabled)')`), "pinned note editor loaded");
   await noteKeyboardNavigation("Pinned note");
-  await click('textarea');
+  await click(`${modal} textarea`);
   win.webContents.sendInputEvent({ type:"keyDown", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
   win.webContents.sendInputEvent({ type:"keyUp", keyCode:"A", modifiers:[process.platform === "darwin" ? "meta" : "control"] });
   await win.webContents.insertText("Pinned native note #TODO persisted on close");
