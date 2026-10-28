@@ -3,7 +3,7 @@
   // Figure: [Layers | Plots], Slide: [Slides | Plots] — and, in the Plots view, the destination
   // chip (where Enter / double-click place plots; also the figure / slide switcher, since the
   // mode's own list is in the other view) and the ⋯ view menu. Alt+G and the tabs switch views;
-  // each view keeps its own width (the mode sets --sb-w).
+  // each view keeps its own width (the mode passes it as `width`).
   import { get } from "svelte/store";
   import type { Snippet } from "svelte";
   import Sidebar from "../Sidebar.svelte";
@@ -127,7 +127,10 @@
   }
 </script>
 
-<div class="left-rail" data-left-rail={plots ? "plots" : otherKey} style:--sb-w={width == null ? undefined : `${width}px`}>
+<!-- The width is set as the rail's own (non-inherited) width: a custom property here would
+     restyle every node inside it on each move of a resize drag (Slide's filmstrip thumbnails
+     hold whole slides). -->
+<div class="left-rail" data-left-rail={plots ? "plots" : otherKey} style:width={width == null ? undefined : `${width}px`} style:flex-basis={width == null ? undefined : `${width}px`}>
   <div class="rail-tabs" role="tablist" aria-label="Left rail">
     {#if slide}
       <button role="tab" class="rail-tab" aria-selected={!plots} class:chosen={!plots} title="The deck's slides" onclick={() => setView("other")} data-rail-tab="slides">

@@ -791,9 +791,11 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
   bumps `globalRev` (under-invalidation impossible by construction). Expensive derived work keys
   on `${figureRev[id]}|${globalRev}|…` and memoizes in **non-reactive `const` boxes**.
-  Rail width variables belong on their consuming LeftRail/Inspector subtree, never the
-  FigureMode body above the scene. An inherited custom-property write restyles every mounted
-  SVG node even when the scene does not use it; use explicit width props to confine that work.
+  Rail widths are props on the consuming rail, never custom properties on the Figure/Slide
+  body above the scene: an inherited custom-property write restyles every node below it, used
+  or not. LeftRail applies its `width` as its own width/flex-basis (not `--sb-w`), since Slide's
+  filmstrip thumbnails hold whole slides (film-gutter drag: 1,071 → 6 ms style per 36 moves);
+  the Inspector keeps a local `--insp-w`.
   A sidebar drag resizes the canvas host on every move, which re-culls: Canvas's
   `visibleFigures` keeps its array while membership is unchanged (a new array re-fed every
   mounted element its props — 36 ms/move at 1,600 objects), and `.scene-svg` is window-sized
