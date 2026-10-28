@@ -39,7 +39,7 @@ async function main(){
  await wait(()=>js(win,focused),'reopened gallery search focused');
  key(win,'1',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='project'&&!!document.querySelector('.row[data-kind=dir][aria-label=study]')"),'back to Project');
  check(true,'Alt+1 returns to the project plots');
- await click(win,'.row[data-kind=dir][aria-label=study]');await wait(()=>js(win,"!!document.querySelector('.preview img')?.naturalWidth"),'SVG thumbnail');
+ await click(win,'.row[data-kind=dir][aria-label=study]');await wait(()=>js(win,"!!document.querySelector('.importer [data-tile] img')?.naturalWidth"),'SVG thumbnail');
  await click(win,'.list .row[data-kind="file"][data-path$="/growth.svg"]');await pin();
  check(child.isResizable(),'native child is resizable');
  check(await js(child,"!window.fig && !window.__flux && !window.require"),'gallery has no preload bridge or independent project runtime');

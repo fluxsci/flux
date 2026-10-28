@@ -10,6 +10,8 @@ const frame = p => p.evaluate(() => new Promise(r => requestAnimationFrame(() =>
 const open = async () => { await openGalleryDialog(page); };
 const query = async (p, value) => { await p.$eval('.search-in', (n, value) => { n.value = value; n.dispatchEvent(new Event('input', { bubbles:true })); }, value); await frame(p); };
 const pick = async (p, name) => { const button = await p.evaluateHandle(name => [...document.querySelectorAll('.importer .list .row')].find(n => n.querySelector('.nm')?.textContent === name), name); await button.click(); await frame(p); };
+// Justified rows: how many tiles share the first file row, and the gap between its first two.
+const firstRow = p => p.$$eval('.importer .list .row[data-kind="file"]', ns => { const top = ns[0]?.style.top; const row = ns.filter(n => n.style.top === top).map(n => n.getBoundingClientRect()); return { count: row.length, gap: row.length > 1 ? Math.round(row[1].left - row[0].right) : null }; });
 const repickBatch = async p => { await query(p,'result-00'); await pick(p,'result-00'); await query(p,'control'); await pick(p,'control'); await query(p,''); };
 try {
   await gotoApp(page, { url: new URL('?fixture=demo', APP_URL).href });
@@ -28,7 +30,7 @@ try {
   await open();
   assert(await page.$('.list.gallery'), 'gallery is the default');
   await pick(page,'study');
-  await page.waitForFunction(() => document.querySelectorAll('.preview img').length===12 && [...document.querySelectorAll('.preview img')].every(n=>n.complete&&n.naturalWidth>0));
+  await page.waitForFunction(() => document.querySelectorAll('.importer [data-tile] img').length===12 && [...document.querySelectorAll('.importer [data-tile] img')].every(n=>n.complete&&n.naturalWidth>0));
   await pick(page,'result-00');
   assert.equal(await page.$eval('.pickpill',n=>n.textContent),'1 selected');
   mkdirSync('test-results',{recursive:true});
@@ -51,16 +53,21 @@ try {
   await query(gallery,'_light');await gallery.keyboard.press('Enter');
   await gallery.waitForFunction(()=>document.querySelector('.path .cur')?.textContent==='_lighttable');
   await query(gallery,'control');assert.equal(await gallery.$('.row'),null,'reserved scope remains isolated');
-  await gallery.click('.rootbtn');
+  await gallery.click('.rootbtn');await pick(gallery,'study');
   if (await gallery.$('[aria-label="Toggle folder sidebar"][aria-expanded="true"]')) { await gallery.click('[aria-label="Toggle folder sidebar"]'); await frame(gallery); }
   await gallery.setViewport({width:520,height:620});await frame(gallery);
   assert(await gallery.evaluate(()=>{const b=document.querySelector('.insbtn').getBoundingClientRect();return b.right<=innerWidth&&b.bottom<=innerHeight}), 'controls fit narrow window');
   await gallery.$eval('[aria-label="Preview size"]',n=>{n.value='320';n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}))});
-  await frame(gallery);assert.equal(await gallery.$eval('.items',n=>getComputedStyle(n).gridTemplateColumns.split(' ').length),1,'preview sizing reflows');
+  await frame(gallery);
   await gallery.$eval('[aria-label="Preview spacing"]',n=>{n.value='28';n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}))});
-  await frame(gallery);assert.equal(await gallery.$eval('.items',n=>getComputedStyle(n).gap),'28px','spacing changes');
   await gallery.setViewport({width:1060,height:780});await frame(gallery);
-  assert.equal(await gallery.$eval('.items',n=>getComputedStyle(n).gridTemplateColumns.split(' ').length),3,'widening the pinned window reflows without focusing its opener');
+  const wide=await firstRow(gallery);
+  assert.equal(wide.count,3,'widening the pinned window reflows without focusing its opener');
+  assert.equal(wide.gap,28,'spacing changes');
+  const setSize=async v=>{await gallery.$eval('[aria-label="Preview size"]',(n,v)=>{n.value=v;n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}))},v);await frame(gallery);};
+  await setSize('200');const smaller=await firstRow(gallery);
+  assert.equal(smaller.count,4,`preview sizing reflows (${wide.count} → ${smaller.count} per row)`);
+  await setSize('320');
   const before=await page.evaluate(()=>window.__flux.figures()[0].elements.length);
   await gallery.click('.insbtn');await gallery.waitForSelector('[role=status]');
   assert.equal(await page.evaluate(()=>window.__flux.figures()[0].elements.length),before+2,'pinned batch inserts into editor');

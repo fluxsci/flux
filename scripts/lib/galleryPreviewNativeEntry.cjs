@@ -37,10 +37,13 @@ async function key(keyCode, modifiers = []) { stage = `key ${keyCode}`; await fo
 async function previewSize(label) {
   let measured;
   await wait(async () => {
-    measured = await js(`(()=>{const box=document.querySelector('.importer .list .preview'),page=box?.querySelector('.page'),image=page?.querySelector('img');if(!box||!page||!image?.naturalWidth)return null;const b=box.getBoundingClientRect(),expectedW=Math.min(b.width-6,(b.height-6)*image.naturalWidth/image.naturalHeight),expectedH=expectedW*image.naturalHeight/image.naturalWidth;const r=page.getBoundingClientRect();return{width:b.width,height:b.height,pageW:r.width,pageH:r.height,expectedW,expectedH,document:box.ownerDocument.URL,matches:Math.abs(r.width-expectedW)<.1&&Math.abs(r.height-expectedH)<.1}})()`);
+    // Justified gallery rows lay out from the list's own measured width (re-observed in
+    // whichever window owns it): the page is contained in its cell at the image's aspect, the
+    // cell stays inside the list's content box, and a width-bound lone result fills that width.
+    measured = await js(`(()=>{const list=document.querySelector('.importer .list'),cell=list?.querySelector('.row[data-kind="file"]'),page=cell?.querySelector('[data-tile] .page'),image=page?.querySelector('img');if(!list||!cell||!page||!image?.naturalWidth)return null;const l=list.getBoundingClientRect(),c=cell.getBoundingClientRect(),r=page.getBoundingClientRect(),cap=cell.querySelector('.cap')?.getBoundingClientRect().height??0,boxH=c.height-cap,avail=list.clientWidth-32,target=Math.round(Number(document.querySelector('[aria-label="Preview size"]').value)*.75),aspect=image.naturalWidth/image.naturalHeight;const contained=r.width<=c.width+.5&&r.height<=boxH+.5&&(Math.abs(r.width-c.width)<.5||Math.abs(r.height-boxH)<.5);const aspectOk=Math.abs(r.width/r.height-aspect)/aspect<.02;const inside=c.left>=l.left+15.5&&c.right<=l.left+16+avail+.5;const filled=boxH>=target*1.15-1||Math.abs(c.width-avail)<1;return{listWidth:l.width,cellW:c.width,cellH:c.height,pageW:r.width,pageH:r.height,avail,target,document:cell.ownerDocument.URL,matches:contained&&aspectOk&&inside&&filled}})()`);
     return measured?.matches;
   }, `${label}: thumbnail fit follows actual owner geometry`, 2000).catch(error => { throw new Error(`${error.message}: ${JSON.stringify(measured)}`); });
-  check(measured.matches && measured.width > 0 && measured.height > 0, `${label}: thumbnail fit matches its actual owner-window box (${JSON.stringify(measured)})`);
+  check(measured.matches && measured.cellW > 0 && measured.cellH > 0, `${label}: thumbnail fit matches its actual owner-window box (${JSON.stringify(measured)})`);
 }
 async function noteKeyboardNavigation(label) {
   await js("document.querySelector('.expanded-preview').focus()");

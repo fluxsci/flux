@@ -2156,11 +2156,21 @@ Persistence invariants (all machine-checked — do not weaken):
   visible and preserve drafts, including pinned utility views. `previewBackdrop` shares the
   rail's ink-analysis law with Space/fullscreen/gallery/dissection image previews; it keys
   thumbnail analysis by stamp and cancels stale callbacks. Apply it to a PAGE sized to the
-  image (DissectDetail's `.page`, DissectCell's and GalleryPreview's), never to the whole
-  stage or cell — a flooded stage reads as a cream wall around a small plot. Fit those pages
-  in CSS container units (`min(100cqw, 100cqh * aspect)`), not per-tile ResizeObservers:
-  observers bound in the opener stop delivering once the subtree is adopted by a utility
-  window. Tile names stay in aria-labels, without a native title tooltip obscuring Peek.
+  image (DissectDetail's `.page`, GalleryPreview's), never to the whole stage or cell — a
+  flooded stage reads as a cream wall around a small plot. Fit those pages in CSS container
+  units (`min(100cqw, 100cqh * aspect)`), not per-tile ResizeObservers: observers bound in
+  the opener stop delivering once the subtree is adopted by a utility window. Tile names stay
+  in aria-labels, without a native title tooltip obscuring Peek.
+  **The full-size views are the rail at full size (2026-10-28).** The Dissect overlay and the
+  gallery preview's Dissections tab render `DissectSections`: the rail pane's
+  `arrangeDissections` sections in its `JustifiedGrid` with its `Tile`/`TableCard`/file rows
+  (hosts capture keys and drive it through `navigate`/`jumpTo`; 1–9 jump to a section). The
+  Plot gallery's Gallery view lays its rows out with the rail's `layoutJustified` and draws
+  SVG/PNG with `Tile` (raster thumbnails, the backdrop law); folder rows preview up to four
+  plots from the search walk. Its header probes cover the whole listing nearest-first, keyed
+  cells keep keyboard focus across relayouts, and each probe batch holds the focused (else
+  top) tile on screen. The rail pane skips a probe run whose listing is already on screen:
+  re-applying it consumed the aligned-flip anchor twice and dropped the selection.
 - **The Plot gallery (Shift+Alt+G pinned; the toolbar's Gallery) is an editor-owned utility view.** Gallery/list, preview size
   (120–800 px), spacing, names and the collapsible folder sidebar live in view preferences.
   `GalleryTree` reads only expanded directories, windows its rows and includes explicit
