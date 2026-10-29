@@ -1030,6 +1030,15 @@ Persistence invariants (all machine-checked — do not weaken):
   dispatch a minimal single-span diff, never a whole-doc replace. Per-editor state rides facets
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
+  The editor `.host` is `contain: size layout` — the relayout boundary. Without it each
+  keystroke laid out the whole shell from the root: every scroller (doc list, outline, margin)
+  re-derived its auto scrollbars ("Scrollbar changed") and repainted in full, and the editor
+  re-rastered its entire viewport, replaying any SVG embed in view (GPU raster has no partial
+  raster: 701 → 20 ms of raster per 42 keys beside one heavy embed, GPU process 61 → ~15 %).
+  `.cm-scroller`, `flex-basis: 0` and size-only containment do NOT work (a flex item cannot be a
+  relayout boundary). Layout containment makes `.host` a stacking context, so CodeMirror
+  tooltips mount on a zero-size sibling anchor (`tooltips({ parent })`) and keep stacking above
+  the column's title and status pills.
   Regression suite: `group:paper-gate`.
   Inline 3D slide widgets keep live repositories metadata-only (`modelData: "omit"`).
   Each repository owns an immutable source generation; occurrences share worker bytes but
