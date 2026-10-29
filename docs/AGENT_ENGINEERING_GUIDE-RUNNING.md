@@ -2768,7 +2768,9 @@ Persistence invariants (all machine-checked — do not weaken):
     tweening or extraction. Restoration belongs at the actual mutation seams;
     unrestricted group-level clipping changes alpha/coordinate semantics. Exports
     keep `pristinePlotRoot()` for GUI/headless parity. Exact-zero-pixel cases and
-    trusted part-drag/Undo gates cover these rules.
+    trusted part-drag/Undo gates cover these rules. The singleton-wrapper grouping is
+    load-bearing for dense zoom, not cosmetic: with it disabled the owner's 75k-node flow
+    proxied 22/37 ticks with 13 long tasks (2026-10-29 A/B); do not revert it as "unmeasured".
   - **Paper shows figures as IMAGES from an idle render queue** (`scholar/figures.ts`,
     2026-09-16). Embeds, hover cards, the pickers and the margin view all use
     `<img use:figureImage={id}>` / `bindFigureImage` over `renderFigureImageUrl` (a blob URL
@@ -2790,6 +2792,12 @@ Persistence invariants (all machine-checked — do not weaken):
     width/aspect ratio before decoding: HTML width/height attributes alone do
     not reserve the box under `width:auto;height:auto`, and a late preview can
     move the caret. `verify-paper-nav` protects that layout invariant.
+    SMALL previews (the Alt+F margin strip, both picker grids) bind with `thumb` and get
+    `figureThumb`: a PNG of the display render at the box's device width (160/320/640/1280),
+    cached per revision through the same queue. GPU raster has no partial raster, and in
+    Electron each keystroke invalidates every scroller, so a vector `<img>` replays its whole
+    figure per frame: the margin strip made typing 231–305 ms p95 on the owner's project
+    (2026-10-28). The zoomable stage, hover cards and embeds keep the vector render.
     `inlineMarkup.ts` caches by
     SVG AND complete manifest content, clones before use, and bounds entries,
     aggregate nodes and source text size. Before: every figure edit re-rendered
@@ -11605,3 +11613,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Learnings:**
 - Promoted to the body: resvg's out-of-canvas layer abort, parking and its element budget, overview validity/patching, the first-tick-only cull hold, parked-node DOM-query trap.
 - Start owner-flow perf probes zoomed in and edit first: a fit-zoom start passes with broken residency.
+
+### 2026-10-29 — October 27 issue list: review, corrections and merge (Claude Opus 5.5, OCT-27-FIX-LIST → main)
+**Work:** Reviewed Codex's 22-item implementation with six domain reviewers plus three finalization agents, merged their branches, and merged the result to `main`. The review overturned several first-pass claims (see `docs/for_agents/oct-27-fix-list.md` § History): the Alt+F lag was real (vector thumbnails re-rastered per frame → bitmap thumbs), the sidebar-drag fix barely helped (per-move element re-feed), band normalization stretched untagged markers, 68 seed words could never match, the spelling menu never closed on hover-out, the fullscreen gallery/Dissect were barely redesigned, and the dense zoom proxy failed the owner's edit-then-zoom flow. Also: cross-window language-profile refresh (a later save from another window silently dropped words), native rail-gate click readiness.
+**Learnings:**
+- Promoted to the body: bitmap thumbnails beside typing surfaces, `visibleFigures` identity on re-cull, window-sized scene SVG, clip hoist is load-bearing for dense rasters.
+- A first-pass agent's "verified/qualified" report is not evidence: every overturned claim above came with green receipts measured on a state the owner never works in (a rested fit-zoom start, a fixture that did not reproduce the lag). Reproduce the owner's own flow on a copy of their project before accepting a perf claim.
