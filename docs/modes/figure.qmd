@@ -606,8 +606,8 @@ legend layout.
 
 Hiding plot parts in **X-ray** tightens the selection and hover outline around the remaining
 visible content. The plot keeps its saved dimensions, so showing those parts restores its
-original frame. Selection, dragging, snapping and resize previews use the visible bounds;
-cropping continues to work against the saved plot frame.
+original frame. Selection, dragging, snapping, Align & Arrange and resize previews use the
+visible bounds; cropping continues to work against the saved plot frame.
 
 The Layout controls offer **Stretch** for the previous resize behavior. The status line
 explains whether the result is exact, reflowed, approximate, or stretching, with a reason.
@@ -830,7 +830,8 @@ visible; click a pane or one of its controls to activate it. With Align active, 
 alignment button or use **W/A/S/D** for top/left/bottom/right. **H** aligns X centers along a vertical line;
 **V** aligns Y centers along a horizontal line. Choose **Selection bounds**, a named
 **Reference object**, or the **Figure** frame. One selected object aligns to the figure.
-Each alignment is one Undo step; the panel stays open for further adjustments.
+Each alignment is one Undo step; the panel stays open for further adjustments. A plot with
+parts hidden in **X-ray** aligns and arranges by its visible outline.
 
 For semantic plots, **X spines** (**X**) aligns horizontal axes and **Y spines** (**Y**)
 aligns vertical axes. The reference plot stays fixed. Whole groups move together, including

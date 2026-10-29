@@ -46,6 +46,19 @@ try{
  const probeX=await page.evaluate(()=>{const F=window.__flux;return F.get(F.fig.project).figures.flatMap(f=>f.elements).find(e=>e.id==='snap-probe').x;});
  assert(Math.abs(probeX-visibleRight)<.01,`a moved element snaps to the visible edge (${probeX} vs ${visibleRight})`);
  await page.evaluate(()=>{const F=window.__flux,s=F.fig;s.commit(p=>{const f=p.figures.find(f=>f.id===F.get(s.activeFigureId));f.elements=f.elements.filter(e=>e.id!=='snap-probe');});s.selection.set(new Set(['hidden-plot']));s.resetHistory();});await waitForFrame(page);
+ // Align & Arrange lays a hidden-part plot out by its visible outline: right-aligning a
+ // probe lands it on the drawn panel's edge, not on the hidden half's placement edge.
+ await page.evaluate(()=>{const F=window.__flux,s=F.fig;s.commit(p=>{p.figures.find(f=>f.id===F.get(s.activeFigureId)).elements.push({id:'align-probe',type:'rect',name:'Align probe',x:100,y:340,width:40,height:30,rotation:0,fill:'#888',stroke:'none',strokeWidth:0,cornerRadius:0});});s.selection.set(new Set(['hidden-plot','align-probe']));s.resetHistory();document.activeElement?.blur();});await waitForFrame(page);
+ await page.keyboard.press('KeyA');await waitFor(page,()=>!!document.querySelector('[aria-label="Flux Align"]'));
+ const alignBounds=await page.evaluate(()=>window.__flux.get(window.__flux.layout.alignArrange).bounds);
+ assert(Math.abs(alignBounds.x+alignBounds.w-visibleRight)<.01,`Align measures the plot's visible outline (${JSON.stringify(alignBounds)} vs right ${visibleRight})`);
+ await page.keyboard.press('KeyD');await page.keyboard.press('Enter');await waitForFrame(page);
+ const placed=()=>page.evaluate(()=>{const F=window.__flux;return{history:F.fig.historyStats(),...Object.fromEntries(F.get(F.fig.project).figures.flatMap(f=>f.elements).filter(e=>e.id==='align-probe'||e.id==='hidden-plot').map(e=>[e.id,{x:e.x,y:e.y}]))};});
+ const aligned=await placed();
+ assert(Math.abs(aligned['align-probe'].x+40-visibleRight)<.01,`right-aligned probe meets the visible edge (${aligned['align-probe'].x+40} vs ${visibleRight})`);
+ assert.deepEqual(aligned['hidden-plot'],{x:80,y:100},'the plot defining the visible edge stays put');assert.equal(aligned.history.past,1,'Align is one Undo step');
+ await undo();assert.deepEqual((await placed())['align-probe'],{x:100,y:340},'Undo restores the probe');
+ await page.evaluate(()=>{const F=window.__flux,s=F.fig;s.commit(p=>{const f=p.figures.find(f=>f.id===F.get(s.activeFigureId));f.elements=f.elements.filter(e=>e.id!=='align-probe');});s.selection.set(new Set(['hidden-plot']));s.resetHistory();});await waitForFrame(page);
  await page.evaluate(()=>window.__flux.fig.viewport.set({panX:60,panY:60,zoom:1}));await waitForFrame(page);
  // Real resize anchored to the visible corner; artwork and Undo must stay coherent.
  await page.evaluate(()=>window.__flux.fig.resetHistory());const corner=await page.$('.sel-chrome .zone.corner[data-h="se"]');assert(corner);const cb=await corner.boundingBox();

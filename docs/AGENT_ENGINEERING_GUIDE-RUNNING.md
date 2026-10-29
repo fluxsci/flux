@@ -835,8 +835,11 @@ Persistence invariants (all machine-checked — do not weaken):
   When semantic parts are hidden, `plot/visibleBounds.ts` caches the remaining drawn bounds
   after content mount, keyed by the cached source DOM and mount signature so a re-mount of the
   same content (culling, figure switch, Undo) never walks the plot again. Selection/hover/drag/
-  resize chrome, whitespace hits, marquee, snapping, equal spacing and the Alt caliper all use
-  them; saved placement geometry remains unchanged. Compose relative screen matrices
+  resize chrome, whitespace hits, marquee, snapping, equal spacing, the Alt caliper and
+  Align & Arrange all use them; saved placement geometry remains unchanged. The pure layout
+  code stays DOM-free: `alignArrange.ts` passes `visibleElementBox` as the optional
+  `box` provider (`LayoutBox`, one map lookup per plot); headless/bridge verbs omit it and lay
+  out saved placement. Spine alignment uses axis landmarks, not boxes, so it is unaffected. Compose relative screen matrices
   (nested SVG getCTM roots differ), rotate/flip around the original pivot, and defer measurement
   while hidden until `flux:pane-shown`. Pointer/viewport updates never scan the plot DOM.
   Crop grabs retain the original placement frame so hiding a panel cannot jump the crop.

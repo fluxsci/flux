@@ -3,7 +3,11 @@ import type { Element, ElementBase, LineElement, Figure, Id } from "./types";
 import { effectiveHidden, effectiveLocked, unitKeyOf } from "./groups";
 import { gridTracks, layoutDefaultGap, layoutReadingOrder } from "./layout/layoutMath";
 
-export interface LayoutContext { figure?: Figure; scope?: Id | null; excluded?: ReadonlySet<Id> }
+/** The box a view lays an element out by (a plot's visible outline when X-ray
+ *  hides parts). Null leaves the member out of its unit's box. Headless callers
+ *  omit it and lay out the saved placement. */
+export type LayoutBox = (e: Element) => Rect | null;
+export interface LayoutContext { figure?: Figure; scope?: Id | null; excluded?: ReadonlySet<Id>; box?: LayoutBox }
 
 export interface Rect {
   x: number;
@@ -125,6 +129,11 @@ export function rotatedAABB<E extends ElementBase>(e: E): Rect {
 /** Box around a selection that HUGS rotated members (display/snap/resize frame). */
 export function selectionBBox<E extends ElementBase>(els: readonly E[]): Rect | null {
   return unionRect(els.map((e) => rotatedAABB(e)));
+}
+
+/** A layout unit's box; a unit whose members all have no box keeps its placement. */
+export function unitBBox(members: readonly Element[], box?: LayoutBox): Rect | null {
+  return (box && unionRect(members.map(box).filter((r): r is Rect => r !== null))) || selectionBBox(members);
 }
 
 export function rectsIntersect(a: Rect, b: Rect): boolean {
@@ -514,7 +523,7 @@ interface GridItem {
 // Cluster the selection into layout cells: one per group (union bbox), one per
 // ungrouped element. (The selection is already group-expanded upstream.)
 export function selectionUnits(els: Element[], context: LayoutContext = {}): GridItem[] {
-  const { figure, scope, excluded } = context;
+  const { figure, scope, excluded, box } = context;
   const units = new Map<string, Element[]>();
   for (const e of els) {
     if (excluded?.has(e.id) || (figure ? effectiveHidden(figure,e) || effectiveLocked(figure,e) : e.hidden || e.locked)) continue;
@@ -522,7 +531,7 @@ export function selectionUnits(els: Element[], context: LayoutContext = {}): Gri
     const members = units.get(key);
     if (members) members.push(e); else units.set(key,[e]);
   }
-  return [...units.values()].map(members => ({members,bbox:selectionBBox(members)!}));
+  return [...units.values()].map(members => ({members,bbox:unitBBox(members,box)!}));
 }
 
 /** Layout an already-selected subset as rigid, rotation-aware units. */
