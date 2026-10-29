@@ -595,7 +595,7 @@ export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: I
   const f = figById(p, figId);
   if (!f) return;
   const els=options?resolveLayoutUnits(f,ids,options).flatMap(u=>u.members):targetEls(f,ids);
-  distributeElements(els, axis, gap, { figure: f,scope:options?.scope,excluded:options?.excluded });
+  distributeElements(els, axis, gap, { figure: f,scope:options?.scope,excluded:options?.excluded,box:options?.box });
 }
 
 /** Minimal 1-D translation that brings [pos, pos+size] inside [0, frame]:

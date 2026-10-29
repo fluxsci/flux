@@ -153,19 +153,22 @@ export function updatePlotVisibleBounds(root:SVGSVGElement,element:SemanticPlotE
   return rect;
 }
 
-/** Visible bounds are offsets in the placement frame. Rotate/flip around the
- * ORIGINAL pivot; shrinking the selection must never move the artwork. */
+/** An element's world box as drawn: a plot with hidden parts contributes its
+ * visible outline (null when nothing is visible), everything else its rotated
+ * placement box. Visible bounds are offsets in the placement frame: rotate/flip
+ * around the ORIGINAL pivot, so shrinking a box never moves the artwork.
+ * One map lookup per plot; never measures. Align/Arrange lays out by it. */
+export function visibleElementBox(el:SceneElement):Rect|null {
+  const visible=el.type==='plot'?localPlotVisibleBounds(el.id,el.width,el.height):undefined;
+  if(visible===undefined)return rotatedAABB(el);
+  if(visible===null)return null;
+  const x=el.x+(el.flipX?el.width-visible.x-visible.w:visible.x),y=el.y+(el.flipY?el.height-visible.y-visible.h:visible.y),center={x:el.x+el.width/2,y:el.y+el.height/2};
+  const corners=[[x,y],[x+visible.w,y],[x+visible.w,y+visible.h],[x,y+visible.h]].map(([x,y])=>rotatePoint({x,y},center,el.rotation??0));
+  const left=Math.min(...corners.map(p=>p.x)),top=Math.min(...corners.map(p=>p.y));
+  return {x:left,y:top,w:Math.max(...corners.map(p=>p.x))-left,h:Math.max(...corners.map(p=>p.y))-top};
+}
 export function plotAwareSelectionBBox(elements:readonly SceneElement[]):Rect|null {
-  const rects:Rect[]=[];
-  for(const el of elements){
-    const visible=el.type==='plot'?localPlotVisibleBounds(el.id,el.width,el.height):undefined;
-    if(visible===null)continue;
-    if(visible===undefined){rects.push(rotatedAABB(el));continue;}
-    const x=el.x+(el.flipX?el.width-visible.x-visible.w:visible.x),y=el.y+(el.flipY?el.height-visible.y-visible.h:visible.y),center={x:el.x+el.width/2,y:el.y+el.height/2};
-    const corners=[[x,y],[x+visible.w,y],[x+visible.w,y+visible.h],[x,y+visible.h]].map(([x,y])=>rotatePoint({x,y},center,el.rotation??0));
-    const left=Math.min(...corners.map(p=>p.x)),top=Math.min(...corners.map(p=>p.y));rects.push({x:left,y:top,w:Math.max(...corners.map(p=>p.x))-left,h:Math.max(...corners.map(p=>p.y))-top});
-  }
-  return unionRect(rects);
+  return unionRect(elements.map(visibleElementBox).filter((r):r is Rect=>r!==null));
 }
 
 /** Pointer filtering is only for a narrowed plot. Ordinary plot whitespace

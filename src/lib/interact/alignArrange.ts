@@ -10,6 +10,7 @@ import { balancedRows, validRowCounts, type AlignKind, type Rect } from '../geom
 import { createArrangementSnapshot, planArrangement, snapshotAfterArrangement, resolveLayoutUnits, type LayoutSnapshot, type ArrangementPlan } from '../layout/arrangement';
 import { applyArrangementPlan, applyLayoutTranslations, alignPanels, distributePanels } from '../ops';
 import { plotDom, plotManifests, plotGen, requestPlotDom } from '../plot/store';
+import { plotBoundsRevision, visibleElementBox } from '../plot/visibleBounds';
 import { resolveUnitSpine, planPlotSpineAlignment, type SpineChoice } from '../plot/landmarks';
 import type { Element, Figure } from '../types';
 import type { FluxPlotManifest } from '../plot/types';
@@ -43,13 +44,13 @@ export const alignmentGuides = writable<{x1:number;y1:number;x2:number;y2:number
  * sorting the settled selection again. Every targeting/model input remains a
  * dependency; an active owner never consumes passive recognition. */
 const arrangementRecognition = derived(
-  [project, selection, activeFigureId, enteredGroupId, editorSelectionExclusions, partSelection, partSelections, activeTool, alignArrange],
+  [project, selection, activeFigureId, enteredGroupId, editorSelectionExclusions, partSelection, partSelections, activeTool, alignArrange, plotBoundsRevision],
   ([$project,$selection,$figureId,$scope,$excluded,$part,$parts,$tool,$owner]) => {
     if($owner || $selection.size<2 || $part || $parts.length || ($tool!=='select'&&$tool!=='scale'))return null;
     const figures=$project.figures.filter(f=>f.elements.some(e=>$selection.has(e.id)));
     if(figures.length!==1 || figures[0].id!==$figureId)return null;
     try {
-      const base=createArrangementSnapshot(figures[0],[...$selection],{scope:$scope,excluded:$excluded});
+      const base=createArrangementSnapshot(figures[0],[...$selection],{scope:$scope,excluded:$excluded,box:visibleElementBox});
       const plan=base.units.length>=2&&!base.suggested&&base.regularX&&base.regularY?planArrangement(base,{mode:'tidy'}):null;
       return {figure:figures[0],selection:$selection,scope:$scope,excluded:$excluded,snapshot:base,plan:plan?.identity?plan:null};
     } catch {return null;}
@@ -136,7 +137,7 @@ function makeSnapshot() {
       captured.excluded.size===recognized.excluded.size&&[...captured.excluded].every(id=>recognized.excluded.has(id)))
       return recognized.snapshot;
   }
-  return createArrangementSnapshot(f,captured.ids,{scope:captured.scope,excluded:captured.excluded});
+  return createArrangementSnapshot(f,captured.ids,{scope:captured.scope,excluded:captured.excluded,box:visibleElementBox});
 }
 function label(f:Figure, ids:string[], key:string, elements?:Map<string,Element>) {
   const first=elements ? elements.get(ids[0]) : f.elements.find(e=>ids.includes(e.id));
@@ -335,12 +336,12 @@ export function setAlignArrangeHover(hover:AlignArrangeState['hover']) {
 function afterAlign(){snapshot=makeSnapshot();const s=get(alignArrange);if(s&&snapshot)publish({...s,bounds:snapshot.bounds,topology:snapshot.topology,rows:snapshot.rowCount,cols:snapshot.cols,gapX:snapshot.gapX,gapY:snapshot.gapY,status:snapshot.suggested?'Suggested grid':`Existing ${snapshot.topology}`});refreshPlotChoices();}
 export function alignSelection(kind:AlignKind) {
   const s=get(alignArrange), c=captured; if(!s||!c||s.blockedReason)return;
-  write(()=>commit(p=>alignPanels(p,c.figureId,kind,c.ids,{scope:c.scope,excluded:c.excluded,target:s.alignTarget==='reference'?{unitKey:s.referenceId}:s.alignTarget})));afterAlign();
+  write(()=>commit(p=>alignPanels(p,c.figureId,kind,c.ids,{scope:c.scope,excluded:c.excluded,box:visibleElementBox,target:s.alignTarget==='reference'?{unitKey:s.referenceId}:s.alignTarget})));afterAlign();
 }
 export function distributeSelection(axis:'h'|'v') {
   const s=get(alignArrange),f=figure();if(!s||!f||!captured||s.blockedReason||s.count<3)return;
   const c=captured;
-  write(()=>commit(p=>distributePanels(p,c.figureId,axis,c.ids,undefined,{scope:c.scope,excluded:c.excluded})));afterAlign();
+  write(()=>commit(p=>distributePanels(p,c.figureId,axis,c.ids,undefined,{scope:c.scope,excluded:c.excluded,box:visibleElementBox})));afterAlign();
 }
 const plotContext=()=>({manifest:(id:string)=>get(plotManifests)[id],plotRoot:(id:string)=>plotDom.get(id)??null,figure:figure(),scope:captured?.scope,excluded:captured?.excluded,partExcluded:isEditorTargetExcluded});
 function spineUnits() {

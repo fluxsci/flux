@@ -2,14 +2,14 @@
  * consume it; this module never owns history, DOM geometry or project mutation. */
 import type { Element, Figure, Id } from '../types';
 import { effectiveHidden, effectiveLocked, unitKeyOf } from '../groups';
-import { balancedRows, selectionBBox, unionRect, validRowCounts, type AlignKind, type Rect } from '../geometry';
+import { balancedRows, unitBBox, unionRect, validRowCounts, type AlignKind, type LayoutBox, type Rect } from '../geometry';
 import { gridTracks, layoutDefaultGap, layoutMedian, layoutReadingOrder, type LayoutTrack } from './layoutMath';
 export type { LayoutTrack } from './layoutMath';
 export type FixedPoint = { x: 0 | 0.5 | 1; y: 0 | 0.5 | 1 };
 export type LayoutTopology = 'row' | 'column' | 'grid';
 export interface LayoutUnit { key:string; memberIds:Id[]; bounds:Rect }
 export interface ResolvedLayoutUnit extends LayoutUnit { members:Element[] }
-export interface LayoutTargetOptions { scope?:Id|null; excluded?:ReadonlySet<Id>; editable?:boolean }
+export interface LayoutTargetOptions { scope?:Id|null; excluded?:ReadonlySet<Id>; editable?:boolean; box?:LayoutBox }
 export interface LayoutCell { key:string; column:number; row:number; offsetX:number; offsetY:number }
 export interface LayoutPosition { id:Id; x:number; y:number }
 export interface LayoutTranslation { id:Id; dx:number; dy:number }
@@ -50,7 +50,7 @@ export function resolveLayoutUnits(figure:Figure, ids?:readonly Id[], options:La
     const members=units.get(key); if(members)members.push(e);else units.set(key,[e]);
   }
   return [...units].map(([key,members])=>{
-    const bounds=selectionBBox(members)!;
+    const bounds=unitBBox(members,options.box)!;
     if(!finiteBox(bounds))throw new Error(`Invalid layout bounds: ${key}`);
     return {key,members,memberIds:members.map(e=>e.id),bounds};
   });
