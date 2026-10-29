@@ -7,7 +7,7 @@ const {browser,page}=await launch({width:1440,height:950});
 try {
  await page.evaluateOnNewDocument(()=>{
   const values=JSON.parse(localStorage.getItem('flux.settings')||'{}');
-  localStorage.setItem('flux.settings',JSON.stringify({...values,paperLocalCorrections:true,paperCaretFeel:'smooth'}));
+  localStorage.setItem('flux.settings',JSON.stringify({...values,paperLocalCorrections:true}));
  });
  await gotoApp(page,{url:APP_URL+'?fixture=demo',settle:1000});
  await clickMode(page,'Paper');
@@ -23,6 +23,10 @@ try {
  h.ok(suggestions.includes('environment')&&suggestions.length<=5,'the hover popup offers ranked selectable spellings');
  h.ok(await page.$('input[aria-label="Custom spelling correction"]'),'a custom spelling field follows the choices');
  await shot(page,'paper-spelling-choices');
+ // The host is the editor's relayout boundary (contain: size layout); tooltips mount
+ // outside it so they still stack above the column's title and status pills.
+ h.ok(await page.evaluate(()=>{const host=document.querySelector('.paper .host'),contain=getComputedStyle(host).contain,menu=document.querySelector('.cm-spelling-menu'),r=menu.getBoundingClientRect();
+  return /size/.test(contain)&&/layout/.test(contain)&&!host.contains(menu)&&!!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('.cm-spelling-menu');}),'the editor host is a relayout boundary; its tooltips mount outside it, on top');
  h.ok(await page.evaluate(()=>document.activeElement===window.__fluxView.contentDOM),'a hover-opened menu leaves the keyboard in the manuscript');
  await page.mouse.move(20,600);
  await waitFor(page,()=>!document.querySelector('.cm-spelling-menu'),null,{timeout:2000,label:'hover menu closes after the pointer leaves'});

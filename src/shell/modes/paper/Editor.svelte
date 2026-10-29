@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { EditorView } from "@codemirror/view";
+  import { EditorView, tooltips } from "@codemirror/view";
   import { EditorState, type Extension } from "@codemirror/state";
   import { createEditorExtensions } from "./markdown-setup";
 
@@ -17,6 +17,7 @@
   } = $props();
 
   let host: HTMLDivElement;
+  let tooltipAnchor: HTMLDivElement;
 
   onMount(() => {
     const view = new EditorView({
@@ -25,6 +26,10 @@
         doc,
         extensions: [
           extensions ?? createEditorExtensions(),
+          // Tooltips (spelling menu, completions, hovers) live outside the
+          // contained host: inside it they would stack below the column's
+          // title and status pills.
+          tooltips({ parent: tooltipAnchor }),
           EditorView.updateListener.of((u) => {
             // WS-2 note: this per-keystroke doc.toString() is the residual
             // O(doc) allocation after the block-field change-gating (a single
@@ -60,10 +65,25 @@
 </script>
 
 <div class="host" bind:this={host}></div>
+<div class="tooltip-anchor" bind:this={tooltipAnchor}></div>
 
 <style>
   .host {
     height: 100%;
+    /* A relayout boundary. Without it every keystroke laid out the whole shell
+       from the root: each scroller (doc list, outline, margin) re-derived its
+       scrollbars and repainted in full, and the editor re-rastered its whole
+       viewport, replaying any SVG embed in view (2026-10-29, GPU raster:
+       701 -> 20 ms of raster per 42 keys beside one heavy embed). The size
+       comes from the column, never the text. */
+    contain: size layout;
+  }
+  .tooltip-anchor {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
   }
   .host :global(.cm-editor) {
     height: 100%;
