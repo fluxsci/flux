@@ -204,7 +204,7 @@ interface FlightAxis {
   origin: { tick?: GuideBinding; "tick-label"?: GuideBinding; gridline?: GuideBinding };
   /** Where each template's CLONES are drawn before a frame moves them: the template's pristine pixel and its own tick's, read off the
    *  live nodes when the pool was cloned (the asset the slide mounted, which an asset Change's start or end need not be). */
-  home: Partial<Record<"tick" | "tick-label" | "gridline", { pixel: number; anchor: number }>>;
+  home: Partial<Record<GuideBinding["kind"], { pixel: number; anchor: number }>>;
   /** last template inline style copied onto the pool, per kind (a per-leaf override reaches the clones) */
   css: Partial<Record<"tick" | "tick-label" | "gridline", string>>;
 }
