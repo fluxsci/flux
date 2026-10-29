@@ -100,7 +100,9 @@ npm run check && npm run check:headless && npm run build
 node scripts/run-verifies.mjs --tier pure --jobs 4
 FLUX_URL=http://127.0.0.1:<port>/ node scripts/run-verifies.mjs --tier ui,ui-extra --jobs 1
 FLUX_URL=http://127.0.0.1:<port>/ node scripts/run-verifies.mjs --group paper-gate --jobs 1
-FLUX_XVFB=<Xvfb> node scripts/run-verifies.mjs --tier electron --jobs 1
+Xvfb :95 -screen 0 1920x1200x24 -nolisten tcp -s 0 -dpms &   # a display you own
+DISPLAY=:95 FLUX_PRIVATE_DISPLAY=1 FLUX_XVFB=<Xvfb> FLUX_ELECTRON_NO_SANDBOX=1 \
+  node scripts/run-verifies.mjs --tier electron --jobs 1
 # owner flow, fresh copy of a dense project per run:
 PROBE_NAV_PREP=edit PROBE_NAV_WARM=1 node scripts/perf/input-probe.cjs <copy> \
   --surface=figure --phases=zoomNavigate --zoomSteps=8 --out=<dir>
@@ -119,3 +121,5 @@ PROBE_NAV_PREP=edit PROBE_NAV_WARM=1 node scripts/perf/input-probe.cjs <copy> \
 - Harper checks a hyphenated word part by part: dictionary seeds must be single words.
 - A rail width written as a custom property above the scene restyles every SVG node below it.
 - Native probes must not click a row the instant its pane exists; wait for layout.
+- `FLUX_XVFB` alone leaves most native gates on the inherited `DISPLAY` (the owner's screen):
+  set `DISPLAY` to an Xvfb you started as well. A locked screen throttles them to 1 Hz.

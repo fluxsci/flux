@@ -3186,9 +3186,16 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   fake vendor CLIs only. Its EOF cleanup must reach the server below the tsx wrapper.
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Linux Electron
   harnesses may need `--ozone-platform=x11` (§9); do not pass Linux display flags on macOS.
-  For an owned Xvfb display, set `FLUX_PRIVATE_DISPLAY=1` and `DISPLAY` (or the explicit
-  `FLUX_XVFB` path). The runner removes inherited Wayland selection and chooses X11 only
-  in that mode. Runtime artifacts distinguish actual browser viewport, screen, DPR, GPU,
+  For an owned Xvfb display, start one yourself and set ALL of `DISPLAY=:<n>` (that Xvfb),
+  `FLUX_PRIVATE_DISPLAY=1` and `FLUX_XVFB=<Xvfb executable>`. `FLUX_XVFB` alone does NOT
+  isolate the run: only the few gates that spawn their own Xvfb read it (dense-zoom,
+  gallery-preview, slide-stash, relayout-export, figure-metadata); every other native gate
+  keeps the inherited `DISPLAY`, i.e. the owner's `:0`. With the owner's screen locked
+  (2026-10-29, 3 a.m.) that throttled rAF to 1 Hz: key-to-paint read ~1,000/2,000 ms and the
+  display reported 0×0, on main too. This box has no Xvfb on PATH; a private build lives at
+  `/tmp/flux-analysis-xvfb/root/usr/bin/Xvfb` (start it with `-s 0 -dpms`). WebGL/GPU gates
+  (model3d, slide-settle) cannot pass on software Xvfb. The runner removes inherited Wayland
+  selection and chooses X11 only in private mode. Runtime artifacts distinguish actual browser viewport, screen, DPR, GPU,
   CPU and module/build identity; software rendering does not certify physical hardware.
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
