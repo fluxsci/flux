@@ -25,13 +25,18 @@ branch before it merged to `main`:
   (zoomed in → edit → zoom out) it proxied 3 of 36 ticks, and its retained mounts made editing
   2–4× slower.
 
+The review also fixed two things outside the list: a later language-profile save from another
+window silently dropped dictionary words (now every window re-reads on `correction:profileChanged`),
+and Plot Change views left reference lines (axhline/axvline/identity) at their original pixel
+(`projectDom.bind()` now projects them along their data axis; `verify-plot-view.ts`).
+
 ## Item map
 
 | ID | Behaviour | Code | Gates |
 |---|---|---|---|
 | 01 | Shaded bands (fill_between, hexbin) follow resized axes; markers, ticks and caps keep their point size | `plot/derive.ts` `displaySpacePath` (origin-centred def = marker; otherwise the use offset is baked into the path) | `verify-plot-resize-fixes.ts`, `group:relayout` |
 | 02 | Narrow legends drop columns first (wrapping left to right, fewest rows), shrink uniformly only as a last resort; frames keep their corners; widening restores exactly | `plot/relayout/legend.ts` (`legendGeometry`, shared by solver and writer), `relayout/apply.ts`, figure-legend margins in `constrained.ts` | `verify-plot-resize-fixes.ts`, `group:relayout` |
-| 03 | Hiding plot parts tightens outline, hover, hit, marquee, snapping, spacing guides and caliper; placement geometry unchanged | `plot/visibleBounds.ts` (cached per source DOM + mount signature; retired on web-font load), Canvas consumers | `verify-plot-visible-bounds.mjs` |
+| 03 | Hiding plot parts tightens outline, hover, hit, marquee, snapping, spacing guides, caliper and Align & Arrange (spine alignment stays data-defined); placement geometry unchanged | `plot/visibleBounds.ts` (cached per source DOM + mount signature; retired on web-font load; `visibleElementBox` is the O(1) provider Align & Arrange inject), Canvas consumers | `verify-plot-visible-bounds.mjs` |
 | 04 | Alt+F typing stays instant; margin offers **Insert figure** and **Insert Fig. 1b** side by side with panel chips | `paper/scholar/figures.ts` (`figureThumb`: per-revision PNG at the box size for strip and picker grids), `margin/views/FigureView.svelte` | `verify-figpicker.mjs` |
 | 05 | @@ thumbnails share one render per figure revision and stay cached; cold first open is real work (~3.7 s on the owner project), the second ~13 ms | `paper/scholar/figures.ts` | `scripts/perf/paper-figure-picker.mjs` |
 | 06 | Adding a dictionary word clears its underlines at once in every editor and window; Chromium spellcheck is off in the editor | `localCorrections.ts`, `markdown-setup.ts`; cross-window push `correction:profileChanged` in `electron/ipc/languageProfiles.cjs` | `verify-paper-spelling-choice.mjs`, `verify-language-profiles.ts`, `verify-p5-paper.mjs` |
@@ -77,6 +82,11 @@ the blurred overview until it settles ~0.25 s after the last notch.
 Known limits: after a change that cannot be patched in (another figure, an off-screen edit)
 the overview takes ~5 s to recapture and zoom runs live meanwhile; canvases above 1,000
 elements do not park; about 1 run in 20 still fell back to live zoom (never wrong pixels).
+In those runs a sharp capture had landed before the edit and no overview arrived afterwards
+(`PROBE_NAV_WARM` shows `before: "2/no-overview"`, nothing seen); 14 targeted repeats (quiet,
+synthetic full-core load, edit forced after the sharp capture) did not recur. Next step if it
+does: `PROBE_SCENE_RASTER_LOG=1` on the failing run, and check whether a per-content
+`overviewFailed` from a timed-out worker is what blocks the retry.
 
 ## Re-verifying
 
