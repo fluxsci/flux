@@ -15,6 +15,16 @@ async function click(w, selector, count = 1) {
   const p = await center(w, selector);
   for (let c = 1; c <= count; c++) { w.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: c, ...p }); w.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: c, ...p }); }
 }
+// The Figures list renders before Figure mode finishes wiring its row handlers: a click
+// injected the moment the canvas host exists was occasionally dropped (main too, 3/8).
+// Click once the row has layout; re-click only if the figure has not appeared.
+async function clickUntilShown(w, selector, shown, label) {
+  await wait(() => js(w, `(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&n.getBoundingClientRect().height>0})()`), label + ' row');
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await click(w, selector);
+    try { return await wait(() => js(w, shown), label, 2500); } catch (e) { if (attempt === 3) throw e; console.log(`PROBE retry=${attempt} ${label}`); }
+  }
+}
 const key = (w, keyCode, modifiers = []) => { w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers }); w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers }); };
 const saved = () => JSON.parse(fs.readFileSync(path.join(root, 'fig/canvases/c.json'), 'utf8')).figures.find((f) => f.id === 'native-5');
 const cacheDir = () => path.join(app.getPath('userData'), 'cache', 'plot-thumbs');
@@ -38,8 +48,7 @@ async function main() {
   check(app.getPath('userData').startsWith(scratch + path.sep), 'isolated native config');
   check(win.webContents.getURL().startsWith('file:') && await js(win, '!window.__flux'), 'production file renderer');
   await click(win, 'button[aria-label=Figure]'); await wait(() => js(win, "!!document.querySelector('.figure-mode .canvas-host')"), 'Figure');
-  await click(win, '.figrow[data-fig-id="native-5"] .item');
-  await wait(() => js(win, "!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"), 'small figure visible');
+  await clickUntilShown(win, '.figrow[data-fig-id="native-5"] .item', "!!document.querySelector('[data-editor-element-id=\"e5-0\"]')", 'small figure visible');
   // Alt+G through the real input pipeline.
   key(win, 'g', ['alt']);
   await wait(() => js(win, "document.querySelector('[data-left-rail]')?.getAttribute('data-left-rail')==='plots'&&document.activeElement?.hasAttribute('data-plots-search')"), 'Plots rail + search focus');

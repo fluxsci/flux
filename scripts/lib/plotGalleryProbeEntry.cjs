@@ -9,6 +9,10 @@ const js=(w,code)=>Promise.race([w.webContents.executeJavaScript(code,true),new 
 const check=(ok,label)=>{checks.push({ok:!!ok,label});console.log('PROBE '+JSON.stringify(checks.at(-1)));if(!ok)throw Error(label)};
 async function wait(fn,label){const t=Date.now();while(Date.now()-t<15000){try{const r=await fn();if(r)return r}catch{}await new Promise(r=>setTimeout(r,60))}throw Error('Timeout: '+label)}
 async function click(w,selector){console.log("PROBE click="+selector);const p=await js(w,`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)throw Error('Missing control');n.scrollIntoView({block:'nearest'});const b=n.getBoundingClientRect();return{x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}})()`);w.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...p});w.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...p});}
+// The Figures list renders before its row handlers are wired; a click sent the moment the
+// canvas host exists was occasionally dropped. Click once the row has layout, re-click only if
+// the figure has not appeared.
+async function clickUntilShown(w,selector,shown,label){await wait(()=>js(w,`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&n.getBoundingClientRect().height>0})()`),label+' row');for(let attempt=1;attempt<=3;attempt++){await click(w,selector);const t=Date.now();while(Date.now()-t<2500){if(await js(w,shown).catch(()=>false))return;await new Promise(r=>setTimeout(r,60))}console.log('PROBE retry='+attempt+' '+label)}throw Error('Timeout: '+label)}
 const key=(w,keyCode,modifiers=[])=>{w.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});w.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers})};
 const saved=()=>JSON.parse(fs.readFileSync(path.join(root,'fig/canvases/c.json'),'utf8')).figures.find(f=>f.id==='native-5');
 async function pin(){await click(win,'.pinbtn');child=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==win),'child window');child.show();child.focus();await wait(()=>js(child,"!!document.querySelector('.detached .importer')"),'mounted child gallery')}
@@ -21,7 +25,7 @@ async function main(){
  check(app.getPath('userData').startsWith(scratch+path.sep),'isolated native config');
  check(win.webContents.getURL().startsWith('file:')&&await js(win,'!window.__flux'),'production file renderer');
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'Figure');
- await click(win,'.figrow[data-fig-id="native-5"] .item');await wait(()=>js(win,"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"),'small figure visible');await click(win,'[data-open-gallery]');await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
+ await clickUntilShown(win,'.figrow[data-fig-id="native-5"] .item',"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')",'small figure visible');await click(win,'[data-open-gallery]');await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
  // Global scope through the real preload/prefs/fs guard: Alt+2, browse, insert, Alt+1.
  const library=process.env.PROBE_LIBRARY;
  const focused="document.activeElement===document.querySelector('.importer .search-in')";
