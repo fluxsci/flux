@@ -28,7 +28,12 @@ branch before it merged to `main`:
 The review also fixed two things outside the list: a later language-profile save from another
 window silently dropped dictionary words (now every window re-reads on `correction:profileChanged`),
 and Plot Change views left reference lines (axhline/axvline/identity) at their original pixel
-(`projectDom.bind()` now projects them along their data axis; `verify-plot-view.ts`).
+(`projectDom.bind()` now projects them along their data axis; `verify-plot-view.ts`). And the
+root cause behind item 04 was wider than the margin: nothing between the typed text and `<body>`
+was a relayout boundary, so every keystroke re-laid out the whole Paper shell, every scroller
+repainted, and any SVG embed in view re-rastered (701 → 19 ms of raster per 42 keys beside a
+heavy embed). `Editor.svelte`'s host is now `contain: size layout`, with CodeMirror tooltips
+mounted on a sibling anchor so they still stack above the column's pills.
 
 ## Item map
 
@@ -108,6 +113,9 @@ PROBE_NAV_PREP=edit PROBE_NAV_WARM=1 node scripts/perf/input-probe.cjs <copy> \
 - GPU raster has no partial raster: a vector `<img>` beside the editor replays its whole figure
   whenever its tile is invalidated, and in Electron every keystroke invalidates every scroller.
   Small previews near typing surfaces are bitmaps.
+- A layout change inside an uncontained editor relays out from the root: keep the Paper
+  editor host `contain: size layout` (containment on `.cm-scroller` cannot work — a flex item
+  is never a relayout boundary).
 - Harper checks a hyphenated word part by part: dictionary seeds must be single words.
 - A rail width written as a custom property above the scene restyles every SVG node below it.
 - Native probes must not click a row the instant its pane exists; wait for layout.
