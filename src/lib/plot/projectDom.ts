@@ -169,8 +169,8 @@ interface GuideBinding {
   anchorEnd: number;
   /** Which plot version carries this guide: the start's, the end's (both for a Change that keeps the asset). */
   inA: boolean; inB: boolean;
-  /** The leaf id (unprefixed) and its guide kind, for re-ticking (F4). */
-  leaf: string; kind: "tick" | "tick-label" | "gridline";
+  /** The leaf id (unprefixed) and its guide kind, for re-ticking (F4). A reference line is never re-ticked or handed off. */
+  leaf: string; kind: "tick" | "tick-label" | "gridline" | "reference";
 }
 /** A filled mark (a bar, a heatmap cell, a hexagon, a contour band, a box or violin body)
  *  re-projected vertex by vertex: its path's vertices in DATA units, read once through the
@@ -210,6 +210,8 @@ interface FlightAxis {
 }
 interface Projection {
   series: SeriesBinding[]; guides: GuideBinding[]; panels: Panel[]; shapes: ShapeBinding[];
+  /** Reference lines spanning the axes along one axis (axhline / axvline), moved on the other like a gridline. */
+  references: GuideBinding[];
   interpolated: boolean;
   /** Pooled hand-off ticks per re-ticked axis (a view Change in flight; see buildFlight). */
   flight: FlightAxis[];
@@ -335,7 +337,7 @@ export function resetProjectionBindings(root:Element):void {
 const guideIndexKey = (leaf: string) => leaf.replace(/\.(?:ticklabel|tick-label|tick|gridline)\.(\d+)$/, ".#$1");
 
 function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): Projection {
-  if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], shapes: [], interpolated: false, axesInfo: new Map(), flight: [], flightNodes: [], templates: new Map() };
+  if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], shapes: [], references: [], interpolated: false, axesInfo: new Map(), flight: [], flightNodes: [], templates: new Map() };
   const nodes = roots.get(root) ?? new Set<Element>(); roots.set(root, nodes);
   // One id index per bind (first element in document order wins, exactly what
   // root.querySelector('[id="…"]') returned): a per-leaf querySelector scanned
@@ -554,9 +556,43 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     g.anchor = tickAt.get(g.panel)?.get(key) ?? g.origin;
     g.anchorEnd = tickEndAt.get(g.panel)?.get(key) ?? g.end;
   }
+  // Reference lines (role reference-line overlays) stand at data values but are neither series nor axis guides, so a view used to
+  // move every mark and tick around them and leave them at their generated pixel. One spanning the axes along one axis (a layout
+  // frame blending axes with data; without a frame, a path holding one coordinate constant) walks the other axis' fit like a
+  // gridline. One in data on both axes (an identity line) re-projects vertex by vertex like a filled mark.
+  const references: GuideBinding[] = [];
+  for (const o of manifest.overlays ?? []) {
+    if (o.role !== "reference-line") continue;
+    const node = q(o.svgId), path = pathOf(node), frame = manifest.layout?.frames[o.svgId];
+    const owner = frame?.axes ? manifest.axes.find((a) => (a.svgId ?? a.id) === frame.axes)
+      : manifest.axes.length === 1 ? manifest.axes[0] : manifest.axes.find((a) => a.panelId && o.svgId.startsWith(`${a.panelId}.`));
+    const panel = owner ? panels.get(owner.panelId) : undefined;
+    // read from the start's pristine bytes (a line only the end version draws is the content binder's fade, as for guides)
+    const homeRoot = opts?.sourceRoot ?? root, home = sourceIndex ? pathOf(sourceIndex.get(o.svgId) ?? null) : path;
+    if (!node || !path || !panel || !home) continue;
+    const drawn = polygonSubpaths(home.getAttribute("d"));
+    const flat = (k: "x" | "y") => !!drawn && drawn.every((sp) => sp.x.length >= 2 && sp[k].every((v) => Math.abs(v - sp[k][0]) < 1e-6));
+    const axis: "x" | "y" | null = frame ? (frame.f === "blend" && frame.y === "data" && frame.x !== "data" ? "y" : frame.f === "blend" && frame.x === "data" && frame.y !== "data" ? "x" : null)
+      : flat("y") ? "y" : flat("x") ? "x" : null;
+    if (frame?.f === "data") {
+      const subpaths = polygonInData(home, homeRoot, panel.rawA);
+      if (subpaths) { nodes.add(path); reserve(path, ["d"], []); shapes.push({ node: path, panel, from: panel.from, to: panel.to, fits: panel.fits, subpaths }); }
+      continue;
+    }
+    const pixel = axis ? guidePixel(home, homeRoot, axis) : null;
+    if (!axis || pixel === null) continue;
+    const value = dataOfPixel(panel.rawA[axis]!, pixel);
+    const target = pathOf(targetIndex?.get(o.svgId) ?? null), endPixel = target ? guidePixel(target, opts!.targetRoot!, axis) : null;
+    const endValue = endPixel === null ? value : dataOfPixel(panel.rawB[axis]!, endPixel);
+    const origin = projectWith(panel.rawA[axis]!, value), end = projectWith(panel.rawB[axis]!, endValue);
+    if (!Number.isFinite(value) || !Number.isFinite(endValue)) continue;
+    reserve(node, ["transform"], ["opacity", "display"]);
+    references.push({ node, panel, axis, value, endValue, origin, end, anchor: origin, anchorEnd: end,
+      delta: axis === "x" ? { dx: 0 } : { dy: 0 }, leaf: o.svgId, kind: "reference", inA: true, inB: !targetIndex || !!target });
+  }
   const flightNodes: Element[] = [];
   const flight = opts?.tickHandoff && (view || opts.fromView || opts.assetChange) ? buildFlight(root, manifest, view, opts, panels, guides, nodes, flightNodes, targetIndex, sourceIndex) : [];
-  return { series, guides, panels: [...panels.values()], shapes, interpolated: opts?.geometryInterpolated ?? false, axesInfo, flight, flightNodes,
+  return { series, guides, panels: [...panels.values()], shapes, references, interpolated: opts?.geometryInterpolated ?? false, axesInfo, flight, flightNodes,
     // relayout: pristine clones of the guides, bound before overrides (a re-tick template never carries a source leaf's nudge)
     templates: new Map(guides.map(g => [g.node, g.node.cloneNode(true) as Element])) };
 }
@@ -879,7 +915,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
     : (!opts || !!opts.rawFromManifest && (progress <= 0 || progress >= 1)) && restingView ? retick(root, plan, restingView, restingManifest, !!opts && progress >= 1)
     : new Set<Element>();
   if (!reticked.size) dropRetick(root);
-  for (const g of plan.guides) {
+  for (const g of [...plan.guides, ...plan.references]) {
     if (reticked.has(g.node)) continue;
     const p = g.panel, fit = p.fits[g.axis]!, raw = p.rawA[g.axis]!;
     // Unchanged guides keep their original bytes, including ticks at the edge.

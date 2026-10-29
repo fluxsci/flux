@@ -557,6 +557,10 @@ Persistence invariants (all machine-checked — do not weaken):
     fixed / sci keep the moving, fading ticks (an asset Change always does; a view Change hands ticks off, next
     bullet). `plotViewIssues` names only
     images and rasterized layers as unchanged. Gate `verify-plot-view-filled`.
+    Reference lines (role `reference-line` overlays: axhline / axvline / an identity line) are neither series
+    nor guides: bind them from their layout frame (a `blend` frame moves on its data axis like a gridline, kept
+    out of re-ticking and the tick hand-off; a `data` frame re-projects vertex by vertex; without a frame, a flat
+    path names the axis). Before 2026-10-29 a view left them at their generated pixel. Gate `verify-plot-view`.
   - *View-Change tick hand-off (Release 2, WP 2.3).* Asset Changes only keep "the generated ticks move and
     fade". A VIEW Change sets `PlotViewOptions.tickHandoff` (the transform host, for `!assetChange`):
     `projectDom.buildFlight` pools one clone of the first shown guide template per tick; ticks pair by data
