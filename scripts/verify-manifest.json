@@ -3371,7 +3371,9 @@
         "group:dense-zoom-native",
         "verify-figure-atlas.ts",
         "verify-figure-atlas.mjs",
-        "verify-scale-figure-atlas.mjs"
+        "verify-scale-figure-atlas.mjs",
+        "verify-model3d-gui.mjs",
+        "verify-model3d-export.mjs"
       ]
     },
     {
