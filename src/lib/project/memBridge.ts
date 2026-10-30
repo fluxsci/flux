@@ -371,6 +371,14 @@ export function createMemBridge(): FileBridge & {
       const blob = await c.convertToBlob({ type: "image/png" });
       return { png: new Uint8Array(await blob.arrayBuffer()), width: w, height: h };
     },
+    // The figure atlas's cold route is a main-process worker (electron/ipc/figureRaster.cjs). The browser
+    // harness has no main process, so it answers "unavailable": the atlas then rasterizes figures from their
+    // live DOM only (route L), which is exactly the path the ui gates drive. A harness bridge must carry every
+    // method the real bridge has (guide §9): a missing optional method silently selects an untested branch.
+    async rasterizeFigure() {
+      return { error: "unavailable" };
+    },
+    async cancelFigureRaster() {},
     watchRoot(root) {
       const next = root === null ? null : norm(root);
       if (next !== watchedRoot) { watchedRoot = next; watchGeneration++; }

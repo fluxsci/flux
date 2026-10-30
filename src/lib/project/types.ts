@@ -2,6 +2,7 @@
 // App-name-agnostic: the manifest is project.json, state lives in .meta/.
 
 import type { FigureFamilyDef } from "../figfamily";
+import type { Figure, Asset } from "../types";
 
 export const PROJECT_SCHEMA_VERSION = "0.1.0";
 // WS-5.2: named per-file format versions (the write sites used bare literals)
@@ -190,10 +191,40 @@ export interface SetupTaskResult { ok: boolean; cancelled?: boolean; error?: str
 export type SetupProgress =
   | { task: "quarto"; phase: "download" | "verify" | "extract" | "done"; done: number; total: number }
   | { task: "tinytex"; phase: "log"; line: string };
+export interface FigureRasterRequest {
+  rid: string;
+  /** The project root the figure belongs to (must equal the sender window's root). */
+  root: string;
+  /** The figure's CURRENT model (post-migration), as the editor holds it. */
+  figure: Figure;
+  /** Project asset metadata (`project.assets`), for paths, dims and dpi. */
+  assets: Asset[];
+  /** Image px per world unit, and the exact output size (≤ 4096 a side, width·height ≤ 3,000,000). */
+  scale: number;
+  width: number;
+  height: number;
+  /** Data URLs for assets whose bytes are not on disk yet (dirty, unsaved); they override disk reads. */
+  inlineAssets?: Record<string, string>;
+}
+export interface FigureRasterResult {
+  png?: Uint8Array;
+  width?: number;
+  height?: number;
+  error?: string;
+  cancelled?: boolean;
+  /** Worker timings: SVG build and resvg render, ms. */
+  ms?: { build: number; raster: number };
+}
 export interface FileBridge {
   /** Transient scene snapshots: dedicated child, bounded raster allocations. */
   rasterizeScene?(request: { rid: string; svg: string; regions: { bx: number; by: number; bw: number; bh: number; width: number; height: number }[] }): Promise<{ rasters?: { bytes: Uint8Array; width: number; height: number }[]; error?: string; cancelled?: boolean }>;
   cancelSceneRaster?(rid: string): Promise<void>;
+  /** The figure atlas (performance endgame, 2026-10-29): render ONE figure's current model to a PNG off the
+   *  renderer thread — a main-process worker pool running flux-core's figure renderer + resvg. `figure` is the
+   *  live model (unsaved edits included); assets/manifests are read from disk unless `inlineAssets` carries
+   *  bytes that are not on disk yet. Refusals come back as `error` and the renderer keeps that figure live. */
+  rasterizeFigure?(request: FigureRasterRequest): Promise<FigureRasterResult>;
+  cancelFigureRaster?(rid: string): Promise<void>;
   importModel3d?(request: import('../model3d/importData').Model3dImportRequest): Promise<import('../model3d/importData').Model3dImportResult>;
   importDroppedModel3d?(file: File, request: Omit<import('../model3d/importData').Model3dImportRequest, 'sourcePath'>): Promise<import('../model3d/importData').Model3dImportResult>;
   adoptModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;

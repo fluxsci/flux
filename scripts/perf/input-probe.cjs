@@ -267,6 +267,9 @@ const SCENARIOS = {
   sceneNoWC: '.canvas-host .scene{will-change:auto !important}', // drag-layer bisect: the scene wrapper not promoted by will-change (its paused animation still is)
   noInspector: 'aside.inspector{visibility:hidden !important}', // drag-layer paint bisect: live x/y readouts not painted
   noHud: '.align-arrange-panel,.gap-guides,.canvas-host .hud{visibility:hidden !important}', // drag-layer paint bisect
+  // endgame principle test (2026-10-29): every figure except the ACTIVE one shows no element DOM — the
+  // per-frame cost floor a "live DOM only for the active figure, rasters for the rest" canvas would pay.
+  activeOnly: '.canvas-host .scene-svg g[data-annotation-figure]:not(:has(> rect.figure-bg.active)) > g[clip-path]{display:none !important}',
 };
 // --layers: mid-gesture compositor layer snapshot (CDP LayerTree) + the dragged element's animations/will-change.
 let layerLatest = null, layerOn = false; const layerMsgs = {};
@@ -496,7 +499,7 @@ async function figurePhases(mode = 'figure') {
   await wait(() => js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length>0`), 'elements mounted');
   let last = -1; for (let i = 0; i < 60; i++) { const n = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`); if (n === last) break; last = n; await sleep(400); } // lazy parse settles
   if (mode === 'figure') await model3dProbe?.prepareFigure();
-  log('dom', await js(`({mode:'${mode}',elements:document.querySelectorAll('${modeRoot} [data-editor-element-id]').length,plotNodes:document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})`));
+  log('dom', await js(`({mode:'${mode}',sinceNavMs:Math.round(performance.now()),elements:document.querySelectorAll('${modeRoot} [data-editor-element-id]').length,plotNodes:document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})`));
   const scanGeo = () => js(`(()=>{const root=document.querySelector('${modeRoot}');const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
     const plots=[...root.querySelectorAll('[data-editor-element-id]')].filter(n=>window.__model3dS8 ? window.__model3dS8.ids.includes(n.dataset.editorElementId) : n.querySelector('svg')).map(n=>{const r=n.getBoundingClientRect();return {id:n.dataset.editorElementId,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>20&&p.h>20&&p.x>h.left+40&&p.x<h.right-40&&p.y>h.top+40&&p.y<h.bottom-40);
     let empty=null;for(let y=h.bottom-30;y>h.top+40&&!empty;y-=20){for(let x=h.right-30;x>h.left+40;x-=20){const el=document.elementFromPoint(x,y);if(el&&el.closest('.canvas-host')&&!el.closest('[data-editor-element-id],.figure-titlebar,.ruler,.overlay-svg')){empty={x,y};break}}}
