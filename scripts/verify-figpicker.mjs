@@ -165,7 +165,10 @@ try {
     window.__fluxMargin.summon("figure");
   });
   await waitFor(page, () => !!document.querySelector('[data-pane-id="figure"] .acts'), null, { label: "figure margin" });
-  await waitFor(page, () => document.querySelector('[data-pane-id="figure"] .thumbs img')?.dataset.figureState === "ready", null, { timeout: 5000, label: "margin thumbnail" });
+  // "ready" marks the URL assignment; the PNG decodes asynchronously, so naturalWidth reads 0 until the
+  // load lands (seen under the parallel ui tier, 2026-10-30, after Paper's per-figure asset reads made the
+  // first thumbnail arrive later). Wait for the decoded bitmap, then judge its width.
+  await waitFor(page, () => { const img = document.querySelector('[data-pane-id="figure"] .thumbs img'); return img?.dataset.figureState === "ready" && img.naturalWidth > 0; }, null, { timeout: 5000, label: "margin thumbnail decoded" });
   const stripWidth = await page.evaluate(() => document.querySelector('[data-pane-id="figure"] .thumbs img').naturalWidth);
   h.ok([160, 320, 640].includes(stripWidth), `the margin's thumbnail strip draws bitmaps, so typing beside it never replays vector figures (${stripWidth}px)`);
   const actions = () => page.evaluate(() => [...document.querySelectorAll('[data-pane-id="figure"] .acts button')].map(button => button.textContent.trim()));
