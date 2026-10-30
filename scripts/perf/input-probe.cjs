@@ -497,6 +497,44 @@ async function figurePhases(mode = 'figure') {
   await wait(() => js(`(()=>{const n=document.querySelector('${modeRoot} .canvas-host');return n&&!n.closest('.mc.hidden')})()`), mode + ' mode');
   if (mode === 'figure') { await wait(() => js("!!document.querySelector('.figrow .item')"), 'figure rows'); await js("document.querySelector('.figrow .item').click()"); }
   await wait(() => js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length>0`), 'elements mounted');
+  // Figure atlas (2026-10-29): from open, sample every 100 ms until each figure frame in view holds a raster or is
+  // the active figure, and record any figure in view that shows neither a raster nor live elements (blank). Skipped
+  // when the build has no atlas (no data-atlas-mode attributes). Read through the DOM: the production bundle has no __flux.
+  // PROBE_ATLAS_FITSHOT=1 then zooms out over the whole canvas, samples the same way (figures entering view) and
+  // writes atlas-settled.png / atlas-fit.png into --out.
+  const atlasSettle = async (tag) => {
+    const sampleJs = `(()=>{const root=document.querySelector('${modeRoot}');const h=root.querySelector('.canvas-host').getBoundingClientRect();
+      const figs=[...root.querySelectorAll('[data-annotation-figure]')].map(g=>{const bg=g.querySelector('.figure-bg');const r=(bg||g).getBoundingClientRect();
+        return {id:g.getAttribute('data-annotation-figure'),mode:g.getAttribute('data-atlas-mode'),raster:!!g.querySelector('[data-figure-raster]'),live:g.querySelectorAll('[data-editor-element-id]').length,
+          inView:r.right>h.left&&r.left<h.right&&r.bottom>h.top&&r.top<h.bottom&&r.width>0}});
+      return {t:Math.round(performance.now()),atlas:figs.some(f=>f.mode),figs:figs.filter(f=>f.inView).map(f=>({id:f.id,mode:f.mode,raster:f.raster,live:f.live})),plotNodes:root.querySelectorAll('[data-editor-element-id] svg *').length}})()`;
+    const t0 = Date.now(), blankSince = {}, blankMax = {}, timeline = [];
+    let first = null, done = null, s = null;
+    for (;;) {
+      s = await js(sampleJs);
+      if (!s.atlas) break;
+      const rasters = s.figs.filter(f => f.raster).length;
+      for (const f of s.figs) { const blank = !f.raster && !f.live && f.mode !== null; if (blank) { blankSince[f.id] ??= s.t; blankMax[f.id] = Math.max(blankMax[f.id] ?? 0, s.t - blankSince[f.id]); } else delete blankSince[f.id]; }
+      if (rasters && first === null) first = s.t;
+      const withoutPicture = s.figs.filter(f => !f.raster); // done = every figure in view is a picture but the one live active figure
+      if (!timeline.length || timeline.at(-1).rasters !== rasters || timeline.at(-1).live !== s.figs.filter(f => f.live > 0).length) timeline.push({ t: s.t, rasters, live: s.figs.filter(f => f.live > 0).length, cold: s.figs.filter(f => f.mode === 'cold').length, modes: s.figs.map(f => f.mode + (f.raster ? '+png' : '') + (f.live ? '+dom' : '')).join(','), plotNodes: s.plotNodes });
+      if (withoutPicture.length <= 1 && withoutPicture.every(f => f.live > 0) && s.figs.filter(f => f.live > 0).length <= 1) { done = s.t; break; }
+      if (Date.now() - t0 > 30000) break;
+      await sleep(100);
+    }
+    if (s?.atlas) log(tag, { inView: s.figs.length, firstRasterSinceNavMs: first, allRastersSinceNavMs: done, waitedMs: Date.now() - t0, blankMaxMs: blankMax, blankNow: Object.keys(blankSince), final: s.figs.map(f => `${f.mode}${f.raster ? '+png' : ''}${f.live ? '+dom' + f.live : ''}`), timeline });
+    return s?.atlas;
+  };
+  if (mode === 'figure' && await atlasSettle('atlas') && process.env.PROBE_ATLAS_FITSHOT === '1') {
+    fs.writeFileSync(path.join(out, 'atlas-settled.png'), (await win.webContents.capturePage()).toPNG());
+    const c = await js(`(()=>{const r=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`);
+    mouse({ type: 'mouseMove', x: c.x, y: c.y }); await sleep(100);
+    ctrlDown(); for (let i = 0; i < +(process.env.PROBE_ATLAS_FIT_NOTCHES || 6); i++) { wheel(c.x, c.y, 0, -120, ['control']); await sleep(30); } ctrlUp();
+    await sleep(600); // the zoom fold (180 ms) and the proxy retire; the sampler then waits on the DOM itself
+    await atlasSettle('atlasFit');
+    await sleep(300);
+    fs.writeFileSync(path.join(out, 'atlas-fit.png'), (await win.webContents.capturePage()).toPNG());
+  }
   let last = -1; for (let i = 0; i < 60; i++) { const n = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`); if (n === last) break; last = n; await sleep(400); } // lazy parse settles
   if (mode === 'figure') await model3dProbe?.prepareFigure();
   log('dom', await js(`({mode:'${mode}',sinceNavMs:Math.round(performance.now()),elements:document.querySelectorAll('${modeRoot} [data-editor-element-id]').length,plotNodes:document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})`));
@@ -622,6 +660,12 @@ async function figurePhases(mode = 'figure') {
     const cx = model3dProbe ? A.x : Math.round((geo.host.l + geo.host.r) / 2), cy = model3dProbe ? A.y : Math.round((geo.host.t + geo.host.b) / 2);
     mouse({ type: 'mouseMove', x: cx, y: cy }); await sleep(200);
     // 5b. small trackpad pan that stays inside the active figure (no cull change): the steady-state per-frame pan cost
+    // Figure switching: press the middle of another (non-active) figure's visible frame: it activates the figure and
+    // selects the element under the pointer (under the atlas, a press on its picture; the previous active figure is
+    // re-pictured at idle). Four switches, 1.5 s apart.
+    if (wantPhase('switchFigure')) R.switchFigure = await measure(`${mode}:${sc}:switchFigure`, async () => { for (let k = 0; k < 4; k++) {
+      const p = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();const c=[...document.querySelectorAll('${modeRoot} .figure-bg:not(.active)')].map(n=>n.getBoundingClientRect()).map(b=>({x:Math.round(Math.max(b.left,h.left+20)/2+Math.min(b.right,h.right-20)/2),y:Math.round(Math.max(b.top,h.top+20)/2+Math.min(b.bottom,h.bottom-20)/2)})).filter(q=>q.x>h.left+20&&q.x<h.right-20&&q.y>h.top+20&&q.y<h.bottom-20);return c[${k} % Math.max(1,c.length)]??null})()`);
+      if (!p) break; mouse({ type: 'mouseMove', x: p.x, y: p.y }); await sleep(60); await click(p.x, p.y, 60); await sleep(1500); } }, tr('switchFigure'));
     if (wantPhase('panSmall')) R.panSmall = await measure(`${mode}:${sc}:panSmall`, async () => { for (let k = 0; k < 3; k++) { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 25); await sleep(8); } await sleep(120); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -25); await sleep(8); } await sleep(120); } await sleep(300); }, tr('panSmall'));
     // 5c. the same small pan with the pointer over EMPTY canvas (no hover churn under a stationary pointer)
     if (wantPhase('panSmallEmpty')) { mouse({ type: 'mouseMove', x: geo.empty.x, y: geo.empty.y }); await sleep(200); R.panSmallEmpty = await measure(`${mode}:${sc}:panSmallEmpty`, async () => { for (let k = 0; k < 3; k++) { for (let i = 0; i < 12; i++) { wheel(geo.empty.x, geo.empty.y, 0, 25); await sleep(8); } await sleep(120); for (let i = 0; i < 12; i++) { wheel(geo.empty.x, geo.empty.y, 0, -25); await sleep(8); } await sleep(120); } await sleep(300); }, tr('panSmallEmpty')); mouse({ type: 'mouseMove', x: cx, y: cy }); await sleep(200); }
@@ -758,7 +802,9 @@ async function figurePhases(mode = 'figure') {
         const at=await js(`(()=>{const host=document.querySelector('${modeRoot} .canvas-host');
           const frame=[...host.querySelectorAll('g[data-annotation-figure]')].find(n=>n.dataset.annotationFigure===${JSON.stringify(destination.id)});
           const element=${JSON.stringify(destination.elementId||null)}?host.querySelector('[data-editor-element-id="'+CSS.escape(${JSON.stringify(destination.elementId||'')})+'"]'):null;
-          const node=${JSON.stringify(destination.elementId||null)}?element:frame,b=node?.getBoundingClientRect();const parked=node?.closest('.parked');return{mounted:!!node,parkedBy:parked?(parked.getAttribute('data-editor-element-id')??parked.firstElementChild?.getAttribute('data-annotation-figure')??parked.className.baseVal):null,box:b?{left:b.left,top:b.top,right:b.right,bottom:b.bottom}:null}})()`);
+          // Figure atlas (D1): a destination element in a NON-active figure is displayed by its frame's picture.
+          const picture=frame?.querySelector('[data-figure-raster]');
+          const node=${JSON.stringify(destination.elementId||null)}?(element??picture):frame,b=node?.getBoundingClientRect();const parked=node?.closest('.parked');return{mounted:!!node,coveredBy:element?'element':node&&node===picture?'picture':node?'frame':null,parkedBy:parked?(parked.getAttribute('data-editor-element-id')??parked.firstElementChild?.getAttribute('data-annotation-figure')??parked.className.baseVal):null,box:b?{left:b.left,top:b.top,right:b.right,bottom:b.bottom}:null}})()`);
         const ratio=end.zoom/moved.zoom;
         const landed={local,wheelAnchor:{x:px,y:py},expectedClient:{x:px+(aimed.x-px)*ratio,y:py+(aimed.y-py)*ratio},actualClient:{x:end.host.l+local.x,y:end.host.t+local.y},...at};
         const visible=local.x>=0&&local.x<=end.host.w&&local.y>=0&&local.y<=end.host.h;
