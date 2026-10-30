@@ -73,7 +73,17 @@ try {
   await waitFor(page, ({ id, x }) => window.__flux.figures().flatMap(f => f.elements).find(e => e.id === id).x !== x, { id: edit.elementId, x: edit.ex }, { label: 'real keyboard edit' });
   const live = await page.evaluate(async id => window.__flux.atlas.routeLNow(id), fx.figIds[3]);
   h.ok(!!live && live.key !== oldKey, '(f) active edit changes the picture key');
-  await clickFigure(page, fx.figIds[4]); await settledAtlas(page);
+  await clickFigure(page, fx.figIds[4]);
+  // A press outside Canvas gestures (an Arrange gap scrub, a panel scrub) is
+  // still a gesture: the deactivated figure's swap must not land inside it.
+  const held = await page.$eval('.sidebar', n => { const r = n.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.bottom - 12 }; });
+  await page.mouse.move(held.x, held.y); await page.mouse.down();
+  // A negative observation needs a window: idle timeout (300 ms) + readiness + one Route-L job fit well inside it.
+  await page.evaluate(() => new Promise(r => setTimeout(r, 1500)));
+  const duringPress = await page.$eval(`[data-annotation-figure="${fx.figIds[3]}"]`, g => ({ live: g.querySelectorAll('[data-editor-element-id]').length, raster: g.querySelector('[data-figure-raster]')?.getAttribute('data-raster-key') ?? null }));
+  await page.mouse.up();
+  h.ok(duringPress.live > 0 && duringPress.raster === null, `a held pointer defers the deactivated figure's swap (${JSON.stringify(duringPress)})`);
+  await settledAtlas(page);
   const diff = await page.evaluate(async ({ id, live }) => {
     const raster = window.__flux.get(window.__flux.atlas.rasters).get(id);
     const pixels = async url => { const image = new Image(); image.src = url; await image.decode(); const canvas = new OffscreenCanvas(image.width, image.height), ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0); return ctx.getImageData(0, 0, image.width, image.height).data; };

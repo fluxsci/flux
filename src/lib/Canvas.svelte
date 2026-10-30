@@ -488,9 +488,25 @@
   $: atlasActive = !frame && canvasFigures.length > 1;
   // Retain narrowed plot bounds before unmount; mount.ts owns the live cache.
   const atlasPlotBounds = new Map<string, { bounds: Rect | null; source: string }>();
+  // Atlas work and swaps also wait while ANY pointer button is held, not only
+  // Canvas gestures: an Arrange gap scrub, a panel number scrub or a rail drag
+  // presses outside `gesture`, and a deactivated figure's swap (thousands of
+  // unmounts) must never land inside a press. Release re-arms through sync.
+  let atlasPointerHeld = false;
+  onMount(() => {
+    const down = (e: PointerEvent) => { if (e.buttons) atlasPointerHeld = true; };
+    const up = (e: PointerEvent) => { if (!e.buttons) atlasPointerHeld = false; };
+    const reset = () => { atlasPointerHeld = false; };
+    window.addEventListener('pointerdown', down, true); window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointermove', up, true); window.addEventListener('pointercancel', reset, true); window.addEventListener('blur', reset);
+    return () => {
+      window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointermove', up, true); window.removeEventListener('pointercancel', reset, true); window.removeEventListener('blur', reset);
+    };
+  });
   const atlas = createCanvasAtlas({
     active: () => paneActive,
-    quiet: () => paneActive && !sceneHot && !zoomUnsettled && !proxyActive && !gesture && !guideDrag && !nodeDrag && !$arrangementPreview && !Object.keys($modelPreviews).length,
+    quiet: () => paneActive && !atlasPointerHeld && !sceneHot && !zoomUnsettled && !proxyActive && !gesture && !guideDrag && !nodeDrag && !$arrangementPreview && !Object.keys($modelPreviews).length,
     group: id => sceneSvgEl?.querySelector<SVGGElement>(`[data-annotation-figure="${CSS.escape(id)}"]`) ?? null,
     rememberBounds: fig => {
       for (const el of fig.elements) if (el.type === 'plot') {
@@ -507,7 +523,7 @@
     // Explicit dependencies matter in this legacy component: reads hidden in
     // controller callbacks cannot wake a readiness check or a quiet transition.
     void $atlasView; void $figureRasters; void visibleByFig; void sceneSvgEl;
-    void sceneHot; void zoomUnsettled; void proxyActive; void gesture; void guideDrag; void nodeDrag; void paneActive;
+    void sceneHot; void zoomUnsettled; void proxyActive; void gesture; void guideDrag; void nodeDrag; void paneActive; void atlasPointerHeld;
     atlas.sync({ enabled: atlasActive, activeId: $activeFigureId, scope: `${$projectDir}|${$embeddedProjectRoot}|${$activeCanvasId}`,
       figures: canvasFigures, visible: visibleFigures, revisions: $figureRev, global: $globalRev, plotGen: $plotGen, poster: $model3dPosterRevision,
       zoom: renderZoom, dpr: window.devicePixelRatio || 1, root: $embeddedProjectRoot || $projectDir || '', bridge: fileBridge() ?? null,
