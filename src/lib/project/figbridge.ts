@@ -198,6 +198,10 @@ export async function loadFigInto(
   const primedModelRecipes: Record<string, unknown> = Object.create(null);
   const modelBindings = collectModel3dSourceBindings(proj.figures.flatMap(f => f.elements));
   const placed = new Set(proj.figures.flatMap(f => f.elements.flatMap(elementSourceAssetIds)));
+  // An external reload is ONE undo entry: Ctrl+Z restores elements the agent
+  // removed, so every asset this session already holds stays resident (re-read
+  // fresh) — otherwise the restored plot would have no bytes to draw or export.
+  if (opts.reload && ownerBefore === root) for (const id of Object.keys(get(assetData))) placed.add(id);
   const pngs: [string, Uint8Array][] = [];
   for (const a of proj.assets) {
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");

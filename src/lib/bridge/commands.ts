@@ -24,6 +24,7 @@ import type { Model3dAsset } from '../model3d/types';
 import { planPlotSpineAlignment, type SpineChoice } from '../plot/landmarks';
 import { plotDom, plotManifests, ensurePlotDom } from '../plot/store';
 import { resolveLayoutUnits } from '../layout/arrangement';
+import { ensureAssetBytes } from "../assets";
 
 export type Command = { type: string } & Record<string, unknown>;
 
@@ -766,6 +767,8 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       if (!f) throw new Error("add_plot: no active figure");
       const assetId = typeof c.assetId === "string" ? c.assetId : null;
       if (!assetId) throw new Error("add_plot: assetId required (an already-imported plot asset)");
+      // Figure mode loads bytes only for placed assets; the deck resolver is eager.
+      if (storeTenant() !== "slide") await ensureAssetBytes([assetId]);
       let nid: string | null = null;
       store.commit((p) => {
         // Default to the asset's true physical size (canvas px @ 96/inch) — same
@@ -788,6 +791,8 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       if (!f) throw new Error("add_image: no active figure");
       const assetId = typeof c.assetId === "string" ? c.assetId : null;
       if (!assetId) throw new Error("add_image: assetId required (an already-imported image asset)");
+      // Figure mode loads bytes only for placed assets; the deck resolver is eager.
+      if (storeTenant() !== "slide") await ensureAssetBytes([assetId]);
       let nid: string | null = null;
       store.commit((p) => {
         const phys = ops.assetDisplaySize(p, assetId);
