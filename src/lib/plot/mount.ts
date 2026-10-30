@@ -8,7 +8,7 @@
 // pure x/y moves only update the outer <svg> attributes.
 
 import { applyPlotView, preparePlotView, projectionTickRoots, rememberStaticPlotView } from "./projectDom";
-import { restylePlotInstance } from "./restyle";
+import { restylePlotInstance, notifyPlotRestyle } from "./restyle";
 import { applyPlotColorScale, colorScaleTickRoots } from "./colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "./themeDom";
 import type { DeckTheme } from "../slide/types";
@@ -143,7 +143,9 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     if (!inst || !bindings) return;
     mountCounters.restyles++;
     const manifest = get(plotManifests)[element.assetId];
+    notifyPlotRestyle(host, "before");
     const { scales } = restylePlotInstance(inst, { element, manifest, theme, bindings, intrinsic });
+    notifyPlotRestyle(host, "after");
     requestColorMaps(scales.unresolved);
     place();
     unregisterPreview();

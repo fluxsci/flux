@@ -5,6 +5,7 @@ import { DOMParser, parseHTML } from 'linkedom';
 import { harness } from './lib/harness.mjs';
 import { preparePlot, bakePlotStyles, hoistPlotClips, restorePlotClip } from '../src/lib/plot/parse';
 import { mountPlot } from '../src/lib/plot/mount';
+import { presentEditorParts } from '../src/lib/editorPresentationDom';
 import { plotDom, plotManifests, mountCounters } from '../src/lib/plot/store';
 import { svgIntrinsicPx } from '../src/lib/plot/compensate';
 import { ensureColormapLuts } from '../src/lib/color/colormapLuts';
@@ -16,7 +17,8 @@ const { document } = parseHTML('<html><body></body></html>');
 // linkedom exposes XML node serialization through toString, without the
 // browser's XMLSerializer constructor. Preserve those bytes verbatim.
 class XMLSerializer { serializeToString(node: Node) { return node.toString(); } }
-Object.assign(globalThis, { document, DOMParser, XMLSerializer });
+// presentEditorParts addresses parts through CSS.escape (a browser global).
+Object.assign(globalThis, { document, DOMParser, XMLSerializer, CSS: { escape: (s: string) => s.replace(/([^\w-])/g, '\\$1') } });
 const serialize = (node: Node) => new XMLSerializer().serializeToString(node);
 const host = () => document.createElementNS('http://www.w3.org/2000/svg', 'g') as unknown as SVGGElement;
 let seed = 0x503;
@@ -134,6 +136,38 @@ try {
       fresh.destroy();
     }
     tableAction.destroy();
+  }
+  h.section('Slide editor part presentation');
+  {
+    // QA-P3: presentEditorParts writes opacity/display over a mounted plot's parts.
+    // A re-clone discarded those writes; a restyle must not let their stale
+    // originals resurrect a changed override (live 0.2 vs fresh 0.32 before the fix).
+    const path = 'scripts/fixtures/fluxplot03/features';
+    const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
+    bakePlotStyles(prepared.root!); hoistPlotClips(prepared.root!);
+    plotDom.set('shown', prepared.root!); plotManifests.set({ shown: prepared.manifest! });
+    const part = 'panel.fit.axes.background';
+    h.ok(!!prepared.root!.querySelector(`[id="${part}"]`), 'the presented part exists in the fixture');
+    const pair = () => { const outer = document.createElementNS('http://www.w3.org/2000/svg', 'g'), inner = document.createElementNS('http://www.w3.org/2000/svg', 'g'); outer.appendChild(inner); document.body.appendChild(outer); return { outer: outer as unknown as SVGGElement, inner: inner as unknown as SVGGElement }; };
+    const settle = () => new Promise(r => setTimeout(r, 0));
+    const states = () => ({ [part]: { opacity: 0.4 } });
+    let shownEl: SemanticPlotElement = { id: 'shown', type: 'plot', assetId: 'shown', x: 0, y: 0, width: 260, height: 200, rotation: 0, overrides: { [part]: { opacity: 0.5 } } };
+    const live = pair(), liveMount = mountPlot(live.inner, { element: shownEl }), livePresent = presentEditorParts(live.outer, { elementId: 'shown', states: states() });
+    await settle();
+    const expect = async (label: string, presented: boolean) => {
+      const fresh = pair(), freshMount = mountPlot(fresh.inner, { element: shownEl }), freshPresent = presentEditorParts(fresh.outer, { elementId: 'shown', states: presented ? states() : undefined });
+      await settle();
+      h.ok(serialize(live.inner.firstChild!) === serialize(fresh.inner.firstChild!), label);
+      freshPresent.destroy(); freshMount.destroy(); fresh.outer.remove();
+    };
+    // the deck recompiles on the edit, so the presentation states are a NEW object
+    shownEl = { ...shownEl, overrides: { [part]: { opacity: 0.8 } } }; liveMount.update({ element: shownEl }); livePresent.update({ elementId: 'shown', states: states() }); await settle();
+    await expect('an override edit under a presented part matches a fresh mount + presentation', true);
+    shownEl = { ...shownEl, colorScale: undefined, contentScale: 1.3 }; liveMount.update({ element: shownEl }); await settle();
+    await expect('a restyle with unchanged presentation params keeps the presentation applied', true);
+    livePresent.update({ elementId: 'shown', states: undefined }); await settle();
+    await expect('clearing the presentation leaves the current override, not a stale one', false);
+    livePresent.destroy(); liveMount.destroy(); live.outer.remove();
   }
   h.section('elastic exception');
   const path = 'scripts/fixtures/relayout/line/base';

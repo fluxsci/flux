@@ -1,5 +1,6 @@
 import { tick } from "svelte";
 import { partDomId, restorePlotClip } from "./plot/parse";
+import { onPlotRestyle } from "./plot/restyle";
 
 interface PartDisplay {
   elementId: string;
@@ -9,7 +10,9 @@ interface PartDisplay {
 }
 
 /** Apply derived part visibility after plot mounting, preserving authored
- *  styles. Restore only styles this action owns and ignore detached clones. */
+ *  styles. Restore only styles this action owns and ignore detached clones.
+ *  An in-place plot restyle is bracketed (onPlotRestyle): take these
+ *  writes back before it, paint again after it, as on a fresh mount. */
 export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
   let params = initial;
   let generation = 0;
@@ -27,6 +30,9 @@ export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
     await tick();
     if (current !== generation) return;
     restore();
+    paint();
+  }
+  function paint() {
     for (const [partId, state] of Object.entries(params.states ?? {})) {
       const node = host.querySelector<SVGElement>(`[id="${CSS.escape(partDomId(params.elementId, partId))}"]`);
       if (!node) continue;
@@ -43,6 +49,7 @@ export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
       }
     }
   }
+  const unsubscribe = onPlotRestyle(host, (phase) => { restore(); if (phase === "after") paint(); });
   void apply();
   return {
     update(next: PartDisplay) {
@@ -50,6 +57,6 @@ export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
       params = next;
       if (changed) void apply();
     },
-    destroy() { generation++; restore(); },
+    destroy() { generation++; unsubscribe(); restore(); },
   };
 }

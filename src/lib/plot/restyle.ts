@@ -9,6 +9,26 @@ import { restoreOverrides, applyOverrides } from './parse';
 import { applyPlotTheme, plotFollowsTheme } from './themeDom';
 import { applyPlotColorScale, colorScaleTickRoots } from './colorScaleDom';
 
+/** A re-clone used to discard the DOM writes of transient layers on a plot
+ * (the Slide editor's part presentation). A restyled clone keeps them, so such
+ * a layer subscribes on an ANCESTOR of the mount host: mount calls it with
+ * "before" (take your writes back, before the writers restore their pristine
+ * records) and "after" (paint again), exactly as on a fresh mount. Otherwise
+ * its stale originals resurrect removed overrides. A registry, not a DOM
+ * event: it must behave the same in linkedom gates as in Chromium. */
+export type PlotRestylePhase = 'before' | 'after';
+type RestyleListener = (phase: PlotRestylePhase) => void;
+const restyleListeners = new WeakMap<Element, Set<RestyleListener>>();
+export function onPlotRestyle(ancestor: Element, listener: RestyleListener): () => void {
+  let set = restyleListeners.get(ancestor);
+  if (!set) restyleListeners.set(ancestor, set = new Set());
+  set.add(listener);
+  return () => { set!.delete(listener); };
+}
+export function notifyPlotRestyle(host: Element, phase: PlotRestylePhase): void {
+  for (let at: Element | null = host; at; at = at.parentElement) for (const listener of restyleListeners.get(at) ?? []) listener(phase);
+}
+
 export interface RestyleOptions {
   element: SemanticPlotElement;
   manifest: FluxPlotManifest | undefined;
