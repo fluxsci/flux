@@ -4857,6 +4857,11 @@ outside this PNG packaging change.
   per frame "crawls" a 5,000-object figure into a timeout).
 - **"Quiet" must include pointers held OUTSIDE the canvas** (gap handles, panel scrubs, rail drags): a swap landed
   130 ms into an Arrange gap press until the atlas tracked the held button at window level.
+- **Pin "no deferred work on the first input" with ABSOLUTE headroom, not a ratio**: the first key of a nudge run
+  opens its undo gesture (`beginGesture` → `snapshot` = structuredClone + stringify of the whole project, ~7–12 ms,
+  project-sized, pre-atlas). A 1.5× pin over a 33 ms median left 16 ms and went red on GC noise; `median + 25 ms`
+  still catches an atlas task on the key (the real case was +140 ms). `FLUX_LAYOUT_PROFILE=nudge` with
+  `FLUX_LAYOUT_PROFILE_FIGURE=<n>` writes the CPU profile + trace that attributes such a premium.
 - **Replacing parking with retention must keep parking's capability gate**: retention without `rasterizeScene`
   kept a 3D view's renderer alive offscreen in the browser bridge.
 - **A long-lived worker pool needs an idle reaper**; a rebuilt-in-place bundle races the gates that read it (build
@@ -11889,3 +11894,6 @@ integration bugs (ledger). Plan, ledger, measurements: `notes/performance_endgam
   what workers' green receipts hide — but the oracle's own shared state is a blind spot (hash across checkouts).
 - Design rulings that trade main-thread work for fidelity (service pictures vs Chromium pictures) need the perceptual
   number in hand; the hybrid by node/element count came from measuring both sides.
+- Final acceptance on the integration head (full tiers + 3× electron + 3 owner batteries): a red that passes 3/3 alone is
+  attributed, not re-rolled — profile it. The figure-polish first-nudge red was the undo snapshot under a ratio pin
+  (§9), the lease red was `--jobs 8` contention, the relayout-release red its own absolute 10 ms budget.
