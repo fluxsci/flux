@@ -329,6 +329,11 @@ function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, sc
       const doc = k.gradient.ownerDocument!;
       const N = parsed.N;
       const wanted = 2 * N;
+      // A table of another length resizes from the GENERATED children, as a fresh
+      // mount does: resizing the previous table's stops would keep its spacing text
+      // nodes in other places, and the clone would stop matching a fresh mount byte
+      // for byte (a short map, then a long one, left 500 empty lines and bare stops).
+      if (k.gradient.children.length !== wanted) k.gradient.replaceChildren(...k.stops.map(s => s.cloneNode(true)));
       const existing = Array.from(k.gradient.children);
       while (existing.length < wanted) { const s = doc.createElementNS("http://www.w3.org/2000/svg", "stop"); k.gradient.appendChild(s); existing.push(s); }
       while (existing.length > wanted) { const s = existing.pop()!; k.gradient.removeChild(s); }

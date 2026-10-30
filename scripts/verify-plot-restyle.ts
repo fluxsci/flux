@@ -88,6 +88,26 @@ try {
     fresh.destroy();
   }
   clipAction.destroy();
+  h.section('colour table length change');
+  {
+    // QA-P3: a short table, then the generated one (or limits only). Resizing the
+    // previous table's stops left its spacing text nodes behind (500 blank lines,
+    // bare appended stops): the same pixels, but not a fresh mount's bytes.
+    const path = 'scripts/fixtures/colorscale/heatmap';
+    const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
+    plotDom.set('table', prepared.root!); plotManifests.set({ table: prepared.manifest! });
+    const scale = prepared.manifest!.colorScales![0];
+    let tableEl: SemanticPlotElement = { id: 'table-placement', type: 'plot', assetId: 'table', x: 0, y: 0, width: 300, height: 220, rotation: 0 };
+    const tableHost = host(), tableAction = mountPlot(tableHost, { element: tableEl });
+    const short = { cmap: { name: 'short', N: 3, lut: ['#112233ff', '#557799ff', '#aaddffff'], under: '#112233ff', over: '#aaddffff', bad: '#00000000' } };
+    for (const [label, entry] of [['a 3-entry table', short], ['limits only (the generated 256-entry table)', { norm: { vmax: Number(scale.norm.vmax) * .8 } }], ['the 3-entry table again', short], ['as generated', undefined]] as const) {
+      tableEl = { ...tableEl, colorScale: entry ? { [scale.id]: entry } : undefined }; tableAction.update({ element: tableEl });
+      const freshHost = host(), fresh = mountPlot(freshHost, { element: tableEl });
+      h.ok(serialize(tableHost.firstChild!) === serialize(freshHost.firstChild!), `${label}: the key's gradient matches a fresh mount byte for byte`);
+      fresh.destroy();
+    }
+    tableAction.destroy();
+  }
   h.section('elastic exception');
   const path = 'scripts/fixtures/relayout/line/base';
   const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
