@@ -13,7 +13,9 @@ import { atlasStats, atlasOwners, atlasRevision, createAtlasQueue, drop, evictTo
 
 export type AtlasMode = 'live' | 'raster' | 'warming' | 'cold' | 'fallback';
 interface Entry { mode: AtlasMode; key: string; pending: boolean; ready: string; preparing: string; refusedC: string; failedL: string;
-  signature: string; global: number; revision: number; epoch: number }
+  signature: string; global: number; revision: number; epoch: number; full: boolean }
+/** View state per figure; `full` = a live non-active figure that must mount whole (its picture will be a Route-L capture). */
+export interface AtlasViewEntry { mode: AtlasMode; pending: boolean; full: boolean }
 export interface AtlasCanvasInput {
   enabled: boolean; activeId: string | null; scope: string; figures: Figure[]; visible: Figure[];
   revisions: Record<string, number>; global: number; plotGen: Record<string, number>; poster: number;
@@ -29,17 +31,17 @@ export function createCanvasAtlas(opts: {
   wanted?: (id: string) => ReadonlySet<string> | undefined;
   rememberBounds: (fig: Figure) => void;
 }) {
-  const view = writable<ReadonlyMap<string, { mode: AtlasMode; pending: boolean }>>(new Map());
+  const view = writable<ReadonlyMap<string, AtlasViewEntry>>(new Map());
   const entries = new Map<string, Entry>();
   let input: AtlasCanvasInput | null = null, scope = '', active: string | null = null, destroyed = false;
   let coldUnavailable = false;
   let idle: number | null = null;
   let viewQueued = false;
-  let pendingView: ReadonlyMap<string, { mode: AtlasMode; pending: boolean }> = new Map();
+  let pendingView: ReadonlyMap<string, AtlasViewEntry> = new Map();
   const emit = () => {
     const previous = get(view);
-    if (!viewQueued && previous.size === entries.size && ![...entries].some(([id, e]) => previous.get(id)?.mode !== e.mode || previous.get(id)?.pending !== e.pending)) return;
-    pendingView = new Map([...entries].map(([id, e]) => [id, { mode: e.mode, pending: e.pending }]));
+    if (!viewQueued && previous.size === entries.size && ![...entries].some(([id, e]) => previous.get(id)?.mode !== e.mode || previous.get(id)?.pending !== e.pending || previous.get(id)?.full !== e.full)) return;
+    pendingView = new Map([...entries].map(([id, e]) => [id, { mode: e.mode, pending: e.pending, full: e.full }]));
     if (viewQueued) return;
     viewQueued = true;
     // sync() runs from a legacy $: consumer of the mount list. Publish outside
@@ -48,7 +50,7 @@ export function createCanvasAtlas(opts: {
     queueMicrotask(() => {
       viewQueued = false;
       const previous = get(view);
-      if (!destroyed && (previous.size !== pendingView.size || [...pendingView].some(([id, e]) => previous.get(id)?.mode !== e.mode || previous.get(id)?.pending !== e.pending))) {
+      if (!destroyed && (previous.size !== pendingView.size || [...pendingView].some(([id, e]) => previous.get(id)?.mode !== e.mode || previous.get(id)?.pending !== e.pending || previous.get(id)?.full !== e.full))) {
         view.set(pendingView); atlasRevision.update(n => n + 1);
       }
     });
@@ -152,7 +154,7 @@ export function createCanvasAtlas(opts: {
       let e = entries.get(fig.id);
       if (!e) {
         e = { mode: fig.id !== next.activeId && next.bridge?.rasterizeFigure && !coldUnavailable ? 'cold' : 'live', key: '', pending: false,
-          ready: '', preparing: '', refusedC: '', failedL: '', signature: '', global: -1, revision: -1, epoch: 0 };
+          ready: '', preparing: '', refusedC: '', failedL: '', signature: '', global: -1, revision: -1, epoch: 0, full: false };
         entries.set(fig.id, e);
       }
       if (fig.id === next.activeId) {
@@ -183,6 +185,12 @@ export function createCanvasAtlas(opts: {
       // A refused picture uses ordinary live culling, not the full-figure
       // capture mount. A different key may become renderable on the next idle.
       if (e.mode === 'fallback' && e.failedL !== e.key && quiet()) { e.mode = 'live'; e.ready = ''; }
+      // D3 ruling (2026-10-30): with the raster service available, a live
+      // non-active figure (just deactivated, or stale) is pictured by Route C
+      // from its current model: no whole-figure mount, no main-thread SVG
+      // parse. Route L stays the browser path and the fallback when the
+      // service refuses this key or is unavailable. It stays live until then.
+      const viaC = !!next.bridge?.rasterizeFigure && !coldUnavailable && e.refusedC !== e.key;
       if (fig.id === next.activeId) {
         queue.cancel(fig.id); e.pending = false;
         if (e.mode === 'raster') { e.mode = raster ? 'warming' : 'live'; e.ready = ''; }
@@ -203,9 +211,12 @@ export function createCanvasAtlas(opts: {
             if (e.refusedC !== e.key) requestFor(fig, 3, 'C');
             else if (quiet()) { e.mode = 'warming'; e.ready = ''; }
           }
+        } else if (viaC) {
+          if (!usable(raster, e.key) || needsSharper) requestFor(fig, e.pending ? 2 : usable(raster, e.key) ? 3 : 1, 'C');
         } else if (e.ready === e.key && e.failedL !== e.key) requestFor(fig, e.pending ? 2 : usable(raster, e.key) ? 3 : 1, 'L');
       }
-      if ((e.mode === 'live' && fig.id !== next.activeId || e.mode === 'warming') && (visible.has(fig.id) || e.pending)) void prepare(fig, e);
+      e.full = fig.id !== next.activeId && (e.mode === 'live' || e.mode === 'warming') && !viaC;
+      if ((e.full || e.mode === 'warming' && fig.id === next.activeId) && (visible.has(fig.id) || e.pending)) void prepare(fig, e);
       if (inView.has(fig.id) && raster) touch(fig.id);
     }
     active = next.activeId; emit();

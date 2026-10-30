@@ -523,7 +523,9 @@
   // Only a NON-active figure mounts whole (its Route-L picture must be complete).
   // The active figure, warming or live, keeps ordinary culling: mounting all of
   // a 5,000-object figure on activation measured 107 ms key-to-paint (vs 69).
-  const atlasNeedsFull = (id: string) => atlasActive && id !== $activeFigureId && ($atlasView.get(id)?.mode === 'warming' || $atlasView.get(id)?.mode === 'live');
+  // With the raster service (D3 ruling) a deactivated figure is pictured by Route C
+  // and keeps its culled set; `full` marks the Route-L captures only.
+  const atlasNeedsFull = (id: string) => atlasActive && id !== $activeFigureId && !!$atlasView.get(id)?.full;
   $: {
     // Explicit dependencies matter in this legacy component: reads hidden in
     // controller callbacks cannot wake a readiness check or a quiet transition.

@@ -1,13 +1,14 @@
 import { gotoApp, clickMode, APP_URL, waitFor } from './driver.mjs';
 import { installDenseProject } from './lazyFixture.mjs';
 
-export async function atlasFixture(page, figures = 12) {
+export async function atlasFixture(page, figures = 12, { beforeLoad } = {}) {
   await page.evaluateOnNewDocument(() => { window.__name ??= f => f; });
   await gotoApp(page, { url: APP_URL + '?fixture=demo', settle: 100 });
   await clickMode(page, 'Figure');
   await waitFor(page, () => !!window.__flux?.fig && !!document.querySelector('.canvas-host'), null, { timeout: 20000, label: 'Figure ready' });
   const fixture = await installDenseProject(page, { root: `/demo/atlas-${figures}`, figures, layout: 'grid', columns: figures > 12 ? 10 : 4,
     figureW: 600, figureH: 400, gap: 45, plotsPerFigure: 3, nodesPerPlot: 1500 });
+  if (beforeLoad) await page.evaluate(beforeLoad);
   await page.evaluate(async root => {
     const F = window.__flux;
     await F.bridge.loadFigInto(root, 'atlas');
