@@ -794,14 +794,14 @@
   const ATLAS_WARM_BUDGET_MS = 8;
   let atlasPress: { figId: string; x: number; y: number; id: string | null } | null = null;
   type AtlasWarm = { figId: string; admitted: Set<string>; parsed: Set<string>; hidden: Set<string>; candidates: Element[]; press: { x: number; y: number; id: string | null };
-    running: boolean; batch: number };
+    running: boolean; perEl: number; order: Element[] | null; orderOf: Element[] | null };
   const atlasWarmBox: { w: AtlasWarm | null } = { w: null }; // non-reactive (like visMemoBox); atlasWarmGen is the signal
   let atlasWarmGen = 0;
   function atlasWarmFeed(fig: Figure, els: Element[]): Element[] {
     if (!atlasWarmBox.w || atlasWarmBox.w.figId !== fig.id) {
       const p = atlasPress?.figId === fig.id ? atlasPress : null;
       const c = { x: (hostW / 2 - $viewport.panX) / $viewport.zoom - fig.x, y: (hostH / 2 - $viewport.panY) / $viewport.zoom - fig.y };
-      atlasWarmBox.w = { figId: fig.id, admitted: new Set(), parsed: new Set(), hidden: new Set(), candidates: els, press: p ?? { ...c, id: null }, running: false, batch: 1 };
+      atlasWarmBox.w = { figId: fig.id, admitted: new Set(), parsed: new Set(), hidden: new Set(), candidates: els, press: p ?? { ...c, id: null }, running: false, perEl: 0.1, order: null, orderOf: null };
     } else atlasWarmBox.w.candidates = els;
     const w = atlasWarmBox.w;
     if (!w.running && els.some(el => !w.admitted.has(el.id))) { w.running = true; atlasWarmStep(w, true); }
@@ -815,7 +815,8 @@
       // only reveals it (its style and paint), so the two never share a task.
       if (w.hidden.size) { w.hidden.clear(); atlasWarmGen++; await tick(); unparked(); atlasWarmStep(w, false); return; }
       const d = (el: Element) => el.id === w.press.id ? -1 : Math.hypot(el.x + el.width / 2 - w.press.x, el.y + el.height / 2 - w.press.y);
-      const order = w.candidates.filter(el => !w.admitted.has(el.id)).sort((a, b) => d(a) - d(b));
+      if (w.orderOf !== w.candidates) { w.orderOf = w.candidates; w.order = [...w.candidates].sort((a, b) => d(a) - d(b)); }
+      const order = w.order!.filter(el => !w.admitted.has(el.id));
       const t0 = performance.now();
       let units = 0;
       for (let i = 0; i < order.length && (units === 0 || order[i].id === w.press.id || performance.now() - t0 < ATLAS_WARM_BUDGET_MS);) {
@@ -829,12 +830,24 @@
         // display:none and is revealed next frame, so its clone and its first
         // style/paint never share a task. A drag's transform is already on it.
         const plot = el.type === 'plot';
-        if (el.type === 'plot' || el.id === w.press.id) w.admitted.add(order[i++].id);
-        else for (let k = 0; k < w.batch && i < order.length && order[i].type !== 'plot'; k++) w.admitted.add(order[i++].id);
+        let k = 0;
+        if (el.type === 'plot' || el.id === w.press.id) { w.admitted.add(order[i++].id); k = 1; }
+        else {
+          // Non-plot elements batch to fill the frame's remaining budget at the
+          // measured cost per element (the reactive flush amortizes over a batch).
+          // Always admit at least 1/30 of what remains, so a per-flush overhead
+          // the budget cannot absorb never makes the warm-up crawl.
+          // Past the working-set caps (1,000 objects) a chunk's reactive flush
+          // itself is the cost (O(objects) per chunk): such a figure mounts its
+          // non-plot objects in ONE chunk, still after the press frame.
+          const room = w.candidates.length > PARK_MAX_ELEMENTS ? order.length
+            : Math.min(2048, Math.max(1, Math.ceil((order.length - i) / 30), Math.floor((ATLAS_WARM_BUDGET_MS - (t - t0)) / w.perEl)));
+          for (; k < room && i < order.length && order[i].type !== 'plot'; k++) w.admitted.add(order[i++].id);
+        }
         if (plot) w.hidden.add(el.id);
         atlasWarmGen++;
         await tick();
-        w.batch = performance.now() - t < 2 ? Math.min(256, w.batch * 2) : Math.max(1, w.batch >> 1);
+        if (!plot && k > 0) w.perEl = Math.min(8, Math.max(0.002, (w.perEl + (performance.now() - t) / k) / 2));
         if (plot || el.id === w.press.id) break; // one plot per frame (revealed next frame); the pressed element alone in the first
       }
       if (atlasWarmBox.w === w && (w.hidden.size || w.candidates.some(el => !w.admitted.has(el.id)))) atlasWarmStep(w, false);
