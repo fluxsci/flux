@@ -202,28 +202,34 @@ try {
   h.eq(kept, 0, `(R4) an Arrange visit keeps the active figure's retained wrappers (${kept} of ${keep.length} unmounted)`);
   await page.keyboard.press('Escape');
   h.eq(realErrors(page).length, 0, `console clean: ${realErrors(page).join(' | ')}`);
-  // D3 ruling (R3): with the raster service present (stubbed here with a
-  // magenta PNG of the requested size), a DEACTIVATED figure is pictured by
-  // Route C from its model — never a Route-L capture of its live DOM.
-  const svc = await browser.newPage();
-  try {
-    await svc.setViewport({ width: 1600, height: 1000 });
-    const sfx = await atlasFixture(svc, 12, { beforeLoad: () => {
-      window.__cCalls = [];
-      window.fig.rasterizeFigure = async req => {
-        window.__cCalls.push(req.figure.id);
-        const c = new OffscreenCanvas(req.width, req.height), x = c.getContext('2d'); x.fillStyle = '#ff00ff'; x.fillRect(0, 0, req.width, req.height);
-        return { png: new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()), width: req.width, height: req.height };
-      };
-    } });
-    await settledAtlas(svc);
-    const before = await svc.evaluate(() => ({ routeL: window.__flux.atlas.stats.routeL, calls: window.__cCalls.length }));
-    await clickFigure(svc, sfx.figIds[1]);
-    await waitFor(svc, id => window.__flux.get(window.__flux.atlas.rasters).get(id)?.key === document.querySelector(`[data-annotation-figure="${id}"]`)?.querySelector('[data-figure-raster]')?.getAttribute('data-raster-key') && !!document.querySelector(`[data-figure-raster="${id}"]`), sfx.figIds[0], { label: 'deactivated figure pictured', timeout: 10000 });
-    const after = await svc.evaluate(id => ({ routeL: window.__flux.atlas.stats.routeL, calls: window.__cCalls.filter(f => f === id).length, route: window.__flux.get(window.__flux.atlas.rasters).get(id)?.route }), sfx.figIds[0]);
-    h.ok(after.route === 'C' && after.routeL === before.routeL && after.calls >= 1, `(R3) a deactivated figure is pictured by the raster service, not a Route-L capture (${JSON.stringify({ before, after })})`);
-    h.eq(realErrors(svc).length, 0, `service page console clean: ${realErrors(svc).join(' | ')}`);
-  } finally { await svc.close(); }
+  // R3/R3' rulings: with the raster service present (stubbed here with a
+  // magenta PNG of the requested size), a DEACTIVATED figure at or below
+  // ATLAS_ROUTE_L_MAX_NODES (6,000) is pictured by Route L (pixel-identical);
+  // one above it by the service (Route C), never a Route-L capture.
+  for (const [nodesPerPlot, want] of [[1500, 'L'], [2500, 'C']]) {
+    const svc = await browser.newPage();
+    try {
+      await svc.setViewport({ width: 1600, height: 1000 });
+      const sfx = await atlasFixture(svc, 12, { nodesPerPlot, beforeLoad: () => {
+        window.__cCalls = [];
+        window.fig.rasterizeFigure = async req => {
+          window.__cCalls.push(req.figure.id);
+          const c = new OffscreenCanvas(req.width, req.height), x = c.getContext('2d'); x.fillStyle = '#ff00ff'; x.fillRect(0, 0, req.width, req.height);
+          return { png: new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()), width: req.width, height: req.height };
+        };
+      } });
+      await settledAtlas(svc);
+      const nodes = await svc.$eval(`[data-annotation-figure="${sfx.figIds[0]}"]`, g => g.getElementsByTagName('*').length);
+      const before = await svc.evaluate(() => ({ routeL: window.__flux.atlas.stats.routeL, calls: window.__cCalls.length }));
+      await clickFigure(svc, sfx.figIds[1]);
+      await waitFor(svc, id => !!document.querySelector(`[data-figure-raster="${id}"]`) && window.__flux.get(window.__flux.atlas.rasters).get(id)?.key === document.querySelector(`[data-figure-raster="${id}"]`).getAttribute('data-raster-key'), sfx.figIds[0], { label: 'deactivated figure pictured', timeout: 10000 });
+      const after = await svc.evaluate(id => ({ routeL: window.__flux.atlas.stats.routeL, calls: window.__cCalls.filter(f => f === id).length, route: window.__flux.get(window.__flux.atlas.rasters).get(id)?.route }), sfx.figIds[0]);
+      const ok = want === 'L' ? after.route === 'L' && after.routeL === before.routeL + 1 && after.calls === 0
+        : after.route === 'C' && after.routeL === before.routeL && after.calls >= 1;
+      h.ok(ok && (want === 'L' ? nodes <= 6000 : nodes > 6000), `(R3') a deactivated ${nodes}-node figure is pictured by Route ${want} (${JSON.stringify({ before, after })})`);
+      h.eq(realErrors(svc).length, 0, `service page console clean: ${realErrors(svc).join(' | ')}`);
+    } finally { await svc.close(); }
+  }
   mkdirSync('test-results', { recursive: true });
   writeFileSync('test-results/figure-atlas.json', JSON.stringify({ timings, before, after: state, pixelDiff: diff }, null, 2));
   console.log(`timings ${JSON.stringify(timings)}`);

@@ -4,16 +4,16 @@ import { get, writable } from 'svelte/store';
 import { tick } from 'svelte';
 import type { Figure } from '../types';
 import type { FileBridge } from '../project/types';
-import { hasPlotDom } from '../plot/store';
+import { hasPlotDom, plotDom } from '../plot/store';
 import { effectiveHidden } from '../groups';
 import { rectsIntersect, type Rect } from '../geometry';
 import { rasterCold, rasterLive } from './atlasRoutes';
-import { atlasStats, atlasOwners, atlasRevision, createAtlasQueue, drop, evictToBudget, figureRasters, rasterKey, rasterScale, soft, touch, usable,
+import { ATLAS_ROUTE_L_MAX_ELEMENTS, ATLAS_ROUTE_L_MAX_NODES, atlasStats, atlasOwners, atlasRevision, createAtlasQueue, drop, evictToBudget, figureRasters, rasterKey, rasterScale, soft, touch, usable,
   type AtlasRequest, type FigureRaster } from './atlas';
 
 export type AtlasMode = 'live' | 'raster' | 'warming' | 'cold' | 'fallback';
 interface Entry { mode: AtlasMode; key: string; pending: boolean; ready: string; preparing: string; refusedC: string; failedL: string;
-  signature: string; global: number; revision: number; epoch: number; full: boolean; recheck: boolean }
+  signature: string; global: number; revision: number; epoch: number; full: boolean; recheck: boolean; nodes: number; nodesKey: string }
 /** View state per figure; `full` = a live non-active figure that must mount whole (its picture will be a Route-L capture). */
 export interface AtlasViewEntry { mode: AtlasMode; pending: boolean; full: boolean }
 export interface AtlasCanvasInput {
@@ -140,6 +140,14 @@ export function createCanvasAtlas(opts: {
     if (entry.ready === key && input && !destroyed) sync(input);
     else if (entry.recheck && !destroyed && entries.get(fig.id) === entry) { entry.recheck = false; void prepare(fig, entry); }
   }
+  /** The figure's SVG node count: its mounted subtree, or (when only partly
+   * mounted) the sum of its plots' cached DOM, whichever is larger. */
+  function figureNodes(fig: Figure): number {
+    const mounted = opts.group(fig.id)?.getElementsByTagName('*').length ?? 0;
+    let plots = 0;
+    for (const el of fig.elements) if (el.type === 'plot') plots += plotDom.get(el.assetId)?.getElementsByTagName('*').length ?? 0;
+    return Math.max(mounted, plots);
+  }
   function requestFor(fig: Figure, priority: 1 | 2 | 3, route: 'L' | 'C') {
     const source = input!, entry = entries.get(fig.id)!;
     queue.request({ figureId: fig.id, key: entry.key, S: rasterScale(fig, source.zoom, source.dpr), priority, route,
@@ -164,7 +172,7 @@ export function createCanvasAtlas(opts: {
       let e = entries.get(fig.id);
       if (!e) {
         e = { mode: fig.id !== next.activeId && next.bridge?.rasterizeFigure && !coldUnavailable ? 'cold' : 'live', key: '', pending: false,
-          ready: '', preparing: '', refusedC: '', failedL: '', signature: '', global: -1, revision: -1, epoch: 0, full: false, recheck: false };
+          ready: '', preparing: '', refusedC: '', failedL: '', signature: '', global: -1, revision: -1, epoch: 0, full: false, recheck: false, nodes: 0, nodesKey: '' };
         entries.set(fig.id, e);
       }
       if (fig.id === next.activeId) {
@@ -200,7 +208,12 @@ export function createCanvasAtlas(opts: {
       // from its current model: no whole-figure mount, no main-thread SVG
       // parse. Route L stays the browser path and the fallback when the
       // service refuses this key or is unavailable. It stays live until then.
-      const viaC = !!next.bridge?.rasterizeFigure && !coldUnavailable && e.refusedC !== e.key;
+      // R3' (2026-10-30): only a figure above ATLAS_ROUTE_L_MAX_NODES (or whose
+      // Route L failed) is pictured by the service; smaller ones by Route L,
+      // pixel-identical to the live render they replace (no switch shimmer).
+      if (fig.id !== next.activeId && e.nodesKey !== e.key) { e.nodesKey = e.key; e.nodes = figureNodes(fig); }
+      const viaC = !!next.bridge?.rasterizeFigure && !coldUnavailable && e.refusedC !== e.key &&
+        (fig.id === next.activeId || e.nodes > ATLAS_ROUTE_L_MAX_NODES || fig.elements.length > ATLAS_ROUTE_L_MAX_ELEMENTS || e.failedL === e.key);
       if (fig.id === next.activeId) {
         queue.cancel(fig.id); e.pending = false;
         if (e.mode === 'raster') { e.mode = raster ? 'warming' : 'live'; e.ready = ''; }

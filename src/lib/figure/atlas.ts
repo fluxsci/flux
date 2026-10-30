@@ -14,6 +14,27 @@ export interface AtlasRequest {
 }
 export const figureRasters = writable<ReadonlyMap<string, FigureRaster>>(new Map());
 export const atlasRevision = writable(0);
+/** R3' (orchestrator ruling, 2026-10-30): which route pictures a DEACTIVATED figure.
+ * At or below this many mounted SVG nodes it is Route L (Chromium decodes the
+ * figure's own live DOM: pixel-identical to what was on screen, ~7 ms per 1k
+ * nodes on the main thread, so ≈ 40 ms at idle, under the long-task bar). Above
+ * it, Route C (the raster service, off the main thread). Measured on the owner
+ * project copy: the Chromium decode of the 11.8k-node Supplementary Figure 2
+ * took 65–150 ms on the main thread, while Route C pictures differ from the
+ * live render on 11 of 13 figures by 4–10 % of 2×2 blocks (crisp image
+ * interpolation, dense-stroke anti-aliasing, one bold label drawn regular),
+ * which reads as a shimmer on every switch. Cold pictures (open, entering view)
+ * stay Route C; the browser harness (no service) uses Route L for everything;
+ * Route C remains the fallback when Route L fails. */
+export const ATLAS_ROUTE_L_MAX_NODES = 6000;
+/** ...and at most this many elements. Route L's cost tracks element wrappers as
+ * well as nodes: the native 1,600-object fixture figure has only 5,336 nodes but
+ * its Chromium decode took 152 ms (serialize 6 ms, draw 5 ms), and under the
+ * node rule alone it landed on the next Arrange key / nudge (verify-figure-
+ * polish-electron 0/3: openMs 108–111, first nudge 109 vs median 72). 1,000 is
+ * the existing working-set cap (Canvas PARK_MAX_ELEMENTS); the owner's figures
+ * hold 2–42 elements, so all of them at ≤ 6,000 nodes stay on Route L. */
+export const ATLAS_ROUTE_L_MAX_ELEMENTS = 1000;
 export const atlasStats = { rasters: 0, bytes: 0, budget: 256 * 1024 * 1024,
   routeL: 0, routeC: 0, disk: 0, swaps: 0, blankFrames: 0, failures: 0, queue: 0 };
 
