@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { harness } from './lib/harness.mjs';
 import { OwnWriteMatcher } from '../src/lib/project/ownWrites';
 import { figureImageAssetIds } from '../src/lib/project/figureAssets';
@@ -21,4 +22,11 @@ matcher.record('/p/fig/c.json', stat); matcher.record('/other/fig/c.json', stat)
 matcher.forgetUnder('/p/fig/');
 h.ok(!matcher.matches('/p/fig/c.json', stat) && matcher.matches('/other/fig/c.json', stat), 'a failed publication forgets its root without suppressing later external events');
 h.ok(figureImageAssetIds === coreAssetIds, 'Paper and flux-core use one pure image reference collector');
+// QA-P4: the native watcher coalesces each flush window into one fs:changed per
+// subsystem (latest path wins). The renderer judges EVERY coalesced fig/ path, so
+// the payload must carry them all (main-process source shape; no headless driver).
+const main = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
+h.ok(main.includes('figPaths.add(abs)') && main.includes('subsystem === "fig" ? { subsystem, path: p, paths:'), 'the native fig/ watch event lists every coalesced path');
+const watch = readFileSync(new URL('../src/lib/project/projectWatch.ts', import.meta.url), 'utf8');
+h.ok(watch.includes('isOwnFigChange(root, Array.isArray(info.paths) ? info.paths : [info.path])'), 'the renderer judges every coalesced fig/ path before skipping a reload');
 h.done();

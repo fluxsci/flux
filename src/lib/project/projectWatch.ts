@@ -20,6 +20,8 @@ import { invalidateEnrichCache } from "../references/fluxlibBridge";
 export interface FsChange {
   subsystem: string;
   path: string;
+  /** fig/ only: every path the native watcher coalesced into this event. */
+  paths?: string[];
 }
 
 /** External manuscript change → PaperMode reloads the doc if it is clean.
@@ -63,10 +65,13 @@ export function startProjectWatch(root: string | null): void {
       refreshSources(); // service publishes only after durable commit
     } else if (info.subsystem === "dissections") bumpDissections(); // plots/_dissections/ — Dissect viewer re-lists
     else if (info.subsystem === "fig") {
-      void import("./figbridge").then(m => m.isOwnFigChange(root, info.path)).then(own => {
-        if (generation !== watchGeneration || own) return;
-        bumpFigRevision(); refreshSources();
-      });
+      // An echo of our own publication is skipped only when EVERY coalesced path is
+      // ours; any doubt (unknown path, failed check) reloads as before.
+      void import("./figbridge").then(m => m.isOwnFigChange(root, Array.isArray(info.paths) ? info.paths : [info.path]))
+        .catch(() => false).then(own => {
+          if (generation !== watchGeneration || own) return;
+          bumpFigRevision(); refreshSources();
+        });
     }
     else if (info.subsystem === "references") bumpBibRevision();
     else if (info.subsystem === "manuscript" || info.subsystem === "context")

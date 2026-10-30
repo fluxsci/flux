@@ -47,6 +47,27 @@ try {
   await sleep(300);
   h.eq(await page.evaluate(() => window.__echoBumps.at(-1) - window.__echoBumps[0]), 2, 'same path externally rewritten increments once and reloads the editor');
   await shot(page, 'fig-edit-echo-external');
+  // QA-P4: the native watcher coalesces a flush window into ONE fs:changed event
+  // (latest path wins; `paths` lists all of them). An own write landing last in
+  // that window must not mask an external change made in the same window.
+  const rect = await page.$eval('[data-editor-element-id="el-a-rect"]', el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  const before = await page.evaluate(() => window.__echoBumps.length);
+  await page.mouse.click(rect.x, rect.y);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(n => !window.__flux.get(window.__flux.fig.dirty) && window.__echoBumps.length > n, {}, before);
+  await sleep(800); // the own-save echo (latest path = our .bak) has been judged
+  const ownBumps = await page.evaluate(() => window.__echoBumps.at(-1) - window.__echoBumps[0]);
+  await page.evaluate(async () => {
+    const path = window.__echoRoot + '/fig/canvases/canvas-1.json';
+    const canvas = JSON.parse(await window.fig.readText(path));
+    canvas.figures[0].elements.find(e => e.id === 'el-a-rect').fill = '#123456';
+    window.fig._files.set(path, new TextEncoder().encode(JSON.stringify(canvas)));
+    window.fig._emitFsChange({ subsystem: 'fig', path: window.__echoPath, paths: [path, window.__echoPath] });
+  });
+  await page.waitForFunction(() => window.__flux.get(window.__flux.fig.project).figures[0].elements.find(e => e.id === 'el-a-rect').fill === '#123456', { timeout: 4000 }).catch(() => {});
+  await sleep(300);
+  h.ok(await page.evaluate(() => window.__flux.get(window.__flux.fig.project).figures[0].elements.find(e => e.id === 'el-a-rect').fill === '#123456'), 'an external change coalesced with a later own write still reloads the editor');
+  h.eq(await page.evaluate(() => window.__echoBumps.at(-1) - window.__echoBumps[0]), ownBumps + 1, 'the coalesced event increments figRevision once');
   h.eq(realErrors(page).length, 0, 'console clean');
 } finally { await browser.close(); }
 await h.done();

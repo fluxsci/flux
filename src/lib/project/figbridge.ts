@@ -80,12 +80,15 @@ const ownFigWrites = new OwnWriteMatcher();
 const figPublications = new Map<string, Promise<void>>();
 /** Watch events can arrive during a multi-file publication. Judge the final
  * stat only after that publication settles; failures never suppress reloads. */
-export async function isOwnFigChange(root: string, path: string): Promise<boolean> {
+export async function isOwnFigChange(root: string, paths: readonly string[]): Promise<boolean> {
   const publication = figPublications.get(root);
   if (publication) { try { await publication; } catch { return false; } }
   const fig = fileBridge();
-  if (!fig?.stat || !ownFigWrites.has(path)) return false;
-  try { return ownFigWrites.matches(path, await fig.stat(path)); } catch { return false; }
+  if (!fig?.stat || !paths.length || paths.some(path => typeof path !== "string" || !ownFigWrites.has(path))) return false;
+  try {
+    for (const path of paths) if (!ownFigWrites.matches(path, await fig.stat(path))) return false;
+    return true;
+  } catch { return false; }
 }
 function recordingFigBridge(root: string, bridge: FileBridge): FileBridge {
   const prefix = joinPath(root, "fig").replace(/\\/g, "/") + "/";

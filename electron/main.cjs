@@ -1297,17 +1297,24 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   // the batch says { rescan: true } instead.
   const BATCH_CAP = 500;
   const batches = new Map(); // "plots" | "dissections" -> Set(abs) | "rescan"
+  // Every fig/ path of the window (fs:changed keeps only the latest): the renderer
+  // treats an event as its own write echo only when ALL of them are its own
+  // publications, so a later own write can never mask an external change. Over
+  // FIG_PATHS_CAP the list is empty, which the renderer never treats as own.
+  const FIG_PATHS_CAP = 256;
+  let figPaths = new Set();
   let timer = null;
   const flush = () => {
     timer = null;
     if (!s.win.isDestroyed()) {
       for (const [subsystem, p] of pending)
-        s.win.webContents.send("fs:changed", { subsystem, path: p });
+        s.win.webContents.send("fs:changed", subsystem === "fig" ? { subsystem, path: p, paths: figPaths.size > FIG_PATHS_CAP ? [] : [...figPaths] } : { subsystem, path: p });
       for (const [subsystem, set] of batches)
         s.win.webContents.send("fs:changedBatch", set === "rescan" ? { subsystem, paths: [], rescan: true } : { subsystem, paths: [...set] });
     }
     pending.clear();
     batches.clear();
+    figPaths = new Set();
   };
   // Derived Figure renders must not invalidate their canonical source. Prune
   // them and exploratory lighttable collections before opening watch descriptors.
@@ -1337,6 +1344,7 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
       return;
     }
     pending.set(subsystem, abs);
+    if (subsystem === "fig" && figPaths.size <= FIG_PATHS_CAP) figPaths.add(abs);
     if (subsystem === "plots" || subsystem === "dissections") {
       const set = batches.get(subsystem) ?? new Set();
       if (set !== "rescan") {
