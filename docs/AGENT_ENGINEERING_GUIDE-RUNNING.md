@@ -11703,10 +11703,25 @@ coverage audit resolves aliases before warning about old tracks after source reg
 - Retain the active figure's mounted capture under the existing 1k-element/150k-node bounds when retiring parking; its deep-fold remount otherwise cost 267 ms. Cached bitmap frames stay mounted for whole-scene coverage, with LRU protection and quality upgrades based on the actual viewport.
 
 ### 2026-10-30 — QA-P2: figure atlas integration (Claude Opus 5.5, `qa/p2`)
-**Work:** Rebased the P2 worker output onto P1, P3 and P4 (manifest merged structurally three times; pathmap pins recomputed, 0 mismatches) and fixed four integration defects, each pinned red→green: offscreen retention without parking's `rasterizeScene` gate (3D views never released in the browser bridge), atlas work and swaps inside presses outside Canvas `gesture`, whole-figure mounts on activation, per-edit serialization of the active figure. Owner-flow battery: every PLAN §8 row met on three runs; switching figures and the native 5,000/dense key-to-paint gate are the open cost (ledger).
+**Work:** Rebased the P2 worker output onto P1, P3, P4 and P3b. The manifest was merged structurally each time; pathmap pins were recomputed (0 mismatches). Integration fixes, each pinned red→green:
+- offscreen retention lost parking's `rasterizeScene` gate;
+- atlas work and swaps ran inside presses outside Canvas `gesture`;
+- activation mounted whole figures;
+- every edit serialized the active figure;
+- the `full` memo key was missing;
+- a finished warm-up never re-checked readiness.
+
+Then the orchestrator's rulings R2–R6:
+- activation warms up OFF the press, in chunks, with the picture BEHIND the slots;
+- deactivated figures are pictured by Route C in Electron;
+- working-set retention holds through Arrange visits;
+- the first-nudge outlier is pinned;
+- the model3d release gates are routed from Canvas.
 **Learnings:**
-- A mechanism that replaces a capability-gated one inherits the gate: working-set retention standing in for parking needs `fileBridge().rasterizeScene` like `parkingAllowed`. The model3d release gates are not routed from `Canvas.svelte`; only the full ui tier caught it.
-- "Quiet" for background canvas work must also exclude any held pointer: Arrange gap handles, panel number scrubs and rail drags press outside `gesture`. Window-level `pointerdown`/`pointerup` capture listeners are enough.
-- Only an inactive figure needs its whole element layer mounted (a complete Route-L picture). Warming the active figure must use its culled set, or the working-set retention keeps every object live afterwards (5,000 instead of 3,761 wrappers, key-to-paint 69 → 107 ms).
-- Every `commit()` bumps `globalRev`; anything recomputed per figure on that signal must not serialize the active figure per edit.
-- Figure switching is the atlas's real cost: activation mounts the new figure's live DOM (80–160 ms task on the owner's project, ~11.8k elements styled) and deactivation parses its SVG for Route L on the main thread (`XMLDocumentParser::doWrite`). Measure switching (`input-probe --phases=switchFigure`), not only in-figure gestures.
+- A mechanism that replaces a capability-gated one inherits the gate: working-set retention standing in for parking needs `fileBridge().rasterizeScene` like `parkingAllowed`.
+- "Quiet" for background canvas work must also exclude any held pointer. Arrange gap handles, panel number scrubs and rail drags press outside `gesture`.
+- Activation is the atlas's interactive cost: mount a pictured figure's culled set in a self-terminating rAF chain after the press frame. A plot is atomic: it mounts display:none and is revealed next frame. Past 1,000 objects the chain's per-chunk reactive flush dominates, so mount those in one chunk.
+- Readiness that relies on "a later reactive pass will call me" stalls when the decisive pass arrives while a check is in flight. Mark a recheck, and call readiness directly when the warm-up completes.
+- Every `commit()` bumps `globalRev`: per-figure work keyed on it must not serialize the active figure per edit.
+- After a figure switch the remaining long tasks are an atomic heavy-plot mount plus that frame's style/paint, and the idle zoom-proxy recapture of the live active figure (≤20k nodes are decoded by Chromium on the main thread). Measure switching with `input-probe --phases=switchFigure`.
+- Route C vs Chromium differ on the owner's figures by 1.4–9.8 % of 2×2 blocks (≥10 levels). Fonts resolve to the same family. Differences come from interpolation of embedded raster images (heatmaps), anti-aliasing of dense thin strokes and fills, and at least one bold label drawn regular by resvg.
