@@ -92,6 +92,17 @@ try {
   const [e, f] = await Promise.all([readFigSource(root), readFigSource(root)]);
   h.ok(assetReads() === 2, `two overlapping reads share one read per file (read ${assetReads()})`);
   h.ok(e.assetData[asset.id] === f.assetData[asset.id] && (f.assetManifests[asset.id] as unknown as { marker: string })?.marker === "C", "both see the new content");
+
+  // P4 split readFigSource into structure + assets; the compatibility read must
+  // keep the pre-split issue list exactly: one issue per missing GLB, in the
+  // stored path's own wording (QA-P4: a non-normalized path listed it twice).
+  h.section("missing GLB issues");
+  const idxPath = path.join(root, "fig", "index.json");
+  const withGhost = JSON.parse(await fs.readFile(idxPath, "utf8"));
+  withGhost.assets.push({ id: "ghost-glb", kind: "glb", path: "assets/./ghost.glb" });
+  await fs.writeFile(idxPath, JSON.stringify(withGhost, null, 2));
+  const ghost = ((await readFigSource(root)).issues ?? []).filter((issue) => issue.assetId === "ghost-glb");
+  h.ok(ghost.length === 1 && ghost[0].message.includes("fig/assets/./ghost.glb"), `one missing-GLB issue in the stored wording (${JSON.stringify(ghost)})`);
 } finally {
   await fs.rm(SCRATCH, { recursive: true, force: true });
 }

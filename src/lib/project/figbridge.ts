@@ -785,8 +785,9 @@ export async function readFigAssets(root: string, assetIds: Iterable<string>, so
 /** Compatibility read for callers that explicitly need the complete source. */
 export async function readFigSource(root: string): Promise<FigSource> {
   const structure = await readFigStructure(root);
+  // Reading every asset re-derives each structure issue (missing GLB) in the
+  // original per-asset order and wording, so the asset pass's issues are the
+  // complete, byte-identical list the pre-split reader returned.
   const assets = await readFigAssets(root, structure.assets.map(a => a.id), structure);
-  const issues = [...new Map([...(structure.issues ?? []), ...(assets.issues ?? [])]
-    .map(issue => [JSON.stringify([issue.assetId, issue.message]), issue])).values()];
-  return { ...structure, ...assets, issues };
+  return { ...structure, ...assets };
 }
