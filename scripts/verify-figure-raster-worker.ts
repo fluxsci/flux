@@ -21,6 +21,19 @@ try {
   try { ({ createFigureRasterFamily } = require(path.join(serviceRepo, 'electron/ipc/figureRaster.cjs'))); }
   catch { h.fail('real figure raster IPC handler/worker exists and can produce a PNG'); await fs.rm(scratch, { recursive: true, force: true }); await h.done(); }
   const build = await import('../scripts/build-figure-raster-worker.mjs'); await build.buildFigureRasterWorker();
+  // The bundle is read by parallel pure gates (asar closure, packaged requires) while this gate,
+  // check, dev and build regenerate it: an unchanged rebuild must not touch it, and a changed one
+  // must replace it by rename, never truncate it in place. Exercised on a scratch output.
+  const scratchBundle = path.join(scratch, 'bundle/figureRasterWorker.bundle.mjs');
+  await build.buildFigureRasterWorker({ outfile: scratchBundle });
+  await fs.writeFile(scratchBundle, 'stale');
+  const staleBundle = await fs.stat(scratchBundle);
+  await build.buildFigureRasterWorker({ outfile: scratchBundle });
+  const rebuilt = await fs.stat(scratchBundle);
+  h.ok(rebuilt.ino !== staleBundle.ino && rebuilt.size > 1024, 'a changed worker bundle is replaced by rename, not rewritten in place');
+  await build.buildFigureRasterWorker({ outfile: scratchBundle });
+  const again = await fs.stat(scratchBundle);
+  h.ok(again.ino === rebuilt.ino && again.mtimeMs === rebuilt.mtimeMs, 'an unchanged worker rebuild leaves the bundle untouched');
   const root = path.join(scratch, 'project');
   const fixture = spawnSync(process.execPath, ['--import', 'tsx', path.join(repo, 'scripts/lib/figurePolishFixture.ts'), root], { env: process.env, encoding: 'utf8' });
   if (fixture.status !== 0) throw Error(fixture.stderr);
