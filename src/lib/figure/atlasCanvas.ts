@@ -155,7 +155,15 @@ export function createCanvasAtlas(opts: {
           ready: '', preparing: '', refusedC: '', failedL: '', signature: '', global: -1, revision: -1, epoch: 0 };
         entries.set(fig.id, e);
       }
-      if (e.global !== next.global || e.revision !== rev) {
+      if (fig.id === next.activeId) {
+        // The active figure is live; its picture is retaken on deactivation.
+        // Every commit() bumps globalRev, so serializing a 5,000-object active
+        // figure per edit cost ~10 ms of key-to-paint: a global-only notify
+        // simply retires its key instead, and the comparison baseline is
+        // re-taken once it is inactive again.
+        if (e.global !== next.global && e.revision === rev) e.epoch++;
+        e.signature = ''; e.global = next.global; e.revision = rev;
+      } else if (e.global !== next.global || e.revision !== rev || !e.signature) {
         // Undo, bridge edits and cross-figure moves notify globalRev rather
         // than figureRev. Compare only picture data on THAT notification;
         // position-only commits and other figures' edits keep their pictures.
