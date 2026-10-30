@@ -134,6 +134,25 @@ try {
     for (let i = 0; i < 10; i++) paint(.7 + i / 100);
     h.eq(styleByteCaptures.n - before, 0, 'ten colour-key playback frames take no mount-only style snapshots');
   }
+  h.section('a later clone of an elastic colour-keyed asset draws its own colour key');
+  {
+    // QA-P3b: relayout binds clones of one model through a shared binding template.
+    // Colour keys move their native ticks BEFORE reflow, so a template captured from
+    // the FIRST clone carried that clone's key-tick anchors into every later clone of
+    // the asset (a second placement, or any re-clone, with another colour scale).
+    const path = 'scripts/fixtures/relayout/contour/base';
+    const load = () => { const p = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8'))); bakePlotStyles(p.root!); hoistPlotClips(p.root!); return p; };
+    const shared = load(), alone = load();
+    plotDom.set('key-shared', shared.root!); plotDom.set('key-alone', alone.root!);
+    plotManifests.update(m => ({ ...m, 'key-shared': shared.manifest!, 'key-alone': alone.manifest! }));
+    const size = svgIntrinsicPx(shared.root!), scale = shared.manifest!.colorScales![0];
+    const placed = (assetId: string, v: number): SemanticPlotElement => ({ id: 'key-plot', type: 'plot', assetId, x: 0, y: 0, width: size.w * .8, height: size.h * 1.1, rotation: 0, colorScale: { [scale.id]: { norm: { vmax: Number(scale.norm.vmax) * v } } } });
+    const first = mountPlot(host(), { element: placed('key-shared', .9) });
+    const laterHost = host(), later = mountPlot(laterHost, { element: placed('key-shared', .55) });
+    const aloneHost = host(), only = mountPlot(aloneHost, { element: placed('key-alone', .55) });
+    h.ok(serialize(laterHost.firstChild!) === serialize(aloneHost.firstChild!), 'a second clone with another colour scale draws the bytes of a first clone');
+    first.destroy(); later.destroy(); only.destroy();
+  }
   h.section('a dragged group part');
   {
     // QA-P3: Canvas's part drag writes a transient translate on the node it PICKED
