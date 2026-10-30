@@ -38,6 +38,12 @@ export interface CompensateOpts {
   // box (a mutated clone no longer knows its true size). Fallback: read from
   // the instance (valid only when called pre-mutation).
   intrinsic?: { w: number; h: number };
+  // Record each written node's authored style BYTES, so restorePtTrue is
+  // byte-exact (styleBytes.ts). Only the canvas mount's in-place restyle needs
+  // that (its clone must serialize like a fresh mount); per-frame hosts (the
+  // slide transform host) leave it off: the capture cost ~60% more per frame
+  // (QA-P3, Chromium: 2.1 -> 3.5 ms for 336 bound nodes).
+  styleBytes?: boolean;
 }
 
 const UNIT_TO_PX: Record<string, number> = { px: 1, pt: 4 / 3, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 };
@@ -154,7 +160,7 @@ export function hasContentScaleTargets(root: Element): boolean {
 // export serialization) are untouched.
 // ---------------------------------------------------------------------------
 interface PristineRec {
-  bytes: StyleBytes;
+  bytes?: StyleBytes;
   /** the transform ATTRIBUTE as it was (null = absent) */
   t: string | null;
   /** inline style stroke-width value ("" = not set) */
@@ -170,12 +176,12 @@ interface PristineRec {
 const pristine = new WeakMap<Element, PristineRec>();
 const compensated = new WeakSet<Element>(); // instance roots with records below
 
-function recFor(el: Element): PristineRec {
+function recFor(el: Element, bytes: boolean): PristineRec {
   let rec = pristine.get(el);
   if (!rec) {
     const st = (el as SVGElement).style;
     rec = {
-      bytes: captureStyleBytes(el),
+      bytes: bytes ? captureStyleBytes(el) : undefined,
       t: el.getAttribute("transform"),
       sw: st?.strokeWidth ?? "",
       da: st?.strokeDasharray ?? "",
@@ -214,7 +220,7 @@ export function restorePtTrue(inst: Element, bindings?: PtTrueBindings): void {
           if (rec.da) st.strokeDasharray = rec.da;
           else st.removeProperty("stroke-dasharray");
         }
-        restoreStyleBytes(el, rec.bytes);
+        if (rec.bytes) restoreStyleBytes(el, rec.bytes);
       }
     }
     if (!bindings) for (const c of Array.from(el.children ?? [])) walk(c as Element);
@@ -255,11 +261,12 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts, bindings?: Pt
   const { fx, fy, fs } = ptTrueFactors({ ...o, intrinsic: o.intrinsic ?? svgIntrinsicPx(inst) });
   if (near(fx, 1) && near(fy, 1)) return; // true size → output untouched
   compensated.add(inst); // restorable (see restorePtTrue)
+  const bytes = !!o.styleBytes;
 
   const prependAnchored = (el: Element, ax: number, ay: number) => {
     const C =
       ax || ay ? `translate(${ax} ${ay}) scale(${fx} ${fy}) translate(${-ax} ${-ay})` : `scale(${fx} ${fy})`;
-    const rec = recFor(el);
+    const rec = recFor(el, bytes);
     rec.wt = true;
     const orig = el.getAttribute("transform") ?? "";
     el.setAttribute("transform", [C, orig].filter(Boolean).join(" "));
@@ -287,7 +294,7 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts, bindings?: Pt
     if (el.getAttribute("data-flux-glyph") === "1") {
       // Inlined tick/marker glyph: geometry drawn about its translate anchor —
       // APPEND the scale so it applies to the glyph-local coordinates.
-      const rec = recFor(el);
+      const rec = recFor(el, bytes);
       rec.wt = true;
       const orig = el.getAttribute("transform") ?? "";
       el.setAttribute("transform", [orig, `scale(${fx} ${fy})`].filter(Boolean).join(" "));
@@ -306,13 +313,13 @@ export function compensatePtTrue(inst: Element, o: CompensateOpts, bindings?: Pt
     if (!underCompensated && STROKABLE.has(tag)) {
       const d = declaredStrokeProps(el);
       if (d.hasStroke || d.width != null) {
-        const rec = recFor(el);
+        const rec = recFor(el, bytes);
         rec.wsw = true;
         const w = d.width ?? 1;
         (el as SVGElement).style.strokeWidth = String(w * fs);
       }
       if (d.dash && d.dash !== "none") {
-        const rec = recFor(el);
+        const rec = recFor(el, bytes);
         rec.wda = true;
         const scaled = d.dash
           .split(/[\s,]+/)

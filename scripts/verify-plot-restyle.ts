@@ -7,7 +7,8 @@ import { preparePlot, bakePlotStyles, hoistPlotClips, restorePlotClip } from '..
 import { mountPlot } from '../src/lib/plot/mount';
 import { presentEditorParts } from '../src/lib/editorPresentationDom';
 import { plotDom, plotManifests, mountCounters } from '../src/lib/plot/store';
-import { svgIntrinsicPx } from '../src/lib/plot/compensate';
+import { svgIntrinsicPx, compilePtTrueBindings, restorePtTrue, compensatePtTrue } from '../src/lib/plot/compensate';
+import { styleByteCaptures } from '../src/lib/plot/styleBytes';
 import { ensureColormapLuts } from '../src/lib/color/colormapLuts';
 import { FLUX_DARK } from '../src/lib/slide/theme';
 import type { SemanticPlotElement, PartOverride } from '../src/lib/types';
@@ -90,6 +91,31 @@ try {
     fresh.destroy();
   }
   clipAction.destroy();
+  h.section('per-frame pt-true hosts take no style-byte captures');
+  {
+    // QA-P3: the slide transform host runs restorePtTrue → compensatePtTrue on
+    // every frame. Capturing authored style bytes there cost ~60% more per frame
+    // (Chromium, 336 bound nodes: 2.1 → 3.5 ms); only the canvas mount opts in.
+    const path = 'scripts/fixtures/fluxplot03/features';
+    const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
+    const inst = prepared.root!.cloneNode(true) as unknown as SVGSVGElement, intrinsic = svgIntrinsicPx(prepared.root!), bound = compilePtTrueBindings(inst);
+    const before = styleByteCaptures.n;
+    for (let frame = 0; frame < 10; frame++) {
+      restorePtTrue(inst, bound);
+      compensatePtTrue(inst, { elW: intrinsic.w * (0.7 + frame / 20), elH: intrinsic.h * (0.8 + frame / 25), crop: null, contentScale: 1, intrinsic }, bound);
+    }
+    h.ok(bound.nodes.length > 100, `the per-frame chain binds the fixture's pt-true nodes (${bound.nodes.length})`);
+    h.eq(styleByteCaptures.n - before, 0, 'ten slide-host frames capture no style bytes');
+    plotDom.set('bytes', prepared.root!); plotManifests.set({ bytes: prepared.manifest! });
+    let bytesEl: SemanticPlotElement = { id: 'bytes', type: 'plot', assetId: 'bytes', x: 0, y: 0, width: intrinsic.w * 1.3, height: intrinsic.h * .8, rotation: 0 };
+    const bytesHost = host(), bytesAction = mountPlot(bytesHost, { element: bytesEl });
+    const mounted = styleByteCaptures.n;
+    h.ok(mounted > before, 'the canvas mount records style bytes for its restyles');
+    bytesEl = { ...bytesEl, contentScale: 1.4 }; bytesAction.update({ element: bytesEl });
+    const freshHost = host(), fresh = mountPlot(freshHost, { element: bytesEl });
+    h.ok(serialize(bytesHost.firstChild!) === serialize(freshHost.firstChild!), 'and its restyle stays byte-identical to a fresh mount');
+    fresh.destroy(); bytesAction.destroy();
+  }
   h.section('a dragged group part');
   {
     // QA-P3: Canvas's part drag writes a transient translate on the node it PICKED

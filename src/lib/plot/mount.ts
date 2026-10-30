@@ -198,6 +198,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
       crop: element.crop ?? null,
       contentScale: element.contentScale,
       intrinsic,
+      styleBytes: true, // a later restyle restores these byte-exactly
     }, bindings);
     host.appendChild(inst);
     unregisterPreview=registerRelayoutPreview(inst,manifest,element);

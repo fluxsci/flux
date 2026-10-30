@@ -51,7 +51,7 @@ export function restylePlotInstance(inst: SVGSVGElement, { element, manifest, th
   updatePtTrueBindings(bindings, [...colorScaleTickRoots(inst), ...projectionTickRoots(inst)]);
   compensatePtTrue(inst, {
     elW: element.width, elH: element.height, crop: element.crop ?? null,
-    contentScale: element.contentScale, intrinsic,
+    contentScale: element.contentScale, intrinsic, styleBytes: true,
   }, bindings);
   return { scales, manifest };
 }
