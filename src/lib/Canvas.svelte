@@ -508,6 +508,8 @@
     active: () => paneActive,
     quiet: () => paneActive && !atlasPointerHeld && !sceneHot && !zoomUnsettled && !proxyActive && !gesture && !guideDrag && !nodeDrag && !$arrangementPreview && !Object.keys($modelPreviews).length,
     group: id => sceneSvgEl?.querySelector<SVGGElement>(`[data-annotation-figure="${CSS.escape(id)}"]`) ?? null,
+    // The active figure warms up its CULLED working set, never the whole figure.
+    wanted: id => mountedEls.get(id),
     rememberBounds: fig => {
       for (const el of fig.elements) if (el.type === 'plot') {
         const bounds = localPlotVisibleBounds(el.id, el.width, el.height);
@@ -518,7 +520,10 @@
   const atlasView = atlas.view;
   const atlasIsPicture = (id: string) => atlasActive && ($atlasView.get(id)?.mode === 'raster' || $atlasView.get(id)?.mode === 'warming');
   const atlasIsRaster = (id: string) => atlasActive && $atlasView.get(id)?.mode === 'raster';
-  const atlasNeedsFull = (id: string) => atlasActive && ($atlasView.get(id)?.mode === 'warming' || (id !== $activeFigureId && $atlasView.get(id)?.mode === 'live'));
+  // Only a NON-active figure mounts whole (its Route-L picture must be complete).
+  // The active figure, warming or live, keeps ordinary culling: mounting all of
+  // a 5,000-object figure on activation measured 107 ms key-to-paint (vs 69).
+  const atlasNeedsFull = (id: string) => atlasActive && id !== $activeFigureId && ($atlasView.get(id)?.mode === 'warming' || $atlasView.get(id)?.mode === 'live');
   $: {
     // Explicit dependencies matter in this legacy component: reads hidden in
     // controller callbacks cannot wake a readiness check or a quiet transition.

@@ -16,6 +16,7 @@ async function wait(fn,label){const t=Date.now();while(Date.now()-t<20000){try{c
 async function click(selector){const p=await js(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)throw Error('Missing control');n.scrollIntoView({block:'nearest'});const b=n.getBoundingClientRect();return{x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}})()`);win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...p});win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...p});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');}
 async function key(keyCode,modifiers=[]){win.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});win.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');}
 async function selectFigure(n){await click(`.figrow[data-fig-id="native-${n}"] .item`);await wait(()=>js(`!!document.querySelector('[data-editor-element-id="e${n}-0"]')`),'figure visible');}
+const count5000=5000;
 const p95=xs=>[...xs].sort((a,b)=>a-b)[Math.floor(xs.length*.95)];
 const command=process.platform==='darwin'?'meta':'control';
 const paint=()=>js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
@@ -113,6 +114,9 @@ async function main(){
   console.log('PROBE metrics='+JSON.stringify({figure:n,...metrics[n]}));
   fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-native-metrics.json'),JSON.stringify(metrics,null,2));
   budget(metrics[n].nudgeP95<=100,`${n}: native key-to-paint p95 ${metrics[n].nudgeP95.toFixed(1)}ms ≤100ms`);
+  // Figure atlas: re-selecting a figure that is a picture warms up its culled
+  // working set only; mounting every object measured 107 ms key-to-paint (vs 69).
+  if(n===5000)check(metrics[n].mounted<count5000,`5000: re-activating a pictured figure mounts its culled working set (${metrics[n].mounted} of ${count5000})`);
   check(metrics[n].layers<=150,`${n}: virtualized Layers remain bounded`);
   if(n===5000){
    // The same measurement with the Plots rail open and rendering 24 dense plots (Alt+G): the

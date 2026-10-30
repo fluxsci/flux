@@ -25,6 +25,8 @@ export function createCanvasAtlas(opts: {
   active: () => boolean;
   quiet: () => boolean;
   group: (id: string) => SVGGElement | null;
+  /** The element ids Canvas mounts for a figure (the active figure's culled set). */
+  wanted?: (id: string) => ReadonlySet<string> | undefined;
   rememberBounds: (fig: Figure) => void;
 }) {
   const view = writable<ReadonlyMap<string, { mode: AtlasMode; pending: boolean }>>(new Map());
@@ -108,8 +110,12 @@ export function createCanvasAtlas(opts: {
     await tick();
     const group = opts.group(fig.id);
     const mounted = new Set(Array.from(group?.querySelectorAll('[data-editor-element-id]') ?? []).map(n => n.getAttribute('data-editor-element-id')));
-    const complete = group && fig.elements.every(el => effectiveHidden(fig, el) || mounted.has(el.id));
-    const plotsReady = fig.elements.every(el => effectiveHidden(fig, el) || el.type !== 'plot' || !input?.bytes[el.assetId] || hasPlotDom(el.assetId));
+    // A non-active figure must be whole (its picture is complete); the active
+    // figure is ready when its culled working set is (the swap shows only that).
+    const want = fig.id === input?.activeId ? opts.wanted?.(fig.id) : undefined;
+    const needed = want ? fig.elements.filter(el => want.has(el.id)) : fig.elements;
+    const complete = group && needed.every(el => effectiveHidden(fig, el) || mounted.has(el.id));
+    const plotsReady = needed.every(el => effectiveHidden(fig, el) || el.type !== 'plot' || !input?.bytes[el.assetId] || hasPlotDom(el.assetId));
     if (complete && plotsReady) {
       // One frame is painted BETWEEN these callbacks. No ambient readiness poll:
       // plot generations / mounting / quiet transitions re-enter sync instead.
