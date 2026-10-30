@@ -4217,14 +4217,18 @@ outside this PNG packaging change.
   The canvas mount runs the same discipline IN PLACE (2026-10-29, plan D5, `plot/restyle.ts`): a STYLE-only
   change (overrides, colour scale, view, content scale, theme) runs `restorePtTrue → restoreProjection →
   restoreOverrides → theme → colour scale → preparePlotView → applyOverrides → applyPlotView →
-  compensatePtTrue` on the existing clone; asset/box/crop/layout-mode/`gen` changes and ELASTIC plots (any
-  `relayoutPlot` reflow: every placed plot of the owner's project, 101/101 on 2026-10-29) still re-clone.
+  compensatePtTrue` on the existing clone. Elastic clones instead restore projection/overrides/reflow,
+  apply theme/colour against the ORIGINAL manifest, reflow and apply overrides/view against the effective
+  manifest, without compensation. At an unchanged target size, data geometry stays in place; content scale
+  changes the target size (`width*.75/contentScale`) and reflows it too. Tick child restoration retains node
+  identity, and colour-key bindings/templates refresh before reflow. Asset/box/crop/layout-mode/`gen` changes,
+  or an elastic view changing relayout's `skipTickAxes` set, still re-clone.
   `verify-plot-restyle` byte-compares every step with a fresh mount. Anything else that writes into a
   mounted plot's DOM was relying on the re-clone to discard its writes: undo them at the commit
   (`restoreOverrides` resets a part drag's transient translate on the PICKED node, a group's wrapper, as
   well as on its resolved leaves) or subscribe with `onPlotRestyle` on an ancestor of the mount host (take
   the writes back on "before", paint again on "after"; `presentEditorParts` does). Mount-only bookkeeping
-  on a shared record must be opt-in (`CompensateOpts.styleBytes`): the slide host runs the chain per frame.
+  on a shared record must be opt-in (`CompensateOpts.styleBytes`, colour-key `styleBytes`): the slide host runs the chain per frame.
 - **CSS transform vs SVG transform attribute (Release 1):** any transform effect on a leaf that
   has a `transform` attribute must go through the `data-sl-fx` wrapper or the leaf is thrown to
   the SVG origin (473.9 stage units on scatter markers before). `transform-origin` on an SVG node
@@ -4999,8 +5003,8 @@ outside this PNG packaging change.
 - **Plot mount cost (2026-09-30, deferred):** mounting a 3k-node plot is ~60–85 ms of synchronous JS
   (prefixIds ~21 ms, the projection bind ~17 ms, importNode ~6 ms after the 2026-09-30 diet) and runs inside
   input events: the duplicate's copy on the first alt-drag move, the resize/crop release render, a cull
-  re-mount inside a wheel tick. Style edits on FIXED-layout plots no longer pay it (in-place restyle,
-  2026-10-29: a colour-limit wheel notch ~75 → ~11 ms); style edits on ELASTIC plots still re-clone. Levers, not built: a prefixed-clone cache per asset, the mount sliced off the
+  re-mount inside a wheel tick. Style edits on fixed AND elastic plots no longer pay it (in-place restyle,
+  2026-10-29: a colour-limit wheel notch ~75 → ~11 ms on RespoDemo; the owner’s dense elastic override ~152 → ~9 ms). Levers, not built: a prefixed-clone cache per asset, the mount sliced off the
   input event, cheaper prefixIds. Also deferred: Paper loading only the assets the manuscript embeds (the
   100× fix for the hidden-pane reload), the fig watcher's double `figRevision` bump on our own write, and
   ANGLE-Vulkan (`--use-angle=vulkan --enable-features=Vulkan`, −32–42 % GPU raster on Wayland/NVIDIA) as an
@@ -11678,3 +11682,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 ### 2026-10-29 22:10 CDT — Figure edit echoes and lazy bytes (Codex, `w/edit-tails`)
 **Work:** Added stat-validated suppression of fig save echoes, split Paper structure/asset reads, and left unplaced image bytes on disk with lossless standalone Save As loading. Final P4 regression group 17/17 and both typechecks 0/0; the broader cohort passed all 70 Paper gates. Three-repeat owner-copy diagnostics on the P1-only base improved open 8.73→7.09 s and Paper scroll work 519→41 ms; proxy/gesture budgets still require P2 integration (the atlas is absent in this worktree).
 **Learnings:** A failed publication must discard its recent own-write records too. Run startup separately from a browser cohort when both use the worker's FLUX_URL: its strict-port production preview cannot share the runner's Vite port. Guide body updates for the retired Paper/unplaced-byte deferrals belong to the orchestrator.
+
+### 2026-10-29 23:31 CDT — P3b elastic plot restyle (Codex, `w/elastic-restyle`)
+**Work:** Extended in-place restyling to reflowed plots, retaining data geometry at the same target size and rebuilding elastic tick topology only when a view changes the retickable-axes set. Extended the fresh-mount byte oracle across nine relayout fixtures and the real colour-wheel/history/part-hide/crop gate to an elastic contour plot. Three-run browser medians on the owner-project copy: dense override 152 → 9 ms; typical colour step 7.1 → 3.2 ms, zero re-clones. Updated the body and Figure page.
+**Learnings:**
+- Content scale changes `targetFigureSize`, so elastic geometry cannot be retained for every style edit. Preserve the colour-before-reflow order against original anchors; cached colour-key bindings must refresh from each clone's live native anchors too.
+- Reflow's restored tick children must retain node identity for the other compiled writers. Re-parsing saved text markup leaves their node references detached. Colour-key style-byte snapshots are mount-only too; per-frame hosts must not capture them.

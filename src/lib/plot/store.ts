@@ -60,7 +60,7 @@ export const plotGen = writable<Record<Id, number>>({});
 export const sigCalls = { n: 0 };
 
 // Mount action instrumentation, also exposed by the dev plot module handle.
-export const mountCounters = { renders: 0, restyles: 0, reclones: 0 };
+export const mountCounters = { renders: 0, restyles: 0, elasticRestyles: 0, reclones: 0 };
 
 // ---------------------------------------------------------------------------
 // Residency bookkeeping (LRU + node budget + parse queue)

@@ -33,7 +33,7 @@ interface Binding {
 interface RootState { groups: Map<string, Binding[]>; touched: Set<Element>; keys: Map<string, KeyState[]> }
 interface PristinePaint { fill: string; stroke: string; fillOpacity: string; strokeOpacity: string; hadStyle: boolean; bytes: StyleBytes }
 interface KeyState { gradient: Element | null; stops: Node[] | null; ticks: TickNode[]; labels: TickNode[]; minors: TickNode[]; clones: Element[]; guide: FluxPlotGuide; offset: number }
-interface TickNode { node: Element; transform: string | null; x: string | null; y: string | null; text: string | null; display: string; shown: boolean }
+interface TickNode { node: Element; transform: string | null; x: string | null; y: string | null; text: string | null; display: string; shown: boolean; bytes?: StyleBytes }
 
 const roots = new WeakMap<Element, RootState>();
 const paints = new WeakMap<Element, PristinePaint>();
@@ -150,7 +150,7 @@ export interface ColorScaleApplyResult {
 
 /** Recolour `root` for the plot element's live colour-scale edits. Idempotent. */
 export function applyPlotColorScale(root: Element, manifest: FluxPlotManifest | undefined, colorScale: Record<string, ColorScaleView> | undefined, elId: string,
-  opts?: { resolve?: LutResolver }): ColorScaleApplyResult {
+  opts?: { resolve?: LutResolver; styleBytes?: boolean }): ColorScaleApplyResult {
   const result: ColorScaleApplyResult = { issues: [], unresolved: [] };
   const scales = manifest?.colorScales;
   const st = roots.get(root);
@@ -189,7 +189,7 @@ export function applyPlotColorScale(root: Element, manifest: FluxPlotManifest | 
         active.add(b.nodes[i]);
       }
     }
-    redrawKeys(root, state, manifest!, scale, eff, parsed, elId);
+    redrawKeys(root, state, manifest!, scale, eff, parsed, elId, opts?.styleBytes);
   }
   // nodes recoloured on an earlier frame by a scale that is no longer active
   for (const node of state.touched) if (!active.has(node) && !activeAncestor(node, active)) { restorePaint(node); state.touched.delete(node); }
@@ -257,9 +257,11 @@ function tickTarget(t: TickNode): Element {
   return t.node.querySelector("path,text") ?? t.node;
 }
 
-function snapshot(t: TickNode): void {
+function snapshot(t: TickNode, styleBytes = false): void {
   if (t.transform !== null || t.x !== null || t.y !== null || t.text !== null) return;
   const target = tickTarget(t);
+  // Only mounts retain authored style bytes; playback rebuilds keys per frame.
+  if (styleBytes) t.bytes = captureStyleBytes(t.node);
   t.transform = target.getAttribute("transform") ?? "";
   t.x = target.getAttribute("x") ?? ""; t.y = target.getAttribute("y") ?? "";
   t.text = target.tagName.toLowerCase() === "text" ? target.innerHTML : "";
@@ -275,6 +277,8 @@ function restoreTick(t: TickNode): void {
   if (target.tagName.toLowerCase() === "text") target.innerHTML = t.text ?? "";
   const style = (t.node as SVGElement).style;
   if (t.display) style.setProperty("display", t.display); else style.removeProperty("display");
+  if (t.bytes) restoreStyleBytes(t.node, t.bytes);
+  t.bytes = undefined;
   t.transform = t.x = t.y = t.text = null; t.shown = true;
 }
 
@@ -313,7 +317,7 @@ function place(target: Element, vertical: boolean, pos: number): void {
   }
 }
 
-function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, scale: FluxPlotColorScale, eff: EffectiveScale, parsed: ParsedColormap, elId: string): void {
+function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, scale: FluxPlotColorScale, eff: EffectiveScale, parsed: ParsedColormap, elId: string, styleBytes = false): void {
   for (const k of keyStates(root, st, manifest, scale, elId)) {
     // Start from generated ticks, so a shorter tick set cannot leave surplus
     // clones and a longer one never clones an already edited template.
@@ -375,12 +379,12 @@ function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, sc
     };
     const show = (t: TickNode) => { (t.node as SVGElement).style.removeProperty("display"); t.shown = true; };
     const hideSurplus = (list: TickNode[], n: number) => {
-      for (let i = n; i < list.length; i++) { const t = list[i]; snapshot(t); (t.node as SVGElement).style.setProperty("display", "none"); t.shown = false; }
+      for (let i = n; i < list.length; i++) { const t = list[i]; snapshot(t, styleBytes); (t.node as SVGElement).style.setProperty("display", "none"); t.shown = false; }
     };
     majors.forEach(({ v, pos }, i) => {
-      const t = ensure(k.ticks, i, "tick"); snapshot(t); place(tickTarget(t), vertical, pos); show(t);
+      const t = ensure(k.ticks, i, "tick"); snapshot(t, styleBytes); place(tickTarget(t), vertical, pos); show(t);
       if (!k.labels.length) return;
-      const l = ensure(k.labels, i, "tick-label"); snapshot(l);
+      const l = ensure(k.labels, i, "tick-label"); snapshot(l, styleBytes);
       const target = tickTarget(l);
       place(target, vertical, pos + (vertical ? k.offset : 0));
       const label = plainLabels ? { text: plainLabels[i] } : formatTick(v, formatter);
@@ -393,7 +397,7 @@ function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, sc
     hideSurplus(k.ticks, majors.length);
     hideSurplus(k.labels, majors.length);
     if (k.minors.length) {
-      minors.forEach(({ pos }, i) => { const t = ensure(k.minors, i, "minor.tick"); snapshot(t); place(tickTarget(t), vertical, pos); show(t); });
+      minors.forEach(({ pos }, i) => { const t = ensure(k.minors, i, "minor.tick"); snapshot(t, styleBytes); place(tickTarget(t), vertical, pos); show(t); });
       hideSurplus(k.minors, minors.length);
     }
   }

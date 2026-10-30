@@ -11,7 +11,7 @@ interface Affine {sx:number;sy:number;tx:number;ty:number}
 const affine=(a:Box,b:Box):Affine=>{const sx=width(b)/width(a),sy=height(b)/height(a);return {sx,sy,tx:b.x0-a.x0*sx,ty:b.y0-a.y0*sy};};
 const mapped=(a:Affine,x:number,y:number):[number,number]=>[x*a.sx+a.tx,y*a.sy+a.ty];
 interface Binding {el:Element;frame:LayoutFrame;id:string;path?:MplPath;x?:number;y?:number;transform?:string;clip?:string;sourceD?:string;pathWritten?:boolean}
-interface State {root:Element;model:RelayoutModel;bindings:Binding[];ids:Map<string,Element>;pristine:Map<Element,Record<string,string|null>>;added:Element[];prefix:string;templates:Map<string,Element>; arrowPaths:Map<Element,string[]>; textContents:Map<Element,string>;pathChanges:Binding[]}
+interface State {root:Element;model:RelayoutModel;bindings:Binding[];ids:Map<string,Element>;pristine:Map<Element,Record<string,string|null>>;added:Element[];prefix:string;templates:Map<string,Element>; arrowPaths:Map<Element,string[]>; textContents:Map<Element,Node[]>;pathChanges:Binding[]}
 const states=new WeakMap<Element,State>();
 function set(s:State,el:Element,key:string,value:string|null){
   if(key==='transform'&&el.getAttribute(key)!==value)restorePlotClip(el);
@@ -46,14 +46,36 @@ function resizeLegendBackground(s:State,legend:Element,old:RelayoutModel['layout
     }
   }
 }
-export function restoreRelayout(root:Element):void {
+/** A mount restyle may retain data at the same target size. Pair keepData with
+ * applyRelayout's skipData; ordinary resize/slide restoration remains complete. */
+export function restoreRelayout(root:Element,keepData=false):void {
   restoreOverrideTranslations(root);
   const s=states.get(root);if(!s)return;
-  for(const b of s.pathChanges){b.el.setAttribute("d",b.sourceD??"");b.pathWritten=false;}s.pathChanges.length=0;
+  const retained=keepData?new Set(s.bindings.filter(b=>['data','glyph','blend','image'].includes(b.frame.f)).map(b=>b.el)):null;
+  s.pathChanges=s.pathChanges.filter(b=>{if(retained?.has(b.el))return true;b.el.setAttribute("d",b.sourceD??"");b.pathWritten=false;return false;});
   for(const el of s.added)el.remove();s.added.length=0;
-  for(const [el,attrs]of s.pristine)for(const [key,v]of Object.entries(attrs)){if(v==null)el.removeAttribute(key);else el.setAttribute(key,v);}
-  s.pristine.clear();
-  for(const [el,html]of s.textContents)el.innerHTML=html;s.textContents.clear();
+  for(const [el,attrs]of s.pristine){if(retained?.has(el))continue;for(const [key,v]of Object.entries(attrs)){if(v==null)el.removeAttribute(key);else el.setAttribute(key,v);}s.pristine.delete(el);}
+  // Restore the original children, not parsed markup: compiled writers retain
+  // references to ticks/text below these wrappers.
+  for(const [el,nodes]of s.textContents)el.replaceChildren(...nodes);s.textContents.clear();
+}
+/** Theme/colour edits precede reflow, so tick clones take THIS pass's styles. */
+export function refreshRelayoutTemplates(root:Element):void {
+  const s=states.get(root);if(!s)return;
+  for(const id of s.templates.keys()){const node=s.ids.get(id);if(node)s.templates.set(id,node.cloneNode(true) as Element);}
+  // Colour keys move their native ticks BEFORE reflow. Those anchors are the
+  // only compiled geometry a style pass changes (2026-10-29, contour oracle).
+  refreshColorbarBindings(s);
+}
+function refreshColorbarBindings(s:State):void {
+  const colorbars=new Set(s.model.layout.colorbars.map(c=>c.id));
+  for(const b of s.bindings)if(b.frame.f==='axis'&&b.frame.axes&&colorbars.has(b.frame.axes)){
+    b.transform=b.el.getAttribute('transform')??'';
+    if(b.frame.part==='tick'&&b.el.tagName.toLowerCase()==='path'){
+      const t=/translate\(\s*([-+\deE.]+)[ ,]+([-+\deE.]+)\s*\)/.exec(b.transform);
+      b.x=t?Number(t[1]):0;b.y=t?Number(t[2]):0;
+    }
+  }
 }
 function bindSlow(root:Element,model:RelayoutModel):State {
   const previous=states.get(root);if(previous?.model===model)return previous;
@@ -123,6 +145,7 @@ function bind(root:Element,model:RelayoutModel):State {
   const state:State={root,model,prefix,bindings:template.bindings.map(b=>({el:nodes[b.index],frame:b.frame,id:b.id,path:b.path,x:b.x,y:b.y,transform:b.transform,clip:b.clip,sourceD:b.sourceD})),ids:new Map(),pristine:new Map(),added:[],templates:new Map(),arrowPaths:new Map(template.arrows.map(([i,d])=>[nodes[i],d])),textContents:new Map(),pathChanges:[]};
   nodes.forEach((node,i)=>{if(ids[i])state.ids.set(ids[i],node);});
   for(const [id,frame]of Object.entries(model.layout.frames))if(frame.f==='axis'&&frame.value!=null){const node=state.ids.get(id);if(node)state.templates.set(id,node.cloneNode(true) as Element);}
+  refreshColorbarBindings(state);
   states.set(root,state);return state;
 }
 function endpoint(model:RelayoutModel,sol:RelayoutSolution,e:LayoutEndpoint):[number,number] {
@@ -148,7 +171,7 @@ export function applyRelayout(root:Element,model:RelayoutModel,sol:RelayoutSolut
   restoreOverrideTranslations(root);
   for(const el of s.added)el.remove();s.added.length=0;
   for(const [el,attrs]of s.pristine)for(const key of ['display','data-relayout-hidden'])if(key in attrs){const value=attrs[key];if(value==null)el.removeAttribute(key);else el.setAttribute(key,value);}
-  for(const [el,html]of s.textContents)el.innerHTML=html;s.textContents.clear();
+  for(const [el,nodes]of s.textContents)el.replaceChildren(...nodes);s.textContents.clear();
   const fig={sx:sol.wPt/model.layout.figure.widthPt,sy:sol.hPt/model.layout.figure.heightPt,tx:0,ty:0};
   const fits=new Map<string,Affine>(),dataFits=new Map<string,Affine>();
   for(const axis of model.axes.values()){
@@ -316,9 +339,9 @@ function applyTickSets(s:State,model:RelayoutModel,sol:RelayoutSolution,skip?:Re
         if(tf.part==='ticklabel'){
           const text=el.tagName.toLowerCase()==='text'?el:el.querySelector('text'),label=(tf.minor?tickSet.minorLabels:tickSet.labels)[index]??'',native=model.layout.texts[reuse?.[0]??templateId];
           if(text&&label!==native?.text){
-            if(reuse&&!label.startsWith('$')&&!s.textContents.has(text))s.textContents.set(text,text.innerHTML);
+            if(reuse&&!label.startsWith('$')&&!s.textContents.has(text))s.textContents.set(text,Array.from(text.childNodes));
             if(label.startsWith('$')&&native){
-              if(reuse&&!s.textContents.has(el))s.textContents.set(el,el.innerHTML);
+              if(reuse&&!s.textContents.has(el))s.textContents.set(el,Array.from(el.childNodes));
               const font=model.layout.fonts[native.font]??model.layout.fonts[axis.axisStyle[key].font];writeMathLabel(el,label,native,font);
             }else text.textContent=label;
 
@@ -344,8 +367,8 @@ function applyTickSets(s:State,model:RelayoutModel,sol:RelayoutSolution,skip?:Re
     const text=el?.querySelector('text');
     if(offsetId&&text&&el&&tickSet.offset!==model.layout.texts[offsetId]?.text){
       const native=model.layout.texts[offsetId!];
-      if(native&&tickSet.offset.startsWith('$')){if(!s.textContents.has(el))s.textContents.set(el,el.innerHTML);writeMathLabel(el,tickSet.offset,native,model.layout.fonts[native.font]);}
-      else{if(!s.textContents.has(text))s.textContents.set(text,text.innerHTML);text.textContent=tickSet.offset;}
+      if(native&&tickSet.offset.startsWith('$')){if(!s.textContents.has(el))s.textContents.set(el,Array.from(el.childNodes));writeMathLabel(el,tickSet.offset,native,model.layout.fonts[native.font]);}
+      else{if(!s.textContents.has(text))s.textContents.set(text,Array.from(text.childNodes));text.textContent=tickSet.offset;}
     }
   }
 }

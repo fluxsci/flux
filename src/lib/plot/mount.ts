@@ -18,16 +18,17 @@ import type { SemanticPlotElement, CropRect, PartOverride, PlotView } from "../t
 import { plotGen, plotDom, plotManifests, sigCalls, mountCounters } from "./store";
 import { applyOverrides, prefixIds, prepareOverrideRestoration } from "./parse";
 import { compensatePtTrue, compilePtTrueBindings, updatePtTrueBindings, type PtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
-import { relayoutPlot } from "./relayout";
+import type { FluxPlotManifest } from "./types";
+import { relayoutPlot, relayoutSkipTickAxes } from "./relayout";
 import { registerRelayoutPreview } from "./relayout/previewPaint";
 import { updatePlotVisibleBounds, clearPlotVisibleBounds, hidesPlotParts, hasMeasuredPlotBounds } from './visibleBounds';
 import type { Rect } from '../geometry';
 
 // Structural changes invalidate the clone; styles reuse its compiled bindings.
-function signatures(e: SemanticPlotElement, gen: number, theme: DeckTheme | null) {
+function signatures(e: SemanticPlotElement, gen: number, theme: DeckTheme | null, elastic = false) {
   sigCalls.n++;
   return {
-    structure: [e.assetId, e.width, e.height, gen, JSON.stringify(e.crop ?? null), e.layoutMode ?? "auto"].join("|"),
+    structure: [e.assetId, e.width, e.height, gen, JSON.stringify(e.crop ?? null), e.layoutMode ?? "auto", elastic ? [...relayoutSkipTickAxes(get(plotManifests)[e.assetId], e.view)].sort().join(",") : ""].join("|"),
     style: [JSON.stringify(e.overrides ?? {}), JSON.stringify(e.colorScale ?? null), JSON.stringify(e.view ?? null), e.contentScale ?? 1, themeKey(e, theme)].join("|"),
   };
 }
@@ -103,6 +104,8 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
   let bindings: PtTrueBindings | undefined;
   let intrinsic = { w: 0, h: 0 };
   let reflow = false;
+  let layoutManifest: FluxPlotManifest | undefined;
+  let layoutContentScale = element.contentScale ?? 1;
   let last: SigSnapshot = snap(element, gen, theme);
   let inst: SVGSVGElement | null = null;
   let colorMapsRequested = false;
@@ -142,9 +145,12 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
   function restyle() {
     if (!inst || !bindings) return;
     mountCounters.restyles++;
+    if (reflow) mountCounters.elasticRestyles++;
     const manifest = get(plotManifests)[element.assetId];
     notifyPlotRestyle(host, "before");
-    const { scales } = restylePlotInstance(inst, { element, manifest, theme, bindings, intrinsic });
+    const { scales, manifest: effective } = restylePlotInstance(inst, { element, manifest, theme, bindings, intrinsic, reflow, layoutManifest, keepLayoutData: layoutContentScale === (element.contentScale ?? 1) });
+    layoutManifest = effective;
+    layoutContentScale = element.contentScale ?? 1;
     notifyPlotRestyle(host, "after");
     requestColorMaps(scales.unresolved);
     place();
@@ -182,15 +188,19 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     // the deck theme's ink (Slide mode) and live colour scales BEFORE overrides, so an explicit
     // per-part paint still wins
     applyPlotTheme(inst, manifest, theme && plotFollowsTheme(element, "slide") ? theme : null);
-    const scales = applyPlotColorScale(inst, manifest, element.colorScale, element.id);
+    const scales = applyPlotColorScale(inst, manifest, element.colorScale, element.id, { styleBytes: true });
     requestColorMaps(scales.unresolved);
     const layout = relayoutPlot(inst, manifest, element);
-    if (!layout.reflow) prepareOverrideRestoration(inst);
+    prepareOverrideRestoration(inst);
     preparePlotView(inst, layout.manifest, element.view, element.id, undefined, true);
     applyOverrides(inst, element.overrides, element.id, layout.manifest);
     applyPlotView(inst, layout.manifest, element.view, element.id);
-    if (!layout.reflow) rememberStaticPlotView(inst, layout.manifest, element.view);
+    rememberStaticPlotView(inst, layout.manifest, element.view);
     reflow = layout.reflow;
+    layoutManifest = layout.manifest;
+    layoutContentScale = element.contentScale ?? 1;
+    keys = signatures(element, gen, theme, reflow);
+    sig = keys.structure + "|" + keys.style;
     updatePtTrueBindings(bindings, [...colorScaleTickRoots(inst), ...projectionTickRoots(inst)]);
     if (!layout.reflow) compensatePtTrue(inst, {
       elW: element.width,
@@ -221,7 +231,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
         return;
       }
       last = snap(element, gen, theme);
-      const nextKeys = signatures(element, gen, theme);
+      const nextKeys = signatures(element, gen, theme, reflow);
       const ns = nextKeys.structure + "|" + nextKeys.style;
       if (ns === sig) {
         place(); // same content by value (e.g. undo round-trip): keep the clone
@@ -230,7 +240,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
       const structural = nextKeys.structure !== keys.structure;
       keys = nextKeys;
       sig = ns;
-      if (structural || reflow || !inst || !bindings) render();
+      if (structural || !inst || !bindings) render();
       else restyle();
     },
     destroy() {

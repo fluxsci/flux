@@ -3,11 +3,15 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { DOMParser, parseHTML } from 'linkedom';
 import { harness } from './lib/harness.mjs';
-import { preparePlot, bakePlotStyles, hoistPlotClips, restorePlotClip } from '../src/lib/plot/parse';
+import { preparePlot, bakePlotStyles, hoistPlotClips, restorePlotClip, prefixIds } from '../src/lib/plot/parse';
+import { applyPlotColorScale } from '../src/lib/plot/colorScaleDom';
 import { mountPlot } from '../src/lib/plot/mount';
 import { presentEditorParts } from '../src/lib/editorPresentationDom';
 import { plotDom, plotManifests, mountCounters } from '../src/lib/plot/store';
 import { svgIntrinsicPx, compilePtTrueBindings, restorePtTrue, compensatePtTrue } from '../src/lib/plot/compensate';
+import { retickable, capturedAxis } from '../src/lib/plot/project';
+import type { FluxPlotManifest } from '../src/lib/plot/types';
+import type { PlotView } from '../src/lib/types';
 import { styleByteCaptures } from '../src/lib/plot/styleBytes';
 import { ensureColormapLuts } from '../src/lib/color/colormapLuts';
 import { FLUX_DARK } from '../src/lib/slide/theme';
@@ -24,6 +28,7 @@ const serialize = (node: Node) => new XMLSerializer().serializeToString(node);
 const host = () => document.createElementNS('http://www.w3.org/2000/svg', 'g') as unknown as SVGGElement;
 let seed = 0x503;
 const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+const retickAxes = (m: FluxPlotManifest, view: PlotView | undefined) => [...new Set((m.axes ?? []).flatMap(a => (['x', 'y', 'x2', 'y2'] as const).flatMap(k => retickable(m, view, a.panelId, k) ? [capturedAxis(m, a.panelId, k)?.id + '/' + k[0]] : [])))].sort().join('|');
 const fixtures = ['colorscale/hexmatrix-alpha', 'fluxplot03/features', 'fluxplot03/panels-a', 'fluxplot03/presets'];
 try {
   await ensureColormapLuts();
@@ -116,6 +121,19 @@ try {
     h.ok(serialize(bytesHost.firstChild!) === serialize(freshHost.firstChild!), 'and its restyle stays byte-identical to a fresh mount');
     fresh.destroy(); bytesAction.destroy();
   }
+  h.section('per-frame colour keys take no mount-only style-byte captures');
+  {
+    const path = 'scripts/fixtures/colorscale/heatmap';
+    const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
+    const inst = prepared.root!.cloneNode(true) as unknown as SVGSVGElement;
+    prefixIds(inst, 'frame-key');
+    const scale = prepared.manifest!.colorScales![0];
+    const paint = (v: number) => applyPlotColorScale(inst, prepared.manifest, { [scale.id]: { norm: { vmax: Number(scale.norm.vmax) * v } } }, 'frame-key');
+    paint(.8); // Bind paints once, as a playback host does before its steady frames.
+    const before = styleByteCaptures.n;
+    for (let i = 0; i < 10; i++) paint(.7 + i / 100);
+    h.eq(styleByteCaptures.n - before, 0, 'ten colour-key playback frames take no mount-only style snapshots');
+  }
   h.section('a dragged group part');
   {
     // QA-P3: Canvas's part drag writes a transient translate on the node it PICKED
@@ -195,16 +213,72 @@ try {
     await expect('clearing the presentation leaves the current override, not a stale one', false);
     livePresent.destroy(); liveMount.destroy(); live.outer.remove();
   }
-  h.section('elastic exception');
-  const path = 'scripts/fixtures/relayout/line/base';
-  const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
-  plotDom.set('elastic', prepared.root!); plotManifests.set({ elastic: prepared.manifest! });
-  const size = svgIntrinsicPx(prepared.root!);
-  let element: SemanticPlotElement = { id: 'elastic', type: 'plot', assetId: 'elastic', x: 0, y: 0, width: size.w, height: size.h, rotation: 0 };
-  const target = host(), action = mountPlot(target, { element });
-  const before = mountCounters.reclones;
-  element = { ...element, contentScale: 1.2 }; action.update({ element });
-  h.eq(mountCounters.reclones, before + 1, 'an elastic auto-layout style edit re-clones');
-  action.destroy();
+  // P3b retires P3's elastic exception: exercise the real mount action at a
+  // non-native size, with an unnormalised fresh-mount oracle after EVERY edit.
+  for (const name of ['line', 'raster', 'inset', 'contour', 'twin', 'legend-outside', 'colorbar-horizontal', 'rotated', 'polar']) {
+    h.section(`elastic ${name}`);
+    const path = `scripts/fixtures/relayout/${name}/base`;
+    const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
+    const root = prepared.root!, manifest = prepared.manifest!;
+    bakePlotStyles(root); hoistPlotClips(root);
+    plotDom.set('elastic', root); plotManifests.set({ elastic: manifest });
+    const size = svgIntrinsicPx(root);
+    let element: SemanticPlotElement = { id: 'elastic', type: 'plot', assetId: 'elastic', x: 0, y: 0, width: size.w * .73, height: size.h * 1.17, rotation: 0 };
+    let theme: typeof FLUX_DARK | null = null;
+    const target = host(), action = mountPlot(target, { element });
+    const initial = target.firstElementChild;
+    const leaves = Array.from(root.querySelectorAll('[id]')).filter(n => !n.closest('defs') && n.matches('path,text,g')).map(n => n.id);
+    const groups = (manifest.series ?? []).map(s => s.id);
+    const textId = leaves.find(id => /ticklabel|tick-label|title/.test(id))!;
+    let leaf = leaves[0];
+    let expectedRestyles = mountCounters.restyles, expectedElastic = mountCounters.elasticRestyles;
+    const beforeClones = mountCounters.reclones;
+    const elastic = manifest.layout?.supported === true;
+    h.eq(elastic, name !== "polar", "polar deliberately refuses reflow; other fixtures are elastic");
+    const expectFresh = (label: string) => {
+      const freshHost = host(), fresh = mountPlot(freshHost, { element, theme });
+      const actual = serialize(target.firstChild!), expected = serialize(freshHost.firstChild!);
+      if (actual !== expected) {
+        writeFileSync('/tmp/p3b-restyled.svg', actual); writeFileSync('/tmp/p3b-fresh.svg', expected);
+        const at = [...actual].findIndex((c, i) => c !== expected[i]);
+        h.fail(`${name} ${label}: XML differs at ${at}: ${actual.slice(Math.max(0, at - 90), at + 180)} / ${expected.slice(Math.max(0, at - 90), at + 180)}`);
+      } else h.ok(true, `${label}: byte-identical fresh mount`);
+      fresh.destroy();
+    };
+    for (let step = 0; step < 30; step++) {
+      const edits = { ...(element.overrides ?? {}) };
+      switch (step % 10) {
+        case 0: leaf = leaves[Math.floor(random() * leaves.length)]; edits[leaf] = { hidden: true, dx: random() * 5, dy: -random() * 4, opacity: .5, fill: '#ee2255', stroke: '#334455', strokeWidth: .7 }; element = { ...element, overrides: edits }; break;
+        case 1: delete edits[leaf]; element = { ...element, overrides: edits }; break;
+        case 2: edits[groups[Math.floor(random() * groups.length)] ?? leaf] = { hidden: false, dx: random() * 5, fill: '#2255ee' }; edits[textId] = { fontSize: 7 + random() * 8, fontStyle: 'italic', fontWeight: 'bold' }; element = { ...element, overrides: edits }; break;
+        case 3: element = { ...element, overrides: undefined, contentScale: .5 + random() * 1.5 }; break;
+        case 4: element = { ...element, colorScale: Object.fromEntries((manifest.colorScales ?? []).map(s => [s.id, { norm: { vmax: Number(s.norm.vmax) * (.6 + random() * .3) } }])), contentScale: .5 + random() * 1.5 }; break;
+        case 5: element = { ...element, colorScale: Object.fromEntries((manifest.colorScales ?? []).map(s => [s.id, { cmap: { name: 'test', N: 3, lut: ['#112233ff', '#557799ff', '#aaddffff'], under: '#112233ff', over: '#aaddffff', bad: '#00000000' } }])), contentScale: .5 + random() * 1.5 }; break;
+        case 6: element = { ...element, colorScale: Object.fromEntries((manifest.colorScales ?? []).map(s => [s.id, { norm: { vmax: Number(s.norm.vmax) * (.6 + random() * .3) } }])), contentScale: .5 + random() * 1.5 }; break;
+        case 7: element = { ...element, colorScale: undefined, contentScale: .5 + random() * 1.5 }; break;
+        case 8: theme = FLUX_DARK; break;
+        case 9: theme = null; break;
+      }
+      action.update({ element, theme });
+      expectedRestyles++; if (elastic) expectedElastic++;
+      h.ok(target.firstElementChild === initial, `step ${step}: retains elastic clone`);
+      expectFresh(`step ${step}`);
+    }
+    h.eq(mountCounters.reclones, beforeClones, '30 elastic style edits never re-clone');
+    h.eq(mountCounters.restyles, expectedRestyles, '30 elastic edits dispatch exactly 30 restyles');
+    h.eq(mountCounters.elasticRestyles, expectedElastic, '30 elastic edits dispatch exactly 30 elastic restyles');
+    // Views whose retickable set changes invalidate relayout's tick topology.
+    // A second domain on the SAME axes keeps it and must restyle instead.
+    for (const view of [{ x: { domain: [.1, .8] as [number, number] } }, { x: { domain: [.2, .9] as [number, number] } }, undefined]) {
+      const before = { ...mountCounters }, node = target.firstElementChild;
+      const from = retickAxes(manifest, element.view), to = retickAxes(manifest, view);
+      element = { ...element, view }; action.update({ element, theme });
+      h.eq(mountCounters.reclones - before.reclones, from === to ? 0 : 1, 'view retick-set change re-clones exactly once; same set retains clone');
+      h.eq(mountCounters.elasticRestyles - before.elasticRestyles, from === to && elastic ? 1 : 0, 'same retick-set view edit restyles');
+      h.eq(target.firstElementChild === node, from === to, 'view dispatch keeps/replaces the actual root');
+      expectFresh('view edit');
+    }
+    action.destroy();
+  }
 } catch (error) { h.fail(error.stack ?? String(error)); }
 await h.done();
