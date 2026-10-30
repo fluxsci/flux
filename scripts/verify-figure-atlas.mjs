@@ -136,6 +136,27 @@ try {
     await waitFor(page, () => document.querySelectorAll('[data-editor-element-id]').length === 0, null, { timeout: 5000, label: 'offscreen active figure unmounts' });
     h.ok(true, 'an offscreen active figure keeps no live element DOM without the scene raster child');
   } catch (error) { h.fail(`an offscreen active figure keeps no live element DOM without the scene raster child: ${error}`); }
+  // R4: with the scene raster child (Electron's capability, stubbed here) the
+  // active figure retains its mounted working set, and an Arrange visit must not
+  // drop it: selected-but-offscreen wrappers keep their identity on entry.
+  const keep = await page.evaluate(async id => {
+    const F = window.__flux, f = F.figures().find(x => x.id === id), host = document.querySelector('.canvas-host');
+    window.fig.rasterizeScene ??= async () => ({ error: 'unavailable' });
+    F.fig.activeFigureId.set(id);
+    const el = f.elements[0], zoom = 12;
+    F.fig.viewport.set({ zoom, panX: host.clientWidth / 2 - (f.x + el.x + el.width / 2) * zoom, panY: host.clientHeight / 2 - (f.y + el.y + el.height / 2) * zoom });
+    F.fig.selection.set(new Set(f.elements.map(e => e.id)));
+    return f.elements.map(e => e.id);
+  }, fx.figIds[0]);
+  await waitFor(page, ids => ids.every(id => document.querySelector(`[data-editor-element-id="${id}"]`)), keep, { label: 'selected working set mounted', timeout: 10000 });
+  await page.evaluate(() => new Promise(r => setTimeout(r, 400))); // the cull step settles (a re-cull is what drops them)
+  await page.evaluate(ids => { window.__keepNodes = ids.map(id => document.querySelector(`[data-editor-element-id="${id}"]`)); }, keep);
+  await page.keyboard.down('Alt'); await page.keyboard.press('t'); await page.keyboard.up('Alt');
+  await waitFor(page, () => document.querySelector('.align-arrange-panel')?.getAttribute('aria-label') === 'Flux Arrange', null, { label: 'Alt+T opens Arrange' });
+  await page.evaluate(() => new Promise(r => setTimeout(r, 400)));
+  const kept = await page.evaluate(() => window.__keepNodes.filter(n => !n.isConnected).length);
+  h.eq(kept, 0, `(R4) an Arrange visit keeps the active figure's retained wrappers (${kept} of ${keep.length} unmounted)`);
+  await page.keyboard.press('Escape');
   h.eq(realErrors(page).length, 0, `console clean: ${realErrors(page).join(' | ')}`);
   mkdirSync('test-results', { recursive: true });
   writeFileSync('test-results/figure-atlas.json', JSON.stringify({ timings, before, after: state, pixelDiff: diff }, null, 2));

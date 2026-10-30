@@ -807,7 +807,10 @@
     // 2026-10-29: retiring whole-canvas parking must not remount the active
     // capture at every deep fold (267 ms in the native dense gate). Retain its
     // already-mounted working set under the same 1k-element / 150k-node caps.
-    const retainActive = fig.id !== layoutFigureId && retainAtlasActive(fig);
+    // R4 (2026-10-30): retention also holds through Arrange/layout visits. Parking
+    // excluded the layout figure because display:none broke previews; retained
+    // elements stay fully mounted, so that reason does not apply.
+    const retainActive = retainAtlasActive(fig);
     const wasParked = parkedElMemo.get(fig.id);
     const parked = new Set<string>();
     // FIG-4: cull by the ROTATED bounds — a tilted element near the viewport edge must
