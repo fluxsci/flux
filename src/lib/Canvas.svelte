@@ -907,7 +907,7 @@
       const next = new Map<string, { key: string; els: Element[] }>();
       const m = new Map<string, Element[]>();
       for (const f of visibleFigures) {
-        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.parkGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}|${atlasActive ? $atlasView.get(f.id)?.mode : ''}|${atlasActive && f.id === $activeFigureId}`;
+        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.parkGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}|${atlasActive ? $atlasView.get(f.id)?.mode : ''}|${atlasActive && $atlasView.get(f.id)?.full ? 'full' : ''}|${atlasActive && f.id === $activeFigureId}`;
         let mm = visMemoBox.map.get(f.id);
         if (!mm || mm.key !== key) {
           perfCounters.visRecomputes++;
