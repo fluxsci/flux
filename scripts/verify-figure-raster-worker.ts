@@ -43,12 +43,12 @@ try {
   const figure: Figure = saved.figures.find((f: Figure) => f.id === 'native-5');
   const dense: Figure = saved.figures.find((f: Figure) => f.id === 'native-dense');
   const req = (rid: string, fig = figure, extras = {}) => ({ rid, root, figure: structuredClone(fig), assets, scale: 1, width: 320, height: 240, ...extras });
-  function service(workers = 1, timeoutMs = 15000, projectRoot = root) {
+  function service(workers = 1, timeoutMs = 15000, projectRoot = root, idleMs = 60000) {
     const handlers = new Map(); const processes: any[] = [];
     const rendering = new Set<string>(), rendered = new EventEmitter(); let live = 0, peak = 0, generation = 1;
     const sender = Object.assign(new EventEmitter(), { id: families.length + 1, isDestroyed: () => false });
     const event = { sender };
-    const family = createFigureRasterFamily({ app: { isPackaged: false }, appRoot: repo, workers, timeoutMs, rootFor: () => projectRoot, generationFor: () => generation,
+    const family = createFigureRasterFamily({ app: { isPackaged: false }, appRoot: repo, workers, timeoutMs, idleMs, rootFor: () => projectRoot, generationFor: () => generation,
       fontIndexFile: () => path.join(scratch, 'fonts.json'),
       spawnProcess: (exe: string, args: string[], opts: any) => {
         const proc = spawn(exe, args, { ...opts, env: { ...opts.env, FLUX_FIGURE_RASTER_TRACE: '1' } });
@@ -138,6 +138,13 @@ try {
   h.ok(!!(await c.raster(req('after-cancel'))).png, 'a subsequent job renders after lazy respawn');
   h.eq(c.processes.length, 2, 'running cancellation really replaces the child');
   h.eq(c.peak(), 1, 'respawn waits for the killed process to exit');
+  const idle = service(1, 15000, root, 150);
+  h.ok(!!(await idle.raster(req('idle-first'))).png, 'idle reaping: the first job renders');
+  const reaped = await Promise.race([idle.processes[0].closed.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 5000))]);
+  h.ok(reaped === true, 'an idle worker is reaped after idleMs with nothing queued');
+  h.ok(!!(await idle.raster(req('idle-second'))).png, 'a job after reaping respawns a worker and renders');
+  h.eq(idle.processes.length, 2, 'reaping ended the child; the next job spawned a fresh one');
+  h.ok(!!(await idle.raster(req('idle-third'))).png, 'a reap is not a death: the owner stays available');
   const pool = service(2);
   const results = await Promise.all(Array.from({ length: 5 }, (_, i) => pool.raster(req(`pool-${i}`, { ...figure, id: `pool-fig-${i}` }))));
   h.ok(results.every(r => r.png), 'five distinct figures survive the pool queue'); h.eq(pool.peak(), 2, 'pool never exceeds two live child processes');

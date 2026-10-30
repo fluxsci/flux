@@ -3,6 +3,7 @@
 
 import type { FigureFamilyDef } from "../figfamily";
 import type { Figure, Asset } from "../types";
+import type { FluxPlotManifest } from "../plot/types";
 
 export const PROJECT_SCHEMA_VERSION = "0.1.0";
 // WS-5.2: named per-file format versions (the write sites used bare literals)
@@ -205,6 +206,8 @@ export interface FigureRasterRequest {
   height: number;
   /** Data URLs for assets whose bytes are not on disk yet (dirty, unsaved); they override disk reads. */
   inlineAssets?: Record<string, string>;
+  /** Manifests the renderer already holds (a regenerated plot whose sidecar is not saved yet); they override disk reads. */
+  manifests?: Record<string, FluxPlotManifest>;
 }
 export interface FigureRasterResult {
   png?: Uint8Array;

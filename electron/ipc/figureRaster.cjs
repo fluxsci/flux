@@ -10,13 +10,22 @@ const { validateFigureRequest } = require('../figureRasterRules.cjs');
 // replace only the same queued figure, keeping its place; never discard a neighbour.
 function createFigureRasterFamily({ app, appRoot, rootFor, generationFor = () => 0, fontIndexFile = () => undefined,
   workers = Number(process.env.FLUX_FIGURE_RASTER_WORKERS) || Math.min(4, Math.max(1, Math.floor(os.cpus().length / 8))),
-  timeoutMs = 15000, spawnProcess = spawn }) {
+  timeoutMs = 15000, idleMs = 60000, spawnProcess = spawn }) {
   if (!Number.isInteger(workers) || workers < 1 || workers > 32) throw Error('Invalid figure raster worker count');
   const owners = new Map(); let closed = false;
   const settle = (job, result) => { if (job && !job.done) { job.done = true; job.resolve(result); } };
   const valid = (owner, job) => !closed && owners.get(owner.sender.id) === owner && !owner.sender.isDestroyed() && rootFor(job.event) === job.request.root && generationFor(job.event) === job.generation;
+  // A worker holds 0.4–0.8 GB (measured 2026-10-29 on the owner's project); four per window
+  // must not outlive the burst that needed them. An idle slot is reaped after idleMs and
+  // respawns lazily on the next job. stop() nulls slot.proc first, so the exit is not a death.
+  function armIdle(owner, slot) {
+    clearTimeout(slot.idle); slot.idle = null;
+    if (!slot.proc || slot.job || slot.stopping || !(idleMs > 0)) return;
+    slot.idle = setTimeout(() => { slot.idle = null; if (!slot.job && slot.proc && !owner.queue.length) stop(slot); }, idleMs);
+  }
   function stop(slot) {
     clearTimeout(slot.timer); slot.timer = null;
+    clearTimeout(slot.idle); slot.idle = null;
     const proc = slot.proc; slot.proc = null;
     if (proc) { proc.stdin.destroy(); try { proc.kill('SIGKILL'); } catch {} }
     // A killed process retains its slot until exit: cancellation cannot briefly
@@ -64,6 +73,7 @@ function createFigureRasterFamily({ app, appRoot, rootFor, generationFor = () =>
         slot.job = job; failed(owner, slot, 'Invalid figure raster PNG'); return;
       } else settle(job, { png, width: header.width, height: header.height, ms: header.ms });
       pump(owner);
+      armIdle(owner, slot);
     }, error => { if (slot.proc === proc) failed(owner, slot, `Figure raster protocol failed: ${error.message}`); }, 20 * 1024 * 1024);
     return proc;
   }
@@ -77,6 +87,7 @@ function createFigureRasterFamily({ app, appRoot, rootFor, generationFor = () =>
         settle(job, { cancelled: true }); job = null;
       }
       if (!job) break;
+      clearTimeout(slot.idle); slot.idle = null;
       slot.job = job;
       try {
         const proc = worker(owner, slot);
@@ -89,7 +100,7 @@ function createFigureRasterFamily({ app, appRoot, rootFor, generationFor = () =>
   function ownerFor(event) {
     let owner = owners.get(event.sender.id);
     if (!owner) {
-      owner = { sender: event.sender, queue: [], slots: Array.from({ length: workers }, () => ({ proc: null, job: null, timer: null, stopping: false })), deaths: [], unavailable: false, onDestroyed: () => cancelOwner(event.sender.id) };
+      owner = { sender: event.sender, queue: [], slots: Array.from({ length: workers }, () => ({ proc: null, job: null, timer: null, idle: null, stopping: false })), deaths: [], unavailable: false, onDestroyed: () => cancelOwner(event.sender.id) };
       owners.set(event.sender.id, owner); event.sender.once('destroyed', owner.onDestroyed);
     }
     return owner;
