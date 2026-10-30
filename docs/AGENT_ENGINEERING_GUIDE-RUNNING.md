@@ -11713,7 +11713,7 @@ coverage audit resolves aliases before warning about old tracks after source reg
 
 Then the orchestrator's rulings R2–R6:
 - activation warms up OFF the press, in chunks, with the picture BEHIND the slots;
-- deactivated figures are pictured by Route C in Electron;
+- deactivated figures are pictured by Route L up to 6,000 nodes and 1,000 elements (pixel-identical), and by Route C above that in Electron (R3');
 - working-set retention holds through Arrange visits;
 - the first-nudge outlier is pinned;
 - the model3d release gates are routed from Canvas.
