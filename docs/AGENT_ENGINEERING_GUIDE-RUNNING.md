@@ -1015,6 +1015,105 @@ Persistence invariants (all machine-checked — do not weaken):
   open 2.55s → 0.88s, renderer nodes 2.25M → ~307k FLAT in figure count, parsed docs 168 → 14;
   cold figure-focus ~330–500ms (raster paints immediately, upgrades under the 1s navigation
   budget), warm re-focus ~20ms and re-parses nothing. Gate: `verify-scale-lazy-assets.mjs`.
+- **The figure atlas: live element DOM exists only for the ACTIVE figure** (the performance endgame,
+  2026-10-29/30; plan of record `notes/performance_endgame_2026-10-29/PLAN.md`, ledger beside it). On a
+  multi-figure canvas every other figure is ONE bitmap — an SVG `<image>` holding a PNG data URL, sized to
+  its frame, inside the figure's wrapper under the frame clip (`.figure-raster`, `data-figure-raster`;
+  the wrapper carries `data-atlas-mode`). Why: per-frame paint and layerization scale with the MOUNTED
+  node count. On the owner's 13-figure canvas everything live was 75,487 plot nodes and a fit-zoom drag
+  ran at 30 fps (1,490 ms of main thread per 2 s; the trace: Paint 505 ms, Layerize 271, script 36); with
+  the atlas the same drag is ~330 ms at 60 fps, the post-edit tail 512 → ~100 ms with no long task, and
+  switching figures 86 → ~30 ms press-to-paint. Policy lives in `src/lib/figure/atlas.ts`: `figureRasters`,
+  `rasterKey` = figureRev | the plot assets' `plotGen` | poster revision | frame size | background (NEVER
+  position, selection, active/drop/editing state or the viewport — a drag must never request a picture),
+  `rasterScale` (≤ 3 MP, ≤ 4096 px a side), `usable` (key equal, any scale), `soft` (needed scale > 1.25×),
+  an LRU under a 256 MB budget protecting in-view figures, and one queue (priority 1 a visible figure with
+  no picture by distance to the viewport centre, 2 a deactivated figure awaiting its fresh picture, 3
+  quality upgrades) that drains ONLY while the scene is quiet — no gesture, no held pointer button anywhere,
+  no hot scene, no proxy, no zoom in flight — one Route-L job at a time. Transitions
+  (`figure/atlasCanvas.ts`, modes `live | raster | warming | cold | fallback`): activating a pictured figure
+  paints the press first (chrome from the model) and then mounts the figure's CULLED working set in
+  budgeted chunks across frames (~8 ms of mounts per frame, nearest the press first, a plot mount the
+  atomic unit, a self-terminating rAF chain) with the picture drawn BEHIND the slots until every wanted
+  element has mounted and a frame has painted; deactivating keeps the old figure LIVE (`pending`) until its
+  fresh picture lands; a key that changes under a pictured figure keeps the stale picture and requests a new
+  one; a figure whose picture cannot be produced stays live (`fallback`); the only blank state is a frame
+  without a picture while its FIRST picture renders at open or on entering view (≤ ~1.3 s measured). A
+  per-figure content epoch covers Undo and unscoped mutations that bump `globalRev` without `figureRev`.
+  Two routes (`figure/atlasRoutes.ts`): **Route L** serializes a MOUNTED figure's own DOM
+  (`zoomProxy.ts serializeFigureRegion`, figure-local viewBox, the proxy's computed-style inlining) and
+  decodes it through Chromium into an `OffscreenCanvas` → PNG — pixel-identical to what was on screen, but
+  a main-thread decode (~7 ms per 1k nodes, and element wrappers cost extra: the 1,600-object native figure
+  with 5.3k nodes decoded in 152 ms); **Route C** asks the main-process figure raster service (next bullet)
+  to render the figure's CURRENT model off the renderer thread (its pictures differ from the live render by
+  1–10 % of 2×2 blocks: crisper image interpolation, dense-stroke AA, resvg weight resolution). Hence the
+  HYBRID: a deactivated figure of ≤ `ATLAS_ROUTE_L_MAX_NODES` (6,000) nodes and ≤ 1,000 elements takes Route
+  L; larger ones and every cold picture take Route C; the browser harness has Route L only; Route C is the
+  fallback when Route L fails. A `blob:` href inside an SVG-as-image does not load and `data:image/png` does
+  (measured 2026-10-29), which is why the picture is a data URL and survives the zoom-proxy captures and
+  the resvg child unchanged. Interaction (Figma): hovering a pictured figure outlines the FRAME
+  (`.hover-frame`); a press on it activates the figure and selects the click unit by a MODEL hit test
+  (`interact/modelHit.ts hitElementAt`: topmost visible unlocked element, group expansion within the entered
+  scope, a plot by its cached visible ink bounds else its box), then the ordinary element routes run
+  (`onElementDown(…, fromRaster)`: plain, Shift, Alt; Ctrl deep-select degrades to plain), and a drag that
+  starts before the swap catches up the moment the wrapper mounts because `transientSceneTransforms.register`
+  applies the pending transform. Deep select, part picks, X-ray and part hover apply to the active figure
+  only; the agent bridge (`bridge/canvasTargets.ts`) resolves hover/current over a picture to the FIGURE
+  target. Whole-canvas parking is off while the atlas is active; the active figure's already-mounted working
+  set is retained (through Arrange visits too) under the same 1,000-element / 150k-node caps and the same
+  `rasterizeScene` gate parking had — removing it cost a 267 ms deep-fold remount in the native dense gate,
+  and dropping the gate kept a 3D view's renderer alive offscreen. Cached pictures stay mounted off-screen
+  (one `<image>` each) so the zoom proxy's whole-scene coverage stays complete; `sceneContentKey` carries
+  `atlasRevision`, and pictured figures count as fully shown in `complete` / `sharpKeeps` / `patchOverview`
+  / `shownNow` and are skipped by the capture supplement. Slide mode (`frame`) and a single-figure canvas
+  never picture. Gates: `verify-figure-atlas.ts` (policy, queue, hit test, with mutation proofs),
+  `verify-figure-atlas.mjs` (real gestures on a 12-figure grid: the invariant after the first quiet window,
+  click-through selection, drag across the swap, Alt-duplicate, marquee, hover frame, both deactivation
+  routes against a stub service, a 1.5 s held pointer, 12 quick activations), `verify-scale-figure-atlas.mjs`
+  (60 figures: mounted plot nodes == the active figure's, zero slot checks during drag/pan/zoom), and the
+  updated `verify-dense-zoom-*`, `verify-zoom-proxy`, `verify-scale-lazy-assets`, `verify-figure-polish-electron`
+  (first-nudge-after-reactivation pin). Known residuals, measured and recorded in the ledger: a switch burst
+  may still carry a 50–70 ms idle task (one atomic plot mount; the zoom-proxy recapture of the now-small
+  live scene through the main-thread Chromium decode — compositing the pictures outside the SVG decode is
+  the follow-up), and Route C's fidelity (resvg bold-weight resolution, image interpolation).
+- **The figure raster service** (`electron/ipc/figureRaster.cjs`, worker `electron/figureRasterWorker.mjs` →
+  `figureRasterEngine.mjs`, rules `figureRasterRules.cjs`; channels `figure:rasterize` / `figure:cancelRaster`;
+  `FileBridge.rasterizeFigure`): a per-window POOL of long-lived ELECTRON_RUN_AS_NODE children
+  (`FLUX_FIGURE_RASTER_WORKERS`, default min(4, cpus/8)) with a real FIFO — a request for a figure already
+  queued REPLACES it in place; cancel by rid; 15 s per job; three deaths in 60 s retire the owner until its
+  project changes; an idle slot is reaped after 60 s and respawns lazily (a worker holds 0.4–0.8 GB on the
+  owner's project; `stop()` nulls the slot's process before the kill, so a reap is never a death). The
+  request carries the figure's CURRENT model JSON (unsaved edits render), the project's asset metadata, the
+  exact output size (≤ 3 MP, ≤ 4096 px), and `inlineAssets` / `manifests` for bytes not on disk yet; the
+  root must equal the sender window's root and every read goes through flux-core's `projectAssetPath` /
+  `isUnderRoot`. The worker composes the SVG with the SAME code the CLI export uses —
+  `flux-core/render.ts renderFigureSvgFromModel` (`renderFigureSvg` calls it; byte parity pinned) over
+  stat-validated file caches plus a 64 MiB composition cache — validates it with the scene engine's
+  `sceneDocument` (≤ 200k nodes; the same refusals) and renders with resvg `fitTo width` and `fontsFor`'s
+  resolved font files. A refusal is an error reply, not a death; the renderer then keeps that figure live.
+  The worker is a dedicated esbuild bundle (`electron/generated/figureRasterWorker.bundle.mjs`, gitignored,
+  built to memory and published by rename by `gen-slide-embed-assets.mjs` / `build-cli.mjs` — an in-place
+  rewrite raced the gates that read it — asar-unpacked; `verify-asar-unpack-closure` walks its executable
+  imports). Measured warm renders of the owner's figures 81–724 ms (CLI incl. boot 0.44–1.98 s); all 13
+  figures through the 4-worker pool in 2.0 s. Gates: `verify-figure-raster-worker.ts` (real child: PNG,
+  parity, inline override, refusals, replacement, cancel, pool bound, idle reaping),
+  `verify-figure-raster-electron.cjs` (real preload, two windows), `verify-ipc-contract`, `verify-asar-unpack-closure`.
+- **Asset BYTES load at open only for assets some element places; Paper reads a figure's bytes only when it
+  renders that figure** (the endgame's P4, 2026-10-30). `figbridge.loadFigInto` / `io.ts openProject` load
+  bytes for `elementSourceAssetIds` over every figure; unplaced assets stay on disk until a consumer needs
+  them (`assets.ts ensureAssetBytes`: Save-As and standalone saves copy every asset and THROW rather than
+  drop one whose bytes are unavailable; an ordinary save never rewrites a clean unloaded asset; the live
+  bridge's `add_plot`/`add_image` by id and an external reload's Undo load bytes before use). `model.assets`
+  metadata stays 100 % resident (the save invariant). Paper reads the fig STRUCTURE at load
+  (`figbridge.readFigStructure`: index, canvases, captions, families, asset metadata) and a figure's bytes +
+  manifests only when it renders it (`readFigAssets(root, ids)`, through the stat-validated cache);
+  `readFigSource` remains the composition for callers that need everything (JSON-identical to before). A
+  figure save records every path it publishes with its post-write stat (`project/ownWrites.ts`, 5 s) and the
+  watcher's fig branch skips an event only when EVERY coalesced path matches (`figbridge.isOwnFigChange`;
+  main attaches the full `paths` list — a coalesced event otherwise carries only the latest path) — one
+  `figRevision` bump per autosave instead of two. Measured: Paper scroll work on the owner's project
+  501 → 27 ms, a Paper visit reads 0 asset files (was 80 on a 20-figure fixture). Gates:
+  `verify-fig-own-writes`, `verify-fig-edit-echo`, `verify-paper-asset-reads`, `verify-unplaced-asset-bytes`.
 - The **paper editor** (CodeMirror 6) is the most latency-sensitive surface in the app. The
   mechanisms that keep it instantaneous (§6) and glitch-free — engineering constraints, not
   aesthetics; understand them before changing them: BLOCK WIDGETS are a pure function of the
@@ -3131,6 +3230,17 @@ layout on the zoom proxy (was 303–374 with 113–133 ms of live SVG relayout; 
 decoded on this project). The remaining hitch class is a synchronous 3k-node plot mount (~60–85 ms:
 the duplicate's copy, the resize/crop release render, a cull re-mount inside a wheel event), plus the
 ~75 ms proxy re-capture 1.5 s after an edit and the live zoom that a burst inside that window still gets.
+Remeasured 2026-10-30 on a copy of the owner's Synaptic Sleep project (13 figures, 101 plots, ~70k plot SVG
+nodes, 212 assets; production bundle, headless 1600×1000, `input-probe.cjs`, medians of 3; QA-P2 on 46608590):
+before the performance endgame the fit-zoom canvas mounted 217 elements / 75,487 plot nodes and a plot drag ran
+at frame p95 33.4 ms (30 fps) with 1,490 ms of task per 2 s; after, 28 elements / 5,144 plot nodes (the active
+figure only) and the drag is 327 ms at p95 16.8 with no long task; post-edit idle 512 (one 116 ms task) → 104;
+pan 301 → 74; zoom 438 → 115 (60/60 proxied); zoomed drag 815 → 393; Alt-duplicate 673 → 347; idle after the
+duplicate 960 → 114; resize 1,081 → 865; idle after undo 776 → 94; edit-then-navigate 281 → 103 (37/37 proxied);
+switching figures 86 → ~30 ms press-to-paint; a colour-scale notch on the 3k-node hexmatrix 73 → 8 ms and an
+override toggle on the owner's 25.8k-node elastic plot 153 → 8.8 ms (0 re-clones); Paper scroll work 501 → 27 ms;
+open: the active figure live ~2.5 s after navigation, every in-view figure pictured by ~4 s. The native key-to-paint
+gate reads 1,600: 41–47 ms, 5,000: 80–84 ms, 5,000 + rail: 77–85 ms (private Xvfb).
 
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
@@ -4730,6 +4840,37 @@ outside this PNG packaging change.
   compositing (check `gpu_compositing` in runtime.json); on an idle X11-maximized window
   `requestIdleCallback` never fires (a snapshot scheduled through it waits for the next gesture).
 
+**The performance endgame (2026-10-29/30):**
+
+- **Per-frame cost is the MOUNTED node count, not the project.** The fit-zoom overview of a 13-figure canvas
+  mounted 75k plot nodes and dragged at 30 fps with no slow JavaScript (Paint 505 ms, Layerize 271 ms, script
+  36 ms in the trace). When a canvas feels slow, count `[data-editor-element-id] svg *` before profiling JS; the
+  atlas keeps only the active figure live.
+- **A `blob:` href inside an SVG-as-image does not load; `data:` does** (measured 2026-10-29). Anything that must
+  survive serialization into an SVG image (the zoom proxy, the raster child) is a data URL.
+- **Chromium's SVG-image decode is synchronous on the main thread and its cost tracks element WRAPPERS as well as
+  nodes**: the 1,600-object native figure (5.3k nodes) decoded in 152 ms. A picture of a dense or object-heavy figure
+  belongs to the off-thread service; the route rule carries both caps.
+- **A pictured figure's DOM mount belongs OFF the press, in chunks.** Mounting the activated figure inside the
+  pointerdown put 11.8k styled elements in the press (86 → 121–151 ms press-to-paint); painting the press first and
+  mounting ~8 ms per frame behind the picture gives ~30 ms. Past ~1,000 objects, batch non-plot objects (one element
+  per frame "crawls" a 5,000-object figure into a timeout).
+- **"Quiet" must include pointers held OUTSIDE the canvas** (gap handles, panel scrubs, rail drags): a swap landed
+  130 ms into an Arrange gap press until the atlas tracked the held button at window level.
+- **Replacing parking with retention must keep parking's capability gate**: retention without `rasterizeScene`
+  kept a 3D view's renderer alive offscreen in the browser bridge.
+- **A long-lived worker pool needs an idle reaper**; a rebuilt-in-place bundle races the gates that read it (build
+  to memory, skip identical bytes, publish by rename).
+- **A fresh-mount oracle shared with the thing under test is blind to shared state**: relayout's per-model binding
+  template held the FIRST clone's colour-key tick anchors, so a second placement of a colour-keyed asset drew the
+  first clone's key — invisible to a same-process fuzz, found by hashing fresh mounts across checkouts.
+- **The project watcher coalesces `fs:changed` per subsystem and carried only the LATEST path**: an own-write echo
+  filter must judge the full `paths` list, and an event is our echo only if every path matches.
+- **Lazy asset bytes need every "becomes placed later" route covered** (the live bridge's `add_plot`/`add_image`,
+  an external reload's Undo).
+- **Merging `verify-manifest.json` pathMaps keyed by glob drops an exact-path rule that repeats a glob** — key the
+  structural merge by the entry's exact JSON.
+
 **resvg, thumbnails and the Plots rail (2026-10-22):**
 
 - **`new Resvg(svg)` with `loadSystemFonts` (the default) rebuilds the whole font database on
@@ -5019,6 +5160,13 @@ outside this PNG packaging change.
   and Windows / Mac compositing of plus-lighter and priming (unmeasured). There is NO re-pace command (WP 2.6 cut
   by the owner): old talks play exactly as made, and a mixed-pace deck is legal. Letters travel and roll are the
   default for NEW text transforms; `params` stripped is the classic look.
+
+- **Performance endgame follow-ups, deliberately not built on 2026-10-30** (ledger `notes/performance_endgame_2026-10-29/LEDGER.md`):
+  persisted pictures on disk (`fig/renders/atlas/`, PLAN §6 — re-opens would be instant; the first open fills in
+  ~4 s today); compositing the zoom proxy from the atlas's pictures instead of decoding the serialized scene (the
+  post-switch recapture is a 50–100 ms idle task); splitting a heavy plot's atomic mount; resvg fidelity in Route C
+  (bold-weight resolution, image interpolation); shadow-DOM scoping of plots (B2); a shared restyle helper for the
+  slide transform host; an idle-timeout policy per platform for the raster pool.
 
 ### Elastic plot reflow pipeline
 
@@ -11725,3 +11873,19 @@ Then the orchestrator's rulings R2–R6:
 - Every `commit()` bumps `globalRev`: per-figure work keyed on it must not serialize the active figure per edit.
 - After a figure switch the remaining long tasks are an atomic heavy-plot mount plus that frame's style/paint, and the idle zoom-proxy recapture of the live active figure (≤20k nodes are decoded by Chromium on the main thread). Measure switching with `input-probe --phases=switchFigure`.
 - Route C vs Chromium differ on the owner's figures by 1.4–9.8 % of 2×2 blocks (≥10 levels). Fonts resolve to the same family. Differences come from interpolation of embedded raster images (heatmaps), anti-aliasing of dense thin strokes and fills, and at least one bold label drawn regular by resvg.
+
+### 2026-10-29/30 — The performance endgame: orchestration summary (Claude Fable 5.1 orchestrating Codex GPT-6.1-Sol workers + Opus 5.5 QA agents, `endgame/integrate`)
+**Work:** Measured the owner's 13-figure project (75k live plot nodes at fit, a 30 fps drag, 0.5–1 s post-edit tails,
+7.7 s open), chose the per-figure atlas over the roadmap's other routes (the principle test: only the active figure's
+DOM displayed → 60 fps), and ran six packets through Codex workers in worktrees with Claude QA integration: P1 figure
+raster service, P2 the atlas, P3 + P3b in-place plot restyle (plain and elastic), P4 edit-tail/open diet, P1b idle
+reaping; P5 persisted pictures deferred. Every packet carried negative proofs and full-tier runs; QA found eleven real
+integration bugs (ledger). Plan, ledger, measurements: `notes/performance_endgame_2026-10-29/`.
+**Learnings:**
+- Promoted to §4 (the atlas, the raster service, lazy asset bytes), §6 (the owner-project numbers), §9 (eleven traps), §10.
+- Reproduce the owner's flow on a copy of their project before and after; a principle test (a CSS scenario that hides
+  what the design would remove) is worth an hour before committing to an architecture.
+- A QA agent that fuzzes against a fresh-mount oracle, A/Bs every red on the baseline and re-runs negative proofs catches
+  what workers' green receipts hide — but the oracle's own shared state is a blind spot (hash across checkouts).
+- Design rulings that trade main-thread work for fidelity (service pictures vs Chromium pictures) need the perceptual
+  number in hand; the hybrid by node/element count came from measuring both sides.
