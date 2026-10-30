@@ -695,8 +695,11 @@
     if (parkCount.gen !== mountedGen) { parkCount.gen = mountedGen; parkCount.nodes = sceneSvgEl.getElementsByTagName("*").length; }
     return parkCount.nodes <= SNAPSHOT_MAX_DENSE_NODES;
   }
+  // The retention below replaces parking for the active figure, so it carries
+  // parking's capability gate: without the scene raster child (the browser
+  // bridge) culled elements unmount and release their live resources (3D views).
   function retainAtlasActive(fig: Figure): boolean {
-    if (!atlasActive || fig.id !== $activeFigureId || fig.elements.length > PARK_MAX_ELEMENTS || !sceneSvgEl) return false;
+    if (!atlasActive || fig.id !== $activeFigureId || !fileBridge()?.rasterizeScene || fig.elements.length > PARK_MAX_ELEMENTS || !sceneSvgEl) return false;
     if (parkCount.gen !== mountedGen) { parkCount.gen = mountedGen; parkCount.nodes = sceneSvgEl.getElementsByTagName('*').length; }
     return parkCount.nodes <= SNAPSHOT_MAX_DENSE_NODES;
   }

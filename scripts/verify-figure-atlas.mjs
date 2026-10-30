@@ -117,6 +117,15 @@ try {
   await waitFor(page, z => window.__flux.get(window.__flux.fig.viewport).zoom < z / 2, src.zoom, { label: 'zoom-out crosses 2x' });
   await page.evaluate(() => new Promise(r => setTimeout(r, 2200)));
   h.eq(await page.evaluate(() => window.__flux.atlas.stats.routeL + window.__flux.atlas.stats.routeC), jobs, '(h) zoom-out never requests a new atlas raster');
+  // Without the scene raster child (the browser bridge, like base parking) the
+  // active figure keeps no offscreen working set: panning it fully out of view
+  // unmounts its element DOM, so its models/plots release their live resources
+  // (selected elements always stay mounted, so clear the selection first).
+  await page.evaluate(() => { const F = window.__flux.fig; F.selection.set(new Set()); F.viewport.update(v => ({ ...v, panX: -50000, panY: -50000 })); });
+  try {
+    await waitFor(page, () => document.querySelectorAll('[data-editor-element-id]').length === 0, null, { timeout: 5000, label: 'offscreen active figure unmounts' });
+    h.ok(true, 'an offscreen active figure keeps no live element DOM without the scene raster child');
+  } catch (error) { h.fail(`an offscreen active figure keeps no live element DOM without the scene raster child: ${error}`); }
   h.eq(realErrors(page).length, 0, `console clean: ${realErrors(page).join(' | ')}`);
   mkdirSync('test-results', { recursive: true });
   writeFileSync('test-results/figure-atlas.json', JSON.stringify({ timings, before, after: state, pixelDiff: diff }, null, 2));
