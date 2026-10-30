@@ -2906,8 +2906,9 @@ Persistence invariants (all machine-checked — do not weaken):
     fluxplot's own tick scheme (`plot/ticks.ts`: decades plus 3×10ᵏ under three decades, minors
     2–9, plain labels), and restores pristine bytes for an absent or identity view. An
     unresolved colormap name keeps the generated paint and is reported (`unresolved`) for a
-    re-apply. `mount.ts` must list `colorScale` in its re-render signature (`snap`/`sameSnap`/
-    `signature`) — it did not at first, and the canvas stayed put while export recoloured.
+    re-apply. `mount.ts` must list `colorScale` in its STYLE signature (`snap`/`sameSnap`/
+    `signatures().style`; a style-only change restyles the clone in place, below) — it did not
+    at first, and the canvas stayed put while export recoloured.
     Slides: `tween.lerpColorScales` interpolates views (log limits in log space, tables per entry
     in OKLab, kinds / names / extend step at raw 0.5) and the transform host completes absent
     ends from the manifest (`tweenColorScales`) so "as generated" → edited glides instead of
@@ -4213,6 +4214,17 @@ outside this PNG packaging change.
   per-field records first (WeakMap in compensate.ts), and every seek runs
   `restorePtTrue → restoreProjection → viewBox/crop → applyOverrides → applyPlotView → compensatePtTrue` — exactly a fresh mount,
   idempotent at any t (transform.ts).
+  The canvas mount runs the same discipline IN PLACE (2026-10-29, plan D5, `plot/restyle.ts`): a STYLE-only
+  change (overrides, colour scale, view, content scale, theme) runs `restorePtTrue → restoreProjection →
+  restoreOverrides → theme → colour scale → preparePlotView → applyOverrides → applyPlotView →
+  compensatePtTrue` on the existing clone; asset/box/crop/layout-mode/`gen` changes and ELASTIC plots (any
+  `relayoutPlot` reflow: every placed plot of the owner's project, 101/101 on 2026-10-29) still re-clone.
+  `verify-plot-restyle` byte-compares every step with a fresh mount. Anything else that writes into a
+  mounted plot's DOM was relying on the re-clone to discard its writes: undo them at the commit
+  (`restoreOverrides` resets a part drag's transient translate on the PICKED node, a group's wrapper, as
+  well as on its resolved leaves) or subscribe with `onPlotRestyle` on an ancestor of the mount host (take
+  the writes back on "before", paint again on "after"; `presentEditorParts` does). Mount-only bookkeeping
+  on a shared record must be opt-in (`CompensateOpts.styleBytes`): the slide host runs the chain per frame.
 - **CSS transform vs SVG transform attribute (Release 1):** any transform effect on a leaf that
   has a `transform` attribute must go through the `data-sl-fx` wrapper or the leaf is thrown to
   the SVG origin (473.9 stage units on scatter markers before). `transform-origin` on an SVG node
@@ -4987,7 +4999,8 @@ outside this PNG packaging change.
 - **Plot mount cost (2026-09-30, deferred):** mounting a 3k-node plot is ~60–85 ms of synchronous JS
   (prefixIds ~21 ms, the projection bind ~17 ms, importNode ~6 ms after the 2026-09-30 diet) and runs inside
   input events: the duplicate's copy on the first alt-drag move, the resize/crop release render, a cull
-  re-mount inside a wheel tick. Levers, not built: a prefixed-clone cache per asset, the mount sliced off the
+  re-mount inside a wheel tick. Style edits on FIXED-layout plots no longer pay it (in-place restyle,
+  2026-10-29: a colour-limit wheel notch ~75 → ~11 ms); style edits on ELASTIC plots still re-clone. Levers, not built: a prefixed-clone cache per asset, the mount sliced off the
   input event, cheaper prefixIds. Also deferred: Paper loading only the assets the manuscript embeds (the
   100× fix for the hidden-pane reload), the fig watcher's double `figRevision` bump on our own write, and
   ANGLE-Vulkan (`--use-angle=vulkan --enable-features=Vulkan`, −32–42 % GPU raster on Wayland/NVIDIA) as an
@@ -11655,3 +11668,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 - Restyling must restore removed override fields AND clips unhoisted by a gesture before its commit; a fresh clone used to discard both transient transforms and clip changes.
 - CSSOM restoration needs to preserve authored style bytes for exact XML parity. Colour keys must retain untouched generated gradient stops and forget detached tick clones. A colour-table cache key must include interior colours, not just its endpoints.
 - Restoring/re-writing unchanged projected data paths can force synchronous layout during a colour edit; fixed-view restyles keep those attributes while still restoring/reapplying styles and guides. Static projection caches retain one view, and tick templates refresh before overrides.
+
+### 2026-10-29 — QA-P3: in-place plot restyle integrated (Claude Opus 5.5, `qa/p3` → `endgame/integrate`)
+**Work:** Rebased P3 onto P1, reviewed it against plan §4, fuzzed restyle-vs-fresh-mount far beyond the gate (10 fixtures, random overrides/colour scales/views/content scale/theme/emulated part drags) and fixed four integration bugs, each pinned in `verify-plot-restyle`.
+**Learnings:**
+- Promoted to §9 (the one-shot-writes entry): the in-place restyle chain, who still re-clones (elastic plots: all of the owner's), and the rule for every other writer into a mounted plot's DOM (undo at the commit, or `onPlotRestyle`), plus opt-in mount bookkeeping on shared per-frame records.
+- The packet's byte-identity gate (a fixed edit script) caught none of the four. A random-edit fuzz against a fresh-mount oracle found two in minutes (colour-table resize bytes, group-part drags); reading for OTHER writers into the mounted DOM found the third (the Slide editor's presentation), and an A/B bench of the shared per-frame chain the fourth. Keep an oracle-driven fuzz next to any "idempotent writer" claim.
