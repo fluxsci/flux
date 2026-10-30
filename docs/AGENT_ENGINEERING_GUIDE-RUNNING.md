@@ -11688,3 +11688,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Learnings:**
 - Content scale changes `targetFigureSize`, so elastic geometry cannot be retained for every style edit. Preserve the colour-before-reflow order against original anchors; cached colour-key bindings must refresh from each clone's live native anchors too.
 - Reflow's restored tick children must retain node identity for the other compiled writers. Re-parsing saved text markup leaves their node references detached. Colour-key style-byte snapshots are mount-only too; per-frame hosts must not capture them.
+
+### 2026-10-30 02:10 CDT — QA-P3b integrated the elastic restyle (Claude Opus 5.5, codex-qa)
+**Work:** Rebased P3b onto the P4 head, pinned one relayout fix the packet carried, re-ran the gates and measured the owner's project copy. A dense 25.8k-node elastic plot's override toggle went from 153 to 8.8 ms (sync; 196 → 9.1 ms with forced layout). A typical colour-scale step went from 6.2 to 2.7 ms. Each step restyled with zero re-clones. QA-P3's random-edit fuzz found no divergence across 49,920 steps on all 52 relayout fixtures.
+**Learnings:**
+- Relayout binds every clone of one model through a shared binding template. That template held the FIRST clone's colour-key tick anchors, so a second placement or a re-clone with another colour scale drew the wrong key ticks (present on main fb766407). Same-process fuzzing cannot see it: the oracle mount reuses the same template. Comparing fresh-mount hashes across checkouts, and against a first clone made from a freshly parsed manifest, exposed it. `verify-plot-restyle` now pins it.
+- Elastic mounts now take the override-restoration ledger, which costs about 4 ms per 25.8k ids (0.1 ms on a typical plot). That is the price of restyling them in place.
