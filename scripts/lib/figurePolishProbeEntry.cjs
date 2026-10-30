@@ -113,6 +113,11 @@ async function main(){
   check(times.length===18,`${n}: actual native keyboard events measured`);metrics[n]={nudgeP95:p95(times),samplesMs:times,viewport:await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'),mounted:await js("document.querySelectorAll('[data-editor-element-id]').length"),layers:await js("document.querySelectorAll('.sidebar .layer').length")};
   console.log('PROBE metrics='+JSON.stringify({figure:n,...metrics[n]}));
   fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-native-metrics.json'),JSON.stringify(metrics,null,2));
+  // Figure atlas (R5): the first nudge after re-selecting a pictured figure must not carry deferred atlas work. It
+  // read 222.6 ms against a 78.8–82.3 ms series when the deactivated dense figure's Route-L capture (main-thread
+  // serialization of 36k nodes, then the swap) landed on it; Route C pictures deactivated figures off-thread now.
+  { const rest=[...times.slice(1)].sort((a,b)=>a-b),median=rest[Math.floor(rest.length/2)];
+    check(times[0]<=1.5*median,`${n}: the first nudge after activation is no outlier (${times[0].toFixed(1)} ms vs median ${median.toFixed(1)})`); }
   budget(metrics[n].nudgeP95<=100,`${n}: native key-to-paint p95 ${metrics[n].nudgeP95.toFixed(1)}ms ≤100ms`);
   // Figure atlas: re-selecting a figure that is a picture warms up its culled
   // working set only; mounting every object measured 107 ms key-to-paint (vs 69).
