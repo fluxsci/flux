@@ -17,6 +17,7 @@ import { writable } from "svelte/store";
 import type { DeckTheme } from "../slide/types";
 import type { SemanticPlotElement } from "../types";
 import type { FluxPlotManifest } from "./types";
+import { captureStyleBytes, restoreStyleBytes, type StyleBytes } from './styleBytes';
 
 export type InkToken = "ink" | "label" | "tick" | "axis" | "grid" | "plot" | "paper";
 export const INK_TOKENS: readonly InkToken[] = ["ink", "label", "tick", "axis", "grid", "plot", "paper"];
@@ -102,7 +103,7 @@ function drawable(node: Element): Element[] {
   return Array.from(node.querySelectorAll(DRAWABLE));
 }
 
-interface Pristine { fill: string; stroke: string; hadStyle: boolean }
+interface Pristine { fill: string; stroke: string; hadStyle: boolean; bytes: StyleBytes }
 interface RootState { touched: Set<Element>; key: string }
 const roots = new WeakMap<Element, RootState>();
 const pristine = new WeakMap<Element, Pristine>();
@@ -110,7 +111,7 @@ const pristine = new WeakMap<Element, Pristine>();
 function capture(node: Element): void {
   if (pristine.has(node)) return;
   const st = (node as SVGElement).style;
-  pristine.set(node, { fill: st.getPropertyValue("fill") ?? "", stroke: st.getPropertyValue("stroke") ?? "", hadStyle: node.hasAttribute("style") });
+  pristine.set(node, { fill: st.getPropertyValue("fill") ?? "", stroke: st.getPropertyValue("stroke") ?? "", hadStyle: node.hasAttribute("style"), bytes: captureStyleBytes(node) });
 }
 
 function restoreNode(node: Element): void {
@@ -120,6 +121,7 @@ function restoreNode(node: Element): void {
   if (rec.fill) st.setProperty("fill", rec.fill); else st.removeProperty("fill");
   if (rec.stroke) st.setProperty("stroke", rec.stroke); else st.removeProperty("stroke");
   if (!rec.hadStyle && !node.getAttribute("style")) node.removeAttribute("style");
+  restoreStyleBytes(node, rec.bytes);
 }
 
 /** Put back everything this module wrote under `root`. */

@@ -22,6 +22,7 @@ import { effectiveScale, parseColormap, slotFor, normalize, INDEX_KINDS, rgbHex,
   type ParsedColormap, type LutResolver, type EffectiveScale } from "./colorscale";
 import { colormapLut } from "../color/colormapLuts";
 import { ticksFor, logMinorTicks, formatTick, scalarLabels } from "./ticks";
+import { captureStyleBytes, restoreStyleBytes, type StyleBytes } from './styleBytes';
 
 type Paint = "fill" | "stroke" | "both";
 interface Binding {
@@ -30,12 +31,19 @@ interface Binding {
   alphaValues: Float64Array | null;
 }
 interface RootState { groups: Map<string, Binding[]>; touched: Set<Element>; keys: Map<string, KeyState[]> }
-interface PristinePaint { fill: string; stroke: string; fillOpacity: string; strokeOpacity: string; hadStyle: boolean }
+interface PristinePaint { fill: string; stroke: string; fillOpacity: string; strokeOpacity: string; hadStyle: boolean; bytes: StyleBytes }
 interface KeyState { gradient: Element | null; stops: Node[] | null; ticks: TickNode[]; labels: TickNode[]; minors: TickNode[]; clones: Element[]; guide: FluxPlotGuide; offset: number }
 interface TickNode { node: Element; transform: string | null; x: string | null; y: string | null; text: string | null; display: string; shown: boolean }
 
 const roots = new WeakMap<Element, RootState>();
 const paints = new WeakMap<Element, PristinePaint>();
+
+/** Only ticks added by the writer need new pt-true bindings after a restyle. */
+export function colorScaleTickRoots(root: Element): readonly Element[] {
+  const out: Element[] = [];
+  for (const list of roots.get(root)?.keys.values() ?? []) for (const key of list) out.push(...key.clones);
+  return out;
+}
 
 const DRAWABLE = "path,use,rect,circle,ellipse,polygon,polyline,line,image";
 function drawable(node: Element): Element[] {
@@ -84,7 +92,7 @@ function capture(node: Element): PristinePaint {
     const st = (node as SVGElement).style;
     rec = { fill: st.getPropertyValue("fill") ?? "", stroke: st.getPropertyValue("stroke") ?? "",
       fillOpacity: st.getPropertyValue("fill-opacity") ?? "", strokeOpacity: st.getPropertyValue("stroke-opacity") ?? "",
-      hadStyle: node.hasAttribute("style") };
+      hadStyle: node.hasAttribute("style"), bytes: captureStyleBytes(node) };
     paints.set(node, rec);
   }
   return rec;
@@ -120,6 +128,7 @@ function restorePaint(node: Element): void {
     if (value) style.setProperty(prop, value); else style.removeProperty(prop);
   }
   if (!rec.hadStyle && !node.getAttribute("style")) node.removeAttribute("style");
+  restoreStyleBytes(node, rec.bytes);
 }
 
 /** Put back everything this module wrote under `root`. */
@@ -161,7 +170,7 @@ export function applyPlotColorScale(root: Element, manifest: FluxPlotManifest | 
     if (eff.issues.length) { result.issues.push(...eff.issues.map((i) => `Colour scale ‹${scale.id}›: ${i}`)); restoreScale(root, state, scale); continue; }
     const parsed = parseColormap(eff.colormap);
     const integer = INDEX_KINDS.includes(eff.norm.kind);
-    const tableKey = `${eff.colormap.name}|${eff.colormap.N}|${eff.colormap.lut[0]}|${eff.colormap.lut[eff.colormap.N - 1]}|${eff.colormap.under}|${eff.colormap.over}|${eff.colormap.bad}`;
+    const tableKey = `${eff.colormap.name}|${eff.colormap.N}|${eff.colormap.lut.join(",")}|${eff.colormap.under}|${eff.colormap.over}|${eff.colormap.bad}`;
     const alphaChannel = scale.alpha;
     for (const b of bindings(root, state, scale.id)) {
       const fresh = b.tableKey !== tableKey;
@@ -269,14 +278,22 @@ function restoreTick(t: TickNode): void {
   t.transform = t.x = t.y = t.text = null; t.shown = true;
 }
 
-function restoreKey(k: KeyState): void {
-  if (k.gradient && k.stops) {
+function restoreKey(k: KeyState, gradient = true): void {
+  if (gradient && k.gradient && k.stops) {
     while (k.gradient.firstChild) k.gradient.removeChild(k.gradient.firstChild);
     for (const s of k.stops) k.gradient.appendChild(s);
     k.stops = null;
   }
   for (const t of [...k.ticks, ...k.labels, ...k.minors]) restoreTick(t);
   for (const c of k.clones) c.parentNode?.removeChild(c);
+  // The lists must forget detached ticks too, or the next edit writes into
+  // old clones and leaves the on-screen key short of ticks.
+  if (k.clones.length) {
+    const clones = new Set(k.clones);
+    k.ticks = k.ticks.filter(t => !clones.has(t.node));
+    k.labels = k.labels.filter(t => !clones.has(t.node));
+    k.minors = k.minors.filter(t => !clones.has(t.node));
+  }
   k.clones = [];
 }
 
@@ -298,9 +315,17 @@ function place(target: Element, vertical: boolean, pos: number): void {
 
 function redrawKeys(root: Element, st: RootState, manifest: FluxPlotManifest, scale: FluxPlotColorScale, eff: EffectiveScale, parsed: ParsedColormap, elId: string): void {
   for (const k of keyStates(root, st, manifest, scale, elId)) {
+    // Start from generated ticks, so a shorter tick set cannot leave surplus
+    // clones and a longer one never clones an already edited template.
+    restoreKey(k, false);
     // 1. the solids: two hard stops per table entry, uniform in the key's axis space
     if (k.gradient) {
-      if (!k.stops) k.stops = Array.from(k.gradient.childNodes);
+      if (!k.stops) {
+        k.stops = Array.from(k.gradient.childNodes);
+        // Retain the generated nodes without painting over their pristine
+        // attributes: an absent scale must restore the generated stop bytes.
+        k.gradient.replaceChildren(...k.stops.map(s => s.cloneNode(true)));
+      }
       const doc = k.gradient.ownerDocument!;
       const N = parsed.N;
       const wanted = 2 * N;

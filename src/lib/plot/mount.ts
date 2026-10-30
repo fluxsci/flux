@@ -4,42 +4,32 @@
 // placement, size the outer <svg> to the element's box, apply per-part
 // overrides, then run pt-true compensation (geometry scales with the box; text/
 // glyph/stroke sizes stay true-pt — plot/compensate.ts). Re-clones only when
-// content-affecting fields change; pure x/y moves update the outer <svg>
-// attributes in place (no re-clone per committed drag).
+// source, viewport, crop or layout mode changes. Styles re-apply in place;
+// pure x/y moves only update the outer <svg> attributes.
 
-import { applyPlotView, preparePlotView } from "./projectDom";
-import { applyPlotColorScale } from "./colorScaleDom";
+import { applyPlotView, preparePlotView, projectionTickRoots, rememberStaticPlotView } from "./projectDom";
+import { restylePlotInstance } from "./restyle";
+import { applyPlotColorScale, colorScaleTickRoots } from "./colorScaleDom";
 import { applyPlotTheme, plotFollowsTheme } from "./themeDom";
 import type { DeckTheme } from "../slide/types";
 import { ensureColormapLuts, colormapLutsLoaded } from "../color/colormapLuts";
 import { get } from "svelte/store";
 import type { SemanticPlotElement, CropRect, PartOverride, PlotView } from "../types";
-import { plotGen, plotDom, plotManifests, sigCalls } from "./store";
-import { applyOverrides, prefixIds } from "./parse";
-import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
+import { plotGen, plotDom, plotManifests, sigCalls, mountCounters } from "./store";
+import { applyOverrides, prefixIds, prepareOverrideRestoration } from "./parse";
+import { compensatePtTrue, compilePtTrueBindings, updatePtTrueBindings, type PtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
 import { relayoutPlot } from "./relayout";
 import { registerRelayoutPreview } from "./relayout/previewPaint";
 import { updatePlotVisibleBounds, clearPlotVisibleBounds, hidesPlotParts, hasMeasuredPlotBounds } from './visibleBounds';
 import type { Rect } from '../geometry';
 
-// Content signature: anything that requires a fresh clone + override/compensate
-// pass. x/y are deliberately EXCLUDED (fast-path below).
-function signature(e: SemanticPlotElement, gen: number, theme: DeckTheme | null): string {
-  sigCalls.n++; // dev counter — verify-scale-figure asserts 0 on unrelated commits
-  return [
-    e.assetId,
-    e.width,
-    e.height,
-    gen,
-    JSON.stringify(e.overrides ?? {}),
-    JSON.stringify(e.crop ?? null),
-    JSON.stringify(e.colorScale ?? null),
-    JSON.stringify(e.view ?? null),
-    e.contentScale ?? 1,
-    e.layoutMode ?? "auto",
-    // the deck theme the scaffold ink follows (Slide mode; Figure passes none)
-    themeKey(e, theme),
-  ].join("|");
+// Structural changes invalidate the clone; styles reuse its compiled bindings.
+function signatures(e: SemanticPlotElement, gen: number, theme: DeckTheme | null) {
+  sigCalls.n++;
+  return {
+    structure: [e.assetId, e.width, e.height, gen, JSON.stringify(e.crop ?? null), e.layoutMode ?? "auto"].join("|"),
+    style: [JSON.stringify(e.overrides ?? {}), JSON.stringify(e.colorScale ?? null), JSON.stringify(e.view ?? null), e.contentScale ?? 1, themeKey(e, theme)].join("|"),
+  };
 }
 
 const themeKey = (e: SemanticPlotElement, theme: DeckTheme | null): string =>
@@ -57,7 +47,7 @@ if(typeof window!=='undefined')window.addEventListener('flux:pane-shown',()=>{
   if(pendingBounds.size)queueMicrotask(flushPendingPlotBounds);
 });
 
-// WS-1 Fix 1: the fields whose CHANGE forces a re-clone, snapshotted by value/
+// WS-1 Fix 1: content-affecting fields, snapshotted by value/
 // reference after each update. ops.setPartOverride/setCrop are copy-on-write
 // (fresh overrides/crop object per change — verify-ops.ts locks the invariant),
 // so reference equality on those plus scalar equality on the rest proves the
@@ -109,6 +99,10 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
   let gen = params.gen ?? 0;
   let theme: DeckTheme | null = params.theme ?? null;
   let sig = "";
+  let keys = signatures(element, gen, theme);
+  let bindings: PtTrueBindings | undefined;
+  let intrinsic = { w: 0, h: 0 };
+  let reflow = false;
   let last: SigSnapshot = snap(element, gen, theme);
   let inst: SVGSVGElement | null = null;
   let colorMapsRequested = false;
@@ -123,7 +117,43 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     inst.setAttribute("y", String(element.y));
   }
 
+  function requestColorMaps(unresolved: readonly string[]) {
+    if (!unresolved.length || colorMapsRequested) return;
+    colorMapsRequested = true;
+    const assetId = element.assetId;
+    void ensureColormapLuts().then(() => { if (colormapLutsLoaded()) plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 })); });
+  }
+
+  function publishBounds() {
+    if (!inst) return;
+    const cached = plotDom.get(element.assetId);
+    if (!cached) return;
+    pendingBounds.delete(inst);
+    // A restyle, like a mount, publishes only after the completed DOM commit.
+    const generation=++measureGeneration,current=inst,source={dom:cached,key:sig};
+    const publish=()=>{if(generation===measureGeneration&&current.isConnected){boundsRoot=current;onBounds?.(updatePlotVisibleBounds(current,element,source));}};
+    queueMicrotask(()=>{
+      if(generation!==measureGeneration||!current.isConnected)return;
+      if(!hidesPlotParts(element)||hasMeasuredPlotBounds(source)||current.getClientRects().length)publish();
+      else pendingBounds.set(current,publish);
+    });
+  }
+
+  function restyle() {
+    if (!inst || !bindings) return;
+    mountCounters.restyles++;
+    const manifest = get(plotManifests)[element.assetId];
+    const { scales } = restylePlotInstance(inst, { element, manifest, theme, bindings, intrinsic });
+    requestColorMaps(scales.unresolved);
+    place();
+    unregisterPreview();
+    unregisterPreview = registerRelayoutPreview(inst, manifest, element);
+    publishBounds();
+  }
+
   function render() {
+    mountCounters.renders++;
+    if (inst) mountCounters.reclones++;
     unregisterPreview();
     const previous=inst;
     if(previous)pendingBounds.delete(previous);
@@ -133,7 +163,7 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     if (!cached) {if(boundsRoot)clearPlotVisibleBounds(element.id,boundsRoot);boundsRoot=null;onBounds?.(undefined);return;} // raster fallback
     // importNode adopts the node into this document (the cache lives in a parsed XML doc).
     inst = document.importNode(cached, true) as SVGSVGElement;
-    const intrinsic = svgIntrinsicPx(cached); // BEFORE width/height are overwritten
+    intrinsic = svgIntrinsicPx(cached); // BEFORE width/height are overwritten
     prefixIds(inst, element.id);
     place();
     inst.setAttribute("width", String(element.width));
@@ -145,42 +175,34 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     } else {
       inst.style.overflow = "visible";
     }
+    bindings = compilePtTrueBindings(inst);
     const manifest = get(plotManifests)[element.assetId];
     // the deck theme's ink (Slide mode) and live colour scales BEFORE overrides, so an explicit
     // per-part paint still wins
     applyPlotTheme(inst, manifest, theme && plotFollowsTheme(element, "slide") ? theme : null);
     const scales = applyPlotColorScale(inst, manifest, element.colorScale, element.id);
-    if (scales.unresolved.length && !colorMapsRequested) {
-      // a named map whose table is not loaded yet: paint as generated now, re-render once it is
-      colorMapsRequested = true;
-      const assetId = element.assetId;
-      void ensureColormapLuts().then(() => { if (colormapLutsLoaded()) plotGen.update((g) => ({ ...g, [assetId]: (g[assetId] ?? 0) + 1 })); });
-    }
+    requestColorMaps(scales.unresolved);
     const layout = relayoutPlot(inst, manifest, element);
-    preparePlotView(inst, layout.manifest, element.view, element.id);
+    if (!layout.reflow) prepareOverrideRestoration(inst);
+    preparePlotView(inst, layout.manifest, element.view, element.id, undefined, true);
     applyOverrides(inst, element.overrides, element.id, layout.manifest);
     applyPlotView(inst, layout.manifest, element.view, element.id);
+    if (!layout.reflow) rememberStaticPlotView(inst, layout.manifest, element.view);
+    reflow = layout.reflow;
+    updatePtTrueBindings(bindings, [...colorScaleTickRoots(inst), ...projectionTickRoots(inst)]);
     if (!layout.reflow) compensatePtTrue(inst, {
       elW: element.width,
       elH: element.height,
       crop: element.crop ?? null,
       contentScale: element.contentScale,
       intrinsic,
-    });
+    }, bindings);
     host.appendChild(inst);
     unregisterPreview=registerRelayoutPreview(inst,manifest,element);
-    // Actions may run before the outer scene is attached. A microtask observes
-    // the completed DOM commit; stale callbacks never publish a prior mount.
-    const generation=++measureGeneration,current=inst,source={dom:cached,key:sig};
-    const publish=()=>{if(generation===measureGeneration&&current.isConnected){boundsRoot=current;onBounds?.(updatePlotVisibleBounds(current,element,source));}};
-    queueMicrotask(()=>{
-      if(generation!==measureGeneration||!current.isConnected)return;
-      if(!hidesPlotParts(element)||hasMeasuredPlotBounds(source)||current.getClientRects().length)publish();
-      else pendingBounds.set(current,publish);
-    });
+    publishBounds();
   }
 
-  sig = signature(element, gen, theme);
+  sig = keys.structure + "|" + keys.style;
   render();
 
   return {
@@ -196,13 +218,17 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
         return;
       }
       last = snap(element, gen, theme);
-      const ns = signature(element, gen, theme);
+      const nextKeys = signatures(element, gen, theme);
+      const ns = nextKeys.structure + "|" + nextKeys.style;
       if (ns === sig) {
         place(); // same content by value (e.g. undo round-trip): keep the clone
         return;
       }
+      const structural = nextKeys.structure !== keys.structure;
+      keys = nextKeys;
       sig = ns;
-      render();
+      if (structural || reflow || !inst || !bindings) render();
+      else restyle();
     },
     destroy() {
       measureGeneration++;

@@ -11648,3 +11648,10 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Learnings:**
 - A 5.5 MB plot can exceed the inline builder's prepared-cache budget: warm file bytes alone still left 1.2 s of composition. A bounded SVG composition cache keyed by current model, validated assets and manifest identities reduced the measured warm figure request from 2.14 s to 0.72 s; cold composition remains a separate cost.
 - A bundled worker can contain documentation examples that look like imports. The asar closure gate now walks executable import/require AST nodes, preserving the dependency check without treating string data as modules.
+
+### 2026-10-29 20:29 CDT — P3 in-place plot restyle (Codex, w/plot-restyle)
+**Work:** Split structural/style mount invalidation; fixed-layout style edits reuse the clone, projection geometry and pt-true bindings. Added fresh-mount XML parity and real wheel/history/part-hide/crop gates; the RespoDemo colour wheel measured about 68 ms before and 8 ms after, with zero re-clones. Elastic reflow keeps its full mount path; slide transform hosting is unchanged.
+**Learnings:**
+- Restyling must restore removed override fields AND clips unhoisted by a gesture before its commit; a fresh clone used to discard both transient transforms and clip changes.
+- CSSOM restoration needs to preserve authored style bytes for exact XML parity. Colour keys must retain untouched generated gradient stops and forget detached tick clones. A colour-table cache key must include interior colours, not just its endpoints.
+- Restoring/re-writing unchanged projected data paths can force synchronous layout during a colour edit; fixed-view restyles keep those attributes while still restoring/reapplying styles and guides. Static projection caches retain one view, and tick templates refresh before overrides.

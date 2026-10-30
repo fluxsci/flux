@@ -12,6 +12,7 @@ import type { FluxPlotManifest, PartInfo, PartNode } from "./types";
 import type { PartOverride } from "../types";
 import { resolveTargets, inferRole, labelForPart } from "./tree";
 import { normalizeSvgForParts, deriveManifestFromSvg, isDrawableTag, insideDefs } from "./derive";
+import { captureStyleBytes, restoreStyleBytes, type StyleBytes } from './styleBytes';
 
 const XLINK = "http://www.w3.org/1999/xlink";
 const SEP = "__";
@@ -255,7 +256,7 @@ export function hoistPlotClips(root: Element): { groups: number; hoisted: number
  *  original per-child clips first, so the clip follows the edited object just
  *  as it does in exports. The identity wrapper stays: live gesture references
  *  and traversal order remain valid. */
-export function restorePlotClip(el: Element): void {
+export function restorePlotClip(el: Element, overrideRoot?: Element): void {
   // A picked leaf may sit inside a retained semantic wrapper. Restore onto
   // the ORIGINAL leaf, so translating either that leaf or its wrapper matches
   // pristine SVG clip coordinates. Clone/import/prefix preserve this marker.
@@ -263,9 +264,22 @@ export function restorePlotClip(el: Element): void {
   while (child.parentElement && !child.parentElement.hasAttribute("data-flux-clip-run")) child = child.parentElement;
   const parent = child.parentElement;
   if (!parent?.hasAttribute("data-flux-clip-run")) return;
+  // Gesture/projection callers also unhoist before an override commit. A
+  // mounted root owns that restoration too; exports/slides never opt in.
+  if (!overrideRoot) for (let at: Element | null = parent; at; at = at.parentElement) {
+    if (mountTransforms.has(at)) { overrideRoot = at; break; }
+  }
   const cp = parent.getAttribute("clip-path");
+  if (overrideRoot) {
+    recordOverrideAttribute(overrideRoot, parent, "clip-path");
+    recordOverrideAttribute(overrideRoot, parent, "data-flux-clip-run");
+  }
   if (cp) for (const child of Array.from(parent.children)) {
     const target = child.hasAttribute("data-flux-clip-leaf") ? child.firstElementChild : child;
+    if (overrideRoot) {
+      if (target) recordOverrideAttribute(overrideRoot, target, "clip-path");
+      recordOverrideAttribute(overrideRoot, child, "data-flux-clip-leaf");
+    }
     target?.setAttribute("clip-path", cp);
     child.removeAttribute("data-flux-clip-leaf");
   }
@@ -420,6 +434,74 @@ function declaredFill(el: Element): string | null {
 // serialized; one-shot clone flows never notice it.
 const preOverrideTransform = new WeakMap<Element, string>();
 const translatedByRoot = new WeakMap<Element,Set<Element>>();
+
+interface OverridePristine {
+  attrs: Map<string, string | null>;
+  styles: Map<string, { value: string; priority: string }>;
+  bytes: StyleBytes;
+}
+// First write per field, and only edited nodes are visited on restore. Raw
+// style bytes preserve authored spelling when the restored declarations agree.
+const overridePristine = new WeakMap<Element, Map<Element, OverridePristine>>();
+const mountTransforms = new WeakMap<Element, WeakMap<Element, string | null>>();
+/** Mount-only restoration. Single-shot exports and the slide host do not
+ * retain disposable tick nodes in an unused restoration ledger. */
+export function prepareOverrideRestoration(root: Element): void {
+  overridePristine.set(root, new Map());
+  const transforms = new WeakMap<Element, string | null>();
+  for (const node of [root, ...Array.from(root.querySelectorAll('[id]'))]) transforms.set(node, node.getAttribute('transform'));
+  mountTransforms.set(root, transforms);
+}
+function overrideRecord(root: Element, node: Element): OverridePristine | undefined {
+  if (!mountTransforms.has(root)) return;
+  let nodes = overridePristine.get(root);
+  if (!nodes) overridePristine.set(root, nodes = new Map());
+  let rec = nodes.get(node);
+  if (!rec) nodes.set(node, rec = { attrs: new Map(), styles: new Map(), bytes: captureStyleBytes(node) });
+  return rec;
+}
+function recordOverrideAttribute(root: Element, node: Element, name: string): void {
+  const fields = overrideRecord(root, node)?.attrs;
+  if (!fields) return;
+  if (!fields.has(name)) fields.set(name, node.getAttribute(name));
+}
+function overrideStyle(root: Element, node: Element, name: string, value: string): void {
+  const rec = overrideRecord(root, node), st = (node as SVGElement).style;
+  if (rec && !rec.styles.has(name)) rec.styles.set(name, { value: st.getPropertyValue(name) ?? '', priority: st.getPropertyPriority?.(name) ?? '' });
+  if (value) st.setProperty(name, value); else st.removeProperty(name);
+}
+
+/** Undo every field overrides wrote, including unhoisted leaf clips. Run after
+ * pt-true/projection restoration, before the next theme/scale/override pass. */
+export function restoreOverrides(root: Element, next?: Record<string, PartOverride>, elementId?: string, manifest?: FluxPlotManifest): void {
+  for (const [node, rec] of overridePristine.get(root) ?? []) {
+    for (const [name, value] of rec.attrs) {
+      if (value === null) node.removeAttribute(name); else node.setAttribute(name, value);
+    }
+    const st = (node as SVGElement).style;
+    for (const [name, { value, priority }] of rec.styles) {
+      if (value) st.setProperty(name, value, priority); else st.removeProperty(name);
+    }
+    restoreStyleBytes(node, rec.bytes);
+  }
+  overridePristine.delete(root);
+  for (const node of translatedByRoot.get(root) ?? []) preOverrideTransform.delete(node);
+  translatedByRoot.delete(root);
+  overridesByRoot.delete(root);
+  // A part drag writes a transient translate before its model commit. With
+  // re-cloning gone, a newly translated target must first recover its generated
+  // base; projection/colour keys then supply this frame's geometry as usual.
+  const transforms = mountTransforms.get(root);
+  if (transforms && next && elementId) for (const [partId, ov] of Object.entries(next)) {
+    if (ov.dx == null && ov.dy == null) continue;
+    for (const id of resolveTargets(manifest, partId, root)) {
+      const node = root.querySelector(`[id="${cssEscape(partDomId(elementId, id))}"]`);
+      if (!node || !transforms.has(node)) continue;
+      const value = transforms.get(node)!;
+      if (value === null) node.removeAttribute('transform'); else node.setAttribute('transform', value);
+    }
+  }
+}
 /** A geometry pass replaces the base beneath dx/dy. Release the previous base first. */
 export function restoreOverrideTranslations(root:Element):void {
   for(const el of translatedByRoot.get(root)??[]){
@@ -457,12 +539,12 @@ export function applyOverrides(
       if (!el) continue;
 
       // Wrapper-level: visibility, compositing opacity, translation.
-      const s = el.style;
-      if (ov.opacity != null) restorePlotClip(el);
-      if (ov.hidden != null) s.display = ov.hidden || el.hasAttribute("data-relayout-hidden") || el.hasAttribute("data-projection-hidden") ? "none" : "";
-      if (ov.opacity != null) s.opacity = String(ov.opacity);
+      if (ov.opacity != null) restorePlotClip(el, root);
+      if (ov.hidden != null) overrideStyle(root, el, 'display', ov.hidden || el.hasAttribute("data-relayout-hidden") || el.hasAttribute("data-projection-hidden") ? "none" : "");
+      if (ov.opacity != null) overrideStyle(root, el, 'opacity', String(ov.opacity));
       if (ov.dx != null || ov.dy != null) {
-        restorePlotClip(el);
+        restorePlotClip(el, root);
+        recordOverrideAttribute(root, el, "transform");
         const dx = Number(ov.dx ?? 0) || 0;
         let translated=translatedByRoot.get(root);if(!translated)translatedByRoot.set(root,translated=new Set());translated.add(el);
         const dy = Number(ov.dy ?? 0) || 0;
@@ -495,23 +577,22 @@ export function applyOverrides(
       if (!hasPaint) continue;
 
       for (const d of drawablesUnder(el)) {
-        const ds = (d as SVGElement).style;
-        if (ov.stroke != null) ds.stroke = passivePaint(String(ov.stroke));
-        if (ov.strokeWidth != null) ds.strokeWidth = String(ov.strokeWidth);
+        if (ov.stroke != null) overrideStyle(root, d, 'stroke', passivePaint(String(ov.stroke)));
+        if (ov.strokeWidth != null) overrideStyle(root, d, 'stroke-width', String(ov.strokeWidth));
         if (ov.fill != null) {
           // Don't fill shapes that explicitly opt out (line paths) unless the
           // override targets exactly this node (leaf-level intent is explicit).
           const own = declaredFill(d);
           const leafIntent = d === el;
-          if (leafIntent || own == null || own.toLowerCase() !== "none") ds.fill = passivePaint(String(ov.fill));
+          if (leafIntent || own == null || own.toLowerCase() !== "none") overrideStyle(root, d, 'fill', passivePaint(String(ov.fill)));
         }
         const texty = TEXTY.has(d.tagName?.toLowerCase() ?? "");
         if (texty) {
-          if (ov.fontSize != null) ds.fontSize = `${ov.fontSize}px`;
-          if (ov.fontFamily != null) ds.fontFamily = String(ov.fontFamily);
-          if (ov.fontWeight != null) ds.fontWeight = String(ov.fontWeight);
-          if (ov.fontStyle != null) ds.fontStyle = String(ov.fontStyle);
-          if (ov.textDecoration != null) ds.textDecoration = String(ov.textDecoration);
+          if (ov.fontSize != null) overrideStyle(root, d, 'font-size', `${ov.fontSize}px`);
+          if (ov.fontFamily != null) overrideStyle(root, d, 'font-family', String(ov.fontFamily));
+          if (ov.fontWeight != null) overrideStyle(root, d, 'font-weight', String(ov.fontWeight));
+          if (ov.fontStyle != null) overrideStyle(root, d, 'font-style', String(ov.fontStyle));
+          if (ov.textDecoration != null) overrideStyle(root, d, 'text-decoration', String(ov.textDecoration));
         }
       }
     }

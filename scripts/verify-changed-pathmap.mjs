@@ -34,6 +34,7 @@ const actualCases = [
   ["electron/figureRasterWorker.mjs", ["verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-asar-unpack-closure.ts", "verify-ipc-contract.ts", "tier:presence", "tier:pure"]],
   ["electron/ipc/figureRaster.cjs", ["verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-asar-unpack-closure.ts", "verify-ipc-contract.ts", "tier:presence", "tier:pure"]],
   ["flux-core/render.ts", ["tier:pure", "verify-w13-cli.mjs", "verify-packaged-requires.ts", "verify-asar-unpack-closure.ts", "verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-paper-render-overrides.ts"]],
+  ["src/lib/plot/mount.ts", ["tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-plot-restyle.ts", "verify-plot-restyle-gui.mjs", "group:plot-restyle"]],
   ["scripts/lib/denseZoomFixture.ts", ["group:dense-zoom-native", "verify-input-probe-policy.cjs", "tier:pure"]],
   ["scripts/lib/denseZoomProbe.cjs", ["group:dense-zoom-native", "verify-input-probe-policy.cjs", "tier:pure"]],
   ["scripts/perf/input-probe.cjs", ["group:dense-zoom-native", "verify-input-probe-policy.cjs", "tier:pure"]],
@@ -125,7 +126,7 @@ const actualCases = [
   // Animation v2 E1: the projection kernel left slide/player/morph.ts for plot/. Its exact entry keeps
   // the superseded src/lib/plot/** set AND the slide-player set its old home selected.
   ["src/lib/plot/project.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
-  ["src/lib/plot/projectDom.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
+  ["src/lib/plot/projectDom.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts", "verify-plot-restyle.ts", "verify-plot-restyle-gui.mjs", "group:plot-restyle"]],
   ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   // 2026-09-27 animation v2: an exact-path gate entry keeps the regression groups of the broad
   // src/lib/slide entry it supersedes (first match wins; guide §7, the --changed paragraph).

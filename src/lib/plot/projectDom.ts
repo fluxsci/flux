@@ -51,10 +51,13 @@ function style(node: Element, name: string, value: string): void {
   if (!field.written) { field.value = st.getPropertyValue(name) ?? ""; field.written = true; }
   if (value) st.setProperty(name, value); else st.removeProperty(name);
 }
-function restore(node: Element): void {
+const DATA_GEOMETRY = new Set(['d', 'cx', 'cy']);
+function restore(node: Element, keepGeometry = false): void {
   const rec = pristine.get(node);
   if (!rec?.active) return;
+  let retained = false;
   for (const [name, field] of rec.attrs) if (field.written) {
+    if (keepGeometry && DATA_GEOMETRY.has(name)) { retained = true; continue; }
     if (field.value === null) node.removeAttribute(name); else node.setAttribute(name, field.value);
     field.written = false;
   }
@@ -64,20 +67,22 @@ function restore(node: Element): void {
     field.written = false;
   }
   if (!rec.hadStyle && !node.getAttribute("style")) node.removeAttribute("style");
-  rec.active = false;
+  rec.active = retained;
 }
 const roots = new WeakMap<Element, Set<Element>>();
 /** Ticks, labels and gridlines this module cloned for a re-ticked axis (F4), per root. */
 const retickClones = new WeakMap<Element, Element[]>();
+/** Disposable tick roots, for mount's cached pt-true topology. */
+export const projectionTickRoots = (root: Element): readonly Element[] => retickClones.get(root) ?? [];
 function dropRetick(root: Element): void {
   const clones = retickClones.get(root);
   if (clones) { for (const c of clones) c.parentNode?.removeChild(c); retickClones.delete(root); }
 }
 /** Restore only the fields projection wrote. Compensation must be restored first. */
-export function restoreProjection(root: Element): void {
+export function restoreProjection(root: Element, keepGeometry = false): void {
   dropRetick(root);
   const nodes = roots.get(root);
-  if (nodes) for (const node of nodes) restore(node);
+  if (nodes) for (const node of nodes) restore(node, keepGeometry);
 }
 export function writeSeriesLine(path: Element, vertices: readonly MorphPoint[]): void {
   let d = "", previous = -2;
@@ -326,11 +331,22 @@ const paintOfGroup = (node: Element): "fill" | "stroke" | "both" => {
 };
 interface CachedProjection { manifest: FluxPlotManifest; view: PlotView | undefined; opts: PlotViewOptions | undefined; plan: Projection }
 const plans = new WeakMap<Element, CachedProjection[]>();
+const staticViews = new WeakMap<Element, { manifest: FluxPlotManifest | undefined; view: PlotView | undefined }>();
+export function rememberStaticPlotView(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined): void {
+  staticViews.set(root, { manifest, view });
+}
+/** A fixed clone's data geometry is independent of paints, fonts and dx/dy.
+ * Keep it while those change: restoring/re-writing 3k identical paths forced
+ * ~20 ms of synchronous layout during each colour wheel (2026-10-29). */
+export function canKeepPlotViewGeometry(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined): boolean {
+  const prior = staticViews.get(root);
+  return !!view && !!prior && prior.manifest === manifest && prior.view === view;
+}
 /** A changed figsize supplies new pristine geometry on this same clone. */
 export function resetProjectionBindings(root:Element):void {
   restoreProjection(root);
   for(const el of roots.get(root)??[])pristine.delete(el);
-  roots.delete(root);plans.delete(root);
+  roots.delete(root);plans.delete(root);staticViews.delete(root);
 }
 
 /** `axis.x.tick.3` / `axis.x.ticklabel.3` / `axis.x.gridline.3` -> `axis.x.#3`: the three guides of one tick share it. */
@@ -837,11 +853,20 @@ function projection(root: Element, manifest: FluxPlotManifest, view: PlotView | 
   return plan;
 }
 /** Bind before overrides/compensation, or before the first playback frame. */
-export function preparePlotView(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): void {
-  if (manifest && (view || opts)) projection(root, manifest, view, elId, opts);
+export function preparePlotView(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined, elId: string, opts?: PlotViewOptions, staticRestyle = false): void {
+  if (manifest && (view || opts)) {
+    const plan = projection(root, manifest, view, elId, opts);
+    if (staticRestyle) {
+      // A mount needs only its current view, unlike a compiled playback chain.
+      // Reuse geometry bindings, but capture templates after THIS theme/scale
+      // and before overrides so regenerated ticks match a fresh mount.
+      plans.set(root, [{ manifest, view, opts, plan }]);
+      plan.templates = new Map(plan.guides.map(g => [g.node, g.node.cloneNode(true) as Element]));
+    }
+  } else if (staticRestyle) plans.delete(root);
 }
-export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): void {
-  restoreProjection(root);
+export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefined, view: PlotView | undefined, elId: string, opts?: PlotViewOptions, keepGeometry = false): void {
+  restoreProjection(root, keepGeometry);
   if (!manifest || !view && !opts) return;
   const plan = projection(root, manifest, view, elId, opts), t = Math.max(0, Math.min(1, opts?.t ?? 1));
   for (const panel of plan.panels) {
@@ -850,8 +875,8 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
     if (panel.fits.x2 && panel.from.x2 && panel.to.x2) blendFit(panel.from.x2, panel.to.x2, t, panel.fits.x2);
   }
   for (const s of plan.series) {
-    sampleSeries(s.pairs, s.from, s.to, t, s.vertices, s.fits);
-    if (s.line) {
+    if (!keepGeometry) sampleSeries(s.pairs, s.from, s.to, t, s.vertices, s.fits);
+    if (s.line && !keepGeometry) {
       const topology = s.topology;
       if (!topology) writeSeriesLine(s.line, s.vertices);
       else {
@@ -882,7 +907,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
   }
   const parsedTables = new Map<string, { parsed: ReturnType<typeof parseColormap>; eff: ReturnType<typeof effectiveScale> }>();
   for (const sh of plan.shapes) {
-    writePolygons(sh, t);
+    if (!keepGeometry || sh.glyph) writePolygons(sh, t);
     if (!sh.value) continue;
     // the colour of the tweened value, through the colour law with this frame's view (F7)
     let table = parsedTables.get(sh.value.scale.id);

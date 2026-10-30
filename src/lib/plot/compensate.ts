@@ -26,6 +26,7 @@
 
 import { insideDefs } from "./derive";
 import { applyToPoint, parseTransform } from "./svgMatrix";
+import { captureStyleBytes, restoreStyleBytes, type StyleBytes } from './styleBytes';
 
 export interface CompensateOpts {
   elW: number; // element box, canvas px
@@ -82,6 +83,7 @@ const SKIP_SUBTREES = new Set(["defs", "clippath", "style", "metadata", "title",
 const STROKABLE = new Set(["path", "line", "polyline", "polygon", "rect", "circle", "ellipse"]);
 
 export interface PtTrueBindings { readonly nodes: readonly Element[] }
+const baseBindings = new WeakMap<PtTrueBindings, readonly Element[]>();
 /** A fixed plot's compensation topology. Playback keeps its DOM identities,
  * so only factors/styles change; traversing ancestors and children every frame
  * adds no information. Static callers may continue using the unbound API. */
@@ -96,7 +98,25 @@ export function compilePtTrueBindings(inst: Element): PtTrueBindings {
     for (const child of Array.from(el.children ?? [])) walk(child);
   };
   for (const child of Array.from(inst.children ?? [])) walk(child);
-  return { nodes };
+  const bindings = { nodes };
+  baseBindings.set(bindings, nodes);
+  return bindings;
+}
+
+/** Projection/colour-key ticks are disposable. Bind only their small subtrees;
+ * the original plot topology is compiled once, never walked again per edit. */
+export function updatePtTrueBindings(bindings: PtTrueBindings, transientRoots: readonly Element[]): void {
+  const base = baseBindings.get(bindings) ?? bindings.nodes;
+  const extra: Element[] = [];
+  for (const root of transientRoots) {
+    const tag = root.tagName.toLowerCase();
+    if (tag === 'text' || tag === 'use' || root.getAttribute('data-flux-glyph') === '1') extra.push(root);
+    else {
+      if (STROKABLE.has(tag)) extra.push(root);
+      extra.push(...compilePtTrueBindings(root).nodes);
+    }
+  }
+  (bindings as { nodes: readonly Element[] }).nodes = extra.length ? [...base, ...extra] : base;
 }
 
 /** Does this plot hold anything content scale acts on? Content scale multiplies
@@ -134,6 +154,7 @@ export function hasContentScaleTargets(root: Element): boolean {
 // export serialization) are untouched.
 // ---------------------------------------------------------------------------
 interface PristineRec {
+  bytes: StyleBytes;
   /** the transform ATTRIBUTE as it was (null = absent) */
   t: string | null;
   /** inline style stroke-width value ("" = not set) */
@@ -154,6 +175,7 @@ function recFor(el: Element): PristineRec {
   if (!rec) {
     const st = (el as SVGElement).style;
     rec = {
+      bytes: captureStyleBytes(el),
       t: el.getAttribute("transform"),
       sw: st?.strokeWidth ?? "",
       da: st?.strokeDasharray ?? "",
@@ -192,6 +214,7 @@ export function restorePtTrue(inst: Element, bindings?: PtTrueBindings): void {
           if (rec.da) st.strokeDasharray = rec.da;
           else st.removeProperty("stroke-dasharray");
         }
+        restoreStyleBytes(el, rec.bytes);
       }
     }
     if (!bindings) for (const c of Array.from(el.children ?? [])) walk(c as Element);

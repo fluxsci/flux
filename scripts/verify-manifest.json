@@ -451,6 +451,7 @@
       "verify-scene-raster.ts",
       "verify-scene-capture-supplement.ts",
       "verify-dense-zoom-policy.cjs",
+      "verify-plot-restyle.ts",
       "verify-figure-raster-worker.ts"
     ],
     "net": [
@@ -629,7 +630,8 @@
       "verify-relayout-crop.mjs",
       "verify-slide-relayout-tween.mjs",
       "verify-oct27-figure-gui.mjs",
-      "verify-gallery-notes-gui.mjs"
+      "verify-gallery-notes-gui.mjs",
+      "verify-plot-restyle-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -1455,6 +1457,57 @@
       "verify-dense-zoom-policy.cjs",
       "verify-dense-zoom-electron.cjs"
     ],
+    "plot-restyle": [
+      "verify-plot-restyle.ts",
+      "verify-plot-restyle-gui.mjs",
+      "verify-colorscale-dom.ts",
+      "verify-colorscale-gui.mjs",
+      "verify-plot-view.ts",
+      "verify-plot-view-gui.mjs",
+      "verify-plot-view-filled.ts",
+      "verify-plot-tick-handoff.ts",
+      "verify-plot-binding.ts",
+      "verify-id-aliases.ts",
+      "verify-plot-style-bake.ts",
+      "verify-plot-theme.ts",
+      "figenh-14-partui.mjs",
+      "figenh-15-partmove.mjs",
+      "verify-fluxplot03-gui.mjs",
+      "verify-render-optimizations.mjs",
+      "verify-scale-figure.mjs",
+      "verify-lazy-load-gui.mjs",
+      "verify-lazy-save-safety.mjs",
+      "verify-lazy-export-overrides.mjs",
+      "verify-plot-visible-bounds.mjs",
+      "verify-plot-hit-area.mjs",
+      "verify-resize-preview.ts",
+      "verify-crop.mjs",
+      "verify-slide-player.ts",
+      "verify-slide-tween.ts",
+      "verify-plot-view-twin.ts",
+      "verify-relayout-spike.ts",
+      "verify-relayout-oracle.ts",
+      "verify-relayout-ticks.ts",
+      "verify-relayout-identity.ts",
+      "verify-relayout-refusals.ts",
+      "verify-relayout-match.ts",
+      "verify-relayout-sourcesync.ts",
+      "verify-relayout-overrides.ts",
+      "verify-relayout-solver.ts",
+      "verify-relayout-inspector.mjs",
+      "verify-relayout-perf.ts",
+      "verify-relayout-resize.mjs",
+      "verify-relayout-match-ui.mjs",
+      "verify-relayout-crop.mjs",
+      "verify-relayout-parity.ts",
+      "verify-scale-relayout-drag.mjs",
+      "verify-scale-relayout-release.mjs",
+      "verify-slide-relayout-tween.mjs",
+      "verify-relayout-geometry.ts",
+      "verify-relayout-verbs.ts",
+      "verify-presence-plotroot.ts",
+      "verify-plot-resize-fixes.ts"
+    ],
     "figure-raster-service-pure": [
       "verify-figure-raster-worker.ts",
       "verify-ipc-contract.ts",
@@ -1907,7 +1960,10 @@
         "verify-colorscale-gui.mjs",
         "verify-fluxplot03-gui.mjs",
         "verify-plot-view-gui.mjs",
-        "tier:pure"
+        "tier:pure",
+        "verify-plot-restyle.ts",
+        "verify-plot-restyle-gui.mjs",
+        "group:plot-restyle"
       ]
     },
     {
@@ -2214,7 +2270,10 @@
         "group:slide-stash",
         "verify-gallery-video-capability.ts",
         "group:slide-clips",
-        "verify-ipc-contract.ts"
+        "verify-ipc-contract.ts",
+        "verify-plot-restyle.ts",
+        "verify-plot-restyle-gui.mjs",
+        "group:plot-restyle"
       ]
     },
     {
@@ -3615,7 +3674,10 @@
         "tier:scale",
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
-        "verify-lazy-export-overrides.mjs"
+        "verify-lazy-export-overrides.mjs",
+        "verify-plot-restyle.ts",
+        "verify-plot-restyle-gui.mjs",
+        "group:plot-restyle"
       ]
     },
     {
@@ -11567,6 +11629,26 @@
       "runtime": "node-electron",
       "prerequisites": [
         "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plot-restyle.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-restyle-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
       ],
       "externalNetwork": false,
       "isolation": "scratch",

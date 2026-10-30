@@ -290,7 +290,7 @@ const action = mountPlot(canvasHost, { element: canvasElement });
 const initialSvg = canvasHost.firstElementChild;
 setPlotView({ figures: [{ elements: [canvasElement] }] } as Project, "p", zoom);
 action.update({ element: canvasElement });
-h.ok(initialSvg !== canvasHost.firstElementChild, "view change invalidates canvas content even when the element object is retained");
+h.ok(initialSvg === canvasHost.firstElementChild, "view change reprojects the existing canvas clone even when the element object is retained");
 near(xy(canvasHost, "p__2hz.line")[0], expectedX, "canvas mount applies data view");
 const dashed = sine.root();
 const dashedLine = dashed.querySelector('[id="2hz.line"] path')! as SVGElement;

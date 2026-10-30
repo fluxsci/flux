@@ -9,7 +9,9 @@ holds **figures** (the framed panels that will appear in your paper); each figur
 [plots made with fluxplot stay *live* after import](../concepts/semantic-plots.qmd). Flux
 understands their parts, so you can click a single line, axis, or label inside a plot and
 restyle it without re-running your analysis — and if you do regenerate the plot, your styling
-survives.
+survives. Colour limits, part styling, axis views and content scale update the mounted plot in
+place, keeping repeated style edits responsive. Elastic plot layouts still reflow when their
+style changes.
 
 # The workspace
 
