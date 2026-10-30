@@ -61,3 +61,6 @@ electron/slideEmbedCsp.gen.cjs
 
 # Cross-repository scene3d contract fixtures are versioned.
 !scripts/fixtures/model3d/fluxplot/
+
+# Dedicated figure renderer (rebuilt from source by dev/build/CLI build).
+electron/generated/

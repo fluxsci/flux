@@ -16,3 +16,5 @@ for (const [file, text] of [[`${root}/.generated/slide-embed-assets.json`, JSON.
   if (await readFile(file, 'utf8').catch(() => '') !== text) await writeFile(file, text);
 }
 console.log(`Slide embed runtime: ${Math.round(runtime.length / 1024)} KB`);
+
+await (await import('./build-figure-raster-worker.mjs')).buildFigureRasterWorker();

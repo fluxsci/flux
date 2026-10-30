@@ -21,17 +21,8 @@ import { normalizeIndexAssets } from "../src/lib/project/figfiles";
 import { migrateProject } from "../src/lib/migrate";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
-import { j } from "./journal";
-import { requireProject, projectAssetPath, safeJoin, exists, readFigIndex, readCanvasFiles } from "./model";
+import { requireProject, projectAssetPath, safeJoin, readFigIndex, readCanvasFiles } from "./model";
 import { scanAbsurdPathCoords } from "./coordscan";
-
-/** Optional sidecars may be absent, but unreadable, corrupt or escaping
- * stored project metadata must not silently change semantic export output. */
-async function readPlotManifest(root: string, rel: string): Promise<FluxPlotManifest | undefined> {
-  try { return JSON.parse(await fs.readFile(await projectAssetPath(root, rel), "utf8")) as FluxPlotManifest; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
-}
-
 
 /** Bytes needed by image rendering. Model and media payloads never enter this set. */
 export function figureImageAssetIds(fig: Pick<Figure, "elements">): Set<string> {
@@ -121,9 +112,71 @@ export async function renderFigureSvg(
   opts: Model3dRenderOptions & { groupId?: string; onlyElement?: string } = {},
   loaded?: LoadedRender,
 ): Promise<string> {
-  const snapshot = loaded ?? await loadRender(root), { index, byId } = snapshot;
-  let fig = byId[id];
+  const snapshot = loaded ?? await loadRender(root), { byId } = snapshot;
+  const fig = byId[id];
   if (!fig) throw new Error(`figure not found: ${id}`);
+  const models = snapshot.models ?? await resolveModelPosters(root, [fig], snapshot.assets, {
+    policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal,
+  });
+  if (!snapshot.models) opts.warnings?.push(...models.warnings);
+  return renderFigureSvgFromModel(fig, { ...figureRenderReaders(root, snapshot.assets), assets: snapshot.assets, models, ...opts });
+}
+
+export interface FigureModelRenderContext {
+  assets: Asset[];
+  readAsset: (id: string) => string | undefined | Promise<string | undefined>;
+  readManifest: (assetId: string, element?: Figure["elements"][number]) => FluxPlotManifest | undefined | Promise<FluxPlotManifest | undefined>;
+  models?: ResolvedModelPosters;
+  groupId?: string;
+  onlyElement?: string;
+  warnings?: string[];
+}
+
+const assetDataUrls = new WeakMap<Buffer, Map<string, string>>();
+
+/** Shared IO adapter. The worker supplies an mtime/size cache; every path still
+ * passes the CLI's canonical project containment guard before a cache lookup. */
+export function figureRenderReaders(root: string, assets: Asset[], readFile: (file: string, kind: "asset" | "manifest") => Promise<string | Buffer | FluxPlotManifest | undefined> = async file => {
+  try { return await fs.readFile(file); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+}) {
+  const byId = new Map(assets.map(a => [a.id, a]));
+  const manifest = async (rel: string): Promise<FluxPlotManifest | undefined> => {
+    let value;
+    try { value = await readFile(await projectAssetPath(root, rel), "manifest"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+    return value === undefined ? undefined : typeof value === "string" ? JSON.parse(value) : Buffer.isBuffer(value) ? JSON.parse(value.toString("utf8")) : value;
+  };
+  return {
+    async readAsset(id: string): Promise<string | undefined> {
+      const asset = byId.get(id);
+      if (!asset?.path) throw new Error(`Missing asset path: ${id}`);
+      const value = await readFile(await projectAssetPath(root, `fig/${asset.path}`), "asset");
+      if (value === undefined) return undefined;
+      const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value as string);
+      let urls = assetDataUrls.get(bytes);
+      if (!urls) { urls = new Map(); assetDataUrls.set(bytes, urls); }
+      const mime = mimeFor(asset.kind);
+      if (!urls.has(mime)) urls.set(mime, `data:${mime};base64,${bytes.toString("base64")}`);
+      return urls.get(mime);
+    },
+    async readManifest(id: string, el?: Figure["elements"][number]): Promise<FluxPlotManifest | undefined> {
+      let found = await manifest(`fig/assets/${id}.fluxplot.json`);
+      const src = (el as { source?: { manifestPath?: string } } | undefined)?.source;
+      if (!found && src?.manifestPath) for (const candidate of plotSourceCandidates(root, src.manifestPath)) {
+        if (!isUnderRoot(root, candidate)) continue;
+        found = await manifest(relative(root, candidate).split(sep).join("/"));
+        if (found) break;
+      }
+      return found;
+    },
+  };
+}
+
+/** Compose the current model, including unsaved edits, through the same plot
+ * pipeline and SVG serializer as disk exports. IO and poster policy belong to callers. */
+export async function renderFigureSvgFromModel(fig: Figure, ctx: FigureModelRenderContext): Promise<string> {
+  const opts = { groupId: ctx.groupId, onlyElement: ctx.onlyElement };
   if (opts?.onlyElement) {
     // Panel-bisect support: render with every OTHER plot hidden, keeping the
     // composed nested-<svg> context that standalone panel renders don't have.
@@ -144,86 +197,39 @@ export async function renderFigureSvg(
     name: "",
     canvases: [],
     figures: [fig],
-    assets: snapshot.assets,
+    assets: ctx.assets,
     palette: [],
   };
   migrateProject(renderProject);
 
-  const assetCache: Record<string, string> = {};
-  const assetPath: Record<string, string> = {};
+  const assetCache: Record<string, string> = { ...ctx.models?.urls };
   const required = figureImageAssetIds(fig);
-  const models = snapshot.models ?? await resolveModelPosters(root, [fig], snapshot.assets, {
-    policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal,
-  });
-  if (!snapshot.models) opts.warnings?.push(...models.warnings);
-  Object.assign(assetCache, models.urls);
-  for (const a of normalizeIndexAssets(index)) {
-    if (!required.has(a.id)) continue;
-    if (!a.path) throw new Error(`Missing asset path: ${a.id}`);
-    assetPath[a.id] = a.path;
-    const ap = await projectAssetPath(root, `fig/${a.path}`);
-    if (await exists(ap)) {
-      const bytes = await fs.readFile(ap);
-      assetCache[a.id] = `data:${mimeFor(a.kind)};base64,${bytes.toString("base64")}`;
-    }
+  for (const asset of ctx.assets) {
+    if (!required.has(asset.id)) continue;
+    const data = await ctx.readAsset(asset.id);
+    if (data) assetCache[asset.id] = data;
   }
-
   for (const id of required) if (!assetCache[id]) throw new Error(`Missing figure asset ${id}`);
-
-  // Build faithful inline markup for each semantic plot element.
   const plotMarkup = new Map<string, string>();
-  const plots = fig.elements.filter((e) => e.type === "plot");
+  const plots = fig.elements.filter(e => e.type === "plot");
   if (plots.length) {
     await ensureDom();
     for (const el of plots) {
-      const rel = assetPath[(el as { assetId: string }).assetId];
-      if (!rel) throw new Error(`Missing plot asset: ${el.id}`);
-      const svgText = await fs.readFile(await projectAssetPath(root, `fig/${rel}`), "utf8");
+      const data = assetCache[el.assetId];
+      if (!data) throw new Error(`Missing plot asset: ${el.id}`);
+      const comma = data.indexOf(",");
+      const svgText = /;base64$/i.test(data.slice(0, comma))
+        ? Buffer.from(data.slice(comma + 1), "base64").toString("utf8")
+        : decodeURIComponent(data.slice(comma + 1));
       if (!svgText) throw new Error(`Empty plot asset: ${el.id}`);
-      let manifest: FluxPlotManifest | undefined;
-      // Prefer the asset-local sidecar (always in-root, written on import/save) —
-      // then fall back to the original source manifest for older projects. AGT-11:
-      // source.manifestPath can point outside root (plot imported from elsewhere),
-      // where safeJoin throws; the asset-local copy avoids that entirely.
-      const aid = (el as { assetId?: string }).assetId;
-      if (aid) manifest = await readPlotManifest(root, `fig/assets/${aid}.fluxplot.json`);
-      const src = (el as { source?: { manifestPath?: string } }).source;
-      if (!manifest && src?.manifestPath) {
-        // Probe every shape source.manifestPath takes (plot/source.ts), but keep
-        // safeJoin's guarantee: a canvas file is untrusted input here, so only
-        // candidates lexically AND canonically under root are read. That gains the
-        // re-anchor rescue — a foreign absolute path from another machine
-        // resolves against this root instead of silently yielding no manifest.
-        for (const cand of plotSourceCandidates(root, src.manifestPath)) {
-          if (!isUnderRoot(root, cand)) continue;
-          // POSIX: readPlotManifest validates its argument as a STORED asset
-          // path, and a stored path never contains a backslash. path.relative
-          // hands back `plotssource.fluxplot.json` on Windows, which the
-          // guard rejected — so a figure rendered headlessly there lost every
-          // semantic manifest instead of loading it (2026-09-22).
-          manifest = await readPlotManifest(root, relative(root, cand).split(sep).join("/"));
-          if (manifest) break;
-        }
-      }
-      const markup = buildPlotMarkup(
-        svgText,
-        el as Parameters<typeof buildPlotMarkup>[1],
-        (el as { overrides?: Record<string, unknown> }).overrides,
-        manifest,
-      );
+      const manifest = await ctx.readManifest(el.assetId, el);
+      const markup = buildPlotMarkup(svgText, el, el.overrides, manifest);
       if (markup) plotMarkup.set(el.id, markup);
     }
   }
-
-  return figureToSvg(
-    fig,
-    (aid) => assetCache[aid],
-    (e) => plotMarkup.get(e.id),
-    // Crop rendering for <image>-backed elements: same intrinsic-size source
-    // as the GUI (assetDisplaySize over the index's asset dims + dpi).
-    (aid) => ops.assetDisplaySize(renderProject, aid) ?? undefined,
-    { ...opts, model3d: models.context },
-  );
+  return figureToSvg(fig, aid => assetCache[aid], e => plotMarkup.get(e.id),
+    aid => ops.assetDisplaySize(renderProject, aid) ?? undefined,
+    { ...opts, model3d: ctx.models?.context });
 }
 
 // --- Rasterization (resvg) runs OUT OF PROCESS. A pathological SVG can PANIC

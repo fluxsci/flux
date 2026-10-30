@@ -464,6 +464,10 @@ function createWindow(initialRoot) {
     getRoot: () => sessions.get(wcId)?.root ?? sessions.get(wcId)?.initialRoot ?? null,
     restart: async root => { createWindow(root ?? undefined); win.destroy(); },
   });
+  win.webContents.on("render-process-gone", () => {
+    sceneRasterFamily.cancelOwner(wcId);
+    figureRasterFamily.cancelOwner(wcId);
+  });
   win.on("focus", () => {
     lastFocusedWindow = win;
   });
@@ -1227,6 +1231,7 @@ onQuit(() => globalLibraryWatcher.dispose());
 
 ipcMain.handle("watch:setRoot", async (e, root) => {
   sceneRasterFamily.cancelOwner(e.sender.id);
+  figureRasterFamily.cancelOwner(e.sender.id);
   if (rootFor(e) !== root) runnerFamily.cancelOwner(e.sender.id);
   const s = sessionFor(e);
   if (!s) return false;
@@ -1519,6 +1524,13 @@ const sceneRasterFamily = require("./ipc/sceneRaster.cjs").createSceneRasterFami
 });
 sceneRasterFamily.registerHandlers(ipcMain);
 onQuit(() => sceneRasterFamily.shutdown());
+const figureRasterFamily = require("./ipc/figureRaster.cjs").createFigureRasterFamily({
+  app, appRoot: path.resolve(__dirname, ".."), rootFor,
+  generationFor: e => sessionFor(e)?.watchGen,
+  fontIndexFile: () => path.join(fluxPaths.userDataDir(), "cache", "figure-raster-fonts.json"),
+});
+figureRasterFamily.registerHandlers(ipcMain);
+onQuit(() => figureRasterFamily.shutdown());
 require("./ipc/dissectNotes.cjs").createDissectNotesFamily({ rootFor, atomicWrite: fileCore.atomicWriteMain }).registerHandlers(ipcMain);
 onQuit(() => plotThumbsFamily.shutdown());
 const setupFamily = require("./ipc/setup.cjs").createSetupFamily({

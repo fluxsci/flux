@@ -22,7 +22,7 @@ function safeCss(value) {
     if (!localReference(ref) && !/^data:(?:font\/(?:woff2?|ttf|otf)|application\/(?:font-woff|x-font-ttf));base64,[a-z0-9+/=\s]+$/i.test(ref)) throw Error('External scene resources are unsupported');
   }
 }
-function sceneDocument(svg) {
+export function sceneDocument(svg) {
   if (/<!DOCTYPE|<!ENTITY|<\?xml-stylesheet/i.test(svg)) throw Error('External scene resources are unsupported');
   const errors = [];
   const doc = new DOMParser({ errorHandler: { warning: () => {}, error: e => errors.push(e), fatalError: e => errors.push(e) } }).parseFromString(svg, 'image/svg+xml');
@@ -88,7 +88,7 @@ function sceneDocument(svg) {
   }
   return doc;
 }
-async function fontsFor(svg) {
+export async function fontsFor(svg) {
   const files = new Set(bundledFonts), requests = svgFontRequests(svg);
   if (requests.length > 128) throw Error('Too many scene font requests');
   requests.push({ family: 'sans-serif', weight: 400, style: 'normal' }, { family: 'serif', weight: 400, style: 'normal' });

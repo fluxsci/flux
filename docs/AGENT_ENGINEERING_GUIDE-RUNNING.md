@@ -11642,3 +11642,9 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Learnings:**
 - Promoted to the body: bitmap thumbnails beside typing surfaces, `visibleFigures` identity on re-cull, window-sized scene SVG, clip hoist is load-bearing for dense rasters.
 - A first-pass agent's "verified/qualified" report is not evidence: every overturned claim above came with green receipts measured on a state the owner never works in (a rested fit-zoom start, a fixture that did not reproduce the lag). Reproduce the owner's own flow on a copy of their project before accepting a perf claim.
+
+### 2026-10-29 20:22 CDT — Figure raster service (Codex, `w/raster-service`)
+**Work:** Added the per-window FIFO figure raster pool, shared model/disk SVG composer, dedicated bundled Node worker and real-child/preload gates. The new gates fail against the base archive and pass with the service; Paper/core parity and the existing scene worker remain green. Guide body integration is reserved for the performance-endgame orchestrator.
+**Learnings:**
+- A 5.5 MB plot can exceed the inline builder's prepared-cache budget: warm file bytes alone still left 1.2 s of composition. A bounded SVG composition cache keyed by current model, validated assets and manifest identities reduced the measured warm figure request from 2.14 s to 0.72 s; cold composition remains a separate cost.
+- A bundled worker can contain documentation examples that look like imports. The asar closure gate now walks executable import/require AST nodes, preserving the dependency check without treating string data as modules.

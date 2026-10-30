@@ -31,13 +31,16 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["electron/figureRasterWorker.mjs", ["verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-asar-unpack-closure.ts", "verify-ipc-contract.ts", "tier:presence", "tier:pure"]],
+  ["electron/ipc/figureRaster.cjs", ["verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-asar-unpack-closure.ts", "verify-ipc-contract.ts", "tier:presence", "tier:pure"]],
+  ["flux-core/render.ts", ["tier:pure", "verify-w13-cli.mjs", "verify-packaged-requires.ts", "verify-asar-unpack-closure.ts", "verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-paper-render-overrides.ts"]],
   ["scripts/lib/denseZoomFixture.ts", ["group:dense-zoom-native", "verify-input-probe-policy.cjs", "tier:pure"]],
   ["scripts/lib/denseZoomProbe.cjs", ["group:dense-zoom-native", "verify-input-probe-policy.cjs", "tier:pure"]],
   ["scripts/perf/input-probe.cjs", ["group:dense-zoom-native", "verify-input-probe-policy.cjs", "tier:pure"]],
   ["src/lib/interact/sceneCaptureSupplement.ts", ["group:scene-raster", "verify-zoom-proxy.mjs", "verify-canvas-coverage.mjs", "tier:pure"]],
-  ["electron/sceneRasterWorker.mjs", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure"]],
-  ["electron/ipc/sceneRaster.cjs", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure"]],
-  ["resources/fonts/Gelasio-Regular.ttf", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure"]],
+  ["electron/sceneRasterWorker.mjs", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure", "verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs"]],
+  ["electron/ipc/sceneRaster.cjs", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure", "verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs"]],
+  ["resources/fonts/Gelasio-Regular.ttf", ["group:scene-raster", "group:scene-raster-native", "verify-asar-unpack-closure.ts", "tier:presence", "tier:pure", "verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs"]],
   ["src/lib/plot/relayout/solve.ts", ["group:relayout", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/plot/ticks.ts", ["verify-colorscale-dom.ts", "verify-colorscale-verb.ts", "verify-colorscale-gui.mjs", "verify-fluxplot03-gui.mjs", "verify-plot-view-gui.mjs", "tier:pure", "group:relayout"]],
   ["src/lib/plot/variantBudget.ts", ["group:relayout", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],

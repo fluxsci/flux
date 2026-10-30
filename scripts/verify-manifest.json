@@ -450,7 +450,8 @@
       "verify-language-profiles.ts",
       "verify-scene-raster.ts",
       "verify-scene-capture-supplement.ts",
-      "verify-dense-zoom-policy.cjs"
+      "verify-dense-zoom-policy.cjs",
+      "verify-figure-raster-worker.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -765,7 +766,8 @@
       "verify-plots-rail-electron.cjs",
       "verify-relayout-export-electron.cjs",
       "verify-scene-raster-electron.cjs",
-      "verify-dense-zoom-electron.cjs"
+      "verify-dense-zoom-electron.cjs",
+      "verify-figure-raster-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -1452,10 +1454,33 @@
     "dense-zoom-native": [
       "verify-dense-zoom-policy.cjs",
       "verify-dense-zoom-electron.cjs"
+    ],
+    "figure-raster-service-pure": [
+      "verify-figure-raster-worker.ts",
+      "verify-ipc-contract.ts",
+      "verify-asar-unpack-closure.ts",
+      "verify-packaged-requires.ts",
+      "verify-paper-render-overrides.ts",
+      "verify-registry-parity.ts",
+      "verify-changed-pathmap.mjs",
+      "verify-manifest-contracts.ts",
+      "verify-electron-no-undef.ts",
+      "verify-scene-raster.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "{electron/figureRaster*.{cjs,mjs},electron/ipc/figureRaster.cjs,scripts/build-figure-raster-worker.mjs,scripts/lib/figureRasterNativeEntry.cjs}",
+      "run": [
+        "verify-figure-raster-worker.ts",
+        "verify-figure-raster-electron.cjs",
+        "verify-asar-unpack-closure.ts",
+        "verify-ipc-contract.ts",
+        "tier:presence",
+        "tier:pure"
+      ]
+    },
     {
       "$why": "Portable dense native navigation fixture, input hooks, and planted-failure-tested acceptance oracle.",
       "glob": "{scripts/lib/denseZoom*.{cjs,ts},scripts/perf/input-probe.cjs}",
@@ -1483,7 +1508,9 @@
         "group:scene-raster-native",
         "verify-asar-unpack-closure.ts",
         "tier:presence",
-        "tier:pure"
+        "tier:pure",
+        "verify-figure-raster-worker.ts",
+        "verify-figure-raster-electron.cjs"
       ]
     },
     {
@@ -2568,7 +2595,10 @@
         "tier:pure",
         "verify-w13-cli.mjs",
         "verify-packaged-requires.ts",
-        "verify-asar-unpack-closure.ts"
+        "verify-asar-unpack-closure.ts",
+        "verify-figure-raster-worker.ts",
+        "verify-figure-raster-electron.cjs",
+        "verify-paper-render-overrides.ts"
       ]
     },
     {
@@ -11541,6 +11571,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-figure-raster-worker.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-raster-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

@@ -131,3 +131,5 @@ for (const entry of Object.keys(OUT_NAME)) {
   await chmod(launcher, 0o755);
   console.log(`✓ ${path.relative(repoRoot, launcher)} (launcher, ${(statSync(launcher).size / 1024).toFixed(0)} KB)`);
 }
+
+await (await import('./build-figure-raster-worker.mjs')).buildFigureRasterWorker();

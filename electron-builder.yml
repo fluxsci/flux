@@ -64,6 +64,7 @@ asarUnpack:
   - node_modules/@resvg/**
   - node_modules/@xmldom/xmldom/**
   - resources/fonts/**
+  - electron/generated/figureRasterWorker.bundle.mjs
   - electron/sceneRasterWorker.mjs
   - electron/sceneRasterEngine.mjs
   - electron/sceneRasterProtocol.cjs
