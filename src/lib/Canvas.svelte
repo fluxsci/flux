@@ -104,7 +104,7 @@
   import { importDroppedFiles } from "./io";
   import { pushToast, errMsg } from "./toast";
   import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
-  import { plotManifests, plotGen } from "./plot/store";
+  import { plotManifests, plotGen, hasPlotDom, ensurePlotDom } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
   import ElementView from "./Element.svelte";
   import ElementSlot from "./ElementSlot.svelte";
@@ -509,7 +509,9 @@
     quiet: () => paneActive && !atlasPointerHeld && !sceneHot && !zoomUnsettled && !proxyActive && !gesture && !guideDrag && !nodeDrag && !$arrangementPreview && !Object.keys($modelPreviews).length,
     group: id => sceneSvgEl?.querySelector<SVGGElement>(`[data-annotation-figure="${CSS.escape(id)}"]`) ?? null,
     // The active figure warms up its CULLED working set, never the whole figure.
-    wanted: id => mountedEls.get(id),
+    // While it warms up in chunks, readiness waits for EVERY wanted element.
+    wanted: id => atlasWarmBox.w?.figId === id ? (atlasWarmBox.w.running ? undefined : new Set(atlasWarmBox.w.candidates.map(el => el.id)))
+      : $atlasView.get(id)?.mode === 'warming' ? undefined : mountedEls.get(id),
     rememberBounds: fig => {
       for (const el of fig.elements) if (el.type === 'plot') {
         const bounds = localPlotVisibleBounds(el.id, el.width, el.height);
@@ -783,8 +785,65 @@
   $: layoutFigureId = $alignArrange && $alignArrange.id === layoutCullOwner ? $alignArrange.figureId : null;
   $: layoutDeltas = new Map($arrangementPreview?.plan.translations.map(t => [t.id, t]) ?? []);
   $: layoutViewKey = layoutFigureId ? `${Math.round($viewport.panX / 64)},${Math.round($viewport.panY / 64)},${$viewport.zoom},${hostW},${hostH}` : '';
+  // R2 (2026-10-30): an activated figure warms up OFF the press. The press
+  // paints over its picture (selection chrome from the model); its culled
+  // working set then mounts in budgeted chunks (~8 ms of mount work per frame,
+  // a plot is one atomic unit, the pressed element first, then nearest the
+  // press) through a self-terminating requestAnimationFrame chain. The picture
+  // is drawn BEHIND the mounted slots until every wanted element has mounted.
+  const ATLAS_WARM_BUDGET_MS = 8;
+  let atlasPress: { figId: string; x: number; y: number; id: string | null } | null = null;
+  type AtlasWarm = { figId: string; admitted: Set<string>; parsed: Set<string>; hidden: Set<string>; candidates: Element[]; press: { x: number; y: number; id: string | null };
+    running: boolean; batch: number };
+  const atlasWarmBox: { w: AtlasWarm | null } = { w: null }; // non-reactive (like visMemoBox); atlasWarmGen is the signal
+  let atlasWarmGen = 0;
+  function atlasWarmFeed(fig: Figure, els: Element[]): Element[] {
+    if (!atlasWarmBox.w || atlasWarmBox.w.figId !== fig.id) {
+      const p = atlasPress?.figId === fig.id ? atlasPress : null;
+      const c = { x: (hostW / 2 - $viewport.panX) / $viewport.zoom - fig.x, y: (hostH / 2 - $viewport.panY) / $viewport.zoom - fig.y };
+      atlasWarmBox.w = { figId: fig.id, admitted: new Set(), parsed: new Set(), hidden: new Set(), candidates: els, press: p ?? { ...c, id: null }, running: false, batch: 1 };
+    } else atlasWarmBox.w.candidates = els;
+    const w = atlasWarmBox.w;
+    if (!w.running && els.some(el => !w.admitted.has(el.id))) { w.running = true; atlasWarmStep(w, true); }
+    return els.filter(el => w.admitted.has(el.id));
+  }
+  function atlasWarmStep(w: AtlasWarm, skipFrame: boolean) {
+    requestAnimationFrame(async () => {
+      if (atlasWarmBox.w !== w || !atlasActive || $activeFigureId !== w.figId || $atlasView.get(w.figId)?.mode !== 'warming') { w.running = false; return; }
+      if (skipFrame) { atlasWarmStep(w, false); return; } // the press frame paints with no mount work
+      // A plot mounts display:none (its clone is the frame's JS); the NEXT frame
+      // only reveals it (its style and paint), so the two never share a task.
+      if (w.hidden.size) { w.hidden.clear(); atlasWarmGen++; await tick(); unparked(); atlasWarmStep(w, false); return; }
+      const d = (el: Element) => el.id === w.press.id ? -1 : Math.hypot(el.x + el.width / 2 - w.press.x, el.y + el.height / 2 - w.press.y);
+      const order = w.candidates.filter(el => !w.admitted.has(el.id)).sort((a, b) => d(a) - d(b));
+      const t0 = performance.now();
+      let units = 0;
+      for (let i = 0; i < order.length && (units === 0 || order[i].id === w.press.id || performance.now() - t0 < ATLAS_WARM_BUDGET_MS);) {
+        const t = performance.now(), el = order[i];
+        units++;
+        // A plot never parsed (a picture since open) parses as its own unit,
+        // so its slot then mounts inline at once instead of via the <image>
+        // fallback and a second, upgrading render.
+        if (el.type === 'plot' && !hasPlotDom(el.assetId) && !w.parsed.has(el.assetId)) { w.parsed.add(el.assetId); ensurePlotDom(el.assetId); continue; }
+        // The pressed element mounts first; a plot (even the pressed one) mounts
+        // display:none and is revealed next frame, so its clone and its first
+        // style/paint never share a task. A drag's transform is already on it.
+        const plot = el.type === 'plot';
+        if (el.type === 'plot' || el.id === w.press.id) w.admitted.add(order[i++].id);
+        else for (let k = 0; k < w.batch && i < order.length && order[i].type !== 'plot'; k++) w.admitted.add(order[i++].id);
+        if (plot) w.hidden.add(el.id);
+        atlasWarmGen++;
+        await tick();
+        w.batch = performance.now() - t < 2 ? Math.min(256, w.batch * 2) : Math.max(1, w.batch >> 1);
+        if (plot || el.id === w.press.id) break; // one plot per frame (revealed next frame); the pressed element alone in the first
+      }
+      if (atlasWarmBox.w === w && (w.hidden.size || w.candidates.some(el => !w.admitted.has(el.id)))) atlasWarmStep(w, false);
+      else { w.running = false; atlasWarmGen++; } // complete: nothing stays scheduled; re-run readiness
+    });
+  }
   function visibleEls(fig: Figure): Element[] {
     const mode = atlasActive ? $atlasView.get(fig.id)?.mode : 'live';
+    if (atlasWarmBox.w?.figId === fig.id && (mode !== 'warming' || fig.id !== $activeFigureId)) atlasWarmBox.w = null;
     if (mode === 'raster' || mode === 'cold') {
       if (mountedEls.get(fig.id)?.size) mountedGen++;
       mountedEls.set(fig.id, new Set());
@@ -841,10 +900,11 @@
       parkedEls = new Map(parkedElMemo);
       parkGen++;
     }
-    const ids = new Set(els.map((el) => el.id));
+    const out = mode === 'warming' && fig.id === $activeFigureId ? atlasWarmFeed(fig, els) : els;
+    const ids = new Set(out.map((el) => el.id));
     if (!was || was.size !== ids.size || [...ids].some((id) => !was.has(id))) mountedGen++; // the mounted set changed (snapshot key)
     mountedEls.set(fig.id, ids);
-    return els;
+    return out;
   }
   let mountedGen = 0;
   // Precompute the per-figure visible element lists keyed off the (stable-within-a-
@@ -881,7 +941,7 @@
   $: {
     if (paneActive) { // Fix 7: hidden pane — no recompute
       void effState; // P7: group eyes change the visible set (effHidden reads it)
-      void atlasActive; void $atlasView;
+      void atlasActive; void $atlasView; void atlasWarmGen;
       if ($selection !== visMemoBox.sel) {
         visMemoBox.sel = $selection;
         visMemoBox.selGen++;
@@ -907,7 +967,7 @@
       const next = new Map<string, { key: string; els: Element[] }>();
       const m = new Map<string, Element[]>();
       for (const f of visibleFigures) {
-        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.parkGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}|${atlasActive ? $atlasView.get(f.id)?.mode : ''}|${atlasActive && $atlasView.get(f.id)?.full ? 'full' : ''}|${atlasActive && f.id === $activeFigureId}`;
+        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.parkGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}|${atlasActive ? $atlasView.get(f.id)?.mode : ''}|${atlasActive && $atlasView.get(f.id)?.full ? 'full' : ''}|${atlasActive && f.id === $activeFigureId}|${atlasWarmBox.w?.figId === f.id ? atlasWarmGen : ''}`;
         let mm = visMemoBox.map.get(f.id);
         if (!mm || mm.key !== key) {
           perfCounters.visRecomputes++;
@@ -1917,6 +1977,8 @@
       const hit = hitElementAt(fig, localPoint(e.clientX, e.clientY, fig), { selection: $selection, enteredGroupId: $enteredGroupId,
         plotBounds: el => { const cached = atlasPlotBounds.get(el.id); return cached?.source === JSON.stringify(el) ? cached.bounds : undefined; } });
       hoverFrameId = null;
+      const at = localPoint(e.clientX, e.clientY, fig);
+      atlasPress = { figId: fig.id, x: at.x, y: at.y, id: hit?.element.id ?? null };
       if (hit) { onElementDown(e, hit.element, fig, true); return; }
     }
     // Node-edit sub-modes intercept figure clicks: pen places/connects draft
@@ -5431,6 +5493,14 @@
                   <tspan x={fig.width / 2} dy={18 / renderZoom}>Ctrl+Shift+K import · Alt+G plots</tspan>
                 </text>
               {/if}
+              {#if atlasActive && fig.id === $activeFigureId && $atlasView.get(fig.id)?.mode === 'warming' && $figureRasters.get(fig.id)}
+                {@const raster = $figureRasters.get(fig.id)}
+                <!-- R2: the activated figure's picture sits BEHIND its warming slots -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <image x="0" y="0" width={fig.width} height={fig.height} preserveAspectRatio="none"
+                  href={raster?.dataUrl} data-figure-raster={fig.id} data-raster-key={raster?.key}
+                  class="figure-raster" on:pointerdown={(e) => onFigureDown(e, fig)} />
+              {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
                 <ElementSlot
                   element={el}
@@ -5443,15 +5513,15 @@
                   partStates={presentation?.partStates?.[el.id]}
                   ghost={presentation?.ghostHidden}
                   hidden={hiddenPresentationIds.has(el.id)}
-                  opacity={atlasActive && $atlasView.get(fig.id)?.mode === 'warming' ? 0 : presentation?.elementStates?.[el.id]?.opacity ?? 1}
+                  opacity={atlasActive && $atlasView.get(fig.id)?.mode === 'warming' && fig.id !== $activeFigureId ? 0 : presentation?.elementStates?.[el.id]?.opacity ?? 1}
                   absent={absentPresentationIds.has(el.id)}
                   editingHidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
                   gestureHidden={gestureHiddenIds.has(el.id)}
                   override={sceneOverrides.get(el.id) ?? null}
-                  parked={parkedEls.get(fig.id)?.has(el.id) ?? false}
+                  parked={(parkedEls.get(fig.id)?.has(el.id) ?? false) || (atlasWarmGen >= 0 && !!atlasWarmBox.w?.hidden.has(el.id) && atlasWarmBox.w.figId === fig.id)}
                 />
               {/each}
-              {#if atlasActive && ($atlasView.get(fig.id)?.mode === 'raster' || $atlasView.get(fig.id)?.mode === 'warming')}
+              {#if atlasActive && ($atlasView.get(fig.id)?.mode === 'raster' || $atlasView.get(fig.id)?.mode === 'warming' && fig.id !== $activeFigureId)}
                 {@const raster = $figureRasters.get(fig.id)}
                 {#if raster}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -111,18 +111,23 @@ export function createCanvasAtlas(opts: {
     entry.preparing = key;
     await tick();
     const group = opts.group(fig.id);
-    const mounted = new Set(Array.from(group?.querySelectorAll('[data-editor-element-id]') ?? []).map(n => n.getAttribute('data-editor-element-id')));
     // A non-active figure must be whole (its picture is complete); the active
     // figure is ready when its culled working set is (the swap shows only that).
-    const want = fig.id === input?.activeId ? opts.wanted?.(fig.id) : undefined;
-    const needed = want ? fig.elements.filter(el => want.has(el.id)) : fig.elements;
-    const complete = group && needed.every(el => effectiveHidden(fig, el) || mounted.has(el.id));
-    const plotsReady = needed.every(el => effectiveHidden(fig, el) || el.type !== 'plot' || !input?.bytes[el.assetId] || hasPlotDom(el.assetId));
-    if (complete && plotsReady) {
+    // The active figure's set comes from Canvas's warm-up (undefined = not fed
+    // yet: the view store may still say 'raster' for this microtask).
+    const satisfied = () => {
+      const mounted = new Set(Array.from(group?.querySelectorAll('[data-editor-element-id]') ?? []).map(n => n.getAttribute('data-editor-element-id')));
+      const active = fig.id === input?.activeId, want = active ? opts.wanted?.(fig.id) : undefined;
+      if (active && opts.wanted && !want) return false;
+      const needed = want ? fig.elements.filter(el => want.has(el.id)) : fig.elements;
+      return !!group && needed.every(el => effectiveHidden(fig, el) || mounted.has(el.id)) &&
+        needed.every(el => effectiveHidden(fig, el) || el.type !== 'plot' || !input?.bytes[el.assetId] || hasPlotDom(el.assetId));
+    };
+    if (satisfied()) {
       // One frame is painted BETWEEN these callbacks. No ambient readiness poll:
       // plot generations / mounting / quiet transitions re-enter sync instead.
       await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-      if (!destroyed && entries.get(fig.id) === entry && entry.key === key && opts.group(fig.id) === group && (fig.id === input?.activeId || quiet())) {
+      if (!destroyed && entries.get(fig.id) === entry && entry.key === key && opts.group(fig.id) === group && (fig.id === input?.activeId || quiet()) && satisfied()) {
         entry.ready = key;
         if (entry.mode === 'warming') { entry.mode = 'live'; atlasStats.swaps++; emit(); }
       }

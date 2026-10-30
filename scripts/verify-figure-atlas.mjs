@@ -127,6 +127,37 @@ try {
   await waitFor(page, z => window.__flux.get(window.__flux.fig.viewport).zoom < z / 2, src.zoom, { label: 'zoom-out crosses 2x' });
   await page.evaluate(() => new Promise(r => setTimeout(r, 2200)));
   h.eq(await page.evaluate(() => window.__flux.atlas.stats.routeL + window.__flux.atlas.stats.routeC), jobs, '(h) zoom-out never requests a new atlas raster');
+  // R2: activation warms up OFF the press. Log each animation frame of the
+  // activated figure from just before a real press on its picture.
+  await settledAtlas(page);
+  const warmId = fx.figIds[8], warmAt = await figurePoint(page, warmId);
+  await page.evaluate(id => {
+    const g = document.querySelector(`[data-annotation-figure="${id}"]`); window.__warmLog = [];
+    const frame = () => {
+      const slots = [...g.querySelectorAll('[data-editor-element-id]')], img = g.querySelector('[data-figure-raster]');
+      window.__warmLog.push({ ids: slots.map(n => n.getAttribute('data-editor-element-id')), img: !!img,
+        behind: !!img && slots.every(n => (img.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) > 0), opacity: slots.map(n => getComputedStyle(n).opacity) });
+      if (window.__warmLog.length < 240 && (img || !slots.length)) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+    // Mutation batches show the state each commit leaves for the next paint.
+    window.__warmMuts = [];
+    new MutationObserver(() => {
+      const slots = [...g.querySelectorAll('[data-editor-element-id]')], img = g.querySelector('[data-figure-raster]');
+      window.__warmMuts.push({ frame: window.__warmLog.length, mode: g.getAttribute('data-atlas-mode'), slots: slots.length, img: !!img,
+        behind: !!img && slots.every(n => (img.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) > 0), opacity: slots.map(n => getComputedStyle(n).opacity) });
+    }).observe(g, { childList: true, subtree: true });
+  }, warmId);
+  await page.mouse.move(warmAt.x, warmAt.y); await page.mouse.down(); await page.mouse.up();
+  await waitFor(page, () => { const l = window.__warmLog; return l.length > 2 && !l.at(-1).img && l.at(-1).ids.length > 0; }, null, { label: 'activated figure warmed up and dropped its picture', timeout: 10000 });
+  const warm = await page.evaluate(() => window.__warmLog), muts = await page.evaluate(() => window.__warmMuts);
+  const firstMount = warm.findIndex(f => f.ids.length > 0), partial = muts.filter(f => f.img && f.slots > 0);
+  h.ok(warm[0].ids.length === 0 && warm[0].img, `(R2) the press frame paints the picture with no slot mounted (${JSON.stringify(warm[0])})`);
+  h.ok(firstMount > 0 && warm[firstMount].ids.includes(warmAt.elementId), `(R2) the pressed element mounts in the first chunk (frame ${firstMount}: ${JSON.stringify(warm[firstMount]?.ids)})`);
+  h.ok(partial.length > 0 && partial.every(f => f.behind && f.opacity.every(o => o === '1')), `(R2) while warming the picture sits behind slots at normal opacity (${partial.length} commits: ${JSON.stringify(partial.slice(0, 2))})`);
+  const dropped = muts.find(f => !f.img), lastWithPicture = muts.filter(f => f.img).at(-1);
+  h.ok(!!dropped && dropped.slots === 3 && dropped.frame > (lastWithPicture?.frame ?? -1), `(R2) the picture is dropped only in a later frame than the last mount (${JSON.stringify({ dropped, lastWithPicture })})`);
+  h.ok(!warm.at(-1).img && warm.at(-1).ids.length === 3, `(R2) the picture is removed once every wanted element mounted (${JSON.stringify(warm.at(-1))})`);
   // Without the scene raster child (the browser bridge, like base parking) the
   // active figure keeps no offscreen working set: panning it fully out of view
   // unmounts its element DOM, so its models/plots release their live resources
