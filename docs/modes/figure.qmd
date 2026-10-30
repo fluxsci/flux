@@ -15,6 +15,10 @@ a view reticks rebuilds the plot’s tick structure.
 
 # The workspace
 
+The active figure stays live for editing. Other figures on the canvas show as pictures;
+hovering over one outlines its frame. Click it to make it the active figure and select
+the element you clicked. You can start dragging that element straight away.
+
 - **Tools** use **V** select, **K** scale, **H** hand (pan), **T** text,
   **Alt+R** rectangle, **O** ellipse, **L** line, **Shift+L** arrow, **P** pen.
 - **Connectors and labels stick.** A line or arrow drawn from one shape to another sticks to

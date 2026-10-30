@@ -54,6 +54,7 @@ export async function writeDenseZoomFixture(root: string) {
   await executeFigSave(planFigSave(project, null), { read: async rel => fs.readFile(path.join(root, rel), 'utf8').catch(() => null), write });
   await write('manuscript/main.qmd', '---\ntitle: Dense zoom regression\n---\n\nDisposable, self-contained verification project.\n');
   const receipt = { initialZoom: .6, densePlots: 18, marksPerPlot: 3000, denseMarks: 54000, densePrimitiveNodes: 72000, clippedWrappers: 18000, maxSceneNodes: 150000,
+    activeFigureID: figures[0].id, figureElements: Object.fromEntries(figures.map(f => [f.id, f.elements.map(e => e.id)])),
     frameIDs: figures.map(f => f.id), modelIDs: figures.flatMap(f => f.elements.map(e => e.id)), supplementIDs,
     markerID: 'dense-edit-marker', markerColor: [240, 0, 192], canvasPath: 'fig/canvases/zoom-canvas.json' };
   await write('dense-zoom-fixture.json', JSON.stringify(receipt, null, 2));

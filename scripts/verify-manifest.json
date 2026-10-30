@@ -451,6 +451,7 @@
       "verify-scene-raster.ts",
       "verify-scene-capture-supplement.ts",
       "verify-dense-zoom-policy.cjs",
+      "verify-figure-atlas.ts",
       "verify-plot-restyle.ts",
       "verify-figure-raster-worker.ts",
       "verify-fig-own-writes.ts"
@@ -632,6 +633,7 @@
       "verify-slide-relayout-tween.mjs",
       "verify-oct27-figure-gui.mjs",
       "verify-gallery-notes-gui.mjs",
+      "verify-figure-atlas.mjs",
       "verify-fig-edit-echo.mjs",
       "verify-paper-asset-reads.mjs",
       "verify-unplaced-asset-bytes.mjs",
@@ -718,7 +720,8 @@
       "verify-scale-inbox.mjs",
       "verify-scale-model3d.mjs",
       "verify-scale-relayout-drag.mjs",
-      "verify-scale-relayout-release.mjs"
+      "verify-scale-relayout-release.mjs",
+      "verify-scale-figure-atlas.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs",
@@ -1542,10 +1545,52 @@
       "verify-figure-metadata.mjs",
       "verify-figure-metadata.ts",
       "verify-scale-paper.mjs"
+    ],
+    "figure-atlas": [
+      "verify-f5-cull.mjs",
+      "verify-f5-drag.mjs",
+      "verify-scale-lazy-assets.mjs",
+      "verify-scale-figure.mjs",
+      "verify-zoom-proxy.mjs",
+      "verify-canvas-coverage.mjs",
+      "verify-canvas-zoom-raster.mjs",
+      "verify-render-optimizations.mjs",
+      "verify-figure-input-hygiene.mjs",
+      "verify-cross-figure-drag.mjs",
+      "verify-fig-esc.mjs",
+      "verify-figure-center.mjs",
+      "verify-figure-editing-gui.mjs",
+      "verify-groups-layers.mjs",
+      "figenh-04-dup.ts",
+      "figenh-16-groups-ui.mjs",
+      "verify-selection-zones-gui.mjs",
+      "verify-bbox-grab-gui.mjs",
+      "verify-cursor-gui.mjs",
+      "verify-slide-canvas-presentation-gui.mjs",
+      "verify-context-stamp.ts",
+      "verify-scale-annotate-hover.mjs",
+      "verify-lazy-load-gui.mjs",
+      "verify-lazy-save-safety.mjs",
+      "verify-lazy-export-overrides.mjs",
+      "verify-docs.ts",
+      "verify-figure-atlas.ts",
+      "verify-figure-atlas.mjs",
+      "verify-scale-figure-atlas.mjs",
+      "verify-changed-pathmap.mjs",
+      "verify-manifest-contracts.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "{src/lib/figure/atlas*.ts,src/lib/interact/modelHit.ts,scripts/lib/atlasFixture.mjs}",
+      "run": [
+        "verify-figure-atlas.ts",
+        "verify-figure-atlas.mjs",
+        "verify-scale-figure-atlas.mjs"
+      ],
+      "$why": "Figure atlas policy, IO routes, residency and model press targeting."
+    },
     {
       "glob": "src/lib/project/figbridge.ts",
       "run": [
@@ -3323,7 +3368,10 @@
         "group:align-arrange",
         "verify-xray-context-gui.mjs",
         "group:oct27-figure",
-        "group:dense-zoom-native"
+        "group:dense-zoom-native",
+        "verify-figure-atlas.ts",
+        "verify-figure-atlas.mjs",
+        "verify-scale-figure-atlas.mjs"
       ]
     },
     {
@@ -11743,6 +11791,37 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-figure-atlas.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-atlas.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-figure-atlas.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
       "exclusive": true,
       "coverage": "behavior"
     },

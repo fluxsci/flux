@@ -372,11 +372,10 @@ ok(serialization.untouched, 'cooperative completion and cancellation never mutat
 
 // --- 7. subset capture after a deep settle, reversal and offscreen edits ---------
 // Both small frames mount initially, while the second lies outside the sharp
-// region. A deep settle evicts its DOM. Without the Electron canvas overview the
-// sharper subset brings only its own coarse copy: the old planes are freed, a
-// wide reversal never shows freed or stale pixels, and the evicted frame
-// paints from live DOM. (The Electron overview, which carries this reversal
-// on the raster, is pinned by verify-dense-zoom-electron.cjs.)
+// region. The atlas keeps its cheap picture when a deep settle removes its
+// element DOM. Reversal must still show the exact captured pixels; an inactive
+// edit keeps that picture until a quiet replacement is ready. Retired proxy
+// planes are freed as before (the Electron overview is gated separately).
 const beforeRetention = await page.$eval('.zoom-proxy', p => p.dataset.snap);
 const retainedFixture = await page.evaluate(() => {
   const F = window.__flux.fig, width = document.querySelector('.canvas-host').clientWidth;
@@ -397,7 +396,7 @@ const retainedFixture = await page.evaluate(() => {
 await waitFor(page, ({ previous, other }) => {
   const proxy = document.querySelector('.zoom-proxy'), coarse = document.querySelector('.zoom-proxy-coarse');
   return proxy?.dataset.snap !== previous && proxy?.firstElementChild?.width > 0 && coarse?.firstElementChild?.width > 0 &&
-    document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`);
+    document.querySelector(`[data-figure-raster="${CSS.escape(other)}"]`);
 }, { previous: beforeRetention, other: retainedFixture.other }, { timeout: 20000, label: 'two-frame whole-scene coarse capture' });
 await page.evaluate(() => {
   window.__zpRetainedCanvases = { sharp: document.querySelector('.zoom-proxy canvas'),
@@ -411,9 +410,10 @@ await page.mouse.move(redAnchor.x, redAnchor.y);
 await page.keyboard.down('Control'); await page.mouse.wheel({ deltaY: -Math.log(8) / 0.0015 }); await page.keyboard.up('Control');
 await waitFor(page, other => {
   const saved = window.__zpRetainedCanvases, proxy = document.querySelector('.zoom-proxy');
-  return !document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`) &&
+  return !!document.querySelector(`[data-figure-raster="${CSS.escape(other)}"]`) &&
+    !document.querySelector('[data-editor-element-id="zp-retain-green"]') &&
     proxy?.dataset.snap !== saved.serial && !proxy.classList.contains('live') && proxy.firstElementChild?.width > 0;
-}, retainedFixture.other, { timeout: 20000, label: 'deep zoom settles, culls second frame and retakes sharper subset' });
+}, retainedFixture.other, { timeout: 20000, label: 'deep zoom settles, keeps the second picture without element DOM and retakes sharper subset' });
 const released = await page.evaluate(() => {
   const saved = window.__zpRetainedCanvases, current = document.querySelector('.zoom-proxy canvas');
   return current !== saved.sharp && saved.sharp.width === 0 && saved.sharp.height === 0 && saved.coarse.width === 0 && saved.coarse.height === 0 &&
@@ -429,7 +429,7 @@ const otherPoint = () => page.evaluate(other => {
 await page.keyboard.down('Control'); await page.mouse.wheel({ deltaY: Math.log(8 / 0.4) / 0.0015 }); await page.keyboard.up('Control');
 await page.keyboard.down('Shift'); await page.mouse.wheel({ deltaY: 150 }); await page.keyboard.up('Shift');
 await waitFor(page, other => !!document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`), retainedFixture.other,
-  { timeout: 5000, label: 'wide reversal mounts the evicted frame' });
+  { timeout: 5000, label: 'wide reversal retains the cached frame' });
 const reversal = await page.evaluate(() => {
   const coarse = document.querySelector('.zoom-proxy-coarse');
   return { coversWhenLive: !document.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live') || window.__zpSceneCovered(),
@@ -437,21 +437,28 @@ const reversal = await page.evaluate(() => {
 });
 ok(Object.values(reversal).every(Boolean), `a wide reversal never shows freed or uncovered raster pixels (${JSON.stringify(reversal)})`);
 const reversalPixels = await screenPixels([await otherPoint()], 'retained-coarse-reversal');
-ok(near(reversalPixels[0], [22, 163, 74]), `the evicted frame paints correct pixels after reversal/pan (${JSON.stringify(reversalPixels[0])})`);
+ok(near(reversalPixels[0], [22, 163, 74]), `the cached frame paints correct pixels after reversal/pan (${JSON.stringify(reversalPixels[0])})`);
 const edited = await page.evaluate(async other => {
   const F = window.__flux.fig;
+  window.__zpOldFigureRaster = document.querySelector(`[data-figure-raster="${CSS.escape(other)}"]`)?.getAttribute('href');
   F.mutateFigure(other, p => { p.figures.find(f => f.id === other).elements[0].fill = '#246bdb'; });
   F.dirty.set(false);
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   return { retired: !document.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live'),
     liveVisible: getComputedStyle(document.querySelector('.scene')).opacity === '1',
     maskRetired: !document.querySelector('.zoom-proxy-backdrop')?.classList.contains('live'),
-    otherMounted: !!document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`) };
+    otherMounted: !!document.querySelector(`[data-annotation-figure="${CSS.escape(other)}"]`),
+    pictureRetained: !!window.__zpOldFigureRaster && document.querySelector(`[data-figure-raster="${CSS.escape(other)}"]`)?.getAttribute('href') === window.__zpOldFigureRaster };
 }, retainedFixture.other);
-ok(Object.values(edited).every(Boolean), `a scoped edit to the other frame shows fresh live content (${JSON.stringify(edited)})`);
+ok(Object.values(edited).every(Boolean), `a scoped edit retires the proxy and retains the old figure picture until replacement (${JSON.stringify(edited)})`);
+await waitFor(page, other => {
+  const raster = document.querySelector(`[data-figure-raster="${CSS.escape(other)}"]`);
+  return !!raster && raster.getAttribute('href') !== window.__zpOldFigureRaster &&
+    !document.querySelector('[data-editor-element-id="zp-retain-green"]');
+}, retainedFixture.other, { timeout: 10000, label: 'quiet inactive edit replaces the old figure picture' });
 const editedPixels = await screenPixels([await otherPoint()], 'retained-offscreen-edit');
 ok(near(editedPixels[0], [36, 107, 219]), `fresh scoped edit paints blue (${JSON.stringify(editedPixels[0])})`);
-await page.evaluate(() => { delete window.__zpRetainedCanvases; });
+await page.evaluate(() => { delete window.__zpRetainedCanvases; delete window.__zpOldFigureRaster; });
 
 // --- 8. full composited pixels: no live-scene bleed or double sharp/coarse alpha ----------
 // Compare the WHOLE viewport PNG with an independent single-plane reference:

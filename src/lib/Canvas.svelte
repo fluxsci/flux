@@ -111,6 +111,9 @@
   import type { HitBridgeHolder, CanvasHits } from "./interact/canvasHitBridge";
   import { inPlotsRailScope } from "./plotsRail/keyScope";
   import { figurePlacement } from "./figure/placement";
+  import { createCanvasAtlas } from "./figure/atlasCanvas";
+  import { figureRasters, atlasRevision } from "./figure/atlas";
+  import { hitElementAt } from "./interact/modelHit";
   import { excludeZones } from "./interact/handles";
   import { plotAwareSelectionBBox, plotBoundsRevision, plotAwareRectIntersectsElement, plotVisiblePointContains, localPlotVisibleBounds } from "./plot/visibleBounds";
   $: if (!paneActive && !frame) figurePlacement.set(null);
@@ -482,6 +485,36 @@
 
   // Only the active canvas's figures are rendered / hit-tested.
   $: canvasFigures = $project.figures.filter((f) => f.canvasId === $activeCanvasId);
+  $: atlasActive = !frame && canvasFigures.length > 1;
+  // Retain narrowed plot bounds before unmount; mount.ts owns the live cache.
+  const atlasPlotBounds = new Map<string, { bounds: Rect | null; source: string }>();
+  const atlas = createCanvasAtlas({
+    active: () => paneActive,
+    quiet: () => paneActive && !sceneHot && !zoomUnsettled && !proxyActive && !gesture && !guideDrag && !nodeDrag && !$arrangementPreview && !Object.keys($modelPreviews).length,
+    group: id => sceneSvgEl?.querySelector<SVGGElement>(`[data-annotation-figure="${CSS.escape(id)}"]`) ?? null,
+    rememberBounds: fig => {
+      for (const el of fig.elements) if (el.type === 'plot') {
+        const bounds = localPlotVisibleBounds(el.id, el.width, el.height);
+        if (bounds === undefined) atlasPlotBounds.delete(el.id); else atlasPlotBounds.set(el.id, { bounds, source: JSON.stringify(el) });
+      }
+    },
+  });
+  const atlasView = atlas.view;
+  const atlasIsPicture = (id: string) => atlasActive && ($atlasView.get(id)?.mode === 'raster' || $atlasView.get(id)?.mode === 'warming');
+  const atlasIsRaster = (id: string) => atlasActive && $atlasView.get(id)?.mode === 'raster';
+  const atlasNeedsFull = (id: string) => atlasActive && ($atlasView.get(id)?.mode === 'warming' || (id !== $activeFigureId && $atlasView.get(id)?.mode === 'live'));
+  $: {
+    // Explicit dependencies matter in this legacy component: reads hidden in
+    // controller callbacks cannot wake a readiness check or a quiet transition.
+    void $atlasView; void $figureRasters; void visibleByFig; void sceneSvgEl;
+    void sceneHot; void zoomUnsettled; void proxyActive; void gesture; void guideDrag; void nodeDrag; void paneActive;
+    atlas.sync({ enabled: atlasActive, activeId: $activeFigureId, scope: `${$projectDir}|${$embeddedProjectRoot}|${$activeCanvasId}`,
+      figures: canvasFigures, visible: visibleFigures, revisions: $figureRev, global: $globalRev, plotGen: $plotGen, poster: $model3dPosterRevision,
+      zoom: renderZoom, dpr: window.devicePixelRatio || 1, root: $embeddedProjectRoot || $projectDir || '', bridge: fileBridge() ?? null,
+      assets: $project.assets, bytes: $assetData, center: { x: (hostW / 2 - $viewport.panX) / $viewport.zoom, y: (hostH / 2 - $viewport.panY) / $viewport.zoom },
+      viewBox: { x: -$viewport.panX / $viewport.zoom, y: -$viewport.panY / $viewport.zoom, w: hostW / $viewport.zoom, h: hostH / $viewport.zoom } });
+  }
+  onDestroy(() => atlas.destroy());
 
   // P7 groups: effective hidden/locked = own flag OR any ancestor GROUP's
   // eye/padlock (registry state). Precomputed ONCE per project change for every
@@ -657,9 +690,14 @@
   const parkCount = { gen: -1, nodes: 0 };
   const PARK_MAX_ELEMENTS = 1_000;
   function parkingAllowed(): boolean {
-    if (frame || !fileBridge()?.rasterizeScene || !sceneSvgEl) return false;
+    if (frame || atlasActive || !fileBridge()?.rasterizeScene || !sceneSvgEl) return false;
     if (canvasFigures.reduce((n, f) => n + f.elements.length, 0) > PARK_MAX_ELEMENTS) return false;
     if (parkCount.gen !== mountedGen) { parkCount.gen = mountedGen; parkCount.nodes = sceneSvgEl.getElementsByTagName("*").length; }
+    return parkCount.nodes <= SNAPSHOT_MAX_DENSE_NODES;
+  }
+  function retainAtlasActive(fig: Figure): boolean {
+    if (!atlasActive || fig.id !== $activeFigureId || fig.elements.length > PARK_MAX_ELEMENTS || !sceneSvgEl) return false;
+    if (parkCount.gen !== mountedGen) { parkCount.gen = mountedGen; parkCount.nodes = sceneSvgEl.getElementsByTagName('*').length; }
     return parkCount.nodes <= SNAPSHOT_MAX_DENSE_NODES;
   }
   /** Shown again after parking: mount.ts retries bounds it could not measure. */
@@ -674,6 +712,7 @@
   let visibleFigures: Figure[] = [];
   const visibleFiguresMemo = { from: null as Figure[] | null, figs: [] as Figure[] }; // non-reactive
   $: {
+    void atlasActive; void $atlasView; void $figureRasters;
     let next: Figure[];
     if (frame) next = canvasFigures.filter((f) => f.id === $activeFigureId);
     else {
@@ -681,7 +720,10 @@
       parkAllowed = allow;
       const parked = new Set<string>();
       next = canvasFigures.filter((f) => {
-        if (f.id === $activeFigureId || rectsIntersect(figRect(f), cullRect)) return true;
+        // Cached bitmap frames are cheap whole-canvas coverage. They stay
+        // mounted without parking; offscreen entries remain LRU-evictable.
+        if (atlasIsRaster(f.id) && $figureRasters.has(f.id)) return true;
+        if (f.id === $activeFigureId || $atlasView.get(f.id)?.pending || rectsIntersect(figRect(f), cullRect)) return true;
         if (!mountedFigs.has(f.id)) return false;
         if (!parkedFigMemo.has(f.id) && rectsIntersect(figRect(f), cullRectOut)) return true;
         if (allow) parked.add(f.id);
@@ -716,6 +758,19 @@
   $: layoutDeltas = new Map($arrangementPreview?.plan.translations.map(t => [t.id, t]) ?? []);
   $: layoutViewKey = layoutFigureId ? `${Math.round($viewport.panX / 64)},${Math.round($viewport.panY / 64)},${$viewport.zoom},${hostW},${hostH}` : '';
   function visibleEls(fig: Figure): Element[] {
+    const mode = atlasActive ? $atlasView.get(fig.id)?.mode : 'live';
+    if (mode === 'raster' || mode === 'cold') {
+      if (mountedEls.get(fig.id)?.size) mountedGen++;
+      mountedEls.set(fig.id, new Set());
+      return [];
+    }
+    if (atlasNeedsFull(fig.id)) {
+      const els = fig.elements.filter(el => !effectiveHidden(fig, el));
+      const ids = new Set(els.map(el => el.id)), was = mountedEls.get(fig.id);
+      if (!was || was.size !== ids.size || [...ids].some(id => !was.has(id))) mountedGen++;
+      mountedEls.set(fig.id, ids);
+      return els;
+    }
     // The frame being moved renders all its elements: its world position is stale
     // until commit, so culling by the stale bbox would drop elements as it travels.
     // Hidden elements (Layers eye — the element's own OR an ancestor group's,
@@ -725,12 +780,17 @@
     const lr: Rect = { x: cullRect.x - fig.x, y: cullRect.y - fig.y, w: cullRect.w, h: cullRect.h };
     const lrOut: Rect = { x: cullRectOut.x - fig.x, y: cullRectOut.y - fig.y, w: cullRectOut.w, h: cullRectOut.h };
     const was = mountedEls.get(fig.id);
+    // 2026-10-29: retiring whole-canvas parking must not remount the active
+    // capture at every deep fold (267 ms in the native dense gate). Retain its
+    // already-mounted working set under the same 1k-element / 150k-node caps.
+    const retainActive = fig.id !== layoutFigureId && retainAtlasActive(fig);
     const wasParked = parkedElMemo.get(fig.id);
     const parked = new Set<string>();
     // FIG-4: cull by the ROTATED bounds — a tilted element near the viewport edge must
     // not vanish while its spun corners are still visible (unrotated = same fast path).
     const els = fig.elements.filter((el) => {
       if (effHidden(el)) return false;
+      if (retainActive && was?.has(el.id)) return true;
       if ($selection.has(el.id) && fig.id !== layoutFigureId) return true;
       const box = rotatedAABB(el);
       const delta = fig.id === layoutFigureId ? layoutDeltas.get(el.id) : undefined;
@@ -792,6 +852,7 @@
   $: {
     if (paneActive) { // Fix 7: hidden pane — no recompute
       void effState; // P7: group eyes change the visible set (effHidden reads it)
+      void atlasActive; void $atlasView;
       if ($selection !== visMemoBox.sel) {
         visMemoBox.sel = $selection;
         visMemoBox.selGen++;
@@ -817,7 +878,7 @@
       const next = new Map<string, { key: string; els: Element[] }>();
       const m = new Map<string, Element[]>();
       for (const f of visibleFigures) {
-        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.parkGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}`;
+        const key = `${$figureRev[f.id] ?? 0}|${$globalRev}|${visMemoBox.cullGen}|${visMemoBox.parkGen}|${visMemoBox.selGen}|${visMemoBox.gesGen}|${visMemoBox.layoutGen}|${absentPresentationKey}|${atlasActive ? $atlasView.get(f.id)?.mode : ''}|${atlasActive && f.id === $activeFigureId}`;
         let mm = visMemoBox.map.get(f.id);
         if (!mm || mm.key !== key) {
           perfCounters.visRecomputes++;
@@ -1069,6 +1130,7 @@
     editingId,
     JSON.stringify($plotGen),
     $model3dPosterRevision,
+    atlasActive ? $atlasRevision : 0,
     frame ? 1 : 0,
   ].join("|");
   // Parking changes what the sharp plane's region may contain (an unparked
@@ -1082,7 +1144,8 @@
     for (const f of visibleFigures) {
       if (parkedFigs.has(f.id)) continue;
       const parked = parkedEls.get(f.id);
-      shown.set(f.id, new Set((visibleByFig.get(f.id) ?? []).filter((e) => !parked?.has(e.id)).map((e) => e.id)));
+      shown.set(f.id, new Set(atlasIsRaster(f.id) ? f.elements.filter(e => !effectiveHidden(f, e)).map(e => e.id) :
+        (visibleByFig.get(f.id) ?? []).filter((e) => !parked?.has(e.id)).map((e) => e.id)));
     }
     return shown;
   }
@@ -1102,7 +1165,8 @@
   function overviewFigureKey(f: Figure): string {
     const plots = f.elements.flatMap((e) => (e.type === "plot" ? [`${e.assetId}:${$plotGen[e.assetId] ?? 0}`] : [])).join(",");
     return [$figureRev[f.id] ?? 0, f.id === $activeFigureId ? `a${gridD}` : "", f.id === $selectedFrameId ? "s" : "", f.id === dropFigId ? "d" : "",
-      editingId && f.elements.some((e) => e.id === editingId) ? editingId : "", f.x, f.y, f.width, f.height, plots].join("|");
+      editingId && f.elements.some((e) => e.id === editingId) ? editingId : "", f.x, f.y, f.width, f.height, plots,
+      atlasIsRaster(f.id) ? $figureRasters.get(f.id)?.producedAt : 'live'].join("|");
   }
   /** Everything a figure paints, at a baked zoom: frame, shadow, title bar, label. */
   function chromeRect(f: Figure, zoom: number): Rect {
@@ -1144,7 +1208,7 @@
     for (const f of overviewFigures) {
       if (!rects.some((r) => rectsIntersect(chromeRect(f, sharp.captureZoom), r))) continue;
       const ids = mountedEls.get(f.id), parked = parkedEls.get(f.id);
-      if (parkedFigs.has(f.id) || !visibleFigures.includes(f) || f.elements.some((e) => !effectiveHidden(f, e) && (!ids?.has(e.id) || !!parked?.has(e.id)))) return false;
+      if (parkedFigs.has(f.id) || !visibleFigures.includes(f) || (!atlasIsRaster(f.id) && f.elements.some((e) => !effectiveHidden(f, e) && (!ids?.has(e.id) || !!parked?.has(e.id))))) return false;
     }
     const ctx = ov.raster.canvas.getContext("2d");
     if (!ctx) return false;
@@ -1356,7 +1420,7 @@
     x0 = Math.max(x0, scene.bx); y0 = Math.max(y0, scene.by); x1 = Math.min(x1, scene.bx + scene.bw); y1 = Math.min(y1, scene.by + scene.bh);
     const r: Rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
     const missing = canvasFigures.some((f) => rectsIntersect(chromeRect(f, renderZoom), r) && (!mountedFigs.has(f.id) || f.elements.some((e) => {
-      if (effHidden(e) || mountedEls.get(f.id)?.has(e.id)) return false;
+      if (atlasIsRaster(f.id) || effHidden(e) || mountedEls.get(f.id)?.has(e.id)) return false;
       const a = rotatedAABB(e);
       return rectsIntersect({ x: f.x + a.x, y: f.y + a.y, w: a.w, h: a.h }, r);
     })));
@@ -1374,6 +1438,7 @@
       const f = figures.get(figureId);
       if (!f) return false;
       if (elementId === undefined) return rectsIntersect(chromeRect(f, renderZoom), r);
+      if (atlasIsRaster(f.id)) return true;
       const el = f.elements.find((e) => e.id === elementId);
       if (!el) return true;
       const a = rotatedAABB(el);
@@ -1495,7 +1560,7 @@
       if (!frame && !presentation) try {
         const { prepareSnapshotSupplement } = await import("./interact/sceneCaptureSupplement");
         if (!current()) return;
-        supplement = await prepareSnapshotSupplement({ sceneSvg: svg, figures: visibleFigures, assets: get(project).assets,
+        supplement = await prepareSnapshotSupplement({ sceneSvg: svg, figures: visibleFigures, rasterized: new Set(visibleFigures.filter(f => atlasIsRaster(f.id)).map(f => f.id)), assets: get(project).assets,
           assetData: get(assetData), manifests: get(plotManifests), baseNodes: total, current });
       } catch { /* a bounded supplement is optional; completeness is checked below */ }
       const ser = await serializeSceneSnapshotCooperative(svg, scene, S, { current, yield: quiet, ...supplement });
@@ -1531,7 +1596,7 @@
       const extra = supplement?.capturedExtraIDs;
       const complete = overviewFigures.every((f) => {
         const ids = mountedEls.get(f.id), more = extra?.get(f.id);
-        return f.elements.every((e) => effectiveHidden(f, e) || !!ids?.has(e.id) || !!more?.has(e.id));
+        return visibleFigures.includes(f) && (atlasIsRaster(f.id) || f.elements.every((e) => effectiveHidden(f, e) || !!ids?.has(e.id) || !!more?.has(e.id)));
       });
       const previous = overview;
       overview = { raster: { canvas, ...scene, w: ser.w, h: ser.h }, global, figs, complete };
@@ -1819,6 +1884,12 @@
     lastDownEl = null; // figure-background pointerdown (also the locked/tool fallthrough)
     pressTone = figureTone(fig);
     if (startPanIfNeeded(e)) return;
+    if (e.button === 0 && atlasIsPicture(fig.id) && ($activeTool === 'select' || $activeTool === 'scale')) {
+      const hit = hitElementAt(fig, localPoint(e.clientX, e.clientY, fig), { selection: $selection, enteredGroupId: $enteredGroupId,
+        plotBounds: el => { const cached = atlasPlotBounds.get(el.id); return cached?.source === JSON.stringify(el) ? cached.bounds : undefined; } });
+      hoverFrameId = null;
+      if (hit) { onElementDown(e, hit.element, fig, true); return; }
+    }
     // Node-edit sub-modes intercept figure clicks: pen places/connects draft
     // points; delete de-escalates back to edit on a background click. Plain
     // edit mode exits as before (unless the pen TOOL is active — then it's
@@ -2608,14 +2679,14 @@
   })();
 
   // --- pointer down on an element ---
-  function onElementDown(e: PointerEvent, el: Element, fig: Figure) {
+  function onElementDown(e: PointerEvent, el: Element, fig: Figure, fromRaster = false) {
     const preferredId = presentation?.preferredDragTargetId;
     if (preferredId && preferredId !== el.id && $selection.has(preferredId) && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
       const preferred = fig.elements.find(item => item.id === preferredId);
       const point = localPoint(e.clientX, e.clientY, fig);
       if (preferred && !effHidden(preferred) && !effLocked(preferred) && rectIntersectsElement({x:point.x,y:point.y,w:0.1,h:0.1}, preferred)) el = preferred;
     }
-    if (el.type === "plot" && localPlotVisibleBounds(el.id) !== undefined && !plotVisiblePointContains(el, localPoint(e.clientX, e.clientY, fig))) {
+    if (!fromRaster && el.type === "plot" && localPlotVisibleBounds(el.id) !== undefined && !plotVisiblePointContains(el, localPoint(e.clientX, e.clientY, fig))) {
       onFigureDown(e, fig);
       return;
     }
@@ -2672,7 +2743,7 @@
     // parts; alt keeps duplicate-drag. SCAFFOLD parts (figure/plot-area/background
     // patches/axis containers) never drill — a ctrl-click on a plot's
     // background selects the whole plot, like Figma's deep-click on a frame.
-    const mod = e.ctrlKey || e.metaKey;
+    const mod = !fromRaster && (e.ctrlKey || e.metaKey);
     const deep = mod && !e.shiftKey && !e.altKey;
     // Ctrl+Shift-click ADDS the part under the cursor to the pick (a click
     // without a drag on a picked part drops it again) — the plural part
@@ -2683,7 +2754,7 @@
     const deepAdd = mod && e.shiftKey && !e.altKey;
     if (el.type === "plot") {
       const picked = $partSelections;
-      const pickedHere = picked.filter((p) => p.elementId === el.id);
+      const pickedHere = fromRaster ? [] : picked.filter((p) => p.elementId === el.id);
       const siblingAdd = !mod && e.shiftKey && !e.altKey && pickedHere.length > 0;
       const plainSame = !mod && !e.shiftKey && !e.altKey && pickedHere.length > 0;
       let pid: string | null = null;
@@ -3333,6 +3404,10 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    const figNode = (e.target as globalThis.Element | null)?.closest?.('[data-annotation-figure]');
+    const frameId = figNode?.getAttribute('data-annotation-figure') ?? null;
+    hoverFrameId = !gesture && frameId && atlasIsPicture(frameId) ? frameId : null;
+    if (hoverFrameId) hoverId.set(null);
     if (gesture && e.isTrusted) lastMoveEvent = e;
     if ($figurePlacement) placementPointer = { x: e.clientX, y: e.clientY };
     // Hover does NOT postpone the zoom snapshot (2026-09-30): the quiet timer
@@ -4363,7 +4438,12 @@
   // select (the hovered element, expanded to its whole group). Suppressed while
   // dragging, editing, read-only (caption), with a non-select tool, or when the
   // hovered thing is already selected (the selection box already shows it).
+  let hoverFrameId: string | null = null;
+  $: hoverFrame = (void $atlasView, !gesture && !dragging && !zoomUnsettled && !editingId && !editPathId && !presentation?.picking &&
+    ($activeTool === 'select' || $activeTool === 'scale') && hoverFrameId && atlasIsPicture(hoverFrameId)
+    ? canvasFigures.find(f => f.id === hoverFrameId) ?? null : null);
   $: hoverInfo = (() => {
+    void $atlasView; void atlasActive;
     void $plotBoundsRevision;
     if (
       !$hoverId ||
@@ -4378,7 +4458,7 @@
     )
       return null;
     const found = findElement($project, $hoverId);
-    if (!found) return null;
+    if (!found || atlasIsPicture(found.figure.id)) return null;
     // Don't preview-outline a locked/hidden element (own flag OR an ancestor
     // group's, P7) — a click won't select it.
     void effState;
@@ -5248,6 +5328,7 @@
   on:lostpointercapture={() => cancelGesture()}
   on:pointerleave={() => {
     hoverId.set(null);
+    hoverFrameId = null;
     partHover = null;
   }}
   on:dblclick={onDblClick}
@@ -5284,7 +5365,7 @@
             style:transform={figMoveId === fig.id ? frameTransform : null}
             style:will-change={figMoveId === fig.id ? "transform" : null}
           >
-          <g data-annotation-figure={fig.id} transform={`translate(${fig.x} ${fig.y})`} class:cursor-on-light={figureTone(fig) === "light"} class:cursor-on-dark={figureTone(fig) === "dark"}>
+          <g data-annotation-figure={fig.id} data-atlas-mode={atlasActive ? $atlasView.get(fig.id)?.mode : null} data-atlas-pending={atlasActive && $atlasView.get(fig.id)?.pending ? 'true' : null} transform={`translate(${fig.x} ${fig.y})`} class:cursor-on-light={figureTone(fig) === "light"} class:cursor-on-dark={figureTone(fig) === "dark"}>
             <rect class="fig-shadow" x={bounds.x + 3} y={bounds.y + 4} width={bounds.w} height={bounds.h} />
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <rect
@@ -5306,7 +5387,7 @@
               <path class="grid" d={gridD} clip-path={`url(#clip-${fig.id})`} />
             {/if}
             <g clip-path={`url(#clip-${fig.id})`}>
-              {#if fig.elements.length === 0}
+              {#if fig.elements.length === 0 && !atlasIsPicture(fig.id)}
                 <!-- Empty-figure affordance: point at the three import paths. Constant
                      screen size (÷renderZoom — NEVER live zoom inside the scene, P6;
                      like .figure-label); pointer-events:none so it never blocks canvas
@@ -5333,7 +5414,7 @@
                   partStates={presentation?.partStates?.[el.id]}
                   ghost={presentation?.ghostHidden}
                   hidden={hiddenPresentationIds.has(el.id)}
-                  opacity={presentation?.elementStates?.[el.id]?.opacity ?? 1}
+                  opacity={atlasActive && $atlasView.get(fig.id)?.mode === 'warming' ? 0 : presentation?.elementStates?.[el.id]?.opacity ?? 1}
                   absent={absentPresentationIds.has(el.id)}
                   editingHidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
                   gestureHidden={gestureHiddenIds.has(el.id)}
@@ -5341,6 +5422,15 @@
                   parked={parkedEls.get(fig.id)?.has(el.id) ?? false}
                 />
               {/each}
+              {#if atlasActive && ($atlasView.get(fig.id)?.mode === 'raster' || $atlasView.get(fig.id)?.mode === 'warming')}
+                {@const raster = $figureRasters.get(fig.id)}
+                {#if raster}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <image x="0" y="0" width={fig.width} height={fig.height} preserveAspectRatio="none"
+                    href={raster.dataUrl} data-figure-raster={fig.id} data-raster-key={raster.key}
+                    class="figure-raster" on:pointerdown={(e) => onFigureDown(e, fig)} />
+                {/if}
+              {/if}
             </g>
             {#if !frame}
               <!-- Figure-arrangement chrome (drag-by-title, name label) only
@@ -5401,6 +5491,10 @@
   </div>
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
+    {#if hoverFrame}
+      <rect class="hover-frame" x={$viewport.panX + hoverFrame.x * $viewport.zoom} y={$viewport.panY + hoverFrame.y * $viewport.zoom}
+        width={hoverFrame.width * $viewport.zoom} height={hoverFrame.height * $viewport.zoom} fill="none" />
+    {/if}
     {#each presentationHighlights as box}
       <rect class="presentation-target" x={box.x} y={box.y} width={box.w} height={box.h} rx="2" />
     {/each}
@@ -6069,7 +6163,8 @@
     stroke-dasharray: 4 3;
     pointer-events: none;
   }
-  .hover-box {
+  .figure-raster { cursor: var(--cursor-cross); }
+  .hover-box, .hover-frame {
     stroke: var(--c-accent-bright);
     stroke-width: 1.5;
     pointer-events: none;

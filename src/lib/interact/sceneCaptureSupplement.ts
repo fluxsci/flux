@@ -23,6 +23,7 @@ export interface SnapshotSupplement {
 export interface SnapshotSupplementOptions {
   sceneSvg: SVGSVGElement;
   figures: readonly Figure[];
+  rasterized?: ReadonlySet<string>;
   assets: readonly Asset[];
   assetData: Readonly<Record<string, string>>;
   manifests: Readonly<Record<string, FluxPlotManifest>>;
@@ -78,6 +79,7 @@ async function prepareSupplement(options: SnapshotSupplementOptions): Promise<Sn
   type Placement = { figure: Figure; element: ModelElement; layer: globalThis.Element; next: globalThis.Element | null; svg?: string };
   const missing: Placement[] = [];
   for (const figure of options.figures) {
+    if (options.rasterized?.has(figure.id)) continue; // its PNG already holds all placements
     const frame = frameNodes.get(figure.id); if (!frame) continue; // never add a new frame
     const layer = Array.from(frame.children).find(n => n.localName === 'g' && n.hasAttribute('clip-path'));
     if (!layer) return null;

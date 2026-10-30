@@ -131,10 +131,16 @@ try {
 
   // ---- mounted plots are never evicted (tiny-cap probe) --------------------
   await page.evaluate(() => {
-    window.__flux.plot.plotResidency.nodeCap = 1000;
+    window.__flux.plot.applyPlotNodeCap(1000);
   });
   await page.evaluate(focusFig, fx.figIds[0]);
   await settleFig(fx.figIds[0], "tiny-cap settle");
+  // Atlas deactivation retains the preceding DOM until its picture lands (or
+  // the browser refuses this >20k-node figure). Wait for that transition, then
+  // apply the cap through its public seam: releasePlot itself does not trim.
+  await waitFor(page, () => !document.querySelector('[data-atlas-pending="true"]'), null,
+    { label: 'atlas deactivation settles or refuses the dense browser capture', timeout: 20000 });
+  await page.evaluate(() => window.__flux.plot.applyPlotNodeCap(1000));
   const tiny = await page.evaluate((ids) => {
     const P = window.__flux.plot;
     return {
@@ -146,15 +152,13 @@ try {
     };
   }, fx.assetsByFig[fx.figIds[0]]);
   h.ok(tiny.activeResident, `mounted plots never evicted (soft cap): active figure resident under nodeCap=1000 (totalNodes=${tiny.totalNodes})`);
-  // Under a tiny cap the resident set IS the mounted set: every unmounted plot is
-  // evicted, every mounted one kept. Culling hysteresis (Canvas, 2026-09-16) keeps
-  // content mounted for one viewport past the margin, so the mounted set is the
-  // active figure plus its partially-near neighbours — a bounded neighbourhood,
-  // never the whole tour.
+  // These >20k-node figures exceed Chromium's decode cap; the browser bridge
+  // has no child rasterizer, so live fallback retains today's culled working
+  // set. Smaller atlas pictures mount only the active figure (atlas gate).
   h.ok(tiny.plotDom === tiny.mounted, `tiny cap evicts every unmounted plot: plotDom=${tiny.plotDom} === mounted=${tiny.mounted}`);
-  h.ok(tiny.plotDom >= 14 && tiny.plotDom < FIGURES * 14, `the mounted set is the active figure's neighbourhood, not the tour (plotDom=${tiny.plotDom} of ${FIGURES * 14})`);
+  h.ok(tiny.plotDom >= 14 && tiny.plotDom < FIGURES * 14, `the live fallback stays within the active neighbourhood, not the tour (plotDom=${tiny.plotDom} of ${FIGURES * 14})`);
   await page.evaluate(() => {
-    window.__flux.plot.plotResidency.nodeCap = 150_000;
+    window.__flux.plot.applyPlotNodeCap(150_000);
   });
 
   const errs = realErrors(page);

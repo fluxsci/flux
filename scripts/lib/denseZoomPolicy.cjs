@@ -9,26 +9,33 @@ const near = (a, b, tolerance = 3) => Array.isArray(a) && a.length === b.length 
 function evaluateDenseZoom(phase, receipt, runtime) {
   const fixture = receipt?.fixture, stages = receipt?.stages ?? [], initial = receipt?.initial;
   const models = fixture?.modelIDs ?? [], supplement = fixture?.supplementIDs ?? [];
+  const ownerOf = new Map(Object.entries(fixture?.figureElements ?? {}).flatMap(([figureId, ids]) => ids.map(id => [id, figureId])));
+  const covered = (row, id) => row.ids?.includes(id) || row.rasters?.some(r => r.figureId === ownerOf.get(id) && r.png);
   const checks = [];
   const check = (ok, label) => checks.push({ ok: !!ok, label });
   check(deepZoomDelivered(phase), 'three actual native 16x→wide cycles deliver every injected event and painted barrier');
   check(phase.zoomTicks === phase.wheels && phase.proxyTicks === phase.zoomTicks && phase.zoomTicks >= 180,
     'every delivered zoom event uses the raster proxy throughout all three cycles');
   check(!phase.proxyAbort, 'no live→fallback membership abort occurs');
-  check(initial?.nodes >= 60000 && initial.nodes <= 90000 && fixture?.densePrimitiveNodes === 72000 && fixture?.clippedWrappers === 18000,
-    'the regression actually mounts its 60–90k-node dense workload');
+  check(initial?.nodes >= 30000 && initial.nodes <= 45000 && fixture?.densePrimitiveNodes === 72000 && fixture?.clippedWrappers === 18000,
+    'the 72k-node dense model mounts only its 30–45k-node active figure');
+  check(ownerOf.size === models.length && models.every(id => ownerOf.has(id)) && fixture?.activeFigureID === fixture?.frameIDs?.[0],
+    'every fixture model has one explicit figure owner');
+  check([initial, ...stages].every(row => row?.ids?.every(id => ownerOf.get(id) === fixture.activeFigureID) && row?.rasters?.length === 1 &&
+    row.rasters.every(r => r.figureId === fixture.frameIDs[1] && r.png && r.width > 0 && r.height > 0 && r.width <= 4096 && r.height <= 4096 && r.width * r.height <= 3000000)),
+    'every fold keeps inactive DOM absent and its one PNG within the atlas caps');
   check(fixture?.frameIDs?.length === 2 && fixture.frameIDs.every(id => initial?.frames?.includes(id)), 'both neighboring fixture frames start mounted');
   check(supplement.length === 2 && supplement.every(id => !initial?.ids?.includes(id)), 'two known supplement placements start undisplayed (culled or parked)');
   check(stages.length === 6 && stages.every((row, i) => row.cycle === Math.floor(i / 2) + 1 && row.label === (i % 2 ? 'wide-fold' : 'deep-fold')),
     'all three deep folds and all three wide folds are inspected');
   check(stages.length === 6 && stages.every(row => row.changedInitial?.length === 0 && row.removals?.length === 0) && receipt?.mutation?.removals?.length === 0,
     'initial SVG wrappers retain exact identity without any unmount/remount through folds');
-  check(stages.filter(row => row.label === 'wide-fold').length === 3 && stages.filter(row => row.label === 'wide-fold').every(row => models.length > 0 && models.every(id => row.ids?.includes(id))),
-    'every live-eligible fixture model, including supplemented plots, is live after every wide fold');
-  check(supplement.length === 2 && supplement.every(id => stages.filter(row => row.label === 'wide-fold').every(row => row.ids?.includes(id))),
-    'placements first held only by the raster are displayed live once visible');
-  check([initial, ...stages].every(row => row?.nodes >= 60000 && row.nodes <= fixture?.maxSceneNodes && row.nodes <= initial.nodes + 500),
-    'retention remains a bounded scene superset, without duplicated SVG artwork');
+  check(stages.filter(row => row.label === 'wide-fold').length === 3 && stages.filter(row => row.label === 'wide-fold').every(row => models.length > 0 && models.every(id => covered(row, id))),
+    'every model is covered by active DOM or its figure PNG after every wide fold');
+  check(supplement.length === 2 && supplement.every(id => stages.filter(row => row.label === 'wide-fold').every(row => covered(row, id))),
+    'the inactive picture covers the two far placements at every wide fold');
+  check([initial, ...stages].every(row => row?.nodes >= 30000 && row.nodes <= 45000 && row.nodes <= fixture?.maxSceneNodes && row.nodes <= initial.nodes + 500),
+    'retention stays bounded by the active figure, without duplicated SVG artwork');
   check([initial, ...stages].every(row => row?.canvasCount >= 1 && row.canvasCount <= 2 && row.canvasPixels > 0 && row.canvasPixels <= 6000000 && row.canvasSizes?.every(size => size.every(n => n > 0 && n <= 4096))),
     'only the overview and at most one sharp plane remain resident, each ≤3MP and ≤4096 px a side');
   check(near(receipt?.widePixel, fixture?.markerColor ?? []), 'the final wide native frame contains the independently specified marker color');

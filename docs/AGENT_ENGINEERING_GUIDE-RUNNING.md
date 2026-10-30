@@ -11694,3 +11694,10 @@ coverage audit resolves aliases before warning about old tracks after source reg
 **Learnings:**
 - Relayout binds every clone of one model through a shared binding template. That template held the FIRST clone's colour-key tick anchors, so a second placement or a re-clone with another colour scale drew the wrong key ticks (present on main fb766407). Same-process fuzzing cannot see it: the oracle mount reuses the same template. Comparing fresh-mount hashes across checkouts, and against a first clone made from a freshly parsed manifest, exposed it. `verify-plot-restyle` now pins it.
 - Elastic mounts now take the override-restoration ledger, which costs about 4 ms per 25.8k ids (0.1 ms on a typical plot). That is the price of restyling them in place.
+
+### 2026-10-29 20:31 CDT — Figure atlas (Codex, w/canvas-atlas)
+**Work:** Added the Figure atlas policy/queue, live and cold PNG routes, model press targeting, frame hover and Canvas residency/proxy integration; Slide frame mode remains outside the atlas. Added pure, 12-figure interaction and 60-figure scale gates with base-snapshot negative proofs, plus the Figure docs paragraph. Detailed runner receipts and owner-project-copy probes accompany the worker report.
+**Learnings:**
+- Publish controller-driven mount changes outside the consuming legacy reactive flush; an upstream synchronous store write can leave its culling memo on the preceding mode.
+- A known capture refusal must not pin a revisited figure as pending forever. Dense browser-only fixtures retain live culling when the >20k-node child raster route is unavailable; trim residency through `applyPlotNodeCap` after that transition.
+- Retain the active figure's mounted capture under the existing 1k-element/150k-node bounds when retiring parking; its deep-fold remount otherwise cost 267 ms. Cached bitmap frames stay mounted for whole-scene coverage, with LRU protection and quality upgrades based on the actual viewport.

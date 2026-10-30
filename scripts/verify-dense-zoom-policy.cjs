@@ -4,8 +4,8 @@ const { evaluateDenseZoom } = require('./lib/denseZoomPolicy.cjs');
 async function main() {
   const { harness } = await import('./lib/harness.mjs'); const h = harness('verify-dense-zoom-policy');
   const make = () => {
-    const fixture = { densePrimitiveNodes: 72000, clippedWrappers: 18000, maxSceneNodes: 150000, frameIDs: ['f0', 'f1'], modelIDs: ['a', 'b', 's0', 's1'], supplementIDs: ['s0', 's1'], markerColor: [240, 0, 192] };
-    const sample = ids => ({ ids, frames: ['f0', 'f1'], changedInitial: [], removals: [], additions: [], nodes: 72400, canvasCount: 2, canvasPixels: 3996000, canvasSizes: [[2000, 1499], [1000, 998]] });
+    const fixture = { densePrimitiveNodes: 72000, clippedWrappers: 18000, maxSceneNodes: 150000, frameIDs: ['f0', 'f1'], activeFigureID: 'f0', figureElements: { f0: ['a'], f1: ['b', 's0', 's1'] }, modelIDs: ['a', 'b', 's0', 's1'], supplementIDs: ['s0', 's1'], markerColor: [240, 0, 192] };
+    const sample = ids => ({ ids, frames: ['f0', 'f1'], rasters: [{ figureId: 'f1', png: true, width: 1000, height: 600 }], changedInitial: [], removals: [], additions: [], nodes: 36400, canvasCount: 2, canvasPixels: 3996000, canvasSizes: [[2000, 1499], [1000, 998]] });
     const batch = n => ({ sent: n, delivered: n, complete: true });
     const phase = { preciseWheel: false, wheels: 189, zoomTicks: 189, proxyTicks: 189, proxyAbort: null,
       deepZoom: { target: 16, cycles: [15, 33, 33].map(n => ({ afterIn: { zoom: 18 }, inBatches: [batch(n)], out: batch(36) })) },
@@ -14,8 +14,8 @@ async function main() {
       attempts: [{ elapsedMs: 45, marker: { present: marker }, layer: { present: marker }, focused: true, visible: 'visible' }],
       window: { id: 1, webContentsID: 1, url: 'file:///test/dist/index.html', visible: true, focused: true },
       expectedWindow: { id: 1, webContentsID: 1, url: 'file:///test/dist/index.html' } });
-    const receipt = { fixture, initial: sample(['a', 'b']), stages: Array.from({ length: 6 }, (_, i) => ({ ...sample(fixture.modelIDs), label: i % 2 ? 'wide-fold' : 'deep-fold', cycle: Math.floor(i / 2) + 1 })),
-      mutation: { ...sample(fixture.modelIDs), additions: [{ id: 's0' }, { id: 's1' }] }, widePixel: fixture.markerColor, beforeEditPixel: fixture.markerColor,
+    const receipt = { fixture, initial: sample(['a']), stages: Array.from({ length: 6 }, (_, i) => ({ ...sample(['a']), label: i % 2 ? 'wide-fold' : 'deep-fold', cycle: Math.floor(i / 2) + 1 })),
+      mutation: { ...sample(['a']), additions: [] }, widePixel: fixture.markerColor, beforeEditPixel: fixture.markerColor,
       setupKeyPaint: [20, 24],
       edit: { deleted: { live: false, liveOpacity: '1' }, deletedPixel: [255, 255, 255], restoredPixel: fixture.markerColor,
         deletePresentation: presentation(false), undoPresentation: presentation(true), keyPaint: [20, 24] } };
@@ -38,8 +38,11 @@ async function main() {
     ['removed then remounted initial wrapper', x => x.receipt.stages[0].removals.push({ id: 'a' })],
     ['same IDs with changed node identity', x => x.receipt.stages[2].changedInitial.push('a')],
     ['unmount after the final inspected fold', x => x.receipt.mutation.removals.push({ id: 'a' })],
-    ['newly visible supplemented plot missing', x => { x.receipt.stages[1].ids = ['a', 'b', 's0']; }],
-    ['supplement never actually displayed', x => { x.receipt.stages[5].ids = x.receipt.stages[5].ids.filter(id => id !== 's1'); }],
+    ['active model missing after a wide fold', x => { x.receipt.stages[1].ids = []; }],
+    ['inactive picture missing after a wide fold', x => { x.receipt.stages[5].rasters = []; }],
+    ['inactive figure remounted live', x => { x.receipt.stages[1].ids.push('b'); }],
+    ['inactive SVG-backed image substituted', x => { x.receipt.stages[1].rasters[0].png = false; }],
+    ['unbounded inactive PNG', x => { x.receipt.stages[1].rasters[0].width = 4097; }],
     ['SVG duplication below global admission cap', x => { x.receipt.stages[4].nodes += 7000; }],
     ['unbounded SVG scene', x => { x.receipt.stages[4].nodes = 150001; }],
     ['extra raster plane', x => { x.receipt.stages[2].canvasCount = 3; }],

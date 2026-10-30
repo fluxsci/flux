@@ -12,6 +12,7 @@
 // live viewport. Canvas.svelte owns the lifecycle.
 
 import { parseColor } from "../color/interp";
+import type { Figure } from "../types";
 
 /** An opaque matte INSIDE the canvas host's paint context. Transparent hosts
  * may use solid ancestor backgrounds; gradients/images/filters remain live. */
@@ -236,7 +237,19 @@ export function serializeSceneRegion(
     }
     if (nodes > maxNodes) return null;
   }
-  for (const [live, c] of pairs) {
+  for (const [live, c] of pairs) inlineSnapshotStyles(live, c);
+  const inherited = getComputedStyle(sceneSvg);
+  for (const p of ["font-family", "font-size", "font-weight", "font-style", "color", "letter-spacing", "text-rendering", "-webkit-font-smoothing"])
+    rootCopy.style.setProperty(p, inherited.getPropertyValue(p));
+  const w = Math.max(1, Math.floor(box.bw * S)), h = Math.max(1, Math.floor(box.bh * S));
+  const body = new XMLSerializer().serializeToString(rootCopy);
+  return {
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${body}</svg>`,
+    w, h,
+  };
+}
+
+function inlineSnapshotStyles(live: Element, c: Element): void {
     for (const cls of STYLED_CLASSES) {
       const lives = [live, ...Array.from(live.getElementsByClassName(cls))].filter((n) => n.classList.contains(cls));
       const copies = [c, ...Array.from(c.getElementsByClassName(cls))].filter((n) => n.classList.contains(cls));
@@ -248,15 +261,30 @@ export function serializeSceneRegion(
         }
       }
     }
-  }
-  const inherited = getComputedStyle(sceneSvg);
+}
+
+/** One mounted figure, in figure-local units. Canvas chrome is deliberately
+ * excluded: active/selected/drop state must never be baked into the picture.
+ * The standalone SVG viewport supplies the same frame clip. */
+export function serializeFigureRegion(figureGroup: SVGGElement, fig: Pick<Figure, 'width' | 'height' | 'background'>, S: number): { svg: string; w: number; h: number; nodes: number } {
+  const layer = Array.from(figureGroup.children).find(n => n.localName === 'g' && n.hasAttribute('clip-path'));
+  if (!layer) throw new Error('Figure element layer is not mounted');
+  const copy = layer.cloneNode(true) as SVGElement;
+  inlineSnapshotStyles(layer, copy);
+  copy.removeAttribute('clip-path');
+  for (const node of Array.from(copy.children))
+    if (node.classList.contains('empty-hint') || node.classList.contains('grid')) node.remove();
+  const inherited = getComputedStyle(figureGroup);
   for (const p of ["font-family", "font-size", "font-weight", "font-style", "color", "letter-spacing", "text-rendering", "-webkit-font-smoothing"])
-    rootCopy.style.setProperty(p, inherited.getPropertyValue(p));
-  const w = Math.max(1, Math.floor(box.bw * S)), h = Math.max(1, Math.floor(box.bh * S));
-  const body = new XMLSerializer().serializeToString(rootCopy);
+    copy.style.setProperty(p, inherited.getPropertyValue(p));
+  const w = Math.max(1, Math.ceil(fig.width * S)), h = Math.max(1, Math.ceil(fig.height * S));
+  const background = figureGroup.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  background.setAttribute('width', String(fig.width)); background.setAttribute('height', String(fig.height));
+  background.setAttribute('fill', fig.background || 'none');
+  const serializer = new XMLSerializer();
   return {
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${body}</svg>`,
-    w, h,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${fig.width} ${fig.height}" preserveAspectRatio="none">${serializer.serializeToString(background)}${serializer.serializeToString(copy)}</svg>`,
+    w, h, nodes: layer.getElementsByTagName('*').length + 3,
   };
 }
 

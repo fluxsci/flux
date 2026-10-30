@@ -47,7 +47,8 @@ async function buildDenseProject(cfg) {
     }
     parts.push(`<g id="s0.line"><path d="${d}" stroke="#4385be" fill="none" stroke-width="1.2"/></g>`);
     // dense point cloud — the element-count knob
-    parts.push(`<g id="s0.points">`);
+    // A source-authored .grid class is plot artwork, not Canvas chrome.
+    parts.push(`<g id="s0.points"${cfg.layout === 'grid' ? ' class="grid"' : ''}>`);
     for (let i = 0; i < K; i++) {
       const x = 40 + (((seed * 131 + i * 17) % 1000) / 1000) * (PANEL_W - 60);
       const y = 30 + (((seed * 37 + i * 71) % 1000) / 1000) * (PANEL_H - 60);
@@ -87,20 +88,24 @@ async function buildDenseProject(cfg) {
   const figures = [];
   const figIds = [];
   const assetsByFig = {};
-  const COLS = 4;
-  const PITCH_X = 4000; // far apart: only the active figure's neighborhood culls in
-  const PITCH_Y = 3000;
+  const grid = cfg.layout === 'grid';
+  const COLS = grid ? (cfg.columns ?? 4) : 4;
+  const figureW = grid ? (cfg.figureW ?? 600) : 1240;
+  const figureH = grid ? (cfg.figureH ?? 400) : 880;
+  const PITCH_X = grid ? figureW + (cfg.gap ?? 40) : 4000;
+  const PITCH_Y = grid ? figureH + (cfg.gap ?? 40) : 3000;
   let seed = 1;
   for (let f = 0; f < cfg.figures; f++) {
     const figId = `lazyfig-${f + 1}`;
     figIds.push(figId);
     const elements = [];
     const figAssets = [];
-    const total = cfg.panels + (cfg.vanillaPerFigure || 0);
+    const panels = grid ? (cfg.plotsPerFigure ?? 3) : cfg.panels;
+    const total = panels + (cfg.vanillaPerFigure || 0);
     for (let p = 0; p < total; p++) {
-      const vanilla = p >= cfg.panels;
+      const vanilla = p >= panels;
       const aid = `lazyasset-${f + 1}-${p + 1}${vanilla ? "-v" : ""}`;
-      const svg = panelSvg(seed++, cfg.elemsPerPanel, cfg.panelBytes, p + 1);
+      const svg = panelSvg(seed++, grid ? (cfg.nodesPerPlot ?? 1500) : cfg.elemsPerPanel, grid ? 0 : cfg.panelBytes, p + 1);
       await F.writeText(`${root}/fig/assets/${aid}.svg`, svg);
       if (!vanilla) {
         await F.writeText(
@@ -121,16 +126,19 @@ async function buildDenseProject(cfg) {
         naturalHeight: 345,
       });
       figAssets.push(aid);
-      const col = p % 4;
-      const row = Math.floor(p / 4);
+      const plotCols = grid ? Math.ceil(Math.sqrt(total)) : 4;
+      const col = p % plotCols;
+      const row = Math.floor(p / plotCols);
+      const plotW = grid ? (figureW - 20) / plotCols : 302;
+      const plotH = grid ? (figureH - 20) / Math.ceil(total / plotCols) : 210;
       elements.push({
         type: "plot",
         id: `lazyel-${f + 1}-${p + 1}`,
         assetId: aid,
-        x: 10 + col * 302,
-        y: 10 + row * 210,
-        width: 292,
-        height: 200,
+        x: 10 + col * plotW,
+        y: 10 + row * plotH,
+        width: plotW - 10,
+        height: plotH - 10,
         rotation: 0,
         source: { svgPath: `plots/${aid}.svg` },
         overrides: {},
@@ -143,8 +151,8 @@ async function buildDenseProject(cfg) {
       canvasId: "canvas-1",
       x: (f % COLS) * PITCH_X,
       y: Math.floor(f / COLS) * PITCH_Y,
-      width: 1240,
-      height: 880,
+      width: figureW,
+      height: figureH,
       background: "#ffffff",
       elements,
     });

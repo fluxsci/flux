@@ -1,4 +1,6 @@
 // Headless renderer stores: the stamp and live bridge must agree on every surface.
+// Canvas pictures resolve hover/current to the figure; element/part targets
+// require mounted artwork (the real raster press path is in verify-figure-atlas).
 import { get } from 'svelte/store';
 import { buildContextStamp, readerContext, libraryContext, slideContext, presentContext, paperHeading } from '../src/lib/bridge/contextStamp';
 import { registerTargetResolver, prepareTargetResolvers, currentTargets, resolveAt, targetViewIdentity } from '../src/lib/bridge/targetResolvers';

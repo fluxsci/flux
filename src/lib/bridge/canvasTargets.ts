@@ -8,6 +8,7 @@ import { boundsOf, registerTargetResolver, type TargetHit } from "./targetResolv
 import { describeTarget, type TargetRef } from "../project/targets";
 import type { Element as ModelElement, Figure } from "../types";
 import { slideContext } from "./contextStamp";
+import { atlasRevision } from "../figure/atlas";
 
 /** Index once at capture, then O(DOM depth) per hover, regardless of scene size. */
 export const canvasTargetStats = { modelVisits: 0, partIndexBuilds: 0, domScans: 0 };
@@ -16,8 +17,11 @@ export function canvasAnnotationTargets(root: HTMLElement) {
   const figures = new Map<string, Figure>();
   const indexes = new Map<string, ReturnType<typeof buildPartIndex>>();
   const groupBounds = new Map<string, ReturnType<typeof boundsOf>>();
+  const rasterized = new Set<string>();
   function prepare(hover = false) {
     elements.clear(); figures.clear();
+    rasterized.clear();
+    for (const node of root.querySelectorAll('[data-figure-raster]')) rasterized.add(node.getAttribute('data-figure-raster')!);
     for (const figure of get(project).figures) {
       figures.set(figure.id, figure);
       for (const element of figure.elements) { canvasTargetStats.modelVisits++; elements.set(element.id, { figure, element }); }
@@ -25,13 +29,14 @@ export function canvasAnnotationTargets(root: HTMLElement) {
     if (!hover) return;
     indexes.clear(); groupBounds.clear();
     const manifests = get(plotManifests);
-    for (const { element } of elements.values()) if (element.type === "plot" && !indexes.has(element.assetId)) {
-      indexes.set(element.assetId, buildPartIndex(manifests[element.assetId])); canvasTargetStats.partIndexBuilds++;
-    }
     canvasTargetStats.domScans++;
     for (const node of root.querySelectorAll('[data-editor-element-id]')) {
       const found = elements.get(node.getAttribute('data-editor-element-id')!);
       if (!found) continue;
+      const element = found.element;
+      if (element.type === 'plot' && !indexes.has(element.assetId)) {
+        indexes.set(element.assetId, buildPartIndex(manifests[element.assetId])); canvasTargetStats.partIndexBuilds++;
+      }
       let id = found.element.groupId;
       if (!id) continue;
       const b = boundsOf(node);
@@ -54,13 +59,19 @@ export function canvasAnnotationTargets(root: HTMLElement) {
   }
   const hitOf = (ref: TargetRef, node: globalThis.Element): TargetHit => ({ ref, bounds: boundsOf(node), label: describeTarget(ref) });
   const dispose = registerTargetResolver({
-    get surface() { return storeTenant(); }, root: () => root, prepare: () => prepare(true), revision: () => [get(project), get(viewport), get(plotGen)],
+    get surface() { return storeTenant(); }, root: () => root, prepare: () => prepare(true), revision: () => [get(project), get(viewport), get(plotGen), get(atlasRevision)],
     current() {
       prepare();
       const refs: TargetRef[] = [];
       const parts = get(partSelections), selected = get(selection);
       for (const id of selected) {
         const found = elements.get(id); if (!found) continue;
+        // Inactive figures expose one picture. Agent hover/current targets
+        // describe that frame; semantic parts belong to mounted live artwork.
+        if (rasterized.has(found.figure.id)) {
+          if (!refs.some(ref => ref.kind === 'figure' && ref.figureId === found.figure.id)) refs.push(figureRef(found.figure));
+          continue;
+        }
         const drilled = parts.filter(p => p.elementId === id);
         if (drilled.length) for (const part of drilled) refs.push({ kind: "part", figureId: found.figure.id, elementId: id, partId: part.partId, elementName: found.element.name });
         else refs.push(elementRef(found.figure, found.element));
@@ -78,6 +89,7 @@ export function canvasAnnotationTargets(root: HTMLElement) {
       const figNode = node.closest('[data-annotation-figure]');
       const figure = found?.figure ?? figures.get(figNode?.getAttribute('data-annotation-figure') ?? "");
       if (!figure) return [];
+      if (rasterized.has(figure.id) && figNode) return [hitOf(figureRef(figure), figNode.querySelector('.figure-bg') ?? figNode)];
       const hits: TargetHit[] = [];
       if (wrapper && found) {
         const e = found.element;

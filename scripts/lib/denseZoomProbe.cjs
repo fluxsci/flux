@@ -12,7 +12,13 @@ function sampleScene() {
   // Parked (display:none) placements are resident but not displayed.
   const shown = [...byID].filter(([, n]) => !n.closest('.parked')).map(([id]) => id);
   const canvases = [...root.querySelectorAll('.zoom-proxy canvas,.zoom-proxy-coarse canvas')];
+  const rasters = [...root.querySelectorAll('[data-figure-raster]')].map(node => {
+    const href = node.getAttribute('href') || '', header = href.startsWith('data:image/png;base64,') ? atob(href.split(',')[1].slice(0, 44)) : '';
+    const size = offset => [0, 1, 2, 3].reduce((n, i) => n * 256 + header.charCodeAt(offset + i), 0);
+    return { figureId: node.getAttribute('data-figure-raster'), png: header.startsWith('\x89PNG\r\n\x1a\n'), width: size(16), height: size(20) };
+  });
   return { ids: shown, resident: [...byID.keys()], frames: [...root.querySelectorAll('[data-annotation-figure]')].map(n => n.dataset.annotationFigure),
+    rasters,
     changedInitial: [...test.initial].filter(([id, node]) => byID.get(id) !== node).map(([id]) => id),
     nodes: root.querySelector('.scene-svg').getElementsByTagName('*').length,
     canvasCount: canvases.length, canvasPixels: canvases.reduce((sum, n) => sum + n.width * n.height, 0),
@@ -104,6 +110,7 @@ module.exports = function denseZoomProbe({ win, js, wait, sleep, mouse, nativeWh
       // An observed real cache, rather than a fixed sleep, makes the test
       // portable across machines and ensures that it exercises retention.
       await wait(() => js("!!document.querySelector('.figure-mode .zoom-proxy-coarse[data-overview] canvas')"), 'dense canvas overview is warm', 60000);
+      await wait(() => js("document.querySelectorAll('.figure-mode [data-figure-raster]').length===1"), 'inactive dense figure is one PNG', 60000);
       await js(`(()=>{const root=document.querySelector('.figure-mode'),initial=new Map([...root.querySelectorAll('[data-editor-element-id]')].map(n=>[n.dataset.editorElementId,n]));
         const test=window.__denseZoomTest={initial,additions:[],removals:[],removed:new Set()};
         const relevant=new Set(${JSON.stringify(fixture.modelIDs)});
@@ -114,7 +121,10 @@ module.exports = function denseZoomProbe({ win, js, wait, sleep, mouse, nativeWh
       receipt.initial = { ...await sample(), camera: await js(value.cameraJs) };
       save();
       assert(Math.abs(receipt.initial.camera.zoom - fixture.initialZoom) < 1e-6, 'Fixture begins at the real default 0.6 zoom');
-      assert(receipt.initial.nodes >= 60000 && receipt.initial.nodes <= 90000, 'Initial live DOM contains the dense 60–90k-node workload');
+      // D1 retires the two-live-figure workload: the same 72k-node MODEL now
+      // contributes one ~36k-node active figure plus one bounded bitmap.
+      assert(receipt.initial.nodes >= 30000 && receipt.initial.nodes <= 45000, 'Only the active half of the dense model is live');
+      assert.equal(receipt.initial.rasters.length, 1, 'The neighboring dense figure is one PNG');
       assert(fixture.frameIDs.every(id => receipt.initial.frames.includes(id)), 'Both neighboring frames are initially mounted');
       assert(fixture.supplementIDs.every(id => !receipt.initial.ids.includes(id)), 'Supplement-only placements begin outside the displayed scene');
     },
