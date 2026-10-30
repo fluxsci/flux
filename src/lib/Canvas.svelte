@@ -808,8 +808,17 @@
     return els.filter(el => w.admitted.has(el.id));
   }
   function atlasWarmStep(w: AtlasWarm, skipFrame: boolean) {
-    requestAnimationFrame(async () => {
-      if (atlasWarmBox.w !== w || !atlasActive || $activeFigureId !== w.figId || $atlasView.get(w.figId)?.mode !== 'warming') { w.running = false; return; }
+    // A step that throws must never leave the warm-up "running" (readiness
+    // would wait forever with the picture up): admit everything and finish.
+    requestAnimationFrame(() => void atlasWarmChunk(w, skipFrame).catch(error => {
+      console.error('[atlas] warm-up step failed', error);
+      for (const el of w.candidates) w.admitted.add(el.id);
+      w.hidden.clear(); w.running = false; atlasWarmGen++; void tick().then(() => atlas.recheck(w.figId));
+    }));
+  }
+  async function atlasWarmChunk(w: AtlasWarm, skipFrame: boolean) {
+    {
+      if (atlasWarmBox.w !== w || !atlasActive || $activeFigureId !== w.figId || $atlasView.get(w.figId)?.mode !== 'warming') { w.running = false; atlasWarmGen++; return; }
       if (skipFrame) { atlasWarmStep(w, false); return; } // the press frame paints with no mount work
       // A plot mounts display:none (its clone is the frame's JS); the NEXT frame
       // only reveals it (its style and paint), so the two never share a task.
@@ -851,8 +860,8 @@
         if (plot || el.id === w.press.id) break; // one plot per frame (revealed next frame); the pressed element alone in the first
       }
       if (atlasWarmBox.w === w && (w.hidden.size || w.candidates.some(el => !w.admitted.has(el.id)))) atlasWarmStep(w, false);
-      else { w.running = false; atlasWarmGen++; } // complete: nothing stays scheduled; re-run readiness
-    });
+      else { w.running = false; atlasWarmGen++; await tick(); atlas.recheck(w.figId); } // complete: nothing stays scheduled; judge readiness
+    }
   }
   function visibleEls(fig: Figure): Element[] {
     const mode = atlasActive ? $atlasView.get(fig.id)?.mode : 'live';

@@ -158,6 +158,19 @@ try {
   const dropped = muts.find(f => !f.img), lastWithPicture = muts.filter(f => f.img).at(-1);
   h.ok(!!dropped && dropped.slots === 3 && dropped.frame > (lastWithPicture?.frame ?? -1), `(R2) the picture is dropped only in a later frame than the last mount (${JSON.stringify({ dropped, lastWithPicture })})`);
   h.ok(!warm.at(-1).img && warm.at(-1).ids.length === 3, `(R2) the picture is removed once every wanted element mounted (${JSON.stringify(warm.at(-1))})`);
+  // Readiness after the warm-up: activating figures in quick succession (zoomed
+  // to each, as a reviewer stepping through them) must always end in 'live' —
+  // a readiness check racing the warm-up's completion once left a figure
+  // warming forever behind its picture.
+  const stuck = [];
+  for (const id of fx.figIds.slice(0, 12)) {
+    await page.evaluate(fid => { const F = window.__flux, f = F.figures().find(x => x.id === fid), h = document.querySelector('.canvas-host');
+      F.fig.activeFigureId.set(fid); F.fig.selection.set(new Set()); const z = Math.min((h.clientWidth - 60) / f.width, (h.clientHeight - 60) / f.height);
+      F.fig.viewport.set({ zoom: z, panX: h.clientWidth / 2 - (f.x + f.width / 2) * z, panY: h.clientHeight / 2 - (f.y + f.height / 2) * z }); }, id);
+    try { await waitFor(page, fid => document.querySelector(`[data-annotation-figure="${fid}"]`)?.getAttribute('data-atlas-mode') === 'live', id, { timeout: 5000, label: `${id} live` }); }
+    catch { stuck.push(id); }
+  }
+  h.eq(stuck, [], 'every figure activated in quick succession finishes warming (none left behind its picture)');
   // Without the scene raster child (the browser bridge, like base parking) the
   // active figure keeps no offscreen working set: panning it fully out of view
   // unmounts its element DOM, so its models/plots release their live resources

@@ -13,7 +13,7 @@ import { atlasStats, atlasOwners, atlasRevision, createAtlasQueue, drop, evictTo
 
 export type AtlasMode = 'live' | 'raster' | 'warming' | 'cold' | 'fallback';
 interface Entry { mode: AtlasMode; key: string; pending: boolean; ready: string; preparing: string; refusedC: string; failedL: string;
-  signature: string; global: number; revision: number; epoch: number; full: boolean }
+  signature: string; global: number; revision: number; epoch: number; full: boolean; recheck: boolean }
 /** View state per figure; `full` = a live non-active figure that must mount whole (its picture will be a Route-L capture). */
 export interface AtlasViewEntry { mode: AtlasMode; pending: boolean; full: boolean }
 export interface AtlasCanvasInput {
@@ -107,7 +107,11 @@ export function createCanvasAtlas(opts: {
   }
   async function prepare(fig: Figure, entry: Entry) {
     const key = entry.key;
-    if (entry.preparing === key || entry.ready === key) return;
+    if (entry.ready === key) return;
+    // A check already in flight may have read the state just BEFORE this call's
+    // trigger (e.g. the warm-up completing): it re-runs once it finishes.
+    if (entry.preparing === key) { entry.recheck = true; return; }
+    entry.recheck = false;
     entry.preparing = key;
     await tick();
     const group = opts.group(fig.id);
@@ -134,6 +138,7 @@ export function createCanvasAtlas(opts: {
     }
     if (entry.preparing === key) entry.preparing = '';
     if (entry.ready === key && input && !destroyed) sync(input);
+    else if (entry.recheck && !destroyed && entries.get(fig.id) === entry) { entry.recheck = false; void prepare(fig, entry); }
   }
   function requestFor(fig: Figure, priority: 1 | 2 | 3, route: 'L' | 'C') {
     const source = input!, entry = entries.get(fig.id)!;
@@ -159,7 +164,7 @@ export function createCanvasAtlas(opts: {
       let e = entries.get(fig.id);
       if (!e) {
         e = { mode: fig.id !== next.activeId && next.bridge?.rasterizeFigure && !coldUnavailable ? 'cold' : 'live', key: '', pending: false,
-          ready: '', preparing: '', refusedC: '', failedL: '', signature: '', global: -1, revision: -1, epoch: 0, full: false };
+          ready: '', preparing: '', refusedC: '', failedL: '', signature: '', global: -1, revision: -1, epoch: 0, full: false, recheck: false };
         entries.set(fig.id, e);
       }
       if (fig.id === next.activeId) {
@@ -238,6 +243,8 @@ export function createCanvasAtlas(opts: {
     } };
   atlasOwners.add(owner);
   return { view, sync, rearm: schedule, key: (id: string) => entries.get(id)?.key,
+    /** Canvas's warm-up finished mounting: judge readiness now (not via a later reactive pass). */
+    recheck(id: string) { const e = entries.get(id), fig = figOf(id); if (e && fig && !destroyed) void prepare(fig, e); },
     destroy() {
       destroyed = true; queue.dispose(); atlasOwners.delete(owner);
       if (idle !== null) { if (typeof cancelIdleCallback === 'function') cancelIdleCallback(idle); else clearTimeout(idle); }
