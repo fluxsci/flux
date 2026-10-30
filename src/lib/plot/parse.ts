@@ -491,10 +491,14 @@ export function restoreOverrides(root: Element, next?: Record<string, PartOverri
   // A part drag writes a transient translate before its model commit. With
   // re-cloning gone, a newly translated target must first recover its generated
   // base; projection/colour keys then supply this frame's geometry as usual.
+  // The gesture moves the node it PICKED (Canvas partMoveEntry: a group's own
+  // wrapper), while the override moves the group's resolved leaves: reset both,
+  // or a dragged axis/series group keeps its transient translate on top of the
+  // committed one (QA-P3: twice the distance on release).
   const transforms = mountTransforms.get(root);
   if (transforms && next && elementId) for (const [partId, ov] of Object.entries(next)) {
     if (ov.dx == null && ov.dy == null) continue;
-    for (const id of resolveTargets(manifest, partId, root)) {
+    for (const id of new Set([partId, ...resolveTargets(manifest, partId, root)])) {
       const node = root.querySelector(`[id="${cssEscape(partDomId(elementId, id))}"]`);
       if (!node || !transforms.has(node)) continue;
       const value = transforms.get(node)!;

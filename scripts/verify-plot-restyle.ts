@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { DOMParser, parseHTML } from 'linkedom';
 import { harness } from './lib/harness.mjs';
-import { preparePlot, bakePlotStyles, hoistPlotClips } from '../src/lib/plot/parse';
+import { preparePlot, bakePlotStyles, hoistPlotClips, restorePlotClip } from '../src/lib/plot/parse';
 import { mountPlot } from '../src/lib/plot/mount';
 import { plotDom, plotManifests, mountCounters } from '../src/lib/plot/store';
 import { svgIntrinsicPx } from '../src/lib/plot/compensate';
@@ -88,6 +88,33 @@ try {
     fresh.destroy();
   }
   clipAction.destroy();
+  h.section('a dragged group part');
+  {
+    // QA-P3: Canvas's part drag writes a transient translate on the node it PICKED
+    // (partMoveEntry: a group's own wrapper) and commits {dx,dy}, which moves the
+    // group's resolved leaves. The re-clone used to drop the transient; a restyle
+    // must reset it, or the group lands twice as far as it was dragged.
+    const path = 'scripts/fixtures/fluxplot03/fields';
+    const prepared = preparePlot(readFileSync(`${path}.svg`, 'utf8'), JSON.parse(readFileSync(`${path}.fluxplot.json`, 'utf8')));
+    bakePlotStyles(prepared.root!); hoistPlotClips(prepared.root!);
+    plotDom.set('dragged', prepared.root!); plotManifests.set({ dragged: prepared.manifest! });
+    let dragEl: SemanticPlotElement = { id: 'dragged', type: 'plot', assetId: 'dragged', x: 0, y: 0, width: 300, height: 240, rotation: 0 };
+    const dragHost = host(), dragAction = mountPlot(dragHost, { element: dragEl });
+    for (const [partId, dx, dy] of [['panel.matrix.axis.y', -0.57, -0.33], ['panel.matrix.axis.y', 2.5, 1.25], ['panel.matrix.axis.x.ticklabel.1', 3, -2]] as const) {
+      const node = dragHost.querySelector(`[id="dragged__${partId}"]`);
+      h.ok(!!node, `${partId} is mounted`);
+      if (!node) continue;
+      restorePlotClip(node);
+      const ov = dragEl.overrides?.[partId], prefix = `translate(${Number(ov?.dx ?? 0)} ${Number(ov?.dy ?? 0)})`, base = node.getAttribute('transform') ?? '';
+      const rest = (ov?.dx != null || ov?.dy != null) && base.startsWith(prefix) ? base.slice(prefix.length).trimStart() : base;
+      node.setAttribute('transform', [`translate(${dx} ${dy})`, rest].filter(Boolean).join(' '));
+      dragEl = { ...dragEl, overrides: { ...(dragEl.overrides ?? {}), [partId]: { dx, dy } } }; dragAction.update({ element: dragEl });
+      const freshHost = host(), fresh = mountPlot(freshHost, { element: dragEl });
+      h.ok(serialize(dragHost.firstChild!) === serialize(freshHost.firstChild!), `dragging ${partId} to (${dx}, ${dy}) commits exactly a fresh mount`);
+      fresh.destroy();
+    }
+    dragAction.destroy();
+  }
   h.section('colour table length change');
   {
     // QA-P3: a short table, then the generated one (or limits only). Resizing the
