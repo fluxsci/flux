@@ -31,6 +31,9 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["src/lib/project/figbridge.ts",["verify-recovery-entry.ts","verify-generation-confinement.ts","verify-v020-durability.ts","verify-v020-crash-recovery.ts","verify-v020-conversion.ts","verify-v020-figure.ts","verify-v020-slide-persistence.ts","verify-slide-reload-supersede.ts","verify-slide-source-sync-gui.mjs","verify-v020-native-journey.cjs","group:paper-gate","tier:pure","verify-lazy-save-safety.mjs","verify-lazy-load-gui.mjs","verify-lazy-export-overrides.mjs","group:figures-slides-overhaul","group:slide-ghosts","group:inline-slides","group:slide-stash","group:model3d-persistence","group:fig-edit-tail"]],
+  ["src/lib/project/ownWrites.ts",["tier:pure","group:paper-gate","group:fig-edit-tail"]],
+  ["src/shell/modes/paper/scholar/figures.ts",["group:paper-gate","tier:pure","group:fig-edit-tail"]],
   ["electron/figureRasterWorker.mjs", ["verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-asar-unpack-closure.ts", "verify-ipc-contract.ts", "tier:presence", "tier:pure"]],
   ["electron/ipc/figureRaster.cjs", ["verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-asar-unpack-closure.ts", "verify-ipc-contract.ts", "tier:presence", "tier:pure"]],
   ["flux-core/render.ts", ["tier:pure", "verify-w13-cli.mjs", "verify-packaged-requires.ts", "verify-asar-unpack-closure.ts", "verify-figure-raster-worker.ts", "verify-figure-raster-electron.cjs", "verify-paper-render-overrides.ts"]],

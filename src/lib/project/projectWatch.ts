@@ -8,8 +8,8 @@
 //   fluxlib         → bump fluxLibRevision (Library/Reader/@-refs re-pull)      [W10]
 //   plots/_dissections/ → bump dissectionsRevision (open Dissect viewer re-lists)
 //
-// The Electron main process already skips the app's own writes, so this only
-// fires for genuine external (agent / analysis-script) edits.
+// Electron skips most own writes. Figure publications also validate their
+// post-write stats here, so a watcher echo cannot reload every hidden pane.
 
 import { captureOpen } from "../../shell/agent/annotationVisibility";
 import { get, writable } from "svelte/store";
@@ -62,7 +62,12 @@ export function startProjectWatch(root: string | null): void {
     if (info.subsystem === "plots") {
       refreshSources(); // service publishes only after durable commit
     } else if (info.subsystem === "dissections") bumpDissections(); // plots/_dissections/ — Dissect viewer re-lists
-    else if (info.subsystem === "fig") { bumpFigRevision(); refreshSources(); }
+    else if (info.subsystem === "fig") {
+      void import("./figbridge").then(m => m.isOwnFigChange(root, info.path)).then(own => {
+        if (generation !== watchGeneration || own) return;
+        bumpFigRevision(); refreshSources();
+      });
+    }
     else if (info.subsystem === "references") bumpBibRevision();
     else if (info.subsystem === "manuscript" || info.subsystem === "context")
       externalManuscriptChange.set({ ...info, n: ++mn });

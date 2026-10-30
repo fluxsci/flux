@@ -90,13 +90,13 @@ try {
   const coreSvg = await core.renderFigureSvg(root, comp.figureId);
   seed();
   // DISK path (materializeRenders → fig/renders/): byte parity with flux-core.
-  const diskSvg = renderFigureSvgForDisk(fig.id);
+  const diskSvg = (await renderFigureSvgForDisk(fig.id));
   h.ok(!!diskSvg, "paper disk render produces output");
   h.ok(diskSvg === coreSvg, "disk render is byte-identical to flux-core's override-aware render");
   // DISPLAY path: same render, plot-internal ids under the paper namespace so a
   // DOM-mounted copy can never duplicate the figure editor's element-prefixed
   // ids (the 2026-08-13 blank-plots clip collision — verify-clip-collision).
-  const paperSvg = renderFigureSvg(fig.id);
+  const paperSvg = (await renderFigureSvg(fig.id));
   h.ok(!!paperSvg, "paper display render produces output");
   const plotElId = (fig.elements.find((e) => e.type === "plot") as { id: string }).id;
   h.ok(!!paperSvg && paperSvg.includes(`id="pap__${plotElId}__`), "display plot ids carry the paper namespace");
@@ -112,12 +112,12 @@ try {
     ti < 0 || (paperSvg?.slice(Math.max(0, ti - 400), ti).includes("display:") ?? false),
     "hidden override applies — the baked title does not draw",
   );
-  h.ok(renderFigureSvg(fig.id) === paperSvg, "render cache returns the same output");
+  h.ok((await renderFigureSvg(fig.id)) === paperSvg, "render cache returns the same output");
 
   h.section("crop");
   plotEl.crop = { x: 0, y: 0, width: 100, height: 60 };
   seed(); // reseed clears the render cache
-  const cropped = renderFigureSvg(fig.id);
+  const cropped = (await renderFigureSvg(fig.id));
   h.ok(!!cropped && /viewBox="0 0 100 60"/.test(cropped), "crop serializes as the crop viewBox window");
   h.ok(!!cropped && cropped.includes('overflow="hidden"'), "cropped plot clips its overflow");
 
@@ -146,7 +146,7 @@ try {
     await fs.writeFile(lineCanvasPath, JSON.stringify(lineCanvas, null, 2));
     __seedFigures([ref(lineFig.id)], { [lineFig.id]: lineFig }, { [lineEl.assetId]: `data:image/svg+xml;base64,${Buffer.from(lineText).toString("base64")}` }, [], { [lineEl.assetId]: lineManifest }, []);
     const headless = await core.renderFigureSvg(root, lineFig.id);
-    h.ok(renderFigureSvgForDisk(lineFig.id) === headless, `paper/core byte parity with view=${!!view}`);
+    h.ok((await renderFigureSvgForDisk(lineFig.id)) === headless, `paper/core byte parity with view=${!!view}`);
     const inline = buildPlotMarkup(lineText, lineEl, lineEl.overrides, lineManifest);
     // The unused plot/export adapter was retired by elastic relayout: Figure,
     // Paper and core all call the same inline builder. Test the actual embed.
@@ -170,14 +170,14 @@ try {
   let threw = false;
   let badSvg: string | undefined = "unset";
   try {
-    badSvg = renderFigureSvg("badfig");
+    badSvg = (await renderFigureSvg("badfig"));
   } catch {
     threw = true;
   }
   h.ok(!threw, "a throwing figure render does not propagate (the dead-picker bug)");
   h.ok(badSvg === undefined, "broken figure renders as undefined (surfaces show 'no preview')");
-  h.ok(renderFigureSvg("badfig") === undefined, "failure is cached — repeat renders stay quiet");
-  h.ok(!!renderFigureSvg(fig.id), "healthy figures still render alongside the broken one");
+  h.ok((await renderFigureSvg("badfig")) === undefined, "failure is cached — repeat renders stay quiet");
+  h.ok(!!(await renderFigureSvg(fig.id)), "healthy figures still render alongside the broken one");
 } finally {
   await fs.rm(SCRATCH, { recursive: true, force: true });
 }

@@ -7,6 +7,7 @@ import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
 import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
 import { generationBridgeIO } from "./generationBridgeIO";
 import { stageFigureRegistration } from "./figureGeneration";
+import { OwnWriteMatcher } from "./ownWrites";
 import { storedAssetPath } from "./assetPath";
 // Adapter between the figure editor's in-memory model and the Flux project's
 // `fig/` subsystem (Flux_Project_Format.md §3.2). Each canvas (page) is a file
@@ -74,6 +75,33 @@ import {
   type CanvasFile,
   type FigSaveIO,
 } from "./figfiles";
+
+const ownFigWrites = new OwnWriteMatcher();
+const figPublications = new Map<string, Promise<void>>();
+/** Watch events can arrive during a multi-file publication. Judge the final
+ * stat only after that publication settles; failures never suppress reloads. */
+export async function isOwnFigChange(root: string, path: string): Promise<boolean> {
+  const publication = figPublications.get(root);
+  if (publication) { try { await publication; } catch { return false; } }
+  const fig = fileBridge();
+  if (!fig?.stat || !ownFigWrites.has(path)) return false;
+  try { return ownFigWrites.matches(path, await fig.stat(path)); } catch { return false; }
+}
+function recordingFigBridge(root: string, bridge: FileBridge): FileBridge {
+  const prefix = joinPath(root, "fig").replace(/\\/g, "/") + "/";
+  const record = async (path: string) => {
+    if (!bridge.stat || !path.replace(/\\/g, "/").startsWith(prefix)) return;
+    // Native atomic text writes may also publish a recovery .bak sibling.
+    for (const candidate of [path, `${path}.bak`]) {
+      try { ownFigWrites.record(candidate, await bridge.stat(candidate)); } catch { /* unverifiable → reload */ }
+    }
+  };
+  return { ...bridge,
+    writeText: async (path, text) => { await bridge.writeText(path, text); await record(path); },
+    writeFile: async (path, bytes) => { await bridge.writeFile(path, bytes); await record(path); },
+    ...(bridge.remove ? { remove: async (path: string) => { await bridge.remove!(path); await record(path); } } : {}),
+  };
+}
 
 const SUB = "fig";
 const DEFAULT_CANVAS_ID = "canvas-1";
@@ -169,6 +197,7 @@ export async function loadFigInto(
   const primedModels: Record<string, Scene3dManifest> = Object.create(null);
   const primedModelRecipes: Record<string, unknown> = Object.create(null);
   const modelBindings = collectModel3dSourceBindings(proj.figures.flatMap(f => f.elements));
+  const placed = new Set(proj.figures.flatMap(f => f.elements.flatMap(elementSourceAssetIds)));
   const pngs: [string, Uint8Array][] = [];
   for (const a of proj.assets) {
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
@@ -187,9 +216,11 @@ export async function loadFigInto(
         if (sidecars.recipe !== undefined) primedModelRecipes[a.id] = sidecars.recipe;
         continue;
       }
-      const bytes = new Uint8Array(await fig.readFile(assetPath));
-      data[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
-      if (a.kind === "png") pngs.push([a.id, bytes]);
+      if (placed.has(a.id)) {
+        const bytes = new Uint8Array(await fig.readFile(assetPath));
+        data[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
+        if (a.kind === "png") pngs.push([a.id, bytes]);
+      }
       if (a.kind === "svg") {
         const mpath = joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`);
         if (await fig.exists(mpath)) primedManifests[a.id] = JSON.parse(await fig.readText(mpath));
@@ -297,6 +328,9 @@ let figureSaveQueue: Promise<void> = Promise.resolve();
 export function saveFigFrom(root: string, opts: { force?: boolean; sourceUpdates?: readonly SourceUpdate[]; sourceOwnersUnchanged?: () => Promise<void> } = {}): Promise<void> {
   const next = figureSaveQueue.catch(() => {}).then(() => withIpcLock("project", "project", lease => opts.sourceUpdates?.length ? withIpcLock("project", "slides", async slidesLease => {await opts.sourceOwnersUnchanged?.(); await saveFigFromUnlocked(root, opts, lease, slidesLease)}, {root}) : saveFigFromUnlocked(root, opts, lease), { root }));
   figureSaveQueue = next;
+  figPublications.set(root, next);
+  void next.catch(() => ownFigWrites.forgetUnder(joinPath(root, "fig").replace(/\\/g, "/") + "/"))
+    .finally(() => { if (figPublications.get(root) === next) figPublications.delete(root); });
   return next;
 }
 async function saveFigFromUnlocked(root: string, opts: { force?: boolean; sourceUpdates?: readonly SourceUpdate[]; sourceOwnersUnchanged?: () => Promise<void> } = {}, lease?: IpcLease, slidesLease?: IpcLease): Promise<void> {
@@ -308,7 +342,8 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
   // slides into fig/ — refuse structurally instead (the autosave error path
   // surfaces the throw; nothing is written).
   assertStoreTenant("figure", "fig/ save");
-  const fig = fileBridge();
+  const bridge = fileBridge();
+  const fig = bridge && recordingFigBridge(root, bridge);
   if (!fig) return;
   if (loadedFigureRoot !== root) throw new Error("Figure save belongs to a different project");
   if (figSubsystemLocked) {
@@ -560,7 +595,7 @@ async function readFigSourceFile<T>(fig: FileBridge, path: string, seen: Set<str
   return value;
 }
 
-export async function readFigSource(root: string): Promise<FigSource> {
+export async function readFigStructure(root: string): Promise<FigSource> {
   if (readCaptionRoot !== root) { readCaptionRoot = root; readCaptionBaselines.clear(); }
   const empty: FigSource = {
     indexFigures: [],
@@ -628,50 +663,16 @@ export async function readFigSource(root: string): Promise<FigSource> {
   }
   if (captionState.conflicts.length) console.warn(captionConflictMessage(captionState.conflicts));
 
-  if (figSourceCacheRoot !== root) { figSourceCacheRoot = root; figSourceCache.clear(); }
-  const seenFiles = new Set<string>();
-  const assetData: Record<string, string> = {};
-  const assetManifests: Record<string, FluxPlotManifest> = {};
-  const model3dManifests: Record<string, Scene3dManifest> = {};
-  const modelBindings = collectModel3dSourceBindings(view.figures.flatMap(f => f.elements));
   const issues: { assetId: string; message: string }[] = [];
-  for (const a of srcAssets) {
-    if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
-    if (!a.path) continue;
+  for (const asset of view.assets) {
+    if (asset.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
+    if (asset.kind !== "glb" || !asset.path) continue;
     try {
-      if (a.kind === "glb") {
-        const rel = storedAssetPath(`${SUB}/${a.path}`);
-        const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
-        if (!await fig.exists(path)) throw new Error(missingGlbMessage(view.figures, a.id, `${SUB}/${a.path}`));
-        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
-        for(const message of sidecars.issues??[]) issues.push({assetId:a.id,message});
-        if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;
-        continue;
-      }
-      const decoded = await readFigSourceFile(fig, joinPath(root, SUB, a.path), seenFiles, async () => {
-        const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path!)));
-        return { url: bytesToDataUrl(bytes, mimeFor(a.kind)), bytes: a.kind === "png" ? bytes : null };
-      });
-      assetData[a.id] = decoded.url;
-      if (decoded.bytes) captureSnipMeta(a.id, decoded.bytes);
-    } catch (error) {
-      if (a.kind === "glb") issues.push({ assetId: a.id, message: String(error) });
-      /* Missing images retain the existing read-only behavior. */
-    }
-    if (a.kind === "svg") {
-      // Same sidecar the editor load primes (io.ts) — optional: a vanilla svg
-      // without one derives its manifest at prepare time (inlineMarkup).
-      try {
-        const mpath = joinPath(root, SUB, `assets/${a.id}.fluxplot.json`);
-        if (await fig.exists(mpath))
-          assetManifests[a.id] = await readFigSourceFile(fig, mpath, seenFiles, async () => JSON.parse(await fig.readText(mpath)) as FluxPlotManifest);
-      } catch {
-        /* unreadable sidecar — leaf-id overrides still apply */
-      }
-    }
+      const rel = storedAssetPath(`${SUB}/${asset.path}`);
+      const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
+      if (!await fig.exists(path)) throw new Error(missingGlbMessage(view.figures, asset.id, rel));
+    } catch (error) { issues.push({ assetId: asset.id, message: String(error) }); }
   }
-
-  for (const path of figSourceCache.keys()) if (!seenFiles.has(path)) figSourceCache.delete(path);
 
   // Prefer the per-figure caption file (F7 single-source); fall back to the
   // cached index caption for older projects without caption files.
@@ -715,10 +716,77 @@ export async function readFigSource(root: string): Promise<FigSource> {
     }),
     families: index.families ?? [],
     figures,
-    assetData,
+    assetData: {},
     assets: view.assets, // post-migration (dims + pHYs dpi intact)
-    assetManifests,
-    model3dManifests, issues,
+    assetManifests: {},
+    model3dManifests: {}, issues,
     canvases: canvasMeta.map((c) => ({ id: c.id, name: c.name })),
   };
+}
+
+/** Read only the requested figure assets; stat-validated values and in-flight
+ * reads are shared across overlapping previews. Structure reads never call this. */
+export async function readFigAssets(root: string, assetIds: Iterable<string>, source?: FigSource): Promise<Pick<FigSource, "assetData" | "assetManifests" | "model3dManifests" | "issues">> {
+  const fig = fileBridge();
+  if (!fig) return { assetData: {}, assetManifests: {}, model3dManifests: {}, issues: [] };
+  const structure = source ?? await readFigStructure(root), ids = new Set(assetIds);
+  if (figSourceCacheRoot !== root) { figSourceCacheRoot = root; figSourceCache.clear(); }
+  const seenFiles = new Set<string>();
+  const assetData: Record<string, string> = {};
+  const assetManifests: Record<string, FluxPlotManifest> = {};
+  const model3dManifests: Record<string, Scene3dManifest> = {};
+  const modelBindings = collectModel3dSourceBindings(Object.values(structure.figures).flatMap(f => f.elements));
+  const issues: { assetId: string; message: string }[] = [];
+  for (const a of structure.assets.filter(a => ids.has(a.id))) {
+    if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
+    if (!a.path) continue;
+    try {
+      if (a.kind === "glb") {
+        const rel = storedAssetPath(`${SUB}/${a.path}`);
+        const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
+        if (!await fig.exists(path)) throw new Error(missingGlbMessage(Object.values(structure.figures), a.id, `${SUB}/${a.path}`));
+        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
+        for(const message of sidecars.issues??[]) issues.push({assetId:a.id,message});
+        if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;
+        continue;
+      }
+      const decoded = await readFigSourceFile(fig, joinPath(root, SUB, a.path), seenFiles, async () => {
+        const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path!)));
+        return { url: bytesToDataUrl(bytes, mimeFor(a.kind)), bytes: a.kind === "png" ? bytes : null };
+      });
+      assetData[a.id] = decoded.url;
+      if (decoded.bytes) captureSnipMeta(a.id, decoded.bytes);
+    } catch (error) {
+      if (a.kind === "glb") issues.push({ assetId: a.id, message: String(error) });
+      /* Missing images retain the existing read-only behavior. */
+    }
+    if (a.kind === "svg") {
+      // Same sidecar the editor load primes (io.ts) — optional: a vanilla svg
+      // without one derives its manifest at prepare time (inlineMarkup).
+      try {
+        const mpath = joinPath(root, SUB, `assets/${a.id}.fluxplot.json`);
+        if (await fig.exists(mpath))
+          assetManifests[a.id] = await readFigSourceFile(fig, mpath, seenFiles, async () => JSON.parse(await fig.readText(mpath)) as FluxPlotManifest);
+        else figSourceCache.delete(mpath);
+      } catch {
+        /* unreadable sidecar — leaf-id overrides still apply */
+      }
+    }
+  }
+
+  // Partial figure reads must not evict another figure's valid entries. Drop only
+  // paths that no longer belong to this structure (or on a project switch).
+  const registered = new Set(structure.assets.flatMap(a => a.path ? [joinPath(root, SUB, a.path), joinPath(root, SUB, `assets/${a.id}.fluxplot.json`)] : []));
+  for (const path of figSourceCache.keys()) if (!registered.has(path)) figSourceCache.delete(path);
+
+  return { assetData, assetManifests, model3dManifests, issues };
+}
+
+/** Compatibility read for callers that explicitly need the complete source. */
+export async function readFigSource(root: string): Promise<FigSource> {
+  const structure = await readFigStructure(root);
+  const assets = await readFigAssets(root, structure.assets.map(a => a.id), structure);
+  const issues = [...new Map([...(structure.issues ?? []), ...(assets.issues ?? [])]
+    .map(issue => [JSON.stringify([issue.assetId, issue.message]), issue])).values()];
+  return { ...structure, ...assets, issues };
 }

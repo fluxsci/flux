@@ -6,6 +6,7 @@ import { collectModel3dSourceBindings } from './model3d/sourceBinding';
 import { scene3dManifests, scene3dRecipes, scene3dGeneration, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
 import { readScene3dSidecars, scene3dSidecarWrites } from './model3d/persistence';
 import { prepareModelCopy, publishModelCopy } from './model3d/copy';
+import { elementSourceAssetIds } from "./model3d/refs";
 import { storedAssetPath } from './project/assetPath';
 import type { Model3dElement, Scene3dManifest } from './model3d/types';
 import { storeTenant } from "./tenancy";
@@ -45,6 +46,9 @@ import { gridLayout, emptyRegion } from "./layout";
 import {
   assetData,
   setAssetData,
+  ensureAssetBytes,
+  clearAllAssetsDirty,
+  isAssetDirty,
   markAssetDirty,
   bytesToDataUrl,
   dataUrlToBytes,
@@ -710,6 +714,15 @@ function writeProjectTo(dir: string) {
   const run=async()=>{
     const assertOwner=()=>{ if(get(project)!==owner||get(projectDir)!==sourceRoot) throw new Error("Project changed while saving"); };
     assertOwner();
+    // Save As copies every registration, including images never placed/opened.
+    // Ordinary saves leave unloaded clean files untouched in their source tree.
+    if (dir !== sourceRoot) {
+      await ensureAssetBytes(p.assets.map(a => a.id));
+      assertOwner();
+      if (editGen.n !== generation) throw new Error("Project changed during Save As; the original project remains open with your edits");
+      const resident = get(assetData);
+      for (const asset of p.assets) if (!data[asset.id] && resident[asset.id]) data[asset.id] = resident[asset.id];
+    }
     // Preflight every model and sidecar before publishing any asset in Save As.
     const modelCopies=new Map<string,Awaited<ReturnType<typeof prepareModelCopy>>>();
     for(const asset of p.assets) if(asset.kind==='glb') {
@@ -744,7 +757,10 @@ function writeProjectTo(dir: string) {
         continue;
       }
       const url = data[asset.id];
-      if (!url) continue;
+      if (!url) {
+        if (dir !== sourceRoot || !asset.path || isAssetDirty(asset.id)) throw new Error(`Cannot save asset ${asset.id}: its bytes are unavailable`);
+        continue;
+      }
       const rel = `assets/${asset.id}.${asset.kind}`;
       asset.path = rel;
       assertOwner();
@@ -816,15 +832,14 @@ export async function openProject() {
 
     clearPlots();
     clearSnipMeta();
-    // LAZY residency (2026-07-21, plan §5.2): bytes + sidecar manifests load
-    // eagerly (cheap; assetData is the <image> fallback), the DOM parse
-    // defers to PlotElement's mount request — the standalone twin of the
-    // figbridge.loadFigInto shape.
+    // Placed image bytes and all sidecars load at open. Unplaced image bytes
+    // stay on disk until a copy/export needs them; metadata is never pruned.
     const fresh: Record<string, string> = {};
     const primedManifests: Record<string, FluxPlotManifest> = {};
     const primedRecipes: Record<string, unknown> = {};
     const primedModels: Record<string, Scene3dManifest> = {}, primedModelRecipes: Record<string, unknown> = {}, modelIssues: Record<string,string[]> = {};
     const modelBindings=collectModel3dSourceBindings(p.figures.flatMap(f=>f.elements));
+    const placed = new Set(p.figures.flatMap(f => f.elements.flatMap(elementSourceAssetIds)));
     for (const asset of p.assets) {
       if (!asset.path) continue;
       if (asset.kind === "mp4") throw new Error("Video assets are only supported in slide decks.");
@@ -836,9 +851,11 @@ export async function openProject() {
         if(sidecars.recipe!==undefined) primedModelRecipes[asset.id]=sidecars.recipe;
         continue;
       }
-      const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
-      fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
-      if (asset.kind === "png") captureSnipMeta(asset.id, bytes);
+      if (placed.has(asset.id)) {
+        const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
+        fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
+        if (asset.kind === "png") captureSnipMeta(asset.id, bytes);
+      }
       if (asset.kind === "svg") {
         const mpath = joinPath(dir, `assets/${asset.id}.fluxplot.json`);
         if (await window.fig.exists(mpath)) {
@@ -853,6 +870,7 @@ export async function openProject() {
     primeScene3dSidecars(primedModels,primedModelRecipes,modelIssues);
     if(Object.keys(modelIssues).length) pushToast("info","Some 3D metadata could not be loaded",{detail:Object.values(modelIssues).flat().join("\n")});
     assetData.set(fresh);
+    clearAllAssetsDirty();
     loadProject(p, dir);
     if (dir !== previousRoot) {
       const loadedOwner = get(project);

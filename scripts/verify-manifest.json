@@ -452,7 +452,8 @@
       "verify-scene-capture-supplement.ts",
       "verify-dense-zoom-policy.cjs",
       "verify-plot-restyle.ts",
-      "verify-figure-raster-worker.ts"
+      "verify-figure-raster-worker.ts",
+      "verify-fig-own-writes.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -631,6 +632,9 @@
       "verify-slide-relayout-tween.mjs",
       "verify-oct27-figure-gui.mjs",
       "verify-gallery-notes-gui.mjs",
+      "verify-fig-edit-echo.mjs",
+      "verify-paper-asset-reads.mjs",
+      "verify-unplaced-asset-bytes.mjs",
       "verify-plot-restyle-gui.mjs"
     ],
     "ui-extra": [
@@ -1519,10 +1523,116 @@
       "verify-manifest-contracts.ts",
       "verify-electron-no-undef.ts",
       "verify-scene-raster.ts"
+    ],
+    "fig-edit-tail": [
+      "verify-fig-own-writes.ts",
+      "verify-fig-edit-echo.mjs",
+      "verify-paper-asset-reads.mjs",
+      "verify-unplaced-asset-bytes.mjs",
+      "verify-fig-source-cache.ts",
+      "verify-paper-render-overrides.ts",
+      "verify-lazy-save-safety.mjs",
+      "verify-lazy-load-gui.mjs",
+      "verify-lazy-export-overrides.mjs",
+      "verify-figfiles-parity.ts",
+      "verify-w10-matrix.mjs",
+      "verify-fig-reload-preserve.ts",
+      "verify-figure-source-sync.mjs",
+      "verify-inbox-gui.mjs",
+      "verify-figure-metadata.mjs",
+      "verify-figure-metadata.ts",
+      "verify-scale-paper.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/project/figbridge.ts",
+      "run": [
+        "verify-recovery-entry.ts",
+        "verify-generation-confinement.ts",
+        "verify-v020-durability.ts",
+        "verify-v020-crash-recovery.ts",
+        "verify-v020-conversion.ts",
+        "verify-v020-figure.ts",
+        "verify-v020-slide-persistence.ts",
+        "verify-slide-reload-supersede.ts",
+        "verify-slide-source-sync-gui.mjs",
+        "verify-v020-native-journey.cjs",
+        "group:paper-gate",
+        "tier:pure",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:model3d-persistence",
+        "group:fig-edit-tail"
+      ]
+    },
+    {
+      "glob": "src/lib/project/projectWatch.ts",
+      "run": [
+        "tier:pure",
+        "group:paper-gate",
+        "group:fig-edit-tail"
+      ]
+    },
+    {
+      "glob": "src/lib/project/ownWrites.ts",
+      "run": [
+        "tier:pure",
+        "group:paper-gate",
+        "group:fig-edit-tail"
+      ]
+    },
+    {
+      "glob": "src/lib/project/figureAssets.ts",
+      "run": [
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:paper-gate",
+        "group:fig-edit-tail"
+      ]
+    },
+    {
+      "glob": "src/lib/project/memBridge.ts",
+      "run": [
+        "tier:pure",
+        "group:paper-gate",
+        "group:fig-edit-tail"
+      ]
+    },
+    {
+      "glob": "src/lib/assets.ts",
+      "run": [
+        "tier:pure",
+        "group:paper-gate",
+        "group:fig-edit-tail"
+      ]
+    },
+    {
+      "glob": "src/lib/io.ts",
+      "run": [
+        "verify-slide-save-shortcut.mjs",
+        "group:plots-rail",
+        "group:paper-gate",
+        "group:fig-edit-tail"
+      ]
+    },
+    {
+      "glob": "src/shell/modes/paper/scholar/figures.ts",
+      "run": [
+        "group:paper-gate",
+        "tier:pure",
+        "group:fig-edit-tail"
+      ]
+    },
     {
       "glob": "{electron/figureRaster*.{cjs,mjs},electron/ipc/figureRaster.cjs,scripts/build-figure-raster-worker.mjs,scripts/lib/figureRasterNativeEntry.cjs}",
       "run": [
@@ -11669,6 +11779,48 @@
       "runtime": "node-electron",
       "prerequisites": [
         "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-fig-own-writes.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-fig-edit-echo.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-paper-asset-reads.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-unplaced-asset-bytes.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
       ],
       "externalNetwork": false,
       "isolation": "scratch",

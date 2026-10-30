@@ -1,0 +1,24 @@
+import { harness } from './lib/harness.mjs';
+import { OwnWriteMatcher } from '../src/lib/project/ownWrites';
+import { figureImageAssetIds } from '../src/lib/project/figureAssets';
+import { figureImageAssetIds as coreAssetIds } from '../flux-core/render';
+const h = harness('verify-fig-own-writes');
+let time = 100;
+const matcher = new OwnWriteMatcher(() => time);
+const stat = { size: 10, mtimeMs: 100, ctimeMs: 101, ino: 1 };
+matcher.record('/p/fig/c.json', stat);
+h.ok(matcher.matches('/p/fig/c.json', { ...stat }), 'same path and stat is own');
+for (const field of ['size', 'mtimeMs', 'ctimeMs', 'ino'] as const)
+  h.ok(!matcher.matches('/p/fig/c.json', { ...stat, [field]: stat[field] + 1 }), `external change of ${field} is not own`);
+h.ok(!matcher.matches('/other/fig/c.json', stat), 'another project is not own');
+h.ok(!matcher.matches('/p/fig/c.json', null), 'external deletion is not own');
+matcher.record('/p/fig/c.json.bak', null);
+h.ok(matcher.matches('/p/fig/c.json.bak', null), 'own removal is recognized');
+h.ok(!matcher.matches('/p/fig/c.json.bak', stat), 'external recreation is not own');
+time += 5000;
+h.ok(!matcher.has('/p/fig/c.json') && !matcher.matches('/p/fig/c.json.bak', null), 'records expire within five seconds without an ambient timer');
+matcher.record('/p/fig/c.json', stat); matcher.record('/other/fig/c.json', stat);
+matcher.forgetUnder('/p/fig/');
+h.ok(!matcher.matches('/p/fig/c.json', stat) && matcher.matches('/other/fig/c.json', stat), 'a failed publication forgets its root without suppressing later external events');
+h.ok(figureImageAssetIds === coreAssetIds, 'Paper and flux-core use one pure image reference collector');
+h.done();

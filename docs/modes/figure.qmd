@@ -57,6 +57,11 @@ style changes.
   changes, saving, and a failed save with **Retry**. If a save fails, switching between Figure
   and Slide keeps your edits in the original editor until they can be saved.
 
+Opening a project loads the images used by its figures first; unused imported images stay
+in the project and are copied by **Save As**. Paper prepares each figure's images when its
+preview or embed is needed. Figure autosave refreshes other views once, and external edits
+continue to reload saved figures.
+
 # Finding and naming figures
 
 Press **Ctrl+K**, choose **New figure**, then click the canvas where its upper-left corner

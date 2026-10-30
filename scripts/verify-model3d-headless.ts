@@ -87,8 +87,8 @@ try {
   const stored = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'collect' });
   const source = await import('../src/shell/modes/paper/scholar/figures');
   source.__seedFigures([], { [figure.id]: figure }, {}, [], {}, [asset], [], { [asset.id]: manifest }, stored.urls);
-  h.eq(source.renderFigureSvgForDisk(figure.id), svg, 'Paper disk and Node SVG are byte-identical with the same PNG');
-  const display = source.renderFigureSvg(figure.id)!; h.ok(display.includes('pap__placed-model__') && !display.includes('id="placed-model__'), 'Paper furniture gradient IDs have separate display namespace');
+  h.eq((await source.renderFigureSvgForDisk(figure.id)), svg, 'Paper disk and Node SVG are byte-identical with the same PNG');
+  const display = (await source.renderFigureSvg(figure.id))!; h.ok(display.includes('pap__placed-model__') && !display.includes('id="placed-model__'), 'Paper furniture gradient IDs have separate display namespace');
   const metadataPath = path.join(root, 'fig/assets/model.fluxplot.json'), original = await fs.readFile(metadataPath, 'utf8');
   for (const content of ['{broken', JSON.stringify({ ...manifest, schemaVersion: '9.0.0' }), JSON.stringify({ ...manifest, glbSha256: 'f'.repeat(64) })]) {
     await fs.writeFile(metadataPath, content); const result = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'collect' });

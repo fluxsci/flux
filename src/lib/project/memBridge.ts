@@ -93,10 +93,12 @@ export function createMemBridge(): FileBridge & {
   _emitRunnerEvent: (runId: string, event: RunnerPayload) => void;
   /** Gates pin "no installed CLI" (or a subset) before the first probe. */
   _setRunnerCapabilities: (caps: RunnerCapability[]) => void;
+  reads: string[];
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
 } {
+  const reads: string[] = [];
   const runnerCalls: { method: string; options: unknown }[] = [];
   let runnerCaps: RunnerCapability[] = [
     { driver: "claude", detected: true, available: true, version: "fixture", model: true, effort: true },
@@ -240,6 +242,7 @@ export function createMemBridge(): FileBridge & {
       emitRunner(options.runId, { type: "status", state: "cancelled" }); runs.delete(options.runId);
     },
     onRunnerEvent(cb) { runnerEvents.add(cb); return () => runnerEvents.delete(cb); },
+    reads,
     _files: files,
     _dirs: dirs,
     // Dev-only: lets the headless harness simulate an external (agent) fs change.
@@ -421,6 +424,7 @@ export function createMemBridge(): FileBridge & {
       return { text: new TextDecoder().decode(bytes.subarray(0, maxBytes), { stream: truncated }), truncated, totalBytes: bytes.length };
     },
     async readText(p) {
+      reads.push(norm(p));
       const b = files.get(norm(p));
       if (!b) throw new Error(`ENOENT: ${p}`);
       return dec.decode(b);
@@ -434,6 +438,7 @@ export function createMemBridge(): FileBridge & {
       return new Uint8Array(bytes).buffer;
     },
     async readFile(p) {
+      reads.push(norm(p));
       const b = files.get(norm(p));
       if (!b) throw new Error(`ENOENT: ${p}`);
       const ab = new ArrayBuffer(b.byteLength);

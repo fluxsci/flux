@@ -54,10 +54,10 @@ try {
     rows.push({ name: 'disabled model with no poster refuses export', pass: /WebGL/.test(missing) }); fb.model3dAvailability = availability;
     await F.lifecycle.flushById('figure');
     const paperApi = await import('/src/shell/modes/paper/scholar/figures.ts'); await paperApi.loadFigures(root);
-    const immediate = paperApi.renderFigureSvg(fig.id);
+    const immediate = (await paperApi.renderFigureSvg(fig.id));
     rows.push({ name: 'Paper cold saved source immediately shows furniture placeholder', pass: immediate.includes('data-model3d-placeholder') && immediate.includes('Height') });
-    for (let i = 0; i < 100 && paperApi.renderFigureSvg(fig.id).includes('data-model3d-placeholder'); i++) await new Promise(resolve => setTimeout(resolve, 10));
-    const paperSvg = paperApi.renderFigureSvg(fig.id);
+    for (let i = 0; i < 100 && (await paperApi.renderFigureSvg(fig.id)).includes('data-model3d-placeholder'); i++) await new Promise(resolve => setTimeout(resolve, 10));
+    const paperSvg = (await paperApi.renderFigureSvg(fig.id));
     rows.push({ name: 'Paper publication refreshes placeholder to PNG', pass: paperSvg.includes('data:image/png;') && !paperSvg.includes('data-model3d-placeholder') && paperSvg.includes('pap__') });
     const paperSnapshot = paperApi.captureFigureExport(), paperBefore = await paperSnapshot.render(fig.id, false);
     F.fig.commit(p => { p.figures.find(f => f.id === fig.id).elements[0].orbitAzimuth += 11; });
@@ -67,7 +67,7 @@ try {
     const imageBefore = await paperApi.renderFigureImageUrl(fig.id);
     await F.lifecycle.flushById('figure'); await paperApi.loadFigures(root);
     rows.push({ name: 'Paper reload retains previous decoded image immediately', pass: paperApi.cachedFigureImageUrl(fig.id) === imageBefore });
-    for (let i = 0; i < 100; i++) { await paperApi.renderFigureImageUrl(fig.id); if (!paperApi.renderFigureSvg(fig.id).includes('data-model3d-placeholder')) break; await new Promise(resolve => setTimeout(resolve, 10)); }
+    for (let i = 0; i < 100; i++) { await paperApi.renderFigureImageUrl(fig.id); if (!(await paperApi.renderFigureSvg(fig.id)).includes('data-model3d-placeholder')) break; await new Promise(resolve => setTimeout(resolve, 10)); }
     const imageAfter = await paperApi.renderFigureImageUrl(fig.id);
     rows.push({ name: 'Paper refreshed decoded image replaces previous source', pass: !!imageAfter && imageAfter !== imageBefore });
     const registry = await import('/src/lib/model3d/sourceRegistry.ts'), exporter = await import('/src/lib/model3d/exportPosters.ts');

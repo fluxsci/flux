@@ -269,7 +269,7 @@ try {
       ({id:`placed-${i}`,type:'plot',assetId:'dense-source',x:i%6*100,y:Math.floor(i/6)*100,width:100,height:100}))};
     const data = {'dense-source':'data:image/svg+xml;base64,' + btoa(svg)};
     F.__seedFigures([], {[fig.id]:fig}, data);
-    const expected = F.renderFigureSvg(fig.id);
+    const expected = await F.renderFigureSvg(fig.id);
     F.__seedFigures([], {[fig.id]:fig}, data);
     let inputTurns = 0, turnsBeforeImage = -1, imageBlob;
     const timer = setInterval(() => inputTurns++, 0);

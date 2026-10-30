@@ -17,7 +17,8 @@ import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { dataUrlToBytes } from "../../../../lib/assets";
 import { assetDisplaySize } from "../../../../lib/ops";
 import { effectiveHidden } from "../../../../lib/groups";
-import { readFigSource } from "../../../../lib/project/figbridge";
+import { readFigStructure, readFigAssets, type FigSource } from "../../../../lib/project/figbridge";
+import { figureImageAssetIds } from "../../../../lib/project/figureAssets";
 import { fileBridge } from "../../../../lib/project/types";
 import { EMBED_RE } from "../science/figureAttrs";
 import { styledFamilyDef, type ResolvedJournalStyle } from "../../../../lib/style/journalStyle";
@@ -124,6 +125,30 @@ let figuresRev = 0;
 const imageRevision = writable(0);
 let loadedRoot: string | null = null;
 let loadGeneration = 0;
+let figureSource: FigSource | undefined;
+let figureAssetLoads = new Map<string, Promise<void>>();
+function renderAssetIds(figure: Figure): Set<string> {
+  const ids = figureImageAssetIds(figure);
+  for (const element of figure.elements) if (element.type === "model3d") ids.add(element.assetId);
+  return ids;
+}
+/** Resolve one figure's bytes before preparing plots; hidden panes only read
+ * structure on revisions (2026-10-29: ~400 MB of IPC on the owner's first visit). */
+export function ensureFigureAssets(id: string): Promise<void> {
+  const figure = figuresById[id], root = loadedRoot, source = figureSource, generation = loadGeneration;
+  if (!figure || !root || root === "__seed" || !source) return Promise.resolve();
+  const pending = figureAssetLoads.get(id);
+  if (pending) return pending;
+  const loads = figureAssetLoads;
+  const promise = readFigAssets(root, renderAssetIds(figure), source).then(loaded => {
+    if (generation !== loadGeneration || loadedRoot !== root) return;
+    Object.assign(assetData, loaded.assetData);
+    Object.assign(assetManifests, loaded.assetManifests);
+    Object.assign(modelManifests, loaded.model3dManifests);
+  }).catch(error => { if (loads.get(id) === promise) loads.delete(id); throw error; });
+  loads.set(id, promise);
+  return promise;
+}
 export function getFiguresRev(): number {
   return figuresRev;
 }
@@ -154,8 +179,10 @@ export async function loadFigures(root: string | null): Promise<void> {
   if (!root) return; // demo / no project — leave whatever was seeded
   const generation = ++loadGeneration;
   cancelPosterJobs();
-  const src = await readFigSource(root);
+  const src = await readFigStructure(root);
   if (generation !== loadGeneration) return;
+  figureSource = src;
+  figureAssetLoads = new Map();
   figuresById = src.figures;
   assetData = src.assetData;
   assetManifests = src.assetManifests;
@@ -303,7 +330,10 @@ function plotMarkupFor(el: Element, ns?: string): string | undefined {
   }
 }
 
-function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map<Element, string | undefined>): string | undefined {
+async function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map<Element, string | undefined>): Promise<string | undefined> {
+  const generation = loadGeneration;
+  await ensureFigureAssets(id);
+  if (generation !== loadGeneration) return undefined;
   const fig = figuresById[id];
   if (!fig) return undefined;
   try {
@@ -330,9 +360,11 @@ function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map<Eleme
 
 /** The DISPLAY render (embeds, hover cards, pickers, margin view, in-app
  *  preview/PDF): cached per figure per fig-revision, plot ids namespaced. */
-export function renderFigureSvg(id: string): string | undefined {
+export async function renderFigureSvg(id: string): Promise<string | undefined> {
   if (renderCache.has(id)) return renderCache.get(id);
-  const svg = renderFigureInternal(id, PAPER_SVG_NS);
+  const rev = figuresRev;
+  const svg = await renderFigureInternal(id, PAPER_SVG_NS);
+  if (rev !== figuresRev) return undefined;
   renderCache.set(id, svg);
   return svg;
 }
@@ -340,9 +372,11 @@ export function renderFigureSvg(id: string): string | undefined {
 /** Preparing every plot in one idle callback still blocks input: the real
  *  21-panel project spent 131 ms in that task. Reuse the same plot builder and
  *  final figure serializer, but yield between plots once a slice reaches 6 ms.
- *  The synchronous export API retains its exact output and cache semantics. */
+ *  Export serialization uses the same asset preparation and exact plot bytes. */
 async function renderFigureSvgInSlices(id: string, rev: number): Promise<string | undefined> {
   if (renderCache.has(id)) return renderCache.get(id);
+  await ensureFigureAssets(id);
+  if (rev !== figuresRev) return undefined;
   const fig = figuresById[id];
   if (!fig) return undefined;
   const plots = new Map<Element, string | undefined>();
@@ -360,7 +394,8 @@ async function renderFigureSvgInSlices(id: string, rev: number): Promise<string 
     }
   }
   if (rev !== figuresRev) return undefined;
-  const svg = renderFigureInternal(id, PAPER_SVG_NS, plots);
+  const svg = await renderFigureInternal(id, PAPER_SVG_NS, plots);
+  if (rev !== figuresRev) return undefined;
   renderCache.set(id, svg);
   return svg;
 }
@@ -616,7 +651,7 @@ export const figureThumb = imageAction(true);
  *  for the same on-disk figure (verify-paper-render-overrides pins it). A file
  *  is standalone — no editor to collide with — and the parity invariant is
  *  worth more than caching a rare just-in-time export render. */
-export function renderFigureSvgForDisk(id: string): string | undefined {
+export function renderFigureSvgForDisk(id: string): Promise<string | undefined> {
   return renderFigureInternal(id);
 }
 
@@ -705,6 +740,7 @@ export function __seedFigures(
   models: Record<string, Scene3dManifest> = {},
   posters: Record<string, string> = {},
 ): void {
+  figureSource = undefined; figureAssetLoads = new Map();
   cancelPosterJobs(); modelSource = undefined; modelManifests = models; seededModelPosters = posters;
   figuresById = figs;
   assetData = data;
@@ -727,13 +763,30 @@ if (import.meta.env?.DEV) {
   };
 }
 
-/** Immutable export inputs; serialization yields between plot preparations. */
+/** Export model snapshot; requested asset bytes materialize once per capture,
+ * and serialization yields between plot preparations. */
 export function captureFigureExport(source?: { figures: Record<string, Figure>; assetData: Record<string,string>; assetManifests: Record<string,FluxPlotManifest>; assets: Asset[]; model3dManifests?: Record<string,Scene3dManifest> }) {
   const refs = structuredClone(get(figureRefs)), figures = structuredClone(source?.figures ?? figuresById);
   const data = { ...(source?.assetData ?? assetData) }, manifests = structuredClone(source?.assetManifests ?? assetManifests), assets = structuredClone(source?.assets ?? assetMeta), families = structuredClone(familyDefs);
   const resolve = createFigureReferenceResolver(refs);
   const warnings: string[] = [];
   const models = structuredClone(source?.model3dManifests ?? modelManifests), initialPosters = { ...seededModelPosters }, root = loadedRoot;
+  const structure = figureSource;
+  const pendingAssets = new Map<string, Promise<void>>();
+  const ensureAssets = (figure: Figure) => {
+    if (source || !structure || !root || root === "__seed") return Promise.resolve();
+    let pending = pendingAssets.get(figure.id);
+    if (!pending) {
+      pending = readFigAssets(root, renderAssetIds(figure), structure).then(loaded => {
+        // Captured export inputs own these objects, never the live Paper stores.
+        for (const [id, value] of Object.entries(loaded.assetData)) if (!(id in data)) data[id] = value;
+        for (const [id, value] of Object.entries(loaded.assetManifests)) if (!(id in manifests)) manifests[id] = structuredClone(value);
+        for (const [id, value] of Object.entries(loaded.model3dManifests ?? {})) if (!(id in models)) models[id] = structuredClone(value);
+      });
+      pendingAssets.set(figure.id, pending);
+    }
+    return pending;
+  };
   const capturedSource: ModelPosterSource | undefined = root && root !== '__seed' ? Object.freeze({ root, prefix: 'fig', bridge: fileBridge() ?? null, scope: `paper-export:${root}:${++exportSourceCounter}`, isCurrent: () => root === loadedRoot }) : undefined;
   return {
     refs, root, warnings,
@@ -749,6 +802,8 @@ export function captureFigureExport(source?: { figures: Record<string, Figure>; 
     },
     async render(id: string, namespaced = true, isCurrent: () => boolean = () => true): Promise<string | undefined> {
       const figure = figures[id]; if (!figure) return undefined;
+      await ensureAssets(figure);
+      if (!isCurrent()) return undefined;
       const plots = new Map<Element, string | undefined>(); let began = performance.now();
       for (const el of figure.elements) {
         if (!isCurrent()) return undefined;

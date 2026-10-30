@@ -3,7 +3,7 @@ import type { Id } from "./types";
 
 // Runtime cache of asset bytes as data URLs, keyed by asset id. Used both to
 // render <image> elements on the canvas and to embed assets when exporting.
-// Not persisted directly — rebuilt from the assets/ folder on open.
+// Not persisted directly — placed bytes load at open; other bytes load before copying.
 export const assetData = writable<Record<Id, string>>({});
 
 export function setAssetData(id: Id, dataUrl: string) {
@@ -12,6 +12,29 @@ export function setAssetData(id: Id, dataUrl: string) {
 
 export function getAssetData(id: Id): string | undefined {
   return get(assetData)[id];
+}
+
+/** Fill missing image/media bytes from the current project's stored paths.
+ * Metadata stays resident; GLBs keep their binary/poster pipeline. A project
+ * switch or concurrent replacement must never publish into the new tenant. */
+export async function ensureAssetBytes(ids: Iterable<Id>): Promise<void> {
+  const stores = await import("./store");
+  const { fileBridge, joinPath } = await import("./project/types");
+  const { storedAssetPath } = await import("./project/assetPath");
+  const owner = get(stores.project), embedded = get(stores.embeddedProjectRoot), directory = get(stores.projectDir);
+  const root = embedded ?? directory, bridge = fileBridge();
+  const current = () => get(stores.project) === owner && get(stores.embeddedProjectRoot) === embedded && get(stores.projectDir) === directory;
+  for (const id of new Set(ids)) {
+    const asset = owner.assets.find(a => a.id === id);
+    if (asset?.kind === "glb" || getAssetData(id)) continue;
+    if (!asset?.path || !bridge || !root || isAssetDirty(id)) throw new Error(`Cannot load asset ${id}: source bytes are unavailable`);
+    const generation = assetDirtyGeneration(id), relative = storedAssetPath(`${embedded ? "fig/" : ""}${asset.path}`);
+    const path = bridge.projectAssetPath ? await bridge.projectAssetPath(root, relative) : joinPath(root, relative);
+    const bytes = new Uint8Array(await bridge.readFile(path));
+    if (!current()) throw new Error("Project changed while loading asset bytes");
+    if (assetDirtyGeneration(id) !== generation) throw new Error(`Asset ${id} changed while loading its bytes`);
+    if (!getAssetData(id)) setAssetData(id, bytesToDataUrl(bytes, mimeFor(asset.kind)));
+  }
 }
 
 // W8 (FIG-6): asset-byte dirty tracking. saveFigFrom used to rewrite EVERY asset's

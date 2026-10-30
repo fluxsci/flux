@@ -1,7 +1,6 @@
 import { resolveModelPosters, type ModelPosterPolicy, type ResolvedModelPosters } from './model3dPosterCache';
 import type { PosterSurface } from '../src/lib/model3d/poster';
 import type { FigIndexFile } from '../src/lib/project/figfiles';
-import { elementAssetRefs } from "../src/lib/model3d/refs";
 import { mimeFor } from "../src/lib/assets";
 // flux-core/render.ts — headless figure/canvas rendering (split out of
 // index.ts; WS-6.2): standalone SVG via the GUI's figureToSvg (semantic-plot
@@ -24,10 +23,8 @@ import { atomicWrite } from "./fsx";
 import { requireProject, projectAssetPath, safeJoin, readFigIndex, readCanvasFiles } from "./model";
 import { scanAbsurdPathCoords } from "./coordscan";
 
-/** Bytes needed by image rendering. Model and media payloads never enter this set. */
-export function figureImageAssetIds(fig: Pick<Figure, "elements">): Set<string> {
-  return new Set(fig.elements.flatMap(element => { const refs = elementAssetRefs(element); return [...refs.images, ...refs.posterRefs]; }));
-}
+import { figureImageAssetIds } from "../src/lib/project/figureAssets";
+export { figureImageAssetIds } from "../src/lib/project/figureAssets";
 
 // Headless DOM (linkedom) so the shared plot pipeline (plot/inlineMarkup.ts →
 // preparePlot/prefixIds/applyOverrides/compensatePtTrue) runs exactly like the
