@@ -38,8 +38,10 @@ export function nodeFont(node, inherited = initial) {
   }
   return font;
 }
+/** Every font request a scene makes. Pass the already-parsed Document when there is one:
+ *  a second xmldom parse of a multi-MB figure costs hundreds of ms (QA-P6a). */
 export function svgFontRequests(svg) {
-  const doc = new DOMParser({ errorHandler: { warning() {}, error() {}, fatalError() {} } }).parseFromString(svg, 'image/svg+xml');
+  const doc = typeof svg === 'string' ? new DOMParser({ errorHandler: { warning() {}, error() {}, fatalError() {} } }).parseFromString(svg, 'image/svg+xml') : svg;
   const requests = new Map(), inherited = new WeakMap();
   const add = font => { const key = JSON.stringify(font); if (!requests.has(key)) { if (requests.size >= 128) throw Error('Too many scene font requests'); requests.set(key, font); } };
   const elements = [doc.documentElement, ...Array.from(doc.documentElement.getElementsByTagName('*'))];

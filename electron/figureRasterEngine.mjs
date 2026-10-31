@@ -74,7 +74,7 @@ export async function rasterizeFigure(input) {
   const root = doc.documentElement;
   root.setAttribute('width', String(request.width)); root.setAttribute('height', String(request.height)); root.setAttribute('preserveAspectRatio', 'none');
   const validateMs = performance.now() - start - composeMs;
-  const font = await fontsFor(svg);
+  const font = await fontsFor(svg, doc);
   if (process.env.FLUX_FIGURE_RASTER_TRACE) console.error(JSON.stringify({ rid: request.rid, composeMs, validateMs, fontsMs: performance.now() - start - composeMs - validateMs }));
   prepareSceneImages(root);
   const build = performance.now() - start, rasterStart = performance.now();

@@ -77,8 +77,8 @@ export function sceneDocument(svg) {
   }
   return doc;
 }
-export async function fontsFor(svg) {
-  const files = new Set(bundledFonts), requests = svgFontRequests(svg);
+export async function fontsFor(svg, doc = null) {
+  const files = new Set(bundledFonts), requests = svgFontRequests(doc ?? svg);
   if (requests.length > 128) throw Error('Too many scene font requests');
   requests.push({ family: 'sans-serif', weight: 400, style: 'normal' }, { family: 'serif', weight: 400, style: 'normal' });
   let sans, serif;
@@ -98,7 +98,7 @@ export async function fontsFor(svg) {
 export async function rasterizeScene(request, render = renderAsync) {
   const { svg, regions } = validateSceneRequest(request), doc = sceneDocument(svg), root = doc.documentElement;
   const strokePlans = sceneStrokePlans(root);
-  const font = await fontsFor(svg), serializer = new XMLSerializer();
+  const font = await fontsFor(svg, doc), serializer = new XMLSerializer();
   // Image preparation rewrites href/style per region scale. Restore the authored attributes before
   // each region instead of deep-cloning the document (an xmldom clone of a 150k-node scene costs ~0.9 s).
   const imageAttrs = Array.from(root.getElementsByTagName('image'), node => [node, ['href', 'xlink:href', 'style', 'image-rendering'].map(name => [name, node.hasAttribute(name) ? node.getAttribute(name) : null])]);

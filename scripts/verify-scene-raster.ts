@@ -150,6 +150,26 @@ try {
       h.ok(!(result instanceof Error), `${label}: renders natively instead of refusing the scene (${result instanceof Error ? result.message : 'PNG'})`);
     }
   }
+  h.section('font discovery reuses the parsed scene (one parse per request)');
+  {
+    // QA-P6a 2026-10-31: svgFontRequests re-parsed the whole SVG with xmldom after sceneDocument had parsed
+    // it: +225-257 ms on Figure 4's 8.9 MB scene (+35% of the warm whole-figure render), measured in Node.
+    const { DOMParser } = require('@xmldom/xmldom');
+    const { fontsFor, sceneDocument } = await import('../electron/sceneRasterEngine.mjs');
+    const proto = DOMParser.prototype, parse = proto.parseFromString; let parses = 0;
+    proto.parseFromString = function (this: any, ...args: any[]) { parses++; return parse.apply(this, args); };
+    const fontScene = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><g style="font-family:&quot;Gelasio&quot;,serif;font-weight:700"><text x="5" y="30" font-size="12">Whole state</text></g></svg>';
+    let fromString: any, fromDoc: any, parsesForDoc = 0;
+    try {
+      fromString = await fontsFor(fontScene);
+      const doc = sceneDocument(fontScene); parses = 0;
+      fromDoc = await fontsFor(fontScene, doc); parsesForDoc = parses; parses = 0;
+      await rasterizeScene(request('one-parse', fontScene, parityRegions));
+    } finally { proto.parseFromString = parse; }
+    h.eq(parsesForDoc, 0, 'fontsFor(svg, parsedDoc) resolves faces without re-parsing the SVG');
+    h.eq(fromDoc, fromString, 'the parsed-document path resolves exactly the same font files and families');
+    h.eq(parses, 1, 'rasterizeScene parses the scene once (sceneDocument), not again for fonts');
+  }
   h.section('resource containment and exact bundled font faces');
   for (const [label, content] of [
     ['file', '<image href="file:///etc/passwd"/>'], ['network', '<image href="https://example.invalid/secret.png"/>'], ['entity', '<image href="&#102;ile:///etc/passwd"/>'],
