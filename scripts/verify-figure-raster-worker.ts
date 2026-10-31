@@ -180,6 +180,24 @@ try {
     if ([0,1,2,3].some(c => Math.abs(wholePixels[a+c] - regionPixels[b+c]) > 2)) differing++;
   }
   h.ok(differing / (192 * 144) <= .005, `region equals whole PNG crop (≤0.5%, actual ${differing / (192 * 144)})`);
+  // QA-P6: an embedded raster is prepared (P6a) at the scale the root's viewBox and size
+  // imply, so the region viewBox must be on the root BEFORE prepareSceneImages: a crop of
+  // the whole at S must equal the region at S for an image-bearing figure too.
+  const stripes = new Resvg(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">${Array.from({ length: 100 }, (_, i) => `<rect x="${i * 2}" width="1" height="200" fill="#1d4f91"/><rect y="${i * 2}" width="200" height="1" fill="#c0392b" opacity="0.5"/>`).join('')}</svg>`, { font: { loadSystemFonts: false } }).render().asPng();
+  await fs.writeFile(path.join(root, 'fig/assets/qa-stripes.png'), stripes);
+  const photoAssets = [...assets, { id: 'qa-stripes', name: 'Stripes', kind: 'png', path: 'assets/qa-stripes.png', naturalWidth: 200, naturalHeight: 200 } as Asset];
+  const photoFig = { ...structuredClone(figure), id: 'qa-photo-figure', elements: [{ id: 'qa-photo', type: 'image', assetId: 'qa-stripes', x: 40, y: 30, width: 160, height: 160, rotation: 0 }] } as Figure;
+  const decode = (png: Uint8Array, w: number, hh: number) => new Resvg(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hh}"><image width="${w}" height="${hh}" href="data:image/png;base64,${Buffer.from(png).toString('base64')}"/></svg>`, { font: { loadSystemFonts: false } }).render().pixels;
+  const photoWhole = await s.raster({ ...req('photo-whole', photoFig), assets: photoAssets, scale: 2, width: 640, height: 480 });
+  const photoRegion = await s.raster({ ...req('photo-region', photoFig), assets: photoAssets, scale: 2, region, width: 384, height: 288 });
+  if (!photoWhole.png || !photoRegion.png) throw Error(`image detail renders: ${photoWhole.error ?? photoRegion.error}`);
+  const wp = decode(photoWhole.png, 640, 480), rp = decode(photoRegion.png, 384, 288);
+  let photoDiffering = 0;
+  for (let y = 0; y < 288; y++) for (let x = 0; x < 384; x++) {
+    const a = ((y + 48) * 640 + x + 64) * 4, b = (y * 384 + x) * 4;
+    if ([0,1,2].some(c => Math.abs(wp[a+c] - rp[b+c]) > 8)) photoDiffering++;
+  }
+  h.ok(photoDiffering / (384 * 288) <= .005, `image-bearing region equals whole crop at the same S (≤0.5%, actual ${photoDiffering / (384 * 288)})`);
   for (const [name, more, error] of [
     ['small', { region: { x: 0, y: 0, w: 40, h: 30 } }, /below the resvg envelope/],
     ['bounds', { region: { x: 200, y: 0, w: 192, h: 144 } }, /region out of bounds/],
