@@ -19,10 +19,10 @@ async function main(h){
    h.ok(!result.error,`${result.id}: service rendered (${result.error||'PNG'})`);
    if(result.error)continue;
    const spec=expected[result.id];
-   h.ok(result.fraction<=spec.threshold,`${result.id}: block difference ${(100*result.fraction).toFixed(3)}% <= ${spec.threshold*100}%`);
+   h.ok(result.fraction<=spec.threshold,`${result.id}: block difference ${(100*result.fraction).toFixed(3)}% <= ${(100*spec.threshold).toFixed(3)}%`);
    for(const label of result.labels){
     h.ok(label.inkLive>0 && Math.abs(label.coverageRatio-1)<=label.coverageTolerance,`${label.name}: ink ratio ${label.coverageRatio.toFixed(4)} within 5% of Chromium`);
-    h.ok(label.fraction<=label.threshold,`${label.name}: block difference ${(100*label.fraction).toFixed(3)}% <= 1%`);
+    h.ok(label.fraction<=label.threshold,`${label.name}: block difference ${(100*label.fraction).toFixed(3)}% <= ${(100*label.threshold).toFixed(3)}% (measured post-fix + 20%; see fidelityFixture.ts)`);
    }
   }
  }finally{await scope.dispose();await fs.rm(scratch,{recursive:true,force:true});}

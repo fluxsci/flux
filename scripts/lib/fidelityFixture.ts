@@ -21,6 +21,20 @@ const add=async(id:string,w:number,h:number,content:string,extra:Partial<Figure>
  model.figures.push({id,canvasId:'c',referenceKey:'fig-'+id,name:id,family:'figure',number:model.figures.length+1,x:0,y:model.figures.length*1800,width:w,height:h,background:'#ffffff',elements:[{id:id+'-plot',type:'plot',assetId:id,x:0,y:0,width:w,height:h,rotation:0}],...extra});
  specs[id]={scale:1,threshold:0.01,...spec};
 };
+// TEXT-BLOCK PINS (QA-P6a, 2026-10-31, orchestrator ruling R-P6a-1). The plan's 1% text-block contract is
+// retired as unachievable with a second rasterizer: once the faces match (XML-decoded families, CSS weight
+// search) the residual is glyph anti-aliasing, resvg/tiny-skia vs Chromium/Skia. The worker's resvg
+// text-rendering-mode, supersampling and subpixel-shift experiments did not close it (3.47-5.49% remained).
+// Each pin is the measured post-fix value (deterministic: identical over 3 runs on Xvfb, Electron 43.7.3)
+// plus 20%, the plan's rule for hairlines and fills. What still catches the weight/style bug these fixtures
+// exist for, measured on the base dca1f1e4 archive (Arial requested as "&quot" -> Noto Sans regular):
+//   plot-700/600: ink ratio 0.6775 (the +-5% ink-coverage assertion is the load-bearing pin), blocks 13.92%;
+//   plot-400-italic: ink 0.9744 passes, blocks 17.88% vs the 4.17% pin (the block pin carries italic);
+//   plot-400-normal 16.87%, whole fixture 6.40% (pin 3.25%).
+// The annotation labels (Flux text elements, Georgia) measured the same on the base: regression guards only.
+const measured:Record<string,number>={'plot-400-normal':0.040111,'annotation-400-normal':0.037889,'plot-700-normal':0.037278,'annotation-700-normal':0.054056,
+ 'plot-400-italic':0.034722,'annotation-400-italic':0.054889,'plot-600-normal':0.037278,'annotation-600-normal':0.054056,fonts:0.02712};
+const pin=(name:string)=>+(measured[name]*1.2).toFixed(5);
 const labels:Record<string,unknown>[]=[];const annotations:TextElement[]=[];
 let texts='';
 for(const [i,weight,style]of [[0,400,'normal'],[1,700,'normal'],[2,400,'italic'],[3,600,'normal']]as const){
@@ -29,9 +43,9 @@ for(const [i,weight,style]of [[0,400,'normal'],[1,700,'normal'],[2,400,'italic']
  // A second family prevents an annotation from supplying Arial's missing
  // bold file accidentally and masking the old XML scanner's failure.
  annotations.push({id:'annotation-'+i,type:'text',x:390,y,width:350,height:56,rotation:0,text:'Whole state',fontFamily:'Georgia',fontSize:40,fontWeight:weight,fontStyle:style,align:'left',color:'#000000',sizing:'fixed'});
- for(const [x,kind]of [[12,'plot'],[386,'annotation']]as const)labels.push({name:`${kind}-${weight}-${style}`,x,y:y-4,w:300,h:60,threshold:0.01,coverageTolerance:0.05});
+ for(const [x,kind]of [[12,'plot'],[386,'annotation']]as const)labels.push({name:`${kind}-${weight}-${style}`,x,y:y-4,w:300,h:60,threshold:pin(`${kind}-${weight}-${style}`),coverageTolerance:0.05});
 }
-await add('fonts',750,310,texts,{elements:[{id:'fonts-plot',type:'plot',assetId:'fonts',x:0,y:0,width:750,height:310,rotation:0},...annotations]},{scale:2,labels});
+await add('fonts',750,310,texts,{elements:[{id:'fonts-plot',type:'plot',assetId:'fonts',x:0,y:0,width:750,height:310,rotation:0},...annotations]},{scale:2,labels,threshold:pin('fonts')});
 const {Resvg}=createRequire(import.meta.url)('@resvg/resvg-js');
 let pixels='';for(let y=0;y<64;y++)for(let x=0;x<64;x++)pixels+=`<rect x="${x}" y="${y}" width="1" height="1" fill="rgb(${x*37+y*13&255},${x*11+y*79&255},${x*63+y*23&255})"/>`;
 const png=new Resvg(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">${pixels}</svg>`,{font:{loadSystemFonts:false}}).render().asPng().toString('base64');

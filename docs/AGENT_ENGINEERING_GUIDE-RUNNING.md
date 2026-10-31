@@ -4851,8 +4851,13 @@ outside this PNG packaging change.
   Check fidelity through the real preload against `serializeFigureRegion` + Chromium `Image.decode`:
   compare RGB means in 2x2 blocks, flagging a channel difference >=10. The strict
   `verify-figure-raster-fidelity-electron` gate also checks each label's ink coverage within 5%.
-  Correct faces do NOT establish pixel parity: Chromium/resvg glyph rasterization
-  still exceeds the 1% label-block contract; do not waive that assertion or describe P6a as accepted.
+  Correct faces do NOT establish pixel parity: Chromium/resvg glyph rasterization leaves 3.5-5.5% of a
+  label's blocks different (rendering-mode, supersampling and subpixel-shift experiments did not close it), so
+  the 1% text-block contract was retired (ruling R-P6a-1): each label pins its measured post-fix value + 20%
+  (`scripts/lib/fidelityFixture.ts`). The ink-coverage assertion is what catches a bold label drawn regular
+  (base ink ratio 0.68); the block pin carries italic (base 17.9% vs 4.2%). Re-measure, never nudge, those pins.
+  Image preparation restores the authored image attributes per region: never deep-clone the scene document
+  per region (xmldom: ~0.9 s for 150k nodes) — `verify-scene-raster` counts clones.
 
 - **Per-frame cost is the MOUNTED node count, not the project.** The fit-zoom overview of a 13-figure canvas
   mounted 75k plot nodes and dragged at 30 fps with no slow JavaScript (Paint 505 ms, Layerize 271 ms, script
