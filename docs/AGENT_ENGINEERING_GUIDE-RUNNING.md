@@ -1078,8 +1078,9 @@ Persistence invariants (all machine-checked — do not weaken):
   the follow-up), and Route C's fidelity (resvg bold-weight resolution, image interpolation).
   Zoomed non-active figures also get a **detail picture** (`figure/atlasDetail.ts`): one view-budgeted region,
   up to 9 MP / 8,192 px a side, requested after 400 ms of quiet and decoded/published only while quiet. Its
-  separate store never advances `atlasRevision` or enters a proxy capture. The region spans at least 0.4 of
-  the frame/rotated-element content extent on each axis (resvg's safe envelope); when that binds, lower the
+  separate store never advances `atlasRevision` or enters a proxy capture. The region spans at least 0.5 of
+  the frame/rotated-element content extent on each axis and keeps the whole extent inside [x0 − 2w, x0 + 2w]
+  (resvg-js 2.6.2's measured layer envelope, nested layers included — §9); when that binds, lower the
   uniform scale instead of shrinking the region. A detail stays behind warming activation slots, then drops
   when the figure is live; retention is in-view plus two. Details use decoded **blob URLs**, revoked after
   removal; the base remains a data URL because it must survive scene serialization. Detail failures and
