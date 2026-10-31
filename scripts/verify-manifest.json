@@ -454,7 +454,9 @@
       "verify-figure-atlas.ts",
       "verify-plot-restyle.ts",
       "verify-figure-raster-worker.ts",
-      "verify-fig-own-writes.ts"
+      "verify-fig-own-writes.ts",
+      "verify-figure-detail.ts",
+      "verify-figure-detail-proxy.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -777,7 +779,8 @@
       "verify-scene-raster-electron.cjs",
       "verify-dense-zoom-electron.cjs",
       "verify-figure-raster-electron.cjs",
-      "verify-figure-raster-fidelity-electron.cjs"
+      "verify-figure-raster-fidelity-electron.cjs",
+      "verify-figure-detail-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -1579,14 +1582,22 @@
       "verify-scale-figure-atlas.mjs",
       "verify-changed-pathmap.mjs",
       "verify-manifest-contracts.ts"
+    ],
+    "figure-detail": [
+      "verify-figure-detail.ts",
+      "verify-figure-detail-proxy.ts",
+      "verify-figure-raster-worker.ts",
+      "verify-figure-detail-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
-      "glob": "{scripts/lib/fidelityFixture.ts,scripts/perf/atlas-diff.cjs}",
+      "glob": "{scripts/lib/figureDetailInstrumentation.cjs,scripts/verify-figure-detail-electron.cjs}",
       "run": [
-        "verify-figure-raster-fidelity-electron.cjs"
+        "verify-figure-detail-electron.cjs",
+        "verify-figure-detail.ts",
+        "verify-figure-detail-proxy.ts"
       ]
     },
     {
@@ -1594,7 +1605,10 @@
       "run": [
         "verify-figure-atlas.ts",
         "verify-figure-atlas.mjs",
-        "verify-scale-figure-atlas.mjs"
+        "verify-scale-figure-atlas.mjs",
+        "verify-figure-detail.ts",
+        "verify-figure-detail-proxy.ts",
+        "verify-figure-detail-electron.cjs"
       ],
       "$why": "Figure atlas policy, IO routes, residency and model press targeting."
     },
@@ -1686,7 +1700,7 @@
       ]
     },
     {
-      "glob": "{electron/figureRaster*.{cjs,mjs},electron/ipc/figureRaster.cjs,scripts/build-figure-raster-worker.mjs,scripts/lib/figureRasterNativeEntry.cjs}",
+      "glob": "{electron/figureRaster*.{cjs,mjs},electron/ipc/figureRaster.cjs,scripts/build-figure-raster-worker.mjs,scripts/lib/figureRasterNativeEntry.cjs,scripts/lib/figurePolishFixture.ts}",
       "run": [
         "verify-figure-raster-worker.ts",
         "verify-figure-raster-electron.cjs",
@@ -1694,6 +1708,9 @@
         "verify-ipc-contract.ts",
         "tier:presence",
         "tier:pure",
+        "verify-figure-detail.ts",
+        "verify-figure-detail-proxy.ts",
+        "verify-figure-detail-electron.cjs",
         "verify-figure-raster-fidelity-electron.cjs"
       ]
     },
@@ -3399,7 +3416,10 @@
         "verify-figure-atlas.mjs",
         "verify-scale-figure-atlas.mjs",
         "verify-model3d-gui.mjs",
-        "verify-model3d-export.mjs"
+        "verify-model3d-export.mjs",
+        "verify-figure-detail.ts",
+        "verify-figure-detail-proxy.ts",
+        "verify-figure-detail-electron.cjs"
       ]
     },
     {
@@ -4351,6 +4371,12 @@
         "verify-slide-sweep.ts",
         "verify-slide-stagger.ts",
         "verify-animate-plot.ts"
+      ]
+    },
+    {
+      "glob": "{scripts/lib/fidelityFixture.ts,scripts/perf/atlas-diff.cjs}",
+      "run": [
+        "verify-figure-raster-fidelity-electron.cjs"
       ]
     }
   ],
@@ -11945,6 +11971,35 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-figure-detail.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-detail-proxy.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-detail-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
       "exclusive": true,
       "coverage": "behavior"
     }

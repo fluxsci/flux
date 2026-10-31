@@ -72,6 +72,15 @@ export async function rasterizeFigure(input) {
   try { doc = sceneDocument(svg); }
   catch (error) { if (/node budget/.test(error.message)) throw Error('Figure exceeds the raster node budget'); throw error; }
   const root = doc.documentElement;
+  if (request.region) {
+    const { x, y, w, h } = request.region;
+    root.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+    if (request.backdrop) {
+      const background = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      for (const [key, value] of Object.entries({ x, y, width: w, height: h, fill: request.backdrop })) background.setAttribute(key, String(value));
+      root.insertBefore(background, root.firstChild);
+    }
+  }
   root.setAttribute('width', String(request.width)); root.setAttribute('height', String(request.height)); root.setAttribute('preserveAspectRatio', 'none');
   const validateMs = performance.now() - start - composeMs;
   const font = await fontsFor(svg, doc);

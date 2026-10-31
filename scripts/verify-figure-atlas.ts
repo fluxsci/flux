@@ -25,6 +25,9 @@ for (const width of [1, 41.7, 500, 2345.9, 10_000]) for (const height of [1, 334
   const S = rasterScale({ width, height }, 10_000, 4), w = Math.ceil(width * S), hh = Math.ceil(height * S);
   h.ok(S > 0 && w <= 4096 && hh <= 4096 && w * hh <= 3_000_000, `scale caps including ceil: ${width}×${height} → ${w}×${hh}`);
 }
+const detailPolicy = await import('../src/lib/figure/atlasDetail');
+h.ok(detailPolicy.wantsDetail({ ...fig, width: 769, height: 850 }, 4, 1.25), 'detail policy sharpens beyond the unchanged base cap');
+h.ok(rasterScale({ width: 769, height: 850 }, 4, 1.25) < detailPolicy.neededScale(4, 1.25) / 1.25, 'whole-picture caps remain independent of detail scale');
 h.eq(rasterScale(fig, 1, 4), 2, 'device scale stops at DPR 2');
 const raster = (id: string, lastShownAt = 0): import('../src/lib/figure/atlas').FigureRaster => ({ figureId: id, key, S: 1, w: 500, h: 400, dataUrl: 'data:image/png;base64,AA==', bytes: 10, route: 'L', producedAt: 0, lastShownAt });
 h.ok(usable(raster('a'), key) && !usable(raster('a'), key + '!') && !usable(undefined, key), 'usable means matching key, independent of scale');

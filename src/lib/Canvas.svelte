@@ -112,6 +112,7 @@
   import { inPlotsRailScope } from "./plotsRail/keyScope";
   import { figurePlacement } from "./figure/placement";
   import { createCanvasAtlas } from "./figure/atlasCanvas";
+  import { figureDetails } from "./figure/atlasDetail";
   import { figureRasters, atlasRevision } from "./figure/atlas";
   import { hitElementAt } from "./interact/modelHit";
   import { excludeZones } from "./interact/handles";
@@ -5522,6 +5523,13 @@
                 <image x="0" y="0" width={fig.width} height={fig.height} preserveAspectRatio="none"
                   href={raster?.dataUrl} data-figure-raster={fig.id} data-raster-key={raster?.key}
                   class="figure-raster" on:pointerdown={(e) => onFigureDown(e, fig)} />
+                {@const detail = $figureDetails.get(fig.id)}
+                {#if detail?.shown}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <image x={detail.region.x} y={detail.region.y} width={detail.region.w} height={detail.region.h} preserveAspectRatio="none"
+                    href={detail.url} data-figure-detail={fig.id} data-detail-scale={detail.S}
+                    class="figure-raster figure-detail" on:pointerdown={(e) => onFigureDown(e, fig)} />
+                {/if}
               {/if}
               {#each visibleByFig.get(fig.id) ?? [] as el (el.id)}
                 <ElementSlot
@@ -5550,6 +5558,13 @@
                   <image x="0" y="0" width={fig.width} height={fig.height} preserveAspectRatio="none"
                     href={raster.dataUrl} data-figure-raster={fig.id} data-raster-key={raster.key}
                     class="figure-raster" on:pointerdown={(e) => onFigureDown(e, fig)} />
+                  {@const detail = $figureDetails.get(fig.id)}
+                  {#if detail?.shown && ($atlasView.get(fig.id)?.mode === 'warming' || detail.key === raster.key)}
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <image x={detail.region.x} y={detail.region.y} width={detail.region.w} height={detail.region.h} preserveAspectRatio="none"
+                      href={detail.url} data-figure-detail={fig.id} data-detail-scale={detail.S}
+                      class="figure-raster figure-detail" on:pointerdown={(e) => onFigureDown(e, fig)} />
+                  {/if}
                 {/if}
               {/if}
             </g>

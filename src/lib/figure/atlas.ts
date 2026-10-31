@@ -36,7 +36,9 @@ export const ATLAS_ROUTE_L_MAX_NODES = 6000;
  * hold 2–42 elements, so all of them at ≤ 6,000 nodes stay on Route L. */
 export const ATLAS_ROUTE_L_MAX_ELEMENTS = 1000;
 export const atlasStats = { rasters: 0, bytes: 0, budget: 256 * 1024 * 1024,
-  routeL: 0, routeC: 0, disk: 0, swaps: 0, blankFrames: 0, failures: 0, queue: 0 };
+  routeL: 0, routeC: 0, disk: 0, swaps: 0, blankFrames: 0, failures: 0, queue: 0,
+  detail: { requests: 0, swaps: 0, refused: 0, held: 0, bytes: 0, px: 0, maxEntries: 0, decodes: 0,
+    timeToSharpMs: [] as number[], swapSyncMs: [] as number[] } };
 
 export function rasterKey(fig: Figure, figureRev: number, plotGen: Record<string, number>, posterRev: number): string {
   return [figureRev, fig.elements.flatMap(e => e.type === 'plot' ? [`${e.assetId}:${plotGen[e.assetId] ?? 0}`] : []).join(','),
@@ -147,6 +149,7 @@ export function createAtlasQueue(opts: {
 export const atlasOwners = new Set<{ active: () => boolean; request: (req: AtlasRequest) => void; routeLNow: (id: string) => Promise<FigureRaster | null> }>();
 export const atlasDev = {
   stats: atlasStats, rasters: figureRasters,
+  detail: { enabled: true, maxPixels: undefined as number | undefined },
   request(req: AtlasRequest) { [...atlasOwners].find(o => o.active())?.request(req); },
   routeLNow(id: string) { return [...atlasOwners].find(o => o.active())?.routeLNow(id) ?? Promise.resolve(null); },
 };

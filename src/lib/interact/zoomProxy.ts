@@ -153,6 +153,12 @@ export function snapshotScale(box: WorldBox, renderZoom: number, dpr = 1): numbe
   return S > 0.01 ? S : null;
 }
 
+/** View-dependent sharpening never belongs to a scene/proxy capture. */
+export const captureExcluded = (node: Element): boolean => node.classList.contains('figure-detail');
+function pruneCaptureExcluded(root: Element): void {
+  for (const node of Array.from(root.querySelectorAll('.figure-detail'))) if (captureExcluded(node)) node.remove();
+}
+
 /** Serialize the live scene svg into a standalone image of `box` (WORLD units)
  *  at `S` image px per unit. The scene's baked <g scale(renderZoom)> is undone:
  *  the viewBox does the mapping, so the snapshot is independent of the live
@@ -172,6 +178,7 @@ export function serializeSceneSnapshot(sceneSvg: SVGSVGElement, box: WorldBox, S
       }
     }
   }
+  pruneCaptureExcluded(clone);
   const root = clone.firstElementChild;
   if (root) root.removeAttribute("transform"); // world units: the viewBox maps them
   const w = Math.max(1, Math.floor(box.bw * S));
@@ -215,7 +222,9 @@ export function serializeSceneRegion(
   let nodes = 0;
   const copy = (live: Element, into: Element) => {
     nodes += live.getElementsByTagName("*").length + 1;
+    if (captureExcluded(live)) return;
     const c = live.cloneNode(true) as Element;
+    pruneCaptureExcluded(c);
     into.appendChild(c);
     pairs.push([live, c]);
   };
@@ -231,7 +240,7 @@ export function serializeSceneRegion(
       figureCopy.appendChild(layer);
       for (const el of Array.from(child.children)) {
         const elementId = el.getAttribute("data-editor-element-id");
-        if (el.classList.contains("parked") || (elementId !== null && !keep(id, elementId))) continue;
+        if (captureExcluded(el) || el.classList.contains("parked") || (elementId !== null && !keep(id, elementId))) continue;
         copy(el, layer);
       }
     }
@@ -271,6 +280,7 @@ export function serializeFigureRegion(figureGroup: SVGGElement, fig: Pick<Figure
   if (!layer) throw new Error('Figure element layer is not mounted');
   const copy = layer.cloneNode(true) as SVGElement;
   inlineSnapshotStyles(layer, copy);
+  pruneCaptureExcluded(copy);
   copy.removeAttribute('clip-path');
   for (const node of Array.from(copy.children))
     if (node.classList.contains('empty-hint') || node.classList.contains('grid')) node.remove();
@@ -284,7 +294,7 @@ export function serializeFigureRegion(figureGroup: SVGGElement, fig: Pick<Figure
   const serializer = new XMLSerializer();
   return {
     svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${fig.width} ${fig.height}" preserveAspectRatio="none">${serializer.serializeToString(background)}${serializer.serializeToString(copy)}</svg>`,
-    w, h, nodes: layer.getElementsByTagName('*').length + 3,
+    w, h, nodes: copy.getElementsByTagName('*').length + 3,
   };
 }
 
@@ -334,10 +344,12 @@ export async function serializeSceneSnapshotCooperative(
       if (!append(options.append?.get(work.node) ?? "") || !append(work.close) || !append(options.after?.get(work.node) ?? "")) return null;
     } else {
       const node = work.node;
+      if (node.nodeType === Node.ELEMENT_NODE && captureExcluded(node as Element)) continue;
       if (++nodes > maxNodes) return null;
       if (!append(options.before?.get(node) ?? "")) return null;
       if (node.nodeType === Node.ELEMENT_NODE) {
-        const live = node as SVGElement, copy = live.cloneNode(false) as SVGElement;
+        const live = node as SVGElement;
+        const copy = live.cloneNode(false) as SVGElement;
         if ([...live.classList].some(cls => styled.has(cls))) {
           const style = getComputedStyle(live);
           for (const key of INLINE_PROPS) {

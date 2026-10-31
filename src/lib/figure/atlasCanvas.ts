@@ -7,7 +7,8 @@ import type { FileBridge } from '../project/types';
 import { hasPlotDom, plotDom } from '../plot/store';
 import { effectiveHidden } from '../groups';
 import { rectsIntersect, type Rect } from '../geometry';
-import { rasterCold, rasterLive } from './atlasRoutes';
+import { createDetailScheduler, detailCurrent, localView, type DetailRequest } from './atlasDetail';
+import { rasterCold, rasterLive, renderDetail } from './atlasRoutes';
 import { ATLAS_ROUTE_L_MAX_ELEMENTS, ATLAS_ROUTE_L_MAX_NODES, atlasStats, atlasOwners, atlasRevision, createAtlasQueue, drop, evictToBudget, figureRasters, rasterKey, rasterScale, soft, touch, usable,
   type AtlasRequest, type FigureRaster } from './atlas';
 
@@ -99,6 +100,55 @@ export function createCanvasAtlas(opts: {
       if (input) sync(input);
     },
   });
+  const detail = createDetailScheduler({ quiet,
+    current: (req: DetailRequest) => {
+      const fig = figOf(req.figureId), e = entries.get(req.figureId);
+      return !!input && detailCurrent(req, { enabled: !destroyed && input.enabled && !coldUnavailable && !!input.bridge?.rasterizeFigure && e?.refusedC !== e?.key,
+        key: e?.key, mode: e?.mode, activeId: input.activeId, scope: input.scope, base: get(figureRasters).get(req.figureId),
+        figure: fig, zoom: input.zoom, dpr: input.dpr, viewBox: input.viewBox });
+    },
+    render: req => {
+      const source = input!, fig = figOf(req.figureId);
+      if (!fig || !source.bridge) return Promise.resolve(null);
+      // A transparent figure must not reveal the soft base through its sharp
+      // pixels. Resolve the matte once at quiet request time, never per frame.
+      const group = opts.group(fig.id), bg = group?.querySelector('.figure-bg'), host = group?.closest('.canvas-host');
+      let backdrop = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(fig.background ?? '') ? fig.background! : '#ffffff';
+      if (bg && host && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(fig.background ?? '')) {
+        // Resolve CSS colours and alpha in a CPU-backed one-pixel surface. The
+        // matte is the frame OVER its canvas, which is what the base PNG sits
+        // on too; using only the canvas makes translucent figures change tone.
+        const matte = new OffscreenCanvas(1, 1), ctx = matte.getContext('2d', { willReadFrequently: true });
+        if (!ctx) throw new Error('No figure detail matte context');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 1, 1);
+        const layers: string[] = [];
+        for (let node: Element | null = host; node; node = node.parentElement) layers.unshift(getComputedStyle(node).backgroundColor);
+        for (const color of layers) { ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); }
+        const style = getComputedStyle(bg);
+        if (style.fill !== 'none') {
+          ctx.globalAlpha = Number(style.fillOpacity || 1) * Number(style.opacity || 1);
+          ctx.fillStyle = style.fill; ctx.fillRect(0, 0, 1, 1);
+        }
+        backdrop = '#' + [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map(n => n.toString(16).padStart(2, '0')).join('');
+        matte.width = matte.height = 0;
+      }
+      return renderDetail(req, fig, source.assets, source.bytes, source.root, source.bridge, backdrop);
+    },
+    cancel: rid => { void input?.bridge?.cancelFigureRaster?.(rid); },
+  });
+  function syncDetails() {
+    if (!input) return;
+    const source = input, retain = new Map<string, { key: string; warming: boolean }>();
+    const candidates: import('./atlasDetail').DetailCandidate[] = [];
+    for (const fig of source.figures) {
+      const e = entries.get(fig.id), raster = get(figureRasters).get(fig.id);
+      if (!e || e.refusedC === e.key || !(e.mode === 'warming' && raster || e.mode === 'raster' && usable(raster, e.key))) continue;
+      retain.set(fig.id, { key: e.key, warming: e.mode === 'warming' });
+      if (localView(source.viewBox, fig)) candidates.push({ figure: fig, key: e.key, warming: e.mode === 'warming' });
+    }
+    detail.sync({ enabled: source.enabled && !coldUnavailable && !!source.bridge?.rasterizeFigure, scope: source.scope,
+      viewBox: source.viewBox, zoom: source.zoom, dpr: source.dpr, candidates, retain });
+  }
   function schedule() {
     if (idle !== null || !queue.size() || !quiet()) return;
     const run = () => { idle = null; if (quiet()) queue.drain(); };
@@ -161,7 +211,7 @@ export function createCanvasAtlas(opts: {
     }
     if (!next.enabled) {
       for (const id of entries.keys()) queue.cancel(id);
-      entries.clear(); active = next.activeId; emit(); return;
+      entries.clear(); active = next.activeId; emit(); syncDetails(); return;
     }
     const visible = new Set(next.visible.map(f => f.id)), existing = new Set(next.figures.map(f => f.id));
     const inView = new Set(next.figures.filter(f => rectsIntersect({ x: f.x, y: f.y, w: f.width, h: f.height }, next.viewBox)).map(f => f.id));
@@ -245,7 +295,7 @@ export function createCanvasAtlas(opts: {
     active = next.activeId; emit();
     atlasStats.blankFrames = next.visible.filter(f => entries.get(f.id)?.mode === 'cold').length;
     evictToBudget(new Set([...inView, ...(next.activeId ? [next.activeId] : []), ...[...entries].filter(([, e]) => e.pending).map(([id]) => id)]));
-    schedule();
+    schedule(); syncDetails();
   }
   const owner = { active: () => !!input?.enabled && opts.active(), request: queue.request,
     async routeLNow(id: string): Promise<FigureRaster | null> {
@@ -259,7 +309,7 @@ export function createCanvasAtlas(opts: {
     /** Canvas's warm-up finished mounting: judge readiness now (not via a later reactive pass). */
     recheck(id: string) { const e = entries.get(id), fig = figOf(id); if (e && fig && !destroyed) void prepare(fig, e); },
     destroy() {
-      destroyed = true; queue.dispose(); atlasOwners.delete(owner);
+      destroyed = true; detail.dispose(); queue.dispose(); atlasOwners.delete(owner);
       if (idle !== null) { if (typeof cancelIdleCallback === 'function') cancelIdleCallback(idle); else clearTimeout(idle); }
     } };
 }

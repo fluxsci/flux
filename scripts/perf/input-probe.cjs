@@ -21,6 +21,7 @@
 //          (PROBE_NAV_PREP=edit|editPan nudges a plot first — the owner's working rhythm; PROBE_NAV_REST=ms
 //          sets the rest before the burst, default 3500; PROBE_NAV_WARM=1 logs when the sharp plane and
 //          the canvas overview land after it)
+//        --phases=lookAround --lookNotches=8|13: zoom into non-active Figure 3, six 400px pans with 1.5s rests; warm + reaped worker.
 //        --precise-wheel: optional Electron trackpad deltas; records coalesced delivery separately
 //        [--layers] mid-drag compositor layer snapshot (CDP LayerTree: count, top layers, owning node, compositing reasons,
 //        the dragged element's will-change + document.getAnimations()) into results.layers — STRUCTURE ONLY: the LayerTree
@@ -63,7 +64,7 @@ if (!process.versions.electron) {
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
-    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8'), PROBE_LAYERS: args.includes('--layers') ? '1' : '0', PROBE_PRECISE_WHEEL: args.includes('--precise-wheel') ? '1' : (process.env.PROBE_PRECISE_WHEEL || '0') };
+    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', ''), PROBE_TARGET: opt('target', ''), PROBE_ZOOM_STEPS: opt('zoomSteps', '0'), PROBE_DETAIL_NOTCHES: opt('lookNotches', '8'), PROBE_DRAG_MOVES: opt('dragMoves', '150'), PROBE_DRAG_MS: opt('dragMs', '8'), PROBE_LAYERS: args.includes('--layers') ? '1' : '0', PROBE_PRECISE_WHEEL: args.includes('--precise-wheel') ? '1' : (process.env.PROBE_PRECISE_WHEEL || '0') };
   delete env.VITE_DEV_SERVER_URL; delete env.ELECTRON_RUN_AS_NODE;
   const electronArgs = [__filename, project];
   if (process.platform === 'linux') electronArgs.push('--no-sandbox', `--ozone-platform=${ozone}`);
@@ -88,6 +89,7 @@ if (!process.versions.electron) {
     }
   };
   const child = spawn(require('electron'), electronArgs, { cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  console.log('PROBE process '+JSON.stringify({pid:child.pid,project,scratch}));
   const timer = setTimeout(() => child.kill('SIGKILL'), 400000);
   let stderr = '';
   child.stdout.on('data', (b) => { for (const line of String(b).split('\n')) { if (line.startsWith('PROBE ')) console.log(line); if (useGrim && line.startsWith('PROBE screenRegion ')) { try { grimRegion = JSON.parse(line.slice('PROBE screenRegion '.length)); grimLoop(); } catch {} } } });
@@ -162,6 +164,10 @@ if (process.env.PROBE_SCENE_RASTER_LOG === '1') {
     try { return result = await fn(event, request); }
     finally { console.log('PROBE sceneRaster ' + JSON.stringify({ ms: performance.now() - started, chars: request?.svg?.length, error: result?.error, cancelled: result?.cancelled, rasters: result?.rasters?.map(r => ({ width: r.width, height: r.height, bytes: r.bytes?.byteLength })) })); }
   } : fn);
+}
+if ((process.env.PROBE_PHASES || '').split(',').includes('lookAround')) {
+  const { protocol } = require('electron');
+  require('../lib/figureDetailInstrumentation.cjs')({ app, protocol, repo, scratch: path.dirname(process.env.HOME) });
 }
 require(path.join(repo, 'electron/main.cjs'));
 
@@ -432,7 +438,7 @@ async function main() {
     const displays=screen.getAllDisplays(),primary=screen.getPrimaryDisplay();
     fs.writeFileSync(path.join(out,'runtime-preflight.json'),JSON.stringify({displays,primary},null,2));
     win.setBounds(require('../lib/nativeWindowQualification.cjs').qualifiedNativeBounds(displays,primary,1600,1000));
-  }else win.setSize(1600,1000);
+  }else if(process.env.PROBE_WIDTH)win.setContentSize(+process.env.PROBE_WIDTH,+process.env.PROBE_HEIGHT||1000);else win.setSize(1600,1000);
   win.setAlwaysOnTop(true); win.show(); win.focus();
   if (process.env.PROBE_MAXIMIZE === '1') { win.maximize(); await wait(() => win.isMaximized(), 'maximized native window'); }
   qualificationPolicy = configureWindow({ qualify, win, displays: screen.getAllDisplays() });
@@ -580,6 +586,47 @@ async function figurePhases(mode = 'figure') {
     mouse({ type: 'mouseMove', x: geo.empty.x, y: geo.empty.y }); await sleep(400);
     const R = results[mode][sc] = {};
     const tr = (phase) => (doTrace ? `trace-${mode}-${sc}-${phase}` : null);
+    if (wantPhase('lookAround') && (process.env.PROBE_PHASES || '').split(',').includes('lookAround')) {
+      if(process.env.PROBE_DETAIL_ENABLED==='0')await js('window.__figureDetailProbe.atlas.detail.enabled=false');
+      await js(`(()=>{window.__detailProbeTrace={tasks:[],publishes:[]};window.__detailProbeObserver=new PerformanceObserver(l=>{if(!window.__p.running)return;for(const e of l.getEntries())window.__detailProbeTrace.tasks.push({start:e.startTime,ms:e.duration})});window.__detailProbeObserver.observe({type:'longtask'});window.__detailProbeUnsub=window.__figureDetailProbe.details.subscribe(m=>{if(window.__p.running)window.__detailProbeTrace.publishes.push({t:performance.now(),ids:[...m.values()].filter(d=>d.shown).map(d=>d.figureId)})})})()`);
+      const index = JSON.parse(fs.readFileSync(path.join(process.env.PROBE_PROJECT, 'fig/index.json'), 'utf8'));
+      const row = index.figures.find(f => f.id === 'fig_mvk8aqtiteos_3');
+      if (!row) throw Error('lookAround needs the owner Figure 3 fixture');
+      const saved = JSON.parse(fs.readFileSync(path.join(process.env.PROBE_PROJECT, `fig/canvases/${row.canvas}.json`), 'utf8'));
+      const fig = saved.figures.find(f => f.id === row.id), notches = +process.env.PROBE_DETAIL_NOTCHES;
+      const detailState = () => js(`(()=>{const p=window.__figureDetailProbe;if(!p)throw Error('Missing production detail observation');const read=s=>{let v;const u=s.subscribe(x=>v=x);u();return v};return{viewport:read(p.viewport),stats:{...p.atlas.stats.detail},details:[...read(p.details).values()].map(d=>({id:d.figureId,S:d.S,w:d.w,h:d.h,shown:d.shown})),dpr:devicePixelRatio}})()`);
+      const host = await js(`(()=>{const b=document.querySelector('.figure-mode .canvas-host').getBoundingClientRect();return{x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2),w:b.width,h:b.height}})()`);
+      // Calibrate the resting camera to the two requested regimes; retain the
+      // real 8/13 native notches; the starting fit depends on the viewport.
+      const fitZoom = (notches === 13 ? 4 : 2.5) / Math.exp(.18 * notches);
+      const zoomTo = async zoom => { const v=(await detailState()).viewport;const n=Math.round(Math.log(zoom/v.zoom)/.18);ctrlDown();for(let i=0;i<Math.abs(n);i++){wheel(host.x,host.y,0,Math.sign(n)*120,['control']);await sleep(30)}ctrlUp();await sleep(600); };
+      const center = async () => { const v=(await detailState()).viewport;const x=host.w/2-(fig.x+fig.width/2)*v.zoom-v.panX, y=host.h/2-(fig.y+fig.height/2)*v.zoom-v.panY;wheel(host.x,host.y,x,y);await sleep(700); };
+      R.lookAround = {};
+      for (const worker of process.env.PROBE_DETAIL_REAP === '0' ? ['warm'] : ['warm','reaped']) {
+        await zoomTo(fitZoom); await center(); await sleep(worker==='reaped'?62000:2000);
+        const before = await detailState(), records = [];
+        await js('window.__detailProbeTrace.tasks=[];window.__detailProbeTrace.publishes=[]');
+        R.lookAround[worker] = await measure(`${mode}:${sc}:lookAround:${worker}:${notches}`, async () => {
+          ctrlDown();for(let i=0;i<notches;i++){wheel(host.x,host.y,0,120,['control']);await sleep(30)}ctrlUp();
+          await sleep(2000); records.push(await detailState());
+          for(let i=0;i<6;i++){
+            // Actual trackpad pans, alternating directions to stay on Figure 3.
+            wheel(host.x,host.y,(i%2?-1:1)*400,0);await sleep(1500);records.push(await detailState());
+          }
+        }, tr(`lookAround-${worker}`));
+        const after = await detailState();
+        const report={worker,notches,requests:after.stats.requests-before.stats.requests,swaps:after.stats.swaps-before.stats.swaps,held:after.stats.held-before.stats.held,timeToSharpMs:after.stats.timeToSharpMs.slice(before.stats.timeToSharpMs.length),px:after.stats.px,maxEntries:after.stats.maxEntries,zoom:after.viewport.zoom,dpr:after.dpr,steps:records};
+        report.attribution=await js('window.__detailProbeTrace');
+        R.lookAround[worker].detail=report;log('detail',report);
+        fs.writeFileSync(path.join(out,`detail-${notches}-${worker}.png`),(await win.webContents.capturePage()).toPNG());
+        // Clear only the disposable detail through the supported A/B switch.
+        // Otherwise the retained PNG would satisfy the reaped-worker visit.
+        await js('window.__figureDetailProbe.atlas.detail.enabled=false');
+        await zoomTo(fitZoom);
+        await js(`window.__figureDetailProbe.atlas.detail.enabled=${process.env.PROBE_DETAIL_ENABLED!=='0'}`);
+      }
+      await js('window.__detailProbeObserver.disconnect();window.__detailProbeUnsub()');
+    }
     // 1. sweep across the figure through plots at 125 Hz
     if (wantPhase('sweep')) R.sweep = await measure(`${mode}:${sc}:sweep`, async () => { const y = Math.round((geo.host.t + geo.host.b) / 2), x0 = geo.host.l + 60, x1 = geo.host.r - 60, N = 120; for (let i = 0; i <= N; i++) { mouse({ type: 'mouseMove', x: Math.round(x0 + (x1 - x0) * i / N), y: y + Math.round(Math.sin(i / 9) * 120) }); await sleep(8); } await sleep(300); }, tr('sweep'));
     // 2. hover boundary flips plot ↔ empty

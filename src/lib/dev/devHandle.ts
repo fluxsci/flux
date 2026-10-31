@@ -34,10 +34,11 @@ import * as lifecycle from "../../shell/lifecycle";
 import { perfCounters } from "./perfCounters";
 import { paperPerf } from "../../shell/modes/paper/science/changeGate";
 import * as presets from "../presets";
+import { figureDetails } from "../figure/atlasDetail";
 import { atlasDev } from "../figure/atlas";
 
 export interface FluxDevHandle {
-  atlas: typeof atlasDev;
+  atlas: typeof atlasDev & { details: typeof figureDetails };
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
   get: <T>(s: Readable<T>) => T;
   /** The Figure-editor store module (project, viewport, selection, commit, …). */
@@ -122,6 +123,6 @@ export function installDevHandle(): void {
     perf: perfCounters,
     paperPerf,
     presets,
-    atlas: atlasDev,
+    atlas: { ...atlasDev, details: figureDetails },
   } satisfies FluxDevHandle;
 }

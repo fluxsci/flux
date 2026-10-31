@@ -1017,7 +1017,7 @@ Persistence invariants (all machine-checked — do not weaken):
   budget), warm re-focus ~20ms and re-parses nothing. Gate: `verify-scale-lazy-assets.mjs`.
 - **The figure atlas: live element DOM exists only for the ACTIVE figure** (the performance endgame,
   2026-10-29/30; plan of record `notes/performance_endgame_2026-10-29/PLAN.md`, ledger beside it). On a
-  multi-figure canvas every other figure is ONE bitmap — an SVG `<image>` holding a PNG data URL, sized to
+  multi-figure canvas every other figure has a base bitmap — an SVG `<image>` holding a PNG data URL, sized to
   its frame, inside the figure's wrapper under the frame clip (`.figure-raster`, `data-figure-raster`;
   the wrapper carries `data-atlas-mode`). Why: per-frame paint and layerization scale with the MOUNTED
   node count. On the owner's 13-figure canvas everything live was 75,487 plot nodes and a fit-zoom drag
@@ -1076,11 +1076,19 @@ Persistence invariants (all machine-checked — do not weaken):
   may still carry a 50–70 ms idle task (one atomic plot mount; the zoom-proxy recapture of the now-small
   live scene through the main-thread Chromium decode — compositing the pictures outside the SVG decode is
   the follow-up), and Route C's fidelity (resvg bold-weight resolution, image interpolation).
+  Zoomed non-active figures also get a **detail picture** (`figure/atlasDetail.ts`): one view-budgeted region,
+  up to 9 MP / 8,192 px a side, requested after 400 ms of quiet and decoded/published only while quiet. Its
+  separate store never advances `atlasRevision` or enters a proxy capture. The region spans at least 0.4 of
+  the frame/rotated-element content extent on each axis (resvg's safe envelope); when that binds, lower the
+  uniform scale instead of shrinking the region. A detail stays behind warming activation slots, then drops
+  when the figure is live; retention is in-view plus two. Details use decoded **blob URLs**, revoked after
+  removal; the base remains a data URL because it must survive scene serialization. Detail failures and
+  worker deaths are isolated from base pictures, and no timer/frame loop runs at rest.
 - **The figure raster service** (`electron/ipc/figureRaster.cjs`, worker `electron/figureRasterWorker.mjs` →
   `figureRasterEngine.mjs`, rules `figureRasterRules.cjs`; channels `figure:rasterize` / `figure:cancelRaster`;
   `FileBridge.rasterizeFigure`): a per-window POOL of long-lived ELECTRON_RUN_AS_NODE children
-  (`FLUX_FIGURE_RASTER_WORKERS`, default min(4, cpus/8)) with a real FIFO — a request for a figure already
-  queued REPLACES it in place; cancel by rid; 15 s per job; three deaths in 60 s retire the owner until its
+  (`FLUX_FIGURE_RASTER_WORKERS`, default min(4, cpus/8)) with a real FIFO — a request for a figure/kind (`whole` or `detail`) already
+  queued REPLACES it in place; cancel by rid; 15 s per job; three whole-figure deaths in 60 s retire the owner until its
   project changes; an idle slot is reaped after 60 s and respawns lazily (a worker holds 0.4–0.8 GB on the
   owner's project; `stop()` nulls the slot's process before the kill, so a reap is never a death). The
   request carries the figure's CURRENT model JSON (unsaved edits render), the project's asset metadata, the
@@ -4859,6 +4867,17 @@ outside this PNG packaging change.
   Image preparation restores the authored image attributes per region: never deep-clone the scene document
   per region (xmldom: ~0.9 s for 150k nodes) — `verify-scene-raster` counts clones.
 
+- **Detail sub-regions need the resvg envelope even for clipped/hidden content.** Include every rotated
+  element box in the extent and enforce the 0.4 floor in the service validator; a small crop of a clipped
+  matplotlib plot can abort resvg rather than return an error. Detail deaths must never trip base-service
+  backoff. The pixel budget reduces scale, never the safety region.
+- **Detail state must not touch `atlasRevision`.** It enters `sceneContentKey`; a bump reserializes and
+  decodes the proxy snapshot and retires its overview (41–73 ms serialize + 45–103 ms decode measured on
+  the owner's canvas). Keep details out of every serializer, the mount list, and `AtlasViewEntry`.
+- **Hold completed detail bytes until quiet, then re-check the current model key before decoding.** The
+  base queue publishes on completion and versions per figure, so it cannot schedule details. A newer view
+  does not invalidate an older intersecting region; an edited model does. Use blob URLs only for these
+  capture-excluded images; base pictures still require data URLs. Revoke after the DOM releases the href.
 - **Per-frame cost is the MOUNTED node count, not the project.** The fit-zoom overview of a 13-figure canvas
   mounted 75k plot nodes and dragged at 30 fps with no slow JavaScript (Paint 505 ms, Layerize 271 ms, script
   36 ms in the trace). When a canvas feels slow, count `[data-editor-element-id] svg *` before profiling JS; the

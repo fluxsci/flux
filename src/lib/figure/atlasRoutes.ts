@@ -58,3 +58,16 @@ export async function rasterCold(req: AtlasRequest, fig: Figure, assets: Asset[]
   if (!reply.png || reply.error || reply.width !== width || reply.height !== height) throw new Error(reply.error || 'Invalid figure raster dimensions');
   return result(req, width, height, new Blob([new Uint8Array(reply.png).buffer], { type: 'image/png' }));
 }
+
+/** Details stay as bytes until the dedicated scheduler's quiet publication.
+ * Never call the base result() adapter here: it decodes a data URL immediately. */
+export async function renderDetail(req: import('./atlasDetail').DetailRequest, fig: Figure, assets: Asset[], bytes: Record<string, string>, root: string, bridge: FileBridge, backdrop = '#ffffff'): Promise<Blob | null> {
+  if (!bridge.rasterizeFigure) throw new Error('unavailable');
+  const inlineAssets: Record<string, string> = {};
+  for (const asset of assets) if (isAssetDirty(asset.id) && bytes[asset.id]) inlineAssets[asset.id] = bytes[asset.id];
+  const reply = await bridge.rasterizeFigure({ rid: req.rid, root, figure: structuredClone(fig), assets,
+    scale: req.S, width: req.w, height: req.h, region: req.region, backdrop, inlineAssets });
+  if (reply.cancelled) return null;
+  if (!reply.png || reply.error || reply.width !== req.w || reply.height !== req.h) throw new Error(reply.error || 'Invalid figure detail dimensions');
+  return new Blob([new Uint8Array(reply.png).buffer], { type: 'image/png' });
+}

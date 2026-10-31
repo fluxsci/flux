@@ -200,10 +200,14 @@ export interface FigureRasterRequest {
   figure: Figure;
   /** Project asset metadata (`project.assets`), for paths, dims and dpi. */
   assets: Asset[];
-  /** Image px per world unit, and the exact output size (≤ 4096 a side, width·height ≤ 3,000,000). */
+  /** Image px per world unit and exact output size: whole ≤ 4096 / 3 MP; region ≤ 8192 / 9 MP. */
   scale: number;
   width: number;
   height: number;
+  /** Figure-local detail crop; output budget is 9 MP / 8192 px when present. */
+  region?: { x: number; y: number; w: number; h: number };
+  /** Opaque matte under a detail of a transparent figure. */
+  backdrop?: string;
   /** Data URLs for assets whose bytes are not on disk yet (dirty, unsaved); they override disk reads. */
   inlineAssets?: Record<string, string>;
   /** Manifests the renderer already holds (a regenerated plot whose sidecar is not saved yet); they override disk reads. */

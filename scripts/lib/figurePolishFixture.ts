@@ -24,5 +24,21 @@ let marks='';for(let k=0;k<3000;k++)marks+=`<circle cx="${k*37%400}" cy="${k*53%
 await write('fig/assets/native-dense.svg',`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">${marks}</svg>`);
 model.assets.push({id:'native-dense',name:'Native dense',kind:'svg',path:'assets/native-dense.svg',naturalWidth:400,naturalHeight:300});
 model.figures.push({id:'native-dense',canvasId:'c',referenceKey:'fig-native-dense',name:'Figure 4',nickname:'Dense plot arrangement',family:'figure',number:4,x:0,y:30000,width:900,height:700,background:'#ffffff',elements:Array.from({length:12},(_,i)=>({id:`edense-${i}`,type:'plot' as const,assetId:'native-dense',x:20+i%4*210,y:20+Math.floor(i/4)*210,width:180,height:135,rotation:0}))});
+if (process.env.FLUX_DETAIL_FIXTURE === '1') {
+  await write('.meta/feedback.ndjson', '');
+  const { createRequire } = await import('node:module');
+  const { Resvg } = createRequire(import.meta.url)('@resvg/resvg-js');
+  const photo = new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#447799"/><circle cx="32" cy="32" r="24" fill="#ddaa22"/></svg>').render().asPng();
+  await fs.writeFile(path.join(root, 'fig/assets/detail-photo.png'), photo);
+  model.assets.push({ id: 'detail-photo', name: 'Embedded raster', kind: 'png', path: 'assets/detail-photo.png', naturalWidth: 64, naturalHeight: 64 });
+  model.figures = Array.from({ length: 6 }, (_, i) => ({
+    id: `detail-${i}`, canvasId: 'c', referenceKey: `fig-detail-${i}`, name: `Figure ${i + 1}`, family: 'figure' as const, number: i + 1,
+    x: i * 900, y: 0, width: 769, height: 850, background: i === 5 ? '#ffffff80' : '#ffffff',
+    elements: [
+      ...Array.from({ length: 6 }, (_, j) => ({ id: `detail-plot-${i}-${j}`, type: 'plot' as const, assetId: 'native-dense', x: 20 + j % 2 * 360, y: 20 + Math.floor(j / 2) * 250, width: 340, height: 240, rotation: 0 })),
+      { id: `detail-photo-${i}`, type: 'image' as const, assetId: 'detail-photo', x: 20, y: 780, width: 48, height: 48, rotation: 0 },
+    ],
+  }));
+}
 await executeFigSave(planFigSave(model,null),{read:async rel=>fs.readFile(path.join(root,rel),'utf8').catch(()=>null),write});
 await write('manuscript/main.qmd','---\ntitle: Native polish\n---\n\n# Disposable test project\n');

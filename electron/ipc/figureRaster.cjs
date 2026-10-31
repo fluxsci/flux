@@ -39,8 +39,9 @@ function createFigureRasterFamily({ app, appRoot, rootFor, generationFor = () =>
     for (const slot of owner.slots) { settle(slot.job, { cancelled: true }); slot.job = null; stop(slot); }
   }
   function failed(owner, slot, message) {
+    const detail = slot.job?.request.region !== undefined;
     stop(slot); settle(slot.job, { error: message }); slot.job = null;
-    const now = Date.now(); owner.deaths = owner.deaths.filter(t => now - t < 60000); owner.deaths.push(now);
+    const now = Date.now(); owner.deaths = owner.deaths.filter(t => now - t < 60000); if (!detail) owner.deaths.push(now);
     if (owner.deaths.length >= 3) {
       owner.unavailable = true;
       for (const job of owner.queue) settle(job, { error: 'Figure raster worker unavailable' }); owner.queue = [];
@@ -74,33 +75,31 @@ function createFigureRasterFamily({ app, appRoot, rootFor, generationFor = () =>
       } else settle(job, { png, width: header.width, height: header.height, ms: header.ms });
       pump(owner);
       armIdle(owner, slot);
-    }, error => { if (slot.proc === proc) failed(owner, slot, `Figure raster protocol failed: ${error.message}`); }, 20 * 1024 * 1024);
+    }, error => { if (slot.proc === proc) failed(owner, slot, `Figure raster protocol failed: ${error.message}`); }, 48 * 1024 * 1024);
     return proc;
   }
   function pump(owner) {
     if (closed || owners.get(owner.sender.id) !== owner || owner.unavailable) return;
-    for (const slot of owner.slots) {
-      if (slot.job || slot.stopping) continue;
-      let job;
-      while ((job = owner.queue.shift())) {
-        if (valid(owner, job)) break;
-        settle(job, { cancelled: true }); job = null;
-      }
-      if (!job) break;
+    while (owner.queue.length) {
+      const free = owner.slots.filter(s => !s.job && !s.stopping);
+      if (!free.length) break;
+      const job = owner.queue.shift();
+      if (!valid(owner, job)) { settle(job, { cancelled: true }); continue; }
+      const slot = (job.request.region && free.find(s => s.proc && s.lastFigureId === job.request.figure.id)) || free[0];
       clearTimeout(slot.idle); slot.idle = null;
-      slot.job = job;
+      slot.job = job; slot.lastFigureId = job.request.figure.id;
       try {
         const proc = worker(owner, slot);
         slot.timer = setTimeout(() => { if (slot.job === job) failed(owner, slot, 'Figure raster worker timed out'); }, timeoutMs);
-        // The model/inline assets exceed the protocol's small metadata bound.
         writeFrame(proc.stdin, { rid: job.request.rid }, JSON.stringify(job.request));
       } catch (error) { failed(owner, slot, `Figure raster worker failed: ${error.message}`); }
     }
   }
+
   function ownerFor(event) {
     let owner = owners.get(event.sender.id);
     if (!owner) {
-      owner = { sender: event.sender, queue: [], slots: Array.from({ length: workers }, () => ({ proc: null, job: null, timer: null, idle: null, stopping: false })), deaths: [], unavailable: false, onDestroyed: () => cancelOwner(event.sender.id) };
+      owner = { sender: event.sender, queue: [], slots: Array.from({ length: workers }, () => ({ proc: null, job: null, timer: null, idle: null, stopping: false, lastFigureId: null })), deaths: [], unavailable: false, onDestroyed: () => cancelOwner(event.sender.id) };
       owners.set(event.sender.id, owner); event.sender.once('destroyed', owner.onDestroyed);
     }
     return owner;
@@ -116,22 +115,22 @@ function createFigureRasterFamily({ app, appRoot, rootFor, generationFor = () =>
       // make an explicit cancel ambiguous, including across distinct figures.
       if (owner.queue.some(j => j.request.rid === checked.rid) || owner.slots.some(s => s.job?.request.rid === checked.rid)) { resolve({ error: 'Duplicate figure raster identity' }); return; }
       const job = { request: checked, event, generation: generationFor(event), resolve, done: false };
-      const at = owner.queue.findIndex(j => j.request.figure.id === checked.figure.id);
+      const at = owner.queue.findIndex(j => j.request.figure.id === checked.figure.id && !!j.request.region === !!checked.region);
       if (at < 0) owner.queue.push(job);
       else { settle(owner.queue[at], { cancelled: true }); owner.queue[at] = job; }
       pump(owner);
     });
   }
-  function cancel(event, rid) {
+  function cancel(event, rid, queuedOnly = false) {
     const owner = owners.get(event.sender.id); if (!owner || typeof rid !== 'string') return;
     owner.queue = owner.queue.filter(job => { if (job.request.rid !== rid) return true; settle(job, { cancelled: true }); return false; });
-    for (const slot of owner.slots) if (slot.job?.request.rid === rid) {
+    for (const slot of owner.slots) if (!queuedOnly && slot.job?.request.rid === rid) {
       settle(slot.job, { cancelled: true }); slot.job = null; stop(slot);
     }
     pump(owner);
   }
   return {
-    registerHandlers(ipc) { ipc.handle('figure:rasterize', rasterize); ipc.handle('figure:cancelRaster', (event, rid) => cancel(event, rid)); },
+    registerHandlers(ipc) { ipc.handle('figure:rasterize', rasterize); ipc.handle('figure:cancelRaster', (event, rid) => cancel(event, rid, typeof rid === 'string' && rid.startsWith('atlas-D:'))); },
     cancelOwner,
     shutdown() { closed = true; for (const id of [...owners.keys()]) cancelOwner(id); },
   };

@@ -43,7 +43,7 @@ try {
   const figure: Figure = saved.figures.find((f: Figure) => f.id === 'native-5');
   const dense: Figure = saved.figures.find((f: Figure) => f.id === 'native-dense');
   const req = (rid: string, fig = figure, extras = {}) => ({ rid, root, figure: structuredClone(fig), assets, scale: 1, width: 320, height: 240, ...extras });
-  function service(workers = 1, timeoutMs = 15000, projectRoot = root, idleMs = 60000) {
+  function service(workers = 1, timeoutMs = 15000, projectRoot = root, idleMs = 60000, launch?: (index: number) => string[] | null) {
     const handlers = new Map(); const processes: any[] = [];
     const rendering = new Set<string>(), rendered = new EventEmitter(); let live = 0, peak = 0, generation = 1;
     const sender = Object.assign(new EventEmitter(), { id: families.length + 1, isDestroyed: () => false });
@@ -51,12 +51,12 @@ try {
     const family = createFigureRasterFamily({ app: { isPackaged: false }, appRoot: repo, workers, timeoutMs, idleMs, rootFor: () => projectRoot, generationFor: () => generation,
       fontIndexFile: () => path.join(scratch, 'fonts.json'),
       spawnProcess: (exe: string, args: string[], opts: any) => {
-        const proc = spawn(exe, args, { ...opts, env: { ...opts.env, FLUX_FIGURE_RASTER_TRACE: '1' } });
+        const proc = spawn(exe, launch?.(processes.length) ?? args, { ...opts, env: { ...opts.env, FLUX_FIGURE_RASTER_TRACE: '1' } });
         proc.closed = new Promise(resolve => proc.once('close', resolve)); allProcesses.push(proc);
         let partial = '';
         proc.stderr.on('data', chunk => {
           partial += String(chunk); const lines = partial.split('\n'); partial = lines.pop()!;
-          for (const line of lines) try { const value = JSON.parse(line); if (value.rid && value.composeMs !== undefined) { rendering.add(value.rid); rendered.emit(value.rid); } } catch { /* worker diagnostics are not protocol data */ }
+          for (const line of lines) try { const value = JSON.parse(line); if (value.rid && value.composeMs !== undefined) { rendering.add(value.rid); (proc as any).rids ??= []; (proc as any).rids.push(value.rid); rendered.emit(value.rid); } } catch { /* worker diagnostics are not protocol data */ }
         });
         if (process.env.FLUX_FIGURE_RASTER_TRACE) proc.stderr.pipe(process.stderr); processes.push(proc); live++; peak = Math.max(peak, live);
         proc.once('close', () => { live--; }); return proc;
@@ -132,12 +132,14 @@ try {
   h.eq(await old, { cancelled: true }, 'only the same queued figure is replaced');
   h.ok(!!(await neighbour).png && !!(await newer).png && !!(await active).png, 'distinct queued figures all render');
   h.eq(order, ['newer', 'neighbour'], 'replacement retains FIFO position ahead of other figures');
+  q.family.shutdown();
   const c = service(); const cancelled = c.raster(req('cancel-running', dense));
   await c.whenRendering('cancel-running');
   await c.cancel('cancel-running'); h.eq(await cancelled, { cancelled: true }, 'cancel of a running job settles cancelled');
   h.ok(!!(await c.raster(req('after-cancel'))).png, 'a subsequent job renders after lazy respawn');
   h.eq(c.processes.length, 2, 'running cancellation really replaces the child');
   h.eq(c.peak(), 1, 'respawn waits for the killed process to exit');
+  c.family.shutdown();
   const idle = service(1, 15000, root, 150);
   h.ok(!!(await idle.raster(req('idle-first'))).png, 'idle reaping: the first job renders');
   const reaped = await Promise.race([idle.processes[0].closed.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 5000))]);
@@ -145,22 +147,102 @@ try {
   h.ok(!!(await idle.raster(req('idle-second'))).png, 'a job after reaping respawns a worker and renders');
   h.eq(idle.processes.length, 2, 'reaping ended the child; the next job spawned a fresh one');
   h.ok(!!(await idle.raster(req('idle-third'))).png, 'a reap is not a death: the owner stays available');
+  idle.family.shutdown();
   const pool = service(2);
   const results = await Promise.all(Array.from({ length: 5 }, (_, i) => pool.raster(req(`pool-${i}`, { ...figure, id: `pool-fig-${i}` }))));
   h.ok(results.every(r => r.png), 'five distinct figures survive the pool queue'); h.eq(pool.peak(), 2, 'pool never exceeds two live child processes');
+  pool.family.shutdown();
   const stale = service(); const running = stale.raster(req('generation-running', dense)); const pending = stale.raster(req('generation-queued')); stale.generation();
   h.eq(await running, { cancelled: true }, 'changed generation discards running output'); h.eq(await pending, { cancelled: true }, 'changed generation cancels at dequeue');
+  stale.family.shutdown();
   const dead = service();
   for (let i = 0; i < 3; i++) { const job = dead.raster(req(`death-${i}`)); dead.processes.at(-1).kill('SIGKILL'); h.ok(!!(await job).error, `worker death ${i + 1} is reported`); }
   h.eq(await dead.raster(req('unavailable')), { error: 'Figure raster worker unavailable' }, 'three deaths suppress this owner');
   dead.family.cancelOwner(dead.sender.id);
   h.ok(!!(await dead.raster(req('reset-owner'))).png, 'cancelOwner resets the unavailable owner');
+  dead.family.shutdown();
   const failingPool = service(4);
   const dying = Array.from({ length: 4 }, (_, i) => failingPool.raster(req(`pool-death-${i}`, { ...figure, id: `death-figure-${i}` })));
   for (const process of failingPool.processes.slice(0, 3)) process.kill('SIGKILL');
   const suppressed = await Promise.all(dying);
   h.ok(suppressed.every(r => r.error), 'owner backoff settles every running pool job');
   h.eq(suppressed[3], { error: 'Figure raster worker unavailable' }, 'third death also retires the surviving worker');
+  failingPool.family.shutdown();
+  h.section('detail region pixels, envelope and independent service policy');
+  const region = { x: 32, y: 24, w: 192, h: 144 };
+  const detailReq = (rid: string, fig = figure, more = {}) => req(rid, fig, { region, width: 192, height: 144, ...more });
+  const cropped = await s.raster(detailReq('detail-crop'));
+  const wholePixels = pixels(first.png);
+  const regionPixels = new Resvg(`<svg xmlns="http://www.w3.org/2000/svg" width="192" height="144"><image width="192" height="144" href="data:image/png;base64,${Buffer.from(cropped.png).toString('base64')}"/></svg>`).render().pixels;
+  let differing = 0;
+  for (let y = 0; y < 144; y++) for (let x = 0; x < 192; x++) {
+    const a = ((y + 24) * 320 + x + 32) * 4, b = (y * 192 + x) * 4;
+    if ([0,1,2,3].some(c => Math.abs(wholePixels[a+c] - regionPixels[b+c]) > 2)) differing++;
+  }
+  h.ok(differing / (192 * 144) <= .005, `region equals whole PNG crop (≤0.5%, actual ${differing / (192 * 144)})`);
+  for (const [name, more, error] of [
+    ['small', { region: { x: 0, y: 0, w: 40, h: 30 } }, /below the resvg envelope/],
+    ['bounds', { region: { x: 200, y: 0, w: 192, h: 144 } }, /region out of bounds/],
+    ['detail-budget', { width: 4000, height: 3000 }, /detail exceeds pixel budget/],
+    ['detail-side', { width: 8193, height: 1 }, /detail exceeds pixel budget/],
+    ['backdrop', { backdrop: 'url(http://remote)' }, /Invalid figure raster backdrop/],
+  ] as const) h.ok(error.test((await s.raster(detailReq(`detail-${name}`, figure, more))).error), `${name}: named detail refusal`);
+  h.ok(/pixel budget/.test((await s.raster(req('whole-unchanged-budget', figure, { width: 3000, height: 2000 }))).error), 'whole figure retains its 3 MP budget');
+  const transparent = { ...figure, background: undefined, elements: [] };
+  const matte = await s.raster(detailReq('detail-backdrop', transparent, { backdrop: '#12ab34' }));
+  const mattePixels = new Resvg(`<svg xmlns="http://www.w3.org/2000/svg" width="192" height="144"><image width="192" height="144" href="data:image/png;base64,${Buffer.from(matte.png).toString('base64')}"/></svg>`).render().pixels;
+  h.eq([...mattePixels.subarray(0,4)], [18,171,52,255], 'detail backdrop fills transparent figure under the crop');
+  const clipped = { ...dense, elements: [{ ...dense.elements[0], x: 0, y: 0, width: 900, height: 700 }] };
+  const clipSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><defs><clipPath id="c"><rect x="350" y="250" width="30" height="30"/></clipPath></defs><rect x="350" y="250" width="30" height="30" fill="red" clip-path="url(#c)"/></svg>';
+  const unsafeSvg = clipSvg.replace('width="400" height="300"', 'width="50" height="37" viewBox="0 0 50 37.5"');
+  const abort = spawnSync(process.execPath, ['-e', `new (require('@resvg/resvg-js').Resvg)(${JSON.stringify(unsafeSvg)}).render()`], { cwd: repo, encoding: 'utf8', timeout: 5000 });
+  h.ok(abort.signal === 'SIGABRT' && /geom.rs/.test(abort.stderr), 'negative resvg proof: unguarded top-left eighth crop aborts real child');
+  const clippedInline = { 'native-dense': `data:image/svg+xml;base64,${Buffer.from(clipSvg).toString('base64')}` };
+  h.ok(/below the resvg envelope/.test((await s.raster(detailReq('guarded-eighth', clipped, { region: { x: 0, y: 0, w: 112.5, h: 87.5 }, inlineAssets: clippedInline }))).error), 'same eighth crop is refused before resvg');
+  for (const [x, y] of [[0, 0], [540, 420]]) {
+    const safe = await s.raster(detailReq(`safe-${x}`, clipped, { region: { x, y, w: 360, h: 280 }, width: 360, height: 280, inlineAssets: clippedInline }));
+    h.ok(!!safe.png && !safe.error, `0.4 envelope renders at extreme ${x},${y}: ${safe.error ?? "PNG"}`);
+  }
+  const buckets = service();
+  const block = buckets.raster(req('bucket-block', dense));
+  const queuedBase = buckets.raster(req('bucket-base'));
+  const queuedDetail = buckets.raster(detailReq('bucket-detail'));
+  h.ok(!!(await queuedBase).png && !!(await queuedDetail).png && !!(await block).png, 'queued detail and base do not replace each other');
+  buckets.family.shutdown();
+  const cancelPool = service();
+  const heldBase = cancelPool.raster(req('queue-cancel-block', dense));
+  const queuedOnly = cancelPool.raster(detailReq('atlas-D:queued:1'));
+  await cancelPool.cancel('atlas-D:queued:1');
+  h.eq(await queuedOnly, { cancelled: true }, 'renderer retirement cancels queued detail');
+  h.ok(!!(await heldBase).png && cancelPool.processes.length === 1, 'queued detail cancellation does not kill the base worker');
+  const runningDetail = cancelPool.raster(detailReq('atlas-D:running:2'));
+  await cancelPool.whenRendering('atlas-D:running:2');
+  await cancelPool.cancel('atlas-D:running:2');
+  h.ok(!!(await runningDetail).png && cancelPool.processes.length === 1, 'renderer cancellation leaves an already-running detail to finish');
+  cancelPool.family.shutdown();
+
+  // Real faulting children exercise protocol overflow, timeout and crash in the
+  // production owner. After all three, the next spawn is the actual raster worker.
+  const faultChild = path.join(scratch, 'fault-child.cjs');
+  await fs.writeFile(path.join(scratch, 'seed.png'), first.png);
+  await fs.writeFile(faultChild, `const {readFrames,writeFrame}=require(${JSON.stringify(path.join(repo,'electron/sceneRasterProtocol.cjs'))});const fs=require('node:fs');readFrames(process.stdin,(h,b)=>{const r=JSON.parse(b);const mode=process.argv[2];if(mode==='timeout')return;if(mode==='crash')process.exit(7);if(mode==='overflow'){process.stdout.write(Buffer.from([0,0,0,80]));const meta=JSON.stringify({rid:r.rid,bodyBytes:49*1024*1024}).padEnd(80,' ');process.stdout.write(meta);return;}const png=Buffer.alloc(40*1024*1024);fs.readFileSync(${JSON.stringify(path.join(scratch,'seed.png'))}).copy(png);writeFrame(process.stdout,{rid:r.rid,width:r.width,height:r.height},png);},()=>{},96*1024*1024);`);
+  const isolated = service(1, 1000, root, 60000, i => i < 3 ? [faultChild, ['overflow','timeout','crash'][i]] : null);
+  for (let i = 0; i < 3; i++) h.ok(!!(await isolated.raster(detailReq(`detail-fault-${i}`))).error, `forced detail ${['overflow','timeout','crash'][i]} settles error`);
+  h.ok(!!(await isolated.raster(req('base-after-detail-deaths'))).png, 'three detail failures do not disable owner: base PNG still renders');
+  isolated.family.shutdown();
+  const largeReply = service(1, 15000, root, 60000, () => [faultChild, 'large']);
+  const large = await largeReply.raster(detailReq('detail-40MiB', figure, { width: 320, height: 240 }));
+  h.eq(large.png?.length, 40 * 1024 * 1024, 'reply reader accepts a real 40 MiB protocol frame');
+  largeReply.family.shutdown();
+  const affinity = service(2);
+  await affinity.raster(req('affinity-fill-A', { ...figure, id: 'affinity-A' }));
+  // Two simultaneous jobs force B onto slot 1; afterward slot 0 is free too.
+  const busyA = affinity.raster(req('affinity-busy-A', { ...dense, id: 'affinity-A' }));
+  const fillB = affinity.raster(req('affinity-fill-B', { ...figure, id: 'affinity-B' }));
+  await Promise.all([busyA, fillB]);
+  const againB = await affinity.raster(detailReq('affinity-detail-B', { ...figure, id: 'affinity-B' }));
+  h.ok(!!againB.png && affinity.processes[1].rids?.includes('affinity-detail-B'), 'detail affinity reuses slot 1 even when slot 0 is free');
+  affinity.family.shutdown();
   if (process.env.FLUX_FIGURE_RASTER_BENCHMARK === '1') {
     const perfRoot = path.join(scratch, 'SynapticSleep');
     await fs.cp('/home/driessen2/flux-perf/fixture/SynapticSleep', perfRoot, { recursive: true });

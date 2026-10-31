@@ -44,6 +44,8 @@ async function main() {
   check(result.width === 320 && result.height === 240, 'preload PNG dimensions are exact');
   check(JSON.stringify(result.pixel) === JSON.stringify([67,133,190,255]), 'preload PNG has the authored content pixel');
   check(JSON.stringify(result.signature) === JSON.stringify([137,80,78,71,13,10,26,10]), 'preload transports PNG bytes without base64');
+  const region = await js(first, `(async()=>{const r=await window.fig.rasterizeFigure(${JSON.stringify({ ...req('native-region'), figure: { ...figure, background: undefined, elements: [] }, region: { x: 64, y: 48, w: 160, h: 120 }, backdrop: '#12ab34' })});if(r.error)throw Error(r.error);const i=new Image();i.src=URL.createObjectURL(new Blob([r.png],{type:'image/png'}));await i.decode();const c=document.createElement('canvas');c.width=i.naturalWidth;c.height=i.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(i,0,0);URL.revokeObjectURL(i.src);return{w:c.width,h:c.height,p:[...ctx.getImageData(0,0,1,1).data]}})()`);
+  check(region.w === 320 && region.h === 240 && JSON.stringify(region.p) === '[18,171,52,255]', 'region and opaque backdrop round-trip through actual preload/IPC/worker');
   await js(first, 'window.fig.newWindow()');
   const second = await wait(() => BrowserWindow.getAllWindows().find(w => w.id !== first.id), 'second real app window'); windows.push(second);
   second.show(); second.focus();

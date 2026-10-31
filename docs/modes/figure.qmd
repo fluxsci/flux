@@ -600,6 +600,8 @@ elements and ruler guides adjust their local coordinates to stay in place. Artwo
 the new frame remains in the project and reappears if you enlarge the boundary again.
 Dragging the title still moves the whole figure. Slides use a shared deck stage size.
 
+When you zoom into an inactive figure, its picture sharpens after you stop moving.
+
 ## Resizing a plot
 
 Plots saved with fluxplot 0.4 or later include measured layout information. Drag a plot's
