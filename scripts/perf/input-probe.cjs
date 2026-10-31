@@ -21,7 +21,7 @@
 //          (PROBE_NAV_PREP=edit|editPan nudges a plot first — the owner's working rhythm; PROBE_NAV_REST=ms
 //          sets the rest before the burst, default 3500; PROBE_NAV_WARM=1 logs when the sharp plane and
 //          the canvas overview land after it)
-//        --phases=lookAround --lookNotches=8|13: zoom into non-active Figure 3, six 400px pans with 1.5s rests; warm + reaped worker.
+//        --phases=lookAround --lookNotches=8|13: zoom into non-active Figure 3 (PROBE_LOOK_TARGET=<figure id> for another), six 400px pans with 1.5s rests; warm + reaped worker.
 //        --precise-wheel: optional Electron trackpad deltas; records coalesced delivery separately
 //        [--layers] mid-drag compositor layer snapshot (CDP LayerTree: count, top layers, owning node, compositing reasons,
 //        the dragged element's will-change + document.getAnimations()) into results.layers — STRUCTURE ONLY: the LayerTree
@@ -590,8 +590,11 @@ async function figurePhases(mode = 'figure') {
       if(process.env.PROBE_DETAIL_ENABLED==='0')await js('window.__figureDetailProbe.atlas.detail.enabled=false');
       await js(`(()=>{window.__detailProbeTrace={tasks:[],publishes:[]};window.__detailProbeObserver=new PerformanceObserver(l=>{if(!window.__p.running)return;for(const e of l.getEntries())window.__detailProbeTrace.tasks.push({start:e.startTime,ms:e.duration})});window.__detailProbeObserver.observe({type:'longtask'});window.__detailProbeUnsub=window.__figureDetailProbe.details.subscribe(m=>{if(window.__p.running)window.__detailProbeTrace.publishes.push({t:performance.now(),ids:[...m.values()].filter(d=>d.shown).map(d=>d.figureId)})})})()`);
       const index = JSON.parse(fs.readFileSync(path.join(process.env.PROBE_PROJECT, 'fig/index.json'), 'utf8'));
-      const row = index.figures.find(f => f.id === 'fig_mvk8aqtiteos_3');
-      if (!row) throw Error('lookAround needs the owner Figure 3 fixture');
+      // PROBE_LOOK_TARGET picks the non-active figure (default: the owner's vector Figure 3;
+      // QA-P6 also measures the image-heavy Supplementary Figure 5, fig_mvphu8kzd3p3_352).
+      const lookTarget = process.env.PROBE_LOOK_TARGET || 'fig_mvk8aqtiteos_3';
+      const row = index.figures.find(f => f.id === lookTarget);
+      if (!row) throw Error(`lookAround needs the owner fixture figure ${lookTarget}`);
       const saved = JSON.parse(fs.readFileSync(path.join(process.env.PROBE_PROJECT, `fig/canvases/${row.canvas}.json`), 'utf8'));
       const fig = saved.figures.find(f => f.id === row.id), notches = +process.env.PROBE_DETAIL_NOTCHES;
       const detailState = () => js(`(()=>{const p=window.__figureDetailProbe;if(!p)throw Error('Missing production detail observation');const read=s=>{let v;const u=s.subscribe(x=>v=x);u();return v};return{viewport:read(p.viewport),stats:{...p.atlas.stats.detail},details:[...read(p.details).values()].map(d=>({id:d.figureId,S:d.S,w:d.w,h:d.h,shown:d.shown})),dpr:devicePixelRatio}})()`);
