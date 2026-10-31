@@ -5215,6 +5215,14 @@ outside this PNG packaging change.
   (bold-weight resolution, image interpolation); shadow-DOM scoping of plots (B2); a shared restyle helper for the
   slide transform host; an idle-timeout policy per platform for the raster pool.
 
+- **Detail pictures, deferred (2026-10-31):** (a) dropping leaves that lie entirely outside their clip rectangle in region
+  renders (needs path bounding boxes) would let `DETAIL_MIN_EXTENT` fall below 0.5 and restore full sharpness at zoom 8
+  (today ≈ 0.73× of the display's need on Figure 3, 0.54× on the 33-image Supplementary 5); (b) prepared embedded images are
+  cached by output size, so a detail at a new scale re-prepares them (~0.6 s cold on Supplementary 5); (c) tiles instead of one
+  region (parse-bound with resvg: every tile re-parses the figure); (d) AUDIT: the zoom proxy's scene-raster sharp plane uses a
+  "within 1.5 region sizes" rule that exceeds the measured resvg envelope (1w beyond the far edge) and ignores nested layers —
+  it may abort the scene raster child on dense canvases (the child's death handling degrades to the Chromium path, no crash).
+
 ### Elastic plot reflow pipeline
 
 For layout-capable plots: clone pristine SVG → prefix IDs → reflow → prepare view → apply
@@ -11956,3 +11964,29 @@ value + 20 % with the ink-coverage assertions as the load-bearing weight pin (re
 Accepted residuals: cold whole-figure service time 197 → 315 ms median (image preparation; warm at parity), pixelated images past
 the output cap keep smooth rendering.
 **Learnings:** Promoted the XML-entity and Chromium block-diff trap to §9; the strict oracle distinguishes wrong faces from residual anti-aliasing.
+
+### 2026-10-31 — Detail pictures (P6, decision D10; Codex worker w/detail + Opus QA; orchestrator Claude Fable 5.1, `endgame/integrate` @ a998663c)
+**Work:** A pictured (non-active) figure zoomed past its 3 MP / 4,096 px picture cap gets a second, viewport-sized picture at
+display scale: `figure/atlasDetail.ts` (own store — never `atlasRevision` —, a single-slot scheduler that requests only after
+400 ms of quiet and publishes only while quiet, one budget-aware window per view, retention in-view + 2, blob URLs), region +
+backdrop rendering in the raster service with its own replacement bucket, death isolation and slot affinity, `captureExcluded`
+in all four scene serializers, the detail kept behind the warm-up on activation. Plan `DETAIL_PICTURES_PLAN.md` v2 (after an
+Opus critical review with seven must-fixes) → v2.1 after QA measured the resvg envelope: resvg-js 2.6.2 clamps layers to
+≈ [x0 − 2w, x0 + 2w] (not [−2, 3]×) and judges nested layers in the parent layer's coordinates, so the worker's 0.4-extent floor
+aborted the worker on 68 of 594 owner policy regions; ruling B (measured bound + 0.5 floor) → 0 aborts on the owner sweep, zoom-8
+sharpness ≈ 0.73× of need accepted (was 0.21×). Owner geometry (3,072 × 1,696 @ DPR 1.25) in the gate: Figure 3 base 39 % of need →
+detail 100 %; time-to-sharp P50 674 ms warm / 1,133 ms after worker reaping, Supplementary 5 (33 images) 1,186 ms warm; swap slices
+≤ 0.4 ms synchronous; batteries within ±10 % of the head (the B-zoom8 idle +84 % is the pre-existing proxy recapture moving across a
+phase boundary: resize + idle 885 → 852 ms); real display: 120 Hz p95 8.4–9.0 ms, 0 long tasks, first-sharp 0.59–0.75 s warm. Tiers
+pure 454/455 (model3d env), ui 176/176, ui-extra 63/63, scale 17/17, bundle 5/5, startup 1/1, electron all green at owner geometry;
+every mutation proof red at its named assertion (floors, dedupe, each serializer, death counting, quiet hold, `atlasRevision`,
+base-wrapper routing, image-preparation order).
+**Learnings:**
+- Promoted to §4 (the detail picture), §9 (resvg envelope for sub-regions incl. nested layers; detail state off `atlasRevision`;
+  publish-on-quiet; blob-vs-data URL rule; the first-input pin), §10 (deferrals a–d above).
+- A safety constant taken from a library's SOURCE must be measured against the INSTALLED binary before it becomes a validator
+  rule; the gate that proves the abort on the base is what made the wrong number visible.
+- Reusing a hot path's queue for a new kind of work is where contracts leak (the base queue publishes mid-gesture and keys per
+  figure): a dedicated scheduler with its own `current()` was cheaper than guarding the shared one.
+- The quiet gate must cover the whole pipeline (request, decode, href write, show/hide), not just the request.
+- When a measured median moves by a phase boundary (B-zoom8 idle), trace both builds and sum the adjacent phases before calling it.
