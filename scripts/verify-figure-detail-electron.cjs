@@ -147,6 +147,8 @@ if (!process.versions.electron) {
     await click('.figrow[data-fig-id="detail-1"] .item');
     await wait(()=>js("document.querySelector('[data-annotation-figure=\"detail-1\"]')?.getAttribute('data-atlas-mode')==='warming'"),'activation warming');
     check(await js("!!document.querySelector('[data-annotation-figure=\"detail-1\"] [data-figure-detail]')"), 'detail remains behind activation warming slots');
+    // Evidence only (QA-P6): the warming frame with its detail; capture may land after warm-up ends.
+    await shot({ screenshot: ({path:file}) => win.webContents.capturePage().then(img => fsp.writeFile(file,img.toPNG())) }, 'detail-warming');
     await wait(()=>js("document.querySelector('[data-annotation-figure=\"detail-1\"]')?.getAttribute('data-atlas-mode')==='live'"),'activation live');
     check(!(await state()).details.some(d=>d.figureId==='detail-1'), 'detail dropped when figure becomes live');
     await shot({ screenshot: ({path:file}) => win.webContents.capturePage().then(img => fsp.writeFile(file,img.toPNG())) }, 'detail-live');
