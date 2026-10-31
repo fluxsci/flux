@@ -32,6 +32,12 @@ try {
     h.ok(r.w >= fig.width * .4 && r.h >= fig.height * .4, 'extent floor holds at both ends');
     rules.validateFigureRequest({ rid: 'floor', root: '/scratch', figure: fig, assets: [], region: r, width: Math.ceil(r.w * w.S), height: Math.ceil(r.h * w.S), scale: w.S });
   }
+  // QA-P6: the validator's own 0.4 floor, not only the [-2, 3]x envelope. A centred 0.35
+  // region satisfies the envelope arithmetic and must still be refused by name.
+  const thin = { x: fig.width * .33, y: fig.height * .33, w: fig.width * .35, h: fig.height * .35 };
+  let thinError = '';
+  try { rules.validateFigureRequest({ rid: 'thin', root: '/scratch', figure: fig, assets: [], region: thin, width: Math.ceil(thin.w), height: Math.ceil(thin.h), scale: 1 }); } catch (e) { thinError = String(e); }
+  h.ok(/below the resvg envelope/.test(thinError), `validator refuses a region under 0.4 of the extent even inside the envelope (${thinError || 'accepted'})`);
   const big = { ...fig, width: 2000, height: 2000 };
   const owner = d.detailWindow({ x: 200, y: 150, w: 3072 / 4, h: 1696 / 4 }, [big], 4, 1.25);
   h.eq(owner.margin, 0, 'owner viewport leaves no margin');
