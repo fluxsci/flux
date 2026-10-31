@@ -121,6 +121,35 @@ try {
   for (const bad of [request('overside', svg, [{ ...region, width: 4097 }]), request('overpixels', svg, [{ ...region, width: 2000, height: 2000 }]), request('overcoarse', svg, [region, { ...region, width: 2000, height: 1000 }]), request('nan', svg, [{ ...region, bx: NaN }]), request('many', svg, [region, region, region]), request('oversvg', ' '.repeat(64 * 1024 * 1024 + 1))]) {
     let rejected = false; try { validateSceneRequest(bad); } catch { rejected = true; } h.ok(rejected, `${bad.rid} is rejected before spawning`);
   }
+  h.section('embedded-image preparation: per region, no document clone, native fallback');
+  {
+    // QA-P6a 2026-10-31: preparing images by deep-cloning the scene per region cost ~0.9 s per region on a
+    // 150k-node scene (xmldom cloneNode), for every scene, with or without images. Each region must start
+    // from the ORIGINAL image bytes (never the previous region's resampled copy), without a document clone.
+    const { DOMParser } = require('@xmldom/xmldom');
+    let owner: any = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg"/>', 'image/svg+xml');
+    while (owner && !Object.prototype.hasOwnProperty.call(owner, 'cloneNode')) owner = Object.getPrototypeOf(owner);
+    const original = owner.cloneNode; let deepDocumentClones = 0;
+    owner.cloneNode = function (this: any, deep?: boolean) { if (deep && (this.nodeType === 9 || this.localName === 'svg')) deepDocumentClones++; return original.call(this, deep); };
+    const tiny = new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="2" height="2" fill="#f00"/><rect x="2" y="2" width="2" height="2" fill="#00f"/><rect x="2" width="2" height="2" fill="#0f0"/></svg>').render().asPng().toString('base64');
+    const imageScene = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><rect width="100" height="60" fill="#fff"/><image x="10.5" y="5" width="40" height="40" href="data:image/png;base64,${tiny}"/></svg>`;
+    const regions2 = [{ bx: 0, by: 0, bw: 100, bh: 60, width: 337, height: 202 }, { bx: 0, by: 0, bw: 100, bh: 60, width: 61, height: 37 }];
+    let both: any;
+    try { both = await rasterizeScene(request('image-two-scales', imageScene, regions2)); } finally { owner.cloneNode = original; }
+    h.eq(deepDocumentClones, 0, 'region inputs are serialized without deep-cloning the scene document');
+    for (let i = 0; i < regions2.length; i++) {
+      const alone = await rasterizeScene(request(`image-alone-${i}`, imageScene, [regions2[i]]));
+      h.eq(Buffer.compare(both.rasters[i].bytes, alone.rasters[0].bytes), 0, `image plane ${i}: identical to rendering that region alone (prepared from the original bytes)`);
+    }
+    // Geometry or bytes the preparer cannot place keep resvg's native rendering (the pre-P6a output), never a refusal.
+    for (const [label, text] of [
+      ['nested svg in pt', `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><svg width="60pt" height="40pt" viewBox="0 0 60 40"><image width="40" height="40" href="data:image/png;base64,${tiny}"/></svg></svg>`],
+      ['mislabeled image type', `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><image width="40" height="40" href="data:image/jpeg;base64,${tiny}"/></svg>`],
+    ]) {
+      const result = await rasterizeScene(request('fallback-' + label.replace(/\W+/g, '-'), text)).then(v => v, (e: Error) => e);
+      h.ok(!(result instanceof Error), `${label}: renders natively instead of refusing the scene (${result instanceof Error ? result.message : 'PNG'})`);
+    }
+  }
   h.section('resource containment and exact bundled font faces');
   for (const [label, content] of [
     ['file', '<image href="file:///etc/passwd"/>'], ['network', '<image href="https://example.invalid/secret.png"/>'], ['entity', '<image href="&#102;ile:///etc/passwd"/>'],

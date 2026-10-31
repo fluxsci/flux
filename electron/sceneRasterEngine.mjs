@@ -99,6 +99,9 @@ export async function rasterizeScene(request, render = renderAsync) {
   const { svg, regions } = validateSceneRequest(request), doc = sceneDocument(svg), root = doc.documentElement;
   const strokePlans = sceneStrokePlans(root);
   const font = await fontsFor(svg), serializer = new XMLSerializer();
+  // Image preparation rewrites href/style per region scale. Restore the authored attributes before
+  // each region instead of deep-cloning the document (an xmldom clone of a 150k-node scene costs ~0.9 s).
+  const imageAttrs = Array.from(root.getElementsByTagName('image'), node => [node, ['href', 'xlink:href', 'style', 'image-rendering'].map(name => [name, node.hasAttribute(name) ? node.getAttribute(name) : null])]);
   const inputs = regions.map(region => {
     // Every resvg input itself has bounded intrinsic dimensions. In particular
     // no whole-scene image at a deep sharp-region zoom can allocate huge tiles.
@@ -107,8 +110,9 @@ export async function rasterizeScene(request, render = renderAsync) {
     for (const apply of strokePlans) apply(region.width / region.bw, region.height / region.bh);
     // Each native job owns an immutable string; the next region may safely
     // change the shared DOM and bake a different non-scaling stroke transform.
-    const input = doc.cloneNode(true); prepareSceneImages(input.documentElement);
-    return serializer.serializeToString(input);
+    for (const [node, attrs] of imageAttrs) for (const [name, value] of attrs) value === null ? node.removeAttribute(name) : node.setAttribute(name, value);
+    prepareSceneImages(root);
+    return serializer.serializeToString(doc);
   });
   const jobs = inputs.map(input => Promise.resolve().then(async () => {
     const image = await render(input, { font, logLevel: 'off' });

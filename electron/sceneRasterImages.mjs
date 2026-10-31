@@ -80,18 +80,24 @@ export function prepareSceneImages(root) {
   if (!root.getElementsByTagName('image').length) return;
   const matrices=new WeakMap();
   for(const node of [root,...Array.from(root.getElementsByTagName('*'))]) {
-    let matrix=mul(matrices.get(node.parentNode)??ID,transform(node.getAttribute('transform')??''));
-    if(node.localName==='svg') {
-      const vb=nums(node.getAttribute('viewBox')??'');
-      const x=length(node,'x'),y=length(node,'y');
-      matrix=mul(matrix,vb.length===4?fit(x,y,length(node,'width',vb[2]),length(node,'height',vb[3]),...vb,node.getAttribute('preserveAspectRatio')??''): [1,0,0,1,x,y]);
-    }
+    // A placement this preparer cannot compute (units, odd transforms) is null for the
+    // whole subtree: those images keep resvg's native rendering, never a refusal (QA-P6a).
+    const parent=matrices.has(node.parentNode)?matrices.get(node.parentNode):ID;
+    let matrix=null;
+    if(parent) try {
+      matrix=mul(parent,transform(node.getAttribute('transform')??''));
+      if(node.localName==='svg') {
+        const vb=nums(node.getAttribute('viewBox')??'');
+        const x=length(node,'x'),y=length(node,'y');
+        matrix=mul(matrix,vb.length===4?fit(x,y,length(node,'width',vb[2]),length(node,'height',vb[3]),...vb,node.getAttribute('preserveAspectRatio')??''): [1,0,0,1,x,y]);
+      }
+    } catch { matrix=null; }
     matrices.set(node,matrix);
-    if(node.localName!=='image')continue;
+    if(node.localName!=='image'||!matrix)continue;
     const attr=node.hasAttribute('href')?'href':'xlink:href',url=node.getAttribute(attr)??'';
     const match=/^data:image\/(png|jpe?g|gif);base64,([a-z0-9+/=\s]+)$/i.exec(url);if(!match)continue;
     const bytes=Buffer.from(match[2],'base64'),size=match[1]==='png'?pngInfo(bytes):probeImageSize('image.'+match[1],bytes);
-    if(!size)throw Error('Invalid embedded raster image');
+    if(!size)continue; // unreadable or mislabeled bytes: resvg's own decoder decides, as before P6a
     const sw=size.width,sh=size.height;
     if(sw*sh>16_000_000)continue;
     const placement=fit(length(node,'x'),length(node,'y'),length(node,'width',sw),length(node,'height',sh),0,0,sw,sh,node.getAttribute('preserveAspectRatio')??'');
