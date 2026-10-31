@@ -776,7 +776,8 @@
       "verify-relayout-export-electron.cjs",
       "verify-scene-raster-electron.cjs",
       "verify-dense-zoom-electron.cjs",
-      "verify-figure-raster-electron.cjs"
+      "verify-figure-raster-electron.cjs",
+      "verify-figure-raster-fidelity-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -1583,6 +1584,12 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "{scripts/lib/fidelityFixture.ts,scripts/perf/atlas-diff.cjs}",
+      "run": [
+        "verify-figure-raster-fidelity-electron.cjs"
+      ]
+    },
+    {
       "glob": "{src/lib/figure/atlas*.ts,src/lib/interact/modelHit.ts,scripts/lib/atlasFixture.mjs}",
       "run": [
         "verify-figure-atlas.ts",
@@ -1686,7 +1693,8 @@
         "verify-asar-unpack-closure.ts",
         "verify-ipc-contract.ts",
         "tier:presence",
-        "tier:pure"
+        "tier:pure",
+        "verify-figure-raster-fidelity-electron.cjs"
       ]
     },
     {
@@ -1718,7 +1726,9 @@
         "tier:presence",
         "tier:pure",
         "verify-figure-raster-worker.ts",
-        "verify-figure-raster-electron.cjs"
+        "verify-figure-raster-electron.cjs",
+        "verify-figure-raster-fidelity-electron.cjs",
+        "verify-plot-thumbs.ts"
       ]
     },
     {
@@ -2183,6 +2193,22 @@
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
         "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/text/fontFiles.mjs",
+      "run": [
+        "group:text-morph",
+        "verify-ipc-contract.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-plot-thumbs.ts",
+        "verify-figure-raster-fidelity-electron.cjs"
       ]
     },
     {
@@ -3522,7 +3548,8 @@
         "tier:pure",
         "verify-no-retired-agent-layer.ts",
         "group:plots-rail-native",
-        "verify-asar-unpack-closure.ts"
+        "verify-asar-unpack-closure.ts",
+        "verify-figure-raster-fidelity-electron.cjs"
       ]
     },
     {
@@ -11906,6 +11933,18 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-figure-raster-fidelity-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "server",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
       "exclusive": true,
       "coverage": "behavior"
     }

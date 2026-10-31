@@ -13,7 +13,7 @@
 /** Raster widths the cache keeps. A tile asks for the smallest bucket ≥ its CSS width × DPR. */
 export const THUMB_BUCKETS = [256, 512, 1024];
 /** Bump to invalidate every cached thumbnail (render or analysis change). */
-export const PLOT_THUMB_GEN = 8;
+export const PLOT_THUMB_GEN = 9;
 /** The analysis always runs on a render this wide, so a file's backdrop never depends on which
  *  bucket happened to be asked for first. */
 export const ANALYSIS_WIDTH = 512;

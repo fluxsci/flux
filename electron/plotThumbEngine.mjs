@@ -80,28 +80,8 @@ export async function cachedThumb(cacheDir, abs, bucket, st = null) {
   } catch { return null; }
 }
 
-/** Every font request (family stack × weight × style) an SVG makes, de-duplicated. */
-export function svgFontRequests(svgText) {
-  const stacks = new Set();
-  const re = /font-family\s*(?::\s*([^;}"<>]+)|=\s*(?:"([^"]*)"|'([^']*)'))/gi;
-  for (let m; (m = re.exec(svgText)); ) {
-    const v = (m[1] ?? m[2] ?? m[3] ?? "").replace(/&quot;|&#34;|&apos;|&#39;/g, "'").trim();
-    if (v) stacks.add(v);
-  }
-  // CSS shorthand `font: [style] [weight] size[/lh] family-stack` (matplotlib's older output).
-  for (const m of svgText.matchAll(/[;"'{\s]font\s*:\s*([^;}"<>]+)/gi)) {
-    const f = /(?:\d*\.?\d+(?:px|pt|em|%)?(?:\/\S+)?)\s+(.+)$/.exec(m[1].trim());
-    if (f) stacks.add(f[1].replace(/&quot;|&#34;|&apos;|&#39;/g, "'").trim());
-  }
-  if (!stacks.size) stacks.add("sans-serif");
-  const bold = /font-weight\s*[:=]\s*["']?\s*(bold|[6-9]00)/i.test(svgText) || /font\s*:\s*[^;}"]*\bbold\b/i.test(svgText);
-  const italic = /font-style\s*[:=]\s*["']?\s*(italic|oblique)/i.test(svgText) || /font\s*:\s*[^;}"]*\b(italic|oblique)\b/i.test(svgText);
-  const out = [];
-  for (const family of stacks)
-    for (const weight of bold ? [400, 700] : [400])
-      for (const style of italic ? ["normal", "italic"] : ["normal"]) out.push({ family, weight, style });
-  return out;
-}
+import { svgFontRequests } from './sceneRasterFonts.mjs';
+export { svgFontRequests };
 
 /**
  * @param {object} o

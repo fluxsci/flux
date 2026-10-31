@@ -1090,7 +1090,7 @@ Persistence invariants (all machine-checked — do not weaken):
   `flux-core/render.ts renderFigureSvgFromModel` (`renderFigureSvg` calls it; byte parity pinned) over
   stat-validated file caches plus a 64 MiB composition cache — validates it with the scene engine's
   `sceneDocument` (≤ 200k nodes; the same refusals) and renders with resvg `fitTo width` and `fontsFor`'s
-  resolved font files. A refusal is an error reply, not a death; the renderer then keeps that figure live.
+  resolved font files (XML-decoded family/weight/style requests and worker-side Chromium image sampling). A refusal is an error reply, not a death; the renderer then keeps that figure live.
   The worker is a dedicated esbuild bundle (`electron/generated/figureRasterWorker.bundle.mjs`, gitignored,
   built to memory and published by rename by `gen-slide-embed-assets.mjs` / `build-cli.mjs` — an in-place
   rewrite raced the gates that read it — asar-unpacked; `verify-asar-unpack-closure` walks its executable
@@ -4841,6 +4841,18 @@ outside this PNG packaging change.
   `requestIdleCallback` never fires (a snapshot scheduled through it waits for the next gesture).
 
 **The performance endgame (2026-10-29/30):**
+
+- **Raster fidelity needs a Chromium oracle, not just PNG dimensions** (2026-10-31). An XML-serialized
+  family stack contains `&quot;`; scanning declarations before XML decoding truncated it at the entity's
+  semicolon, so Route C missed Arial Bold and used a regular fallback. `sceneRasterFonts.mjs` resolves
+  inherited/shorthand/numeric/relative requests; scene and thumbnail workers share it. resvg 2.6.2's
+  bicubic `auto` and ignored `pixelated` differ from Chromium: `sceneRasterImages.mjs` prepares embedded
+  raster sampling in the child, with bounded memory (oversized sources retain the native renderer).
+  Check fidelity through the real preload against `serializeFigureRegion` + Chromium `Image.decode`:
+  compare RGB means in 2x2 blocks, flagging a channel difference >=10. The strict
+  `verify-figure-raster-fidelity-electron` gate also checks each label's ink coverage within 5%.
+  Correct faces do NOT establish pixel parity: Chromium/resvg glyph rasterization
+  still exceeds the 1% label-block contract; do not waive that assertion or describe P6a as accepted.
 
 - **Per-frame cost is the MOUNTED node count, not the project.** The fit-zoom overview of a 13-figure canvas
   mounted 75k plot nodes and dragged at 30 fps with no slow JavaScript (Paint 505 ms, Layerize 271 ms, script
@@ -11897,3 +11909,7 @@ integration bugs (ledger). Plan, ledger, measurements: `notes/performance_endgam
 - Final acceptance on the integration head (full tiers + 3× electron + 3 owner batteries): a red that passes 3/3 alone is
   attributed, not re-rolled — profile it. The figure-polish first-nudge red was the undo snapshot under a ratio pin
   (§9), the lease red was `--jobs 8` contention, the relayout-release red its own absolute 10 ms budget.
+
+### 2026-10-31 — Raster-service fidelity investigation (Codex, w/fidelity)
+**Work:** Fixed XML-decoded font request discovery, CSS face ordering and embedded-image interpolation in the worker path; added a strict real-preload Chromium oracle and negative proofs against an archived base. Font face/ink and image contracts improve, but the unmodified 1% text-block contract remains red from glyph rasterization differences; owner-project acceptance is recorded in the P6a report, not inferred from dimensions or font identity.
+**Learnings:** Promoted the XML-entity and Chromium block-diff trap to §9; the strict oracle distinguishes wrong faces from residual anti-aliasing.

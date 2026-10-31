@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { renderFigureSvgFromModel, figureRenderReaders, figureImageAssetIds } from '../flux-core/render.ts';
 import { resolveModelPosters } from '../flux-core/model3dPosterCache.ts';
-import { fontsFor, sceneDocument } from './sceneRasterEngine.mjs';
+import { fontsFor, sceneDocument, prepareSceneImages } from './sceneRasterEngine.mjs';
 import rules from './figureRasterRules.cjs';
 const require = createRequire(import.meta.url);
 const { renderAsync } = require('@resvg/resvg-js');
@@ -76,6 +76,7 @@ export async function rasterizeFigure(input) {
   const validateMs = performance.now() - start - composeMs;
   const font = await fontsFor(svg);
   if (process.env.FLUX_FIGURE_RASTER_TRACE) console.error(JSON.stringify({ rid: request.rid, composeMs, validateMs, fontsMs: performance.now() - start - composeMs - validateMs }));
+  prepareSceneImages(root);
   const build = performance.now() - start, rasterStart = performance.now();
   const image = await renderAsync(new XMLSerializer().serializeToString(doc), { fitTo: { mode: 'width', value: request.width }, font, logLevel: 'off' });
   if (image.width !== request.width || image.height !== request.height) throw Error('Invalid figure raster dimensions');

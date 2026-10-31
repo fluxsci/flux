@@ -70,6 +70,8 @@ asarUnpack:
   - electron/sceneRasterProtocol.cjs
   - electron/sceneRasterRules.cjs
   - electron/sceneRasterStrokes.mjs
+  - electron/sceneRasterFonts.mjs
+  - electron/sceneRasterImages.mjs
   # W13: the slide-export CLI runs in a child launched with ELECTRON_RUN_AS_NODE,
   # which has NO asar support — so the bundle + its prebaked export assets must be
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.

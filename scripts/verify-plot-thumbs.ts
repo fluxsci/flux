@@ -39,9 +39,13 @@ function pngWithDpi(w: number, h: number, dpi: number): Buffer {
 }
 
 try {
-  const { createThumbEngine, cachedThumb, svgFontRequests } = await import(pathToFileURL(join(repo, "electron", "plotThumbEngine.mjs")).href);
+  const { createThumbEngine, cachedThumb, svgFontRequests: currentRequests } = await import(pathToFileURL(join(repo, "electron", "plotThumbEngine.mjs")).href);
+  const { svgFontRequests } = process.env.FLUX_SCENE_FONT_BASE
+    ? await import(pathToFileURL(join(process.env.FLUX_SCENE_FONT_BASE, 'electron/plotThumbEngine.mjs')).href)
+    : { svgFontRequests: currentRequests };
+  const { readFontFaces } = await import('../src/lib/text/fontFiles.mjs');
   const { probeImageSize } = await import(pathToFileURL(join(repo, "electron", "plotThumbRules.mjs")).href);
-  const { resolveFontFile } = await import(pathToFileURL(join(repo, "src", "lib", "text", "fontFiles.mjs")).href);
+  const { resolveFontFile, pickFace } = await import(pathToFileURL(join(process.env.FLUX_SCENE_FONT_BASE || repo, "src", "lib", "text", "fontFiles.mjs")).href);
   const { RESERVED_PLOT_DIRNAMES } = await import(pathToFileURL(join(repo, "electron", "plotsFolders.js")).href);
 
   const ROOT = join(tmp, "proj"), P = join(ROOT, "plots"), CACHE = join(tmp, "cache");
@@ -115,8 +119,35 @@ try {
     utimesSync(join(P, "figs", "b.svg"), later2, later2);
     await engine.thumb(join(P, "figs", "b.svg"), 256, { roots: [P], indexRoot: P, onRender: () => order.push("render") });
     h.ok(order.length >= 1, "the engine names the moment resvg runs (the supervisor times only that, not file reads)");
-    const req = svgFontRequests(svg(10, 10) + '<text style="font-weight: bold; font-family: Arial">x</text>');
+    const req = svgFontRequests(svg(10, 10).replace('</svg>', '<text style="font-weight: bold; font-family: Arial">x</text></svg>'));
     h.ok(req.some((r: { weight: number }) => r.weight === 700) && req.some((r: { family: string }) => /DejaVu/.test(r.family)), "font requests: every family stack, bold when any text is bold");
+  }
+
+  h.section('XML-decoded font requests and actual resolved faces');
+  {
+    const source = `<svg xmlns="http://www.w3.org/2000/svg"><g style="font-family:&quot;Arial&quot;,sans-serif;font-weight:600">
+      <text>numeric<tspan style="font-weight:bolder;font-style:italic">relative</tspan></text>
+      <g style="font:italic 700 12px/1.2 &quot;Georgia&quot;,serif"><text>shorthand</text></g>
+      <text style="font-weight:normal">regular</text><text style="font:600 14pt Arial">numeric shorthand</text>
+      <g style="font-weight:300"><text style="font-weight:bolder">400 relative</text></g>
+    </g></svg>`;
+    const reqs = svgFontRequests(source);
+    for (const [family,weight,style,label] of [
+      ['"Arial",sans-serif',600,'normal','inherited numeric 600 and XML quotes'],
+      ['"Arial",sans-serif',900,'italic','bolder resolves from inherited 600'],
+      ['"Georgia",serif',700,'italic','shorthand carries weight, style and quoted family'],
+      ['"Arial",sans-serif',400,'normal','normal resets inherited weight'],
+      ['Arial',600,'normal','numeric shorthand does not mistake weight for size'],
+    ] as const) h.ok(reqs.some((r: any) => r.family===family && r.weight===weight && r.style===style),label);
+    h.ok(reqs.every((r: any) => !r.family.includes('&quot')), 'font requests contain decoded names, never XML entity fragments');
+    const index = Object.fromEntries([600,400,700,300].map(weight=>['face-'+weight,{faces:[{index:0,family:'Fixture',legacyFamily:'Fixture',weight,italic:false}]}]));
+    for(const [weight,expected] of [[500,400],[450,400],[350,300],[550,600],[650,700]])
+      h.eq(pickFace(index,'Fixture',weight,false)?.file,'face-'+expected,`CSS weight ${weight} selects ${expected} independently of file order`);
+    for (const [weight,style,expected] of [[400,'normal',400],[600,'normal',700],[700,'italic',700]] as const) {
+      const hit=await resolveFontFile({family:'Arial',weight,style});
+      const faces=hit?.file?readFontFaces(readFileSync(hit.file)):[];
+      h.ok(faces.some((f: any)=>f.weight===expected && f.italic===(style==='italic')), `Arial ${weight} ${style} resolves to the Chromium face (${expected})`);
+    }
   }
 
   h.section("engine: the per-root index and quarantine");
@@ -204,7 +235,8 @@ try {
   {
     const stubRoot = join(tmp, "stubapp");
     mkdirSync(join(stubRoot, "electron"), { recursive: true });
-    for (const f of ["plotThumbEngine.mjs", "plotThumbRules.mjs", "plotsFolders.js", "dissectRules.js"]) copyFileSync(join(repo, "electron", f), join(stubRoot, "electron", f));
+    for (const f of ["plotThumbEngine.mjs", "plotThumbRules.mjs", "sceneRasterFonts.mjs", "plotsFolders.js", "dissectRules.js"]) copyFileSync(join(repo, "electron", f), join(stubRoot, "electron", f));
+    symlinkSync(join(repo, "node_modules"), join(stubRoot, "node_modules"), process.platform === "win32" ? "junction" : "dir");
     writeFileSync(join(stubRoot, "package.json"), JSON.stringify({ type: "module" }));
     const log = join(tmp, "stub.log");
     writeFileSync(join(stubRoot, "electron", "plotThumbWorker.mjs"), `

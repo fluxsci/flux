@@ -227,7 +227,14 @@ export function pickFace(index, family, weight, italic) {
     if (face.family.toLowerCase() !== want && face.legacyFamily.toLowerCase() !== want) continue;
     // +1 breaks ties toward the face whose legacy (nameID 1) family is the request: Arial Narrow
     // declares typographic family "Arial", and must not stand in for Arial at the same weight.
-    const s = Math.abs(face.weight - weight) + (face.italic === italic ? 0 : 1000) + (face.legacyFamily.toLowerCase() === want ? 0 : 1);
+    // CSS Fonts searches 400..500 specially; absolute distance (and file
+    // enumeration order) can choose 600 for a 500 request ahead of 400.
+    const w = face.weight;
+    const group = weight >= 400 && weight <= 500
+      ? w >= weight && w <= 500 ? 0 : w < weight ? 1 : 2
+      : weight < 400 ? w <= weight ? 0 : 1 : w >= weight ? 0 : 1;
+    const distance = Math.abs(w - weight);
+    const s = (face.italic === italic ? 0 : 1000000) + group * 10000 + distance * 10 + (face.legacyFamily.toLowerCase() === want ? 0 : 1);
     if (s < score) { score = s; best = { file, index: face.index, family: face.family }; }
   }
   return best;

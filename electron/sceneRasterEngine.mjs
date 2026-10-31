@@ -4,7 +4,9 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { resolveFontFile } from '../src/lib/text/fontFiles.mjs';
-import { svgFontRequests } from './plotThumbEngine.mjs';
+import { svgFontRequests, nodeFont } from './sceneRasterFonts.mjs';
+import { prepareSceneImages } from './sceneRasterImages.mjs';
+export { prepareSceneImages };
 import { sceneStrokePlans } from './sceneRasterStrokes.mjs';
 const require = createRequire(import.meta.url);
 const { DOMParser, XMLSerializer } = require('@xmldom/xmldom');
@@ -66,20 +68,7 @@ export function sceneDocument(svg) {
       }
       if (name === 'style' || /url\s*\(|\\|\/\*/i.test(a.value)) safeCss(a.value);
     }
-    const inherited = fonts.get(node.parentNode) ?? { family: 'sans-serif', weight: '400', style: 'normal' };
-    const font = { ...inherited };
-    for (const [key, attr] of [['family', 'font-family'], ['weight', 'font-weight'], ['style', 'font-style']]) if (node.hasAttribute(attr)) font[key] = node.getAttribute(attr);
-    for (const declaration of (node.getAttribute('style') ?? '').split(';')) {
-      const colon = declaration.indexOf(':'); if (colon < 0) continue;
-      const key = declaration.slice(0, colon).trim().toLowerCase(), value = declaration.slice(colon + 1).trim();
-      if (key === 'font-family') font.family = value;
-      if (key === 'font-weight') font.weight = value;
-      if (key === 'font-style') font.style = value;
-      if (key === 'font') {
-        const match = /^(.*?)\b\d*\.?\d+(?:px|pt)(?:\s*\/\s*[^\s]+)?\s+(.+)$/.exec(value);
-        if (match) { font.family = match[2]; font.style = /\b(?:italic|oblique)\b/.test(match[1]) ? 'italic' : 'normal'; font.weight = /\b(?:bold|[5-9]00)\b/.exec(match[1])?.[0] ?? '400'; }
-      }
-    }
+    const font = nodeFont(node, fonts.get(node.parentNode));
     fonts.set(node, font);
     if (['text', 'tspan', 'textPath'].includes(node.localName) && /(?:^|[,\s"'])Gelasio(?:$|[,\s"'])/i.test(font.family)) {
       const weight = font.weight === 'normal' ? 400 : font.weight === 'bold' || font.weight === 'bolder' ? 700 : Number(font.weight);
@@ -118,7 +107,8 @@ export async function rasterizeScene(request, render = renderAsync) {
     for (const apply of strokePlans) apply(region.width / region.bw, region.height / region.bh);
     // Each native job owns an immutable string; the next region may safely
     // change the shared DOM and bake a different non-scaling stroke transform.
-    return serializer.serializeToString(doc);
+    const input = doc.cloneNode(true); prepareSceneImages(input.documentElement);
+    return serializer.serializeToString(input);
   });
   const jobs = inputs.map(input => Promise.resolve().then(async () => {
     const image = await render(input, { font, logLevel: 'off' });
