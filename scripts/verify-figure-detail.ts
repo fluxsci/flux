@@ -19,6 +19,9 @@ const pause = (ms = d.DETAIL_QUIET_MS + 25) => new Promise(r => setTimeout(r, ms
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 try {
   h.eq([d.DETAIL_MAX_PIXELS, d.DETAIL_MAX_SIDE, d.DETAIL_MIN_EXTENT], [rules.DETAIL_MAX_PIXELS, rules.DETAIL_MAX_SIDE, rules.DETAIL_MIN_EXTENT], 'renderer/main detail constants agree');
+  // Ruling QA-P6 (option B): resvg-js 2.6.2 clamps layers to ~[x0 - 2w, x0 + 2w] and checks nested
+  // layers from their parent's origin, so the floor is half the extent (0.4 aborted 68/594 owner regions).
+  h.eq([d.DETAIL_MIN_EXTENT, rules.DETAIL_MIN_EXTENT, d.DETAIL_MAX_PIXELS], [0.5, 0.5, 9_000_000], 'detail floor is 0.5 of the extent; pixel budget stays 9 MP');
   h.ok(!d.wantsDetail(fig, 1, 1.25) && d.wantsDetail(fig, 4, 1.25), 'detail requested only beyond the base cap');
   h.eq(d.neededScale(4, 3), 8, 'detail DPR stops at two');
   const outside = { ...fig, elements: [{ id: 'rot', type: 'rect', x: -150, y: 800, width: 200, height: 300, rotation: 45 }] } as Figure;
@@ -29,15 +32,30 @@ try {
   for (const x of [fig.x, fig.x + fig.width - 10]) for (const y of [fig.y, fig.y + fig.height - 10]) {
     const w = d.detailWindow({ x, y, w: 10, h: 10 }, [fig], 8, 1.25);
     const r = w.regions.get(fig.id)!;
-    h.ok(r.w >= fig.width * .4 && r.h >= fig.height * .4, 'extent floor holds at both ends');
-    rules.validateFigureRequest({ rid: 'floor', root: '/scratch', figure: fig, assets: [], region: r, width: Math.ceil(r.w * w.S), height: Math.ceil(r.h * w.S), scale: w.S });
+    h.ok(r.w >= fig.width * .5 && r.h >= fig.height * .5, 'extent floor (0.5) holds at both ends');
+    let refused = '';
+    try { rules.validateFigureRequest({ rid: 'floor', root: '/scratch', figure: fig, assets: [], region: r, width: Math.ceil(r.w * w.S), height: Math.ceil(r.h * w.S), scale: w.S }); } catch (e) { refused = String(e); }
+    h.ok(!refused, `corner window ${x - fig.x},${y - fig.y} passes the service's measured envelope (${refused || 'ok'})`);
   }
-  // QA-P6: the validator's own 0.4 floor, not only the [-2, 3]x envelope. A centred 0.35
+  // QA-P6: every window the policy can produce is accepted by the service, including figures
+  // with out-of-frame elements on either side, at the zooms the owner uses (2.5 / 4 / 8).
+  let sweepRefusals = 0, sweepWindows = 0;
+  const wide = { ...fig, elements: [{ id: 'l', type: 'rect', x: -200, y: 100, width: 50, height: 50, rotation: 0 }, { id: 'r', type: 'rect', x: 900, y: 700, width: 60, height: 300, rotation: 30 }] } as Figure;
+  for (const f of [fig, outside, wide]) for (const zoom of [2.5, 4, 8]) for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6; j++) {
+    const vw = 3072 / zoom, vh = 1696 / zoom;
+    const win = d.detailWindow({ x: f.x - vw / 2 + i / 6 * f.width, y: f.y - vh / 2 + j / 6 * f.height, w: vw, h: vh }, [f], zoom, 1.25);
+    const r = win.regions.get(f.id); if (!r) continue; sweepWindows++;
+    const e = d.contentExtent(f);
+    const safe = r.w + 1e-7 >= .5 * e.w && r.h + 1e-7 >= .5 * e.h && e.x >= r.x - 2 * r.w - 1e-7 && e.y >= r.y - 2 * r.h - 1e-7 && e.x + e.w <= r.x + 2 * r.w + 1e-7 && e.y + e.h <= r.y + 2 * r.h + 1e-7;
+    try { rules.validateFigureRequest({ rid: 'sweep', root: '/scratch', figure: f, assets: [], region: r, width: Math.max(1, Math.ceil(r.w * win.S)), height: Math.max(1, Math.ceil(r.h * win.S)), scale: win.S }); if (!safe) sweepRefusals++; } catch { sweepRefusals++; }
+  }
+  h.eq(sweepRefusals, 0, `all ${sweepWindows} policy windows (3 figures x 3 zooms x 49 views) pass the 0.5 floor, the measured [x0 - 2w, x0 + 2w] envelope and the service validator`);
+  // QA-P6: the validator's own 0.5 floor, not only the [-2, 2]x envelope. A centred 0.45
   // region satisfies the envelope arithmetic and must still be refused by name.
-  const thin = { x: fig.width * .33, y: fig.height * .33, w: fig.width * .35, h: fig.height * .35 };
+  const thin = { x: fig.width * .275, y: fig.height * .275, w: fig.width * .45, h: fig.height * .45 };
   let thinError = '';
   try { rules.validateFigureRequest({ rid: 'thin', root: '/scratch', figure: fig, assets: [], region: thin, width: Math.ceil(thin.w), height: Math.ceil(thin.h), scale: 1 }); } catch (e) { thinError = String(e); }
-  h.ok(/below the resvg envelope/.test(thinError), `validator refuses a region under 0.4 of the extent even inside the envelope (${thinError || 'accepted'})`);
+  h.ok(/below the resvg envelope/.test(thinError), `validator refuses a region under 0.5 of the extent even inside the envelope (${thinError || 'accepted'})`);
   const big = { ...fig, width: 2000, height: 2000 };
   const owner = d.detailWindow({ x: 200, y: 150, w: 3072 / 4, h: 1696 / 4 }, [big], 4, 1.25);
   h.eq(owner.margin, 0, 'owner viewport leaves no margin');

@@ -2812,9 +2812,12 @@ Persistence invariants (all machine-checked — do not weaken):
     displayed art inside it (`serializeSceneRegion`, ≤20k nodes).
     **resvg-js 2.6.2 aborts the child process** (`geom.rs:27` unwrap) on ANY layered
     node — clip-path even on a leaf, mask, filter, opacity < 1 — lying entirely outside
-    about [−2, 3]× its canvas. Every frame has a clip and matplotlib clips nearly every
-    leaf, so never ask the child for a sub-region that far content can fall outside;
-    whole-scene regions are safe. A capture of the owner's 75k-node project costs
+    about [x0 − 2w, x0 + 2w] of its canvas (measured 2026-10-31 by bisection; resvg git rev
+    3495d87 — NOT the [−2W, 3W] of the resvg 0.45 source), and NESTED layers are checked in
+    their parent layer's pixmap coordinates, so a leaf ON the canvas aborts when it sits
+    more than 2w from its enclosing plot layer's origin. Every frame has a clip and
+    matplotlib clips nearly every leaf, so never ask the child for a sub-region that far
+    content can fall outside; whole-scene regions are safe. A capture of the owner's 75k-node project costs
     ≈0.7 s of 6 ms walk slices plus ≈2.4 s in the child (34.8 MB SVG; parse-bound, so
     1 MP and 3 MP cost the same) — recaptures must stay rare.
     The overview is valid exactly while every figure's key (revision, plot generations,
@@ -4868,9 +4871,11 @@ outside this PNG packaging change.
   per region (xmldom: ~0.9 s for 150k nodes) — `verify-scene-raster` counts clones.
 
 - **Detail sub-regions need the resvg envelope even for clipped/hidden content.** Include every rotated
-  element box in the extent and enforce the 0.4 floor in the service validator; a small crop of a clipped
-  matplotlib plot can abort resvg rather than return an error. Detail deaths must never trip base-service
-  backoff. The pixel budget reduces scale, never the safety region.
+  element box in the extent and enforce the 0.5 floor (and the measured [x0 − 2w, x0 + 2w] envelope) in
+  the service validator; a crop of a clipped matplotlib plot aborts resvg rather than returning an error.
+  The plan's 0.4 floor (premised on [−2, 3]×) let 68 of 594 owner policy regions abort (QA-P6, nested plot
+  layers: a model-extent check cannot see them); at 0.5, 0 of 503. Detail deaths must never trip
+  base-service backoff. The pixel budget reduces scale, never the safety region.
 - **Detail state must not touch `atlasRevision`.** It enters `sceneContentKey`; a bump reserializes and
   decodes the proxy snapshot and retires its overview (41–73 ms serialize + 45–103 ms decode measured on
   the owner's canvas). Keep details out of every serializer, the mount list, and `AtlasViewEntry`.

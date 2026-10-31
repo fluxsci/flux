@@ -217,9 +217,57 @@ try {
   h.ok(abort.signal === 'SIGABRT' && /geom.rs/.test(abort.stderr), 'negative resvg proof: unguarded top-left eighth crop aborts real child');
   const clippedInline = { 'native-dense': `data:image/svg+xml;base64,${Buffer.from(clipSvg).toString('base64')}` };
   h.ok(/below the resvg envelope/.test((await s.raster(detailReq('guarded-eighth', clipped, { region: { x: 0, y: 0, w: 112.5, h: 87.5 }, inlineAssets: clippedInline }))).error), 'same eighth crop is refused before resvg');
-  for (const [x, y] of [[0, 0], [540, 420]]) {
-    const safe = await s.raster(detailReq(`safe-${x}`, clipped, { region: { x, y, w: 360, h: 280 }, width: 360, height: 280, inlineAssets: clippedInline }));
-    h.ok(!!safe.png && !safe.error, `0.4 envelope renders at extreme ${x},${y}: ${safe.error ?? "PNG"}`);
+  // Ruling QA-P6 (option B): resvg-js 2.6.2 (rev 3495d87) clamps layers to ~[x0 - 2w, x0 + 2w] of
+  // the canvas and checks nested layers from their PARENT layer's origin, so a detail region spans
+  // at least 0.5 of the content extent on each axis (the 0.4 floor aborted 68 of 594 owner regions).
+  for (const [x, y, w, hh] of [[0, 0, 450, 350], [450, 350, 450, 350]]) {
+    const safe = await s.raster(detailReq(`safe-${x}`, clipped, { region: { x, y, w, h: hh }, width: w, height: hh, inlineAssets: clippedInline }));
+    h.ok(!!safe.png && !safe.error, `0.5-floor region renders at extreme ${x},${y}: ${safe.error ?? "PNG"}`);
+  }
+  h.ok(/below the resvg envelope/.test((await s.raster(detailReq('start-0.4', clipped, { region: { x: 0, y: 0, w: 360, h: 280 }, width: 360, height: 280, inlineAssets: clippedInline }))).error), 'a 0.4 region (below the 0.5 floor / outside the measured envelope) is refused by name');
+  const engine = await import('../electron/figureRasterEngine.mjs');
+  // Render a composed figure under an UNGUARDED region in its own child: the negative proof of
+  // what the service would do without the rule (an abort kills only that child).
+  async function unguarded(label: string, fig: Figure, r: { x: number; y: number; w: number; h: number }, extraAssets: Asset[] = []) {
+    const svg = await engine.buildFigureSvg({ rid: `${label}-compose`, root, figure: fig, assets: [...assets, ...extraAssets], scale: 1, width: 100, height: 100 });
+    const file = path.join(scratch, `${label}.svg`); await fs.writeFile(file, svg);
+    const W = Math.ceil(r.w * 2), H = Math.ceil(r.h * 2);
+    const child = `const fs=require('fs');let s=fs.readFileSync(process.argv[1],'utf8');s=s.replace(/<svg([^>]*?)\\sviewBox="[^"]*"/,'<svg$1 viewBox="${r.x} ${r.y} ${r.w} ${r.h}"').replace(/<svg([^>]*?)\\swidth="[^"]*"/,'<svg$1 width="${W}"').replace(/<svg([^>]*?)\\sheight="[^"]*"/,'<svg$1 height="${H}"');new (require('@resvg/resvg-js').Resvg)(s,{logLevel:'off',font:{loadSystemFonts:false}}).render()`;
+    const run = spawnSync(process.execPath, ['-e', child, file], { cwd: repo, encoding: 'utf8', timeout: 30000 });
+    return run.signal ?? `exit ${run.status}`;
+  }
+  // (a) A layered Flux element (opacity < 1) 0.9 of the way across, 0.4 region at the origin.
+  const far = { ...structuredClone(figure), id: 'qa-far-layer', width: 1000, height: 500, elements: [{ ...structuredClone(figure.elements[0]), id: 'qa-far', x: 900, y: 20, width: 90, height: 40, opacity: 0.5, rotation: 0 }] } as Figure;
+  h.eq(await unguarded('far', far, { x: 0, y: 0, w: 400, h: 200 }), 'SIGABRT', 'negative resvg proof: composed figure, 0.4 region at origin, layer at 2.25w aborts the child (exit 134)');
+  h.ok(/below the resvg envelope/.test((await s.raster(detailReq('far-0.4', far, { region: { x: 0, y: 0, w: 400, h: 200 }, width: 400, height: 200 }))).error ?? ''), 'service refuses that region by name (no worker abort)');
+  // (b) NESTED layers, modelled on the owner's Supplementary Figure 6: an in-box matplotlib line
+  // (clip-path to its axes) inside a 672-wide plot layer, under a 0.4-wide region on the right.
+  // Every model box lies inside [x0 - 2w, x0 + 2w]; the figure patch makes the plot layer start at its
+  // left edge (a layer's box is its content's), so the line is 2w+ from that layer's origin.
+  const widePlot = '<svg xmlns="http://www.w3.org/2000/svg" width="504pt" height="172.5pt" viewBox="0 0 504 172.5"><defs><clipPath id="p1"><rect x="365.963278" y="20.996819" width="135.036482" height="117.868597"/></clipPath></defs><g id="figure_1"><g id="patch_1"><path d="M 0 172.5 L 504 172.5 L 504 0 L 0 0 z" style="fill:#ffffff"/></g><g id="axes_1"><path d="M 484.15842 106.483934 L 494.861738 106.483934" clip-path="url(#p1)" style="fill:none;stroke:#205ea6;stroke-width:1.7;stroke-linejoin:miter"/></g></g></svg>';
+  await fs.writeFile(path.join(root, 'fig/assets/qa-wide-plot.svg'), widePlot);
+  const wideAsset = { id: 'qa-wide-plot', name: 'Wide plot', kind: 'svg', path: 'assets/qa-wide-plot.svg', naturalWidth: 672, naturalHeight: 230 } as Asset;
+  const nested = { ...structuredClone(figure), id: 'qa-nested', width: 680, height: 850, background: '#ffffff', elements: [{ ...structuredClone(dense.elements[0]), id: 'qa-wide', assetId: 'qa-wide-plot', x: 0, y: 592.6150866541777, width: 672, height: 230, rotation: 0 }] } as Figure;
+  const nestedReq = (rid: string, r: { x: number; y: number; w: number; h: number }) => ({ ...req(rid, nested), assets: [...assets, wideAsset], scale: 2, region: r, width: Math.ceil(r.w * 2), height: Math.ceil(r.h * 2) });
+  const culprit = { x: 408, y: 0, w: 272, h: 425 };
+  h.eq(await unguarded('nested', nested, culprit, [wideAsset]), 'SIGABRT', 'negative resvg proof: nested plot layer, in-box line, 0.4-wide region on the right aborts the child (exit 134)');
+  h.ok(/below the resvg envelope/.test((await s.raster(nestedReq('nested-0.4', culprit))).error ?? ''), 'service refuses the nested-layer 0.4 region by name');
+  const half = { x: 340, y: 0, w: 340, h: 425 };
+  h.eq(await unguarded('nested-half', nested, half, [wideAsset]), 'exit 0', 'the same column at the 0.5 floor renders in an unguarded child (no abort)');
+  const halfOut = await s.raster(nestedReq('nested-0.5', half));
+  h.ok(!!halfOut.png && !halfOut.error, `service renders the nested-layer 0.5 region (${halfOut.error ?? 'PNG'})`);
+  const eighth = { x: 0, y: 0, w: 85, h: 106.25 };
+  h.eq(await unguarded('eighth', nested, eighth, [wideAsset]), 'SIGABRT', 'negative resvg proof: top-left 1/8 x 1/8 region of the composed plot figure aborts the child (exit 134)');
+  h.ok(/below the resvg envelope/.test((await s.raster(nestedReq('nested-eighth', eighth))).error ?? ''), 'service refuses the 1/8 x 1/8 region by name');
+  const { detailWindow } = await import('../src/lib/figure/atlasDetail');
+  for (const [label, fig, view, more] of [
+    ['far', far, { x: 10, y: 10, w: 50, h: 50 }, {}],
+    ['nested-right', nested, { x: 600, y: 700, w: 60, h: 60 }, { assets: [...assets, wideAsset] }],
+    ['nested-left', nested, { x: 10, y: 600, w: 60, h: 60 }, { assets: [...assets, wideAsset] }],
+  ] as const) {
+    const win = detailWindow(view, [{ ...fig, x: 0, y: 0 }], 8, 1).regions.get(fig.id)!;
+    const out = await s.raster({ ...detailReq(`policy-${label}`, fig, { region: win, width: Math.ceil(win.w * 2), height: Math.ceil(win.h * 2) }), scale: 2, ...more });
+    h.ok(!!out.png && !out.error, `policy region renders without abort: ${label} ${JSON.stringify(win)} (${out.error ?? 'PNG'})`);
   }
   const buckets = service();
   const block = buckets.raster(req('bucket-block', dense));

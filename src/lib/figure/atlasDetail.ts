@@ -6,7 +6,7 @@ import { rotatedAABB, unionRect, type Rect } from '../geometry';
 import { atlasDev, atlasStats, rasterScale, usable, type FigureRaster } from './atlas';
 
 export const DETAIL_MAX_PIXELS = 9_000_000, DETAIL_MAX_SIDE = 8192;
-export const DETAIL_MIN_EXTENT = 0.4, DETAIL_QUIET_MS = 400, DETAIL_SNAP = 64, DETAIL_KEEP_EXTRA = 2;
+export const DETAIL_MIN_EXTENT = 0.5, DETAIL_QUIET_MS = 400, DETAIL_SNAP = 64, DETAIL_KEEP_EXTRA = 2;
 export interface FigureDetail {
   figureId: string; key: string; region: Rect; S: number; w: number; h: number;
   url: string; bytes: number; shown: boolean; lastShownAt: number;
@@ -47,19 +47,25 @@ export function detailCurrent(req: DetailRequest, state: {
 }
 
 /** One pixel budget for the VIEW, not one screenful plus margin per figure.
- * The 0.4 extent floor is a resvg safety boundary; lower S, never that floor. */
+ * The 0.5 extent floor is a resvg safety boundary; lower S, never that floor. */
 export function detailWindow(viewBox: Rect, figs: Figure[], zoom: number, dpr: number, maxPixels = DETAIL_MAX_PIXELS): { regions: Map<string, Rect>; S: number; margin: number } {
   const grid = DETAIL_SNAP / zoom, need = neededScale(zoom, dpr);
   const windows = (margin: number) => new Map(figs.flatMap(fig => {
     const v = localView(viewBox, fig); if (!v) return [];
     const e = contentExtent(fig);
     const axis = (start: number, size: number, min: number, extent: number, viewSize: number) => {
-      const end = Math.ceil((start + size + margin * viewSize) / grid) * grid;
-      let lo = Math.floor((start - margin * viewSize) / grid) * grid;
-      // Negative out-of-frame elements participate in the envelope too. A
-      // region has nonnegative coordinates, so cover their left reach as well.
-      const length = Math.min(min + extent, Math.max(end - lo, DETAIL_MIN_EXTENT * extent, -min / 2));
-      lo = Math.max(0, Math.min(lo - Math.max(0, length - (end - lo)) / 2, min + extent - length));
+      const far = min + extent;
+      const b = Math.min(far, Math.ceil((start + size + margin * viewSize) / grid) * grid);
+      const a = Math.max(0, Math.floor((start - margin * viewSize) / grid) * grid);
+      // resvg aborts on layered content entirely outside [lo - 2L, lo + 2L], and nested
+      // layers are checked from their parent layer's origin (measured 2026-10-31, see
+      // figureRasterRules.cjs), so the floor is half the extent everywhere (ruling QA-P6
+      // option B). Out-of-frame elements count (min < 0) and a region has nonnegative
+      // coordinates. Pick the smallest safe L, then centre the view in it within the
+      // feasible origins.
+      const length = Math.min(far, Math.max(b - a, DETAIL_MIN_EXTENT * extent, (far - a) / 2, -min / 2, (b - min) / 3));
+      const lower = Math.max(0, far - 2 * length, b - length), upper = Math.min(min + 2 * length, far - length, a);
+      const lo = Math.max(0, Math.min(upper, Math.max(lower, a - (length - (b - a)) / 2)));
       return [lo, length];
     };
     const [x, w] = axis(v.x, v.w, e.x, e.w, viewBox.w), [y, h] = axis(v.y, v.h, e.y, e.h, viewBox.h);

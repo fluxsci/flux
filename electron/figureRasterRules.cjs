@@ -1,6 +1,6 @@
 'use strict';
 const { MAX_SVG_BYTES, MAX_SIDE } = require('./sceneRasterRules.cjs');
-const DETAIL_MAX_SIDE = 8192, DETAIL_MAX_PIXELS = 9_000_000, DETAIL_MIN_EXTENT = 0.4;
+const DETAIL_MAX_SIDE = 8192, DETAIL_MAX_PIXELS = 9_000_000, DETAIL_MIN_EXTENT = 0.5;
 const MAX_MODEL_BYTES = 16 * 1024 * 1024;
 const identity = value => typeof value === 'string' && /^[\w.:-]{1,160}$/.test(value);
 // IPC supplies structured clones, but this validator also guards direct child inputs.
@@ -16,6 +16,15 @@ function plainJson(value, seen = new Set(), depth = 0) {
   seen.delete(value); return ok;
 }
 // Model-space envelope, including hidden/off-frame elements: resvg still parses them.
+// resvg-js 2.6.2 (resvg git rev 3495d87) aborts the child (geom.rs:27 unwrap) when a layer
+// (clip-path, mask, filter, opacity < 1) lies entirely outside its max_bbox, which that rev
+// clamps to about [x0 - 2w, x0 + 2w] of the canvas (measured by bisection 2026-10-31, QA-P6:
+// 2.00-2.08 w far side, -2.00 to -2.06 w near side). Nested layers are checked in their
+// PARENT layer's pixmap coordinates, so a leaf on the canvas aborts when it sits more than
+// 2w from its enclosing plot layer's origin; a model-extent check cannot see that. The
+// resvg 0.45 source's [-2W, 3W] was the plan's wrong number. Hence: the whole extent must lie
+// in [x0 - 2w, x0 + 2w] AND w >= 0.5 extent (every in-box layer then sits within 2w of any
+// ancestor). Owner sweep: 503 policy regions, 0 aborts (0.4 floor: 68 of 594 aborted).
 function contentExtent(figure) {
   let x = 0, y = 0, right = figure.width, bottom = figure.height;
   for (const e of figure.elements) {
@@ -41,7 +50,7 @@ function validateFigureRequest(request, root = request?.root) {
   if (detail) {
     const extent = contentExtent(figure), r = region;
     if (!r || ![r.x, r.y, r.w, r.h].every(Number.isFinite) || r.x < 0 || r.y < 0 || r.w <= 0 || r.h <= 0 || r.x + r.w > extent.x + extent.w + 1e-7 || r.y + r.h > extent.y + extent.h + 1e-7) throw Error('Figure raster region out of bounds');
-    if (r.w + 1e-7 < DETAIL_MIN_EXTENT * extent.w || r.h + 1e-7 < DETAIL_MIN_EXTENT * extent.h || extent.x < r.x - 2 * r.w - 1e-7 || extent.y < r.y - 2 * r.h - 1e-7 || extent.x + extent.w > r.x + 3 * r.w + 1e-7 || extent.y + extent.h > r.y + 3 * r.h + 1e-7) throw Error('Figure raster region below the resvg envelope');
+    if (r.w + 1e-7 < DETAIL_MIN_EXTENT * extent.w || r.h + 1e-7 < DETAIL_MIN_EXTENT * extent.h || extent.x < r.x - 2 * r.w - 1e-7 || extent.y < r.y - 2 * r.h - 1e-7 || extent.x + extent.w > r.x + 2 * r.w + 1e-7 || extent.y + extent.h > r.y + 2 * r.h + 1e-7) throw Error('Figure raster region below the resvg envelope');
   }
   if (backdrop !== undefined && (typeof backdrop !== 'string' || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(backdrop))) throw Error('Invalid figure raster backdrop');
   if (!Array.isArray(assets) || !plainJson(assets) || (manifests !== undefined && !plainJson(manifests))) throw Error('Invalid figure raster assets');
