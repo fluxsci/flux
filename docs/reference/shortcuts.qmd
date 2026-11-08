@@ -89,7 +89,7 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | **Alt+D** / **Shift+Alt+D** | Toggle the selected word in the personal / project dictionary |
 | **Shift+Alt+W** | Word tools for the selected term — dictionaries and aliases |
 | **Ctrl+Enter** | Follow the item under the caret (figure ref → figure; citation → group editor) |
-| **Ctrl+F** / **Ctrl+Alt+F** | Find / find & replace |
+| **Ctrl+F** / **Ctrl+Alt+F** | Find / find & replace — **Enter** / **Shift+Enter** step matches; the bar shows *3 of 17* |
 | **Ctrl+B** / **Ctrl+I** / **Ctrl+E** | Bold / italic / inline code |
 | **Ctrl+Shift+1…4** / **Ctrl+Shift+0** | Heading level / back to paragraph |
 | **Ctrl+Shift+8** / **Ctrl+Shift+7** / **Ctrl+Shift+.** | Bullet list / numbered list / blockquote |

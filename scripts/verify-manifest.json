@@ -646,7 +646,8 @@
       "verify-paper-asset-reads.mjs",
       "verify-unplaced-asset-bytes.mjs",
       "verify-plot-restyle-gui.mjs",
-      "verify-paper-wordcount-gui.mjs"
+      "verify-paper-wordcount-gui.mjs",
+      "verify-paper-find-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -877,7 +878,8 @@
       "verify-model3d-embed.ts",
       "verify-model3d-embed-gui.mjs",
       "verify-word-count.ts",
-      "verify-paper-wordcount-gui.mjs"
+      "verify-paper-wordcount-gui.mjs",
+      "verify-paper-find-gui.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -12113,6 +12115,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-paper-find-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

@@ -106,6 +106,7 @@
   import { keymap } from "@codemirror/view";
   import StatusBar from "./StatusBar.svelte";
   import { createPaperWordCounts } from "./wordCounts.svelte";
+  import { findCount } from "./editing/findCount";
   import { pageCompartment, themeFor } from "./view-mode/pageView";
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
@@ -1675,6 +1676,7 @@
         }),
         selBubble.watcher,
         wordCounts.watcher,
+        findCount(), // Ctrl+F: pill clearance + the idle "k of n" count
         // Feedback stamp: live doc selection → shell store — FOCUSED pane only
         // (the publish target is app-global; a focus flip republishes below).
         makePaperSelectionWatcher(() => focused),
