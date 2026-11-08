@@ -2,9 +2,11 @@
   import { yieldsToShellModal } from "../../agent/annotationVisibility";
   // Persistent, glanceable status — a slim translucent pill bottom-right of
   // the editor column (Obsidian's placement). Dumb component: PaperMode feeds
-  // it already-computed values (words from the 150ms-debounced latestIdle —
-  // nothing here touches the typing hot path). Vim's mode indicator lives in
-  // vim's own bottom panel, not here.
+  // it already-computed values (word counts from the 150ms-debounced
+  // latestIdle via wordCounts.svelte.ts — nothing here touches the typing hot
+  // path). The count reads main-text words the chosen journal's way, "N
+  // selected" while there is a selection, and opens the word-count popover.
+  // Vim's mode indicator lives in vim's own bottom panel, not here.
   //
   // It also carries the TEXT SIZE control (Word's bottom-right zoom slider):
   // − / slider / + / a percentage readout that opens the scope popover. The
@@ -24,9 +26,11 @@
     type PaperPanelId,
     type PaperTextScaleState,
   } from "./view-mode/paperTextScale";
+  import WordCountPopover from "./WordCountPopover.svelte";
+  import type { PaperWordCounts } from "./wordCounts.svelte";
 
   let {
-    words,
+    counts,
     status,
     onStats,
     onExport,
@@ -40,7 +44,7 @@
     onTextScaleTarget,
     onTextScaleAllTargets,
   }: {
-    words: number;
+    counts: PaperWordCounts;
     status: "demo" | "saved" | "saving" | "error";
     onStats: () => void;
     onExport: () => void;
@@ -78,6 +82,34 @@
   let scopeOpen = $state(false);
   let zoomEl = $state<HTMLDivElement | undefined>(undefined);
   let scopeEl = $state<HTMLDivElement | undefined>(undefined);
+
+  // ---- words ------------------------------------------------------------
+  let countOpen = $state(false);
+  let countEl = $state<HTMLDivElement | undefined>(undefined);
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  const overTarget = $derived(counts.target != null && counts.main > counts.target);
+  $effect(() => {
+    if (!countOpen) return;
+    const away = (e: PointerEvent) => {
+      if (yieldsToShellModal(e)) return;
+      const t = e.target as Node | null;
+      if (t && countEl?.contains(t)) return;
+      countOpen = false;
+    };
+    const esc = (e: KeyboardEvent) => { if (yieldsToShellModal(e)) return;
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      countOpen = false;
+      counts.focusEditor();
+    };
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", esc, true);
+    return () => {
+      window.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", esc, true);
+    };
+  });
 
   // Dismissal: anywhere outside, or Esc. Capture phase so a click that also
   // lands on an editor handler still closes the popover first.
@@ -164,9 +196,23 @@
     <button class="seg" onclick={onExport} disabled={exporting} title="Export — PDF · HTML · Word (also in ⌘K)">
       {exporting ? "Exporting…" : "Export"}
     </button>
-    <button class="seg" onclick={onStats} title="Statistics (⌘K → Statistics)">
-      {words.toLocaleString()} words
-    </button>
+    <div class="words" bind:this={countEl}>
+      <button
+        class="seg count"
+        class:open={countOpen}
+        class:over={overTarget}
+        aria-haspopup="dialog"
+        aria-expanded={countOpen}
+        data-word-count={counts.main}
+        data-selected-words={counts.selected ?? ""}
+        onclick={() => (countOpen = !countOpen)}
+        title={`Main-text words, counted the way ${counts.venueId === "flux" ? "journals count them" : counts.style.name + " counts them"}. Click for sections, limits and a target.`}>
+        {#if counts.selected != null}<span class="sel">{`${fmt(counts.selected)} selected · `}</span>{/if}{fmt(counts.main)}{#if counts.target != null}<span class="tgt">{` / ${fmt(counts.target)}`}</span>{/if}{" words"}
+      </button>
+      {#if countOpen}
+        <WordCountPopover {counts} onStats={() => { countOpen = false; onStats(); }} />
+      {/if}
+    </div>
     {#if status !== "saved"}
       <span class="seg state" class:error={status === "error"}>
         {status === "saving" ? "saving…" : status}
@@ -267,6 +313,19 @@
   .seg:disabled {
     opacity: 0.55;
     cursor: var(--cursor-cross);
+  }
+  .words {
+    display: inline-flex;
+  }
+  .count.open {
+    color: var(--c-tx-2);
+    background: var(--c-surface);
+  }
+  .count .sel {
+    color: var(--c-accent);
+  }
+  .count.over .tgt {
+    color: var(--c-warning);
   }
   .state {
     cursor: var(--cursor-cross);

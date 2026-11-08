@@ -8,10 +8,14 @@
     title = "",
     activeFrom = -1,
     collapsed,
+    counts,
     onJump,
     onToggleCollapse,
   }: {
     items: OutlineItem[];
+    /** Prose words per section (subsections included), keyed by the heading
+     *  line's offset — from the idle-tick word analysis (wordCounts.svelte.ts). */
+    counts?: ReadonlyMap<number, number>;
     title?: string;
     activeFrom?: number;
     collapsed: Set<string>;
@@ -83,6 +87,9 @@
       onclick={() => onJump(node.item.from)}>
       {node.item.text}
     </button>
+    {#if counts?.has(node.item.from)}
+      <span class="ocount" data-words={counts.get(node.item.from)} title="Words in this section (subsections included)">{counts.get(node.item.from)!.toLocaleString("en-US")}</span>
+    {/if}
   </div>
   {#if hasKids && open}
     {#each node.children as child (child.path)}
@@ -148,6 +155,17 @@
     align-items: center;
     gap: 2px;
     padding-left: calc(var(--depth) * 13px);
+  }
+  /* Per-section word count — faint mono, right-aligned, outside .oitem so the
+     row's label text stays exactly the heading. */
+  .ocount {
+    flex: 0 0 auto;
+    padding: 0 var(--sp-1) 0 4px;
+    font-family: var(--font-mono);
+    font-size: var(--ts-xs);
+    color: var(--c-tx-faint);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
   }
   .caret {
     flex: 0 0 auto;

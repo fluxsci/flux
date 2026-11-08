@@ -15,6 +15,8 @@
 //
 // Twin-engine shared core (flux-core → src/lib): no Svelte, no DOM, no Node.
 
+import { proseWords } from "./wordCount";
+
 /** Roles a venue can order. `body` is anything unrecognised — the common case. */
 export type SectionRole =
   | "body"
@@ -41,7 +43,7 @@ export interface SectionSpan {
   /** Character offsets into the source: [from, to). */
   from: number;
   to: number;
-  /** Word count of the section's body (heading excluded). */
+  /** Prose words of the section's body (heading excluded; wordCount.ts rules). */
   words: number;
 }
 
@@ -76,6 +78,78 @@ export const NATURE_ROLE_ALIASES: RoleAliases = {
   "extended data": "extended-data",
 };
 
+/** Every venue's heading vocabulary (journal assembly AND the word budget).
+ *  Roles outside SectionRole are venue-specific and cast. */
+export const JOURNAL_ROLE_ALIASES: RoleAliases = {
+  abstract: "abstract" as never,
+  summary: "abstract" as never,
+  introduction: "introduction" as never,
+  background: "introduction" as never,
+  results: "results" as never,
+  "results and discussion": "results" as never,
+  discussion: "discussion",
+  methods: "methods",
+  "materials and methods": "methods",
+  "online methods": "methods",
+  "star methods": "methods",
+  "star★methods": "methods",
+  "experimental procedures": "methods",
+  "method details": "methods",
+  "data availability": "data-availability",
+  "data availability statement": "data-availability",
+  "data and materials availability": "data-availability",
+  "data, code, and materials availability": "data-availability",
+  "data, materials, and software availability": "data-availability",
+  "data and code availability": "data-availability",
+  "code availability": "code-availability",
+  "software availability": "code-availability",
+  "materials availability": "materials-availability" as never,
+  "lead contact": "lead-contact" as never,
+  "resource availability": "resource-availability" as never,
+  acknowledgements: "acknowledgements",
+  acknowledgments: "acknowledgements",
+  acknowledgement: "acknowledgements",
+  acknowledgment: "acknowledgements",
+  funding: "funding",
+  "funding sources": "funding",
+  "financial support": "funding",
+  "author contributions": "author-contributions",
+  "author contribution": "author-contributions",
+  contributions: "author-contributions",
+  "competing interests": "competing-interests",
+  "competing financial interests": "competing-interests",
+  "declaration of interests": "competing-interests",
+  "declaration of competing interest": "competing-interests",
+  "conflict of interest": "competing-interests",
+  "conflicts of interest": "competing-interests",
+  "ethics statement": "ethics" as never,
+  "ethics declarations": "ethics" as never,
+  "declaration of generative ai and ai-assisted technologies": "ai-declaration" as never,
+  "declaration of generative ai and ai-assisted technologies in the writing process": "ai-declaration" as never,
+  "ai disclosure": "ai-declaration" as never,
+  "inclusion and diversity": "inclusion-diversity" as never,
+  "additional information": "additional-information",
+  references: "references",
+  "references and notes": "references",
+  bibliography: "references",
+  "literature cited": "references",
+  "figure legends": "figure-legends",
+  "figure captions": "figure-legends",
+  "main figure titles and legends": "figure-legends",
+  "extended data": "extended-data",
+  "extended data figures": "extended-data",
+  "extended data figure legends": "extended-data",
+  "supplementary materials": "supplementary" as never,
+  "supplementary information": "supplementary" as never,
+  "supplemental information": "supplementary" as never,
+  "supporting information": "supplementary" as never,
+  keywords: "keywords" as never,
+  highlights: "highlights" as never,
+  "limitations of the study": "limitations" as never,
+  limitations: "limitations" as never,
+  "limitations of this study": "limitations" as never,
+};
+
 const FENCE_RE = /^(\s*)(```+|~~~+)/;
 
 /** Strip trailing punctuation and Quarto attributes from a heading for lookup. */
@@ -87,10 +161,8 @@ export function normalizeHeading(h: string): string {
     .toLowerCase();
 }
 
-function countWords(s: string): number {
-  const m = s.replace(/[#*_`>|-]/g, " ").match(/\S+/g);
-  return m ? m.length : 0;
-}
+// Section word counts follow THE counting law (wordCount.ts): prose words only.
+const countWords = proseWords;
 
 /**
  * Scan a manuscript into role-tagged sections.
