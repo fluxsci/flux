@@ -8,7 +8,7 @@ import { buildInbox, filterInbox, type InboxItem } from "../../lib/project/inbox
 import { PRESENCE_DIR_REL, parsePresence, liveSessions } from "../../lib/project/presence";
 import { visibleSessions } from "../../lib/project/agentRouting";
 import { feedbackRevision, presenceRevision, externalManuscriptChange } from "../../lib/project/projectWatch";
-import { inboxCount, inboxOpen, inboxSelection, inboxQuery, inboxDrafts } from "./inboxState";
+import { inboxCount, inboxNeedsInput, inboxOpen, inboxSelection, inboxQuery, inboxDrafts } from "./inboxState";
 
 export const inboxItems = writable<InboxItem[]>([]);
 export const inboxDocuments = writable<string[]>([]);
@@ -69,6 +69,7 @@ export function refreshInbox(): Promise<void> {
         if (owner !== root || epoch !== generation) continue;
         inboxItems.set(result.items); inboxDocuments.set(result.documents); inboxSessionIds.set(result.sessionIds);
         inboxCount.set(filterInbox(result.items, {}).length);
+        inboxNeedsInput.set(result.items.filter(i => i.status === "needs-input" && !i.archived).length);
         inboxError.set(""); inboxLoaded.set(true);
       } catch (e) { if (owner === root && epoch === generation) inboxError.set((e as Error).message); }
     }
@@ -85,7 +86,7 @@ export function initInboxStore(): void {
     const first = generation === 0;
     root = next; generation++;
     if (!first) inboxOpen.set(false); inboxSelection.set(null); inboxQuery.set(""); inboxDrafts.clear();
-    inboxItems.set([]); inboxDocuments.set([]); inboxSessionIds.set(new Set()); inboxCount.set(0); inboxError.set(""); inboxLoaded.set(false);
+    inboxItems.set([]); inboxDocuments.set([]); inboxSessionIds.set(new Set()); inboxCount.set(0); inboxNeedsInput.set(0); inboxError.set(""); inboxLoaded.set(false);
     void refreshInbox();
   });
   for (const store of [feedbackRevision, presenceRevision, commentsRevision, externalManuscriptChange]) {

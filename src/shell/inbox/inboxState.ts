@@ -12,6 +12,8 @@ derived([inboxOpen, inboxDetached], ([open, detached]) => open && !detached).sub
 export const inboxCloseRequest = writable(0);
 export const inboxFocusRequest = writable(0);
 export const inboxCount = writable(0);
+/** Items waiting on the human (an agent asked a question) — the badge turns gold. */
+export const inboxNeedsInput = writable(0);
 export const inboxSelection = writable<string | null>(null);
 export const inboxQuery = writable("");
 export const inboxDrafts = new Map<string, string>();

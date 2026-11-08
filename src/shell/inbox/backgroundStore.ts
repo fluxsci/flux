@@ -2,6 +2,7 @@ import { get } from "svelte/store";
 import { fileBridge, type RunnerDriver, type RunnerEvent } from "../../lib/project/types";
 import { currentProject } from "../shellStore";
 import { backgroundAvailable, backgroundDrivers, backgroundRuns, backgroundPermissions, type BackgroundRun } from "./backgroundState";
+import { emptyTranscript, askTurn, reduceTranscript } from "../../lib/agent/transcript";
 let wired = false, epoch = 0, root: string | null = null;
 let probing: Promise<void> | undefined;
 const starting = new Map<string, Promise<void>>();
@@ -13,7 +14,7 @@ function receive(event: RunnerEvent) {
   const run = [...runs.values()].find(r => r.runId === event.runId);
   if (!run) { if (starting.size && early.length < 128) early.push(event); return; }
   if (run.root !== root) return;
-  const next: BackgroundRun = { ...run };
+  const next: BackgroundRun = { ...run, transcript: reduceTranscript(run.transcript, event) };
   if (event.type === "status" && event.state === "cancelled") followUps.delete(run.itemId);
   if (event.type === "session") next.sessionId = event.sessionId;
   else if (event.type === "background") { next.name = event.name; next.display = event.display; }
@@ -76,7 +77,8 @@ export async function startBackgroundRun(ownerRoot: string, itemId: string, driv
     if (previous && previous.state !== "cancelled") await fb.runnerCancel?.({ runId: previous.runId });
     const result = await fb.runnerStart({ driver, mode: "task", root: ownerRoot, itemId, firstMessage: text });
     if (epoch !== generation) { await fb.runnerCancel?.({ runId: result.runId }); return; }
-    backgroundRuns.update(runs => new Map(runs).set(itemId, { ...result, itemId, root: ownerRoot, state: "starting", tools: [], message: "" }));
+    const transcript = text ? askTurn(emptyTranscript(), text) : emptyTranscript();
+    backgroundRuns.update(runs => new Map(runs).set(itemId, { ...result, itemId, root: ownerRoot, state: "starting", tools: [], message: "", transcript, startedAt: Date.now() }));
     for (const event of early.splice(0)) receive(event);
   })();
   starting.set(itemId, task);
@@ -91,7 +93,7 @@ export async function followUpBackground(ownerRoot: string, itemId: string, text
     const fb = fileBridge();
     if (!fb?.runnerSend) throw new Error("The app cannot resume this background run");
     // Publish before IPC: a fast first event must not be overwritten by the reply.
-    backgroundRuns.update(runs => new Map(runs).set(itemId, { ...run, state: "starting", error: undefined, tools: [], message: "" }));
+    backgroundRuns.update(runs => new Map(runs).set(itemId, { ...run, state: "starting", error: undefined, tools: [], message: "", transcript: askTurn(run.transcript, text), startedAt: Date.now() }));
     try { await fb.runnerSend({ runId: run.runId, text }); }
     catch (e) {
       if (ownerRoot === root) backgroundRuns.update(runs => {
