@@ -75,6 +75,17 @@ try {
   const saved=await ledger(page),note=saved.find(e=>e.kind==='note');
   h.ok(note?.text==='Why is this different?'&&saved.some(e=>e.kind==='reply'&&e.target===note.id)&&saved.some(e=>e.kind==='resolve'&&e.target===note.id),'Keep creates question, answer thread and resolved annotation');
   h.ok(!!note.context.snapshot.image&&note.context.targets.length>0,'Keep retains screenshot and targets');
+  // Do it: the answer becomes a background task on the same anchor (a routed note + a task run).
+  await page.evaluate(()=>{window.fig._runnerCalls.length=0;});
+  await open(); await answer();
+  await waitFor(page,()=>[...document.querySelectorAll('.ask-panel button')].some(b=>b.textContent.startsWith('Do it')),null,{label:'Do it offered once a CLI is installed'});
+  const before=(await ledger(page)).length;
+  await page.$$eval('.ask-panel button',els=>els.find(e=>e.textContent.startsWith('Do it')).click());
+  await waitFor(page,()=>!document.querySelector('[data-ask-surface]'),null,{label:'Do it closed Ask'});
+  await waitFor(page,n=>window.fig._runnerCalls.some(c=>c.method==='start'&&c.options.mode==='task'),before,{label:'background task started'});
+  const routed=(await ledger(page)).slice(before).find(e=>e.kind==='note');
+  h.ok(!!routed&&routed.text.startsWith('Why is this different?')&&routed.text.includes('Answer')&&JSON.stringify(routed.route).includes('background'),'Do it saves question + answer as a background-routed note');
+  h.ok(await page.evaluate(id=>window.fig._runnerCalls.filter(c=>c.method==='start'&&c.options.mode==='task').at(-1).options.itemId===id,routed.id),'…and the task run targets exactly that note');
   for(const name of ['settingsOpen','helpOpen']) {
     await page.evaluate(async name=>(await import('/src/lib/settings.ts'))[name].set(true),name);
     await open();

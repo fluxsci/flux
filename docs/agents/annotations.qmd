@@ -194,8 +194,11 @@ Ask is read-only. **Stop** (or **Esc** while it is busy) cancels the run and kee
 arrived; **Esc** again or **×** discards the exchange from Flux (the CLI's own session
 history remains). **Copy** copies the answer as Markdown. **Keep** saves the question,
 answers, captured view, and targets as a resolved annotation and offers to open it.
-**Resume in terminal** copies a command you can paste into your own terminal to continue
-the vendor session. If the agent cannot start, the message offers **AI status…** or **Retry**.
+**Do it ▸** (shown when a background agent is available) hands the question and its answer
+to Claude Code or Codex as a background task on the same anchor and picture, and opens it in
+the Inbox. **Resume in terminal** copies a command you can paste into your own terminal to
+continue the vendor session. If the agent cannot start, the message offers **AI status…** or
+**Retry**.
 
 ## Run an item in the background {#sec-background}
 

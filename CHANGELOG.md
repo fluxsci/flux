@@ -19,7 +19,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   with the pictures it looked at inline; thinking folds the same way. A status line says what the
   agent is doing and for how long; a faint line under the answer reports tools, tokens, cost and
   time. Esc stops a busy run before it closes; Copy, Keep (with an Open action) and Resume in
-  terminal appear once there is an answer; errors offer AI status or Retry.
+  terminal appear once there is an answer, and **Do it ▸** hands the question and answer to a
+  background agent on the same anchor; errors offer AI status or Retry.
 - **The Inbox (Alt+Q) is a conversation.** Rows show a surface icon or a real thumbnail and say in
   words where they point; "Needs input" is gold, and so is the titlebar badge while an agent waits
   on you. The detail pane shows your note with its marked picture, replies rendered as Markdown

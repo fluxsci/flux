@@ -14,7 +14,9 @@
   import { modalFocus } from "../../lib/ui/modalFocus";
   import { fullscreenPortal } from "../../lib/ui/portal";
   import { pushToast } from "../../lib/toast";
-  import { initAnnotationStore, keepAsk } from "./annotationStore";
+  import { initAnnotationStore, keepAsk, addAnnotation } from "./annotationStore";
+  import { backgroundAvailable } from "./backgroundAvailability";
+  import { refreshBackgroundCapabilities } from "../inbox/backgroundStore";
   import { requestInbox } from "../inbox/inboxState";
   import { aiOpen } from "./aiMonitorState";
   import { emptyTranscript, askTurn, reduceTranscript, cancelTranscript, lastAnswer, transcriptMessages, transcriptActivity, type Transcript } from "../../lib/agent/transcript";
@@ -78,6 +80,7 @@
     const started = generation;
     prepared = (async () => {
       if (!fb?.runnerStart || !fb.runnerCapabilities) throw new Error("Ask requires the desktop app with Claude Code or Codex installed and signed in");
+      void refreshBackgroundCapabilities();
       const [caps, prefs] = await Promise.all([fb.runnerCapabilities(), fb.prefsGet?.()]);
       if (disposed || started !== generation) return;
       const saved = (prefs?.fluxchat as { driver?: RunnerDriver } | undefined)?.driver;
@@ -132,6 +135,23 @@
       const id = await keepAsk(root, $state.snapshot(messages), stamp, driverName, png);
       closeAsk();
       pushToast("success", "Kept in Inbox", { detail: "The question and answer are saved as a resolved note.", action: { label: "Open", run: () => requestInbox(id) } });
+    } catch (e) { error = (e as Error).message; keeping = false; }
+  }
+  /** Hand the question and its answer to a background agent on the same anchor and picture. */
+  async function doIt() {
+    if (busy || keeping || !answered) return;
+    keeping = true; error = "";
+    try {
+      const png = await shot;
+      if (disposed) return;
+      const question = messages.find(m => m.role === "human")?.text ?? lastQuestion;
+      const answer = lastAnswer(transcript);
+      const text = `${question}\n\nCarry out the answer Ask gave:\n\n${answer}`;
+      const context = structuredClone(stamp);
+      if (!png) context.snapshot = null;
+      await addAnnotation(text, context, { background: driver }, { png });
+      closeAsk();
+      pushToast("success", `${driverName} is on it`, { detail: "The question and answer became a background task.", action: { label: "Open", run: () => requestInbox() } });
     } catch (e) { error = (e as Error).message; keeping = false; }
   }
   async function copyAnswer() {
@@ -236,6 +256,7 @@
         <span class="hint">{busy ? "Esc stops" : "Enter sends · Shift+Enter newline"}</span>
         {#if answered && !busy}<button onclick={() => void copyAnswer()} title="Copy the answer as Markdown">{copiedAnswer ? "Copied" : "Copy"}</button>{/if}
         {#if answered}<button disabled={busy || keeping} title="Save this question and answer to the Inbox, resolved" onclick={() => void keep()}>{keeping ? "Keeping…" : "Keep"}</button>{/if}
+        {#if answered && !busy && $backgroundAvailable}<button class="doit" disabled={keeping} title={`Hand this question and answer to ${driverName} as a background task on the same anchor`} onclick={() => void doIt()}>Do it ▸</button>{/if}
         {#if busy}<button class="stop" onclick={() => void stop()}>Stop</button>{:else}<button class="primary" onclick={() => void send()}>Ask</button>{/if}
       </div>
     </div>
@@ -273,6 +294,7 @@
   .error-card button { height: 22px; padding: 0 8px; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); font: var(--ts-xs) var(--font-ui); white-space: nowrap; }
   .error-card button:hover { background: var(--c-ui-hover); color: var(--c-tx); }
   .flux-composer { margin: 4px 12px 12px; }
+  .flux-composer .composer-bar button.doit { color: var(--c-accent); }
   .after { display: flex; align-items: center; gap: 8px; padding: 0 12px 10px; margin-top: -4px; }
   .resume { padding: 0; background: none; border: 0; color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); text-decoration: underline; text-decoration-color: var(--c-line-strong); text-underline-offset: 3px; }
   .resume:hover { color: var(--c-tx); }
