@@ -44,9 +44,36 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 - Typing no longer relays out the whole shell: the editor host is a relayout boundary.
 - Spelling: a hover menu, every fix learned into the project's language profile, language profiles
   refresh across windows, and a scientific vocabulary of single words Harper can match.
-- Further Paper work from this release's overnight pass is listed at the end of this section once
-  it lands: a Manuscript Check pane (`flux check`), superscript/subscript everywhere, honest word
-  counts per section and journal limit, and a safe title/author editor.
+- **Manuscript Check (Alt+K) and `flux check`.** Deterministic pre-submission checks in one pure
+  platform with six rule packs: references and citations (undefined cross-refs with did-you-mean
+  fixes, missing panels, unknown embeds, duplicate labels, citekeys missing from the bib, duplicate
+  or incomplete references), display items (figures and tables cited out of order or never cited,
+  unnamed panels, empty captions), placeholders (TODO, `[??]`, `[citation needed]`, "n = XX", lorem
+  ipsum), abbreviations (used before defined, defined twice, defined but unused, never defined),
+  consistent terms (compound and British/American variants, "et al" without its period) and open
+  margin comments. Findings jump to their range; a fix is one undoable edit, refused if the text has
+  changed since the check. The pane runs in a worker on summon, after typing settles and on Check now;
+  the CLI/MCP twin produces byte-identical findings. One citation scanner now serves the editor,
+  flux-core and FluxLib (code, math and front matter are masked everywhere).
+- **Superscript and subscript everywhere.** `CO~2~`, `10^-3^`, `Ca^2+^` render in the editor (markers
+  hidden off-caret), the Preview and house HTML, captions and table cells; spelling skips them and the
+  unit after a quantity. **Ctrl+.** / **Ctrl+,** wrap and unwrap; x² / x₂ sit on the selection toolbar.
+  Word export was already right through Pandoc and is now gated.
+- **Document properties replace the title pill's form, and saving no longer destroys metadata.** The
+  old Save rebuilt `author:` as names only and re-dumped the YAML block, deleting affiliations,
+  corresponding/equal-contribution/lead-contact flags, emails, ORCIDs and every comment — the exact
+  fields the journal export reads. Front-matter edits are now byte-minimal and proven against a
+  re-read of the YAML; the sheet edits authors (name, email, ORCID with checksum, roles, affiliation
+  chips) and affiliations (institution, department, city, country) with reordering.
+- **A reference-style (CSL) picker** in Export → References for house-style Word exports: Pandoc
+  default, the shipped Nature/Science/Cell styles, or any `.csl` file; one `csl:` line is written.
+  The in-app PDF/HTML still use Flux's own reference formatter (the dialog says so).
+- **Word counts the way journals count them.** One counter for the status bar, Statistics, Journal
+  Check, the export summary and flux-connect: citations count zero, cross-references count as the
+  words they print, code/math/markup/embeds are not words, captions are legend words. Per-section
+  counts in the outline, "N selected" after typing settles, a popover with bars against the venue's
+  limits and an optional `word-target:` in the front matter.
+- **The find bar** stays clear of the title pill and shows "3 of 17".
 
 ### Figure
 
@@ -85,8 +112,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 ### Under the hood
 
 - Hundreds of new and extended verification gates (pure, UI, scale, native), the figure raster
-  worker and scene raster fidelity oracles, and the hosted-CI runner profile that keeps the suite
-  green on GitHub's machines.
+  worker and scene raster fidelity oracles.
+- CI on hosted runners is green again: wall-clock perf pins declare their host scale
+  (`FLUX_PERF_SCALE`, measured from the runner's own readings), one deadline per gate (a legacy
+  timeouts map had been silently shadowing contracts), and three real bugs the red CI exposed are
+  fixed — a slide player's first seek before its idle warm-up flew glyph boxes instead of letter
+  outlines (exports, video, embeds), `connect doctor` reported `C:\C:\…` install paths on Windows,
+  and a rewind gate compared frames from different camera rasters.
 
 ## 0.2.0 — 2026-10-04
 
