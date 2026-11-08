@@ -1,3 +1,4 @@
+import { perfScale } from "./perfBudget.mjs";
 // WS-7.3 (fortify plan): condition-based waiting for the puppeteer verify suite.
 // Replaces sleep(N)-and-hope with polling the condition the next line was about
 // to assert. Keep a literal sleep only for a genuine debounce/transition, and
@@ -7,7 +8,10 @@
  * Poll `pred` (evaluated IN THE PAGE with `arg`) until truthy.
  * Throws with `label` after `timeout` ms.
  */
-export async function waitFor(page, pred, arg, { timeout = 5000, interval = 50, label = "condition" } = {}) {
+// The DEFAULT deadline is wall-clock and scales with the host (FLUX_PERF_SCALE, guide §7): a hosted runner
+// reaches the same condition later, not differently. An explicit `timeout` is a gate's own bound and is
+// never scaled (a wait bounded under a dwell must stay under it).
+export async function waitFor(page, pred, arg, { timeout = 5000 * perfScale(), interval = 50, label = "condition" } = {}) {
   const t0 = Date.now();
   let lastErr = null;
   for (;;) {

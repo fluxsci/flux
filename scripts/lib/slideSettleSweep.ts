@@ -21,9 +21,10 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { exportDeckHtml } from "../../src/lib/slide/export/exportDeck";
 import { cueEnd } from "../../src/lib/slide/video";
 import type { Deck, Slide } from "../../src/lib/slide/types";
-import { perfScale } from "./perfBudget.mjs";
 
 export const FRAME_MS = 1000 / 60;
+/** How many extra frames a seeked pose may take to present before it is judged as it stands (see `presented`). */
+export const STABLE_FRAMES = 4;
 /** Tiny windows (ms): wide enough that an eased start still moves < 1/255 of a level, narrow enough that a pop is a spike. */
 export const TINY_MS = 2;
 /** The window of the MID FREEZE test (six frames: long enough that a discrete count flip or a quantised glide cannot hide in it). */
@@ -177,17 +178,23 @@ export interface SweepOptions { slides?: number[]; cues?: (slide: Slide, from: n
 export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: SweepOptions = {}): Promise<CueRow[]> {
   const { page, k, clip } = sp;
   const seek = (s: number, b: number, t: number, from = b) => page.evaluate(({ s, b, t, from }) => { (window as unknown as { fluxDeck: Hook }).fluxDeck.seek(s, b, t, from); }, { s, b, t, from });
-  // One presented frame after a seek on the reference desk; a slower host (the hosted runner's SwiftShader
-  // under FLUX_PERF_SCALE, guide §7) gets as many frames as its scale before the pixels are judged. The law
-  // judges the LANDING, not how many frames a host needs to present it.
-  const settleFrames = Math.max(1, Math.ceil(perfScale()));
-  const settle = () => page.evaluate(`new Promise(r => { let n = ${settleFrames}; const step = () => (--n <= 0 ? r() : requestAnimationFrame(step)); requestAnimationFrame(step); })`);
-  const grab = async (s: number, b: number, t: number, from = b) => {
-    await seek(s, b, t, from); await settle();
+  const settle = () => page.evaluate(`new Promise(r => requestAnimationFrame(r))`);
+  const shot = async () => {
     const img = await loadImage(await page.screenshot({ clip, type: "png" }) as Buffer);
     const c = createCanvas(img.width, img.height).getContext("2d"); c.drawImage(img, 0, 0);
     return c.getImageData(0, 0, img.width, img.height).data;
   };
+  const same = (a: Uint8ClampedArray, b: Uint8ClampedArray) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+  // A seeked pose is PRESENTED when two consecutive frames agree. One frame after the seek was enough on
+  // the reference desk; a slower host (the hosted runner's SwiftShader) presents a seek's last effects —
+  // a many-node stagger's landing, the camera's early bake — a frame or two later, and judging the first
+  // frame there read a landing late (POST CHANGE) or a bake as a step (END SNAP). Bounded: STABLE_FRAMES.
+  const presented = async () => {
+    await settle(); let prev = await shot();
+    for (let i = 0; i < STABLE_FRAMES; i++) { await settle(); const next = await shot(); if (same(prev, next)) return next; prev = next; }
+    return prev;
+  };
+  const grab = async (s: number, b: number, t: number, from = b) => { await seek(s, b, t, from); return presented(); };
   const W = Math.round(clip.width);
   const diff = (a: Uint8ClampedArray, b: Uint8ClampedArray) => perceptualDiff(a, b, W, k);
   const raw = (a: Uint8ClampedArray, b: Uint8ClampedArray) => perceptualDiff(a, b, W, k, 0);
@@ -213,10 +220,8 @@ export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: Swee
       };
       // the landing reached the way playback reaches it: every frame in order, then the end (controllers cross their boundaries)
       for (let t = 0; t < D; t += F) await seek(s, to, t, from);
-      await seek(s, to, D, from); await settle();
-      const img = await loadImage(await page.screenshot({ clip, type: "png" }) as Buffer);
-      const c = createCanvas(img.width, img.height).getContext("2d"); c.drawImage(img, 0, 0);
-      const run = c.getImageData(0, 0, img.width, img.height).data;
+      await seek(s, to, D, from);
+      const run = await presented();
       const row: Omit<CueRow, "flags"> = {
         slide: s, slideId: slide.id, from, to, label: kindsOf(slide, from, to), dur: D,
         dPre: pre ? diff(pre, f.p0) : NaN,

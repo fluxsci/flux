@@ -8271,7 +8271,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 240000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -9179,7 +9179,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-fs-exclusive.ts": {
