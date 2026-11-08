@@ -15,6 +15,7 @@
 // renders are pinned by verify-journal-render.ts.
 // Run (dev server): node scripts/verify-journal-export-gui.mjs   (FLUX_URL for a worktree)
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -24,10 +25,14 @@ const fails = [];
 const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails.push(msg), console.log("  ✗ " + msg)));
 
 // A genuine .docx (pandoc's own bytes) for the stubbed Quarto to "produce", so
-// the app's real post-processing runs on a real package.
+// the app's real post-processing runs on a real package. Through QUARTO's bundled
+// pandoc (`quarto pandoc`), resolved the way the app resolves Quarto: a machine
+// with Quarto has no standalone `pandoc` on PATH (the GitHub runner, 2026-11-08 —
+// this gate read "invalid zip data" there from an empty stand-in .docx).
 const work = mkdtempSync(path.join(tmpdir(), "flux-journal-gui-"));
 writeFileSync(path.join(work, "a.md"), "Text.\n");
-const pandoc = spawnSync("pandoc", [path.join(work, "a.md"), "-o", path.join(work, "a.docx")]);
+const { quartoCommandSync } = createRequire(import.meta.url)("../electron/managedTools.cjs");
+const pandoc = spawnSync(quartoCommandSync(), ["pandoc", path.join(work, "a.md"), "-o", path.join(work, "a.docx")]);
 const docxB64 = pandoc.status === 0 ? readFileSync(path.join(work, "a.docx")).toString("base64") : "";
 ok(!!docxB64, "pandoc produced a reference .docx for the stubbed render");
 
