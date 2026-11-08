@@ -28,7 +28,7 @@ by a browser as from an "unidentified developer". Files fetched by `curl` carry 
 so Flux simply opens. You can [read the script](https://github.com/fluxsci/flux/blob/main/install.sh)
 before running it.
 
-To install a specific release: `curl -fsSL https://fluxsci.github.io/install.sh | bash -s -- --version v0.2.0`.
+To install a specific release: `curl -fsSL https://fluxsci.github.io/install.sh | bash -s -- --version v0.3.0`.
 
 ## Updating
 

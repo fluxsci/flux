@@ -10,8 +10,9 @@ Your projects stay in ordinary files on your own machine.
 [Interactive slide demo](https://fluxsci.github.io/#slides) ·
 [Report an issue](https://github.com/fluxsci/flux/issues)
 
-> **Status:** early v0.1, under active development. Start from source using the
-> instructions below; public installers have not been published yet.
+> **Status:** v0.3.0, under active development. Install or update with one line
+> (`curl -fsSL https://fluxsci.github.io/install.sh | bash`), or start from source below.
+> What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 [![Flux Paper mode showing a scientific manuscript with an eight-panel neuroscience figure](https://fluxsci.github.io/assets/media/paper.webp)](https://fluxsci.github.io/#paper)
 

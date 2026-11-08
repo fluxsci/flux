@@ -21,9 +21,30 @@ stderr and output artifacts under `test-results/runs/`. Earlier failed attempts
 remain evidence; repairing a fixture requires explaining which assumption was
 invalid while preserving its behavioral assertions and timing limits.
 
-The tag workflow requires an exact `v<package.json version>` tag and all three
-native reports before its publication validator can emit an artifact list. It
-also requires `docs/release-platform-evidence.json` with this structure:
+# How a release ships (release.yml, owner decision 2026-10-03)
+
+The hosted path is deliberately small. Pushing a tag `vX.Y.Z` that equals `package.json`'s
+version runs `.github/workflows/release.yml`, which:
+
+1. waits (up to 75 minutes) for a **green `ci.yml` run on that exact commit** — type-check,
+   build, the hermetic pure tier and the bundle handshakes on `ubuntu-latest`; a red CI blocks
+   the release, so push the commit to `main` and let CI pass before tagging;
+2. builds the three targets `install.sh` installs (`Flux-mac-arm64.zip`, `Flux-mac-x64.zip`,
+   `Flux-linux-amd64.deb`) on their native runners, with the offline help and the pinned video
+   encoder, and runs `scripts/verify-packaged-app.mjs` against each packaged app;
+3. assembles `SHA256SUMS` over the three artifacts and `install.sh`, and creates ONE **draft**
+   GitHub Release carrying exactly those five files, with generated notes.
+
+Publishing that draft (one click on the Releases page) is the release: it becomes what
+`curl -fsSL https://fluxsci.github.io/install.sh | bash` installs and what a running Flux's
+update notice offers. `workflow_dispatch` is a dry run (build + smoke, artifacts kept on the
+run, nothing published). The website's `site/install.sh` is a byte-for-byte copy of the
+reviewed upstream installer; refresh it only when `install.sh` itself changes.
+
+`scripts/release-check.mjs`, `scripts/verify-release-evidence.mjs` and the
+`docs/release-platform-evidence.json` schema below remain the LOCAL deep-qualification tools
+(every tier on each target, physical-display evidence). The hosted workflow does not require
+them; a maintainer runs them before tagging when a release warrants it.
 
 ```json
 {
@@ -39,15 +60,11 @@ also requires `docs/release-platform-evidence.json` with this structure:
 }
 ```
 
-This is a schema example, not approval. Create that file only from actual checks;
-its absence deliberately prevents publication. Software rendering/Xvfb does not
-qualify Wayland/NVIDIA presentation or native macOS behavior. Signed macOS
-qualification uses the configured Developer ID and notarization credentials;
-without credentials, report the explicitly unsigned path. Do not request or
-invent credentials to make a local implementation session appear qualified.
+This is a schema example, not approval. Software rendering/Xvfb does not qualify Wayland/NVIDIA
+presentation or native macOS behavior. There is no Apple Developer ID (owner decision): the
+macOS app is ad-hoc signed by `build/afterPack.cjs`, and the installer's curl download carries no
+quarantine flag. Do not request or invent credentials to make a session appear qualified.
 
-Manual workflow runs produce qualification artifacts only. Tag publication
-consumes only the validator's exact NUL-delimited list of verified artifacts and
-creates a draft. No general `release/*` glob is eligible for publication. The
-ordinary main UI CI observer can become blocking only after the documented five
-consecutive green main-CI runs; release qualification already requires UI success.
+The ordinary main UI CI observer (`ui-gate`) and the Windows job can become blocking only
+after the documented five consecutive green main-CI runs; local release qualification already
+requires UI success.

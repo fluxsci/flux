@@ -21,6 +21,7 @@ exhaustive where a user page must be short.
 | [`migrate-to-flux-connect.md`](migrate-to-flux-connect.md) | Migrates existing projects and machine state to flux-connect with a reviewed dry run, preservation checks, and agent setup on every machine. |
 | [`slide-video-verification.md`](slide-video-verification.md) | Reproduces continuous single-slide MP4 acceptance, including decoded frames, cancellation, packaged launch, and responsiveness. |
 | [`slide-video-clips-verification.md`](slide-video-clips-verification.md) | Reproduces MP4/MOV import, independent playback steps, persistence, native copying, and frame/audio export acceptance. |
+| [`release-runbook.md`](release-runbook.md) | Ships a release from an approved branch: local qualification, push `main` and wait for green CI, tag, follow `release.yml`, review the draft's five assets, post-publish checks; what to do when any step is red. |
 | [`oct-27-fix-list.md`](oct-27-fix-list.md) | Maps each October 27 issue-list request to its code and gates, records which first-pass claims the review overturned, and gives the dense-zoom design, owner-flow numbers and re-verification commands. |
 
 ## Writing another one
