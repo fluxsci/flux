@@ -7,6 +7,8 @@ Release that the one supported installer picks up:
 curl -fsSL https://fluxsci.github.io/install.sh | bash
 ```
 
+## Unreleased
+
 ## 0.3.0 — 2026-11-08
 
 ### Working with agents
