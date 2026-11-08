@@ -122,7 +122,9 @@ bibliography entry. Follow it, and **←** brings you back.
 
 The **⧉ PDF** switcher in the toolbar flips between the main paper and its supplementary
 files, and **Add supplement…** attaches new ones. Supplements live beside the paper in your
-library; highlights always anchor to the main text.
+library; highlights always anchor to the main text. **Show in folder** in the same menu
+opens your file manager on whichever PDF you're viewing, with the file selected (the
+Library's detail pane has the same button).
 
 # Working with an agent
 

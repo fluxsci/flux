@@ -24,6 +24,7 @@
     readSupplementManifest,
     readerSupplementBytes,
     ingestSupplementFile,
+    revealReaderPdf,
   } from "../../../lib/references/itemsBridge";
   import { fileBridge } from "../../../lib/project/types";
   import { createReaderSourceOwner } from "./readerSession";
@@ -1010,6 +1011,10 @@
               <div class="pdfsep"></div>
               <button class="pdfitem add" role="menuitem" disabled={attaching} onclick={attachSupplement}>
                 <span class="pdfic">＋</span><span class="pdfnm">{attaching ? "Adding…" : "Add supplement…"}</span>
+              </button>
+              <button class="pdfitem" role="menuitem" data-testid="pdf-reveal" title="Open the folder holding this PDF, with the file selected"
+                onclick={() => { switchOpen = false; void revealReaderPdf(citekey, activePdf.kind === "supp" ? activePdf.name : undefined); }}>
+                <span class="pdfic">📂</span><span class="pdfnm">Show in folder</span>
               </button>
             </div>
           {/if}

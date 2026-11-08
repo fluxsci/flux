@@ -38,7 +38,7 @@ import {
 import { isPdfBytes } from "./pdfFinder";
 import { isSupplementUrl, supplementDocSignal, supplementNameFromUrl, isAutomatedSource } from "./supplement";
 import { seededItem, seededSupplements, seededKeys } from "./devSeed";
-import { pushToast } from "../toast";
+import { pushToast, errMsg } from "../toast";
 
 /**
  * Outcome of filing a fetched PDF. `ok: false, reason: "supplement"` is NOT an error — it
@@ -395,6 +395,33 @@ export async function readerSupplementBytes(key: string, name: string): Promise<
   } catch {
     return null;
   }
+}
+
+/** The on-disk path of `key`'s PDF — the stored paper.pdf, else a link-mode pointer's
+ *  external file; or, with `supplement`, that supplement — or null when none exists. */
+export async function readerPdfPath(key: string, supplement?: string): Promise<string | null> {
+  const fb = fileBridge();
+  const lib = await resolveFluxLibPath();
+  if (!fb || !lib) return null;
+  try {
+    if (supplement) { const p = supplementFilePath(lib, key, supplement); return (await fb.exists(p)) ? p : null; }
+    const p = pdfPath(lib, key);
+    if (await fb.exists(p)) return p;
+    const link = await readerPdfLink(key);
+    return link && (await fb.exists(link.path)) ? link.path : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reveal `key`'s PDF (or a supplement) in the OS file manager, selected — VS Code's
+ *  "Reveal in file explorer". Toasts instead of failing silently. */
+export async function revealReaderPdf(key: string, supplement?: string): Promise<void> {
+  const fb = fileBridge();
+  if (!fb?.revealPath) { pushToast("error", "Showing files in a folder needs the desktop app"); return; }
+  const p = await readerPdfPath(key, supplement);
+  if (!p) { pushToast("error", `No PDF on disk for “${key}”`); return; }
+  try { await fb.revealPath(p); } catch (e) { pushToast("error", "Couldn't show the PDF in its folder", { detail: errMsg(e) }); }
 }
 
 /** Read the labelled supplement index for `key` (empty when absent — it's advisory).

@@ -64,7 +64,7 @@
   import { zoteroSyncJob } from "../../../lib/references/zoteroSyncJob.svelte";
   import { openInReader } from "../reader/readerStore";
   import { fetchPdfForEntry, fetchViaProxyForEntry, fetchSupplementsForEntries } from "../../../lib/references/pdfFinderBridge";
-  import { listPdfKeys, ingestPdfFile, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
+  import { listPdfKeys, ingestPdfFile, revealReaderPdf, listFailures, clearFetchFailure, searchFulltext, type FulltextHit } from "../../../lib/references/itemsBridge";
   import { parseQueryTerms } from "../../../lib/references/textFold";
   import { loadAnnotations } from "../../../lib/references/annotationsBridge";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
@@ -1990,6 +1990,7 @@
             <div class="dbtns">
               {#if hasPdf(r.key)}
                 <button class="prim" onclick={(e) => readPaper(e, r.key)}>Read PDF →</button>
+                <button onclick={(e) => { e.stopPropagation(); void revealReaderPdf(r.key); }} title="Open the folder holding this PDF, with the file selected">Show in folder</button>
                 <button onclick={(e) => void exportNotes(e, r)} title="Export this paper's highlights & notes as Markdown">Export notes…</button>
               {:else}
                 <button
