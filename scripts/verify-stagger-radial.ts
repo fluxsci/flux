@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { harness } from "./lib/harness.mjs";
 import { radialCoordinates } from "../src/lib/slide/staggerData";
 import { staggerRanks, patchStagger } from "../src/lib/slide/stagger";
@@ -23,7 +23,7 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 
 const h = harness("verify-stagger-radial");
 const fixture = (name: string) => {
-  const base = path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "plots", `${name}_FLUXPLOT`);
+  const base = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "plots", `${name}_FLUXPLOT`);
   return { manifest: JSON.parse(readFileSync(`${base}.fluxplot.json`, "utf8")) as FluxPlotManifest, svg: readFileSync(`${base}.svg`, "utf8") };
 };
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -64,7 +64,7 @@ try {
   const mid2 = { x: bs.bar.center[2], y: bs.bar.baseline[2] + bs.bar.length[2] / 2 };
   const bd = radialCoordinates(bm, bs.svg.bars, mid2);
   h.ok(Math.abs(bd[2] as number) < 1e-9 && bd.every((v, i) => i === 2 || (v as number) > 1), "a stacked bar is placed at the middle of its own bar (baseline + half its length), not of a bar from zero");
-  const heat = JSON.parse(readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "colorscale", "heatmap.fluxplot.json"), "utf8")) as FluxPlotManifest;
+  const heat = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "colorscale", "heatmap.fluxplot.json"), "utf8")) as FluxPlotManifest;
   const cells = (heat.series ?? []).flatMap((x) => (x.components ?? []).flatMap((c) => c.members ?? [])).filter((m) => /\.cell\.\d+\.\d+$/.test(m));
   const hd = radialCoordinates(heat, cells);
   h.ok(cells.length > 10 && hd.every((v) => typeof v === "number"), `a heatmap without stored values still places all its ${cells.length} cells (from their names)`);

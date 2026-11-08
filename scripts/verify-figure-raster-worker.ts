@@ -213,8 +213,12 @@ try {
   const clipped = { ...dense, elements: [{ ...dense.elements[0], x: 0, y: 0, width: 900, height: 700 }] };
   const clipSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><defs><clipPath id="c"><rect x="350" y="250" width="30" height="30"/></clipPath></defs><rect x="350" y="250" width="30" height="30" fill="red" clip-path="url(#c)"/></svg>';
   const unsafeSvg = clipSvg.replace('width="400" height="300"', 'width="50" height="37" viewBox="0 0 50 37.5"');
+  // How a child's native abort SHOWS is per platform (guide §9: assert the property, not the mechanism): POSIX
+  // reports the SIGABRT signal; Windows has no signals, and Rust's abort is __fastfail, so the child exits with
+  // STATUS_STACK_BUFFER_OVERRUN 0xC0000409 (3221226505, read on windows-latest 2026-11-08). Both are "aborted".
+  const outcome = (run: { signal: NodeJS.Signals | null; status: number | null }) => run.signal ?? (process.platform === 'win32' && run.status === 0xC0000409 ? 'SIGABRT' : `exit ${run.status}`);
   const abort = spawnSync(process.execPath, ['-e', `new (require('@resvg/resvg-js').Resvg)(${JSON.stringify(unsafeSvg)}).render()`], { cwd: repo, encoding: 'utf8', timeout: 5000 });
-  h.ok(abort.signal === 'SIGABRT' && /geom.rs/.test(abort.stderr), 'negative resvg proof: unguarded top-left eighth crop aborts real child');
+  h.ok(outcome(abort) === 'SIGABRT' && /geom.rs/.test(abort.stderr), 'negative resvg proof: unguarded top-left eighth crop aborts real child');
   const clippedInline = { 'native-dense': `data:image/svg+xml;base64,${Buffer.from(clipSvg).toString('base64')}` };
   h.ok(/below the resvg envelope/.test((await s.raster(detailReq('guarded-eighth', clipped, { region: { x: 0, y: 0, w: 112.5, h: 87.5 }, inlineAssets: clippedInline }))).error), 'same eighth crop is refused before resvg');
   // Ruling QA-P6 (option B): resvg-js 2.6.2 (rev 3495d87) clamps layers to ~[x0 - 2w, x0 + 2w] of
@@ -234,7 +238,7 @@ try {
     const W = Math.ceil(r.w * 2), H = Math.ceil(r.h * 2);
     const child = `const fs=require('fs');let s=fs.readFileSync(process.argv[1],'utf8');s=s.replace(/<svg([^>]*?)\\sviewBox="[^"]*"/,'<svg$1 viewBox="${r.x} ${r.y} ${r.w} ${r.h}"').replace(/<svg([^>]*?)\\swidth="[^"]*"/,'<svg$1 width="${W}"').replace(/<svg([^>]*?)\\sheight="[^"]*"/,'<svg$1 height="${H}"');new (require('@resvg/resvg-js').Resvg)(s,{logLevel:'off',font:{loadSystemFonts:false}}).render()`;
     const run = spawnSync(process.execPath, ['-e', child, file], { cwd: repo, encoding: 'utf8', timeout: 30000 });
-    return run.signal ?? `exit ${run.status}`;
+    return outcome(run);
   }
   // (a) A layered Flux element (opacity < 1) 0.9 of the way across, 0.4 region at the origin.
   const far = { ...structuredClone(figure), id: 'qa-far-layer', width: 1000, height: 500, elements: [{ ...structuredClone(figure.elements[0]), id: 'qa-far', x: 900, y: 20, width: 90, height: 40, opacity: 0.5, rotation: 0 }] } as Figure;

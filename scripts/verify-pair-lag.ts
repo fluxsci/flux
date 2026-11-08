@@ -60,8 +60,8 @@ h.eq(authored.pairLag, undefined, "a NEW set hand-off of 5 pieces flies in uniso
   ops.setTrackPairLag(d2.slides[0].beats[1].tracks[0], null); h.eq(d2.slides[0].beats[1].tracks[0].pairLag, undefined, "null clears it"); }
 // R4 review: the default counts PIECES (a part set of one plot is as many pieces as parts), and leaves text-only sets alone (they fly as letters)
 { const d3 = ops.createDeck({ id: "f", title: "f", withTitleSlide: false }); const s3 = ops.addSlide(d3, { id: "parts", layout: "blank" });
-  const { readFileSync } = await import("node:fs"), pth = await import("node:path");
-  const base = pth.join(pth.dirname(new URL(import.meta.url).pathname), "fixtures", "plots", "mpl_bars_5_FLUXPLOT");
+  const { readFileSync } = await import("node:fs"), pth = await import("node:path"), { fileURLToPath } = await import("node:url");
+  const base = pth.join(pth.dirname(fileURLToPath(import.meta.url)), "fixtures", "plots", "mpl_bars_5_FLUXPLOT");
   const manifest = JSON.parse(readFileSync(`${base}.fluxplot.json`, "utf8")), bars: string[] = manifest.series[0].svg.bars;
   d3.plots = { bars: { svg: readFileSync(`${base}.svg`, "utf8"), manifest } } as never;
   const plotId = ops.addPlotToSlide(d3, s3.id, { assetId: "bars", x: 300, y: 40, width: 300, height: 220 } as never) as unknown as string;
