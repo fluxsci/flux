@@ -87,7 +87,7 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const hits = new Map<string, number>();
 for (const f of ["src", "flux-core", "electron"].flatMap((d) => scan(path.join(repo, d)))) {
   const n = (readFileSync(f, "utf8").match(/\/\^0\\\.\[\d+\]\\\.\//g) ?? []).length;
-  if (n) hits.set(path.relative(repo, f), n);
+  if (n) hits.set(path.relative(repo, f).split(path.sep).join("/"), n); // posix keys: the sanctioned list is written with "/" (Windows walks with "\\")
 }
 h.ok([...hits].every(([f, n]) => SANCTIONED.get(f) === n) && [...SANCTIONED].every(([f]) => hits.has(f)), `the only deck version regex literals are the sanctioned ones (${[...hits].map(([f, n]) => `${f}×${n}`).join(", ")})`);
 h.ok(/pattern: "\^0\\\\\.\[234567\]\\\\\."/.test(readFileSync(path.join(repo, "src/lib/project/schemas.ts"), "utf8")), "the deck JSON schema's schemaVersion pattern accepts 0.2-0.7");
