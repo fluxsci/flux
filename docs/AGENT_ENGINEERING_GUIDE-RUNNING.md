@@ -201,6 +201,7 @@ The established shared cores — extend these, don't duplicate them:
 | flux-connect packs (brief, bundle, proof codes, delta summaries) | `flux-core/connect/{budget,bundle,brief,codes,refresh}.ts` (pure); `collect.ts`/`cache.ts`/`images.ts` do the IO | `verify-connect-render.ts` (pure renderers), `verify-connect.ts` (end to end), `verify-connect-delta.ts` |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
+| Journal submission assembly — title page, citations, reference lists, section structure, legends, render settings, export summary (Nature, Science, Cell, bioRxiv) | `src/lib/style/journalManuscript.ts` (+ `journalCitations`, `journalRefs`, `journalCaptions`, `journalFigures`, `journalSummary`, `journalAssets.journalRenderMeta`), run inside `exportPrep.prepareExport` by both engines | `verify-journal-manuscript.ts`, `verify-journal-refs.ts`, `verify-journal-render.ts` (real Word + PDF), `verify-journal-export-gui.mjs` (GUI ≡ flux-core prepared text) |
 | External-command launch (Quarto, recipes, installed agent CLIs) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
 ## 3. Data model and persistence invariants
@@ -3134,6 +3135,44 @@ The `inline-slides` group covers core, editor, lifecycle and scale. Build-depend
 `verify-slide-embed-electron.cjs` checks the built app, native input, watchers and PDF IPC in
 an isolated scratch project. Their artifacts live under `test-results/inline-slide-*`.
 
+
+### Journal submission export
+
+A journal style with a `manuscript` spec (journalPresets: `nature`, `science`, `cell`,
+`biorxiv`; `nature-communications` extends Nature) turns the export into that venue's
+SUBMISSION manuscript; the rules are `docs/journal_styleguide.md`, each value tagged with its
+source. The pipeline, identical in Paper and flux-core:
+
+- `prepareExport(…, { journal })` reads the ENTRY document with its includes spliced in
+  (sections, citations and figures must be seen together), runs the figure transform with
+  `legends: "external"`, then `assembleJournalManuscript`, and writes the result over the
+  entry for the render (restored after, like every export). Included fragments are untouched.
+- The assembler builds the title page from front-matter authors/affiliations (Quarto's schema
+  plus `lead-contact`), places the abstract per venue, applies the venue's order, renames,
+  drops (Nature: Introduction/Results headings), run-ins (Science acknowledgments) and Cell's
+  RESOURCE AVAILABILITY / STAR Methods / Limitations rules, places figures (initial: image +
+  legend below; final: legends section) and — for `citations: "literal"` venues — numbers
+  every citation and writes the reference list(s) itself (`journalCitations`, `journalRefs`
+  from citation-js CSL-JSON). Pandoc+CSL cannot split Nature's Methods list, move a mark across
+  punctuation (Cell after, Nature/Science before) or make Science notes; bioRxiv keeps citeproc.
+- Blocks it writes carry Word custom styles (`::: {custom-style=…}`); each venue's
+  `resources/docx/<id>-reference.docx` (built by `scripts/gen-reference-docx.mjs` — never by
+  hand) defines them plus page size, margins, line numbering (section property), page-number
+  footer and Science's running header. `resources/lua/flux-journal.lua` typesets the same
+  blocks for the PDF path (lualatex). Science's blocks use its template's own style names.
+- **Render settings live in the prepared copy's FRONT MATTER** (`journalRenderMeta`), not the
+  `--profile` file — see §9. The profile for a journal style carries one inert key.
+- Figures are placed at 300 dpi: Word via `postprocessDocx({ rasterOnlyDpi })` (the SVG part is
+  dropped), PDF via per-render PNGs written BESIDE the document (`journalFigures`; each engine
+  rasterizes with its own renderer) and removed after.
+- **Flux writes only what it owns.** Statements a venue requires but the manuscript lacks are
+  REPORTED in the export summary (`journalSummary`, shown in `ExportSummaryPanel`, saved as
+  `<name>.submission.md`); the generated text comes only from front matter (Cell's lead-contact
+  sentence, Nature's correspondence line), the figure model (SI indexes, legends) and the
+  bibliography. Limits are warnings only (owner ruling) — nothing is cut, nothing blocked.
+- The writer never restyles (export-only rule, `verify-writer-neutral.ts`); Journal Check
+  (`compliance.ts`) advises in each venue's grammar.
+
 ## 5. Hard rules — do not do these
 
 1. **Never regress out of the instantaneous class (§6).** Responsiveness outranks every other
@@ -3577,6 +3616,31 @@ including real Git tracking, read-only failure, cross-device failure and interru
 Run it through the hermetic runner; never validate a migration on real projects.
 
 ## 9. Known traps (each of these cost real time)
+
+**Journal export (Quarto, Word, LaTeX):**
+
+- **A Quarto `--profile` file is read only from the Quarto PROJECT directory** (where
+  `_quarto.yml` lives). A manuscript one folder below it (`paper/MANUSCRIPT_MAIN/x.qmd` under
+  `paper/_quarto.yml`) rendered with NONE of the profile — no reference.docx, no line numbers —
+  and Quarto says nothing. Journal render settings therefore go in the prepared copy's front
+  matter. A profile that IS read must hold at least one key: a comment-only file fails
+  validation ("YAML value is missing").
+- **A leading `/` in a Quarto image path means project-root-relative**, not absolute: an OS
+  temp path became `../tmp/…` and LaTeX could not find it. Per-render files go beside the
+  document, referenced relatively.
+- **Dense-plot figure SVGs are 10–15 MB each.** Five embedded as SVG made a 44 MB .docx (over
+  Nature's 30 MB / Cell's 20 MB caps) that LibreOffice could not convert in 2 minutes, and a
+  26 MB vector PDF. Submission manuscripts place 300-dpi PNGs instead.
+- **A minimal TeX install lacks `titlesec`** (Debian `texlive-latex-recommended`); the journal
+  preamble uses plain `\@startsection`. Journal PDF needs `lualatex` + `luaotfload`
+  (`texlive-luatex`, provisioned in CI). Font names go through `\IfFontExistsTF` fallback chains
+  — Times New Roman is absent on most Linux machines.
+- **Packaged builds ship only `electron-builder.yml`'s `files` allowlist**: `resources/csl` and
+  `resources/docx` were missing until 0.3.0, so every packaged journal export silently fell back
+  to Quarto's defaults. `verify-journal-assets.ts` now pins every planned asset in the allowlist.
+- LibreOffice (`soffice --convert-to pdf`) is a handy way to LOOK at a .docx from an agent shell;
+  give it a fresh `-env:UserInstallation=file:///tmp/<dir>` profile — a profile left by a killed
+  run makes later conversions hang silently.
 
 **Agent tools, launchers and processes:**
 
@@ -11990,3 +12054,19 @@ base-wrapper routing, image-preparation order).
   figure): a dedicated scheduler with its own `current()` was cheaper than guarding the shared one.
 - The quiet gate must cover the whole pipeline (request, decode, href write, show/hide), not just the request.
 - When a measured median moves by a phase boundary (B-zoom8 idle), trace both builds and sum the adjacent phases before calling it.
+
+### 2026-11-07 — Journal submission export: Nature, Science, Cell, bioRxiv (Claude Opus 5.5, `journal-export`)
+**Work:** Researched the four venues' submission rules into `docs/journal_styleguide.md` (official
+pages + the FluxLib print corpus, every value tagged), then built the export to them: the journal
+manuscript assembler, citation engine, per-venue reference entries, legends and figure grammar,
+generated Word templates, a PDF-path Lua filter, 300-dpi figures, the export summary (panel +
+`<name>.submission.md`), stage axis in the dialog, and journal PDF in Paper. Real renders of all
+four venues to Word and PDF are gated; the GUI's prepared manuscript is byte-identical to flux-core's.
+Judgment calls: `docs/journal_export_notes.md`.
+**Learnings:** (promoted to §2 table, §4 "Journal submission export", §9 "Journal export" traps)
+- A Quarto profile is invisible to a document below the Quarto project dir — and the old Nature
+  export silently depended on it. Put render settings in the prepared copy's front matter.
+- Merge, never replace, an author's front-matter `filters:`: the export-recovery gate's barrier
+  filter was dropped by the first draft, exactly as a user's own Lua filter would have been.
+- Packaging allowlists rot silently: `resources/csl`/`docx` had never shipped. Pin assets in a gate.
+- LibreOffice is the cheapest way to SEE a generated .docx from an agent shell (fresh profile dir).

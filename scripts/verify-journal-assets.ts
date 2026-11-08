@@ -8,6 +8,7 @@
 // and Quarto silently ignores or rejects it.
 //   Run: npx tsx scripts/verify-journal-assets.ts
 import { readFileSync, existsSync } from "node:fs";
+import { load as loadYaml } from "js-yaml";
 import { execFileSync } from "node:child_process";
 import {
   EXPORT_PROFILE,
@@ -61,6 +62,21 @@ const nature = resolveJournalStyle("nature", BUILTIN_JOURNAL_STYLES);
     for (const a of plan) assert(existsSync(`resources/${a.resource}`), `${id}: the shipped resource resources/${a.resource} exists`);
     assert(plan.some((a) => a.rel === `styles/journal/${id}/reference.docx`), `${id}: plans its own Word template`);
     assert(plan.some((a) => a.rel === JOURNAL_LUA_REL), `${id}: plans the PDF-path Lua filter`);
+  }
+}
+
+// --- packaged builds carry the assets -----------------------------------------
+{
+  // Electron main copies these from <app>/resources into the project before a
+  // journal render. electron-builder ships only its `files` allowlist, and the
+  // csl/docx folders were missing from it until 0.3.0: every packaged journal
+  // export silently fell back to Quarto's defaults (no venue page setup).
+  const files = (loadYaml(readFileSync("electron-builder.yml", "utf8")) as { files: string[] }).files;
+  const shipped = (resource: string) => files.some((f) => f === `resources/${resource.split("/")[0]}/**/*`);
+  for (const id of ["nature", "science", "cell", "biorxiv", "nature-communications"]) {
+    for (const a of journalAssetPlan(resolveJournalStyle(id, BUILTIN_JOURNAL_STYLES))) {
+      assert(shipped(a.resource), `${id}: resources/${a.resource} is in the packaged files allowlist`);
+    }
   }
 }
 

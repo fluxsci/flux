@@ -17,6 +17,8 @@ import { assembleJournalManuscript, readAuthors } from "../src/lib/style/journal
 import { buildExportSummary, summaryMarkdown } from "../src/lib/style/journalSummary";
 import { prepareExport } from "../src/lib/exportPrep";
 import { rasterWidthFor, svgFigureEmbeds } from "../src/lib/style/journalFigures";
+import { checkCompliance } from "../src/lib/manuscript/compliance";
+import { NATURE_ROLE_ALIASES } from "../src/lib/manuscript/sections";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -200,6 +202,17 @@ console.log("Shared prep (both engines): includes spliced, sources restored byte
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+console.log("Journal Check advice follows each venue's grammar:");
+{
+  const doc = "---\ntitle: t\n---\n\nSee Figure 2 and Fig. 3a-c.\n";
+  const advice = (id: string) => checkCompliance({ doc, style: resolveJournalStyle(id, BUILTIN_JOURNAL_STYLES), aliases: NATURE_ROLE_ALIASES, figureCount: 5 }).filter((f) => f.ruleId === "fig.literal-house-style");
+  assert(!advice("nature").some((f) => /Figure 2 a/.test(f.excerpt ?? "")), "'Figure 2 and' is not read as panel 'a'");
+  assert(advice("nature").find((f) => f.excerpt === "Fig. 3a-c")?.suggestion === "Fig. 3a–c", "Nature suggests 'Fig. 3a–c'");
+  assert(advice("science").find((f) => f.excerpt === "Fig. 3a-c")?.suggestion === "Fig. 3, A to C", "Science suggests 'Fig. 3, A to C'");
+  assert(advice("cell").find((f) => f.excerpt === "Fig. 3a-c")?.suggestion === "Figures 3A–3C", "Cell suggests 'Figures 3A–3C'");
+  assert(!advice("cell").some((f) => f.excerpt === "Figure 2"), "Cell does not flag its own spelled-out 'Figure'");
 }
 
 console.log("\nJOURNAL-MANUSCRIPT VERIFY: PASS");

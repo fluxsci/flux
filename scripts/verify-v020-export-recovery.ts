@@ -20,7 +20,7 @@ const originals=new Map([
 const stamp=1600000000000; let oldArtifact=Buffer.from('initial fixture placeholder');
 if(process.argv[2]==='--writer'){
  setInterval(()=>{},1000); // Keep an acknowledged blocked I/O operation alive until SIGKILL.
- const root=process.argv[3],stage=process.argv[4],journal=path.join(root,journalRel);
+ const root=process.argv[3],stage=process.argv[4],styleArg=process.argv[5]||'flux',journal=path.join(root,journalRel);
  const native=require('node:fs/promises'),oldRename=native.rename,oldOpen=native.open,oldRm=native.rm;
  let journalPublished=false,fired=false;
  const barrier=async(name:string)=>{if(name!==stage||fired)return;fired=true;process.send?.({stage:name});await new Promise(()=>{})};
@@ -40,7 +40,7 @@ if(process.argv[2]==='--writer'){
  cp.spawn=(...args:any[])=>{const child=spawn(...args);if(child.pid&&args[2]?.detached)process.send?.({ownedGroup:child.pid});return child};
  syncBuiltinESMExports();
  const {compile}=await import('../flux-core/manuscript');
- const result=await compile(root,'docx',{style:'nature'});
+ const result=await compile(root,'docx',{style:styleArg});
  throw Error('Export reached completion before controlled barrier '+stage+': '+JSON.stringify(result));
 }else if(process.argv[2]==='--reopen'){
  const root=process.argv[3];
@@ -70,15 +70,20 @@ if(process.argv[2]==='--writer'){
   if(process.platform==='win32')spawnSync('taskkill',['/PID',String(pid),'/T','/F'],{stdio:'ignore',windowsHide:true});
   else try{process.kill(-pid,'SIGKILL')}catch{try{process.kill(pid,'SIGKILL')}catch{}}
  }
+ // House style: the per-file transform rewrites main AND the included section (2 sources,
+ // no profile). Nature: journal assembly rewrites only the entry, with the include spliced
+ // in, and publishes the owned profile. Both are killed at every boundary.
+ const STYLES=[{id:'flux',files:2,profile:false},{id:'nature',files:1,profile:true}];
+ let style=STYLES[0];
  async function killAt(stage:string){
-  const child=fork(self,['--writer',root,stage],{execArgv:['--import','tsx'],detached:process.platform!=='win32',stdio:['ignore','pipe','pipe','ipc']});
+  const child=fork(self,['--writer',root,stage,style.id],{execArgv:['--import','tsx'],detached:process.platform!=='win32',stdio:['ignore','pipe','pipe','ipc']});
   const groups:number[]=[];let errorLog='',reached=false,exit:any=null;child.stderr!.on('data',b=>errorLog+=b);child.stdout!.on('data',b=>errorLog+=b);
   child.on('message',(m:any)=>{if(m.stage===stage)reached=true;if(m.ownedGroup)groups.push(m.ownedGroup)});child.on('exit',(code,signal)=>exit={code,signal});
   try{
    const end=Date.now()+45000;
    while(!reached){if(stage==='render')reached=await fs.access(path.join(root,'render-ready')).then(()=>true,()=>false);if(reached)break;if(exit)throw Error(`Writer exited before ${stage}: ${JSON.stringify(exit)}\n${errorLog}`);if(Date.now()>end)throw Error('Barrier timeout '+stage+'\n'+errorLog);await new Promise(r=>setTimeout(r,20))}
-   const text=await fs.readFile(path.join(root,journalRel),'utf8');const record=JSON.parse(text);assert.equal(record.files.length,2,stage+' covers main + included source');
-   if(['render','first-restore','restoration-complete'].includes(stage))assert.ok(record.generated?.length,'owned profile journaled');
+   const text=await fs.readFile(path.join(root,journalRel),'utf8');const record=JSON.parse(text);assert.equal(record.files.length,style.files,`${style.id} ${stage}: ${style.files===2?'covers main + included source':'covers the entry (journal assembly splices the include into it; the fragment is never rewritten)'}`);
+   if(style.profile&&['render','first-restore','restoration-complete'].includes(stage))assert.ok(record.generated?.length,'owned profile journaled');
    await fs.writeFile(path.join(out,stage+'-journal.json'),text);
    // win32 has no process groups, and `child.kill` leaves the quarto/pandoc
    // grandchild alive holding paper/ as its cwd — the next seed then fails to
@@ -98,13 +103,14 @@ if(process.argv[2]==='--writer'){
   const {compile}=await import('../flux-core/manuscript');
   const baseline=await compile(root,'docx');assert.equal(baseline.code,0,baseline.log);assert.ok(baseline.output);oldArtifact=await fs.readFile(baseline.output!);
   const {validateDocx}=await import('../src/lib/references/docxArtifact');validateDocx(oldArtifact);await fs.writeFile(path.join(out,'previous-valid.docx'),oldArtifact);
-  for(const stage of stages){
+  for(const s of STYLES)for(const stage of stages){
+   style=s;
    await seed(stage);await killAt(stage);await reopen();await reopen();
    for(const [rel,content]of originals){assert.deepEqual(await fs.readFile(path.join(root,rel)),Buffer.from(content),stage+' exact bytes '+rel);assert.equal((await fs.stat(path.join(root,rel))).mtimeMs,stamp,stage+' original mtime '+rel)}
    assert.deepEqual(await fs.readFile(path.join(root,'paper/notes.docx')),oldArtifact);
    assert.equal(await fs.access(path.join(root,journalRel)).then(()=>true,()=>false),false);
    assert.equal((await fs.readdir(path.join(root,'paper'))).some(n=>n.startsWith('_quarto-flux-')),false);
-   evidence.push({stage,signal:'SIGKILL',reopen:'production CLI registry twice',exactSources:2,originalMtimes:true,priorArtifactRetained:true,generatedProfileRemoved:true});
+   evidence.push({style:style.id,stage,signal:'SIGKILL',reopen:'production CLI registry twice',exactSources:2,rewrittenSources:style.files,originalMtimes:true,priorArtifactRetained:true,generatedProfileRemoved:true});
   }
   await seed('first-rewrite');await killAt('first-rewrite');await fs.writeFile(path.join(root,'paper/notes.qmd'),'newer external edit Ω\r\n');await reopen(/changed or missing/);assert.equal(await fs.readFile(path.join(root,'paper/notes.qmd'),'utf8'),'newer external edit Ω\r\n');assert.ok(await fs.stat(path.join(root,journalRel)));
   await fs.writeFile(path.join(root,journalRel),'{corrupt journal');await reopen(/JSON|Unexpected|property name/);assert.equal(await fs.readFile(path.join(root,journalRel),'utf8'),'{corrupt journal');assert.equal(await fs.readFile(path.join(root,'paper/notes.qmd'),'utf8'),'newer external edit Ω\r\n');

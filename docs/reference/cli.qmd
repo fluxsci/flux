@@ -54,6 +54,8 @@ flux set-series-color fig1 control '#205EA6'         # one colour for a whole se
 flux get-plot-data fig1 --series control --limit 50  # the plot's DATA: exact x/y, bins, stats, brackets
 flux cite-doi 10.1038/nature12373                    # fetch a reference into the project
 flux compile --to pdf                                # compile the manuscript via Quarto
+flux compile --to docx --style nature                # a Nature submission manuscript (also science, cell, biorxiv)
+flux compile --to pdf --style cell --stage final     # Cell revision text; writes <name>.submission.md
 ```
 
 Edits made headless show up **live** in the open app, and if you're mid-edit in the app when a

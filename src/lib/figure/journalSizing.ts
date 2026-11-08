@@ -25,21 +25,26 @@ export const JOURNAL_PRESETS: { family: string; widths: WidthPreset[] }[] = [
   {
     family: "Nature",
     widths: [
+      // docs/journal_styleguide.md §2.9: 89 / 120–136 / 183 mm (final-submission page);
+      // 180 mm is the Extended Data PAGE width (180 × 170 mm), not a main-figure width.
       { id: "nat-single", label: "Nature single (89 mm)", mm: 89 },
+      { id: "nat-1.5", label: "Nature 1.5 column (120 mm)", mm: 120 },
       { id: "nat-double", label: "Nature double (183 mm)", mm: 183 },
-      { id: "nat-page", label: "Nature full page (180 mm)", mm: 180 },
+      { id: "nat-page", label: "Nature Extended Data page (180 mm)", mm: 180 },
     ],
   },
   {
     family: "Science",
     widths: [
-      { id: "sci-1", label: "Science 1-column (55 mm)", mm: 55 },
-      { id: "sci-2", label: "Science 2-column (120 mm)", mm: 120 },
-      { id: "sci-3", label: "Science 3-column (183 mm)", mm: 183 },
+      // §3.9: the instructions pages give 5.7 / 12.1 / 18.4 cm (the 2022 figure guide's
+      // 5.5 / 12 / 18.3 cm is older; owner ruling: the instructions).
+      { id: "sci-1", label: "Science 1-column (57 mm)", mm: 57 },
+      { id: "sci-2", label: "Science 2-column (121 mm)", mm: 121 },
+      { id: "sci-3", label: "Science 3-column (184 mm)", mm: 184 },
     ],
   },
   {
-    family: "Cell / PNAS",
+    family: "Cell / PNAS", // §4.9: 85 / 114 / 174 mm
     widths: [
       { id: "cell-1", label: "1-column (85 mm)", mm: 85 },
       { id: "cell-1.5", label: "1.5-column (114 mm)", mm: 114 },

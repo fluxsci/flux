@@ -1,7 +1,8 @@
-# Journal styleguide: submitting to Nature, Science and Cell
+# Journal styleguide: submitting to Nature, Science, Cell and bioRxiv
 
-**Status:** DRAFT for owner review, 2026-11-02. Nothing in the app implements this yet beyond the existing
-Nature preset (`src/lib/style/journalPresets.ts`).
+**Status:** IMPLEMENTED for Flux 0.3.0 (2026-11-07). Written 2026-11-02; the owner's rulings
+(§5) were applied and bioRxiv added (§4b). Each preset in `src/lib/style/journalPresets.ts`
+cites the section of this document behind every value; §7 maps the rules to the code and gates.
 
 **Purpose.** This is the specification behind Flux 0.3.0's "export my manuscript as a submittable
 Nature / Science / Cell file" feature. It lists what each journal requires for a research-paper submission:
@@ -1102,10 +1103,40 @@ Rules:
 
 ---
 
-## 5. Owner decisions needed
+## 4b. bioRxiv (preprint)
 
-Each item below is a place where the official sources disagree, or are silent, and Flux has to pick a
-default. A recommendation is given for each.
+### 4b.0 Sources
+
+Read live in a browser on 2026-11-07: `biorxiv.org/submit-a-manuscript` and `biorxiv.org/about/FAQ`.
+
+### 4b.1 What bioRxiv requires
+
+| Item | Requirement | Tag |
+|---|---|---|
+| File | "The simplest way to deposit a manuscript on bioRxiv is to upload a single PDF including the text and any figures/tables." A Word file plus separate figure files is the alternative (bioRxiv builds the PDF). LaTeX must be converted to PDF | [D] |
+| Metadata | Title, author list, affiliations and abstract shown on the site are **extracted from the PDF** ("replaced with final metadata extracted from each PDF file") — the first page must carry them clearly | [D FAQ] |
+| Style | **None.** Articles "are not typeset"; any citation style is accepted | [D] |
+| Supplements | Separate files, posted as-is; large datasets go to community repositories | [D] |
+| Language | English only | [D FAQ] |
+| Images | No identifiable faces (blurring/pixelation is not enough) | [D FAQ] |
+| AI | Use of generative AI "should be detailed in manuscripts"; AI is never an author | [D FAQ] |
+| Submission form (outside the file) | Funders (ROR IDs + grant numbers), licence (CC BY … no reuse), co-author consent; clinical research goes to medRxiv | [D] |
+
+### 4b.2 What Flux produces
+
+A clean single PDF (or Word file): a title page bioRxiv can read (title; authors with
+superscript affiliation numbers, `*` corresponding, `†` equal contribution; affiliations;
+`*Corresponding author: email`), an **Abstract** heading, the author's own section order and
+headings, figures **beside their legends** ("**Figure 1. Title.** …"), the document's own
+citation style through pandoc+CSL, 11 pt Arial at 1.5 spacing with line numbers (for
+reviewers' comments) and page numbers. bioRxiv sets no layout, so these are Flux's choices.
+
+## 5. Owner rulings (2026-11-07)
+
+**Ruling:** every recommendation below is adopted as the default. Word, abstract and legend
+limits (and every other limit) raise **warnings only** — Flux never removes prose or refuses
+to export. Anything ambiguous is surfaced in the **export summary** (§7) rather than decided
+silently. The table records the question and the default that shipped.
 
 | # | Journal | Question | Recommendation |
 |---|---|---|---|
@@ -1158,7 +1189,33 @@ order (especially where the supplemental index sits), supplemental-item limits a
 
 ---
 
-## 7. What this means for Flux's export system
+## 7. How Flux implements this (0.3.0)
+
+| Rule area | Code | Gate |
+|---|---|---|
+| Venue descriptors (every value tagged with its source here) | `src/lib/style/journalPresets.ts`, schema in `journalStyle.ts` (`ManuscriptSpec`, panel grammar, page setup) | `verify-journalstyle.ts`, `verify-nature-style.ts` |
+| Reference entries (§2.6, §3.6, §4.7) | `src/lib/style/journalRefs.ts` (CSL-JSON → markdown; all item types) | `verify-journal-refs.ts` |
+| Citation marks, numbering, punctuation, Nature's Methods list, Science notes (§2.5, §3.5, §4.6) | `src/lib/style/journalCitations.ts` | `verify-journal-refs.ts`, `verify-journal-manuscript.ts` |
+| Figure-reference grammar (§2.7, §3.7, §4.8) | `formatStyledFigureRef` in `journalStyle.ts`, used by `exportQmd.ts` | `verify-journal-refs.ts` |
+| Legends (§2.8, §3.8, §4.9) | `src/lib/style/journalCaptions.ts` | `verify-journal-refs.ts` |
+| Title page, abstract, section order/renames/drops, run-ins, Cell resource availability + STAR Methods, figure placement per stage | `src/lib/style/journalManuscript.ts`, run by `exportPrep.ts` in Paper and flux-core alike | `verify-journal-manuscript.ts`, `verify-journal-export-gui.mjs` (GUI ≡ flux-core) |
+| Page setup (§2.4, §3.4, §4.5, §4b) | `resources/docx/<id>-reference.docx` (from `scripts/gen-reference-docx.mjs`), `journalAssets.journalRenderMeta` (LaTeX preamble), `resources/lua/flux-journal.lua` | `verify-journal-assets.ts`, `verify-journal-render.ts` |
+| Figures at 300 dpi in the manuscript | `docxSvgFallback.ts` (raster-only), `journalFigures.ts` (PDF) | `verify-journal-render.ts` |
+| Limits, missing statements, outside-Flux items, figure-file guidance | `src/lib/style/journalSummary.ts`, `ExportSummaryPanel.svelte`, `<name>.submission.md` | `verify-journal-manuscript.ts` |
+| Journal Check advice in each venue's grammar | `src/lib/manuscript/compliance.ts` | `verify-journal-manuscript.ts`, `verify-nature-compliance.ts` |
+
+**Corrections applied to the shipped Nature preset:** hard abstract limit 230 (2026
+checklist); "tables" and the Ethics Statement in the order; ED legend limit 1,000; Extended
+Data caption form promoted to measured; dataset/software/chapter/proceedings entries; "et al."
+upright; 1.5-column width and 170 mm height noted in the figure guidance.
+
+**Not done in 0.3.0 (the summary tells the author instead):** separate final figure files
+(export each figure from Figure mode at the widths in §2.9/§3.9/§4.9), Science's Combined PDF
+and SM file, Cell's Highlights/eTOC Word file, graphical abstract and Key Resources Table,
+Nature's Reporting Summary, and merging adjacent citation groups ("[@a] [@b]").
+
+### Original implementation notes (2026-11-02, superseded by the table above)
+
 
 Brief notes for the implementation pass. The existing machinery is the journal-style descriptor
 (`src/lib/style/journalStyle.ts`), the presets, the vendored CSL, the Word reference-doc and Journal Check.

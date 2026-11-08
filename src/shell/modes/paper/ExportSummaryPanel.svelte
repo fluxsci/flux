@@ -133,11 +133,11 @@
     border: 1px solid var(--c-line-strong, #ccc);
   }
   .badge.warn {
-    color: var(--c-or, #bc5215);
+    color: var(--c-warning);
     border-color: currentColor;
   }
   .badge.ok {
-    color: var(--c-gr, #66800b);
+    color: var(--c-success);
     border-color: currentColor;
   }
   .badge.todo {
@@ -179,11 +179,11 @@
     color: var(--c-tx-3, #999);
   }
   li.warn .mark {
-    color: var(--c-or, #bc5215);
+    color: var(--c-warning);
     font-weight: 700;
   }
   li.done .mark {
-    color: var(--c-gr, #66800b);
+    color: var(--c-success);
   }
   .advisory {
     font-size: var(--ts-xs, 11px);

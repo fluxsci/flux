@@ -18,7 +18,7 @@
 //
 // Twin-engine shared core (flux-core → src/lib): no Svelte, no DOM, no Node.
 
-import type { ResolvedJournalStyle } from "../style/journalStyle";
+import { formatStyledFigureRef, styledFamilyById, type ResolvedJournalStyle } from "../style/journalStyle";
 import { normalizeHeading, scanSections, type RoleAliases } from "./sections";
 
 export type Severity = "info" | "warn";
@@ -247,7 +247,8 @@ export function checkCompliance(input: ComplianceInput): Finding[] {
   // Never rewritten: see the header. Each finding offers the house form, and
   // the author decides whether it is even about this paper's figure.
   const p = style.figures.panels;
-  const litRe = /\b(Fig(?:ure|s?\.|s)?)\s*(\d+)\s*([A-Za-z](?:\s*[,–-]\s*[A-Za-z])*)?/g;
+  // The panel group must END at a non-letter: "Figure 2 and" is not panel "a".
+  const litRe = /\b(Fig(?:ure|s?\.|s)?)\s*(\d+)\s*([A-Za-z](?:\s*[,–-]\s*[A-Za-z])*(?![A-Za-z]))?/g;
 
   // A figure number introduced ONCE beside an author name belongs to another
   // paper for the whole document. Authors write "Gao Figure 2D establishes …"
@@ -271,25 +272,24 @@ export function checkCompliance(input: ComplianceInput): Finding[] {
 
     const panels = m[3]?.replace(/\s+/g, "") ?? "";
     const problems: string[] = [];
+    // The venue's own noun: Nature/Science abbreviate ("Fig."), Cell spells it out.
+    const spellsOut = /^Figure\b/.test(styledFamilyById(style, "figure").refTemplate);
+    const grammar = p.grammar ?? "attached";
     if (panels && /[A-Z]/.test(panels) && p.letterCase === "lower") problems.push("capital panel letters");
-    if (m[3] && /\s/.test(m[3])) problems.push("a space inside the panel list");
+    if (panels && /[a-z]/.test(panels) && p.letterCase === "upper") problems.push("lowercase panel letters");
+    if (grammar === "attached" && m[3] && /\s/.test(m[3])) problems.push("a space inside the panel list");
     if (panels.includes("-")) problems.push("a hyphen where the range takes an en dash");
-    if (/^Figure$/.test(m[1])) {
+    if (/^Figure$/.test(m[1]) && !spellsOut) {
       // Spelled out mid-sentence: only flag when it is not sentence-initial.
       const before = doc.slice(Math.max(0, i - 2), i);
       if (!/(^|[.!?]\s|\n)$/.test(before)) problems.push('"Figure" spelled out mid-sentence');
     }
+    if (/^Fig/.test(m[1]) && m[1] !== "Figure" && spellsOut) problems.push(`"${m[1]}" where ${style.name} spells out "Figure"`);
     if (!problems.length) continue;
 
-    const want = `${/^Figure$/.test(m[1]) ? "Fig." : m[1]} ${m[2]}${
-      panels
-        ? panels
-            .toLowerCase()
-            .replace(/-/g, p.rangeSeparator)
-            .split(",")
-            .join(p.listSeparator)
-        : ""
-    }`;
+    // The suggestion in the venue's own grammar ("Fig. 3a–c", "Fig. 3, A to C", "Figures 3A–3C").
+    const spec = panels.toLowerCase().replace(/[–—]/g, "-");
+    const want = formatStyledFigureRef(styledFamilyById(style, "figure"), Number(m[2]), spec, p);
     add({
       ruleId: "fig.literal-house-style",
       severity: "info",

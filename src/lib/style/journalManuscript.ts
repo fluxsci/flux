@@ -844,7 +844,12 @@ export async function assembleJournalManuscript(src: string, input: AssembleInpu
   // The venue's page setup, reference doc, Lua filter and crossref wording.
   const render = journalRenderMeta(style, { docDir: input.docDir ?? "" });
   const authorFormat = fm.format && typeof fm.format === "object" ? (fm.format as Record<string, unknown>) : {};
-  Object.assign(fm, render, { format: { ...authorFormat, ...(render.format as Record<string, unknown>) } });
+  // The author's own Pandoc filters run first; the venue's Lua filter is appended.
+  const authorFilters = Array.isArray(fm.filters) ? fm.filters : fm.filters != null ? [fm.filters] : [];
+  Object.assign(fm, render, {
+    format: { ...authorFormat, ...(render.format as Record<string, unknown>) },
+    filters: [...authorFilters, ...((render.filters as unknown[]) ?? [])],
+  });
   if (spec.citations === "literal") {
     delete fm.bibliography;
     delete fm.csl;

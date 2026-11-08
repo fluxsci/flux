@@ -23,6 +23,13 @@ files:
   - src/lib/text/fontFiles.mjs
   - src/lib/text/fontRequest.mjs
   - resources/fonts/**/*
+  # Journal export assets (CSL, Word reference docs, the PDF-path Lua filter):
+  # electron main copies them into the project before a journal render. Absent
+  # from every packaged build until 0.3.0 — journal exports silently fell back
+  # to Quarto's defaults (no line numbers, no venue page setup) outside dev.
+  - resources/csl/**/*
+  - resources/docx/**/*
+  - resources/lua/**/*
   - dist/**/*
   - package.json
   - "!**/node_modules/**/*"
