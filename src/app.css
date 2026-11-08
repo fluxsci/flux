@@ -443,9 +443,10 @@ textarea,
 .surface-head .spacer { flex: 1; }
 .surface-head .hbtn { height: 24px; padding: 0 8px; background: none; border: 0; border-radius: var(--r-ui); color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); white-space: nowrap; }
 .surface-head .hbtn:hover { color: var(--c-tx); background: var(--c-surface-2); }
-.xbtn { width: 24px; height: 24px; padding: 0; display: inline-grid; place-items: center; background: none; border: 0; color: var(--c-tx-muted); border-radius: var(--r-ui); flex-shrink: 0; }
-.xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
-.xbtn::before { content: ""; width: 10px; height: 10px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center / contain no-repeat; }
+/* Scoped to the agent surfaces: the figure menu has its own .xbtn with a text ×. */
+.surface-head .xbtn, .agent-surface .xbtn { width: 24px; height: 24px; padding: 0; display: inline-grid; place-items: center; background: none; border: 0; color: var(--c-tx-muted); border-radius: var(--r-ui); flex-shrink: 0; }
+.surface-head .xbtn:hover, .agent-surface .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
+.surface-head .xbtn::before, .agent-surface .xbtn::before { content: ""; width: 10px; height: 10px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center / contain no-repeat; }
 
 /* The composer: a framed box that holds the textarea and a bar of hints + actions.
    One focus ring (the frame's), never the textarea's own. */

@@ -673,7 +673,7 @@
             <span><b class="hk">f</b> close</span>
           {:else}
             <span><b class="hk">s</b> search</span>
-            <span><b class="hk">f</b>/esc close</span>
+            <span><b class="hk">f</b> <b class="hk">esc</b> close</span>
             <span><b class="hk">↕</b> wheel adjusts</span>
             <span><b class="hk">␣</b> applies</span>
           {/if}
@@ -719,12 +719,19 @@
   .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .askbtn { height: 22px; padding: 0 8px; background: none; border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-muted); font-size: 11px; }
   .askbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
+  /* Hotkeys are key caps (the Inbox footer's vocabulary): mono, a hairline with a
+     heavier bottom edge, muted at rest. The accent is reserved for the key that is
+     ARMED (an editing field, the active search row or result), so blue keeps meaning
+     "chosen" rather than "every key". */
   .hk {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 16px; height: 16px; padding: 0 3px;
-    font: 600 10.5px var(--font-mono); color: var(--c-accent);
-    background: var(--c-accent-tint); border-radius: var(--r-ui);
+    display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+    min-width: 17px; height: 16px; padding: 0 4px;
+    font: 500 10px/14px var(--font-mono); color: var(--c-tx-muted);
+    background: transparent; border: 1px solid var(--c-line-strong); border-bottom-width: 2px; border-radius: var(--r-ui);
+    transition: color var(--dur-fade), border-color var(--dur-fade);
   }
+  .field.editing .hk, .res.active .hk, .search-row.active .hk { color: var(--c-accent); border-color: var(--c-accent); }
+  .field:hover .hk, .res:hover .hk { color: var(--c-tx-2); }
   .search-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
   .search-row.active { box-shadow: inset 0 -1px 0 var(--c-accent); }
   .search-fake { flex: 1; text-align: left; background: none; border: none; color: var(--c-tx-muted); font: 12.5px var(--font-serif); cursor: text; padding: 0; }
@@ -763,9 +770,9 @@
   .selbtn .chev { color: var(--c-tx-muted); font-size: 9px; }
   .opts { display: flex; flex-wrap: wrap; gap: 3px; }
   .opt { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px 0 4px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); font-size: 12px; white-space: nowrap; }
-  .opt .ok { font: 600 9.5px var(--font-mono); color: var(--c-tx-muted); min-width: 10px; }
+  .opt .ok { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 15px; height: 14px; padding: 0 3px; font: 500 9px/12px var(--font-mono); color: var(--c-tx-muted); border: 1px solid var(--c-line-strong); border-bottom-width: 2px; border-radius: var(--r-ui); }
   .opt.cur { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .opt.cur .ok { color: var(--c-accent); }
+  .opt.cur .ok { color: var(--c-accent); border-color: var(--c-accent); }
   .color-mode { padding: 6px 4px 8px; }
   .cm-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-tx); margin-bottom: 8px; }
   .cm-head .back { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-muted); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
@@ -776,5 +783,7 @@
   .rlabel { font: 12.5px var(--font-serif); }
   .rgrp { font: 10px var(--font-mono); color: var(--c-tx-muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .empty { color: var(--c-tx-muted); padding: 12px; text-align: center; }
-  .foot { display: flex; gap: 14px; height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11.5px var(--font-serif); color: var(--c-tx-muted); background: var(--c-bg-raised); }
+  .foot { display: flex; gap: 14px; height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11px var(--font-ui); color: var(--c-tx-muted); background: var(--c-bg-raised); }
+  .foot span { display: inline-flex; align-items: center; gap: 4px; }
+  .foot .hk { margin-right: 1px; }
 </style>
