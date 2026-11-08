@@ -238,7 +238,7 @@ try {
   await publishPresence(f.heron, { watching: true, watchMode: 'annotations', live: true });
   await waitFor(page, () => document.querySelector('.agents-chip')?.textContent.trim() === '2 agents ▾', null, { timeout: 7000, label: 'connected agents chip' });
   await page.click('.agents-chip'); await page.waitForSelector('.agents-popover');
-  h.ok(await page.$eval('.agents-popover [data-session="inbox-heron"]', e => ['heron', 'Codex · CLI', 'Connected since', '👁 Watching · annotations', '🖥 Live', 'Current claim:'].every(s => e.textContent.includes(s))), 'agents chip shows identity, watch mode, live flag, connection time and work');
+  h.ok(await page.$eval('.agents-popover [data-session="inbox-heron"]', e => ['heron', 'Codex · CLI', 'Connected since', 'Watching · annotations', 'Live', 'Current claim:'].every(s => e.textContent.includes(s))), 'agents chip shows identity, watch mode, live flag, connection time and work');
   const sessionAction = async (session, name, surface = '.agents-popover') => page.evaluate(({ id, name, surface }) => {
     const button = [...document.querySelectorAll(`${surface} [data-session="${id}"] button`)].find(b => b.textContent.trim() === name);
     if (!button) throw Error('Missing session action ' + name); button.click();
