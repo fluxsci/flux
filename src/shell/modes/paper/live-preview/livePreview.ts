@@ -139,6 +139,21 @@ function buildDecorations(view: EditorView): {
           return;
         }
 
+        // ---- Pandoc superscript `^…^` / subscript `~…~`: the content is raised
+        // or lowered ALWAYS (so line metrics never change with the caret — the
+        // class keeps line-height 0), the single markers hide off-caret like
+        // emphasis markers. Front matter is metadata, never decorated.
+        if (name === "Superscript" || name === "Subscript") {
+          if (nf < fmEnd) return false;
+          if (nt - nf > 2)
+            marks.push(Decoration.mark({ class: name === "Superscript" ? "cm-flux-sup" : "cm-flux-sub" }).range(nf + 1, nt - 1));
+          return;
+        }
+        if (name === "SuperscriptMark" || name === "SubscriptMark") {
+          if (!parentTouches(node)) hide(nf, nt);
+          return;
+        }
+
         // ---- Inline code backticks (leave fenced-code fences alone)
         if (name === "CodeMark") {
           if (parent === "InlineCode" && !parentTouches(node)) hide(nf, nt);

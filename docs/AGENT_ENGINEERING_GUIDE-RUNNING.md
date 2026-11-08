@@ -150,6 +150,7 @@ The established shared cores — extend these, don't duplicate them:
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) and BYTE-MINIMAL front-matter writes (title, author names/entries, single scalar keys such as `csl:`; never a whole-block re-dump) | `src/shell/modes/paper/frontmatter.ts` + `frontmatterEdit.ts` | `verify-frontmatter.ts`, `verify-frontmatter-edit.ts`, `verify-paper-markup-gui.mjs` §A |
+| Pandoc superscript `^…^` / subscript `~…~` (what a span is; markdown-it rule; spelling ranges; the editor's Lezer extension list) | `src/shell/modes/paper/science/supSubGrammar.ts` + `markdownExtensions.ts` | `verify-paper-supsub.ts` (Lezer ≡ grammar ≡ markdown-it ≡ Pandoc's own HTML for a corpus; mdInline nodes; spelling; Ctrl+./Ctrl+, commands), `verify-paper-markup-gui.mjs` §B–E, `verify-v020-docx-publication.ts` (real Pandoc DOCX vertAlign runs) |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
@@ -1209,6 +1210,14 @@ Persistence invariants (all machine-checked — do not weaken):
   `localWordTools.ts` owns dictionary/alias controls and their Vim-proof `Prec.highest` chords.
   Reset learning preserves explicit words and mappings. The Paper caret always uses Chase
   (`editing/caretFeel.ts`); old cursor-mode preferences do not select an alternate implementation.
+  **Superscript / subscript** (2026-11-08) are Pandoc's `^…^` / `~…~`, parsed by @lezer/markdown's
+  `Superscript`/`Subscript` from the ONE extension list (`markdownExtensions.ts`); live preview
+  marks the content `.cm-flux-sup/.cm-flux-sub` always (shifted with `position: relative` and
+  `line-height: 0`, so the line box never changes — active and inactive metrics stay identical)
+  and hides the single markers off-caret like emphasis. Every non-Lezer surface (markdown-it
+  `markdownItSupSub`, `mdInline`, spelling's `protectedMarkdownRanges`) reads
+  `supSubGrammar.ts`; the Pandoc exports need no code. Ctrl+. / Ctrl+, are CodeMirror chords
+  (`toggleScript`, listed in `CM_CHORD_STRINGS`), never a window chord.
   **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
   `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
   markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,

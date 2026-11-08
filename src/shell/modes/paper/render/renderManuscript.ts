@@ -21,6 +21,7 @@ import { scanRefNumbers, TBL_CAPTION_RE, type RefNumbers } from "../science/refN
 import { findInlineMath, MathBlockTracker } from "../science/mathGrammar";
 import { formatReference, inTextAuthorYear } from "../../../../lib/references/format";
 import { frontMatterBounds } from "../frontmatter";
+import { markdownItSupSub } from "../science/supSubGrammar";
 import {
   buildCitationOrdinals,
   collapseOrdinals,
@@ -44,6 +45,9 @@ async function getMd(): Promise<any> {
     md.use(spans);
     md.use(attrs);
     md.use(deflist);
+    // Pandoc superscript `^…^` / subscript `~…~` — the grammar the editor and
+    // the Pandoc exports share (science/supSubGrammar.ts; no extra npm deps).
+    md.use(markdownItSupSub);
     // Keep smart quotes but NOT the (c)/(tm)/dash text replacements — they mangle
     // scientific sub-panel labels like "(a) (b) (c)" into ©, etc.
     md.disable("replacements");

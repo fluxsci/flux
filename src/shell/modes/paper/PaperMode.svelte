@@ -102,6 +102,7 @@
   import { tablePaste } from "./science/tablePaste";
   import { formatTableBlock, parseTsv, parseCsv, gridToTable } from "./science/tableModel";
   import { foldSection, unfoldSection } from "./editing/folding";
+  import { toggleScript } from "./editing/commands";
   import { foldAll, syntaxTree, syntaxTreeAvailable, unfoldAll } from "@codemirror/language";
   import { keymap } from "@codemirror/view";
   import StatusBar from "./StatusBar.svelte";
@@ -2453,6 +2454,9 @@
         foldSection(view);
         view.focus();
       }
+    },
+    formatScript: (mark) => {
+      if (view) toggleScript(mark)(view);
     },
     unfoldSection: () => {
       if (view) {

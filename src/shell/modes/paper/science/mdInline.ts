@@ -1,5 +1,6 @@
 // Minimal synchronous inline-markdown → DOM for widget captions and table
-// cells: bold, italic, inline code, backslash escapes — plus, opt-in, inline
+// cells: bold, italic, inline code, backslash escapes, Pandoc superscript
+// `^…^` / subscript `~…~` (as <sup>/<sub>) — plus, opt-in, inline
 // `$…$` math (lazy KaTeX via katexLoader — pending shows the raw TeX) and
 // RESOLVED cross-ref/citation tokens ("Fig. 2", "(Smith et al., 2021)") so a
 // table cell shows what the export prints. The full markdown-it pipeline is
@@ -17,11 +18,14 @@
 import { findInlineMath } from "./mathGrammar";
 import { renderTexCached, katexReady } from "./katexLoader";
 import { bracketCiteRe, crossrefRe, bareCiteRe, isCrossrefKey } from "./grammar";
+import { SUP_SUB_SOURCE, unescapeSupSub } from "./supSubGrammar";
 
 // `|` joins the escape set: inside table cells `\|` is a literal pipe
 // (markdown-it's escapedSplit consumes it before inline rules ever run, and
-// prose backslash-escapes cover it too).
-const INLINE_RE = /(\*\*|__)(.+?)\1|([*_])([^*_]+?)\3|`([^`]+)`|\\([\\`*_[\]()|])/g;
+// prose backslash-escapes cover it too). `^`/`~` join it for the Pandoc
+// superscript/subscript spans (groups 7/8 — the shared supSubGrammar source).
+const BASE_INLINE_RE = /(\*\*|__)(.+?)\1|([*_])([^*_]+?)\3|`([^`]+)`|\\([\\`*_[\]()|^~])/;
+const INLINE_RE = new RegExp(`${BASE_INLINE_RE.source}|${SUP_SUB_SOURCE}`, "g");
 
 export interface InlineResolvers {
   /** Render `$…$` spans via KaTeX (raw TeX styled pending until it loads). */
@@ -51,6 +55,10 @@ function fmtInto(frag: DocumentFragment | HTMLElement, src: string): void {
     } else if (m[5] !== undefined) {
       const el = document.createElement("code");
       el.textContent = m[5];
+      frag.appendChild(el);
+    } else if (m[7] !== undefined || m[8] !== undefined) {
+      const el = document.createElement(m[7] !== undefined ? "sup" : "sub");
+      el.textContent = unescapeSupSub(m[7] ?? m[8]);
       frag.appendChild(el);
     } else {
       frag.appendChild(document.createTextNode(m[6]));

@@ -61,6 +61,15 @@ if a project contains both folders, both are discoverable under Documents. Flux 
 an ordinary document as the default for command-line exports, replacing that pointer when
 it is deleted; the GUI always exports the document you have open.
 
+- **Superscript and subscript** use Pandoc's markup: `CO~2~`, `H~2~O`, `Ca^2+^`, `10^-3^`,
+  `R^2^`. The text is raised or lowered as you type and the `^` / `~` markers hide when the
+  caret moves away. Select text and press **Ctrl+.** for superscript or **Ctrl+,** for
+  subscript (or use the x² / x₂ buttons on the selection toolbar); press it again to remove it.
+  With nothing selected, pressing it with the caret inside one removes it too. Spaces are not
+  allowed inside, so Flux writes a selected space as `\ `. The Preview, Word, PDF and HTML
+  exports, figure captions and table cells all print them, and spelling ignores them (and the
+  unit after a number, as in `10^-3^ s`). `~~text~~` is still strikethrough, and `~5 min` (with
+  a space before the next `~`) stays plain text.
 - Type **/** at the start of a line for the block palette: `/figure`, `/slide`, `/table`, `/equation`,
   `/citation`, `/heading`, `/callout`, and friends.
 - **Ctrl+K** opens the command palette — everything in this guide is also in there by name.
@@ -421,6 +430,7 @@ directly to the new position, and the caret blinks softly once you pause.
 | Word export is disabled | Quarto isn't installed → **Install Quarto…** in the export dialog, or **Settings → General → Setup** ([Installation](../installation.qmd)) |
 | A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd). The PDF needs `lualatex` (TinyTeX from **Settings → Set up Flux… → Add PDF support** includes it) |
 | Saving the title pill says *Title and authors were not changed* | The front matter is not valid YAML, or has no closing `---` → fix it in the text (the message names the problem); Flux will not rewrite front matter it cannot read |
+| A `~` or `^` turned part of a line into a subscript or superscript | Two tildes (or carets) with no space between them, as in `~/data/~`, are subscript markup → write `\~` (or `\^`) for a literal one |
 | The journal title page shows no authors | Put `author:` (with `affiliations:`) in the document's front matter — see [Journal styles](#journal-styles) |
 | Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in **Figure-Meta** (**Alt+M**) |

@@ -400,6 +400,8 @@ const PROTECTED_NODES = new Set([
   "HTMLTag",
   "InlineCode",
   "ProcessingInstruction",
+  "Subscript",
+  "Superscript",
   "URL",
 ]);
 

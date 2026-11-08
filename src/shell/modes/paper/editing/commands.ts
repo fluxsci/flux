@@ -4,6 +4,7 @@
 
 import type { EditorView } from "@codemirror/view";
 import { EditorSelection, type ChangeSpec } from "@codemirror/state";
+import { findSupSub } from "../science/supSubGrammar";
 
 export type Command = (view: EditorView) => boolean;
 
@@ -52,6 +53,55 @@ export function toggleWrap(mark: string): Command {
               range.to + mark.length,
             )
           : EditorSelection.cursor(range.from + mark.length),
+      };
+    });
+    view.dispatch({ ...tr, scrollIntoView: true, userEvent: "input.format" });
+    view.focus();
+    return true;
+  };
+}
+
+/** Toggle Pandoc superscript (`^`) / subscript (`~`) on each selection range
+ *  (Ctrl+. / Ctrl+,). Unlike toggleWrap it never reads one tilde of a
+ *  `~~strike~~` as a subscript marker, unwraps a span the caret merely sits
+ *  in, and escapes spaces on the way in (Pandoc allows none inside: `10 ms`
+ *  → `^10\ ms^`) and back out. Multi-line ranges are left alone. */
+export function toggleScript(mark: "^" | "~"): Command {
+  const esc = (s: string) => s.replace(new RegExp(`(?<!\\\\)([ ${mark === "^" ? "\\^" : "~"}])`, "g"), "\\$1");
+  const unesc = (s: string) => s.replace(new RegExp(`\\\\([ ${mark === "^" ? "\\^" : "~"}])`, "g"), "$1");
+  const kind = mark === "^" ? "sup" : "sub";
+  return (view) => {
+    const { state } = view;
+    const tr = state.changeByRange((range) => {
+      const sel = state.sliceDoc(range.from, range.to);
+      if (sel.includes("\n")) return { range };
+      const at = (pos: number) => state.sliceDoc(pos, pos + 1);
+      const unwrap = (from: number, to: number) => {
+        // [from, to) is the whole span, markers included.
+        const inner = unesc(state.sliceDoc(from + 1, to - 1));
+        return {
+          changes: { from, to, insert: inner },
+          range: range.empty
+            ? EditorSelection.cursor(Math.min(Math.max(range.head - 1, from), from + inner.length))
+            : EditorSelection.range(from, from + inner.length),
+        };
+      };
+      // Markers just outside the selection (and not a doubled `~~` / `^^`).
+      if (!range.empty && at(range.from - 1) === mark && at(range.to) === mark && at(range.from - 2) !== mark && at(range.to + 1) !== mark)
+        return unwrap(range.from - 1, range.to + 1);
+      // The selection IS a whole span, markers included.
+      if (sel.length >= 3 && findSupSub(sel).some((s) => s.kind === kind && s.from === 0 && s.to === sel.length))
+        return unwrap(range.from, range.to);
+      // A bare caret inside a span: take the span off.
+      if (range.empty) {
+        const line = state.doc.lineAt(range.head);
+        const hit = findSupSub(line.text).find((s) => s.kind === kind && line.from + s.from < range.head && range.head < line.from + s.to);
+        if (hit) return unwrap(line.from + hit.from, line.from + hit.to);
+      }
+      const inner = esc(sel);
+      return {
+        changes: { from: range.from, to: range.to, insert: mark + inner + mark },
+        range: sel ? EditorSelection.range(range.from + 1, range.from + 1 + inner.length) : EditorSelection.cursor(range.from + 1),
       };
     });
     view.dispatch({ ...tr, scrollIntoView: true, userEvent: "input.format" });
