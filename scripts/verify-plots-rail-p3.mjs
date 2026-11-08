@@ -121,6 +121,9 @@ h.section("the left rail has no fixed widest width");
 h.section("Peek");
 {
   // Place alpha once so Peek has a placement to report; then make the figure dark.
+  // Both tiles must be in view BEFORE the dwell: pagePoint scrolls a tile into view, and a scroll
+  // hides Peek by law (it then re-dwells), which is not what the tile-to-tile step tests.
+  await pagePoint("/fixtures/dark.svg");
   const pa = await pagePoint("/alpha.svg");
   await page.mouse.click(pa.x, pa.y, { count: 2 });
   await waitFor(page, () => window.__flux.figures().some((f) => f.elements.some((e) => e.source?.svgPath?.endsWith("plots/alpha.svg"))), null, { label: "alpha placed" });
@@ -139,7 +142,7 @@ h.section("Peek");
   h.ok(/5 dissection files/.test(facts.dis ?? "") && /by_subject 4/.test(facts.dis ?? ""), `its dissection groups (${facts.dis})`);
   h.ok(facts.backdrop === "own" && facts.img && facts.left >= 4 && facts.left <= 16 && facts.pe === "none", `the backdrop law's choice, a picture at once, against the rail's edge, non-interactive (${JSON.stringify(facts)})`);
   // Tile to tile: no new dwell.
-  const pd = await pagePoint("/fixtures/dark.svg");
+  const pd = await page.evaluate(() => { const r = document.querySelector('[data-plots-gallery] [data-tile$="/fixtures/dark.svg"] .page').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
   await page.mouse.move(pd.x, pd.y);
   // Condition-based, bounded UNDER the 350 ms dwell: a switch that arrives in time proves no re-dwell
   // (a bare 60 ms sleep raced the thumbnail swap on the hosted runner, 2026-11-08).
