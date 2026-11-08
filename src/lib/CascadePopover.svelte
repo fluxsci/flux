@@ -485,11 +485,5 @@
     border-color: var(--c-accent);
     color: var(--c-bg, #fff);
   }
-  kbd {
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 3px;
-    padding: 0 4px;
-    font-family: var(--font-mono, monospace);
-    font-size: 10px;
-  }
+  kbd { margin-left: 4px; color: inherit; opacity: .8; }
 </style>

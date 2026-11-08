@@ -112,7 +112,7 @@
   .pb-hover .ro { font: 10.5px var(--font-mono); color: var(--c-tx-2); white-space: nowrap; }
   .pb-hover i { font-style: normal; color: var(--c-tx-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pb-hover.adding b { color: var(--c-pick-text); font: 600 10.5px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
-  kbd { font: 9.5px var(--font-mono); color: var(--c-tx-muted); border: 1px solid var(--c-line-strong); border-radius: 2px; padding: 0 3px; margin-left: 2px; }
+  kbd { color: var(--c-tx-muted); margin-left: 4px; }
   .pb-chips { display: flex; gap: 4px; min-width: 0; overflow: hidden; flex: 0 1 auto; }
   .pb-chip { display: inline-flex; align-items: center; gap: 2px; height: 18px; padding: 0 2px 0 6px; white-space: nowrap; font: 10.5px var(--font-mono); color: var(--c-tx);
     border: 1px solid color-mix(in oklab, var(--c-pick) 55%, transparent); border-radius: var(--r-ui); background: color-mix(in oklab, var(--c-pick) 14%, transparent); }

@@ -455,18 +455,7 @@
     margin-bottom: 4px;
     font-size: 12px;
   }
-  kbd {
-    background: var(--c-bg-raised);
-    border: 1px solid var(--c-line-strong);
-    border-radius: 4px;
-    padding: 2px 6px;
-    font-family: inherit;
-    font-size: 11px;
-    min-width: 104px;
-    text-align: center;
-    white-space: nowrap;
-    flex: 0 0 auto;
-  }
+  kbd { min-width: 104px; height: 20px; padding: 0 8px; font-size: 11px; line-height: 18px; color: var(--c-tx); flex: 0 0 auto; }
   .row span {
     opacity: 0.85;
   }

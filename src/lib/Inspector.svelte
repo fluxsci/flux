@@ -1475,11 +1475,7 @@
     font-size: 12px;
     color: var(--c-tx);
   }
-  .hk {
-    margin-left: auto;
-    font: 10px var(--font-mono);
-    color: var(--c-tx-faint);
-  }
+  .hk { margin-left: auto; color: var(--c-tx-faint); }
   h4 .hk { margin-left: 0; }
   .note.phys {
     display: flex;

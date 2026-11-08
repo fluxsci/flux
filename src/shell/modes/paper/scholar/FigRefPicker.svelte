@@ -526,13 +526,5 @@
     color: var(--c-tx-faint);
     font-style: italic;
   }
-  .keys kbd {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    border: 1px solid var(--c-line);
-    border-bottom-width: 2px;
-    border-radius: 3px;
-    padding: 0 4px;
-    background: var(--c-bg);
-  }
+  .keys kbd { color: var(--c-tx-2); }
 </style>

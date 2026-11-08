@@ -619,7 +619,7 @@
                               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
                               <span class="opt" class:cur={i === optIndex} role="option" tabindex="-1" aria-selected={i === optIndex}
                                 on:pointerenter={() => previewOption(f, i)} on:click={() => pickOption(f, i)}>
-                                {#if i < 9}<span class="ok">{i + 1}</span>{/if}{o.label}
+                                {#if i < 9}<span class="ok hk">{i + 1}</span>{/if}{o.label}
                               </span>
                             {/each}
                           </span>
@@ -719,19 +719,10 @@
   .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .askbtn { height: 22px; padding: 0 8px; background: none; border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-muted); font-size: 11px; }
   .askbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
-  /* Hotkeys are key caps (the Inbox footer's vocabulary): mono, a hairline with a
-     heavier bottom edge, muted at rest. The accent is reserved for the key that is
-     ARMED (an editing field, the active search row or result), so blue keeps meaning
-     "chosen" rather than "every key". */
-  .hk {
-    display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
-    min-width: 17px; height: 16px; padding: 0 4px;
-    font: 500 10px/14px var(--font-mono); color: var(--c-tx-muted);
-    background: transparent; border: 1px solid var(--c-line-strong); border-bottom-width: 2px; border-radius: var(--r-ui);
-    transition: color var(--dur-fade), border-color var(--dur-fade);
-  }
-  .field.editing .hk, .res.active .hk, .search-row.active .hk { color: var(--c-accent); border-color: var(--c-accent); }
-  .field:hover .hk, .res:hover .hk { color: var(--c-tx-2); }
+  /* Hotkeys are key caps (app.css draws the box); the menu's keys keep their accent, and an
+     ARMED key (editing field, active search row or result) adds the accent tint behind it. */
+  .hk { color: var(--c-accent); min-width: 17px; height: 16px; }
+  .field.editing .hk, .res.active .hk, .search-row.active .hk { background: var(--c-accent-tint); }
   .search-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
   .search-row.active { box-shadow: inset 0 -1px 0 var(--c-accent); }
   .search-fake { flex: 1; text-align: left; background: none; border: none; color: var(--c-tx-muted); font: 12.5px var(--font-serif); cursor: text; padding: 0; }
@@ -770,9 +761,9 @@
   .selbtn .chev { color: var(--c-tx-muted); font-size: 9px; }
   .opts { display: flex; flex-wrap: wrap; gap: 3px; }
   .opt { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px 0 4px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); font-size: 12px; white-space: nowrap; }
-  .opt .ok { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 15px; height: 14px; padding: 0 3px; font: 500 9px/12px var(--font-mono); color: var(--c-tx-muted); border: 1px solid var(--c-line-strong); border-bottom-width: 2px; border-radius: var(--r-ui); }
+  .opt .ok { min-width: 15px; height: 14px; padding: 0 3px; font-size: 9px; line-height: 12px; }
   .opt.cur { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .opt.cur .ok { color: var(--c-accent); border-color: var(--c-accent); }
+  .opt.cur .ok { color: var(--c-accent); }
   .color-mode { padding: 6px 4px 8px; }
   .cm-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-tx); margin-bottom: 8px; }
   .cm-head .back { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 6px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-muted); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }

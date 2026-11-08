@@ -7,7 +7,7 @@ Release that the one supported installer picks up:
 curl -fsSL https://fluxsci.github.io/install.sh | bash
 ```
 
-## 0.3.0 — unreleased
+## 0.3.0 — 2026-11-08
 
 ### Working with agents
 
@@ -108,6 +108,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 ### Reader and Library
 
 - **Show in folder** reveals a paper's PDF or supplement in the file manager.
+
+### Across the app
+
+- Every hotkey is a key cap: mono letter, hairline with a heavier bottom edge, barely rounded,
+  in the colour of the surface it sits on (accent in the figure menu and toolbar, phosphor in the
+  X-ray, muted in footers). One rule in the stylesheet; the same look in the Inbox, Annotate,
+  the figure properties menu, the X-ray, the Inspector, the Animator, the toolbar and Help.
 
 ### Under the hood
 

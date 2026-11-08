@@ -1276,12 +1276,8 @@
   @media (prefers-reduced-motion: reduce) { .xray.placed { animation: none; } }
   @keyframes xr-in { from { opacity: 0; } to { opacity: 1; } }
   .xcontent { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-  .hk {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 16px; height: 16px; padding: 0 3px;
-    font: 600 10.5px var(--font-mono); color: var(--xr-phos-hi);
-    background: var(--xr-tint); border-radius: var(--r-ui);
-  }
+  /* Key caps (app.css); the X-ray's keys glow phosphor, as everything on its screen does. */
+  .hk { color: var(--xr-phos-hi); min-width: 17px; height: 16px; }
   .xhead { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--xr-line); background: var(--xr-bg); min-width: 0; }
   .ttl { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--xr-tx); flex: 0 0 auto; }
   .crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; font-size: 11px; }

@@ -281,11 +281,7 @@
     border-color: var(--c-accent);
     color: var(--c-tx-hi);
   }
-  .grpedit kbd {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    color: var(--c-tx-faint);
-  }
+  .grpedit kbd { margin-left: 4px; color: var(--c-tx-faint); }
   .grpchips {
     display: flex;
     flex-wrap: wrap;

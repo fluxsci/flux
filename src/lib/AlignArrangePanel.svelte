@@ -196,7 +196,7 @@
   select:hover:not(:disabled) {border-color:var(--c-line-strong)}
   svg {width:20px;height:20px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
   /* Shortcut hints whisper in the corner; brighter only where the keyboard is (the active pane). */
-  kbd {font:9px var(--font-mono);color:var(--c-tx-faint)}
+  kbd {color:var(--c-tx-faint);margin-right:4px}
   .active kbd {color:var(--c-tx-muted)}
   /* Tiles: inset wells (the rail's tiles), a lift on hover, the tool colour when chosen. */
   .align-pad {display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:2px 0 0}

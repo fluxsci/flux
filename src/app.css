@@ -465,7 +465,12 @@ textarea,
 .flux-composer .composer-bar button.stop { border-color: var(--c-line-strong); }
 .flux-composer .composer-bar kbd { margin-left: 5px; }
 
-.agent-surface kbd { display: inline-block; font: 500 10px/15px var(--font-mono); padding: 0 4px; border: 1px solid var(--c-line-strong); border-bottom-width: 2px; border-radius: var(--r-ui); color: var(--c-tx-muted); vertical-align: middle; }
+/* Key caps — the one way Flux draws a hotkey (<kbd>, or the .hk / .kc badges of the figure menu,
+   X-ray, Inspector and Animator). The BOX is global: mono, a hairline with a heavier bottom edge,
+   barely rounded. The COLOUR is the surface's own — the figure menu's accent, the X-ray's
+   phosphor, a footer's muted ink — because the border is drawn from currentColor; a component
+   sets only `color` (and margins) on its keys. */
+kbd, .hk, .kc { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 16px; height: 15px; padding: 0 4px; font: 500 10px/13px var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; color: var(--c-tx-muted); background: transparent; border: 1px solid color-mix(in oklab, currentColor 45%, transparent); border-bottom-width: 2px; border-radius: var(--r-ui); vertical-align: middle; white-space: nowrap; }
 .agent-surface .faint { color: var(--c-tx-faint); }
 .agent-surface .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 

@@ -265,7 +265,8 @@
   .curve-field.compact { border-top: 0; padding-top: 0; }
   .compact .curve-trigger { padding: 2px 6px; }
   .field-label { display: flex; gap: 6px; color: var(--c-tx-muted); font: 12px var(--font-ui); margin-bottom: 4px; }
-  kbd, .readout, output, input, .eyebrow, footer { font: 10px/1.5 var(--font-mono); font-variant-numeric: tabular-nums; }
+  .readout, output, input, .eyebrow, footer { font: 10px/1.5 var(--font-mono); font-variant-numeric: tabular-nums; }
+  kbd { margin-left: 4px; color: var(--c-tx-muted); }
   button { font: 11px var(--font-ui); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: transparent; cursor: var(--cursor-cross-hover); }
   button:hover { background: var(--c-accent-tint); }
   button:focus-visible, input:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }

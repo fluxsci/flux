@@ -187,11 +187,7 @@
     border-color: var(--c-accent);
     color: var(--c-tx-hi);
   }
-  kbd {
-    font: 600 9.5px var(--font-mono);
-    color: var(--c-tx-muted);
-    text-transform: uppercase;
-  }
+  kbd { margin-left: 6px; color: var(--c-tx-muted); }
   button.active kbd { color: var(--c-accent); }
   .gear { padding: 0 6px; font-size: 13px; }
   @media (max-width: 1100px) {

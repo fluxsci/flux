@@ -210,7 +210,7 @@
   nav > .chosen { color:var(--c-tx-hi); box-shadow:inset 0 -2px 0 var(--c-accent); }
   nav > .grow ~ button { height:22px; padding:0 7px; margin-left:4px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); color:var(--c-tx); box-shadow:none; }
   nav > .zoom { min-width:44px; font:11px var(--font-mono); font-variant-numeric:tabular-nums; }
-  kbd { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:8px; border-radius:var(--r-ui); background:var(--c-accent-tint); color:var(--c-accent); font:600 10px var(--font-mono); }
+  kbd { margin-left:8px; color:var(--c-accent); }
   .grow { flex:1; }
   .media,.dissections { flex:1; min-width:0; min-height:0; position:relative; display:flex; flex-direction:column; overflow:hidden; }
   .media { background:color-mix(in oklab,var(--c-bg) 94%,black); }

@@ -171,7 +171,7 @@
   .backdrop { display: flex; align-items: center; gap: 6px; color: var(--c-tx-2); }
   .sw { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 2px; box-shadow: 0 0 0 1px var(--c-line-strong); }
   .keys { margin-top: 2px; color: var(--c-tx-muted); font-size: 10.5px; }
-  .keys kbd { padding: 0 3px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); font: 9.5px var(--font-mono); }
+  .keys kbd { color: var(--c-tx-2); }
   .warn { margin-top: 2px; padding: 4px 6px; border-radius: var(--r-ui); background: color-mix(in oklab, var(--c-warning) 16%, transparent); color: var(--c-tx-hi); }
   .tablewrap { max-height: 360px; overflow: hidden; }
   table { border-collapse: collapse; font: 10.5px var(--font-mono); }

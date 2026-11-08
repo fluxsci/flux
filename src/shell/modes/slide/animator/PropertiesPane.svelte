@@ -1181,11 +1181,7 @@
   .pb.void { border: 0; background: none; cursor: var(--cursor-cross); }
 
   /* hotkey glyph: a 16px square on the accent tint */
-  .kc {
-    display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
-    margin-left: 4px; border-radius: var(--r-ui); vertical-align: middle;
-    font: 600 11px var(--font-mono); color: var(--c-accent); background: var(--c-accent-tint);
-  }
+  .kc { margin-left: 4px; color: var(--c-accent); }
 
   .saveas { text-align: center; background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
   .saveas:hover { border-color: var(--c-accent-bright); }
