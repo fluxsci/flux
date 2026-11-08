@@ -275,7 +275,7 @@ try {
     const rendered = await core.renderModelPosters(root, { deckId: deck.id });
     const saved = (await core.loadDeck(root, deck.id)).slides[0].elements[0] as typeof element;
     const hiddenKey = staticModelRequest(saved, stepAsset, partManifest, 'slide', { 'cortex.left': 0 }).key, designKey = staticModelRequest(saved, stepAsset, partManifest, 'slide').key;
-    h.eq(rendered.posters.filter(p => p.elementId === 'step-view').map(p => [p.key, p.ready]).sort(), [[designKey, true], [hiddenKey, true]].sort(), 'render-model-posters --deck renders the Design still and the step-0 still with its hidden part, each once');
+    h.eq(rendered.posters.filter(p => p.elementId === 'step-view').map(p => [p.key, p.ready]).sort(), [[designKey, true], [hiddenKey, true]].sort(), `render-model-posters --deck renders the Design still and the step-0 still with its hidden part, each once (warnings: ${JSON.stringify(rendered.warnings)})`);
     const warm = await connectRead();
     h.eq(unavailable(warm.warnings), [], 'after render-model-posters --deck, the read-only deck read finds every step still (no placeholder warning)');
     const [stepZero, stepOne] = [renderSlidePosterSvg(warm.payload, 0), renderSlidePosterSvg(warm.payload, 1)];
