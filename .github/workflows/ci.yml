@@ -218,6 +218,21 @@ jobs:
         with:
           chrome-version: stable
           install-dependencies: true
+      # The reference workstation's faces, as in the test job. verify-zoom-proxy's
+      # composite fixture puts the sharp/coarse plane seam where a figure label's
+      # ascent lands: with Arial it is a whole pixel (top 47); with the runner's
+      # Liberation Sans stand-in it is 46.5, and the exact single-plane comparison
+      # reads "max 1, pixels 533, seam 4" (reproduced locally with a fontconfig
+      # holding only DejaVu/Liberation/Noto, 2026-11-08).
+      - name: Provision the msttcorefonts faces the fixtures were authored with
+        run: |
+          sudo apt-get update
+          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
+          sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer
+          sudo fc-cache -f
+          for f in Arial Arial_Italic Georgia Georgia_Bold; do
+            test -f "/usr/share/fonts/truetype/msttcorefonts/$f.ttf" || { echo "::error::msttcorefonts download failed: $f.ttf missing"; exit 1; }
+          done
       # The server's own output is evidence: a mid-run "new dependencies
       # optimized … reloading" line is a full reload of every open page, which
       # once closed a gate's popup under it (2026-09-26). Keep it in a file and
