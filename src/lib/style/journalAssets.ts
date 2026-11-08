@@ -243,7 +243,9 @@ export function journalProfileYaml(
   // A JOURNAL style (one with a manuscript spec) carries its render settings in
   // the prepared document's front matter instead (journalRenderMeta) — a profile
   // is ignored for a document below the Quarto project directory.
-  if (style.manuscript) return lines.join("\n") + "\n";
+  // A comment-only file is not valid profile YAML ("YAML value is missing"), so
+  // it carries one key the front matter also sets.
+  if (style.manuscript) return [...lines, "number-sections: false"].join("\n") + "\n";
   if (style.csl) lines.push(`csl: ${up}${style.csl}`);
 
   const d = style.document;

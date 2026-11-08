@@ -1,0 +1,93 @@
+---
+title: Sleep-like OFF periods lower synaptic APP and tau
+author:
+  - name: Ada Lovelace
+    affiliations: [lab]
+    equal-contributor: true
+  - name: Grace Hopper
+    affiliations: [lab, inst]
+    equal-contributor: true
+  - name: Rosalind Franklin
+    affiliations: [lab]
+    corresponding: true
+    lead-contact: true
+    email: rfranklin@example.org
+affiliations:
+  - id: lab
+    department: Department of Psychiatry
+    name: University of Wisconsin-Madison
+    city: Madison
+    country: USA
+  - id: inst
+    name: Wisconsin Institute for Sleep
+    city: Madison
+    country: USA
+abstract: |
+  Sleep loss raises the risk of neurodegeneration [@hanse2013]. Here we show that sleep-like cortical OFF periods lower synaptic APP and tau.
+highlights:
+  - Synaptic APP and tau rise with sleep deprivation
+  - Cortical OFF periods during waking lower them
+  - A tonic drop in firing does not
+etoc: Lovelace, Hopper and colleagues show that cortical OFF periods lower synaptic APP and tau.
+keywords: [sleep, tau, synapse]
+one-sentence-summary: Sleep-like OFF periods lower synaptic APP and tau.
+bibliography: library.bib
+---
+
+# Introduction
+
+Synaptic dysfunction is an early feature of disease [@hanse2013]. Two studies agree [@villette2019; @hanse2013], and a run of them too [@hanse2013; @villette2019; @bellesi2013; @pnas2018]. As shown by @bellesi2013, the effect is local^[Measured in synaptosomes [@guo2020].]. Missing [@nosuchkey].
+
+# Results
+
+## Sleep raises APP
+
+Panels (@fig-a-b,c) and a range (@fig-a-a-c) and one panel (@fig-a-b).
+
+![](fig-a.svg){#fig-a width=60%}
+
+Supplementary support (@fig-s1).
+
+# Discussion
+
+Preprints [@kapoor2022] and books [@alcock2006; @king2003].
+
+# Limitations of the study
+
+Sample sizes were small.
+
+# Methods
+
+## Animals
+
+Mice were housed singly [@dueck2009].
+
+## Statistical analysis
+
+We used ANOVA [@hao2014; @wilson2023].
+
+# Data availability
+
+Data are on figshare.
+
+# Code availability
+
+Code is on Zenodo [@online2026].
+
+# Acknowledgements
+
+We thank the lab.
+
+# Funding
+
+NIH grant R01 (R.F.).
+
+# Author contributions
+
+A.L. and G.H. did the work.
+
+# Competing interests
+
+The authors declare no competing interests.
+
+# References

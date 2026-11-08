@@ -74,6 +74,7 @@
   import { BUILTIN_JOURNAL_STYLES, journalStyleOptions } from "../../../lib/style/journalPresets";
   import { EXPORT_PROFILE, journalAssetPlan, journalProfileYaml } from "../../../lib/style/journalAssets";
   import { NATURE_ROLE_ALIASES } from "../../../lib/manuscript/sections";
+  import ExportSummaryPanel from "./ExportSummaryPanel.svelte";
   import ExportDialog, {
     type ExportFormat,
     type ExportPlan,
@@ -797,11 +798,15 @@
     { id: "docx", label: "Word", ext: "docx" },
     { id: "html", label: "HTML", ext: "html" },
   ];
-  // Journal styles arrive in Phase B; today the house style is the only one.
-  // It is EXPORT-ONLY by design — the writer never restyles for a journal.
+  // Journal styles are EXPORT-ONLY by design — the writer never restyles for a
+  // journal. Each produces a submission manuscript as Word or PDF (Quarto);
+  // the house style keeps its in-app PDF/HTML engines.
   const HOUSE_STYLE_ID = "flux";
-  const EXPORT_STYLES: readonly ExportStyleOption[] = journalStyleOptions().map(s => ({ ...s, ...(s.id === "flux" ? {} : { formats: ["docx"] }) }));
-  let exportPlan = $state<ExportPlan>({ format: "pdf", style: HOUSE_STYLE_ID, outPath: "" });
+  const EXPORT_STYLES: readonly ExportStyleOption[] = journalStyleOptions().map(s => ({ ...s, ...(s.id === "flux" ? {} : { formats: s.formats ?? ["docx"], journal: true }) }));
+  let exportPlan = $state<ExportPlan>({ format: "pdf", style: HOUSE_STYLE_ID, outPath: "", stage: "initial" });
+  /** The last journal export's summary (shown in its panel until dismissed). */
+  let exportSummary = $state<{ summary: import("../../../lib/style/journalSummary").ExportSummary; notesPath?: string; outPath: string } | null>(null);
+  const isJournalStyle = (id: string) => !!resolveJournalStyle(id, BUILTIN_JOURNAL_STYLES).manuscript;
   // "n of m references matched" for the export dialog, computed when library docs are
   // picked (pickZoteroLibraryDocs). Cleared on dialog open: the bib may have changed.
   let zoteroMatchSummary = $state("");
@@ -823,8 +828,9 @@
     snapshot = captureManuscriptSnapshot(),
     capturedLive?: ReadonlyMap<string, string>,
     capturedBibliography?: { originalPath: string; replacement: string },
-  ): Promise<() => Promise<void>> {
-    if (!root) return async () => {};
+    journal?: { stage: "initial" | "final"; bibText: string; format: string },
+  ): Promise<{ restore: () => Promise<void>; journal?: import("../../../lib/style/journalManuscript").AssemblyReport }> {
+    if (!root) return { restore: async () => {} };
     const { readQmdTree } = await import("../../../lib/exportQmd");
     const { readLiveFigureReferenceDocuments, flushLiveReferenceDocuments } = await import("../../../lib/project/figureReferenceSync");
     const live = capturedLive ?? new Map(readLiveFigureReferenceDocuments(root).map(d => [`${root}/${d.path}`, d.text]));
@@ -833,6 +839,55 @@
     const renders = await materializeRenders(root, tree.expanded, snapshot.figures);
     if (renders.failed.length) throw new Error(`No render could be produced for: ${renders.failed.join(", ")}`);
     const refs = snapshot.figures.refs;
+    const figureContext = snapshot.figures.context(style);
+    // Journal submission assembly (Nature/Science/Cell/bioRxiv): bibliography
+    // records, the venue's stage, and — for PDF — 300-dpi PNGs in place of the
+    // figure SVGs, written beside the document for this render only.
+    let journalPrep: Parameters<typeof prepareExport>[1]["journal"];
+    const rasterFiles: string[] = [];
+    if (style.manuscript && journal) {
+      const records: Record<string, import("../../../lib/references/zoteroFields").CslRecord> = {};
+      if (/^\s*@/m.test(journal.bibText)) {
+        const { getCite } = await import("../../../lib/references/bibtex");
+        const Cite = await getCite();
+        for (const rec of new Cite(journal.bibText).data as import("../../../lib/references/zoteroFields").CslRecord[]) if (rec?.id) records[String(rec.id)] = rec;
+      }
+      const docDir = documentPath.includes("/") ? documentPath.slice(0, documentPath.lastIndexOf("/")) : "";
+      const figureImages = new Map<string, string>();
+      if (journal.format === "pdf") {
+        const { svgFigureEmbeds, rasterWidthFor, JOURNAL_FIGURE_DIR_PREFIX } = await import("../../../lib/style/journalFigures");
+        const { JOURNAL_FIGURE_DPI } = await import("../../../lib/style/journalPresets");
+        const { domRasterizeSvg } = await import("../../../lib/references/docxSvgFallback");
+        const raster = domRasterizeSvg();
+        const docAbs = `${root}/${documentPath}`;
+        const token = crypto.randomUUID().slice(0, 8);
+        for (const e of svgFigureEmbeds(tree.expanded, docAbs)) {
+          try {
+            const svg = await fb.readText(e.svgPath);
+            const width = rasterWidthFor(svg, JOURNAL_FIGURE_DPI);
+            const vb = /viewBox="[\d.\-\s]*?([\d.]+)\s+([\d.]+)"/.exec(svg.slice(0, 2000));
+            const height = vb ? Math.round((width * Number(vb[2])) / Number(vb[1])) : Math.round(width * 0.75);
+            const name = `${JOURNAL_FIGURE_DIR_PREFIX}${token}-${e.label}.png`;
+            const abs = `${root}/${docDir ? docDir + "/" : ""}${name}`;
+            await assertOwned?.();
+            await fb.writeFile(abs, await raster(svg, width, height));
+            rasterFiles.push(abs);
+            figureImages.set(e.label, name);
+          } catch {
+            /* this figure keeps its SVG — rsvg-convert still places it */
+          }
+        }
+      }
+      journalPrep = {
+        style,
+        stage: journal.stage,
+        records,
+        supplementaryFigures: [...figureContext.values()].filter((f) => f.family.id === "supplementary").length,
+        docDir,
+        figureImages,
+      };
+    }
+    const dropRasters = async () => { for (const f of rasterFiles) await fb.remove?.(f).catch(() => {}); };
     const release = holdDocumentExport(tree.files);
     try {
     const prep = await prepareExport(
@@ -861,10 +916,11 @@
           captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
           // THE editor's family numbering (figfamily.ts) — never embed-order.
           // Styled for the target venue; the editor's own refs stay house-form.
-          figures: snapshot.figures.context(style),
+          figures: figureContext,
           panels: style.figures.panels,
         },
         structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
+        journal: journalPrep,
         markCitations: markCitationsForZotero,
         capturedBibliography,
         transformSlides: async (text, file) => {
@@ -874,8 +930,8 @@
         },
       },
     );
-    return async () => { try { await prep.restore(); } finally { release(); } };
-    } catch (error) { release(); throw error; }
+    return { restore: async () => { try { await prep.restore(); } finally { release(); await dropRasters(); } }, journal: prep.journal };
+    } catch (error) { release(); await dropRasters(); throw error; }
   }
 
   /** The project's cited records (references/library.bib), keyed by citekey. */
@@ -995,15 +1051,20 @@
   }
 
   function exportEngineLabel(plan: ExportPlan): string {
+    if (isJournalStyle(plan.style)) return plan.format === "pdf" ? "Quarto → LaTeX (lualatex) — figures at 300 dpi" : "Quarto → Word — figures at 300 dpi";
     if (plan.format === "docx") return "Quarto";
     return "In-app render — fast, no install";
   }
 
+  /** Quarto renders this plan (Word always; journal PDF too). */
+  const viaQuarto = (plan: ExportPlan) => plan.format === "docx" || (isJournalStyle(plan.style) && plan.format === "pdf");
+
   /** Why the current combination can't run (empty when it can). */
   function exportBlockedReason(plan: ExportPlan): string {
-    if (plan.style !== "flux" && plan.format !== "docx") return "Journal styles are available for Word export only.";
-    if (plan.format === "docx" && !quartoAvail) {
-      return "Word export needs Quarto, which Flux can install for you (no admin rights needed).";
+    if (plan.style !== "flux" && !isJournalStyle(plan.style) && plan.format !== "docx") return "This style is available for Word export only.";
+    if (isJournalStyle(plan.style) && plan.format === "html") return "Journal styles export Word or PDF.";
+    if (viaQuarto(plan) && !quartoAvail) {
+      return `${plan.format === "pdf" ? "Journal PDF" : "Word"} export needs Quarto, which Flux can install for you (no admin rights needed).`;
     }
     return "";
   }
@@ -1017,7 +1078,8 @@
   }
 
   async function doExport(plan: ExportPlan) {
-    if (plan.style !== "flux" && plan.format !== "docx") { pushToast("error", "Journal styles are available for Word export only"); return; }
+    if (exportBlockedReason(plan) && !(viaQuarto(plan) && !quartoAvail)) { pushToast("error", exportBlockedReason(plan)); return; }
+    exportSummary = null;
     const job = { bibText: "", path: activeDocPath, text: latest, slides: slideRepo, generation: sessionGeneration, root: pm?.root, paginated: viewMode === "paginated", bibliographyPath: pm?.manifest.references.library, live: new Map(pm ? readLiveFigureReferenceDocuments(pm.root).map(d => [d.path.startsWith(pm.root + "/") ? d.path : `${pm.root}/${d.path}`, d.text]) : []), snapshot: captureManuscriptSnapshot() };
     if (exportBusy) return; // one export at a time (a second Quarto render would race)
     exportOpen = false;
@@ -1042,7 +1104,7 @@
         const diskBib = await fb.readText(`${job.root}/${job.bibliographyPath}`);
         job.bibText = job.snapshot.bibSource?.root === job.root && job.bibliographyPath === "references/library.bib" ? job.snapshot.bibSource.text : diskBib;
       }
-      if (plan.format === "docx") {
+      if (viaQuarto(plan)) {
         if (!job.root || !fb.quartoRender) {
           exportBusy = false;
           return;
@@ -1070,7 +1132,8 @@
           : "";
         const profileName = `flux-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
         const bibName = `${profileName}.bib`;
-        const restoreDocs = await transformDocsForQuarto(fb, style, !!plan.zoteroFields, job.path, job.slides, lease.assertOwned, job.root, job.snapshot, job.live, { originalPath: `${job.root}/${job.bibliographyPath}`, replacement: bibName });
+        const prepared = await transformDocsForQuarto(fb, style, !!plan.zoteroFields && plan.format === "docx", job.path, job.slides, lease.assertOwned, job.root, job.snapshot, job.live, { originalPath: `${job.root}/${job.bibliographyPath}`, replacement: bibName }, style.manuscript ? { stage: plan.stage ?? "initial", bibText: job.bibText, format: plan.format } : undefined);
+        const restoreDocs = prepared.restore;
         const token = `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         exportToken = token;
         const stopLog = fb.onQuartoLog?.((info) => {
@@ -1094,7 +1157,7 @@
             await publishExportResource(resourceIO, job.root, token, `${manuscriptDir ? manuscriptDir + "/" : ""}${bibName}`, job.bibText);
             await publishExportResource(resourceIO, job.root, token, `${manuscriptDir ? manuscriptDir + "/" : ""}_quarto-${profileName}.yml`, (style.id === "flux" ? "# Captured export bibliography\n" : journalProfileYaml(style, { manuscriptDir })) + `bibliography: ${JSON.stringify(bibName)}\n`);
           }
-          r = await fb.quartoRender(job.root, "docx", job.path, {
+          r = await fb.quartoRender(job.root, plan.format, job.path, {
             outPath: temporaryOutput,
             token,
             ...(useProfile
@@ -1115,23 +1178,41 @@
           return;
         }
         if (!r?.ok) {
-          pushToast("error", "Word export failed", {
-            detail: (r?.log || "quarto did not run").trimEnd().split("\n").slice(-14).join("\n"),
+          const { diagnoseQuartoFailure } = await import("../../../lib/style/journalAssets");
+          const log = (r?.log || "quarto did not run").trimEnd();
+          const hint = diagnoseQuartoFailure(log);
+          pushToast("error", `${plan.format === "pdf" ? "PDF" : "Word"} export failed`, {
+            detail: (hint ? `${hint}\n\n` : "") + log.split("\n").slice(-14).join("\n"),
           });
           return;
         }
         if (!r.outPath) throw new Error("Quarto did not produce an artifact");
-        const { postprocessDocx } = await import("../../../lib/references/docxArtifact");
-        const { domRasterizeSvg } = await import("../../../lib/references/docxSvgFallback");
-        const processed = await postprocessDocx(new Uint8Array(await fb.readFile(r.outPath)), {
-          rasterize: domRasterizeSvg(),
-          ...(plan.zoteroFields ? { inject: (bytes: Uint8Array) => applyZoteroFields(fb, plan, bytes, job.path, job.root, job.bibText) } : {}),
-        });
+        let outBytes: Uint8Array = new Uint8Array(await fb.readFile(r.outPath));
+        let zoteroNote = "";
+        if (plan.format === "docx") {
+          const { postprocessDocx } = await import("../../../lib/references/docxArtifact");
+          const { domRasterizeSvg } = await import("../../../lib/references/docxSvgFallback");
+          const { JOURNAL_FIGURE_DPI } = await import("../../../lib/style/journalPresets");
+          const processed = await postprocessDocx(outBytes, {
+            rasterize: domRasterizeSvg(),
+            // Journal submissions embed print-resolution PNGs, not 10–15 MB SVGs.
+            ...(style.manuscript ? { rasterOnlyDpi: JOURNAL_FIGURE_DPI } : {}),
+            ...(plan.zoteroFields ? { inject: (bytes: Uint8Array) => applyZoteroFields(fb, plan, bytes, job.path, job.root, job.bibText) } : {}),
+          });
+          outBytes = processed.bytes;
+          zoteroNote = processed.zotero ? ` — ${processed.zotero.citations} live citations` : "";
+          for (const warning of processed.warnings) pushToast("info", warning);
+        } else if (new TextDecoder().decode(outBytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF output");
         exportAbort?.signal.throwIfAborted();
         await lease.assertOwned?.();
-        await fb.writeFile(plan.outPath, processed.bytes);
-        const zoteroNote = processed.zotero ? ` — ${processed.zotero.citations} live citations` : "";
-        for (const warning of processed.warnings) pushToast("info", warning);
+        await fb.writeFile(plan.outPath, outBytes);
+        if (prepared.journal && style.manuscript) {
+          const { buildExportSummary, summaryMarkdown } = await import("../../../lib/style/journalSummary");
+          const summary = buildExportSummary({ style, stage: plan.stage ?? "initial", format: plan.format, report: prepared.journal, output: plan.outPath });
+          const notesPath = plan.outPath.replace(/\.[^./\\]+$/, "") + ".submission.md";
+          try { await lease.assertOwned?.(); await fb.writeText(notesPath, summaryMarkdown(summary)); exportSummary = { summary, notesPath, outPath: plan.outPath }; }
+          catch { exportSummary = { summary, outPath: plan.outPath }; }
+        }
         exportDone = true;
         setTimeout(() => (exportDone = false), 2600);
         const out = plan.outPath;
@@ -2858,7 +2939,7 @@
       initial={exportPlan}
       engineLabel={exportEngineLabel(exportPlan)}
       blockedReason={exportBlockedReason(exportPlan)}
-      onInstallQuarto={exportPlan.format === "docx" && !quartoAvail ? () => { exportOpen = false; openSetup(); } : undefined}
+      onInstallQuarto={viaQuarto(exportPlan) && !quartoAvail ? () => { exportOpen = false; openSetup(); } : undefined}
       onChange={(p) => {
         // Keep the destination in step with the axes unless the user picked
         // their own path — a stale ".pdf" name on a Word export is a foot-gun.
@@ -2885,6 +2966,16 @@
       {zoteroMatchSummary}
       onExport={(p) => void doExport(p)}
       onClose={() => { exportOpen = false; view?.focus(); }}
+    />
+  {/if}
+
+  {#if exportSummary && !exportBusy}
+    <ExportSummaryPanel
+      summary={exportSummary.summary}
+      outPath={exportSummary.outPath}
+      notesPath={exportSummary.notesPath}
+      onReveal={fileBridge()?.revealPath ? (p) => void fileBridge()?.revealPath?.(p) : undefined}
+      onClose={() => { exportSummary = null; view?.focus(); }}
     />
   {/if}
 

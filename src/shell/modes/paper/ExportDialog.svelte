@@ -25,11 +25,16 @@
     blurb?: string;
     /** Formats this style can produce; others are disabled with a reason. */
     formats?: readonly ExportFormat["id"][];
+    /** A journal style: produces a submission manuscript (stage axis applies). */
+    journal?: boolean;
   }
   export interface ExportPlan {
     format: ExportFormat["id"];
     style: string;
     outPath: string;
+    /** Journal styles: the initial-submission file (figures beside their legends)
+     *  or the revision text (legends only — figures go up as separate files). */
+    stage?: "initial" | "final";
     /** Word only: write citations as live Zotero fields rather than baked text. */
     zoteroFields?: boolean;
     /** Word documents already written through Zotero, whose item identities bind our
@@ -83,10 +88,11 @@
   let style = $state(untrack(() => initial.style));
   let outPath = $state(untrack(() => initial.outPath));
   let zoteroFields = $state(untrack(() => initial.zoteroFields ?? false));
+  let stage = $state<"initial" | "final">(untrack(() => initial.stage ?? "initial"));
   let zoteroLibraryDocs = $state<string[]>(untrack(() => initial.zoteroLibraryDocs ?? []));
   let root: HTMLDivElement | undefined = $state();
 
-  const plan = (): ExportPlan => ({ format, style, outPath, zoteroFields, zoteroLibraryDocs });
+  const plan = (): ExportPlan => ({ format, style, outPath, stage, zoteroFields, zoteroLibraryDocs });
 
   /** Publish the plan and adopt the destination the caller derives for it. The
    *  dialog seeds `outPath` from `initial` once (untracked), so without this
@@ -108,6 +114,7 @@
 
   function pick(next: Partial<ExportPlan>) {
     if (next.format !== undefined) format = next.format;
+    if (next.stage !== undefined) stage = next.stage;
     if (next.style !== undefined) {
       style = next.style;
       // Moving to a style that can't make the current format snaps the format
@@ -201,6 +208,24 @@
       {/if}
     </div>
   </div>
+
+  {#if styleOf(style)?.journal}
+    <div class="row">
+      <span class="lbl">Stage</span>
+      <div class="col">
+        <div class="segments" role="group" aria-label="Submission stage">
+          <button class="seg" class:on={stage === "initial"} aria-pressed={stage === "initial"} data-stage="initial" onclick={() => pick({ stage: "initial" })}>Initial submission</button>
+          <button class="seg" class:on={stage === "final"} aria-pressed={stage === "final"} data-stage="final" onclick={() => pick({ stage: "final" })}>Revision files</button>
+        </div>
+        <p class="hint">
+          {stage === "initial"
+            ? "One file to submit: figures sit beside their legends, at 300 dpi."
+            : "The revision text: legends listed after the references, figures uploaded as separate files."}
+          A summary of what to check is written beside the export.
+        </p>
+      </div>
+    </div>
+  {/if}
 
   {#if format === "docx"}
     <div class="row">

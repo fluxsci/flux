@@ -197,6 +197,9 @@
       "verify-journal-assets.ts",
       "verify-nature-structure.ts",
       "verify-nature-compliance.ts",
+      "verify-journal-refs.ts",
+      "verify-journal-manuscript.ts",
+      "verify-journal-render.ts",
       "verify-capture-intake.ts",
       "verify-extension.ts",
       "verify-dissections.ts",
@@ -487,6 +490,7 @@
       "verify-paper-split.mjs",
       "verify-w18-paper.mjs",
       "verify-paper-export.mjs",
+      "verify-journal-export-gui.mjs",
       "verify-paper-math.mjs",
       "verify-pdf-white.mjs",
       "verify-embed-chip.mjs",
@@ -3057,7 +3061,7 @@
       ]
     },
     {
-      "glob": "{src/shell/modes/paper/{TitleEditor,ExportDialog}.svelte,src/shell/modes/paper/margin/**,src/shell/modes/slide/SlidePresetMenu.svelte}",
+      "glob": "{src/shell/modes/paper/{TitleEditor,ExportDialog,ExportSummaryPanel}.svelte,src/shell/modes/paper/margin/**,src/shell/modes/slide/SlidePresetMenu.svelte}",
       "run": [
         "verify-v020-paper-lifecycle.mjs",
         "group:paper-gate",
@@ -3065,7 +3069,8 @@
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
         "group:inline-slides",
-        "group:slide-stash"
+        "group:slide-stash",
+        "verify-journal-export-gui.mjs"
       ]
     },
     {
@@ -3624,9 +3629,12 @@
       ]
     },
     {
-      "glob": "resources/{csl,docx}/**",
+      "glob": "resources/{csl,docx,lua}/**",
       "run": [
-        "verify-journal-assets.ts"
+        "verify-journal-assets.ts",
+        "verify-journal-refs.ts",
+        "verify-journal-manuscript.ts",
+        "verify-journal-render.ts"
       ]
     },
     {
@@ -3637,7 +3645,11 @@
         "verify-writer-neutral.ts",
         "verify-export-qmd.ts",
         "verify-export-prep.ts",
-        "verify-journal-assets.ts"
+        "verify-journal-assets.ts",
+        "verify-journal-refs.ts",
+        "verify-journal-manuscript.ts",
+        "verify-journal-render.ts",
+        "verify-journal-export-gui.mjs"
       ]
     },
     {
@@ -3645,14 +3657,16 @@
       "run": [
         "verify-export-qmd.ts",
         "verify-embed-normalize.ts",
-        "verify-export-prep.ts"
+        "verify-export-prep.ts",
+        "verify-journal-manuscript.ts"
       ]
     },
     {
       "glob": "src/lib/exportPrep.ts",
       "run": [
         "verify-export-prep.ts",
-        "verify-export-qmd.ts"
+        "verify-export-qmd.ts",
+        "verify-journal-manuscript.ts"
       ]
     },
     {
@@ -6291,6 +6305,33 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-journal-refs.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-journal-manuscript.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-journal-render.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 600000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-keepalive.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -6775,6 +6816,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-journal-export-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
       "exclusive": true,
       "coverage": "behavior"
     },

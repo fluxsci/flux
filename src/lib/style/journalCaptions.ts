@@ -70,8 +70,8 @@ export function formatLegend(label: string, captionMd: string, spec: LegendSpec,
   const head = spec.boldTitle ? `**${lbl}${t ? ` ${t}` : ""}**` : `**${lbl}**${t ? ` ${t}` : ""}`;
   const tail = rest ? ` ${rest}` : "";
   if (spec.panels === "parens-lines") {
-    // Cell: the title line, then each panel on its own line (hard breaks).
-    const lines = [head + tail, ...ps.map((p) => `(${caseLetter(p.letter, panels)}) ${p.text}`)];
+    // Cell sets the title alone on its line; further prose and each panel follow.
+    const lines = [head, ...(rest ? [rest] : []), ...ps.map((p) => `(${caseLetter(p.letter, panels)}) ${p.text}`)];
     return lines.join("\\\n");
   }
   const body =

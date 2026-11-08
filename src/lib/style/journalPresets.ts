@@ -14,7 +14,7 @@
 // Communications, meanwhile, still prints the spaced form — which is exactly
 // why the separator is a per-style parameter and not a constant.
 
-import type { JournalStyle } from "./journalStyle";
+import { resolveJournalStyle, type JournalStyle } from "./journalStyle";
 
 export const NATURE_STYLE: JournalStyle = {
   id: "nature",
@@ -152,6 +152,7 @@ export const NATURE_STYLE: JournalStyle = {
       "results",
       "body",
       "discussion",
+      "limitations",
       "references",
       "figure-legends",
       "methods",
@@ -564,6 +565,7 @@ export const BUILTIN_JOURNAL_STYLES: readonly JournalStyle[] = [
 export function journalStyleOptions(): { id: string; label: string; blurb?: string; formats?: readonly ("pdf" | "docx" | "html")[] }[] {
   return [
     { id: "flux", label: "Flux house style", blurb: "The default manuscript look." },
-    ...BUILTIN_JOURNAL_STYLES.map((s) => ({ id: s.id, label: s.name, blurb: s.blurb, formats: s.formats })),
+    // Formats come from the RESOLVED style, so an `extends` child inherits them.
+    ...BUILTIN_JOURNAL_STYLES.map((s) => ({ id: s.id, label: s.name, blurb: s.blurb, formats: resolveJournalStyle(s.id, BUILTIN_JOURNAL_STYLES).formats })),
   ];
 }

@@ -55,7 +55,9 @@ jobs:
           sudo apt-get update
           # librsvg2-bin: Quarto needs rsvg-convert to place an SVG figure in a
           # PDF, and verify-slide-embed-export compiles a document that does.
-          sudo apt-get install -y --no-install-recommends texlive-latex-extra texlive-fonts-recommended lmodern librsvg2-bin
+          # texlive-luatex: journal PDFs compile with lualatex (luaotfload), and
+          # verify-journal-render renders all four venues to PDF.
+          sudo apt-get install -y --no-install-recommends texlive-latex-extra texlive-fonts-recommended texlive-luatex lmodern librsvg2-bin
       # Text ↔ shape Becomes fly real letter outlines read from the system font
       # file; verify-glyph-outlines, verify-text-morph-browser and
       # verify-slide-export-transform pin Arial/Georgia glyphs from msttcorefonts
