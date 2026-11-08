@@ -74,7 +74,11 @@ try {
   h.ok(typing.changed && typing.stable, 'real typing changes prose and preserves both player DOM instances');
   h.ok(p95 <= 100 && Math.max(...typing.raw) <= 100, `typing with live 3D embed paints within100ms (p95 ${p95.toFixed(2)}ms)`);
   await waitFor(page, () => document.querySelector('.paper .flux-slide-bar')?.textContent.includes('Step 1 / 1'), null, { timeout: 5000 });
-  const beforeIdle = await page.evaluate(() => window.__fluxModel3d.stats().renders); await sleep(500);
+  // Settled = the worker has gone quiet: two render counts 300 ms apart agree (a slow host can still be
+  // finishing the step's own render when the bar first reads Step 1 / 1). Then nothing may render at rest.
+  let beforeIdle = await page.evaluate(() => window.__fluxModel3d.stats().renders);
+  for (let i = 0; i < 10; i++) { await sleep(300); const now = await page.evaluate(() => window.__fluxModel3d.stats().renders); if (now === beforeIdle) break; beforeIdle = now; }
+  await sleep(500);
   h.eq(await page.evaluate(() => window.__fluxModel3d.stats().renders), beforeIdle, 'settled Paper models schedule no idle worker render');
   const offline = await page.evaluate(async () => {
     const { createSlideRepository } = await import('/src/lib/slide/embedRepository.ts');

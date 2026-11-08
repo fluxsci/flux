@@ -2,6 +2,7 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { launch, gotoApp, clickMode, waitFor, realErrors, APP_URL } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
+import { perfScale } from './lib/perfBudget.mjs';
 const h = harness('verify-model3d-snapshot-quiet');
 const out = 'test-results/model3d/snapshot-quiet'; await mkdir(out, { recursive: true });
 const fixture = { bytes: (await readFile('scripts/fixtures/model3d/fluxplot/continuous.glb')).toString('base64'), manifest: await readFile('scripts/fixtures/model3d/fluxplot/continuous.fluxplot.json', 'utf8') };
@@ -44,7 +45,22 @@ try {
   await waitFor(page, () => document.querySelector('image[data-model3d-poster]')?.getAttribute('href')?.startsWith('data:image/png') && !window.__fluxModel3d?.stats().pendingPosters, null, { label: 'real model poster', timeout: 30000 });
   let p = await point(); await page.mouse.click(p.x, p.y);
   await waitFor(page, id => window.__flux.get(window.__flux.fig.selection).has(id), id, { label: 'real selected model' });
-  await ready(); const initial = await proxy();
+  await ready();
+  // The poster's arrival is a content change (the scene key carries the poster revision). On a slow
+  // host the worker's first render lands AFTER the import's snapshot, so a second snapshot follows
+  // the poster ~1.8 s later; the pure-hover contract below starts only once a full quiet window
+  // (SNAPSHOT_QUIET_MS + idle + capture) passes with the pointer still and no new snapshot.
+  const settledProxy = async () => {
+    let snap = await proxy();
+    for (let round = 0; round < 8; round++) {
+      const start = Date.now(); let next = snap;
+      while (Date.now() - start < 2400 * perfScale()) { await new Promise(resolve => setTimeout(resolve, 100)); next = await proxy(); if (next !== snap) break; }
+      if (next === snap) return snap;
+      await ready(snap); snap = await proxy();
+    }
+    throw new Error('the zoom proxy never settled: a snapshot followed every quiet window');
+  };
+  const initial = await settledProxy();
   await page.evaluate(() => {
     const state = window.__snapshotQuiet = { svgs: [], urls: new Set(), rasters: [], moves: [], idles: [], quietTimers: [], frames: [], hold: false, held: false, release: null };
     const timeout = window.setTimeout;
