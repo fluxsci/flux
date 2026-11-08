@@ -62,7 +62,12 @@ export function createPaperWordCounts(src: PaperWordCountSource) {
 
   const venueId = $derived(venuePick ?? src.projectVenue() ?? "nature");
   const style = $derived(resolveJournalStyle(venueId, BUILTIN_JOURNAL_STYLES));
-  const captions = $derived(new Map(src.figures().map((f) => [f.label, f.caption] as const)));
+  // Keyed by VALUE: a figure autosave hands Paper a new figures array even when
+  // no caption changed, and the hidden Paper pane must not re-analyse the
+  // document on another mode's edits (guide §9, hidden-pane subscriptions).
+  // An equal string stops the invalidation here.
+  const captionsKey = $derived(JSON.stringify(src.figures().map((f) => [f.label, f.caption])));
+  const captions = $derived(new Map(JSON.parse(captionsKey) as [string, string][]));
   const analysis = $derived.by(() => {
     const text = src.text();
     const t0 = performance.now();
