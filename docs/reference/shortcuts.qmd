@@ -38,6 +38,7 @@ the editing engine.
 | **E** | Archive / unarchive the selected item |
 | **Enter** in Reply | Send a human reply |
 | **Shift+Enter** in Reply | Insert a newline |
+| **?** | Show the filter grammar and keys |
 | **Esc** | Leave image zoom, then close Inbox |
 
 **Pin open** keeps Inbox in a separate window; **Dock** returns it to the main window.
@@ -62,9 +63,10 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | Shortcut | Action |
 |---|---|
 | **Enter** / **Shift+Enter** | Send / new line |
+| **Esc** while busy | Stop the answer and keep what arrived |
 | **Esc** | Discard the exchange from Flux |
 
-**Stop** cancels the answer; **Keep** saves it as a resolved annotation. See
+**Stop** cancels the answer; **Copy** copies it as Markdown; **Keep** saves it as a resolved annotation. See
 [Ask about what you see](../agents/annotations.qmd#ask-about-what-you-see).
 
 # Paper

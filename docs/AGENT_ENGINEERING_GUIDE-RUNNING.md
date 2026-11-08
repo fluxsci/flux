@@ -157,6 +157,7 @@ The established shared cores — extend these, don't duplicate them:
 | Agent identity (MCP clientInfo, environment, bylines) | `flux-core/agentIdentity.ts` | `verify-agent-identity.ts` |
 | Agent setup and health (CLI and Electron callers) | `electron/agentSetup.cjs` | `verify-agent-setup.ts`, `verify-connect-doctor.ts`, `verify-ai-monitor.ts` |
 | Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
+| The agent transcript (runner events → turns and blocks, tool summaries and groups, kept-thread messages) and the inert Markdown renderer for agent prose | `src/lib/agent/transcript.ts` + `markdownDom.ts` (pure; `shell/agent/markdown.ts` is the rAF-coalescing action, `Transcript.svelte` / `ToolTrail.svelte` / `WorkingLine.svelte` / `AgentMark.svelte` the one set of surface components) | `verify-transcript.ts` (reducer on a fake clock, tool labels, images, Markdown → linkedom DOM incl. the hostile-input corpus), `verify-ask-gui.mjs`, `verify-inbox-gui.mjs`, `verify-background-run-gui.mjs` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Semantic targets (incl. destination SETS: `normalizeRef`, `composeDestination`, `setLabel`), hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
@@ -2547,6 +2548,29 @@ Persistence invariants (all machine-checked — do not weaken):
     mtime/TTL fallback; opaque cursors fingerprint item state, not only timestamps.
     `inspect` reads saved target state without rendering. MCP packets cap inline snapshots
     at six, resized to a 1600 px long edge; `get_inbox_image` fetches remaining images.
+  - **Agent surface vocabulary (2026-11-08).** Ask, Annotate, the Inbox and background runs share one
+    look and one model. The look lives in `app.css` (`.surface-head`, `.xbtn`, `.flux-composer` with
+    `field-sizing: content`, `.agent-prose`, `.arrive`) because Ask's synchronous bootstrap in `askChord.ts`
+    is built with the same skeleton and the lazy surface ADOPTS its footprint (`AskRequest.at`: same left,
+    same top — or the same bottom edge when it opened above the selection — same width; it never re-anchors
+    while an answer streams, only a window resize re-clamps). The model is `lib/agent/transcript.ts`: every
+    runner event folds through `reduceTranscript` into turns of blocks (text / thinking / a GROUP of
+    consecutive tool calls / error); a completed `message` envelope REPLACES its streamed deltas (never
+    duplicates); `transcriptActivity` is the status line's phase. Agent prose is DATA: `markdownDom.ts`
+    builds DOM nodes (no innerHTML anywhere; `<img onerror>` in an answer renders literally — the Ask gate
+    pins it, allowing only Flux-rendered pictures marked `data-flux-image` with `blob:`/`data:` sources); the
+    `markdown` action coalesces streaming re-renders to one per frame and paints a completed message
+    synchronously. Tool rows humanise titles (`toolSummary`: `paper/draft.qmd:120–160`, `TODO in src/lib`,
+    the figure id) and keep the raw name; image blocks in a tool result show inline. The agent is marked by
+    `AgentMark` (13 dots of the phyllotaxis bloom; it turns ONLY while a run is busy, on literal durations like
+    the Logomark, and never loops at rest); you are unmarked. Gold (`--c-comment`) means "waiting for you"
+    (Inbox rows, the thread, the titlebar badge via `inboxNeedsInput`); blue stays "live / chosen". Opacity-only
+    fades use `--dur-fade` / `--dur-fade-slow`, which the reduce block deliberately does NOT collapse (this desktop
+    reports `reduce`); anything that moves takes a `--dur-*`. Mark ink is `--c-ink-mark` / `--c-ink-halo`
+    (SVG, chips, canvas paint). Background runs keep a `transcript` per run (`backgroundStore.receive` folds
+    every event; streamed prose was dropped before) and the Inbox renders it as a live card in the thread;
+    the raw state word stays in the strip for the CLI and gates. Escape in Ask stops a busy run first
+    (`AskRequest.onEscape`, `escapeAsk`) and closes on the next press.
   - **Annotation surface contract — Annotate (Ctrl/Cmd+Shift+M) = `shell/agent/AnnotationSurface.svelte` +
     `annotationStore.ts`; pure geometry = `project/annotationCapture.ts`.** One lazy
     composer over a frozen window. Shell installs `annotateChord.ts` FIRST, before
@@ -3329,7 +3353,10 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   the curated stable suite, ui-extra the full sweep. Consoles must be **clean** —
   there is no tolerated-404 filter anymore. Freeze source and generated-runtime changes
   during acceptance: a Vite reload can replace an in-memory fixture document mid-test and
-  mimic unrelated editor regressions.
+  mimic unrelated editor regressions. After ANY edit under `src/`, restart the dev server
+  before running a UI gate: HMR leaves the page on one module instance and a gate's own
+  `import('/src/…')` on another, so store reads come back empty and fixtures report "no
+  semantic part hit" / "Demo project — annotations are not saved" with nothing wrong.
   Before a view-only before/after snapshot that includes dirty state, await autosave for
   preceding edits. Otherwise a legitimate true → false dirty transition can falsely blame
   the preview or navigation being tested; retain the full state-preservation assertion.
@@ -3616,6 +3643,10 @@ including real Git tracking, read-only failure, cross-device failure and interru
 Run it through the hermetic runner; never validate a migration on real projects.
 
 ## 9. Known traps (each of these cost real time)
+
+**Svelte 5 runes:** a prop or local named `state` shadows the `$state` rune — `let elapsed = $state(0)` then
+compiles to a STORE subscription on the prop and the component throws "state is not a store" at mount (the
+Ask surface vanished, 2026-11-08). Name it `mark`, `phase`, anything else.
 
 **Journal export (Quarto, Word, LaTeX):**
 

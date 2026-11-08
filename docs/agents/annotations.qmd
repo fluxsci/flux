@@ -20,9 +20,12 @@ choose who handles each item, and see its status. Reader PDF **Highlights** rema
 
 ## Point, type, add {#sec-annotate}
 
-The frozen view fills the window, with drawing tools at the top left and a focused note
+The frozen view fills the window inside a thin frame, with a capsule of drawing tools at
+the top centre (it says **view frozen**, so you know the app is not hung) and a focused note
 at the bottom right. Hover to see the target's outline and name: a plot series, text box,
-figure, caption, paragraph, slide, animation clip, PDF passage, or reference.
+figure, caption, paragraph, slide, animation clip, PDF passage, or reference. Target chips
+name things in words (the full name with its id is the tooltip); hovering a numbered chip
+lights up its mark on the picture.
 
 **Drag** to draw a numbered arrow. **Alt+A**, **Alt+B**, and **Alt+P** select arrow, box,
 and pen. An arrow names its tip's target; a box names the objects inside; a pen names its
@@ -30,8 +33,10 @@ starting target. **Alt+Z** undoes a mark. Use **Alt+↑ / ↓** or the wheel to 
 hovered target; each chip also has widening and remove controls.
 
 **Enter** adds the annotation; **Shift+Enter** inserts a newline. **Escape** or the chord
-again closes the surface and keeps the draft and its picture. **Attach view** is on by
-default and remembered; drawing marks forces it on. The saved picture is cropped around
+again closes the surface and keeps the draft and its picture. A toast says where the note
+went (**Added to Inbox**, **Sent to heron**, **Claude Code is starting on it**) with an
+**Open** action. **Attach view** is the switch beside **Add**; it is on by default and
+remembered, and drawing marks forces it on. The saved picture is cropped around
 marks, or captures the whole window when there are none. If capture is unavailable, the
 note still carries targets and marks and tells you there is no screenshot.
 
@@ -46,7 +51,8 @@ by name to queue the annotation for that session. Agents that are connected but 
 appear after watching agents, greyed and marked **queued until it watches**. They remain
 selectable. Your choice is remembered per project.
 
-**Tab** in the note cycles recipients. Typing **@any** or **@heron** also sets **To:**;
+**Tab** in the note cycles recipients. The **To:** pill shows a chosen agent's mark and
+whether it is **watching**. Typing **@any** or **@heron** also sets **To:**;
 recognized routing mentions are removed from the saved text. **#tags** appear as chips.
 **New background agent** appears when background runs are available ([below](#sec-background)).
 
@@ -68,14 +74,19 @@ command in the command palette. The composer's **Open inbox** link opens the sam
 It combines annotations with margin comments from every project document. **Pin open**
 keeps it in a separate window; **Dock** brings it back without losing a reply draft.
 
-The list groups items into **Needs input**, **Open**, **Claimed**, and a collapsed **Resolved**
-section. Type a filter such as `draft_1 #claude figure`; chips show the document, tag, and
-surface filters. You can also use `comments`, `annotations`, `figure:Density`, `deck:talk`,
+The list groups items into **Needs input** (in gold: an agent is waiting for you; the
+titlebar badge turns gold too), **Open**, **Claimed**, and a collapsed **Resolved**
+section. Each row shows its picture or an icon for the surface it points at, where it
+points in words, its tags, and a status dot. Type a filter such as `draft_1 #claude figure`;
+chips show the document, tag, and surface filters, and **?** lists the grammar. You can also use `comments`, `annotations`, `figure:Density`, `deck:talk`,
 `status:resolved`, or free text. `archived` includes archived items; `all` includes withdrawn
 items. The same query works with `flux inbox`.
 
-Select an item to see its full text, picture, numbered anchors, and conversation. **R** focuses
-Reply; **Enter** sends, and **Shift+Enter** adds a newline. Agent replies show the agent's name.
+Select an item to read it as a conversation: your note, its picture with numbered anchors,
+then the replies — agents are marked with the Flux seed and their name, their Markdown is
+rendered (lists, code, tables), and an agent's question is marked **Waiting for you** with the
+reply box inviting **Answer heron…**. **R** focuses Reply; **Enter** sends, and **Shift+Enter**
+adds a newline. The short id beside the status copies the full id when clicked.
 **Jump to** returns to the document range, figure selection, slide and beat, or Reader page.
 **↑/↓** move between rows; **Enter** on a row jumps; **E** archives. **Unarchive** restores an
 archived item, and **Reopen** returns resolved work to the inbox. **Copy agent prompt** copies
@@ -171,11 +182,20 @@ Flux launches** (also in **AI status → Agents → Agent that Flux launches (As
 usage counts against your plan. Install and sign in using that CLI first. Flux does not
 handle vendor logins.
 
-Answers appear in a popover with expandable tool activity showing the actual inputs.
-Ask is read-only. **Stop** cancels the run. **Escape** or **Close Ask** discards the
-exchange from Flux; the CLI's own session history remains. **Keep** saves the question,
-answers, captured view, and targets as a resolved annotation. **Copy resume command**
-copies a command you can paste into your own terminal to continue the vendor session.
+The panel opens beside what you selected (the selection stays outlined underneath) and
+keeps its place while the answer arrives. Your question sits on the right; the answer is
+written in the manuscript's serif with the Flux seed in the margin — it turns while the
+agent works and settles when it is done. Headings, lists, code (with **Copy**), tables and
+links render properly. The agent's working notes fold into one line (**Read 3 files ·
+get_figure_image**) that opens into each step, with the pictures it looked at inline;
+**Thinking** folds the same way. A status line says what it is doing right now and, after
+a second, for how long; a faint line under the answer reports tools, tokens, cost and time.
+Ask is read-only. **Stop** (or **Esc** while it is busy) cancels the run and keeps what
+arrived; **Esc** again or **×** discards the exchange from Flux (the CLI's own session
+history remains). **Copy** copies the answer as Markdown. **Keep** saves the question,
+answers, captured view, and targets as a resolved annotation and offers to open it.
+**Resume in terminal** copies a command you can paste into your own terminal to continue
+the vendor session. If the agent cannot start, the message offers **AI status…** or **Retry**.
 
 ## Run an item in the background {#sec-background}
 
@@ -186,8 +206,9 @@ AI status finds an installed, signed-in CLI.
 
 The agent is a session like any other: it appears in **AI status → Sessions** and the
 titlebar agents chip with a name such as **bg · claude · wren**, claims the item, and
-signs its replies with that name. The item shows a live activity strip with the actual
-tool inputs, progress and reported usage. **Stop** (on the strip or the session row)
+signs its replies with that name. The item's thread shows the run as a live card: what the
+agent is doing right now, how long it has been working, everything it says and does as it
+happens (the same rendering as Ask), and reported usage. **Stop** (on the strip or the session row)
 cancels the run and releases its claim; the item returns to Open ("Open (last held by
 bg · claude · wren)"), ready to run again or assign. Replying in the item's thread continues the same session when it can; a
 reply sent while the agent is working waits for that turn to finish. If a run ends
