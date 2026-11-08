@@ -54,7 +54,7 @@
 <style>
   .background-run { font: var(--ts-xs) var(--font-ui); }
   .launch { margin: 0; }
-  .launch summary { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); list-style: none; cursor: default; }
+  .launch summary { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); list-style: none; }
   .launch summary::-webkit-details-marker { display: none; }
   .launch summary:hover { background: var(--c-ui-hover); color: var(--c-tx); }
   .play { width: 9px; height: 9px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 4v16l13-8z'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 4v16l13-8z'/%3E%3C/svg%3E") center / contain no-repeat; }

@@ -32,7 +32,7 @@
 
 <style>
   .activity { font: var(--ts-xs) var(--font-ui); color: var(--c-tx-muted); }
-  summary { display: flex; align-items: center; gap: 7px; min-height: 22px; padding: 1px 4px 1px 2px; border-radius: var(--r-ui); list-style: none; cursor: default; }
+  summary { display: flex; align-items: center; gap: 7px; min-height: 22px; padding: 1px 4px 1px 2px; border-radius: var(--r-ui); list-style: none; }
   summary::-webkit-details-marker { display: none; }
   summary:hover { background: var(--c-surface-2); color: var(--c-tx-2); }
   .activity > summary::before, .tool-line > summary::before { content: ""; width: 8px; height: 8px; flex-shrink: 0; background: currentColor; opacity: .45; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat; transition: rotate var(--dur-instant) var(--ease-standard); }

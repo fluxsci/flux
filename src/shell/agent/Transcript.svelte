@@ -71,7 +71,7 @@
   .gutter { padding-top: 5px; }
   .body { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
   .thinking { font: var(--ts-xs) var(--font-ui); color: var(--c-tx-muted); }
-  .thinking summary { list-style: none; cursor: default; display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 0; border-radius: var(--r-ui); }
+  .thinking summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 0; border-radius: var(--r-ui); }
   .thinking summary::-webkit-details-marker { display: none; }
   .thinking summary::before { content: ""; width: 8px; height: 8px; background: currentColor; opacity: .5; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat; transition: rotate var(--dur-instant) var(--ease-standard); }
   .thinking[open] summary::before { rotate: 90deg; }

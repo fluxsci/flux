@@ -435,7 +435,6 @@
   .annotation-composer { position: absolute; bottom: 16px; right: 16px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 82px); display: flex; flex-direction: column; box-sizing: border-box; user-select: text; overflow: hidden; animation: composer-enter var(--dur-instant) var(--ease-enter) both; transform-origin: right bottom; }
   @keyframes composer-enter { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .annotation-composer { animation-name: flux-arrive; } }
-  .heading { cursor: default; }
   .heading .ctx { font: var(--ts-xs) var(--font-ui); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .body { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 10px; overflow: auto; min-height: 0; }
