@@ -64,7 +64,38 @@ it is deleted; the GUI always exports the document you have open.
 - **Ctrl+Shift+E** shows the full-width reading preview (**Escape** returns); the ⌘K palette
   also switches between continuous and paginated views. Fold a section with **Ctrl+Shift+[**
   (unfold: **Ctrl+Shift+]**). Spellcheck is on by default, and the word count in the status
-  bar opens a full statistics pane.
+  bar opens a breakdown of your word budget (see [Word counts](#word-counts)).
+
+# Word counts {#word-counts}
+
+The word count in the status bar is your **main text**, counted the way journals count it.
+Only words a reader reads are counted: citations like `[@smith2021]`, code, equations,
+comments, figure lines, table lines and formatting marks are not words. A figure or table
+reference such as `@fig-growth` counts as the two words it prints ("Fig. 2"). Figure and
+table captions are **legend** words, and table cells are **table** words; journals count
+both separately from the main text. Headings are not counted.
+
+What "main text" means follows the journal you count for. For Nature (and when no journal
+is chosen) it includes the summary paragraph — the text before your first heading — and
+leaves out Methods, the back matter (Data availability, Acknowledgements and the like),
+legends and tables. Cell also counts the main figure legends; Science and bioRxiv leave the
+abstract out.
+
+- **Select text** and, a moment later, the status bar shows how many words you selected:
+  *214 selected · 3,412 words*.
+- The **Outline** shows each section's word count on the right, subsections included.
+- **Click the word count** for the breakdown: the abstract (or summary paragraph), main
+  text, Methods and legends, each against the chosen journal's limit, then every section as
+  a bar. Pick the journal at the top of the window; Flux starts with the journal set for
+  the project's export, or Nature. Bars turn orange past a limit. Limits are advice only —
+  Flux never cuts text or blocks an export.
+- **Set a word target** in the same window. Flux writes it into the document's front
+  matter as `word-target: 3000`, so it travels with the document; **Clear** removes it.
+  The status bar then reads *2,140 / 3,000 words*, and turns orange past the target.
+- **Statistics** at the bottom of that window opens the full statistics pane.
+
+Journal Check and the summary written after a journal export count with exactly the same
+rules, so all of these numbers agree.
 
 # Text size
 
@@ -302,7 +333,15 @@ addressing your comments resolves them with a note, and you watch threads close 
 margin. If the underlying text is edited away, a comment is kept as *Detached* rather than
 lost.
 
-**Ctrl+F** is find; **Ctrl+Alt+F** adds replace.
+# Find and replace
+
+**Ctrl+F** opens the find bar at the top of the document; **Ctrl+Alt+F** opens it with
+replace. Type what you are looking for and, a moment later, the bar shows how many matches
+there are (*17 matches*; past a thousand it reads *1,000+ matches*). Press **Enter** for the
+next match and **Shift+Enter** for the previous one — or use **next** and **previous** — and
+the count shows where you are: *3 of 17*. **all** selects every match at once. The
+**match case**, **regexp** and **by word** boxes narrow the search; **replace** and **replace
+all** work on the Replace field. **Escape** closes the bar and returns you to the text.
 
 # Export
 
@@ -421,4 +460,5 @@ directly to the new position, and the caret blinks softly once you pause.
 | Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in **Figure-Meta** (**Alt+M**) |
 | A Word export says figures will be missing | No render could be produced for the named figures → open Figure mode so they load, then export again. A figure with no render is not in the document at all, so this is an error, not a warning |
+| The word count is lower than your old count, or than a plain word processor's | Flux leaves out citations, code, equations, figure and table lines, Methods and back matter, the way journals count — see [Word counts](#word-counts). The total of every word is in the Statistics pane |
 | A comment shows as *Detached* | Its anchored text was edited away — the thread is preserved; re-select and start a fresh one if needed |

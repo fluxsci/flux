@@ -11,6 +11,7 @@
 
 import type { ResolvedJournalStyle } from "./journalStyle";
 import type { AssemblyReport, SubmissionStage } from "./journalManuscript";
+import { proseWords } from "../manuscript/wordCount";
 
 export type SummarySeverity = "warn" | "info" | "done" | "todo";
 
@@ -97,7 +98,7 @@ export function buildExportSummary(input: {
   }
   if (items.includes("etoc")) {
     const e = report.meta.etoc;
-    const w = (e.match(/\S+/g) ?? []).length;
+    const w = proseWords(e);
     if (!e) checks.push({ severity: stage === "final" ? "warn" : "info", text: `No eTOC blurb (\`etoc:\` in the front matter) — ${finalNeeded}: ≤${lim.etocWords ?? 50} words, third person.` });
     else if (lim.etocWords && w > lim.etocWords) warn(`eTOC blurb is ${w} words (limit ${lim.etocWords}).`);
   }

@@ -1,0 +1,80 @@
+---
+title: "Cortical OFF periods lower synaptic tau"
+author:
+  - name: Ada Lovelace
+word-target: 900
+---
+
+Sleep loss raises risk [@hanse2013; @villette2019]. Here we show OFF periods lower tau.
+
+# Synaptic tau falls during sleep {#sec-results}
+
+Tau fell by half (@fig-tau) while $p < 0.05$ held, using `scipy` code.
+
+<!-- TODO: add the second cohort here -->
+
+![Tau falls in sleep. **a**, Design. **b**, Western blots.](fig/tau.svg){#fig-tau width=80%}
+
+![](fig/dose.svg){#fig-dose}
+
+## Dose matters
+
+Higher doses deepened the effect (@fig-dose-b) as reported^1^ before.[^n]
+
+[^n]: A footnote with five words.
+
+| Cohort | Mice | Tau change |
+|:-------|-----:|-----------:|
+| Young  | 12   | −48%       |
+| Aged   | 9    | −31%       |
+
+: Tau change by cohort {#tbl-cohort}
+
+$$
+\Delta \tau = k \cdot s
+$$ {#eq-tau}
+
+::: {.callout-note}
+Callouts count as prose.
+:::
+
+::: {#fig-panel}
+![](fig/panel.svg)
+
+A div figure caption.
+:::
+
+# Discussion
+
+OFF periods may protect synapses, as @bellesi2013 suggested (see @sec-results).
+
+# Methods
+
+## Animals
+
+Mice were housed singly [@dueck2009].
+
+```python
+import numpy as np  # not words
+```
+
+## Statistics
+
+We used two-way ANOVA ([@hao2014]; @wilson2023).
+
+# Data availability
+
+Data are on figshare at <https://doi.org/10.6084/x>.
+
+# Acknowledgements
+
+We thank the lab.
+
+# References
+
+::: {#refs}
+:::
+
+# Extended Data
+
+![Extended tau blots, all cohorts.](fig/ed1.svg){#fig-ed1}

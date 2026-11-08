@@ -24,7 +24,9 @@ import type { CslRecord } from "../references/zoteroFields";
 import type { ExportQmdCtx } from "../exportQmd";
 import { EMBED_RE } from "../exportQmd";
 import { formatCaptionLabel, type FigureFamilyDef } from "../figfamily";
-import { scanSections, normalizeHeading, type RoleAliases } from "../manuscript/sections";
+import { scanSections, normalizeHeading, JOURNAL_ROLE_ALIASES } from "../manuscript/sections";
+import { proseWords } from "../manuscript/wordCount";
+import { MAIN_TEXT_ROLES } from "../manuscript/wordBudget";
 import type { ResolvedJournalStyle, ManuscriptSpec, DocxStyleRole } from "./journalStyle";
 import { literalizeCitations } from "./journalCitations";
 import { formatJournalReference, type RefLayout } from "./journalRefs";
@@ -33,76 +35,8 @@ import { journalRenderMeta } from "./journalAssets";
 
 export type SubmissionStage = "initial" | "final";
 
-/** Heading name → role for every venue. Lower-case, punctuation-trimmed keys. */
-export const JOURNAL_ROLE_ALIASES: RoleAliases = {
-  abstract: "abstract" as never,
-  summary: "abstract" as never,
-  introduction: "introduction" as never,
-  background: "introduction" as never,
-  results: "results" as never,
-  "results and discussion": "results" as never,
-  discussion: "discussion",
-  methods: "methods",
-  "materials and methods": "methods",
-  "online methods": "methods",
-  "star methods": "methods",
-  "star★methods": "methods",
-  "experimental procedures": "methods",
-  "method details": "methods",
-  "data availability": "data-availability",
-  "data availability statement": "data-availability",
-  "data and materials availability": "data-availability",
-  "data, code, and materials availability": "data-availability",
-  "data, materials, and software availability": "data-availability",
-  "data and code availability": "data-availability",
-  "code availability": "code-availability",
-  "software availability": "code-availability",
-  "materials availability": "materials-availability" as never,
-  "lead contact": "lead-contact" as never,
-  "resource availability": "resource-availability" as never,
-  acknowledgements: "acknowledgements",
-  acknowledgments: "acknowledgements",
-  acknowledgement: "acknowledgements",
-  acknowledgment: "acknowledgements",
-  funding: "funding",
-  "funding sources": "funding",
-  "financial support": "funding",
-  "author contributions": "author-contributions",
-  "author contribution": "author-contributions",
-  contributions: "author-contributions",
-  "competing interests": "competing-interests",
-  "competing financial interests": "competing-interests",
-  "declaration of interests": "competing-interests",
-  "declaration of competing interest": "competing-interests",
-  "conflict of interest": "competing-interests",
-  "conflicts of interest": "competing-interests",
-  "ethics statement": "ethics" as never,
-  "ethics declarations": "ethics" as never,
-  "declaration of generative ai and ai-assisted technologies": "ai-declaration" as never,
-  "declaration of generative ai and ai-assisted technologies in the writing process": "ai-declaration" as never,
-  "ai disclosure": "ai-declaration" as never,
-  "inclusion and diversity": "inclusion-diversity" as never,
-  "additional information": "additional-information",
-  references: "references",
-  "references and notes": "references",
-  bibliography: "references",
-  "literature cited": "references",
-  "figure legends": "figure-legends",
-  "figure captions": "figure-legends",
-  "main figure titles and legends": "figure-legends",
-  "extended data": "extended-data",
-  "extended data figures": "extended-data",
-  "extended data figure legends": "extended-data",
-  "supplementary materials": "supplementary" as never,
-  "supplementary information": "supplementary" as never,
-  "supplemental information": "supplementary" as never,
-  "supporting information": "supplementary" as never,
-  keywords: "keywords" as never,
-  highlights: "highlights" as never,
-  "limitations of the study": "limitations" as never,
-  limitations: "limitations" as never,
-  "limitations of this study": "limitations" as never,
-};
+// The role table moved to manuscript/sections.ts (the word budget reads it too).
+export { JOURNAL_ROLE_ALIASES };
 
 /** Default Word custom-style names (each venue's reference.docx defines them). */
 const DEFAULT_DOCX_STYLES: Record<DocxStyleRole, string> = {
@@ -429,6 +363,8 @@ interface Legend {
   family: string;
   number: number;
   text: string;
+  /** The caption alone (no "Figure 1 |" lead) — what legend word limits count. */
+  caption: string;
 }
 
 /** Replace each embed with figure + legend (inline) or remove it (legends-only). */
@@ -456,7 +392,7 @@ function placeFigures(
       const caption = ctx.captions.get(label)?.trim() || (m[1] ? m[1].replace(/\\([\\[\]])/g, "$1") : "");
       const text = formatLegend(lead, caption, spec.legend, style.figures.panels);
       if (!caption) emptyLegends.push(lead.replace(/[\s|.]+$/, ""));
-      if (!legends.some((l) => l.label === label)) legends.push({ label, family: fig.family.id, number: fig.number, text });
+      if (!legends.some((l) => l.label === label)) legends.push({ label, family: fig.family.id, number: fig.number, text, caption });
       if (placement === "legends-only") return "";
       const attrs = m[4].trim();
       const target = images?.get(label) ?? m[2];
@@ -501,9 +437,11 @@ export interface AssemblyReport {
   counts: { mainTextWords: number; methodsWords: number; legendWords: { label: string; words: number; extended: boolean }[]; displayItems: number; tables: number };
 }
 
-function words(t: string): number {
-  return (t.replace(/[#*_`>|\\^~\[\]]/g, " ").match(/[A-Za-z0-9][^\s]*/g) ?? []).length;
-}
+// Word counts follow THE counting law (manuscript/wordCount.ts) — the same
+// counter the editor's status bar and Journal Check use. A placed legend block
+// (a custom-style div) is not running text.
+const PLACED_BLOCK = /::: \{custom-style="[^"]*"\}[\s\S]*?\n:::/g;
+const words = (t: string) => proseWords(t.replace(PLACED_BLOCK, ""));
 
 function strList(v: unknown): string[] {
   if (Array.isArray(v)) return v.map((x) => s(x)).filter(Boolean);
@@ -866,16 +804,15 @@ export async function assembleJournalManuscript(src: string, input: AssembleInpu
   const marks = (text.match(/\]\{\.mark\}/g) ?? []).length;
   if (marks) problems.push(`${marks} highlighted ([…]{.mark}) passage${marks === 1 ? "" : "s"} still in the text.`);
 
-  const MAIN_ROLES = ["introduction", "results", "body", "discussion", "limitations"];
-  let mainTextWords = sections.filter((x) => MAIN_ROLES.includes(x.role)).reduce((n, x) => n + words(x.body.replace(/::: \{custom-style="[^"]*"\}[\s\S]*?\n:::/g, "")), 0);
+  let mainTextWords = sections.filter((x) => MAIN_TEXT_ROLES.includes(x.role)).reduce((n, x) => n + words(x.body), 0);
   if (spec.titleBlock === "nature") mainTextWords += words(abstract); // Nature counts the summary paragraph
-  if (spec.titleBlock === "cell") mainTextWords += mainLegends.reduce((n, l) => n + words(l.text), 0); // Cell counts main legends
+  if (spec.titleBlock === "cell") mainTextWords += mainLegends.reduce((n, l) => n + words(l.caption), 0); // Cell counts main legends
   const methodsWords = sections.filter((x) => x.role === "methods").reduce((n, x) => n + words(x.body), 0);
   const tables = (src.match(/^:\s.*\{#tbl-[^}]*\}\s*$/gm) ?? []).length;
   const counts = {
     mainTextWords,
     methodsWords,
-    legendWords: legends.map((l) => ({ label: `${l.family === "figure" ? "Figure" : l.family} ${l.number}`, words: words(l.text), extended: l.family !== "figure" })),
+    legendWords: legends.map((l) => ({ label: `${l.family === "figure" ? "Figure" : l.family} ${l.number}`, words: words(l.caption), extended: l.family !== "figure" })),
     displayItems: mainLegends.length + tables,
     tables,
   };

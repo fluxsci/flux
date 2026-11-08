@@ -10,6 +10,7 @@ import type { EditorView } from "@codemirror/view";
 import type { FigureRef } from "../scholar/figures";
 import type { BibEntry } from "../scholar/bib";
 import type { CommentThread } from "../comments/comments";
+import type { PaperWordCounts } from "../wordCounts.svelte";
 
 export interface CommentBridge {
   threads: (CommentThread & { draft?: boolean })[];
@@ -57,6 +58,9 @@ export interface MarginHost {
   refReveal: Writable<{ key: string; n: number }>;
   readonly citedKeys: Set<string>;
   readonly figures: FigureRef[];
+  /** THIS pane's word counts (idle-tick analysis, venue, target) — the
+   *  status bar and the Statistics pane read the same object. */
+  readonly wordCounts: PaperWordCounts;
   /** The project's cited subset (references/library.bib) — the bibliography. */
   readonly references: BibEntry[];
   /** The whole machine-global FluxLib for the reference SEARCH — you search to find

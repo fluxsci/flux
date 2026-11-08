@@ -105,7 +105,8 @@
   import { foldAll, syntaxTree, syntaxTreeAvailable, unfoldAll } from "@codemirror/language";
   import { keymap } from "@codemirror/view";
   import StatusBar from "./StatusBar.svelte";
-  import { wordCount } from "./margin/views/stats";
+  import { createPaperWordCounts } from "./wordCounts.svelte";
+  import { findCount } from "./editing/findCount";
   import { pageCompartment, themeFor } from "./view-mode/pageView";
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
@@ -1469,8 +1470,15 @@
     isDemo ? "demo" : $autosaveStatus === "error" ? "error" : saved ? "saved" : "saving",
   );
 
-  // StatusBar word count — from the 150ms-debounced mirror, never per keystroke.
-  const statusWords = $derived(wordCount(latestIdle));
+  // Word counts (status bar, outline, popover, Statistics) — from the 150ms-debounced
+  // mirror, never per keystroke; THE counter is src/lib/manuscript/wordCount.ts.
+  const wordCounts = createPaperWordCounts({
+    text: () => latestIdle,
+    figures: () => figures,
+    projectVenue: () => pm?.manifest.style?.journal,
+    view: () => view,
+  });
+  onDestroy(() => wordCounts.dispose());
 
   // Front matter picks the citation style (citation-style: numeric | author-year).
   // The scan is O(front matter) per keystroke; the effect fires only when the
@@ -1667,6 +1675,8 @@
           if (!u.docChanged && syntaxTree(u.state) !== syntaxTree(u.startState)) scheduleIdle();
         }),
         selBubble.watcher,
+        wordCounts.watcher,
+        findCount(), // Ctrl+F: pill clearance + the idle "k of n" count
         // Feedback stamp: live doc selection → shell store — FOCUSED pane only
         // (the publish target is app-global; a focus flip republishes below).
         makePaperSelectionWatcher(() => focused),
@@ -2362,6 +2372,9 @@
     get figures() {
       return figures;
     },
+    get wordCounts() {
+      return wordCounts;
+    },
     get references() {
       return references;
     },
@@ -2656,7 +2669,7 @@
         style={`flex-basis:${sidebarW}px;${panelScaleStyle($paperTextScale.scale.sidebar)}`}>
         <PaperSidebar>
           {#snippet outlineContent()}
-            <Outline items={outline} title={meta.title} {activeFrom} collapsed={collapsedSet} onJump={jump} onToggleCollapse={toggleCollapse} />
+            <Outline items={outline} title={meta.title} {activeFrom} collapsed={collapsedSet} counts={wordCounts.outline} onJump={jump} onToggleCollapse={toggleCollapse} />
           {/snippet}
           {#snippet files()}
             {#if !isDemo}
@@ -2730,7 +2743,7 @@
           <PreviewPane src={latest} paginated={viewMode === "paginated"} rev={figRefsRev} slides={slideRepo} documentKey={activeDocPath} />
         {:else if !(bodyEmpty && !dismissedEmpty)}
           <StatusBar
-            words={statusWords}
+            counts={wordCounts}
             {status}
             exporting={exportBusy}
             correctionStatus={localCorrectionStatus}

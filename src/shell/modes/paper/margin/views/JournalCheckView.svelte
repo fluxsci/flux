@@ -9,6 +9,7 @@
   //
   // Runs on summon and on IDLE — never per keystroke. A whole-document sweep is
   // not a typing-path operation (Nielsen §6).
+  import { untrack } from "svelte";
   import type { MarginHost } from "../types";
   import {
     checkCompliance,
@@ -16,17 +17,21 @@
     type Finding,
     type SubmissionStage,
   } from "../../../../../lib/manuscript/compliance";
-  import { NATURE_ROLE_ALIASES } from "../../../../../lib/manuscript/sections";
+  import { JOURNAL_ROLE_ALIASES } from "../../../../../lib/manuscript/sections";
   import { resolveJournalStyle } from "../../../../../lib/style/journalStyle";
   import { BUILTIN_JOURNAL_STYLES, journalStyleOptions } from "../../../../../lib/style/journalPresets";
 
   let { host }: { host: MarginHost } = $props();
 
-  let styleId = $state("nature");
+  // Opens on the venue the word count is reading for (the status-bar popover's pick).
+  const initialVenue = untrack(() => host.wordCounts.venueId);
+  let styleId = $state(initialVenue === "flux" ? "nature" : initialVenue);
   let stage = $state<SubmissionStage>("initial");
 
   const options = journalStyleOptions().filter((o) => o.id !== "flux");
   const style = $derived(resolveJournalStyle(styleId, BUILTIN_JOURNAL_STYLES));
+
+  const captions = $derived(new Map(host.figures.map((f) => [f.label, f.caption] as const)));
 
   // `latestIdle` is the 150ms-debounced mirror; the sweep rides it so typing
   // never pays for a whole-document scan.
@@ -37,10 +42,13 @@
       checkCompliance({
         doc,
         style,
-        aliases: NATURE_ROLE_ALIASES,
+        // The word budget reads the same heading vocabulary as the export
+        // assembler and the status bar's popover, so the numbers agree.
+        aliases: JOURNAL_ROLE_ALIASES,
         stage,
         figureCount: host.figures.length,
         mainRefCount: host.citedKeys.size,
+        legendFor: (label) => captions.get(label),
       }),
     );
   });

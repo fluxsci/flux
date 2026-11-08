@@ -460,7 +460,8 @@
       "verify-figure-raster-worker.ts",
       "verify-fig-own-writes.ts",
       "verify-figure-detail.ts",
-      "verify-figure-detail-proxy.ts"
+      "verify-figure-detail-proxy.ts",
+      "verify-word-count.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -644,7 +645,9 @@
       "verify-fig-edit-echo.mjs",
       "verify-paper-asset-reads.mjs",
       "verify-unplaced-asset-bytes.mjs",
-      "verify-plot-restyle-gui.mjs"
+      "verify-plot-restyle-gui.mjs",
+      "verify-paper-wordcount-gui.mjs",
+      "verify-paper-find-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -873,7 +876,10 @@
       "verify-caption-postscript.ts",
       "verify-figure-meta-refinements.mjs",
       "verify-model3d-embed.ts",
-      "verify-model3d-embed-gui.mjs"
+      "verify-model3d-embed-gui.mjs",
+      "verify-word-count.ts",
+      "verify-paper-wordcount-gui.mjs",
+      "verify-paper-find-gui.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -2924,6 +2930,7 @@
         "verify-connect-delta.ts",
         "verify-connect.ts",
         "verify-connect-render.ts",
+        "verify-word-count.ts",
         "tier:pure"
       ]
     },
@@ -3638,11 +3645,19 @@
       ]
     },
     {
+      "glob": "fixtures/word-count/**",
+      "run": [
+        "verify-word-count.ts",
+        "verify-paper-wordcount-gui.mjs"
+      ]
+    },
+    {
       "glob": "src/lib/manuscript/**",
       "run": [
         "verify-nature-structure.ts",
         "verify-nature-compliance.ts",
         "verify-export-prep.ts",
+        "verify-word-count.ts",
         "tier:pure"
       ]
     },
@@ -3667,7 +3682,8 @@
         "verify-journal-refs.ts",
         "verify-journal-manuscript.ts",
         "verify-journal-render.ts",
-        "verify-journal-export-gui.mjs"
+        "verify-journal-export-gui.mjs",
+        "verify-word-count.ts"
       ]
     },
     {
@@ -12080,6 +12096,37 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-word-count.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-paper-wordcount-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-paper-find-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

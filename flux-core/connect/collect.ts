@@ -22,6 +22,7 @@ import { listDecks } from "../slides";
 import { bridgeAvailable, getAppContext } from "../liveClient";
 import { CONTEXT_PATHS, CONTEXT_DOC_RELS, parseLog, projectContextTemplate } from "../../src/lib/project/contextTemplates";
 import { sortedCanvasMeta } from "../../src/lib/project/figfiles";
+import { mainTextWords } from "../../src/lib/manuscript/wordBudget";
 import { ANNOTATIONS_REL, foldAnnotations, parseLedger } from "../../src/lib/project/annotations";
 import { buildInbox, filterInbox, sortForInbox } from "../../src/lib/project/inbox";
 import { PRESENCE_DIR_REL, liveSessions, parsePresence } from "../../src/lib/project/presence";
@@ -142,7 +143,10 @@ export function outlineOf(text: string, maxLevel = 3): OutlineEntry[] {
   return out;
 }
 
-const wordsOf = (text: string) => (text.match(/\S+/g) ?? []).length;
+// Document word counts are THE shared counter's main-text figure (house rules =
+// Nature's: summary paragraph included, Methods/back matter/legends/tables and
+// all markup excluded) — the number the Paper status bar shows by default.
+const wordsOf = (text: string) => mainTextWords(text);
 
 function frontmatterTitle(text: string): string | null {
   const m = /^---\n([\s\S]*?)\n---/.exec(text);
@@ -468,7 +472,7 @@ async function docFacts(root: string, src: Sources, withText: boolean): Promise<
     docs.push({
       path: row.path,
       title: row.title || frontmatterTitle(text) || path.basename(row.path),
-      words: wordsOf(text.replace(/^---\n[\s\S]*?\n---/, "")),
+      words: wordsOf(text),
       lines: text ? text.split("\n").length : 0,
       hasComments: commented.has(row.path),
       outline: outlineOf(text),

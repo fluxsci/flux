@@ -83,4 +83,8 @@ export function touchesMe(tr: Transaction, value: RangeSet<RangeValue>, spec: Ga
 // `tableFold` counts full re-derives of the collapsed-source field (a document
 // scan). It is the one field that also updates on SELECTION changes, so its
 // counter is what proves caret motion never pays for a scan.
-export const paperPerf = { embeds: 0, tables: 0, math: 0, citeScans: 0, tableFold: 0, slideChips: 0 };
+// `wordAnalyses` counts whole-document word analyses (wordCounts.svelte.ts) and
+// `wordAnalysisMs` holds the last one's duration: they run on the idle tick,
+// never per keystroke (verify-paper-wordcount-gui.mjs). `findCounts` counts the
+// find bar's match counts — idle-settled too (verify-paper-find-gui.mjs).
+export const paperPerf = { embeds: 0, tables: 0, math: 0, citeScans: 0, tableFold: 0, slideChips: 0, wordAnalyses: 0, wordAnalysisMs: 0, findCounts: 0 };

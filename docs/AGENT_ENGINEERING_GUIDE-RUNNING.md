@@ -202,6 +202,7 @@ The established shared cores — extend these, don't duplicate them:
 | flux-connect packs (brief, bundle, proof codes, delta summaries) | `flux-core/connect/{budget,bundle,brief,codes,refresh}.ts` (pure); `collect.ts`/`cache.ts`/`images.ts` do the IO | `verify-connect-render.ts` (pure renderers), `verify-connect.ts` (end to end), `verify-connect-delta.ts` |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
+| Word counts — THE counting law (citations 0, a cross-ref the 2 words it prints, code/math/comments/tags/attributes/embed lines/table markup not words; LEGEND / TABLE / HEADING kinds), per-section counts and venue buckets (abstract / main / Methods / legends) | `src/lib/manuscript/wordCount.ts` + `wordBudget.ts` (status bar, outline, popover and Stats via `paper/wordCounts.svelte.ts`; Journal Check, `sections.ts`, `journalManuscript` + `journalSummary`, flux-core `connect/collect.ts`) | `verify-word-count.ts` (hand-counted Nature fixture, every former counter agrees, flux-core parity, `\S+` census), `verify-paper-wordcount-gui.mjs` |
 | Journal submission assembly — title page, citations, reference lists, section structure, legends, render settings, export summary (Nature, Science, Cell, bioRxiv) | `src/lib/style/journalManuscript.ts` (+ `journalCitations`, `journalRefs`, `journalCaptions`, `journalFigures`, `journalSummary`, `journalAssets.journalRenderMeta`), run inside `exportPrep.prepareExport` by both engines | `verify-journal-manuscript.ts`, `verify-journal-refs.ts`, `verify-journal-render.ts` (real Word + PDF), `verify-journal-export-gui.mjs` (GUI ≡ flux-core prepared text) |
 | External-command launch (Quarto, recipes, installed agent CLIs) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
@@ -1150,6 +1151,20 @@ Persistence invariants (all machine-checked — do not weaken):
   tooltips mount on a zero-size sibling anchor (`tooltips({ parent })`) and keep stacking above
   the column's title and status pills.
   Regression suite: `group:paper-gate`.
+  **Word counts have ONE counter** (2026-11-08): `src/lib/manuscript/wordCount.ts` (the
+  counting law — Nature's convention, header comment) + `wordBudget.ts` (sections, venue
+  buckets read with the assembler's own section rule and `JOURNAL_ROLE_ALIASES`, now in
+  `sections.ts`). Never add a `\S+` counter beside it (`verify-word-count` censuses Paper, the
+  manuscript/style cores and flux-core/connect). Paper reads it through
+  `paper/wordCounts.svelte.ts`: one O(doc) analysis per idle tick (`latestIdle`), memoised per
+  line (a re-count after an edit re-masks only changed lines: ~7 ms at 20k lines, 50 ms cold);
+  a selection only RECORDS its ranges after a 150 ms settle and is counted by binary search;
+  the keystroke path pays one emptiness check. `paperPerf.wordAnalyses`/`findCounts` prove
+  zero per-keystroke runs. The venue is the popover's pick (localStorage
+  `flux.paper.countVenue`) → `project.json` `style.journal` → Nature; the target is the
+  front-matter key `word-target:` (text is truth). The find bar keeps CodeMirror's stock panel;
+  `editing/findCount.ts` pads it clear of the title pill by MEASURING the pill (it straddles
+  the column's top edge) and shows an idle-settled, 1,000-capped "k of n".
   Inline 3D slide widgets keep live repositories metadata-only (`modelData: "omit"`).
   Each repository owns an immutable source generation; occurrences share worker bytes but
   have independent service hosts. Closing one occurrence must not invalidate another's
@@ -12121,3 +12136,17 @@ release.yml). Branch pure tier 458/459 (the one red fixed), bundle 5/5, startup 
 - A gate's selector can over-pin the contract: `.exchange img` meant "model HTML is inert", and the first legitimate
   picture in the exchange tripped it. Re-state the contract (Flux-rendered pictures carry `data-flux-image`), don't
   delete the check.
+
+### 2026-11-08 — Paper: word counts the way journals count them + the find bar (Claude Fable 5.1, `v030/paper-counts`)
+**Work:** Replaced five disagreeing word counters (status bar/Stats `\S+`, `sections.ts`, Journal Check,
+the journal assembler, flux-connect) with one pure core (`manuscript/wordCount.ts` + `wordBudget.ts`);
+added "N selected", outline section counts, a status-bar popover with venue limits and a
+`word-target:` front-matter target; fixed the find bar (pill clearance, idle "k of n"). Gates:
+`verify-word-count.ts` (pure), `verify-paper-wordcount-gui.mjs`, `verify-paper-find-gui.mjs` (ui, paper-gate).
+**Learnings:** (promoted to §2 table and §4 "Word counts have ONE counter")
+- To make two engines' counts agree, count the SAME stage of the text: the assembler counts section
+  bodies before citations are literalized, so the editor's "citations = 0" and the export agree;
+  cross-references are counted as the two words they print because the export has already printed them.
+- A legend limit counts the caption, not the "Figure 1 |" lead the assembler prefixes (`Legend.caption`).
+- Svelte 5 trims whitespace at element edges: `<span> / {n}</span>` renders "/n"; put the spaces in an expression.
+- Puppeteer's triple-click does not select an `<input>`'s text reliably; `el.select()` then type.

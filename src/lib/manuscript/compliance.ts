@@ -20,6 +20,8 @@
 
 import { formatStyledFigureRef, styledFamilyById, type ResolvedJournalStyle } from "../style/journalStyle";
 import { normalizeHeading, scanSections, type RoleAliases } from "./sections";
+import { analyzeWords } from "./wordCount";
+import { countRulesFor, wordBudget } from "./wordBudget";
 
 export type Severity = "info" | "warn";
 export type SubmissionStage = "initial" | "final";
@@ -47,6 +49,8 @@ export interface ComplianceInput {
   figureCount?: number;
   /** Distinct cited keys resolved in the main text, for the reference cap. */
   mainRefCount?: number;
+  /** The figure model's caption for an empty-alt embed (legend words). */
+  legendFor?: (label: string) => string | undefined;
 }
 
 /** Regions whose contents are not prose: front matter, fenced code, inline
@@ -103,10 +107,6 @@ function authorAdjacent(src: string, at: number): boolean {
   return !!m && !NOT_A_SURNAME.has(m[1].toLowerCase());
 }
 
-function words(s: string): number {
-  return (s.replace(/[#*_`>|]/g, " ").match(/\S+/g) ?? []).length;
-}
-
 /**
  * Run the venue's mechanically-checkable rules over a document.
  *
@@ -140,7 +140,10 @@ export function checkCompliance(input: ComplianceInput): Finding[] {
 
   // --- summary paragraph ----------------------------------------------------
   const st = scanSections(doc, aliases);
-  const abstractWords = st.preamble.words;
+  // Every word count is THE shared counter's (wordCount.ts / wordBudget.ts), so
+  // Journal Check, the status bar and the export summary say the same number.
+  const budget = wordBudget(analyzeWords(doc, { legendFor: input.legendFor }), { ...countRulesFor(style), aliases });
+  const abstractWords = budget.abstract;
   if (lim.abstractWords && abstractWords > lim.abstractWords) {
     const hard = lim.abstractWordsHard ?? lim.abstractWords;
     add({
@@ -206,17 +209,16 @@ export function checkCompliance(input: ComplianceInput): Finding[] {
 
   // --- Methods budget + display items ---------------------------------------
   const methods = tops.find((s) => s.role === "methods");
-  if (methods && lim.methodsWords && methods.words > lim.methodsWords) {
+  if (lim.methodsWords && budget.methods > lim.methodsWords) {
     add({
       ruleId: "methods.too-long",
       severity: "info",
-      message: `Methods is ~${methods.words} words; ${style.name} suggests under ${lim.methodsWords}.`,
-      from: methods.from,
-      to: methods.to,
+      message: `Methods is ~${budget.methods} words; ${style.name} suggests under ${lim.methodsWords}.`,
+      from: methods?.from,
+      to: methods?.to,
     });
   }
-  const bodyWords = tops.filter((s) => s.role === "body" || s.role === "discussion")
-    .reduce((n, s) => n + s.words, 0) + abstractWords;
+  const bodyWords = budget.main;
   if (lim.mainTextWords && bodyWords > lim.mainTextWords) {
     add({
       ruleId: "maintext.too-long",
