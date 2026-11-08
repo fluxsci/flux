@@ -106,7 +106,7 @@ try {
   const stable=JSON.parse(await readFile(path.join(repo,'test-results/summary.json'),'utf8'));
   assert.equal(stable.sourceStart.dirty,true);assert.equal(stable.sourceChanged,false);assert.equal(stable.sourceStart.digest,stable.sourceEnd.digest);assert.match(stable.sourceStart.indexDigest,/^[a-f0-9]{64}$/);
   assert.match(await readFile(path.join(stable.results[0].attempts[0].directory,'stdout.log'),'utf8'),/\/dev\/null memory/);
-  assert.equal(stable.config.perfScale,1,'an unset FLUX_PERF_SCALE is recorded as 1');
+  assert.equal(stable.config.perfScale,perfScale(process.env),'the run records the FLUX_PERF_SCALE it inherited (1 when unset; CI sets it)');
   // ONE deadline per script, its contract's timeoutMs: a stale top-level `timeouts` map (it shadowed three contracts until
   // 2026-11-08) is not read, and the host scale the run used is recorded with its evidence.
   await writeFile(path.join(repo,'scripts/verify-manifest.json'),JSON.stringify({tiers:{pure:['fixture.mjs']},groups:{},timeouts:{'fixture.mjs':1},execution:{'fixture.mjs':{...spec,timeoutMs:120000}}}));
