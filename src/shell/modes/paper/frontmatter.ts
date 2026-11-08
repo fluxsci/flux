@@ -115,18 +115,27 @@ export function frontMatterMeta(src: string): { title?: string; authors: string[
     } else if (inline) {
       authors.push(unquote(inline));
     } else {
+      // Only the author list's OWN entries: nested lists (an author's
+      // `affiliations:\n  - ref: ucl`) sit deeper and are not authors, and a
+      // `name:` counts only at its entry's key column (2026-11-08: the pill
+      // read "Ada Lovelace, ref: ucl, …").
+      let itemIndent = -1;
+      let keyCol = -1;
       for (let j = i + 1; j < lines.length; j++) {
         const ln = lines[j];
-        if (!/^[ \t]/.test(ln) && ln.trim() !== "") break; // dedent = end of block
-        const item = /^[ \t]*-[ \t]*(.*)$/.exec(ln);
-        if (item) {
-          const nameField = /^name:[ \t]*(.*)$/.exec(item[1].trim());
-          const v = unquote(nameField ? nameField[1] : item[1]);
+        if (!/^[ \t]/.test(ln) && !/^-([ \t]|$)/.test(ln) && ln.trim() !== "") break; // dedent = end of block
+        const item = /^([ \t]*)(-[ \t]*)(.*)$/.exec(ln);
+        if (item && (itemIndent < 0 || item[1].length === itemIndent)) {
+          itemIndent = item[1].length;
+          keyCol = item[1].length + item[2].length;
+          const nameField = /^name:[ \t]*(.*)$/.exec(item[3].trim());
+          // `- name:` opening a structured name, or an entry led by another key, names nothing here.
+          const v = nameField ? unquote(nameField[1]) : /^[\w-]+:(\s|$)/.test(item[3].trim()) ? "" : unquote(item[3]);
           if (v) authors.push(v);
-        } else {
-          const nameLine = /^[ \t]+name:[ \t]*(.*)$/.exec(ln);
-          if (nameLine) {
-            const v = unquote(nameLine[1]);
+        } else if (!item) {
+          const nameLine = /^([ \t]+)name:[ \t]*(.*)$/.exec(ln);
+          if (nameLine && nameLine[1].length === keyCol) {
+            const v = unquote(nameLine[2]);
             if (v) authors.push(v);
           }
         }

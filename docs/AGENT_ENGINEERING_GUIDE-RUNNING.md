@@ -149,7 +149,7 @@ The established shared cores — extend these, don't duplicate them:
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
-| Front-matter parsing (13 former hand-rolled sites) and BYTE-MINIMAL front-matter writes (title, author names/entries, single scalar keys such as `csl:`; never a whole-block re-dump) | `src/shell/modes/paper/frontmatter.ts` + `frontmatterEdit.ts` | `verify-frontmatter.ts`, `verify-frontmatter-edit.ts`, `verify-paper-markup-gui.mjs` §A |
+| Front-matter parsing (13 former hand-rolled sites) and BYTE-MINIMAL front-matter writes (title, author names/entries, single scalar keys such as `csl:`, whole values via `planFrontMatterValuesWith` — proven to load back to exactly the intended object; never a whole-block re-dump) and the Document Properties rows (authors/affiliations in Quarto's schema, as `journalManuscript.readAuthors` reads them) | `src/shell/modes/paper/frontmatter.ts` + `frontmatterEdit.ts` + `documentProperties.ts` | `verify-frontmatter.ts`, `verify-frontmatter-edit.ts`, `verify-document-properties.ts`, `verify-paper-markup-gui.mjs` §A |
 | Pandoc superscript `^…^` / subscript `~…~` (what a span is; markdown-it rule; spelling ranges; the editor's Lezer extension list) | `src/shell/modes/paper/science/supSubGrammar.ts` + `markdownExtensions.ts` | `verify-paper-supsub.ts` (Lezer ≡ grammar ≡ markdown-it ≡ Pandoc's own HTML for a corpus; mdInline nodes; spelling; Ctrl+./Ctrl+, commands), `verify-paper-markup-gui.mjs` §B–E, `verify-v020-docx-publication.ts` (real Pandoc DOCX vertAlign runs) |
 | Citation-style (CSL) choice: shipped-style info, project copy path, document-relative `csl:` value | `src/lib/references/cslCatalog.ts` (+ `frontmatterEdit.planSetScalarKeyWith`; the export reads it through `zoteroFields.resolveCslIdentity`) | `verify-csl-picker.ts`, `verify-paper-markup-gui.mjs` §F |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
@@ -12097,3 +12097,21 @@ Judgment calls: `docs/journal_export_notes.md`.
   filter was dropped by the first draft, exactly as a user's own Lua filter would have been.
 - Packaging allowlists rot silently: `resources/csl`/`docx` had never shipped. Pin assets in a gate.
 - LibreOffice is the cheapest way to SEE a generated .docx from an agent shell (fresh profile dir).
+
+### 2026-11-08 — Paper markup: byte-minimal front matter, sup/sub everywhere, Properties sheet, CSL picker (Claude Opus 5.5, `v030/paper-markup`)
+**Work:** Fixed the title pill's data loss (Save re-dumped the whole front matter, deleting the
+journal title page's affiliations/ORCID/flags and every comment) with a text-level, proven-minimal
+front-matter editor; then Pandoc superscript/subscript in the editor, Preview/house HTML, captions,
+table cells, spelling and two chords; a structured Document Properties sheet (authors ×
+affiliations, flags, email, ORCID checksum) over the same editor; and a reference-style (CSL)
+picker in the Export dialog that writes one `csl:` line. Handoff:
+`notes/v030_overnight_2026-11-08/paper_markup_REPORT.md` (main checkout).
+**Learnings:** (promoted to §2 rows, §4 sup/sub note, §9 front-matter and widget-buffer traps)
+- js-yaml 5's `parseEvents` gives scalar source ranges + styles: enough to edit YAML as text without
+  a CST library. Make every write prove itself (re-load, deep-equal the intended object, key order
+  kept) and fall back per key, then refuse — never a whole-block dump.
+- A command's write must carry `isolateHistory.of("full")`; un-annotated adjacent changes within
+  500 ms join the previous undo event.
+- An empty replace decoration is a line-break opportunity (widget-buffer images); hide in-word
+  markers with a `display:none` mark in the atomic set.
+- Harper flags a unit symbol after a number (`10 s,`); spelling now skips it after a quantity.

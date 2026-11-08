@@ -13,6 +13,7 @@
   import { readManuscript, writeManuscript } from "../../../lib/project/load";
   import { frontMatterBounds, frontMatterMeta, frontMatterField } from "./frontmatter";
   import { planSetScalarKey } from "./frontmatterEdit";
+  import type { DocumentProperties } from "./documentProperties";
   import { externalManuscriptChange } from "../../../lib/project/projectWatch";
   import { createEditorExtensions } from "./markdown-setup";
   import Editor from "./Editor.svelte";
@@ -394,28 +395,29 @@
   // and the title re-quoted. `frontmatterEdit.ts` changes only the title
   // scalar and the author names/entries, verifies every other key survived,
   // and refuses (a toast) rather than lose a byte. One isolated dispatch = one Undo.
+  // The sheet (TitleEditor.svelte) edits structured rows — authors with
+  // affiliations, corresponding, email, ORCID, equal contribution, lead
+  // contact, plus the affiliations list — written by documentProperties.ts
+  // through the same minimal patcher (only changed fields are touched).
   let titleEditOpen = $state(false);
-  let titleSeed = $state<{ title: string; authors: string[] }>({ title: "", authors: [] });
+  let titleSeed = $state<DocumentProperties>({ title: "", authors: [], affiliations: [] });
   async function openTitleEditor() {
     if (!view) return;
     const editor = view, generation = sessionGeneration, path = activeDocPath;
-    const { readTitleAuthors } = await import("./frontmatterEdit");
-    const seed = await readTitleAuthors(editor.state.doc.toString());
+    const { readDocumentPropertiesFrom } = await import("./documentProperties");
+    const seed = await readDocumentPropertiesFrom(editor.state.doc.toString());
     if (!sessionCurrent(generation, path) || view !== editor) return;
     titleSeed = seed;
     titleEditOpen = true;
   }
-  async function saveTitleAuthors(newTitle: string, authors: string[] | null) {
+  async function saveTitleAuthors(next: DocumentProperties) {
     titleEditOpen = false;
     if (!view) return;
     const editor = view, generation = sessionGeneration, path = activeDocPath;
-    const [fe, yaml, { isolateHistory }] = await Promise.all([import("./frontmatterEdit"), import("js-yaml"), import("@codemirror/commands")]);
+    const [dp, yaml, { isolateHistory }] = await Promise.all([import("./documentProperties"), import("js-yaml"), import("@codemirror/commands")]);
     if (!sessionCurrent(generation, path) || view !== editor) return;
     try {
-      const changes = fe.planTitleAuthorsEditWith(yaml, editor.state.doc.toString(), {
-        title: newTitle,
-        authors: authors ?? undefined,
-      });
+      const changes = dp.planDocumentPropertiesWith(yaml, editor.state.doc.toString(), next);
       // Its own undo step: never joined to typing just before the Save.
       if (changes.length) editor.dispatch({ changes, annotations: isolateHistory.of("full") });
     } catch (err) {
@@ -2954,8 +2956,7 @@
 
   {#if titleEditOpen}
     <TitleEditor
-      title={titleSeed.title}
-      authors={titleSeed.authors}
+      initial={titleSeed}
       onSave={saveTitleAuthors}
       onClose={() => { titleEditOpen = false; view?.focus(); }} />
   {/if}

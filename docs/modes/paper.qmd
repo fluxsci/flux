@@ -11,11 +11,17 @@ text stays honest.
 
 # The writing surface
 
-- **The title pill** above the text shows the title and authors; click it to edit them (they're
-  stored as the document's front matter). Saving changes only the title and the author names
-  you edited: affiliations, emails, ORCIDs, the corresponding author, comments and the rest of
-  the front matter stay exactly as you wrote them, and one **Ctrl+Z** undoes the save. A renamed
-  author keeps their affiliations. The small dot on the pill is the autosave
+- **The title pill** above the text shows the title and authors; click it (or focus it and
+  press **Enter**) for the **document properties** sheet: the title, then one row per author
+  (name, email, ORCID, **Corresponding**, **Equal contribution**, **Lead contact**, and the
+  numbered affiliations they belong to, toggled as chips), then the affiliations list
+  (institution, department, city, country). Reorder authors with ↑ / ↓, add with
+  **+ Add author** / **+ Add affiliation**. An ORCID iD with a typo (it fails its checksum) is
+  outlined in red. Everything is stored as the document's front matter, in Quarto's own author
+  schema — exactly what the journal export prints on the title page. Saving changes only what
+  you edited: other fields, comments, quoting and key order stay as you wrote them, a renamed
+  author keeps their affiliations, and one **Ctrl+Z** undoes the save. **Escape** closes the
+  sheet without saving. The small dot on the pill is the autosave
   indicator — you never save by hand.
 - **Alt+O** toggles the left sidebar. **Files** and **Outline** each start with half its
   height. Drag their divider to resize them, or double-click it to restore the equal split.
@@ -357,8 +363,10 @@ file stays small, and section order and headings are the journal's — your sour
 *Revision files* gives the revision text: figure images removed, legends listed where the
 journal wants them, ready to upload beside your separate figure files.
 
-**The title page comes from your front matter.** Give authors, affiliations, the
-corresponding author and (for Cell) the lead contact there, and add what a journal asks for:
+**The title page comes from your front matter.** Fill in authors, affiliations, the
+corresponding author and (for Cell) the lead contact in the title pill's
+[document properties](#the-writing-surface) sheet, or write them yourself; the other things a
+journal asks for go in the front matter too:
 
 ```yaml
 author:

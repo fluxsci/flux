@@ -2,7 +2,9 @@
 //
 // §A  The title pill's Save is BYTE-MINIMAL: a front matter with affiliations,
 //     ORCID, flags and comments keeps every byte but the edited title (the old
-//     Save re-dumped the block and deleted them). One Ctrl+Z restores it.
+//     Save re-dumped the block and deleted them). One Ctrl+Z restores it. The
+//     sheet's structured rows (flags, email, ORCID check, affiliation chips, a
+//     new affiliation) each write only their own lines; Escape writes nothing.
 // §B  Superscript / subscript: typing `CO~2~` renders a real lowered span with
 //     the markers hidden off-caret; `Ca^2+^` a raised one; markers show at the
 //     caret; the line is exactly as tall as a plain line; `~~x~~` stays strike.
@@ -74,8 +76,15 @@ await waitFor(page, () => document.querySelector(".titlepill-wrap")?.textContent
 await page.focus(".titlepill-wrap .pill");
 await page.keyboard.press("Enter");
 await waitFor(page, () => !!document.querySelector(".te input"), null, { label: "title dialog" });
-const seeded = await page.$$eval(".te input", (ns) => ns.map((n) => n.value));
-h.eq(seeded, ["Sleep spindles gate CA1 replay", "Ada Lovelace, Alan Turing"], "dialog seeds the title and names the export reads");
+const seeded = await page.evaluate(() => ({
+  title: document.querySelector('.te input[aria-label="Title"]')?.value,
+  names: [...document.querySelectorAll('.te input[aria-label$=" name"]')].map((n) => n.value),
+  orcid: document.querySelector('.te input[aria-label="Author 1 ORCID"]')?.value,
+  corr: [...document.querySelectorAll('.te input[aria-label$=" corresponding"]')].map((n) => n.checked),
+  lead: document.querySelector('.te input[aria-label="Author 2 lead contact"]')?.checked,
+}));
+h.eq(seeded, { title: "Sleep spindles gate CA1 replay", names: ["Ada Lovelace", "Alan Turing"], orcid: "0000-0002-1825-0097", corr: [true, false], lead: true },
+  "the sheet seeds title, names, ORCID and flags exactly as the export reads them");
 await page.$eval(".te input", (n) => {
   n.select();
 });
@@ -94,15 +103,72 @@ h.eq(await docText(), FM, "one Ctrl+Z restores the front matter exactly");
 // Rename an author through the dialog: only that name changes.
 await page.focus(".titlepill-wrap .pill");
 await page.keyboard.press("Enter");
-await waitFor(page, () => document.querySelectorAll(".te input").length === 2, null, { label: "title dialog again" });
-await page.$$eval(".te input", (ns) => {
-  const a = ns[1];
-  a.value = "Ada Lovelace, Alan M. Turing";
+await waitFor(page, () => !!document.querySelector('.te input[aria-label="Author 2 name"]'), null, { label: "title dialog again" });
+await page.$eval('.te input[aria-label="Author 2 name"]', (a) => {
+  a.value = "Alan M. Turing";
   a.dispatchEvent(new Event("input", { bubbles: true }));
 });
 await page.click(".te button.primary");
 await waitFor(page, () => window.__fluxView.state.doc.toString().includes("Alan M. Turing"), null, { label: "author renamed" });
 h.eq(await docText(), FM.replace("  - name: Alan Turing", "  - name: Alan M. Turing"), "author rename keeps lead-contact + affiliations");
+// The sheet's outro must finish before the next key reaches the editor.
+await waitFor(page, () => !document.querySelector(".te"), null, { label: "sheet gone" });
+// Structured fields: one checkbox → one line; an affiliation chip → one ref.
+const reopen = async () => {
+  await waitFor(page, () => !document.querySelector(".te"), null, { label: "previous sheet gone" });
+  await page.focus(".titlepill-wrap .pill");
+  await page.keyboard.press("Enter");
+  await waitFor(page, () => !!document.querySelector('.te input[aria-label="Author 2 name"]'), null, { label: "sheet" });
+};
+await page.keyboard.down(MOD);
+await page.keyboard.press("z");
+await page.keyboard.up(MOD);
+await paints();
+await reopen();
+await page.click('.te input[aria-label="Author 2 corresponding"]');
+await page.$eval('.te input[aria-label="Author 2 email"]', (a) => {
+  a.value = "alan@example.org";
+  a.dispatchEvent(new Event("input", { bubbles: true }));
+});
+h.ok(!(await page.$eval('.te button[aria-label="Author 1 affiliation 1"]', (b) => b.getAttribute("aria-pressed") === "false")), "Ada's affiliation chip 1 shows pressed");
+await page.$eval('.te input[aria-label="Author 1 ORCID"]', (a) => {
+  a.value = "0000-0002-1825-0098";
+  a.dispatchEvent(new Event("input", { bubbles: true }));
+});
+h.ok(await page.$eval('.te input[aria-label="Author 1 ORCID"]', (a) => a.getAttribute("aria-invalid") === "true"), "an ORCID with a bad checksum is marked invalid");
+await page.$eval('.te input[aria-label="Author 1 ORCID"]', (a) => {
+  a.value = "0000-0002-1825-0097";
+  a.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await page.click(".te button.primary");
+await waitFor(page, () => window.__fluxView.state.doc.toString().includes("alan@example.org") && !document.querySelector(".te"), null, { label: "structured save" });
+h.eq(await docText(), FM.replace("    affiliations: [ucl]\n", "    affiliations: [ucl]\n    email: alan@example.org\n    corresponding: true\n"),
+  "corresponding + email for author 2 add exactly two lines; everything else byte-identical");
+await page.keyboard.down(MOD);
+await page.keyboard.press("z");
+await page.keyboard.up(MOD);
+await paints();
+h.eq(await docText(), FM, "one Ctrl+Z takes the structured save back");
+// New affiliation + assign it + Escape-cancel writes nothing.
+await reopen();
+await page.click('.te button[data-add="affiliation"]');
+await page.$eval('.te input[aria-label="Affiliation 2 institution"]', (a) => {
+  a.value = "Massachusetts Institute of Technology";
+  a.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await page.click('.te button[aria-label="Author 2 affiliation 2"]');
+await page.click(".te button.primary");
+await waitFor(page, () => window.__fluxView.state.doc.toString().includes("Massachusetts"), null, { label: "affiliation save" });
+h.eq(await docText(), FM.replace("affiliations: [ucl]", "affiliations: [ucl, mit]").replace("    name: University College London   # campus\n", "    name: University College London   # campus\n  - id: mit\n    name: Massachusetts Institute of Technology\n"),
+  "a new affiliation gets an initials id and author 2 references it (flow list kept)");
+await reopen();
+await page.$eval('.te input[aria-label="Title"]', (a) => {
+  a.value = "MUST NOT SAVE";
+  a.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await page.keyboard.press("Escape");
+await waitFor(page, () => !document.querySelector(".te"), null, { label: "sheet closed" });
+h.ok(!(await docText()).includes("MUST NOT SAVE"), "Escape cancels without writing");
 
 // ---------------------------------------------------------------- §B rendering
 h.section("B · sup/sub render in the editor");

@@ -559,6 +559,270 @@ function verifyPlan(yaml: YamlMod, fm: string, next: string, edit: TitleAuthorsE
   return null;
 }
 
+// ------------------------------------------------------------------ generic value patching
+//
+// The structured Document Properties sheet sets whole VALUES (the author list,
+// the affiliations list) rather than names. `patchValue` turns old → new JS
+// into span edits on the existing YAML: scalars keep their style, mappings
+// keep their pairs (a changed pair is edited, a removed one deleted, a new
+// one appended at the mapping's indent), list entries keep their bytes
+// (moved verbatim when reordered, given `itemSources`). A value it cannot
+// express (a shape change, a flow mapping, an anchor) is re-written as ONE
+// pair, never more; the caller then proves the result equals the intended
+// object and refuses otherwise.
+
+/** One top-level key's new value (`undefined` removes the key). */
+export interface FmValueChange {
+  key: string;
+  value: unknown;
+  /** For a list whose entries keep identity: per new item, the old item index
+   *  it continues (null = new). Lets a reorder move entries verbatim. */
+  itemSources?: (number | null)[];
+  /** A NEW key is inserted after this existing key (else at the end). */
+  after?: string;
+}
+
+class Unpatchable extends Error {}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date);
+const isScalarJs = (v: unknown) => v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+const colOf = (s: string, pos: number) => pos - lineStart(s, pos);
+const pairEnd = (p: { key: YNode; value: YNode }) => Math.max(p.value.end, p.key.end);
+
+function indentBlock(text: string, pad: string, eol: string): string {
+  return text.replace(/\n$/, "").split("\n").map((l) => (l ? pad + l : l)).join(eol) + eol;
+}
+function dumpBlock(yaml: YamlMod, value: unknown): string {
+  return yaml.dump(value, { lineWidth: -1 });
+}
+function scalarText(yaml: YamlMod, v: unknown, style: number, flow: boolean): string {
+  if (typeof v === "string") return emitScalar(yaml, v, style, flow);
+  return v === null ? "null" : String(v);
+}
+function flowText(yaml: YamlMod, v: unknown): string {
+  if (isScalarJs(v)) return scalarText(yaml, v, PLAIN, true);
+  return yaml.dump(v, { lineWidth: -1, flowLevel: 0 }).trim();
+}
+
+/** Re-write one pair's value (keeps the key and its position). A flow
+ *  collection stays a flow collection, in place. */
+function reemitPair(yaml: YamlMod, fm: string, p: { key: YNode; value: YNode }, value: unknown, col: number, eol: string): Edit {
+  if ((p.value.kind === "seq" || p.value.kind === "map") && p.value.flow && !p.value.decorated && (Array.isArray(value) || isPlainObject(value)))
+    return { from: p.value.start, to: p.value.end, insert: flowText(yaml, value) };
+  const to = lineEndIncl(fm, pairEnd(p) - 1);
+  const empty = (Array.isArray(value) && !value.length) || (isPlainObject(value) && !Object.keys(value).length);
+  const body = isScalarJs(value) || empty
+    ? ` ${empty ? (Array.isArray(value) ? "[]" : "{}") : scalarText(yaml, value, PLAIN, false)}${eol}`
+    : eol + indentBlock(dumpBlock(yaml, value), " ".repeat(col + 2), eol);
+  return { from: p.key.end, to, insert: `:${body}` };
+}
+
+function patchValue(
+  yaml: YamlMod,
+  fm: string,
+  node: YNode,
+  oldJs: unknown,
+  newJs: unknown,
+  eol: string,
+  flow: boolean,
+  itemSources?: (number | null)[],
+): Edit[] {
+  if (itemSources === undefined && deepEqual(oldJs, newJs)) return [];
+  if (node.kind === "alias" || node.decorated) throw new Unpatchable("anchored or tagged value");
+  if (node.kind === "scalar") {
+    if (!isScalarJs(newJs) || newJs === null || !isScalarJs(oldJs)) throw new Unpatchable("scalar shape");
+    if (typeof newJs === "string") return [scalarEdit(yaml, fm, node, newJs, flow)];
+    if (node.start < 0) throw new Unpatchable("unplaced scalar");
+    if (node.isNull) return [{ from: node.start, to: node.end, insert: `${flow ? "" : " "}${String(newJs)}` }];
+    if (node.style === LITERAL || node.style === FOLDED) throw new Unpatchable("block scalar");
+    return [{ from: node.start, to: node.end, insert: String(newJs) }];
+  }
+  if (node.kind === "map") {
+    if (node.flow || !isPlainObject(oldJs) || !isPlainObject(newJs)) throw new Unpatchable("mapping shape");
+    const keys = node.pairs.map((p) => keyOf(p.key));
+    if (keys.some((k) => k === null) || keys.length !== Object.keys(oldJs).length) throw new Unpatchable("mapping keys");
+    const col = colOf(fm, node.start);
+    const kept = node.pairs.filter((_, i) => newJs[keys[i]!] !== undefined);
+    if (!kept.length) throw new Unpatchable("mapping emptied");
+    const edits: Edit[] = [];
+    // A trailing run of removed pairs goes as ONE range after the last kept pair.
+    let tailFrom = node.pairs.length;
+    while (tailFrom > 0 && newJs[keys[tailFrom - 1]!] === undefined) tailFrom--;
+    if (tailFrom < node.pairs.length)
+      edits.push({ from: lineEndIncl(fm, pairEnd(node.pairs[tailFrom - 1]) - 1), to: lineEndIncl(fm, pairEnd(node.pairs[node.pairs.length - 1]) - 1), insert: "" });
+    node.pairs.forEach((p, i) => {
+      const k = keys[i]!;
+      if (newJs[k] === undefined) {
+        // Delete the pair up to the NEXT pair's key: that key keeps its own
+        // indent (and the leading `- ` when this pair sat on the dash line).
+        if (i < tailFrom) edits.push({ from: p.key.start, to: node.pairs[i + 1].key.start, insert: "" });
+        return;
+      }
+      if (deepEqual(oldJs[k], newJs[k])) return;
+      try {
+        edits.push(...patchValue(yaml, fm, p.value, oldJs[k], newJs[k], eol, false));
+      } catch (err) {
+        if (!(err instanceof Unpatchable) && !(err instanceof FrontMatterEditError)) throw err;
+        edits.push(reemitPair(yaml, fm, p, newJs[k], col, eol));
+      }
+    });
+    const added = Object.keys(newJs).filter((k) => !keys.includes(k) && newJs[k] !== undefined);
+    if (added.length) {
+      const at = lineEndIncl(fm, node.end - 1);
+      const text = added.map((k) => indentBlock(dumpBlock(yaml, { [k]: newJs[k] }), " ".repeat(col), eol)).join("");
+      edits.push({ from: at, to: at, insert: text });
+    }
+    return edits;
+  }
+  // sequence
+  if (!Array.isArray(oldJs) || !Array.isArray(newJs) || node.items.length !== oldJs.length) throw new Unpatchable("list shape");
+  const src = itemSources ?? (newJs.length === oldJs.length ? newJs.map((_, i) => i) : null);
+  if (!src || src.length !== newJs.length || !newJs.length) throw new Unpatchable("list length");
+  const itemEdits = (i: number, j: number) => patchValue(yaml, fm, node.items[i], oldJs[i], newJs[j], eol, node.flow);
+  if (src.length === node.items.length && src.every((s, i) => s === i)) return src.flatMap((_, i) => itemEdits(i, i));
+  const local = (i: number, j: number, from: number, to: number) =>
+    applyEdits(fm.slice(from, to), itemEdits(i, j).map((e) => ({ ...e, from: e.from - from, to: e.to - from })));
+  if (node.flow) {
+    const parts = src.map((s, j) => (s === null ? flowText(yaml, newJs[j]) : local(s, j, node.items[s].start, node.items[s].end)));
+    return [{ from: node.start, to: node.end, insert: `[${parts.join(", ")}]` }];
+  }
+  const dashes = node.items.map((n) => {
+    let j = n.start - 1;
+    while (j >= 0 && (fm[j] === " " || fm[j] === "\t")) j--;
+    if (fm[j] !== "-" || n.start < 0) throw new Unpatchable("list entry layout");
+    return j;
+  });
+  const segStart = dashes.map((d, i) => (i === 0 ? lineStart(fm, d) : lineEndIncl(fm, Math.max(node.items[i - 1].end, node.items[i - 1].start + 1) - 1)));
+  const segEnd = node.items.map((n, i) => (i + 1 < node.items.length ? segStart[i + 1] : lineEndIncl(fm, Math.max(n.end, n.start + 1) - 1)));
+  const pad = fm.slice(segStart[0], dashes[0]).replace(/[^ \t]/g, " ");
+  const body = src
+    .map((s, j) => {
+      if (s === null) return indentBlock(dumpBlock(yaml, [newJs[j]]), pad, eol);
+      const t = local(s, j, segStart[s], segEnd[s]);
+      return t.endsWith("\n") ? t : t + eol;
+    })
+    .join("");
+  return [{ from: segStart[0], to: segEnd[node.items.length - 1], insert: body }];
+}
+
+function sameKeyOrder(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
+  const kept = Object.keys(before).filter((k) => k in after);
+  const now = Object.keys(after).filter((k) => k in before);
+  return kept.join("\u0000") === now.join("\u0000");
+}
+
+/** Plan setting whole top-level VALUES with minimal text edits, proven: the
+ *  edited front matter must load to exactly the intended object (every other
+ *  key untouched, their order kept), else a per-key re-write is tried, else
+ *  `FrontMatterEditError`. */
+export function planFrontMatterValuesWith(yaml: YamlMod, src: string, changes: FmValueChange[]): FmChange[] {
+  const b = frontMatterBounds(src);
+  const eol = /\r\n/.test(b.has ? b.fmText : src.slice(0, 2000)) ? "\r\n" : "\n";
+  const live = changes.filter((c) => c.value !== undefined);
+  if (!b.has) {
+    if (b.open) throw new FrontMatterEditError("The front matter has no closing ---");
+    if (!live.length) return [];
+    const body = dumpBlock(yaml, Object.fromEntries(live.map((c) => [c.key, c.value]))).replace(/\n/g, eol);
+    return [{ from: 0, to: 0, insert: `---${eol}${body}---${eol}${eol}` }];
+  }
+  const fm = b.fmText;
+  let tree: YNode | null;
+  try {
+    tree = buildTree(yaml, fm);
+  } catch (err) {
+    throw new FrontMatterEditError(`The front matter is not valid YAML (${(err as Error).message.split("\n")[0]})`);
+  }
+  if (tree && (tree.kind !== "map" || tree.flow)) throw new FrontMatterEditError("front matter is not a block mapping");
+  const root = (tree as YMap | null) ?? { kind: "map" as const, flow: false, start: 0, end: 0, pairs: [], decorated: false };
+  const before = loadMap(yaml, fm);
+  const expected: Record<string, unknown> = { ...before };
+  for (const c of changes) {
+    if (c.value === undefined) delete expected[c.key];
+    else expected[c.key] = c.value;
+  }
+  const plan = (perKey: boolean): Edit[] => {
+    const edits: Edit[] = [];
+    const tail: string[] = [];
+    // Where each NEW key went, so a later new key can follow it (`after`).
+    const placed = new Map<string, number | "tail">();
+    for (const c of changes) {
+      const pair = pairOf(root, c.key);
+      if (!pair) {
+        if (c.value === undefined) continue;
+        const text = indentBlock(dumpBlock(yaml, { [c.key]: c.value }), "", eol);
+        const anchor = c.after ? pairOf(root, c.after) : undefined;
+        const at = anchor ? lineEndIncl(fm, pairEnd(anchor) - 1) : c.after ? placed.get(c.after) : undefined;
+        if (typeof at === "number") {
+          edits.push({ from: at, to: at, insert: text });
+          placed.set(c.key, at);
+        } else {
+          tail.push(text);
+          placed.set(c.key, "tail");
+        }
+        continue;
+      }
+      if (c.value === undefined) {
+        edits.push({ from: lineStart(fm, pair.key.start), to: lineEndIncl(fm, pairEnd(pair) - 1), insert: "" });
+        continue;
+      }
+      if (perKey) {
+        edits.push({ from: lineStart(fm, pair.key.start), to: lineEndIncl(fm, pairEnd(pair) - 1), insert: indentBlock(dumpBlock(yaml, { [c.key]: c.value }), "", eol) });
+        continue;
+      }
+      try {
+        edits.push(...patchValue(yaml, fm, pair.value, before[c.key], c.value, eol, false, c.itemSources));
+      } catch (err) {
+        if (!(err instanceof Unpatchable) && !(err instanceof FrontMatterEditError)) throw err;
+        edits.push(reemitPair(yaml, fm, pair, c.value, 0, eol));
+      }
+    }
+    if (tail.length) edits.push({ from: fm.length, to: fm.length, insert: (fm.length && !fm.endsWith("\n") ? eol : "") + tail.join("") });
+    return edits;
+  };
+  let why = "";
+  for (const perKey of [false, true]) {
+    let edits: Edit[];
+    try {
+      edits = plan(perKey);
+    } catch (err) {
+      if (!(err instanceof FrontMatterEditError)) throw err;
+      why = err.message;
+      continue;
+    }
+    const next = applyEdits(fm, edits);
+    let after: Record<string, unknown>;
+    try {
+      after = loadMap(yaml, next);
+    } catch (err) {
+      why = `edited YAML does not parse: ${(err as Error).message.split("\n")[0]}`;
+      continue;
+    }
+    if (!deepEqual(after, expected)) {
+      why = "the edited front matter did not read back as intended";
+      continue;
+    }
+    if (!sameKeyOrder(before, after)) {
+      why = "key order changed";
+      continue;
+    }
+    const out: FmChange[] = [];
+    for (const e of edits) {
+      const m = minimize(fm, e);
+      if (m) out.push({ from: b.fmStart + m.from, to: b.fmStart + m.to, insert: m.insert });
+    }
+    out.sort((a, c) => a.from - c.from);
+    const merged: FmChange[] = [];
+    for (const c of out) {
+      const last = merged[merged.length - 1];
+      if (last && last.from === c.from && last.to === last.from && c.to === c.from) last.insert += c.insert;
+      else merged.push({ ...c });
+    }
+    return merged;
+  }
+  throw new FrontMatterEditError(`Could not update the front matter without changing other fields (${why}).`);
+}
+
 // ------------------------------------------------------------------ public API
 
 /** The title + author names exactly as the editor and the export read them. */
@@ -682,6 +946,9 @@ export async function planTitleAuthorsEdit(src: string, edit: TitleAuthorsEdit):
 }
 export async function readTitleAuthors(src: string): Promise<{ title: string; authors: string[] }> {
   return readTitleAuthorsWith(await loadYaml(), src);
+}
+export async function planFrontMatterValues(src: string, changes: FmValueChange[]): Promise<FmChange[]> {
+  return planFrontMatterValuesWith(await loadYaml(), src, changes);
 }
 export async function planSetScalarKey(src: string, key: string, value: string | null): Promise<FmChange[]> {
   return planSetScalarKeyWith(await loadYaml(), src, key, value);

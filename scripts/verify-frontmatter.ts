@@ -83,6 +83,10 @@ const assert = (c: unknown, m: string) => (c ? ok(m) : fail(m));
   const src = "---\ntitle: X\nauthors:\n  - name: Ada Lovelace\n    affiliation: Analytical\n  - name: Alan Turing\n---\nbody\n";
   const meta = frontMatterMeta(src);
   assert(meta.authors.join("|") === "Ada Lovelace|Alan Turing", `block-sequence name: authors (${meta.authors.join("|")})`);
+  const nested = "---\nauthor:\n  - name: Ada Lovelace\n    affiliations:\n      - ref: ucl\n  - id: x\n    name: Alan Turing\n- name: Col Zero\n---\nbody\n";
+  assert(frontMatterMeta(nested).authors.join("|") === "Ada Lovelace|Alan Turing", `nested lists are not authors; a later name: at the key column is (${frontMatterMeta(nested).authors.join("|")})`);
+  const col0 = "---\nauthor:\n- name: Ada\n  affiliations:\n  - ucl\n- name: Bo\n---\nb\n";
+  assert(frontMatterMeta(col0).authors.join("|") === "Ada|Bo", `column-0 author lists read too (${frontMatterMeta(col0).authors.join("|")})`);
   const src2 = "---\nauthor:\n  - Plain One\n  - 'Quoted Two'\n---\nbody\n";
   assert(frontMatterMeta(src2).authors.join("|") === "Plain One|Quoted Two", "block-sequence plain/quoted items");
 }
