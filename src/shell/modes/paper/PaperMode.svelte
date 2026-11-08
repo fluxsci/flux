@@ -386,42 +386,40 @@
   }
 
   // ---- title｜authors editing (writes YAML front-matter) -----------------
+  // BYTE-MINIMAL (2026-11-08): the old Save re-dumped the whole block with
+  // `author:` rebuilt as names only — affiliations, corresponding, email,
+  // ORCID, equal-contributor, lead-contact and every comment were deleted,
+  // and the title re-quoted. `frontmatterEdit.ts` changes only the title
+  // scalar and the author names/entries, verifies every other key survived,
+  // and refuses (a toast) rather than lose a byte. One isolated dispatch = one Undo.
   let titleEditOpen = $state(false);
-  async function saveTitleAuthors(newTitle: string, authorsCsv: string) {
+  let titleSeed = $state<{ title: string; authors: string[] }>({ title: "", authors: [] });
+  async function openTitleEditor() {
+    if (!view) return;
+    const editor = view, generation = sessionGeneration, path = activeDocPath;
+    const { readTitleAuthors } = await import("./frontmatterEdit");
+    const seed = await readTitleAuthors(editor.state.doc.toString());
+    if (!sessionCurrent(generation, path) || view !== editor) return;
+    titleSeed = seed;
+    titleEditOpen = true;
+  }
+  async function saveTitleAuthors(newTitle: string, authors: string[] | null) {
     titleEditOpen = false;
     if (!view) return;
     const editor = view, generation = sessionGeneration, path = activeDocPath;
-    const yaml = await import("js-yaml");
+    const [fe, yaml, { isolateHistory }] = await Promise.all([import("./frontmatterEdit"), import("js-yaml"), import("@codemirror/commands")]);
     if (!sessionCurrent(generation, path) || view !== editor) return;
-    const src = editor.state.doc.toString();
-    let metaObj: Record<string, unknown> = {};
-    // WS-4.1: single-source bounds; closeEnd = end of the closing --- line
-    // (the replace below keeps the newline after it as the body separator,
-    // exactly like the old fmEnd+4 arithmetic).
-    const fmb = frontMatterBounds(src);
-    const hadFm = fmb.has;
-    if (hadFm) {
-      try {
-        metaObj = (yaml.load(fmb.fmText) as Record<string, unknown>) ?? {};
-      } catch {
-        metaObj = {};
-      }
+    try {
+      const changes = fe.planTitleAuthorsEditWith(yaml, editor.state.doc.toString(), {
+        title: newTitle,
+        authors: authors ?? undefined,
+      });
+      // Its own undo step: never joined to typing just before the Save.
+      if (changes.length) editor.dispatch({ changes, annotations: isolateHistory.of("full") });
+    } catch (err) {
+      pushToast("error", "Title and authors were not changed", { detail: errMsg(err) });
     }
-    metaObj.title = newTitle;
-    const entries = authorsCsv
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((name) => ({ name }));
-    if ("authors" in metaObj && !("author" in metaObj)) metaObj.authors = entries;
-    else metaObj.author = entries;
-    const dumped = yaml.dump(metaObj, { lineWidth: -1 });
-    if (hadFm) {
-      view.dispatch({ changes: { from: 0, to: fmb.closeEnd, insert: `---\n${dumped}---` } });
-    } else {
-      view.dispatch({ changes: { from: 0, insert: `---\n${dumped}---\n\n` } });
-    }
-    view.focus();
+    editor.focus();
   }
   let viewMode = $state<PaperViewMode>(get(paperViewMode));
   let dismissedEmpty = $state(false);
@@ -2698,7 +2696,7 @@
             title={meta.title}
             authors={meta.authors}
             {status}
-            onEdit={() => (titleEditOpen = true)} />
+            onEdit={openTitleEditor} />
         </div>
         {#key sessionGeneration}
           <Editor doc={initialDoc} extensions={buildExtensions()} {onReady} {onChange} />
@@ -2870,8 +2868,8 @@
 
   {#if titleEditOpen}
     <TitleEditor
-      title={meta.title}
-      authors={meta.authors}
+      title={titleSeed.title}
+      authors={titleSeed.authors}
       onSave={saveTitleAuthors}
       onClose={() => { titleEditOpen = false; view?.focus(); }} />
   {/if}

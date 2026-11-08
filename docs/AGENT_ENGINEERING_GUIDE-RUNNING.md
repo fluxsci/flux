@@ -149,7 +149,7 @@ The established shared cores — extend these, don't duplicate them:
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
-| Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
+| Front-matter parsing (13 former hand-rolled sites) and BYTE-MINIMAL front-matter writes (title, author names/entries, single scalar keys such as `csl:`; never a whole-block re-dump) | `src/shell/modes/paper/frontmatter.ts` + `frontmatterEdit.ts` | `verify-frontmatter.ts`, `verify-frontmatter-edit.ts`, `verify-paper-markup-gui.mjs` §A |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
@@ -4639,6 +4639,16 @@ outside this PNG packaging change.
   swallows that press so CodeMirror selects no word. Gate with real input: down/up, then
   down/up with `clickCount: 2`, after `scrollIntoView`, and assert `elementFromPoint` hit the
   chip. Without that check a click on an off-screen chip "passes" a must-stay-put assertion.
+- **Never write front matter by `yaml.load` → mutate → `yaml.dump`** (2026-11-08). The title
+  pill did exactly that for months: Save rebuilt `author:` as names only and re-dumped the block,
+  deleting affiliations, ORCID, email, `corresponding`, `equal-contributor`, `lead-contact` (the
+  journal export's title page) and every comment, and re-quoting the title — with no visible sign
+  until export. Every GUI front-matter write goes through `frontmatterEdit.ts`
+  (`planTitleAuthorsEditWith`, `planSetScalarKeyWith`): js-yaml 5's `parseEvents` gives scalar
+  source ranges + styles, the planner edits only the owned bytes, then re-parses and refuses
+  (`FrontMatterEditError` → a toast) unless every other key deep-equals the original. Dispatch the
+  result with `isolateHistory.of("full")` — a command's write must not join the typing before it
+  in one undo step (CodeMirror joins any adjacent un-annotated change within 500 ms).
 - **A block widget's vertical margins are invisible to CodeMirror's height map.** CodeMirror
   measures the widget's border box, so `.flux-slide-embed { margin: 16px auto }` put the map
   32 px behind the DOM per embedded slide. ArrowDown then skipped lines below a slide, since

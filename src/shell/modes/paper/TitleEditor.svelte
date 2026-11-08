@@ -11,13 +11,15 @@
   }: {
     title: string;
     authors: string[];
-    onSave: (title: string, authorsCsv: string) => void;
+    /** `authors` is null when the field was left as shown (nothing to write). */
+    onSave: (title: string, authors: string[] | null) => void;
     onClose: () => void;
   } = $props();
 
   // Seed the form once from the props (the component is re-mounted each open).
   let t = $state(untrack(() => title));
-  let a = $state(untrack(() => authors.join(", ")));
+  const shown = untrack(() => authors.join(", "));
+  let a = $state(shown);
   let tEl = $state<HTMLInputElement | undefined>(undefined);
 
   $effect(() => {
@@ -26,7 +28,10 @@
   });
 
   function save() {
-    onSave(t.trim(), a);
+    // An untouched Authors field writes nothing: a name that itself holds a
+    // comma ("Smith, J.") must not be split into two authors by a title edit.
+    const names = a.split(",").map((x) => x.trim()).filter(Boolean);
+    onSave(t.trim(), a === shown ? null : names);
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") {

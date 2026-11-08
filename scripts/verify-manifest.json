@@ -72,6 +72,7 @@
       "verify-paper-changegate.ts",
       "verify-local-corrections.ts",
       "verify-frontmatter.ts",
+      "verify-frontmatter-edit.ts",
       "verify-render-concurrency.ts",
       "verify-paper-commands.ts",
       "verify-paper-textscale.ts",
@@ -476,6 +477,7 @@
       "verify-figure-input-hygiene.mjs",
       "verify-zoom-proxy.mjs",
       "verify-paper-textsize-gui.mjs",
+      "verify-paper-markup-gui.mjs",
       "verify-paper-nav.mjs",
       "verify-paper-vim.mjs",
       "verify-paper-keyboard.mjs",
@@ -873,7 +875,9 @@
       "verify-caption-postscript.ts",
       "verify-figure-meta-refinements.mjs",
       "verify-model3d-embed.ts",
-      "verify-model3d-embed-gui.mjs"
+      "verify-model3d-embed-gui.mjs",
+      "verify-frontmatter-edit.ts",
+      "verify-paper-markup-gui.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -6099,6 +6103,15 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-frontmatter-edit.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-fulltext-extract.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -7033,6 +7046,17 @@
       "coverage": "behavior"
     },
     "verify-paper-textsize-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-paper-markup-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
         "server"

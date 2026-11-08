@@ -33,9 +33,12 @@ export interface FmBounds {
   closeEnd: number;
   /** The YAML text between the fences (no fence lines; "" when none). */
   fmText: string;
+  /** Char offset where `fmText` starts in the document (0 when none). The
+   *  minimal front-matter editor (`frontmatterEdit.ts`) maps its edits with it. */
+  fmStart: number;
 }
 
-const NONE: FmBounds = { has: false, open: false, bodyStart: 0, closeEnd: -1, fmText: "" };
+const NONE: FmBounds = { has: false, open: false, bodyStart: 0, closeEnd: -1, fmText: "", fmStart: 0 };
 
 /** Line-exact, CRLF-safe boundary scan (cheap, sync). */
 export function frontMatterBounds(src: string): FmBounds {
@@ -56,6 +59,7 @@ export function frontMatterBounds(src: string): FmBounds {
         bodyStart: Math.min(nl + 1, src.length),
         closeEnd: nl,
         fmText: src.slice(firstEnd + 1, pos),
+        fmStart: firstEnd + 1,
       };
     }
     if (nl >= src.length) break;

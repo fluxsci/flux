@@ -12,7 +12,10 @@ text stays honest.
 # The writing surface
 
 - **The title pill** above the text shows the title and authors; click it to edit them (they're
-  stored as the document's front matter). The small dot on the pill is the autosave
+  stored as the document's front matter). Saving changes only the title and the author names
+  you edited: affiliations, emails, ORCIDs, the corresponding author, comments and the rest of
+  the front matter stay exactly as you wrote them, and one **Ctrl+Z** undoes the save. A renamed
+  author keeps their affiliations. The small dot on the pill is the autosave
   indicator — you never save by hand.
 - **Alt+O** toggles the left sidebar. **Files** and **Outline** each start with half its
   height. Drag their divider to resize them, or double-click it to restore the equal split.
@@ -417,6 +420,7 @@ directly to the new position, and the caret blinks softly once you pause.
 | A citation chip shows your typed text, dimmed | The key isn't in the project bib or library → check the spelling, or add the paper to the [Library](library.qmd) first |
 | Word export is disabled | Quarto isn't installed → **Install Quarto…** in the export dialog, or **Settings → General → Setup** ([Installation](../installation.qmd)) |
 | A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd). The PDF needs `lualatex` (TinyTeX from **Settings → Set up Flux… → Add PDF support** includes it) |
+| Saving the title pill says *Title and authors were not changed* | The front matter is not valid YAML, or has no closing `---` → fix it in the text (the message names the problem); Flux will not rewrite front matter it cannot read |
 | The journal title page shows no authors | Put `author:` (with `affiliations:`) in the document's front matter — see [Journal styles](#journal-styles) |
 | Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in **Figure-Meta** (**Alt+M**) |
