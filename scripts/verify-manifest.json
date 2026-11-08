@@ -460,7 +460,8 @@
       "verify-figure-raster-worker.ts",
       "verify-fig-own-writes.ts",
       "verify-figure-detail.ts",
-      "verify-figure-detail-proxy.ts"
+      "verify-figure-detail-proxy.ts",
+      "verify-manuscript-check.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -644,7 +645,8 @@
       "verify-fig-edit-echo.mjs",
       "verify-paper-asset-reads.mjs",
       "verify-unplaced-asset-bytes.mjs",
-      "verify-plot-restyle-gui.mjs"
+      "verify-plot-restyle-gui.mjs",
+      "verify-manuscript-check-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -873,7 +875,9 @@
       "verify-caption-postscript.ts",
       "verify-figure-meta-refinements.mjs",
       "verify-model3d-embed.ts",
-      "verify-model3d-embed-gui.mjs"
+      "verify-model3d-embed-gui.mjs",
+      "verify-manuscript-check.ts",
+      "verify-manuscript-check-gui.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -3079,6 +3083,22 @@
       ]
     },
     {
+      "$why": "Manuscript Check pane (Alt+K), its worker and runner: the GUI gate + the pure core gate first, then everything the margin rule below runs.",
+      "glob": "{src/shell/modes/paper/margin/views/ManuscriptCheckView.svelte,src/shell/modes/paper/margin/manuscriptCheck.worker.ts,src/shell/modes/paper/margin/manuscriptCheckService.ts}",
+      "run": [
+        "verify-manuscript-check-gui.mjs",
+        "verify-manuscript-check.ts",
+        "verify-v020-paper-lifecycle.mjs",
+        "group:paper-gate",
+        "tier:pure",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-journal-export-gui.mjs"
+      ]
+    },
+    {
       "glob": "{src/shell/modes/paper/{TitleEditor,ExportDialog,ExportSummaryPanel}.svelte,src/shell/modes/paper/margin/**,src/shell/modes/slide/SlidePresetMenu.svelte}",
       "run": [
         "verify-v020-paper-lifecycle.mjs",
@@ -3638,6 +3658,19 @@
       ]
     },
     {
+      "$why": "Manuscript Check core + the editor grammar/table/front-matter modules hoisted from src/shell/modes/paper (2026-11-08): they keep the paper-gate coverage they had there, plus the src/lib/manuscript/** gates below.",
+      "glob": "{src/lib/manuscript/checks/**,src/lib/manuscript/citations.ts,src/lib/manuscript/grammar.ts,src/lib/manuscript/frontmatter.ts,src/lib/manuscript/refNumberGrammar.ts,src/lib/manuscript/tableModel.ts,src/lib/manuscript/refNumbers.ts,scripts/lib/manuscriptCheckFixture.mjs}",
+      "run": [
+        "verify-manuscript-check.ts",
+        "verify-manuscript-check-gui.mjs",
+        "verify-nature-structure.ts",
+        "verify-nature-compliance.ts",
+        "verify-export-prep.ts",
+        "group:paper-gate",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "src/lib/manuscript/**",
       "run": [
         "verify-nature-structure.ts",
@@ -4109,6 +4142,16 @@
       "run": [
         "tier:presence",
         "tier:pure"
+      ]
+    },
+    {
+      "$why": "flux check / check_manuscript IO adapter: parity with the pure core and the verb registry, plus the flux-core/** floor below.",
+      "glob": "flux-core/check.ts",
+      "run": [
+        "verify-manuscript-check.ts",
+        "verify-registry-parity.ts",
+        "tier:pure",
+        "group:align-arrange"
       ]
     },
     {
@@ -12080,6 +12123,26 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-manuscript-check.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-manuscript-check-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

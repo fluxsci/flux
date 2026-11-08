@@ -40,6 +40,8 @@ export interface MarginHost {
   /** The 150ms-debounced mirror of `latest` (PAP-7) — anything that runs whole-doc
    *  regexes (Stats, TOC-ish views) reads THIS, never the per-keystroke `latest`. */
   readonly latestIdle: string;
+  /** The active document's project-relative path ("" for the unsaved demo). */
+  readonly docPath: string;
   /** 2.2: write `citation-style:` into the front matter (single-line dispatch);
    *  the derived style store re-labels every chip + the References list live. */
   setCitationStyle(style: "author-year" | "numeric"): void;
@@ -64,6 +66,10 @@ export interface MarginHost {
    *  project-local-only entries; citing one materializes it into `references`. */
   readonly libraryReferences: BibEntry[];
   readonly comments: CommentBridge;
+  /** The thread list alone. `comments` also reads the per-keystroke anchor
+   *  ranges, so anything that must NOT re-run per keystroke (Manuscript Check)
+   *  depends on this instead. */
+  readonly commentThreads: (CommentThread & { draft?: boolean })[];
   /** Insert (target omitted) or replace (target given) a citation group. */
   writeCites: (keys: string[], target?: { from: number; to: number }) => void;
   removeCite: (key: string) => void;

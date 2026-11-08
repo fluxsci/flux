@@ -149,7 +149,9 @@ The established shared cores — extend these, don't duplicate them:
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
-| Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
+| Front-matter parsing (13 former hand-rolled sites) | `src/lib/manuscript/frontmatter.ts` (`paper/frontmatter.ts` re-exports it) | `verify-frontmatter.ts` |
+| Citation scanning — every `@key` outside front matter, code and math; ordinals; cited-key sets (editor chips, renderer, References red dots, flux-core `compile` summary and FluxLib reconcile) | `src/lib/manuscript/citations.ts` (+ `grammar.ts`; `scholar/citeNumbering.ts` re-exports `buildCitationOrdinals`) | `verify-citenum.ts`, `verify-manuscript-check.ts` §A (incl. a census that flux-core has no private cite regex) |
+| Manuscript Check rule packs (references, display items, placeholders, abbreviations, comments) and their exact fixes | `src/lib/manuscript/checks/` (Paper pane runs it in `margin/manuscriptCheck.worker.ts`; flux-core `check.ts` is IO only) | `verify-manuscript-check.ts` (corpus + real CLI / flux-core / MCP / pure parity), `verify-manuscript-check-gui.mjs` (GUI ≡ pure) |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
@@ -1210,7 +1212,8 @@ Persistence invariants (all machine-checked — do not weaken):
   Reset learning preserves explicit words and mappings. The Paper caret always uses Chase
   (`editing/caretFeel.ts`); old cursor-mode preferences do not select an alternate implementation.
   **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
-  `science/tableModel.ts`, markdown-it-faithful because the export feeds the same text to
+  `src/lib/manuscript/tableModel.ts` (hoisted with `refNumbers.ts`, `grammar.ts` and
+  `frontmatter.ts` on 2026-11-08 so flux-core can read them; the old `science/` paths re-export), markdown-it-faithful because the export feeds the same text to
   markdown-it — escaped `\|` (escapedSplit port), header/delimiter column-count equality,
   terminator-based body absorption (pipe-less prose under a table IS a row), fence/display-math
   suspension in byte-parity with `refNumbers.ts`. Editing ops + Tab/Enter cell navigation live
@@ -3173,6 +3176,27 @@ source. The pipeline, identical in Paper and flux-core:
 - The writer never restyles (export-only rule, `verify-writer-neutral.ts`); Journal Check
   (`compliance.ts`) advises in each venue's grammar.
 
+### Manuscript Check (Alt+K, `flux check`)
+
+Venue-independent, deterministic "ready to send?" checks: ONE platform,
+`src/lib/manuscript/checks/index.ts` `checkManuscript({doc, text, figures, bib, comments, packs})`,
+over ONE shared scan (`context.ts`: masked prose, cross-refs via `grammar.crossrefRe`, citations
+via `citations.ts`, embeds, `tableModel` tables, `refNumbers.scanEqNumbers`, `{#label}` defs) and
+one file per pack — `references.ts`, `display.ts`, `placeholders.ts`, `abbreviations.ts`,
+`comments.ts`. Rule ids, severities and the fix list are in each file's header. A finding carries
+`doc`, `from/to`, `line/col` and, only where the edit is unambiguous, `fix.edits[]` with the
+`expect` text the range must still hold (`applyCheckFix` is the reference semantics; the pane
+dispatches the same edits as ONE CodeMirror transaction, `userEvent: "input.check-fix"`, so one
+Ctrl+Z undoes it and it never joins typing history). Display-order findings are FLAG ONLY: figure
+numbers belong to the Figure model. Figures enter as `CheckFigure` (label, family, number,
+display, caption, panels) — the GUI maps `figureRefs`, flux-core `check.ts` projects
+`loadFigModel` the same way; the bibliography is parsed with `lightBibEntries` in both engines
+when the raw `library.bib` is at hand (`bibSource`). Scheduling (§6): the pane runs on summon, on
+`latestIdle` and on Check now, in a module worker (`manuscriptCheckService.ts`, latest-wins, main-
+thread fallback); a 20k-line run costs ~45–70 ms in the worker and nothing on the keystroke path.
+It renders ≤50 rows per pack until asked. Dev telemetry: `window.__flux.manuscriptCheck`
+(`runs`, `lastMs`, `lastMode`).
+
 ## 5. Hard rules — do not do these
 
 1. **Never regress out of the instantaneous class (§6).** Responsiveness outranks every other
@@ -5089,6 +5113,20 @@ outside this PNG packaging change.
   ~30 s during R2). (20) Bisect a regression with `git archive <sha>` copies plus the head's `scripts/` overlay,
   never in the worktree; `pkill -f <pattern>` kills a shell whose command line contains the pattern (use
   `[v]ite`); `grep` on `outline.ts` answers "binary file matches" (a NUL in a cache-key literal): `grep -a`.
+
+**Paper margin views that must not re-run per keystroke** (2026-11-08): `MarginHost.comments` is a
+getter that builds its object from `threads` AND `cRanges`, and `cRanges` is reassigned on every
+document change (`onChange → syncRanges`). Any `$effect`/`$derived` that touches `host.comments`
+therefore re-runs per keystroke. Read `host.commentThreads` (threads only) and `host.latestIdle`
+(the 150 ms mirror) instead; `verify-manuscript-check-gui` §D pins zero check runs during a burst.
+`installDevHandle` rebuilds `window.__flux` wholesale at startup (keeping only `editors`), so a
+module that publishes dev telemetry at import time loses it — publish lazily (on first use).
+
+**The `flux_verbs` compact index is nearly full** (2026-11-08): `verify-mcp-launcher` caps the
+no-query index at 20,000 bytes and it read 19,998 after `check_manuscript` landed. Each verb costs
+its name plus the FIRST SENTENCE of its summary (≤120 chars), so a new verb's first sentence should
+be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLED server — run
+`npm run build:cli` before re-measuring, or it reports the previous build's size.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 

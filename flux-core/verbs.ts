@@ -18,6 +18,7 @@ import { MODEL3D_VERBS } from './model3dVerbs';
 import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { ValidationError } from "./errors";
 import { text } from "./registry";
 import { renderLogEntries } from "../src/lib/project/contextTemplates";
+import { formatCheckReport } from "../src/lib/manuscript/checks/index";
 import * as core from "./index";
 import type { AttachArgs } from "../src/lib/slide/attach";
 import * as model from "./model";
@@ -1754,6 +1755,28 @@ export const VERBS: VerbDef[] = [
     render: {
       human: () => ({ err: "✓ manuscript written" }),
       mcp: () => text("manuscript written"),
+    },
+  },
+  {
+    name: "check_manuscript", readOnly: true,
+    scope: "project",
+    cli: "check",
+    cliRoot: "flags",
+    summary:
+      "Manuscript Check. Deterministic pre-submission checks on one document (omit doc for the main manuscript): undefined cross-references and citekeys, duplicate or incomplete references, figures/tables cited out of order or never cited, empty captions, leftover placeholders (TODO, [??]), abbreviation use, open comment threads. Each finding has a rule id, severity, line and, where unambiguous, an exact fix. packs: references, display, placeholders, abbreviations, comments (comma-separated; default all).",
+    params: { doc: z.string().optional(), packs: z.array(z.string()).optional(), json: z.boolean().optional() },
+    cliArgs: [
+      { kind: "flag", at: "doc", into: "doc" },
+      { kind: "flag", at: "pack", into: "packs", as: "csv" },
+      { kind: "flag", at: "json", into: "json", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.checkManuscriptDoc(ctx.root, { doc: a.doc as string | undefined, packs: a.packs as string[] | undefined }),
+    render: {
+      human: (r, a) => {
+        const res = r as import("../src/lib/manuscript/checks/index").CheckResult;
+        return a.json ? { out: JSON.stringify(res, null, 2) } : { out: formatCheckReport(res) };
+      },
+      mcp: (r) => text(JSON.stringify(r, null, 2)),
     },
   },
   {

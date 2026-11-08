@@ -111,7 +111,7 @@ const [paperMode, completions, commentsView, chips, renderMs, paneStore, grammar
     read("src/shell/modes/paper/science/chips.ts"),
     read("src/shell/modes/paper/render/renderManuscript.ts"),
     read("src/shell/paneStore.ts"),
-    read("src/shell/modes/paper/science/grammar.ts"),
+    read("src/lib/manuscript/grammar.ts"), // hoisted 2026-11-08 (Manuscript Check); science/grammar.ts re-exports it
   ]);
 assert(
   (paperMode.match(/reanchorComments\(\)/g) || []).length >= 2 &&

@@ -11,6 +11,7 @@ import { quartoCommandSync } from "../electron/managedTools.cjs";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity, type CslRecord } from "../src/lib/references/zoteroFields.js";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
+import { citedKeysIn } from "../src/lib/manuscript/citations";
 import { newSlideEmbed, serializeSlideEmbed, planSlideInsertion, scanSlideEmbeds } from "../src/lib/slide/embed";
 import { slideQuartoTransform } from "../src/lib/slide/embedQuarto";
 import { nodeSlideRepository } from "./slideEmbeds";
@@ -247,18 +248,6 @@ export interface CompileSummary {
   journal?: { summary: import("../src/lib/style/journalSummary").ExportSummary; markdown: string; notesPath?: string };
 }
 
-/** Citation keys used in a qmd (Quarto/pandoc `@key` syntax), excluding
- *  crossref namespaces (@fig-/@tbl-/@sec-/@eq-/@lst-). */
-function citationKeysIn(text: string): string[] {
-  const keys = new Set<string>();
-  for (const m of text.matchAll(/(?:^|[\s([;])@([A-Za-z0-9_][A-Za-z0-9_:.#$%&+?<>~/-]*[A-Za-z0-9_]|[A-Za-z0-9_])/g)) {
-    const k = m[1];
-    if (/^(fig|tbl|sec|eq|lst|thm)-/.test(k)) continue;
-    keys.add(k);
-  }
-  return [...keys];
-}
-
 /** The Zotero style id + locale for this render — the shared resolver with node IO.
  *  Candidate precedence lives in ONE place (resolveCslIdentity, twin-engine rule);
  *  the in-app export calls the same function over the FileBridge. */
@@ -467,7 +456,7 @@ async function compileOwned(root: string, to: string, opts: { doc?: string; styl
   const bibText = await fs
     .readFile(path.join(root, (m as { references?: { library?: string } }).references?.library ?? "references/library.bib"), "utf8");
   const bibKeys = new Set([...bibText.matchAll(/@\w+\s*\{\s*([^,\s{}]+)\s*,/g)].map((mm) => mm[1]));
-  const used = citationKeysIn(expanded);
+  const used = citedKeysIn(expanded); // the shared scanner (src/lib/manuscript/citations.ts)
   const citations = {
     keys: used.length,
     resolved: used.filter((k) => bibKeys.has(k)).length,

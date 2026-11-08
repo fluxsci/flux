@@ -278,6 +278,7 @@ Helper panes summon beside your text and stack in one column:
 | **Alt+A** | Comments — the review threads on this document |
 | **Alt+C** | Citation group — edit the citation at the caret |
 | **Alt+J** | Journal Check — the selected journal's rulebook, as advice |
+| **Alt+K** | Manuscript Check — broken references, figure order, placeholders, abbreviations, open comments |
 
 **Alt+P** closes the active pane, and **Escape** always returns focus to your writing.
 **Ctrl+Shift+B** hides the margin column entirely; the outline rail's edge
@@ -401,6 +402,31 @@ references — and only *points at* figure references you typed by hand. It cann
 "Figure 2, panel D" from a mention of someone else's Figure 2D, so it never rewrites your
 prose.
 
+## Manuscript Check
+
+**Alt+K** opens **Manuscript Check**: the "is this ready to send?" list. It works with any
+journal (or none) and looks for the mistakes that are embarrassing in a submitted PDF:
+
+- **References and citations** — a figure, table, equation or section reference that points
+  nowhere (`@fig-` typos, a panel the figure doesn't have), citations missing from the
+  project's references, the same paper cited under two keys, and cited entries missing an
+  author, title, year or journal.
+- **Figures and tables** — a figure first cited before a lower-numbered one (each family —
+  main, Extended Data, Supplementary — is checked on its own), a figure embedded or a table
+  labeled but never cited in the text, panels never mentioned, and empty captions.
+- **Placeholders** — TODO, FIXME, XXX, `[??]`, `[citation needed]`, "n = XX" and the like,
+  plus TODO notes hidden in comments.
+- **Abbreviations** — used before they are defined, defined twice, defined but never used,
+  or never defined at all (common ones such as DNA or ANOVA are fine).
+- **Comments** — how many comment threads are still open.
+
+Click a finding to jump to it. Where the right edit is unambiguous the finding offers a
+button — **Define at first use**, **Use LTP**, **Remove the repeat**, or a one-letter
+reference typo's correction — and applying it is a single edit that **Ctrl+Z** undoes.
+Out-of-order figures are only flagged: renumber them in Figure (**Ctrl+R**) or move the
+sentence, whichever you mean. The list refreshes a moment after you stop typing (it never
+slows typing down), or press **Check now**. Agents run the same checks with `flux check`.
+
 # Vim, and how the caret feels
 
 For keyboard fans, **Ctrl+K → Enable Vim mode** turns on modal editing, with two flavors:
@@ -414,6 +440,7 @@ directly to the new position, and the caret blinks softly once you pause.
 
 | Symptom | Cause → fix |
 |---|---|
+| Manuscript Check calls a figure uncited although you mention it | Only figure references count (`@fig-…`, inserted with the Figures pane or the cross-reference picker); a typed "Figure 2" is plain text to Flux → insert it as a reference |
 | A citation chip shows your typed text, dimmed | The key isn't in the project bib or library → check the spelling, or add the paper to the [Library](library.qmd) first |
 | Word export is disabled | Quarto isn't installed → **Install Quarto…** in the export dialog, or **Settings → General → Setup** ([Installation](../installation.qmd)) |
 | A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd). The PDF needs `lualatex` (TinyTeX from **Settings → Set up Flux… → Add PDF support** includes it) |
