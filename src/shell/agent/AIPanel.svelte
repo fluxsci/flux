@@ -122,7 +122,7 @@
 
 <div class="ai-scrim" class:detached={$aiDetached} role="presentation" on:click|self={close}></div>
 <div class="ai-panel" class:detached={$aiDetached} bind:this={host} role="dialog" aria-label="AI status" aria-modal={!$aiDetached} tabindex="-1" use:modalFocus on:keydown={keys}>
-  <header><strong>AI status</strong><span>Flux AI Bundle</span><button class="pin" on:click={pin}>{$aiDetached ? 'Dock' : 'Pin'}</button><button class="close" aria-label="Close AI status" on:click={close}>×</button></header>
+  <header class="surface-head"><strong class="ttl">AI status</strong><span class="vsep"></span><span class="ctx">Flux AI Bundle</span><button class="pin hbtn" on:click={pin}>{$aiDetached ? 'Dock' : 'Pin'}</button><button class="close xbtn" aria-label="Close AI status" on:click={close}></button></header>
   <div class="tools"><button disabled={busy} on:click={() => void doctor()}>Run doctor</button><button disabled={busy} on:click={() => void doctor(true)}>Copy diagnostics</button><small>{$aiStatus.checkedAt ? `Last check ${new Date($aiStatus.checkedAt).toLocaleTimeString()}` : 'Status not checked yet'}</small></div>
   <div class="body">
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -182,9 +182,8 @@
   .ai-scrim.detached { display: none; }
   .ai-panel { position: fixed; z-index: 181; top: calc(var(--titlebar-h) + 12px); right: 16px; bottom: 16px; width: min(700px, calc(100vw - 32px)); display: flex; flex-direction: column; background: var(--c-bg-raised); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); font: 12px var(--font-ui); box-shadow: 0 8px 32px #0005; }
   .ai-panel.detached { inset: 0; width: 100%; height: 100%; border: none; box-shadow: none; }
-  header, .tools, .actions, .agent-heading { display: flex; align-items: center; gap: 8px; }
-  header { padding: 10px 14px; border-bottom: 1px solid var(--c-line); }
-  header strong { font-size: 15px; } header span { color: var(--c-tx-muted); } .pin { margin-left: auto; }
+  .tools, .actions, .agent-heading { display: flex; align-items: center; gap: 8px; }
+  .ai-panel { border-radius: var(--r-1); }
   .tools { padding: 10px 14px; flex-wrap: wrap; border-bottom: 1px solid var(--c-line); }
   .tools small { margin-left: auto; color: var(--c-tx-muted); }
   .body { overflow: auto; min-height: 0; padding: 0 18px 18px; }

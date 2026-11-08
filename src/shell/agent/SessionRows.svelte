@@ -6,6 +6,7 @@
   import { sessionWork } from "../../lib/project/agentRouting";
   import type { PresenceSession } from "../../lib/project/presence";
   import BackgroundStop from "../inbox/BackgroundStop.svelte";
+  import AgentMark from "./AgentMark.svelte";
 
   export let onshow = () => {};
   let busy = new Set<string>(), error = "", notice = "";
@@ -29,10 +30,10 @@
 <div class="session-rows">
   {#each rows as { session, queued, claims } (session.id)}
     <article data-session={session.id}>
-      <div class="heading"><strong>{session.name}</strong><span>{session.product} · {session.surface}</span></div>
+      <div class="heading"><AgentMark size={13} seed={session.name} /><strong>{session.name}</strong><span>{session.product} · {session.surface}</span></div>
       <div class="state">
-        <span>{session.watching ? `👁 Watching · ${session.watchMode ?? "annotations"}` : $annotationState.stoppedSessions.has(session.id) ? "Stopped" : "Connected"}</span>
-        {#if session.live}<span title="Pairing with the live window">🖥 Live</span>{/if}
+        <span class="watch" class:on={session.watching}><i aria-hidden="true"></i>{session.watching ? `Watching · ${session.watchMode ?? "annotations"}` : $annotationState.stoppedSessions.has(session.id) ? "Stopped" : "Connected"}</span>
+        {#if session.live}<span class="live" title="Pairing with the live window">Live</span>{/if}
         <span class="queue-count">{queued.length} queued</span>
       </div>
       <p class="connected">Connected since <time datetime={session.startedAt}>{new Date(session.startedAt).toLocaleString()}</time></p>
@@ -54,7 +55,10 @@
   article { padding:12px 0;border-bottom:1px solid var(--c-line); } article:last-of-type { border-bottom:0; }
   .heading,.state,.actions { display:flex;gap:8px;align-items:center;flex-wrap:wrap; }
   .heading strong { color:var(--c-tx);font-weight:600; } .heading span,.connected,.empty,.notice { color:var(--c-tx-muted); }
-  .state { margin-top:6px;font:10px var(--font-mono); } .queue-count { margin-left:auto; }
+  .state { margin-top:6px;font:10px var(--font-mono);color:var(--c-tx-muted); } .queue-count { margin-left:auto; }
+  .watch { display:inline-flex;align-items:center;gap:5px; } .watch i { width:6px;height:6px;border-radius:50%;background:var(--c-tx-faint); } .watch.on { color:var(--c-tx-2); } .watch.on i { background:var(--c-accent);animation:watch-breathe 1.6s ease-in-out infinite; }
+  @keyframes watch-breathe { 50% { opacity:.35; } }
+  .live { color:var(--c-accent);border:1px solid var(--c-line);border-radius:var(--r-ui);padding:0 4px; }
   p { font-size:11px;line-height:1.5;margin:8px 0;overflow-wrap:anywhere; } .claims { max-height:90px;overflow:auto; }
   button { background:transparent;color:inherit;border:1px solid var(--c-line);border-radius:var(--r-ui);padding:5px 7px;font:11px var(--font-ui);cursor:var(--cursor-cross-hover); }
   button:hover { background:var(--c-ui-hover); } button:disabled { opacity:.45; } button:focus-visible { outline:1px solid var(--c-accent); } .error { color:var(--c-danger); }

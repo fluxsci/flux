@@ -113,8 +113,9 @@ connected or has acted on the item in the last 30 minutes; once both expire, the
 same reassign prompt.
 
 The titlebar's **2 agents ▾** chip and **AI status → Sessions** show the same connected
-sessions: name, product and surface, connected-since time, **👁 Watching · queue**,
-**👁 Watching · annotations**, or **👁 Watching · filter**, and **🖥 Live** when pairing.
+sessions: the agent's mark and name, product and surface, connected-since time, **Watching ·
+queue**, **Watching · annotations**, or **Watching · filter** (with a live dot), and **Live**
+when pairing.
 Each row shows pending queue count and current claims. **Copy name** copies the handle;
 **Show its items** opens Inbox with that agent's `@name` filter. **Stop watching** ends its
 wait and releases its claims. The titlebar chip disappears when no sessions are connected.
