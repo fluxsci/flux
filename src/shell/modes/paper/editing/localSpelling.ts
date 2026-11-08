@@ -13,6 +13,16 @@ export function spellingIssueId(from: number, to: number, original: string): str
   return `spelling-${from}-${to}-${original}`;
 }
 
+// A unit symbol right after a quantity is notation, not a word: Harper flags
+// the `s` of `10 s,` / `10^-3^ s,` (2026-11-08). Only these symbols, and only
+// when the text before them ends in a number (optionally with a Pandoc
+// superscript/subscript exponent such as `10^-3^`) plus at most one space.
+const UNIT_SYMBOL = /^(?:[munpkMGµμ]?(?:s|m|g|L|l|M|Hz|V|A|K|Pa|W|J|N|C|F|Ω|mol|cd|rad|sr|eV|Da)|min|h|d|wk|yr|°C|rpm|bp|kb|Mb|nt|aa|ppm|ppb)$/;
+const AFTER_QUANTITY = /\d(?:\^(?:\\.|[^\s^\\])+\^|~(?:\\.|[^\s~\\])+~)?[ \u00a0]?$/;
+export function isUnitAfterQuantity(source: string, from: number, to: number): boolean {
+  return UNIT_SYMBOL.test(source.slice(from, to)) && AFTER_QUANTITY.test(source.slice(Math.max(0, from - 24), from));
+}
+
 export function normalizeSpellingCandidates(
   source: string,
   records: readonly LocalLintRecord[],
@@ -25,6 +35,7 @@ export function normalizeSpellingCandidates(
     const { from, to } = record;
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > source.length) continue;
     if (protectedRanges.some(([a, b]) => from < b && to > a)) continue;
+    if (isUnitAfterQuantity(source, from, to)) continue;
     const original = source.slice(from, to);
     if (record.problem !== original || (/spelling|typo/i.test(record.kind) && known.has(original.toLocaleLowerCase()))) continue;
     // Only spelling/typo diagnostics can teach unconditional word mappings.

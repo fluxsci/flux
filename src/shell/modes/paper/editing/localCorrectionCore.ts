@@ -8,6 +8,7 @@ import {
   isSentenceBoundaryAt,
   type CorrectionTextWindow,
 } from "./localCorrectionBoundary";
+import { supSubWordRanges } from "../science/supSubGrammar";
 
 export type LocalLintKind =
   | "BoundaryError"
@@ -219,6 +220,10 @@ export function protectedMarkdownRanges(text: string): Array<[number, number]> {
   // Exact quoted material is source-integrity-sensitive. Apostrophe-delimited
   // spans are intentionally excluded because contractions make them ambiguous.
   addRegexRanges(out, text, /“[^”\n]+”|"[^"\n]+"/g);
+  // Pandoc superscript/subscript, widened over the attached word: `H~2~O`,
+  // `Ca^2+^`, `µm^2^` are notation, and a checker splitting on the markers
+  // would otherwise judge `H`, `O` or `Ca` as words (2026-11-08).
+  for (const range of supSubWordRanges(text)) out.push(range);
 
   let lineFrom = 0;
   let fence: { marker: string; from: number } | null = null;

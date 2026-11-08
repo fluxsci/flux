@@ -72,6 +72,10 @@
       "verify-paper-changegate.ts",
       "verify-local-corrections.ts",
       "verify-frontmatter.ts",
+      "verify-frontmatter-edit.ts",
+      "verify-document-properties.ts",
+      "verify-paper-supsub.ts",
+      "verify-csl-picker.ts",
       "verify-render-concurrency.ts",
       "verify-paper-commands.ts",
       "verify-paper-textscale.ts",
@@ -478,6 +482,7 @@
       "verify-figure-input-hygiene.mjs",
       "verify-zoom-proxy.mjs",
       "verify-paper-textsize-gui.mjs",
+      "verify-paper-markup-gui.mjs",
       "verify-paper-nav.mjs",
       "verify-paper-vim.mjs",
       "verify-paper-keyboard.mjs",
@@ -879,6 +884,11 @@
       "verify-figure-meta-refinements.mjs",
       "verify-model3d-embed.ts",
       "verify-model3d-embed-gui.mjs",
+      "verify-frontmatter-edit.ts",
+      "verify-paper-markup-gui.mjs",
+      "verify-paper-supsub.ts",
+      "verify-csl-picker.ts",
+      "verify-document-properties.ts",
       "verify-manuscript-check.ts",
       "verify-manuscript-check-gui.mjs",
       "verify-word-count.ts",
@@ -6131,6 +6141,42 @@
       "exclusive": false,
       "coverage": "behavior"
     },
+    "verify-frontmatter-edit.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-document-properties.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-paper-supsub.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-csl-picker.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
     "verify-fulltext-extract.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -7065,6 +7111,17 @@
       "coverage": "behavior"
     },
     "verify-paper-textsize-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-paper-markup-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
         "server"

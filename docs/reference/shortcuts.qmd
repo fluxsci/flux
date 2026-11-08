@@ -94,6 +94,7 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | **Ctrl+Enter** | Follow the item under the caret (figure ref → figure; citation → group editor) |
 | **Ctrl+F** / **Ctrl+Alt+F** | Find / find & replace — **Enter** / **Shift+Enter** step matches; the bar shows *3 of 17* |
 | **Ctrl+B** / **Ctrl+I** / **Ctrl+E** | Bold / italic / inline code |
+| **Ctrl+.** / **Ctrl+,** | Superscript `^…^` / subscript `~…~` on the selection (again to remove) |
 | **Ctrl+Shift+1…4** / **Ctrl+Shift+0** | Heading level / back to paragraph |
 | **Ctrl+Shift+8** / **Ctrl+Shift+7** / **Ctrl+Shift+.** | Bullet list / numbered list / blockquote |
 | **Ctrl+Shift+K** | Insert link |

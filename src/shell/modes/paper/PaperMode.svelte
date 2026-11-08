@@ -11,7 +11,9 @@
   import { EditorView } from "@codemirror/view";
   import { projectModel } from "../../shellStore";
   import { readManuscript, writeManuscript } from "../../../lib/project/load";
-  import { frontMatterBounds, frontMatterMeta } from "./frontmatter";
+  import { frontMatterBounds, frontMatterMeta, frontMatterField } from "./frontmatter";
+  import { planSetScalarKey } from "./frontmatterEdit";
+  import type { DocumentProperties } from "./documentProperties";
   import { externalManuscriptChange } from "../../../lib/project/projectWatch";
   import { createEditorExtensions } from "./markdown-setup";
   import Editor from "./Editor.svelte";
@@ -102,6 +104,7 @@
   import { tablePaste } from "./science/tablePaste";
   import { formatTableBlock, parseTsv, parseCsv, gridToTable } from "./science/tableModel";
   import { foldSection, unfoldSection } from "./editing/folding";
+  import { toggleScript } from "./editing/commands";
   import { foldAll, syntaxTree, syntaxTreeAvailable, unfoldAll } from "@codemirror/language";
   import { keymap } from "@codemirror/view";
   import StatusBar from "./StatusBar.svelte";
@@ -388,42 +391,41 @@
   }
 
   // ---- title｜authors editing (writes YAML front-matter) -----------------
+  // BYTE-MINIMAL (2026-11-08): the old Save re-dumped the whole block with
+  // `author:` rebuilt as names only — affiliations, corresponding, email,
+  // ORCID, equal-contributor, lead-contact and every comment were deleted,
+  // and the title re-quoted. `frontmatterEdit.ts` changes only the title
+  // scalar and the author names/entries, verifies every other key survived,
+  // and refuses (a toast) rather than lose a byte. One isolated dispatch = one Undo.
+  // The sheet (TitleEditor.svelte) edits structured rows — authors with
+  // affiliations, corresponding, email, ORCID, equal contribution, lead
+  // contact, plus the affiliations list — written by documentProperties.ts
+  // through the same minimal patcher (only changed fields are touched).
   let titleEditOpen = $state(false);
-  async function saveTitleAuthors(newTitle: string, authorsCsv: string) {
+  let titleSeed = $state<DocumentProperties>({ title: "", authors: [], affiliations: [] });
+  async function openTitleEditor() {
+    if (!view) return;
+    const editor = view, generation = sessionGeneration, path = activeDocPath;
+    const { readDocumentPropertiesFrom } = await import("./documentProperties");
+    const seed = await readDocumentPropertiesFrom(editor.state.doc.toString());
+    if (!sessionCurrent(generation, path) || view !== editor) return;
+    titleSeed = seed;
+    titleEditOpen = true;
+  }
+  async function saveTitleAuthors(next: DocumentProperties) {
     titleEditOpen = false;
     if (!view) return;
     const editor = view, generation = sessionGeneration, path = activeDocPath;
-    const yaml = await import("js-yaml");
+    const [dp, yaml, { isolateHistory }] = await Promise.all([import("./documentProperties"), import("js-yaml"), import("@codemirror/commands")]);
     if (!sessionCurrent(generation, path) || view !== editor) return;
-    const src = editor.state.doc.toString();
-    let metaObj: Record<string, unknown> = {};
-    // WS-4.1: single-source bounds; closeEnd = end of the closing --- line
-    // (the replace below keeps the newline after it as the body separator,
-    // exactly like the old fmEnd+4 arithmetic).
-    const fmb = frontMatterBounds(src);
-    const hadFm = fmb.has;
-    if (hadFm) {
-      try {
-        metaObj = (yaml.load(fmb.fmText) as Record<string, unknown>) ?? {};
-      } catch {
-        metaObj = {};
-      }
+    try {
+      const changes = dp.planDocumentPropertiesWith(yaml, editor.state.doc.toString(), next);
+      // Its own undo step: never joined to typing just before the Save.
+      if (changes.length) editor.dispatch({ changes, annotations: isolateHistory.of("full") });
+    } catch (err) {
+      pushToast("error", "Title and authors were not changed", { detail: errMsg(err) });
     }
-    metaObj.title = newTitle;
-    const entries = authorsCsv
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((name) => ({ name }));
-    if ("authors" in metaObj && !("author" in metaObj)) metaObj.authors = entries;
-    else metaObj.author = entries;
-    const dumped = yaml.dump(metaObj, { lineWidth: -1 });
-    if (hadFm) {
-      view.dispatch({ changes: { from: 0, to: fmb.closeEnd, insert: `---\n${dumped}---` } });
-    } else {
-      view.dispatch({ changes: { from: 0, insert: `---\n${dumped}---\n\n` } });
-    }
-    view.focus();
+    editor.focus();
   }
   let viewMode = $state<PaperViewMode>(get(paperViewMode));
   let dismissedEmpty = $state(false);
@@ -1005,6 +1007,86 @@
   /** Pick Word documents that already contain Zotero citations, to bind against.
    *  A successful pick also computes the dialog's "n of m references matched" line,
    *  so the user learns BEFORE exporting whether the files actually carry a library. */
+  // ---- reference style (CSL) for Pandoc-rendered exports -----------------
+  // The shipped styles ride the bundle (lazy chunk); picking one copies it into
+  // references/styles/ and writes the document's `csl:` through the minimal
+  // front-matter editor. Export-only: the editor's chips never change.
+  const shippedCsl = import.meta.glob("../../../../resources/csl/*.csl", { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
+  const shippedCslIds = Object.keys(shippedCsl).map((k) => k.replace(/^.*\//, "").replace(/\.csl$/, "")).sort();
+  let cslOptions = $state<{ value: string; label: string }[]>([]);
+  let cslCurrent = $state("");
+  async function loadCslChoices() {
+    const { cslInfo, cslTargetOf, cslProjectRel } = await import("../../../lib/references/cslCatalog");
+    const opts: { value: string; label: string }[] = [];
+    for (const id of shippedCslIds) {
+      const loader = Object.entries(shippedCsl).find(([k]) => k.endsWith(`/${id}.csl`))?.[1];
+      const info = loader ? cslInfo(await loader()) : null;
+      opts.push({ value: `shipped:${id}`, label: info?.title ?? id });
+    }
+    const declared = view ? frontMatterField(view.state.doc.toString(), "csl") : undefined;
+    let current = "";
+    if (declared) {
+      const target = cslTargetOf(activeDocPath, declared);
+      const shipped = shippedCslIds.find((id) => target === cslProjectRel(`${id}.csl`));
+      current = shipped ? `shipped:${shipped}` : `file:${declared}`;
+      if (!shipped) opts.push({ value: current, label: declared.replace(/^.*\//, "") });
+    }
+    cslOptions = opts;
+    cslCurrent = current;
+  }
+  async function setDocumentCsl(choice: string): Promise<string | null> {
+    const fb = fileBridge();
+    const editor = view, generation = sessionGeneration, path = activeDocPath;
+    if (!editor || !pm || !fb) return null;
+    const root = pm.root;
+    const cat = await import("../../../lib/references/cslCatalog");
+    let value: string | null = null;
+    let result = choice;
+    try {
+      if (choice.startsWith("shipped:")) {
+        const id = choice.slice(8);
+        const loader = Object.entries(shippedCsl).find(([k]) => k.endsWith(`/${id}.csl`))?.[1];
+        if (!loader) return null;
+        const rel = cat.cslProjectRel(`${id}.csl`);
+        const text = await loader();
+        const existing = (await fb.exists(`${root}/${rel}`)) ? await fb.readText(`${root}/${rel}`) : null;
+        if (existing !== text) await fb.writeText(`${root}/${rel}`, text);
+        value = cat.cslFrontMatterValue(path, rel);
+      } else if (choice === "__load__") {
+        if (!fb.openFiles) {
+          pushToast("error", "Picking a file needs the desktop app");
+          return null;
+        }
+        const picked = (await fb.openFiles([{ name: "CSL citation style", extensions: ["csl"] }]))?.[0];
+        if (!picked) return null;
+        const text = await fb.readText(picked);
+        const info = cat.cslInfo(text);
+        if (!info) {
+          pushToast("error", "That file is not a CSL citation style", { detail: picked });
+          return null;
+        }
+        const rel = cat.cslProjectRel(picked);
+        await fb.writeText(`${root}/${rel}`, text);
+        value = cat.cslFrontMatterValue(path, rel);
+        result = `file:${value}`;
+        if (!cslOptions.some((o) => o.value === result)) cslOptions = [...cslOptions, { value: result, label: info.title }];
+      } else if (choice.startsWith("file:")) {
+        return choice; // already the document's style
+      }
+      if (!sessionCurrent(generation, path) || view !== editor) return null;
+      const changes = await planSetScalarKey(editor.state.doc.toString(), "csl", value);
+      if (changes.length) {
+        const { isolateHistory } = await import("@codemirror/commands");
+        editor.dispatch({ changes, annotations: isolateHistory.of("full") });
+      }
+      cslCurrent = result;
+      return result;
+    } catch (err) {
+      pushToast("error", "The reference style was not changed", { detail: errMsg(err) });
+      return null;
+    }
+  }
+
   async function pickZoteroLibraryDocs(): Promise<string[] | null> {
     const fb = fileBridge();
     if (!fb?.openFiles) {
@@ -1070,6 +1152,7 @@
     // Re-derive the path when the remembered one is stale for this document.
     if (!exportPlan.outPath) exportPlan = { ...exportPlan, outPath: defaultOutPath(exportPlan.format, exportPlan.style) };
     zoteroMatchSummary = ""; // stale against a bib that may have changed since the pick
+    void loadCslChoices();
     exportOpen = true;
   }
 
@@ -2470,6 +2553,9 @@
         view.focus();
       }
     },
+    formatScript: (mark) => {
+      if (view) toggleScript(mark)(view);
+    },
     unfoldSection: () => {
       if (view) {
         unfoldSection(view);
@@ -2712,7 +2798,7 @@
             title={meta.title}
             authors={meta.authors}
             {status}
-            onEdit={() => (titleEditOpen = true)} />
+            onEdit={openTitleEditor} />
         </div>
         {#key sessionGeneration}
           <Editor doc={initialDoc} extensions={buildExtensions()} {onReady} {onChange} />
@@ -2884,8 +2970,7 @@
 
   {#if titleEditOpen}
     <TitleEditor
-      title={meta.title}
-      authors={meta.authors}
+      initial={titleSeed}
       onSave={saveTitleAuthors}
       onClose={() => { titleEditOpen = false; view?.focus(); }} />
   {/if}
@@ -2978,6 +3063,9 @@
       }}
       onPickLibraryDocs={pickZoteroLibraryDocs}
       {zoteroMatchSummary}
+      {cslOptions}
+      {cslCurrent}
+      onSetCsl={setDocumentCsl}
       onExport={(p) => void doExport(p)}
       onClose={() => { exportOpen = false; view?.focus(); }}
     />

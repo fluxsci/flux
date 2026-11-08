@@ -1,13 +1,14 @@
 // Formatting keyboard shortcuts. Prepended ahead of the default keymap so it
 // wins; markdown()'s own continue-markup keymap (Enter/Backspace) is untouched.
 
-import { keymap } from "@codemirror/view";
+import { keymap, type KeyBinding } from "@codemirror/view";
 import {
   insertLink,
   setHeading,
   toggleBulletList,
   toggleOrderedList,
   toggleQuote,
+  toggleScript,
   toggleWrap,
 } from "./commands";
 import { stepEmbedWidth } from "./figureSize";
@@ -24,6 +25,8 @@ export const CM_CHORD_STRINGS = [
   "Mod-b",
   "Mod-i",
   "Mod-e",
+  "Mod-.", // superscript ^…^ (the Figure text editor's chord too)
+  "Mod-,", // subscript ~…~
   "Mod-Shift-k",
   "Mod-Shift-1",
   "Mod-Shift-2",
@@ -63,9 +66,12 @@ export const CM_HINTS = {
   projectDictionary: MAC_SHORTCUTS ? "⇧⌥D" : "Shift+Alt+D",
   personalDictionary: MAC_SHORTCUTS ? "⌥D" : "Alt+D",
   wordTools: MAC_SHORTCUTS ? "⇧⌥W" : "Shift+Alt+W",
+  superscript: MAC_SHORTCUTS ? "⌘." : "Ctrl+.",
+  subscript: MAC_SHORTCUTS ? "⌘," : "Ctrl+,",
 } as const;
 
-export const formattingKeymap = keymap.of([
+/** The bindings themselves (exported so the pure gate can read them). */
+export const FORMATTING_BINDINGS: readonly KeyBinding[] = [
   // Figure width stepping (zoom mnemonic). Only fires with the caret on an
   // embed line — returns false elsewhere so the keys fall through.
   { key: "Mod-Alt--", run: stepEmbedWidth(-1) },
@@ -77,6 +83,10 @@ export const formattingKeymap = keymap.of([
   { key: "Mod-b", run: toggleWrap("**"), preventDefault: true },
   { key: "Mod-i", run: toggleWrap("*"), preventDefault: true },
   { key: "Mod-e", run: toggleWrap("`"), preventDefault: true },
+  // Pandoc superscript / subscript (CO~2~, Ca^2+^): no platform qualifier, so
+  // Windows reads the same entry (the historyKeys lesson).
+  { key: "Mod-.", run: toggleScript("^"), preventDefault: true },
+  { key: "Mod-,", run: toggleScript("~"), preventDefault: true },
   // Link insert moved off Mod-k so the ⌘K command palette can own it (Redesign v2).
   { key: "Mod-Shift-k", run: insertLink, preventDefault: true },
   { key: "Mod-Shift-1", run: setHeading(1), preventDefault: true },
@@ -87,4 +97,6 @@ export const formattingKeymap = keymap.of([
   { key: "Mod-Shift-.", run: toggleQuote, preventDefault: true },
   { key: "Mod-Shift-8", run: toggleBulletList, preventDefault: true },
   { key: "Mod-Shift-7", run: toggleOrderedList, preventDefault: true },
-]);
+];
+
+export const formattingKeymap = keymap.of([...FORMATTING_BINDINGS]);

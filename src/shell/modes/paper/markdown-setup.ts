@@ -20,7 +20,7 @@ import {
 } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
-import { GFM } from "@lezer/markdown";
+import { PAPER_MARKDOWN_EXTENSIONS } from "./markdownExtensions";
 import { syntaxHighlighting, codeFolding, foldKeymap } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { fluxTheme, fluxHighlight } from "./flux-theme";
@@ -77,7 +77,8 @@ export function createEditorExtensions(
     // PAP-23: no highlightActiveLine() — the theme intentionally paints .cm-activeLine
     // transparent, so the extension only cost a per-keystroke line decoration for nothing.
     EditorView.lineWrapping,
-    markdown({ extensions: [GFM] }),
+    // GFM + Pandoc superscript/subscript (markdownExtensions.ts — one list).
+    markdown({ extensions: PAPER_MARKDOWN_EXTENSIONS }),
     syntaxHighlighting(fluxHighlight),
     fluxTheme,
     // The overlay caret (chase motion + built-in soft blink). Must sit

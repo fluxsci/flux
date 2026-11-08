@@ -152,6 +152,10 @@ The established shared cores — extend these, don't duplicate them:
 | Front-matter parsing (13 former hand-rolled sites) | `src/lib/manuscript/frontmatter.ts` (`paper/frontmatter.ts` re-exports it) | `verify-frontmatter.ts` |
 | Citation scanning — every `@key` outside front matter, code and math; ordinals; cited-key sets (editor chips, renderer, References red dots, flux-core `compile` summary and FluxLib reconcile) | `src/lib/manuscript/citations.ts` (+ `grammar.ts`; `scholar/citeNumbering.ts` re-exports `buildCitationOrdinals`) | `verify-citenum.ts`, `verify-manuscript-check.ts` §A (incl. a census that flux-core has no private cite regex) |
 | Manuscript Check rule packs (references, display items, placeholders, abbreviations, consistent terms, comments) and their exact fixes | `src/lib/manuscript/checks/` (Paper pane runs it in `margin/manuscriptCheck.worker.ts`; flux-core `check.ts` is IO only) | `verify-manuscript-check.ts` (corpus + real CLI / flux-core / MCP / pure parity), `verify-manuscript-check-gui.mjs` (GUI ≡ pure) |
+
+| Front-matter parsing (13 former hand-rolled sites) and BYTE-MINIMAL front-matter writes (title, author names/entries, single scalar keys such as `csl:`, whole values via `planFrontMatterValuesWith` — proven to load back to exactly the intended object; never a whole-block re-dump) and the Document Properties rows (authors/affiliations in Quarto's schema, as `journalManuscript.readAuthors` reads them) | `src/shell/modes/paper/frontmatter.ts` + `frontmatterEdit.ts` + `documentProperties.ts` | `verify-frontmatter.ts`, `verify-frontmatter-edit.ts`, `verify-document-properties.ts`, `verify-paper-markup-gui.mjs` §A |
+| Pandoc superscript `^…^` / subscript `~…~` (what a span is; markdown-it rule; spelling ranges; the editor's Lezer extension list) | `src/shell/modes/paper/science/supSubGrammar.ts` + `markdownExtensions.ts` | `verify-paper-supsub.ts` (Lezer ≡ grammar ≡ markdown-it ≡ Pandoc's own HTML for a corpus; mdInline nodes; spelling; Ctrl+./Ctrl+, commands), `verify-paper-markup-gui.mjs` §B–E, `verify-v020-docx-publication.ts` (real Pandoc DOCX vertAlign runs) |
+| Citation-style (CSL) choice: shipped-style info, project copy path, document-relative `csl:` value | `src/lib/references/cslCatalog.ts` (+ `frontmatterEdit.planSetScalarKeyWith`; the export reads it through `zoteroFields.resolveCslIdentity`) | `verify-csl-picker.ts`, `verify-paper-markup-gui.mjs` §F |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
@@ -1227,6 +1231,15 @@ Persistence invariants (all machine-checked — do not weaken):
   `localWordTools.ts` owns dictionary/alias controls and their Vim-proof `Prec.highest` chords.
   Reset learning preserves explicit words and mappings. The Paper caret always uses Chase
   (`editing/caretFeel.ts`); old cursor-mode preferences do not select an alternate implementation.
+  **Superscript / subscript** (2026-11-08) are Pandoc's `^…^` / `~…~`, parsed by @lezer/markdown's
+  `Superscript`/`Subscript` from the ONE extension list (`markdownExtensions.ts`); live preview
+  marks the content `.cm-flux-sup/.cm-flux-sub` always (shifted with `position: relative` and
+  `line-height: 0`, so the line box never changes — active and inactive metrics stay identical)
+  and hides the single markers off-caret as `display:none` MARKS kept in the atomic set (not
+  `hide()`'s replace decoration — see the §9 widget-buffer trap). Every non-Lezer surface (markdown-it
+  `markdownItSupSub`, `mdInline`, spelling's `protectedMarkdownRanges`) reads
+  `supSubGrammar.ts`; the Pandoc exports need no code. Ctrl+. / Ctrl+, are CodeMirror chords
+  (`toggleScript`, listed in `CM_CHORD_STRINGS`), never a window chord.
   **Tables are a full editing surface** (2026-08-04): ONE escape-aware grammar/serializer in
   `src/lib/manuscript/tableModel.ts` (hoisted with `refNumbers.ts`, `grammar.ts` and
   `frontmatter.ts` on 2026-11-08 so flux-core can read them; the old `science/` paths re-export), markdown-it-faithful because the export feeds the same text to
@@ -4737,6 +4750,22 @@ outside this PNG packaging change.
   swallows that press so CodeMirror selects no word. Gate with real input: down/up, then
   down/up with `clickCount: 2`, after `scrollIntoView`, and assert `elementFromPoint` hit the
   chip. Without that check a click on an off-screen chip "passes" a must-stay-put assertion.
+- **A hidden replace decoration is a line-break opportunity.** CodeMirror renders an empty
+  `Decoration.replace` as a `contenteditable=false` span between two `img.cm-widgetBuffer`s, and
+  an inline image is a break opportunity, so a marker hidden INSIDE a word (`H~2~O`) let the line
+  wrap as `H` / `₂O` (2026-11-08). Markers that sit inside words hide as a `display:none`
+  mark range that also goes into the atomic set (caret motion unchanged);
+  `verify-paper-markup-gui` §B asserts no widget buffer beside a sup/sub span.
+- **Never write front matter by `yaml.load` → mutate → `yaml.dump`** (2026-11-08). The title
+  pill did exactly that for months: Save rebuilt `author:` as names only and re-dumped the block,
+  deleting affiliations, ORCID, email, `corresponding`, `equal-contributor`, `lead-contact` (the
+  journal export's title page) and every comment, and re-quoting the title — with no visible sign
+  until export. Every GUI front-matter write goes through `frontmatterEdit.ts`
+  (`planTitleAuthorsEditWith`, `planSetScalarKeyWith`): js-yaml 5's `parseEvents` gives scalar
+  source ranges + styles, the planner edits only the owned bytes, then re-parses and refuses
+  (`FrontMatterEditError` → a toast) unless every other key deep-equals the original. Dispatch the
+  result with `isolateHistory.of("full")` — a command's write must not join the typing before it
+  in one undo step (CodeMirror joins any adjacent un-annotated change within 500 ms).
 - **A block widget's vertical margins are invisible to CodeMirror's height map.** CodeMirror
   measures the widget's border box, so `.flux-slide-embed { margin: 16px auto }` put the map
   32 px behind the DOM per embedded slide. ArrowDown then skipped lines below a slide, since
@@ -12263,3 +12292,21 @@ with prompt idle callbacks). Report: `notes/v030_overnight_2026-11-08/CI_GREEN_R
   measure that order on every host.
 - Emulate the runner before pushing a CI change (`taskset -c 0-3 … --tier pure --jobs 4` with the CI env): it
   caught a runner self-test that assumed FLUX_PERF_SCALE was unset.
+
+### 2026-11-08 — Paper markup: byte-minimal front matter, sup/sub everywhere, Properties sheet, CSL picker (Claude Opus 5.5, `v030/paper-markup`)
+**Work:** Fixed the title pill's data loss (Save re-dumped the whole front matter, deleting the
+journal title page's affiliations/ORCID/flags and every comment) with a text-level, proven-minimal
+front-matter editor; then Pandoc superscript/subscript in the editor, Preview/house HTML, captions,
+table cells, spelling and two chords; a structured Document Properties sheet (authors ×
+affiliations, flags, email, ORCID checksum) over the same editor; and a reference-style (CSL)
+picker in the Export dialog that writes one `csl:` line. Handoff:
+`notes/v030_overnight_2026-11-08/paper_markup_REPORT.md` (main checkout).
+**Learnings:** (promoted to §2 rows, §4 sup/sub note, §9 front-matter and widget-buffer traps)
+- js-yaml 5's `parseEvents` gives scalar source ranges + styles: enough to edit YAML as text without
+  a CST library. Make every write prove itself (re-load, deep-equal the intended object, key order
+  kept) and fall back per key, then refuse — never a whole-block dump.
+- A command's write must carry `isolateHistory.of("full")`; un-annotated adjacent changes within
+  500 ms join the previous undo event.
+- An empty replace decoration is a line-break opportunity (widget-buffer images); hide in-word
+  markers with a `display:none` mark in the atomic set.
+- Harper flags a unit symbol after a number (`10 s,`); spelling now skips it after a quantity.

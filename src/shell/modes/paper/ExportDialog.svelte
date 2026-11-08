@@ -57,6 +57,9 @@
     zoteroMatchSummary = "",
     onChange,
     onInstallQuarto,
+    cslOptions = [],
+    cslCurrent = "",
+    onSetCsl,
   }: {
     formats: readonly ExportFormat[];
     styles: readonly ExportStyleOption[];
@@ -79,7 +82,38 @@
      *  (`report.pdf` → `report.docx`) instead of exporting Word bytes to a
      *  `.pdf`. Anything it returns for outPath is adopted. */
     onChange?: (plan: ExportPlan) => ExportPlan | void;
+    /** Reference styles offered for the document's `csl:` (value → label). */
+    cslOptions?: readonly { value: string; label: string }[];
+    /** The document's current choice ("" = none: Pandoc's default). */
+    cslCurrent?: string;
+    /** Write the choice ("" removes `csl:`, CSL_LOAD opens a file picker);
+     *  resolves to the new current value, or null when nothing changed. */
+    onSetCsl?: (value: string) => Promise<string | null>;
   } = $props();
+
+  /** The picker's "Load .csl file…" sentinel. */
+  const CSL_LOAD = "__load__";
+  // Follows the caller: its choices load while the dialog opens.
+  let csl = $state("");
+  $effect(() => {
+    csl = cslCurrent;
+  });
+  let cslBusy = $state(false);
+  async function chooseCsl(e: Event) {
+    const select = e.currentTarget as HTMLSelectElement;
+    const next = select.value;
+    const before = csl;
+    if (!onSetCsl) return;
+    cslBusy = true;
+    try {
+      const result = await onSetCsl(next);
+      csl = result ?? before;
+    } finally {
+      cslBusy = false;
+      select.value = csl; // a cancelled "Load…" snaps back to the current style
+      root?.focus();
+    }
+  }
 
   // The dialog is mounted fresh on each open (`{#if exportOpen}`), so `initial`
   // is a genuine seed rather than a live binding — untrack says so explicitly
@@ -222,6 +256,28 @@
             ? "One file to submit: figures sit beside their legends, at 300 dpi."
             : "The revision text: legends listed after the references, figures uploaded as separate files."}
           A summary of what to check is written beside the export.
+        </p>
+      </div>
+    </div>
+  {/if}
+
+  {#if onSetCsl && !styleOf(style)?.journal}
+    <div class="row">
+      <span class="lbl">References</span>
+      <div class="col">
+        <select aria-label="Reference style" value={csl} disabled={cslBusy} onchange={chooseCsl}>
+          <option value="">Pandoc default (Chicago author–date)</option>
+          {#each cslOptions as o (o.value)}
+            <option value={o.value}>{o.label}</option>
+          {/each}
+          <option value={CSL_LOAD}>Load .csl file…</option>
+        </select>
+        <p class="hint">
+          Saved in this document as <code>csl:</code>.
+          {format === "docx"
+            ? "Word exports format citations and the reference list in this style."
+            : "Word exports use it; the in-app PDF and HTML keep Flux's own reference format."}
+          The editor is unchanged.
         </p>
       </div>
     </div>

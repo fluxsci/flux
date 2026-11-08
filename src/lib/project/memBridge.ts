@@ -593,7 +593,10 @@ export function createMemBridge(): FileBridge & {
       return "/demo/myc-growth-paper";
     },
     async openFiles() {
-      return null; // no OS file picker in the demo fixture
+      // No OS file picker in the demo fixture; a browser gate may stage the
+      // "picked" paths (the real bridge's dlg:open returns absolute paths too).
+      const staged = (globalThis as { __fluxDemoOpenFiles?: string[] }).__fluxDemoOpenFiles;
+      return staged?.length ? [...staged] : null;
     },
     async save(defaultPath) {
       return joinPath("/demo", defaultPath || "untitled");

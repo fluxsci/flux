@@ -10,6 +10,7 @@
     setTextColor,
     toggleBulletList,
     toggleQuote,
+    toggleScript,
     toggleWrap,
     type Command,
   } from "../editing/commands";
@@ -30,6 +31,8 @@
     { name: "bold", title: "Bold  ⌘B", run: toggleWrap("**") },
     { name: "italic", title: "Italic  ⌘I", run: toggleWrap("*") },
     { name: "codeInline", title: "Code  ⌘E", run: toggleWrap("`") },
+    { name: "superscript", title: `Superscript  ${CM_HINTS.superscript}`, run: toggleScript("^") },
+    { name: "subscript", title: `Subscript  ${CM_HINTS.subscript}`, run: toggleScript("~") },
     { name: "link", title: "Link  ⌘K", run: insertLink },
     { name: "heading", title: "Heading", run: setHeading(2) },
     { name: "quote", title: "Quote", run: toggleQuote },

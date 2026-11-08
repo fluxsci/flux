@@ -79,7 +79,7 @@ code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.88em;
 pre { background: #f0ece3; padding: 0.8em 1em; border-radius: 6px; overflow: auto; }
 pre code { background: none; padding: 0; }
 hr { border: none; border-top: 1px solid var(--rule); margin: 1.6em 0; }
-sup { font-size: 0.75em; }
+sup, sub { font-size: 0.75em; line-height: 0; }
 .references { margin-top: 2em; border-top: 1px solid var(--rule); padding-top: 1em; }
 .references h2 { font-size: 1.2em; }
 .ref { font-size: 0.9em; line-height: 1.5; margin: 0 0 0.7em; padding-left: 1.6em; text-indent: -1.6em; color: var(--ink); }

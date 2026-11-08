@@ -206,6 +206,18 @@ export const fluxTheme = EditorView.theme(
       color: "inherit",
       textDecoration: "none",
     },
+    /* Superscript / subscript (livePreview.ts): shifted with position, NOT
+       vertical-align, and line-height 0, so a line holding `Ca^2+^` is exactly
+       as tall as one without — goal-column navigation and the height map hold. */
+    ".cm-flux-sup, .cm-flux-sub": {
+      fontSize: "0.75em",
+      lineHeight: "0",
+      position: "relative",
+      verticalAlign: "baseline",
+    },
+    ".cm-flux-sup": { top: "-0.5em" },
+    ".cm-flux-hiddenmark": { display: "none" },
+    ".cm-flux-sub": { top: "0.25em" },
     ".cm-flux-quote": {
       borderLeft: "2px solid var(--c-accent-tint)",
       paddingLeft: "0.9em",

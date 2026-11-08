@@ -57,6 +57,8 @@ export interface PaperCmdCtx {
   rerollBgSeed(): void;
   foldSection(): void;
   unfoldSection(): void;
+  /** Pandoc superscript (`^`) / subscript (`~`) on the selection (editing/commands toggleScript). */
+  formatScript(mark: "^" | "~"): void;
   foldAll(): void;
   unfoldAll(): void;
   openExportDialog(): void;
@@ -252,6 +254,8 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
   { id: "margin-close-pane", title: () => "Close margin pane", keys: ["Alt+KeyP"], owner: "window", keywords: "dynamic pane close dismiss", run: (c) => c.closeActivePane() },
   { id: "margin-close-all", title: () => "Clear dynamic margin", keys: ["Mod+Alt+KeyP"], owner: "window", keywords: "close all panes clear margin dismiss", run: (c) => c.closeAllPanes() },
   { id: "margin-bg-seed", title: () => "New background seed", hint: "Margin", keywords: "dynamic background reroll shuffle random art", owner: "none", run: (c) => c.rerollBgSeed() },
+  { id: "format-superscript", title: () => "Superscript", hint: CM_HINTS.superscript, keywords: "superscript raise exponent power ion charge unit sup ^", owner: "cm", run: (c) => c.formatScript("^") },
+  { id: "format-subscript", title: () => "Subscript", hint: CM_HINTS.subscript, keywords: "subscript lower chemical formula index sub ~", owner: "cm", run: (c) => c.formatScript("~") },
   { id: "fold-section", title: () => "Fold section", hint: CM_HINTS.foldSection, keywords: "collapse heading hide section fold", owner: "cm", run: (c) => c.foldSection() },
   { id: "unfold-section", title: () => "Unfold section", hint: CM_HINTS.unfoldSection, keywords: "expand heading show section unfold", owner: "cm", run: (c) => c.unfoldSection() },
   { id: "fold-all", title: () => "Fold all sections", hint: "Fold", keywords: "collapse everything outline overview", owner: "none", run: (c) => c.foldAll() },

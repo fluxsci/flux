@@ -26,7 +26,7 @@ try {
       figure.referenceKey = `fig-${id}`;
     }
   });
-  const document = (name: string) => `---\ntitle: Document ${name}\nformat:\n  html:\n    embed-resources: true\n---\n\nDOC_${name}_ONLY\n\n![Document ${name} figure](../fig/renders/doc-${name.toLowerCase()}-figure.svg){#fig-doc-${name.toLowerCase()}-figure}\n`;
+  const document = (name: string) => `---\ntitle: Document ${name}\nformat:\n  html:\n    embed-resources: true\n---\n\nDOC_${name}_ONLY\n\nUptake of CO~2~ and Ca^2+^ within 10^-3^ s.\n\n![Document ${name} figure](../fig/renders/doc-${name.toLowerCase()}-figure.svg){#fig-doc-${name.toLowerCase()}-figure}\n`;
   const a = document('A'), b = document('B');
   const chosenRender = path.join(root,'fig/renders/doc-b-figure.svg');
   const mainRender = path.join(root,'fig/renders/doc-a-figure.svg');
@@ -42,6 +42,12 @@ try {
   const packageParts = unzipSync(bytes);
   const xml = strFromU8(packageParts['word/document.xml']);
   h.ok(xml.includes('DOC_B_ONLY')&&!xml.includes('DOC_A_ONLY'),'saved DOCX contains selected document B only');
+  // Pandoc's own superscript/subscript extensions (on by default) carry the
+  // editor's `~…~` / `^…^` into Word as real vertAlign runs — no Flux code
+  // in the export path (2026-11-08, verify-paper-supsub pins the grammar).
+  const runs=[...xml.matchAll(/<w:r>([\s\S]*?)<\/w:r>/g)].map(m=>m[1]);
+  const vert=(t:string)=>/w:vertAlign w:val="(\w+)"/.exec(runs.find(r=>r.includes(`>${t}</w:t>`))??'')?.[1];
+  h.eq([vert('2'),vert('2+'),vert('-3')],['subscript','superscript','superscript'],'real Quarto/Pandoc DOCX prints CO~2~ / Ca^2+^ / 10^-3^ as subscript/superscript runs');
   h.ok(isChosenFigure(await fs.readFile(chosenRender,'utf8')),'DOCX compile materializes the chosen figure with its authored color');
   h.ok(!(await fs.access(mainRender).then(()=>true,()=>false)),'DOCX compile does not materialize the main document figure');
   const parser = new DOMParser();

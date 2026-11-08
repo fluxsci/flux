@@ -11,8 +11,17 @@ text stays honest.
 
 # The writing surface
 
-- **The title pill** above the text shows the title and authors; click it to edit them (they're
-  stored as the document's front matter). The small dot on the pill is the autosave
+- **The title pill** above the text shows the title and authors; click it (or focus it and
+  press **Enter**) for the **document properties** sheet: the title, then one row per author
+  (name, email, ORCID, **Corresponding**, **Equal contribution**, **Lead contact**, and the
+  numbered affiliations they belong to, toggled as chips), then the affiliations list
+  (institution, department, city, country). Reorder authors with ↑ / ↓, add with
+  **+ Add author** / **+ Add affiliation**. An ORCID iD with a typo (it fails its checksum) is
+  outlined in red. Everything is stored as the document's front matter, in Quarto's own author
+  schema — exactly what the journal export prints on the title page. Saving changes only what
+  you edited: other fields, comments, quoting and key order stay as you wrote them, a renamed
+  author keeps their affiliations, and one **Ctrl+Z** undoes the save. **Escape** closes the
+  sheet without saving. The small dot on the pill is the autosave
   indicator — you never save by hand.
 - **Alt+O** toggles the left sidebar. **Files** and **Outline** each start with half its
   height. Drag their divider to resize them, or double-click it to restore the equal split.
@@ -58,6 +67,15 @@ if a project contains both folders, both are discoverable under Documents. Flux 
 an ordinary document as the default for command-line exports, replacing that pointer when
 it is deleted; the GUI always exports the document you have open.
 
+- **Superscript and subscript** use Pandoc's markup: `CO~2~`, `H~2~O`, `Ca^2+^`, `10^-3^`,
+  `R^2^`. The text is raised or lowered as you type and the `^` / `~` markers hide when the
+  caret moves away. Select text and press **Ctrl+.** for superscript or **Ctrl+,** for
+  subscript (or use the x² / x₂ buttons on the selection toolbar); press it again to remove it.
+  With nothing selected, pressing it with the caret inside one removes it too. Spaces are not
+  allowed inside, so Flux writes a selected space as `\ `. The Preview, Word, PDF and HTML
+  exports, figure captions and table cells all print them, and spelling ignores them (and the
+  unit after a number, as in `10^-3^ s`). `~~text~~` is still strikethrough, and `~5 min` (with
+  a space before the next `~`) stays plain text.
 - Type **/** at the start of a line for the block palette: `/figure`, `/slide`, `/table`, `/equation`,
   `/citation`, `/heading`, `/callout`, and friends.
 - **Ctrl+K** opens the command palette — everything in this guide is also in there by name.
@@ -193,6 +211,15 @@ leaves a citation chip where you pasted.
 cited at that spot as one unit. **Alt+R** opens Reference Search in the margin (mark rows with
 **Space**, insert them as one citation with **Enter**); **Alt+C** edits the citation under the
 caret.
+
+**Reference style for Word exports.** In **Export…** (**Alt+E**), with the Flux house style,
+the **References** menu picks the citation style the Word export uses: Nature, Science or Cell,
+or **Load .csl file…** for any style from the [Zotero Style Repository](https://www.zotero.org/styles).
+Flux copies the style into `references/styles/` and records it in the document's front matter
+as one `csl:` line (choose *Pandoc default* to remove it). Only the export changes: the chips
+in the editor keep the **Au–Yr** / **[1]** look you chose, and the in-app PDF and HTML keep
+Flux's own reference format. Journal styles format their references themselves, so the menu
+is hidden for them.
 
 # Figures
 
@@ -376,8 +403,10 @@ file stays small, and section order and headings are the journal's — your sour
 *Revision files* gives the revision text: figure images removed, legends listed where the
 journal wants them, ready to upload beside your separate figure files.
 
-**The title page comes from your front matter.** Give authors, affiliations, the
-corresponding author and (for Cell) the lead contact there, and add what a journal asks for:
+**The title page comes from your front matter.** Fill in authors, affiliations, the
+corresponding author and (for Cell) the lead contact in the title pill's
+[document properties](#the-writing-surface) sheet, or write them yourself; the other things a
+journal asks for go in the front matter too:
 
 ```yaml
 author:
@@ -488,6 +517,9 @@ directly to the new position, and the caret blinks softly once you pause.
 | A citation chip shows your typed text, dimmed | The key isn't in the project bib or library → check the spelling, or add the paper to the [Library](library.qmd) first |
 | Word export is disabled | Quarto isn't installed → **Install Quarto…** in the export dialog, or **Settings → General → Setup** ([Installation](../installation.qmd)) |
 | A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd). The PDF needs `lualatex` (TinyTeX from **Settings → Set up Flux… → Add PDF support** includes it) |
+| Saving the title pill says *Title and authors were not changed* | The front matter is not valid YAML, or has no closing `---` → fix it in the text (the message names the problem); Flux will not rewrite front matter it cannot read |
+| A `~` or `^` turned part of a line into a subscript or superscript | Two tildes (or carets) with no space between them, as in `~/data/~`, are subscript markup → write `\~` (or `\^`) for a literal one |
+| Word references ignore the style picked in **References** | A journal style is selected in **Style** (it sets its own format), or the `csl:` file was moved → pick the style again |
 | The journal title page shows no authors | Put `author:` (with `affiliations:`) in the document's front matter — see [Journal styles](#journal-styles) |
 | Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in **Figure-Meta** (**Alt+M**) |
