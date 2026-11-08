@@ -1,4 +1,12 @@
 <script lang="ts">
+  // Annotate — point at anything on a frozen view, say what should change, send it
+  // to the Inbox or an agent. The surface is a still of the window (the frame and
+  // the "frozen view" capsule say so), with a drawing layer whose hover names the
+  // thing under the pointer; the composer at the bottom-right is one framed
+  // composer with the recipient, the attached-view toggle and Add in its bar.
+  // Chips name targets in words (ids in their tooltips); hovering a numbered chip
+  // lights up its mark on the still. The drawing geometry is untouched: the
+  // screenshot and the SVG map pointer coordinates through the SVG's CTM.
   import { fullscreenPortal } from "../../lib/ui/portal";
   import { onDestroy, tick, untrack } from "svelte";
   import { get } from "svelte/store";
@@ -11,16 +19,19 @@
   import { modalFocus } from "../../lib/ui/modalFocus";
   import { describeStamp, describeRoute, parseTags, parseRoute, type ContextStamp, type Route } from "../../lib/project/annotations";
   import type { InboxItem } from "../../lib/project/inbox";
-  import { describeTarget, formatTarget, resolvedTargetKey, widenTarget, uniqueTargets, type TargetRef } from "../../lib/project/targets";
+  import { describeTarget, formatTarget, shortTarget, targetPrompt, resolvedTargetKey, widenTarget, uniqueTargets, type TargetRef } from "../../lib/project/targets";
   import { resolveAt, resolveWithin, elementUnder, type TargetHit } from "../../lib/bridge/targetResolvers";
   import { anchorPathOf, arrowHead, markBadgePoint, markTargetPoint, snapshotCrop, type FeedbackMark, type MarkKind } from "../../lib/project/annotationCapture";
+  import { pushToast } from "../../lib/toast";
 
   import RecipientList from "./RecipientList.svelte";
+  import AgentMark from "./AgentMark.svelte";
   import { recipientOptions } from "../../lib/project/agentRouting";
   import { backgroundAvailable } from "./backgroundAvailability";
 
   initAnnotationStore();
-  const INK = "#ff2bd6";
+  const INK_FALLBACK = "#ff2bd6";
+  const ink = () => (typeof getComputedStyle === "function" && getComputedStyle(document.documentElement).getPropertyValue("--c-ink-mark").trim()) || INK_FALLBACK;
   let text = $state("");
   let stamp = $state<ContextStamp | null>(null);
   let marks = $state<FeedbackMark[]>([]);
@@ -41,6 +52,8 @@
   let hover = $state<TargetHit[]>([]), specificity = $state(0);
   let pointer = $state({ x: 0, y: 0 });
   let selected = $state<{ ref: TargetRef; history: TargetRef[]; n?: number }[]>([]);
+  let litMark = $state<number | null>(null);
+  let hoverHints = $state(0);
   let generation = 0;
   let seenProject = -1;
   const routeOptions = $derived(recipientOptions($sessions, $backgroundAvailable).map(o => o.route));
@@ -52,10 +65,14 @@
   const hasMarks = $derived(marks.length > 0 || !!editing?.context?.snapshot?.marks.length);
   const attach = $derived($settings["annotate.attachView"] || hasMarks);
   const canAdd = $derived(ready && !busy && !!$currentProject?.path && !!parsed.text && (!background || $backgroundAvailable));
+  const routeSession = $derived(typeof route === "object" && "session" in route ? $sessions.find(s => s.id === route.session.id) : null);
+  const placeholder = $derived(targetPrompt(stamp?.targets, "What should change about").replace(/…$/, "?") + " #tags · @agent");
+  const routeName = $derived(describeRoute(route));
+  const whereHuman = $derived(stamp?.targets?.[0] ? `${stamp.surface} · ${shortTarget(stamp.targets[0])}${(stamp.targets.length ?? 0) > 1 ? ` +${stamp.targets.length - 1}` : ""}` : stamp?.activeFigureName ? `${stamp.surface} · figure “${stamp.activeFigureName}”` : stamp?.doc?.path ? `${stamp.surface} · ${stamp.doc.path.split("/").pop()}` : stamp ? `${stamp.surface} view` : "");
 
   function clearPicture() { if (frozen) URL.revokeObjectURL(frozen); frozen = null; frozenImg = null; }
   function resetDraft() {
-    text = ""; stamp = null; marks = []; selected = []; editing = null; error = ""; drawing = null; clearPicture();
+    text = ""; stamp = null; marks = []; selected = []; editing = null; error = ""; drawing = null; litMark = null; clearPicture();
   }
   $effect(() => {
     const g = $projectGeneration;
@@ -65,7 +82,7 @@
     const open = $annotationOpen, req = $annotationRequest;
     untrack(() => {
       if (open && req) void openSurface(req);
-      else { generation++; ready = false; drawing = null; hover = []; routeOpen = false; }
+      else { generation++; ready = false; drawing = null; hover = []; routeOpen = false; litMark = null; }
     });
   });
   onDestroy(() => { generation++; clearPicture(); });
@@ -125,7 +142,7 @@
   function inspectPoint(p: [number, number]) {
     const next = resolveAt(p[0], p[1], { ignore: host, document: sourceDocument });
     if (next[0] && hover[0] && resolvedTargetKey(next[0].ref) === resolvedTargetKey(hover[0].ref)) specificity = Math.min(specificity, next.length - 1);
-    else specificity = 0;
+    else { specificity = 0; if (next[0] && !hover[0]) hoverHints++; }
     hover = next;
   }
   function onDown(e: PointerEvent) {
@@ -182,7 +199,7 @@
   function onKey(e: KeyboardEvent) {
     if (!get(annotationOpen) || !ready) return;
     if (e.isComposing) return;
-    if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeAnnotation(); return; }
+    if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); if (routeOpen) { routeOpen = false; input?.focus(); return; } closeAnnotation(); return; }
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
       const tools: Record<string, MarkKind> = { KeyA: "arrow", KeyB: "box", KeyP: "pen" };
       if (tools[e.code] || e.code === "KeyZ" || e.code === "ArrowUp" || e.code === "ArrowDown") {
@@ -242,13 +259,16 @@
         }
       }
       if (owner !== generation) return;
+      const destination = describeRoute(route), wasEdit = !!editing;
       await addAnnotation(parsed.text, context, route, { replaces: editing?.id, png });
       if (owner !== generation) return;
       rememberRoute(route); resetDraft(); closeAnnotation();
+      if (get(currentProject)?.path) pushToast("success", wasEdit ? "Annotation updated" : background ? `${destination.replace(/^New /, "")} is starting on it` : destination === "Inbox" ? "Added to Inbox" : `Sent to ${destination}`, { action: { label: "Open", run: () => requestInbox() } });
     } catch (e) { if (owner === generation) error = String(e); }
     finally { if (owner === generation) busy = false; }
   }
   function paintMarks(ctx: CanvasRenderingContext2D, list: FeedbackMark[]) {
+    const INK = ink();
     for (const m of list) {
       const a = m.points[0], b = m.points[m.points.length - 1];
       for (const pass of [0, 1]) {
@@ -292,116 +312,179 @@
     const a = m.points[0], b = m.points[m.points.length - 1];
     return { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
   };
+  const kindGlyph = (k: TargetRef["kind"]) => k === "passage" || k === "doc" ? "❝" : k === "slide" || k === "beat" || k === "track" ? "▭" : k === "region" ? "⌗" : "◫";
 </script>
 
 <!-- Owns the modal keymap; the bootstrap listener handles the toggle first. -->
 <svelte:window onkeydowncapture={onKey} />
 
 {#if $annotationOpen && ready}
-  <div class="annotation-surface" data-annotation-surface bind:this={host} use:fullscreenPortal use:modalFocus role="dialog" aria-modal="true" aria-label="Annotate" tabindex="-1"
+  <div class="annotation-surface agent-surface" data-annotation-surface bind:this={host} use:fullscreenPortal use:modalFocus role="dialog" aria-modal="true" aria-label="Annotate" tabindex="-1"
     onkeydown={e => e.stopPropagation()} onclick={e => e.stopPropagation()}
     onpointerdown={e => e.stopPropagation()} onpointermove={e => e.stopPropagation()} onpointerup={e => e.stopPropagation()}
     onmousedown={e => e.stopPropagation()} onmousemove={e => e.stopPropagation()} onmouseup={e => e.stopPropagation()}>
     {#if frozen}<img class="annotation-shot" src={frozen} alt="Frozen view" draggable="false" />{/if}
-    <svg class="annotation-marks" bind:this={svg} role="application" aria-label="Drag to point at something" viewBox={`0 0 ${win.w} ${win.h}`}
+    <div class="annotation-frame" aria-hidden="true"></div>
+    <svg class="annotation-marks" class:lit={litMark !== null} bind:this={svg} role="application" aria-label="Drag to point at something" viewBox={`0 0 ${win.w} ${win.h}`}
       onpointerdown={onDown} onpointermove={onMove} onpointerup={onUp} onpointercancel={() => drawing = null} onwheel={wheel}>
       {#if hit}<rect class="target-outline" x={hit.bounds.x} y={hit.bounds.y} width={hit.bounds.w} height={hit.bounds.h} />{/if}
       {#each [...marks, ...(drawing ? [drawing] : [])] as m (m.n)}
         {@const badge = markBadgePoint(m)}
-        <g class="mark" data-kind={m.kind} data-n={m.n}>
+        <g class="mark" class:dim={litMark !== null && litMark !== m.n} class:lift={litMark === m.n} data-kind={m.kind} data-n={m.n}>
           {#if m.kind === "box"}{@const r = box(m)}
             <rect class="halo" x={r.x} y={r.y} width={r.w} height={r.h} /><rect class="ink" x={r.x} y={r.y} width={r.w} height={r.h} />
           {:else}<polyline class="halo" points={pts(m)} /><polyline class="ink" points={pts(m)} />{/if}
           {#if m.kind === "arrow"}<polygon class="head" points={arrowHead(m.points[0], m.points.at(-1)!).map(p => p.join(",")).join(" ")} />{/if}
-          <circle class="badge" cx={badge[0]} cy={badge[1]} r="11" /><text class="badge-n" x={badge[0]} y={badge[1]}>{m.n}</text>
+          <g class="badge-g" style={`transform-origin:${badge[0]}px ${badge[1]}px`}><circle class="badge" cx={badge[0]} cy={badge[1]} r="11" /><text class="badge-n" x={badge[0]} y={badge[1]}>{m.n}</text></g>
         </g>
       {/each}
     </svg>
-    {#if hit}<div class="target-label" style:left={`${Math.max(8, Math.min(pointer.x + 14, window.innerWidth - 350))}px`} style:top={`${Math.max(8, pointer.y - 36)}px`}>{hit.label}<small>Alt ↑↓ · widen / narrow</small></div>{/if}
+    {#if hit}<div class="target-label" style:transform={`translate(${Math.max(8, Math.min(pointer.x + 14, window.innerWidth - 350))}px, ${Math.max(8, pointer.y - 36)}px)`}><span class="glyph" aria-hidden="true">{kindGlyph(hit.ref.kind)}</span>{hit.label}{#if hoverHints <= 3}<small>Alt ↑↓ · widen / narrow</small>{/if}</div>{/if}
     <div class="annotation-tools" role="toolbar" aria-label="Annotation tools">
       <span class="eyebrow">ANNOTATE</span>
-      {#each [{ id: "arrow", key: "A" }, { id: "box", key: "B" }, { id: "pen", key: "P" }] as t}
-        <button class:chosen={tool === t.id} aria-pressed={tool === t.id} disabled={!!editing || staleView} onclick={() => tool = t.id as MarkKind}><kbd>Alt {t.key}</kbd>{t.id}</button>
-      {/each}
-      <button disabled={!marks.length} onclick={undo}><kbd>Alt Z</kbd>Undo mark</button>
+      <span class="seg">
+        {#each [{ id: "arrow", key: "A", glyph: "↗" }, { id: "box", key: "B", glyph: "▢" }, { id: "pen", key: "P", glyph: "✎" }] as t}
+          <button class:chosen={tool === t.id} aria-pressed={tool === t.id} disabled={!!editing || staleView} title={`Alt ${t.key}`} onclick={() => tool = t.id as MarkKind}><span class="glyph" aria-hidden="true">{t.glyph}</span>{t.id}<kbd>{t.key}</kbd></button>
+        {/each}
+      </span>
+      <span class="vsep"></span>
+      <button class="undo" disabled={!marks.length} title="Alt Z" onclick={undo}>Undo mark<kbd>Z</kbd></button>
+      <span class="vsep"></span>
+      <span class="frozen-note">{staleView ? "earlier view" : "view frozen"}{#if editing} · editing{/if}</span>
     </div>
     <div class="annotation-composer">
-      <div class="heading"><strong>{editing ? "Edit annotation" : "Annotate"}</strong><button aria-label="Cancel annotation" onclick={closeAnnotation}>×</button></div>
-      <div class="context" title={describeStamp(stamp)}>{describeStamp(stamp)}</div>
-      {#if selected.length}<div class="target-chips" aria-label="Annotation targets">
-        {#each selected as s, i}
-          <span class="target-chip" data-target={formatTarget(s.ref)}>{#if s.n}<b>{s.n}</b>{/if}<span title={describeTarget(s.ref)}>{describeTarget(s.ref)}</span>
-            <button aria-label="Widen target" disabled={!widenTarget(s.ref)} onclick={() => widen(i)}>▾</button>
-            {#if s.history.length}<button aria-label="Narrow target" onclick={() => widen(i, true)}>▴</button>{/if}
-            <button aria-label="Remove target" onclick={() => selected = selected.filter((_, j) => j !== i)}>×</button>
-          </span>
-        {/each}
-      </div>{/if}
-      <textarea bind:this={input} bind:value={text} aria-label="Annotation note" rows="3" placeholder="What should change? #tags · @agent" spellcheck="true"></textarea>
-      {#if tags.length}<div class="tags">{#each tags as tag}<span>#{tag}</span>{/each}</div>{/if}
-      <div class="routing">
-        <button class="to-pill" aria-expanded={routeOpen} onclick={() => routeOpen = !routeOpen} title="Tab in the note cycles recipients">To: <b>{describeRoute(route)}</b> ▾</button>
-        {#if typeof route === "object" && "session" in route && !$sessions.some(s => s.id === route.session.id && s.watching)}<small class="muted">queued until it watches</small>{/if}
-        {#if routeOpen}<RecipientList choose={chooseRoute} />{/if}
+      <div class="heading surface-head">
+        <strong class="ttl">{editing ? "Edit annotation" : "Annotate"}</strong>
+        <span class="vsep"></span>
+        <span class="ctx" title={describeStamp(stamp)}>{whereHuman}</span>
+        <span class="context sr" aria-hidden="true">{describeStamp(stamp)}</span>
+        <button class="xbtn" aria-label="Cancel annotation" title="Cancel · Esc" onclick={closeAnnotation}></button>
       </div>
-      {#if staleView && !editing}<p class="hint">Your draft keeps its earlier view. To draw on the current view, <button onclick={() => { if ($annotationRequest) void openSurface($annotationRequest, true); }}>Refresh view (clears marks)</button>.</p>{/if}
-      {#if editing}<p class="hint">Editing the saved annotation; its original picture is preserved.</p>{/if}
-      {#if background && !$backgroundAvailable}<p class="hint">No background agent is available: install and sign in to Claude Code or Codex (AI status). Choose Inbox or a connected agent.</p>{/if}
-      {#if error}<p role="alert">{error} Your draft is retained.</p>{/if}
-      {#if !$currentProject?.path}<p class="hint">Demo project — annotations are not saved</p>{/if}
-      {#if !frozen && attach}<p class="hint">Screenshot unavailable — your targets and marks will still be saved.</p>{/if}
-      <div class="actions">
-        <label><input type="checkbox" checked={attach} disabled={hasMarks} onchange={e => settings.update(s => ({ ...s, "annotate.attachView": e.currentTarget.checked }))} />Attach view</label>
-        <span></span><button onclick={closeAnnotation}>Cancel <kbd>Esc</kbd></button><button class="primary" disabled={!canAdd} onclick={() => void add()}>{busy ? "Saving…" : "Add"} <kbd>Enter</kbd></button>
+      <div class="body">
+        {#if selected.length}<div class="target-chips" aria-label="Annotation targets">
+          {#each selected as s, i}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span class="target-chip" class:numbered={!!s.n} data-target={formatTarget(s.ref)} data-kind={s.ref.kind} title={describeTarget(s.ref)}
+              onmouseenter={() => { if (s.n) litMark = s.n; }} onmouseleave={() => { if (litMark === s.n) litMark = null; }}>
+              {#if s.n}<b>{s.n}</b>{:else}<span class="glyph" aria-hidden="true">{kindGlyph(s.ref.kind)}</span>{/if}<span class="label">{shortTarget(s.ref)}</span>
+              <span class="chip-acts">
+                <button aria-label="Widen target" title="Widen (Alt ↑)" disabled={!widenTarget(s.ref)} onclick={() => widen(i)}>▾</button>
+                {#if s.history.length}<button aria-label="Narrow target" title="Narrow" onclick={() => widen(i, true)}>▴</button>{/if}
+                <button aria-label="Remove target" title="Remove" onclick={() => selected = selected.filter((_, j) => j !== i)}>×</button>
+              </span>
+            </span>
+          {/each}
+        </div>{/if}
+        <div class="flux-composer">
+          <textarea bind:this={input} bind:value={text} aria-label="Annotation note" rows="3" {placeholder} spellcheck="true"></textarea>
+          {#if tags.length}<div class="tags">{#each tags as tag}<span>#{tag}</span>{/each}</div>{/if}
+          <div class="composer-bar actions">
+            <span class="routing">
+              <button class="to-pill" aria-expanded={routeOpen} onclick={() => routeOpen = !routeOpen} title="Tab in the note cycles recipients">{#if routeSession}<AgentMark size={11} seed={routeSession.name} state={routeSession.watching ? "working" : "idle"} />{/if}To: <b>{routeName}</b> ▾</button>
+              {#if routeSession && !routeSession.watching}<span class="muted">queued until it watches</span>{:else if routeSession?.watching}<span class="muted live">watching</span>{/if}
+            </span>
+            <span class="grow"></span>
+            <label class="attach" title={hasMarks ? "Marks always carry the view" : "Send the frozen view with the note"}><input type="checkbox" checked={attach} disabled={hasMarks} onchange={e => settings.update(s => ({ ...s, "annotate.attachView": e.currentTarget.checked }))} /><span class="switch" aria-hidden="true"></span>Attach view</label>
+            <button class="primary" disabled={!canAdd} onclick={() => void add()}>{busy ? "Saving…" : "Add"} <kbd>Enter</kbd></button>
+          </div>
+        </div>
+        {#if routeOpen}<div class="routes-pop arrive"><RecipientList choose={chooseRoute} /></div>{/if}
+        {#if staleView && !editing}<p class="hint">Your draft keeps its earlier view. To draw on the current view, <button onclick={() => { if ($annotationRequest) void openSurface($annotationRequest, true); }}>Refresh view (clears marks)</button>.</p>{/if}
+        {#if editing}<p class="hint">Editing the saved annotation; its original picture is preserved.</p>{/if}
+        {#if background && !$backgroundAvailable}<p class="hint">No background agent is available: install and sign in to Claude Code or Codex (AI status). Choose Inbox or a connected agent.</p>{/if}
+        {#if error}<p role="alert">{error} Your draft is retained.</p>{/if}
+        {#if !$currentProject?.path}<p class="hint">Demo project — annotations are not saved</p>{/if}
+        {#if !frozen && attach}<p class="hint">Screenshot unavailable — your targets and marks will still be saved.</p>{/if}
+        <div class="foot"><small class="hint">Drag to point · <kbd>Shift</kbd><kbd>Enter</kbd> new line · <kbd>Tab</kbd> To: · <kbd>Esc</kbd> keeps draft</small><span class="inbox-link"><button onclick={() => { closeAnnotation(); requestInbox(); }}>Open inbox ↗</button></span></div>
       </div>
-      <div class="inbox-link"><button onclick={() => { closeAnnotation(); requestInbox(); }}>Open inbox ↗</button></div>
-      <small class="hint">Drag to point · Shift Enter for a new line · Tab changes To:</small>
     </div>
   </div>
 {/if}
 
 <style>
-  .annotation-surface { position: fixed; inset: 0; z-index: 2000; user-select: none; cursor: var(--cursor-cross); }
+  .annotation-surface { position: fixed; inset: 0; z-index: 2000; user-select: none; cursor: var(--cursor-cross); animation: flux-arrive var(--dur-fade) both; }
   .annotation-shot, .annotation-marks { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .annotation-shot { pointer-events: none; background: var(--c-bg); }
   .annotation-marks { touch-action: none; }
+  /* The "frozen view" signal: one inner hairline and a soft vignette, painted once, never animated. */
+  .annotation-frame { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 1.5px var(--c-accent), inset 0 0 90px rgba(0, 0, 0, 0.22); }
   .target-outline { fill: color-mix(in srgb, var(--c-accent) 8%, transparent); stroke: var(--c-accent); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
-  .mark { pointer-events: none; }
+  .mark { pointer-events: none; transition: opacity var(--dur-fade); }
+  .mark.dim { opacity: .3; }
+  .badge-g { transform-box: view-box; transition: transform var(--dur-instant) var(--ease-enter); }
+  .mark.lift .badge-g { transform: scale(1.18); }
   .halo, .ink { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-  .halo { stroke: #fff; stroke-width: 6; }
-  .ink { stroke: #ff2bd6; stroke-width: 3; }
-  .head, .badge { fill: #ff2bd6; stroke: #fff; stroke-width: 2; }
+  .halo { stroke: var(--c-ink-halo); stroke-width: 6; }
+  .ink { stroke: var(--c-ink-mark); stroke-width: 3; }
+  .head, .badge { fill: var(--c-ink-mark); stroke: #fff; stroke-width: 2; }
   .badge-n { fill: #fff; font: 700 12px var(--font-ui); text-anchor: middle; dominant-baseline: central; }
-  .annotation-tools, .annotation-composer, .target-label { background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); box-shadow: var(--elev-3); color: var(--c-tx); }
-  .annotation-tools { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; align-items: center; padding: 6px 8px; }
-  .eyebrow { font: 600 10px var(--font-mono); letter-spacing: .08em; color: var(--c-tx-muted); margin-right: 8px; }
-  .annotation-composer { position: absolute; bottom: 16px; right: 16px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 82px); overflow: auto; display: flex; flex-direction: column; gap: 9px; padding: 12px; box-sizing: border-box; user-select: text; }
-  .heading, .actions, .routing { display: flex; align-items: center; gap: 8px; }
-  .heading strong { flex: 1; font: 18px var(--font-serif); }
-  .context { color: var(--c-tx-muted); font: 10px/1.5 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  textarea { box-sizing: border-box; width: 100%; min-height: 84px; resize: vertical; padding: 8px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx); font: 14px/1.5 var(--font-ui); outline: none; }
-  textarea:focus { border-color: var(--c-accent); }
-  button { font: 12px var(--font-ui); color: var(--c-tx); background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); padding: 4px 7px; cursor: var(--cursor-cross-hover); }
-  button:hover:not(:disabled), button:focus-visible { border-color: var(--c-accent); outline: none; }
-  button:disabled { opacity: .4; cursor: var(--cursor-cross); }
-  button.chosen, .chosen { background: var(--c-accent-tint); box-shadow: inset 2px 0 var(--c-accent); }
-  kbd { font: 10px var(--font-mono); color: var(--c-tx-muted); margin: 0 5px; }
-  .actions > span { flex: 1; }
-  .actions label { font: 12px var(--font-ui); display: flex; align-items: center; gap: 5px; }
-  .primary { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-tint); }
+  .annotation-tools, .annotation-composer, .target-label { background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-1); box-shadow: var(--elev-3); color: var(--c-tx); }
+  .annotation-tools { position: absolute; top: 12px; left: 50%; translate: -50% 0; display: flex; gap: 8px; align-items: center; height: 34px; padding: 0 10px 0 12px; border-radius: var(--r-pill); font: var(--ts-xs) var(--font-ui); }
+  .eyebrow { font: 600 10px var(--font-mono); letter-spacing: .1em; color: var(--c-tx-muted); }
+  .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
+  .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--c-bg); border-radius: var(--r-pill); }
+  .seg button { height: 22px; padding: 0 9px 0 7px; border-radius: var(--r-pill); display: inline-flex; align-items: center; gap: 5px; }
+  .seg .glyph { font-size: 11px; opacity: .8; }
+  .annotation-tools button { font: var(--ts-xs) var(--font-ui); color: var(--c-tx-2); background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); padding: 3px 7px; cursor: var(--cursor-cross-hover); }
+  .annotation-tools button:hover:not(:disabled) { color: var(--c-tx); background: var(--c-ui-hover); }
+  .annotation-tools button:disabled { opacity: .4; cursor: var(--cursor-cross); }
+  .annotation-tools button.chosen { background: var(--c-accent); color: var(--c-on-accent); }
+  .annotation-tools button.chosen kbd { color: var(--c-on-accent); border-color: color-mix(in srgb, var(--c-on-accent) 45%, transparent); opacity: .85; }
+  .annotation-tools kbd { margin-left: 2px; }
+  .frozen-note { color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); white-space: nowrap; }
+  .annotation-composer { position: absolute; bottom: 16px; right: 16px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 82px); display: flex; flex-direction: column; box-sizing: border-box; user-select: text; overflow: hidden; animation: composer-enter var(--dur-instant) var(--ease-enter) both; transform-origin: right bottom; }
+  @keyframes composer-enter { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .annotation-composer { animation-name: flux-arrive; } }
+  .heading { cursor: default; }
+  .heading .ctx { font: var(--ts-xs) var(--font-ui); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .body { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 10px; overflow: auto; min-height: 0; }
+  .flux-composer textarea { min-height: calc(3 * 1.5em + 15px); }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 11px 2px; }
+  .tags span { color: var(--c-accent); background: var(--c-accent-tint); font: 10px var(--font-mono); padding: 2px 5px; border-radius: var(--r-ui); }
+  .actions { flex-wrap: wrap; row-gap: 4px; }
+  .routing { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .to-pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 1px solid var(--c-line-strong) !important; border-radius: var(--r-pill) !important; color: var(--c-tx-2); font: var(--ts-xs) var(--font-ui); background: transparent; cursor: var(--cursor-cross-hover); }
+  .to-pill b { color: var(--c-tx); font-weight: 600; }
+  .muted { font: 10.5px var(--font-ui); color: var(--c-tx-muted); white-space: nowrap; }
+  .muted.live { color: var(--c-accent); }
+  .grow { flex: 1; }
+  .attach { position: relative; display: inline-flex; align-items: center; gap: 6px; font: var(--ts-xs) var(--font-ui); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); white-space: nowrap; }
+  /* The real checkbox sits invisibly over the switch so clicks, keys and gates hit it. */
+  .attach input { position: absolute; left: 0; top: 50%; translate: 0 -50%; width: 26px; height: 15px; margin: 0; opacity: 0; cursor: inherit; }
+  .switch { width: 26px; height: 15px; border-radius: var(--r-pill); background: var(--c-ui-active); position: relative; transition: background var(--dur-fade); flex-shrink: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--c-tx-hi); transition: translate var(--dur-instant) var(--ease-standard); }
+  .attach input:checked + .switch { background: var(--c-accent); }
+  .attach input:checked + .switch::after { translate: 11px 0; }
+  .attach input:disabled + .switch { opacity: .55; }
+  .attach input:focus-visible + .switch { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  .primary { color: var(--c-on-accent) !important; background: var(--c-accent) !important; border-color: var(--c-accent) !important; }
+  .primary kbd { color: var(--c-on-accent); border-color: color-mix(in srgb, var(--c-on-accent) 45%, transparent); }
+  .routes-pop { border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); overflow: hidden; }
+  .routes-pop :global(.routes) { border: 0; }
   .hint, .muted { font: 11px/1.5 var(--font-ui); color: var(--c-tx-muted); margin: 0; }
+  .hint button { background: none; border: 0; padding: 0; color: var(--c-accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: var(--cursor-cross-hover); }
   p[role="alert"] { font: 12px var(--font-ui); color: var(--c-danger); margin: 0; }
-  .target-label { position: fixed; max-width: 330px; padding: 6px 9px; font: 12px var(--font-ui); pointer-events: none; }
-  .target-label small { display: block; font: 10px var(--font-mono); color: var(--c-tx-muted); margin-top: 3px; }
-  .target-chips, .tags { display: flex; flex-wrap: wrap; gap: 4px; max-height: 110px; overflow: auto; }
-  .target-chip { display: inline-flex; align-items: center; max-width: 100%; background: var(--c-accent-tint); border: 1px solid var(--c-line); border-radius: var(--r-ui); font: 11px var(--font-ui); }
-  .target-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 6px; }
-  .target-chip b { background: #ff2bd6; color: #fff; padding: 3px 5px; }
-  .target-chip button { padding: 2px 4px; }
-  .tags span { color: var(--c-accent); background: var(--c-accent-tint); font: 10px var(--font-mono); padding: 3px 5px; border-radius: var(--r-ui); }
-  .routing { flex-wrap: wrap; }
-  .to-pill { border-color: var(--c-line-strong); }
-  .inbox-link { border-top: 1px solid var(--c-line); padding-top: 5px; }
+  .target-label { position: fixed; left: 0; top: 0; max-width: 330px; padding: 6px 9px; font: 12px var(--font-ui); pointer-events: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; will-change: transform; }
+  .target-label .glyph { color: var(--c-tx-muted); font-size: 11px; }
+  .target-label small { flex-basis: 100%; font: 10px var(--font-mono); color: var(--c-tx-muted); margin-top: 1px; }
+  .target-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 110px; overflow: auto; }
+  .target-chip { display: inline-flex; align-items: center; gap: 0; max-width: 100%; height: 24px; background: var(--c-surface-2); border: 1px solid var(--c-line); border-radius: var(--r-pill); font: var(--ts-xs) var(--font-ui); color: var(--c-tx-2); padding-right: 4px; transition: border-color var(--dur-fade), background var(--dur-fade); }
+  .target-chip:hover { border-color: var(--c-line-strong); color: var(--c-tx); }
+  .target-chip.numbered:hover { border-color: var(--c-ink-mark); }
+  .target-chip .glyph { padding: 0 2px 0 8px; color: var(--c-tx-muted); font-size: 11px; }
+  .target-chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px 0 6px; }
+  .target-chip b { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 3px; border-radius: 50%; background: var(--c-ink-mark); color: #fff; font: 700 10px var(--font-ui); flex-shrink: 0; }
+  .chip-acts { display: inline-flex; opacity: 0; transition: opacity var(--dur-fade); }
+  .target-chip:hover .chip-acts, .target-chip:focus-within .chip-acts { opacity: 1; }
+  .chip-acts button { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--c-tx-muted); font: 11px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .chip-acts button:hover:not(:disabled) { background: var(--c-ui-hover); color: var(--c-tx); }
+  .chip-acts button:disabled { opacity: .3; }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid var(--c-line); padding-top: 7px; }
+  .foot .hint { font-size: 10.5px; }
+  .foot kbd { margin: 0 1px; }
+  .inbox-link button { background: none; border: 0; padding: 0; color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); cursor: var(--cursor-cross-hover); white-space: nowrap; }
+  .inbox-link button:hover { color: var(--c-tx); }
 
-  @media (max-width: 650px) { .annotation-tools { gap: 0; } .eyebrow { display: none; } .annotation-tools kbd { display: none; } }
+  @media (max-width: 650px) { .eyebrow, .frozen-note { display: none; } .annotation-tools kbd { display: none; } }
 </style>

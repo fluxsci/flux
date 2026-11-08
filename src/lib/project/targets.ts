@@ -73,11 +73,11 @@ export function shortTarget(t: TargetRef): string {
     case "element": return `${t.type || "element"} ${name(t.name, t.elementId)}`;
     case "part": return `plot ${name(t.elementName, t.elementId)} › ${t.role || "part"} ${name(t.label, t.partId)}`;
     case "caption": return `caption${t.panel ? ` ${t.panel}` : ""} of ${name(t.figureName, t.figureId)}`;
-    case "doc": return `${t.path.split("/").pop() ?? t.path}${t.heading ? ` § ${q(t.heading)}` : ""}`;
+    case "doc": return t.quote ? `“${clip(t.quote, 80)}” · ${t.path.split("/").pop() ?? t.path}` : `${t.path.split("/").pop() ?? t.path}${t.heading ? ` § ${q(t.heading)}` : ""}`;
     case "slide": return `slide ${t.index !== undefined ? t.index + 1 : ""}${t.name ? ` ${q(t.name)}` : t.index === undefined ? t.slideId : ""}`.trim();
     case "beat": return `step ${t.beat}${t.label ? ` ${q(t.label)}` : ""}`;
     case "track": return `${t.family ?? "animation"} ${name(t.label, t.trackId)}`;
-    case "passage": return `${t.citekey} p.${t.page}`;
+    case "passage": return t.quote ? `“${clip(t.quote, 80)}” · ${t.citekey} p.${t.page}` : `${t.citekey} p.${t.page}`;
     case "library-item": return t.title ? q(t.title) : t.citekey;
     case "region": return `a region of the ${t.surface} view`;
   }
