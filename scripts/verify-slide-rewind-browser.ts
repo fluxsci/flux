@@ -5,6 +5,13 @@
 // compared with a static seek to the same time. Forward play has its own small play-vs-static residual (WAAPI natives vs inline
 // styles); a rewind must be no less faithful than forward play on the same beat. It must also land on exactly the jump's pixels and
 // show its first visible change within 100 ms (Nielsen).
+// The camera layer is a will-change layer (the raster keeper, rasterKeeper.ts): Chromium rasterizes it once, when the keeper re-promotes
+// it, at the pose of the frame that presents it, and every later frame until the next re-bake is that raster resampled. Which raster a
+// frame was drawn from is therefore part of the frame, so (1) every fake frame and seek is PRESENTED (two real rAFs): without it, whether
+// a re-promoted layer was first rasterized at the frame's pose or at the next seek's depended on the host's speed (the owner's desktop
+// rasterized the forward landing's re-bake at the first static seek's pose and passed; a 4-core CI runner rasterized it at the landing
+// pose and read 1622 px on every run, 2026-11-08), and (2) each frame is compared with the static sample at its time drawn from the SAME
+// raster (the keeper re-baked at the pose that raster was taken at). The resampling itself is the keeper's (verify-slide-settle-*).
 // Run: npx tsx scripts/verify-slide-rewind-browser.ts
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -51,7 +58,9 @@ try {
   const launched = await launch({ width: 960, height: 540 }); browser = launched.browser; const page = launched.page;
   const errors: string[] = []; page.on("pageerror", (err: Error) => errors.push(String(err)));
   // the fake clock, installed before the runtime boots
-  await page.evaluateOnNewDocument(`(() => { let now = 1000, id = 0; const q = new Map();
+  await page.evaluateOnNewDocument(`(() => { let now = 1000, id = 0; const q = new Map(); const realRaf = window.requestAnimationFrame.bind(window);
+    window.__present = () => new Promise((r) => realRaf(() => realRaf(() => r(0))));
+    window.__raster = { n: 0, wc: '', el: null, at: {} }; new MutationObserver(() => { const c = document.querySelector('.sl-camera'), r = window.__raster; if (!c) return; const wc = c.style.willChange; if (c !== r.el || (r.wc === 'auto' && wc !== 'auto')) { const q = window.fluxDeck?.state(); r.at[++r.n] = q && q.beat > 0 ? q.time : 0; } r.el = c; r.wc = wc; }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });
     performance.now = () => now;
     window.requestAnimationFrame = (cb) => { q.set(++id, cb); return id; };
     window.cancelAnimationFrame = (i) => { q.delete(i); };
@@ -67,30 +76,40 @@ try {
   const shot = async () => (await page.screenshot({ encoding: "base64", type: "png" })) as string;
   const diff = (a: string, b: string) => page.evaluate(`window.__diff(${JSON.stringify(a)}, ${JSON.stringify(b)})`) as Promise<number>;
   const st = () => page.evaluate("window.fluxDeck.state()") as Promise<{ beat: number; time: number; playing: boolean; reversing: boolean }>;
-  const frame = () => page.evaluate(`window.__frame(${FRAME})`);
-  const seek = (s: number, b: number, t: number | "Infinity") => page.evaluate(`window.fluxDeck.seek(${s}, ${b}, ${t})`);
+  const frame = () => page.evaluate(`window.__frame(${FRAME}); window.__present()`);
+  const seek = (s: number, b: number, t: number | "Infinity") => page.evaluate(`window.fluxDeck.seek(${s}, ${b}, ${t}); window.__present()`);
+  /** the raster the camera layer holds now: re-promotions so far, and whether the layer is un-promoted this frame (a re-bake in progress) */
+  const raster = () => page.evaluate("({ n: window.__raster.n, wc: window.__raster.wc })") as Promise<{ n: number; wc: string }>;
+  /** a static seek, then the keeper's at-rest re-bake (its real-time debounce, then the bake's frames): the layer is rasterized at this pose */
+  const rebake = async (s: number, t: number) => { await seek(s, 1, t); await new Promise((r) => setTimeout(r, 120)); for (let i = 0; i < 4; i++) await page.evaluate("window.__frame(0); window.__present()"); };
+  /** where raster n was taken: the beat time the player stood at when the layer was (re-)promoted (beat 0's rest = beat time 0) */
+  const origin = async (n: number) => (await page.evaluate(`window.__raster.at[${n}]`)) as number;
   /** worst (over frames) count of visibly differing pixels between each captured frame and the static seek at its time */
-  async function residual(s: number, frames: { t: number; png: string }[]): Promise<number> {
-    let worst = 0;
-    for (const f of frames) { await seek(s, 1, f.t); worst = Math.max(worst, await diff(f.png, await shot())); }
+  async function residual(s: number, frames: { t: number; png: string; r: { n: number; wc: string } }[]): Promise<number> {
+    let worst = 0, held = -1;
+    for (const f of frames) {
+      if (f.r.wc === "auto") { await rebake(s, f.t); held = -1; }      // drawn un-promoted (mid re-bake): the exact pose = a raster taken at it
+      else { if (held !== f.r.n) { await rebake(s, await origin(f.r.n)); held = f.r.n; } await seek(s, 1, f.t); }
+      worst = Math.max(worst, await diff(f.png, await shot()));
+    }
     return worst;
   }
   for (const [s, name] of [[0, "glide + text + draw + fade"], [1, "hand-off Become on an arc"], [2, "camera zoom"]] as const) {
     h.section(name);
     // forward play: every frame against the static sample at its time
     await seek(s, 0, "Infinity"); await page.evaluate("window.__idle(1000)"); await page.evaluate("window.fluxDeck.next()");
-    const fwd: { t: number; png: string }[] = [];
-    for (let k = 0; k < 120; k++) { await frame(); const q = await st(); if (!q.playing) break; if (q.time > 0) fwd.push({ t: q.time, png: await shot() }); }
+    const fwd: { t: number; png: string; r: { n: number; wc: string } }[] = [];
+    for (let k = 0; k < 120; k++) { await frame(); const q = await st(), r = await raster(); if (!q.playing) break; if (q.time > 0) fwd.push({ t: q.time, png: await shot(), r }); }
     const fwdWorst = await residual(s, fwd);
     // the rewind
     await seek(s, 1, "Infinity"); const rest = await shot();
     await page.evaluate("window.__idle(1000)"); await page.evaluate("window.fluxDeck.prev()");
     h.ok((await st()).reversing, "Back starts a rewind in the exported deck");
-    const rev: { t: number; png: string }[] = [];
+    const rev: { t: number; png: string; r: { n: number; wc: string } }[] = [];
     let firstVisible = -1;
     for (let k = 0; k < 120; k++) {
       await frame(); const q = await st(); if (!q.reversing) break;
-      const png = await shot(); rev.push({ t: q.time, png });
+      const r = await raster(), png = await shot(); rev.push({ t: q.time, png, r });
       if (firstVisible < 0 && await diff(png, rest) >= 100) firstVisible = (k + 1) * FRAME;
     }
     const landed = await shot(), q = await st();

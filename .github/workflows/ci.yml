@@ -84,9 +84,18 @@ jobs:
       # unnoticed from 09-27 until release prep on 10-03.
       - name: Offline help builds (release.yml packages it)
         run: npm run build:docs
+      # FLUX_PERF_SCALE multiplies the ABSOLUTE wall-clock pins that opt in through
+      # scripts/lib/perfBudget.mjs (guide §7, "Host-scaled wall-clock budgets"); every
+      # assertion prints the effective budget ("< 10 × 4 = 40, FLUX_PERF_SCALE=4").
+      # Ratios, counts and pixel residuals never scale, and local runs keep 1. MEASURED,
+      # not chosen: the worst reading on this runner over six main runs (2026-10-23 →
+      # 11-08) was verify-relayout-perf's dense apply p95 36.6 ms against its 10 ms pin
+      # (3.66×; the owner's desk reads 3.3 ms), rounded up to 4. Re-derive it from the
+      # logs if the runner image changes; never raise it to absorb a regression.
       - name: Pure verify tier (hermetic — no network, no dev server)
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          FLUX_PERF_SCALE: "4"
         run: node scripts/run-verifies.mjs --tier pure --jobs 4
       - name: Upload verify summary
         if: always()
@@ -158,9 +167,12 @@ jobs:
       # failures at 4 on a Windows laptop that were not regressions, and a
       # hosted Windows runner has 4 vCPUs of slower I/O. Raise it only with the
       # evidence of green runs.
+      # The Linux job's measured FLUX_PERF_SCALE (see there); this runner's worst reading
+      # was 1.6× (verify-relayout-perf, 2026-11-08), inside it.
       - name: Pure verify tier (hermetic — no network, no dev server)
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          FLUX_PERF_SCALE: "4"
         run: node scripts/run-verifies.mjs --tier pure --jobs 2
       - name: Upload verify summary
         if: always()
@@ -206,6 +218,21 @@ jobs:
         with:
           chrome-version: stable
           install-dependencies: true
+      # The reference workstation's faces, as in the test job. verify-zoom-proxy's
+      # composite fixture puts the sharp/coarse plane seam where a figure label's
+      # ascent lands: with Arial it is a whole pixel (top 47); with the runner's
+      # Liberation Sans stand-in it is 46.5, and the exact single-plane comparison
+      # reads "max 1, pixels 533, seam 4" (reproduced locally with a fontconfig
+      # holding only DejaVu/Liberation/Noto, 2026-11-08).
+      - name: Provision the msttcorefonts faces the fixtures were authored with
+        run: |
+          sudo apt-get update
+          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
+          sudo apt-get install -y --no-install-recommends ttf-mscorefonts-installer
+          sudo fc-cache -f
+          for f in Arial Arial_Italic Georgia Georgia_Bold; do
+            test -f "/usr/share/fonts/truetype/msttcorefonts/$f.ttf" || { echo "::error::msttcorefonts download failed: $f.ttf missing"; exit 1; }
+          done
       # The server's own output is evidence: a mid-run "new dependencies
       # optimized … reloading" line is a full reload of every open page, which
       # once closed a gate's popup under it (2026-09-26). Keep it in a file and

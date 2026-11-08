@@ -7,6 +7,7 @@ import { crossArc, matchTokens, charLevelAllowed, planTextMorph, rollLook, fadeL
 import { glideLanes, laneOffset, bowOffset, classicOffset, LANE_POLICY, LEFT_OF_TRAVEL, type GlideGeom } from "../src/lib/slide/lanes";
 import { arcBox } from "../src/lib/slide/tween";
 import { resolveTextLook } from "../src/lib/slide/timing";
+import { perfBudget } from "./lib/perfBudget.mjs";
 
 const h = harness("verify-text-lanes");
 const adv = (s: number) => 0.5 * s;
@@ -91,7 +92,8 @@ h.section("lanes: measured quality (ink overlap, px^2, smootherstep 55 frames)")
   h.ok(worstOverlap(swap, ls2) < worstOverlap(swap), `a two-word swap overprints less on lanes (${worstOverlap(swap)} -> ${worstOverlap(swap, ls2)} px^2)`);
   const ts: number[] = []; const g16 = glides(Array.from({ length: 16 }, (_, i) => "w" + i + "x".repeat(i % 4)).join(" "), Array.from({ length: 16 }, (_, i) => "w" + (15 - i) + "x".repeat((15 - i) % 4)).join(" "), 28, 520);
   for (let k = 0; k < 7; k++) { const t0 = performance.now(); glideLanes(g16); ts.push(performance.now() - t0); } ts.sort((x, y) => x - y);
-  h.ok(ts[3] < 25, `planning 16 glides: median ${ts[3].toFixed(1)} ms (< 25; measured ~9 warm, runs in the idle warm-up, not in a frame)`);
+  const plan = perfBudget(25); // host-scaled wall-clock pin (guide §7); the 48-vs-16 RATIO below is host-independent and never scales
+  h.ok(ts[3] < plan.ms, `planning 16 glides: median ${ts[3].toFixed(1)} ms (< ${plan.text}; measured ~9 warm, runs in the idle warm-up, not in a frame)`);
   // the dense corner (review #2): a 16-word reversal between two static 16-word rows = 48 glides, ~14 active. The work is
   // bounded by maxObstacles per active glide, not by the glide count (uncapped this took ~38 ms warm, over the 35 ms budget).
   const dense: GlideGeom[] = [];
@@ -105,7 +107,7 @@ h.section("lanes: measured quality (ink overlap, px^2, smootherstep 55 frames)")
   for (let k = 0; k < 7; k++) { const t0 = performance.now(); dl = glideLanes(dense); dts.push(performance.now() - t0); } dts.sort((x, y) => x - y);
   h.ok(dense.length === 48 && dl.some((v) => v !== undefined), "48 glides (16-word reversal between two static rows): still planned");
   h.ok(worstOverlap(dense, dl) < worstOverlap(dense) * 0.6, `…and better than the classic arcs (${worstOverlap(dense)} -> ${worstOverlap(dense, dl)} px^2)`);
-  h.ok(dts[3] < 25 && dts[3] < 1.4 * ts[3], `planning 48 glides: median ${dts[3].toFixed(1)} ms vs ${ts[3].toFixed(1)} ms for 16 (< 25 and < 1.4x: the work is bounded by maxObstacles; ~2x and growing without it)`);
+  h.ok(dts[3] < plan.ms && dts[3] < 1.4 * ts[3], `planning 48 glides: median ${dts[3].toFixed(1)} ms vs ${ts[3].toFixed(1)} ms for 16 (< ${plan.text} and < 1.4x: the work is bounded by maxObstacles; ~2x and growing without it)`);
 }
 
 h.section("letter bag: near-permutations only");

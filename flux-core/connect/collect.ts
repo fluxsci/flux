@@ -9,6 +9,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import * as fluxPaths from "../../electron/fluxPaths.cjs";
 import { resolveSpawn } from "../../electron/execResolve.cjs";
 import { quartoCommandSync } from "../../electron/managedTools.cjs";
@@ -298,7 +299,7 @@ async function fluxplotFacts(workspace: string | null): Promise<MachineFacts["fl
 async function machineFacts(workspace: string | null): Promise<{ machine: MachineFacts; userContextDir: string; userDataDir: string }> {
   const info = await configInfo();
   let installKind: MachineFacts["installKind"] = "source";
-  let installPath = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+  let installPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".."); // never URL.pathname: "/C:/…" on win32 (guide §9)
   try {
     const rt = fluxPaths.resolveOwnCliCommandsSync();
     installKind = rt.electron ? "packaged" : "source";

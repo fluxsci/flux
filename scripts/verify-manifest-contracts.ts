@@ -33,4 +33,12 @@ for (const [group, list] of Object.entries(manifest.groups)) {
 }
 h.section("execution");
 for (const name of Object.keys(manifest.execution ?? {})) h.ok(existsSync(path.join(root, "scripts", name)), `execution key ${name} names a real script`);
+// ONE timeout per script: its contract's timeoutMs. Until 2026-11-08 a top-level `timeouts` map took precedence in the
+// runner and silently shadowed three contracts (verify-slide-settle-sweep raised to 480 s on 10-23 and verify-slide-settle-electron
+// to 60 min on 10-24 kept running at 300 s / 600 s; verify-model3d-demo's contract said 60 s), so a raise reached nowhere.
+h.ok(!("timeouts" in manifest), "no top-level `timeouts` map: execution.<script>.timeoutMs is the only runner deadline");
+{
+  const bad = Object.entries(manifest.execution ?? {}).filter(([, spec]) => { const t = (spec as { timeoutMs?: unknown }).timeoutMs; return t !== undefined && !(Number.isInteger(t) && (t as number) > 0); });
+  h.ok(!bad.length, `every timeoutMs is a positive integer of milliseconds${bad.length ? ` — BAD: ${bad.map(([n]) => n).join(", ")}` : ""}`);
+}
 await h.done();

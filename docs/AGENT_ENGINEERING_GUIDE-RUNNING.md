@@ -3429,8 +3429,9 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
-- **Slide settle gates (Release 2).** `verify-slide-settle-sweep.ts` (pure tier, headless Chrome, ~3.5 min, one page
-  in one browser) and `verify-slide-settle-electron.cjs` (electron tier, offscreen and window-free, `exclusive`,
+- **Slide settle gates (Release 2).** `verify-slide-settle-sweep.ts` (pure tier, headless Chrome, ~4.2 min here, one page
+  in one browser, `exclusive`: it is frame-cadence bound, and its own header records that parallel CPU load leaves a camera seek
+  on low-resolution tiles and reads as a false END SNAP) and `verify-slide-settle-electron.cjs` (electron tier, offscreen and window-free, `exclusive`,
   ~4.5 min, 54+ real clicks under a fresh `HOME`; needs an x11 ozone display and a GPU-capable Electron) are
   members of `group:slide-transforms`, so `run-verifies --group slide-transforms` RUNS THE ELECTRON TIER: never
   two Electron gates at once on one machine (wrap them in `flock`), and never a WINDOWED Electron gate
@@ -3516,6 +3517,27 @@ CI (`.github/workflows/ci.yml`) runs type-check → build → pure tier → bund
 headless path again on `windows-latest` as `test-windows` — both of the latter observing
 (`continue-on-error`, promotion rule in §10). A gate that is green on Linux and red on Windows
 is the reason the Windows job exists; read §9's Windows entries before touching the gate.
+
+**One deadline per script: `execution.<script>.timeoutMs`.** Until 2026-11-08 a top-level `timeouts` map took precedence in
+the runner and silently shadowed three contracts — `verify-slide-settle-sweep` (raised to 480 s on 10-23) and
+`verify-slide-settle-electron` (60 min, 10-24) kept running at 300 s / 600 s — so the raise "landed" and CI kept timing out.
+The map is gone and `verify-manifest-contracts` refuses it. Size a contract from MEASURED CI durations (the run's
+`pure-verify-summary` artifact has every attempt's `ms`): GitHub's 4-vCPU runner reads spawn-heavy gates 5–10× this desk
+(tsx cold start per child: `verify-registry-parity`, `verify-inbox`), Chrome gates ~3×; keep ≥ 1.5× headroom over the worst
+reading and say where the number came from in the commit.
+
+**Host-scaled wall-clock budgets (`FLUX_PERF_SCALE`, 2026-11-08).** An absolute millisecond pin in a pure gate was authored
+on the reference workstation; the hosted runner reads the same code 4–11× slower (CI-green report,
+`notes/v030_overnight_2026-11-08/CI_GREEN_REPORT.md`). A pin opts in through `perfBudget(ms)` (`scripts/lib/perfBudget.mjs`):
+the effective budget is `ms × FLUX_PERF_SCALE` and the assertion prints its arithmetic — `67.3 ms (< 40 × 4 = 160,
+FLUX_PERF_SCALE=4)` — so a scaled pass is never read as the authored one. Unset = 1: local runs keep every budget exactly.
+Only absolute wall-clock pins opt in; ratios ("< 1.4× the 16-glide case"), counts, pixel residuals and structure never
+scale. `ci.yml` sets the value from MEASURED readings (worst observed reading ÷ its pin over recent main runs, rounded up;
+4 from `verify-relayout-perf`'s 36.6 ms dense apply against 10 ms) — never to absorb a new slowdown, and the value is
+bounded to [1, 8]. The opted-in pins are those of `verify-xray-context`, `verify-morph-path`, `verify-plots-rail-model`,
+`verify-relayout-perf`, `verify-relayout-spike` and `verify-text-lanes` (`grep perfBudget scripts`); those six gates are
+also `exclusive`, so their microbenchmarks no longer share the CPUs with three Chrome-driving neighbours. The runner
+validates the variable once and records it as `config.perfScale` in `summary.json`.
 
 Every script named in a tier needs an `execution` contract in the manifest. One missing
 contract aborts `--tier pure` before anything runs ("Missing/invalid execution contract"). This
@@ -4187,7 +4209,7 @@ days (probe geometry like `width` instead).
   value, and remember the exec bit belongs to the HOST filesystem, not the target platform
   (a cross-build from Windows cannot stage one). `process.kill(pid,"SIGTERM")` terminates a child
   outright, reporting code 1 and no signal, so assert the property (never exit zero) rather than
-  the mechanism. And an extensionless `#!/usr/bin/env node` shim on PATH is never found:
+  the mechanism. Likewise a native abort (resvg's Rust panic) is exit 0xC0000409 (3221226505) there, never SIGABRT. And an extensionless `#!/usr/bin/env node` shim on PATH is never found:
   `execResolve` resolves through PATHEXT and deliberately prefers a real `.exe` in ANY PATH dir
   over an earlier batch shim, so a fault-injecting `quarto.cmd` only shadows the real one if the
   fault bin IS the whole PATH.
@@ -12214,3 +12236,30 @@ keystroke path at 20k lines); paper-gate 71/72 (electron gate blocked: no privat
 - A whole-document pass in V8 is dominated by per-token allocation, not the regex: lowercase the
   masked text once (when it keeps offsets), tokenize once into arrays, and gather occurrences only
   for candidate forms found in a vocabulary pass (consistency pack 95 → ~35 ms at 20k lines).
+
+### 2026-11-08 — CI green: the blocking `test` job, red since 10-22 (Claude Opus 5.5, `v030/ci-green`)
+**Work:** Eleven pure gates red on every main push. Evidence from `gh` (six runs' logs + the run's
+`pure-verify-summary` artifact, which holds every gate's full stdout and `summary.json` durations — the job log
+keeps only the last 30 lines of a red gate) and a CI emulation (full pure tier pinned to 4 cores at `--jobs 4`,
+which reproduced the rewind red to the pixel). Six absolute ms pins → `FLUX_PERF_SCALE` (§7; ci.yml 4, measured
+3.66) and `exclusive`. The runner's deadline came from a legacy `timeouts` map that shadowed three contracts
+(the settle sweep's 480 s never applied) → one deadline per gate, sized from CI readings (registry-parity 600 s,
+inbox 240 s — slow, not hung —, settle sweep 900 s + exclusive, three near-misses). A real player bug: the
+baked glyph loader settled a microtask late, so a seek before the idle warm-up flew glyph BOXES (the CI "6"). The
+rewind gate's camera pass was a timing accident (which raster a frame came from depended on host speed). Bonus:
+four Windows `URL.pathname` gates + the same bug in `flux-core/connect/collect.ts`, Windows' native abort status,
+ui-gate's missing pandoc and Arial, and text-morph-browser counting a pre-warmed hidden span layer (reproduced on Linux
+with prompt idle callbacks). Report: `notes/v030_overnight_2026-11-08/CI_GREEN_REPORT.md`.
+**Learnings:**
+- When a CI gate is red and green here, read the uploaded artifact before theorising: the decisive line
+  ("✗ pandoc produced …", the last check before a kill) was above the log's 30-line tail every time.
+- A raised timeout that "doesn't take" means two sources of truth; grep the runner for every place it reads one.
+- "Timeout" is not "hang": compare the kill point with a local process trace of the same gate (inbox died 90 %
+  through its time, in its claim races, with no child deadline hit) and with older passing CI durations.
+- A gate that fakes rAF must still let the compositor present: a will-change layer is rasterized at the pose of
+  the first REAL frame after promotion, so what a screenshot shows depends on real time between fake frames.
+- A loader whose answer is already in memory must answer synchronously; a one-microtask "pending" is a visible
+  frame of fallback on a host where the idle warm-up comes late. Disable `requestIdleCallback` in a gate to
+  measure that order on every host.
+- Emulate the runner before pushing a CI change (`taskset -c 0-3 … --tier pure --jobs 4` with the CI env): it
+  caught a runner self-test that assumed FLUX_PERF_SCALE was unset.

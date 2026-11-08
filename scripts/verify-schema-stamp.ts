@@ -7,6 +7,7 @@ import { promises as fs, readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { harness } from "./lib/harness.mjs";
 import { DECK_SCHEMA_VERSION, DECK_BASE_SCHEMA_VERSION, type Deck } from "../src/lib/slide/types";
 import { DECK_FEATURES, CANVAS_FEATURES, deckSchemaFor, canvasSchemaFor, compareSchema, supportsDeckSchema, DECK_EDITABLE, type SchemaFeature } from "../src/lib/slide/schemaStamp";
@@ -82,7 +83,7 @@ const scan = (dir: string): string[] => readdirSync(dir).flatMap((n) => {
   if (statSync(p).isDirectory()) return n === "node_modules" || n.startsWith(".") ? [] : scan(p);
   return /\.(ts|js|cjs|mjs|svelte)$/.test(n) && !n.endsWith(".gen.js") ? [p] : [];
 });
-const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const hits = new Map<string, number>();
 for (const f of ["src", "flux-core", "electron"].flatMap((d) => scan(path.join(repo, d)))) {
   const n = (readFileSync(f, "utf8").match(/\/\^0\\\.\[\d+\]\\\.\//g) ?? []).length;

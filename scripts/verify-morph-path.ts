@@ -12,6 +12,7 @@ import { suggestArcs, collidingFlights, suggestBeatArcs, ARC_CANDIDATES } from "
 import { elementStageOutlines } from "../src/lib/slide/targetGeometry";
 import { createDeck, addSlide, addElement, addBeat, setTransform, setTrackArc, suggestArcsForBeat, setTrackTurn } from "../src/lib/slide/ops";
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 import type { VectorNode } from "../src/lib/types";
 const h = harness("verify-morph-path");
 const N = (pts: number[][]): VectorNode[] => pts.map(([x, y]) => ({ x, y, type: "corner" as const }));
@@ -115,7 +116,8 @@ h.section("H2d: unequal-count rings align cheaply and the memo is content-keyed"
 h.section("H2g: a big equal-count ring aligns in bounded time (no O(n^2) first frame)");
 { const A = ring(5000, 100, .1), B = shift(A.slice().reverse(), 1234).map((p) => ({ ...p }));
   const t0 = performance.now(); const al = alignChains(A, B, true); const cold = performance.now() - t0;
-  h.ok(cold < 30, `5000-node equal ring cold align ${cold.toFixed(1)} ms < 30 ms (the exhaustive 2n x n search took ~214 ms)`);
+  const budget = perfBudget(30); // host-scaled wall-clock pin (guide §7)
+  h.ok(cold < budget.ms, `5000-node equal ring cold align ${cold.toFixed(1)} ms (< ${budget.text}; the exhaustive 2n x n search took ~214 ms)`);
   h.ok(al.reversed && al.b.every((p, i) => Math.abs(p.x - A[i].x) < 1e-9 && Math.abs(p.y - A[i].y) < 1e-9), "and it still finds the exact seam and direction of a shifted + reversed ring");
   const C = shift(A, 1234).map((p) => ({ ...p })), al2 = alignChains(A, C, true);
   h.ok(!al2.reversed && al2.b.every((p, i) => Math.abs(p.x - A[i].x) < 1e-9 && Math.abs(p.y - A[i].y) < 1e-9), "a 5000-node ring started 1234 nodes later is re-seamed back onto the identity pairing");

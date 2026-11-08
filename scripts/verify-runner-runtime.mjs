@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { executionSpec, executeAttempt, runtimeCommand, missingPrerequisites, isolatedEnv } from './lib/verifyRuntime.mjs';
 import { testElectronArgs, TestProcessScope } from './lib/testProcess.mjs';
+import { perfScale, perfBudget, MAX_PERF_SCALE } from './lib/perfBudget.mjs';
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'flux-runner-'));
 const spec = { runtime: 'node', isolation: 'scratch', externalNetwork: false, exclusive: false, prerequisites: [] };
 async function run(name, source, options = {}) {
@@ -13,6 +14,12 @@ async function run(name, source, options = {}) {
   return executeAttempt({ spec, file, cwd: process.cwd(), dir: path.join(scratch, name), timeout: 1500, ...options });
 }
 try {
+  // Host-scaled wall-clock budgets (guide §7): unset = 1 (every pin exactly as authored), bounded, and the
+  // printed budget carries its arithmetic so a scaled pass is never mistaken for the authored one.
+  assert.equal(perfScale({}), 1); assert.equal(perfScale({ FLUX_PERF_SCALE: '' }), 1); assert.equal(perfScale({ FLUX_PERF_SCALE: '2.5' }), 2.5);
+  for (const bad of ['0', '0.5', 'x', String(MAX_PERF_SCALE + 1), 'Infinity']) assert.throws(() => perfScale({ FLUX_PERF_SCALE: bad }), /FLUX_PERF_SCALE/);
+  assert.deepEqual(perfBudget(40, 1), { ms: 40, authoredMs: 40, scale: 1, text: '40' });
+  assert.deepEqual(perfBudget(40, 2.5), { ms: 100, authoredMs: 40, scale: 2.5, text: '40 × 2.5 = 100, FLUX_PERF_SCALE=2.5' });
   const clean = await run('isolated', `import os from 'node:os'; console.log(os.homedir()); console.log(process.env.XDG_CACHE_HOME); console.log('##VERIFY## '+JSON.stringify({checks:2,failed:0}));`);
   assert.equal(clean.status, 'passed'); assert.ok(clean.out.includes(path.join(scratch, 'isolated/home'))); assert.equal(clean.sentinel.checks, 2);
   assert.ok((await readFile(path.join(scratch,'isolated/stdout.log'),'utf8')).includes('##VERIFY##'));
@@ -87,7 +94,7 @@ try {
   // Exercise the real aggregate runner in an empty disposable Git repository.
   // Every implementation file is untracked: this is the exact old-evidence gap.
   const repo=path.join(scratch,'runner repository');await mkdir(path.join(repo,'scripts/lib'),{recursive:true});
-  for(const name of ['run-verifies.mjs','lib/verifyRuntime.mjs','lib/liveProxyFixture.cjs','lib/model3dPythonPrerequisite.cjs','lib/testProcess.mjs','lib/nodeCheck.mjs','lib/changedVerifies.mjs','lib/releasePolicy.mjs'])
+  for(const name of ['run-verifies.mjs','lib/verifyRuntime.mjs','lib/liveProxyFixture.cjs','lib/model3dPythonPrerequisite.cjs','lib/testProcess.mjs','lib/nodeCheck.mjs','lib/changedVerifies.mjs','lib/releasePolicy.mjs','lib/perfBudget.mjs'])
     await copyFile(path.resolve('scripts',name),path.join(repo,'scripts',name));
   await writeFile(path.join(repo,'.gitignore'),'test-results/\n');
   await writeFile(path.join(repo,'untracked-source.ts'),'original implementation');
@@ -99,6 +106,15 @@ try {
   const stable=JSON.parse(await readFile(path.join(repo,'test-results/summary.json'),'utf8'));
   assert.equal(stable.sourceStart.dirty,true);assert.equal(stable.sourceChanged,false);assert.equal(stable.sourceStart.digest,stable.sourceEnd.digest);assert.match(stable.sourceStart.indexDigest,/^[a-f0-9]{64}$/);
   assert.match(await readFile(path.join(stable.results[0].attempts[0].directory,'stdout.log'),'utf8'),/\/dev\/null memory/);
+  assert.equal(stable.config.perfScale,perfScale(process.env),'the run records the FLUX_PERF_SCALE it inherited (1 when unset; CI sets it)');
+  // ONE deadline per script, its contract's timeoutMs: a stale top-level `timeouts` map (it shadowed three contracts until
+  // 2026-11-08) is not read, and the host scale the run used is recorded with its evidence.
+  await writeFile(path.join(repo,'scripts/verify-manifest.json'),JSON.stringify({tiers:{pure:['fixture.mjs']},groups:{},timeouts:{'fixture.mjs':1},execution:{'fixture.mjs':{...spec,timeoutMs:120000}}}));
+  execFileSync(process.execPath,['scripts/run-verifies.mjs'],{cwd:repo,env:{...process.env,FLUX_TEST_MUTATE_SOURCE:'0',FLUX_PERF_SCALE:'3'},stdio:'pipe'});
+  const contract=JSON.parse(await readFile(path.join(repo,'test-results/summary.json'),'utf8'));
+  assert.equal(contract.results[0].status,'passed','the contract timeout governs; a 1 ms legacy `timeouts` entry is ignored');assert.equal(contract.config.perfScale,3);
+  assert.throws(()=>execFileSync(process.execPath,['scripts/run-verifies.mjs'],{cwd:repo,env:{...process.env,FLUX_PERF_SCALE:'0'},stdio:'pipe'}),'an invalid FLUX_PERF_SCALE refuses the whole run');
+  await writeFile(path.join(repo,'scripts/verify-manifest.json'),JSON.stringify({tiers:{pure:['fixture.mjs']},groups:{},execution:{'fixture.mjs':spec}}));
   assert.throws(()=>execFileSync(process.execPath,['scripts/run-verifies.mjs'],{cwd:repo,env:{...process.env,FLUX_TEST_MUTATE_SOURCE:'1'},stdio:'pipe'}));
   const changed=JSON.parse(await readFile(path.join(repo,'test-results/summary.json'),'utf8'));
   assert.equal(changed.sourceChanged,true);assert.notEqual(changed.sourceStart.digest,changed.sourceEnd.digest);assert.equal(changed.results[0].status,'passed');assert.equal(changed.passed,1);

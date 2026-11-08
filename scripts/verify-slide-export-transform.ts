@@ -309,6 +309,11 @@ try {
   const lettersOut = await slides.exportDeck(root, "letters");
   const page4 = await (browser as unknown as { newPage(): Promise<typeof page> }).newPage();
   page4.on("pageerror", (e: Error) => pageErrors.push(String(e)));
+  // The first seek must find the baked letters BEFORE the player's idle warm-up has asked for them: a busy
+  // host (CI, 4 vCPUs at --jobs 4) runs the seek first, and the flight used to plan one frame of glyph boxes
+  // (6 strips, the i in one box) because the in-file font settled a microtask late. No idle callback ever
+  // runs here, so every host measures that order.
+  await page4.evaluateOnNewDocument("window.requestIdleCallback = () => 0;");
   await page4.goto(pathToFileURL(lettersOut.path).href, { waitUntil: "load" });
   await page4.waitForFunction("!!window.fluxDeck");
   const flightAt = (ms: number) => page4.evaluate((ms) => {
@@ -317,7 +322,7 @@ try {
     return { paths: paths.length, boxHold: !!document.querySelector(".sl-flight .sl-handoff-text"), word: getComputedStyle(document.querySelector('[data-el-id="pour-word"]')!).visibility };
   }, ms);
   const pourMid = await flightAt(500), pourEnd = await flightAt(1000);
-  assert(pourMid.paths === 7 && !pourMid.boxHold, `exported shape → text Become flies the baked letter outlines (O-p-t-i-c-s, the i in two parts: 7) (${pourMid.paths}, no box fallback)`);
+  assert(pourMid.paths === 7 && !pourMid.boxHold, `exported shape → text Become flies the baked letter outlines (O-p-t-i-c-s, the i in two parts: 7) (${pourMid.paths}${pourMid.boxHold ? ", BOX FALLBACK" : ", no box fallback"}; first seek, before any idle warm-up)`);
   assert(pourEnd.paths === 0 && pourEnd.word === "visible", `…and flips to the live word at the end (${JSON.stringify(pourEnd)})`);
   assert(pageErrors.length === 0, "exported letter flight has no console errors");
   await page4.close();

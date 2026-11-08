@@ -13,6 +13,7 @@
 import { promises as fs, readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseHTML, DOMParser } from "linkedom";
 import { harness } from "./lib/harness.mjs";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
@@ -39,7 +40,7 @@ import { saveDeck, loadDeck, drawAlongXVerb } from "../flux-core/slides";
 const h = harness("verify-slide-sweep");
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) <= eps;
 const fixture = (name: string) => {
-  const base = path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "plots", `${name}_FLUXPLOT`);
+  const base = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "plots", `${name}_FLUXPLOT`);
   return { manifest: JSON.parse(readFileSync(`${base}.fluxplot.json`, "utf8")) as FluxPlotManifest, svg: readFileSync(`${base}.svg`, "utf8") };
 };
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -306,7 +307,7 @@ const build = (manifest: FluxPlotManifest, opts: Record<string, unknown> = {}, s
   h.ok(build(backwards).by("growth.line").params?.clock === undefined, "...and keeps the length-clock Data beat");
   const raster = clone(band.manifest); (raster.series[0] as { rasterized?: boolean }).rasterized = true;
   h.ok(!sweepable(raster, raster.series[0]), "a rasterized series has no vector line to sweep");
-  const ecdf = JSON.parse(readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "pre-regen", "08_ecdf.fluxplot.json"), "utf8")) as FluxPlotManifest;
+  const ecdf = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "pre-regen", "08_ecdf.fluxplot.json"), "utf8")) as FluxPlotManifest;
   const stepped = clone(band.manifest); (stepped.series[0] as unknown as { kind: string }).kind = "step";
   h.ok(ecdf.series.every(s => !sweepable(ecdf, s)) && !sweepable(stepped, stepped.series[0]), "an ECDF (mostly vertical runs) and a step line (its risers are drawn, not in its data) draw by length");
   const zoomed = clone(band.manifest); (zoomed.axes[0] as unknown as { x: { domain: number[] } }).x.domain = [4, 19];
@@ -317,7 +318,7 @@ const build = (manifest: FluxPlotManifest, opts: Record<string, unknown> = {}, s
   const ct = c.cues.flatMap(q => q.tracks).find(t => t.track.part === "growth.points")!, n = ct.ranks.length;
   const xs = (irregular.series[0].points ?? []).map(p => p.x), f = (x: number) => (x - xs[0]) / (xs[n - 1] - xs[0]);
   h.ok(ct.ranks.every((r, i) => near(r / (n - 1), f(xs[i]), 1e-6)) && near(Math.max(...ct.ranks), n - 1), "the compiler ranks the markers by the same pixel clock (rank / max = the point's normalised x; max = count - 1)");
-  const regression = JSON.parse(readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), "fixtures", "pre-regen", "06_scatter_regression.fluxplot.json"), "utf8")) as FluxPlotManifest;
+  const regression = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "pre-regen", "06_scatter_regression.fluxplot.json"), "utf8")) as FluxPlotManifest;
   const fit = build(regression, {}, "<svg viewBox='0 0 400 300'></svg>").by("fit.line");
   h.ok(sweepable(regression, regression.series.find(s => s.id === "fit")!) && fit.params?.clock === undefined && !!fit.anchor, "a fit line beside a scatter of another series is NOT swept: it keeps drawing while those points arrive");
   const perPanel = build(band.manifest, { perPanel: true });

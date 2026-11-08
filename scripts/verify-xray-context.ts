@@ -34,6 +34,7 @@ const { parsePlotSvg, prefixIds, applyOverrides, partDomId } = await import("../
 import type { XRow } from "../src/lib/xray/buildXrayTree";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { Figure, Project, SemanticPlotElement } from "../src/lib/types";
+import { perfBudget } from "./lib/perfBudget.mjs";
 
 let checks = 0;
 function assert(cond: unknown, msg: string) {
@@ -285,7 +286,8 @@ console.log("(h) rebuild cost");
   const tree = buildXrayTree(p, target, { big })!;
   const memberRows = tree.children.reduce((n, c) => n + (byPart(c, c.elementId!, "quiet-wake-acquisitions.points")?.children.length ?? 0), 0);
   assert(memberRows === 10000, `5 plots × 2,000 points = ${memberRows} member rows built`);
-  assert(ms < 40, `a full rebuild (tree + common rows) of 5 × 2,000-point plots takes ${ms.toFixed(1)} ms (< 40, headless)`);
+  const budget = perfBudget(40); // host-scaled wall-clock pin (guide §7)
+  assert(ms < budget.ms, `a full rebuild (tree + common rows) of 5 × 2,000-point plots takes ${ms.toFixed(1)} ms (< ${budget.text}, headless)`);
   console.log(`    (rebuild ${ms.toFixed(1)} ms)`);
 }
 

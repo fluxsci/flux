@@ -127,6 +127,9 @@ try {
   const errors: string[] = []; page.on("pageerror", (err: Error) => errors.push(String(err))); page.on("console", (msg) => { if (msg.type() === "error") errors.push(msg.text()); });
   // tsx names the arrow functions it compiles; the page needs its helper.
   await page.evaluateOnNewDocument("window.__name = (f) => f");
+  // Idle warm-ups run PROMPTLY on every host (as on a loaded runner, where they ran before the first seek reached slide 1 and
+  // pre-built its beat-2 Change's span layer, hidden): the owner's-examples counts below must not depend on which came first.
+  await page.evaluateOnNewDocument("window.requestIdleCallback = (cb) => setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 50 }), 0);");
   await page.goto(pathToFileURL(file).href); await page.waitForFunction("!!window.fluxDeck?.seek");
   const seek = (slide: number, time: number, beat = 1) => page.evaluate(({ slide, time, beat }) => (window as any).fluxDeck.seek(slide, beat, time), { slide, time, beat });
   const state = () => page.evaluate(() => {
@@ -136,7 +139,7 @@ try {
     // a static render that does not show is painted at HANDOVER_FLOOR (0.0005), never hidden (textMorph.ts: its layer lives for the slide)
     const layers = morph ? Array.from(morph.parentElement!.children).map((n) => getComputedStyle(n).visibility === "visible" && Number(getComputedStyle(n).opacity) > 0.001 ? "visible" : "hidden") : [];
     return {
-      spans: spans.map((s) => ({ text: s.textContent, kind: s.dataset.kind, role: s.dataset.role, visible: getComputedStyle(s).visibility === "visible", opacity: Number(getComputedStyle(s).opacity), promoted: s.style.willChange === "transform", m: matrix(s),
+      spans: spans.map((s) => ({ el: s.closest("[data-el-id]")?.getAttribute("data-el-id") ?? null, text: s.textContent, kind: s.dataset.kind, role: s.dataset.role, visible: getComputedStyle(s).visibility === "visible", opacity: Number(getComputedStyle(s).opacity), promoted: s.style.willChange === "transform", m: matrix(s),
         rect: (() => { const r = s.querySelector("text")!.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })() })),
       layers, morphVisible: morph ? getComputedStyle(morph).visibility : null,
       flightText: Array.from(document.querySelectorAll<HTMLElement>(".sl-flight-text")).map((l) => ({ visible: getComputedStyle(l).visibility, beforeFlight: l.nextElementSibling?.classList.contains("sl-flight") ?? false })),
@@ -211,10 +214,10 @@ try {
 
   // --- 1: the owner's examples -------------------------------------------------
   await seek(1, 875); st = await state();
-  const owner = st.spans;
+  const owner = st.spans.filter((s) => s.el === "become"); // the Become's own layer: the beat-2 Change's pre-warmed (hidden) layer is not part of it
   h.ok(owner.some((s) => s.kind === "exit" && s.visible) && owner.some((s) => s.kind === "enter" && s.visible), "owner Become mid-flight: letters of both words are on screen (the wave overlaps)");
   h.ok(owner.filter((s) => s.kind === "exit").length === 10 && owner.filter((s) => s.kind === "enter").length === 14, `owner Become: a letter wave (10 out, 14 in; got ${owner.filter((s) => s.kind === "exit").length} out, ${owner.filter((s) => s.kind === "enter").length} in, texts ${JSON.stringify(owner.map((s) => s.text).join(""))})`);
-  await seek(1, 450); const wave = (await state()).spans.filter((s) => s.kind === "exit").map((s) => s.opacity);
+  await seek(1, 450); const wave = (await state()).spans.filter((s) => s.el === "become" && s.kind === "exit").map((s) => s.opacity);
   h.ok(wave.every((o, i) => !i || o >= wave[i - 1] - 1e-6) && wave[0] < wave[wave.length - 1], `owner Become: the exit wave runs in reading order (${wave.map((o) => o.toFixed(2)).join(" ")})`);
   await seek(1, 875, 2); st = await state();
   const textGlide = st.spans.find((s) => s.kind === "glide" && s.text === "text");
