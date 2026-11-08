@@ -114,7 +114,9 @@ for (const { name, rows } of results) for (const r of rows) {
   console.log(tableRow(r, name));
   const key = openKey(name, r.slideId, r.from, r.to), open = KNOWN_OPEN[key];
   const { failing, tolerated, stale } = judge(r.flags, open, "seek", seekFlagValue(r));
-  h.ok(failing.length === 0 && stale.length === 0, `${key} (${r.label}, ${Math.round(r.dur)} ms): ${failing.join(", ") || (stale.length ? `STALE KNOWN_OPEN entry (${stale.join(", ")} no longer fires: delete it from scripts/lib/slideSettleSweep.ts)` : "clean start, clean landing")}${tolerated.length ? ` [known open: ${tolerated.join(", ")} - ${open!.owner}]` : ""}`);
+  const value = seekFlagValue(r);
+  const named = failing.map(f => { const v = value(f); return v === undefined ? f : `${f} ${Math.round(v * 10) / 10}`; });
+  h.ok(failing.length === 0 && stale.length === 0, `${key} (${r.label}, ${Math.round(r.dur)} ms): ${named.join(", ") || (stale.length ? `STALE KNOWN_OPEN entry (${stale.join(", ")} no longer fires: delete it from scripts/lib/slideSettleSweep.ts)` : "clean start, clean landing")}${tolerated.length ? ` [known open: ${tolerated.join(", ")} - ${open!.owner}]` : ""}`);
 }
 {
   const measured = new Set(results.flatMap(({ name, rows }) => rows.map(r => openKey(name, r.slideId, r.from, r.to))));

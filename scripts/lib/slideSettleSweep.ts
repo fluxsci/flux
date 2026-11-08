@@ -21,6 +21,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { exportDeckHtml } from "../../src/lib/slide/export/exportDeck";
 import { cueEnd } from "../../src/lib/slide/video";
 import type { Deck, Slide } from "../../src/lib/slide/types";
+import { perfScale } from "./perfBudget.mjs";
 
 export const FRAME_MS = 1000 / 60;
 /** Tiny windows (ms): wide enough that an eased start still moves < 1/255 of a level, narrow enough that a pop is a spike. */
@@ -176,7 +177,11 @@ export interface SweepOptions { slides?: number[]; cues?: (slide: Slide, from: n
 export async function sweepDeck(sp: SweepPage, payload: SweepPayload, opts: SweepOptions = {}): Promise<CueRow[]> {
   const { page, k, clip } = sp;
   const seek = (s: number, b: number, t: number, from = b) => page.evaluate(({ s, b, t, from }) => { (window as unknown as { fluxDeck: Hook }).fluxDeck.seek(s, b, t, from); }, { s, b, t, from });
-  const settle = () => page.evaluate(`new Promise(r => requestAnimationFrame(r))`);
+  // One presented frame after a seek on the reference desk; a slower host (the hosted runner's SwiftShader
+  // under FLUX_PERF_SCALE, guide §7) gets as many frames as its scale before the pixels are judged. The law
+  // judges the LANDING, not how many frames a host needs to present it.
+  const settleFrames = Math.max(1, Math.ceil(perfScale()));
+  const settle = () => page.evaluate(`new Promise(r => { let n = ${settleFrames}; const step = () => (--n <= 0 ? r() : requestAnimationFrame(step)); requestAnimationFrame(step); })`);
   const grab = async (s: number, b: number, t: number, from = b) => {
     await seek(s, b, t, from); await settle();
     const img = await loadImage(await page.screenshot({ clip, type: "png" }) as Buffer);
