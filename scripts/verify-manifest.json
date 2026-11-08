@@ -10191,7 +10191,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 240000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-inbox-wait.ts": {

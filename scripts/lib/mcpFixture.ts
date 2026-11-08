@@ -3,6 +3,10 @@ import * as path from 'node:path';
 import { TestProcessScope } from './testProcess.mjs';
 import { resolveSpawn } from '../../electron/execResolve.cjs';
 import { installLaunchers, resolveOwnCliCommandsSync } from '../../electron/fluxPaths.cjs';
+// Startup, per-call and process deadlines are wall-clock: a contended hosted runner (4 vCPU shared with
+// Chrome gates) cold-starts flux-core under tsx ~10× slower than the reference desk, so they scale with
+// FLUX_PERF_SCALE like every other wall-clock pin (guide §7). Unset = 1: local runs are unchanged.
+import { perfScale } from './perfBudget.mjs';
 
 export async function installTestLauncher(repo: string, binDir: string) {
   const runtime = resolveOwnCliCommandsSync({ appRoot: repo, binDir, nodePath: process.execPath, packaged: false, appImage: '' });
@@ -17,7 +21,7 @@ export async function rawMcp(launcher: string, cwd: string, args: string[] = [],
   const scope = new TestProcessScope();
   const resolved = resolveSpawn(launcher, ['mcp', ...args]);
   const entry = scope.spawn(resolved.args[0], resolved.args.slice(1), { command: resolved.command, windowsVerbatimArguments: resolved.windowsVerbatimArguments, nodeArgs: [], cwd,
-    env: { ...env, FLUX_NO_MIGRATE: '1' }, deadlineMs: 120000 });
+    env: { ...env, FLUX_NO_MIGRATE: '1' }, deadlineMs: 120000 * perfScale() });
   const pending = new Map<number, { resolve: (r: any) => void; reject: (e: Error) => void }>();
   const unsolicited: unknown[] = [];
   let sequence = 0, buffer = '', protocolError: Error | undefined;
@@ -36,7 +40,7 @@ export async function rawMcp(launcher: string, cwd: string, args: string[] = [],
   try {
     // Server readiness is on stderr; stdout must remain entirely empty until initialize.
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`MCP startup timeout: ${entry.stderr}`)), 30000);
+      const timer = setTimeout(() => reject(new Error(`MCP startup timeout: ${entry.stderr}`)), 30000 * perfScale());
       const ready = () => { if (entry.stderr.includes('flux MCP server on stdio')) { clearTimeout(timer); entry.child.stderr.off('data', ready); resolve(); } };
       entry.child.stderr.on('data', ready); ready();
       entry.closed.then(() => { clearTimeout(timer); reject(new Error(`MCP exited before ready: ${entry.stderr}`)); });
@@ -47,7 +51,7 @@ export async function rawMcp(launcher: string, cwd: string, args: string[] = [],
     if (protocolError) throw protocolError;
     const id = ++sequence;
     return await new Promise<any>((resolve, reject) => {
-      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`MCP ${method} timed out: ${entry.stderr}`)); }, 30000);
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`MCP ${method} timed out: ${entry.stderr}`)); }, 30000 * perfScale());
       pending.set(id, { resolve: r => { clearTimeout(timer); resolve(r); }, reject: e => { clearTimeout(timer); reject(e); } });
       entry.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
     });

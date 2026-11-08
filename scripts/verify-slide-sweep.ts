@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseHTML, DOMParser } from "linkedom";
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { Track, Deck } from "../src/lib/slide/types";
 import { preparePlot } from "../src/lib/plot/parse";
@@ -115,7 +116,8 @@ for (const n of [200, 5000, 20000]) {
   h.ok(keys.length <= 4000, `${n} vertices -> ${keys.length} keys (<= 4000)`);
   h.ok(worstX < 1e-6 * span + 1e-9, `${n}: the pen's x IS the clock (max error ${worstX.toExponential(1)} px)`);
   h.ok(worst <= 0.25, `${n}: the pen within 0.25 px of the line (max ${worst.toFixed(3)} px)`);
-  h.ok(ms < (n > 5000 ? 80 : 30), `${n}: plan cost ${ms.toFixed(1)} ms (parse excluded) is bounded`);
+  const planBudget = perfBudget(n > 5000 ? 80 : 30); // host-scaled wall-clock pin (guide §7): CI read 32.3 ms at n = 5000
+  h.ok(ms < planBudget.ms, `${n}: plan cost ${ms.toFixed(1)} ms (parse excluded) is bounded (< ${planBudget.text})`);
   h.ok(keys.every((k, i) => i === 0 || k.offset > keys[i - 1].offset) && keys.every((k, i) => i === 0 || k.s >= keys[i - 1].s), `${n}: offsets strictly increase, length never shrinks`);
 }
 {

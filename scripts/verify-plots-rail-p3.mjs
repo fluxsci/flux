@@ -141,8 +141,10 @@ h.section("Peek");
   // Tile to tile: no new dwell.
   const pd = await pagePoint("/fixtures/dark.svg");
   await page.mouse.move(pd.x, pd.y);
-  await sleep(60);
-  h.ok((await peekName()).startsWith("dark.svg"), "moving to another tile switches Peek at once (no new dwell)");
+  // Condition-based, bounded UNDER the 350 ms dwell: a switch that arrives in time proves no re-dwell
+  // (a bare 60 ms sleep raced the thumbnail swap on the hosted runner, 2026-11-08).
+  const switched = await waitFor(page, () => document.querySelector("[data-plots-peek] [data-peek-name]")?.textContent.startsWith("dark.svg"), null, { label: "peek switch", timeout: 300 }).then(() => true, () => false);
+  h.ok(switched && (await peekName()).startsWith("dark.svg"), "moving to another tile switches Peek at once (no new dwell)");
   h.eq(await page.evaluate(() => document.querySelector("[data-plots-peek] [data-peek-backdrop]")?.textContent.trim()), "Light ink — dark backdrop", "the swatch explains the tile's backdrop");
   const pf2 = await pagePoint("/panels/editable.svg");
   await page.mouse.move(pf2.x + 40, pf2.y + 40); await page.mouse.move(pf2.x, pf2.y, { steps: 4 });
