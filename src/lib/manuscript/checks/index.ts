@@ -15,6 +15,7 @@ import { referencesPack } from "./references";
 import { displayPack } from "./display";
 import { placeholdersPack } from "./placeholders";
 import { abbreviationsPack } from "./abbreviations";
+import { consistencyPack } from "./consistency";
 import { commentsPack } from "./comments";
 import {
   CHECK_PACKS,
@@ -36,6 +37,7 @@ const RUNNERS: Record<CheckPackId, PackRun> = {
   display: displayPack,
   placeholders: placeholdersPack,
   abbreviations: abbreviationsPack,
+  consistency: consistencyPack,
   comments: commentsPack,
 };
 

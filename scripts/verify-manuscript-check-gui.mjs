@@ -194,8 +194,9 @@ console.log(`  · settle long tasks (ms): pane closed ${JSON.stringify(closed.se
 h.eq(open.runsDuring, 0, "no check runs during a typing burst with the pane open (nothing on the keystroke path)");
 h.eq(settled.mode, "worker", "the post-typing re-check runs in the worker");
 // Relative budget (machine speed cancels): the open pane may not add more than
-// 50% (+2 ms floor for sub-ms noise) to the per-keystroke synchronous cost.
-h.ok(oP95 <= Math.max(cP95 * 1.5, cP95 + 2), `keystroke p95 with the pane open (${oP95.toFixed(2)} ms) within budget of closed (${cP95.toFixed(2)} ms)`);
+// 50% (+3 ms floor: two 22-sample bursts on a loaded machine differ by ~1.5 ms
+// with nothing in between) to the per-keystroke synchronous cost.
+h.ok(oP95 <= Math.max(cP95 * 1.5, cP95 + 3), `keystroke p95 with the pane open (${oP95.toFixed(2)} ms) within budget of closed (${cP95.toFixed(2)} ms)`);
 // The settle with the pane open adds no main-thread long task (≥50 ms) beyond
 // what the editor's own idle work costs with it closed: the check ran in the
 // worker and the pane paints at most 50 rows per pack.

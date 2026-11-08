@@ -1,8 +1,9 @@
 // Manuscript Check off the main thread: the pane posts plain inputs, this runs
 // the shared pure core (lib/manuscript/checks) and posts the result back. A
-// whole-document run on the 20k-line scale fixture costs ~60 ms — over the
+// whole-document run on the 20k-line scale fixture costs ~85–115 ms — over the
 // 50 ms a main-thread task may take beside typing (guide §6) — so it never
-// runs on the renderer thread while a worker is available.
+// runs on the renderer thread while a worker is available. (A typical
+// manuscript of a few thousand lines costs ~5 ms.)
 import { checkManuscript, type CheckInput } from "../../../../lib/manuscript/checks/index";
 
 self.onmessage = (event: MessageEvent<{ id: number; input: CheckInput }>) => {

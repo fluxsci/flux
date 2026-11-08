@@ -1763,7 +1763,7 @@ export const VERBS: VerbDef[] = [
     cli: "check",
     cliRoot: "flags",
     summary:
-      "Manuscript Check. Deterministic pre-submission checks on one document (omit doc for the main manuscript): undefined cross-references and citekeys, duplicate or incomplete references, figures/tables cited out of order or never cited, empty captions, leftover placeholders (TODO, [??]), abbreviation use, open comment threads. Each finding has a rule id, severity, line and, where unambiguous, an exact fix. packs: references, display, placeholders, abbreviations, comments (comma-separated; default all).",
+      "Manuscript Check. Deterministic pre-submission checks on one document (omit doc for the main manuscript): undefined cross-references and citekeys, duplicate or incomplete references, figures/tables cited out of order or never cited, empty captions, leftover placeholders (TODO, [??]), abbreviation use, inconsistent spellings (data set/dataset, colour/color), open comment threads. Each finding has a rule id, severity, line and, where unambiguous, an exact fix. packs: references, display, placeholders, abbreviations, consistency, comments (comma-separated; default all).",
     params: { doc: z.string().optional(), packs: z.array(z.string()).optional(), json: z.boolean().optional() },
     cliArgs: [
       { kind: "flag", at: "doc", into: "doc" },

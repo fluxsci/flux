@@ -10,7 +10,7 @@
 export type CheckSeverity = "error" | "warn" | "info";
 
 /** Rule packs, in display order. */
-export const CHECK_PACKS = ["references", "display", "placeholders", "abbreviations", "comments"] as const;
+export const CHECK_PACKS = ["references", "display", "placeholders", "abbreviations", "consistency", "comments"] as const;
 export type CheckPackId = (typeof CHECK_PACKS)[number];
 
 export const PACK_TITLES: Record<CheckPackId, string> = {
@@ -18,6 +18,7 @@ export const PACK_TITLES: Record<CheckPackId, string> = {
   display: "Figures & tables",
   placeholders: "Placeholders",
   abbreviations: "Abbreviations",
+  consistency: "Consistent terms",
   comments: "Comments",
 };
 

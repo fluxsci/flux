@@ -151,7 +151,7 @@ The established shared cores — extend these, don't duplicate them:
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/lib/manuscript/frontmatter.ts` (`paper/frontmatter.ts` re-exports it) | `verify-frontmatter.ts` |
 | Citation scanning — every `@key` outside front matter, code and math; ordinals; cited-key sets (editor chips, renderer, References red dots, flux-core `compile` summary and FluxLib reconcile) | `src/lib/manuscript/citations.ts` (+ `grammar.ts`; `scholar/citeNumbering.ts` re-exports `buildCitationOrdinals`) | `verify-citenum.ts`, `verify-manuscript-check.ts` §A (incl. a census that flux-core has no private cite regex) |
-| Manuscript Check rule packs (references, display items, placeholders, abbreviations, comments) and their exact fixes | `src/lib/manuscript/checks/` (Paper pane runs it in `margin/manuscriptCheck.worker.ts`; flux-core `check.ts` is IO only) | `verify-manuscript-check.ts` (corpus + real CLI / flux-core / MCP / pure parity), `verify-manuscript-check-gui.mjs` (GUI ≡ pure) |
+| Manuscript Check rule packs (references, display items, placeholders, abbreviations, consistent terms, comments) and their exact fixes | `src/lib/manuscript/checks/` (Paper pane runs it in `margin/manuscriptCheck.worker.ts`; flux-core `check.ts` is IO only) | `verify-manuscript-check.ts` (corpus + real CLI / flux-core / MCP / pure parity), `verify-manuscript-check-gui.mjs` (GUI ≡ pure) |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
@@ -3183,7 +3183,7 @@ Venue-independent, deterministic "ready to send?" checks: ONE platform,
 over ONE shared scan (`context.ts`: masked prose, cross-refs via `grammar.crossrefRe`, citations
 via `citations.ts`, embeds, `tableModel` tables, `refNumbers.scanEqNumbers`, `{#label}` defs) and
 one file per pack — `references.ts`, `display.ts`, `placeholders.ts`, `abbreviations.ts`,
-`comments.ts`. Rule ids, severities and the fix list are in each file's header. A finding carries
+`consistency.ts`, `comments.ts`. Rule ids, severities and the fix list are in each file's header. A finding carries
 `doc`, `from/to`, `line/col` and, only where the edit is unambiguous, `fix.edits[]` with the
 `expect` text the range must still hold (`applyCheckFix` is the reference semantics; the pane
 dispatches the same edits as ONE CodeMirror transaction, `userEvent: "input.check-fix"`, so one
@@ -3193,7 +3193,8 @@ display, caption, panels) — the GUI maps `figureRefs`, flux-core `check.ts` pr
 `loadFigModel` the same way; the bibliography is parsed with `lightBibEntries` in both engines
 when the raw `library.bib` is at hand (`bibSource`). Scheduling (§6): the pane runs on summon, on
 `latestIdle` and on Check now, in a module worker (`manuscriptCheckService.ts`, latest-wins, main-
-thread fallback); a 20k-line run costs ~45–70 ms in the worker and nothing on the keystroke path.
+thread fallback); a 20k-line run costs ~85–115 ms in the worker (context scan ~40, abbreviations
+~15, consistency ~35) and nothing on the keystroke path.
 It renders ≤50 rows per pack until asked. Dev telemetry: `window.__flux.manuscriptCheck`
 (`runs`, `lastMs`, `lastMode`).
 
@@ -3408,7 +3409,9 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   keeps interrupts attached to the runner. A stopped shell is not proof that its runner
   children stopped: confirm the final summary before starting another cohort.
   An exact-path entry must retain the regression groups of the broader entry it supersedes:
-  pathMap uses the first matching entry, not the union of all matching entries.
+  pathMap uses the first matching entry, not the union of all matching entries. MOVING a file
+  changes its first match too: hoisting `src/shell/modes/paper/**` modules into `src/lib/` drops
+  their paper-gate coverage unless a rule keeps it (2026-11-08, Manuscript Check).
   The manifest round-trips through `JSON.stringify(m, null, 2)` byte-identically, so a three-way
   STRUCTURAL merge (parse base/ours/theirs; union tiers/groups/execution; insert theirs-new pathMap
   rules after their predecessor) is the safe way to merge it — never re-sort `execution` (the block is
@@ -3424,7 +3427,10 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   `verify-changed-pathmap.mjs` (`actualCases` pins exact routes and fails closed): 2026-10-22,
   `verify-cursor-press.mjs` joined four cursor routes on the Mac, the five pins stayed stale, and
   main arrived red because the focused gates run there never included the pure tier.
-  `group:paper-gate` is the paper editor's regression suite. `group:model3d` is the 3D suite;
+  `group:paper-gate` is the paper editor's regression suite. It includes one electron gate
+  (`verify-v020-gui-export-recovery.cjs`, which SHOWS a window): from an agent shell on the
+  owner's machine run the group with `env -u DISPLAY -u WAYLAND_DISPLAY` (the gate then reports
+  blocked) or with a private Xvfb per the bundle/electron paragraph above. `group:model3d` is the 3D suite;
   `group:model3d-pure` and `group:model3d-ui` are its pure and dev-server slices, and the
   native S8 cohort (`verify-model3d-s8.cjs`) and eight-model scale gate need a quiet display. Use
   `node scripts/run-verifies.mjs --list` for current tier/group counts and membership. For parallel
@@ -12108,3 +12114,23 @@ Judgment calls: `docs/journal_export_notes.md`.
   filter was dropped by the first draft, exactly as a user's own Lua filter would have been.
 - Packaging allowlists rot silently: `resources/csl`/`docx` had never shipped. Pin assets in a gate.
 - LibreOffice is the cheapest way to SEE a generated .docx from an agent shell (fresh profile dir).
+
+### 2026-11-08 — Manuscript Check: one platform, six rule packs, Alt+K + `flux check` (Claude Fable 5.1, `v030/paper-checks`)
+**Work:** Built the deterministic pre-submission checks from the v0.3.0 brainstorms as ONE pure core
+(`src/lib/manuscript/checks/`: references, display items, placeholders, abbreviations, consistent
+terms, comments) with exact guarded fixes, a worker-backed Paper margin pane (Alt+K) and the
+read-only `check_manuscript` verb. Closed the citation-scanner drift on the way (one scanner for the
+chips, export, References dots, flux-core compile and FluxLib reconcile) by hoisting the editor's
+grammar/front-matter/table/ref-number modules into `src/lib/manuscript/`. Gates: pure 83 checks
+(corpus + real CLI/flux-core/MCP/pure parity), ui 20 checks (GUI ≡ pure, fix/undo, zero runs on the
+keystroke path at 20k lines); paper-gate 71/72 (electron gate blocked: no private display).
+**Learnings:** (promoted to §2 table, §4 "Manuscript Check", §7 pathMap + paper-gate notes, §9 two traps)
+- Hoisting a `src/shell` module into `src/lib` silently moves it out of its pathMap rule: the hoisted
+  paths fell from `src/shell/modes/paper/**` (paper-gate) to `src/lib/manuscript/**` (three gates).
+  Give hoisted files an explicit rule that keeps their old groups; check with `globToRegExp`.
+- `group:paper-gate` contains an ELECTRON gate (`verify-v020-gui-export-recovery.cjs`, `win.show()`):
+  with `DISPLAY=:0` inherited it opens a window on the owner's screen. Run the group with
+  `env -u DISPLAY -u WAYLAND_DISPLAY …` (it then reports blocked) unless you own a private Xvfb.
+- A whole-document pass in V8 is dominated by per-token allocation, not the regex: lowercase the
+  masked text once (when it keeps offsets), tokenize once into arrays, and gather occurrences only
+  for candidate forms found in a vocabulary pass (consistency pack 95 → ~35 ms at 20k lines).

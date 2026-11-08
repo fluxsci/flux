@@ -73,8 +73,8 @@ constructs become live fields. Figure captions stay on the figure model.
 
 Use `check [--doc r]` after editing prose: it lists undefined cross-references and
 citekeys, duplicate or incomplete references, figures and tables cited out of order or
-never cited, empty captions, leftover TODO/`[??]` placeholders, abbreviation problems
-and open comments, with an exact fix where one is unambiguous. Fix what it reports;
+never cited, empty captions, leftover TODO/`[??]` placeholders, abbreviation problems,
+inconsistent spellings and open comments, with an exact fix where one is unambiguous. Fix what it reports;
 it is the same list the human sees in Paper (Alt+K). Use `validate` after authoring
 to check project structure, empty figures, figures
 not embedded in any document, and overlapping canvas frames. Read

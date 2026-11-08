@@ -6,7 +6,8 @@
 //   B. Rule corpus, pack by pack: fixtures with KNOWN defects → the EXACT
 //      findings (rule, line, excerpt), with named negatives (a @sec- that
 //      resolves, a cite in code or math, "(n = 5)", "(SLAP2)" after an
-//      unrelated phrase, a TODO in a fence, a shouted line…).
+//      unrelated phrase, a TODO in a fence, a shouted line, "follow up" the
+//      verb beside "follow-up" the noun…).
 //   C. Fixes: every offered fix applies, and the re-check no longer reports
 //      it; a fix whose text moved on is refused (the `expect` guard).
 //   D. Scale: the whole run on the 20k-line paper scale fixture is recorded
@@ -283,7 +284,35 @@ h.eq(applyCheckFix(abDoc, firstUse.fix!.edits)?.split("\n")[2],
   "define-at-first-use moves the definition up (sentence-initial capital kept)");
 
 // =============================================================================
-h.section("B5. comments");
+h.section("B5. consistent terms");
+const conDoc = [
+  "We built a data set from the dataset archive; the dataset was large. Data set two followed.", // 1
+  "Wild-type mice, wildtype controls and wild type littermates; wild-type again.", // 2
+  "Cells were analysed, then analyzed again; colour and color. Modelling and modeling.", // 3
+  "We follow up later; the follow-up showed it. Pour it in to the flask, into the flask.", // 4
+  "Smith et al showed it, as did Jones et al. (2020). A \"data-set\" in quotes stays.", // 5
+  "Non-linear and nonlinear and nonlinear. Precise, four hours, `wildtype` in code.", // 6
+].join("\n");
+const conRes = run(conDoc, { packs: ["consistency"] });
+h.eq(conRes.findings.map((f) => [f.ruleId, f.line, f.excerpt, f.fix?.label ?? ""]), [
+  ["consistency.variant", 1, "dataset", 'Use "data set" everywhere'],
+  ["consistency.variant", 2, "wildtype", 'Use "wild-type" everywhere'],
+  ["consistency.variant", 3, "analyzed", 'Use "analysed" everywhere'],
+  ["consistency.variant", 3, "color", 'Use "colour" everywhere'],
+  ["consistency.variant", 3, "modeling", 'Use "modelling" everywhere'],
+  ["consistency.et-al", 5, "et al", "Add the period"],
+  ["consistency.variant", 6, "Non-linear", 'Use "nonlinear" everywhere'],
+], "consistency pack: compounds (open/hyphenated/closed), British/American pairs, et al without its period");
+h.eq(byRule(conRes, "consistency.variant", "wildtype")?.message,
+  'Written more than one way: "wild-type" (2) and "wildtype" (1) and "wild type" (1).', "every spelling is counted");
+h.ok(!conRes.findings.some((f) => /follow|into|in to|precise|four/i.test(f.excerpt ?? "")),
+  "negatives: follow up (verb) vs follow-up (noun), in to vs into, a lone precise / four, quoted text, code");
+const nonlinear = applyCheckFix(conDoc, byRule(conRes, "consistency.variant", "Non-linear")!.fix!.edits)!;
+h.ok(nonlinear.split("\n")[5].startsWith("Nonlinear and nonlinear and nonlinear."), "Use … everywhere keeps a sentence-initial capital");
+h.ok(conRes.findings.every((f) => f.severity === "info"), "consistency is advice (info): it never counts toward warnings");
+
+// =============================================================================
+h.section("B6. comments");
 const cDoc = "Alpha beta gamma.\nDelta epsilon.\n";
 const threads = [
   { id: "t1", resolved: false, anchor: { start: 99, end: 104, quote: "Delta" } }, // stale offsets → quote search
@@ -303,6 +332,7 @@ for (const [name, text, input] of [
   ["references", refDoc, { figures: [figGrowth, figExtra], bib }],
   ["placeholders", phDoc, {}],
   ["abbreviations", abDoc, {}],
+  ["consistency", conDoc, {}],
 ] as [string, string, Partial<CheckInput>][]) {
   const before = run(text, input);
   for (const f of before.findings.filter((x) => x.fix)) {

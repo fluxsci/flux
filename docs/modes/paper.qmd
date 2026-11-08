@@ -418,11 +418,16 @@ journal (or none) and looks for the mistakes that are embarrassing in a submitte
   plus TODO notes hidden in comments.
 - **Abbreviations** — used before they are defined, defined twice, defined but never used,
   or never defined at all (common ones such as DNA or ANOVA are fine).
+- **Consistent terms** — a term written more than one way ("data set" and "dataset",
+  "wild-type" and "wildtype", "colour" and "color", "modelling" and "modeling"), and "et al"
+  without its period. Only spellings that both occur in your document are compared, and a
+  phrase like "follow up" (the verb) is not confused with "follow-up" (the noun).
 - **Comments** — how many comment threads are still open.
 
 Click a finding to jump to it. Where the right edit is unambiguous the finding offers a
-button — **Define at first use**, **Use LTP**, **Remove the repeat**, or a one-letter
-reference typo's correction — and applying it is a single edit that **Ctrl+Z** undoes.
+button — **Define at first use**, **Use LTP**, **Remove the repeat**, **Use "dataset"
+everywhere**, or a reference typo's correction — and applying it is a single edit that
+**Ctrl+Z** undoes.
 Out-of-order figures are only flagged: renumber them in Figure (**Ctrl+R**) or move the
 sentence, whichever you mean. The list refreshes a moment after you stop typing (it never
 slows typing down), or press **Check now**. Agents run the same checks with `flux check`.
