@@ -244,9 +244,12 @@ jobs:
           npm run dev > test-results/dev-server.log 2>&1 &
       - name: Wait for the dev server on :1420
         run: npx wait-on tcp:127.0.0.1:1420 --timeout 120000
+      # The same measured host scale as the pure steps: verify-v020-morph-startup's cold first
+      # seek read 127 ms here against its 100 ms pin (42–47 ms on the owner's desk).
       - name: Full ui tier
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          FLUX_PERF_SCALE: "4"
         run: node scripts/run-verifies.mjs --tier ui
       - name: The dev server never re-optimized mid-run
         if: always()
