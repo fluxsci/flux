@@ -21,6 +21,9 @@ import { frontMatterEndLine } from "../frontmatter";
 import type { EditorState, Range } from "@codemirror/state";
 import { BulletWidget, HrWidget } from "./widgets";
 
+/** A source marker hidden without a widget (see the sup/sub branch). */
+const hiddenMark = Decoration.mark({ class: "cm-flux-hiddenmark" });
+
 /** True if any selection range intersects [from,to] (± `pad` chars of adjacency). */
 function rangesTouch(state: EditorState, from: number, to: number, pad: number): boolean {
   for (const r of state.selection.ranges) {
@@ -150,7 +153,11 @@ function buildDecorations(view: EditorView): {
           return;
         }
         if (name === "SuperscriptMark" || name === "SubscriptMark") {
-          if (!parentTouches(node)) hide(nf, nt);
+          // NOT `hide()`: a replace decoration renders widget-buffer <img>s,
+          // and an image is a line-break opportunity — `H~2~O` wrapped as
+          // `H` / `₂O`. A display:none mark hides the marker with no break
+          // opportunity; the same range stays atomic for caret motion.
+          if (!parentTouches(node)) (composing ? marks : atomic).push(hiddenMark.range(nf, nt));
           return;
         }
 

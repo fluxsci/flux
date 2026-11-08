@@ -1214,7 +1214,8 @@ Persistence invariants (all machine-checked — do not weaken):
   `Superscript`/`Subscript` from the ONE extension list (`markdownExtensions.ts`); live preview
   marks the content `.cm-flux-sup/.cm-flux-sub` always (shifted with `position: relative` and
   `line-height: 0`, so the line box never changes — active and inactive metrics stay identical)
-  and hides the single markers off-caret like emphasis. Every non-Lezer surface (markdown-it
+  and hides the single markers off-caret as `display:none` MARKS kept in the atomic set (not
+  `hide()`'s replace decoration — see the §9 widget-buffer trap). Every non-Lezer surface (markdown-it
   `markdownItSupSub`, `mdInline`, spelling's `protectedMarkdownRanges`) reads
   `supSubGrammar.ts`; the Pandoc exports need no code. Ctrl+. / Ctrl+, are CodeMirror chords
   (`toggleScript`, listed in `CM_CHORD_STRINGS`), never a window chord.
@@ -4648,6 +4649,12 @@ outside this PNG packaging change.
   swallows that press so CodeMirror selects no word. Gate with real input: down/up, then
   down/up with `clickCount: 2`, after `scrollIntoView`, and assert `elementFromPoint` hit the
   chip. Without that check a click on an off-screen chip "passes" a must-stay-put assertion.
+- **A hidden replace decoration is a line-break opportunity.** CodeMirror renders an empty
+  `Decoration.replace` as a `contenteditable=false` span between two `img.cm-widgetBuffer`s, and
+  an inline image is a break opportunity, so a marker hidden INSIDE a word (`H~2~O`) let the line
+  wrap as `H` / `₂O` (2026-11-08). Markers that sit inside words hide as a `display:none`
+  mark range that also goes into the atomic set (caret motion unchanged);
+  `verify-paper-markup-gui` §B asserts no widget buffer beside a sup/sub span.
 - **Never write front matter by `yaml.load` → mutate → `yaml.dump`** (2026-11-08). The title
   pill did exactly that for months: Save rebuilt `author:` as names only and re-dumped the block,
   deleting affiliations, ORCID, email, `corresponding`, `equal-contributor`, `lead-contact` (the

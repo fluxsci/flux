@@ -216,6 +216,7 @@ export const fluxTheme = EditorView.theme(
       verticalAlign: "baseline",
     },
     ".cm-flux-sup": { top: "-0.5em" },
+    ".cm-flux-hiddenmark": { display: "none" },
     ".cm-flux-sub": { top: "0.25em" },
     ".cm-flux-quote": {
       borderLeft: "2px solid var(--c-accent-tint)",

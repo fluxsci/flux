@@ -106,7 +106,7 @@ h.section("B · sup/sub render in the editor");
 const lineInfo = () =>
   page.evaluate(() => {
     const lines = [...document.querySelectorAll(".cm-content .cm-line")];
-    return lines.map((l) => ({ text: l.textContent, h: Math.round(l.getBoundingClientRect().height * 10) / 10 }));
+    return lines.map((l) => ({ text: l.innerText, h: Math.round(l.getBoundingClientRect().height * 10) / 10 }));
   });
 await setDoc("Plain line here.\n\nUptake of CO~2~ and Ca^2+^ rose, but ~~gone~~ stays struck.\n\nLast line.\n", 0);
 await paints();
@@ -120,6 +120,24 @@ h.eq(supsub.sup, ["2+"], "Ca^2+^ content is a .cm-flux-sup span");
 let li = await lineInfo();
 h.eq(li[2].text, "Uptake of CO2 and Ca2+ rose, but gone stays struck.", "off-caret the single markers are hidden (strike markers too, as before)");
 h.eq(li[2].h, li[0].h, "a line holding sup/sub is exactly as tall as a plain line");
+// A replace decoration renders widget-buffer <img>s — line-break opportunities
+// that wrapped `H~2~O` as `H` / `₂O`. The markers hide as display:none marks.
+h.ok(await page.evaluate(() => {
+  const subs = [...document.querySelectorAll(".cm-flux-sub, .cm-flux-sup")];
+  return subs.length > 0 && subs.every((e) => !e.previousElementSibling?.matches?.("img.cm-widgetBuffer") && !e.nextElementSibling?.matches?.("img.cm-widgetBuffer"));
+}), "no widget-buffer image (a break opportunity) sits beside a sup/sub span");
+// One keypress per line through a line with hidden markers (goal column kept).
+await page.evaluate(() => {
+  const v = window.__fluxView;
+  v.dispatch({ selection: { anchor: 12 } });
+  v.focus();
+});
+const lineSeq = [];
+for (let i = 0; i < 4; i++) {
+  await page.keyboard.press("ArrowDown");
+  lineSeq.push(await page.evaluate(() => { const v = window.__fluxView; return v.state.doc.lineAt(v.state.selection.main.head).number; }));
+}
+h.eq(lineSeq, [2, 3, 4, 5], "ArrowDown visits each line once across the sup/sub line");
 await page.evaluate(() => {
   const v = window.__fluxView;
   v.dispatch({ selection: { anchor: v.state.doc.toString().indexOf("~2~") + 1 } });
