@@ -4133,7 +4133,7 @@ days (probe geometry like `width` instead).
   value, and remember the exec bit belongs to the HOST filesystem, not the target platform
   (a cross-build from Windows cannot stage one). `process.kill(pid,"SIGTERM")` terminates a child
   outright, reporting code 1 and no signal, so assert the property (never exit zero) rather than
-  the mechanism. And an extensionless `#!/usr/bin/env node` shim on PATH is never found:
+  the mechanism. Likewise a native abort (resvg's Rust panic) is exit 0xC0000409 (3221226505) there, never SIGABRT. And an extensionless `#!/usr/bin/env node` shim on PATH is never found:
   `execResolve` resolves through PATHEXT and deliberately prefers a real `.exe` in ANY PATH dir
   over an earlier batch shim, so a fault-injecting `quarto.cmd` only shadows the real one if the
   fault bin IS the whole PATH.
@@ -12092,3 +12092,29 @@ Judgment calls: `docs/journal_export_notes.md`.
   filter was dropped by the first draft, exactly as a user's own Lua filter would have been.
 - Packaging allowlists rot silently: `resources/csl`/`docx` had never shipped. Pin assets in a gate.
 - LibreOffice is the cheapest way to SEE a generated .docx from an agent shell (fresh profile dir).
+
+### 2026-11-08 — CI green: the blocking `test` job, red since 10-22 (Claude Opus 5.5, `v030/ci-green`)
+**Work:** Eleven pure gates red on every main push. Evidence from `gh` (six runs' logs + the run's
+`pure-verify-summary` artifact, which holds every gate's full stdout and `summary.json` durations — the job log
+keeps only the last 30 lines of a red gate) and a CI emulation (full pure tier pinned to 4 cores at `--jobs 4`,
+which reproduced the rewind red to the pixel). Six absolute ms pins → `FLUX_PERF_SCALE` (§7; ci.yml 4, measured
+3.66) and `exclusive`. The runner's deadline came from a legacy `timeouts` map that shadowed three contracts
+(the settle sweep's 480 s never applied) → one deadline per gate, sized from CI readings (registry-parity 600 s,
+inbox 240 s — slow, not hung —, settle sweep 900 s + exclusive, three near-misses). A real player bug: the
+baked glyph loader settled a microtask late, so a seek before the idle warm-up flew glyph BOXES (the CI "6"). The
+rewind gate's camera pass was a timing accident (which raster a frame came from depended on host speed). Bonus:
+four Windows `URL.pathname` gates + the same bug in `flux-core/connect/collect.ts`, Windows' native abort status,
+ui-gate's missing pandoc and Arial. Report: `notes/v030_overnight_2026-11-08/CI_GREEN_REPORT.md`.
+**Learnings:**
+- When a CI gate is red and green here, read the uploaded artifact before theorising: the decisive line
+  ("✗ pandoc produced …", the last check before a kill) was above the log's 30-line tail every time.
+- A raised timeout that "doesn't take" means two sources of truth; grep the runner for every place it reads one.
+- "Timeout" is not "hang": compare the kill point with a local process trace of the same gate (inbox died 90 %
+  through its time, in its claim races, with no child deadline hit) and with older passing CI durations.
+- A gate that fakes rAF must still let the compositor present: a will-change layer is rasterized at the pose of
+  the first REAL frame after promotion, so what a screenshot shows depends on real time between fake frames.
+- A loader whose answer is already in memory must answer synchronously; a one-microtask "pending" is a visible
+  frame of fallback on a host where the idle warm-up comes late. Disable `requestIdleCallback` in a gate to
+  measure that order on every host.
+- Emulate the runner before pushing a CI change (`taskset -c 0-3 … --tier pure --jobs 4` with the CI env): it
+  caught a runner self-test that assumed FLUX_PERF_SCALE was unset.
