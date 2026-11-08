@@ -12220,10 +12220,21 @@ Markdown with a folded tool trail (pictures inline) and thinking, Esc stops firs
 Inbox is a conversation (gold "needs you", seed-marked replies, live run cards from a per-run transcript, one action bar);
 Annotate is a framed still with a capsule toolbar, word chips that light their marks, one composer. Docs + §2/§4/§7/§9
 updated; release prep for 0.3.0 (version, CHANGELOG, `docs/for_agents/release-runbook.md`, RELEASE_QUALIFICATION matches
-release.yml). Branch pure tier 458/459 (the one red fixed), bundle 5/5, startup 1/1, all agent-layer UI gates green.
+release.yml). Then four Opus agents in worktrees, each merged structurally (manifest by node, guide append-append):
+Paper word counts + find bar (`v030/paper-counts`), Manuscript Check + `flux check` (`v030/paper-checks`), sup/sub +
+byte-minimal front matter + Document Properties + CSL picker (`v030/paper-markup`), and CI green (`v030/ci-green`:
+FLUX_PERF_SCALE, one deadline per gate, three real bugs). Final tree: check 0/0, pure 464/465 (the red was a duplicated
+§2 row after the merges; fixed and re-run green), ui 181/181, paper-gate 80/80, build, bundle 5/5, startup 1/1; the Ask
+and Annotate Electron gates green on a private Xvfb. CHANGELOG, runbook and version 0.3.0 are on the branch; nothing pushed.
 **Learnings:**
 - Promoted to §4 ("Agent surface vocabulary"), §7 (restart Vite after `src/` edits before a UI gate) and §9 (the `state`
   prop trap). The HMR dual-instance trap cost three false reds in one night; it is now a body rule, not a log note.
+- A structural manifest merge must key pathMap rules by (glob, occurrence): the manifest carried a pre-existing duplicate
+  `src/lib/project/figbridge.ts` glob, and matching by glob alone replaced the 21-entry rule with the 4-entry shadow
+  (`verify-changed-pathmap` caught it). The duplicate itself is harmless (first match wins) and was left alone.
+- When one agent hoists a module (`paper/frontmatter.ts` → `lib/manuscript/`) while another edits it, port the second
+  diff onto the moved file (`git diff base..branch -- old | sed path | git apply`) and keep the shim; the §2 table then
+  needs ONE row per domain (`verify-docs` pins that).
 - Brainstorm agents that SEE the surface (screenshots over the fixture with simulated runner events) found what the code
   reading missed (two nested scrollbars, the status line frozen because `status: running` carries no reason, dropped
   `thought.delta`/`usage`); keep `notes/…/shoot.mjs`-style scripts next to any look-and-feel work.
