@@ -12104,7 +12104,8 @@ inbox 240 s — slow, not hung —, settle sweep 900 s + exclusive, three near-m
 baked glyph loader settled a microtask late, so a seek before the idle warm-up flew glyph BOXES (the CI "6"). The
 rewind gate's camera pass was a timing accident (which raster a frame came from depended on host speed). Bonus:
 four Windows `URL.pathname` gates + the same bug in `flux-core/connect/collect.ts`, Windows' native abort status,
-ui-gate's missing pandoc and Arial. Report: `notes/v030_overnight_2026-11-08/CI_GREEN_REPORT.md`.
+ui-gate's missing pandoc and Arial, and text-morph-browser counting a pre-warmed hidden span layer (reproduced on Linux
+with prompt idle callbacks). Report: `notes/v030_overnight_2026-11-08/CI_GREEN_REPORT.md`.
 **Learnings:**
 - When a CI gate is red and green here, read the uploaded artifact before theorising: the decisive line
   ("✗ pandoc produced …", the last check before a kill) was above the log's 30-line tail every time.
