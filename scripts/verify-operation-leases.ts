@@ -85,8 +85,14 @@ try {
       // A real loss still counts: another owner's token in the lease file is never adopted.
       const file = path.join(lockDir, 'project.json');
       const record = JSON.parse(await fs.readFile(file, 'utf8'));
+      // The heartbeat REPORTS the loss the beat it sees the foreign token; wait for that report rather than
+      // a fixed 120 ms (a renew is a bakery round trip on disk — the Windows runner needs longer than that).
+      const seen = new Promise<void>(resolve => {
+        const original = console.error;
+        console.error = (...args: unknown[]) => { original(...args); if (String(args[0]).includes('another owner holds it now')) { console.error = original; resolve(); } };
+      });
       await fs.writeFile(file, JSON.stringify({ ...record, token: 'someone-else', client: 'agent' }));
-      await new Promise(r => setTimeout(r, 120)); // beats see the foreign token
+      await Promise.race([seen, new Promise((_, reject) => setTimeout(() => reject(new Error('the heartbeat never saw the foreign token')), ARBITRATION_DEADLINE * 2))]);
       const stolen = await beating.acquire(sender(7), { name: 'project', expectedRoot: root });
       assert.equal(stolen.ok, false, 'a lease another owner holds is not adopted by the heartbeat');
       await fs.rm(file);
