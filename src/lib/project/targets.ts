@@ -63,6 +63,39 @@ export function describeTarget(t: TargetRef): string {
   }
 }
 
+/** The short, human label a chip or placeholder shows — names, never ids
+ *  (the id stays in `describeTarget`, for the tooltip): `plot "Density" › point "versicolor"`,
+ *  `Simons2005 p.3`, `Figure "Annotation figure"`. */
+export function shortTarget(t: TargetRef): string {
+  const name = (s: string | undefined, fallback: string) => (s ? q(s) : fallback);
+  switch (t.kind) {
+    case "figure": return `figure ${name(t.name, t.figureId)}`;
+    case "element": return `${t.type || "element"} ${name(t.name, t.elementId)}`;
+    case "part": return `plot ${name(t.elementName, t.elementId)} › ${t.role || "part"} ${name(t.label, t.partId)}`;
+    case "caption": return `caption${t.panel ? ` ${t.panel}` : ""} of ${name(t.figureName, t.figureId)}`;
+    case "doc": return `${t.path.split("/").pop() ?? t.path}${t.heading ? ` § ${q(t.heading)}` : ""}`;
+    case "slide": return `slide ${t.index !== undefined ? t.index + 1 : ""}${t.name ? ` ${q(t.name)}` : t.index === undefined ? t.slideId : ""}`.trim();
+    case "beat": return `step ${t.beat}${t.label ? ` ${q(t.label)}` : ""}`;
+    case "track": return `${t.family ?? "animation"} ${name(t.label, t.trackId)}`;
+    case "passage": return `${t.citekey} p.${t.page}`;
+    case "library-item": return t.title ? q(t.title) : t.citekey;
+    case "region": return `a region of the ${t.surface} view`;
+  }
+}
+
+/** What a composer invites when it opens on this target ("Ask about this passage…"). */
+export function targetPrompt(targets: readonly TargetRef[] | undefined, verb = "Ask about"): string {
+  const t = targets?.[0];
+  if (!t) return `${verb} what you see…`;
+  switch (t.kind) {
+    case "passage": return `${verb} this passage…`;
+    case "doc": return `${verb} this text…`;
+    case "slide": case "beat": case "track": return `${verb} this slide…`;
+    case "region": return `${verb} this…`;
+    default: return `${verb} ${shortTarget(t)}…`;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shorthand: a kind-prefixed, unambiguous one-token form for CLI arguments and
 // agents (`flux inspect part:fig-2/el-9#control`). Names and quotes are display

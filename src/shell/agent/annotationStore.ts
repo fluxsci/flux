@@ -188,7 +188,7 @@ export async function stopWatching(session: PresenceSession): Promise<void> {
 }
 
 /** Keep publishes the picture before the complete, resolved Q&A in one append. */
-export async function keepAsk(ownerRoot: string, messages: import("../../lib/project/ask").AskMessage[], context: ContextStamp, agent: string, png?: Uint8Array): Promise<void> {
+export async function keepAsk(ownerRoot: string, messages: import("../../lib/project/ask").AskMessage[], context: ContextStamp, agent: string, png?: Uint8Array): Promise<string> {
   if (get(currentProject)?.path !== ownerRoot) throw new Error("Project changed while keeping Ask");
   const { keptAskEvents } = await import("../../lib/project/ask");
   const events = keptAskEvents(messages, structuredClone(context), agent);
@@ -205,4 +205,5 @@ export async function keepAsk(ownerRoot: string, messages: import("../../lib/pro
   if (get(currentProject)?.path !== ownerRoot) throw new Error("Project changed while keeping Ask");
   await append(ownerRoot, events);
   if (root === ownerRoot) await refreshAnnotations();
+  return note.id;
 }

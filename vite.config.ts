@@ -91,7 +91,7 @@ export default defineConfig({
   server: {
     // Generated evidence and local investigation trees are not application
     // inputs. Watching them can exhaust Linux inotify limits during long runs.
-    watch: { ignored: ["**/notes/**", "**/test-results/**", "**/.generated/**"] },
+    watch: { ignored: ["**/notes/**", "**/test-results/**", "**/.generated/**", "**/flux-wt/**", "**/release/**"] },
     // Worktrees may share a dependency directory via symlink. Permit only that
     // real dependency tree so imported WASM/assets remain readable in dev.
     fs: { allow: [searchForWorkspaceRoot(process.cwd()), fs.realpathSync("node_modules")] },

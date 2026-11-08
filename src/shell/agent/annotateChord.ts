@@ -11,7 +11,7 @@ import type { ContextStamp } from "../../lib/project/annotations";
 import type { TargetRef } from "../../lib/project/targets";
 
 import { annotationOpen, askOpen, isAnnotateChord } from "./annotationVisibility";
-import { isAskChord, requestAsk, closeAsk } from "./askChord";
+import { isAskChord, requestAsk, closeAsk, escapeAsk } from "./askChord";
 export { annotationOpen, isAnnotateChord, yieldsToShellModal } from "./annotationVisibility";
 
 export interface AnnotationRequest {
@@ -76,7 +76,7 @@ export function installAnnotateChord(): () => void {
       if (!e.repeat) requestAsk();
       return;
     }
-    if (get(askOpen) && e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeAsk(); return; }
+    if (get(askOpen) && e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); escapeAsk(); return; }
     if (isAnnotateChord(e)) {
       e.preventDefault(); e.stopImmediatePropagation();
       if (!e.repeat) requestAnnotation();

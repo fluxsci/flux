@@ -427,7 +427,90 @@ textarea,
   background: var(--flx-base-700);
 }
 
-/* Ask's synchronous input stays usable while the answer surface loads. */
+
+/* =============================================================================
+   Agent surfaces (Ask · Annotate · Inbox · background runs) — the shared
+   vocabulary. Lives here, not in a component, because Ask's synchronous
+   bootstrap (askChord.ts) must look identical to the lazy surface that adopts
+   it. Components add their own layout; these are the primitives.
+   ========================================================================== */
+
+/* One header for every floating agent surface: [mark] title │ context … actions × */
+.surface-head { display: flex; align-items: center; gap: 10px; height: 34px; flex-shrink: 0; padding: 0 6px 0 12px; border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); }
+.surface-head .ttl { font: 600 13px var(--font-serif); color: var(--c-tx-hi); white-space: nowrap; }
+.surface-head .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
+.surface-head .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); }
+.surface-head .spacer { flex: 1; }
+.surface-head .hbtn { height: 24px; padding: 0 8px; background: none; border: 0; border-radius: var(--r-ui); color: var(--c-tx-muted); font: var(--ts-xs) var(--font-ui); white-space: nowrap; }
+.surface-head .hbtn:hover { color: var(--c-tx); background: var(--c-surface-2); }
+.xbtn { width: 24px; height: 24px; padding: 0; display: inline-grid; place-items: center; background: none; border: 0; color: var(--c-tx-muted); border-radius: var(--r-ui); flex-shrink: 0; }
+.xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
+.xbtn::before { content: ""; width: 10px; height: 10px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center / contain no-repeat; }
+
+/* The composer: a framed box that holds the textarea and a bar of hints + actions.
+   One focus ring (the frame's), never the textarea's own. */
+.flux-composer { display: flex; flex-direction: column; border: 1px solid var(--c-line-strong); border-radius: var(--r-1); background: var(--c-bg); transition: border-color var(--dur-fade), box-shadow var(--dur-fade); }
+.flux-composer:focus-within { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-tint-2); }
+.flux-composer textarea { box-sizing: border-box; display: block; width: 100%; margin: 0; padding: 9px 11px 6px; background: transparent; color: var(--c-tx); border: 0; outline: none; resize: none; font: var(--ts-base)/1.5 var(--font-ui); field-sizing: content; min-height: calc(2 * 1.5em + 15px); max-height: calc(10 * 1.5em + 15px); }
+.flux-composer textarea::placeholder { color: var(--c-tx-faint); }
+.flux-composer .composer-bar { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 6px 4px 11px; }
+.flux-composer .composer-bar .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-faint); font: 10.5px var(--font-ui); }
+.flux-composer .composer-bar button { height: 24px; padding: 0 9px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-2); font: var(--ts-xs) var(--font-ui); white-space: nowrap; }
+.flux-composer .composer-bar button:hover:not(:disabled) { background: var(--c-ui-hover); color: var(--c-tx); }
+.flux-composer .composer-bar button:disabled { opacity: .4; }
+.flux-composer .composer-bar button.primary { color: var(--c-on-accent); background: var(--c-accent); border-color: var(--c-accent); font-weight: 500; }
+.flux-composer .composer-bar button.primary:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); color: var(--c-on-accent); }
+.flux-composer .composer-bar button.primary:disabled { opacity: .35; }
+.flux-composer .composer-bar button.stop { border-color: var(--c-line-strong); }
+.flux-composer .composer-bar kbd { margin-left: 5px; }
+
+.agent-surface kbd { display: inline-block; font: 500 10px/15px var(--font-mono); padding: 0 4px; border: 1px solid var(--c-line-strong); border-bottom-width: 2px; border-radius: var(--r-ui); color: var(--c-tx-muted); vertical-align: middle; }
+.agent-surface .faint { color: var(--c-tx-faint); }
+.agent-surface .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Arrival: a block that just appeared. Opacity only, so it survives reduce. */
+@keyframes flux-arrive { from { opacity: 0; } to { opacity: 1; } }
+@keyframes flux-arrive-rise { from { opacity: 0; translate: 0 3px; } to { opacity: 1; translate: 0 0; } }
+.arrive { animation: flux-arrive-rise var(--dur-fade-slow) var(--ease-enter) both; }
+@media (prefers-reduced-motion: reduce) { .arrive { animation-name: flux-arrive; } }
+
+/* Agent prose — what the colleague wrote, in the manuscript's voice. The DOM is built
+   by src/lib/agent/markdownDom.ts (never innerHTML). */
+.agent-prose { font: var(--ts-base)/1.6 var(--font-serif); color: var(--c-tx); max-width: 66ch; overflow-wrap: anywhere; }
+.agent-prose > * { margin: 0 0 var(--sp-2); }
+.agent-prose > *:last-child { margin-bottom: 0; }
+.agent-prose h1, .agent-prose h2, .agent-prose h3, .agent-prose h4, .agent-prose h5, .agent-prose h6 { font: 600 var(--ts-xs) var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--c-tx-muted); margin: var(--sp-4) 0 var(--sp-1); }
+.agent-prose > :first-child:is(h1, h2, h3, h4, h5, h6) { margin-top: 0; }
+.agent-prose ul, .agent-prose ol { padding-left: 1.4em; }
+.agent-prose li { margin: 2px 0; }
+.agent-prose li > ul, .agent-prose li > ol { margin: 2px 0 0; }
+.agent-prose li[data-task] { list-style: none; margin-left: -1.2em; }
+.agent-prose .md-task { color: var(--c-tx-muted); font-family: var(--font-ui); }
+.agent-prose code { font: 0.86em var(--font-mono); background: var(--c-surface-2); padding: 1px 4px; border-radius: var(--r-ui); }
+.agent-prose pre { position: relative; margin: var(--sp-2) 0; padding: 10px 12px; background: var(--c-bg); border: 1px solid var(--c-line); border-radius: var(--r-ui); font: 11.5px/1.5 var(--font-mono); overflow: auto; white-space: pre; tab-size: 2; }
+.agent-prose pre code { background: none; padding: 0; font: inherit; }
+.agent-prose pre[data-lang]::before { content: attr(data-lang); position: absolute; top: 4px; right: 8px; font: 10px var(--font-mono); color: var(--c-tx-faint); letter-spacing: .04em; }
+.agent-prose pre .md-copy { position: absolute; top: 3px; right: 6px; height: 20px; padding: 0 7px; opacity: 0; background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-muted); font: 10px var(--font-ui); transition: opacity var(--dur-fade); }
+.agent-prose pre[data-lang] .md-copy { top: 3px; right: 6px; }
+.agent-prose pre:hover .md-copy, .agent-prose pre .md-copy:focus-visible { opacity: 1; }
+.agent-prose pre:hover[data-lang]::before { opacity: 0; }
+.agent-prose blockquote { margin: var(--sp-2) 0; padding: 2px 0 2px 10px; border-left: 2px solid var(--c-line-strong); color: var(--c-tx-2); }
+.agent-prose hr { border: 0; border-top: 1px solid var(--c-line); margin: var(--sp-3) 0; }
+.agent-prose table { border-collapse: collapse; font: var(--ts-sm)/1.45 var(--font-ui); margin: var(--sp-2) 0; }
+.agent-prose th, .agent-prose td { padding: 4px 10px 4px 0; border-bottom: 1px solid var(--c-line); text-align: left; vertical-align: top; }
+.agent-prose th { font-weight: 600; color: var(--c-tx-2); font-size: var(--ts-xs); letter-spacing: .03em; }
+.agent-prose a { color: var(--c-accent); text-decoration: none; border-bottom: 1px solid var(--c-accent-tint); }
+.agent-prose a:hover { border-bottom-color: var(--c-accent); }
+.agent-prose s { color: var(--c-tx-muted); }
+.agent-prose.you { font: 500 var(--ts-sm)/1.5 var(--font-ui); color: var(--c-tx-2); }
+.agent-prose.compact { font-size: var(--ts-sm); line-height: 1.55; }
+/* The streaming caret: only while deltas flow (the .streaming class is owned by the surface). */
+.agent-prose.streaming > :last-child::after { content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -0.15em; background: var(--c-accent); animation: flux-caret 1s steps(2, start) infinite; }
+.agent-prose.streaming > pre:last-child::after { display: none; }
+@keyframes flux-caret { 50% { opacity: 0; } }
+
+/* Ask's synchronous input stays usable while the answer surface loads — and looks
+   exactly like the surface that adopts it. */
 .ask-bootstrap-layer { position: fixed; inset: 0; z-index: 2001; }
-.ask-bootstrap { position: fixed; z-index: 2001; box-sizing: border-box; width: min(440px, calc(100vw - 16px)); padding: 12px; background: var(--c-surface); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); font: var(--ts-sm) var(--font-ui); }
-.ask-bootstrap textarea { box-sizing: border-box; display: block; width: 100%; margin-top: 8px; padding: 8px; background: var(--c-bg); color: var(--c-tx); border: 1px solid var(--c-line); resize: vertical; font: inherit; }
+.ask-bootstrap { position: fixed; z-index: 2001; box-sizing: border-box; display: flex; flex-direction: column; width: min(480px, calc(100vw - 16px)); background: var(--c-surface); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: var(--r-1); box-shadow: var(--elev-3); overflow: hidden; }
+.ask-bootstrap .ask-body { padding: 10px 12px 12px; }

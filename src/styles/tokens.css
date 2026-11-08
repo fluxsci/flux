@@ -141,6 +141,13 @@
   --xr-tint:    color-mix(in oklab, var(--xr-phos) 16%, transparent);
   --xr-tint-2:  color-mix(in oklab, var(--xr-phos) 8%, transparent);
 
+  /* ---- Annotate mark ink ------------------------------------------------ */
+  /* The magenta of a drawn mark (arrow / box / pen) and its numbered badge, on
+     the frozen view, in the saved PNG and on the composer's chips alike. A
+     functional signal on arbitrary content, like --c-guide; never a UI accent. */
+  --c-ink-mark: #ff2bd6;
+  --c-ink-halo: rgba(255, 255, 255, 0.92);
+
   /* ---- margin comments (paper module) ---------------------------------- */
   /* A warm Flexoki gold, used ONLY to mean "annotation" — a functional signal
      colour outside the brand blue, the same way --c-guide is. Reads as
@@ -207,6 +214,13 @@
   --dur-quick: 200ms;
   --dur-gentle: 320ms;
   --dur-deliberate: 540ms;
+  /* Opacity-only fades that SURVIVE prefers-reduced-motion (P6 collapses motion
+     to "instant / opacity-only"; a fade is the permitted form). Use them only for
+     opacity: anything that translates or scales takes a --dur-* above, which the
+     reduce block collapses. This desktop (GTK) reports `reduce` with animations
+     on, so without these the agent surfaces would never show a state change. */
+  --dur-fade: 120ms;
+  --dur-fade-slow: 180ms;
 
   /* ---- Motion: easings -------------------------------------------------- */
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);

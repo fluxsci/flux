@@ -39,7 +39,9 @@ async function answer(text='**Answer** with `code` <img src=x onerror=alert(1)>'
   await emit({type:'message',messageId:'m',text});
   await emit({type:'tool',toolId:'t',title:'flux.get_figure_image',input:{id:'fig-1'},status:'done',output:'PNG'});
   await emit({type:'status',state:'idle'});
-  h.ok(await page.$eval('.exchange',e=>!e.querySelector('img,script')&&e.textContent.includes('<img')), 'model HTML is inert text');
+  // Pictures Flux itself shows (the attached view, a figure a tool returned) carry data-flux-image; anything
+  // else that renders as <img>/<script> came from model text and must have stayed literal.
+  h.ok(await page.$eval('.exchange',e=>!e.querySelector('img:not([data-flux-image]),script')&&[...e.querySelectorAll('img')].every(i=>/^(blob|data):/.test(i.getAttribute('src')||''))&&e.textContent.includes('<img')), 'model HTML is inert text');
   h.ok(await page.$eval('.tool-line summary',e=>e.textContent.includes('fig-1')&&e.textContent.includes('get_figure_image')),'tool line shows actual input');
   h.ok(await page.$$eval('.message:not(.question)',els=>els.length===1),'completed message does not duplicate streamed deltas');
 }

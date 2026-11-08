@@ -315,6 +315,7 @@
       "verify-agent-identity.ts",
       "verify-oneoff-migration.ts",
       "verify-annotation-core.ts",
+      "verify-transcript.ts",
       "verify-connect-render.ts",
       "verify-projects-registry.ts",
       "verify-launcher.ts",
@@ -2746,6 +2747,23 @@
         "verify-ipc-contract.ts",
         "verify-background-run.ts"
       ]
+    },
+    {
+      "glob": "scripts/verify-transcript.ts",
+      "run": [
+        "self"
+      ]
+    },
+    {
+      "glob": "src/lib/agent/**",
+      "run": [
+        "verify-transcript.ts",
+        "verify-ask-gui.mjs",
+        "verify-inbox-gui.mjs",
+        "verify-background-run-gui.mjs",
+        "verify-ask-electron.cjs"
+      ],
+      "$why": "The transcript model and inert Markdown renderer shared by Ask, the Inbox and background runs."
     },
     {
       "glob": "src/shell/agent/{askChord.ts,AskSurface.svelte,RunnerSettings.svelte}",
@@ -12053,6 +12071,15 @@
       "isolation": "scratch",
       "timeoutMs": 240000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-transcript.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }
