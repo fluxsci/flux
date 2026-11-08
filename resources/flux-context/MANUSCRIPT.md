@@ -71,7 +71,12 @@ For Word, `--zotero-fields` produces editable Zotero citation fields. Supply
 in that document. Check the citation-resolution report; do not promise all text
 constructs become live fields. Figure captions stay on the figure model.
 
-Use `validate` after authoring to check project structure, empty figures, figures
+Use `check [--doc r]` after editing prose: it lists undefined cross-references and
+citekeys, duplicate or incomplete references, figures and tables cited out of order or
+never cited, empty captions, leftover TODO/`[??]` placeholders, abbreviation problems,
+inconsistent spellings and open comments, with an exact fix where one is unambiguous. Fix what it reports;
+it is the same list the human sees in Paper (Alt+K). Use `validate` after authoring
+to check project structure, empty figures, figures
 not embedded in any document, and overlapping canvas frames. Read
 PROJECT-AND-FIGURES.md for figure identity and caption ownership, LIBRARY.md for
 reference acquisition, and SLIDES.md for the source deck of an inline slide.

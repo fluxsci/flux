@@ -82,6 +82,7 @@ also appears in the global and Paper palettes and Library's **Commands…** menu
 | **Ctrl+0** | Text size back to 100% |
 | **Alt+R** | Reference search pane |
 | **Alt+J** | Journal Check pane |
+| **Alt+K** | Manuscript Check pane |
 | **Alt+E** | Export… (file format × journal style) |
 | **Alt+F** | Figures pane |
 | **Alt+A** | Comments pane |

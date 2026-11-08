@@ -9,10 +9,10 @@
 // Source vs display: the document keeps the author's key order untouched;
 // numeric DISPLAY is always sorted-collapsed (Vancouver convention).
 
-import { get, writable } from "svelte/store";
-import { anyCiteRe, isCrossrefKey } from "../science/grammar";
-import { maskInlineMath, MathBlockTracker } from "../science/mathGrammar";
-import { frontMatterBounds, frontMatterField } from "../frontmatter";
+import { frontMatterField } from "../frontmatter";
+// The citation scanner + ordinals are the shared pure core (twin-engine rule):
+// flux-core's compile summary and Manuscript Check read the same scan.
+export { buildCitationOrdinals, type OrdinalScan } from "../../../../lib/manuscript/citations";
 
 export type CitationStyle = "author-year" | "numeric";
 
@@ -25,77 +25,6 @@ export function parseCitationStyle(v: unknown): CitationStyle {
 export function citationStyleOf(src: string): CitationStyle {
   // WS-4.1: single-source front-matter extraction (frontmatter.ts).
   return parseCitationStyle(frontMatterField(src, "citation-style"));
-}
-
-export interface OrdinalScan {
-  /** key → 1-based ordinal by first appearance (only keys passing isNumbered). */
-  map: Map<string, number>;
-  /** Every citation-token range found (resolved or not) — the editor's change
-   *  gate maps these through edits to decide when a rescan is needed. */
-  ranges: { from: number; to: number }[];
-}
-
-/**
- * Appearance-order ordinals over a manuscript. Masks YAML front matter,
- * fenced code, inline code spans, AND math (inline `$…$` + `$$` display
- * blocks) — the SAME regions the renderer skips (renderManuscript
- * preprocess/transformInline), or numeric mode would number keys that never
- * reach the References list. Cross-ref keys (@fig-…) are ignored; keys
- * failing `isNumbered` (not in the bib) get no ordinal so the References
- * stay contiguous 1..N; repeat cites keep their first number.
- */
-export function buildCitationOrdinals(
-  src: string,
-  isNumbered: (key: string) => boolean,
-): OrdinalScan {
-  const map = new Map<string, number>();
-  const ranges: { from: number; to: number }[] = [];
-  let next = 1;
-
-  // WS-4.1: single-source boundary (frontmatter.ts).
-  const bodyStart = frontMatterBounds(src).bodyStart;
-
-  let pos = bodyStart;
-  let inFence = false;
-  const math = new MathBlockTracker(); // display math masks whole lines (2.1 parity)
-  let lineNo = 0;
-  while (pos <= src.length) {
-    let nl = src.indexOf("\n", pos);
-    if (nl < 0) nl = src.length;
-    const rawLine = src.slice(pos, nl);
-    lineNo++;
-    if (/^\s*(```|~~~)/.test(rawLine)) {
-      inFence = !inFence;
-    } else if (!inFence) {
-      const wasInMath = math.inMath;
-      const closed = math.feed(lineNo, rawLine);
-      if (!wasInMath && !math.inMath && !closed) {
-        // Prose line: mask inline math (length-preserving), then mask inline code
-        // spans (n-backtick runs), then scan the prose between.
-        const line = maskInlineMath(rawLine);
-        const CODE = /(`+)(?:.*?)\1/g;
-        let last = 0;
-        let cm: RegExpExecArray | null;
-        const scan = (seg: string, base: number) => {
-          const re = anyCiteRe();
-          let m: RegExpExecArray | null;
-          while ((m = re.exec(seg))) {
-            const key = m[1];
-            if (isCrossrefKey(key)) continue;
-            ranges.push({ from: base + m.index, to: base + m.index + m[0].length });
-            if (!map.has(key) && isNumbered(key)) map.set(key, next++);
-          }
-        };
-        while ((cm = CODE.exec(line))) {
-          scan(line.slice(last, cm.index), pos + last);
-          last = cm.index + cm[0].length;
-        }
-        scan(line.slice(last), pos + last);
-      }
-    }
-    pos = nl + 1;
-  }
-  return { map, ranges };
 }
 
 export interface NumericSegment {

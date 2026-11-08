@@ -111,7 +111,8 @@
   import { paperViewMode, type PaperViewMode } from "./view-mode/paperViewStore";
   import { getOutline, type OutlineItem } from "./outline/outline";
   import { scienceChips, refreshChips } from "./science/chips";
-  import { anyCiteRe, crossrefRe, isCrossrefKey } from "./science/grammar";
+  import { crossrefRe } from "./science/grammar";
+  import { citedKeysIn } from "../../../lib/manuscript/citations";
   import { scienceEmbeds } from "./science/embeds";
   import { scienceTables } from "./science/tables";
   import { scienceTableFold } from "./science/tableFold";
@@ -513,15 +514,9 @@
   const subs: Array<() => void> = [];
 
   // Citekeys actually referenced in the manuscript (the red-dot "cited" state).
-  const citedKeys = $derived.by(() => {
-    const set = new Set<string>();
-    const re = anyCiteRe(); // PAP-19: shared grammar (science/grammar)
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(latestIdle))) {
-      if (!isCrossrefKey(m[1])) set.add(m[1]);
-    }
-    return set;
-  });
+  // The shared scanner (lib/manuscript/citations.ts): code, math and front
+  // matter are masked exactly as the renderer and flux-core mask them.
+  const citedKeys = $derived(new Set(citedKeysIn(latestIdle)));
   const figures = $derived($figureRefs);
   const references = $derived($bibEntries);
 
@@ -2355,6 +2350,9 @@
     get latestIdle() {
       return latestIdle;
     },
+    get docPath() {
+      return isDemo ? "" : activeDocPath;
+    },
     setCitationStyle(style) {
       if (view) setFrontMatterKey(view, "citation-style", style);
       view?.focus();
@@ -2380,6 +2378,9 @@
     },
     get libraryReferences() {
       return libraryReferences;
+    },
+    get commentThreads() {
+      return threads;
     },
     get comments() {
       return {

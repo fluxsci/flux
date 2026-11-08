@@ -74,6 +74,7 @@ export * from "./figures";
 // Manuscript + documents + compile (the Paper-side parity verbs) live in
 // ./manuscript.
 export * from "./manuscript";
+export { checkManuscriptDoc, checkFigures } from "./check";
 
 // Review-comment threads (list/resolve) live in ./comments.
 export * from "./comments";

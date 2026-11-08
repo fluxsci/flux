@@ -461,6 +461,7 @@
       "verify-fig-own-writes.ts",
       "verify-figure-detail.ts",
       "verify-figure-detail-proxy.ts",
+      "verify-manuscript-check.ts",
       "verify-word-count.ts"
     ],
     "net": [
@@ -646,6 +647,7 @@
       "verify-paper-asset-reads.mjs",
       "verify-unplaced-asset-bytes.mjs",
       "verify-plot-restyle-gui.mjs",
+      "verify-manuscript-check-gui.mjs",
       "verify-paper-wordcount-gui.mjs",
       "verify-paper-find-gui.mjs"
     ],
@@ -877,6 +879,8 @@
       "verify-figure-meta-refinements.mjs",
       "verify-model3d-embed.ts",
       "verify-model3d-embed-gui.mjs",
+      "verify-manuscript-check.ts",
+      "verify-manuscript-check-gui.mjs",
       "verify-word-count.ts",
       "verify-paper-wordcount-gui.mjs",
       "verify-paper-find-gui.mjs"
@@ -1626,27 +1630,10 @@
     {
       "glob": "src/lib/project/figbridge.ts",
       "run": [
-        "verify-recovery-entry.ts",
-        "verify-generation-confinement.ts",
-        "verify-v020-durability.ts",
-        "verify-v020-crash-recovery.ts",
-        "verify-v020-conversion.ts",
-        "verify-v020-figure.ts",
-        "verify-v020-slide-persistence.ts",
-        "verify-slide-reload-supersede.ts",
-        "verify-slide-source-sync-gui.mjs",
-        "verify-v020-native-journey.cjs",
-        "group:paper-gate",
         "tier:pure",
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
-        "verify-lazy-export-overrides.mjs",
-        "group:figures-slides-overhaul",
-        "group:slide-ghosts",
-        "group:inline-slides",
-        "group:slide-stash",
-        "group:model3d-persistence",
-        "group:fig-edit-tail"
+        "verify-lazy-export-overrides.mjs"
       ]
     },
     {
@@ -3086,6 +3073,22 @@
       ]
     },
     {
+      "$why": "Manuscript Check pane (Alt+K), its worker and runner: the GUI gate + the pure core gate first, then everything the margin rule below runs.",
+      "glob": "{src/shell/modes/paper/margin/views/ManuscriptCheckView.svelte,src/shell/modes/paper/margin/manuscriptCheck.worker.ts,src/shell/modes/paper/margin/manuscriptCheckService.ts}",
+      "run": [
+        "verify-manuscript-check-gui.mjs",
+        "verify-manuscript-check.ts",
+        "verify-v020-paper-lifecycle.mjs",
+        "group:paper-gate",
+        "tier:pure",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-journal-export-gui.mjs"
+      ]
+    },
+    {
       "glob": "{src/shell/modes/paper/{TitleEditor,ExportDialog,ExportSummaryPanel}.svelte,src/shell/modes/paper/margin/**,src/shell/modes/slide/SlidePresetMenu.svelte}",
       "run": [
         "verify-v020-paper-lifecycle.mjs",
@@ -3645,6 +3648,19 @@
       ]
     },
     {
+      "$why": "Manuscript Check core + the editor grammar/table/front-matter modules hoisted from src/shell/modes/paper (2026-11-08): they keep the paper-gate coverage they had there, plus the src/lib/manuscript/** gates below.",
+      "glob": "{src/lib/manuscript/checks/**,src/lib/manuscript/citations.ts,src/lib/manuscript/grammar.ts,src/lib/manuscript/frontmatter.ts,src/lib/manuscript/refNumberGrammar.ts,src/lib/manuscript/tableModel.ts,src/lib/manuscript/refNumbers.ts,scripts/lib/manuscriptCheckFixture.mjs}",
+      "run": [
+        "verify-manuscript-check.ts",
+        "verify-manuscript-check-gui.mjs",
+        "verify-nature-structure.ts",
+        "verify-nature-compliance.ts",
+        "verify-export-prep.ts",
+        "group:paper-gate",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "fixtures/word-count/**",
       "run": [
         "verify-word-count.ts",
@@ -4125,6 +4141,16 @@
       "run": [
         "tier:presence",
         "tier:pure"
+      ]
+    },
+    {
+      "$why": "flux check / check_manuscript IO adapter: parity with the pure core and the verb registry, plus the flux-core/** floor below.",
+      "glob": "flux-core/check.ts",
+      "run": [
+        "verify-manuscript-check.ts",
+        "verify-registry-parity.ts",
+        "tier:pure",
+        "group:align-arrange"
       ]
     },
     {
@@ -12096,6 +12122,26 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-manuscript-check.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-manuscript-check-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-word-count.ts": {

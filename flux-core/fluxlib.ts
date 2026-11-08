@@ -26,6 +26,7 @@ import { validateOrganize, addTag, removeTag, bulkAddTag, setTags, setStatus, se
 import { atomicWrite, quarantineCorrupt } from "./fsx";
 import { withLockAt, withLock, fluxlibLockDir, getLockClient, assertLockOwned, CONTENTION_RETRIES } from "./locks";
 import { splitBibEntries, lightEntry, lightBibEntries, bibtexKey } from "../src/lib/references/bibtex";
+import { citedKeysIn } from "../src/lib/manuscript/citations";
 import * as fluxPaths from "../electron/fluxPaths.cjs";
 
 const SCHEMA_VERSION = "0.1.0";
@@ -565,17 +566,8 @@ async function materializeIntoProjectLocked(
 // reconcile a project against FluxLib (on open / on demand)
 // --------------------------------------------------------------------------
 
-const CITE_RE = /@([A-Za-z][\w:.-]*)/g;
-const isCrossref = (k: string) => /^(?:fig|tbl|sec|eq)-/.test(k);
-
-function citedKeysIn(text: string): string[] {
-  const out = new Set<string>();
-  CITE_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = CITE_RE.exec(text))) if (!isCrossref(m[1])) out.add(m[1]);
-  return [...out];
-}
-
+// The cited-key scan is the shared pure scanner (src/lib/manuscript/citations.ts):
+// the same tokens the editor chips and the export number — no local regex.
 /**
  * Ensure every key the manuscript cites is present in the project bib —
  * promoting any project-local-only cited entries UP into FluxLib first (so a
