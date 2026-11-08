@@ -1630,10 +1630,27 @@
     {
       "glob": "src/lib/project/figbridge.ts",
       "run": [
+        "verify-recovery-entry.ts",
+        "verify-generation-confinement.ts",
+        "verify-v020-durability.ts",
+        "verify-v020-crash-recovery.ts",
+        "verify-v020-conversion.ts",
+        "verify-v020-figure.ts",
+        "verify-v020-slide-persistence.ts",
+        "verify-slide-reload-supersede.ts",
+        "verify-slide-source-sync-gui.mjs",
+        "verify-v020-native-journey.cjs",
+        "group:paper-gate",
         "tier:pure",
         "verify-lazy-save-safety.mjs",
         "verify-lazy-load-gui.mjs",
-        "verify-lazy-export-overrides.mjs"
+        "verify-lazy-export-overrides.mjs",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:model3d-persistence",
+        "group:fig-edit-tail"
       ]
     },
     {
