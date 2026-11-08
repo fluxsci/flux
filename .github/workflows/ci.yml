@@ -84,9 +84,18 @@ jobs:
       # unnoticed from 09-27 until release prep on 10-03.
       - name: Offline help builds (release.yml packages it)
         run: npm run build:docs
+      # FLUX_PERF_SCALE multiplies the ABSOLUTE wall-clock pins that opt in through
+      # scripts/lib/perfBudget.mjs (guide §7, "Host-scaled wall-clock budgets"); every
+      # assertion prints the effective budget ("< 10 × 4 = 40, FLUX_PERF_SCALE=4").
+      # Ratios, counts and pixel residuals never scale, and local runs keep 1. MEASURED,
+      # not chosen: the worst reading on this runner over six main runs (2026-10-23 →
+      # 11-08) was verify-relayout-perf's dense apply p95 36.6 ms against its 10 ms pin
+      # (3.66×; the owner's desk reads 3.3 ms), rounded up to 4. Re-derive it from the
+      # logs if the runner image changes; never raise it to absorb a regression.
       - name: Pure verify tier (hermetic — no network, no dev server)
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          FLUX_PERF_SCALE: "4"
         run: node scripts/run-verifies.mjs --tier pure --jobs 4
       - name: Upload verify summary
         if: always()
@@ -158,9 +167,12 @@ jobs:
       # failures at 4 on a Windows laptop that were not regressions, and a
       # hosted Windows runner has 4 vCPUs of slower I/O. Raise it only with the
       # evidence of green runs.
+      # The Linux job's measured FLUX_PERF_SCALE (see there); this runner's worst reading
+      # was 1.6× (verify-relayout-perf, 2026-11-08), inside it.
       - name: Pure verify tier (hermetic — no network, no dev server)
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          FLUX_PERF_SCALE: "4"
         run: node scripts/run-verifies.mjs --tier pure --jobs 2
       - name: Upload verify summary
         if: always()

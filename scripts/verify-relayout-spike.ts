@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { harness } from "./lib/harness.mjs";
+import { perfBudget } from "./lib/perfBudget.mjs";
 import { solveSpike, type SpikeModel } from "./lib/relayoutSpike";
 import { DOMParser } from "linkedom";
 import { bindSpike } from "./lib/relayoutSpikeDom";
@@ -40,7 +41,8 @@ for(let i=0;i<120;i++){
 }
 times.sort((a,b)=>a-b);
 const apply={nodes:root.querySelectorAll('*').length,vertices:bound.vertices,paths:bound.paths,points:bound.points,buildMs,p95:times[Math.floor(times.length*.95)]};
-h.ok(apply.p95<=10,`hexmatrix apply p95 ${apply.p95.toFixed(3)} ms (${apply.nodes} nodes)`);
+const applyBudget=perfBudget(10); // host-scaled wall-clock pin (guide §7)
+h.ok(apply.p95<=applyBudget.ms,`hexmatrix apply p95 ${apply.p95.toFixed(3)} ms (<= ${applyBudget.text}; ${apply.nodes} nodes)`);
 fs.mkdirSync("test-results/relayout",{recursive:true});
 fs.writeFileSync("test-results/relayout/spike.json",JSON.stringify({matplotlib:cases.matplotlib,report,apply},null,2)+"\n");
 await h.done();

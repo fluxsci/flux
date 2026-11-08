@@ -13,6 +13,7 @@ import { harness } from "./lib/harness.mjs";
 import { applyFilters, anyFilter, inFolder, parentFolder, similarTo, variantKey, stackVariants, widthClass, relativeTime, formatBytes, type ModelItem } from "../src/lib/plotsRail/galleryModel";
 import { formatSizePx, formatSizeMm, formatWidthMm } from "../src/lib/figure/physicalUnits";
 import { tablePreview, CARD_ROWS } from "../src/lib/plotsRail/tableCard";
+import { perfBudget } from "./lib/perfBudget.mjs";
 
 const h = harness("verify-plots-rail-model");
 
@@ -68,7 +69,8 @@ h.section("variant stacks");
   const t0 = performance.now();
   stackVariants(big, new Set());
   const ms = performance.now() - t0;
-  h.ok(ms < 60, `20,000 plots stack in ${ms.toFixed(1)} ms (< 60)`);
+  const budget = perfBudget(60); // host-scaled wall-clock pin (guide §7)
+  h.ok(ms < budget.ms, `20,000 plots stack in ${ms.toFixed(1)} ms (< ${budget.text})`);
 }
 
 h.section("width class and formatters");

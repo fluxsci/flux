@@ -20,6 +20,7 @@ import { assertNodeVersion } from "./lib/nodeCheck.mjs";
 import { collectChangedRuns, resolveChangedRuns } from "./lib/changedVerifies.mjs";
 import { sourceIdentity } from './lib/releasePolicy.mjs';
 import os from 'node:os';
+import { perfScale } from './lib/perfBudget.mjs';
 
 assertNodeVersion("run-verifies"); // WS-0b: gates only count on the CI runtime
 
@@ -51,6 +52,10 @@ if (opt.list) {
   process.exit(0);
 }
 if (!opt.tiers.length && !opt.groups.length) opt.tiers = ["pure"];
+// Host scale for opted-in wall-clock pins (scripts/lib/perfBudget.mjs, guide §7). Validated HERE so a bad
+// value fails the run once instead of every opted-in gate, and recorded in the summary as evidence.
+let PERF_SCALE;
+try { PERF_SCALE = perfScale(); } catch (e) { console.error(e.message); process.exit(2); }
 
 // ---------- resolve the run set ----------
 const tierOf = new Map();
@@ -153,7 +158,7 @@ async function execWithRetry(name) {
   if (spec.prerequisites.includes('server') && serverProblem) missing.push(serverProblem);
   if (missing.length) return { name, status: 'blocked', code: 'blocked', ms: 0, attempts: [], reason: missing.join('; '), out: missing.join('; ') };
   const attempts = [];
-  const attempt = () => executeAttempt({ spec, file: path.join(repoRoot, 'scripts', name), dir: path.join(runDir, name, `attempt-${attempts.length + 1}`), cwd: repoRoot, timeout: manifest.timeouts?.[name] ?? spec.timeoutMs ?? opt.timeout, signal:stop.signal, env:{...process.env,FLUX_VERIFY_SOURCE_DIGEST:sourceStart.digest,FLUX_VERIFY_COMMIT:sourceStart.commit} });
+  const attempt = () => executeAttempt({ spec, file: path.join(repoRoot, 'scripts', name), dir: path.join(runDir, name, `attempt-${attempts.length + 1}`), cwd: repoRoot, timeout: spec.timeoutMs ?? opt.timeout, signal:stop.signal, env:{...process.env,FLUX_VERIFY_SOURCE_DIGEST:sourceStart.digest,FLUX_VERIFY_COMMIT:sourceStart.commit} });
   attempts.push(await attempt());
   // Performance gates are never retried to select a luckier sample.
   if (!stop.signal.aborted && attempts[0].code !== 0 && !spec.exclusive && manifest.retryOnce?.includes(name)) attempts.push(await attempt());
@@ -168,6 +173,7 @@ function report(r) {
 const results = [];
 try {
   console.log(`Running ${run.length} scripts; evidence ${runDir}`);
+  if (PERF_SCALE !== 1) console.log(`FLUX_PERF_SCALE=${PERF_SCALE}: opted-in wall-clock budgets are multiplied by ${PERF_SCALE} (scripts/lib/perfBudget.mjs); ratios and structure are not`);
   const pooled = opt.jobs > 1 ? run.filter(n => !specs.get(n).exclusive) : [];
   const serial = opt.jobs > 1 ? run.filter(n => specs.get(n).exclusive) : run;
   let next = 0;
@@ -182,7 +188,7 @@ const sourceEnd = await sourceIdentity(repoRoot);
 const sourceChanged = sourceStart.commit !== sourceEnd.commit || sourceStart.digest !== sourceEnd.digest || sourceStart.dirty !== sourceEnd.dirty;
 const commit = sourceStart.commit;
 const strip = ({ out, ...value }) => value;
-const summary = { sourceStart, sourceEnd, sourceChanged, interrupted:interruption, startedAt: new Date(t0).toISOString(), commit, repoRoot, directory: runDir, node: process.versions.node, platform: process.platform, config: { host:{arch:process.arch,cpu:os.cpus()[0]?.model || null,cores:os.cpus().length,totalMemory:os.totalmem()}, privateDisplay:process.env.FLUX_PRIVATE_DISPLAY==='1'||!!process.env.FLUX_XVFB, runtimeEvidence:'Per-attempt artifacts/runtime-environment.json records observed browser viewport, screen, device scale, GPU and served application modules where the browser driver is used; absent files are not observations.', appUrl: APP_URL, chrome: process.env.FLUX_CHROME || null, display: process.env.DISPLAY || null, xvfb: process.env.FLUX_XVFB || null, electronNoSandbox: process.env.FLUX_ELECTRON_NO_SANDBOX === '1', displayQualification: 'software or physical display must be independently recorded; not inferred from environment' }, tiers: opt.tiers, groups: opt.groups, only: opt.only, passed: results.length-failed.length, total: results.length, totalMs: Date.now()-t0, results: results.map(r => ({ ...strip(r), tier: tierOf.get(r.name), execution: specs.get(r.name), attempts: r.attempts.map(strip) })) };
+const summary = { sourceStart, sourceEnd, sourceChanged, interrupted:interruption, startedAt: new Date(t0).toISOString(), commit, repoRoot, directory: runDir, node: process.versions.node, platform: process.platform, config: { host:{arch:process.arch,cpu:os.cpus()[0]?.model || null,cores:os.cpus().length,totalMemory:os.totalmem()}, privateDisplay:process.env.FLUX_PRIVATE_DISPLAY==='1'||!!process.env.FLUX_XVFB, runtimeEvidence:'Per-attempt artifacts/runtime-environment.json records observed browser viewport, screen, device scale, GPU and served application modules where the browser driver is used; absent files are not observations.', appUrl: APP_URL, chrome: process.env.FLUX_CHROME || null, display: process.env.DISPLAY || null, xvfb: process.env.FLUX_XVFB || null, electronNoSandbox: process.env.FLUX_ELECTRON_NO_SANDBOX === '1', perfScale: PERF_SCALE, displayQualification: 'software or physical display must be independently recorded; not inferred from environment' }, tiers: opt.tiers, groups: opt.groups, only: opt.only, passed: results.length-failed.length, total: results.length, totalMs: Date.now()-t0, results: results.map(r => ({ ...strip(r), tier: tierOf.get(r.name), execution: specs.get(r.name), attempts: r.attempts.map(strip) })) };
 writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary,null,2)+'\n');
 writeFileSync(path.join(repoRoot, 'test-results/summary.json'), JSON.stringify(summary,null,2)+'\n');
 console.log(`\n${summary.passed}/${summary.total} passed; ${failed.length} failed/blocked/flaky. Evidence: ${runDir}`);

@@ -3362,8 +3362,9 @@ turns that into an ordinary red check using the runner's own validator. Tiers:
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
-- **Slide settle gates (Release 2).** `verify-slide-settle-sweep.ts` (pure tier, headless Chrome, ~3.5 min, one page
-  in one browser) and `verify-slide-settle-electron.cjs` (electron tier, offscreen and window-free, `exclusive`,
+- **Slide settle gates (Release 2).** `verify-slide-settle-sweep.ts` (pure tier, headless Chrome, ~4.2 min here, one page
+  in one browser, `exclusive`: it is frame-cadence bound, and its own header records that parallel CPU load leaves a camera seek
+  on low-resolution tiles and reads as a false END SNAP) and `verify-slide-settle-electron.cjs` (electron tier, offscreen and window-free, `exclusive`,
   ~4.5 min, 54+ real clicks under a fresh `HOME`; needs an x11 ozone display and a GPU-capable Electron) are
   members of `group:slide-transforms`, so `run-verifies --group slide-transforms` RUNS THE ELECTRON TIER: never
   two Electron gates at once on one machine (wrap them in `flock`), and never a WINDOWED Electron gate
@@ -3444,6 +3445,27 @@ CI (`.github/workflows/ci.yml`) runs type-check → build → pure tier → bund
 headless path again on `windows-latest` as `test-windows` — both of the latter observing
 (`continue-on-error`, promotion rule in §10). A gate that is green on Linux and red on Windows
 is the reason the Windows job exists; read §9's Windows entries before touching the gate.
+
+**One deadline per script: `execution.<script>.timeoutMs`.** Until 2026-11-08 a top-level `timeouts` map took precedence in
+the runner and silently shadowed three contracts — `verify-slide-settle-sweep` (raised to 480 s on 10-23) and
+`verify-slide-settle-electron` (60 min, 10-24) kept running at 300 s / 600 s — so the raise "landed" and CI kept timing out.
+The map is gone and `verify-manifest-contracts` refuses it. Size a contract from MEASURED CI durations (the run's
+`pure-verify-summary` artifact has every attempt's `ms`): GitHub's 4-vCPU runner reads spawn-heavy gates 5–10× this desk
+(tsx cold start per child: `verify-registry-parity`, `verify-inbox`), Chrome gates ~3×; keep ≥ 1.5× headroom over the worst
+reading and say where the number came from in the commit.
+
+**Host-scaled wall-clock budgets (`FLUX_PERF_SCALE`, 2026-11-08).** An absolute millisecond pin in a pure gate was authored
+on the reference workstation; the hosted runner reads the same code 4–11× slower (CI-green report,
+`notes/v030_overnight_2026-11-08/CI_GREEN_REPORT.md`). A pin opts in through `perfBudget(ms)` (`scripts/lib/perfBudget.mjs`):
+the effective budget is `ms × FLUX_PERF_SCALE` and the assertion prints its arithmetic — `67.3 ms (< 40 × 4 = 160,
+FLUX_PERF_SCALE=4)` — so a scaled pass is never read as the authored one. Unset = 1: local runs keep every budget exactly.
+Only absolute wall-clock pins opt in; ratios ("< 1.4× the 16-glide case"), counts, pixel residuals and structure never
+scale. `ci.yml` sets the value from MEASURED readings (worst observed reading ÷ its pin over recent main runs, rounded up;
+4 from `verify-relayout-perf`'s 36.6 ms dense apply against 10 ms) — never to absorb a new slowdown, and the value is
+bounded to [1, 8]. The opted-in pins are those of `verify-xray-context`, `verify-morph-path`, `verify-plots-rail-model`,
+`verify-relayout-perf`, `verify-relayout-spike` and `verify-text-lanes` (`grep perfBudget scripts`); those six gates are
+also `exclusive`, so their microbenchmarks no longer share the CPUs with three Chrome-driving neighbours. The runner
+validates the variable once and records it as `config.perfScale` in `summary.json`.
 
 Every script named in a tier needs an `execution` contract in the manifest. One missing
 contract aborts `--tier pure` before anything runs ("Missing/invalid execution contract"). This

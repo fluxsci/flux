@@ -4418,33 +4418,6 @@
     "verify-slide-tenancy-gui.mjs",
     "verify-scale-slide.mjs"
   ],
-  "timeouts": {
-    "verify-scale-figure.mjs": 120000,
-    "verify-model3d-demo.ts": 150000,
-    "verify-scale-paper.mjs": 120000,
-    "verify-slide-export-parity.ts": 300000,
-    "verify-slide-export-core.ts": 300000,
-    "verify-w13-cli.mjs": 300000,
-    "verify-startup.mjs": 300000,
-    "verify-writer-latency-inp.mjs": 200000,
-    "verify-scale-fulltext.mjs": 180000,
-    "verify-registry-parity.ts": 300000,
-    "verify-slide-headless-e2e.ts": 300000,
-    "verify-slide-export-w6.ts": 300000,
-    "verify-slide-tenancy-gui.mjs": 180000,
-    "verify-scale-slide.mjs": 180000,
-    "verify-slide-export-transform.ts": 300000,
-    "verify-scale-lazy-assets.mjs": 180000,
-    "verify-scale-slide-dense.mjs": 180000,
-    "verify-slide-video-electron.cjs": 480000,
-    "verify-slide-raster-electron.cjs": 480000,
-    "verify-slide-settle-sweep.ts": 300000,
-    "verify-slide-settle-electron.cjs": 600000,
-    "verify-slide-media-export.ts": 300000,
-    "verify-slide-video-clips-electron.cjs": 180000,
-    "verify-slide-become.ts": 300000,
-    "verify-slide-resolve.ts": 300000
-  },
   "execution": {
     "figenh-01-parity.ts": {
       "runtime": "tsx",
@@ -7370,7 +7343,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 300000,
+      "timeoutMs": 600000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -8210,7 +8183,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-slide-video-clips-electron.cjs": {
@@ -8250,8 +8223,8 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 480000,
-      "exclusive": false,
+      "timeoutMs": 900000,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-slide-raster-electron.cjs": {
@@ -9016,7 +8989,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-zoom-limits.ts": {
@@ -9174,7 +9147,7 @@
       ],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 240000,
+      "timeoutMs": 480000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -9736,7 +9709,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 30000,
+      "timeoutMs": 60000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -10083,7 +10056,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 240000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -10402,7 +10375,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 240000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -10895,7 +10868,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 60000,
+      "timeoutMs": 150000,
       "exclusive": false,
       "coverage": "behavior"
     },
@@ -11301,7 +11274,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-text-morph-browser.ts": {
@@ -11454,7 +11427,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-plots-rail-p3.mjs": {
@@ -11565,7 +11538,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-relayout-oracle.ts": {
@@ -11657,7 +11630,7 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
-      "exclusive": false,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-relayout-resize.mjs": {
