@@ -12101,3 +12101,23 @@ Judgment calls: `docs/journal_export_notes.md`.
   filter was dropped by the first draft, exactly as a user's own Lua filter would have been.
 - Packaging allowlists rot silently: `resources/csl`/`docx` had never shipped. Pin assets in a gate.
 - LibreOffice is the cheapest way to SEE a generated .docx from an agent shell (fresh profile dir).
+
+### 2026-11-08 — v0.3.0 overnight: the agent surfaces read as correspondence (Claude Fable 5.1 orchestrating Opus 5.5 brainstorm, Paper and CI agents, `v030/overnight-2026-11-08`)
+**Work:** Owner: Ask / Annotate / Inbox "feel cold, no polish, no magic". Three Opus brainstorms (craft, transcript IA,
+product journeys) → one shared layer: the pure transcript reducer + inert Markdown renderer (`src/lib/agent/`), AgentMark,
+WorkingLine, ToolTrail, Transcript and the `markdown` action, with the look in `app.css` so Ask's synchronous bootstrap
+and the lazy surface are one skeleton. Ask adopts the bootstrap's footprint, outlines the selection, streams rendered
+Markdown with a folded tool trail (pictures inline) and thinking, Esc stops first, Copy / Keep / Do it ▸ / Resume. The
+Inbox is a conversation (gold "needs you", seed-marked replies, live run cards from a per-run transcript, one action bar);
+Annotate is a framed still with a capsule toolbar, word chips that light their marks, one composer. Docs + §2/§4/§7/§9
+updated; release prep for 0.3.0 (version, CHANGELOG, `docs/for_agents/release-runbook.md`, RELEASE_QUALIFICATION matches
+release.yml). Branch pure tier 458/459 (the one red fixed), bundle 5/5, startup 1/1, all agent-layer UI gates green.
+**Learnings:**
+- Promoted to §4 ("Agent surface vocabulary"), §7 (restart Vite after `src/` edits before a UI gate) and §9 (the `state`
+  prop trap). The HMR dual-instance trap cost three false reds in one night; it is now a body rule, not a log note.
+- Brainstorm agents that SEE the surface (screenshots over the fixture with simulated runner events) found what the code
+  reading missed (two nested scrollbars, the status line frozen because `status: running` carries no reason, dropped
+  `thought.delta`/`usage`); keep `notes/…/shoot.mjs`-style scripts next to any look-and-feel work.
+- A gate's selector can over-pin the contract: `.exchange img` meant "model HTML is inert", and the first legitimate
+  picture in the exchange tripped it. Re-state the contract (Flux-rendered pictures carry `data-flux-image`), don't
+  delete the check.
