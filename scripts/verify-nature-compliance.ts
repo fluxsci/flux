@@ -84,13 +84,13 @@ const has = (doc: string, id: string, extra?: Record<string, unknown>) => ids(do
 // --- summary paragraph ---------------------------------------------------------
 {
   const short = "---\ntitle: t\n---\n\n" + "word ".repeat(150) + "\n\n# Body\n\nx";
-  const over = "---\ntitle: t\n---\n\n" + "word ".repeat(240) + "\n\n# Body\n\nx";
+  const over = "---\ntitle: t\n---\n\n" + "word ".repeat(215) + "\n\n# Body\n\nx";
   const wayOver = "---\ntitle: t\n---\n\n" + "word ".repeat(330) + "\n\n# Body\n\nx";
   assert(!has(short, "abstract.too-long"), "a 150-word summary is silent");
   const o = run(over).find((f) => f.ruleId === "abstract.too-long")!;
-  assert(o && o.severity === "info", "past 200 words it is INFO (Nature allows up to 300 with a closing passage)");
+  assert(o && o.severity === "info", "between 200 and 230 words it is INFO (200 is Nature's ideal, 230 its 2026 ceiling)");
   const w = run(wayOver).find((f) => f.ruleId === "abstract.too-long")!;
-  assert(w && w.severity === "warn", "past the 300-word ceiling it becomes a warning");
+  assert(w && w.severity === "warn", "past the 230-word ceiling it becomes a warning");
 }
 
 // --- title ---------------------------------------------------------------------

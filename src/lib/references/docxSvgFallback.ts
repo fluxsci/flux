@@ -37,6 +37,8 @@ export interface SvgFallbackReport {
 
 /** EMU per pixel at 96 DPI — the unit `wp:extent` uses. */
 const EMU_PER_PX = 9525;
+/** EMU per inch. */
+const EMU_PER_INCH = 914400;
 /** Rasterize above the placed size so the picture stays crisp when scaled or printed. */
 const OVERSAMPLE = 2;
 /** Chromium's canvas ceiling, mirrored from io.ts's export guard. */
@@ -58,15 +60,18 @@ function maxRelId(relsXml: string): number {
  *  inside a drawing). Falls back to the SVG's own viewBox, then to a sane default:
  *  a wrong size costs sharpness, never correctness, because the picture's displayed
  *  dimensions come from the drawing, not from the pixels. */
-export function rasterSizeFor(documentXml: string, blipAt: number, svg: string): { width: number; height: number } {
+export function rasterSizeFor(documentXml: string, blipAt: number, svg: string, dpi?: number): { width: number; height: number } {
   let cx = 0;
   let cy = 0;
   for (const m of documentXml.slice(0, blipAt).matchAll(/<wp:extent\s+cx="(\d+)"\s+cy="(\d+)"/g)) {
     cx = Number(m[1]);
     cy = Number(m[2]);
   }
-  let width = cx ? Math.round((cx / EMU_PER_PX) * OVERSAMPLE) : 0;
-  let height = cy ? Math.round((cy / EMU_PER_PX) * OVERSAMPLE) : 0;
+  // `dpi` sizes the raster for PRINT at the placed size (EMU → inches × dpi) —
+  // the journal export's raster-only mode; otherwise 2× screen pixels.
+  const toPx = (emu: number) => (dpi ? (emu / EMU_PER_INCH) * dpi : (emu / EMU_PER_PX) * OVERSAMPLE);
+  let width = cx ? Math.round(toPx(cx)) : 0;
+  let height = cy ? Math.round(toPx(cy)) : 0;
   if (!width || !height) {
     const vb = /viewBox="[\d.\-\s]*?([\d.]+)\s+([\d.]+)"/.exec(svg);
     const w = vb ? Number(vb[1]) : 0;
@@ -86,6 +91,11 @@ function partFor(target: string): string {
 export async function addSvgRasterFallbacks(
   docxBytes: Uint8Array,
   rasterize: RasterizeSvg,
+  /** Journal submissions: REPLACE each SVG with a PNG at `dpi` for its placed
+   *  size and drop the vector part. A dense plot's SVG runs to 10–15 MB, which
+   *  alone breaks Nature's 30 MB and Cell's 20 MB file caps and stalls Word and
+   *  LibreOffice; reviewers' copies need print resolution, not live vectors. */
+  opts: { rasterOnlyDpi?: number } = {},
 ): Promise<{ bytes: Uint8Array; report: SvgFallbackReport }> {
   const report: SvgFallbackReport = { added: 0, alreadyRaster: 0, failed: [] };
   const parts = unzipSync(docxBytes);
@@ -104,6 +114,7 @@ export async function addSvgRasterFallbacks(
   let nextId = maxRelId(relsXml);
   const newRels: string[] = [];
   const edits: { from: number; to: number; text: string }[] = [];
+  const dropped: { relId: string; part: string }[] = [];
 
   for (const m of documentXml.matchAll(BLIP_RE)) {
     const [whole, attrs, , inner = ""] = m;
@@ -121,7 +132,7 @@ export async function addSvgRasterFallbacks(
       continue;
     }
     const svg = strFromU8(svgBytes);
-    const { width, height } = rasterSizeFor(documentXml, m.index ?? 0, svg);
+    const { width, height } = rasterSizeFor(documentXml, m.index ?? 0, svg, opts.rasterOnlyDpi);
     let png: Uint8Array;
     try {
       png = await rasterize(svg, width, height);
@@ -135,12 +146,18 @@ export async function addSvgRasterFallbacks(
     newRels.push(
       `<Relationship Id="${newId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${pngPart.split("/").pop()}"/>`,
     );
-    // Keep the svgBlip extension: a capable Word still paints the vector.
-    edits.push({
-      from: m.index ?? 0,
-      to: (m.index ?? 0) + whole.length,
-      text: `<a:blip r:embed="${newId}"${attrs}>${inner}</a:blip>`,
-    });
+    if (opts.rasterOnlyDpi) {
+      // Raster only: the PNG is the picture; the SVG part and its relationship go.
+      edits.push({ from: m.index ?? 0, to: (m.index ?? 0) + whole.length, text: `<a:blip r:embed="${newId}"${attrs}/>` });
+      dropped.push({ relId, part });
+    } else {
+      // Keep the svgBlip extension: a capable Word still paints the vector.
+      edits.push({
+        from: m.index ?? 0,
+        to: (m.index ?? 0) + whole.length,
+        text: `<a:blip r:embed="${newId}"${attrs}>${inner}</a:blip>`,
+      });
+    }
     report.added++;
   }
 
@@ -155,6 +172,11 @@ export async function addSvgRasterFallbacks(
   out += documentXml.slice(cursor);
   parts[DOC] = strToU8(out);
 
+  for (const d of dropped) {
+    if (out.includes(`"${d.relId}"`)) continue; // still referenced elsewhere
+    relsXml = relsXml.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${d.relId}"[^>]*/>`), "");
+    delete parts[d.part];
+  }
   relsXml = relsXml.replace(/<\/Relationships>\s*$/, `${newRels.join("")}</Relationships>`);
   parts[RELS] = strToU8(relsXml);
 

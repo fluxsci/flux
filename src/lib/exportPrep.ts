@@ -19,7 +19,9 @@
 import { planExportRecovery, publishExportRecovery, recoverExportSources, type ExportRecoveryIO } from "./project/exportRecovery";
 import { readQmdTree, resolveInclude, transformQmdForExport, type ExportQmdCtx } from "./exportQmd";
 import { reorderForExport, type RoleAliases } from "./manuscript/sections";
-import { markCitations } from "./references/zoteroFields";
+import { markCitations, wrapCitationMarkers, type CslRecord } from "./references/zoteroFields";
+import type { ResolvedJournalStyle } from "./style/journalStyle";
+import type { AssemblyReport, SubmissionStage } from "./style/journalManuscript";
 
 export interface ExportPrepIO {
   /** Read a file; resolve to null when it can't be read. */
@@ -49,6 +51,21 @@ export interface ExportPrepOpts {
   /** Slide preparation shares its grammar/rendering with the document editor. */
   transformSlides?: (text: string, file: string) => Promise<string>;
   finishSlides?: (entryText: string) => Promise<string>;
+  /** Journal submission assembly (styles with a `manuscript` spec): the entry
+   *  document — includes spliced in — is rebuilt as the venue's submission
+   *  manuscript (style/journalManuscript.ts). Replaces `structure` reordering. */
+  journal?: {
+    style: ResolvedJournalStyle;
+    stage: SubmissionStage;
+    /** Bibliography records keyed by citekey (citation-js CSL-JSON). */
+    records: Record<string, CslRecord>;
+    /** Supplementary-family figures in the project (SI indexes). */
+    supplementaryFigures?: number;
+    /** Project-relative directory of the entry document. */
+    docDir?: string;
+    /** label → image path to place instead of the SVG (PDF path rasters). */
+    figureImages?: ReadonlyMap<string, string>;
+  };
   /** Redirect only the registered project bibliography to owned captured bytes.
    * Explicit additional/custom bibliography files retain their authored meaning. */
   capturedBibliography?: { originalPath: string; replacement: string };
@@ -66,6 +83,8 @@ export interface ExportPrepResult {
   /** Headings the venue's order moved in the EXPORTED text (never the source).
    *  Surfaced so the move is visible rather than silent. */
   movedSections: string[];
+  /** Journal assembly report (present when `opts.journal` assembled the entry). */
+  journal?: AssemblyReport;
   /** Restore every rewritten file to its original bytes. Always safe to call,
    *  and safe to call twice — the second call is a no-op. */
   restore(): Promise<void>;
@@ -111,11 +130,19 @@ export async function prepareExport(
   }
 
   let movedSections: string[] = [];
+  let journalReport: AssemblyReport | undefined;
+  const assembling = !!opts.journal?.style.manuscript;
   for (const f of files) {
     opts.signal?.throwIfAborted();
     const text = texts.get(f);
     if (text == null) continue;
-    let next = transformQmdForExport(text, opts.ctx);
+    // Journal assembly works on ONE document: the entry with its includes spliced
+    // in (sections, citations and figures must all be seen together). Included
+    // fragments are then simply not referenced by the render, so they stay as written.
+    if (assembling && f !== opts.entry) continue;
+    let next = assembling
+      ? transformQmdForExport(expanded, { ...opts.ctx, legends: "external" })
+      : transformQmdForExport(text, opts.ctx);
     if (f === opts.entry && opts.capturedBibliography) {
       const { frontMatterBounds } = await import("../shell/modes/paper/frontmatter");
       const yaml = await import("js-yaml");
@@ -129,10 +156,27 @@ export async function prepareExport(
       next = "---\n" + yaml.dump(fields, { lineWidth: -1 }) + "---\n" + (b.has ? next.slice(b.bodyStart) : next);
     }
     if (opts.transformSlides) next = await opts.transformSlides(next, f);
-    if (opts.markCitations) next = markCitations(next);
+    if (assembling && opts.journal) {
+      const { assembleJournalManuscript } = await import("./style/journalManuscript");
+      const literal = opts.journal.style.manuscript!.citations === "literal";
+      const r = await assembleJournalManuscript(next, {
+        style: opts.journal.style,
+        stage: opts.journal.stage,
+        records: opts.journal.records,
+        ctx: { ...opts.ctx, legends: "external" },
+        supplementaryFigures: opts.journal.supplementaryFigures,
+        docDir: opts.journal.docDir,
+        figureImages: opts.journal.figureImages,
+        wrapCitation: opts.markCitations && literal ? (keys, mark) => wrapCitationMarkers(keys, mark) : undefined,
+      });
+      next = r.text;
+      journalReport = r.report;
+      movedSections = r.report.movedSections;
+      if (opts.markCitations && !literal) next = markCitations(next);
+    } else if (opts.markCitations) next = markCitations(next);
     // Section order applies to the entry document only: an included fragment
     // has no top-level structure of its own to reorder.
-    if (f === opts.entry && opts.structure?.order.length) {
+    if (!assembling && f === opts.entry && opts.structure?.order.length) {
       const r = reorderForExport(next, opts.structure.order, opts.structure.aliases);
       next = r.text;
       movedSections = r.moved;
@@ -165,5 +209,5 @@ export async function prepareExport(
     try { await restore(); } catch (cleanup) { throw new AggregateError([error, cleanup], "Export preparation and source restoration failed"); }
     throw error;
   }
-  return { files, expanded, changed: [...transformed.keys()], movedSections, restore };
+  return { files, expanded, changed: [...transformed.keys()], movedSections, journal: journalReport, restore };
 }

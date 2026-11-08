@@ -81,6 +81,7 @@ const WORDS: Record<string, string> = {
   cardiology: "Cardiol.",
   cell: "Cell",
   cellular: "Cell.",
+  cerebral: "Cereb.",
   chemical: "Chem.",
   chemistry: "Chem.",
   chinese: "Chin.",
@@ -104,6 +105,7 @@ const WORDS: Record<string, string> = {
   economics: "Econ.",
   education: "Educ.",
   electronic: "Electron.",
+  endocrinology: "Endocrinol.",
   engineering: "Eng.",
   environment: "Environ.",
   environmental: "Environ.",
@@ -143,6 +145,7 @@ const WORDS: Record<string, string> = {
   medical: "Med.",
   medicine: "Med.",
   memory: "Mem.",
+  metabolism: "Metab.",
   methods: "Methods",
   microbiology: "Microbiol.",
   modeling: "Model.",
@@ -184,6 +187,7 @@ const WORDS: Record<string, string> = {
   psychiatry: "Psychiatry",
   psychological: "Psychol.",
   psychology: "Psychol.",
+  psychopharmacology: "Psychopharmacol.",
   public: "Public",
   quantitative: "Quant.",
   quantum: "Quantum",
@@ -193,6 +197,7 @@ const WORDS: Record<string, string> = {
   research: "Res.",
   review: "Rev.",
   reviews: "Rev.",
+  rhythms: "Rhythms",
   royal: "R.",
   science: "Sci.",
   sciences: "Sci.",
@@ -206,10 +211,12 @@ const WORDS: Record<string, string> = {
   structural: "Struct.",
   studies: "Stud.",
   surgery: "Surg.",
+  synaptic: "Synaptic",
   systems: "Syst.",
   technology: "Technol.",
   theoretical: "Theor.",
   transactions: "Trans.",
+  translational: "Transl.",
   trends: "Trends",
   tropical: "Trop.",
   veterinary: "Vet.",
@@ -245,4 +252,23 @@ export function abbrevJournal(container: string): string {
     out.push(hit ? w.replace(core, matchCase(core, hit)) : w);
   }
   return out.length ? out.join(" ") : trimmed;
+}
+
+/** Abbreviated forms without their full stop ("Neurosci", "J", "Natl") — the
+ *  shape NLM/MEDLINE titles take in PubMed-sourced BibTeX ("J Neurosci"). */
+const DOTLESS = new Set(
+  [...Object.values(WORDS), "J."]
+    .filter((v) => v.endsWith("."))
+    .map((v) => v.slice(0, -1).toLowerCase()),
+);
+
+/**
+ * Put back the full stops an NLM-style title omits: "J Neurosci" → "J. Neurosci.",
+ * "Proc Natl Acad Sci U S A" → "Proc. Natl. Acad. Sci. U S A". Only words that
+ * ARE known abbreviations gain a stop, so a full title passes through unchanged.
+ */
+export function dotAbbreviations(container: string): string {
+  const words = (container ?? "").replace(/\s+/g, " ").trim().split(" ");
+  if (words.length < 2) return container.trim();
+  return words.map((w) => (/^[A-Za-z]+$/.test(w) && DOTLESS.has(w.toLowerCase()) ? `${w}.` : w)).join(" ");
 }

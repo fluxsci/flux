@@ -156,8 +156,12 @@ const mk = (authors: [string, string][], rest: Partial<RefEntry> = {}): RefEntry
 {
   assert(nature.limits.legendWords === 250 && nature.limits.legendWordsHard === 300,
     "BOTH legend bounds are carried — nature.com states 250 in one place and 300 in another");
-  assert(nature.limits.abstractWords === 200 && nature.limits.abstractWordsHard === 300,
-    "summary paragraph: 200 nominal, 300 hard ceiling with the broader-perspective block");
+  // Superseded 2026-11: Nature's "Formatting Rules and Manuscript Essentials"
+  // checklist (nature.com/documents/nature-manuscript-checklist-research.pdf,
+  // 2026-07-07) makes 230 the hard ceiling; 300 survives only for an
+  // editor-approved broader-perspective close (docs/journal_styleguide.md §2.1).
+  assert(nature.limits.abstractWords === 200 && nature.limits.abstractWordsHard === 230,
+    "summary paragraph: 200 nominal, 230 hard ceiling (2026 checklist)");
   assert(nature.limits.mainRefs === 50, "main-text reference cap is 50 (Methods/SI excluded)");
   assert(nature.structure.forbiddenHeadings.includes("results"),
     "Results is a forbidden heading (0/61 sampled papers print one)");

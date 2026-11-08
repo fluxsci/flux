@@ -150,7 +150,7 @@ export function checkCompliance(input: ComplianceInput): Finding[] {
         abstractWords > hard
           ? `Summary paragraph is ~${abstractWords} words, past the ${hard}-word ceiling.`
           : `Summary paragraph is ~${abstractWords} words; ${style.name} asks for ${lim.abstractWords} ` +
-            `(up to ${hard} when it closes with a broader-perspective passage).`,
+            `(hard limit ${hard}).`,
       from: st.preamble.from,
       to: st.preamble.to,
     });

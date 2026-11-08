@@ -19,7 +19,8 @@ import { recoverExportSources, publishExportResource } from "../src/lib/project/
 import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
 import { resolveJournalStyle, styledFamilyDef } from "../src/lib/style/journalStyle";
-import { BUILTIN_JOURNAL_STYLES } from "../src/lib/style/journalPresets";
+import { BUILTIN_JOURNAL_STYLES, JOURNAL_FIGURE_DPI } from "../src/lib/style/journalPresets";
+import { JOURNAL_FIGURE_DIR_PREFIX } from "../src/lib/style/journalFigures";
 import { NATURE_ROLE_ALIASES } from "../src/lib/manuscript/sections";
 import {
   EXPORT_PROFILE,
@@ -242,6 +243,8 @@ export interface CompileSummary {
    *  spliced in. `failed` names pictures left as-is (no rasterizer available in a
    *  packaged build, or an SVG resvg could not render). */
   svgFallbacks?: { added: number; failed: string[] };
+  /** Journal styles: the export summary (what was done, what still needs doing). */
+  journal?: { summary: import("../src/lib/style/journalSummary").ExportSummary; markdown: string; notesPath?: string };
 }
 
 /** Citation keys used in a qmd (Quarto/pandoc `@key` syntax), excluding
@@ -270,11 +273,11 @@ async function cslIdentity(root: string, docAbs: string, styleCsl?: string): Pro
 export async function compile(
   root: string,
   to = "pdf",
-  opts: { doc?: string; style?: string; zoteroFields?: boolean; zoteroLibraryDocs?: string[] } = {},
+  opts: { doc?: string; style?: string; stage?: "initial" | "final"; zoteroFields?: boolean; zoteroLibraryDocs?: string[] } = {},
 ): Promise<CompileSummary> {
   return withLock(root, "export", CLIENT, async lease => compileOwned(root, to, opts, lease));
 }
-async function compileOwned(root: string, to: string, opts: { doc?: string; style?: string; zoteroFields?: boolean; zoteroLibraryDocs?: string[] }, lease: LockLease): Promise<CompileSummary> {
+async function compileOwned(root: string, to: string, opts: { doc?: string; style?: string; stage?: "initial" | "final"; zoteroFields?: boolean; zoteroLibraryDocs?: string[] }, lease: LockLease): Promise<CompileSummary> {
   const recoveryIO = exportRecoveryIO(root, () => assertLockOwned(lease));
   await recoverExportSources(recoveryIO, root);
   const m = await loadManifest(root);
@@ -308,6 +311,7 @@ async function compileOwned(root: string, to: string, opts: { doc?: string; styl
   if (typeof outputName !== "string" || path.basename(outputName) !== outputName) throw new ValidationError("Quarto output-file must be a filename");
   const temporaryName = `.flux-export-${crypto.randomUUID()}.${ext}`;
   let pendingOutput: string | undefined;
+  let rasterDir: string | undefined;
   try {
   const captions = new Map<string, string>();
   const figIdentity = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
@@ -332,6 +336,45 @@ async function compileOwned(root: string, to: string, opts: { doc?: string; styl
     /* no fig model → nothing to inject */
   }
   const ctx = { captions, figures: figIdentity, panels: style.figures.panels };
+  // Journal submission assembly needs the bibliography as CSL-JSON records.
+  const libRel = (m as { references?: { library?: string } }).references?.library ?? "references/library.bib";
+  let journalPrep: Parameters<typeof prepareExport>[1]["journal"];
+  if (style.manuscript) {
+    const records: Record<string, CslRecord> = {};
+    try {
+      const { getCite } = await import("../src/lib/references/bibtex");
+      const Cite = await getCite();
+      const bibSrc = await fs.readFile(path.join(root, libRel), "utf8");
+      for (const rec of (/^\s*@/m.test(bibSrc) ? new Cite(bibSrc).data : []) as CslRecord[]) if (rec?.id) records[String(rec.id)] = rec;
+    } catch {
+      /* no bibliography — every citation reports as missing */
+    }
+    const supplementaryFigures = [...figIdentity.values()].filter((f) => f.family.id === "supplementary").length;
+    journalPrep = { style, stage: opts.stage ?? "initial", records, supplementaryFigures, docDir: path.dirname(document) === "." ? "" : path.dirname(document) };
+    // PDF: place 300-dpi PNGs, not 10–15 MB SVGs (journalFigures.ts), for the
+    // render only.
+    if (to === "pdf") {
+      const { svgFigureEmbeds, rasterWidthFor } = await import("../src/lib/style/journalFigures");
+      const { rasterizeSvgToPng } = await import("./render");
+      const tree = await readQmdTree(docAbs, qmdTreeIO);
+      const images = new Map<string, string>();
+      // Beside the document, referenced RELATIVELY: Quarto reads a leading "/"
+      // as project-root-relative, so an OS temp path never resolves.
+      rasterDir = await fs.mkdtemp(path.join(path.dirname(docAbs), JOURNAL_FIGURE_DIR_PREFIX));
+      for (const e of svgFigureEmbeds(tree.expanded, docAbs)) {
+        try {
+          const svg = await fs.readFile(e.svgPath, "utf8");
+          const png = await rasterizeSvgToPng(svg, rasterWidthFor(svg, JOURNAL_FIGURE_DPI));
+          const out = path.join(rasterDir, `${e.label}.png`);
+          await fs.writeFile(out, png);
+          images.set(e.label, path.relative(path.dirname(docAbs), out).split(path.sep).join("/"));
+        } catch {
+          /* keep the SVG for this figure — rsvg-convert still places it */
+        }
+      }
+      journalPrep.figureImages = images;
+    }
+  }
   // The shared prep owns the walk + transform + restore (src/lib/exportPrep.ts)
   // so the GUI runs byte-for-byte the same preparation.
   const slideRepository = await nodeSlideRepository(root);
@@ -343,6 +386,7 @@ async function compileOwned(root: string, to: string, opts: { doc?: string; styl
       recovery: { root, id: crypto.randomUUID(), io: recoveryIO },
       ctx,
       structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
+      journal: journalPrep,
       markCitations: !!opts.zoteroFields,
       ...slideTransform,
     },
@@ -439,6 +483,8 @@ async function compileOwned(root: string, to: string, opts: { doc?: string; styl
       const { rasterizeSvgToPng } = await import("./render");
       const processed = await postprocessDocx(bytes, {
         rasterize: async (svg, width) => new Uint8Array(await rasterizeSvgToPng(svg, width)),
+        // Journal submissions embed print-resolution PNGs, not 10–15 MB SVGs.
+        ...(style.manuscript ? { rasterOnlyDpi: JOURNAL_FIGURE_DPI } : {}),
         ...(opts.zoteroFields ? { inject: async (input: Uint8Array) => {
           const { getCite } = await import("../src/lib/references/bibtex");
           const Cite = await getCite(), records: Record<string, CslRecord> = {};
@@ -457,8 +503,21 @@ async function compileOwned(root: string, to: string, opts: { doc?: string; styl
     await atomicWrite(output, bytes);
   }
 
-  return { code, log: log + note, output, figures, citations, zotero, svgFallbacks };
+  let journalOut: CompileSummary["journal"];
+  if (prep.journal && journalPrep) {
+    const { buildExportSummary, summaryMarkdown } = await import("../src/lib/style/journalSummary");
+    const summary = buildExportSummary({ style, stage: journalPrep.stage, format: (to === "docx" ? "docx" : to === "html" ? "html" : "pdf"), report: prep.journal, output });
+    const markdown = summaryMarkdown(summary);
+    let notesPath: string | undefined;
+    if (output && code === 0) {
+      notesPath = output.replace(/\.[^./\\]+$/, "") + ".submission.md";
+      await atomicWrite(notesPath, markdown);
+    }
+    journalOut = { summary, markdown, notesPath };
+  }
+  return { code, log: log + note, output, figures, citations, zotero, svgFallbacks, journal: journalOut };
   } finally {
+    if (rasterDir) await fs.rm(rasterDir, { recursive: true, force: true });
     for (const owned of new Set([pendingOutput, path.join(path.dirname(docAbs), temporaryName), path.join(root, "_output", temporaryName)])) if (owned) await fs.rm(owned, { force: true });
   }
 }

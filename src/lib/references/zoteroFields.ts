@@ -291,6 +291,13 @@ const CITEKEY = /@([A-Za-z0-9_][A-Za-z0-9_:.#$%&+?<>~/-]*[A-Za-z0-9_]|[A-Za-z0-9
 const rawRun = (text: string) =>
   "`<w:r><w:t xml:space=\"preserve\">" + text + "</w:t></w:r>`{=openxml}";
 
+/** Bracket an already-PRINTED citation mark (the journal export literalizes
+ *  citations itself) with the same markers markCitations emits, so the docx
+ *  post-pass can still turn it into a live Zotero field. */
+export function wrapCitationMarkers(keys: readonly string[], printed: string): string {
+  return rawRun(MARK_OPEN(keys.join(","))) + printed + rawRun(MARK_CLOSE);
+}
+
 function keysIn(fragment: string): string[] {
   const keys: string[] = [];
   for (const m of fragment.matchAll(CITEKEY)) if (!CROSSREF.test(m[1])) keys.push(m[1]);

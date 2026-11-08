@@ -41,8 +41,10 @@ export function validateDocx(bytes: Uint8Array): void {
 export async function postprocessDocx<T>(bytes: Uint8Array, opts: {
   rasterize: RasterizeSvg;
   inject?: (bytes: Uint8Array) => Promise<{ bytes: Uint8Array; summary: T }>;
+  /** Journal submissions: figures become PNGs at this dpi, SVGs dropped. */
+  rasterOnlyDpi?: number;
 }) {
-  const raster = await addSvgRasterFallbacks(bytes, opts.rasterize);
+  const raster = await addSvgRasterFallbacks(bytes, opts.rasterize, { rasterOnlyDpi: opts.rasterOnlyDpi });
   if (raster.report.failed.length) throw new Error(`DOCX figures could not be rasterized: ${raster.report.failed.join(", ")}`);
   let result = raster.bytes, zotero: T | undefined;
   const warnings: string[] = [];

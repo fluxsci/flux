@@ -25,8 +25,20 @@ import { familyById, type FigureFamilyDef } from "../figfamily";
 
 export const JOURNAL_STYLE_SCHEMA_VERSION = "0.1.0";
 
+/** How a panel reference is phrased around the figure number.
+ *   attached — Nature: "Fig. 1a", "Fig. 1a,b", "Fig. 1a–c" (one noun, letters glued on)
+ *   science  — Science: "Fig. 1A", "Fig. 1, A and B", "Fig. 1, A to C", "Fig. 1, A, C, and E"
+ *   cell     — Cell: "Figure 1A", "Figures 1A and 1B", "Figures 1A–1C" (number repeated,
+ *              noun pluralised whenever more than one panel is named) */
+export type PanelGrammar = "attached" | "science" | "cell";
+
 /** How a panel suffix renders: "a", "a,b", "a–c", "(A)". */
 export interface PanelStyle {
+  /** Phrasing around the number (see PanelGrammar). Absent = "attached". */
+  grammar?: PanelGrammar;
+  /** Science: a paragraph that OPENS with a figure reference spells it out
+   *  ("Figure 1 shows…"). Absent = "keep". */
+  paragraphInitial?: "keep" | "spell-out";
   /** Panel letters as authored are lowercase; some venues print them capital. */
   letterCase: "lower" | "upper";
   /** Bare letter, or parenthesised as "(a)". */
@@ -48,8 +60,9 @@ export interface FigureStyleSpec {
 }
 
 export interface CiteNumericSpec {
-  /** "[1,2]" · "^1,2^" (superscript) · "(1, 2)". */
-  presentation: "brackets" | "superscript" | "parens";
+  /** "[1,2]" · "^1,2^" (superscript) · "(1, 2)" · Science's "(*1*, *2*)" — italic
+   *  numerals inside roman parentheses. */
+  presentation: "brackets" | "superscript" | "parens" | "parens-italic";
   /** Between separate ordinals. Nature: "," with no space. */
   separator: string;
   rangeSeparator: string;
@@ -67,8 +80,9 @@ export interface CiteSpec {
 
 export interface RefListSpec {
   /** "default" = Flux's existing two-style formatter, untouched (so the
-   *  no-style path stays byte-identical). "nature" = the Nature entry form. */
-  layout: "default" | "nature";
+   *  no-style path stays byte-identical). "nature" / "science" / "cell" = that
+   *  journal's submission entry form (style/journalRefs.ts). */
+  layout: "default" | "nature" | "science" | "cell";
   /** ≤ authorMax names are all listed; beyond it, keep `etAlKeep` then et al. */
   authorMax: number;
   etAlKeep: number;
@@ -99,6 +113,17 @@ export interface LimitsSpec {
   mainRefs?: number;
   displayItems?: number;
   extendedDataItems?: number;
+  /** Extended Data / supplementary legend ceiling (Nature: 1,000). */
+  extendedLegendWords?: number;
+  /** Cell Highlights: count range and per-bullet characters. */
+  highlightsMin?: number;
+  highlightsMax?: number;
+  highlightChars?: number;
+  /** Cell eTOC ("In brief") blurb words. */
+  etocWords?: number;
+  keywordsMax?: number;
+  /** Science one-sentence summary characters. */
+  oneSentenceSummaryChars?: number;
 }
 
 export interface DocFormatSpec {
@@ -106,7 +131,95 @@ export interface DocFormatSpec {
   fontFamily?: string;
   fontSizePt?: number;
   lineNumbers?: boolean;
+  /** Number every Nth line (Science's template counts by 5). Absent = 1. */
+  lineNumberCountBy?: number;
+  paperSize?: "letter" | "a4";
+  /** Page margins in inches. */
+  marginsIn?: { top: number; right: number; bottom: number; left: number };
+  pageNumbers?: boolean;
+  /** Body paragraphs indent their first line (Science's template: 0.5 in). */
+  firstLineIndentIn?: number;
+  /** Running header text (Science's template: "Submitted Manuscript: Confidential"). */
+  headerText?: string;
 }
+
+/** Where a figure's image and legend go for one submission stage. */
+export type FigurePlacement = "inline" | "legends-only";
+
+/** How a figure legend is set. */
+export interface LegendSpec {
+  /** First sentence of the caption is the bold legend title. */
+  boldTitle: boolean;
+  /** Cell prints the title WITHOUT a final full stop. */
+  titlePeriod: "keep" | "strip";
+  /** Panel descriptors: Nature "**a**, text" · Science "(**A**) text" · Cell "(A) text", one per line. */
+  panels: "letter-comma" | "parens-bold" | "parens-lines";
+  /** Cell closes main legends with "See also Figure S…" when it can. */
+  seeAlso?: boolean;
+}
+
+/**
+ * Journal manuscript assembly — what turns an authored Flux manuscript into the
+ * venue's SUBMISSION document (title page, section order and names, legends,
+ * references). Present only on journal styles; the house style has none, so the
+ * assembler never runs for it and today's export stays byte-identical.
+ * Implemented by style/journalManuscript.ts.
+ */
+export interface ManuscriptSpec {
+  /** "literal": Flux numbers and formats every citation and writes the reference
+   *  list itself (journalCitations/journalRefs) — needed for split lists,
+   *  punctuation placement and Science notes. "citeproc": leave citations to
+   *  pandoc with the document's own CSL (bioRxiv has no reference style). */
+  citations: "literal" | "citeproc";
+  titleBlock: "nature" | "science" | "cell" | "preprint";
+  /** Where the abstract goes and how it is introduced. heading null = no heading. */
+  abstract: { heading: string | null; label?: string; bold?: boolean };
+  /** Level-1 heading case in the output. */
+  headingCase: "as-is" | "upper";
+  /** Roles whose HEADING is removed (content kept) — Nature prints no Introduction/Results heading. */
+  dropHeadings: string[];
+  /** Printed heading per role. */
+  renameHeadings: Record<string, string>;
+  /** Roles folded into one parent as run-in paragraphs (Science's Acknowledgments). */
+  runIn?: { parent: string; heading: string; children: { role: string; label: string }[] };
+  /** Science's "Main Text:" label before the body. */
+  mainTextLabel?: string;
+  /** Section order for the assembled document (roles; "body" = unrecognised sections). */
+  order: string[];
+  referencesHeading: string;
+  /** Second list for references first cited after the main text (Nature's Methods references). */
+  splitReferences?: { afterRole: string; heading: string | null };
+  legendsHeading: string;
+  legend: LegendSpec;
+  figures: { initial: FigurePlacement; final: FigurePlacement };
+  /** Footnotes: keep them, or turn them into numbered notes in the reference list (Science). */
+  footnotes: "keep" | "notes-in-references";
+  /** Word custom-style names the assembler tags blocks with (Science uses its template's names). */
+  docxStyles?: Partial<Record<DocxStyleRole, string>>;
+  /** Roles a submission must contain (reported, never fabricated). */
+  required: { role: string; label: string; stage: "initial" | "final" }[];
+  /** Front-matter items the venue asks for (reported when missing). */
+  frontMatterItems?: ("highlights" | "etoc" | "keywords" | "one-sentence-summary" | "lead-contact")[];
+  /** What the author still has to do outside Flux, listed in the export summary. */
+  outsideFlux: string[];
+  /** Figure-file guidance for the summary (widths, formats). */
+  figureGuidance: string[];
+}
+
+export type DocxStyleRole =
+  | "title"
+  | "authors"
+  | "affiliation"
+  | "correspondence"
+  | "abstract"
+  | "teaser"
+  | "label"
+  | "bibliography"
+  | "bibheading"
+  | "acknowledgement"
+  | "figure"
+  | "legend"
+  | "highlights";
 
 /** The sparse, authored form. */
 export interface JournalStyle {
@@ -129,6 +242,8 @@ export interface JournalStyle {
   structure?: Partial<StructureSpec>;
   limits?: LimitsSpec;
   document?: DocFormatSpec;
+  /** Journal manuscript assembly (journal styles only; sparse merge per key). */
+  manuscript?: Partial<ManuscriptSpec>;
   /** Project-relative CSL file for the Quarto path (pandoc renders citations). */
   csl?: string;
   /** Which SHIPPED asset set this style uses (resources/csl/<key>.csl,
@@ -152,6 +267,8 @@ export interface ResolvedJournalStyle {
   structure: StructureSpec;
   limits: LimitsSpec;
   document: DocFormatSpec;
+  /** Absent on the house style — the assembler only runs for journal styles. */
+  manuscript?: ManuscriptSpec;
   csl?: string;
   assetKey?: string;
   sizingFamily?: string;
@@ -221,6 +338,9 @@ function mergeStyle(base: ResolvedJournalStyle, s: JournalStyle): ResolvedJourna
     structure: { ...base.structure, ...(s.structure ?? {}) },
     limits: { ...base.limits, ...(s.limits ?? {}) },
     document: { ...base.document, ...(s.document ?? {}) },
+    manuscript: s.manuscript
+      ? ({ ...(base.manuscript ?? {}), ...s.manuscript } as ManuscriptSpec)
+      : base.manuscript,
     csl: s.csl ?? base.csl,
     // Own key → parent's key → own id. The middle step is what lets
     // nature-communications ship no assets of its own.
@@ -369,4 +489,101 @@ export function formatPanelSpec(spec: string, p: PanelStyle): string {
   );
   const joined = parts.join(p.listSeparator);
   return p.wrap === "parens" ? `(${joined})` : joined;
+}
+
+/** Expand an authored panel spec into its atoms, or null when it is not the
+ *  grammar we know (the caller then passes the spec through untouched). */
+function panelAtoms(spec: string): PanelAtom[] | null {
+  const atoms: PanelAtom[] = [];
+  for (const part of spec.split(",")) {
+    const t = part.trim();
+    const dash = t.indexOf("-");
+    if (dash < 0) {
+      const a = parsePanelAtom(t);
+      if (!a) return null;
+      atoms.push(a);
+      continue;
+    }
+    const from = parsePanelAtom(t.slice(0, dash));
+    const to = parsePanelAtom(t.slice(dash + 1));
+    if (!from || !to) return null;
+    if (from.sub === null && to.sub === null) {
+      const f = from.letter.charCodeAt(0);
+      const l = to.letter.charCodeAt(0);
+      if (l < f) return null;
+      for (let c = f; c <= l; c++) atoms.push({ letter: String.fromCharCode(c), sub: null });
+    } else if (from.sub !== null && to.sub !== null && from.letter === to.letter && to.sub >= from.sub) {
+      for (let n = from.sub; n <= to.sub; n++) atoms.push({ letter: from.letter, sub: n });
+    } else return null;
+  }
+  return atoms.length ? atoms : null;
+}
+
+function panelRuns(atoms: PanelAtom[]): PanelAtom[][] {
+  const groups: PanelAtom[][] = [];
+  for (const a of atoms) {
+    const last = groups[groups.length - 1];
+    if (last && isPanelSuccessor(last[last.length - 1], a)) last.push(a);
+    else groups.push([a]);
+  }
+  return groups;
+}
+
+/** "A", "A and B", "A, C, and E" — the serial-comma English list both
+ *  Science and Cell print. */
+function englishList(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+/** "Fig." → "Figs.", "Figure" → "Figures", "Extended Data Fig." → "Extended Data Figs." */
+export function pluralizeFigureNoun(noun: string): string {
+  return noun.replace(/(fig(?:ure)?)(\.?)(\s*)$/i, (_m, w: string, dot: string, ws: string) => `${w}s${dot}${ws}`);
+}
+
+/**
+ * A complete figure reference in the venue's grammar: noun, number and panels.
+ * `attached` reproduces formatFamilyRef + formatPanelSpec exactly (Nature and the
+ * house style). `science` and `cell` need the whole phrase, because the panel
+ * part changes the noun (Cell pluralises) or inserts its own punctuation
+ * (Science's "Fig. 1, A to C"). An unparseable spec passes through verbatim.
+ */
+export function formatStyledFigureRef(
+  def: FigureFamilyDef,
+  num: number,
+  spec: string,
+  p: PanelStyle,
+): string {
+  const grammar = p.grammar ?? "attached";
+  let tpl = def.refTemplate;
+  if (!tpl.includes("{num}")) tpl = `${tpl.trimEnd()} {num}`;
+  if (!tpl.includes("{panel}")) tpl = `${tpl}{panel}`;
+  const plain = (panel: string) => tpl.replaceAll("{num}", String(num)).replaceAll("{panel}", panel);
+  if (!spec) return plain("");
+  if (grammar === "attached") return plain(formatPanelSpec(spec, p));
+  const atoms = panelAtoms(spec);
+  if (!atoms) return plain(spec);
+  const letter = (a: PanelAtom) => renderPanelAtom(a, p);
+  const runs = panelRuns(atoms);
+  if (grammar === "science") {
+    if (atoms.length === 1) return plain(letter(atoms[0]));
+    const items = runs.flatMap((g) =>
+      g.length >= p.collapseRunsOfAtLeast ? [`${letter(g[0])} to ${letter(g[g.length - 1])}`] : g.map(letter),
+    );
+    return plain(`, ${englishList(items)}`);
+  }
+  // cell — the number is repeated on every panel and the noun pluralises.
+  const at = tpl.indexOf("{num}");
+  const head = tpl.slice(0, at);
+  const sp = head.lastIndexOf(" ");
+  const noun = sp >= 0 ? head.slice(0, sp) : head;
+  const numPrefix = sp >= 0 ? head.slice(sp + 1) : "";
+  const tail = tpl.slice(at + "{num}".length).replace("{panel}", "");
+  const id = (a: PanelAtom) => `${numPrefix}${num}${letter(a)}`;
+  if (atoms.length === 1) return `${noun} ${id(atoms[0])}${tail}`;
+  const items = runs.flatMap((g) =>
+    g.length >= p.collapseRunsOfAtLeast ? [`${id(g[0])}${p.rangeSeparator}${id(g[g.length - 1])}`] : g.map(id),
+  );
+  return `${pluralizeFigureNoun(noun)} ${englishList(items)}${tail}`;
 }

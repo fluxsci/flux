@@ -15,6 +15,8 @@ import {
   diagnoseQuartoFailure,
   journalAssetPlan,
   journalProfileYaml,
+  journalRenderMeta,
+  JOURNAL_LUA_REL,
 } from "../src/lib/style/journalAssets";
 import { resolveJournalStyle } from "../src/lib/style/journalStyle";
 import { BUILTIN_JOURNAL_STYLES } from "../src/lib/style/journalPresets";
@@ -51,8 +53,15 @@ const nature = resolveJournalStyle("nature", BUILTIN_JOURNAL_STYLES);
     assert(existsSync(`resources/${a.resource}`),
       `nature-communications reuses a SHIPPED resource (${a.resource}), not one named after itself`);
   }
-  assert(ncPlan.every((a) => a.resource.includes("nature.") || a.resource.includes("nature-reference")),
-    "…specifically Nature's, inherited through `extends`");
+  assert(ncPlan.every((a) => a.resource.includes("nature.") || a.resource.includes("nature-reference") || a.resource === "lua/flux-journal.lua"),
+    "…specifically Nature's (or the one Lua filter every journal shares), inherited through `extends`");
+  // Every journal style ships its full asset set.
+  for (const id of ["nature", "science", "cell", "biorxiv"]) {
+    const plan = journalAssetPlan(resolveJournalStyle(id, BUILTIN_JOURNAL_STYLES));
+    for (const a of plan) assert(existsSync(`resources/${a.resource}`), `${id}: the shipped resource resources/${a.resource} exists`);
+    assert(plan.some((a) => a.rel === `styles/journal/${id}/reference.docx`), `${id}: plans its own Word template`);
+    assert(plan.some((a) => a.rel === JOURNAL_LUA_REL), `${id}: plans the PDF-path Lua filter`);
+  }
 }
 
 // --- the shipped files are the real thing ------------------------------------
@@ -83,44 +92,45 @@ const nature = resolveJournalStyle("nature", BUILTIN_JOURNAL_STYLES);
   assert(/w:line="480" w:lineRule="auto"/.test(styles), "…and double spacing (480 = 2x240, auto rule)");
 }
 
-// --- the generated profile ---------------------------------------------------
+// --- render settings: front matter for journal styles, a profile for the rest ---
 {
-  const yaml = journalProfileYaml(nature, { manuscriptDir: "manuscript" });
+  // Superseded 2026-11: a journal style's settings no longer travel in the
+  // `--profile` file. Quarto reads `_quarto-<profile>.yml` only from the Quarto
+  // PROJECT directory, so a manuscript one folder below _quarto.yml
+  // (paper/MANUSCRIPT_MAIN/manuscript.qmd) rendered with NONE of them — no
+  // reference.docx, no line numbers (found exporting the owner's molecular paper).
+  // They now go into the prepared copy's front matter, which Quarto always reads.
   assert(EXPORT_PROFILE_FILE === `_quarto-${EXPORT_PROFILE}.yml`,
     "the profile filename follows Quarto's _quarto-<profile>.yml convention");
-  // Paths are relative to the QUARTO PROJECT dir (the manuscript folder), while
-  // the asset plan is project-root relative — confusing the two frames produces
-  // a profile Quarto accepts and silently ignores.
-  assert(yaml.includes("csl: ../references/styles/nature.csl"),
-    "csl path is written relative to the manuscript directory");
-  assert(yaml.includes("reference-doc: ../styles/journal/nature/reference.docx"),
-    "reference-doc path likewise");
-  assert(yaml.includes("pdf-engine: lualatex"),
+  const prof = journalProfileYaml(nature, { manuscriptDir: "manuscript" });
+  assert(!/^(format|csl|filters):/m.test(prof), "a journal style's profile carries no settings of its own");
+
+  const meta = journalRenderMeta(nature, { docDir: "manuscript" }) as any;
+  assert(meta.format.docx["reference-doc"] === "../styles/journal/nature/reference.docx",
+    "reference-doc path is relative to the DOCUMENT's directory");
+  assert(meta.filters?.[0] === `../${JOURNAL_LUA_REL}`, "the Lua filter is wired in, document-relative");
+  assert(!("csl" in meta), "a literal-citation style hands pandoc no CSL (nothing is left for citeproc)");
+  assert(meta.format.pdf["pdf-engine"] === "lualatex",
     "the PDF engine is lualatex (pdflatex cannot set Unicode text such as α)");
-  assert(yaml.includes('mainfont: "Times New Roman"'), "mainfont is quoted (it contains spaces)");
-  assert(yaml.includes("fontsize: 12pt"), "12pt");
+  assert(meta.format.pdf.fontsize === "12pt", "12pt");
+  const header: string = meta.format.pdf["include-in-header"].text;
+  // A missing font must not fail the render: Times New Roman is absent on most
+  // Linux machines, so the preamble falls back through installed equivalents.
+  assert(header.includes("\\IfFontExistsTF{Times New Roman}") && header.includes("TeX Gyre Termes"),
+    "the font is set through a fallback chain (Times New Roman → TeX Gyre Termes → …)");
+  assert(header.includes("\\usepackage{lineno}") && header.includes("\\linenumbers"), "line numbers requested");
+  assert(header.includes("\\usepackage{setspace}") && header.includes("\\doublespacing"), "double spacing requested");
+  assert(!header.includes("titlesec"), "no titlesec — a minimal TeX install lacks it (heads use \\@startsection)");
+  assert(meta.format.latex["include-in-header"].text === header, "BOTH pdf and latex formats carry the identical preamble");
+  assert(meta.crossref["title-delim"] === "|", "Nature tables read 'Table 1 | …'");
 
-  // The literal block: content MUST be indented deeper than its key.
-  const lines = yaml.split("\n");
-  const textIdx = lines.findIndex((l) => /^\s+text: \|$/.test(l));
-  assert(textIdx > 0, "an include-in-header literal block is emitted");
-  const keyIndent = lines[textIdx].match(/^\s*/)![0].length;
-  const bodyIndent = lines[textIdx + 1].match(/^\s*/)![0].length;
-  assert(bodyIndent > keyIndent,
-    `literal-block content is indented deeper than 'text: |' (${bodyIndent} > ${keyIndent})`);
-  assert(yaml.includes("\\usepackage{lineno}") && yaml.includes("\\linenumbers"), "line numbers requested");
-  assert(yaml.includes("\\usepackage{setspace}") && yaml.includes("\\doublespacing"), "double spacing requested");
-
-  // Both format keys: Quarto treats pdf and latex separately, and Nature takes
-  // LaTeX at acceptance.
-  assert(/^ {2}pdf:$/m.test(yaml) && /^ {2}latex:$/m.test(yaml),
-    "BOTH pdf and latex formats carry the settings");
-  assert((yaml.match(/\\linenumbers/g) ?? []).length === 2, "…including the preamble, once per format");
-
-  // Nested manuscript directories get the right number of `../`.
-  const deep = journalProfileYaml(nature, { manuscriptDir: "manuscript/sub" });
-  assert(deep.includes("csl: ../../references/styles/nature.csl"),
-    "a nested manuscript dir climbs the right number of levels");
+  const deep = journalRenderMeta(nature, { docDir: "paper/MANUSCRIPT_MAIN" }) as any;
+  assert(deep.format.docx["reference-doc"] === "../../styles/journal/nature/reference.docx",
+    "a nested document climbs the right number of levels");
+  const sci = journalRenderMeta(resolveJournalStyle("science", BUILTIN_JOURNAL_STYLES), { docDir: "" }) as any;
+  assert(sci.format.pdf["include-in-header"].text.includes("\\modulolinenumbers[5]"), "Science numbers every 5th line");
+  assert(sci.format.pdf["include-in-header"].text.includes("Submitted Manuscript: Confidential"), "…and carries its template's running header");
+  assert(sci.format.pdf.papersize === "letter", "…on US Letter");
 
   // The house style writes no profile-worthy content at all.
   const house = journalProfileYaml(resolveJournalStyle(null, BUILTIN_JOURNAL_STYLES));

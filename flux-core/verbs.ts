@@ -2442,11 +2442,12 @@ export const VERBS: VerbDef[] = [
     cli: "compile",
     cliRoot: "flags",
     summary:
-      "Compile the chosen document (--doc, otherwise the default) via Quarto (pdf|html|docx). Requires quarto on PATH. --style applies a journal style (e.g. nature) to the OUTPUT only. --zotero-fields writes docx citations as live Zotero fields (editable in Word); --zotero-library takes .docx files already written with Zotero, so citations to the same works arrive linked to that library. Reports the output path and a figures/citations resolution summary.",
+      "Compile the chosen document (--doc, otherwise the default) via Quarto (pdf|html|docx). Requires quarto on PATH. --style applies a journal style (nature, science, cell, biorxiv, nature-communications) to the OUTPUT only — the submission manuscript for that venue — and --stage initial|final picks the initial-submission file (figures inline) or the revision text (legends only); a <name>.submission.md export summary is written beside the output. --zotero-fields writes docx citations as live Zotero fields (editable in Word); --zotero-library takes .docx files already written with Zotero, so citations to the same works arrive linked to that library. Reports the output path and a figures/citations resolution summary.",
     params: {
       to: z.string().optional(),
       doc: z.string().optional(),
       style: z.string().optional(),
+      stage: z.enum(["initial", "final"]).optional(),
       zoteroFields: z.boolean().optional(),
       zoteroLibrary: z.array(z.string()).optional(),
     },
@@ -2454,6 +2455,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "doc", into: "doc" },
       { kind: "flag", at: "to", into: "to" },
       { kind: "flag", at: "style", into: "style" },
+      { kind: "flag", at: "stage", into: "stage" },
       { kind: "flag", at: "zotero-fields", into: "zoteroFields", as: "boolean" },
       { kind: "flag", at: "zotero-library", into: "zoteroLibrary", as: "csv" },
     ],
@@ -2461,6 +2463,7 @@ export const VERBS: VerbDef[] = [
       core.compile(ctx.root, (a.to as string | undefined) ?? "pdf", {
         doc: a.doc as string | undefined,
         style: a.style as string | undefined,
+        stage: a.stage as "initial" | "final" | undefined,
         zoteroFields: a.zoteroFields as boolean | undefined,
         zoteroLibraryDocs: a.zoteroLibrary as string[] | undefined,
       }),
@@ -2486,6 +2489,7 @@ export const VERBS: VerbDef[] = [
               (c.zotero.embedded ? `, ${c.zotero.embedded} embedded` : "") +
               (c.zotero.notesPlain ? `, ${c.zotero.notesPlain} in notes left as text` : ""),
           );
+        if (c.journal) lines.push("", c.journal.markdown.trimEnd(), ...(c.journal.notesPath ? [`  (summary written to ${c.journal.notesPath})`] : []));
         return { err: lines.join("\n") };
       },
       mcp: (r) => {

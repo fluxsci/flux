@@ -27,7 +27,7 @@ import { mapUnprotected, protectedDocumentSpans } from "./manuscript/documentCon
 // anchors change form, and Quarto lists-of-figures lose their entries.
 
 import { formatCaptionLabel, formatFamilyRef, type FigureFamilyDef } from "./figfamily";
-import { formatPanelSpec, type PanelStyle } from "./style/journalStyle";
+import { formatPanelSpec, formatStyledFigureRef, type PanelStyle } from "./style/journalStyle";
 import { createFigureReferenceResolver, FIGURE_REFERENCE_TOKEN_SOURCE } from "./figureReferences";
 
 export const EMBED_RE =
@@ -179,6 +179,9 @@ export interface ExportQmdCtx {
   figures: Map<string, { family: FigureFamilyDef; number: number; panels?: readonly string[] }>;
   /** Panel rendering for the target venue. Absent = the house rule. */
   panels?: PanelStyle;
+  /** "external": leave embed alts EMPTY — the journal assembler writes the
+   *  legends itself (journalManuscript.ts). Default "inject". */
+  legends?: "inject" | "external";
 }
 
 // One panel spec: an atom `a`, a range `a-c`, comma lists of either (`a,b`, `a-c,e`).
@@ -212,7 +215,7 @@ function transformUnprotectedQmd(text: string, ctx: ExportQmdCtx): string {
       if (!fig) return line; // unknown label — leave the line for Quarto
       const ws = /^\s*/.exec(line)![0];
       let alt = m[1];
-      if (alt.trim() === "") {
+      if (alt.trim() === "" && ctx.legends !== "external") {
         const lead = formatCaptionLabel(fig.family, fig.number);
         const cap = ctx.captions.get(m[3])?.trim() ?? "";
         alt = escapeEmbedCaption(`**${lead.trim()}** ${cap}`.trim());
@@ -224,9 +227,21 @@ function transformUnprotectedQmd(text: string, ctx: ExportQmdCtx): string {
   // 2) ALL fig refs → literal family-formatted text ("Fig. S4", "Fig. 3a–c");
   //    unknown labels pass through for Quarto to resolve/complain about.
   const resolve = createFigureReferenceResolver([...ctx.figures].map(([label, fig]) => ({ label, ...fig })));
-  return withCaptions.replace(FIG_REF_RE, (whole, token: string) => {
+  return withCaptions.replace(FIG_REF_RE, (...args: unknown[]) => {
+    const whole = args[0] as string;
+    const token = args[1] as string;
+    const all = args[args.length - 1] as string;
+    const offset = args[args.length - 2] as number;
     const found = resolve(token);
     if (!found) return whole;
-    return formatFamilyRef(found.ref.family, found.ref.number, found.panelSpec ? panelSpecDisplay(found.panelSpec, ctx.panels) : "");
+    if (!ctx.panels) return formatFamilyRef(found.ref.family, found.ref.number, found.panelSpec ? panelSpecDisplay(found.panelSpec) : "");
+    let out = formatStyledFigureRef(found.ref.family, found.ref.number, found.panelSpec ?? "", ctx.panels);
+    // Sentence- and paragraph-initial forms (Science: "Figure 1 shows…", "Fig. S2…").
+    const lineStart = all.lastIndexOf("\n", offset - 1) + 1;
+    const paragraphStart = /^\s*$/.test(all.slice(lineStart, offset)) && (lineStart === 0 || /\n[ \t]*\n$/.test(all.slice(0, lineStart)));
+    const sentenceStart = paragraphStart || /[.!?][*_]*\s+$/.test(all.slice(Math.max(0, offset - 4), offset));
+    if (paragraphStart && ctx.panels.paragraphInitial === "spell-out") out = out.replace(/^fig(s?)\./i, (_m, pl: string) => `Figure${pl}`);
+    if (sentenceStart) out = out.charAt(0).toUpperCase() + out.slice(1);
+    return out;
   });
 }
