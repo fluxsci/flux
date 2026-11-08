@@ -175,6 +175,15 @@ cited at that spot as one unit. **Alt+R** opens Reference Search in the margin (
 **Space**, insert them as one citation with **Enter**); **Alt+C** edits the citation under the
 caret.
 
+**Reference style for Word exports.** In **Export…** (**Alt+E**), with the Flux house style,
+the **References** menu picks the citation style the Word export uses: Nature, Science or Cell,
+or **Load .csl file…** for any style from the [Zotero Style Repository](https://www.zotero.org/styles).
+Flux copies the style into `references/styles/` and records it in the document's front matter
+as one `csl:` line (choose *Pandoc default* to remove it). Only the export changes: the chips
+in the editor keep the **Au–Yr** / **[1]** look you chose, and the in-app PDF and HTML keep
+Flux's own reference format. Journal styles format their references themselves, so the menu
+is hidden for them.
+
 # Figures
 
 Insert a figure with `/figure` (or **Ctrl+K → Insert figure…**). The picker shows every figure
@@ -431,6 +440,7 @@ directly to the new position, and the caret blinks softly once you pause.
 | A journal-styled PDF fails but Word works | Missing LaTeX pieces → the error names the package; see [Installation](../installation.qmd). The PDF needs `lualatex` (TinyTeX from **Settings → Set up Flux… → Add PDF support** includes it) |
 | Saving the title pill says *Title and authors were not changed* | The front matter is not valid YAML, or has no closing `---` → fix it in the text (the message names the problem); Flux will not rewrite front matter it cannot read |
 | A `~` or `^` turned part of a line into a subscript or superscript | Two tildes (or carets) with no space between them, as in `~/data/~`, are subscript markup → write `\~` (or `\^`) for a literal one |
+| Word references ignore the style picked in **References** | A journal style is selected in **Style** (it sets its own format), or the `csl:` file was moved → pick the style again |
 | The journal title page shows no authors | Put `author:` (with `affiliations:`) in the document's front matter — see [Journal styles](#journal-styles) |
 | Journal Check flags a figure reference that is fine | It's advice, not a rule — dismiss it. References to another paper's figures are skipped automatically when an author name is next to them |
 | A figure embed shows no caption | The figure has no caption yet → write it in **Figure-Meta** (**Alt+M**) |

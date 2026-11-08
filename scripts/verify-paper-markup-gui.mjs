@@ -9,6 +9,9 @@
 // §C  Ctrl+. / Ctrl+, wrap the selection (and unwrap it again); one undo each.
 // §D  Spelling never flags a sup/sub word (real Harper).
 // §E  The Preview renders <sup>/<sub>.
+// §F  Export dialog → References: a shipped style copies its CSL into
+//     references/styles/ and writes ONE `csl:` line; Default removes it again;
+//     Load .csl file… copies a picked file and offers it by its title.
 //   FLUX_URL=http://127.0.0.1:1432/ node scripts/verify-paper-markup-gui.mjs
 import { launch, gotoApp, clickMode, waitFor, APP_URL, realErrors, shot } from "./lib/driver.mjs";
 import { harness } from "./lib/harness.mjs";
@@ -240,6 +243,40 @@ const previewHtml = await waitFor(
 h.ok(previewHtml, "the Preview prints CO<sub>2</sub>");
 h.ok(await page.$eval('iframe[title="Manuscript preview"]', (f) => f.srcdoc.includes("Ca<sup>2+</sup>")), "the Preview prints Ca<sup>2+</sup>");
 await page.keyboard.press("Escape");
+
+// ---------------------------------------------------------------- §F CSL picker
+h.section("F · reference style picker writes csl:");
+const ROOT = "/demo/myc-growth-paper";
+const CSL_DOC = "---\ntitle: \"Spindles\"   # working\nauthor:\n  - name: Ada Lovelace\n    orcid: 0000-0002-1825-0097\n---\n\nText.\n";
+await setDoc(CSL_DOC, CSL_DOC.length);
+await paints();
+await page.keyboard.down("Alt");
+await page.keyboard.press("e");
+await page.keyboard.up("Alt");
+await waitFor(page, () => (document.querySelector('select[aria-label="Reference style"]')?.options.length ?? 0) >= 5, null, { timeout: 5000, label: "reference style options" });
+const optionLabels = await page.$$eval('select[aria-label="Reference style"] option', (os) => os.map((o) => o.textContent.trim()));
+h.ok(["Nature", "Science", "Cell"].every((t) => optionLabels.includes(t)) && optionLabels.at(-1) === "Load .csl file…", `the picker lists the shipped styles + Load (${optionLabels.join(" | ")})`);
+await page.select('select[aria-label="Reference style"]', "shipped:nature");
+await waitFor(page, () => /\ncsl: /.test(window.__fluxView.state.doc.toString()), null, { timeout: 5000, label: "csl written" });
+const cslLine = await page.evaluate(() => /\ncsl: (.*)\n/.exec(window.__fluxView.state.doc.toString())?.[1]);
+h.ok(/^(\.\.\/)*references\/styles\/nature\.csl$/.test(cslLine ?? ""), `csl: points at the project copy (${cslLine})`);
+h.eq(await docText(), CSL_DOC.replace("---\n\nText.", `csl: ${cslLine}\n---\n\nText.`), "only the csl: line was added (ORCID, comment, quoting intact)");
+h.ok(await page.evaluate(async (root) => (await window.fig.readText(`${root}/references/styles/nature.csl`)).includes("<title>Nature</title>"), ROOT), "the shipped Nature CSL was copied into references/styles/");
+await page.select('select[aria-label="Reference style"]', "");
+await waitFor(page, () => !/\ncsl: /.test(window.__fluxView.state.doc.toString()), null, { timeout: 5000, label: "csl removed" });
+h.eq(await docText(), CSL_DOC, "Pandoc default removes the line, restoring the exact text");
+await page.evaluate(async () => {
+  const csl = '<?xml version="1.0" encoding="utf-8"?>\n<style xmlns="http://purl.org/net/xbiblio/csl" class="in-text" version="1.0"><info><title>Journal of Testing</title><id>http://www.zotero.org/styles/journal-of-testing</id><category citation-format="author-date"/></info><citation><layout><text variable="title"/></layout></citation></style>\n';
+  await window.fig.writeText("/demo/downloads/Journal of Testing.csl", csl);
+  window.__fluxDemoOpenFiles = ["/demo/downloads/Journal of Testing.csl"];
+});
+await page.select('select[aria-label="Reference style"]', "__load__");
+await waitFor(page, () => /\ncsl: .*journal-of-testing\.csl\n/.test(window.__fluxView.state.doc.toString()), null, { timeout: 5000, label: "loaded csl written" });
+h.ok(await page.evaluate(async (root) => (await window.fig.readText(`${root}/references/styles/journal-of-testing.csl`)).includes("Journal of Testing"), ROOT), "Load .csl file… copies the picked style into the project");
+h.ok(await page.$eval('select[aria-label="Reference style"]', (s) => s.selectedOptions[0]?.textContent.trim() === "Journal of Testing"), "…and the picker now shows it by its title");
+await page.evaluate(() => { window.__fluxDemoOpenFiles = undefined; });
+await page.keyboard.press("Escape");
+await waitFor(page, () => !document.querySelector(".export-dialog"), null, { timeout: 3000, label: "export dialog closes" });
 
 const errs = realErrors(page);
 h.eq(errs, [], "console is clean");

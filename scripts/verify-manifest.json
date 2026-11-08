@@ -74,6 +74,7 @@
       "verify-frontmatter.ts",
       "verify-frontmatter-edit.ts",
       "verify-paper-supsub.ts",
+      "verify-csl-picker.ts",
       "verify-render-concurrency.ts",
       "verify-paper-commands.ts",
       "verify-paper-textscale.ts",
@@ -879,7 +880,8 @@
       "verify-model3d-embed-gui.mjs",
       "verify-frontmatter-edit.ts",
       "verify-paper-markup-gui.mjs",
-      "verify-paper-supsub.ts"
+      "verify-paper-supsub.ts",
+      "verify-csl-picker.ts"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -6115,6 +6117,15 @@
       "coverage": "behavior"
     },
     "verify-paper-supsub.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-csl-picker.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

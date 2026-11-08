@@ -11,7 +11,8 @@
   import { EditorView } from "@codemirror/view";
   import { projectModel } from "../../shellStore";
   import { readManuscript, writeManuscript } from "../../../lib/project/load";
-  import { frontMatterBounds, frontMatterMeta } from "./frontmatter";
+  import { frontMatterBounds, frontMatterMeta, frontMatterField } from "./frontmatter";
+  import { planSetScalarKey } from "./frontmatterEdit";
   import { externalManuscriptChange } from "../../../lib/project/projectWatch";
   import { createEditorExtensions } from "./markdown-setup";
   import Editor from "./Editor.svelte";
@@ -1008,6 +1009,86 @@
   /** Pick Word documents that already contain Zotero citations, to bind against.
    *  A successful pick also computes the dialog's "n of m references matched" line,
    *  so the user learns BEFORE exporting whether the files actually carry a library. */
+  // ---- reference style (CSL) for Pandoc-rendered exports -----------------
+  // The shipped styles ride the bundle (lazy chunk); picking one copies it into
+  // references/styles/ and writes the document's `csl:` through the minimal
+  // front-matter editor. Export-only: the editor's chips never change.
+  const shippedCsl = import.meta.glob("../../../../resources/csl/*.csl", { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
+  const shippedCslIds = Object.keys(shippedCsl).map((k) => k.replace(/^.*\//, "").replace(/\.csl$/, "")).sort();
+  let cslOptions = $state<{ value: string; label: string }[]>([]);
+  let cslCurrent = $state("");
+  async function loadCslChoices() {
+    const { cslInfo, cslTargetOf, cslProjectRel } = await import("../../../lib/references/cslCatalog");
+    const opts: { value: string; label: string }[] = [];
+    for (const id of shippedCslIds) {
+      const loader = Object.entries(shippedCsl).find(([k]) => k.endsWith(`/${id}.csl`))?.[1];
+      const info = loader ? cslInfo(await loader()) : null;
+      opts.push({ value: `shipped:${id}`, label: info?.title ?? id });
+    }
+    const declared = view ? frontMatterField(view.state.doc.toString(), "csl") : undefined;
+    let current = "";
+    if (declared) {
+      const target = cslTargetOf(activeDocPath, declared);
+      const shipped = shippedCslIds.find((id) => target === cslProjectRel(`${id}.csl`));
+      current = shipped ? `shipped:${shipped}` : `file:${declared}`;
+      if (!shipped) opts.push({ value: current, label: declared.replace(/^.*\//, "") });
+    }
+    cslOptions = opts;
+    cslCurrent = current;
+  }
+  async function setDocumentCsl(choice: string): Promise<string | null> {
+    const fb = fileBridge();
+    const editor = view, generation = sessionGeneration, path = activeDocPath;
+    if (!editor || !pm || !fb) return null;
+    const root = pm.root;
+    const cat = await import("../../../lib/references/cslCatalog");
+    let value: string | null = null;
+    let result = choice;
+    try {
+      if (choice.startsWith("shipped:")) {
+        const id = choice.slice(8);
+        const loader = Object.entries(shippedCsl).find(([k]) => k.endsWith(`/${id}.csl`))?.[1];
+        if (!loader) return null;
+        const rel = cat.cslProjectRel(`${id}.csl`);
+        const text = await loader();
+        const existing = (await fb.exists(`${root}/${rel}`)) ? await fb.readText(`${root}/${rel}`) : null;
+        if (existing !== text) await fb.writeText(`${root}/${rel}`, text);
+        value = cat.cslFrontMatterValue(path, rel);
+      } else if (choice === "__load__") {
+        if (!fb.openFiles) {
+          pushToast("error", "Picking a file needs the desktop app");
+          return null;
+        }
+        const picked = (await fb.openFiles([{ name: "CSL citation style", extensions: ["csl"] }]))?.[0];
+        if (!picked) return null;
+        const text = await fb.readText(picked);
+        const info = cat.cslInfo(text);
+        if (!info) {
+          pushToast("error", "That file is not a CSL citation style", { detail: picked });
+          return null;
+        }
+        const rel = cat.cslProjectRel(picked);
+        await fb.writeText(`${root}/${rel}`, text);
+        value = cat.cslFrontMatterValue(path, rel);
+        result = `file:${value}`;
+        if (!cslOptions.some((o) => o.value === result)) cslOptions = [...cslOptions, { value: result, label: info.title }];
+      } else if (choice.startsWith("file:")) {
+        return choice; // already the document's style
+      }
+      if (!sessionCurrent(generation, path) || view !== editor) return null;
+      const changes = await planSetScalarKey(editor.state.doc.toString(), "csl", value);
+      if (changes.length) {
+        const { isolateHistory } = await import("@codemirror/commands");
+        editor.dispatch({ changes, annotations: isolateHistory.of("full") });
+      }
+      cslCurrent = result;
+      return result;
+    } catch (err) {
+      pushToast("error", "The reference style was not changed", { detail: errMsg(err) });
+      return null;
+    }
+  }
+
   async function pickZoteroLibraryDocs(): Promise<string[] | null> {
     const fb = fileBridge();
     if (!fb?.openFiles) {
@@ -1073,6 +1154,7 @@
     // Re-derive the path when the remembered one is stale for this document.
     if (!exportPlan.outPath) exportPlan = { ...exportPlan, outPath: defaultOutPath(exportPlan.format, exportPlan.style) };
     zoteroMatchSummary = ""; // stale against a bib that may have changed since the pick
+    void loadCslChoices();
     exportOpen = true;
   }
 
@@ -2966,6 +3048,9 @@
       }}
       onPickLibraryDocs={pickZoteroLibraryDocs}
       {zoteroMatchSummary}
+      {cslOptions}
+      {cslCurrent}
+      onSetCsl={setDocumentCsl}
       onExport={(p) => void doExport(p)}
       onClose={() => { exportOpen = false; view?.focus(); }}
     />
