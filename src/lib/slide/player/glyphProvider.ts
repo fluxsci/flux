@@ -24,8 +24,11 @@ import { textGlyphNeeds, textGlyphOutlines, bakedSource, type GlyphSource, type 
 import { layoutForMorph, measureTextChars } from "./textMorph";
 import type { SlideRenderCtx } from "./render";
 
-/** Resolve one font request to a glyph source (null: no readable outlines). */
-export type GlyphFontLoader = (style: GlyphStyle) => Promise<GlyphSource | null>;
+/** Resolve one font request to a glyph source (null: no readable outlines). A loader whose
+ *  answer is already in memory (an offline host's baked records) also answers `now`, so the
+ *  FIRST ask settles synchronously: a static seek into a letter flight that runs before the
+ *  idle warm-up has asked must plan real outlines, not one frame of glyph boxes. */
+export type GlyphFontLoader = ((style: GlyphStyle) => Promise<GlyphSource | null>) & { now?(style: GlyphStyle): GlyphSource | null };
 
 let loader: GlyphFontLoader | null = null;
 const loaded = new Map<string, GlyphSource | null>();
@@ -44,7 +47,10 @@ export function glyphRevision(): number { return revision; }
 /** The offline hosts' loader: baked payload records by request key (a font that
  *  was not baked lands as boxes). */
 export function bakedGlyphLoader(baked: Record<string, BakedGlyphFont>): GlyphFontLoader {
-  return (style) => { const hit = baked[fontRequestKey(style)]; return Promise.resolve(hit ? bakedSource(hit) : null); };
+  // The records ship in the file: answer synchronously (a first seek must not land on boxes because
+  // its font was "loading" for one microtask; seen on busy CI hosts where the idle warm-up came late).
+  const now = (style: GlyphStyle): GlyphSource | null => { const hit = baked[fontRequestKey(style)]; return hit ? bakedSource(hit) : null; };
+  return Object.assign((style: GlyphStyle) => Promise.resolve(now(style)), { now });
 }
 
 /** The cached source for a style: a source, null (unavailable), or undefined
@@ -53,6 +59,12 @@ export function glyphFontSource(style: GlyphStyle): GlyphSource | null | undefin
   const key = fontRequestKey(style);
   if (loaded.has(key)) return loaded.get(key)!;
   if (!loader) return null;
+  if (loader.now) {
+    let src: GlyphSource | null = null;
+    try { src = loader.now(style); } catch { src = null; }
+    loaded.set(key, src);
+    return src;
+  }
   if (!pending.has(key)) {
     const job = loader(style).then((src) => src, () => null).then((src) => { loaded.set(key, src); pending.delete(key); bump(); });
     pending.set(key, job);
