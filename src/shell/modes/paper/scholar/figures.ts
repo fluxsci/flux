@@ -767,7 +767,7 @@ if (import.meta.env?.DEV) {
  * and serialization yields between plot preparations. */
 export function captureFigureExport(source?: { figures: Record<string, Figure>; assetData: Record<string,string>; assetManifests: Record<string,FluxPlotManifest>; assets: Asset[]; model3dManifests?: Record<string,Scene3dManifest> }) {
   const refs = structuredClone(get(figureRefs)), figures = structuredClone(source?.figures ?? figuresById);
-  const data = { ...(source?.assetData ?? assetData) }, manifests = structuredClone(source?.assetManifests ?? assetManifests), assets = structuredClone(source?.assets ?? assetMeta), families = structuredClone(familyDefs);
+  const data = { ...(source?.assetData ?? assetData) }, manifests = { ...(source?.assetManifests ?? assetManifests) }, assets = structuredClone(source?.assets ?? assetMeta), families = structuredClone(familyDefs);
   const resolve = createFigureReferenceResolver(refs);
   const warnings: string[] = [];
   const models = structuredClone(source?.model3dManifests ?? modelManifests), initialPosters = { ...seededModelPosters }, root = loadedRoot;

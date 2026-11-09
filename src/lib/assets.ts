@@ -64,22 +64,37 @@ export function clearAllAssetsDirty() {
 // ---------------------------------------------------------------------------
 // base64 <-> bytes helpers (chunked to avoid call-stack limits on big files)
 // ---------------------------------------------------------------------------
-export function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
+// The engine's own codec where it exists (Chromium 140+; Electron ships it): the
+// hand-rolled loop below costs ~13 ms per MB on the main thread — 2.1 s of a project
+// open that placed 150 MB of rasters (2026-11-09). Node 22 (flux-core, the pure
+// gates) keeps the loop; both produce identical text.
+type NativeBase64 = { toBase64?: () => string };
+type NativeFromBase64 = { fromBase64?: (text: string) => Uint8Array };
+export function bytesToBase64(bytes: Uint8Array): string {
+  const native = (bytes as NativeBase64).toBase64;
+  if (typeof native === "function") return native.call(bytes);
   let binary = "";
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
-  return `data:${mime};base64,${btoa(binary)}`;
+  return btoa(binary);
 }
-
-export function dataUrlToBytes(dataUrl: string): Uint8Array {
-  const comma = dataUrl.indexOf(",");
-  const b64 = dataUrl.slice(comma + 1);
+export function base64ToBytes(b64: string): Uint8Array {
+  const native = (Uint8Array as NativeFromBase64).fromBase64;
+  if (typeof native === "function") { try { return native.call(Uint8Array, b64); } catch { /* the loop reports the same malformed input its own way */ } }
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+export function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
+  return `data:${mime};base64,${bytesToBase64(bytes)}`;
+}
+
+export function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(",");
+  return base64ToBytes(dataUrl.slice(comma + 1));
 }
 
 export function mimeFor(kind: import("./types").Asset["kind"]): string {

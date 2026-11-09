@@ -27,6 +27,12 @@ import { storeTenant } from "../tenancy";
 import { hasContentScaleTargets } from "./compensate";
 import { plotVariantBudget } from "./variantBudget";
 
+// A stored manifest is an IMMUTABLE VALUE: a reimport replaces the object under its id,
+// nothing edits one in place. A snapshot for an async export is therefore the record
+// (`{ ...get(plotManifests) }`), never `structuredClone` — a deep copy of every manifest
+// cost 370 ms per export and per live metadata preview on a project whose plots carry
+// 25k-point series (208 MB of manifests, 2026-11-09). verify-manifest-immutable holds both
+// halves: no deep clone of the store, and the render paths run on deep-frozen manifests.
 export const plotManifests = writable<Record<Id, FluxPlotManifest>>({});
 export const plotRecipes = writable<Record<Id, unknown>>({});
 

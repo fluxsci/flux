@@ -13,10 +13,18 @@ export interface TextGenerationIO {
   writeBytes?(rel: string, bytes: Uint8Array): Promise<void>;
 }
 export type GenerationWrite = string | null | { base64: string };
+// The engine's codec where it exists (Chromium 140+); Node 22 keeps the loop. Same text either way.
 export function bytesToBase64(bytes: Uint8Array): string {
+  const native=(bytes as {toBase64?:()=>string}).toBase64;
+  if(typeof native==='function')return native.call(bytes);
   let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(text);
 }
-function fromBase64(value: string): Uint8Array {return Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
+function fromBase64(value: string): Uint8Array {
+  // atob first: it is the validator this journal has always used (it throws on malformed input).
+  const native=(Uint8Array as {fromBase64?:(text:string)=>Uint8Array}).fromBase64;
+  if(typeof native==='function'){try{return native.call(Uint8Array,value)}catch{/* fall through to atob's own error */}}
+  return Uint8Array.from(atob(value),c=>c.charCodeAt(0));
+}
 export const TEXT_GENERATION_JOURNAL = '.meta/figure-source-generation.json';
 const JOURNAL = TEXT_GENERATION_JOURNAL;
 const parent = (rel: string) => { const slash=rel.lastIndexOf('/');return slash<0?'.':rel.slice(0,slash)||'.'; };

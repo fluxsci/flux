@@ -125,7 +125,7 @@ async function publishAssets(fig: FileBridge, root: string, writes: AssetWrite[]
 function sourceAssets(elements: Figure["elements"]) {
   const ids = new Set(elements.flatMap(elementSourceAssetIds));
   const metadata = structuredClone(get(figProject).assets);
-  const manifests = structuredClone(get(plotManifests)), recipes = structuredClone(get(plotRecipes));
+  const manifests = { ...get(plotManifests) }, recipes = structuredClone(get(plotRecipes));
   const source = new Map<string, { asset: Asset; bytes: Uint8Array; manifest?: string; recipe?: string }>();
   for (const id of ids) {
     const asset = metadata.find(a => a.id === id), url = getAssetData(id);

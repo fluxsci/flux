@@ -706,7 +706,7 @@ function writeProjectTo(dir: string) {
   const owner=get(project), sourceRoot=get(projectDir), p=structuredClone(owner);
   const modelBindings=collectModel3dSourceBindings(p.figures.flatMap(f=>f.elements));
   const models=structuredClone(get(scene3dManifests)), modelRecipes=structuredClone(get(scene3dRecipes));
-  const data={...get(assetData)}, manifests=structuredClone(get(plotManifests)), recipes=structuredClone(get(plotRecipes));
+  const data={...get(assetData)}, manifests={...get(plotManifests)}, recipes=structuredClone(get(plotRecipes)); // manifests are immutable values (plot/store.ts): a snapshot is the record, never a deep copy
   // Capture the requested snapshot before waiting. A project switch must never
   // let a queued old destination receive the newly opened project. Serialize
   // publication so an already-issued older native write settles before a newer
@@ -901,7 +901,7 @@ export function ensureFigurePlots(fig: Figure): void {
  *  for the lazy-residency gates; every GUI export path funnels through here). */
 interface FigureRenderInputs { data: Record<string, string>; manifests: Record<string, FluxPlotManifest>; assets: Asset[]; models: Record<string, Scene3dManifest>; model3d?: Model3dSvgContext }
 function captureFigureInputs(): FigureRenderInputs {
-  return { data: { ...get(assetData) }, manifests: structuredClone(get(plotManifests)), assets: structuredClone(get(project).assets), models: structuredClone(get(scene3dManifests)) };
+  return { data: { ...get(assetData) }, manifests: { ...get(plotManifests) }, assets: structuredClone(get(project).assets), models: structuredClone(get(scene3dManifests)) };
 }
 export function buildFigureSvg(fig: Figure, captured?: FigureRenderInputs): string {
   const inputs = captured ?? captureFigureInputs(), { data, manifests } = inputs;

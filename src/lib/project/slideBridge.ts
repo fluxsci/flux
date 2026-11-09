@@ -572,7 +572,7 @@ async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned
   const owner = () => loadGeneration === deckLoadGeneration && storeTenant() === "slide" && get(embeddedProjectRoot) === root && currentDeck()?.id === deckId;
   if (!owner()) throw new Error("Deck save does not own this project");
   const genAtStart = editGen.n; capturePersistenceGeneration();
-  const data = { ...get(assetData) }, manifests = structuredClone(get(plotManifests)), recipes = structuredClone(get(plotRecipes));
+  const data = { ...get(assetData) }, manifests = { ...get(plotManifests) }, recipes = structuredClone(get(plotRecipes));
   const models = structuredClone(get(scene3dManifests)), modelRecipes = structuredClone(get(scene3dRecipes));
   const assetGenerations = new Map(d.assets.map(a => [a.id, assetDirtyGeneration(a.id)]));
   reconcileDeckExternalAssetSizes(d, get(figProject).assets.filter(a => externalAssetIds().has(a.id) && !isAssetDirty(a.id)));
