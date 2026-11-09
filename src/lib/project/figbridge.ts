@@ -166,6 +166,9 @@ export async function figDiskDiverged(root: string): Promise<boolean> {
 // (figfiles.ts) shared with flux-core — this module keeps only the GUI-side
 // concerns: stores, dirty tracking, baselines, conflict banner, quarantine UX.
 
+/** Assets read at once while a project's figures load. */
+const FIG_LOAD_LANES = 8;
+
 /** Load the project's `fig/` subsystem into the figure-editor stores.
  *  `reload: true` = external-change reload (W10 / the banner): preserves the
  *  user's view where ids survive and makes the swap one undo entry (see
@@ -207,9 +210,12 @@ export async function loadFigInto(
   // fresh) — otherwise the restored plot would have no bytes to draw or export.
   if (opts.reload && ownerBefore === root) for (const id of Object.keys(get(assetData))) placed.add(id);
   const pngs: [string, Uint8Array][] = [];
-  for (const a of proj.assets) {
-    if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
-    if (!a.path) continue;
+  for (const a of proj.assets) if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
+  // Each asset's reads are independent, so they overlap: the wall time of an open is the bridge's
+  // throughput, not the sum of 300 awaited round trips (355 MB took 2 s one file at a time on the
+  // owner's scratch project, 2026-11-09). Results land in maps keyed by asset id; order never matters.
+  const loadAsset = async (a: Asset): Promise<void> => {
+    if (!a.path) return;
     try {
       const assetPath = fig.projectAssetPath ? await fig.projectAssetPath(root, storedAssetPath(`${SUB}/${a.path}`)) : joinPath(root, SUB, a.path);
       if (a.kind === "glb") {
@@ -217,12 +223,12 @@ export async function loadFigInto(
         // canvas were read, so saving cannot lose data. A placed one is the
         // snapshot's non-blocking assetIssue (placeholder + toast below); the
         // save judges what still uses it (judgeMissingModels).
-        if (!await fig.exists(assetPath)) continue;
+        if (!await fig.exists(assetPath)) return;
         const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
         if (sidecars.issues?.length) modelIssues[a.id] = sidecars.issues;
         if (sidecars.manifest) primedModels[a.id] = sidecars.manifest;
         if (sidecars.recipe !== undefined) primedModelRecipes[a.id] = sidecars.recipe;
-        continue;
+        return;
       }
       if (placed.has(a.id)) {
         const bytes = new Uint8Array(await fig.readFile(assetPath));
@@ -240,6 +246,11 @@ export async function loadFigInto(
       if(!snapshot.diagnostics.some(issue=>issue.path===a.path&&issue.message===message)) snapshot.diagnostics.push({path:a.path,message});
       snapshot.status="partial";
     }
+  };
+  {
+    const queue = [...proj.assets];
+    const lane = async () => { for (let a = queue.shift(); a; a = queue.shift()) await loadAsset(a); };
+    await Promise.all(Array.from({ length: Math.min(FIG_LOAD_LANES, queue.length) }, lane));
   }
   if (typeof document !== "undefined") for (const f of proj.figures) for (const e of f.elements) if (e.type === "text" && e.needsLayout) applyTextLayout(e);
   if (opts.reload && snapshot.status !== "complete") throw new ConflictError(snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n"));
