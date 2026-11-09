@@ -297,6 +297,7 @@
       "verify-native-families.cjs",
       "verify-native-diagnostics.cjs",
       "verify-v020-durability.ts",
+      "verify-generation-large.ts",
       "verify-generation-confinement.ts",
       "verify-shell-owner-epochs.ts",
       "verify-fulltext-refresh.ts",
@@ -3196,6 +3197,7 @@
         "verify-recovery-entry.ts",
         "verify-generation-confinement.ts",
         "verify-v020-durability.ts",
+        "verify-generation-large.ts",
         "verify-v020-crash-recovery.ts",
         "verify-v020-conversion.ts",
         "verify-v020-figure.ts",
@@ -4262,6 +4264,7 @@
       "run": [
         "verify-recovery-entry.ts",
         "verify-v020-durability.ts",
+        "verify-generation-large.ts",
         "verify-v020-crash-recovery.ts",
         "verify-v020-export-recovery.ts"
       ]
@@ -12220,6 +12223,15 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-generation-large.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }
