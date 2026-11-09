@@ -1,3 +1,4 @@
+import { beginImageDisplay } from "../figure/imageDisplay";
 import { collectModel3dSourceBindings } from '../model3d/sourceBinding';
 import { elementSourceAssetIds } from '../model3d/refs';
 import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from '../model3d/store';
@@ -254,6 +255,8 @@ export async function loadFigInto(
     clearPlots(); clearSnipMeta(); clearScene3dSidecars();
     primeScene3dSidecars(primedModels, primedModelRecipes, modelIssues);
     primePlotSidecars(primedManifests, primedRecipes); assetData.set(data);
+    // Large rasters paint from display tiers (figure/imageTiers.ts): mark them before any element mounts.
+    beginImageDisplay({ root, embedded: true, bridge: fig, assets: proj.assets });
     for (const [id, bytes] of pngs) captureSnipMeta(id, bytes);
     clearAllAssetsDirty();
     figIndexBaseline = snapshot.baselines.get("fig/index.json") ?? "";

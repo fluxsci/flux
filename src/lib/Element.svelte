@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Element } from "./types";
   import { assetData } from "./assets";
+  import { assetDisplay } from "./figure/imageDisplay";
   import { project } from "./store";
   import { assetDisplaySize } from "./ops";
   import { lineRender, elementBBox, dashAttr, channelOpacity } from "./geometry";
@@ -71,7 +72,14 @@
         fill="#ddd" font-size={Math.max(10, Math.min(18, element.width / 15))}>Video preview unavailable</text>
     {/if}
   {:else if element.type === "image"}
-    {#if $assetData[element.assetId]}
+    <!-- What the editor paints is a display TIER (figure/imageTiers.ts): a bounded copy at screen
+         resolution, never the original's bytes. `pending` = a large image whose first tier is on its
+         way (the placeholder shows; the 27 MB original stays out of the DOM). No entry = a small
+         image, Slide mode, or an image that cannot be tiered: its own bytes, as before. -->
+    {@const display = $assetDisplay[element.assetId]}
+    {@const href = display?.tier?.href ?? (display?.pending ? undefined : $assetData[element.assetId])}
+    {@const detail = display?.detail}
+    {#if href}
       <!-- Crop rendering for `<image>`-backed rasters (P5): the crop window lives in
            intrinsic content px (assetDisplaySize units), shown via a nested-svg
            viewport — viewBox = the window, the image drawn at full display size
@@ -93,8 +101,14 @@
             width={imgDisp.width}
             height={imgDisp.height}
             preserveAspectRatio="none"
-            href={$assetData[element.assetId]}
+            {href}
           />
+          {#if detail && display}
+            <!-- The visible part at screen density, over the tier; never in a scene capture. -->
+            <image class="image-detail" preserveAspectRatio="none" href={detail.href}
+              x={detail.source.x / display.natural.width * imgDisp.width} y={detail.source.y / display.natural.height * imgDisp.height}
+              width={detail.source.width / display.natural.width * imgDisp.width} height={detail.source.height / display.natural.height * imgDisp.height} />
+          {/if}
         </svg>
       {:else}
         <image
@@ -103,8 +117,13 @@
           width={element.width}
           height={element.height}
           preserveAspectRatio="none"
-          href={$assetData[element.assetId]}
+          {href}
         />
+        {#if detail && display}
+          <image class="image-detail" preserveAspectRatio="none" href={detail.href}
+            x={element.x + detail.source.x / display.natural.width * element.width} y={element.y + detail.source.y / display.natural.height * element.height}
+            width={detail.source.width / display.natural.width * element.width} height={detail.source.height / display.natural.height * element.height} />
+        {/if}
       {/if}
     {:else}
       <rect

@@ -153,10 +153,11 @@ export function snapshotScale(box: WorldBox, renderZoom: number, dpr = 1): numbe
   return S > 0.01 ? S : null;
 }
 
-/** View-dependent sharpening never belongs to a scene/proxy capture. */
-export const captureExcluded = (node: Element): boolean => node.classList.contains('figure-detail');
+/** View-dependent sharpening never belongs to a scene/proxy capture: a figure's detail picture
+ *  (figure/atlasDetail.ts) and an image element's detail (figure/imageTiers.ts). */
+export const captureExcluded = (node: Element): boolean => node.classList.contains('figure-detail') || node.classList.contains('image-detail');
 function pruneCaptureExcluded(root: Element): void {
-  for (const node of Array.from(root.querySelectorAll('.figure-detail'))) if (captureExcluded(node)) node.remove();
+  for (const node of Array.from(root.querySelectorAll('.figure-detail, .image-detail'))) if (captureExcluded(node)) node.remove();
 }
 
 /** Serialize the live scene svg into a standalone image of `box` (WORLD units)

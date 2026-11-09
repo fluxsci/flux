@@ -64,6 +64,8 @@
   import { serializeSceneSnapshot, serializeSceneRegion, serializeSceneSnapshotCooperative, snapshotMatte, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, coarseScale, SNAPSHOT_MAX_SIDE, SNAPSHOT_MAX_PIXELS, SNAPSHOT_COARSE_PIXELS, type ZoomSnapshot, type ProxyRaster, type WorldBox } from "./interact/zoomProxy";
   import { fileBridge, type FileBridge } from "./project/types";
   import { assetData } from "./assets";
+  import { syncImageDisplay, displayRevision, assetDisplay, displayAssetData, type DisplayNeed } from "./figure/imageDisplay";
+  import { needsTiers } from "./figure/imageTiers";
   import { clampZoom } from "./interact/zoomLimits";
   import { viewAs, viewAsFilter } from "./color/cvd";
   import { partReadout, readoutText, nodeAttrs } from "./plot/readout";
@@ -1244,10 +1246,69 @@
     $model3dPosterRevision,
     atlasActive ? $atlasRevision : 0,
     frame ? 1 : 0,
+    frame ? 0 : $displayRevision, // an image's display tier changed (figure/imageTiers.ts): the scene looks different
   ].join("|");
   // Parking changes what the sharp plane's region may contain (an unparked
   // placement was not serialized), so it is part of the sharp key.
   $: sceneKey = [sceneContentKey, visibleFigures.map(f => f.id).join(","), (void visibleByFig, mountedGen), (void parkedFigs, void parkedEls, parkGen)].join("|");
+
+  // Display tiers (figure/imageTiers.ts): once the view is QUIET, tell the display service what each
+  // image on the live canvas needs — device pixels per source pixel, and the part of it in view. The
+  // service fetches or makes the tier off this thread; nothing here runs during a gesture.
+  const IMAGE_NEEDS_QUIET_MS = 200;
+  let imageNeedsTimer: ReturnType<typeof setTimeout> | null = null;
+  function imageNeeds(): Map<string, DisplayNeed> {
+    const needs = new Map<string, DisplayNeed>();
+    const assets = new Map(get(project).assets.map((a) => [a.id, a]));
+    const v = get(viewport), dpr = window.devicePixelRatio || 1;
+    const view = { x: -v.panX / v.zoom, y: -v.panY / v.zoom, w: hostW / v.zoom, h: hostH / v.zoom };
+    for (const f of visibleFigures) {
+      if (atlasIsRaster(f.id)) continue; // a pictured figure mounts no image element
+      for (const e of visibleByFig.get(f.id) ?? []) {
+        if (e.type !== "image") continue;
+        const a = assets.get(e.assetId);
+        if (!a || a.kind !== "png" || !needsTiers(a.naturalWidth, a.naturalHeight)) continue;
+        // World units per SOURCE pixel on each axis (a crop shows part of the image in the same box).
+        const k = a.dpi && a.dpi > 0 ? 96 / a.dpi : 1, crop = e.crop;
+        const ux = crop ? (e.width / crop.width) * k : e.width / a.naturalWidth, uy = crop ? (e.height / crop.height) * k : e.height / a.naturalHeight;
+        const density = Math.max(ux, uy) * v.zoom * dpr;
+        const box = rotatedAABB(e), wx = f.x + box.x, wy = f.y + box.y;
+        const x0 = Math.max(view.x, wx), y0 = Math.max(view.y, wy), x1 = Math.min(view.x + view.w, wx + box.w), y1 = Math.min(view.y + view.h, wy + box.h);
+        const inView = x1 > x0 && y1 > y0;
+        let visible: DisplayNeed["visible"];
+        if (inView) {
+          if (e.rotation || e.flipX || e.flipY) visible = { x: 0, y: 0, width: a.naturalWidth, height: a.naturalHeight }; // not axis-aligned: the whole image, at the budget
+          else {
+            const ox = crop ? crop.x / k : 0, oy = crop ? crop.y / k : 0; // source px at the element's top-left
+            const sx0 = Math.max(0, ox + (x0 - (f.x + e.x)) / ux), sy0 = Math.max(0, oy + (y0 - (f.y + e.y)) / uy);
+            const sx1 = Math.min(a.naturalWidth, ox + (x1 - (f.x + e.x)) / ux), sy1 = Math.min(a.naturalHeight, oy + (y1 - (f.y + e.y)) / uy);
+            if (sx1 > sx0 && sy1 > sy0) visible = { x: sx0, y: sy0, width: sx1 - sx0, height: sy1 - sy0 };
+          }
+        }
+        const prev = needs.get(a.id);
+        if (!prev) needs.set(a.id, { density, inView, visible });
+        else {
+          // Two placements of one image: the sharper need, and one rectangle holding both views.
+          const pv = prev.visible, u = pv && visible ? { x: Math.min(pv.x, visible.x), y: Math.min(pv.y, visible.y), width: 0, height: 0 } : pv ?? visible;
+          if (pv && visible && u) { u.width = Math.max(pv.x + pv.width, visible.x + visible.width) - u.x; u.height = Math.max(pv.y + pv.height, visible.y + visible.height) - u.y; }
+          needs.set(a.id, { density: Math.max(prev.density, density), inView: prev.inView || inView, visible: u });
+        }
+      }
+    }
+    return needs;
+  }
+  $: {
+    void visibleByFig; void visibleFigures; void renderZoom; void $viewport; void $project.assets; void $atlasView; void hostW; void hostH; void $assetDisplay;
+    if (imageNeedsTimer) { clearTimeout(imageNeedsTimer); imageNeedsTimer = null; }
+    if (!frame && !presentation && paneActive && sceneSvgEl && hostW > 0 && !gesture && !sceneHot && !zoomUnsettled && !proxyActive && !guideDrag && !nodeDrag && !atlasPointerHeld)
+      imageNeedsTimer = setTimeout(() => {
+        imageNeedsTimer = null;
+        if (snapshotDestroyed || !paneActive || gesture || sceneHot || zoomUnsettled || proxyActive) return;
+        const needs = imageNeeds();
+        if (needs.size) syncImageDisplay({ root: $embeddedProjectRoot || $projectDir || "", embedded: !!$embeddedProjectRoot, bridge: fileBridge() ?? null, assets: get(project).assets }, needs);
+      }, IMAGE_NEEDS_QUIET_MS);
+  }
+  onDestroy(() => { if (imageNeedsTimer) clearTimeout(imageNeedsTimer); });
   // Hiding or unmounting offscreen DOM does not remove that artwork from a
   // valid raster; showing something it never held retires it at once.
   let sharpMeta: { snap: ZoomSnapshot; contentKey: string; shown: Map<string, Set<string>> } | null = null;
@@ -1673,7 +1734,7 @@
         const { prepareSnapshotSupplement } = await import("./interact/sceneCaptureSupplement");
         if (!current()) return;
         supplement = await prepareSnapshotSupplement({ sceneSvg: svg, figures: visibleFigures, rasterized: new Set(visibleFigures.filter(f => atlasIsRaster(f.id)).map(f => f.id)), assets: get(project).assets,
-          assetData: get(assetData), manifests: get(plotManifests), baseNodes: total, current });
+          assetData: displayAssetData(), manifests: get(plotManifests), baseNodes: total, current });
       } catch { /* a bounded supplement is optional; completeness is checked below */ }
       const ser = await serializeSceneSnapshotCooperative(svg, scene, S, { current, yield: quiet, ...supplement });
       if (!ser || !current()) return;
