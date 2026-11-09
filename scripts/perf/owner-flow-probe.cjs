@@ -12,7 +12,7 @@
 //   node scripts/perf/owner-flow-probe.cjs <projectDir> [--figure=<n|id>] [--phases=a,b] [--out=dir]
 //        [--ozone=headless|x11|wayland] [--profile=open,zoomIn,…] [--trace=open,…] [--settle=3500]
 //        [--shots] [--rounds=2] [--in-place]
-//   phases: hover, pan, zoomIn, zoomOut, zoomDeep, drag, nudge, select, idle, switchFigure
+//   phases: hover, pan, zoomIn, panZoomed, zoomOut, zoomDeep (+panDeep, zoomDeepOut), select, drag, nudge, idle, switchFigure
 //
 // The project is COPIED to a scratch dir and HOME/XDG are isolated; nothing of the user's is touched.
 // A CPU profile is symbolicated by scripts/perf/profile-summary.mjs through dist's hidden sourcemaps.
@@ -151,7 +151,7 @@ const ROOT = '.figure-mode';
 const sceneState = () => js(`(()=>{const root=document.querySelector('${ROOT}');if(!root)return null;const h=root.querySelector('.canvas-host').getBoundingClientRect();
   const figs=[...root.querySelectorAll('[data-annotation-figure]')].map(g=>{const bg=g.querySelector('.figure-bg');const r=(bg||g).getBoundingClientRect();return{id:g.getAttribute('data-annotation-figure'),mode:g.getAttribute('data-atlas-mode'),raster:!!g.querySelector('[data-figure-raster]'),live:g.querySelectorAll('[data-editor-element-id]').length,active:!!g.querySelector('.figure-bg.active'),inView:r.right>h.left&&r.left<h.right&&r.bottom>h.top&&r.top<h.bottom&&r.width>0,box:[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)]}});
   const g=root.querySelector('.scene-svg > g');
-  return{host:{l:Math.round(h.left),t:Math.round(h.top),r:Math.round(h.right),b:Math.round(h.bottom)},figs,elements:root.querySelectorAll('[data-editor-element-id]').length,nodes:root.querySelectorAll('.scene-svg *').length,images:root.querySelectorAll('.scene-svg image').length,zoom:Number(/scale\\(([-\\d.e]+)/.exec(g?.getAttribute('transform')||'')?.[1]),proxy:!!root.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live')}})()`);
+  return{host:{l:Math.round(h.left),t:Math.round(h.top),r:Math.round(h.right),b:Math.round(h.bottom)},figs,elements:root.querySelectorAll('[data-editor-element-id]').length,nodes:root.querySelectorAll('.scene-svg *').length,images:root.querySelectorAll('.scene-svg image').length,imageDetails:root.querySelectorAll('.scene-svg image.image-detail').length,hrefMB:+([...root.querySelectorAll('.scene-svg image')].reduce((n,i)=>n+(i.getAttribute('href')||'').length,0)/1048576).toFixed(2),maxHrefMB:+(Math.max(0,...[...root.querySelectorAll('.scene-svg image')].map(i=>(i.getAttribute('href')||'').length))/1048576).toFixed(2),zoom:Number(/scale\\(([-\\d.e]+)/.exec(g?.getAttribute('transform')||'')?.[1]),proxy:!!root.querySelector('.zoom-proxy.live,.zoom-proxy-coarse.live')}})()`);
 const elementRects = () => js(`(()=>{const h=document.querySelector('${ROOT} .canvas-host').getBoundingClientRect();return [...document.querySelectorAll('${ROOT} [data-editor-element-id]')].map(n=>{const r=n.getBoundingClientRect();return{id:n.dataset.editorElementId,tag:n.querySelector('image')?'image':n.querySelector('svg')?'plot':n.querySelector('text,foreignObject')?'text':'other',x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>24&&p.h>16&&p.x>h.left+30&&p.x<h.right-30&&p.y>h.top+30&&p.y<h.bottom-30)})()`);
 
 async function main() {
@@ -215,6 +215,19 @@ async function main() {
     if (wantPhase('zoomIn')) await phase('zoomIn', async () => { mouse({ type: 'mouseMove', x: target.x, y: target.y }); await sleep(50); win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Control' }); for (let i = 0; i < NOTCHES; i++) { wheel(target.x, target.y, 0, 120, ['control']); await sleep(30); } win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Control' }); });
     if (wantPhase('panZoomed')) await phase('panZoomed', async () => { for (let i = 0; i < 30; i++) { wheel(cx, cy, -18, -8); await sleep(17); } for (let i = 0; i < 30; i++) { wheel(cx, cy, 18, 8); await sleep(17); } });
     if (wantPhase('zoomOut')) await phase('zoomOut', async () => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Control' }); for (let i = 0; i < NOTCHES; i++) { wheel(target.x, target.y, 0, -120, ['control']); await sleep(30); } win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Control' }); });
+    // Deep zoom into the target image: past its tier cap a DETAIL of the visible part must arrive, sharp, with no freeze.
+    if (wantPhase('zoomDeep')) {
+      const deep = NOTCHES * 2 + 2;
+      const zoomBy = async (n, dir) => { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Control' }); for (let i = 0; i < n; i++) { wheel(target.x, target.y, 0, dir * 120, ['control']); await sleep(30); } win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Control' }); };
+      await phase('zoomDeep', async () => { mouse({ type: 'mouseMove', x: target.x, y: target.y }); await sleep(50); await zoomBy(deep, 1); });
+      const st = await sceneState(); log('deep', { zoom: st.zoom, images: st.images, imageDetails: st.imageDetails, hrefMB: st.hrefMB, maxHrefMB: st.maxHrefMB });
+      results.deep = st;
+      fs.writeFileSync(path.join(out, `deep-${round}.png`), (await win.webContents.capturePage()).toPNG());
+      await phase('panDeep', async () => { for (let i = 0; i < 20; i++) { wheel(cx, cy, -20, -6); await sleep(17); } });
+      const st2 = await sceneState(); log('deepPanned', { imageDetails: st2.imageDetails, hrefMB: st2.hrefMB, maxHrefMB: st2.maxHrefMB });
+      await phase('zoomDeepOut', async () => { await zoomBy(deep, -1); });
+      const st3 = await sceneState(); log('deepOut', { zoom: st3.zoom, imageDetails: st3.imageDetails, hrefMB: st3.hrefMB, maxHrefMB: st3.maxHrefMB });
+    }
     rects = await elementRects();
     const el = rects.find((r) => r.id === target.id) ?? rects[0];
     if (wantPhase('select')) await phase('select', async () => { for (let i = 0; i < 8; i++) { const p = rects[i % Math.min(rects.length, 4)]; mouse({ type: 'mouseMove', x: p.x, y: p.y }); await sleep(20); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: p.x, y: p.y }); await sleep(30); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: p.x, y: p.y }); await sleep(90); } }, { settle: 1500 });

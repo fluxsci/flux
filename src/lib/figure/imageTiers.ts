@@ -87,11 +87,19 @@ export function detailPlan(naturalWidth: number, naturalHeight: number, visible:
   if (pixels > DETAIL_MAX_PIXELS) scale *= Math.sqrt(DETAIL_MAX_PIXELS / pixels);
   return { source, width: Math.max(1, Math.round(source.width * scale)), height: Math.max(1, Math.round(source.height * scale)), density: scale };
 }
-/** A resident detail still serves a view when it covers the visible part and is at least 0.8× as dense. */
-export function detailServes(have: DetailPlan, visible: SourceRect, density: number): boolean {
+/** A resident detail still serves a view when it covers the visible part and is at least 0.8× as dense
+ *  as a FRESH detail of that view would be. Measured against the fresh plan, not the screen: a detail
+ *  the budget holds below screen density is the best there is, and asking again would loop. */
+export function detailServes(naturalWidth: number, naturalHeight: number, have: DetailPlan, visible: SourceRect, density: number): boolean {
   const s = have.source;
-  return visible.x >= s.x - 0.5 && visible.y >= s.y - 0.5 && visible.x + visible.width <= s.x + s.width + 0.5 && visible.y + visible.height <= s.y + s.height + 0.5
-    && have.density >= Math.min(1, density) * 0.8;
+  if (!(visible.x >= s.x - 0.5 && visible.y >= s.y - 0.5 && visible.x + visible.width <= s.x + s.width + 0.5 && visible.y + visible.height <= s.y + s.height + 0.5)) return false;
+  const fresh = detailPlan(naturalWidth, naturalHeight, visible, density);
+  return !fresh || have.density >= fresh.density * 0.8;
+}
+/** Is a detail worth drawing over the sharpest tier (it must be clearly denser than that tier)? */
+export function detailBeatsTier(naturalWidth: number, naturalHeight: number, plan: DetailPlan): boolean {
+  const s = tierSize(naturalWidth, naturalHeight, sharpestLevel(naturalWidth, naturalHeight));
+  return plan.density > (s.width / naturalWidth) * 1.25;
 }
 
 /** Cache layout under <project>/.meta/cache/display/. The meta names the source it was made from. */

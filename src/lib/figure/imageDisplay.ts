@@ -16,7 +16,7 @@ import { assetData, assetDirtyGeneration, bytesToDataUrl, dataUrlToBytes, getAss
 import { storedAssetPath } from "../project/assetPath";
 import { storeTenantState } from "../tenancy";
 import {
-  needsTiers, levelFor, ladder, tierSize, tierIsSoft, detailPlan, detailServes, cacheMetaValid,
+  needsTiers, levelFor, ladder, tierSize, tierIsSoft, detailPlan, detailServes, detailBeatsTier, cacheMetaValid,
   displayCacheDir, displayCacheMeta, displayCacheTier, DISPLAY_CACHE_VERSION,
   type DetailPlan, type DisplayCacheMeta, type SourceRect,
 } from "./imageTiers";
@@ -288,9 +288,9 @@ export function syncImageDisplay(next: DisplayScope, needs: ReadonlyMap<Id, Disp
     if (!current?.tier) ensureTier(entry, level);
     else if (need.inView && level < current.tier.level) ensureTier(entry, level);
     const soft = need.inView && !!need.visible && tierIsSoft(asset.naturalWidth, asset.naturalHeight, need.density);
-    if (soft) {
-      const plan = detailPlan(asset.naturalWidth, asset.naturalHeight, need.visible!, need.density);
-      if (plan && !(current?.detail && detailServes(current.detail, need.visible!, need.density))) ensureDetail(entry, plan);
+    const plan = soft ? detailPlan(asset.naturalWidth, asset.naturalHeight, need.visible!, need.density) : null;
+    if (plan && detailBeatsTier(asset.naturalWidth, asset.naturalHeight, plan)) {
+      if (!(current?.detail && detailServes(asset.naturalWidth, asset.naturalHeight, current.detail, need.visible!, need.density))) ensureDetail(entry, plan);
     } else if (current?.detail) { entry.wantDetail = null; dropDetail(id); }
   }
 }

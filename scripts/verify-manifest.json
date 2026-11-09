@@ -463,6 +463,7 @@
       "verify-scene-capture-supplement.ts",
       "verify-dense-zoom-policy.cjs",
       "verify-figure-atlas.ts",
+      "verify-image-tiers.ts",
       "verify-plot-restyle.ts",
       "verify-figure-raster-worker.ts",
       "verify-fig-own-writes.ts",
@@ -12251,6 +12252,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 60000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-image-tiers.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
       "exclusive": false,
       "coverage": "behavior"
     }
