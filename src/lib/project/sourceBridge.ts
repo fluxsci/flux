@@ -23,7 +23,7 @@ import { ensureFigureReferenceKeys } from "./figureIdentity";
 import { reconcileCaptionFiles, captionConflictMessage } from "./captionReconcile";
 import { validateModel, validateFigIndexFile } from "./validate";
 import { recoverFigureReferenceUpdate } from "./figureReferenceSync";
-import { applySourceUpdates, planSourceUpdates, writeSourceUpdates, type SourceStatus } from "../plot/sourceSync";
+import { applySourceUpdates, planSourceUpdates, proveSourceUpdates, writeSourceUpdates, type SourceStatus, type SourceProofs } from "../plot/sourceSync";
 import { withIpcLock } from "../references/libLock";
 import { isUnderRoot, toProjectRelativeSource } from "../plot/source";
 import { newId } from "../ids";
@@ -39,6 +39,53 @@ const inflight = new Map<string, Promise<SourceSyncReport>>();
 const pending = new Set<string>();
 const liveFigure = (root: string) => storeTenant() === "figure" && figureStoreRoot() === root && get(embeddedProjectRoot) === root;
 const validSvg = (text: string) => !new DOMParser().parseFromString(text, "image/svg+xml").querySelector("parsererror");
+
+// Source proofs (plot/sourceSync.ts SourceProofs), kept per project in the machine-local
+// cache so the FIRST check after launch is also stat-only. The file is advisory: a missing,
+// unreadable or stale one only means sources are compared by content once more.
+const PROOFS_VERSION = 1;
+const proofsPath = (root: string) => joinPath(root, ".meta", "cache", "source-proofs.json");
+const proofStores = new Map<string, Promise<{ map: Map<string, string>; dirty: boolean }>>();
+function loadProofs(root: string): Promise<{ map: Map<string, string>; dirty: boolean }> {
+  let store = proofStores.get(root);
+  if (!store) {
+    store = (async () => {
+      const map = new Map<string, string>();
+      try {
+        const fb = fileBridge()!, path = proofsPath(root);
+        if (await fb.exists(path)) {
+          const file = JSON.parse(await fb.readText(path)) as { version?: number; proofs?: Record<string, unknown> };
+          if (file?.version === PROOFS_VERSION && file.proofs && typeof file.proofs === "object")
+            for (const [key, proof] of Object.entries(file.proofs)) if (typeof proof === "string") map.set(key, proof);
+        }
+      } catch { /* advisory */ }
+      return { map, dirty: false };
+    })();
+    if (proofStores.size > 8) proofStores.clear();
+    proofStores.set(root, store);
+  }
+  return store;
+}
+async function sourceProofs(root: string): Promise<{ proofs: SourceProofs | undefined; flush(): Promise<void> }> {
+  const fb = fileBridge();
+  if (!fb?.stat) return { proofs: undefined, flush: async () => {} };
+  const store = await loadProofs(root);
+  return {
+    proofs: {
+      get: key => store.map.get(key),
+      set: (key, proof) => { if (store.map.get(key) !== proof) { store.map.set(key, proof); store.dirty = true; } },
+      delete: key => { if (store.map.delete(key)) store.dirty = true; },
+    },
+    async flush() {
+      if (!store.dirty) return;
+      store.dirty = false;
+      try {
+        await fb.mkdir(joinPath(root, ".meta", "cache"));
+        await fb.writeText(proofsPath(root), JSON.stringify({ version: PROOFS_VERSION, proofs: Object.fromEntries(store.map) }));
+      } catch { store.dirty = true; }
+    },
+  };
+}
 
 async function readModel(root: string): Promise<{ project: Project; index: FigIndexFile; baselines: Map<string, string | null> }> {
   const fb = fileBridge()!;
@@ -57,7 +104,9 @@ export async function sourceDetails(root: string): Promise<SourceStatus[]> {
   if (!fb) return [];
   const model = liveFigure(root) ? get(project) : (await readModel(root)).project;
   const owners = await figureSourceOwners(root, model, fb);
-  const plan = await planSourceUpdates(root, owners.project, { ...fb, validateSvg: validSvg });
+  const proved = await sourceProofs(root);
+  const plan = await planSourceUpdates(root, owners.project, { ...fb, validateSvg: validSvg }, { proofs: proved.proofs });
+  void proved.flush();
   return plan.statuses.map((s) => s.status === "updating" ? { ...s, detail: "A newer source is ready to reload" } : s);
 }
 
@@ -86,7 +135,9 @@ async function sync(root: string, opts: { isCurrent?: () => boolean }): Promise<
   const disk = wasLive ? null : await readModel(root);
   const model = wasLive ? structuredClone(get(project)) : disk!.project;
   const owners = await figureSourceOwners(root, model, fb);
-  const plan = await planSourceUpdates(root, owners.project, { ...fb, validateSvg: validSvg });
+  const proved = await sourceProofs(root);
+  const plan = await planSourceUpdates(root, owners.project, { ...fb, validateSvg: validSvg }, { proofs: proved.proofs });
+  void proved.flush();
   if (opts.isCurrent && !opts.isCurrent()) return { changed: [], statuses: [], checked: plan.checked };
   // Mode switching during IO must not write a deck into fig/ or resurrect the
   // previous project's cache. The next open/watch/reload will retry safely.
@@ -142,6 +193,8 @@ async function sync(root: string, opts: { isCurrent?: () => boolean }): Promise<
     }
     for (const status of plan.statuses) if (status.status === "updating") status.status = "current";
     publish(plan.statuses);
+    await proveSourceUpdates(plan.updates, fb, proved.proofs);
+    void proved.flush();
     bumpFigRevision();
     return { changed: plan.updates.map((u) => u.assetId), statuses: plan.statuses, checked: plan.checked };
   } catch (error) {

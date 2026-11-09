@@ -118,6 +118,7 @@
       "verify-refformat.ts",
       "verify-embed-normalize.ts",
       "verify-paper-render-overrides.ts",
+      "verify-manifest-immutable.ts",
       "verify-fig-source-cache.ts",
       "verify-export-qmd.ts",
       "verify-scaffold.ts",
@@ -214,6 +215,7 @@
       "verify-library-pdffilter.ts",
       "verify-figure-reference-identity.ts",
       "verify-figure-sources.ts",
+      "verify-source-proofs.ts",
       "verify-slide-timeline.ts",
       "verify-slide-timeline-browser.ts",
       "verify-figure-reference-sync.ts",
@@ -12226,6 +12228,24 @@
       "coverage": "behavior"
     },
     "verify-generation-large.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-source-proofs.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-manifest-immutable.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

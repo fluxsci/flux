@@ -11,7 +11,7 @@
 //
 //   node scripts/perf/owner-flow-probe.cjs <projectDir> [--figure=<n|id>] [--phases=a,b] [--out=dir]
 //        [--ozone=headless|x11|wayland] [--profile=open,zoomIn,…] [--trace=open,…] [--settle=3500]
-//        [--shots] [--rounds=2]
+//        [--shots] [--rounds=2] [--in-place]
 //   phases: hover, pan, zoomIn, zoomOut, zoomDeep, drag, nudge, select, idle, switchFigure
 //
 // The project is COPIED to a scratch dir and HOME/XDG are isolated; nothing of the user's is touched.
@@ -28,9 +28,12 @@ if (!process.versions.electron) {
   if (!src || !fs.existsSync(path.join(src, 'project.json'))) { console.error('usage: owner-flow-probe.cjs <projectDir> [--figure=n] [--phases=a,b] [--out=dir]'); process.exit(2); }
   const out = path.resolve(opt('out', path.join(repo, 'test-results', `owner-flow-${new Date().toISOString().replace(/[:.]/g, '-')}`)));
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-owner-flow-'));
-  const project = path.join(scratch, 'project');
+  // --in-place: open <projectDir> itself (a DISPOSABLE copy you made) so state the app writes — source
+  // proofs, picture and display caches, applied source updates — is there for the next run: the second open.
+  const inPlace = args.includes('--in-place');
+  const project = inPlace ? path.resolve(src) : path.join(scratch, 'project');
   const t0 = Date.now();
-  fs.cpSync(path.resolve(src), project, { recursive: true, filter: (p) => !/[\\/]\.meta[\\/](locks|live)([\\/]|$)/.test(p) });
+  if (!inPlace) fs.cpSync(path.resolve(src), project, { recursive: true, filter: (p) => !/[\\/]\.meta[\\/](locks|live)([\\/]|$)/.test(p) });
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
