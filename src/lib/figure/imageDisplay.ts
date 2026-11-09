@@ -28,6 +28,8 @@ export const assetDisplay = writable<Record<Id, AssetDisplay>>({});
 /** Advances when a TIER changes (never for a detail): part of the scene snapshot key. */
 export const displayRevision = writable(0);
 export const imageDisplayStats = { decodes: 0, cacheHits: 0, cacheWrites: 0, tierSwaps: 0, details: 0, failures: 0, workerMs: 0 };
+/** Dev/gate switch (never set by product code): with tiers off, images paint their own bytes as before. */
+export const imageDisplayDev = { enabled: true };
 
 export interface DisplayScope { root: string; embedded: boolean; bridge: FileBridge | null; assets: readonly Asset[] }
 export interface DisplayNeed { density: number; inView: boolean; visible?: SourceRect }
@@ -114,22 +116,24 @@ const tiered = (asset: Asset) => asset.kind === "png" && needsTiers(asset.natura
  *  and the cheapest tier each one has is fetched at once from the cache, in the background. */
 export function beginImageDisplay(next: DisplayScope): void {
   resetImageDisplay();
-  if (get(storeTenantState) !== "figure") return;
+  if (get(storeTenantState) !== "figure" || !imageDisplayDev.enabled) return;
   scope = next;
   const pending: Record<Id, AssetDisplay> = {};
   for (const asset of next.assets) if (tiered(asset)) pending[asset.id] = { natural: { width: asset.naturalWidth, height: asset.naturalHeight }, pending: true };
   assetDisplay.set(pending);
 }
-function entryFor(asset: Asset): Entry {
+/** The entry for an asset's CURRENT bytes. `replaced` = its bytes (or recorded size) changed since the
+ *  last report: every tier and detail of the old bytes is stale and must leave the screen. */
+function entryFor(asset: Asset): { entry: Entry; replaced: boolean } {
   const generation = assetDirtyGeneration(asset.id);
-  let entry = entries.get(asset.id);
-  if (entry && entry.generation !== generation) { // bytes replaced: every tier of the old bytes is stale
-    entries.delete(asset.id); entry = undefined;
+  let entry = entries.get(asset.id), replaced = false;
+  if (entry && (entry.generation !== generation || entry.asset.naturalWidth !== asset.naturalWidth || entry.asset.naturalHeight !== asset.naturalHeight)) {
+    entries.delete(asset.id); entry = undefined; replaced = true;
     for (const slot of pool) slot.worker.postMessage({ id: ++rid, kind: "forget" });
   }
   if (!entry) { entry = { asset, generation, levels: new Map(), cached: null, busy: null, wantLevel: null, wantDetail: null, detailBusy: false, failed: false }; entries.set(asset.id, entry); }
   entry.asset = asset;
-  return entry;
+  return { entry, replaced };
 }
 
 // --- IO ----------------------------------------------------------------------------------------------
@@ -273,17 +277,22 @@ function ensureDetail(entry: Entry, plan: DetailPlan): void {
 /** The canvas reports, WHILE QUIET, what each image asset on the live canvas needs. Upgrades are
  *  requested for images in view; an image with no tier yet gets one wherever it is. Never downgrades. */
 export function syncImageDisplay(next: DisplayScope, needs: ReadonlyMap<Id, DisplayNeed>): void {
-  if (get(storeTenantState) !== "figure") return;
+  if (get(storeTenantState) !== "figure" || !imageDisplayDev.enabled) return;
   if (!scope || scope.root !== next.root || scope.embedded !== next.embedded) { resetImageDisplay(); scope = next; }
   else scope = next;
   const shown = get(assetDisplay);
   for (const [id, need] of needs) {
     const asset = next.assets.find(a => a.id === id);
     if (!asset || !tiered(asset)) continue;
-    const entry = entryFor(asset);
+    const { entry, replaced } = entryFor(asset);
     if (entry.failed) continue;
-    const current = shown[id];
-    if (entry.generation !== assetDirtyGeneration(id) || (current && (current.natural.width !== asset.naturalWidth || current.natural.height !== asset.naturalHeight))) { publish(id, () => undefined); }
+    let current: AssetDisplay | undefined = shown[id];
+    if (replaced || (current && (current.natural.width !== asset.naturalWidth || current.natural.height !== asset.naturalHeight))) {
+      // The image's own (new) bytes show at once; a tier of them follows.
+      if (current?.detail) URL.revokeObjectURL(current.detail.href);
+      publish(id, () => undefined); current = undefined;
+      displayRevision.update(n => n + 1);
+    }
     const level = levelFor(asset.naturalWidth, asset.naturalHeight, need.density);
     if (!current?.tier) ensureTier(entry, level);
     else if (need.inView && level < current.tier.level) ensureTier(entry, level);

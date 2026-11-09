@@ -36,9 +36,12 @@ import { paperPerf } from "../../shell/modes/paper/science/changeGate";
 import * as presets from "../presets";
 import { figureDetails } from "../figure/atlasDetail";
 import { atlasDev } from "../figure/atlas";
+import { assetDisplay, displayRevision, imageDisplayStats, imageDisplayDev } from "../figure/imageDisplay";
 
 export interface FluxDevHandle {
   atlas: typeof atlasDev & { details: typeof figureDetails };
+  /** Raster display tiers (figure/imageTiers.ts): what image elements paint, counters, the gate switch. */
+  imageDisplay: { display: typeof assetDisplay; revision: typeof displayRevision; stats: typeof imageDisplayStats; dev: typeof imageDisplayDev };
   /** Snapshot any Svelte store: `__flux.get(__flux.fig.project)`. */
   get: <T>(s: Readable<T>) => T;
   /** The Figure-editor store module (project, viewport, selection, commit, …). */
@@ -124,5 +127,6 @@ export function installDevHandle(): void {
     paperPerf,
     presets,
     atlas: { ...atlasDev, details: figureDetails },
+    imageDisplay: { display: assetDisplay, revision: displayRevision, stats: imageDisplayStats, dev: imageDisplayDev },
   } satisfies FluxDevHandle;
 }

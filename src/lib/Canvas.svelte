@@ -1298,7 +1298,7 @@
     return needs;
   }
   $: {
-    void visibleByFig; void visibleFigures; void renderZoom; void $viewport; void $project.assets; void $atlasView; void hostW; void hostH; void $assetDisplay;
+    void visibleByFig; void visibleFigures; void renderZoom; void $viewport; void $project.assets; void $assetData; void $atlasView; void hostW; void hostH; void $assetDisplay;
     if (imageNeedsTimer) { clearTimeout(imageNeedsTimer); imageNeedsTimer = null; }
     if (!frame && !presentation && paneActive && sceneSvgEl && hostW > 0 && !gesture && !sceneHot && !zoomUnsettled && !proxyActive && !guideDrag && !nodeDrag && !atlasPointerHeld)
       imageNeedsTimer = setTimeout(() => {

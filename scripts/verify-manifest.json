@@ -652,6 +652,7 @@
       "verify-oct27-figure-gui.mjs",
       "verify-gallery-notes-gui.mjs",
       "verify-figure-atlas.mjs",
+      "verify-figure-image-tiers.mjs",
       "verify-fig-edit-echo.mjs",
       "verify-paper-asset-reads.mjs",
       "verify-unplaced-asset-bytes.mjs",
@@ -1610,7 +1611,8 @@
       "verify-figure-atlas.mjs",
       "verify-scale-figure-atlas.mjs",
       "verify-changed-pathmap.mjs",
-      "verify-manifest-contracts.ts"
+      "verify-manifest-contracts.ts",
+      "verify-figure-image-tiers.mjs"
     ],
     "figure-detail": [
       "verify-figure-detail.ts",
@@ -12262,6 +12264,17 @@
       "isolation": "scratch",
       "timeoutMs": 30000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-image-tiers.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }
