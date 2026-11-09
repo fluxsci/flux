@@ -303,7 +303,15 @@ Persistence invariants (all machine-checked — do not weaken):
   captions and index (plus one-generation `.bak`) in reference-safe order. Ordinary GUI/Node
   saves and source/conversion clients stage assets and fresh project registration with them.
   `textGeneration.ts` flushes an exact old/new text-or-binary journal before replacement and
-  each parent directory after publication. Restart restores recorded originals; unknown external
+  each parent directory after publication. The journal holds BOTH versions of every file, so inline it is
+  one write twice the size of its write set — and one bridge message is capped at 256 MiB
+  (`electron/ipc/contract.cjs validatePayload` counts 2 bytes per character). Past 4 MiB of content the
+  journal is therefore version 3: values over 256 KiB sit beside it as
+  `.meta/figure-source-generation.blob.<k>`, written and flushed BEFORE the journal that names them and
+  removed highest-first after it (any later recovery clears leftovers); small transactions keep the
+  version-2 bytes exactly (`verify-generation-large.ts`: the per-message cap, 19 crash points, hostile
+  journals). On 2026-11-09 two regenerated plots with 34 MB manifests made a 258 MB inline journal and the
+  owner's project failed its source update with a toast on every open. Restart restores recorded originals; unknown external
   edits retain the journal and refuse guessing. `verify-v020-crash-recovery.ts` checks eight
   real SIGKILL barriers and both old/new complete outcomes. This is not a filesystem-wide
   atomic snapshot or a cross-machine sync protocol.
@@ -1131,6 +1139,51 @@ Persistence invariants (all machine-checked — do not weaken):
   `figRevision` bump per autosave instead of two. Measured: Paper scroll work on the owner's project
   501 → 27 ms, a Paper visit reads 0 asset files (was 80 on a 20-figure fixture). Gates:
   `verify-fig-own-writes`, `verify-fig-edit-echo`, `verify-paper-asset-reads`, `verify-unplaced-asset-bytes`.
+  `loadFigInto` overlaps the per-asset reads (`FIG_LOAD_LANES` = 8; results land in maps keyed by asset id).
+- **Cost must follow what is on SCREEN, never what is on DISK — bytes are a scale dimension of their own**
+  (the always-instant pass, 2026-11-09; handoff `notes/always_instant_2026-11-09/HANDOFF.md`). The atlas bounds
+  per-frame cost by mounted NODES; the owner's `scratch_papers_etc` project broke it with BYTES no fixture had:
+  Figure 22 places nine PNGs of 28 MP (103 MB) and thirteen plots carry 26–34 MB manifests (25k-point series).
+  Three mechanisms keep bytes out of the hot paths:
+  - **Raster display tiers** (`figure/imageTiers.ts` policy, `figure/imageDisplay.ts` residency,
+    `figure/imageTiers.worker.ts`). An image ELEMENT in the figure editor paints `assetDisplay[id]`, never the
+    original: a TIER on a half-octave ladder (level k = natural / 2^(k/2) px a side, capped at 2 MP — so at
+    most 2× the pixels the screen needs), a small PNG **data URL** because it must survive scene
+    serialization; past the cap a DETAIL — the visible part only, at screen density, ≤ 4 MP, a blob URL with
+    class `image-detail` that `zoomProxy.captureExcluded` keeps out of every capture. `pending` (set at load
+    for every PNG over 0.6 MP) keeps the original out of the DOM while the first tier arrives; no entry (a small
+    image, Slide mode, an undecodable file) means the image's own bytes, as before. Sources of a tier: memory →
+    `<project>/.meta/cache/display/<assetId>.L<k>.png` + `.json` (valid for the source file's exact size +
+    mtime) → the worker, which decodes the original ONCE, makes the whole ladder and fills the cache; nothing
+    decodes or resamples on the main thread. `Canvas.svelte` reports each image's need (device px per source
+    px, the source rect in view) 200 ms after the view goes quiet; upgrades are for images in view and never
+    downgrade; a tier change advances `displayRevision` (in `sceneContentKey`), a detail never does. Replaced
+    bytes (a new dirty generation or recorded size) leave the screen in the same report. Tiers are DISPLAY
+    ONLY: exports, saves, the raster service and Paper read the original bytes; the overview capture's
+    supplement takes `displayAssetData()`. Before: every zoom-proxy capture — 1.5 s after any zoom, drag or
+    nudge — re-serialized the nine originals (137 MB of base64) and decoded 254 MP on the main thread, a
+    520–1,033 ms freeze after EVERY settle; after: no long task, largest frame gap in the settle window
+    16.8–66 ms, renderer memory 3.6 → ~1.5 GB. Gates: `verify-image-tiers.ts` (policy, pure),
+    `verify-figure-image-tiers.mjs` (ui, group figure-atlas: real wheel input, capture 1 MB instead of 94 MB,
+    detail = the source's own pixels, exports keep originals, replaced bytes, negative proof with tiers off).
+  - **Linked-source proofs** (`plot/sourceSync.ts SourceProofs`, `project/sourceBridge.ts`). "Is every linked
+    plot source current?" runs at project open (`projectWatch.startProjectWatch`), on EVERY change under
+    `plots/`, at Figure load and before an export. It used to read each source twice plus its saved copy and
+    round-trip every manifest through JSON on the renderer thread (1.83 GB across the bridge per check here;
+    13.4 s to the figure list, 7.2 s of frozen frames, again whenever an agent regenerated one plot). A PROOF
+    is the identity (path, size, mtime) of a source's files and of its saved copy when the two bundles were
+    last proven equal by content; while it holds nothing is read (`io.stat`), any change compares that source
+    again, and `proveSourceUpdates` records a committed update at once. A whole-second mtime younger than 3 s
+    is not yet proof (coarse filesystems). Proofs persist in `.meta/cache/source-proofs.json` — advisory:
+    missing or stale costs one content comparison (so the FIRST open after this change, or on another
+    machine, still compares everything once). Callers without `stat`, or that pass no store (flux-core, the
+    deck planners), behave exactly as before. Gate: `verify-source-proofs.ts`.
+  - **A stored plot manifest is an immutable value** (`plot/store.ts`): a reimport replaces the object under
+    its id, nothing edits one in place, so a snapshot for an async export is the record
+    (`{ ...get(plotManifests) }`), never `structuredClone` (370 ms per export and per live metadata preview
+    here). Gate: `verify-manifest-immutable.ts` (census + the render pipeline on deep-frozen manifests).
+  Asset bytes use the engine's base64 codec where it exists (`assets.ts bytesToBase64` / `base64ToBytes`:
+  Chromium 140+; the hand-rolled loop cost 13 ms per MB, 2.1 s of that open; Node 22 keeps the loop).
 - The **paper editor** (CodeMirror 6) is the most latency-sensitive surface in the app. The
   mechanisms that keep it instantaneous (§6) and glitch-free — engineering constraints, not
   aesthetics; understand them before changing them: BLOCK WIDGETS are a pure function of the
@@ -3369,6 +3422,16 @@ override toggle on the owner's 25.8k-node elastic plot 153 → 8.8 ms (0 re-clon
 open: the active figure live ~2.5 s after navigation, every in-view figure pictured by ~4 s. The native key-to-paint
 gate reads 1,600: 41–47 ms, 5,000: 80–84 ms, 5,000 + rail: 77–85 ms (private Xvfb).
 
+Remeasured 2026-11-09 on a copy of the owner's `scratch_papers_etc` project (22 figures, 122 plot manifests of
+208 MB, 150 MB of placed bytes, Figure 22 = nine 28 MP PNGs; production bundle, headless 1600×1000,
+`scripts/perf/owner-flow-probe.cjs --figure=22`, which records the SETTLE window after each gesture and the open
+itself): open to the figure list 13.4 s → 2.0 s steady state, frozen frames during the open 7.2 s → 1.6 s, text
+across the bridge 1,827 → 211 MB, renderer heap 2.4–3.0 GB → 0.8–1.1 GB (renderer process 3.6 → ~1.5–1.9 GB);
+the toast "Some figure sources could not update … 256 MiB" gone; on Figure 22 the freeze after zoom-in /
+zoom-out / drag / nudge 520–1,033 ms → none (largest frame gap in the 3.5 s after each gesture 16.8–66 ms, no long
+task), gestures at 16.7–16.8 ms p95 throughout, and a 26-notch zoom to 1,532 % shows the image's own pixels
+through a detail with no long task. The open is still over the 1 s navigation budget: §10.
+
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
 production qualification. Its historical display summaries stay rounded to 0.1 ms;
@@ -5067,6 +5130,32 @@ outside this PNG packaging change.
   The plan's 0.4 floor (premised on [−2, 3]×) let 68 of 594 owner policy regions abort (QA-P6, nested plot
   layers: a model-extent check cannot see them); at 0.5, 0 of 503. Detail deaths must never trip
   base-service backoff. The pixel budget reduces scale, never the safety region.
+- **A settled canvas is not where lag hides: measure the OPEN and the seconds AFTER each gesture.** The
+  owner's 2026-11-09 lag was invisible to `input-probe.cjs` (gestures on a quiet scene read 60 fps): the cost
+  sat in the open (source check, asset decode) and in the idle work 1.5 s after every settle (the proxy
+  capture). `scripts/perf/owner-flow-probe.cjs` records both, with an ipcMain ledger (calls, bytes, per-file
+  rows) and `--in-place` for second-open state; `profile-summary.mjs` symbolicates a production `.cpuprofile`
+  through `dist/assets/*.js.map`. Judge freezes by **rAF gaps**: the `longtask` observer reported 8 tasks
+  (1.3–1.9 s) for an open whose frames were frozen 7.2 s.
+- **Anything that serializes the scene pays for every byte in an attribute.** A capture clones the DOM,
+  serializes it (`innerHTML`), scans it (`&nbsp;`, fonts), copies it into a Blob and Chromium decodes it on
+  the main thread — ~8 ms per MB end to end. Never put an original's data URL in the live DOM; an element
+  paints a display tier (§4). The same holds for Route L and the overview supplement.
+- **A deferred-quality request must be judged against what a FRESH request would return, not against the
+  screen.** A detail the 4 MP budget held below screen density did not "serve" its own view, so every quiet
+  report would have asked again (`verify-image-tiers` caught it before it shipped). Same shape as any
+  retry-until-sharp loop: cap the target at the achievable.
+- **A worker that caches decoded bitmaps must run one request at a time.** Two 28 MP decodes in one worker:
+  the second's budget eviction closed the bitmap the first was still drawing from, and both images lost their
+  tiers (7 of 9 cached). Chain the handler; bound the main-side fan-out so originals are read just in time.
+- **`Request` is a global type in worker scope** (Fetch): a union named `Request` in a `.worker.ts` reads as
+  "Property 'kind' does not exist on type 'Request'" on every access.
+- **Check who owns a dev-server port before using it.** `:1431` was another agent's server in another
+  workspace (`ls -l /proc/<pid>/cwd` of the `ss -ltnp` owner); a UI gate against it would have tested their
+  tree. `--strictPort` makes your own start fail instead of sharing; `run-verifies --only` takes ONE substring.
+- **A bridge message has a size, and a transaction is not one message.** `validatePayload` refuses 256 MiB
+  counting 2 bytes per character, so 128 M characters of text. Anything whose size grows with the project
+  (a journal of contents, a batch of manifests) must be chunked by design, not by luck (§3).
 - **Detail state must not touch `atlasRevision`.** It enters `sceneContentKey`; a bump reserializes and
   decodes the proxy snapshot and retires its overview (41–73 ms serialize + 45–103 ms decode measured on
   the owner's canvas). Keep details out of every serializer, the mount list, and `AtlasViewEntry`.
@@ -5412,6 +5501,20 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   by the owner): old talks play exactly as made, and a mixed-pace deck is legal. Letters travel and roll are the
   default for NEW text transforms; `params` stripped is the classic look.
 
+- **Always-instant follow-ups, measured and not built on 2026-11-09** (`notes/always_instant_2026-11-09/HANDOFF.md`):
+  (1) **per-figure residency** — the open still loads every placed asset's bytes and every manifest eagerly
+  (355 MB on the owner's scratch project: ~2.0 s to the figure list, two frozen chunks of 0.6 + 0.4 s). The
+  atlas means only the ACTIVE figure needs bytes, DOM and manifests; residency should be mount-driven for
+  bytes and manifests as it already is for plot DOM, with `ensure…` at the async export entry points (the
+  audit: every reader of `assetData` / `plotManifests` for a non-mounted figure — about 20 files). The display
+  cache already makes large PNG originals unnecessary on the canvas. (2) **persisted pictures** (the endgame's
+  P5, still deferred): non-active figures are blank ~1.3–1.6 s after the model appears while four raster
+  workers render 6 s of pictures; needs a content key that survives sessions (model JSON + asset stat
+  identity + palette/text styles + app version; skip figures with 3D models). (3) the **raster service decodes
+  originals** for cold pictures of image-heavy figures (it could read `.meta/cache/display` tiers). (4) a
+  big-manifest plot that ACTUALLY changes still normalizes on the renderer thread (~0.3–0.5 s per 34 MB
+  manifest: read, JSON round trip, reimport parse); needs worker-side normalization or a main-process commit.
+  (5) the first open after the proofs landed (or on another machine) compares every source once.
 - **Performance endgame follow-ups, deliberately not built on 2026-10-30** (ledger `notes/performance_endgame_2026-10-29/LEDGER.md`):
   persisted pictures on disk (`fig/renders/atlas/`, PLAN §6 — re-opens would be instant; the first open fills in
   ~4 s today); compositing the zoom proxy from the atlas's pictures instead of decoding the serialized scene (the
@@ -12320,3 +12423,17 @@ picker in the Export dialog that writes one `csl:` line. Handoff:
 - An empty replace decoration is a line-break opportunity (widget-buffer images); hide in-word
   markers with a `display:none` mark in the atomic set.
 - Harper flags a unit symbol after a number (`10 s,`); spelling now skips it after a quantity.
+
+### 2026-11-09 — Always instant: bytes as a scale dimension (Claude Fable 5.2, `perf/always-instant`)
+**Work:** The owner's `scratch_papers_etc` project (22 figures; Figure 22 = nine 28 MP PNGs; thirteen plots
+with 26–34 MB manifests) opened in 13.4 s with a toast on every open and froze 0.5–1 s after every zoom or
+edit. Three root causes, each fixed with a gate: the generation journal as one oversized bridge message
+(journal v3), the linked-source check reading 1.8 GB per run (stat-identity proofs), originals living in the
+DOM and so in every scene capture (display tiers + deep-zoom details). Also by-reference manifest snapshots,
+native base64, overlapped load reads. Open 13.4 → 2.0 s, post-settle freezes gone, renderer 3.6 → ~1.5 GB.
+Handoff and numbers: `notes/always_instant_2026-11-09/HANDOFF.md`.
+**Learnings:** (promoted to §3 journal, §4 "cost follows the screen", §6 numbers, §9 seven traps, §10 follow-ups)
+- The endgame bounded cost by NODES; this project broke it with BYTES. A scale fixture needs both axes.
+- Lag "at specific times" is deferred work: measure the open and the settle window, by rAF gaps.
+- Write the gate before trusting a new policy: both tier gates found a defect on their first run (a request
+  loop; stale tiers after bytes were replaced).

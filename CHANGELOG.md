@@ -9,6 +9,21 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Figure editor
+
+- **Large images no longer slow the editor.** A placed image is drawn at the resolution your screen
+  needs instead of at its full size, and sharpens to its own pixels when you zoom in. A figure with
+  several very large PNGs (tens of megapixels each) used to pause for half a second or more after
+  every zoom, drag or nudge; it no longer does. Exports, saves and the paper still use the original
+  image, untouched.
+- **Projects with data-heavy plots open several times faster**, and stay responsive while plots are
+  regenerated in `plots/`: Flux now checks whether a linked plot source changed without re-reading
+  every source file.
+- **Fixed: "Some figure sources could not update … IPC payload exceeds 256 MiB limit"** on opening a
+  project whose regenerated plots carry large data. The pending updates are applied the next time
+  the project opens.
+- Exporting a figure, and the live preview in Figure-Meta, no longer copy every plot's data first.
+
 ## 0.3.0 — 2026-11-08
 
 ### Working with agents
