@@ -9,7 +9,25 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Slides
+
+- **Fixed: a part that appeared earlier on a slide blinked when it started to Become something.** With
+  a plot's parts faded or drawn in on one step and turned into parts of another plot on a later step
+  (a ring of sectors becoming rows of a raincloud plot), each part vanished for a moment at the start
+  of its flight and faded back in. The same cause could also start a flight a little displaced when
+  the plot itself had risen in, or land it beside a plot that had risen in. All gone: a flight now
+  starts on exactly what you were looking at and lands on exactly what stays.
+- **A large cloud of markers that Becomes a line or a shape lands smoothly.** Above 400 markers the
+  markers themselves fly and fade as they arrive; what they land on used to appear all at once on the
+  last frame. It now fades in under them.
+- **Fixed: dragging a plot from the Plots rail onto a slide always placed it on the first slide.** It
+  lands on the slide you are looking at. Dropping a file onto the stage had the same fault.
+- **Rename a deck where it is listed:** double-click its name in the deck list, as you rename a canvas
+  in Figure.
+
 ### Figure editor
+
+- **X-ray colour swatches show their whole outline.** The left edge of every swatch's ring was cut off.
 
 - **Large images no longer slow the editor.** A placed image is drawn at the resolution your screen
   needs instead of at its full size, and sharpens to its own pixels when you zoom in. A figure with

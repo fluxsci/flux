@@ -194,6 +194,7 @@ The established shared cores — extend these, don't duplicate them:
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
 | Start and landing of every animation (pen touch-down, priming and the flight mark, the first-tick clock, the camera's early bake, the settle corpus and its KNOWN_OPEN); fractionally scaled displays (the layout box on the device grid, compositing constant per slide, the device grid of hosts and rests) | `player/player.ts` (`begin`, `glidesEver` / `markFor`), `player/render.ts` (`armFlightMark`, `primeFlightLayers`, `layoutBoxOf`, `restGridShift`), `player/deviceGrid.ts` (`gridFit`, `stageGrid`), `timing.ts` (`FIRST_TICK_MAX_MS`), `player/rasterKeeper.ts` (`EARLY_BAKE_LEAD_FRAMES`), `player/trim.ts` (`penWidth`); probes and corpus in `scripts/lib/slideSettle*.ts` (`DSF=1.25` measures a scaled display) | `verify-slide-settle-sweep.ts` (pure, headless Chrome), `verify-slide-settle-electron.cjs` (electron tier, offscreen; its device-scale pass), `verify-slide-device-grid.ts`, `verify-slide-raster-pure.ts`, `verify-slide-raster-electron.cjs`, `verify-pace-defaults.ts`, `verify-slide-tween.ts` (mark laws) |
+| A hand-off's copies of its ends, and the look of any other moment | `player/player.ts` (`writeLook`: THE LOOK LAW, the one writer of a node's keyframed styles for `applyAt` and for `posedAt`; `supersededAt`, `specsByNode`, `animatedProperties`), `player/handoff.ts` (`HandoffCtx.pose`, the glyph flight's `landing` copies, `GLYPH_LANDING_COPIES`, `GLYPH_FADE`) | `verify-slide-handoff-pose.ts` (exported player, plan built at step 0: a part / a plot / markers / a text that entered earlier, a destination that rose in; first flight frame == rest, last == landed, live styles untouched; the glyph landing copies) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts`; `verify-slide-animator-gui.mjs` pins saved Arc through the library's real Apply and Undo paths. Transform preset application forwards HOW fields explicitly into `setTransform`; extending the saved payload alone does not extend this reader. |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-plot-tick-handoff.ts` (view-Change tick hand-off, stills), `verify-slide-morph.ts`, paper/render and slide/export parity |
@@ -1909,7 +1910,35 @@ Persistence invariants (all machine-checked — do not weaken):
   cropped plots discard wholly outside outlines and clip the retained flight drawing.
   Visibility uses reversible inline `visibility` leases, so chains and reverse seeks
   compose with opacity presets; disposal restores prior values. A static host bakes
-  sampled visibility before disposal. `seek(eased, raw?)` uses raw progress for phase
+  sampled visibility before disposal.
+  **The pose law (2026-11-10: everything a hand-off reads from the live DOM is read in the look of its OWN ends).**
+  The flight's copies of the real renders (the hand-over's two end layers, glyph clones, crossfade clones, the veil's
+  covers) are cut from the LIVE nodes (`clone()`: `cloneNode`, `getScreenCTM`, `getBBox`, `getComputedStyle`), and the
+  plan is built whenever it is first needed: usually by `warmWhenIdle`, right after the slide is built, while it rests
+  at step 0. The player keeps animation state on those same nodes (an entrance still to come is the enter's first
+  keyframe: `opacity: 0`, a lift's `transform`, a draw's dash window), so a copy cut then carried step 0 into a flight
+  that plays steps later. The owner's deck: eight ring sectors fade in, then each Becomes a raincloud row; every
+  sector's copy was `opacity: 0`, so the sector vanished on the first flight frame and came back with the flight
+  layer's weight (~100 ms): a blink at the start of every flight. The same cause displaced a copy by its wrapper's
+  pending lift (a plot that rose in: source side at the start, destination side at the landing) and made a glyph
+  flight's markers invisible until they landed. `build()` therefore runs inside `HandoffCtx.pose` = the player's
+  `posedAt(specs, ends, read)`: every animated node inside an end (the sources at the flight's start, the destinations
+  at its landing; the innermost end decides) and every animated ancestor below the camera is written through
+  `writeLook` for that end's moment, `read` runs, and each node's `style` attribute is put back in the same task
+  (nothing is painted in between; `verify-slide-handoff-pose` pins that no live style changes). `writeLook` is the ONE
+  writer of a node's keyframed look: `applyAt` calls it for every frame (its per-spec side, prep / flights / native
+  effects, rides the `each` callback), so the posed look cannot drift from the played one. Not posed, on purpose: the
+  camera (both sides of every matrix read sit under it), `visibility` leases (a copy drops its root's, and an
+  outline's owner is a leaf, so nothing leased lies inside one), and content other controllers write (a hand-off
+  binds to the content root of the transform before it, whose markup is that transform's end state at any moment).
+  **Any new code that copies or measures a live slide node outside a frame must do it inside a pose.**
+  **Glyph landing.** The glyph route's markers fade over the last `GLYPH_FADE` (15 %) of raw progress; what they land
+  on used to appear whole on the landing frame (the destination's lease flips at raw 1). A glyph plan landing on at
+  most `GLYPH_LANDING_COPIES` (48) destinations now keeps ONE group of copies of them (`g.sl-handoff-landing`, first
+  child of the layer, cut in the landing pose, so a `reveal: "draw"` destination's copy is its undrawn start) and
+  fades the group in over the same window. Above the cap (dots onto as many ellipses) the flip stays: a copy costs a
+  layout read each, and the glyph route exists because that set is over budget.
+  `seek(eased, raw?)` uses raw progress for phase
   changes and the glyph's final-15-percent fade, clamping only data interpolation.
   Marker flights write SVG transform attributes, never per-marker CSS transforms.
   The existing element driver draws three layers — A the original
@@ -5287,6 +5316,38 @@ outside this PNG packaging change.
   prefix check on the raw string; refuse `..` segments, `path.resolve`, then compare
   (`plotThumbs.cjs placeOf`, pinned in verify-plot-thumbs.ts).
 
+- **A copy of a live slide node is a copy of the moment it is cut in** (2026-11-10). The player writes animation
+  state into the nodes themselves, and plans are built at idle while the slide rests at step 0, so `cloneNode`,
+  `getScreenCTM` and `getComputedStyle` there read step 0, not the step the copy is shown in. Cut or measure inside
+  `posedAt` (§4, the pose law). A fixture only finds this class if the node ENTERS on an earlier step and the gate
+  lets the idle warm run before the flight is ever seeked: every older hand-off fixture had its source visible from
+  step 0, which is why every hand-off gate stayed green over an owner-visible blink.
+- **A flight is drawn ABOVE the plots it leaves and lands on.** A part painted under a sibling (the sine fixture's
+  `2hz.line` under `1hz.line`) differs from its own flight copy wherever the sibling crosses it (733 px at the
+  first frame, none of it a blink). Gates that compare a rest with a flight frame use the top part or a part nothing
+  crosses; a fixture's opaque figure patch is no part of a flight either (compare on a matching slide background).
+- **Puppeteer's emulated device scale is not a scaled display.** `page.setViewport({ deviceScaleFactor: 2 })` reports
+  `devicePixelRatio` 2 while Blink still snaps layout boxes to whole CSS px: every wrapper the player put on the
+  half-pixel grid (`layoutBoxOf`) is PAINTED half a stage px off its own matrix, so a resting plot and its flight copy
+  (same `getScreenCTM` to 1e-5) differ by a 0.5 px edge that no real display shows. Measure scaled displays with a
+  real `--force-device-scale-factor` (the settle probes' `DSF`), never with emulation.
+- **`page.screenshot({ clip })` re-lays the page out** (`captureBeyondViewport` defaults to true): a `position: fixed`
+  panel (the X-ray) is somewhere else in the capture than its `getBoundingClientRect` said. Pass
+  `captureBeyondViewport: false` when clipping to an element of a fixed panel.
+- **Regenerating the embed runtime under a running dev server strands the embed gates.** After
+  `node scripts/gen-slide-embed-assets.mjs` changes `.generated/slide-embed-assets.json`, a dev server that was already up
+  keeps serving the old runtime against the new hash: `verify-paper-slide-embeds`, `verify-slide-embed-lifecycle` and
+  `verify-model3d-embed-gui` time out on `.flux-slide-art` (three reds in a ui tier, all green after restarting the
+  server). Regenerate first, start the server second.
+- **In frame mode every figure of the canvas shares one place.** The slide editor shows one slide; the deck's other
+  slides are figures of the same canvas at the same origin. A hit test over `canvasFigures` returns the FIRST slide
+  (`figureAtWorld` now answers with the shown figure only when `frame`): the rail's drag and the OS file drop both
+  placed on slide 1 and switched the editor to it. Anything new that asks "which figure is under the pointer" must
+  go through `figureAtWorld`.
+- **An outline drawn OUTSIDE a box (box-shadow spread, `outline`) is cut by any clipping ancestor** the box touches:
+  the X-ray's swatch sat at the left edge of `.rprev` (overflow hidden for the ellipsis) and lost its left ring on
+  every row. Draw a chip's ring as its border (`box-sizing: border-box`, `background-clip: padding-box`, the colour as
+  `background-color`: the `background` shorthand resets the clip).
 - **Release 2 slide traps (2026-10-23).** Measuring: (1) `page.evaluate` serialises `Infinity` to `null` (a
   "seek to the end" was a seek to 0), and a function declared inside an evaluated callback gets tsx's `__name`
   helper (use string expressions). (2) Compare images perceptually (2x2 average, a 4 % dead band): half-pixel edge
@@ -12464,3 +12525,20 @@ now hold tiers (service and Route L), readiness waits for them, merged to main.
   loop; stale tiers after bytes were replaced).
 - Verify the states you did not touch: the one defect that reached the owner was in the NON-active figure's
   picture, visible in a screenshot I had taken and not read.
+
+### 2026-11-10 — Become blink at the start of a flight: the pose law; glyph landing; three inbox fixes (Claude Fable 5.2, `main`)
+**Work:** Owner inbox on the demo project. (1) Each ring sector that had faded in earlier blinked when its Become
+began: the hand-off's copy of the source was cut at idle while the slide rested at step 0, where the sector was still
+`opacity: 0`. Fixed at the root (`posedAt` / `writeLook`, §4 "the pose law"); the same cause had three more faces
+(a displaced copy when the source or destination plot rose in, invisible glyph clones), all pinned red-first in the
+new `verify-slide-handoff-pose`. While there: a glyph flight's destination now fades in under the landing markers
+instead of appearing whole on the last frame. (2) Rail drag / file drop onto a slide went to slide 1
+(`figureAtWorld` in frame mode). (3) Decks rename by double-click in the deck list (the title field's own op).
+(4) X-ray swatch rings were clipped on the left (border instead of box-shadow). New probe:
+`scripts/perf/slide-start-film-probe.mts` (a dense film of a WINDOW of one step from a real project, per-frame
+changed pixels and ink: a one-frame blink is invisible on the evenly spaced strip probe).
+**Learnings:** (promoted to §2 row, §4 pose law + glyph landing, §9 seven traps)
+- "We fixed this before" was true of the hand-over SEAMS (F3); this was a different cause with the same look. Film
+  the owner's own deck first (trimmed scratch copy), read the DOM of the bad frame, then name the cause.
+- A whole class stays invisible to a corpus whose fixtures all start visible: add the EARLIER step to the fixture.
+- One writer per law: the fix was safe because `applyAt` and the pose share `writeLook` instead of agreeing by test.
