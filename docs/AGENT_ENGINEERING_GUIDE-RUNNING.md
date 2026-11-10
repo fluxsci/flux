@@ -1159,13 +1159,25 @@ Persistence invariants (all machine-checked — do not weaken):
     px, the source rect in view) 200 ms after the view goes quiet; upgrades are for images in view and never
     downgrade; a tier change advances `displayRevision` (in `sceneContentKey`), a detail never does. Replaced
     bytes (a new dirty generation or recorded size) leave the screen in the same report. Tiers are DISPLAY
-    ONLY: exports, saves, the raster service and Paper read the original bytes; the overview capture's
-    supplement takes `displayAssetData()`. Before: every zoom-proxy capture — 1.5 s after any zoom, drag or
+    ONLY: exports, saves and Paper read the original bytes; the overview capture's supplement takes
+    `displayAssetData()`. **A figure's PICTURE holds tiers too, and never a placeholder**: the raster
+    service refuses a composed SVG over 64 MiB (nine 28 MP originals are 137 MB), so `atlasRoutes.inlineFor`
+    sends it a tier per large image, sharp enough for the requested scale, as `inlineAssets`
+    (`imageDisplay.captureTiers`; pictures and figure details alike) — an image-heavy figure is then
+    pictured off the main thread instead of falling back to a live mount. Route L, which photographs the
+    DOM, first SHOWS each tier (`captureTiers(…, { show: true })`) and refuses while one is pending, and
+    `atlasCanvas`'s readiness check (`satisfied`) is false while `figureImagesPending` — so a warming figure
+    keeps its picture behind it until its images have tiers. An image waiting for its first tier draws a
+    transparent, hittable rect (never the grey "no bytes" box), and asks for the tier at once rather than
+    after the quiet window. The figure LOADER's project root is authoritative for the display scope
+    (`beginImageDisplay`); a canvas or atlas report only refreshes the asset list. Before: every zoom-proxy capture — 1.5 s after any zoom, drag or
     nudge — re-serialized the nine originals (137 MB of base64) and decoded 254 MP on the main thread, a
     520–1,033 ms freeze after EVERY settle; after: no long task, largest frame gap in the settle window
     16.8–66 ms, renderer memory 3.6 → ~1.5 GB. Gates: `verify-image-tiers.ts` (policy, pure),
     `verify-figure-image-tiers.mjs` (ui, group figure-atlas: real wheel input, capture 1 MB instead of 94 MB,
-    detail = the source's own pixels, exports keep originals, replaced bytes, negative proof with tiers off).
+    detail = the source's own pixels, exports keep originals, replaced bytes, negative proof with tiers off;
+    with every tier held 1.2 s no frame shows a picture taken before its image had a tier and no grey box
+    is ever drawn; against a stub service the request carries tiers and the figure never mounts live).
   - **Linked-source proofs** (`plot/sourceSync.ts SourceProofs`, `project/sourceBridge.ts`). "Is every linked
     plot source current?" runs at project open (`projectWatch.startProjectWatch`), on EVERY change under
     `plots/`, at Figure load and before an export. It used to read each source twice plus its saved copy and
@@ -5141,6 +5153,15 @@ outside this PNG packaging change.
   serializes it (`innerHTML`), scans it (`&nbsp;`, fonts), copies it into a Blob and Chromium decodes it on
   the main thread — ~8 ms per MB end to end. Never put an original's data URL in the live DOM; an element
   paints a display tier (§4). The same holds for Route L and the overview supplement.
+- **A capture whose key does not move with what it shows must WAIT for it — and look at the state you did
+  not change.** The atlas's `rasterKey` deliberately ignores display tiers, so a picture taken while images
+  still showed their "tier pending" placeholder stayed grey until the next edit: the owner's Figure 22 was
+  pictured as nine grey boxes the moment he clicked off it (2026-11-09, found by him, not by me). Two things
+  hid it: the raster service REFUSES that figure (composed SVG over 64 MiB), so the picture came from the
+  rarely-taken fallback (live mount → Route L); and every check I ran looked at the ACTIVE figure — my own
+  screenshot of the non-active one showed the grey boxes and I did not look at it. When a change alters
+  what the live DOM holds, enumerate everything that photographs the DOM (zoom proxy, overview, Route L,
+  Route C's inputs, details) and screenshot each one's output.
 - **A deferred-quality request must be judged against what a FRESH request would return, not against the
   screen.** A detail the 4 MP budget held below screen density did not "serve" its own view, so every quiet
   report would have asked again (`verify-image-tiers` caught it before it shipped). Same shape as any
@@ -5510,8 +5531,10 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   cache already makes large PNG originals unnecessary on the canvas. (2) **persisted pictures** (the endgame's
   P5, still deferred): non-active figures are blank ~1.3–1.6 s after the model appears while four raster
   workers render 6 s of pictures; needs a content key that survives sessions (model JSON + asset stat
-  identity + palette/text styles + app version; skip figures with 3D models). (3) the **raster service decodes
-  originals** for cold pictures of image-heavy figures (it could read `.meta/cache/display` tiers). (4) a
+  identity + palette/text styles + app version; skip figures with 3D models). (3) [done the same day: the
+  raster service is sent display tiers, §4] a figure DETAIL of a non-active image-heavy figure is capped at
+  the 2 MP tier per image, so a deep zoom into a figure that is not active stays softer than its original
+  until it is clicked. (4) a
   big-manifest plot that ACTUALLY changes still normalizes on the renderer thread (~0.3–0.5 s per 34 MB
   manifest: read, JSON round trip, reimport parse); needs worker-side normalization or a main-process commit.
   (5) the first open after the proofs landed (or on another machine) compares every source once.
@@ -12431,9 +12454,13 @@ edit. Three root causes, each fixed with a gate: the generation journal as one o
 (journal v3), the linked-source check reading 1.8 GB per run (stat-identity proofs), originals living in the
 DOM and so in every scene capture (display tiers + deep-zoom details). Also by-reference manifest snapshots,
 native base64, overlapped load reads. Open 13.4 → 2.0 s, post-settle freezes gone, renderer 3.6 → ~1.5 GB.
-Handoff and numbers: `notes/always_instant_2026-11-09/HANDOFF.md`.
+Handoff and numbers: `notes/always_instant_2026-11-09/HANDOFF.md`. Same evening, owner report: a figure with
+large PNGs greyed out when clicked off — placeholders baked into its picture by the fallback route; pictures
+now hold tiers (service and Route L), readiness waits for them, merged to main.
 **Learnings:** (promoted to §3 journal, §4 "cost follows the screen", §6 numbers, §9 seven traps, §10 follow-ups)
 - The endgame bounded cost by NODES; this project broke it with BYTES. A scale fixture needs both axes.
 - Lag "at specific times" is deferred work: measure the open and the settle window, by rAF gaps.
 - Write the gate before trusting a new policy: both tier gates found a defect on their first run (a request
   loop; stale tiers after bytes were replaced).
+- Verify the states you did not touch: the one defect that reached the owner was in the NON-active figure's
+  picture, visible in a screenshot I had taken and not read.
