@@ -106,6 +106,17 @@ h.section("F. the wiring that makes it hold");
   const canvas = fs.readFileSync(path.join(repo, "src/lib/Canvas.svelte"), "utf8");
   h.ok(/frame \? 0 : \$displayRevision/.test(canvas), "a tier change re-keys the scene snapshot");
   h.ok(/assetData: displayAssetData\(\)/.test(canvas), "the overview capture embeds tiers, never originals the canvas does not paint");
+  // A PICTURE of a figure must hold its images: never a placeholder (the owner's Figure 22 was pictured as nine
+  // grey boxes, 2026-11-09), never an original the raster service would refuse (64 MiB).
+  h.ok(/\{:else if display\?\.pending\}[\s\S]{0,400}fill="transparent" stroke="none"/.test(element), "an image waiting for its first tier draws nothing (transparent, hittable), never the grey box");
+  const routes = fs.readFileSync(path.join(repo, "src/lib/figure/atlasRoutes.ts"), "utf8");
+  const live = routes.slice(routes.indexOf("export async function rasterLive"), routes.indexOf("export async function rasterCold"));
+  h.ok(live.indexOf("captureTiers(display, fig, req.S, { show: true })") > 0 && live.indexOf("captureTiers(") < live.indexOf("serializeFigureRegion(") && /figureImagesPending\(fig\)\) throw/.test(live),
+    "Route L shows every large image's tier BEFORE it photographs the DOM, and refuses while one is pending");
+  h.ok((routes.match(/const inlineAssets = await inlineFor\(fig, assets, bytes, req\.S, display\);/g) ?? []).length === 2 && /const tiers = display \? await captureTiers\(display, fig, S\)/.test(routes),
+    "the raster service (pictures and details) is sent tiers for large images, never their originals");
+  const atlas = fs.readFileSync(path.join(repo, "src/lib/figure/atlasCanvas.ts"), "utf8");
+  h.ok(/const satisfied = \(\) => \{[\s\S]{0,1400}!figureImagesPending\(/.test(atlas), "a figure is not ready (to drop its picture, or to be photographed) while an image waits for its first tier");
   const display = fs.readFileSync(path.join(repo, "src/lib/figure/imageDisplay.ts"), "utf8");
   h.ok(!/createImageBitmap|OffscreenCanvas|new Image\(/.test(display), "the display service never decodes or resamples on the main thread");
 }

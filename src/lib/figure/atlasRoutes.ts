@@ -3,8 +3,19 @@
 import type { Figure, Asset } from '../types';
 import type { FileBridge } from '../project/types';
 import type { AtlasRequest, FigureRaster } from './atlas';
+import { tick } from 'svelte';
 import { serializeFigureRegion, snapshotFontCss } from '../interact/zoomProxy';
 import { isAssetDirty } from '../assets';
+import { captureTiers, figureImagesPending, type DisplayScope } from './imageDisplay';
+
+/** What the raster service embeds per asset: a display tier for every large image the figure places
+ *  (figure/imageTiers.ts) — never its original, whose bytes alone can exceed the service's 64 MiB
+ *  composition limit — and the resident bytes of an asset that is not on disk yet. */
+async function inlineFor(fig: Figure, assets: Asset[], bytes: Record<string, string>, S: number, display: DisplayScope | undefined): Promise<Record<string, string>> {
+  const tiers = display ? await captureTiers(display, fig, S) : {}, inline: Record<string, string> = { ...tiers };
+  for (const asset of assets) if (!inline[asset.id] && isAssetDirty(asset.id) && bytes[asset.id]) inline[asset.id] = bytes[asset.id];
+  return inline;
+}
 
 const dataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -17,7 +28,15 @@ async function result(req: AtlasRequest, w: number, h: number, blob: Blob): Prom
   return { figureId: req.figureId, key: req.key, S: req.S, w, h, dataUrl: url, bytes: blob.size,
     route: req.route, producedAt: Date.now(), lastShownAt: Date.now() };
 }
-export async function rasterLive(req: AtlasRequest, fig: Figure, group: SVGGElement, bridge: FileBridge | null, current: () => boolean): Promise<FigureRaster | null> {
+export async function rasterLive(req: AtlasRequest, fig: Figure, group: SVGGElement, bridge: FileBridge | null, current: () => boolean, display?: DisplayScope): Promise<FigureRaster | null> {
+  // This route photographs the DOM: every large image must be SHOWING a tier sharp enough for the
+  // picture first. A placeholder baked into a picture stays until the figure is next edited.
+  if (display) {
+    await captureTiers(display, fig, req.S, { show: true });
+    await tick();
+    if (!current()) return null;
+    if (figureImagesPending(fig)) throw new Error('Figure images are not displayed yet');
+  }
   const ser = serializeFigureRegion(group, fig, req.S);
   const fontCss = await snapshotFontCss(ser.svg);
   if (!current()) return null;
@@ -47,11 +66,10 @@ export async function rasterLive(req: AtlasRequest, fig: Figure, group: SVGGElem
     return current() ? raster : null;
   } finally { URL.revokeObjectURL(url); }
 }
-export async function rasterCold(req: AtlasRequest, fig: Figure, assets: Asset[], bytes: Record<string, string>, root: string, bridge: FileBridge): Promise<FigureRaster | null> {
+export async function rasterCold(req: AtlasRequest, fig: Figure, assets: Asset[], bytes: Record<string, string>, root: string, bridge: FileBridge, display?: DisplayScope): Promise<FigureRaster | null> {
   if (!bridge.rasterizeFigure) throw new Error('unavailable');
   const width = Math.max(1, Math.ceil(fig.width * req.S)), height = Math.max(1, Math.ceil(fig.height * req.S));
-  const inlineAssets: Record<string, string> = {};
-  for (const asset of assets) if (isAssetDirty(asset.id) && bytes[asset.id]) inlineAssets[asset.id] = bytes[asset.id];
+  const inlineAssets = await inlineFor(fig, assets, bytes, req.S, display);
   const reply = await bridge.rasterizeFigure({ rid: `atlas-C:${req.figureId}:${Date.now()}`, root,
     figure: structuredClone(fig), assets, scale: req.S, width, height, inlineAssets });
   if (reply.cancelled) return null;
@@ -61,10 +79,9 @@ export async function rasterCold(req: AtlasRequest, fig: Figure, assets: Asset[]
 
 /** Details stay as bytes until the dedicated scheduler's quiet publication.
  * Never call the base result() adapter here: it decodes a data URL immediately. */
-export async function renderDetail(req: import('./atlasDetail').DetailRequest, fig: Figure, assets: Asset[], bytes: Record<string, string>, root: string, bridge: FileBridge, backdrop = '#ffffff'): Promise<Blob | null> {
+export async function renderDetail(req: import('./atlasDetail').DetailRequest, fig: Figure, assets: Asset[], bytes: Record<string, string>, root: string, bridge: FileBridge, backdrop = '#ffffff', display?: DisplayScope): Promise<Blob | null> {
   if (!bridge.rasterizeFigure) throw new Error('unavailable');
-  const inlineAssets: Record<string, string> = {};
-  for (const asset of assets) if (isAssetDirty(asset.id) && bytes[asset.id]) inlineAssets[asset.id] = bytes[asset.id];
+  const inlineAssets = await inlineFor(fig, assets, bytes, req.S, display);
   const reply = await bridge.rasterizeFigure({ rid: req.rid, root, figure: structuredClone(fig), assets,
     scale: req.S, width: req.w, height: req.h, region: req.region, backdrop, inlineAssets });
   if (reply.cancelled) return null;

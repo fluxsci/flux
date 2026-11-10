@@ -535,10 +535,11 @@
     // Explicit dependencies matter in this legacy component: reads hidden in
     // controller callbacks cannot wake a readiness check or a quiet transition.
     void $atlasView; void $figureRasters; void visibleByFig; void sceneSvgEl;
+    void $assetDisplay; // an image's first display tier arriving completes a figure's readiness (atlasCanvas satisfied)
     void sceneHot; void zoomUnsettled; void proxyActive; void gesture; void guideDrag; void nodeDrag; void paneActive; void atlasPointerHeld;
     atlas.sync({ enabled: atlasActive, activeId: $activeFigureId, scope: `${$projectDir}|${$embeddedProjectRoot}|${$activeCanvasId}`,
       figures: canvasFigures, visible: visibleFigures, revisions: $figureRev, global: $globalRev, plotGen: $plotGen, poster: $model3dPosterRevision,
-      zoom: renderZoom, dpr: window.devicePixelRatio || 1, root: $embeddedProjectRoot || $projectDir || '', bridge: fileBridge() ?? null,
+      zoom: renderZoom, dpr: window.devicePixelRatio || 1, root: $embeddedProjectRoot || $projectDir || '', embedded: !!$embeddedProjectRoot, bridge: fileBridge() ?? null,
       assets: $project.assets, bytes: $assetData, center: { x: (hostW / 2 - $viewport.panX) / $viewport.zoom, y: (hostH / 2 - $viewport.panY) / $viewport.zoom },
       viewBox: { x: -$viewport.panX / $viewport.zoom, y: -$viewport.panY / $viewport.zoom, w: hostW / $viewport.zoom, h: hostH / $viewport.zoom } });
   }
@@ -1300,13 +1301,25 @@
   $: {
     void visibleByFig; void visibleFigures; void renderZoom; void $viewport; void $project.assets; void $assetData; void $atlasView; void hostW; void hostH; void $assetDisplay;
     if (imageNeedsTimer) { clearTimeout(imageNeedsTimer); imageNeedsTimer = null; }
-    if (!frame && !presentation && paneActive && sceneSvgEl && hostW > 0 && !gesture && !sceneHot && !zoomUnsettled && !proxyActive && !guideDrag && !nodeDrag && !atlasPointerHeld)
-      imageNeedsTimer = setTimeout(() => {
-        imageNeedsTimer = null;
-        if (snapshotDestroyed || !paneActive || gesture || sceneHot || zoomUnsettled || proxyActive) return;
-        const needs = imageNeeds();
-        if (needs.size) syncImageDisplay({ root: $embeddedProjectRoot || $projectDir || "", embedded: !!$embeddedProjectRoot, bridge: fileBridge() ?? null, assets: get(project).assets }, needs);
-      }, IMAGE_NEEDS_QUIET_MS);
+    const report = (only?: (id: string) => boolean) => {
+      const needs = imageNeeds();
+      if (only) for (const id of [...needs.keys()]) if (!only(id)) needs.delete(id);
+      if (needs.size) syncImageDisplay({ root: $embeddedProjectRoot || $projectDir || "", embedded: !!$embeddedProjectRoot, bridge: fileBridge() ?? null, assets: get(project).assets }, needs);
+    };
+    if (!frame && !presentation && paneActive && sceneSvgEl && hostW > 0) {
+      // A mounted image with NO tier yet shows nothing: fetch its first tier at once, gesture or not
+      // (a cache read; the element may have mounted under the very press that activated its figure).
+      const waiting = $assetDisplay;
+      if (visibleFigures.some((f) => !atlasIsRaster(f.id) && (visibleByFig.get(f.id) ?? []).some((e) => e.type === "image" && waiting[e.assetId]?.pending && !waiting[e.assetId]?.tier)))
+        report((id) => !!waiting[id]?.pending && !waiting[id]?.tier);
+      // Sharper tiers and details wait for quiet.
+      if (!gesture && !sceneHot && !zoomUnsettled && !proxyActive && !guideDrag && !nodeDrag && !atlasPointerHeld)
+        imageNeedsTimer = setTimeout(() => {
+          imageNeedsTimer = null;
+          if (snapshotDestroyed || !paneActive || gesture || sceneHot || zoomUnsettled || proxyActive) return;
+          report();
+        }, IMAGE_NEEDS_QUIET_MS);
+    }
   }
   onDestroy(() => { if (imageNeedsTimer) clearTimeout(imageNeedsTimer); });
   // Hiding or unmounting offscreen DOM does not remove that artwork from a

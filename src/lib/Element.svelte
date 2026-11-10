@@ -125,6 +125,10 @@
             width={detail.source.width / display.natural.width * element.width} height={detail.source.height / display.natural.height * element.height} />
         {/if}
       {/if}
+    {:else if display?.pending}
+      <!-- A tier is on its way: draw NOTHING (the figure's picture, kept behind a warming figure, shows
+           through) but stay hittable. Never the grey "no bytes" box: that would flash over the picture. -->
+      <rect x={element.x} y={element.y} width={element.width} height={element.height} fill="transparent" stroke="none" />
     {:else}
       <rect
         x={element.x}

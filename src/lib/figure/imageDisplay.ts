@@ -29,17 +29,22 @@ export const assetDisplay = writable<Record<Id, AssetDisplay>>({});
 export const displayRevision = writable(0);
 export const imageDisplayStats = { decodes: 0, cacheHits: 0, cacheWrites: 0, tierSwaps: 0, details: 0, failures: 0, workerMs: 0 };
 /** Dev/gate switch (never set by product code): with tiers off, images paint their own bytes as before. */
-export const imageDisplayDev = { enabled: true };
+export const imageDisplayDev = { enabled: true, /** gates only: hold every tier load this long, to widen the pending window */ delayMs: 0 };
 
 export interface DisplayScope { root: string; embedded: boolean; bridge: FileBridge | null; assets: readonly Asset[] }
+/** Who named the current project: the figure LOADER knows the real root (`beginImageDisplay`), and then
+ *  a canvas or atlas report only refreshes the asset list; without a loader (a standalone project) the
+ *  canvas's own root stands, and a different root is a different project. */
+let scopeFromLoad = false;
 export interface DisplayNeed { density: number; inView: boolean; visible?: SourceRect }
 
 interface Entry {
   asset: Asset; generation: number;
   levels: Map<number, DisplayTier>;          // resident tiers
   cached: Set<number> | null;                 // levels the disk cache holds (null = not probed)
-  busy: Promise<void> | null;
-  wantLevel: number | null; wantDetail: DetailPlan | null; detailBusy: boolean;
+  chain: Promise<void>;                        // one load at a time per image (a second must not decode again)
+  asked: Set<number>;                          // levels with a show-request in flight
+  wantDetail: DetailPlan | null; detailBusy: boolean;
   failed: boolean;
 }
 let scope: DisplayScope | null = null, scopeSerial = 0;
@@ -103,7 +108,7 @@ function dropDetail(id: Id) {
 }
 /** Forget everything (project switch, tenant change). */
 export function resetImageDisplay(): void {
-  scopeSerial++; scope = null; entries.clear();
+  scopeSerial++; scope = null; scopeFromLoad = false; entries.clear();
   for (const display of Object.values(get(assetDisplay))) if (display.detail) URL.revokeObjectURL(display.detail.href);
   if (Object.keys(get(assetDisplay)).length) assetDisplay.set({});
   for (const slot of pool) slot.worker.postMessage({ id: ++rid, kind: "forget" });
@@ -117,7 +122,7 @@ const tiered = (asset: Asset) => asset.kind === "png" && needsTiers(asset.natura
 export function beginImageDisplay(next: DisplayScope): void {
   resetImageDisplay();
   if (get(storeTenantState) !== "figure" || !imageDisplayDev.enabled) return;
-  scope = next;
+  scope = next; scopeFromLoad = true;
   const pending: Record<Id, AssetDisplay> = {};
   for (const asset of next.assets) if (tiered(asset)) pending[asset.id] = { natural: { width: asset.naturalWidth, height: asset.naturalHeight }, pending: true };
   assetDisplay.set(pending);
@@ -131,7 +136,7 @@ function entryFor(asset: Asset): { entry: Entry; replaced: boolean } {
     entries.delete(asset.id); entry = undefined; replaced = true;
     for (const slot of pool) slot.worker.postMessage({ id: ++rid, kind: "forget" });
   }
-  if (!entry) { entry = { asset, generation, levels: new Map(), cached: null, busy: null, wantLevel: null, wantDetail: null, detailBusy: false, failed: false }; entries.set(asset.id, entry); }
+  if (!entry) { entry = { asset, generation, levels: new Map(), cached: null, chain: Promise.resolve(), asked: new Set(), wantDetail: null, detailBusy: false, failed: false }; entries.set(asset.id, entry); }
   entry.asset = asset;
   return { entry, replaced };
 }
@@ -211,36 +216,47 @@ async function generate(entry: Entry, s: DisplayScope, serial: number): Promise<
   })();
   return true;
 }
-/** Make `level` resident for this image and show it, unless a sharper tier is already showing. */
-function ensureTier(entry: Entry, level: number): void {
-  entry.wantLevel = entry.wantLevel === null ? level : Math.min(entry.wantLevel, level);
-  if (entry.busy || entry.failed) return;
+/** Make `level` resident for this image (memory → cache → the worker) and return it; null when the
+ *  image cannot be tiered (it then paints its own bytes) or the project changed meanwhile. */
+function loadTier(entry: Entry, level: number): Promise<DisplayTier | null> {
   const s = scope, serial = scopeSerial;
-  if (!s) return;
-  entry.busy = (async () => {
-    while (entry.wantLevel !== null && serial === scopeSerial && entries.get(entry.asset.id) === entry) {
-      const want = entry.wantLevel; entry.wantLevel = null;
-      let tier = entry.levels.get(want) ?? null;
-      if (!tier) {
-        if (entry.cached === null) await probeCache(entry, s);
-        if (entry.cached!.has(want)) tier = await readCached(entry, want, s);
-        if (tier) entry.levels.set(want, tier);
-        else if (await generate(entry, s, serial)) tier = entry.levels.get(want) ?? null;
-      }
-      if (serial !== scopeSerial || entries.get(entry.asset.id) !== entry) return;
-      if (!tier) { // cannot be tiered: show the original, as before tiers existed
-        entry.failed = true; imageDisplayStats.failures++;
-        publish(entry.asset.id, () => undefined);
-        return;
-      }
-      const shown = get(assetDisplay)[entry.asset.id]?.tier;
-      if (shown && shown.level <= tier.level) continue; // already at least this sharp
-      const next = tier;
-      publish(entry.asset.id, current => ({ natural: { width: entry.asset.naturalWidth, height: entry.asset.naturalHeight }, ...(current?.detail ? { detail: current.detail } : {}), tier: next }));
-      imageDisplayStats.tierSwaps++;
+  const live = () => !!s && serial === scopeSerial && entries.get(entry.asset.id) === entry;
+  const run = async (): Promise<DisplayTier | null> => {
+    if (!s || !live() || entry.failed) return null;
+    let tier = entry.levels.get(level) ?? null;
+    if (!tier) {
+      if (imageDisplayDev.delayMs > 0) await new Promise(resolve => setTimeout(resolve, imageDisplayDev.delayMs));
+      if (entry.cached === null) await probeCache(entry, s);
+      if (entry.cached!.has(level)) tier = await readCached(entry, level, s);
+      if (tier) entry.levels.set(level, tier);
+      else if (await generate(entry, s, serial)) tier = entry.levels.get(level) ?? null;
+    }
+    if (!live()) return null;
+    if (!tier) { // cannot be tiered: show the original, as before tiers existed
+      entry.failed = true; imageDisplayStats.failures++;
+      publish(entry.asset.id, () => undefined);
       displayRevision.update(n => n + 1);
     }
-  })().catch(() => { entry.failed = true; imageDisplayStats.failures++; publish(entry.asset.id, () => undefined); }).finally(() => { entry.busy = null; });
+    return tier;
+  };
+  const next = entry.chain.then(run, run);
+  entry.chain = next.then(() => undefined, () => { if (live()) { entry.failed = true; imageDisplayStats.failures++; publish(entry.asset.id, () => undefined); displayRevision.update(n => n + 1); } });
+  return next.catch(() => null);
+}
+/** Put a resident tier on screen unless one at least as sharp is already showing. */
+function show(entry: Entry, tier: DisplayTier): void {
+  if (entries.get(entry.asset.id) !== entry) return;
+  const shown = get(assetDisplay)[entry.asset.id]?.tier;
+  if (shown && shown.level <= tier.level) return;
+  publish(entry.asset.id, current => ({ natural: { width: entry.asset.naturalWidth, height: entry.asset.naturalHeight }, ...(current?.detail ? { detail: current.detail } : {}), tier }));
+  imageDisplayStats.tierSwaps++;
+  displayRevision.update(n => n + 1);
+}
+/** Make `level` resident for this image and show it, unless a sharper tier is already showing. */
+function ensureTier(entry: Entry, level: number): void {
+  if (entry.asked.has(level)) return; // the canvas reports often; one load per level in flight
+  entry.asked.add(level);
+  void loadTier(entry, level).then(tier => { if (tier) show(entry, tier); }).finally(() => entry.asked.delete(level));
 }
 function ensureDetail(entry: Entry, plan: DetailPlan): void {
   entry.wantDetail = plan;
@@ -274,25 +290,34 @@ function ensureDetail(entry: Entry, plan: DetailPlan): void {
   })();
 }
 
+/** The entry for an asset's current bytes; bytes that were replaced leave the screen here: the image's
+ *  own (new) bytes show at once and a tier of them follows. */
+function currentEntry(asset: Asset): Entry {
+  const { entry, replaced } = entryFor(asset), current = get(assetDisplay)[asset.id];
+  if (replaced || (current && (current.natural.width !== asset.naturalWidth || current.natural.height !== asset.naturalHeight))) {
+    if (current?.detail) URL.revokeObjectURL(current.detail.href);
+    publish(asset.id, () => undefined);
+    displayRevision.update(n => n + 1);
+  }
+  return entry;
+}
+function adopt(next: DisplayScope): void {
+  if (scope && scopeFromLoad) { scope = { ...scope, assets: next.assets }; return; }
+  if (!scope || scope.root !== next.root || scope.embedded !== next.embedded) resetImageDisplay();
+  scope = next;
+}
+
 /** The canvas reports, WHILE QUIET, what each image asset on the live canvas needs. Upgrades are
  *  requested for images in view; an image with no tier yet gets one wherever it is. Never downgrades. */
 export function syncImageDisplay(next: DisplayScope, needs: ReadonlyMap<Id, DisplayNeed>): void {
   if (get(storeTenantState) !== "figure" || !imageDisplayDev.enabled) return;
-  if (!scope || scope.root !== next.root || scope.embedded !== next.embedded) { resetImageDisplay(); scope = next; }
-  else scope = next;
-  const shown = get(assetDisplay);
+  adopt(next);
   for (const [id, need] of needs) {
     const asset = next.assets.find(a => a.id === id);
     if (!asset || !tiered(asset)) continue;
-    const { entry, replaced } = entryFor(asset);
+    const entry = currentEntry(asset);
     if (entry.failed) continue;
-    let current: AssetDisplay | undefined = shown[id];
-    if (replaced || (current && (current.natural.width !== asset.naturalWidth || current.natural.height !== asset.naturalHeight))) {
-      // The image's own (new) bytes show at once; a tier of them follows.
-      if (current?.detail) URL.revokeObjectURL(current.detail.href);
-      publish(id, () => undefined); current = undefined;
-      displayRevision.update(n => n + 1);
-    }
+    const current: AssetDisplay | undefined = get(assetDisplay)[id];
     const level = levelFor(asset.naturalWidth, asset.naturalHeight, need.density);
     if (!current?.tier) ensureTier(entry, level);
     else if (need.inView && level < current.tier.level) ensureTier(entry, level);
@@ -303,10 +328,49 @@ export function syncImageDisplay(next: DisplayScope, needs: ReadonlyMap<Id, Disp
     } else if (current?.detail) { entry.wantDetail = null; dropDetail(id); }
   }
 }
-/** What a scene capture may embed per asset: its display tier when one is showing, else its own bytes.
- *  A capture must never carry an original the canvas itself does not paint. */
+/** Device pixels per source pixel that a placement needs when its figure is drawn at `S` image px per
+ *  world unit (a crop shows part of the image in the same box). */
+export function placementDensity(element: { width: number; height: number; crop?: { width: number; height: number } }, asset: Asset, S: number): number {
+  const k = asset.dpi && asset.dpi > 0 ? 96 / asset.dpi : 1, crop = element.crop;
+  const ux = crop ? (element.width / crop.width) * k : element.width / asset.naturalWidth, uy = crop ? (element.height / crop.height) * k : element.height / asset.naturalHeight;
+  return Math.max(ux, uy) * S;
+}
+/** Tiers for a CAPTURE of one figure at `S` image px per world unit — an atlas picture, a figure detail.
+ *  Every tiered image the figure places gets a tier at least that sharp (within the ladder); the result
+ *  maps asset id → the tier's data URL, complete when the promise resolves. An image that cannot be
+ *  tiered is absent (it paints its own bytes). `show` also puts those tiers on the live canvas, for a
+ *  capture that photographs the DOM: a picture must never hold a placeholder or an original
+ *  (2026-11-09: the raster service refuses a figure whose originals exceed 64 MiB, the fallback
+ *  photographed the live figure while its images were still pending, and the owner's Figure 22 was
+ *  pictured as nine grey boxes). */
+export async function captureTiers(next: DisplayScope, fig: { elements: readonly { type: string; assetId?: Id; width: number; height: number; crop?: { width: number; height: number } }[] }, S: number, opts: { show?: boolean } = {}): Promise<Record<Id, string>> {
+  const out: Record<Id, string> = {};
+  if (get(storeTenantState) !== "figure" || !imageDisplayDev.enabled) return out;
+  adopt(next);
+  const serial = scopeSerial, density = new Map<Id, number>();
+  for (const element of fig.elements) {
+    if (element.type !== "image" || !element.assetId) continue;
+    const asset = next.assets.find(a => a.id === element.assetId);
+    if (asset && tiered(asset)) density.set(asset.id, Math.max(density.get(asset.id) ?? 0, placementDensity(element, asset, S)));
+  }
+  await Promise.all([...density].map(async ([id, d]) => {
+    const asset = next.assets.find(a => a.id === id)!, entry = currentEntry(asset);
+    const tier = await loadTier(entry, levelFor(asset.naturalWidth, asset.naturalHeight, d));
+    if (!tier || serial !== scopeSerial) return;
+    out[id] = tier.href;
+    if (opts.show) show(entry, tier);
+  }));
+  return out;
+}
+/** Does this figure place an image whose first tier has not arrived (it shows nothing yet)? */
+export function figureImagesPending(fig: { elements: readonly { type: string; assetId?: Id }[] }): boolean {
+  const all = get(assetDisplay);
+  return fig.elements.some(element => { if (element.type !== "image" || !element.assetId) return false; const display = all[element.assetId]; return !!display?.pending && !display.tier; });
+}
+/** What a scene capture may embed per asset: its display tier when one is showing, else its own bytes;
+ *  nothing while a tier is pending. A capture must never carry an original the canvas does not paint. */
 export function displayAssetData(): Record<Id, string> {
   const out = { ...get(assetData) };
-  for (const [id, display] of Object.entries(get(assetDisplay))) if (display.tier) out[id] = display.tier.href;
+  for (const [id, display] of Object.entries(get(assetDisplay))) { if (display.tier) out[id] = display.tier.href; else if (display.pending) delete out[id]; }
   return out;
 }

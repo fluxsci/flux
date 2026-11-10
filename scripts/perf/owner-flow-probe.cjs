@@ -12,7 +12,8 @@
 //   node scripts/perf/owner-flow-probe.cjs <projectDir> [--figure=<n|id>] [--phases=a,b] [--out=dir]
 //        [--ozone=headless|x11|wayland] [--profile=open,zoomIn,…] [--trace=open,…] [--settle=3500]
 //        [--shots] [--rounds=2] [--in-place]
-//   phases: hover, pan, zoomIn, panZoomed, zoomOut, zoomDeep (+panDeep, zoomDeepOut), select, drag, nudge, idle, switchFigure
+//   phases: hover, pan, zoomIn, panZoomed, zoomOut, zoomDeep (+panDeep, zoomDeepOut), select, drag, nudge, idle, switchFigure,
+//           leave (+return: click another figure, sample this one's picture, click back)
 //
 // The project is COPIED to a scratch dir and HOME/XDG are isolated; nothing of the user's is touched.
 // A CPU profile is symbolicated by scripts/perf/profile-summary.mjs through dist's hidden sourcemaps.
@@ -199,7 +200,7 @@ async function main() {
   log('open', { ...open, ipcPaths: undefined, ipcBig: undefined, ipc: Object.entries(open.ipc).slice(0, 10).map(([k, v]) => `${k}×${v.n} ${v.ms}ms arg ${v.argMB}MB res ${v.resMB}MB (max ${v.maxResMB})`), timeline: timeline.length, scene: { ...open.scene, figs: open.scene.figs.filter((f) => f.inView) } });
   fs.writeFileSync(path.join(out, 'open.png'), (await win.webContents.capturePage()).toPNG());
 
-  const rounds = +process.env.OFP_ROUNDS;
+  const rounds = +process.env.OFP_ROUNDS, s0 = await sceneState();
   for (let round = 0; round < rounds; round++) {
     const s = await sceneState();
     const active = s.figs.find((f) => f.active) ?? s.figs.find((f) => f.inView);
@@ -246,6 +247,24 @@ async function main() {
       if (other) await phase('switchFigure', async () => { const x = other.box[0] + other.box[2] / 2, y = other.box[1] + other.box[3] / 2; mouse({ type: 'mouseMove', x, y }); await sleep(60); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x, y }); await sleep(30); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x, y }); });
       else log('switchFigure', { skipped: 'no other figure in view' });
     }
+  }
+  // Leave the figure, look at its PICTURE, come back: a pictured figure must show its images (2026-11-09: the
+  // owner's Figure 22 was pictured as nine grey boxes). Samples the picture's pixels where the target image is.
+  if (wantPhase('leave')) {
+    const before = await sceneState(), home = before.figs.find((f) => f.active), other = before.figs.find((f) => f.inView && !f.active && f.box[2] > 60);
+    const rects = await elementRects(), img = rects.find((r) => r.tag === 'image');
+    if (home && other && img) {
+      const click = async (x, y) => { mouse({ type: 'mouseMove', x, y }); await sleep(60); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x, y }); await sleep(30); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x, y }); };
+      const cx = Math.round(other.box[0] + other.box[2] / 2), cy = Math.round(Math.max(s0.host.t + 20, Math.min(s0.host.b - 20, other.box[1] + other.box[3] / 2)));
+      await phase('leave', async () => { await click(cx, cy); });
+      const sample = async () => { const image = await win.webContents.capturePage({ x: img.x - 6, y: img.y - 6, width: 12, height: 12 }), b = image.toBitmap(); let r = 0, g = 0, bl = 0; for (let i = 0; i < b.length; i += 4) { bl += b[i]; g += b[i + 1]; r += b[i + 2]; } const n = b.length / 4; return [Math.round(r / n), Math.round(g / n), Math.round(bl / n)]; };
+      const left = await sceneState(), pictured = left.figs.find((f) => f.id === home.id);
+      results.leave = { figure: home.id, mode: pictured?.mode, raster: pictured?.raster, live: pictured?.live, rgbAtImage: await sample(), placeholders: await js(`document.querySelectorAll('${ROOT} .scene-svg rect[fill="#eee"]').length`) };
+      fs.writeFileSync(path.join(out, 'left.png'), (await win.webContents.capturePage()).toPNG());
+      await phase('return', async () => { await click(img.x, img.y); });
+      results.leave.rgbBack = await sample();
+      log('leave', results.leave);
+    } else log('leave', { skipped: 'needs an active figure with an image and another figure in view' });
   }
   results.end = { memoryMB: memory(), heapMB: await js('performance.memory?Math.round(performance.memory.usedJSHeapSize/1048576):null'), toasts: await js('window.__o.toasts.slice()'), scene: await sceneState() };
   log('end', { memoryMB: results.end.memoryMB, heapMB: results.end.heapMB, toasts: results.end.toasts });

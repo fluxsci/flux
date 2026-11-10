@@ -1,3 +1,4 @@
+import { resetImageDisplay } from "./figure/imageDisplay";
 import { captureAppModelPosterSource, cachedModelPosterUrl } from './model3d/posterStore';
 import { notifyPlotsWritten } from "./plotsRail/plotIndex";
 import { model3dSvgContext, type Model3dSvgContext } from './model3d/static';
@@ -870,6 +871,7 @@ export async function openProject() {
     primeScene3dSidecars(primedModels,primedModelRecipes,modelIssues);
     if(Object.keys(modelIssues).length) pushToast("info","Some 3D metadata could not be loaded",{detail:Object.values(modelIssues).flat().join("\n")});
     assetData.set(fresh);
+    resetImageDisplay(); // another project's display tiers must not answer for this one (figure/imageDisplay.ts)
     clearAllAssetsDirty();
     loadProject(p, dir);
     if (dir !== previousRoot) {

@@ -9,7 +9,11 @@
 //   (c) deep zoom draws a DETAIL of the visible part over the capped tier, and no capture contains it;
 //   (d) exports still embed the ORIGINAL bytes (tiers are display only);
 //   (e) a small image is never tiered; replaced bytes get new tiers;
-//   (f) negative proof: with tiers off the same canvas holds the originals and (a)/(b) fail.
+//   (f) negative proof: with tiers off the same canvas holds the originals and (a)/(b) fail;
+//   (g) a PICTURED figure shows its images: no picture is taken while an image still waits for its first
+//       tier (the owner's Figure 22 was pictured as nine grey boxes), a waiting image draws nothing rather
+//       than a grey box, and the picture survives leaving, editing and returning;
+//   (h) the raster service is sent TIERS, never the originals whose bytes it would refuse.
 import { launch, shot, realErrors, waitFor, gotoApp, clickMode, APP_URL } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
 
@@ -18,8 +22,8 @@ const { browser, page } = await launch({ width: 1600, height: 1000 });
 const ROOT = '/demo/image-tiers', BIG = { w: 6000, h: 3000 }, SMALL = { w: 500, h: 400 };
 
 /** Two figures: A places four 18 MP images and one small one; B places one more big image. */
-async function install() {
-  return page.evaluate(async ({ ROOT, BIG, SMALL }) => {
+async function install(target = page) {
+  return target.evaluate(async ({ ROOT, BIG, SMALL }) => {
     const F = window.fig;
     const png = async (w, hgt, seed) => {
       const c = new OffscreenCanvas(w, hgt), g = c.getContext('2d');
@@ -56,17 +60,40 @@ async function install() {
     return { bytes };
   }, { ROOT, BIG, SMALL });
 }
-async function load() {
-  await page.evaluate(async root => {
+async function load(target = page, active = 'fig-a') {
+  await target.evaluate(async ({ root, active }) => {
     const F = window.__flux;
     await F.bridge.loadFigInto(root, 'tiers');
-    F.fig.activeCanvasId.set('canvas-1'); F.fig.activeFigureId.set('fig-a');
+    F.fig.activeCanvasId.set('canvas-1'); F.fig.activeFigureId.set(active);
     F.fig.selectedFrameId.set(null); F.fig.selection.set(new Set());
     F.settings.update(s => ({ ...s, snapGrid: false, snapPixel: false, smartGuides: false }));
     const host = document.querySelector('.canvas-host');
     F.fig.viewport.set({ zoom: 1, panX: (host.clientWidth - 1160) / 2, panY: 90 });
-  }, ROOT);
+  }, { root: ROOT, active });
 }
+/** A fresh page on the Figure editor with the fixture installed (not yet loaded). */
+async function freshPage() {
+  const p = await browser.newPage();
+  await p.setViewport({ width: 1600, height: 1000 });
+  await p.evaluateOnNewDocument(() => { window.__name ??= f => f; });
+  await gotoApp(p, { url: APP_URL + '?fixture=demo', settle: 100 });
+  await clickMode(p, 'Figure');
+  await waitFor(p, () => !!window.__flux?.fig && !!window.__flux.imageDisplay && !!document.querySelector('.canvas-host'), null, { timeout: 20000, label: 'Figure ready' });
+  return p;
+}
+/** The colour a figure's PICTURE holds at a figure-local point, and the picture's key. */
+const pictureAt = (target, figureId, x, y) => target.evaluate(async ({ figureId, x, y }) => {
+  const node = document.querySelector(`[data-figure-raster="${figureId}"]`); if (!node) return null;
+  const fig = window.__flux.figures().find(f => f.id === figureId), img = new Image(); img.src = node.getAttribute('href'); await img.decode();
+  const c = new OffscreenCanvas(img.naturalWidth, img.naturalHeight), g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  // Average a small patch: one sample could land on a grid line of the fixture image.
+  const px = Math.round(x / fig.width * img.naturalWidth), py = Math.round(y / fig.height * img.naturalHeight), d = g.getImageData(px - 4, py - 4, 8, 8).data;
+  let r = 0, gg = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
+  const n = d.length / 4;
+  return { rgb: [Math.round(r / n), Math.round(gg / n), Math.round(b / n)], key: node.getAttribute('data-raster-key'), route: window.__flux.get(window.__flux.atlas.rasters).get(figureId)?.route };
+}, { figureId, x, y });
+// The fixture image is a saturated gradient: a placeholder is grey (#eee) and an unpainted box is the white page.
+const isImage = rgb => !!rgb && Math.max(...rgb) - Math.min(...rgb) > 35;
 /** What the live scene's image elements hold, against the originals in the asset store. */
 const scene = () => page.evaluate(async () => {
   const F = window.__flux, data = F.get((await import('/src/lib/assets.ts')).assetData), display = F.get(F.imageDisplay.display);
@@ -112,7 +139,8 @@ try {
     `each tier is at least screen-sharp and at most ~2× the pixels needed (${big.map(r => `${r.size.join('×')} for ${r.cssWidth}px`).join(', ')})`);
   h.ok(big.every(r => r.hrefChars < s.originalChars[r.assetId] / 20), `a tier weighs under 1/20 of its original (${big.map(r => (r.hrefChars / 1024).toFixed(0) + ' KB').join(', ')} vs ${(s.originalChars['big-1'] / 1048576).toFixed(1)} MB)`);
   h.ok(small && small.isOriginal && small.level === null, 'the small image paints its own bytes (never tiered)');
-  h.ok(s.stats.decodes === 4 && s.stats.failures === 0, `one decode per large image on the live canvas, none failed (${JSON.stringify(s.stats)})`);
+  h.ok(s.stats.decodes >= 4 && s.stats.decodes <= 5 && s.stats.failures === 0, `at most one decode per large image (four on the live figure, one for the pictured one), none failed (${JSON.stringify(s.stats)})`);
+  h.ok(big.every(r => r.level !== null), 'every large image on the live figure shows a tier');
   await shot(page, 'image-tiers-rest');
 
   h.section('(b) a scene capture follows the screen, not the files');
@@ -193,6 +221,81 @@ try {
   await page.evaluate(() => { window.__flux.imageDisplay.dev.enabled = true; });
 
   h.eq(realErrors(page), [], 'console is clean');
+
+  h.section('(g) a pictured figure shows its images');
+  {
+    const g = await freshPage();
+    try {
+      await install(g);
+      // Hold every tier 1.2 s: the window in which a picture taken too early would hold placeholders.
+      const t0 = await g.evaluate(() => {
+        window.__flux.imageDisplay.dev.delayMs = 1200;
+        window.__grey = 0; window.__early = 0; window.__blank = 0;
+        new MutationObserver(() => { window.__grey = Math.max(window.__grey, document.querySelectorAll('.figure-mode .scene-svg rect[fill="#eee"]').length); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['fill'] });
+        const watch = () => {
+          const display = window.__flux.get(window.__flux.imageDisplay.display);
+          if (document.querySelector('[data-figure-raster="fig-b"]') && !display['big-5']?.tier) window.__early++;
+          // The ACTIVE figure mounts at once, so its images are the ones seen waiting (the pictured figure
+          // asks for its tier before it is ever mounted).
+          if (document.querySelector('[data-editor-element-id="img-1"] rect[fill="transparent"]') && !document.querySelector('[data-editor-element-id="img-1"] image')) window.__blank++;
+          requestAnimationFrame(watch);
+        };
+        requestAnimationFrame(watch);
+        return performance.now();
+      });
+      await load(g);
+      await waitFor(g, () => !!document.querySelector('[data-figure-raster="fig-b"]'), null, { timeout: 30000, interval: 30, label: 'the non-active figure is pictured' });
+      const waited = await g.evaluate(t => performance.now() - t, t0), first = await pictureAt(g, 'fig-b', 200, 150);
+      const seen = await g.evaluate(() => ({ grey: window.__grey, early: window.__early, blank: window.__blank }));
+      h.ok(waited >= 1100, `the picture waited for the image's first tier (${Math.round(waited)} ms with tiers held 1,200 ms)`);
+      h.eq(seen.early, 0, 'no frame showed a picture of the figure before its image had a tier');
+      h.ok(isImage(first?.rgb), `the picture holds the image, not a placeholder (rgb ${first?.rgb} at the image's centre)`);
+      h.eq(seen.grey, 0, 'no grey placeholder box was ever drawn for a waiting image');
+      h.ok(seen.blank > 0, `while its tier loaded, a mounted image drew nothing and stayed hittable (${seen.blank} frames on the active figure)`);
+      await g.evaluate(() => { window.__flux.imageDisplay.dev.delayMs = 0; });
+      // Click into the pictured figure, edit it, click out: the new picture still holds the image.
+      const at = id => g.evaluate(id => { const F = window.__flux, f = F.figures().find(f => f.id === id), v = F.get(F.fig.viewport), host = document.querySelector('.canvas-host').getBoundingClientRect(), e = f.elements[0]; return { x: host.x + v.panX + (f.x + e.x + e.width / 2) * v.zoom, y: host.y + v.panY + (f.y + e.y + e.height / 2) * v.zoom }; }, id);
+      const b = await at('fig-b'); await g.mouse.click(b.x, b.y);
+      await waitFor(g, () => window.__flux.get(window.__flux.fig.activeFigureId) === 'fig-b' && !!document.querySelector('[data-editor-element-id="img-5"] image'), null, { timeout: 15000, label: 'the pictured figure activates with its image' });
+      await g.keyboard.press('ArrowRight'); await g.keyboard.press('ArrowRight');
+      const a = await at('fig-a'); await g.mouse.click(a.x, a.y);
+      await waitFor(g, key => { const n = document.querySelector('[data-figure-raster="fig-b"]'); return !!n && n.getAttribute('data-raster-key') !== key && !document.querySelector('[data-annotation-figure="fig-b"] [data-editor-element-id]'); }, first.key, { timeout: 30000, interval: 30, label: 'the edited figure is pictured again' });
+      const again = await pictureAt(g, 'fig-b', 202, 150);
+      h.ok(isImage(again?.rgb) && again.key !== first.key, `after click in, edit, click out the new picture still holds the image (rgb ${again?.rgb})`);
+      h.eq(await g.evaluate(() => window.__grey), 0, '…and still no grey box was drawn');
+      await shot(g, 'image-tiers-pictured');
+      h.eq(realErrors(g), [], '(g) console is clean');
+    } finally { await g.close(); }
+  }
+
+  h.section('(h) the raster service is sent tiers, never originals');
+  {
+    const svc = await freshPage();
+    try {
+      const sizes = await install(svc);
+      await svc.evaluate(() => {
+        window.__calls = [];
+        window.fig.rasterizeFigure = async req => {
+          window.__calls.push({ figure: req.figure.id, scale: req.scale, inline: Object.fromEntries(Object.entries(req.inlineAssets ?? {}).map(([id, url]) => [id, { chars: url.length, png: url.startsWith('data:image/png;base64,') }])), inlineUrl: req.inlineAssets?.['big-5'] });
+          const c = new OffscreenCanvas(req.width, req.height), x = c.getContext('2d'); x.fillStyle = '#ff00ff'; x.fillRect(0, 0, req.width, req.height);
+          return { png: new Uint8Array(await (await c.convertToBlob({ type: 'image/png' })).arrayBuffer()), width: req.width, height: req.height };
+        };
+      });
+      await load(svc); // fig-b (one large image) is the cold, non-active figure: the service pictures it
+      await waitFor(svc, () => window.__calls.some(c => c.figure === 'fig-b') && !!document.querySelector('[data-figure-raster="fig-b"]'), null, { timeout: 30000, interval: 30, label: 'the service pictured the image figure' });
+      const call = await svc.evaluate(async () => {
+        const c = window.__calls.find(c => c.figure === 'fig-b'), img = new Image(); img.src = c.inlineUrl; await img.decode();
+        return { scale: c.scale, inline: c.inline, tierWidth: img.naturalWidth, calls: window.__calls.filter(c => c.figure === 'fig-b').length, route: window.__flux.get(window.__flux.atlas.rasters).get('fig-b')?.route,
+          live: document.querySelectorAll('[data-annotation-figure="fig-b"] [data-editor-element-id]').length, routeL: window.__flux.atlas.stats.routeL };
+      });
+      h.ok(call.inline['big-5']?.png, 'the request carries a PNG tier for the figure\'s large image');
+      h.ok(call.inline['big-5'].chars < sizes.bytes['big-5'] / 20, `…under 1/20 of its original (${(call.inline['big-5'].chars / 1024).toFixed(0)} KB vs ${(sizes.bytes['big-5'] / 1048576).toFixed(1)} MB)`);
+      h.ok(call.tierWidth >= 360 * call.scale * 0.999 && call.tierWidth <= 360 * call.scale * 2.9, `…and sharp enough for the picture (${call.tierWidth} px for 360 units at ${call.scale.toFixed(2)} px/unit)`);
+      h.eq(Object.keys(call.inline), ['big-5'], 'only the figure\'s own large image is sent');
+      h.ok(call.route === 'C' && call.live === 0 && call.routeL === 0, 'the figure was pictured by the service without ever mounting live');
+      h.eq(realErrors(svc), [], '(h) console is clean');
+    } finally { await svc.close(); }
+  }
 } catch (error) {
   h.fail(`threw: ${error?.stack ?? error}`);
   try { await shot(page, 'image-tiers-failure'); } catch {}

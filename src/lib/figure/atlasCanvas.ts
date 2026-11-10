@@ -9,6 +9,7 @@ import { effectiveHidden } from '../groups';
 import { rectsIntersect, type Rect } from '../geometry';
 import { createDetailScheduler, detailCurrent, localView, type DetailRequest } from './atlasDetail';
 import { rasterCold, rasterLive, renderDetail } from './atlasRoutes';
+import { figureImagesPending, type DisplayScope } from './imageDisplay';
 import { ATLAS_ROUTE_L_MAX_ELEMENTS, ATLAS_ROUTE_L_MAX_NODES, atlasStats, atlasOwners, atlasRevision, createAtlasQueue, drop, evictToBudget, figureRasters, rasterKey, rasterScale, soft, touch, usable,
   type AtlasRequest, type FigureRaster } from './atlas';
 
@@ -20,7 +21,7 @@ export interface AtlasViewEntry { mode: AtlasMode; pending: boolean; full: boole
 export interface AtlasCanvasInput {
   enabled: boolean; activeId: string | null; scope: string; figures: Figure[]; visible: Figure[];
   revisions: Record<string, number>; global: number; plotGen: Record<string, number>; poster: number;
-  zoom: number; dpr: number; root: string; bridge: FileBridge | null; assets: import('../types').Asset[]; bytes: Record<string, string>;
+  zoom: number; dpr: number; root: string; embedded?: boolean; bridge: FileBridge | null; assets: import('../types').Asset[]; bytes: Record<string, string>;
   center: { x: number; y: number };
   viewBox: Rect;
 }
@@ -63,6 +64,8 @@ export function createCanvasAtlas(opts: {
       (req.priority !== 3 || !raster || soft(raster, rasterScale(fig, input.zoom, input.dpr)));
   };
   const quiet = () => !destroyed && !!input?.enabled && opts.quiet();
+  /** Where display tiers come from (figure/imageDisplay.ts): pictures embed tiers, never originals. */
+  const displayScope = (): DisplayScope | undefined => input ? { root: input.root, embedded: !!input.embedded, bridge: input.bridge, assets: input.assets } : undefined;
   const coldConcurrency = Math.min(4, Math.max(1, Math.floor((navigator.hardwareConcurrency || 8) / 8)));
   const queue = createAtlasQueue({ quiet, current, concurrency: { L: 1, C: coldConcurrency }, rearm: () => { if (input) sync(input); },
     routeL: async req => {
@@ -70,14 +73,14 @@ export function createCanvasAtlas(opts: {
       if (!e || !fig || !group || e.mode === 'raster' || e.mode === 'cold' || e.ready !== req.key || !quiet()) return null;
       atlasStats.routeL++;
       try {
-        return await rasterLive(req, fig, group, input!.bridge, () => quiet() && current(req) && opts.group(req.figureId) === group && e.key === req.key);
+        return await rasterLive(req, fig, group, input!.bridge, () => quiet() && current(req) && opts.group(req.figureId) === group && e.key === req.key, displayScope());
       } catch { e.failedL = req.key; e.pending = false; e.mode = 'fallback'; atlasStats.failures++; emit(); return null; }
     },
     routeC: async req => {
       const e = entries.get(req.figureId), fig = figOf(req.figureId), source = input!;
       if (!e || !fig || !source.bridge || !quiet()) return null;
       atlasStats.routeC++;
-      try { return await rasterCold(req, fig, source.assets, source.bytes, source.root, source.bridge); }
+      try { return await rasterCold(req, fig, source.assets, source.bytes, source.root, source.bridge, displayScope()); }
       catch (error) {
         if (current(req)) {
           if ((error instanceof Error ? error.message : String(error)) === 'unavailable') coldUnavailable = true;
@@ -132,7 +135,7 @@ export function createCanvasAtlas(opts: {
         backdrop = '#' + [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map(n => n.toString(16).padStart(2, '0')).join('');
         matte.width = matte.height = 0;
       }
-      return renderDetail(req, fig, source.assets, source.bytes, source.root, source.bridge, backdrop);
+      return renderDetail(req, fig, source.assets, source.bytes, source.root, source.bridge, backdrop, displayScope());
     },
     cancel: rid => { void input?.bridge?.cancelFigureRaster?.(rid); },
   });
@@ -174,8 +177,11 @@ export function createCanvasAtlas(opts: {
       const active = fig.id === input?.activeId, want = active ? opts.wanted?.(fig.id) : undefined;
       if (active && opts.wanted && !want) return false;
       const needed = want ? fig.elements.filter(el => want.has(el.id)) : fig.elements;
+      // …and no image still waits for its first display tier: a warming figure keeps its picture
+      // behind it until then, and Route L never photographs a placeholder.
       return !!group && needed.every(el => effectiveHidden(fig, el) || mounted.has(el.id)) &&
-        needed.every(el => effectiveHidden(fig, el) || el.type !== 'plot' || !input?.bytes[el.assetId] || hasPlotDom(el.assetId));
+        needed.every(el => effectiveHidden(fig, el) || el.type !== 'plot' || !input?.bytes[el.assetId] || hasPlotDom(el.assetId)) &&
+        !figureImagesPending({ elements: needed.filter(el => !effectiveHidden(fig, el)) });
     };
     if (satisfied()) {
       // One frame is painted BETWEEN these callbacks. No ambient readiness poll:
@@ -302,7 +308,7 @@ export function createCanvasAtlas(opts: {
       const fig = figOf(id), e = entries.get(id), group = opts.group(id);
       if (!fig || !e || !group || !input) return null;
       const req: AtlasRequest = { figureId: id, key: e.key, S: rasterScale(fig, input.zoom, input.dpr), priority: 2, route: 'L' };
-      return rasterLive(req, fig, group, input.bridge, () => current(req) && opts.group(id) === group);
+      return rasterLive(req, fig, group, input.bridge, () => current(req) && opts.group(id) === group, displayScope());
     } };
   atlasOwners.add(owner);
   return { view, sync, rearm: schedule, key: (id: string) => entries.get(id)?.key,
