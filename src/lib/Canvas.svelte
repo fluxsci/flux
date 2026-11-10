@@ -4539,11 +4539,11 @@
   // (both mean "this frame will receive what you are holding").
   let dropFigId: string | null = null;
   function figureAtWorld(wx: number, wy: number): Figure | null {
-    return (
-      canvasFigures.find(
-        (f) => wx >= f.x && wx <= f.x + f.width && wy >= f.y && wy <= f.y + f.height,
-      ) ?? null
-    );
+    const holds = (f: Figure) => wx >= f.x && wx <= f.x + f.width && wy >= f.y && wy <= f.y + f.height;
+    // Frame mode (the slide editor) shows ONE figure. The deck's other slides are figures of the same canvas at the same place, unseen:
+    // the first of them used to win every hit test, so a plot dragged from the rail (or a file dropped) onto slide 5 landed on slide 1.
+    if (frame) { const shown = canvasFigures.find((f) => f.id === $activeFigureId); return shown && holds(shown) ? shown : null; }
+    return canvasFigures.find(holds) ?? null;
   }
   function figureAt(clientX: number, clientY: number): Figure | null {
     const w = clientToWorld(clientX, clientY);

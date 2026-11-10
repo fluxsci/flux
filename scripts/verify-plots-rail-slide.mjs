@@ -146,6 +146,21 @@ h.section("placing on the slide");
   await page.evaluate(() => [...document.querySelectorAll("[data-plots-rail-menu] button")][1].click());
   await waitFor(page, () => !/→ Title/.test(document.querySelector("[data-rail-destination]").textContent), null, { label: "switched slide" });
   h.ok(await page.evaluate(() => document.querySelector(".filmstrip") === null), "choosing one switches the active slide (the rail stays on Plots)");
+  // A drag onto a slide that is not the first lands on THAT slide. Every slide of a deck is a figure of one canvas, at the same place: the
+  // first one used to win the canvas hit test, so the plot went to slide 1 and the editor jumped there (owner, 2026-11-10).
+  {
+    const was = await page.evaluate(() => { const F = window.__flux; return { active: F.get(F.fig.activeFigureId), first: F.figures()[0].id, counts: Object.fromEntries(F.figures().map((f) => [f.id, f.elements.length])) }; });
+    const t = await tileCenter("/beta.svg");
+    await page.mouse.move(t.x, t.y); await page.mouse.down();
+    for (let i = 1; i <= 14; i++) { await page.mouse.move(t.x + (stage.x - t.x) * i / 14, t.y + (stage.y - t.y) * i / 14); await sleep(16); }
+    await sleep(80);
+    await page.mouse.up();
+    await page.waitForFunction((was) => { const F = window.__flux; return F.figures().some((f) => f.elements.length !== was.counts[f.id]); }, { timeout: 6000 }, was);
+    await sleep(150);
+    const now = await page.evaluate(() => { const F = window.__flux; return { active: F.get(F.fig.activeFigureId), counts: Object.fromEntries(F.figures().map((f) => [f.id, f.elements.length])) }; });
+    h.ok(was.active !== was.first, "the second slide is on stage");
+    h.ok(now.active === was.active && now.counts[was.active] === was.counts[was.active] + 1 && now.counts[was.first] === was.counts[was.first], `a drag onto the second slide places the plot on it, and the first slide is untouched (${JSON.stringify(now.counts)}, was ${JSON.stringify(was.counts)})`);
+  }
   await page.click("[data-rail-destination]");
   await waitFor(page, () => !!document.querySelector("[data-plots-rail-menu]"), null, { label: "dest menu 2" });
   await page.evaluate(() => [...document.querySelectorAll("[data-plots-rail-menu] button")][0].click());
