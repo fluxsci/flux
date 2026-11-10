@@ -364,6 +364,7 @@
       "verify-slide-stroke-band.ts",
       "verify-slide-stroke-band-browser.ts",
       "verify-slide-shape-handover.ts",
+      "verify-slide-handoff-pose.ts",
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-settle-sweep.ts",
@@ -1043,6 +1044,7 @@
       "verify-slide-stroke-band.ts",
       "verify-slide-stroke-band-browser.ts",
       "verify-slide-shape-handover.ts",
+      "verify-slide-handoff-pose.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
@@ -2368,6 +2370,7 @@
       "run": [
         "verify-slide-handoff-browser.ts",
         "verify-slide-shape-handover.ts",
+        "verify-slide-handoff-pose.ts",
         "verify-v020-morph-startup.mjs",
         "group:slide-transforms",
         "group:figures-slides-overhaul",
@@ -10558,6 +10561,15 @@
       "coverage": "behavior"
     },
     "verify-slide-shape-handover.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-handoff-pose.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

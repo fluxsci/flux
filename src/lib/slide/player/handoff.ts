@@ -61,6 +61,12 @@ export interface HandoffCtx {
   /** Letter outlines in this flight (text ↔ shape): play waits for their fonts,
    *  and a plan built while a font was loading is rebuilt once it lands. */
   glyphs?: { ready(): Promise<void>; revision(): number };
+  /** Run `read` with the live nodes around this hand-off in the look of ITS OWN ends: the sources (and `extra`) as they rest when the flight
+   *  starts, the destinations as they rest when it lands. The flight's copies of the real renders are cut from the live DOM whenever the plan
+   *  is first needed, usually in an idle moment while the slide rests at another step: without the pose a copy keeps whatever that moment
+   *  left on the node (a source still waiting for its entrance was copied at opacity 0, so it vanished when its flight began and faded back
+   *  in with the flight's weight: a blink at the start of every Become of a part that had appeared earlier on the slide). */
+  pose?<T>(read: () => T, extra?: readonly Element[]): T;
 }
 export interface HandoffOptions {
   flight: SVGSVGElement;
@@ -119,6 +125,12 @@ interface PathDrawing { node: SVGPathElement; /** the stroke as a band between t
 let gradientSerial = 0;
 interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; index: number; aBox: Box; bBox: Box; travel: { dx: number; dy: number } }
 interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
+/** A glyph flight fades copies of what its markers land on in under them (see `landing`) when it lands on at most this many destinations: a
+ *  copy costs a layout read, and the usual over-budget flight lands on ONE (a cloud of points becoming a fitted line). */
+const GLYPH_LANDING_COPIES = 48;
+/** The window of RAW progress over which a glyph flight's markers fade out and its landing copies fade in: from GLYPH_FADE_FROM to the
+ *  landing (two literals on purpose: 1 - 0.15 is not 0.85 in floating point, and the markers' fade is pinned to these exact numbers). */
+const GLYPH_FADE_FROM = 0.85, GLYPH_FADE = 0.15;
 
 export function createHandoff(opts: HandoffOptions): HandoffController {
   const { flight, ctx } = opts, id = `sl-handoff-${++nextId}`;
@@ -152,14 +164,20 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     div.className = "sl-handoff-veil";
     div.style.cssText = "position:absolute;inset:0;pointer-events:none;visibility:hidden;";
     div.style.setProperty("mask", `url(#${mid})`); div.style.setProperty("-webkit-mask", `url(#${mid})`);
-    for (const w of opts.covers.wrappers) {
-      const copy = w.cloneNode(true) as HTMLElement;
-      // a copy, never an element: no identity the player or a host could find, its internal references renamed with its ids
-      for (const n of [copy, ...Array.from(copy.querySelectorAll("[data-el-id]"))]) n.removeAttribute("data-el-id");
-      prefixIds(copy, `${id}-veil`);
-      copy.style.removeProperty("will-change"); copy.style.removeProperty("visibility");
-      div.appendChild(copy);
-    }
+    // (copies of the covers as they rest when the flight starts: this runs inside the first flight frame, before that frame's styles are
+    // written, so on a seek from elsewhere the live wrappers still carry the frame the seek came from)
+    const wrappers = opts.covers.wrappers;
+    const copyCovers = (): void => {
+      for (const w of wrappers) {
+        const copy = w.cloneNode(true) as HTMLElement;
+        // a copy, never an element: no identity the player or a host could find, its internal references renamed with its ids
+        for (const n of [copy, ...Array.from(copy.querySelectorAll("[data-el-id]"))]) n.removeAttribute("data-el-id");
+        prefixIds(copy, `${id}-veil`);
+        copy.style.removeProperty("will-change"); copy.style.removeProperty("visibility");
+        div.appendChild(copy);
+      }
+    };
+    if (ctx.pose) ctx.pose(copyCovers, wrappers); else copyCovers();
     flight.after(div);
     veil = { div, defs: [defs] };
     return div;
@@ -298,7 +316,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  discard its drawings so the next frame plans real outlines. */
   function invalidateIfStale(): void {
     if (!prepared || !ctx.glyphs || builtRevision === ctx.glyphs.revision()) return;
-    prepared = false; paths.length = 0; crosses.length = 0; glyphs.length = 0; boxFades.length = 0; out.length = 0; handover = null; root = layer;
+    prepared = false; paths.length = 0; crosses.length = 0; glyphs.length = 0; boxFades.length = 0; out.length = 0; handover = null; landing = null; root = layer;
     for (const child of Array.from(layer.childNodes)) child.remove();
   }
   /** Live clones held over the flight's ends, on RAW progress over 15 %:
@@ -313,10 +331,24 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  the landing frame. Absent for a flight that carries text, rasters, glyphs, slices or media (their own laws hold the ends). */
   let handover: { host: SVGGElement; flight: SVGGElement; sides: { a: SVGGElement; b: SVGGElement }; a: HandoffClone[]; b: HandoffClone[]; refA: number[][]; refB: number[][]; look: number } | null = null;
 
+  /** A GLYPH flight's landing: copies of the destinations its markers land on, as they rest when the flight lands (HandoffCtx.pose), in one
+   *  group beneath the markers. The markers shrink onto their landing and fade over the last 15 % of raw progress (GLYPH_FADE); nothing used to draw
+   *  what they land ON until the landing frame, where the whole destination appeared at once (a cloud of points faded to nothing, then its
+   *  fitted line stood there). The group fades in over that same window, so the landing frame is the limit of the frames before it. */
+  let landing: SVGGElement | null = null;
+
   function ensure(): void {
     if (prepared || disposed) return;
     builtRevision = ctx.glyphs?.revision() ?? -1;
     if (custom) { prepared = true; layer.setAttribute("data-driver", "model3d"); return; }
+    const next = layer.nextSibling;
+    layer.remove(); // clone writes must not invalidate the next marker's layout read
+    // Everything read from the live DOM here (the plan's outlines, each copy, its matrix and its computed paint) is read in the look of the
+    // hand-off's own ends (HandoffCtx.pose), never in the look of whatever moment the plan happens to be built in.
+    try { if (ctx.pose) ctx.pose(build); else build(); } finally { flight.insertBefore(layer, next); }
+  }
+  /** Plan the flight and cut its drawings and copies. Runs inside the pose (see `ensure`). */
+  function build(): void {
     plan = opts.plan(); plan.prepare();
     arc = opts.arc && planBends(plan) ? opts.arc : 0;
     layer.setAttribute("data-driver", plan.driver);
@@ -325,170 +357,189 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     sampled = plan.driver === "path" ? plan : { ...plan, pairs: plan.pairs.filter(pair => !pair.a) };
     sampleCorrespondence(sampled, 0, out);
     const cloned = new Set<Element>();
-    const next = layer.nextSibling;
-    layer.remove(); // clone writes must not invalidate the next marker's layout read
-    try {
-      // a flight made of path pairs alone hands over to the real renders at its ends (see `handover`)
-      const pathLike = (pair: CorrespondencePair) => !(plan!.driver === "glyph" && pair.a) && !(pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) && (plan!.driver === "path" || !pair.a);
-      const roles = plan.pairs.some(p => ["glyph-box", "slice"].some(r => p.a?.owner.role === r || p.b?.owner.role === r));
-      // ... when it has a seam to hide: a stroke band (a corner Become: the exact band against the path stroker) or pieces cut at other stations than the
-      // resting render (a shape split into several, or several merged into one). A plain round pair strokes the SAME path the resting ellipse is, so its ends
-      // already agree (R2 F1: 0.0), and copies would only add a layer.
-      const owners = new Map<string, number>();
-      for (const pair of plan.pairs) for (const side of [pair.a, pair.b]) if (side) { const k = `${side.owner.elementId}|${side.owner.partId ?? ""}`; owners.set(k, (owners.get(k) ?? 0) + 1); }
-      const seam = plan.pairs.some(pair => !!pair.band?.()) || [...owners.values()].some(n => n > 1);
-      const gradient = plan.pairs.some(pair => [pair.a?.paint, pair.b?.paint].some(paint => !!(paint?.fillMap?.stops?.length || paint?.strokeMap?.stops?.length)));   // gradients keep the old law (see transform.ts handoverFor)
-      if (seam && !gradient && plan.pairs.length && plan.pairs.every(pathLike) && !roles && !opts.media && !opts.text && opts.handover !== false) {
-        // the end renders: one copy per source and per destination (each placed by the live render's own matrix, the resting law), ADDED to the
-        // flight's group in an isolated host
-        const host = document.createElementNS(NS, "g"), flightGroup = document.createElementNS(NS, "g");
-        host.setAttribute("class", "sl-handover"); for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) host.style.setProperty(k, v);
-        // an isolated group is rasterised into a buffer sized to the union of its children, and that union moves with the flight (a piece a hundredth of a
-        // pixel outside the copies shifts the buffer's origin off the pixel grid and softens the copies' edges, measured as a 10 stage px^2 step when the flight
-        // leaves): a transparent rect over the whole stage pins the bounds
-        const [vx, vy, vw, vh] = (flight.getAttribute("viewBox") ?? "0 0 0 0").split(/\s+/).map(Number);
-        const stagePin = (painted: boolean) => { const pin = document.createElementNS(NS, "rect"); for (const [k, v] of [["x", vx], ["y", vy], ["width", vw], ["height", vh]] as const) pin.setAttribute(k, String(v)); pin.setAttribute("pointer-events", "none"); if (painted) { pin.setAttribute("fill", "#000"); pin.setAttribute("fill-opacity", "0.0001"); } else pin.setAttribute("fill", "none"); return pin; };
-        if (vw > 0 && vh > 0) host.appendChild(stagePin(false));
-        // Each ADDED layer (the two ends, the flight) opens with a stage-sized paint at alpha 1e-4 (nothing in 8 bits): Chromium keeps a blend group
-        // in its parent's layer only while its pieces merge into one, and pieces spread over the stage (a circle here, a path there) were split
-        // into compositor layers of their own, rasterised apart (the end render landed a step softer than the rest: 28 at devicePixelRatio 1.25).
-        // One stage-sized first paint makes the group one dense piece.
-        const pinned = (group: SVGGElement) => { if (vw > 0 && vh > 0) group.appendChild(stagePin(true)); return group; };
-        flightGroup.setAttribute("class", "sl-handover-flight"); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) flightGroup.style.setProperty(k, v);
-        pinned(flightGroup);
-        // Each END is ONE added layer: its copies are painted inside it in their own paint order (a part over the part it overlaps), and the
-        // hand-over weight is the layer's. Added copy by copy, two overlapping parts summed where they overlap (a logo's touching circles
-        // flashed near-white along every overlap at both ends of a Become, the sum of two inks).
-        const ends: { a: HandoffClone[]; b: HandoffClone[] } = { a: [], b: [] };
-        const sides = { a: document.createElementNS(NS, "g"), b: document.createElementNS(NS, "g") };
-        let whole = true;
-        for (const side of ["a", "b"] as const) {
-          if (side === "b") host.appendChild(flightGroup);
-          const group = sides[side];
-          group.setAttribute("class", `sl-handover-${side}`); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) group.style.setProperty(k, v);
-          host.appendChild(pinned(group));
-          const seen = new Set<string>(), outlines: NonNullable<CorrespondencePair["a"]>[] = [];
-          for (const pair of plan.pairs) {
-            const outline = pair[side]; if (!outline) continue;
-            const key = `${outline.owner.elementId}|${outline.owner.partId ?? ""}`;
-            if (seen.has(key)) continue;
-            seen.add(key); outlines.push(outline);
-          }
-          // ... in the paint order of the renders they stand for, not the pairing's: a part pairs with whatever lies nearest, so a copy that came
-          // first in the pairing was painted under one it overlaps in the real render (the last frame of a line becoming a logo showed a purple
-          // circle over the pink it lies under, and the landing swapped them)
-          const nodeOf = (o: (typeof outlines)[number]) => ctx.node(o.owner);
-          outlines.sort((p, q) => { const a = nodeOf(p), b = nodeOf(q); return !a || !b || a === b ? 0 : a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
-          for (const outline of outlines) {
-            const copy = clone({ ...outline, paint: { ...outline.paint, text: true } }, group);
-            if (!copy) { whole = false; break; }
-            copy.node.setAttribute("class", `sl-handover-copy`);
-            set(copy.node, "transform", `translate(${copy.box.x} ${copy.box.y})`);
-            if (copy.opacity !== 1) set(copy.node, "opacity", String(copy.opacity));
-            ends[side].push(copy);
-          }
-          if (!whole) break;
-        }
-        if (whole) { layer.appendChild(host); handover = { host, flight: flightGroup, sides, a: ends.a, b: ends.b, refA: [], refB: [], look: 0 }; root = flightGroup; }
-      }
-      for (const [pairIndex, pair] of plan.pairs.entries()) {
-        if (plan.driver === "glyph" && pair.a) {
-          const bound = ctx.node(pair.a.owner);
-          if (!bound || cloned.has(bound)) continue;
-          cloned.add(bound);
-        }
-        const parent = container(pair);
-        if (plan.driver === "glyph" && pair.a) {
-          const c = clone(pair.a, parent, true);
-          if (!c) continue;
-          c.node.setAttribute("class", "sl-handoff-glyph");
-          const x = pair.a.bbox.x + pair.a.bbox.w / 2, y = pair.a.bbox.y + pair.a.bbox.h / 2;
-          const land = pair.landing ?? { x, y, scale: 1 };
-          glyphs.push({ node: c.node, x, y, dx: land.x - x, dy: land.y - y, scale: land.scale - 1, opacity: c.opacity });
-        } else if (pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) {
-          // A (1-t, t) opacity pair leaves two opaque boxes only 75 % covering at t = .5 (the content dips
-          // toward the backdrop). Added in premultiplied space (`plus-lighter`) the pair sums to full
-          // coverage. The blend is confined to the PAIR: each two-sided pair gets its own isolated group,
-          // so its clones add only to each other, never to a flight path or another pair beneath them.
-          // One-sided crossfades (a plain fade in or out) and glyph / piece flights keep plain opacity.
-          let host: SVGElement = parent;
-          if (pair.a && pair.b) {
-            host = document.createElementNS(NS, "g");
-            host.setAttribute("data-xfade", ""); host.style.setProperty("isolation", "isolate");
-            parent.appendChild(host);
-          }
-          const a = pair.a ? clone(pair.a, host) : undefined, b = pair.b ? clone(pair.b, host) : undefined;
-          const aBox = pair.a?.paint.text ? a?.box : pair.a?.bbox, bBox = pair.b?.paint.text ? b?.box : pair.b?.bbox;
-          const from = aBox ?? bBox!, to = bBox ?? aBox!;
-          crosses.push({ a, b, pair, index: pairIndex, aBox: from, bBox: to, travel: { dx: to.x + to.w / 2 - from.x - from.w / 2, dy: to.y + to.h / 2 - from.y - from.h / 2 } });
-          if (a && b) for (const c of [a, b]) c.node.style.setProperty("mix-blend-mode", "plus-lighter");
-        } else if (plan.driver === "path" || !pair.a) {
-          const node = document.createElementNS(NS, "path");
-          node.setAttribute("class", "sl-handoff-path"); node.setAttribute("stroke-linejoin", pairJoin(pair.a?.paint.join, pair.b?.paint.join, 0));
-          // a fill piece of a sliced shape (letter strip, interior triangle) — for probes and gates
-          if (pair.a?.owner.role === "slice" || pair.b?.owner.role === "slice") node.setAttribute("data-piece", "slice");
-          parent.appendChild(node);
-          let band: SVGPathElement | undefined;
-          if (pair.band?.()) {
-            band = document.createElementNS(NS, "path") as SVGPathElement;
-            band.setAttribute("class", "sl-handoff-band"); band.setAttribute("fill-rule", "evenodd"); band.setAttribute("stroke", "none");
-            parent.appendChild(band);
-          }
-          const heads: SVGElement[] = [], fixed: FixedHead[] = [];
-          if (pair.a?.paint.arrowStart || pair.a?.paint.arrowEnd || pair.b?.paint.arrowStart || pair.b?.paint.arrowEnd) {
-            if (pair.plan?.closed) {
-              // An open arrow inflating into a ring keeps its authored head until
-              // it fades. The ring has no endpoint at which to synthesize one.
-              for (const side of [pair.a, pair.b]) {
-                if (!side || side.closed) continue;
-                const p = side.paint, geometry = pathRender({ ...p, d: "", nodes: side.nodes, closed: false });
-                for (const [filled, geometries] of [[true, geometry.polys], [false, geometry.vees]] as const) for (const points of geometries) {
-                  const head = document.createElementNS(NS, filled ? "polygon" : "polyline");
-                  head.setAttribute("fill", filled ? p.stroke : "none"); head.setAttribute("stroke", filled ? "none" : p.stroke);
-                  head.setAttribute("stroke-width", String(p.strokeWidth)); parent.appendChild(head);
-                  // the head rides the stroke end it sits on (the nearer of the first / last node)
-                  const f = side.nodes[0], l = side.nodes[side.nodes.length - 1];
-                  const cx = points.reduce((m, q) => m + q[0] / points.length, 0), cy = points.reduce((m, q) => m + q[1] / points.length, 0);
-                  const at = (cx - f.x) ** 2 + (cy - f.y) ** 2 < (cx - l.x) ** 2 + (cy - l.y) ** 2 ? f : l;
-                  fixed.push({ node: head, side, start: side === pair.a, points, dir: strokeEndDirection(side.nodes, at === f) });
-                }
-              }
-            } else {
-              for (let i = 0; i < 4; i++) { const head = document.createElementNS(NS, i < 2 ? "polygon" : "polyline"); parent.appendChild(head); heads.push(head); }
-            }
-          }
-          paths.push({ node, band, pair, heads, fixed });
-        }
-      }
-      for (const side of ["a", "b"] as const) for (const role of ["glyph-box", "slice"] as const) {
-        const sample = plan.pairs.find(p => p[side]?.owner.role === role)?.[side];
-        if (!sample) continue;
-        // `text: true` makes the clone place itself by its MEASURED live box (the
-        // whole element), not by this strip's or letter's outline box.
-        // A sliced plot PART covers with its own node, never the whole plot.
-        const live = clone({ ...sample, owner: { elementId: sample.owner.elementId, ...(sample.owner.partId ? { partId: sample.owner.partId } : {}) }, paint: { ...sample.paint, text: true } }, layer);
-        if (!live) continue;
-        live.node.setAttribute("class", role === "slice" ? "sl-handoff-shape" : "sl-handoff-text");
-        boxFades.push({ clone: live, landing: side === "b", boxes: role === "glyph-box" });
-      }
-      if (handover) {
-        // where the flight starts and ends (anchors, stage px) and what changes in place (a colour, a width, a piece that fades in or out)
-        const tmp0: SampledPath[] = [], tmp1: SampledPath[] = [];
-        // (just inside the flight: the exact endpoints sample the pair's ORIGINAL chains, which have other node counts than the aligned flight chains)
-        sampleCorrespondence(sampled, 1e-9, tmp0, { raw: 1e-9, durationMs: opts.durationMs ?? 600, arc }); sampleCorrespondence(sampled, 1 - 1e-9, tmp1, { raw: 1 - 1e-9, durationMs: opts.durationMs ?? 600, arc });
-        handover.refA = tmp0.map(sp => pathPoints(sp.nodes)); handover.refB = tmp1.map(sp => pathPoints(sp.nodes));
-        let look = 0;
+    // a flight made of path pairs alone hands over to the real renders at its ends (see `handover`)
+    const pathLike = (pair: CorrespondencePair) => !(plan!.driver === "glyph" && pair.a) && !(pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) && (plan!.driver === "path" || !pair.a);
+    const roles = plan.pairs.some(p => ["glyph-box", "slice"].some(r => p.a?.owner.role === r || p.b?.owner.role === r));
+    // ... when it has a seam to hide: a stroke band (a corner Become: the exact band against the path stroker) or pieces cut at other stations than the
+    // resting render (a shape split into several, or several merged into one). A plain round pair strokes the SAME path the resting ellipse is, so its ends
+    // already agree (R2 F1: 0.0), and copies would only add a layer.
+    const owners = new Map<string, number>();
+    for (const pair of plan.pairs) for (const side of [pair.a, pair.b]) if (side) { const k = `${side.owner.elementId}|${side.owner.partId ?? ""}`; owners.set(k, (owners.get(k) ?? 0) + 1); }
+    const seam = plan.pairs.some(pair => !!pair.band?.()) || [...owners.values()].some(n => n > 1);
+    const gradient = plan.pairs.some(pair => [pair.a?.paint, pair.b?.paint].some(paint => !!(paint?.fillMap?.stops?.length || paint?.strokeMap?.stops?.length)));   // gradients keep the old law (see transform.ts handoverFor)
+    if (seam && !gradient && plan.pairs.length && plan.pairs.every(pathLike) && !roles && !opts.media && !opts.text && opts.handover !== false) {
+      // the end renders: one copy per source and per destination (each placed by the live render's own matrix, the resting law), ADDED to the
+      // flight's group in an isolated host
+      const host = document.createElementNS(NS, "g"), flightGroup = document.createElementNS(NS, "g");
+      host.setAttribute("class", "sl-handover"); for (const [k, v] of Object.entries(HANDOVER_PARENT_STYLE)) host.style.setProperty(k, v);
+      // an isolated group is rasterised into a buffer sized to the union of its children, and that union moves with the flight (a piece a hundredth of a
+      // pixel outside the copies shifts the buffer's origin off the pixel grid and softens the copies' edges, measured as a 10 stage px^2 step when the flight
+      // leaves): a transparent rect over the whole stage pins the bounds
+      const [vx, vy, vw, vh] = (flight.getAttribute("viewBox") ?? "0 0 0 0").split(/\s+/).map(Number);
+      const stagePin = (painted: boolean) => { const pin = document.createElementNS(NS, "rect"); for (const [k, v] of [["x", vx], ["y", vy], ["width", vw], ["height", vh]] as const) pin.setAttribute(k, String(v)); pin.setAttribute("pointer-events", "none"); if (painted) { pin.setAttribute("fill", "#000"); pin.setAttribute("fill-opacity", "0.0001"); } else pin.setAttribute("fill", "none"); return pin; };
+      if (vw > 0 && vh > 0) host.appendChild(stagePin(false));
+      // Each ADDED layer (the two ends, the flight) opens with a stage-sized paint at alpha 1e-4 (nothing in 8 bits): Chromium keeps a blend group
+      // in its parent's layer only while its pieces merge into one, and pieces spread over the stage (a circle here, a path there) were split
+      // into compositor layers of their own, rasterised apart (the end render landed a step softer than the rest: 28 at devicePixelRatio 1.25).
+      // One stage-sized first paint makes the group one dense piece.
+      const pinned = (group: SVGGElement) => { if (vw > 0 && vh > 0) group.appendChild(stagePin(true)); return group; };
+      flightGroup.setAttribute("class", "sl-handover-flight"); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) flightGroup.style.setProperty(k, v);
+      pinned(flightGroup);
+      // Each END is ONE added layer: its copies are painted inside it in their own paint order (a part over the part it overlaps), and the
+      // hand-over weight is the layer's. Added copy by copy, two overlapping parts summed where they overlap (a logo's touching circles
+      // flashed near-white along every overlap at both ends of a Become, the sum of two inks).
+      const ends: { a: HandoffClone[]; b: HandoffClone[] } = { a: [], b: [] };
+      const sides = { a: document.createElementNS(NS, "g"), b: document.createElementNS(NS, "g") };
+      let whole = true;
+      for (const side of ["a", "b"] as const) {
+        if (side === "b") host.appendChild(flightGroup);
+        const group = sides[side];
+        group.setAttribute("class", `sl-handover-${side}`); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) group.style.setProperty(k, v);
+        host.appendChild(pinned(group));
+        const seen = new Set<string>(), outlines: NonNullable<CorrespondencePair["a"]>[] = [];
         for (const pair of plan.pairs) {
-          const pa = pair.a?.paint, pb = pair.b?.paint;
-          if (!pa || !pb) { look = Math.max(look, LOOK_TRAVEL); continue; }
-          const diff = (x: unknown, y: unknown) => JSON.stringify(x) !== JSON.stringify(y);
-          if (diff([pa.fill, pa.stroke, pa.dash, pa.opacity, pa.fillOpacity, pa.strokeOpacity, pa.fillMap, pa.strokeMap], [pb.fill, pb.stroke, pb.dash, pb.opacity, pb.fillOpacity, pb.strokeOpacity, pb.fillMap, pb.strokeMap])) look = Math.max(look, LOOK_TRAVEL);
-          look = Math.max(look, Math.abs((pb.strokeWidth ?? 0) - (pa.strokeWidth ?? 0)));
+          const outline = pair[side]; if (!outline) continue;
+          const key = `${outline.owner.elementId}|${outline.owner.partId ?? ""}`;
+          if (seen.has(key)) continue;
+          seen.add(key); outlines.push(outline);
         }
-        handover.look = look;
+        // ... in the paint order of the renders they stand for, not the pairing's: a part pairs with whatever lies nearest, so a copy that came
+        // first in the pairing was painted under one it overlaps in the real render (the last frame of a line becoming a logo showed a purple
+        // circle over the pink it lies under, and the landing swapped them)
+        const nodeOf = (o: (typeof outlines)[number]) => ctx.node(o.owner);
+        outlines.sort((p, q) => { const a = nodeOf(p), b = nodeOf(q); return !a || !b || a === b ? 0 : a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
+        for (const outline of outlines) {
+          const copy = clone({ ...outline, paint: { ...outline.paint, text: true } }, group);
+          if (!copy) { whole = false; break; }
+          copy.node.setAttribute("class", `sl-handover-copy`);
+          set(copy.node, "transform", `translate(${copy.box.x} ${copy.box.y})`);
+          if (copy.opacity !== 1) set(copy.node, "opacity", String(copy.opacity));
+          ends[side].push(copy);
+        }
+        if (!whole) break;
       }
-      prepared = true;
-    } finally { flight.insertBefore(layer, next); }
+      if (whole) { layer.appendChild(host); handover = { host, flight: flightGroup, sides, a: ends.a, b: ends.b, refA: [], refB: [], look: 0 }; root = flightGroup; }
+    }
+    for (const [pairIndex, pair] of plan.pairs.entries()) {
+      if (plan.driver === "glyph" && pair.a) {
+        const bound = ctx.node(pair.a.owner);
+        if (!bound || cloned.has(bound)) continue;
+        cloned.add(bound);
+      }
+      const parent = container(pair);
+      if (plan.driver === "glyph" && pair.a) {
+        const c = clone(pair.a, parent, true);
+        if (!c) continue;
+        c.node.setAttribute("class", "sl-handoff-glyph");
+        const x = pair.a.bbox.x + pair.a.bbox.w / 2, y = pair.a.bbox.y + pair.a.bbox.h / 2;
+        const land = pair.landing ?? { x, y, scale: 1 };
+        glyphs.push({ node: c.node, x, y, dx: land.x - x, dy: land.y - y, scale: land.scale - 1, opacity: c.opacity });
+      } else if (pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) {
+        // A (1-t, t) opacity pair leaves two opaque boxes only 75 % covering at t = .5 (the content dips
+        // toward the backdrop). Added in premultiplied space (`plus-lighter`) the pair sums to full
+        // coverage. The blend is confined to the PAIR: each two-sided pair gets its own isolated group,
+        // so its clones add only to each other, never to a flight path or another pair beneath them.
+        // One-sided crossfades (a plain fade in or out) and glyph / piece flights keep plain opacity.
+        let host: SVGElement = parent;
+        if (pair.a && pair.b) {
+          host = document.createElementNS(NS, "g");
+          host.setAttribute("data-xfade", ""); host.style.setProperty("isolation", "isolate");
+          parent.appendChild(host);
+        }
+        const a = pair.a ? clone(pair.a, host) : undefined, b = pair.b ? clone(pair.b, host) : undefined;
+        const aBox = pair.a?.paint.text ? a?.box : pair.a?.bbox, bBox = pair.b?.paint.text ? b?.box : pair.b?.bbox;
+        const from = aBox ?? bBox!, to = bBox ?? aBox!;
+        crosses.push({ a, b, pair, index: pairIndex, aBox: from, bBox: to, travel: { dx: to.x + to.w / 2 - from.x - from.w / 2, dy: to.y + to.h / 2 - from.y - from.h / 2 } });
+        if (a && b) for (const c of [a, b]) c.node.style.setProperty("mix-blend-mode", "plus-lighter");
+      } else if (plan.driver === "path" || !pair.a) {
+        const node = document.createElementNS(NS, "path");
+        node.setAttribute("class", "sl-handoff-path"); node.setAttribute("stroke-linejoin", pairJoin(pair.a?.paint.join, pair.b?.paint.join, 0));
+        // a fill piece of a sliced shape (letter strip, interior triangle) — for probes and gates
+        if (pair.a?.owner.role === "slice" || pair.b?.owner.role === "slice") node.setAttribute("data-piece", "slice");
+        parent.appendChild(node);
+        let band: SVGPathElement | undefined;
+        if (pair.band?.()) {
+          band = document.createElementNS(NS, "path") as SVGPathElement;
+          band.setAttribute("class", "sl-handoff-band"); band.setAttribute("fill-rule", "evenodd"); band.setAttribute("stroke", "none");
+          parent.appendChild(band);
+        }
+        const heads: SVGElement[] = [], fixed: FixedHead[] = [];
+        if (pair.a?.paint.arrowStart || pair.a?.paint.arrowEnd || pair.b?.paint.arrowStart || pair.b?.paint.arrowEnd) {
+          if (pair.plan?.closed) {
+            // An open arrow inflating into a ring keeps its authored head until
+            // it fades. The ring has no endpoint at which to synthesize one.
+            for (const side of [pair.a, pair.b]) {
+              if (!side || side.closed) continue;
+              const p = side.paint, geometry = pathRender({ ...p, d: "", nodes: side.nodes, closed: false });
+              for (const [filled, geometries] of [[true, geometry.polys], [false, geometry.vees]] as const) for (const points of geometries) {
+                const head = document.createElementNS(NS, filled ? "polygon" : "polyline");
+                head.setAttribute("fill", filled ? p.stroke : "none"); head.setAttribute("stroke", filled ? "none" : p.stroke);
+                head.setAttribute("stroke-width", String(p.strokeWidth)); parent.appendChild(head);
+                // the head rides the stroke end it sits on (the nearer of the first / last node)
+                const f = side.nodes[0], l = side.nodes[side.nodes.length - 1];
+                const cx = points.reduce((m, q) => m + q[0] / points.length, 0), cy = points.reduce((m, q) => m + q[1] / points.length, 0);
+                const at = (cx - f.x) ** 2 + (cy - f.y) ** 2 < (cx - l.x) ** 2 + (cy - l.y) ** 2 ? f : l;
+                fixed.push({ node: head, side, start: side === pair.a, points, dir: strokeEndDirection(side.nodes, at === f) });
+              }
+            }
+          } else {
+            for (let i = 0; i < 4; i++) { const head = document.createElementNS(NS, i < 2 ? "polygon" : "polyline"); parent.appendChild(head); heads.push(head); }
+          }
+        }
+        paths.push({ node, band, pair, heads, fixed });
+      }
+    }
+    for (const side of ["a", "b"] as const) for (const role of ["glyph-box", "slice"] as const) {
+      const sample = plan.pairs.find(p => p[side]?.owner.role === role)?.[side];
+      if (!sample) continue;
+      // `text: true` makes the clone place itself by its MEASURED live box (the
+      // whole element), not by this strip's or letter's outline box.
+      // A sliced plot PART covers with its own node, never the whole plot.
+      const live = clone({ ...sample, owner: { elementId: sample.owner.elementId, ...(sample.owner.partId ? { partId: sample.owner.partId } : {}) }, paint: { ...sample.paint, text: true } }, layer);
+      if (!live) continue;
+      live.node.setAttribute("class", role === "slice" ? "sl-handoff-shape" : "sl-handoff-text");
+      boxFades.push({ clone: live, landing: side === "b", boxes: role === "glyph-box" });
+    }
+    if (plan.driver === "glyph") {
+      const seen = new Set<string>(), landed: CorrespondencePair[] = [];
+      for (const pair of plan.pairs) {
+        if (!pair.a || !pair.b) continue;
+        const key = `${pair.b.owner.elementId}|${pair.b.owner.partId ?? ""}`;
+        if (!seen.has(key)) { seen.add(key); landed.push(pair); }
+      }
+      if (landed.length && landed.length <= GLYPH_LANDING_COPIES) {
+        const group = document.createElementNS(NS, "g");
+        group.setAttribute("class", "sl-handoff-landing"); group.setAttribute("display", "none");
+        let whole = true;
+        for (const pair of landed) {
+          const b = pair.b!, parent = ctx.crop?.(b.owner) ? container(pair) : group;
+          if (parent !== group) group.appendChild(parent);   // a cropped plot's copy stays inside its crop
+          const copy = clone({ ...b, owner: { elementId: b.owner.elementId, ...(b.owner.partId ? { partId: b.owner.partId } : {}) }, paint: { ...b.paint, text: true } }, parent);
+          if (!copy) { whole = false; break; }
+          copy.node.setAttribute("class", "sl-handoff-landing-copy");
+          set(copy.node, "transform", `translate(${copy.box.x} ${copy.box.y})`);
+          if (copy.opacity !== 1) set(copy.node, "opacity", String(copy.opacity));
+        }
+        if (whole) { layer.insertBefore(group, layer.firstChild); landing = group; } else group.remove();
+      }
+    }
+    if (handover) {
+      // where the flight starts and ends (anchors, stage px) and what changes in place (a colour, a width, a piece that fades in or out)
+      const tmp0: SampledPath[] = [], tmp1: SampledPath[] = [];
+      // (just inside the flight: the exact endpoints sample the pair's ORIGINAL chains, which have other node counts than the aligned flight chains)
+      sampleCorrespondence(sampled, 1e-9, tmp0, { raw: 1e-9, durationMs: opts.durationMs ?? 600, arc }); sampleCorrespondence(sampled, 1 - 1e-9, tmp1, { raw: 1 - 1e-9, durationMs: opts.durationMs ?? 600, arc });
+      handover.refA = tmp0.map(sp => pathPoints(sp.nodes)); handover.refB = tmp1.map(sp => pathPoints(sp.nodes));
+      let look = 0;
+      for (const pair of plan.pairs) {
+        const pa = pair.a?.paint, pb = pair.b?.paint;
+        if (!pa || !pb) { look = Math.max(look, LOOK_TRAVEL); continue; }
+        const diff = (x: unknown, y: unknown) => JSON.stringify(x) !== JSON.stringify(y);
+        if (diff([pa.fill, pa.stroke, pa.dash, pa.opacity, pa.fillOpacity, pa.strokeOpacity, pa.fillMap, pa.strokeMap], [pb.fill, pb.stroke, pb.dash, pb.opacity, pb.fillOpacity, pb.strokeOpacity, pb.fillMap, pb.strokeMap])) look = Math.max(look, LOOK_TRAVEL);
+        look = Math.max(look, Math.abs((pb.strokeWidth ?? 0) - (pa.strokeWidth ?? 0)));
+      }
+      handover.look = look;
+    }
+    prepared = true;
   }
 
   function drawPath(drawing: PathDrawing, sample: SampledPath, u: number, fade = 1): void {
@@ -640,7 +691,12 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         put(handover.flight, w.m);
       }
     }
-    const fade = raw < .85 ? 1 : clamp01((1 - raw) / .15);
+    const fade = raw < GLYPH_FADE_FROM ? 1 : clamp01((1 - raw) / GLYPH_FADE);
+    if (landing) {
+      const w = Math.round(clamp01((raw - GLYPH_FADE_FROM) / GLYPH_FADE) * 1e6) / 1e6;
+      // (`display`, as for every piece that is not there: a hidden group still widens the bounds of the layer it sits in)
+      if (w > 0) { landing.removeAttribute("display"); set(landing, "opacity", String(w)); } else set(landing, "display", "none");
+    }
     for (const glyph of glyphs) {
       const bent = arcOffset(glyph, t, arc, bend);   // a glyph's travel is its own (dx, dy) to the landing
       set(glyph.node, "transform", `translate(${glyph.x + glyph.dx * t + bent.x} ${glyph.y + glyph.dy * t + bent.y}) scale(${1 + glyph.scale * t})`);

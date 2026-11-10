@@ -353,6 +353,10 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // no covering elements of each other's flights)
           const covering = group.length <= 1 ? flightCovers(cameraLayer, srcWraps, dstWraps, handoff, preFrame.elements) : null;
           const flightSurface = (covering?.sink ? rendered.flightAt?.(srcWraps) : rendered.flightAt?.(dstWraps)) ?? rendered.flight;
+          // A merging lander that lands before the group's last holds its
+          // landed frame (eased progress pinned at 1) until `landAt`, where the
+          // whole group reveals the destination together on raw = 1.
+          const hold = handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration;
           const driver = createHandoff({ flight: flightSurface, handover: group.length <= 1, sourceNodes, destinationNodes, spec: handoff.spec, text, durationMs: ct.duration, arc: track.arc,
             // WP 4.3: piece lag on the track's own curve; a merge lander's raw spans its hold, its pieces run over its own first 1/holdK
             pairLag: track.pairLag, ease: ct.ease.fn, holdK: Math.max(1, (handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration) / Math.max(1e-9, ct.duration)),
@@ -362,6 +366,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
             media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
               order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId), glyphs,
+              // the flight's copies of its ends are cut in the look of its own moments: the sources at its start, the destinations at its landing
+              pose: (read, extra) => posedAt(specs, [{ nodes: extra ? [...sourceNodes, ...extra] : sourceNodes, beat: bi, time: ct.start }, { nodes: destinationNodes, beat: bi, time: ct.start + hold }], read),
               node: owner => { if (!owner.partId) return rootFor(owner.elementId); const root = rootFor(owner.elementId); return root ? partNode(root, partDomId(owner.elementId, owner.partId)) : undefined; },
               crop: owner => {
                 const el = preFrame.elements.find(e => e.id === owner.elementId);
@@ -373,10 +379,6 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // redirect later source tracks into that other element's DOM.
           if (driver.targetRoot && handoff.destination.length === 1) contentRoots.set(handoff.destination[0].elementId, driver.targetRoot);
           if (group.length > 1 && track.id) mergeLayers.set(track.id, driver.layer);
-          // A merging lander that lands before the group's last holds its
-          // landed frame (eased progress pinned at 1) until `landAt`, where the
-          // whole group reveals the destination together on raw = 1.
-          const hold = handoff.merge ? Math.max(ct.duration, handoff.merge.landAt - ct.start) : ct.duration;
           specs.push({ node: sourceNodes[0] as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
             delay: ct.start, duration: hold,
             ease: hold > ct.duration ? holdCurve(ct.ease, hold / Math.max(1e-9, ct.duration)) : ct.ease,
@@ -722,22 +724,35 @@ function flightCovers(camera: HTMLElement, src: Element[], dst: Element[], hando
   }
   return wrappers.length ? { wrappers, sink: s > d } : null;
 }
+/** A slide's specs by the node they act on, each node's in story order (beat, then delay). */
+function specsByNode(specs: Spec[]): Map<TargetNode, Spec[]> {
+  const map = new Map<TargetNode, Spec[]>();
+  for (const spec of specs) { const list = map.get(spec.node) ?? []; list.push(spec); map.set(spec.node, list); }
+  for (const list of map.values()) list.sort((a, b) => a.beatIndex - b.beatIndex || a.delay - b.delay);
+  return map;
+}
+/** Every inline style property a node's keyframed specs write: the set the look law (writeLook) clears and rewrites each frame. */
+function animatedProperties(keyframed: Spec[]): string[] {
+  const properties = new Set(keyframed.flatMap((s) => s.keyframes.flatMap((f) => Object.keys(f).filter((p) => !["offset", "easing", "composite"].includes(p)))));
+  if (properties.has("strokeDashoffset")) { properties.add("strokeDasharray"); properties.add("strokeLinecap"); }
+  if (properties.has("transform")) { properties.add("transformOrigin"); properties.add("transformBox"); }
+  return [...properties];
+}
+/** The origin a COMPLETED spec keeps at rest (BoundPlan.restPivots): its rest frame leaves a non-identity transform and it is not an exit. */
+function restPivotOf(spec: Spec, sampler: (t: number) => Keyframe): string | undefined {
+  return spec.origin && !isExitPreset(spec.preset) && restKeepsTransform(sampler(1)) ? spec.origin : undefined;
+}
 function boundPlan(specs: Spec[]): BoundPlan {
   let plan = bindings.get(specs);
   if (plan) return plan;
-  const map = new Map<TargetNode, Spec[]>();
-  for (const spec of specs) { const list = map.get(spec.node) ?? []; list.push(spec); map.set(spec.node, list); }
+  const map = specsByNode(specs);
   plan = { nodes: [...map].map(([node, list]) => {
-    list.sort((a, b) => a.beatIndex - b.beatIndex || a.delay - b.delay);
     const keyframed = list.filter((s) => s.keyframes.length);
-    const properties = new Set(keyframed.flatMap((s) => s.keyframes.flatMap((f) => Object.keys(f).filter((p) => !["offset", "easing", "composite"].includes(p)))));
     const channels = keyframed.map((s) => new Set(s.keyframes.flatMap((f) => Object.keys(f).filter((p) => !["offset", "easing", "composite"].includes(p)))));
     const blockers = new Map(keyframed.map((s, i) => [s, keyframed.filter((_, j) => j > i && [...channels[i]].some((p) => channels[j].has(p)))]));
-    if (properties.has("strokeDashoffset")) { properties.add("strokeDasharray"); properties.add("strokeLinecap"); }
-    if (properties.has("transform")) { properties.add("transformOrigin"); properties.add("transformBox"); }
     const flights = new Map<Spec, "translate" | "other">();
     for (const s of keyframed) { const kind = transformFlight(s.keyframes); if (kind !== "none") flights.set(s, kind); }
-    return { node, keyframed, properties: [...properties], blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights, glides: [...flights.values()].includes("translate") };
+    return { node, keyframed, properties: animatedProperties(keyframed), blockers, controllers: list.filter((s) => s.morph), lastController: -2, flights, glides: [...flights.values()].includes("translate") };
   }), natives: new Map(), samplers: new Map(), restPivots: new Map() };
   // The flight marks exist before anything is placed (glidesEver: compositing is a constant of the slide), so the first rest a gliding node
   // is given is already its marked rest on the device grid (render.applyWrapperBox), never re-placed by a later frame
@@ -749,7 +764,8 @@ function boundPlan(specs: Spec[]): BoundPlan {
   for (const spec of specs) if (spec.keyframes.length) {
     const sampler = frameSampler(spec);
     plan.samplers.set(spec, sampler);
-    if (spec.origin && !isExitPreset(spec.preset) && restKeepsTransform(sampler(1))) plan.restPivots.set(spec, spec.origin);
+    const pivot = restPivotOf(spec, sampler);
+    if (pivot) plan.restPivots.set(spec, pivot);
   }
   bindings.set(specs, plan);
   return plan;
@@ -815,14 +831,101 @@ function pendingGliders(gliders: BoundNode[], beat: number, time: number, ahead:
 const PRIME_AHEAD_MS = 50;
 /** Seek any frame, including reverse/random seeks. Native effects and custom
  * geometry use the same time; a stopped frame has no running animation loop. */
-export function applyAt(specs: Spec[], beat: number, time = Infinity, native = false): void {
-  const plan = boundPlan(specs);
+/** The RE-BASELINE law at (beat, time): a spec is superseded once a later ENTER of the same authoring key (another track) has begun. */
+function supersededAt(specs: Spec[], beat: number, time: number): (spec: Spec) => boolean {
   const rebase = new Map<string, Spec>();
   for (const spec of specs) if (spec.enter && progressAt(spec, beat, time) >= 0) rebase.set(spec.key, spec);
-  const superseded = (spec: Spec) => {
+  return (spec) => {
     const later = rebase.get(spec.key);
-    return later && (!spec.owner || spec.owner !== later.owner) && (spec.beatIndex < later.beatIndex || spec.beatIndex === later.beatIndex && spec.delay < later.delay);
+    return !!later && (!spec.owner || spec.owner !== later.owner) && (spec.beatIndex < later.beatIndex || spec.beatIndex === later.beatIndex && spec.delay < later.delay);
   };
+}
+/** THE LOOK LAW: the inline styles a node's keyframed specs give it at (beat, time), written onto `target`. The cleared set, the authored
+ *  base, then the cumulative look of every spec that has begun (a node whose first spec is an enter still to come rests at that enter's
+ *  first keyframe), then the one transform origin. `applyAt` writes every frame through it and `posedAt` writes the look of ANOTHER moment
+ *  through it, so the two can never disagree. `each` sees every live (not superseded) spec with its progress before it is sampled. */
+function writeLook(target: TargetNode, keyframed: Spec[], properties: readonly string[], beat: number, time: number, superseded: (spec: Spec) => boolean,
+  samplerOf: (spec: Spec) => (t: number) => Keyframe, pivotOf: (spec: Spec) => string | undefined, each?: (spec: Spec, p: number) => void): void {
+  clearAnimStyles(target, properties);
+  const base = keyframed[0].baseStyle;
+  if (base) for (const key of properties) if (base[key]) (target.style as unknown as Record<string, string>)[key] = base[key];
+  const applied: Spec[] = [];
+  let origin: string | undefined, restOrigin: string | undefined;
+  for (const spec of keyframed) {
+    const p = progressAt(spec, beat, time);
+    if (superseded(spec)) continue;
+    each?.(spec, p);
+    if (p < 0) {
+      if (!applied.length && spec === keyframed[0] && spec.enter) applied.push({ ...spec, keyframes: [spec.keyframes[0]] });
+      continue;
+    }
+    const frame = samplerOf(spec)(p);
+    applied.push({ ...spec, keyframes: [frame] });
+    // ONE origin per node per frame: the spec in flight (the later one if two overlap). A COMPLETED spec whose transform survives at
+    // rest (the legacy `scale` / `rotate` emphasis) keeps pivoting about its origin; an identity rest (popIn, scaleIn, pulse ...) and
+    // an exit (the node is gone) carry none.
+    if (spec.origin) { if (p < 1) origin = spec.origin; else restOrigin = pivotOf(spec) ?? restOrigin; }
+  }
+  if (applied.length) applyAccumulated(target, applied);
+  const pivot = origin ?? restOrigin;
+  if (pivot) { // after the accumulated rest look; fill-box makes percentages refer to an SVG part's own box
+    const style = (target as HTMLElement).style;
+    if (target.namespaceURI === SVG_NS) style.transformBox = "fill-box";
+    style.transformOrigin = pivot;
+  }
+}
+/** One end of a hand-off for `posedAt`: live nodes and the moment (beat, ms) whose look they are read in. */
+interface PoseEnd { nodes: readonly Element[]; beat: number; time: number }
+interface PoseIndex { looks: Map<Element, { keyframed: Spec[]; properties: string[] }>; samplers: Map<Spec, (t: number) => Keyframe>; pivots: Map<Spec, string | undefined> }
+const poseIndexes = new WeakMap<Spec[], PoseIndex>();
+const inCamera = (node: Element) => !!(node as HTMLElement).classList?.contains("sl-camera");
+/** Run `read` with the live DOM around `ends` in the look of each end's OWN moment, then put every style back (one task: nothing is painted
+ *  in between). The player keeps animation state on the live nodes (an entrance still to come is `opacity: 0`, a lift is a `transform`), so
+ *  whatever copies or measures those nodes at an arbitrary moment copies that moment. This is the one way to read them as they are at
+ *  another: every animated node inside an end (the end's nodes included) gets the look law (`writeLook`) of that end's moment, the innermost
+ *  end deciding, and so do the animated ancestors below the camera (a wrapper waiting to rise in is displaced, and a copy is placed by the
+ *  live matrix), the earlier end deciding a shared one.
+ *  Not posed, on purpose: the camera (both sides of every matrix read here sit under it); a hand-off's `visibility` leases (a copy drops its
+ *  root's, and an outline's owner is a leaf: nothing leased lies inside one); content other controllers write (a hand-off binds to the content
+ *  root of the transform before it, whose markup is that transform's end state at any moment). */
+export function posedAt<T>(specs: Spec[], ends: PoseEnd[], read: () => T): T {
+  let index = poseIndexes.get(specs);
+  if (!index) {
+    index = { looks: new Map(), samplers: new Map(), pivots: new Map() };
+    for (const [node, list] of specsByNode(specs)) {
+      const keyframed = list.filter((s) => s.keyframes.length);
+      if (keyframed.length) index.looks.set(node, { keyframed, properties: animatedProperties(keyframed) });
+    }
+    poseIndexes.set(specs, index);
+  }
+  const { looks, samplers, pivots } = index;
+  if (!looks.size) return read();
+  const endOf = new Map<Element, number>();
+  ends.forEach((end, i) => { for (const node of end.nodes) if (!endOf.has(node)) endOf.set(node, i); });
+  const posed = new Map<Element, number>();
+  // every animated node inside an end: the innermost end it lies in (itself included)
+  for (const node of looks.keys()) for (let a: Element | null = node; a && !inCamera(a); a = a.parentElement) { const i = endOf.get(a); if (i !== undefined) { posed.set(node, i); break; } }
+  // ... and the animated ancestors of each end, below the camera
+  ends.forEach((end, i) => { for (const node of end.nodes) for (let a = node.parentElement; a && !inCamera(a); a = a.parentElement) if (looks.has(a) && !posed.has(a)) posed.set(a, i); });
+  if (!posed.size) return read();
+  const samplerOf = (spec: Spec) => { let f = samplers.get(spec); if (!f) samplers.set(spec, f = frameSampler(spec)); return f; };
+  const pivotOf = (spec: Spec) => { if (!pivots.has(spec)) pivots.set(spec, restPivotOf(spec, samplerOf(spec))); return pivots.get(spec); };
+  const laws = ends.map((end) => supersededAt(specs, end.beat, end.time));
+  const saved: [Element, string | null][] = [];
+  try {
+    for (const [node, i] of posed) {
+      saved.push([node, node.getAttribute("style")]);
+      const look = looks.get(node)!;
+      writeLook(node as TargetNode, look.keyframed, look.properties, ends[i].beat, ends[i].time, laws[i], samplerOf, pivotOf);
+    }
+    return read();
+  } finally {
+    for (const [node, style] of saved) if (node.getAttribute("style") !== style) { if (style == null) node.removeAttribute("style"); else node.setAttribute("style", style); }
+  }
+}
+export function applyAt(specs: Spec[], beat: number, time = Infinity, native = false): void {
+  const plan = boundPlan(specs);
+  const superseded = supersededAt(specs, beat, time);
   const activeNatives = new Set<Spec>();
   // Content writes establish this frame's paint before part appearances
   // factor it, even when the appearance precedes a Change in story order.
@@ -857,55 +960,37 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       }
     }
   }
-  for (const group of plan.nodes) {
-    const { node, keyframed, properties, flights, glides } = group;
+  // The per-spec side of a live frame (the styles themselves are the look law's): transform flights in progress on the node (all
+  // translation-only → the node rides its own layer this frame, render.ts layer hygiene) and the native effects of active frames.
+  let group!: BoundNode, moving = 0, pureMoves = 0;
+  const samplerOf = (spec: Spec) => plan.samplers.get(spec)!, pivotOf = (spec: Spec) => plan.restPivots.get(spec);
+  const each = (spec: Spec, p: number) => {
+    // Completed draw-on contributes no temporary dash/cap styling. The
+    // authored resting attributes remain correct after any later geometry change.
+    if (!(p >= 1 && spec.transient)) spec.prep?.();
+    if (p < 0) return;
+    const node = group.node;
+    const flight = p > 0 && p < 1 ? group.flights.get(spec) : undefined;
+    if (flight) { moving++; if (flight === "translate") pureMoves++; }
+    // Use native effects for active frames when available. Their time is
+    // explicitly controlled; no independent WAAPI clock can drift from data.
+    if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.sample && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
+      let animation = plan.natives.get(spec);
+      if (!animation) {
+        animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.ease.css, fill: "both" });
+        animation.pause();
+        animation.finished.catch(() => {});
+        plan.natives.set(spec, animation);
+      }
+      animation.currentTime = p * spec.duration;
+      activeNatives.add(spec);
+    }
+  };
+  for (group of plan.nodes) {
+    const { node, keyframed, properties } = group;
     if (!keyframed.length) continue;
-    clearAnimStyles(node, properties);
-    const base = keyframed[0].baseStyle;
-    if (base) for (const key of properties) if (base[key]) (node.style as unknown as Record<string, string>)[key] = base[key];
-    const applied: Spec[] = [];
-    // transform flights in progress on this node: all translation-only → the
-    // node rides its own layer this frame (render.ts layer hygiene)
-    let moving = 0, pureMoves = 0, origin: string | undefined, restOrigin: string | undefined;
-    for (const spec of keyframed) {
-      const p = progressAt(spec, beat, time);
-      if (superseded(spec)) continue;
-      // Completed draw-on contributes no temporary dash/cap styling. The
-      // authored resting attributes remain correct after any later geometry change.
-      if (!(p >= 1 && spec.transient)) spec.prep?.();
-      if (p < 0) {
-        if (!applied.length && spec === keyframed[0] && spec.enter) applied.push({ ...spec, keyframes: [spec.keyframes[0]] });
-        continue;
-      }
-      const frame = plan.samplers.get(spec)!(p);
-      applied.push({ ...spec, keyframes: [frame] });
-      // ONE origin per node per frame: the spec in flight (the later one if two overlap). A COMPLETED spec whose transform survives at
-      // rest (the legacy `scale` / `rotate` emphasis) keeps pivoting about its origin; an identity rest (popIn, scaleIn, pulse ...) and
-      // an exit (the node is gone) carry none.
-      if (spec.origin) { if (p < 1) origin = spec.origin; else restOrigin = plan.restPivots.get(spec) ?? restOrigin; }
-      const flight = p > 0 && p < 1 ? flights.get(spec) : undefined;
-      if (flight) { moving++; if (flight === "translate") pureMoves++; }
-      // Use native effects for active frames when available. Their time is
-      // explicitly controlled; no independent WAAPI clock can drift from data.
-      if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.sample && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
-        let animation = plan.natives.get(spec);
-        if (!animation) {
-          animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.ease.css, fill: "both" });
-          animation.pause();
-          animation.finished.catch(() => {});
-          plan.natives.set(spec, animation);
-        }
-        animation.currentTime = p * spec.duration;
-        activeNatives.add(spec);
-      }
-    }
-    if (applied.length) applyAccumulated(node, applied);
-    const pivot = origin ?? restOrigin;
-    if (pivot) { // after the accumulated rest look; fill-box makes percentages refer to an SVG part's own box
-      const style = (node as HTMLElement).style;
-      if (node.namespaceURI === SVG_NS) style.transformBox = "fill-box";
-      style.transformOrigin = pivot;
-    }
+    moving = 0; pureMoves = 0;
+    writeLook(node, keyframed, properties, beat, time, superseded, samplerOf, pivotOf, each);
     // T7: the camera layer's compositor hint belongs to the raster keeper (player.ts), never to the flight
     // hygiene below — settleWrapper() used to CLEAR it after the first pure-pan camera flight.
     if (node.namespaceURI !== SVG_NS && !(node as HTMLElement).classList?.contains("sl-camera")) {
