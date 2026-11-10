@@ -85,6 +85,32 @@ try {
   await sleep(150);
   await shot(page, "xray-context-01-search");
 
+  // --- 1b. a row's colour swatch shows its whole ring -------------------------------------
+  // (the ring was a box-shadow OUTSIDE the chip, and the value column clips its overflow: every swatch lost its left edge; owner, 2026-11-10)
+  {
+    const sws = await F(() => [...document.querySelectorAll(".xray .row .rprev .sw")].map((s) => {
+      const r = s.getBoundingClientRect(), p = s.parentElement.getBoundingClientRect(), cs = getComputedStyle(s);
+      return { x: r.left, y: r.top, w: r.width, h: r.height, inside: r.left >= p.left - 0.01 && r.right <= p.right + 0.01 && r.top >= p.top - 0.01 && r.bottom <= p.bottom + 0.01,
+        shadow: cs.boxShadow, borders: [cs.borderLeftWidth, cs.borderRightWidth, cs.borderTopWidth, cs.borderBottomWidth].join(), clip: cs.backgroundClip };
+    }));
+    ok(sws.length > 0 && sws.every((s) => s.inside && s.shadow === "none" && s.borders === "1px,1px,1px,1px" && s.clip === "padding-box"), `every row swatch draws its ring inside its own box, within the value column (${sws.length} swatches)`, JSON.stringify(sws[0]));
+    // ... in pixels: the four sides of the ring are the same ink (the left one used to be the panel's background)
+    const s0 = sws[0];
+    if (s0) {
+      // (captureBeyondViewport: false: the default re-lays the page out for the capture, and the X-ray is a fixed panel)
+      const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+      const img = await loadImage(await page.screenshot({ captureBeyondViewport: false, clip: { x: Math.round(s0.x), y: Math.round(s0.y), width: Math.round(s0.w), height: Math.round(s0.h) } }));
+      const cx = createCanvas(img.width, img.height).getContext("2d"); cx.drawImage(img, 0, 0);
+      const png = { width: img.width, height: img.height, data: cx.getImageData(0, 0, img.width, img.height).data };
+      const at = (x, y) => { const i = (y * png.width + x) * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
+      const mx = png.width >> 1, my = png.height >> 1;
+      const sides = [at(0, my), at(png.width - 1, my), at(mx, 0), at(mx, png.height - 1)];
+      const spread = Math.max(...[0, 1, 2].map((c) => Math.max(...sides.map((p) => p[c])) - Math.min(...sides.map((p) => p[c]))));
+      const centre = at(mx, my), ringVsFill = Math.max(...[0, 1, 2].map((c) => Math.abs(sides[0][c] - centre[c])));
+      ok(spread <= 12 && ringVsFill > 12, `the swatch's ring is one colour on all four sides and is not the fill (spread ${spread}, ring ${sides[0]} vs fill ${centre})`);
+    }
+  }
+
   // --- 2. the Common section nests --------------------------------------------------------
   rows = await rowInfo();
   const ci = rows.findIndex((r) => r.kind === "common" && r.label === "X axis");

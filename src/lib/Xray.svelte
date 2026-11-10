@@ -1176,7 +1176,7 @@
                   {#if r.node.keyParts?.ordinal}<span class="ord" title="The same plot placed more than once">#{r.node.keyParts.ordinal}</span>{/if}
                   {#if r.node.styled}<span class="sdot" title="Restyled"></span>{:else if r.node.styledBeneath && !(expanded.has(r.node.id) && !q)}<span class="sdot inside" title="Something inside is restyled"></span>{/if}
                 </span>
-                {#if r.node.preview}<span class="rprev" class:varies={r.node.preview === "varies"} title={r.node.preview === "varies" ? "Differs between the plots" : undefined}>{#if r.node.swatch}<span class="sw" style={`background:${r.node.swatch}`}></span>{/if}<span class="ptext">{#if q}{#each hl(r.node.preview, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else}{r.node.preview}{/if}</span></span>{:else if r.node.swatch}<span class="rprev"><span class="sw" style={`background:${r.node.swatch}`}></span></span>{/if}
+                {#if r.node.preview}<span class="rprev" class:varies={r.node.preview === "varies"} title={r.node.preview === "varies" ? "Differs between the plots" : undefined}>{#if r.node.swatch}<span class="sw" style={`background-color:${r.node.swatch}`}></span>{/if}<span class="ptext">{#if q}{#each hl(r.node.preview, tokens) as g}{#if g.hit}<mark>{g.text}</mark>{:else}{g.text}{/if}{/each}{:else}{r.node.preview}{/if}</span></span>{:else if r.node.swatch}<span class="rprev"><span class="sw" style={`background-color:${r.node.swatch}`}></span></span>{/if}
                 {#if r.node.kind === "group"}<span class="tag">grp</span>{/if}
                 {#if r.node.kind === "common"}<span class="tag">×{r.node.elementIds?.length ?? 0}</span>{/if}
                 {#if r.node.count && r.node.kind !== "common"}<span class="count">{r.node.count}</span>{/if}
@@ -1195,7 +1195,7 @@
             {#if detail}
               <div class="dline dpath" title={[detail.path, detail.title].filter(Boolean).join(" › ")}>{#if detail.path}<span class="dctx">{detail.path} ›</span>{/if}<b>{detail.title}</b></div>
               <div class="dline dval" class:none={!detail.values} title={detail.values || undefined}>{detail.values || "no value of its own"}</div>
-              <div class="dline dmeta">{#if detail.swatch}<span class="sw" style={`background:${detail.swatch}`}></span>{/if}<span class="dfacts">{detail.meta.join(" · ")}</span><span class="did" title={detail.id}>{detail.id}</span></div>
+              <div class="dline dmeta">{#if detail.swatch}<span class="sw" style={`background-color:${detail.swatch}`}></span>{/if}<span class="dfacts">{detail.meta.join(" · ")}</span><span class="did" title={detail.id}>{detail.id}</span></div>
             {:else}
               <div class="dline dhint">Hover a row for its full context.</div>
             {/if}
@@ -1341,7 +1341,10 @@
   .rprev :global(mark), .rpath :global(mark), .rlabel :global(mark) { background: none; color: var(--xr-phos-hi); font-weight: 600; }
   .ptext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rprev.varies { font-style: italic; }
-  .sw { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 2px; box-shadow: 0 0 0 1px color-mix(in oklab, var(--xr-tx) 70%, transparent); }
+  /* The ring is the swatch's own BORDER, inside its box: as a 1px box-shadow outside the box it was cut off wherever the swatch touched the
+     edge of a clipping parent (.rprev hides its overflow to ellipsize the value, so every row's swatch lost its left edge). The colour is
+     `background-color` clipped to the padding box: the same 9px chip inside the same ring, and a border snaps to whole device pixels. */
+  .sw { flex: 0 0 auto; box-sizing: border-box; width: 11px; height: 11px; border: 1px solid color-mix(in oklab, var(--xr-tx) 70%, transparent); border-radius: 3px; background-clip: padding-box; }
   /* A member reads by its VALUE ("SWS"); its index label steps back. */
   .row.member { font-size: 11.5px; }
   .row.member .rlabel { color: var(--xr-tx-dim); }
