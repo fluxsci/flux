@@ -136,6 +136,40 @@ try {
   ok(JSON.stringify(back.names.slice(1)) === JSON.stringify(["C", "B"]), "switching back reloads the first deck (order intact from disk)");
   ok(back.edited, "the edit survived the deck switch (save-before-switch)");
 
+  // Rename a deck where its name is listed: double-click, type, Enter (the Figure sidebar's canvas rename).
+  const deckRow = (i) => page.evaluate((i) => { const b = [...document.querySelectorAll(".deckpicker li")][i]?.querySelector(".dp-item"); if (!b) return null; const r = b.querySelector(".dp-title").getBoundingClientRect(); return { x: r.left + Math.min(20, r.width / 2), y: r.top + r.height / 2 }; }, i);
+  const deckState = () => page.evaluate(() => { const f = window.__flux, o = f.get(f.slide.deckOverlay); return { id: o?.id, title: o?.title, rows: [...document.querySelectorAll(".deckpicker li")].map((li) => li.querySelector(".dp-title")?.textContent ?? "(editing)"), field: document.querySelector(".deckbar input.title")?.value, input: document.activeElement?.classList.contains("dp-rename") ? document.activeElement.value : null }; });
+  const before = await deckState();
+  let at = await deckRow(0);
+  await page.mouse.click(at.x, at.y, { count: 2 });
+  await waitFor(page, () => document.activeElement?.classList.contains("dp-rename"), null, { timeout: 5000, label: "rename field" });
+  ok((await deckState()).input === before.title, "double-clicking a deck's name edits it in place, the name selected", JSON.stringify(await deckState()));
+  await page.keyboard.type("Renamed A");
+  await page.keyboard.press("Escape");
+  ok((await deckState()).title === before.title && !(await page.$(".dp-rename")), "Esc leaves the name as it was");
+  await page.mouse.click(at.x, at.y, { count: 2 });
+  await waitFor(page, () => document.activeElement?.classList.contains("dp-rename"), null, { timeout: 5000, label: "rename field again" });
+  await page.keyboard.type("Renamed A");
+  await page.keyboard.press("Enter");
+  await waitFor(page, () => { const f = window.__flux; return f.get(f.slide.deckOverlay)?.title === "Renamed A"; }, null, { timeout: 5000, label: "deck renamed" });
+  let st = await deckState();
+  ok(st.rows[0] === "Renamed A" && st.field === "Renamed A" && st.id === before.id, "Enter renames the open deck: its row and the title field say so at once", JSON.stringify(st));
+  // a deck that is NOT open: the double-click opens it (as a click does) and renames it
+  at = await deckRow(1);
+  await page.mouse.click(at.x, at.y, { count: 2 });
+  await waitFor(page, () => document.activeElement?.classList.contains("dp-rename"), null, { timeout: 5000, label: "rename field, other deck" });
+  await page.keyboard.type("Renamed B");
+  await page.keyboard.press("Enter");
+  await waitFor(page, (id) => { const f = window.__flux, o = f.get(f.slide.deckOverlay); return o?.id !== id && o?.title === "Renamed B"; }, before.id, { timeout: 10000, label: "other deck renamed" });
+  await waitFor(page, () => { const rows = [...document.querySelectorAll(".deckpicker .dp-title")].map((n) => n.textContent); return rows[0] === "Renamed A" && rows[1] === "Renamed B"; }, null, { timeout: 10000, label: "both names listed" });
+  st = await deckState();
+  ok(st.title === "Renamed B" && st.id !== before.id, "double-clicking another deck's name opens that deck and renames it", JSON.stringify(st));
+  ok(st.rows[0] === "Renamed A", "the first deck kept its new name on disk (the list is read back after the save)");
+  // ... and it is one undoable edit of the deck
+  await page.evaluate(() => window.__flux.fig.undo());
+  await waitFor(page, () => { const f = window.__flux; return f.get(f.slide.deckOverlay)?.title !== "Renamed B"; }, null, { timeout: 5000, label: "undo" });
+  ok(true, "Ctrl+Z takes the rename back");
+
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {

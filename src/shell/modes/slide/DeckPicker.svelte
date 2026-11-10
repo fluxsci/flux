@@ -11,6 +11,8 @@
     onNew,
     onDuplicate,
     onDelete,
+    onRename,
+    activeTitle = null,
     busy = false,
   }: {
     decks: DeckListItem[];
@@ -19,8 +21,36 @@
     onNew: () => void;
     onDuplicate: (id: string) => void;
     onDelete: (id: string) => void;
+    /** Rename a deck (double-click its name, as a canvas is renamed in Figure). Absent: names are not editable here. */
+    onRename?: (id: string, title: string) => void | Promise<void>;
+    /** The open deck's title as it is in the editor right now (the list itself is read from disk after each save). */
+    activeTitle?: string | null;
     busy?: boolean;
   } = $props();
+
+  // Inline rename, the Figure sidebar's canvas rename exactly: double-click, type, Enter or click away commits, Esc cancels, an empty
+  // name is no rename.
+  let editing = $state<string | null>(null);
+  let editVal = $state("");
+  const titleOf = (d: DeckListItem) => (d.id === activeId && activeTitle != null ? activeTitle : d.title);
+  function startRename(d: DeckListItem) {
+    if (!onRename || busy) return;
+    editing = d.id;
+    editVal = titleOf(d);
+  }
+  function commitRename() {
+    const id = editing, title = editVal.trim();
+    editing = null;
+    const deck = decks.find((d) => d.id === id);
+    if (!id || !deck || !title || title === titleOf(deck)) return;
+    void onRename?.(id, title);
+  }
+  function onRenameKey(e: KeyboardEvent) {
+    e.stopPropagation();   // typing a name is not a slide shortcut
+    if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+    else if (e.key === "Escape") { e.preventDefault(); editing = null; }
+  }
+  function focusSelect(node: HTMLInputElement) { node.focus(); node.select(); }
 </script>
 
 {#if decks.length}
@@ -29,11 +59,17 @@
     <ul>
       {#each decks as d (d.id)}
         <li>
-          <button class="dp-item" class:active={d.id === activeId} title={d.title} onclick={() => onSelect(d.id)}>
-            <span class="dp-title">{d.title}</span>
+          {#if editing === d.id}
+            <input class="dp-rename" bind:value={editVal} use:focusSelect onkeydown={onRenameKey} onblur={commitRename}
+              spellcheck="false" aria-label="Deck name" />
+          {:else}
+          <button class="dp-item" class:active={d.id === activeId} title={onRename ? `${titleOf(d)}\nClick to open · double-click to rename` : titleOf(d)}
+            onclick={() => onSelect(d.id)} ondblclick={() => startRename(d)}>
+            <span class="dp-title">{titleOf(d)}</span>
             <span class="dp-count">{d.slides}</span>
           </button>
-          <span class="dp-actions">
+          {/if}
+          <span class="dp-actions" class:off={editing === d.id}>
             <button class="dp-act" title="Duplicate deck" aria-label="Duplicate deck" disabled={busy}
               onclick={(e) => { e.stopPropagation(); onDuplicate(d.id); }}>⧉</button>
             {#if decks.length > 1}
@@ -79,6 +115,11 @@
     display: none; gap: 1px; background: var(--c-surface, var(--c-bg-raised));
   }
   li:hover .dp-actions { display: flex; }
+  li:hover .dp-actions.off { display: none; }
+  .dp-rename {
+    width: 100%; box-sizing: border-box; border: 1px solid var(--c-accent); border-radius: var(--r-1); padding: 4px 6px;
+    background: var(--c-bg, transparent); color: var(--c-tx-hi); font: inherit; font-size: 12px; font-weight: 600; outline: none;
+  }
   .dp-act {
     border: none; background: none; color: var(--c-tx-muted); cursor: var(--cursor-cross-hover);
     border-radius: var(--r-1); padding: 2px 5px; font-size: 12px; line-height: 1;

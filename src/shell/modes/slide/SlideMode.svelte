@@ -536,6 +536,15 @@
     const v = (e.target as HTMLInputElement).value;
     commitDeckLive((dd) => slideOps.setDeckMeta(dd, { title: v }), { coalesce: "deck-title" });
   }
+  /** Rename a deck from the deck list (double-click its name). A deck's title lives in its own file, so the rename is the open deck's ONE
+   *  title edit (the title field's op: undoable, autosaved, journalled); a deck that is not open is opened first, exactly as clicking it does. */
+  async function renameDeck(id: string, title: string) {
+    if (!pm || !title.trim()) return;
+    if (id !== activeDeckId && !(await openDeck(id))) return;
+    if (get(deckOverlay)?.id !== id || get(deckOverlay)?.title === title) return;
+    commitDeckLive((dd) => slideOps.setDeckMeta(dd, { title }));
+    sealHistory();
+  }
   function onThemeChange(e: Event) {
     const v = (e.target as HTMLSelectElement).value;
     commitDeckLive((dd) => slideOps.setTheme(dd, v));
@@ -1821,7 +1830,7 @@
     {#snippet slides()}
     <aside class="filmstrip" bind:this={filmEl}>
       {#if pm}
-        <DeckPicker {decks} activeId={activeDeckId} onSelect={(id) => void openDeck(id)} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} busy={deckBusy} />
+        <DeckPicker {decks} activeId={activeDeckId} activeTitle={overlay?.title ?? null} onSelect={(id) => void openDeck(id)} onNew={newDeck} onDuplicate={duplicateDeck} onDelete={deleteDeck} onRename={renameDeck} busy={deckBusy} />
       {/if}
       {#if overlay}
         {#each overlay.slides as s, i (s.id)}

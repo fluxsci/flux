@@ -12,7 +12,8 @@ slide; figures travel between the two worlds without translation.
 # Decks and the filmstrip
 
 The deck list sits above the filmstrip: create (**+ New deck**), duplicate, or remove decks —
-each is one readable file in the project. The filmstrip shows live thumbnails: drag to
+each is one readable file in the project. Double-click a deck's name to rename it (Enter keeps
+the name, Esc leaves it as it was); the title field at the top of the window edits the same name. The filmstrip shows live thumbnails: drag to
 reorder, duplicate or delete from a thumb, **+ Add slide** for a new slide (layouts seed
 starter text — title, section, two-column, or *blank* for a clean stage), and **+ Preset**
 inserts a slide from your machine-global **slide preset library** (save any slide there from
