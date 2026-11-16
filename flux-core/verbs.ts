@@ -70,9 +70,10 @@ const modelMorphSummary = (value: unknown): string => {
   const result = value as { morph?: boolean; reason?: string };
   return typeof result.morph === 'boolean' ? `; morph:${result.morph}${result.reason ? ` (${result.reason})` : ''}` : '';
 };
-/** "becomes ‹target›", or for a set result "hands off to 3 ellipses". */
+/** "becomes ‹target›", or for a set result "hands off to 3 ellipses"; a Become whose source stays "sends copies to …". */
 const becomeDestination = (value: unknown, a: Record<string, unknown>): string => {
   const set = (value as { destination?: string }).destination;
+  if (a.keepSource) return `sends copies to ${set ?? a.target ?? a.from} (the source stays)`;
   return set ? `hands off to ${set}` : `becomes ${a.target ?? a.asset}`;
 };
 const sArr = (v: unknown): string[] => v as string[];
@@ -3942,7 +3943,7 @@ export const VERBS: VerbDef[] = [
     cli: "become",
     cliRoot: "flags",
     summary:
-      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images, models and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. A destination SET (several objects and/or plot parts, from any plots) is to (repeatable element ids) or members ([{element, parts?}]); a set always hands off and the source splits across its members. Pair controls correspondence; reveal chooses flip or draw. For a whole plot or model source, asset replaces content in the same frame. Plots without shared tweenable data require force. Model topology determines morph:true or a valid crossfade with morph:false and reason; shape states are simpler for one mesh with named shapes.",
+      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images, models and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. A destination SET (several objects and/or plot parts, from any plots) is to (repeatable element ids) or members ([{element, parts?}]); a set always hands off and the source splits across its members. Pair controls correspondence; reveal chooses flip or draw. For a whole plot or model source, asset replaces content in the same frame. Plots without shared tweenable data require force. Model topology determines morph:true or a valid crossfade with morph:false and reason; shape states are simpler for one mesh with named shapes. keepSource (hand-off only) makes the source STAY: copies of it fly and become the destination while it remains drawn before, during and after the step (manim's TransformFromCopy; e.g. N curves of one plot each sending a copy to its bar in another).",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3962,6 +3963,7 @@ export const VERBS: VerbDef[] = [
       duration: z.number().min(0).optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
       pairLag: z.number().min(0).max(1).describe("Hand-off only: piece lag 0..1 (manim lag_ratio; default 0.15 for a new hand-off of 3+ pieces, 0 = unison)").optional(),
+      keepSource: z.boolean().describe("Hand-off only: the source stays and copies of it become the destination (absent = the source leaves)").optional(),
       force: z.boolean().optional(),
     },
     cliArgs: [
@@ -3983,6 +3985,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
       { kind: "flag", at: "pair-lag", into: "pairLag", as: "number" },
+      { kind: "flag", at: "keep-source", into: "keepSource", as: "boolean" },
       { kind: "flag", at: "force", into: "force", as: "boolean" },
     ],
     handler: (ctx, a) =>
@@ -4000,6 +4003,7 @@ export const VERBS: VerbDef[] = [
         ...(a.duration != null ? { duration: a.duration as number } : {}),
         ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
         ...(a.pairLag != null ? { pairLag: a.pairLag as number } : {}),
+        ...(a.keepSource ? { keepSource: true } : {}),
         ...(a.force ? { force: true } : {}),
       }),
     render: {
@@ -4033,7 +4037,7 @@ export const VERBS: VerbDef[] = [
     scope: "project",
     cli: "appear-from",
     cliRoot: "flags",
-    summary: "Reveal a destination object or plot parts by a hand-off from another object or part set. Writes exactly the same source-owned transform as Become with mode handoff; neither object is consumed. part names destination leaves, sourcePart names source leaves; pair chooses correspondence and reveal chooses flip or draw. members ([{element, parts?}]) instead of dest reveals a SET of objects and plot parts from the one source.",
+    summary: "Reveal a destination object or plot parts by a hand-off from another object or part set. Writes exactly the same source-owned transform as Become with mode handoff; neither object is consumed. part names destination leaves, sourcePart names source leaves; pair chooses correspondence and reveal chooses flip or draw. members ([{element, parts?}]) instead of dest reveals a SET of objects and plot parts from the one source. keepSource makes the source stay: copies of it fly and become the destination.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -4049,6 +4053,7 @@ export const VERBS: VerbDef[] = [
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      keepSource: z.boolean().describe("The source stays and copies of it become the destination (absent = the source leaves)").optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -4065,6 +4070,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
+      { kind: "flag", at: "keep-source", into: "keepSource", as: "boolean" },
     ],
     handler: (ctx, a) => core.appearFrom(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), a.dest != null ? s(a.dest) : undefined, s(a.from), {
       ...(a.members != null ? { members: a.members as TargetRef[] } : {}),
@@ -4076,10 +4082,11 @@ export const VERBS: VerbDef[] = [
       ...(a.start != null ? { start: a.start as number } : {}),
       ...(a.duration != null ? { duration: a.duration as number } : {}),
       ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
+      ...(a.keepSource ? { keepSource: true } : {}),
     }),
     render: {
-      human: (r, a) => ({ out: (r as { trackId: string }).trackId, err: `✓ ${(r as { destination?: string }).destination ?? a.dest} appear${(r as { destination?: string }).destination ? "" : "s"} from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}` }),
-      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${(r as { destination?: string }).destination ?? a.dest} appear${(r as { destination?: string }).destination ? "" : "s"} from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}`),
+      human: (r, a) => ({ out: (r as { trackId: string }).trackId, err: `✓ ${(r as { destination?: string }).destination ?? a.dest} appear${(r as { destination?: string }).destination ? "" : "s"} from ${a.keepSource ? "a copy of " : ""}${a.from} (beat ${a.beatId})${modelMorphSummary(r)}` }),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${(r as { destination?: string }).destination ?? a.dest} appear${(r as { destination?: string }).destination ? "" : "s"} from ${a.keepSource ? "a copy of " : ""}${a.from} (beat ${a.beatId})${modelMorphSummary(r)}`),
     },
   },
   {

@@ -73,7 +73,7 @@ flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
 flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become) BECOME
      [--part id,id --source-part id,id --mode consume|handoff]
      [--pair auto|spatial|order|data|tile --reveal flip|draw --method dissolve|shatter|collapse|drain]
-     [--start ms --duration ms --easing e]
+     [--start ms --duration ms --easing e] [--keep-source]   # --keep-source: the source STAYS; copies of it fly and become the destination
 flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>             # (appear_from) same hand-off from the destination side
      [--part id,id --source-part id,id --pair auto|spatial|order|data|tile --reveal flip|draw]
      [--method dissolve|shatter|collapse|drain --start ms --duration ms --easing e]
@@ -272,6 +272,11 @@ beat — chain across beats) authored three ways:
   ghost destinations must already be born. New tracks use 1200 ms / smooth / start 0; replacing
   an existing transform keeps timing unless supplied. **Appear from…** (`appear-from`) writes
   exactly the same source-owned hand-off record from the destination side.
+  `--keep-source` (`to.become.keepSource: true`, hand-off only) makes the **source stay**: copies of it
+  leave it and become the destination (manim's TransformFromCopy), with every hand-off option still
+  applying; the copies emerge as they separate (the Ghost law), so nothing doubles on the first frames.
+  Use it for "each curve sends its value to a bar" (parts, sets); Ghost stays the tool for whole-object
+  copies that transform freely. Consume refuses it; swap-become keeps it (the old destination stays).
   `--asset <assetId>` is the separate whole-plot content form (`to.assetId` + source paths):
   the frame stays, shared line/point series tween in data space, and incompatible plots require
   `--force` when none can tween; parts still bind by semantic ID, with local residual fades.
@@ -282,6 +287,7 @@ flux set-transform talk s1 b2 el_rect --state '{"x": 420, "width": 220, "stroke"
 flux set-transform talk s1 b3 el_rect --state '{"opacity": 0.3}'        # chains: t1 = b2's end
 flux become talk s1 b2 el_line --target el_ellipse                        # the line becomes the ellipse (consumed)
 flux become talk s1 b2 el_path --target el_plot --part axis.x.spine,axis.y.spine    # source hands off to live spines
+flux become talk s1 b2 el_fits --source-part a.line,b.line --target el_bars --part a.bar.0,b.bar.0 --keep-source  # each curve stays; a copy becomes its bar
 flux appear-from talk s1 b2 --dest el_plot --part axis.x.spine,axis.y.spine --from el_path # same record
 flux become talk s1 b2 el_plot --asset growthB                            # the plot's data becomes growthB's
 ```
