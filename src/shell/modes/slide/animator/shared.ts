@@ -39,7 +39,8 @@ export const WAY_LABEL: Record<TransformWay, string> = { change: "Change", ghost
 /** The lane sub-label: "Transform · Become", "Fade in", … */
 export function trackKindLabel(t: Track, deck: StyleContext = {}): string {
   t = resolveTrack(t, deck);
-  if (t.preset === "transform") return `Transform · ${WAY_LABEL[transformWay(t)]}`;
+  // a hand-off whose source stays says so (its copies become the destination): "Transform · Become · source stays"
+  if (t.preset === "transform") return `Transform · ${WAY_LABEL[transformWay(t)]}${t.to?.become?.keepSource ? " · source stays" : ""}`;
   return presetLabel(t.preset ?? "fade");
 }
 /** Element type → a compact glyph for tree rows / chip labels (the figure
@@ -79,7 +80,7 @@ export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: Manif
 export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>, deck: StyleContext = {}, manifestFor: ManifestFor = () => undefined): string {
   t = resolveTrack(t, deck);
   if (t.target.startsWith("@")) return t.target.slice(1);
-  if (isHandoff(t)) return `${refLabel(trackRef(t), slide, manifestFor, plotTags)} → ${refLabel(t.to.become.ref, slide, manifestFor, plotTags)}`;
+  if (isHandoff(t)) return `${refLabel(trackRef(t), slide, manifestFor, plotTags)} ${t.to.become.keepSource ? "sends copies to" : "→"} ${refLabel(t.to.become.ref, slide, manifestFor, plotTags)}`;
   // Ghost chips describe lineage; ordinary bindings share the semantic ref label.
   if (t.ghostFrom) return `${refLabel({ element: t.ghostFrom }, slide, manifestFor, plotTags)} → ${refLabel(trackRef(t), slide, manifestFor, plotTags)}`;
   return refLabel(trackRef(t), slide, manifestFor, plotTags);

@@ -29,7 +29,7 @@
   const hover = $derived(picker.hover);
   const units = $derived(target?.units ?? []);
   const chips = $derived(chipRuns(units, describe));
-  const verb = $derived(target?.kind === "appearFrom" ? "appears from…" : "becomes…");
+  const verb = $derived(target?.kind === "appearFrom" ? (target.keepSource ? "appears from a copy of…" : "appears from…") : target?.keepSource ? "sends copies to…" : "becomes…");
 
   let addMenu = $state<{ x: number; y: number } | null>(null);
   const tool = (id: string) => () => { activeTool.set(id as never); };
@@ -81,6 +81,10 @@
     <label class="pair-label">Pair <select aria-label="Become pairing" value={target.pair} onchange={(e) => picker.setPair(e.currentTarget.value as PairPolicy)}>
       {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
     </select></label>
+    <!-- the source stays (copies of it become the picks: a ghost Become) or leaves; K toggles it -->
+    <button class="become-btn pb-keep" class:on={target.keepSource} aria-pressed={target.keepSource} data-pick-keep-source={target.keepSource ? "stays" : "leaves"}
+      onclick={() => picker.setKeepSource(!target.keepSource)}
+      title={target.keepSource ? "The source stays: copies of it leave and become the picks (K: let the source leave instead)" : "The source leaves: it turns into the picks (K: keep the source and send copies instead)"}>Source {target.keepSource ? "stays" : "leaves"} <kbd>K</kbd></button>
     {#if sourceHasContent && !picker.adding}<button class="become-btn" onclick={() => onGallery?.()} title="Keep the frame; choose the next content from the gallery">From gallery…</button>{/if}
     {#if picker.adding}
       <button class="become-btn pb-go" onclick={() => picker.exitAdd()} title="Back to picking, with everything you added picked (Enter)">Done <kbd>Enter</kbd></button>
@@ -129,4 +133,5 @@
   .pb-go { border-color: color-mix(in oklab, var(--c-pick) 70%, transparent); background: color-mix(in oklab, var(--c-pick) 16%, transparent); color: var(--c-tx-hi); }
   .pb-go kbd { color: var(--c-tx-2); }
   .pb-add { display: contents; }
+  .pb-keep.on { border-color: color-mix(in oklab, var(--c-pick) 70%, transparent); color: var(--c-pick-text); }
 </style>

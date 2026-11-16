@@ -1303,7 +1303,7 @@
   }
   /** Arm either end of a Become. The fixed ref lives in source; Appear from
    *  reverses the arguments only when committing the shared operation. */
-  function startBecome(armedFrom: "become" | "appear-from" = "become", refs = selectedRefs()) {
+  function startBecome(armedFrom: "become" | "appear-from" = "become", refs = selectedRefs(), keepSource = false) {
     const s = activeSlide, sid = $activeFigureId;
     if (!s || !sid) return;
     // Appear from… may start from several destinations: they land as one set.
@@ -1320,7 +1320,7 @@
     if (s.beats.length <= 1) commitDeckLive(d => { slideOps.addBeat(d, sid, {label: "Beat 1", advance: "click"}); });
     bi = Math.min(bi, (composedSlide(sid)?.beats.length ?? 2) - 1);
     activeBeat.set(bi); editAfterBeat(bi);
-    picker.armTarget({kind: armedFrom === "become" ? "become" : "appearFrom", source, slideId: sid, beatIndex: bi, armedFrom});
+    picker.armTarget({kind: armedFrom === "become" ? "become" : "appearFrom", source, slideId: sid, beatIndex: bi, armedFrom, keepSource});
     inspectorTab = "animation";
   }
   function cancelBecome() { picker.cancel(); }
@@ -1330,7 +1330,8 @@
     const source = track ? trackRef(track) : {element: targetId};
     selection.set(new Set([targetId]));
     setPartSelections((source.parts ?? []).map(partId => ({elementId: targetId, partId})));
-    activeBeat.set(beatIndex); startBecome("become", [source]);
+    // re-picking a Become whose source stays starts with the source staying
+    activeBeat.set(beatIndex); startBecome("become", [source], track?.to?.become?.keepSource === true);
   }
   /** Many → one: one hand-off per picked source into the armed destination,
    *  written in ONE transaction (one Undo), all with the same new-track timing. */
@@ -1344,7 +1345,7 @@
       const trackIds = commitDeckLive(d => {
         const slide = slideOps.slideById(d, s.id), beat = slide?.beats[pick.beatIndex];
         if (!slide || !beat) throw new Error("The step no longer exists.");
-        return sources.map(source => slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, compiled: compileSlide(slide, stage, options), modelAsset: options.modelAsset})!.trackId);
+        return sources.map(source => slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, keepSource: pick.keepSource, compiled: compileSlide(slide, stage, options), modelAsset: options.modelAsset})!.trackId);
       });
       if (!trackIds?.length) return;
       activeBeat.set(pick.beatIndex); selTrackIds.set(trackIds);
@@ -1367,8 +1368,8 @@
         const beat = slideOps.slideById(d, s.id)?.beats[pick.beatIndex];
         if (!beat) throw new Error("The step no longer exists.");
         return pick.kind === "appearFrom"
-          ? slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, compiled, modelAsset: id=>get(project).assets.find(a=>a.id===id)})
-          : slideOps.becomeTransform(d, s.id, beat.id, source, dest, {pair: pick.pair, compiled, modelAsset: id=>get(project).assets.find(a=>a.id===id)});
+          ? slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, keepSource: pick.keepSource, compiled, modelAsset: id=>get(project).assets.find(a=>a.id===id)})
+          : slideOps.becomeTransform(d, s.id, beat.id, source, dest, {pair: pick.pair, keepSource: pick.keepSource, compiled, modelAsset: id=>get(project).assets.find(a=>a.id===id)});
       });
       if (!result) return;
       activeBeat.set(pick.beatIndex); selTrackIds.set([result.trackId]);
@@ -1378,7 +1379,7 @@
         // A whole-plot hand-off reveals every part already: nothing is left to build.
         const canAuto = plot?.type === "plot" && canAutoAnimateRest(s, dest, get(plotManifests)[plot.assetId]);
         const leaves = compiled.resolveTarget(dest, pick.beatIndex).flatMap(t => t.partIds ?? (plot?.type === "plot" ? buildPartTree(get(plotManifests)[plot.assetId])?.targets ?? [] : []));
-        pushToast("success", `‹${refLabel(source)}› hands off to ‹${refLabel(dest)}›`, {ttl: canAuto ? 10000 : 3500, ...(canAuto ? {action: {label: "Auto-animate the rest…", run: () => {
+        pushToast("success", `‹${refLabel(source)}› ${pick.keepSource ? "sends copies to" : "hands off to"} ‹${refLabel(dest)}›`, {ttl: canAuto ? 10000 : 3500, ...(canAuto ? {action: {label: "Auto-animate the rest…", run: () => {
           if (activeDeckId !== deckId || $activeFigureId !== s.id) return;
           const current = composedSlide(s.id)?.beats.flatMap(b => b.tracks).find(t => t.id === result.trackId)?.to?.become;
           if (current?.mode !== "handoff" || !sameRef(current.ref, dest)) return;

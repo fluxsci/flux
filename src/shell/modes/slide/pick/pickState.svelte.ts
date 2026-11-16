@@ -44,6 +44,8 @@ export interface TargetPick {
   beatIndex: number;
   source: TargetRef;
   pair: PairPolicy;
+  /** The source STAYS: copies of it become the picks (`BecomeSpec.keepSource`, a hand-off). K toggles it while picking. */
+  keepSource: boolean;
   armedFrom: "become" | "appear-from";
   /** Ordered picks (the numbered badges). */
   units: PickUnit[];
@@ -116,10 +118,10 @@ export class BecomePicker {
   }
 
   // --- arming / leaving --------------------------------------------------------------------------
-  armTarget(init: Omit<TargetPick, "units" | "sub" | "pair"> & { units?: PickUnit[]; pair?: PairPolicy }) {
+  armTarget(init: Omit<TargetPick, "units" | "sub" | "pair" | "keepSource"> & { units?: PickUnit[]; pair?: PairPolicy; keepSource?: boolean }) {
     this.#restore = { ids: [...get(selection)], parts: [...get(partSelections)] };
     this.#reset();
-    this.mode = { ...init, pair: init.pair ?? "auto", units: init.units ?? [], sub: "pick" };
+    this.mode = { ...init, pair: init.pair ?? "auto", keepSource: init.keepSource ?? false, units: init.units ?? [], sub: "pick" };
     this.#clearSelection();
   }
   armLike(init: Omit<LikePick, "kind">) {
@@ -148,6 +150,8 @@ export class BecomePicker {
 
   // --- the pick set ------------------------------------------------------------------------------
   setPair(pair: PairPolicy) { const t = this.target; if (t) this.mode = { ...t, pair }; }
+  /** The source stays (copies of it become the picks) or leaves. */
+  setKeepSource(keepSource: boolean) { const t = this.target; if (t) this.mode = { ...t, keepSource }; }
   setUnits(units: PickUnit[], { keepWiden = false } = {}) {
     const t = this.target;
     if (!t) return;
@@ -352,6 +356,8 @@ export class BecomePicker {
     }
     if (t.sub !== "pick") return false;
     if (e.code === "KeyA" && plain && !e.shiftKey) { this.widen(); return true; }
+    // K: the source stays / leaves (a ghost Become: copies of the source become the picks)
+    if (e.code === "KeyK" && plain && !e.shiftKey) { if (!e.repeat) this.setKeepSource(!t.keepSource); return true; }
     if ((e.key === "Backspace" || e.key === "Delete") && plain) {
       if (t.units.length) this.setUnits(t.units.slice(0, -1));
       return true;

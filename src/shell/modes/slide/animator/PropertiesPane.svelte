@@ -185,7 +185,7 @@
     if (!curTrack || curFamily !== "transform") return "";
     const st = (curTrack.to?.state ?? {}) as Record<string, unknown>;
     const kind = typeof st.type === "string" ? st.type : null;
-    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}${handoff.method && handoff.method !== DEFAULT_TRANSFORM_METHOD ? ` · ${handoff.method}` : ""}`;
+    if (handoff) return `${handoff.keepSource ? "sends copies to" : "hands off to"} ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}${handoff.method && handoff.method !== DEFAULT_TRANSFORM_METHOD ? ` · ${handoff.method}` : ""}`;
     if (curTrack.to?.become?.mode === "consume") {
       const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
       return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
@@ -419,17 +419,21 @@
     refreshEndpointDisplay();
   }
   const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id], modelManifest: id => $scene3dManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
-  function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode" | "method">>) {
+  function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode" | "method" | "keepSource">>) {
     try {
       withCurTrack((t, d) => {
         const spec = t.to?.become, s = d.slides.find(s => s.id === slide.id);
         const b = s?.beats.find(b => b.tracks.includes(t));
         if (!spec || !s || !b) return;
-        becomeTransform(d, s.id, b.id, trackRef(t), spec.ref, { ...spec, ...patch, compiled: compile(d, s), modelAsset: id=>$project.assets.find(a=>a.id===id) });
+        const next = { ...spec, ...patch };
+        // switching a Become whose source stays to Consume is refused below (Consume instead is disabled for it, with its reason)
+        becomeTransform(d, s.id, b.id, trackRef(t), spec.ref, { ...next, keepSource: next.keepSource === true, compiled: compile(d, s), modelAsset: id=>$project.assets.find(a=>a.id===id) });
       });
     } catch (e) { pushToast("error", String(e instanceof Error ? e.message : e)); }
     consumeArmed = false;
   }
+  /** The Source switch of a hand-off: leaves (absent `keepSource`) or stays. */
+  const SOURCE_WAYS: [string, boolean][] = [["leaves", false], ["stays", true]];
   let consumeArmed = $state(false);
   $effect(() => { void handoff; consumeArmed = false; });
   const destinationEl = $derived(handoff ? slide.elements.find(e => e.id === handoff.ref.element) : undefined);
@@ -715,9 +719,17 @@
               {#each ["flip", "draw"] as reveal}<button class="sg" class:on={(handoff.reveal ?? "flip") === reveal} aria-pressed={(handoff.reveal ?? "flip") === reveal} onclick={() => changeHandoff({ reveal: reveal as BecomeSpec["reveal"] })}>{reveal}</button>{/each}
             </div>
           </div>
+          <!-- the source: leaves (an ordinary hand-off) or stays (copies of it fly: a ghost Become, manim's TransformFromCopy) -->
+          <div class="f" title="Leaves: the source turns into the destination and is gone after the step. Stays: the source remains drawn while copies of it leave and become the destination (K while picking)">Source
+            <div class="seg" role="group" aria-label="Hand-off source">
+              {#each SOURCE_WAYS as [label, keep] (label)}<button class="sg" class:on={!!handoff.keepSource === keep} aria-pressed={!!handoff.keepSource === keep} onclick={() => { if (!!handoff?.keepSource !== keep) changeHandoff({ keepSource: keep }); }}>{label}</button>{/each}
+            </div>
+          </div>
           <div class="dacts">
             <button class="pick-morph" disabled={!!swapReason} title={swapReason || "Reverse this hand-off in one undoable edit"} onclick={swapDirection}>↔ Swap direction</button>
-            {#if canConsume}
+            {#if canConsume && handoff.keepSource}
+              <button class="pick-morph" disabled title="Consume turns the source itself into the destination, so it cannot also stay. Set Source to leaves first.">Consume instead</button>
+            {:else if canConsume}
               <button class="pick-morph" class:warn={consumeArmed} title="Consume removes the destination object and writes its appearance into the source" onclick={() => consumeArmed ? changeHandoff({ mode: "consume" }) : consumeArmed = true}>{consumeArmed ? "Confirm Consume" : "Consume instead"}</button>
               {#if consumeArmed}<button class="pick-morph" onclick={() => consumeArmed = false}>Cancel</button>{/if}
             {/if}
