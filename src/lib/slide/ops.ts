@@ -1482,6 +1482,9 @@ export interface BecomeOptions extends TimingCurvePatch {
   duration?: number;
   /** WP 4.3: piece lag (hand-off only, 0..1). Absent = unset (unison) for a new hand-off; a re-Become keeps the track's. */
   pairLag?: number;
+  /** Hand-off only: the source STAYS and copies of it become the destination (`BecomeSpec.keepSource`). Implies hand-off when `mode` is
+   *  absent; refused with Consume. Written as part of the spec, like pair / reveal / method: absent = the source leaves. */
+  keepSource?: boolean;
   /** GUI may supply the compiler's manifest-aware evaluation of the slide. */
   compiled?: ReturnType<typeof compileSlide>;
 }
@@ -1534,7 +1537,8 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
   if (opts.pairLag !== undefined && (!Number.isFinite(opts.pairLag) || opts.pairLag < 0 || opts.pairLag > 1)) throw new Error("Piece lag must be between 0 and 1");
   const compiled = opts.compiled ?? compileSlide(slide, deck.stage, { ...deck, modelAsset: opts.modelAsset });
-  const mode = opts.mode ?? (!posterVideo && isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && target.type !== "model3d" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
+  if (opts.keepSource && opts.mode === "consume") throw new Error("Consume turns the source itself into the destination, so it cannot also stay. A Become whose source stays sends copies: use hand-off, or let the source leave.");
+  const mode = opts.mode ?? (!opts.keepSource && !posterVideo && isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && target.type !== "model3d" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
   const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
   const timing = {
     ...(!existing ? { duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0 } : {}),
@@ -1570,7 +1574,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     }
     // Only a whole object handing off to a whole object is a text morph; a set / part / group destination is not.
     const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...(isWholeElementRef(ref) ? { become: target } : { become: { type: "set" } }), ...timing })!;
-    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== DEFAULT_TRANSFORM_METHOD ? { method: opts.method } : {}) }, state: {} };
+    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip", ...(opts.method && opts.method !== DEFAULT_TRANSFORM_METHOD ? { method: opts.method } : {}), ...(opts.keepSource ? { keepSource: true } : {}) }, state: {} };
     delete track.disabled;
     // WP 4.3: piece lag is authored only when asked for (owner, 2026-10-25: a new hand-off flies in unison; the lag is a choice, not a
     // default); a re-Become keeps what the track had.
@@ -1640,7 +1644,8 @@ export function swapBecome(deck: Deck, slideId: Id, trackId: Id, opts: CompileOp
   const beat = candidate.beats[bi], groups = beat.groups;
   removeTracks(work, slideId, [trackId]);
   const result = becomeTransform(work, slideId, beat.id, spec.ref, trackRef(track), {
-    mode: "handoff", pair: spec.pair, reveal: spec.reveal, method: spec.method,
+    // a source that stays keeps staying: the reversed hand-off sends copies of the old destination back (both objects remain either way)
+    mode: "handoff", pair: spec.pair, reveal: spec.reveal, method: spec.method, keepSource: spec.keepSource,
     start: resolved.start ?? 0, duration: trackDuration(resolved), easing: resolved.easing,
     compiled: compileSlide(candidate, deck.stage, options),
   });

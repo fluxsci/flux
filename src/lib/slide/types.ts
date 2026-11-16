@@ -281,6 +281,11 @@ export interface BecomeSpec {
    *  splits it into wedges that fly with the pieces; `collapse` shrinks it to the centre;
    *  `drain` empties it toward where the pieces are going. */
   method?: TransformMethod;
+  /** Hand-off only: the source STAYS (manim's TransformFromCopy, "a ghost Become"). Copies leave the source and fly / morph to the
+   *  destination exactly as an ordinary hand-off does, while the source itself remains drawn, unchanged, before, during and after the
+   *  step; the copies obey the Ghost law (slide/ghost.ts: their ink emerges as they separate). Absent = the source leaves (the default);
+   *  written only as `true`. Not stamped: an older build plays it as an ordinary hand-off (the source leaves). */
+  keepSource?: boolean;
 }
 
 /** Spread target starts by Each delay or Total span, with optional distribution/order. */

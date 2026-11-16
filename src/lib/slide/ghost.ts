@@ -25,15 +25,29 @@ export function ghostSeparation(from: Element, to: Element): number {
 /** Separation over which the copy's ink emerges: a tenth of its box's smaller side, 3 to 12 stage px (about a stroke width of its text). */
 export function ghostEmergeSpan(e: Element): number {
   const bb = elementBBox({ ...e, rotation: 0 });
-  return Math.max(3, Math.min(12, 0.1 * Math.min(bb.w, bb.h)));
+  return ghostSpanOf(bb.w, bb.h);
+}
+/** The emerge span of a copy whose box (stage px) is `w` × `h`: the law of `ghostEmergeSpan`, for copies that are no Element (the pieces of a
+ *  hand-off whose source stays, `BecomeSpec.keepSource`, are outlines of plot parts). */
+export function ghostSpanOf(w: number, h: number): number {
+  return Math.max(3, Math.min(12, 0.1 * Math.min(w, h)));
+}
+/** The share of a copy that never separates from its source by its span (the same place, another look): it fades in over this much of its
+ *  flight's progress instead. */
+export const GHOST_STILL_FADE = 0.25;
+/** THE ramp of the Ghost law: the share of a copy's own ink drawn at `separation` stage px from its source (`travels`: it leaves by at least
+ *  `span` over its flight), or, for a copy that never separates, at flight progress `u`. Pure; one formula for Ghost births (`ghostEmergence`)
+ *  and for the copies of a source-stays hand-off (player/handoff.ts). */
+export function ghostInk(separation: number, span: number, travels: boolean, u: number): number {
+  const x = travels ? separation / span : u / GHOST_STILL_FADE, q = Math.max(0, Math.min(1, x));
+  return q * q * (3 - 2 * q);
 }
 /** Share of the copy's own ink drawn at flight progress `u` for its state `el` (0 on the birth frame, 1 once it has left the source). Decided
  *  once per Ghost track from its two ends: by separation when the copy travels at least its emerge span, by progress (the first quarter of the
  *  flight) when it does not. Pure; every seek is a function of (el, u). */
 export function ghostEmergence(pre: Element, end: Element): (el: Element, u: number) => number {
   const span = ghostEmergeSpan(pre), travels = ghostSeparation(pre, end) >= span;
-  const ramp = (x: number) => { const q = Math.max(0, Math.min(1, x)); return q * q * (3 - 2 * q); };
-  return travels ? (el) => ramp(ghostSeparation(pre, el) / span) : (_el, u) => ramp(u / 0.25);
+  return travels ? (el) => ghostInk(ghostSeparation(pre, el), span, true, 0) : (_el, u) => ghostInk(0, span, false, u);
 }
 
 export interface GhostBirth { target: string; source: string; beat: number; start: number; enabled: boolean; track: Track }

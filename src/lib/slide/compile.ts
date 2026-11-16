@@ -184,7 +184,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     return { id: beat.id, duration: Math.max(0, ...tracks.map((t) => t.end)), tracks: tracks.sort((a, b) => a.start - b.start) };
   });
   const handoffs: CompiledSlide["handoffs"] = [];
-  const flights = new Map<CompiledTrack, { source: string[]; destination: string[]; crossfade: boolean; landAt?: number }>();
+  // `keep`: the source stays (BecomeSpec.keepSource): copies fly, so the source keys are never hidden by this flight
+  const flights = new Map<CompiledTrack, { source: string[]; destination: string[]; crossfade: boolean; keep: boolean; landAt?: number }>();
   const handoffTracks = new Map<CompiledSlide["handoffs"][number], CompiledTrack>();
   const keysOf = (targets: ResolvedTarget[]) => targets.flatMap(t => t.partIds === null ? [t.elementId] : t.partIds.map(p => `${t.elementId}\0${p}`));
   const births = ghostBirths(slide);
@@ -226,7 +227,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     if (missingMembers.length) issues.push({ trackId: ct.track.id, target: ct.track.target,
       reason: `${missingMembers.length === 1 ? "One destination object is" : `${missingMembers.length} destination objects are`} missing; the hand-off lands on the rest. Retarget this Become.` });
     handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec, ...(crossfade ? { crossfade: true as const } : {}) });
-    flights.set(ct, { source: keysOf(source), destination: keysOf(destination), crossfade });
+    flights.set(ct, { source: keysOf(source), destination: keysOf(destination), crossfade, keep: spec.keepSource === true });
     handoffTracks.set(handoffs[handoffs.length - 1], ct);
   }
   // Group co-landers: the destination reveals when the LAST of them lands.
@@ -297,7 +298,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         if (flight?.crossfade) {
           // Complementary factors on the track's clamped curve: the player's
           // source fade samples the same curve, and raw = 1 is the landing.
-          if (raw > 0) for (const key of flight.source) {
+          if (raw > 0 && !flight.keep) for (const key of flight.source) {
             const prior = appearance.get(key) ?? { opacity: 1, visible: true }, visible = prior.visible && raw < 1;
             const state = { opacity: visible ? prior.opacity * (1 - t) : 0, visible };
             appearance.set(key, state); handoffVisibility.set(key, visible);
@@ -307,7 +308,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
             appearance.set(key, state); handoffVisibility.set(key, state.visible);
           }
         } else if (flight) {
-          if (raw > 0) for (const key of flight.source) {
+          // a source that stays is drawn before, during and after its flight (its copies fly on the player's flight layer)
+          if (raw > 0 && !flight.keep) for (const key of flight.source) {
             appearance.set(key, { opacity: 0, visible: false }); handoffVisibility.set(key, false);
             if (raw < 1) inFlight.add(key);
           }
@@ -318,7 +320,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
             if (land > 0 && land < 1) inFlight.add(key);
           }
         }
-        continue; // a hand-off changes presentation, never the source's props
+        continue; // a hand-off changes presentation, never the source's props (and a source that stays keeps its presentation too)
       }
       if (preset === "transform" && el) {
         if (hasPartBinding(track)) continue;

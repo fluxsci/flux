@@ -312,7 +312,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
             // out in place while the destination fades in, furniture parts here
             // and mesh parts through the model's per-part opacity, which
             // compile.sample drives on this same curve (no pop at landing).
-            const fades: [TargetNode[], boolean][] = [[resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots), false], [nodesFor(handoff.destination) as TargetNode[], true]];
+            // (a source that stays, `keepSource`, does not fade: only its destination fades in)
+            const fades: [TargetNode[], boolean][] = [...(handoff.spec.keepSource ? [] : [[resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots), false] as [TargetNode[], boolean]]), [nodesFor(handoff.destination) as TargetNode[], true]];
             for (const [nodes, enter] of fades) for (const node of nodes) specs.push({
               node, beatIndex: bi, keyframes: enter ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], enter,
               delay: ct.start, duration: ct.duration, ease: ct.ease,

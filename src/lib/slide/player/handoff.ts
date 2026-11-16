@@ -15,6 +15,7 @@ import type { TextLook } from "../timing";
 import type { TextElement } from "../../types";
 import { applyWrapperBox, fillContent, type SlideRenderCtx } from "./render";
 import { pairJoin } from "../../strokeStyle";
+import { ghostInk, ghostSpanOf } from "../ghost";
 
 const NS = "http://www.w3.org/2000/svg";
 const clamp01 = (u: number) => Math.max(0, Math.min(1, u));
@@ -124,7 +125,9 @@ interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; 
 interface PathDrawing { node: SVGPathElement; /** the stroke as a band between two contours (correspondence `band`), drawn over `node` */ band?: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[]; id?: string; defs?: SVGDefsElement; defsMarkup?: string }
 let gradientSerial = 0;
 interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; index: number; aBox: Box; bBox: Box; travel: { dx: number; dy: number } }
-interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
+interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number; /** half the marker's larger side and its Ghost-law span (`keep`) */ reach: number; span: number }
+/** How far a box has left its start (stage px): the larger travel of two opposite corners, the Ghost law's separation for a box copy. */
+const boxShift = (a: Box, b: Box): number => Math.max(Math.hypot(b.x - a.x, b.y - a.y), Math.hypot(b.x + b.w - a.x - a.w, b.y + b.h - a.y - a.h));
 /** A glyph flight fades copies of what its markers land on in under them (see `landing`) when it lands on at most this many destinations: a
  *  copy costs a layout read, and the usual over-budget flight lands on ONE (a cloud of points becoming a fitted line). */
 const GLYPH_LANDING_COPIES = 48;
@@ -135,7 +138,12 @@ const GLYPH_FADE_FROM = 0.85, GLYPH_FADE = 0.15;
 export function createHandoff(opts: HandoffOptions): HandoffController {
   const { flight, ctx } = opts, id = `sl-handoff-${++nextId}`;
   const order = ctx.order ?? nextId;
-  const sources = opts.sourceNodes.map(node => claimVisibility(node, order, false));
+  // THE SOURCE STAYS (`BecomeSpec.keepSource`, manim's TransformFromCopy): the flight is made of COPIES of the source, so the source is never
+  // leased hidden, the flight's own copy of the source's resting render (the hand-over's `a` side, the text morph's `a` layer, a sliced shape's
+  // held cover) is never drawn (the real source is already there), and every piece that leaves the source obeys the Ghost law (ghost.ts): its
+  // ink emerges with its own separation from where it started, so a copy that still coincides with the source never doubles its ink.
+  const keep = opts.spec.keepSource === true;
+  const sources = keep ? [] : opts.sourceNodes.map(node => claimVisibility(node, order, false));
   const destinations = opts.destinationNodes.map(node => claimVisibility(node, order, true));
   const claims = [...sources, ...destinations];
   const layer = document.createElementNS(NS, "g");
@@ -316,7 +324,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  discard its drawings so the next frame plans real outlines. */
   function invalidateIfStale(): void {
     if (!prepared || !ctx.glyphs || builtRevision === ctx.glyphs.revision()) return;
-    prepared = false; paths.length = 0; crosses.length = 0; glyphs.length = 0; boxFades.length = 0; out.length = 0; handover = null; landing = null; root = layer;
+    prepared = false; paths.length = 0; crosses.length = 0; glyphs.length = 0; boxFades.length = 0; out.length = 0; inks.length = 0; handover = null; landing = null; root = layer;
     for (const child of Array.from(layer.childNodes)) child.remove();
   }
   /** Live clones held over the flight's ends, on RAW progress over 15 %:
@@ -336,6 +344,16 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
    *  what they land ON until the landing frame, where the whole destination appeared at once (a cloud of points faded to nothing, then its
    *  fitted line stood there). The group fades in over that same window, so the landing frame is the limit of the frames before it. */
   let landing: SVGGElement | null = null;
+  /** `keep`: the Ghost law of each path piece, indexed like `sampled.pairs` (built with the plan): a `copy` of a source piece (its start
+   *  points, emerge span, and whether it ever leaves by that span), a piece of its `own` (born of no source) or `none` (not drawn). */
+  const inks: { kind: "copy" | "own" | "none"; span: number; travels: boolean; ref: ArrayLike<number> }[] = [];
+  const inkOf = (i: number, sample: SampledPath, u: number): number => {
+    const ink = inks[i];
+    if (!keep || !ink) return 1;
+    // (a piece whose own clock has not started rests ON its source: undrawn. Its sample at exactly 0 is the pair's original chain, whose node
+    // count differs from the flight chain's, so it is never measured)
+    return ink.kind === "own" ? 1 : ink.kind === "none" || u <= 0 ? 0 : ghostInk(maxShift(pathPoints(sample.nodes), ink.ref), ink.span, ink.travels, u);
+  };
 
   function ensure(): void {
     if (prepared || disposed) return;
@@ -396,6 +414,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         const group = sides[side];
         group.setAttribute("class", `sl-handover-${side}`); for (const [k, v] of Object.entries(HANDOVER_LAYER_STYLE)) group.style.setProperty(k, v);
         host.appendChild(pinned(group));
+        if (keep && side === "a") continue;   // the source that stays IS its own start render: no copy of it (see `keep`)
         const seen = new Set<string>(), outlines: NonNullable<CorrespondencePair["a"]>[] = [];
         for (const pair of plan.pairs) {
           const outline = pair[side]; if (!outline) continue;
@@ -433,7 +452,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         c.node.setAttribute("class", "sl-handoff-glyph");
         const x = pair.a.bbox.x + pair.a.bbox.w / 2, y = pair.a.bbox.y + pair.a.bbox.h / 2;
         const land = pair.landing ?? { x, y, scale: 1 };
-        glyphs.push({ node: c.node, x, y, dx: land.x - x, dy: land.y - y, scale: land.scale - 1, opacity: c.opacity });
+        glyphs.push({ node: c.node, x, y, dx: land.x - x, dy: land.y - y, scale: land.scale - 1, opacity: c.opacity, reach: Math.max(c.box.w, c.box.h) / 2, span: ghostSpanOf(c.box.w, c.box.h) });
       } else if (pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) {
         // A (1-t, t) opacity pair leaves two opaque boxes only 75 % covering at t = .5 (the content dips
         // toward the backdrop). Added in premultiplied space (`plus-lighter`) the pair sums to full
@@ -490,6 +509,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       }
     }
     for (const side of ["a", "b"] as const) for (const role of ["glyph-box", "slice"] as const) {
+      if (keep && side === "a") continue;   // the source that stays covers its own seams
       const sample = plan.pairs.find(p => p[side]?.owner.role === role)?.[side];
       if (!sample) continue;
       // `text: true` makes the clone place itself by its MEASURED live box (the
@@ -523,21 +543,35 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         if (whole) { layer.insertBefore(group, layer.firstChild); landing = group; } else group.remove();
       }
     }
-    if (handover) {
+    const keepPaths = keep && paths.length > 0;
+    if (handover || keepPaths) {
       // where the flight starts and ends (anchors, stage px) and what changes in place (a colour, a width, a piece that fades in or out)
       const tmp0: SampledPath[] = [], tmp1: SampledPath[] = [];
       // (just inside the flight: the exact endpoints sample the pair's ORIGINAL chains, which have other node counts than the aligned flight chains)
       sampleCorrespondence(sampled, 1e-9, tmp0, { raw: 1e-9, durationMs: opts.durationMs ?? 600, arc }); sampleCorrespondence(sampled, 1 - 1e-9, tmp1, { raw: 1 - 1e-9, durationMs: opts.durationMs ?? 600, arc });
-      handover.refA = tmp0.map(sp => pathPoints(sp.nodes)); handover.refB = tmp1.map(sp => pathPoints(sp.nodes));
-      let look = 0;
-      for (const pair of plan.pairs) {
-        const pa = pair.a?.paint, pb = pair.b?.paint;
-        if (!pa || !pb) { look = Math.max(look, LOOK_TRAVEL); continue; }
-        const diff = (x: unknown, y: unknown) => JSON.stringify(x) !== JSON.stringify(y);
-        if (diff([pa.fill, pa.stroke, pa.dash, pa.opacity, pa.fillOpacity, pa.strokeOpacity, pa.fillMap, pa.strokeMap], [pb.fill, pb.stroke, pb.dash, pb.opacity, pb.fillOpacity, pb.strokeOpacity, pb.fillMap, pb.strokeMap])) look = Math.max(look, LOOK_TRAVEL);
-        look = Math.max(look, Math.abs((pb.strokeWidth ?? 0) - (pa.strokeWidth ?? 0)));
+      const refA = tmp0.map(sp => pathPoints(sp.nodes)), refB = tmp1.map(sp => pathPoints(sp.nodes));
+      if (keepPaths) {
+        // the Ghost law per piece (`keep`): a copy of a source piece emerges with its OWN separation from where it starts (a lagged piece still
+        // resting on the source stays undrawn while its neighbours leave); a piece born of no source (a destination leftover) is no copy and keeps
+        // its own envelope; a source piece with nothing opposite would only fade out where the source still stands, so it is not drawn at all
+        inks.length = 0;
+        for (const [i, pair] of sampled!.pairs.entries()) {
+          const a = pair.a, span = a ? ghostSpanOf(a.bbox.w, a.bbox.h) : 1;
+          inks.push({ kind: !a ? "own" : !pair.b ? "none" : "copy", span, travels: !!a && maxShift(refB[i], refA[i]) >= span, ref: refA[i] });
+        }
       }
-      handover.look = look;
+      if (handover) {
+        handover.refA = refA; handover.refB = refB;
+        let look = 0;
+        for (const pair of plan.pairs) {
+          const pa = pair.a?.paint, pb = pair.b?.paint;
+          if (!pa || !pb) { look = Math.max(look, LOOK_TRAVEL); continue; }
+          const diff = (x: unknown, y: unknown) => JSON.stringify(x) !== JSON.stringify(y);
+          if (diff([pa.fill, pa.stroke, pa.dash, pa.opacity, pa.fillOpacity, pa.strokeOpacity, pa.fillMap, pa.strokeMap], [pb.fill, pb.stroke, pb.dash, pb.opacity, pb.fillOpacity, pb.strokeOpacity, pb.fillMap, pb.strokeMap])) look = Math.max(look, LOOK_TRAVEL);
+          look = Math.max(look, Math.abs((pb.strokeWidth ?? 0) - (pa.strokeWidth ?? 0)));
+        }
+        handover.look = look;
+      }
     }
     prepared = true;
   }
@@ -645,6 +679,13 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       const a = opts.text!.a, b = opts.text!.b;
       const h = textMorph.frame(u, raw, { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u) });
       const w = handoverWeights(h), layers = textStatic!;
+      // `keep`: the real source text is the start render (no copy of it), and the spans emerge as they leave it (the Ghost law, by the spans'
+      // own distance from the start render: the words wait in their windows, so the box's travel would show them doubled where they wait)
+      const emerge = keep ? (() => {
+        const span = ghostSpanOf(a.width, a.height), travels = boxShift({ x: a.x, y: a.y, w: a.width, h: a.height }, { x: b.x, y: b.y, w: b.width, h: b.height }) >= span;
+        return ghostInk(h.away ?? 0, span, travels, u);
+      })() : 1;
+      if (keep) { w.a = 0; w.m *= emerge; w.b *= emerge; }
       for (const [node, weight] of [[layers.a, w.a], [layers.m, w.m], [layers.b, w.b]] as const) {
         const v = weight > 0 ? "" : "hidden", o = weight >= 1 ? "" : String(Math.round(weight * 1e6) / 1e6);
         // the span layer is hidden by its opacity: a span sets its own `visibility`, which a hidden parent does not override
@@ -655,7 +696,11 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     }
     invalidateIfStale();
     ensure();
-    if (custom) { custom.seek(t, raw); return; }
+    if (custom) {
+      // (a 3D model flight measures no separation here: its copy emerges over the first quarter of the flight, the Ghost law's still case)
+      if (keep) set(layer, "opacity", String(Math.round(ghostInk(0, 1, false, t) * 1e6) / 1e6));
+      custom.seek(t, raw); return;
+    }
     // The box crossfade runs on RAW progress (a phase, never an eased overshoot).
     let textWeight = 0;
     for (const f of boxFades) {
@@ -673,7 +718,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
       let i = 0;
       for (const drawing of paths) {
         while (sampled!.pairs[i] !== drawing.pair) i++;
-        drawPath(drawing, out[i], lagged ? lagTs[i] : t, 1 - textWeight);
+        drawPath(drawing, out[i], lagged ? lagTs[i] : t, (1 - textWeight) * inkOf(i, out[i], lagged ? lagTs[i] : t));
       }
       if (handover) {
         // how far the flight has come from its start render and has still to go to its end render (stage px; a change in place counts too)
@@ -686,7 +731,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
           if (o > 0) node.removeAttribute("display"); else set(node, "display", "none");
           if (o !== 1 && o > 0) set(node, "opacity", String(o)); else node.removeAttribute("opacity");
         };
-        put(handover.sides.a, w.a);
+        put(handover.sides.a, keep ? 0 : w.a);   // (`keep`: the real source is the start render)
         put(handover.sides.b, w.b);
         put(handover.flight, w.m);
       }
@@ -700,7 +745,9 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     for (const glyph of glyphs) {
       const bent = arcOffset(glyph, t, arc, bend);   // a glyph's travel is its own (dx, dy) to the landing
       set(glyph.node, "transform", `translate(${glyph.x + glyph.dx * t + bent.x} ${glyph.y + glyph.dy * t + bent.y}) scale(${1 + glyph.scale * t})`);
-      set(glyph.node, "opacity", String(glyph.opacity * fade));
+      // `keep`: a marker copy emerges as it leaves its source marker (the Ghost law)
+      const ink = keep ? ghostInk(Math.hypot(glyph.dx * t + bent.x, glyph.dy * t + bent.y) + Math.abs(glyph.scale * t) * glyph.reach, glyph.span, Math.hypot(glyph.dx, glyph.dy) + Math.abs(glyph.scale) * glyph.reach >= glyph.span, t) : 1;
+      set(glyph.node, "opacity", String(glyph.opacity * fade * ink));
     }
     for (const cross of crosses) {
       const t = lagged ? lagTs[cross.index] : tFlight;
@@ -712,13 +759,16 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
         const sy = h / (c.box.h || 1);
         return `translate(${x} ${y}) scale(${text ? sy : w / (c.box.w || 1)} ${sy})`;
       };
+      // `keep`: a box copy of the source emerges as its box leaves the source's (the Ghost law); a source box with nothing opposite is not drawn
+      const span = ghostSpanOf(a.w, a.h);
+      const ink = !keep || !cross.pair.a ? 1 : !cross.pair.b ? 0 : ghostInk(boxShift(a, { x, y, w, h }), span, boxShift(a, b) >= span, t);
       if (cross.a) {
         set(cross.a.node, "transform", fit(cross.a, cross.pair.a?.paint.text));
-        set(cross.a.node, "opacity", String((cross.pair.b ? 1 - t : clamp01(1 - t / .4)) * cross.a.opacity));
+        set(cross.a.node, "opacity", String((cross.pair.b ? 1 - t : clamp01(1 - t / .4)) * cross.a.opacity * ink));
       }
       if (cross.b) {
         set(cross.b.node, "transform", fit(cross.b, cross.pair.b?.paint.text));
-        set(cross.b.node, "opacity", String((cross.pair.a ? t : clamp01((t - .6) / .4)) * cross.b.opacity));
+        set(cross.b.node, "opacity", String((cross.pair.a ? t : clamp01((t - .6) / .4)) * cross.b.opacity * ink));
       }
     }
   }

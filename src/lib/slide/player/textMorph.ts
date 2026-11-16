@@ -88,7 +88,8 @@ export function appendBoundsHalo(layer: HTMLElement, reach: number): void {
   a.style.cssText = `position:absolute;inset:${-reach}px;pointer-events:none;background:rgba(0,0,0,0.0001)`;
   layer.appendChild(a);
 }
-export interface Handover { entry: number; landing: number }
+export interface Handover { entry: number; landing: number; /** how far (stage px, look terms included) the spans have left the start render: a
+ *  source-stays hand-off's Ghost law reads it (player/handoff.ts `keep`) */ away?: number }
 /** The smoothstep of a hand-over window: 0 at no distance, 1 at `HANDOVER_EPS` stage px. ONE ease for text (here) and shapes (shapeHandover.ts). */
 export const handoverEase = (distance: number): number => { const q = clamp01(distance / HANDOVER_EPS); return q * q * (3 - 2 * q); };
 /** The opacity of each of the three layers while the flight shows: A (the start render), M (the flight: spans or shapes), B (the end render). They
@@ -511,7 +512,7 @@ export function createTextMorph(a: TextElement, b: TextElement, opts: TextMorphO
     }
     void raw;
     // `entry` 0 -> 1 as the spans leave the start render, `landing` 0 -> 1 as they settle onto the end render
-    return { entry: handoverEase(away), landing: 1 - handoverEase(settle) };
+    return { entry: handoverEase(away), landing: 1 - handoverEase(settle), away };
   }
 
   function hide(): void {

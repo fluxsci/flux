@@ -73,6 +73,8 @@ const BECOME = {
     pair: { enum: [...PAIR_POLICY_IDS] },
     reveal: { enum: ["flip", "draw"] },
     method: { enum: [...TRANSFORM_METHOD_IDS] },
+    // 2026-11-16: a hand-off whose source stays (copies leave it); written only as true
+    keepSource: { type: "boolean" },
   },
 } as const;
 const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
