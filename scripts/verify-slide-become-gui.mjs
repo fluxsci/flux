@@ -207,6 +207,29 @@ try{
   check(!await page.$('.become-bar')&&JSON.stringify((await read()).slide)===cancelBytes,'Escape discards accumulated picks without a track or document change');
   await seed();await openTransform('Become');await page.select('[aria-label="Become pairing"]','data');await pickPart('axis.x.spine');await confirm();
   check(handoff(await read())?.to.become.pair==='data','Pair by data is written on the hand-off record');
+  // --- 2026-11-16: a Become whose source STAYS (keepSource; copies of it become the destination) ---------------
+  await seed();await openTransform('Become');
+  check(await page.$eval('[data-pick-keep-source]',e=>e.dataset.pickKeepSource==='leaves'&&e.getAttribute('aria-pressed')==='false'&&/Source leaves\s*K/.test(e.textContent)),'the pick bar offers "Source leaves" with its key K');
+  await page.keyboard.press('KeyK');await paint();
+  check(await page.$eval('[data-pick-keep-source]',e=>e.dataset.pickKeepSource==='stays'&&e.getAttribute('aria-pressed')==='true')&&await page.$eval('.become-bar .become-msg',e=>e.textContent.includes('sends copies to…')),'K switches the pick to "Source stays" and the bar reads "… sends copies to…"');
+  await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);await confirm();state=await read();
+  const kept=handoff(state);
+  check(kept?.to.become.keepSource===true&&JSON.stringify(kept.to.become.ref)==='{"element":"bh-plot","parts":["axis.x.spine","axis.y.spine"]}','Enter commits the hand-off with keepSource: true');
+  check(state.destination.kind==='after'&&!state.presentation.hiddenElementIds.includes('bh-path')&&state.presentation.partStates['bh-plot']['axis.x.spine'].visible&&await page.$eval('[data-editor-element-id="bh-path"]',e=>e.getAttribute('opacity')!=='0.25'),'After checkout: the path STAYS (no hidden-ghost paint) and the spines have landed');
+  check(await page.$eval(`.lane-row[data-track-id="${kept.id}"] .track-label`,e=>e.firstChild.textContent.trim())==='Path 1 sends copies to Plot 1 › X axis spine + 1'&&await page.$eval(`.lane-row[data-track-id="${kept.id}"] small`,e=>e.textContent.trim())==='Transform · Become · source stays','the lane says what happens: "Path 1 sends copies to Plot 1 › X axis spine + 1", "Transform · Become · source stays"');
+  check(await page.evaluate(()=>[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('‹Path 1› sends copies to ‹Plot 1 › X axis spine + 1›'))),'the toast reads "‹Path 1› sends copies to ‹Plot 1 › X axis spine + 1›"');
+  await clickText('.inspector-tabs button','Animation');
+  check(await page.$eval('.props .dest .dv',e=>e.textContent.trim().startsWith('sends copies to Plot 1'))&&await page.$eval('[aria-label="Hand-off source"] button[aria-pressed="true"]',e=>e.textContent.trim()==='stays'),'the Destination row reads "sends copies to …" and the Source switch shows "stays"');
+  const keptBytes=JSON.stringify(state.slide);
+  await clickText('[aria-label="Hand-off source"] button','leaves');state=await read();
+  check(handoff(state)?.id===kept.id&&!('keepSource' in handoff(state).to.become)&&state.presentation.hiddenElementIds.includes('bh-path'),'Source ▸ leaves rewrites the SAME track as an ordinary hand-off (no key) and the path leaves after the step');
+  await page.click('[aria-label="Undo"]');await paint();
+  check(JSON.stringify((await read()).slide)===keptBytes,'one Undo restores the source-stays Become exactly');
+  // a loose destination: keeping the source makes it a hand-off, never Consume; Consume instead says why it is unavailable
+  await seed();await openTransform('Become');await page.keyboard.press('KeyK');await paint();await clickObject('bh-rect');await confirm();state=await read();
+  check(handoff(state)?.to.become.keepSource===true&&state.slide.elements.some(e=>e.id==='bh-rect'),'Become (source stays) onto a loose rect hands off and keeps the rect (no Consume)');
+  await clickText('.inspector-tabs button','Animation');
+  check(await page.$$eval('.props .dacts button',bs=>bs.some(b=>b.textContent.includes('Consume instead')&&b.disabled&&/cannot also stay/.test(b.title))),'Consume instead is disabled for it, with its reason');
   // --- Oct-2: Become into a SET of things (TargetRef.members) ------------------------------
   const seedSet=async(grouped=false)=>{
     await page.evaluate((grouped)=>{

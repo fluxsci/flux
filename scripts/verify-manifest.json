@@ -365,6 +365,7 @@
       "verify-slide-stroke-band-browser.ts",
       "verify-slide-shape-handover.ts",
       "verify-slide-handoff-pose.ts",
+      "verify-slide-become-keep.ts",
       "verify-slide-camera.ts",
       "verify-slide-raster-pure.ts",
       "verify-slide-settle-sweep.ts",
@@ -956,7 +957,8 @@
       "verify-slide-ghost-structure.ts",
       "verify-slide-ghost-api.ts",
       "verify-slide-ghost-gui.mjs",
-      "verify-slide-arrow-browser.ts"
+      "verify-slide-arrow-browser.ts",
+      "verify-slide-become-keep.ts"
     ],
     "slide-stash": [
       "verify-slide-stash.ts",
@@ -1045,6 +1047,7 @@
       "verify-slide-stroke-band-browser.ts",
       "verify-slide-shape-handover.ts",
       "verify-slide-handoff-pose.ts",
+      "verify-slide-become-keep.ts",
       "verify-slide-camera.ts",
       "verify-slide-player.ts",
       "verify-slide-stagger.ts",
@@ -10575,6 +10578,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-become-keep.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
       "exclusive": false,
       "coverage": "behavior"
     },
