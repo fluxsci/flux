@@ -11,6 +11,13 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Slides
 
+- **A Become can keep its source.** Press **K** while picking what something becomes (or set
+  **Source** to **stays** in the Animation inspector) and the source stays on the slide while a copy
+  of it flies off and becomes the destination. Six fitted curves can each send a copy into its bar of
+  a half-time chart while the curves stay in their plot. Pairing, Reveal, Method, Piece lag, timing
+  and arcs all apply to the copies; they grow out of the source as they leave it, so nothing looks
+  doubled on the first frames. The timeline lane reads “… sends copies to …”. Agents:
+  `flux become … --keep-source` and `flux appear-from … --keep-source`.
 - **Fixed: a part that appeared earlier on a slide blinked when it started to Become something.** With
   a plot's parts faded or drawn in on one step and turned into parts of another plot on a later step
   (a ring of sectors becoming rows of a raincloud plot), each part vanished for a moment at the start

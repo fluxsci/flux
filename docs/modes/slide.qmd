@@ -527,6 +527,8 @@ picking: every click on the canvas is a pick.
   its siblings: the other members of its group, then the same part of every series, then the
   rest of its series. **Backspace** drops the last pick.
 - **Double-click** picks something and confirms at once, the quick path for a single object.
+- **K** (or the **Source leaves / Source stays** button on the bar) chooses whether the source
+  leaves or stays; see [The source stays](#the-source-stays) below.
 - **Space**, **Enter** or the **Become** button confirms. **Escape** or **Cancel** leaves the picker
   without creating a transform and puts the source selection back. Changing slides or steps also
   cancels.
@@ -565,6 +567,30 @@ rectangle. The canvas lands in **Edit after step**, with the track selected in t
 Video clips cannot take part; use Change to move or resize them. Groups and sets of several
 objects can be destinations; choose one object or plot parts as the source. A set always hands
 off: **Consume** and **↔ Swap direction** need a single destination.
+
+#### The source stays {#the-source-stays}
+
+A Become normally uses up its source: after the step the source is gone and the destination stands
+in its place. Press **K** while picking (the bar then reads **‹Source› sends copies to…** and its
+button **Source stays**), or set **Source** to **stays** in the Animation inspector, and the source
+**stays** instead: it remains on the slide, unchanged, before, during and after the step, while a
+copy of it leaves and becomes the destination. With six fitted curves picked as the source and six
+bars as the destination, each curve stays in its plot and a copy of each flies across and becomes
+its bar.
+
+Everything else about the Become applies to the copies: **Pair**, **Reveal**, **Method**, **Piece
+lag**, the timing, the easing and the arc, and the destination lands exactly as it would after an
+ordinary Become. The copies start exactly on the source and appear as they move away from it, so the
+source never looks doubled on the first frames. The lane reads, for example, **Fits sends copies to
+Bars › 6 bars** (its kind, **Transform · Become · source stays**), and the Destination row reads
+“sends copies to …”. Choosing **stays** always makes a hand-off: **Consume instead** is unavailable
+for it (Consume turns the source itself into the destination), and **↔ Swap direction** keeps the
+source staying, so the old destination stays and sends copies back. **Appear from…** offers the
+same choice with **K**.
+
+Use **Source stays** when the copies should become existing things on the slide (curves becoming
+bars, points becoming a summary); use [Ghost](#ghost) when you want free copies of a whole object
+that you then move, restyle or Become one by one.
 
 To work from the other end, select the destination object or plot parts (or several objects,
 which then appear together from one source) and choose **Appear ▾ → Appear from…**. The main
@@ -614,8 +640,9 @@ the landing, excluding the leaves already revealed by the hand-off. A hand-off t
 plot already reveals every part, so it offers no remainder.
 
 **Destination.** The Animation inspector names both sides of a hand-off; for a set it reads,
-for example, “hands off to 3 ellipses” and lists each member below. **Pair ▾** chooses
-auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
+for example, “hands off to 3 ellipses” (or “sends copies to 3 ellipses” when the source stays)
+and lists each member below. **Pair ▾** chooses auto, by position, by order, by data, or tile;
+**Reveal** chooses flip or draw; **Source** chooses whether the source **leaves** or **stays**.
 **Method ▾** chooses what a filled shape's interior does while its outline splits into several
 pieces (or several pieces merge into it): **shatter** splits it into wedges that fly with the
 pieces; **dissolve** fades it away in place as the outline leaves; **collapse** shrinks it into

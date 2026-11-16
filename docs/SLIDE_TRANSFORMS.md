@@ -60,7 +60,7 @@ and a hand-off of one box can coexist; part styling Changes still use the whole 
 - **Ghost** creates ordinary result elements. Each birth track's `ghostFrom` names its
   source, whose previous-step endpoint supplies the starting state. Unborn copies remain
   absent in Design and with Show hidden enabled; later steps address the copy normally.
-- **Become** uses `to.become = {ref, mode, pair?, reveal?}`. **Consume** writes the evaluated
+- **Become** uses `to.become = {ref, mode, pair?, reveal?, method?, keepSource?}`. **Consume** writes the evaluated
   destination into the source's state/content, removes the destination and its tracks, and
   keeps `to.become` as provenance. Whole loose drawn/text destinations default to Consume.
   Plot/image, group and part-set destinations, or part-set sources, default to **hand-off**.
@@ -161,6 +161,22 @@ interior runs over `[0, 1−w]`, an arriving one over `[w, 1]` (`pairProgress`, 
 crossfades). Path driver only (glyph flights, text morphs and 3D ignore it); a merge lander's windows run over its own first
 `1/holdK`. Lag 0 is byte-identical to unison; a new hand-off is authored with no lag (unison; owner 2026-10-25, replacing D4's 0.15 for 3+ pieces);
 ops refuse it on anything but a hand-off. Not stamped (Q8).
+
+**The source stays (`BecomeSpec.keepSource`, 2026-11-16: "a ghost Become", manim's TransformFromCopy).** A hand-off may keep its
+source: `to.become.keepSource: true` (written only as `true`; absent = the source leaves, so every older deck keeps its bytes). The
+record is otherwise the ordinary hand-off's: `becomeTransform(..., { keepSource })` writes it (it implies hand-off when `mode` is absent
+and refuses `mode: "consume"`), `appearFrom` too, `swapBecome` keeps it (the old destination stays and sends copies back), and a
+re-Become rewrites it like `pair` / `reveal` / `method`. The compiler never hides a staying source (`compile.sample`: neither at raw > 0
+nor at a crossfade's fade-out), so editor, PDF, PowerPoint and video stills show it before, during and after the step; the destination
+is hidden before its landing and revealed at it exactly as before. The player's driver (`player/handoff.ts`, `keep`) takes no
+visibility lease on the source, never draws the flight's own copy of the source's start render (the hand-over's `a` side, the text
+morph's `a` layer, a sliced shape's held cover: the real source IS the start render) and applies the **Ghost law** (`slide/ghost.ts`
+`ghostInk`, the one ramp Ghost births use) to every copy: a path piece by its own largest node shift from its start sample (a lagged
+piece still resting on the source is undrawn), a crossfade box and the text morph's layers by box travel, a glyph by its own travel, a
+3D media flight by progress (`GHOST_STILL_FADE`); a piece born of no source keeps its envelope and a source piece with nothing opposite
+is not drawn. Not stamped: an older build plays it as an ordinary hand-off (the source leaves). Gates: `verify-slide-become-keep.ts`
+(record, CLI bytes, stills, exported player in Chrome), `verify-slide-become-gui.mjs` (pick bar K, inspector Source switch, lane and
+toast text, Consume disabled).
 
 **Attachments (WP 3.2).** `ElementBase.attach` makes an element's geometry a PURE function of other
 elements' boxes (`slide/attach.ts`): a line's ends stick to drivers (an `auto` end leaves its driver's outline

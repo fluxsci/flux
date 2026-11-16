@@ -194,6 +194,7 @@ The established shared cores — extend these, don't duplicate them:
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
 | Start and landing of every animation (pen touch-down, priming and the flight mark, the first-tick clock, the camera's early bake, the settle corpus and its KNOWN_OPEN); fractionally scaled displays (the layout box on the device grid, compositing constant per slide, the device grid of hosts and rests) | `player/player.ts` (`begin`, `glidesEver` / `markFor`), `player/render.ts` (`armFlightMark`, `primeFlightLayers`, `layoutBoxOf`, `restGridShift`), `player/deviceGrid.ts` (`gridFit`, `stageGrid`), `timing.ts` (`FIRST_TICK_MAX_MS`), `player/rasterKeeper.ts` (`EARLY_BAKE_LEAD_FRAMES`), `player/trim.ts` (`penWidth`); probes and corpus in `scripts/lib/slideSettle*.ts` (`DSF=1.25` measures a scaled display) | `verify-slide-settle-sweep.ts` (pure, headless Chrome), `verify-slide-settle-electron.cjs` (electron tier, offscreen; its device-scale pass), `verify-slide-device-grid.ts`, `verify-slide-raster-pure.ts`, `verify-slide-raster-electron.cjs`, `verify-pace-defaults.ts`, `verify-slide-tween.ts` (mark laws) |
+| A hand-off whose SOURCE STAYS (`BecomeSpec.keepSource`: copies leave the source, the Ghost law on every copy) | `ops.becomeTransform` / `appearFrom` / `swapBecome` (the record), `compile.ts` (`flights[].keep`: never hides the source), `player/handoff.ts` (`keep`: no source lease, no start-render copy, `inks` / `inkOf`), `slide/ghost.ts` (`ghostInk` / `ghostSpanOf`: the ONE ramp, shared with Ghost births), verbs `become` / `appear-from --keep-source`, `pick/pickState.svelte.ts` (K), `PropertiesPane.svelte` Source switch | `verify-slide-become-keep.ts` (record + real CLI bytes, compile / PDF / PPTX stills, exported player: first frame == rest, source never hidden, landing == ordinary twin, emergence per piece, rewind), `verify-slide-become-gui.mjs` (K, Source switch, lane / toast text, Consume disabled) |
 | A hand-off's copies of its ends, and the look of any other moment | `player/player.ts` (`writeLook`: THE LOOK LAW, the one writer of a node's keyframed styles for `applyAt` and for `posedAt`; `supersededAt`, `specsByNode`, `animatedProperties`), `player/handoff.ts` (`HandoffCtx.pose`, the glyph flight's `landing` copies, `GLYPH_LANDING_COPIES`, `GLYPH_FADE`) | `verify-slide-handoff-pose.ts` (exported player, plan built at step 0: a part / a plot / markers / a text that entered earlier, a destination that rose in; first flight frame == rest, last == landed, live styles untouched; the glyph landing copies) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts`; `verify-slide-animator-gui.mjs` pins saved Arc through the library's real Apply and Undo paths. Transform preset application forwards HOW fields explicitly into `setTransform`; extending the saved payload alone does not extend this reader. |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
@@ -226,7 +227,7 @@ missing standard files heal on open via contextHeal.ts / `flux context-init`, on
 `slides/<deckId>/deck.json` (0.6.0: shared figure editor elements plus slide-only video
 and a presentation overlay of beats/transition/notes/camera; tracks animate in independent
 FAMILIES — appearances, media commands, camera and transforms (`to.state` = a sparse t2 patch
-folded left-to-right across beats; `to.become` = Consume provenance or live hand-off refs);
+folded left-to-right across beats; `to.become` = Consume provenance or live hand-off refs, `keepSource: true` = the source stays and copies of it fly);
 plot `view` stores axis domains/scales, `curve` stores timing, `animStyles` plus track
 `styleId`/`anchor` link settings and timing, `stagger.totalMs/curve/seed` distribute starts,
 `arc` bends box motion, camera `to.path` selects Zoom/Fly, and `Beat.groups` holds collapsible lanes;
@@ -1791,7 +1792,7 @@ Persistence invariants (all machine-checked — do not weaken):
   default to hand-off: `to.become={ref,mode:"handoff",pair,reveal}`, `to.state={}`, both model
   identities retained. Part sources keep their plot's props; the full ref keys the family law.
   The Animation inspector's Destination controls edit that same record through
-  `becomeTransform`. `swapBecome` reverses source/destination refs atomically, with the
+  `becomeTransform` (its Source switch writes `keepSource`, which implies hand-off and refuses Consume). `swapBecome` reverses source/destination refs atomically, with the
   pane making one `commitDeckLive` transaction and `swap-become`/`swap_become` using the
   same op. It keeps style/timing and rebinds followers; group destinations and
   ghost births cannot be reversed there. Consume uses inline two-click confirmation for
@@ -2239,6 +2240,15 @@ Persistence invariants (all machine-checked — do not weaken):
   driver on the wrapper only (`TransformCtx.ghost`), floored at 0.001 (an opacity-0 node is culled and rasters
   mid-flight at a fractional offset it keeps). Limits: separation is measured from the BIRTH pose, and a
   same-beat appearance owning the wrapper's opacity takes the share with it.
+  **The source stays (`BecomeSpec.keepSource`, 2026-11-16, "a ghost Become").** A hand-off may keep its source: the
+  compiler never hides it (`flights[].keep`), the driver takes no visibility lease on it, and the flight is made of COPIES that
+  obey the Ghost law through the same `ghostInk` ramp: each path piece by its own largest node shift from its start sample
+  (`inks`, built with the plan from the 1e-9 / 1−1e-9 samples the hand-over already takes), crossfade boxes and the text morph's
+  layers by box travel, glyphs by their own travel, 3D media by progress. The flight's own copy of the source's START render (the
+  hand-over's `a` side, the text morph's `a` layer, a sliced shape's held cover) is never cut or drawn: the real source is that
+  render, so the first flight frame IS the rest (gate: 0 px). Everything else (pairing, Reveal, Method, Piece lag, arcs, the pose
+  law, merges) is the ordinary hand-off's, so the landing equals an ordinary twin's landing. Not stamped (an older build plays it
+  as an ordinary hand-off: §10).
   **Measured TRAPS (Release 2 F2).** (a) Chrome shapes SVG text at the scale of the svg's own view-box
   mapping, so a run measured in a node laid out in the exact (fractional) box is 0.06 % off the real render in
   the whole-pixel layout box: measure in the layout box and give clones the endpoint's mapping with
@@ -5322,6 +5332,14 @@ outside this PNG packaging change.
   `posedAt` (§4, the pose law). A fixture only finds this class if the node ENTERS on an earlier step and the gate
   lets the idle warm run before the flight is ever seeked: every older hand-off fixture had its source visible from
   step 0, which is why every hand-off gate stayed green over an owner-visible blink.
+- **A correspondence sample at EXACTLY progress 0 (or 1) is the pair's ORIGINAL chain**, whose node count differs from the
+  aligned flight chain's (the hand-over samples at 1e-9 for this reason). Comparing point arrays across that seam reads a huge
+  "shift": a lagged piece whose own clock has not started looked fully separated, so its source-stays copy was drawn doubled on
+  the first frame (4,519 px in `verify-slide-become-keep`). Treat a piece clock ≤ 0 as resting on its start; measure only inside
+  the flight.
+- **A text → text hand-off's words wait in their windows.** "Result" → "Results" shows the static start render until ~85 % of
+  the flight (the matched stem glides late); a gate that asks "does something fly at 40 %?" of a text morph reads 0 px. Sample late
+  too.
 - **A flight is drawn ABOVE the plots it leaves and lands on.** A part painted under a sibling (the sine fixture's
   `2hz.line` under `1hz.line`) differs from its own flight copy wherever the sibling crosses it (733 px at the
   first frame, none of it a blink). Gates that compare a rest with a flight frame use the top part or a part nothing
@@ -5417,6 +5435,11 @@ be a few words ("Manuscript Check."), detail after it. The gate reads the BUNDLE
   mentions it: wait on the output file instead." (f) "Compare images of a candidate against the BASE on the
   owner's own deck before committing: the sweep of the Release 1 deck found the gradient regression the compact
   corpus could not."
+- **A source-stays Become (`keepSource`) is NOT stamped (2026-11-16, agent decision, owner may veto).** An older build reads the
+  field as unknown and plays an ordinary hand-off: the copies' flight and the landing are identical, only the source leaves at the
+  step. The Q8 line (stamp only what an older build would break on) was read as covering this; the alternative is a 0.8 read
+  version (DECK_SCHEMA_VERSION, `DECK_EDITABLE`, its CommonJS twin, the deck schema pattern and four version pins), deliberately
+  not taken for one boolean.
 - **3D v1 is triangle-mesh visualization.** N2 (3D lines and points) remains out of
   scope, alongside volumes, textures/PBR or light editing, shadows, geometry
   modelling, 3D-anchored annotations, VR/AR and live PPTX 3D. Compose depth-related
@@ -12542,3 +12565,16 @@ changed pixels and ink: a one-frame blink is invisible on the evenly spaced stri
   the owner's own deck first (trimmed scratch copy), read the DOM of the bad frame, then name the cause.
 - A whole class stays invisible to a corpus whose fixtures all start visible: add the EARLIER step to the fixture.
 - One writer per law: the fix was safe because `applyAt` and the pose share `writeLook` instead of agreeing by test.
+
+### 2026-11-16 — A Become whose source stays ("a ghost Become", `keepSource`) (Claude Opus 5.5, `ghost-become`)
+**Work:** Owner ask: each fitted curve should do a ghost-become into its half-time bar (the curves stay; manim's TransformFromCopy).
+Built as an option of the hand-off Become, not of Ghost: `to.become.keepSource: true` (additive, not stamped), compiler never hides the
+source, the player flies copies under the Ghost law (one `ghostInk` ramp shared with Ghost births), K in the Become picker, a Source
+switch in the inspector, `--keep-source` on `become` / `appear-from`. Filmed on a scratch copy of the demo deck (six curves → six bars):
+first flight frame == rest (0 px; the ordinary hand-off reads 493 px there), curves untouched throughout, landing == the ordinary twin's.
+**Learnings:** (promoted to §2 row, §3, §4 "the source stays", §9 two traps, §10 the stamp decision)
+- An option of an existing record beats a new mechanism: everything the hand-off already does (pairing, lag, arcs, the pose law, merges)
+  came for free, and the only new law was "draw no copy of the start render; let each copy emerge by its own separation".
+- Gate a landing against an ORDINARY TWIN, not against zero: the line → bar fixture lands with a 314 px step in both (a spine and error
+  bars are painted over the bars in the real render, under the flight: the known "flight above the plots" class), which a pin of 40
+  would have blamed on the new option.
