@@ -2565,6 +2565,30 @@ Persistence invariants (all machine-checked — do not weaken):
     rows/cols/gap refused, a refusal is an error and writes nothing). Gates:
     `verify-crystallize.ts` (pure: planner, op, controller) and `verify-crystallize-gui.mjs`
     (Figure and Slide), both in `group:align-arrange`.
+    **Plots crystallize on their AXES** (owner, 2026-11-17: "line up the plot axes rather than
+    the bounding boxes"). The planner stays plot-free: `planAutoArrangement` takes `lines`
+    (`LayoutLines`: per unit key, `x` = the vertical line a COLUMN's members share, `y` = the
+    horizontal line a ROW's members share) and `gridTracks` places a track's boxes on that line,
+    sizing the track by what sticks out either side. An axis counts only when EVERY unit has
+    its line; otherwise that axis is boxes. Gaps stay between the visible boxes, which is why
+    the passive guides recognize an on-axes arrangement with no change to recognition. The
+    lines come from `plot/landmarks` `plotAxisLines` / `selectionAxisLines` (named by canvas
+    coordinate, so `y` is read from the bottom X spine and `x` from the left Y spine): the
+    Align pane's own candidates, except that with nobody to ask a unit of several panels or
+    plots offers its OUTERMOST main spine. Three readers, one helper: the controller (live
+    plot DOM; `ensurePlotDom` on the key, `requestPlotDom` for the offer), the live bridge,
+    and `flux-core/plotAlignment.ts` `arrangementAxisLines` (accepted files, with the same
+    unchanged-source guard as `align_plot_spines`). `on: axes | boxes` on the op/verb/bridge:
+    default is axes where readable, `boxes` ignores lines, `axes` refuses to fall back.
+    Editor: Shift+A is axes, Shift+Alt+A / Alt-click is boxes (`crystallizeSelection({boxes})`);
+    the offer carries both plans, the overlay previews `rails` (the shared axis lines) and
+    swaps to the box plan while Alt is held. The offer is withheld for plots whose BOXES are
+    already crystallized (what Alt leaves behind: an offer that returns the moment it is
+    declined is a nag) and above `CRYSTALLIZE_AXES_OFFER_UNITS` plots (spines are not read on
+    the selection path; the per-root landmark cache holds 64 placements). `settled()` in the
+    planner: tracks already lined up and evenly spaced keep the gap between them as they
+    stand, which also fixed a crystallized grid of MIXED sizes being re-spaced by a second
+    press (neighbour gaps misread it).
     `layout/arrangement.ts` owns inferred rows/columns/grids, immutable translation plans,
     per-axis gaps and fixed-point anchoring; `layout/layoutMath.ts` also serves legacy
     `arrangeGrid`. Old headless calls preserve their defaults. A regular inferred layout
@@ -12664,3 +12688,18 @@ guides take over. One shared pure planner serves the editor and `arrange --mode 
 - A pinned selector that counts children (`div:nth-child(2)`) breaks on any honest markup change; address by role.
 - A recognition heuristic needs its refusals designed first (pile, object-on-object, spanning unit): an always-on
   offer that tears labels off their panels on Ctrl+A is worse than no offer.
+
+### 2026-11-17 (later) — Crystallize lines plots up on their axes (Claude Fable 5.2, `main`)
+**Work:** Owner follow-up on Crystallize: a selection of fluxplots should line up on its axes, with Alt for
+bounding boxes, and the pink guides either way. Lines enter the shared planner as plain per-unit numbers; the
+editor, the live bridge and the file engine each read them through one landmarks helper. Shift+Alt+A and
+Alt-click give boxes; `arrange --mode auto` gained `--on axes|boxes`.
+**Learnings:** (promoted to §4 Crystallize)
+- Keep the planner ignorant of what a line IS. "A number per unit that a track's members share" made axes a
+  twenty-line change to `gridTracks` and left recognition, gaps, guides and exactness untouched.
+- An offer that comes back the instant the user declines it is a nag: after Alt (boxes), the axes offer
+  would have reappeared at once. Withhold an offer for the state its own alternative produces.
+- Two arrangements "by box" from different starting layouts need not be equal (alignment follows the edge
+  the objects are already closest to). Compare alternatives from the same starting state in a gate.
+- `projectAssetPath` realpaths its target, so asking for a sidecar that does not exist threw a bare ENOENT
+  before the code that tolerates a missing sidecar could run; a plain SVG now reads as "no semantic axes".

@@ -1230,7 +1230,7 @@
     <div class="layout-tools">
       <button title="Open Flux Align (A)" on:click={() => openAlignArrange("align")}><span>Flux Align…</span><span class="hk">A</span></button>
       <button title="Open Flux Arrange (Alt+T)" disabled={arrN < 2} on:click={() => openAlignArrange("arrange")}><span>Flux Arrange…</span><span class="hk">Alt+T</span></button>
-      <button title="Snap the selection into the row, column or grid it is closest to (Shift+A)" disabled={arrN < 2} on:click={() => crystallizeSelection()}><span>Crystallize</span><span class="hk">⇧A</span></button>
+      <button title="Snap the selection into the row, column or grid it is closest to (Shift+A). Plots line up on their axes; Alt-click (Shift+Alt+A) uses bounding boxes instead." disabled={arrN < 2} on:click={(e) => crystallizeSelection({ boxes: e.altKey })}><span>Crystallize</span><span class="hk">⇧A</span></button>
     </div>
   <!-- ALIGN -->
   <section>

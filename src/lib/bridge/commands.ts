@@ -21,7 +21,7 @@ import { ELEMENT_CASCADE_PROPS, type CascadeSpec } from "../cascade";
 import { scene3dManifests } from '../model3d/store';
 import { applyModelViewCommand, applyModelFieldCommand, validateModelViewCommand, validateModelFieldCommand, assertModelPart, applyModelPartStyle, type ModelViewCommand, type ModelFieldCommand } from '../model3d/commandOps';
 import type { Model3dAsset } from '../model3d/types';
-import { planPlotSpineAlignment, type SpineChoice } from '../plot/landmarks';
+import { planPlotSpineAlignment, selectionAxisLines, type SpineChoice } from '../plot/landmarks';
 import { plotDom, plotManifests, ensurePlotDom } from '../plot/store';
 import { resolveLayoutUnits } from '../layout/arrangement';
 import { ensureAssetBytes } from "../assets";
@@ -145,6 +145,7 @@ function validateCommand(c: Command): void {
   if (c.type === 'arrange' || c.type === 'align') scalar(c,'scope','string');
   if (c.type === 'arrange') {
     enumeration(c,'mode',['tidy','reflow','auto']);
+    enumeration(c,'on',['axes','boxes']);
     enumeration(c,'anchorX',['start','center','end']);
     enumeration(c,'anchorY',['start','center','end']);
   }
@@ -446,14 +447,28 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
     case "arrange": {
       const f = fig(c);
       if (!f) throw new Error("arrange: no active figure");
+      const arrangeIds = Array.isArray(c.ids) ? (c.ids as string[]) : undefined;
+      const arrangeScope = typeof c.scope === "string" ? c.scope : undefined;
+      // mode auto (Crystallize): plots line up on their axes, read from the live plot DOM.
+      let lines: ops.ArrangeOpts["lines"];
+      const live = get(store.project).figures.find(x => x.id === f);
+      if (c.mode === "auto" && c.on !== "boxes" && live) {
+        const units = resolveLayoutUnits(live, arrangeIds, { scope: arrangeScope, editable: false });
+        if (units.length >= 2 && units.every(unit => unit.members.some(e => e.type === "plot"))) {
+          for (const unit of units) for (const element of unit.members) if (element.type === "plot") ensurePlotDom(element.assetId);
+          const manifests = get(plotManifests);
+          lines = selectionAxisLines(live, arrangeIds, { figure: live, scope: arrangeScope, manifest: id => manifests[id], plotRoot: id => plotDom.get(id) });
+        }
+      }
       store.commit((p) =>
         ops.arrangePanels(p, f, {
           rows: num(c.rows),
           cols: num(c.cols),
           gap: num(c.gap),
-          ids: Array.isArray(c.ids) ? (c.ids as string[]) : undefined,
-          scope: typeof c.scope === "string" ? c.scope : undefined,
+          ids: arrangeIds,
+          scope: arrangeScope,
           mode: c.mode as ops.ArrangeOpts["mode"],
+          on: c.on as ops.ArrangeOpts["on"], lines,
           gapX: num(c.gapX), gapY: num(c.gapY),
           anchorX: c.anchorX as ops.ArrangeOpts["anchorX"],
           anchorY: c.anchorY as ops.ArrangeOpts["anchorY"],

@@ -845,9 +845,10 @@ export function handleKey(e: KeyboardEvent) {
   }
   // Shift+A: Crystallize. The selection snaps into the row, column or grid it is closest to,
   // with no panel (A's own family: A opens the tool, Shift+A just does it).
-  if (!mod && !e.altKey && e.code === "KeyA" && e.shiftKey) {
+  // Plots line up on their axes; Shift+Alt+A asks for the bounding boxes instead.
+  if (!mod && e.code === "KeyA" && e.shiftKey) {
     e.preventDefault();
-    if (!e.repeat) crystallizeSelection();
+    if (!e.repeat) crystallizeSelection({ boxes: e.altKey });
     return;
   }
   if (!mod && !e.altKey && e.code === "KeyL" && e.shiftKey) {

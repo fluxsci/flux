@@ -3,6 +3,7 @@ import { readModel3dMetadata, ensureModelPoster } from './model3d';
 import { applyModelPartStyle } from '../src/lib/model3d/commandOps';
 import { stageFigureWrites } from "./model";
 export { alignPlotSpines, PlotSpineAlignmentError, type AlignPlotSpinesOptions } from './plotAlignment';
+import { arrangementAxisLines } from './plotAlignment';
 // flux-core/figures.ts — the figure verbs (split out of index.ts; WS-6.2):
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
 // element styles + the text system, groups/z-order/layout, and scaffold.
@@ -486,8 +487,17 @@ export async function arrangeFigure(
   figId: string,
   opts: ops.ArrangeOpts = {},
 ): Promise<void> {
-  await mutateFigModel(root, "arrange", ({ project }) => {
-    if (!ops.figById(project, figId)) throw new Error(`figure not found: ${figId}`);
+  await mutateFigModel(root, "arrange", async ({ project }) => {
+    const figure = ops.figById(project, figId);
+    if (!figure) throw new Error(`figure not found: ${figId}`);
+    // mode auto is the app's Crystallize: plots line up on their axes, read from the accepted
+    // sources exactly as the editor reads them, unless the caller asks for bounding boxes.
+    if (opts.mode === "auto" && opts.on !== "boxes" && opts.lines === undefined) {
+      const axes = await arrangementAxisLines(root, project, figure, opts.ids, opts.scope, opts.on === "axes");
+      ops.arrangePanels(project, figId, { ...opts, lines: axes.lines });
+      await axes.unchanged();
+      return;
+    }
     ops.arrangePanels(project, figId, opts);
   });
 }

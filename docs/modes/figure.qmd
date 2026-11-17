@@ -833,7 +833,8 @@ one gesture.
   **Dock** move the same view between windows. You can keep editing the workspace while
   it is pinned. **Shift+Alt+G** likewise opens the Plot gallery already pinned.
 - **A** opens **Align & Arrange** with Align active; **Space** switches the active pane. **Alt+T** opens it with Arrange active.
-  **Shift+A** is **Crystallize**: a loose selection snaps into its row, column or grid with no panel at all.
+  **Shift+A** is **Crystallize**: a loose selection snaps into its row, column or grid with no panel at all
+  (plots line up on their axes).
   See [Alignment and arrangement](#alignment-and-arrangement) for spacing, anchors and plot spines.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.
 
@@ -864,9 +865,30 @@ or column, objects keep the edge or center they already nearly share (tops stay 
 The selection's fixed point stays put: the center, unless you chose another under **Keep
 fixed**. It is one Undo step, and a short label by the selection says what was recognized
 (*Grid 3 × 3*, *Row of 3*). Objects piled on top of each other, and layouts where one
-object spans several rows or columns, are left alone with a note saying why. An evenly
-spaced row of plots whose boxes do not line up is usually aligned on its axes, so it gets
-no button; **Shift+A** still lines the boxes up if you ask.
+object spans several rows or columns, are left alone with a note saying why.
+
+### Plots line up on their axes {#crystallize-axes}
+
+When everything you selected is a Fluxplot, Crystallize lines up the **axes** instead of the
+bounding boxes: the plots of a row share one line through their bottom X axes, and the plots
+of a column share one line through their left Y axes. A grid does both at once. This is what
+a figure of panels wants, because tick labels, axis titles and legends make the boxes of two
+plots differ even when their axes should agree. The gaps are still measured between the
+plots as you see them, so the pink gap guides appear afterwards exactly as they do for
+anything else, and the label reads *Row of 3 · on axes*.
+
+- Hovering the corner button also draws the line each row's or column's axes will share.
+- Hold **Alt** for bounding boxes instead: **Alt-click** the corner button (holding Alt
+  while you hover previews it) or press **Shift+Alt+A**.
+- A plot grouped with its panel letter counts as that plot. A plot of several panels offers
+  its outermost axes: the lowest X axis and the leftmost Y axis.
+- If any selected object is not a plot, or a plot's axis cannot be read (a plain SVG, a
+  hidden spine, a plot turned on its side), the selection is arranged by bounding box.
+
+Plots that already sit on their axes with even gaps get no button, and neither do plots
+whose boxes you lined up on purpose; **Shift+A** still puts those on their axes if you ask.
+For a different spine, or to align plots that are not neighbours in a row or column, use
+**X** and **Y** in the [Align pane](#align-arrange-panel).
 
 ## The Align & Arrange panel {#align-arrange-panel}
 

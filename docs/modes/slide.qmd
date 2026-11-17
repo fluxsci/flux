@@ -110,7 +110,7 @@ command line as `flux animate-plot`.
 
 The slide canvas shares Figure's [alignment and arrangement tools](figure.qmd#alignment-and-arrangement).
 **Shift+A** [crystallizes](figure.qmd#crystallize) a loose selection into its row, column or
-grid in one step. **A** opens Align & Arrange with Align active; **Alt+T** activates Arrange. Both panes remain
+grid in one step (plots [on their axes](figure.qmd#crystallize-axes); **Shift+Alt+A** for bounding boxes). **A** opens Align & Arrange with Align active; **Alt+T** activates Arrange. Both panes remain
 visible, and **Space** switches keyboard ownership when the tool surface has focus. Regular
 selections show pink gap guides directly; signed spacing supports overlapping objects, and
 the selection pin opens a persistent **Keep fixed** chooser. **1/2/3** chooses start/center/end

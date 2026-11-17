@@ -142,7 +142,8 @@ Tools: **V** select · **K** scale · **H** hand · **T** text · **Alt+R** rect
 | **Shift+Alt+R** | X-ray the drilled part's **family** (one tick label → all the tick labels), selected on the canvas too |
 | **Alt+M** / **Shift+Alt+M** | Figure-Meta / open it pinned (Figure and Paper) |
 | **Alt+L** | Mark selected text as a panel label |
-| **Shift+A** | Crystallize: snap a loose selection into the row, column or grid it is closest to (also the small button at the selection's corner) |
+| **Shift+A** | Crystallize: snap a loose selection into the row, column or grid it is closest to (also the small button at the selection's corner). Plots line up on their axes |
+| **Shift+Alt+A** | Crystallize by bounding box, for plots you do not want on their axes (also **Alt-click** the corner button) |
 | **A** | Open Align & Arrange with Align active — **W/A/S/D** edges, **H/V** X/Y centers, **Shift+H/V** even spacing, **X/Y** plot spines |
 | **Space** | Switch the active Align / Arrange pane while the tool surface has focus; both panes stay visible |
 | **Alt+T** | Open Align & Arrange with Arrange active — **R** row, **C** column, **G** grid, **+**/**−** rows, **1/2/3** fixed point, **Enter** apply, **Esc** cancel |

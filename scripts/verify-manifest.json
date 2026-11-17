@@ -1931,7 +1931,8 @@
       "run": [
         "verify-plot-landmarks.ts",
         "verify-plot-spines-gui.mjs",
-        "verify-registry-parity.ts"
+        "verify-registry-parity.ts",
+        "verify-crystallize.ts"
       ]
     },
     {

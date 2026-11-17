@@ -18,6 +18,11 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   afterwards the pink gap guides appear by themselves, with no panel opened. Gaps that already
   agree are kept exactly; hand-placed ones settle on a whole number. Agents:
   `flux arrange <figure> --mode auto`.
+- **Crystallize lines plots up on their axes.** When the selection is all Fluxplots, a row
+  shares one line through its X axes and a column one through its Y axes, instead of box
+  edges that tick labels and titles push around. The pink gap guides appear all the same, and
+  the hover preview draws the shared axis line. **Shift+Alt+A** or **Alt-click** uses bounding
+  boxes instead. Agents get the same by default; `--on boxes` and `--on axes` choose.
 - **Align & Arrange, rebuilt.** The panel is redrawn in the property menu's vocabulary: every
   control is a key cap, an icon and a word, each in its own place, so a key can never sit on a
   label. The pane that owns the keyboard has its caps lit and the other shows the **Space** cap

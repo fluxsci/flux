@@ -108,7 +108,9 @@ typing in an input. Each Arrange visit or direct-guide
 drag is one Undo; individual Align actions are separate Undo steps.
 **Shift+A** is **Crystallize**: with no panel, a loose selection snaps into the row,
 column or grid it is closest to, aligned and evenly spaced, as one Undo (a small
-button at the selection's corner offers the same and previews it on hover).
+button at the selection's corner offers the same and previews it on hover). A
+selection of Fluxplots lines up on its axes (rows share their bottom X spines,
+columns their left Y spines); **Shift+Alt+A** or Alt-click uses bounding boxes.
 
 For reproducible file layout, `arrange <figId> --ids a,b,c --mode tidy --gap-x 16
 --anchor-x center --anchor-y center` infers a row/column/simple grid while preserving
@@ -116,7 +118,11 @@ internal offsets. Omit gap overrides to preserve already uniform spacing exactly
 `--mode reflow --rows N` or `--cols N` deliberately changes topology.
 `--mode auto` is Crystallize for files: it recognizes the closest row, column or
 grid, takes the shape and both gaps from the units themselves, and aligns each
-track; it refuses rows/cols/gap flags, a pile and a unit spanning several rows. Use `--gap-y`
+track; it refuses rows/cols/gap flags, a pile and a unit spanning several rows.
+When every unit holds a Fluxplot with a visible bottom and left spine, `--mode auto`
+lines rows up on their X axes and columns on their Y axes (gaps stay between the
+boxes); `--on boxes` forces bounding boxes and `--on axes` fails instead of falling
+back when an axis cannot be read. Use `--gap-y`
 for row spacing; `--gap` sets both, axis flags take precedence. All gaps accept
 finite signed values: negative values overlap tracks, with no lower floor. Extreme
 negative spacing may reverse physical positions while retaining logical track

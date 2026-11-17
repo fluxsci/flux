@@ -85,7 +85,7 @@ import {
   type AlignKind,
   type Rect,
 } from "./geometry";
-import { createArrangementSnapshot, planArrangement, planAutoArrangement, autoArrangementRefusal, planAlignment, resolveLayoutUnits, type ArrangementPlan, type LayoutTranslation, type AlignOptions, type FixedPoint, type LayoutTargetOptions } from "./layout/arrangement";
+import { createArrangementSnapshot, planArrangement, planAutoArrangement, autoArrangementRefusal, planAlignment, resolveLayoutUnits, type ArrangementPlan, type LayoutTranslation, type AlignOptions, type FixedPoint, type LayoutTargetOptions, type LayoutLines } from "./layout/arrangement";
 import { effectiveHidden, effectiveLocked } from "./groups";
 import { scaleRemap } from "./editing";
 import { figurePanels } from "./captions";
@@ -481,6 +481,13 @@ export interface ArrangeOpts {
   /** "auto" recognizes the row, column or grid the units are closest to (the editor's
    *  Crystallize) and takes its shape and gaps from them: rows/cols/gap are refused. */
   mode?: "reflow" | "tidy" | "auto";
+  /** mode auto: what the units of a track share. Plots line up on their AXES when the caller
+   *  supplies `lines` for every unit (the default), else on their boxes. "axes" refuses to fall
+   *  back; "boxes" ignores the lines. */
+  on?: "axes" | "boxes";
+  /** mode auto: each unit's axis lines (plot/landmarks selectionAxisLines). The op stays free
+   *  of plot geometry; the editor, the live bridge and the file engine each read their own. */
+  lines?: LayoutLines;
   gapX?: number;
   gapY?: number;
   anchorX?: "start" | "center" | "end";
@@ -535,7 +542,7 @@ export function applyArrangementPlan(p:Project,figId:Id,plan:ArrangementPlan):vo
 export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): void {
   const f = figById(p, figId);
   if (!f) return;
-  const modern=opts.mode!==undefined||opts.gapX!==undefined||opts.gapY!==undefined||opts.anchorX!==undefined||opts.anchorY!==undefined||opts.anchor!==undefined;
+  const modern=opts.mode!==undefined||opts.on!==undefined||opts.gapX!==undefined||opts.gapY!==undefined||opts.anchorX!==undefined||opts.anchorY!==undefined||opts.anchor!==undefined;
   if(modern){
     validateLayoutIds(f, opts.ids);
     if(opts.gap!==undefined&&!Number.isFinite(opts.gap))throw new Error('Arrangement gap must be finite');
@@ -549,9 +556,13 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
       if([opts.rows,opts.cols,opts.gap,opts.gapX,opts.gapY].some(v=>v!==undefined))throw new Error('mode auto recognizes rows, columns and gaps itself; use mode reflow or tidy to set them');
       const refusal=autoArrangementRefusal(snapshot);
       if(refusal)throw new Error(`No row, column or grid to recognize: ${refusal==='too-few'?'fewer than two editable units':refusal==='pile'?'the units sit on top of each other (group a unit with what it sits on)':'a unit spans several rows or columns'}`);
-      applyArrangementPlan(p,figId,planAutoArrangement(snapshot,{anchor})!.plan);
+      if(opts.on!==undefined&&opts.on!=='axes'&&opts.on!=='boxes')throw new Error('on must be axes or boxes');
+      const auto=planAutoArrangement(snapshot,{anchor,lines:opts.on==='boxes'?undefined:opts.lines})!;
+      if(opts.on==='axes'&&!auto.onLines)throw new Error('No axes to line up on: every unit needs a fluxplot with a visible bottom and left spine (use on boxes for bounding boxes)');
+      applyArrangementPlan(p,figId,auto.plan);
       return;
     }
+    if(opts.on!==undefined)throw new Error('on applies to mode auto only');
     const plan=planArrangement(snapshot,{mode:opts.mode??'reflow',rows:opts.rows,cols:opts.cols,gapX:opts.gapX??opts.gap,gapY:opts.gapY??opts.gap,anchor});
     applyArrangementPlan(p,figId,plan);
     return;

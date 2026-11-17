@@ -10,6 +10,7 @@ import { parseColor } from '../color/interp';
 import { partStageOutlines } from '../slide/targetGeometry';
 import { rotatePoint } from '../geometry';
 import { effectiveHidden, effectiveLocked, unitKeyOf } from '../groups';
+import { resolveLayoutUnits } from '../layout/arrangement';
 
 export type SpineAxis = 'x' | 'y';
 export interface SpineChoice { plotId?: string; panelId?: string; spineId?: string }
@@ -309,4 +310,35 @@ export function planPlotSpineAlignment(units: SpineUnit[], axis: SpineAxis, refe
     return unit.members.map(e => ({ id: e.id, dx: axis === 'y' ? delta : 0, dy: axis === 'x' ? delta : 0 }));
   });
   return { translations, landmarks, issues: [] };
+}
+
+/** The lines a unit carries when plots are arranged on their AXES (Crystallize) instead of their
+ * bounding boxes. Named by canvas coordinate, the way a layout reads them: `x` is the canvas X of
+ * the left Y spine (what the members of a column share), `y` the canvas Y of the bottom X spine
+ * (what the members of a row share). There is nobody to ask here, so where resolveUnitSpine wants
+ * a choice (several panels, several plots in one group) the unit offers its OUTERMOST main spine:
+ * the lowest bottom, the leftmost left. An axis is returned only when EVERY unit has its line. */
+export interface PlotAxisLines { x?: Map<string, number>; y?: Map<string, number> }
+export function plotAxisLines(units: readonly SpineUnit[], ctx: SpineContext): PlotAxisLines {
+  if (units.length < 2 || units.some(unit => !unit.members.some(e => e.type === 'plot'))) return {};
+  const lines: PlotAxisLines = {};
+  for (const axis of ['x', 'y'] as const) {
+    const side = axis === 'x' ? 'bottom' : 'left', found = new Map<string, number>();
+    for (const unit of units) {
+      // Whole-unit refusals (incomplete, locked or hidden members, no plot) leave no candidates.
+      const coordinates = resolveUnitSpine(unit, axis, ctx).candidates
+        .filter(c => c.eligible && !c.inset && c.axisKey === axis && c.side === side && !ctx.partExcluded?.(c.plotId, c.spineId))
+        .map(c => c.coordinate!);
+      if (!coordinates.length) break;
+      found.set(unit.key, axis === 'x' ? Math.max(...coordinates) : Math.min(...coordinates));
+    }
+    if (found.size === units.length) lines[axis === 'x' ? 'y' : 'x'] = found;
+  }
+  return lines;
+}
+/** plotAxisLines for a layout selection: whole units (hidden and locked members included, so a
+ * unit that cannot move as one has no line), limited to the units layout actually moves. */
+export function selectionAxisLines(figure: Figure, ids: readonly string[] | undefined, ctx: SpineContext, keys?: ReadonlySet<string>): PlotAxisLines {
+  const movable = keys ?? new Set(resolveLayoutUnits(figure, ids, { scope: ctx.scope, excluded: ctx.excluded }).map(unit => unit.key));
+  return plotAxisLines(resolveLayoutUnits(figure, ids, { scope: ctx.scope, editable: false }).filter(unit => movable.has(unit.key)), { ...ctx, figure });
 }

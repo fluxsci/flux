@@ -25,6 +25,19 @@ export interface ArrangementOptions {
   anchor?:FixedPoint; pin?:{x:number;y:number};
   /** Reflow only: where each unit sits inside its cell (default: centered). */
   align?:FixedPoint;
+  /** Reflow only: a line each unit carries, in figure coordinates and keyed by unit: `x` the
+   * vertical line the members of a COLUMN then share, `y` the horizontal line the members of a
+   * ROW share (a plot's spines; see plot/landmarks plotAxisLines). An axis counts only when
+   * every unit has its line, and then replaces `align` on that axis. */
+  lines?:LayoutLines;
+}
+export interface LayoutLines { x?:ReadonlyMap<string,number>; y?:ReadonlyMap<string,number> }
+/** Per-unit offsets from each unit's start to its line, or undefined unless all have one. */
+function lineOffsets(units:readonly LayoutUnit[],axis:'x'|'y',lines:LayoutLines|undefined):number[]|undefined {
+  const map=lines?.[axis];if(!map||!units.length)return undefined;
+  const offsets:number[]=[];
+  for(const u of units){const line=map.get(u.key);if(line===undefined||!Number.isFinite(line))return undefined;offsets.push(line-u.bounds[axis]);}
+  return offsets;
 }
 export interface ArrangementPlan {
   figureId:Id; translations:LayoutTranslation[]; positions:LayoutPosition[]; identity:boolean;
@@ -220,7 +233,7 @@ export function planArrangement(snapshot:LayoutSnapshot,options:ArrangementOptio
   let boxes:Map<string,Rect>;
   if(n>=2&&reflow){
     const ordered=snapshot.orderedKeys.map(k=>byKey.get(k)!);
-    const grid=gridTracks(ordered.map(u=>u.bounds),cols,gapX,gapY,0,0,options.align?.x??.5,options.align?.y??.5);
+    const grid=gridTracks(ordered.map(u=>u.bounds),cols,gapX,gapY,0,0,options.align?.x??.5,options.align?.y??.5,{x:lineOffsets(ordered,'x',options.lines),y:lineOffsets(ordered,'y',options.lines)});
     const local=unionRect(grid.boxes)!;const ox=pin.x-anchor.x*local.w-local.x,oy=pin.y-anchor.y*local.h-local.y;
     columns=grid.columns.map(t=>({...t,start:t.start+ox}));rows=grid.rows.map(t=>({...t,start:t.start+oy}));
     boxes=new Map(ordered.map((u,i)=>[u.key,{...grid.boxes[i],x:grid.boxes[i].x+ox,y:grid.boxes[i].y+oy}]));
@@ -268,7 +281,13 @@ export function snapshotAfterArrangement(snapshot:LayoutSnapshot,plan:Arrangemen
  * be, and plan that arrangement outright: aligned inside its tracks, one gap per axis. Pure, so
  * the editor's one-key Crystallize and the headless `arrange --mode auto` are the same plan. */
 export type AutoArrangementRefusal='too-few'|'pile'|'spanning';
-export interface AutoArrangement { plan:ArrangementPlan; topology:LayoutTopology; rows:number; cols:number; moves:boolean }
+export interface AutoArrangement {
+  plan:ArrangementPlan; topology:LayoutTopology; rows:number; cols:number; moves:boolean;
+  /** True when the units were lined up on the lines they carry (plot axes), not on their boxes. */
+  onLines:boolean;
+  /** Those shared lines as planned, one per track of two or more units (for a preview). */
+  rails:{x1:number;y1:number;x2:number;y2:number}[];
+}
 const autoCenter=(u:LayoutUnit,axis:'x'|'y')=>u.bounds[axis]+u.bounds[axis==='x'?'w':'h']/2;
 /** Units share a band when one's center lies inside the other's extent (for equal sizes: more
  * than half an overlap). The band keeps the INTERSECTION of its members, so a steep staircase
@@ -376,7 +395,7 @@ export function autoArrangementRefusal(snapshot:LayoutSnapshot):AutoArrangementR
  * the grid, and a leftover unit that completes a rectangle does (three above one is 2 x 2).
  * Returns null where there is nothing to recognize: fewer than two units, a pile (or one object
  * sitting on another), or a unit spanning several rows or columns. `moves` is false when the selection already IS that plan. */
-export function planAutoArrangement(snapshot:LayoutSnapshot,options:Pick<ArrangementOptions,'anchor'|'pin'>={}):AutoArrangement|null {
+export function planAutoArrangement(snapshot:LayoutSnapshot,options:Pick<ArrangementOptions,'anchor'|'pin'|'lines'>={}):AutoArrangement|null {
   if(autoArrangementRefusal(snapshot))return null;
   const units=snapshot.units,n=units.length;
   const rowBands=autoBands(units,'y'),columnBands=autoBands(units,'x'),R=rowBands.length,K=columnBands.length;
@@ -419,10 +438,27 @@ export function planAutoArrangement(snapshot:LayoutSnapshot,options:Pick<Arrange
     const median=layoutMedian(samples);
     return Math.max(...samples)-Math.min(...samples)<=tolerance?median:autoNiceGap(median,scale);
   };
-  const measuredX=measure(autoGaps(rowBands,'x'),envelopes(columnBands,'x')),measuredY=measure(autoGaps(columnBands,'y'),envelopes(rowBands,'y'));
+  // What the members of a track share: the line they carry (plot axes) when every unit has
+  // one, else the edge or center they are already closest to.
+  const byKey=new Map(units.map(u=>[u.key,u])),ordered=orderedKeys.map(k=>byKey.get(k)!),rowCount=Math.ceil(n/cols);
+  const align={x:autoAlign(columnBands,'x'),y:autoAlign(rowBands,'y')};
+  const carried={x:lineOffsets(units,'x',options.lines)?options.lines!.x!:undefined,y:lineOffsets(units,'y',options.lines)?options.lines!.y!:undefined};
+  const shared=(axis:'x'|'y')=>(u:LayoutUnit)=>carried[axis]?carried[axis]!.get(u.key)!:u.bounds[axis]+align[axis]*u.bounds[axis==='x'?'w':'h'];
+  const tracks={x:Array.from({length:Math.min(cols,n)},():LayoutUnit[]=>[]),y:Array.from({length:rowCount},():LayoutUnit[]=>[])};
+  ordered.forEach((u,i)=>{tracks.x[i%cols].push(u);tracks.y[Math.floor(i/cols)].push(u);});
+  // Tracks that are ALREADY lined up and evenly spaced are finished on that axis: their gap is
+  // the gap between them as they stand. (Neighbour gaps would misread a settled grid of mixed
+  // sizes, where a narrow unit sits further from its neighbour than its column does.)
+  const settled=(axis:'x'|'y'):number|undefined=>{
+    const line=shared(axis),groups=tracks[axis];if(groups.length<2)return undefined;
+    for(const group of groups){const first=line(group[0]);if(group.some(u=>Math.abs(line(u)-first)>tolerance))return undefined;}
+    const spans=groups.map(group=>envelope(group,axis)),gaps=spans.slice(1).map((t,i)=>t.start-spans[i].start-spans[i].size);
+    return Math.max(...gaps)-Math.min(...gaps)<=tolerance?layoutMedian(gaps):undefined;
+  };
+  const measuredX=settled('x')??measure(autoGaps(rowBands,'x'),envelopes(columnBands,'x')),measuredY=settled('y')??measure(autoGaps(columnBands,'y'),envelopes(rowBands,'y'));
   const gapX=measuredX??measuredY??autoNiceGap(fallback,scale),gapY=measuredY??measuredX??autoNiceGap(fallback,scale);
   const anchor=options.anchor??{x:.5,y:.5},pin=options.pin??arrangementPin(snapshot.bounds,anchor);
-  const planned=planArrangement({...snapshot,orderedKeys,suggested:false},{mode:'reflow',cols,gapX,gapY,anchor,pin,align:{x:autoAlign(columnBands,'x'),y:autoAlign(rowBands,'y')}});
+  const planned=planArrangement({...snapshot,orderedKeys,suggested:false},{mode:'reflow',cols,gapX,gapY,anchor,pin,align,lines:carried});
   // An axis on which nothing really moves keeps its bytes: recomputing an already-even
   // column's y positions must not rewrite them an ulp away.
   const still=(axis:'dx'|'dy')=>planned.translations.every(t=>Math.abs(t[axis])<=tolerance);
@@ -435,7 +471,21 @@ export function planAutoArrangement(snapshot:LayoutSnapshot,options:Pick<Arrange
     const translations=positions.flatMap(p=>{const b=before.get(p.id)!;return p.x===b.x&&p.y===b.y?[]:[{id:p.id,dx:p.x-b.x,dy:p.y-b.y}];});
     plan={...planned,positions,translations,units:settled,identity:translations.length===0,bounds:unionRect(settled.map(u=>u.bounds))??planned.bounds};
   }
-  return {plan,topology:plan.topology,rows:plan.rowCount,cols:plan.cols,moves:plan.translations.some(t=>Math.abs(t.dx)>tolerance||Math.abs(t.dy)>tolerance)};
+  // A line matters only where a track holds more than one unit: a row's units share their
+  // horizontal line (y), a column's their vertical one (x).
+  const rails:AutoArrangement['rails']=[];
+  const placed=new Map(plan.units.map(u=>[u.key,u.bounds]));
+  for(const axis of ['x','y'] as const){
+    const lines=carried[axis];if(!lines)continue;
+    for(const group of tracks[axis]){
+      if(group.length<2)continue;
+      // The planned line: where the first member lands plus its own offset to its line.
+      const first=group[0],at=placed.get(first.key)![axis]+(lines.get(first.key)!-first.bounds[axis]);
+      const span=envelope(group.map(u=>({...u,bounds:placed.get(u.key)!})),axis==='x'?'y':'x');
+      rails.push(axis==='x'?{x1:at,x2:at,y1:span.start,y2:span.start+span.size}:{y1:at,y2:at,x1:span.start,x2:span.start+span.size});
+    }
+  }
+  return {plan,topology:plan.topology,rows:plan.rowCount,cols:plan.cols,moves:plan.translations.some(t=>Math.abs(t.dx)>tolerance||Math.abs(t.dy)>tolerance),onLines:rails.length>0,rails};
 }
 export type AlignTarget='selection'|'figure'|{unitKey:string};
 export interface AlignOptions extends LayoutTargetOptions { target?:AlignTarget }

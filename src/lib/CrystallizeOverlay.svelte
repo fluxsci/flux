@@ -1,18 +1,23 @@
 <script lang="ts">
   /** Crystallize on the canvas: a small offer at the selection's corner whenever a loose selection
    * has a row, column or grid it is close to, a preview of that arrangement while the offer is
-   * hovered, and one short word afterwards for what was recognized. Screen-space chrome only:
-   * nothing here touches the model (interact/alignArrange.ts owns the action). */
+   * hovered, and one short word afterwards for what was recognized. Plots are lined up on their
+   * axes (the preview draws the shared axis lines); holding Alt previews and applies the
+   * bounding-box arrangement instead. Screen-space chrome only: nothing here touches the model
+   * (interact/alignArrange.ts owns the action). */
   import { onDestroy } from 'svelte';
   import { crystallizeOffer, crystallizeNotice, crystallizeSelection, crystallizeLabel } from './interact/alignArrange';
+  import { yieldsToShellModal, isAnnotateChord } from '../shell/agent/annotationVisibility';
   import type { Viewport } from './types';
   export let viewport: Viewport;
   export let figureX=0;
   export let figureY=0;
   export let width=0;
   export let height=0;
-  const SIZE=22, GAP=9, NOTICE_MS=1400, PREVIEW_UNITS=400;
+  const SIZE=22, GAP=9, NOTICE_MS=1400, PREVIEW_UNITS=400, RAIL_REACH=10;
   let previewing=false;
+  /** Alt, as last seen over the offer: bounding boxes instead of axes. */
+  let alt=false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const shown={notice:0};
   // Explicit projection dependencies (legacy Svelte cannot see reads inside helper closures).
@@ -27,6 +32,11 @@
   $: offer=$crystallizeOffer;
   $: notice=offer?null:$crystallizeNotice;
   $: if(!offer)previewing=false;
+  $: if(!previewing)alt=false;
+  // What a click would do right now. Alt only means something where there are axes to leave.
+  $: boxed=!!offer?.onAxes&&alt;
+  $: preview=!offer?null:boxed?offer.boxes:offer;
+  $: rails=offer&&!boxed?offer.rails:[];
   $: spot=offer?corner(offer.bounds,SIZE,projection):null;
   $: label=notice?crystallizeLabel(notice):'';
   $: noticeW=Math.ceil(label.length*6.4)+36;
@@ -39,34 +49,42 @@
     timer=setTimeout(()=>crystallizeNotice.update(n=>n?.id===id?null:n),NOTICE_MS);
   }
   function press(e:PointerEvent) { e.preventDefault();e.stopPropagation(); }
-  function run(e:MouseEvent) { e.preventDefault();e.stopPropagation();previewing=false;crystallizeSelection(); }
+  function run(e:MouseEvent) { e.preventDefault();e.stopPropagation();previewing=false;crystallizeSelection({boxes:e.altKey}); }
+  // Alt while the pointer rests on the offer. Shell modals and the Annotate chord come first.
+  function modifier(e:KeyboardEvent) { if(yieldsToShellModal(e)||isAnnotateChord(e))return; if(previewing&&e.key==='Alt'){alt=e.type==='keydown';e.preventDefault();} }
   onDestroy(()=>clearTimeout(timer));
 </script>
 
 <!-- The word is a glance, never in the way: the next press anywhere retires it. -->
-<svelte:window on:pointerdown|capture={()=>{if($crystallizeNotice)crystallizeNotice.set(null);}} />
+<svelte:window on:pointerdown|capture={()=>{if($crystallizeNotice)crystallizeNotice.set(null);}} on:keydown={modifier} on:keyup={modifier} />
 
 {#if offer && spot}
-  {#if previewing}
+  {#if previewing && preview}
     <!-- Where everything would land: the arrangement's gutters and each object's place. -->
     <g class="crystal-preview" aria-hidden="true">
-      {#each offer.plan.gaps as g (`${g.axis}-${g.index}`)}
+      {#each preview.plan.gaps as g (`${g.axis}-${g.index}`)}
         <line x1={sx(g.x1,projection)} y1={sy(g.y1,projection)} x2={sx(g.x2,projection)} y2={sy(g.y2,projection)} />
       {/each}
-      {#if offer.plan.units.length<=PREVIEW_UNITS}
-        {#each offer.plan.units as u (u.key)}
+      {#if preview.plan.units.length<=PREVIEW_UNITS}
+        {#each preview.plan.units as u (u.key)}
           <rect x={sx(u.bounds.x,projection)} y={sy(u.bounds.y,projection)} width={u.bounds.w*projection.zoom} height={u.bounds.h*projection.zoom} />
         {/each}
       {/if}
     </g>
+    <!-- On axes: the one line each row's X axes and each column's Y axes will share. -->
+    <g class="crystal-rails" aria-hidden="true">
+      {#each rails as r, i (i)}
+        <line x1={sx(r.x1,projection)-(r.y1===r.y2?RAIL_REACH:0)} y1={sy(r.y1,projection)-(r.x1===r.x2?RAIL_REACH:0)} x2={sx(r.x2,projection)+(r.y1===r.y2?RAIL_REACH:0)} y2={sy(r.y2,projection)+(r.x1===r.x2?RAIL_REACH:0)} />
+      {/each}
+    </g>
   {/if}
   <!-- The keyboard's way in is Shift+A itself; this is the pointer's. -->
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-  <g class="crystallize" class:previewing data-crystallize role="button" tabindex="-1" aria-label={`Crystallize into ${crystallizeLabel(offer).toLowerCase()}`}
+  <g class="crystallize" class:previewing data-crystallize data-crystallize-on={boxed?'boxes':offer.onAxes?'axes':'boxes'} role="button" tabindex="-1" aria-label={`Crystallize into ${crystallizeLabel(offer).toLowerCase()}`}
     transform={`translate(${spot.x} ${spot.y})`}
     on:pointerdown={press} on:click={run}
-    on:pointerenter={()=>previewing=true} on:pointerleave={()=>previewing=false}>
-    <title>Crystallize · {crystallizeLabel(offer)} (Shift+A)</title>
+    on:pointerenter={e=>{previewing=true;alt=e.altKey;}} on:pointermove={e=>alt=e.altKey} on:pointerleave={()=>previewing=false}>
+    <title>{offer.onAxes?`Crystallize · ${crystallizeLabel(offer)} (Shift+A)\nAlt-click: bounding boxes instead (Shift+Alt+A)`:`Crystallize · ${crystallizeLabel(offer)} (Shift+A)`}</title>
     <rect class="crystal-shadow" x="0" y="1" width={SIZE} height={SIZE} rx="4" />
     <rect class="crystal-face" width={SIZE} height={SIZE} rx="4" />
     <g class="crystal-mark" transform="translate(3 3)">
@@ -100,6 +118,8 @@
   .crystal-preview{pointer-events:none}
   .crystal-preview line{stroke:var(--c-layout-gap,#ce5d97);stroke-width:1.25;opacity:.75}
   .crystal-preview rect{fill:var(--c-layout-gap-tint,rgba(206,93,151,.15));stroke:var(--c-layout-gap,#ce5d97);stroke-width:1;stroke-dasharray:3 2}
+  .crystal-rails{pointer-events:none}
+  .crystal-rails line{stroke:var(--flx-magenta-600,#a02f6f);stroke-width:1.5;stroke-linecap:round}
   .crystal-notice{pointer-events:none;animation:crystal-notice 1400ms linear both}
   .crystal-notice text{fill:var(--flx-magenta-600,#a02f6f);font:600 11px var(--font-mono,monospace);stroke:none}
   @keyframes crystal-notice{0%,88%{opacity:1}100%{opacity:0}}

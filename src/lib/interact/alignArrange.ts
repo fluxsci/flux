@@ -7,11 +7,11 @@ import { storeTenantState } from '../tenancy';
 import { editSession } from './editSession';
 import { unitOf } from '../groups';
 import { balancedRows, validRowCounts, type AlignKind, type Rect } from '../geometry';
-import { createArrangementSnapshot, planArrangement, planAutoArrangement, autoArrangementRefusal, snapshotAfterArrangement, resolveLayoutUnits, type LayoutSnapshot, type ArrangementPlan, type LayoutTopology } from '../layout/arrangement';
+import { createArrangementSnapshot, planArrangement, planAutoArrangement, autoArrangementRefusal, snapshotAfterArrangement, resolveLayoutUnits, type LayoutSnapshot, type ArrangementPlan, type LayoutTopology, type LayoutLines, type AutoArrangement } from '../layout/arrangement';
 import { applyArrangementPlan, applyLayoutTranslations, alignPanels, distributePanels } from '../ops';
-import { plotDom, plotManifests, plotGen, requestPlotDom } from '../plot/store';
+import { plotDom, plotManifests, plotGen, requestPlotDom, ensurePlotDom } from '../plot/store';
 import { plotBoundsRevision, visibleElementBox } from '../plot/visibleBounds';
-import { resolveUnitSpine, planPlotSpineAlignment, type SpineChoice } from '../plot/landmarks';
+import { resolveUnitSpine, planPlotSpineAlignment, plotAxisLines, type SpineChoice } from '../plot/landmarks';
 import type { Element, Figure } from '../types';
 import type { FluxPlotManifest } from '../plot/types';
 
@@ -61,42 +61,87 @@ export const passiveArrangement = derived(arrangementRecognition, recognized => 
 /* ---- Crystallize (Shift+A): the arrangement a loose selection is closest to, in one step ----
  * Recognition is passive like the guides above: nothing moves until the user asks. Evenly
  * spaced is not yet crystallized: a column with equal gaps and one member pushed sideways has
- * its guides AND an offer. The offer (never the key) holds back in two cases. Units of very
- * different size are probably not one arrangement. And plots: an evenly spaced row of plots whose
- * boxes do not line up is usually aligned on its spines, so it is offered nothing (the key
- * still works, since pressing it is a decision). */
+ * its guides AND an offer.
+ * PLOTS line up on their AXES: when every unit holds a plot with a readable bottom / left spine
+ * (plot/landmarks plotAxisLines, the Align pane's own landmarks), a row shares its X axes and a
+ * column its Y axes, and the gaps stay between the visible boxes, so the passive guides
+ * recognize the result exactly like a box arrangement. Alt (Shift+Alt+A, Alt-click) asks for
+ * the boxes instead. The offer (never the key) holds back in three cases. Units of very
+ * different size are probably not one arrangement. An evenly spaced row of plots whose axes
+ * cannot be read (a plain SVG, a rotated plot) is not offered a box alignment it probably does
+ * not want. And plots whose boxes are already crystallized are not offered their axes: that is
+ * what Alt leaves behind, and an offer that returns the moment it is declined is a nag. */
 /** Above this many units the on-canvas offer is not computed on every selection change; the
  * hotkey still plans on demand (a one-off cost, never on the selection path). */
 export const CRYSTALLIZE_OFFER_UNITS = 600;
 /** The largest unit may be at most this many times the area of the smallest for an offer. */
 export const CRYSTALLIZE_OFFER_SIZE_RATIO = 8;
-export interface CrystallizeOffer { figureId:string; plan:ArrangementPlan; topology:LayoutTopology; rows:number; cols:number; count:number; bounds:Rect }
-export const crystallizeOffer = derived([arrangementRecognition, savedArrangementAnchor], ([$recognized,$anchor]):CrystallizeOffer|null => {
+/** Reading spines costs a fraction of a millisecond per plot placement. A selection of more
+ * plots than this is not read on the selection path, and gets no offer rather than one that
+ * would disagree with the key (which reads them on demand). */
+export const CRYSTALLIZE_AXES_OFFER_UNITS = 48;
+type Rail = AutoArrangement['rails'][number];
+export interface CrystallizeOffer {
+  figureId:string; plan:ArrangementPlan; topology:LayoutTopology; rows:number; cols:number; count:number; bounds:Rect;
+  /** The plan lines plots up on their axes; `rails` are those shared axis lines. */
+  onAxes:boolean; rails:Rail[];
+  /** What Alt does instead when the plan is on axes: the same selection by bounding box. */
+  boxes:{plan:ArrangementPlan;topology:LayoutTopology;rows:number;cols:number}|null;
+}
+type Recognized = NonNullable<ReturnType<typeof readRecognition>>;
+const readRecognition = () => get(arrangementRecognition);
+/** The axis lines of a selection made of plots, or undefined (then boxes are all there is).
+ * `deliberate` (a key or click) prepares an unparsed plot now and reads any number of plots;
+ * the passive offer only queues a parse (and is recomputed when it arrives), and answers null
+ * for more plots than it may read on the selection path. */
+function crystallizeLines(recognized:Recognized,deliberate:boolean):LayoutLines|undefined|null {
+  const {figure,snapshot,scope,excluded}=recognized,parse=deliberate;
+  const plots=new Set<string>();for(const e of figure.elements)if(e.type==='plot')plots.add(e.id);
+  if(!plots.size||!snapshot.units.every(u=>u.memberIds.some(id=>plots.has(id))))return undefined;
+  if(!deliberate&&snapshot.units.length>CRYSTALLIZE_AXES_OFFER_UNITS)return null;
+  // Whole units, hidden and locked members included: a spine never stands in for a unit that
+  // cannot move as one (the same rule as the Align pane's X / Y).
+  const keys=new Set(snapshot.units.map(u=>u.key));
+  const units=resolveLayoutUnits(figure,[...recognized.selection],{scope,editable:false}).filter(u=>keys.has(u.key));
+  for(const u of units)for(const e of u.members)if(e.type==='plot'&&!plotDom.has(e.assetId)){if(parse)ensurePlotDom(e.assetId);else requestPlotDom(e.assetId);}
+  const manifests=get(plotManifests);
+  const lines=plotAxisLines(units,{manifest:id=>manifests[id],plotRoot:id=>plotDom.get(id)??null,figure,scope,excluded,partExcluded:isEditorTargetExcluded});
+  return lines.x||lines.y?lines:undefined;
+}
+export const crystallizeOffer = derived([arrangementRecognition, savedArrangementAnchor, plotGen, plotManifests], ([$recognized,$anchor]):CrystallizeOffer|null => {
   const count=$recognized?.snapshot.units.length??0;
   if(!$recognized || count<2 || count>CRYSTALLIZE_OFFER_UNITS)return null;
   // An offer is a claim that these objects belong in one arrangement. Objects of very different
   // size (panels and their labels, a plot and a scale bar) rarely do; the key still works.
   const areas=$recognized.snapshot.units.map(u=>u.bounds.w*u.bounds.h);
   if(Math.max(...areas)>CRYSTALLIZE_OFFER_SIZE_RATIO*Math.min(...areas))return null;
-  if($recognized.plan) {
-    const members=new Set($recognized.snapshot.units.flatMap(u=>u.memberIds));
-    if($recognized.figure.elements.some(e=>e.type==='plot'&&members.has(e.id)))return null;
-  }
   try {
-    const auto=planAutoArrangement($recognized.snapshot,{anchor:$anchor});
-    return auto?.moves?{figureId:$recognized.figure.id,plan:auto.plan,topology:auto.topology,rows:auto.rows,cols:auto.cols,count,bounds:$recognized.snapshot.bounds}:null;
+    const lines=crystallizeLines($recognized,false);if(lines===null)return null;
+    const auto=planAutoArrangement($recognized.snapshot,{anchor:$anchor,lines});
+    if(!auto?.moves)return null;
+    if(!auto.onLines&&$recognized.plan) {
+      const members=new Set($recognized.snapshot.units.flatMap(u=>u.memberIds));
+      if($recognized.figure.elements.some(e=>e.type==='plot'&&members.has(e.id)))return null;
+    }
+    // Plots whose BOXES are already crystallized were put there on purpose (Alt, or the Align
+    // pane): the axes stay one key away, but nothing keeps offering to undo that choice.
+    const boxes=auto.onLines?planAutoArrangement($recognized.snapshot,{anchor:$anchor}):null;
+    if(auto.onLines&&!boxes?.moves)return null;
+    return {figureId:$recognized.figure.id,plan:auto.plan,topology:auto.topology,rows:auto.rows,cols:auto.cols,count,bounds:$recognized.snapshot.bounds,
+      onAxes:auto.onLines,rails:auto.rails,boxes:boxes?{plan:boxes.plan,topology:boxes.topology,rows:boxes.rows,cols:boxes.cols}:null};
   } catch {return null;}
 });
 /** What the last Crystallize recognized, for the canvas to say once ("Grid 3 × 3"). */
-export interface CrystallizeNotice { id:number; figureId:string; topology:LayoutTopology; rows:number; cols:number; count:number; bounds:Rect; changed:boolean }
+export interface CrystallizeNotice { id:number; figureId:string; topology:LayoutTopology; rows:number; cols:number; count:number; bounds:Rect; changed:boolean; onAxes:boolean }
 export const crystallizeNotice = writable<CrystallizeNotice|null>(null);
 let noticeSerial = 0;
-export const crystallizeLabel = (shape:{topology:LayoutTopology;rows:number;cols:number;count:number}) =>
-  shape.topology==='grid'?`Grid ${shape.rows} × ${shape.cols}`:`${shape.topology==='row'?'Row':'Column'} of ${shape.count}`;
+export const crystallizeLabel = (shape:{topology:LayoutTopology;rows:number;cols:number;count:number;onAxes?:boolean}) =>
+  (shape.topology==='grid'?`Grid ${shape.rows} × ${shape.cols}`:`${shape.topology==='row'?'Row':'Column'} of ${shape.count}`)+(shape.onAxes?' · on axes':'');
 /** Snap the selection into the row, column or grid it is closest to: one Undo step, the
- * session's fixed point stays put, and the passive guides take over from there. Returns what
- * it recognized, or null (with a quiet explanation) when there is nothing to recognize. */
-export function crystallizeSelection():CrystallizeNotice|null {
+ * session's fixed point stays put, and the passive guides take over from there. Plots line up
+ * on their axes unless `boxes` asks for bounding boxes. Returns what it recognized, or null
+ * (with a quiet explanation) when there is nothing to recognize. */
+export function crystallizeSelection(options:{boxes?:boolean}={}):CrystallizeNotice|null {
   if(get(alignArrange))return null;
   const recognized=get(arrangementRecognition);
   if(!recognized) {
@@ -105,15 +150,16 @@ export function crystallizeSelection():CrystallizeNotice|null {
     return null;
   }
   const {figure,snapshot}=recognized,count=snapshot.units.length;
-  let shape:{topology:LayoutTopology;rows:number;cols:number;bounds:Rect;changed:boolean};
-  const refusal=autoArrangementRefusal(snapshot),auto=refusal?null:planAutoArrangement(snapshot,{anchor:get(arrangementAnchor)});
+  let shape:{topology:LayoutTopology;rows:number;cols:number;bounds:Rect;changed:boolean;onAxes:boolean};
+  const refusal=autoArrangementRefusal(snapshot);
+  const auto=refusal?null:planAutoArrangement(snapshot,{anchor:get(arrangementAnchor),lines:options.boxes?undefined:crystallizeLines(recognized,true)??undefined});
   if(auto) {
     if(auto.moves)commit(p=>applyArrangementPlan(p,figure.id,auto.plan));
-    shape={topology:auto.topology,rows:auto.rows,cols:auto.cols,bounds:auto.plan.bounds,changed:auto.moves};
+    shape={topology:auto.topology,rows:auto.rows,cols:auto.cols,bounds:auto.plan.bounds,changed:auto.moves,onAxes:auto.onLines};
   }
   // Already an exact arrangement that Crystallize itself would not build (a panel beside two
   // stacked ones): say what it is and leave it.
-  else if(recognized.plan)shape={topology:recognized.plan.topology,rows:recognized.plan.rowCount,cols:recognized.plan.cols,bounds:recognized.plan.bounds,changed:false};
+  else if(recognized.plan)shape={topology:recognized.plan.topology,rows:recognized.plan.rowCount,cols:recognized.plan.cols,bounds:recognized.plan.bounds,changed:false,onAxes:false};
   else {
     pushToast('info',refusal==='too-few'?'Select two or more objects to crystallize':refusal==='pile'?'Nothing to crystallize: these objects sit on top of each other (group an object with what it sits on to move them as one)':'Nothing to crystallize: an object spans several rows or columns');
     return null;
