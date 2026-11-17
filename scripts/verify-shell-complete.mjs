@@ -63,7 +63,7 @@ await page.$eval(".search", (el) => { el.value = ""; el.dispatchEvent(new Event(
 ok(!(await page.$("nav.rail")), "the left activity strip is gone (modes live in the title bar)");
 const stripLabels = await page.$$eval(".titlebar .modestrip button", (els) => els.map((e) => e.getAttribute("aria-label")));
 ok(
-  JSON.stringify(stripLabels) === JSON.stringify(["Figure", "Paper", "Slide", "Library", "Reader"]),
+  JSON.stringify(stripLabels) === JSON.stringify(["Figure", "Slide", "Paper", "Library", "Reader"]),
   "the title bar lists all five modes in order",
   stripLabels.join(","),
 );
@@ -78,7 +78,7 @@ await pressCtrlDigit(2);
 const afterTwo = await activeMode();
 await pressCtrlDigit(4);
 const afterFour = await activeMode();
-ok(afterTwo === "Paper" && afterFour === "Library", `Ctrl+2/Ctrl+4 switch modes (→ ${afterTwo} → ${afterFour})`);
+ok(afterTwo === "Slide" && afterFour === "Library", `Ctrl+2/Ctrl+4 switch modes (→ ${afterTwo} → ${afterFour})`);
 await clickMode(page, "Paper").catch(() => {});
 await sleep(300);
 

@@ -13,11 +13,10 @@
   import { shellModalOpen } from "../lib/settings";
   import { aiOpen, aiDetached } from "./agent/aiMonitorState";
   import { focusedMode, setFocusedMode } from "./paneStore";
-  import type { ModeId } from "./shellStore";
+  import { MODE_ORDER } from "./modeOrder";
   import type { Command } from "./command/commands";
 
-  // Ctrl+1…Ctrl+5, in the title-bar strip's order (top-bar rework, 2026-07).
-  const MODE_ORDER: ModeId[] = ["figure", "paper", "slide", "library", "reader"];
+  // Ctrl+1…Ctrl+5 follow MODE_ORDER, the title-bar strip's order.
 
   let globalPaletteOpen = $state(false);
   let globalCommandList = $state<Command[]>([]);

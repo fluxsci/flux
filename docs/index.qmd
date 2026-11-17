@@ -19,24 +19,27 @@ folder, or jump back into a recent one. ([What every file in the folder is](refe
 
 # The five modes
 
-Across the top of the window, next to the project name, are icons for the five modes. Click
-one to switch (or press **Ctrl+1** through **Ctrl+5**). Each mode is a full workspace, and
-they all look at the same project. On the right side of the same bar: the Lighttable
+Across the top of the window, next to the project name, are icons for the five modes, in the
+order below. Click one to switch (or press **Ctrl+1** through **Ctrl+5**). Each mode is a full
+workspace, and they all look at the same project. On the right side of the same bar: the Lighttable
 launcher, a Docs button that opens this documentation in your browser, Settings, and the
 keyboard-shortcut reference. Clicking the Flux wordmark takes you back to the Home screen.
 
-- **[Paper](modes/paper.qmd)** — the manuscript editor. Clean, fast writing in plain text with
-  live formatting; citations and figure references are live chips that keep themselves numbered.
-- **[Figure](modes/figure.qmd)** — a Figma-style canvas for publication figures. Imported plots
-  stay *live*: click a single line or label inside a plot and restyle it, without re-running
-  your analysis.
-- **[Slide](modes/slide.qmd)** — the deck builder. Compose slides from your figures, reveal
-  them beat by beat, animate plots at the level of their parts, and export a talk that plays in
-  any browser.
-- **[Reader](modes/reader.qmd)** — the PDF reader. Highlights and notes that anchor to the text
-  itself and survive re-downloads, plus figure pop-outs and citation peeking.
-- **[Library](modes/library.qmd)** — the reference manager. Your permanent collection of
-  papers, searchable down to the full text of every PDF, shared by all your projects.
+- **[Figure](modes/figure.qmd)** (the icon is a plot under the pointer) — a Figma-style canvas
+  for publication figures. Imported plots stay *live*: click a single line or label inside a
+  plot and restyle it, without re-running your analysis.
+- **[Slide](modes/slide.qmd)** (a slide flying in) — the deck builder. Compose slides from your
+  figures, reveal them beat by beat, animate plots at the level of their parts, and export a
+  talk that plays in any browser.
+- **[Paper](modes/paper.qmd)** (a text caret between lines of words) — the manuscript editor.
+  Clean, fast writing in plain text with live formatting; citations and figure references are
+  live chips that keep themselves numbered.
+- **[Library](modes/library.qmd)** (books on a shelf) — the reference manager. Your permanent
+  collection of papers, searchable down to the full text of every PDF, shared by all your
+  projects.
+- **[Reader](modes/reader.qmd)** (a pile of printed papers) — the PDF reader. Highlights and
+  notes that anchor to the text itself and survive re-downloads, plus figure pop-outs and
+  citation peeking.
 
 # Saving
 

@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import { currentProject, goHome, view, type ModeId } from "./shellStore";
   import { focusedMode, setFocusedMode, splitWith } from "./paneStore";
+  import { MODE_LABEL, MODE_ORDER } from "./modeOrder";
   import { helpOpen, settingsOpen } from "../lib/settings";
   import { dirtyPulse } from "../lib/autosave";
   import { anyDirty } from "./lifecycle";
@@ -34,14 +35,9 @@
   // titleBarStyle:"hidden"), so we hide our custom min/max/close buttons there.
   const isMac = fig?.platform === "darwin";
 
-  // The five modes, in strip order (Ctrl+1…Ctrl+5 follows this order too).
-  const modes: { id: ModeId; label: string; icon: string }[] = [
-    { id: "figure", label: "Figure", icon: "figure" },
-    { id: "paper", label: "Paper", icon: "paper" },
-    { id: "slide", label: "Slide", icon: "slide" },
-    { id: "library", label: "Library", icon: "library" },
-    { id: "reader", label: "Reader", icon: "reader" },
-  ];
+  // The five modes, in strip order (Ctrl+1…Ctrl+5 follows the same list). Each mode's icon
+  // is named after its id (Icon.svelte).
+  const modes: { id: ModeId; label: string; icon: string }[] = MODE_ORDER.map((id) => ({ id, label: MODE_LABEL[id], icon: id }));
 
   const activeIndex = $derived(modes.findIndex((m) => m.id === $focusedMode));
 

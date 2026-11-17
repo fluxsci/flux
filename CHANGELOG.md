@@ -16,6 +16,8 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
   Flux's pink cursor), Slide is a slide flying in (green), Paper is the text caret between lines of
   words (blue), Library is a shelf of books with one leaning (violet), and Reader is a loose pile of
   printed papers with one line highlighted (yellow).
+- **The modes are now ordered Figure, Slide, Paper, Library, Reader**, and **Ctrl+1**–**Ctrl+5**
+  follow that order: **Ctrl+2** is now Slide and **Ctrl+3** is Paper (they were the other way round).
 
 ### Slides
 

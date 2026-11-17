@@ -18,7 +18,7 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 | **Ctrl+Shift+J** | Ask about this (read-only question to Claude Code or Codex) |
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
-| **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Paper, Slide, Library, Reader) |
+| **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Slide, Paper, Library, Reader) |
 | **Ctrl+Shift+N** | New window (a second project side by side; also in the taskbar icon's right-click menu) |
 
 Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Alt+click**

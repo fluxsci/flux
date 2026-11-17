@@ -4331,8 +4331,8 @@
       ]
     },
     {
-      "$why": "2026-11 mode-icon redesign: the five title-bar icons are a designed set (own outline, own accent palette). Keeps the retired-agent scan of the broad src/**/*.svelte rule this entry supersedes.",
-      "glob": "src/shell/Icon.svelte",
+      "$why": "2026-11 mode-icon redesign: the five title-bar icons are a designed set (own outline, own accent palette) and modeOrder.ts is the one list of the strip's order. Keeps the retired-agent scan of the broad src/**/*.svelte rule this entry supersedes.",
+      "glob": "{src/shell/Icon.svelte,src/shell/modeOrder.ts}",
       "run": [
         "verify-mode-icons.ts",
         "verify-shell-complete.mjs",

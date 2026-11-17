@@ -29,7 +29,7 @@
             ["Enter / Shift+Enter · Tab", "In Annotate: add / new line · change recipient"],
             ["Esc", "Close menus & overlays"],
             ["Click a mode icon (top bar)", "Switch mode"],
-            ["⌃1 – ⌃5", "Switch mode (Figure, Paper, Slide, Library, Reader)"],
+            ["⌃1 – ⌃5", "Switch mode (Figure, Slide, Paper, Library, Reader)"],
             ["Alt / ⌘-click a mode icon", "Open that mode in a split pane"],
             ["Flux wordmark", "Back to the start screen"],
             ["⚙", "Settings"],

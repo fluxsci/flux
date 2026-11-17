@@ -9,6 +9,8 @@
 //   3. tokens.css defines the palette; the five accents resolve to five different colours; the
 //      Figure icon's pointer is the Flux cursor's default fill and outline (cursorFamily.ts).
 //   4. No retired mode icon survives anywhere in the shipped sources or the user docs.
+//   5. The modes have one order (src/shell/modeOrder.ts): the strip and the Ctrl+1…Ctrl+5 chords
+//      read it, and the Help overlay and the user docs list the modes the same way.
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,5 +99,24 @@ for (const [what, fragment] of RETIRED) {
   const hits = texts.filter(([, text]) => text.includes(fragment)).map(([f]) => f);
   h.ok(hits.length === 0, `no copy of the retired ${what}${hits.length ? ` — found in ${hits.join(", ")}` : ""}`);
 }
+
+// ---- 5: one order, everywhere -----------------------------------------------------------------
+h.section("mode order");
+const { MODE_ORDER, MODE_LABEL } = await import("../src/shell/modeOrder");
+h.eq([...MODE_ORDER], [...MODES], "the strip order is figure, slide, paper, library, reader");
+for (const file of ["src/shell/TitleBar.svelte", "src/shell/Workspace.svelte"]) {
+  const text = read(file);
+  h.ok(/\bMODE_ORDER\b/.test(text) && /from "\.\/modeOrder"/.test(text), `${file} takes the order from modeOrder.ts`);
+  // A list of four or more mode ids is an order; shorter ones are membership tests ("paper or figure").
+  h.ok(!/\[\s*(?:"(?:figure|paper|slide|library|reader)"\s*,\s*){3,}/.test(text), `${file} keeps no second ordered list of modes`);
+}
+const listed = MODE_ORDER.map((mode) => MODE_LABEL[mode]).join(", ");
+for (const file of ["src/lib/Help.svelte", "docs/reference/shortcuts.qmd"]) {
+  h.ok(read(file).includes(`(${listed})`), `${file} lists the modes in strip order (${listed})`);
+}
+// docs/index.qmd introduces the modes "in the order below": its bullets follow the strip.
+const index = read("docs/index.qmd");
+const at = MODE_ORDER.map((mode) => index.indexOf(`- **[${MODE_LABEL[mode]}](modes/${mode}.qmd)**`));
+h.ok(at.every((pos, i) => pos >= 0 && (i === 0 || pos > at[i - 1])), "docs/index.qmd introduces the modes in strip order");
 
 await h.done();
