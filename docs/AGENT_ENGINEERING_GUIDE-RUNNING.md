@@ -810,6 +810,16 @@ Persistence invariants (all machine-checked — do not weaken):
   Gate: `group:figure-pdf-size`.
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
   uses runes. Both are fine; know the traps in §9.
+- **The title bar's five mode icons are a designed set** (2026-11, `Icon.svelte`): one outline
+  per mode, neutral `currentColor` structure, and one accent palette each from the `--icon-*`
+  tokens in `tokens.css` (Figure dark blue + the cursor's pink, Slide green, Paper the caret
+  blue, Library violet, Reader yellow). Every element states its own stroke width, so the
+  component's `stroke` prop cannot change them. The Figure icon's pointer is the Flux cursor:
+  `ARROW_SHAPE`'s dart in `CURSOR_DEFAULTS`' fill and outline. Slide's fly-in and Reader's pile
+  are occluded outlines exported as static paths: redraw and re-export them, never nudge single
+  coordinates. The strip's order lives once, in `src/shell/modeOrder.ts`; the strip and the
+  Ctrl+1…Ctrl+5 chords read it. `verify-mode-icons` (pure) pins all of this plus a census of the
+  retired icons' paths, and checks that Help and the user docs list the modes in the same order.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
   bumps `globalRev` (under-invalidation impossible by construction). Expensive derived work keys
   on `${figureRev[id]}|${globalRev}|…` and memoizes in **non-reactive `const` boxes**.
@@ -3814,6 +3824,11 @@ gated reference content** — the CLI verb tables live in `resources/flux-contex
 a sidebar entry in `_quarto.yml` (the gate fails on orphans, broken links, frontmatter drift,
 or a render glob that could pull this guide into the site). **A user-visible behavior change
 updates the affected docs page in the same session** — the same discipline as gates.
+Screenshots in `docs/images/`: crop to the panel a page is describing. A full-window shot carries
+the title bar, so any shell change makes it stale (2026-11: the new mode icons outdated three
+slide-guide shots; their mode strip was re-captured from the dev fixture at the same viewport and
+unsaved state and laid over the same pixels, which is exact because the title bar is independent
+of everything below it).
 
 **Write a runbook for an agent, not a page** (`docs/for_agents/`, `.md` only, never rendered):
 procedures addressed to an agent acting on a user's behalf — machine setup, sudo prompts,
@@ -12578,3 +12593,18 @@ first flight frame == rest (0 px; the ordinary hand-off reads 493 px there), cur
 - Gate a landing against an ORDINARY TWIN, not against zero: the line → bar fixture lands with a 314 px step in both (a spine and error
   bars are painted over the bars in the real render, under the flight: the known "flight above the plots" class), which a pin of 40
   would have blamed on the new option.
+
+### 2026-11-16 — Mode icons redesigned; strip order Figure, Slide, Paper, Library, Reader (Claude Fable 5.2, `mode-icons`)
+**Work:** Owner-directed, chosen over four review rounds in a click-to-try gallery. The five title-bar icons are a new
+set with one outline and one accent palette each (§4); the strip now runs Figure, Slide, Paper, Library, Reader, so
+Ctrl+2 is Slide and Ctrl+3 is Paper. The order is one list (`modeOrder.ts`) instead of two. New gate `verify-mode-icons`;
+`verify-shell-complete` re-pinned to the new order; Help, the shortcuts page and the docs index follow; three full-window
+docs screenshots got their mode strip re-captured. The public website is NOT updated: its only uses of the icons are
+real-app screenshots and the tour's clips, which are made from the pinned public Flux revision.
+**Learnings:** (promoted to §4 the icon set, §8 docs screenshots)
+- Judge an icon at its real size and device scale (19 px at 1.25 here), in the bar, beside its neighbours. Several
+  candidates that read well at 84 px failed there: fine marks turned to mush, curved echo lines beside a slide read as a
+  loudspeaker, a tapered ghost under a slide as a monitor stand, a row of square-to-circle frames as a toggle switch.
+- A frame-cadence gate is disturbed by ANY side work, not only by another gate: decoding one 12000 px PNG while
+  `verify-slide-settle-sweep` ran produced a false POST CHANGE in an otherwise green pure tier. It passed alone. Leave
+  the machine idle during a tier run.
