@@ -147,7 +147,7 @@ try{
  // Grid fields share a controller owner. Hover-wheel can hand ownership to
  // Y while X retains focus; later X typing must reacquire a transient edit.
  const crossGrid=[{x:50,y:60,width:60,height:40},{x:140,y:60,width:60,height:40},{x:50,y:130,width:60,height:40},{x:140,y:130,width:60,height:40}];
- const fieldX='.gap-fields > div:first-child input',fieldY='.gap-fields > div:nth-child(2) input';
+ const fieldX='.gap-fields > div:first-child input',fieldY='.gap-fields > .gap:last-child input';
  // Numeric shortcuts change only the edited grid axis and remain selected.
  await seedLayout(page,crossGrid);await openArrange(page);await page.click('.anchor-choice[aria-label="Bottom right"]');p=await point('y');await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x,p.y+8);
  const previewBounds=()=>page.evaluate(()=>window.__flux.get(window.__flux.layout.arrangementPreview)?.plan.bounds);

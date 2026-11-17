@@ -489,11 +489,23 @@ export function handleAlignArrangeKey(e:KeyboardEvent):boolean {
   if(s.dragging){e.preventDefault();return true;}
   if(e.code==='Space'&&!mod&&!e.altKey){e.preventDefault();if(!e.repeat)switchAlignArrange(s.mode==='align'?'arrange':'align');return true;}
   if(e.key==='Enter'){e.preventDefault();closeAlignArrange();return true;}
-  if(!mod&&!e.altKey&&!e.shiftKey&&!e.repeat){
-    if(s.mode==='align'){
+  if(!mod&&!e.altKey&&!e.repeat){
+    // + and − are the stepper's own glyphs (Shift+= types a plus); every letter is unshifted.
+    const plus=e.code==='Equal'||e.code==='NumpadAdd',minus=(e.code==='Minus'&&!e.shiftKey)||e.code==='NumpadSubtract';
+    if(s.mode==='arrange'&&(plus||minus))stepArrangementRows(plus?1:-1);
+    // Shift+H / Shift+V distribute along the axis H / V center on (the one shifted pair).
+    else if(e.shiftKey){if(s.mode==='align'&&(e.code==='KeyH'||e.code==='KeyV'))distributeSelection(e.code==='KeyH'?'h':'v');}
+    else if(s.mode==='align'){
       const kinds:Record<string,AlignKind>={KeyW:'top',KeyA:'left',KeyS:'bottom',KeyD:'right',KeyH:'centerH',KeyV:'centerV'};
-      if(kinds[e.code])alignSelection(kinds[e.code]);else if(e.code==='KeyX'||e.code==='KeyY')alignPlotSpines(e.code==='KeyX'?'x':'y');
-    }else if(e.code==='KeyA')reflowArrangement(s.rows===1?'column':'row');else if(e.code==='KeyG')reflowArrangement('grid');else if(e.code==='KeyD'||e.code==='KeyF')stepArrangementRows(e.code==='KeyD'?1:-1);
+      if(kinds[e.code])alignSelection(kinds[e.code]);
+      else if(e.code==='KeyX'||e.code==='KeyY')alignPlotSpines(e.code==='KeyX'?'x':'y');
+    }
+    else if(e.code==='KeyR')reflowArrangement('row');
+    else if(e.code==='KeyC')reflowArrangement('column');
+    else if(e.code==='KeyG')reflowArrangement('grid');
+    // A (row ⇄ column) and D / F (more / fewer rows) are the tool's first keys, kept as they were.
+    else if(e.code==='KeyA')reflowArrangement(s.rows===1?'column':'row');
+    else if(e.code==='KeyD'||e.code==='KeyF')stepArrangementRows(e.code==='KeyD'?1:-1);
   }
   // Native focus navigation remains available; canvas tool commands do not.
   if(e.key!=='Tab')e.preventDefault();return true;

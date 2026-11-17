@@ -10,6 +10,7 @@
   export let figureY=0;
   export let width=0;
   export let height=0;
+  const POPUP_W=214;
   let anchorOpen=false;
   let popupOrigin={x:0,y:0};
   let anchorPopup: HTMLDivElement;
@@ -33,8 +34,8 @@
   $: topology=layout?.topology??'row';
   $: pinX=bounds?sx(bounds.x+bounds.w*anchor.x,projection):0;
   $: pinY=bounds?sy(bounds.y+bounds.h*anchor.y,projection):0;
-  $: popupHeight=topology==='grid'?114:72;
-  $: popupX=Math.max(4,Math.min(width-182,popupOrigin.x+12));
+  $: popupHeight=topology==='grid'?114:68;
+  $: popupX=Math.max(4,Math.min(width-POPUP_W-4,popupOrigin.x+12));
   $: popupY=Math.max(4,Math.min(height-popupHeight-4,popupOrigin.y+12));
   $: {if(anchorWatch.layout!==layout)anchorOpen=false;anchorWatch.layout=layout;}
   $: if(!showing || drag)anchorOpen=false;
@@ -182,7 +183,7 @@
         </g>
         <circle bind:this={anchorToggle} class="pin-hit" data-arrangement-anchor-toggle role="button" tabindex="0" aria-label="Choose fixed point" aria-haspopup="dialog" aria-expanded={anchorOpen} cx={pinX} cy={pinY} r="10" on:pointerdown={pinDown} on:click={pinClick} on:keydown={e=>{if(e.key==='Enter'||e.key===' ')toggleAnchor(e);}}><title>Keep fixed · click to choose</title></circle>
         {#if anchorOpen}
-          <foreignObject x={popupX} y={popupY} width="178" height={popupHeight}>
+          <foreignObject x={popupX} y={popupY} width={POPUP_W} height={popupHeight}>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div bind:this={anchorPopup} class="anchor-popover" role="dialog" tabindex="-1" aria-label="Keep fixed" on:pointerdown|stopPropagation on:click|stopPropagation on:keydown={e=>{if(!e.ctrlKey&&!e.metaKey)e.stopPropagation();}}>
               <span class="anchor-title">Keep fixed</span>
