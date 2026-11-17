@@ -9,8 +9,9 @@
    coloured through the full Flexoki accent wheel (src/shell/Logomark.svelte;
    asset: brand/flux-mark-phyllotaxis.svg). The UI accent everywhere else stays
    the single Flexoki blue below (decision: keep the chrome calm and monochrome —
-   "restraint is the luxury", P2); the mode icons carry small fixed accent
-   details from the 400-grade hues (the --flx-*-400 tokens).
+   "restraint is the luxury", P2); each mode icon carries its own small accent
+   palette (the --icon-* tokens below): neutral structure, colour only on the
+   one thing the mode is about.
    ============================================================================= */
 :root {
   color-scheme: dark;
@@ -37,12 +38,24 @@
   --flx-blue-600: #205ea6;
   --flx-red-200:  #f89a8a;
   --flx-red-400:  #d14d41;
-  /* 400-grade accent hues (legible on the dark chrome) — the mode icons'
-     always-on colour details and the logomark's palette. */
+  /* 400-grade accent hues (legible on the dark chrome) — status dots and the
+     logomark's palette. */
   --flx-orange-400:  #da702c;
   --flx-yellow-400:  #d0a215;
   --flx-cyan-400:    #3aa99f;
   --flx-magenta-400: #ce5d97;
+  /* Mode-icon accents (src/shell/Icon.svelte), one palette per mode in strip
+     order: Figure dark blue + the cursor's pink, Slide green, Paper the caret
+     blue, Library violet, Reader yellow. --icon-pointer / -edge are the Flux
+     cursor's default fill and outline (CURSOR_DEFAULTS in
+     lib/cursor/cursorFamily.ts); verify-mode-icons keeps the two in step. */
+  --icon-figure:       #2f6bb3;
+  --icon-pointer:      #ff60fc;
+  --icon-pointer-edge: #07043c;
+  --icon-slide:        #7fc241;
+  --icon-paper:        var(--flx-blue-400);
+  --icon-library:      #9a80e6;
+  --icon-reader:       var(--flx-yellow-400);
   /* text-grade 600 tones (legible on cream) — the dynamic panes' outlines */
   --flx-cyan-600:    #24837b;
   --flx-olive-600:   #66800b;

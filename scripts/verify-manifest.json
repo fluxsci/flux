@@ -472,7 +472,8 @@
       "verify-figure-detail.ts",
       "verify-figure-detail-proxy.ts",
       "verify-manuscript-check.ts",
-      "verify-word-count.ts"
+      "verify-word-count.ts",
+      "verify-mode-icons.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -816,7 +817,8 @@
       "figenh-importer-parity.ts",
       "verify-annotate-chord-census.ts",
       "verify-no-retired-agent-layer.ts",
-      "verify-presence-plotroot.ts"
+      "verify-presence-plotroot.ts",
+      "verify-mode-icons.ts"
     ]
   },
   "groups": {
@@ -3811,7 +3813,8 @@
         "verify-paper-textsize-gui.mjs",
         "verify-become-picker-gui.mjs",
         "verify-xray-theme.mjs",
-        "verify-fmenu-surface.mjs"
+        "verify-fmenu-surface.mjs",
+        "verify-mode-icons.ts"
       ]
     },
     {
@@ -4325,6 +4328,15 @@
         "group:plots-rail",
         "group:align-arrange",
         "group:oct27-figure"
+      ]
+    },
+    {
+      "$why": "2026-11 mode-icon redesign: the five title-bar icons are a designed set (own outline, own accent palette). Keeps the retired-agent scan of the broad src/**/*.svelte rule this entry supersedes.",
+      "glob": "src/shell/Icon.svelte",
+      "run": [
+        "verify-mode-icons.ts",
+        "verify-shell-complete.mjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -12300,6 +12312,15 @@
       "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
+    },
+    "verify-mode-icons.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "presence"
     }
   }
 }

@@ -5,19 +5,28 @@
     home: '<path d="M3 9.5 12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',
     lighttable:
       '<rect width="18" height="14" x="3" y="3" rx="2"/><path d="M4 21h1"/><path d="M9 21h1"/><path d="M14 21h1"/><path d="M19 21h1"/>',
-    // ---- mode icons (2026-07 top-bar rework) ----
-    // Fixed Flexoki accent details ride var(--flx-*-400) tokens so they stay
-    // theme-managed while the structural strokes keep following currentColor.
+    // ---- mode icons (2026-11 redesign) ----
+    // Each has its own outline and its own accent palette: neutral structure in
+    // currentColor, colour (the --icon-* tokens in styles/tokens.css) only on the
+    // one thing the mode is about. Every stroke width is written out, so an icon
+    // looks the same whatever `stroke` the caller passes. verify-mode-icons pins
+    // the set.
+    // Figure: a plot being placed — selection box and handles, the curve, and the
+    // Flux cursor itself (its dart from cursorFamily's ARROW_SHAPE, default colours).
     figure:
-      '<path d="M4.5 4V19.5H21"/><path d="M7.5 16.5 19 7" stroke="var(--flx-blue-400)"/><circle cx="9.7" cy="13.2" r="1.35" fill="var(--flx-orange-400)" stroke="none"/><circle cx="13.2" cy="9.8" r="1.35" fill="var(--flx-cyan-400)" stroke="none"/><circle cx="16.3" cy="11.4" r="1.35" fill="var(--flx-magenta-400)" stroke="none"/>',
-    paper:
-      '<text x="10" y="17.5" text-anchor="middle" font-size="16.5" style="font-family: var(--font-serif); font-weight: 600" fill="currentColor" stroke="none">A</text><path d="M17.6 6v11.4" stroke="var(--flx-blue-300)" stroke-width="2"/>',
+      '<path d="M11.7 15.5H3.5V4H17v7.6" stroke-width="1.5" stroke-linejoin="miter"/><path d="M6.1 12.75c3.2 0 3-6 8.4-6" stroke="var(--icon-figure)" stroke-width="2.4"/><rect x="1.7" y="2.2" width="3.6" height="3.6" rx=".7" fill="currentColor" stroke="none"/><rect x="15.2" y="2.2" width="3.6" height="3.6" rx=".7" fill="currentColor" stroke="none"/><rect x="1.7" y="13.7" width="3.6" height="3.6" rx=".7" fill="currentColor" stroke="none"/><path d="M12.9 11.2L21.46 16.22L17.19 17.33L14.69 20.96z" fill="var(--icon-pointer)" stroke="var(--icon-pointer-edge)" stroke-width="1.5" paint-order="stroke"/>',
+    // Slide: a slide flying in — small and tilted, larger and straighter, at rest.
     slide:
-      '<path d="M7 4.5h11a2 2 0 0 1 2 2V14"/><rect x="3.5" y="7.5" width="13" height="10" rx="1.5"/><path d="M8.7 10.4v4.2l3.6-2.1z" fill="var(--flx-orange-400)" stroke="none"/>',
+      '<path d="M1.94 14.88L5.13 13.78M11.58 17.1L11.86 17.92L3.92 20.65L1.94 14.88" stroke-width="1.6" opacity=".4"/><path d="M4.6 10L7.7 9.57M16.46 15.35L16.6 16.4L5.71 17.93L4.6 10" stroke-width="1.6" opacity=".72"/><rect x="7.7" y="5.85" width="13" height="9.5" rx="2" stroke-width="2"/><path d="M12.8 8.4v4.4l3.74-2.2z" fill="var(--icon-slide)" stroke="var(--icon-slide)" stroke-width="1.1"/>',
+    // Paper: the text caret splitting two lines of words.
+    paper:
+      '<path d="M3 9h5M3 15h5M16 9h5M16 15h5" stroke-width="2"/><path d="M12 5.25v13.5M8.9 3.5c1.9 0 3.1.6 3.1 1.75 0-1.15 1.2-1.75 3.1-1.75M8.9 20.5c1.9 0 3.1-.6 3.1-1.75 0 1.15 1.2 1.75 3.1 1.75" stroke="var(--icon-paper)" stroke-width="2.2"/>',
+    // Library: book spines on a shelf, one leaning.
     library:
-      '<path d="M3.5 8.6 12 3.4l8.5 5.2z"/><path d="M7 11v6.5M12 11v6.5M17 11v6.5" stroke-width="2.4"/><path d="M5.5 19.2h13" stroke="var(--flx-yellow-400)"/><path d="M3.5 21.6h17" stroke="var(--flx-yellow-400)"/>',
+      '<rect x="2.5" y="6.5" width="3.8" height="14" rx=".9" fill="var(--icon-library)" stroke="none"/><rect x="6.9" y="9" width="3.1" height="11.5" rx=".8" fill="currentColor" stroke="none"/><rect x="10.6" y="4.5" width="3.5" height="16" rx=".9" fill="currentColor" stroke="none"/><rect x="18.3" y="7" width="3.5" height="13.5" rx=".9" fill="var(--icon-library)" stroke="none" transform="rotate(-18 18.3 20.5)"/><path d="M2.5 22.1h19" stroke-width="1.4"/>',
+    // Reader: a loose pile of printed papers, one line highlighted.
     reader:
-      '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M10 9H8"/><path d="M7.4 13.2h9.2" stroke="var(--flx-yellow-400)" stroke-width="3.4" opacity="0.5"/><path d="M16 13.2H8"/><path d="M14.5 17H8"/>',
+      '<path d="M3.3 6.76L6.8 5.95M12.23 19.58L6.56 20.89L3.3 6.76" stroke-width="1.6" opacity=".6"/><path d="M16.8 5.82L20.9 7.15L16.41 20.94L9.06 18.55" stroke-width="1.6" opacity=".85"/><rect x="6.8" y="4.05" width="10" height="14.5" rx="1.5" stroke-width="2"/><path d="M9.5 7.4h4.6M9.5 15.2h3" stroke-width="1.75"/><path d="M9.1 11.3h5.4" stroke="var(--icon-reader)" stroke-width="3.8" stroke-linecap="butt"/>',
     help:
       '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 1 1 4.1 2.5c-.9.5-1.3 1-1.3 1.9"/><circle cx="12" cy="16.8" r="0.7" fill="currentColor" stroke="none"/>',
     inbox: '<path d="M3 13h5l2 3h4l2-3h5"/><path d="m3 13 3-8h12l3 8v6H3z"/>',

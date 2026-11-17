@@ -9,6 +9,14 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Title bar
+
+- **New mode icons.** Each of the five modes now has its own outline and its own accent colour, so
+  you can tell them apart at a glance: Figure is a plot being placed by the pointer (dark blue, with
+  Flux's pink cursor), Slide is a slide flying in (green), Paper is the text caret between lines of
+  words (blue), Library is a shelf of books with one leaning (violet), and Reader is a loose pile of
+  printed papers with one line highlighted (yellow).
+
 ### Slides
 
 - **A Become can keep its source.** Press **K** while picking what something becomes (or set

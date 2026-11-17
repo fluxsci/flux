@@ -168,6 +168,8 @@ const actualCases = [
   ["scripts/lib/retiredAgentScan.ts", ["verify-no-retired-agent-layer.ts"]],
   ["scripts/verify-no-retired-agent-layer.ts", ["self:scripts/verify-no-retired-agent-layer.ts"]],
   ["scripts/verify-connect-e2e.ts", ["self:scripts/verify-connect-e2e.ts"]],
+  // 2026-11 mode-icon redesign: Icon.svelte has its own rule and keeps the broad rule's retired-agent scan.
+  ["src/shell/Icon.svelte", ["verify-mode-icons.ts", "verify-shell-complete.mjs", "verify-no-retired-agent-layer.ts"]],
   ["scripts/lib/driver.mjs", ["tier:pure"]],
   ["scripts/verify-changed-pathmap.mjs", ["self:scripts/verify-changed-pathmap.mjs", "tier:pure"]],
 ];
