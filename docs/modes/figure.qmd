@@ -833,20 +833,59 @@ one gesture.
   **Dock** move the same view between windows. You can keep editing the workspace while
   it is pinned. **Shift+Alt+G** likewise opens the Plot gallery already pinned.
 - **A** opens **Align & Arrange** with Align active; **Space** switches the active pane. **Alt+T** opens it with Arrange active.
+  **Shift+A** is **Crystallize**: a loose selection snaps into its row, column or grid with no panel at all.
   See [Alignment and arrangement](#alignment-and-arrangement) for spacing, anchors and plot spines.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.
 
 # Alignment and arrangement
 
-Select objects and press **A** to open **Align & Arrange** beside them. Both panes stay
-visible; click a pane or one of its controls to activate it. With Align active, click an
-alignment button or use **W/A/S/D** for top/left/bottom/right. **H** aligns X centers along a vertical line;
-**V** aligns Y centers along a horizontal line. Choose **Selection bounds**, a named
-**Reference object**, or the **Figure** frame. One selected object aligns to the figure.
-Each alignment is one Undo step; the panel stays open for further adjustments. A plot with
-parts hidden in **X-ray** aligns and arranges by its visible outline.
+There are three ways to line objects up, from quickest to most exact: **Crystallize** does
+it in one key, the pink gap guides let you drag the spacing of anything already regular,
+and the **Align & Arrange** panel holds every individual control.
 
-For semantic plots, **X spines** (**X**) aligns horizontal axes and **Y spines** (**Y**)
+## Crystallize: one key for a loose selection {#crystallize}
+
+Select objects you placed by hand and press **Shift+A**. Flux reads the selection as the
+row, column or grid it is closest to and snaps it into exactly that: every row on one
+line, every column on one line, one gap between columns and one between rows. Nine boxes
+dropped roughly three by three become a 3 × 3 grid, three side by side become a row, three
+stacked become a column. A leftover that completes a rectangle joins it: three in a row
+with a fourth under the first become a 2 × 2 grid.
+
+A small button with a lattice mark also appears just outside the selection's bottom-right
+corner whenever there is something to crystallize. Hover it to see where every object
+would land and where the gutters would run; click it to do the same as **Shift+A**. Once
+the selection is exact, the button goes away and the pink gap guides described below take
+over, so you can drag the spacing straight away.
+
+Crystallize keeps what you already decided. Gaps that already agree are kept exactly, and
+a spread of hand-placed gaps is replaced by their median on a whole number. Inside a row
+or column, objects keep the edge or center they already nearly share (tops stay tops).
+The selection's fixed point stays put: the center, unless you chose another under **Keep
+fixed**. It is one Undo step, and a short label by the selection says what was recognized
+(*Grid 3 × 3*, *Row of 3*). Objects piled on top of each other, and layouts where one
+object spans several rows or columns, are left alone with a note saying why. An evenly
+spaced row of plots whose boxes do not line up is usually aligned on its axes, so it gets
+no button; **Shift+A** still lines the boxes up if you ask.
+
+## The Align & Arrange panel {#align-arrange-panel}
+
+Select objects and press **A** to open **Align & Arrange** beside them. It has two panes,
+**Align** and **Arrange**, and both stay visible. One of them owns the keyboard: its
+heading and key caps are lit, and the other pane's heading shows the **Space** cap that
+hands the keys over. Clicking a pane or any of its controls activates it too. Every
+control shows its key in a cap of its own, beside its icon and its name.
+
+With Align active, **A/H/D** align left edges, centers and right edges, and **W/V/S**
+align tops, middles and bottoms (**W/A/S/D** sit where the edges are). Next to **to**,
+choose what to align to: the **Selection** bounds, one **Object** that stays put, or the
+**Figure** frame. One selected object aligns to the figure. Hovering a control draws its
+line on the canvas and names it at the foot of the panel. **Shift+H** and **Shift+V** under
+**Distribute** even out horizontal and vertical spacing, keeping the outermost objects
+where they are. Each action is one Undo step; the panel stays open for further adjustments.
+A plot with parts hidden in **X-ray** aligns and arranges by its visible outline.
+
+For semantic plots, a **Plots** section appears: **X spines** (**X**) aligns horizontal axes and **Y spines** (**Y**)
 aligns vertical axes. The reference plot stays fixed. Whole groups move together, including
 annotations. For multi-panel plots, use the panel and spine choices to identify the intended
 axis. Unavailable spines are explained in the panel; ordinary alignment remains available.
@@ -855,20 +894,21 @@ These commands move plots without changing their domains, sizes or internal geom
 Press **Space** on the tool surface to switch the active pane to **Arrange**, or open it
 with Arrange already active using **Alt+T**. An existing row, column or simple grid keeps its order and internal offsets while
 uneven gaps are tidied. A regular arrangement stays where it is. An ambiguous selection gets
-a **Suggested grid** preview. Explicit **Row**, **Grid** and **Column** buttons reflow the
-selection into centered cells; **A** toggles row/column, **G** chooses a balanced grid, and
-**D/F** increases/decreases the row count.
+a **Suggested grid** preview. **Row** (**R**), **Column** (**C**) and **Grid** (**G**) reflow the
+selection into centered cells; the rows × columns readout beside **Grid** has **−** and **+**
+buttons (the **−** and **+** keys) that step through every shape from one row to one column.
+The tool's first keys still work: **A** toggles row/column and **D/F** add/remove a row.
 
 Selecting an already evenly spaced row, column or simple grid shows pink gap guides without
 opening the panel. This recognition leaves the objects unchanged; ambiguous overlaps do not
 show guides. Drag a guide directly to edit spacing as one Undo step.
 
 Drag a pink gap guide to adjust all gaps on that axis, or enter, scroll or scrub a value in
-the spacing field. Negative gaps overlap objects, which is useful for stacked traces or
+the spacing field; in a grid, the link button between the two fields makes one value drive both. Negative gaps overlap objects, which is useful for stacked traces or
 waveforms. Values have no zero floor; very negative spacing can move successive tracks past
 one another while retaining their members, sizes and stacking order. Right/down increases spacing; left/up decreases it. **Shift** adjusts faster and
-**Alt** more finely. **Keep fixed** chooses which edge or center stays in place; a grid offers
-nine anchor points. Click the small pin on the selection to open the same chooser without
+**Alt** more finely. **Keep fixed** chooses which edge or center stays in place (**1/2/3** in a row or column); a grid offers
+nine anchor points on a miniature frame. Click the small pin on the selection to open the same chooser without
 opening the panel. Center is the initial default; your choice stays selected across selections
 and tool visits in the current app session. **1/2/3** chooses start/center/end on the gap axis
 you are editing or hovering; numeric fields retain normal typing. Choosing a different anchor
@@ -880,7 +920,7 @@ objects can have more visible clearance within their cells.
 current drag or field edit first; another **Escape** restores the arrangement from when you
 entered. Switching back to Align keeps the arrangement. Input fields retain normal typing;
 **Enter** accepts a field, and keyboard-focused buttons retain normal **Enter/Space** activation.
-Both panes remain visible, and their headings select the active keyboard commands. Middle-button and wheel navigation remain
+Middle-button and wheel navigation remain
 available between edits. These tools set ordinary object positions; they do not create an
 automatic layout that later moves newly added objects.
 

@@ -2528,6 +2528,43 @@ Persistence invariants (all machine-checked — do not weaken):
   - **Align / Arrange (A / Alt+T) = `AlignArrangePanel.svelte` + `interact/alignArrange.ts`.**
     Both panes remain visible; Space or a pane control switches keyboard ownership.
     Arrow is Shift+L in Figure/Slide (Annotate retains its own map).
+    The panel was rebuilt on 2026-11-17 (owner: "the hotkey indicators overlap the text") in the
+    property menu's vocabulary: serif words, mono eyebrows and values, the global key caps. Every
+    control is a CELL of three grid columns (cap, 16 px glyph, word), so a cap can never sit on a
+    label; `verify-align-arrange-gui` measures every button's children pairwise (no overlap, clip
+    or truncation) in both panes, all three layouts and the stacked narrow form. A glyph is two
+    paths: `ink` (the objects, filled) and `rule` (the line they meet, the tool colour). Caps are
+    lit (`--c-layout-gap`) only in the pane that owns the keyboard; the idle pane's heading carries
+    the Space cap. Keys: Align W/A/S/D, H/V, Shift+H/V (distribute; never Q, the Inbox chord's reserved key), X/Y; Arrange R/C/G, +/− (rows),
+    1/2/3; A (row ⇄ column) and D/F (rows) remain as unadvertised aliases, pinned by the gate.
+    "Align to" is a radiogroup (`[data-align-target]`), the gap link a `role="switch"` button
+    between the two fields (address the fields as `.gap:first-child` / `.gap:last-child`, never by
+    child index), and the footer's status line names the hovered alignment.
+  - **Crystallize (Shift+A) = `layout/arrangement.ts` `planAutoArrangement` + `CrystallizeOverlay.svelte`.**
+    The other half of the planner: `planArrangement` keeps what is there (tracks, order,
+    transverse offsets); `planAutoArrangement` reads a hand-placed selection as the row, column
+    or grid it is closest to and plans it outright through the reflow path (`align` cell
+    alignment, exact gaps). Units share a band when one's center lies in the other's extent
+    (intersection, so a steep staircase cannot chain; a gentle slant is rejoined when neighbouring
+    bands overlap by more than a third). One row band is a row, one column band a column; both
+    single is a pile unless the centers march along one axis (staggered traces: an overlapping
+    stack). Rows carry a grid: full rows over a shorter last row keep their width unless the
+    leftover completes a rectangle with the same row count (3 + 1 is 2 × 2; 30-wide rows + 1 stay
+    30). Refusals (`autoArrangementRefusal`): fewer than two units, a pile or an object sitting ON
+    another (asymmetric center containment: group them), a unit spanning a neighbouring band
+    (judged on the STRICT bands). Gaps that already agree are kept exactly; a spread becomes its
+    median on a whole number (never for sub-8 px geometry). An axis on which nothing moves keeps
+    its bytes, and a moved member lands on the planned origin plus its inner offset, so the
+    members of a track share ONE coordinate (an ulp apart reads "Mixed" in the Inspector).
+    `crystallizeOffer` (passive, derived from the same recognition as the guides) feeds the
+    corner button; it is skipped above `CRYSTALLIZE_OFFER_UNITS` (the key still plans on demand),
+    for units of very different size, and for an evenly spaced row of PLOTS (spine-aligned boxes
+    rarely share an edge). Evenly spaced is not crystallized: equal gaps with one member pushed
+    sideways has guides AND an offer. `crystallizeSelection` is one `commit`; the notice is UI
+    state. Headless twin: `arrange --mode auto` (`ops.arrangePanels`; top-left anchor by default,
+    rows/cols/gap refused, a refusal is an error and writes nothing). Gates:
+    `verify-crystallize.ts` (pure: planner, op, controller) and `verify-crystallize-gui.mjs`
+    (Figure and Slide), both in `group:align-arrange`.
     `layout/arrangement.ts` owns inferred rows/columns/grids, immutable translation plans,
     per-axis gaps and fixed-point anchoring; `layout/layoutMath.ts` also serves legacy
     `arrangeGrid`. Old headless calls preserve their defaults. A regular inferred layout
@@ -12608,3 +12645,22 @@ real-app screenshots and the tour's clips, which are made from the pinned public
 - A frame-cadence gate is disturbed by ANY side work, not only by another gate: decoding one 12000 px PNG while
   `verify-slide-settle-sweep` ran produced a false POST CHANGE in an otherwise green pure tier. It passed alone. Leave
   the machine idle during a tier run.
+
+### 2026-11-17 — Align & Arrange rebuilt; Crystallize (Shift+A) (Claude Fable 5.2, `main`)
+**Work:** Two owner annotations on the demo project. (1) The Align & Arrange panel was redesigned and reimplemented from
+scratch: cells of cap · glyph · word in the property menu's vocabulary, lit caps for the pane that owns the keys, R/C/G
+and +/− for layouts, Shift+H/V for distribute, a segmented "align to", a link switch between the grid gaps, a status line.
+The controller and every behaviour are unchanged. (2) Crystallize: Shift+A (and a small corner offer with a hover
+preview) snaps a loose selection into the row, column or grid it is closest to, after which the existing passive pink
+guides take over. One shared pure planner serves the editor and `arrange --mode auto`.
+**Learnings:** (promoted to §4 Align / Arrange and Crystallize)
+- "Already regular" and "tidy" are different contracts. The passive guides accept a column with equal gaps and a
+  member pushed sideways (transverse offsets are legal there, for spine-aligned plots); the owner's own blue column
+  was exactly that, and a Crystallize gated on "not yet regular" would have done nothing to it. Offer on what the
+  action would CHANGE, never on a neighbouring feature's notion of done.
+- Exactness is a feature, not a nicety: `old + (target − old)` leaves a track's members an ulp apart, and measured
+  bounding boxes differ by an ulp in width. Land on the target, snap a track-filling box onto the track, and keep the
+  bytes of an axis that does not move.
+- A pinned selector that counts children (`div:nth-child(2)`) breaks on any honest markup change; address by role.
+- A recognition heuristic needs its refusals designed first (pile, object-on-object, spanning unit): an always-on
+  offer that tears labels off their panels on Ctrl+A is worse than no offer.

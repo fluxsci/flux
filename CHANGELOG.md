@@ -9,6 +9,24 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Figure and Slide
+
+- **Crystallize (Shift+A).** Select objects you placed by hand and press **Shift+A**: Flux reads
+  them as the row, column or grid they are closest to and snaps them into it, aligned and evenly
+  spaced, as one Undo step. Three in a row with a fourth under the first become a 2 × 2. A small
+  button at the selection's bottom-right corner offers the same and previews the result on hover;
+  afterwards the pink gap guides appear by themselves, with no panel opened. Gaps that already
+  agree are kept exactly; hand-placed ones settle on a whole number. Agents:
+  `flux arrange <figure> --mode auto`.
+- **Align & Arrange, rebuilt.** The panel is redrawn in the property menu's vocabulary: every
+  control is a key cap, an icon and a word, each in its own place, so a key can never sit on a
+  label. The pane that owns the keyboard has its caps lit and the other shows the **Space** cap
+  that hands the keys over. Layouts have their own keys (**R** row, **C** column, **G** grid) with
+  **−**/**+** stepping the rows; **Shift+H**/**Shift+V** even out horizontal/vertical spacing; "align to" is a
+  three-way switch (Selection, Object, Figure); a link button joins the two grid gaps; and the
+  foot of the panel names whatever is under the pointer. The earlier keys (**A** row/column,
+  **D**/**F** rows) still work.
+
 ### Title bar
 
 - **New mode icons.** Each of the five modes now has its own outline and its own accent colour, so
