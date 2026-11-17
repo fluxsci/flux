@@ -442,6 +442,7 @@
       "verify-arrangement.ts",
       "verify-plot-landmarks.ts",
       "verify-align-arrange-controller.ts",
+      "verify-crystallize.ts",
       "verify-scene-transforms.ts",
       "verify-relayout-spike.ts",
       "verify-relayout-oracle.ts",
@@ -642,6 +643,7 @@
       "verify-setup-flux-gui.mjs",
       "verify-plots-rail.mjs",
       "verify-align-arrange-gui.mjs",
+      "verify-crystallize-gui.mjs",
       "verify-arrange-gaps-gui.mjs",
       "verify-number-field-owner.mjs",
       "verify-plot-spines-gui.mjs",
@@ -1440,7 +1442,9 @@
       "verify-arrangement.ts",
       "verify-plot-landmarks.ts",
       "verify-align-arrange-controller.ts",
+      "verify-crystallize.ts",
       "verify-align-arrange-gui.mjs",
+      "verify-crystallize-gui.mjs",
       "verify-arrange-gaps-gui.mjs",
       "verify-number-field-owner.mjs",
       "verify-plot-spines-gui.mjs",
@@ -1935,11 +1939,12 @@
       "run": [
         "verify-arrangement.ts",
         "verify-v020-geometry.ts",
-        "verify-ops.ts"
+        "verify-ops.ts",
+        "verify-crystallize.ts"
       ]
     },
     {
-      "glob": "{src/lib/AlignArrangePanel.svelte,src/lib/ArrangeGapOverlay.svelte,src/lib/ArrangementAnchorPicker.svelte,src/lib/interact/alignArrange.ts,scripts/lib/alignArrangeFixture.mjs}",
+      "glob": "{src/lib/AlignArrangePanel.svelte,src/lib/ArrangeGapOverlay.svelte,src/lib/CrystallizeOverlay.svelte,src/lib/ArrangementAnchorPicker.svelte,src/lib/interact/alignArrange.ts,scripts/lib/alignArrangeFixture.mjs}",
       "run": [
         "group:align-arrange",
         "verify-fig-esc.mjs",
@@ -11659,6 +11664,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-crystallize-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-arrange-gaps-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -11693,6 +11709,15 @@
       "coverage": "behavior"
     },
     "verify-align-arrange-controller.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-crystallize.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

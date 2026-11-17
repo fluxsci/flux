@@ -61,7 +61,7 @@ const actualCases = [
   ["src/lib/ArrangeGapOverlay.svelte",["group:align-arrange","verify-fig-esc.mjs","verify-surface-anchor.ts","verify-annotate-chord-census.ts"]],
   ["src/lib/interact/alignArrange.ts",["group:align-arrange","verify-fig-esc.mjs","verify-surface-anchor.ts","verify-annotate-chord-census.ts"]],
   ["src/lib/layout/arrangement.ts",["verify-arrangement.ts","verify-ops.ts","verify-v020-geometry.ts","group:align-arrange"]],
-  ["src/lib/layout/layoutMath.ts",["verify-arrangement.ts","verify-v020-geometry.ts","verify-ops.ts"]],
+  ["src/lib/layout/layoutMath.ts",["verify-arrangement.ts","verify-v020-geometry.ts","verify-ops.ts","verify-crystallize.ts"]],
   ["src/lib/plot/landmarks.ts",["verify-plot-landmarks.ts","verify-target-geometry.ts","group:align-arrange"]],
   ["scripts/lib/model3dS8Fixture.ts", ["group:model3d-s8", "tier:pure"]],
   // WP 1.8: the raster keeper's harness files run only the offscreen raster gate; the join law runs the pure raster gate.

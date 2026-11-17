@@ -23,11 +23,16 @@ export function layoutReadingOrder<T>(items: readonly T[], bounds: (item:T)=>Lay
   for (const band of bands) band.sort((a,b) => bounds(a).x-bounds(b).x);
   return bands.flat();
 }
-export function gridTracks(boxes: readonly LayoutBox[], cols: number, gapX:number,gapY:number, x=0,y=0) {
+/** alignX/alignY place each box inside its cell: 0 start, .5 center (the default every
+ * existing caller relies on), 1 end. */
+export function gridTracks(boxes: readonly LayoutBox[], cols: number, gapX:number,gapY:number, x=0,y=0, alignX=.5,alignY=.5) {
   const C=Math.min(cols,boxes.length),R=Math.ceil(boxes.length/C);
   const widths = new Array<number>(C).fill(0), heights = new Array<number>(R).fill(0);
   boxes.forEach((b,i)=>{widths[i%C]=Math.max(widths[i%C],b.w);heights[Math.floor(i/C)]=Math.max(heights[Math.floor(i/C)],b.h);});
   const tracks=(sizes:number[],origin:number,gap:number):LayoutTrack[]=>sizes.map(size=>{const t={start:origin,size};origin+=size+gap;return t;});
   const columns=tracks(widths,x,gapX),rows=tracks(heights,y,gapY);
-  return {columns,rows,boxes:boxes.map((b,i)=>{const col=columns[i%C],row=rows[Math.floor(i/C)];return {x:col.start+(col.size-b.w)/2,y:row.start+(row.size-b.h)/2,w:b.w,h:b.h};})};
+  // A box that fills its track (to within the rounding of a measured bounding box) sits ON the
+  // track's start, so equal-sized boxes in one track share one coordinate exactly.
+  const slack=(track:number,own:number)=>Math.abs(track-own)<=1e-9*Math.max(1,track)?0:track-own;
+  return {columns,rows,boxes:boxes.map((b,i)=>{const col=columns[i%C],row=rows[Math.floor(i/C)];return {x:col.start+slack(col.size,b.w)*alignX,y:row.start+slack(row.size,b.h)*alignY,w:b.w,h:b.h};})};
 }

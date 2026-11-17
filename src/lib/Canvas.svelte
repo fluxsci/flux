@@ -72,7 +72,8 @@
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import ArrangeGapOverlay from "./ArrangeGapOverlay.svelte";
-  import { alignArrange, arrangementPreview, passiveArrangement } from "./interact/alignArrange";
+  import CrystallizeOverlay from "./CrystallizeOverlay.svelte";
+  import { alignArrange, arrangementPreview, passiveArrangement, crystallizeOffer, crystallizeNotice } from "./interact/alignArrange";
   import type { Element, Figure, ImageElement, LineElement, PathElement, Project, SemanticPlotElement, VectorNode } from "./types";
   import { get, derived, writable } from "svelte/store";
   import { onMount, tick, onDestroy, flushSync } from "svelte";
@@ -6129,6 +6130,10 @@
     {/if}
     {#if paneActive && af && ($alignArrange?.figureId === af.id || ((!gesture || gesture.kind === "pan") && !nodeDrag && !bendDrag && $passiveArrangement?.figureId === af.id))}
       <ArrangeGapOverlay viewport={$viewport} figureX={af.x} figureY={af.y} width={hostW} height={hostH} />
+    {/if}
+    <!-- Crystallize (Shift+A): the offer beside a loose selection, and what it recognized. -->
+    {#if paneActive && af && !$alignArrange && (!gesture || gesture.kind === "pan") && !nodeDrag && !bendDrag && ($crystallizeOffer?.figureId === af.id || $crystallizeNotice?.figureId === af.id)}
+      <CrystallizeOverlay viewport={$viewport} figureX={af.x} figureY={af.y} width={hostW} height={hostH} />
     {/if}
   </svg>
 

@@ -20,7 +20,7 @@
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextAlign, TextStyle, TextVAlign } from "./types";
-  import { openAlignArrange } from "./interact/alignArrange";
+  import { openAlignArrange, crystallizeSelection } from "./interact/alignArrange";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle, openCascade } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
@@ -1226,9 +1226,11 @@
 
   <details class="advanced" open={sel.length >= 2}>
     <summary>Align, arrange &amp; selection tools</summary>
-    <div class="row" style="padding:8px 0">
-      <button title="Open Flux Align (A)" on:click={() => openAlignArrange("align")}>Flux Align… <span class="hk">A</span></button>
-      <button title="Open Flux Arrange (Alt+T)" disabled={arrN < 2} on:click={() => openAlignArrange("arrange")}>Flux Arrange… <span class="hk">Alt+T</span></button>
+    <!-- The layout tools, one to a line: the name on the left, its key on the right. -->
+    <div class="layout-tools">
+      <button title="Open Flux Align (A)" on:click={() => openAlignArrange("align")}><span>Flux Align…</span><span class="hk">A</span></button>
+      <button title="Open Flux Arrange (Alt+T)" disabled={arrN < 2} on:click={() => openAlignArrange("arrange")}><span>Flux Arrange…</span><span class="hk">Alt+T</span></button>
+      <button title="Snap the selection into the row, column or grid it is closest to (Shift+A)" disabled={arrN < 2} on:click={() => crystallizeSelection()}><span>Crystallize</span><span class="hk">⇧A</span></button>
     </div>
   <!-- ALIGN -->
   <section>
@@ -1476,6 +1478,8 @@
     color: var(--c-tx);
   }
   .hk { margin-left: auto; color: var(--c-tx-faint); }
+  .layout-tools { display: grid; gap: 3px; padding: 8px 10px; }
+  .layout-tools button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; white-space: nowrap; }
   h4 .hk { margin-left: 0; }
   .note.phys {
     display: flex;

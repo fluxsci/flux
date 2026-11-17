@@ -73,7 +73,7 @@ import { partDrawnHidden, partFamily } from "./xray/rowContext";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
 import { modelOrbit } from "./model3d/orbitSession";
-import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey } from "./interact/alignArrange";
+import { openAlignArrange, closeAlignArrange, handleAlignArrangeKey, crystallizeSelection } from "./interact/alignArrange";
 import { reattachClones } from "./slide/attach";
 import { copySelectedPlotPath } from "./figure/commands";
 import { figurePlacement } from "./figure/placement";
@@ -841,6 +841,13 @@ export function handleKey(e: KeyboardEvent) {
   if (!mod && !e.altKey && e.code === "KeyA" && !e.shiftKey) {
     e.preventDefault();
     if (!e.repeat) openAlignArrange("align");
+    return;
+  }
+  // Shift+A: Crystallize. The selection snaps into the row, column or grid it is closest to,
+  // with no panel (A's own family: A opens the tool, Shift+A just does it).
+  if (!mod && !e.altKey && e.code === "KeyA" && e.shiftKey) {
+    e.preventDefault();
+    if (!e.repeat) crystallizeSelection();
     return;
   }
   if (!mod && !e.altKey && e.code === "KeyL" && e.shiftKey) {

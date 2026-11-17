@@ -144,7 +144,7 @@ function validateCommand(c: Command): void {
   if (c.type === 'align') enumeration(c,'kind',['left','right','top','bottom','centerH','centerV'],true);
   if (c.type === 'arrange' || c.type === 'align') scalar(c,'scope','string');
   if (c.type === 'arrange') {
-    enumeration(c,'mode',['tidy','reflow']);
+    enumeration(c,'mode',['tidy','reflow','auto']);
     enumeration(c,'anchorX',['start','center','end']);
     enumeration(c,'anchorY',['start','center','end']);
   }

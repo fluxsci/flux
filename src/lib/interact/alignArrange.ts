@@ -7,7 +7,7 @@ import { storeTenantState } from '../tenancy';
 import { editSession } from './editSession';
 import { unitOf } from '../groups';
 import { balancedRows, validRowCounts, type AlignKind, type Rect } from '../geometry';
-import { createArrangementSnapshot, planArrangement, snapshotAfterArrangement, resolveLayoutUnits, type LayoutSnapshot, type ArrangementPlan } from '../layout/arrangement';
+import { createArrangementSnapshot, planArrangement, planAutoArrangement, autoArrangementRefusal, snapshotAfterArrangement, resolveLayoutUnits, type LayoutSnapshot, type ArrangementPlan, type LayoutTopology } from '../layout/arrangement';
 import { applyArrangementPlan, applyLayoutTranslations, alignPanels, distributePanels } from '../ops';
 import { plotDom, plotManifests, plotGen, requestPlotDom } from '../plot/store';
 import { plotBoundsRevision, visibleElementBox } from '../plot/visibleBounds';
@@ -58,6 +58,70 @@ const arrangementRecognition = derived(
 /** Recognition is read-only and independent of the panel. Never tidy an
  * irregular selection merely because it was selected. */
 export const passiveArrangement = derived(arrangementRecognition, recognized => recognized?.plan ?? null);
+/* ---- Crystallize (Shift+A): the arrangement a loose selection is closest to, in one step ----
+ * Recognition is passive like the guides above: nothing moves until the user asks. Evenly
+ * spaced is not yet crystallized: a column with equal gaps and one member pushed sideways has
+ * its guides AND an offer. The offer (never the key) holds back in two cases. Units of very
+ * different size are probably not one arrangement. And plots: an evenly spaced row of plots whose
+ * boxes do not line up is usually aligned on its spines, so it is offered nothing (the key
+ * still works, since pressing it is a decision). */
+/** Above this many units the on-canvas offer is not computed on every selection change; the
+ * hotkey still plans on demand (a one-off cost, never on the selection path). */
+export const CRYSTALLIZE_OFFER_UNITS = 600;
+/** The largest unit may be at most this many times the area of the smallest for an offer. */
+export const CRYSTALLIZE_OFFER_SIZE_RATIO = 8;
+export interface CrystallizeOffer { figureId:string; plan:ArrangementPlan; topology:LayoutTopology; rows:number; cols:number; count:number; bounds:Rect }
+export const crystallizeOffer = derived([arrangementRecognition, savedArrangementAnchor], ([$recognized,$anchor]):CrystallizeOffer|null => {
+  const count=$recognized?.snapshot.units.length??0;
+  if(!$recognized || count<2 || count>CRYSTALLIZE_OFFER_UNITS)return null;
+  // An offer is a claim that these objects belong in one arrangement. Objects of very different
+  // size (panels and their labels, a plot and a scale bar) rarely do; the key still works.
+  const areas=$recognized.snapshot.units.map(u=>u.bounds.w*u.bounds.h);
+  if(Math.max(...areas)>CRYSTALLIZE_OFFER_SIZE_RATIO*Math.min(...areas))return null;
+  if($recognized.plan) {
+    const members=new Set($recognized.snapshot.units.flatMap(u=>u.memberIds));
+    if($recognized.figure.elements.some(e=>e.type==='plot'&&members.has(e.id)))return null;
+  }
+  try {
+    const auto=planAutoArrangement($recognized.snapshot,{anchor:$anchor});
+    return auto?.moves?{figureId:$recognized.figure.id,plan:auto.plan,topology:auto.topology,rows:auto.rows,cols:auto.cols,count,bounds:$recognized.snapshot.bounds}:null;
+  } catch {return null;}
+});
+/** What the last Crystallize recognized, for the canvas to say once ("Grid 3 × 3"). */
+export interface CrystallizeNotice { id:number; figureId:string; topology:LayoutTopology; rows:number; cols:number; count:number; bounds:Rect; changed:boolean }
+export const crystallizeNotice = writable<CrystallizeNotice|null>(null);
+let noticeSerial = 0;
+export const crystallizeLabel = (shape:{topology:LayoutTopology;rows:number;cols:number;count:number}) =>
+  shape.topology==='grid'?`Grid ${shape.rows} × ${shape.cols}`:`${shape.topology==='row'?'Row':'Column'} of ${shape.count}`;
+/** Snap the selection into the row, column or grid it is closest to: one Undo step, the
+ * session's fixed point stays put, and the passive guides take over from there. Returns what
+ * it recognized, or null (with a quiet explanation) when there is nothing to recognize. */
+export function crystallizeSelection():CrystallizeNotice|null {
+  if(get(alignArrange))return null;
+  const recognized=get(arrangementRecognition);
+  if(!recognized) {
+    const picked=get(selection).size,drilled=!!get(partSelection)||get(partSelections).length>0;
+    pushToast('info',drilled?'Crystallize works on whole objects':picked<2?'Select two or more objects to crystallize':'Crystallize works within one figure, with the Select tool');
+    return null;
+  }
+  const {figure,snapshot}=recognized,count=snapshot.units.length;
+  let shape:{topology:LayoutTopology;rows:number;cols:number;bounds:Rect;changed:boolean};
+  const refusal=autoArrangementRefusal(snapshot),auto=refusal?null:planAutoArrangement(snapshot,{anchor:get(arrangementAnchor)});
+  if(auto) {
+    if(auto.moves)commit(p=>applyArrangementPlan(p,figure.id,auto.plan));
+    shape={topology:auto.topology,rows:auto.rows,cols:auto.cols,bounds:auto.plan.bounds,changed:auto.moves};
+  }
+  // Already an exact arrangement that Crystallize itself would not build (a panel beside two
+  // stacked ones): say what it is and leave it.
+  else if(recognized.plan)shape={topology:recognized.plan.topology,rows:recognized.plan.rowCount,cols:recognized.plan.cols,bounds:recognized.plan.bounds,changed:false};
+  else {
+    pushToast('info',refusal==='too-few'?'Select two or more objects to crystallize':refusal==='pile'?'Nothing to crystallize: these objects sit on top of each other (group an object with what it sits on to move them as one)':'Nothing to crystallize: an object spans several rows or columns');
+    return null;
+  }
+  const notice={id:++noticeSerial,figureId:figure.id,count,...shape};
+  crystallizeNotice.set(notice);
+  return notice;
+}
 let serial = 0;
 let captured: {figureId:string; ids:string[]; scope:string|null; excluded:ReadonlySet<string>} | null = null;
 let snapshot: LayoutSnapshot | null = null;

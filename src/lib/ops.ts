@@ -85,7 +85,7 @@ import {
   type AlignKind,
   type Rect,
 } from "./geometry";
-import { createArrangementSnapshot, planArrangement, planAlignment, resolveLayoutUnits, type ArrangementPlan, type LayoutTranslation, type AlignOptions, type FixedPoint, type LayoutTargetOptions } from "./layout/arrangement";
+import { createArrangementSnapshot, planArrangement, planAutoArrangement, autoArrangementRefusal, planAlignment, resolveLayoutUnits, type ArrangementPlan, type LayoutTranslation, type AlignOptions, type FixedPoint, type LayoutTargetOptions } from "./layout/arrangement";
 import { effectiveHidden, effectiveLocked } from "./groups";
 import { scaleRemap } from "./editing";
 import { figurePanels } from "./captions";
@@ -478,7 +478,9 @@ export interface ArrangeOpts {
   ids?: Id[];
   scope?: Id | null;
   excluded?: ReadonlySet<Id>;
-  mode?: "reflow" | "tidy";
+  /** "auto" recognizes the row, column or grid the units are closest to (the editor's
+   *  Crystallize) and takes its shape and gaps from them: rows/cols/gap are refused. */
+  mode?: "reflow" | "tidy" | "auto";
   gapX?: number;
   gapY?: number;
   anchorX?: "start" | "center" | "end";
@@ -543,6 +545,13 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
     // Agent defaults stay top-left; the interactive caller explicitly requests center.
     const anchor=opts.anchor??{x:fraction(opts.anchorX),y:fraction(opts.anchorY)};
     const snapshot=createArrangementSnapshot(f,opts.ids,{scope:opts.scope,excluded:opts.excluded});
+    if(opts.mode==='auto'){
+      if([opts.rows,opts.cols,opts.gap,opts.gapX,opts.gapY].some(v=>v!==undefined))throw new Error('mode auto recognizes rows, columns and gaps itself; use mode reflow or tidy to set them');
+      const refusal=autoArrangementRefusal(snapshot);
+      if(refusal)throw new Error(`No row, column or grid to recognize: ${refusal==='too-few'?'fewer than two editable units':refusal==='pile'?'the units sit on top of each other (group a unit with what it sits on)':'a unit spans several rows or columns'}`);
+      applyArrangementPlan(p,figId,planAutoArrangement(snapshot,{anchor})!.plan);
+      return;
+    }
     const plan=planArrangement(snapshot,{mode:opts.mode??'reflow',rows:opts.rows,cols:opts.cols,gapX:opts.gapX??opts.gap,gapY:opts.gapY??opts.gap,anchor});
     applyArrangementPlan(p,figId,plan);
     return;
