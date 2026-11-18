@@ -89,16 +89,22 @@
   tabindex="-1"
   aria-label="Window title bar"
   ondblclick={onDblClick}>
-  <button class="brand no-drag" onclick={goHome} title="Flux — Home">
-    <Logomark size={22} />
-    <span class="wordmark">Flux</span>
-  </button>
+  <!-- Three tracks: the two sides are equal, so the mode strip between them is the middle of
+       the WINDOW whatever either side holds (see the grid note in the styles). -->
+  <div class="side left">
+    <button class="brand no-drag" onclick={goHome} title="Flux — Home">
+      <Logomark size={22} />
+      <span class="wordmark">Flux</span>
+    </button>
+    {#if $view === "workspace" && $currentProject}
+      <span class="divider" aria-hidden="true"></span>
+      <span class="project">{$currentProject.name}</span>
+      {#if dirty}<span class="dirtydot" title="Unsaved changes" aria-label="Unsaved changes">●</span>{/if}
+    {/if}
+  </div>
 
+  <div class="middle">
   {#if $view === "workspace" && $currentProject}
-    <span class="divider" aria-hidden="true"></span>
-    <span class="project">{$currentProject.name}</span>
-    {#if dirty}<span class="dirtydot" title="Unsaved changes" aria-label="Unsaved changes">●</span>{/if}
-
     <nav class="modestrip no-drag" aria-label="Modes" style="--mi:{activeIndex}">
       <span class="mindicator" class:hidden={activeIndex < 0} aria-hidden="true"></span>
       {#each modes as m, i (m.id)}
@@ -114,9 +120,9 @@
       {/each}
     </nav>
   {/if}
+  </div>
 
-  <div class="spacer"></div>
-
+  <div class="side right">
   {#if $lastAgentView}
     <span class="agent-view" role="status" title={`${$lastAgentView.name} viewed your window`}>◉ {$lastAgentView.name} viewed your window</span>
   {/if}
@@ -163,6 +169,7 @@
       </button>
     </div>
   {/if}
+  </div>
 </header>
 
 <style>
@@ -178,18 +185,47 @@
   .titlebar {
     height: var(--titlebar-h);
     flex: 0 0 auto;
-    display: flex;
+    /* The mode strip sits in the middle of the window. Two equal 1fr tracks around an auto
+       one put it there exactly, and the edge padding lives INSIDE the side tracks so it cannot
+       shift the middle (macOS's 76 px for the traffic lights would move it 34 px). The right
+       track may not shrink below its controls: on a narrow window it takes what it needs and
+       the strip gives way to the left instead of sliding under them. */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr);
     align-items: center;
-    gap: var(--sp-3);
-    padding: 0 var(--sp-2) 0 var(--sp-3);
+    column-gap: var(--sp-3);
     background: var(--c-bg-raised);
     border-bottom: 1px solid var(--c-line);
     -webkit-app-region: drag;
     user-select: none;
   }
+  .side {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    min-width: 0;
+    height: 100%;
+  }
+  .side.left {
+    padding-left: var(--sp-3);
+    overflow: hidden;
+  }
+  .side.right {
+    justify-content: flex-end;
+    padding-right: var(--sp-2);
+  }
   /* macOS: leave room on the left for the native traffic-light controls. */
-  .titlebar.mac {
+  .titlebar.mac .side.left {
     padding-left: 76px;
+  }
+  .brand,
+  .dirtydot {
+    flex: 0 0 auto;
+  }
+  .middle {
+    display: flex;
+    align-items: center;
+    height: 100%;
   }
   .no-drag {
     -webkit-app-region: no-drag;
@@ -234,6 +270,7 @@
     color: var(--c-tx-muted);
     letter-spacing: 0.01em;
     max-width: 220px;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -246,24 +283,41 @@
     transform: translateY(-1px);
   }
 
-  /* ---- mode strip (the former activity rail, gone horizontal) ------------ */
+  /* ---- mode strip: a glass pill floating in the middle of the bar ----------
+     (owner, 2026-11-17: "dead middle … in their own little panel that looks like it is
+     just very subtly floating above the app"). The one fully round surface in the shell:
+     lighter than the bar, a pale rim, a highlight along the top and a soft shadow under it.
+     No backdrop-filter: the bar behind it is one flat colour, so a blur would buy nothing
+     and cost a compositor layer. */
   .modestrip {
+    --strip-pad: 8px;
+    --mode-w: 32px;
+    --mode-gap: 2px;
     position: relative;
-    align-self: stretch;
     display: flex;
     align-items: center;
-    gap: 2px;
-    margin-left: var(--sp-2);
+    gap: var(--mode-gap);
+    height: 30px;
+    /* The bar is 38 px with its 1 px bottom line: 4 px above the pill and 4 px below it to the
+       bar's outer edge, on whole pixels (centring in the 37 px inside lands on a half). */
+    margin-top: 1px;
+    padding: 0 var(--strip-pad);
+    background: color-mix(in oklab, var(--c-surface-2) 78%, var(--c-bg-raised));
+    border: 1px solid color-mix(in oklab, var(--c-tx-hi) 12%, transparent);
+    border-radius: var(--r-pill);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, var(--c-tx-hi) 9%, transparent),
+      0 2px 10px rgba(0, 0, 0, 0.5);
   }
   .mbtn {
-    width: 32px;
-    height: 28px;
+    width: var(--mode-w);
+    height: 24px;
     display: grid;
     place-items: center;
     border: none;
     background: transparent;
     color: var(--c-tx-muted);
-    border-radius: var(--r-1);
+    border-radius: var(--r-pill);
     cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-instant) var(--ease-standard),
@@ -282,29 +336,30 @@
     background: var(--c-accent-tint-2);
   }
 
-  /* Sliding accent marker — the horizontal twin of the old rail indicator
-     (Tier-1 transform, style_principles.md P5). Hugs the titlebar's bottom
-     border. Button stride = 32 width + 2 gap = 34; centred: (32-18)/2 = 7. */
+  /* Sliding accent marker (Tier-1 transform, style_principles.md P5): the stretch of the
+     pill's own lower rim under the active mode, lit. It lies ON the rim (over the 1 px
+     border), where the rim is still straight even under the first and last mode. Centred
+     under its button: (32 - 18) / 2 = 7; one mode further is width + gap. */
   .mindicator {
     position: absolute;
-    left: 7px;
-    bottom: 0;
+    left: calc(var(--strip-pad) + (var(--mode-w) - 18px) / 2);
+    bottom: -1px;
     width: 18px;
     height: 2px;
     border-radius: var(--r-pill);
     background: var(--c-accent);
     box-shadow: 0 0 10px var(--c-accent-glow);
-    transform: translateX(calc(var(--mi) * 34px));
+    transform: translateX(calc(var(--mi) * (var(--mode-w) + var(--mode-gap))));
     transition: transform var(--dur-quick) var(--ease-standard);
   }
   .mindicator.hidden {
     opacity: 0;
   }
 
-  .spacer {
-    flex: 1 1 auto;
-  }
+  /* A passing notice: it shortens before the strip is asked to move. */
   .agent-view {
+    flex: 0 1 auto;
+    min-width: 0;
     color: var(--c-tx-muted);
     font-size: var(--ts-xs);
     overflow: hidden;

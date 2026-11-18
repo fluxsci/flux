@@ -79,6 +79,39 @@ const afterTwo = await activeMode();
 await pressCtrlDigit(4);
 const afterFour = await activeMode();
 ok(afterTwo === "Slide" && afterFour === "Library", `Ctrl+2/Ctrl+4 switch modes (→ ${afterTwo} → ${afterFour})`);
+
+// --- the strip is a pill in the MIDDLE of the window, with the active mode's underline -------
+// (owner, 2026-11-17). Measured, at the default window, the minimum one and a wide one.
+const stripGeometry = () => page.evaluate(() => {
+  const box = (s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, cx: r.x + r.width / 2, w: r.width, h: r.height }; };
+  const strip = document.querySelector(".titlebar .modestrip"), style = getComputedStyle(strip);
+  return { win: innerWidth, strip: box(".titlebar .modestrip"), bar: box(".titlebar"), active: box(".titlebar .mbtn.active"), mark: box(".titlebar .mindicator"),
+    left: box(".titlebar .side.left > :last-child"), right: box(".titlebar .side.right > :first-child"),
+    radius: parseFloat(style.borderTopLeftRadius), shadow: style.boxShadow, blur: style.backdropFilter,
+    buttons: [...document.querySelectorAll(".titlebar .mbtn")].map((b) => { const r = b.getBoundingClientRect(); return r.x + r.width / 2; }) };
+});
+const settledStrip = async () => { await sleep(350); return stripGeometry(); };
+const startViewport = page.viewport();
+for (const width of [1440, 940, 2200]) {
+  await page.setViewport({ ...startViewport, width });
+  const g = await settledStrip();
+  ok(Math.abs(g.strip.cx - g.win / 2) <= 0.5, `${width}px: the mode strip is centred in the window`, `strip ${g.strip.cx} vs ${g.win / 2}`);
+  ok(g.left.right < g.strip.x && g.strip.right < g.right.x, `${width}px: nothing on either side touches it`, `${g.left.right} | ${g.strip.x}–${g.strip.right} | ${g.right.x}`);
+  ok(g.strip.y > g.bar.y && g.strip.bottom < g.bar.bottom && Number.isInteger(g.strip.y) && Number.isInteger(g.strip.h), `${width}px: the pill floats inside the bar, on whole pixels`, `${g.strip.y}+${g.strip.h} in ${g.bar.h}`);
+}
+await page.setViewport(startViewport);
+{
+  const g = await settledStrip();
+  ok(g.radius >= g.strip.h / 2, "the strip is a fully round pill", `radius ${g.radius}, height ${g.strip.h}`);
+  ok(/rgba?\(/.test(g.shadow) && g.shadow !== "none", "with a shadow under it");
+  ok(!g.blur || g.blur === "none", "and no backdrop filter (the bar behind it is flat)");
+  ok(Math.abs(g.mark.cx - g.active.cx) <= 0.5, "the blue underline is centred under the active mode", `${g.mark.cx} vs ${g.active.cx}`);
+  ok(g.mark.bottom >= g.strip.bottom - 1.5 && g.mark.bottom <= g.strip.bottom + 0.5 && g.mark.h === 2, "and lies on the pill's lower rim", `${g.mark.y}–${g.mark.bottom} on ${g.strip.bottom}`);
+  const seen = [];
+  for (const digit of [1, 5, 3]) { await pressCtrlDigit(digit); const now = await settledStrip(); seen.push(Math.abs(now.mark.cx - now.buttons[digit - 1]) <= 0.5 && Math.abs(now.active.cx - now.buttons[digit - 1]) <= 0.5); }
+  ok(seen.every(Boolean), "the underline follows the active mode from the first to the last", seen.join(","));
+  await pressCtrlDigit(4);
+}
 await clickMode(page, "Paper").catch(() => {});
 await sleep(300);
 

@@ -820,6 +820,21 @@ Persistence invariants (all machine-checked — do not weaken):
   coordinates. The strip's order lives once, in `src/shell/modeOrder.ts`; the strip and the
   Ctrl+1…Ctrl+5 chords read it. `verify-mode-icons` (pure) pins all of this plus a census of the
   retired icons' paths, and checks that Help and the user docs list the modes in the same order.
+  **The strip is a pill in the middle of the window** (owner, 2026-11-17, chosen from six
+  captured mock-ups: "dead middle … subtly floating above the app", plus "the little blue
+  underline on the active module"). `TitleBar.svelte` is a three-track GRID,
+  `minmax(0,1fr) auto minmax(min-content,1fr)`: two equal side tracks put the strip in the
+  exact window centre, and the edge padding lives INSIDE the side tracks so it cannot shift
+  it (macOS's 76 px for the traffic lights would). The right track never shrinks below its
+  controls; the passing "viewed your window" notice and the project name ellipsize first.
+  The pill is the shell's one fully round surface (an owner choice over the 2 px contract):
+  lighter than the bar, pale rim, top highlight, soft shadow, NO backdrop-filter (the bar
+  behind it is flat, so a blur buys nothing and costs a layer). The underline is the lit
+  stretch of the pill's lower rim under the active mode (`bottom:-1px`, where the rim is still
+  straight under the first and last mode) and slides by transform; its stride comes from the
+  strip's own `--mode-w` / `--mode-gap`. The bar's inside is 37 px, so the 30 px pill takes a
+  1 px top margin to sit on whole pixels. `verify-shell-complete` measures centring at three
+  widths, no contact with either side, the pill, and the underline following the mode.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
   bumps `globalRev` (under-invalidation impossible by construction). Expensive derived work keys
   on `${figureRev[id]}|${globalRev}|…` and memoizes in **non-reactive `const` boxes**.
@@ -12703,3 +12718,15 @@ Alt-click give boxes; `arrange --mode auto` gained `--on axes|boxes`.
   the objects are already closest to). Compare alternatives from the same starting state in a gate.
 - `projectAssetPath` realpaths its target, so asking for a sidecar that does not exist threw a bare ENOENT
   before the code that tolerates a missing sidecar could run; a plain SVG now reads as "no semantic axes".
+
+### 2026-11-17 (evening) — Mode strip: a centred pill with the underline (Claude Fable 5.2, `main`)
+**Work:** Owner asked for the mode icons in the middle of the window in a subtly floating box; six treatments
+were captured from the running app with styles injected at capture time (nothing committed), the owner chose the
+glass pill and asked to keep the blue underline. Implemented as a three-track grid in `TitleBar.svelte`.
+**Learnings:** (promoted to §4, the mode-icons bullet)
+- Mock a chrome change on the REAL app: inject a `<style>` in the driver and screenshot. Six honest options
+  took minutes, and the chosen one was then a known quantity.
+- Centre with equal tracks, never with `left:50%`: an absolutely centred strip has to be taught about every
+  neighbour, while `1fr auto 1fr` gives way by itself. Keep edge padding inside the side tracks.
+- Centring an even box in an odd space lands on half a pixel (30 px in the bar's 37): look at the measured
+  y, not at the screenshot.

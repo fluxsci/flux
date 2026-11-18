@@ -9,6 +9,12 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ## Unreleased
 
+### Window
+
+- **The mode icons sit in the middle of the title bar**, in a rounded strip of their own that
+  floats just above the bar, with the blue underline marking the active mode. They stay in the
+  exact middle of the window at any width.
+
 ### Figure and Slide
 
 - **Crystallize (Shift+A).** Select objects you placed by hand and press **Shift+A**: Flux reads
