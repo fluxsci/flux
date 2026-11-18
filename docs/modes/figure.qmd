@@ -816,16 +816,24 @@ one gesture.
   saved manuscript references and open editor buffers automatically. If removing a referenced
   panel would make its reference point somewhere else, the save stops with a clear conflict
   until you restore the panel or repair that reference.
-- **Alt+M** opens **Figure-Meta** in Figure or Paper, starting with the active figure.
+- **Alt+M** opens **Figure-Meta** in Figure or Paper, starting with the active figure. It has
+  three columns: which figure, how it will print, and what you write.
   Browse every canvas, search and filter families, and edit the **Captions** or **Name** tab.
-  The figure and composed caption preview sit beside the fields; drag the divider to resize
-  them. The Name tab includes family, number, title and custom families. Existing captions
+  In the list, a small number beside a figure is how many words its caption has, and a ring
+  means it has none yet. With the caret in the search, **↑** and **↓** move through the figures
+  and **Enter** goes to the chosen figure's first field.
+  The figure and composed caption preview sit beside the fields, drawn as a page proof: the
+  figure and its caption on paper, in the manuscript's type; drag the divider to resize
+  them. The toolbar above the fields counts the caption's words as you type. The Name tab includes family, number, title and custom families. Existing captions
   and permanent references are preserved. Captions flow into the [manuscript](paper.qmd)
   and exports automatically. Each field grows to fit; the fields column scrolls. Set the
   typing size with the **− / +** controls above the blocks (also in **Settings → Figure**).
   Click a block's letter or heading to collapse or expand it.
 - The preview fits the entire figure **and caption** by default. **Ctrl-scroll** zooms around
-  the pointer; drag to pan, choose a percentage, or press **Fit** to see everything again.
+  the pointer; drag to pan, choose a percentage, or press **Fit** (**Ctrl+0**) to see everything
+  again. The bar at the bottom says where your words stand: a green dot when they are saved, a
+  gold one while there are changes still to save (**Ctrl+S** saves at once), red with the reason
+  if a save failed.
 - **Add closing caption · ps** adds optional prose after the final panel caption. It appears
   as ordinary text, with no “ps” label, and stays at the end when panels are added or reordered.
   Remove it with its **×** button; metadata Undo can restore it.

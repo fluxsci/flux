@@ -52,7 +52,8 @@ try {
  await popup.waitForFunction(()=>document.querySelector('.caption-preview')?.textContent.includes('Pinned caption.'));
  await click(popup,'.tabs button:nth-child(2)');await popup.waitForSelector('[aria-label="Figure title"]');
  await fill(popup,'[aria-label="Figure title"]','Pinned title');await click(popup,'button.save');
- await popup.waitForFunction(()=>document.querySelector('h2')?.textContent==='Pinned title');
+ // 2026-11-18: the figure's title is in the header (name · title), no longer a second heading over the preview.
+ await popup.waitForFunction(()=>document.querySelector('.figure-meta header .ctx')?.textContent.endsWith(' · Pinned title'));
  h.ok(true,'caption and naming events work in the detached document');
  await click(popup,'.tabs button:first-child');await popup.setViewport({width:850,height:700});
  await fill(popup,'[aria-label="Figure caption"]','A long caption '.repeat(45));await popup.keyboard.press('Tab');

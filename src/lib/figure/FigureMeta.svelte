@@ -26,7 +26,6 @@
   import { modalFocus } from '../ui/modalFocus';
   import { pointerDrag } from '../ui/pointerDrag';
   import { autogrow } from '../ui/autogrow';
-  import Logomark from '../../shell/Logomark.svelte';
   import FigureIdentityForm from './FigureIdentityForm.svelte';
   import FigureMetaPreview from './FigureMetaPreview.svelte';
   import Icon from '../../shell/Icon.svelte';
@@ -91,12 +90,18 @@
   $: selected = model?.figures.find(f => f.id === chosen) ?? model?.figures[0] ?? null;
   $: families = [...familyMap(model?.figureFamilies).values()];
   $: filtered = model?.figures.filter(f => (!family || (f.family ?? 'figure') === family) && (!canvas || f.canvasId === canvas) && `${f.name} ${f.nickname ?? ''} ${f.referenceKey ?? ''}`.toLowerCase().includes(query.toLowerCase().trim())) ?? [];
-  $: { query; family; canvas; scroll = 0; }
+  // A new filter starts the list at its top: the element's own scroll, not only its mirror
+  // (the mirror alone left the rows drawn for the old offset).
+  $: { query; family; canvas; scroll = 0; if (listEl) listEl.scrollTop = 0; }
   $: start = Math.max(0, Math.min(Math.max(0, filtered.length - 1), Math.floor(scroll / 54) - 3));
   $: shown = filtered.slice(start, start + Math.ceil(listHeight / 54) + 7);
   $: blocks = selected ? [...captionBlocks(selected), ...(addedPs.has(selected.id) && !selected.captions?.[POSTSCRIPT_CAPTION]?.trim() ? [{id:POSTSCRIPT_CAPTION,label:'ps'}] : [])] : [];
   $: previewFigure = selected ? { ...selected, captions: { ...selected.captions, ...Object.fromEntries([...drafts.values()].filter(d => d.figureId === selected?.id).map(d => [d.key, d.after])) } } : null;
   $: caption = previewFigure ? composeCaption(previewFigure) : '';
+  const countWords = (text: string) => (text.trim().match(/\S+/g) ?? []).length;
+  /** Words in a figure's saved caption: the list shows how much each figure has, and which have none. */
+  const captionWords = (f: Figure) => countWords(composeCaption(f));
+  $: captionWordCount = countWords(caption);
   $: captionLabel = selected ? formatCaptionLabel(familyById(selected.family, model?.figureFamilies), selected.number ?? 1) : '';
   $: if (selected) { void $globalRev; void $figureRev; void $plotGen; void $figRevision; void updatePreview(selected, live); }
 
@@ -209,6 +214,20 @@
     else if (mod && !e.shiftKey && e.code === 'KeyS') { e.preventDefault(); void flush(); }
     else if (mod && e.code === 'KeyZ' && !['INPUT','TEXTAREA'].includes((e.target as HTMLElement).tagName)) { e.preventDefault(); void undoMeta(!e.shiftKey); }
   }
+  /** From the search: ↑/↓ walk the figures, Enter goes to the first field of the chosen one. */
+  function searchKeys(e: KeyboardEvent) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const at = filtered.findIndex(f => f.id === selected?.id);
+      const next = filtered[Math.max(0, Math.min(filtered.length - 1, (at < 0 ? (e.key === 'ArrowDown' ? -1 : filtered.length) : at) + (e.key === 'ArrowDown' ? 1 : -1)))];
+      void choose(next.id);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      wrap.querySelector<HTMLElement>('.fields textarea, .fields input')?.focus();
+    }
+  }
   function resize(e: PointerEvent) {
     if (e.button !== 0) return;
     const initial = split, box = splitEl.getBoundingClientRect();
@@ -256,21 +275,42 @@
   {#if !detached}<button class="backdrop" aria-label="Close Figure-Meta" on:click={close}></button>{/if}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="figure-meta" role="dialog" aria-label="Figure-Meta" aria-modal={!detached} tabindex="-1" use:modalFocus on:keydown={onKey}>
-    <header><div class="brand"><Logomark size={30} /><span class="brand-word">Flux</span><div class="brand-title"><b>Figure-Meta</b><span>Alt + M</span></div></div><span class="space"></span><button title="Undo metadata edit" aria-label="Undo metadata edit" disabled={!history.length || saving} on:click={() => undoMeta()}>↶</button><button title="Redo metadata edit" aria-label="Redo metadata edit" disabled={!redo.length || saving} on:click={() => undoMeta(false)}>↷</button><button class="pin" title={detached ? 'Return to workspace' : 'Pin in a separate window (Shift+Alt+M)'} on:click={() => detached ? dock() : pin()}>{detached ? 'Dock' : 'Pin open'} ↗</button><button aria-label="Close Figure-Meta" title="Close (Esc)" on:click={close}>✕</button></header>
+    <header>
+      <span class="mark" aria-hidden="true"><Icon name="figure" size={16} /></span>
+      <b class="title">Figure-Meta</b>
+      <span class="vsep" aria-hidden="true"></span>
+      <span class="ctx">{#if selected}<em>{selected.name}</em>{selected.nickname ? ` · ${selected.nickname}` : ''}{:else}captions and names{/if}</span>
+      <span class="chord" aria-hidden="true"><kbd>Alt</kbd><kbd>M</kbd></span>
+      <span class="steps" role="group" aria-label="Undo and redo">
+        <button title="Undo metadata edit (Ctrl+Z outside a field)" aria-label="Undo metadata edit" disabled={!history.length || saving} on:click={() => undoMeta()}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5h5.5a3 3 0 0 1 0 6H7M4 6.5l2.5-2.5M4 6.5 6.5 9" /></svg></button>
+        <button title="Redo metadata edit (Ctrl+Shift+Z outside a field)" aria-label="Redo metadata edit" disabled={!redo.length || saving} on:click={() => undoMeta(false)}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 6.5H6.5a3 3 0 0 0 0 6H9M12 6.5 9.5 4M12 6.5 9.5 9" /></svg></button>
+      </span>
+      <button class="pin" title={detached ? 'Return to workspace' : 'Pin in a separate window (Shift+Alt+M)'} on:click={() => detached ? dock() : pin()}>{detached ? 'Dock' : 'Pin open'} ↗</button>
+      <button class="x" aria-label="Close Figure-Meta" title="Close (Esc)" on:click={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" /></svg></button>
+    </header>
     <div class="body">
       <aside>
-        <div class="filters"><div class="section-label">Collection <span>{model?.figures.length ?? 0}</span></div><input class="meta-search" aria-label="Search figures" placeholder="Search figures…" bind:value={query} /><select aria-label="Filter figure family" bind:value={family}><option value="">All families</option>{#each families as f (f.id)}<option value={f.id}>{f.displayName}</option>{/each}</select>{#if (model?.canvases.length ?? 0) > 1}<select aria-label="Filter figure canvas" bind:value={canvas}><option value="">All canvases</option>{#each model?.canvases ?? [] as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select>{/if}</div>
+        <div class="filters">
+          <div class="section-label">Figures <span>{filtered.length === (model?.figures.length ?? 0) ? filtered.length : `${filtered.length} of ${model?.figures.length ?? 0}`}</span></div>
+          <label class="find">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
+            <input class="meta-search" aria-label="Search figures" placeholder="Search figures" bind:value={query} on:keydown={searchKeys} />
+          </label>
+          <select aria-label="Filter figure family" bind:value={family}><option value="">All families</option>{#each families as f (f.id)}<option value={f.id}>{f.displayName}</option>{/each}</select>{#if (model?.canvases.length ?? 0) > 1}<select aria-label="Filter figure canvas" bind:value={canvas}><option value="">All canvases</option>{#each model?.canvases ?? [] as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select>{/if}
+        </div>
         <nav aria-label="Figures" class="figure-list" bind:this={listEl} use:listSize on:scroll={e => scroll = e.currentTarget.scrollTop}>
           <div style={`height:${filtered.length*54}px;position:relative`}>
-            {#each shown as f,i (f.id)}<button class="figure-row" class:selected={f.id === selected?.id} aria-current={f.id === selected?.id ? 'true' : undefined} style={`top:${(start+i)*54}px`} on:click={() => choose(f.id)}><b>{f.name}</b><span>{f.nickname || (model?.canvases.find(c => c.id === f.canvasId)?.name ?? '')}</span></button>{/each}
+            {#each shown as f,i (f.id)}
+              {@const words = captionWords(f)}
+              <button class="figure-row" class:selected={f.id === selected?.id} aria-current={f.id === selected?.id ? 'true' : undefined} style={`top:${(start+i)*54}px`} on:click={() => choose(f.id)}><b>{f.name}</b><span>{f.nickname || (model?.canvases.find(c => c.id === f.canvasId)?.name ?? '')}</span><i class="words" class:none={!words} title={words ? `Its caption has ${words} word${words === 1 ? '' : 's'}` : 'No caption yet'} aria-hidden="true">{words || ''}</i></button>
+            {/each}
           </div>
           {#if !filtered.length}<p class="empty">{model ? 'No figures match.' : 'Opening figures…'}</p>{/if}
-        </nav><footer>{filtered.length} / {model?.figures.length ?? 0} figures</footer>
+        </nav><footer><kbd>↑</kbd><kbd>↓</kbd> in the search moves through them</footer>
       </aside>
       <div class="detail" bind:this={splitEl} style={`--preview-share:${split*100}%`}>
         <div class="preview-pane">
           {#if selected}
-            <div class="figure-heading"><span>{selected.name}</span><h2>{selected.nickname || 'Untitled figure'}</h2></div>
             <FigureMetaPreview bind:this={previewView} figureId={selected.id} title={selected.nickname || selected.name} image={preview} error={previewError} {caption} {captionLabel} aspect={selected.width/selected.height} />
           {/if}
         </div>
@@ -278,27 +318,26 @@
         <div class="splitter" role="separator" aria-label="Resize figure preview" aria-orientation="vertical" aria-valuenow={Math.round(split*100)} aria-valuemin="25" aria-valuemax="75" tabindex="0" on:pointerdown={resize} on:keydown={splitKeys} on:dblclick={() => split = .52}></div>
         <div class="edit-pane">
           <div class="tabs" role="tablist" aria-label="Figure metadata">
-            <button role="tab" aria-selected={tab==='captions'} class:on={tab==='captions'} on:click={() => selectTab('captions')}><Icon name="textFlow" size={18} /><span>Captions<small>The story behind the figure</small></span></button>
-            <button role="tab" aria-selected={tab==='name'} class:on={tab==='name'} on:click={() => selectTab('name')}><Icon name="hash" size={18} /><span>Name<small>Title, family & number</small></span></button>
+            <button role="tab" aria-selected={tab==='captions'} class:on={tab==='captions'} title="The story behind the figure" on:click={() => selectTab('captions')}><Icon name="textFlow" size={15} /><span>Captions</span></button>
+            <button role="tab" aria-selected={tab==='name'} class:on={tab==='name'} title="Title, family and number" on:click={() => selectTab('name')}><Icon name="hash" size={15} /><span>Name</span></button>
           </div>
           <div class="fields" role="tabpanel" aria-label={tab === 'captions' ? 'Captions' : 'Name'}>
             {#if selected && model}
               {#key selected.id}
                 {#if tab==='captions'}
-                  <div class="caption-toolbar"><span class="section-label">Caption blocks</span><div class="text-size" role="group" aria-label="Caption text size"><span>Aa</span><button aria-label="Decrease caption text size" title="Smaller caption text" disabled={$settings.captionFontSize<=9} on:click={() => changeTextSize(-1)}><Icon name="min" size={13} /></button><output aria-label="Caption text size">{$settings.captionFontSize}</output><button aria-label="Increase caption text size" title="Larger caption text" disabled={$settings.captionFontSize>=28} on:click={() => changeTextSize(1)}><Icon name="plus" size={13} /></button></div></div>
-                  <p class="hint">Click a label to fold its caption.</p>
+                  <div class="caption-toolbar"><span class="section-label">Caption <span class="count">{captionWordCount} word{captionWordCount === 1 ? '' : 's'}</span></span><div class="text-size" role="group" aria-label="Caption text size"><span>Aa</span><button aria-label="Decrease caption text size" title="Smaller caption text" disabled={$settings.captionFontSize<=9} on:click={() => changeTextSize(-1)}><Icon name="min" size={12} /></button><output aria-label="Caption text size">{$settings.captionFontSize}</output><button aria-label="Increase caption text size" title="Larger caption text" disabled={$settings.captionFontSize>=28} on:click={() => changeTextSize(1)}><Icon name="plus" size={12} /></button></div></div>
                   {#each blocks as block (block.id)}
                     {@const folded = collapsed.has(`${selected.id}:${block.id}`)}
                     <div class="caption-block" data-caption-panel={block.id === "__figure__" ? "" : block.label || block.id} class:folded class:postscript={block.id===POSTSCRIPT_CAPTION}>
                       <div class="block-heading">
-                        <button class="block-toggle" aria-expanded={!folded} aria-controls={`caption-${selected.id}-${block.id}`} aria-label={`${folded ? 'Expand' : 'Collapse'} ${block.label || 'Figure'} caption`} on:click={() => toggleBlock(block.id)}><span class="block-tag">{block.label || 'Figure'}</span><span class="block-rule"></span><span class="block-kind">{block.id==='__figure__' ? 'Opening' : block.id===POSTSCRIPT_CAPTION ? 'Closing' : 'Panel'}</span><Icon name={folded ? 'chevronRight' : 'chevronDown'} size={12} /></button>
+                        <button class="block-toggle" aria-expanded={!folded} aria-controls={`caption-${selected.id}-${block.id}`} aria-label={`${folded ? 'Expand' : 'Collapse'} ${block.label || 'Figure'} caption`} title="Fold or unfold this caption" on:click={() => toggleBlock(block.id)}><span class="block-chev" class:open={!folded} aria-hidden="true"></span><span class="block-tag">{block.label || 'Figure'}</span><span class="block-kind">{block.id==='__figure__' ? 'opens the caption' : block.id===POSTSCRIPT_CAPTION ? 'closes the caption' : 'panel'}</span><span class="block-rule"></span></button>
                         {#if block.id===POSTSCRIPT_CAPTION}<button class="remove-ps" aria-label="Remove closing caption" title="Remove closing caption (undo available)" on:click={removePostscript}><Icon name="x" size={12} /></button>{/if}
                       </div>
                       {#if !folded}<div class="caption-content" id={`caption-${selected.id}-${block.id}`}><textarea aria-label={`${block.label || 'Figure'} caption`} style={`font-size:${$settings.captionFontSize}px`} value={draftValue(block.id)} rows="2" placeholder={block.id==='__figure__' ? 'Introduce the figure…' : block.id===POSTSCRIPT_CAPTION ? 'Add a closing sentence…' : `Describe panel ${block.label}…`} on:input={e => editCaption(block.id,e.currentTarget.value)} on:change={() => flushCaptions()} use:autogrow={{value:draftValue(block.id),fs:$settings.captionFontSize}}></textarea></div>{/if}
                     </div>
                   {/each}
-                  {#if !blocks.some(b => b.id===POSTSCRIPT_CAPTION)}<button class="add-ps" on:click={addPostscript}><Icon name="plus" size={13} /><span>Add closing caption <b>ps</b></span></button>{:else}<p class="hint ps-hint">The closing text follows the last panel, without a label.</p>{/if}
-                  {#if blocks.every(b => b.id==='__figure__' || b.id===POSTSCRIPT_CAPTION)}<p class="hint">Mark text as a Panel label in the F-menu to add panel captions.</p>{/if}
+                  {#if !blocks.some(b => b.id===POSTSCRIPT_CAPTION)}<button class="add-ps" on:click={addPostscript}><Icon name="plus" size={13} /><span>Add a closing caption <b>ps</b></span></button>{:else}<p class="hint ps-hint">The closing text follows the last panel, without a label.</p>{/if}
+                  {#if blocks.every(b => b.id==='__figure__' || b.id===POSTSCRIPT_CAPTION)}<p class="hint">To caption a panel, mark its letter as a <b>Panel label</b>: select the text on the figure and press <kbd>Alt</kbd><kbd>L</kbd>.</p>{/if}
                 {:else}<FigureIdentityForm {model} figure={selected} save={apply} bind:this={nameForm} />{/if}
               {/key}
               <div class="reference"><span>Permanent reference</span><code>@{selected.referenceKey}</code><button on:click={copyReference}>Copy</button></div>
@@ -307,34 +346,83 @@
         </div>
       </div>
     </div>
-    <div class="status" role="status"><span class:error>{error || (saving ? 'Saving…' : status || 'Alt+M · Figure-Meta')}</span>{#if error || drafts.size}<button on:click={flush}>Retry save</button>{/if}{#if error}<button on:click={discardDrafts}>Discard unsaved draft</button>{/if}<span class="space"></span><span>{detached ? 'Pinned window' : 'Shift+Alt+M to pin'}</span></div>
+    <div class="status" role="status" data-state={error ? 'error' : saving ? 'saving' : drafts.size ? 'draft' : status.startsWith('Saved') ? 'saved' : 'idle'}><span class="state" class:error>{error || (saving ? 'Saving…' : status || 'Captions save as you leave a field')}</span>{#if error || drafts.size}<button on:click={flush}>{error ? 'Retry save' : 'Save now'}</button>{/if}{#if error}<button on:click={discardDrafts}>Discard unsaved draft</button>{/if}<span class="space"></span><span class="hints"><span><kbd>Ctrl</kbd><kbd>S</kbd> save</span><span>{#if detached}pinned window{:else}<kbd>Shift</kbd><kbd>Alt</kbd><kbd>M</kbd> pin{/if}</span><span><kbd>Esc</kbd> close</span></span></div>
   </div>
 </div>
 <style>
+  /* Figure-Meta in the house vocabulary (2026-11-18 rebuild; owner: "sloppy and unpleasant and
+     feels a bit half-baked"): one 36 px header, serif words, mono eyebrows and values, hairlines,
+     tint + inset rail for the chosen figure, and a preview that is a page proof. Three columns:
+     which figure · how it will print · what you write. */
   .meta-wrap { position:fixed; inset:0; z-index:110; display:grid; place-items:center; padding:24px; box-sizing:border-box; pointer-events:none; }
   .backdrop { position:absolute; inset:0; border:0; background:#0005; pointer-events:auto; }
-  .figure-meta { position:relative; pointer-events:auto; width:min(1420px,100%); height:min(920px,100%); display:flex; flex-direction:column; overflow:hidden; background:var(--c-surface); color:var(--c-tx); font:12px/1.4 var(--font-ui); border:1px solid var(--c-line-strong); border-radius:var(--r-panel); box-shadow:var(--elev-2); outline:none; }
+  .figure-meta { position:relative; pointer-events:auto; width:min(1440px,100%); height:min(920px,100%); display:flex; flex-direction:column; overflow:hidden; background:var(--c-surface); color:var(--c-tx); font:13px/1.4 var(--font-serif); border:1px solid var(--c-line-strong); border-radius:var(--r-panel); box-shadow:var(--elev-3); outline:none; }
   .detached { padding:0; } .detached .figure-meta { width:100%; height:100%; border:0; border-radius:0; box-shadow:none; }
-  header { display:flex; align-items:center; gap:8px; height:62px; flex-shrink:0; padding:0 16px; border-bottom:1px solid var(--c-line); }
-  .brand { display:flex; align-items:center; gap:10px; } .brand-word { font:20px var(--font-serif); letter-spacing:-.04em; } .brand-title { display:flex; flex-direction:column; gap:3px; margin-left:5px; padding-left:15px; border-left:1px solid var(--c-line-strong); } .brand-title b { font:13px var(--font-ui); letter-spacing:.02em; } .brand-title span { font:9px var(--font-mono); color:var(--c-tx-muted); }
-  .space { flex:1; } button { color:var(--c-tx-2); background:transparent; border:1px solid var(--c-line); border-radius:var(--r-ui); padding:4px 8px; font:inherit; } button:hover:not(:disabled) { color:var(--c-accent); border-color:var(--c-accent); } button:disabled { opacity:.35; } button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline:1px solid var(--c-accent); outline-offset:1px; }
-  .body { flex:1; min-height:0; display:flex; } aside { width:200px; flex-shrink:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--c-line); }
-  .filters { padding:15px 12px 12px; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid var(--c-line); } .section-label { display:flex; align-items:center; justify-content:space-between; font:10px var(--font-mono); text-transform:uppercase; letter-spacing:.09em; color:var(--c-tx-muted); } .section-label span { color:var(--c-accent); }
-  input,select { min-width:0; width:100%; box-sizing:border-box; height:28px; background:var(--c-bg); border:1px solid var(--c-line); border-radius:var(--r-ui); color:var(--c-tx); font:12px var(--font-ui); padding:4px 6px; }
-  .figure-list { flex:1; min-height:0; overflow:auto; } .figure-row { position:absolute; left:0; width:100%; height:54px; display:flex; flex-direction:column; align-items:start; justify-content:center; gap:4px; text-align:left; border:0; border-radius:0; padding:6px 14px; } .figure-row.selected { background:var(--c-accent-tint); box-shadow:inset 2px 0 var(--c-accent); } .figure-row b { font:12px var(--font-ui); color:var(--c-tx); } .figure-row span { font:11px var(--font-ui); color:var(--c-tx-muted); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  footer { padding:9px 12px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font:10px var(--font-mono); }
+  svg { display:block; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+  header { display:flex; align-items:center; gap:10px; height:36px; flex-shrink:0; padding:0 6px 0 12px; background:var(--c-bg-raised); border-bottom:1px solid var(--c-line); }
+  .mark { display:inline-flex; } .title { font:600 14px var(--font-serif); color:var(--c-tx-hi); white-space:nowrap; }
+  .vsep { flex:0 0 1px; height:14px; background:var(--c-line-strong); }
+  .ctx { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--c-tx-muted); font:12.5px var(--font-serif); } .ctx em { font-style:normal; color:var(--c-tx-2); }
+  .chord { display:inline-flex; gap:3px; }
+  .steps { display:inline-flex; border:1px solid var(--c-line); border-radius:var(--r-ui); } .steps button { display:grid; place-items:center; width:24px; height:22px; padding:0; border:0; border-radius:0; } .steps button + button { border-left:1px solid var(--c-line); } .steps svg { width:14px; height:14px; }
+  .space { flex:1; }
+  button { color:var(--c-tx-2); background:transparent; border:1px solid var(--c-line); border-radius:var(--r-ui); padding:0 9px; height:24px; font:12.5px var(--font-serif); transition:background-color 80ms linear,border-color 80ms linear,color 80ms linear; }
+  button:hover:not(:disabled) { color:var(--c-tx-hi); background:var(--c-surface-2); border-color:var(--c-line-strong); } button:active:not(:disabled) { background:var(--c-accent-tint); border-color:var(--c-accent); } button:disabled { opacity:.35; }
+  button:focus-visible, select:focus-visible { outline:1px solid var(--c-accent); outline-offset:1px; }
+  .pin { border-color:transparent; color:var(--c-tx-muted); font:11.5px var(--font-ui); white-space:nowrap; }
+  .x { display:grid; place-items:center; width:24px; padding:0; border-color:transparent; color:var(--c-tx-muted); } .x svg { width:12px; height:12px; }
+
+  /* ---- which figure ---------------------------------------------------------------------- */
+  .body { flex:1; min-height:0; display:flex; } aside { width:224px; flex-shrink:0; min-height:0; display:flex; flex-direction:column; background:var(--c-bg-raised); border-right:1px solid var(--c-line); }
+  .filters { padding:11px 10px 10px; display:flex; flex-direction:column; gap:7px; border-bottom:1px solid var(--c-line); }
+  .section-label { display:flex; align-items:baseline; justify-content:space-between; gap:8px; font:600 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; color:var(--c-tx-muted); } .section-label span { font-weight:400; letter-spacing:0; text-transform:none; color:var(--c-tx-faint); font-variant-numeric:tabular-nums; }
+  .find { display:flex; align-items:center; gap:7px; height:26px; padding:0 8px; background:var(--c-bg); border:1px solid var(--c-line-strong); border-radius:var(--r-ui); color:var(--c-tx-muted); cursor:text; transition:border-color 80ms linear; } .find:hover { border-color:var(--c-tx-muted); } .find:focus-within { border-color:var(--c-accent); } .find svg { width:13px; height:13px; }
+  input { flex:1; min-width:0; height:24px; margin:0; padding:0; background:transparent; border:0; outline:none; color:var(--c-tx-hi); font:13px var(--font-serif); } input::placeholder { color:var(--c-tx-faint); font-style:italic; }
+  select { appearance:none; -webkit-appearance:none; min-width:0; width:100%; box-sizing:border-box; height:24px; padding:0 24px 0 8px; background:var(--c-bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23878580' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5l3-3'/%3E%3C/svg%3E") no-repeat right 7px center / 11px 11px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); color:var(--c-tx); font:12px var(--font-ui); text-overflow:ellipsis; } select:hover { border-color:var(--c-tx-muted); }
+  .figure-list { flex:1; min-height:0; overflow:auto; scrollbar-gutter:stable; }
+  .figure-row { position:absolute; left:0; width:100%; height:54px; display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto auto; align-content:center; column-gap:8px; row-gap:3px; text-align:left; border:0; border-bottom:1px solid var(--c-line); border-radius:0; padding:0 10px 0 13px; }
+  .figure-row:hover:not(:disabled) { background:var(--c-surface-2); } .figure-row.selected, .figure-row.selected:hover { background:var(--c-accent-tint); box-shadow:inset 2px 0 var(--c-accent); }
+  .figure-row b { grid-column:1; font:13px var(--font-serif); font-weight:400; color:var(--c-tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .figure-row.selected b { color:var(--c-tx-hi); font-weight:600; }
+  .figure-row span { grid-column:1; font:11.5px var(--font-serif); color:var(--c-tx-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* How much caption the figure has, in words; a ring when it has none yet. */
+  .words { grid-column:2; grid-row:1 / 3; align-self:center; min-width:8px; text-align:right; font:10px var(--font-mono); font-style:normal; font-variant-numeric:tabular-nums; color:var(--c-tx-faint); }
+  .words.none { width:7px; height:7px; min-width:0; box-sizing:border-box; border:1px solid var(--c-tx-faint); border-radius:50%; }
+  footer { display:flex; align-items:center; gap:4px; height:28px; padding:0 10px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font:10.5px var(--font-ui); white-space:nowrap; overflow:hidden; } footer kbd { margin-right:1px; } footer kbd + kbd { margin-right:4px; }
+
+  /* ---- how it will print · what you write ------------------------------------------------- */
   .detail { display:grid; grid-template-columns:minmax(0,var(--preview-share)) 5px minmax(0,1fr); flex:1; min-width:0; min-height:0; }
-  .preview-pane { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--c-bg); } .figure-heading { padding:20px 20px 15px; border-bottom:1px solid var(--c-line); } .figure-heading span { font:10px var(--font-mono); color:var(--c-accent); text-transform:uppercase; letter-spacing:.08em; } h2 { font:22px/1.2 var(--font-serif); margin:5px 0 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .splitter { background:var(--c-line); cursor:col-resize; touch-action:none; } .splitter:hover,.splitter:focus-visible { background:var(--c-accent); }
-  .edit-pane { display:flex; flex-direction:column; min-width:0; min-height:0; } .tabs { display:flex; gap:6px; padding:12px; border-bottom:1px solid var(--c-line); } .tabs button { display:flex; flex:1; align-items:center; gap:9px; text-align:left; border-color:transparent; padding:10px; font:13px var(--font-ui); } .tabs button span { display:flex; flex-direction:column; gap:4px; } .tabs small { font:9px var(--font-ui); color:var(--c-tx-muted); } .tabs .on { background:var(--c-accent-tint); color:var(--c-accent); box-shadow:inset 2px 0 var(--c-accent); border-color:var(--c-line); }
-  .fields { flex:1; min-height:0; overflow:auto; padding:18px; } .caption-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; } .text-size { display:flex; align-items:center; gap:3px; } .text-size>span { margin-right:6px; font:15px var(--font-serif); color:var(--c-tx-muted); } .text-size button { display:grid; place-items:center; width:25px; height:25px; padding:0; } .text-size output { min-width:24px; text-align:center; font:11px var(--font-mono); color:var(--c-tx-2); }
-  .caption-toolbar { position:sticky; top:-18px; z-index:1; background:var(--c-surface); margin:-18px -18px 12px; padding:14px 18px 10px; border-bottom:1px solid var(--c-line); }
-  .hint { margin:0 0 12px; color:var(--c-tx-muted); font:11px/1.5 var(--font-ui); } .caption-block { display:flex; flex-direction:column; gap:7px; margin-bottom:12px; } .block-heading { display:flex; align-items:center; gap:3px; } .block-toggle { display:flex; align-items:center; flex:1; min-width:0; gap:8px; padding:0; border:0; text-align:left; } .block-tag { min-width:22px; padding:3px 5px; box-sizing:border-box; text-align:center; font:11px var(--font-mono); color:var(--c-accent); border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-accent-tint); } .block-rule { height:1px; flex:1; background:var(--c-line); } .block-kind { font:9px var(--font-mono); color:var(--c-tx-muted); } .folded { gap:0; } .folded .block-tag { background:transparent; } .remove-ps { display:grid; place-items:center; padding:3px; border:0; }
-  textarea { box-sizing:border-box; width:100%; min-height:60px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-bg); color:var(--c-tx); padding:10px; font:16px/1.55 var(--font-serif); resize:none; overflow:hidden; display:block; } textarea::placeholder { color:var(--c-tx-muted); opacity:.7; } .caption-content { animation:caption-reveal 80ms ease-out; } @keyframes caption-reveal { from {opacity:0} to {opacity:1} } @media(prefers-reduced-motion:reduce) { .caption-content { animation:none; } }
-  .add-ps { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; padding:10px; border-style:dashed; font:11px var(--font-ui); color:var(--c-tx-muted); margin:4px 0 10px; } .add-ps b { margin-left:6px; font:10px var(--font-mono); color:var(--c-accent); } .ps-hint { margin-top:-7px; }
-  .reference { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:14px; padding-top:10px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font-size:10px; } .reference code { flex:1; font:11px var(--font-mono); overflow-wrap:anywhere; user-select:text; } .reference>span { font:9px var(--font-mono); text-transform:uppercase; letter-spacing:.06em; }
-  .status { min-height:30px; display:flex; gap:10px; align-items:center; padding:4px 12px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font:10px var(--font-mono); } .status .error { color:var(--c-danger); } .empty { padding:12px; color:var(--c-tx-muted); }
-  @media(max-width:1100px) { .tabs small { display:none; } .tabs button { padding:8px; } }
-  @media(max-width:900px) { .meta-wrap { padding:10px; } .detached { padding:0; } aside { width:150px; } .fields { padding:12px; } .caption-toolbar { top:-12px; margin:-12px -12px 12px; padding:10px 12px; } .figure-heading { padding:12px; } .brand-title span { display:none; } }
-  @media(max-width:650px) { aside { width:125px; } .detail { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,40%) minmax(0,1fr); } .splitter { display:none; } .preview-pane { border-bottom:1px solid var(--c-line); } .figure-heading { display:none; } header { gap:4px; padding:0 8px; } .brand-word { display:none; } .brand-title { border:0; margin:0; padding:0; } .brand-title b { font-size:11px; } .brand { gap:4px; } .caption-toolbar>.section-label { font-size:9px; } }
+  .preview-pane { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--c-bg); }
+  .splitter { position:relative; background:var(--c-line); cursor:col-resize; touch-action:none; transition:background-color 80ms linear; } .splitter::after { content:""; position:absolute; left:1px; top:calc(50% - 12px); width:3px; height:24px; border-radius:1px; background:var(--c-line-strong); } .splitter:hover,.splitter:focus-visible { background:var(--c-accent); } .splitter:hover::after,.splitter:focus-visible::after { background:var(--c-on-accent, #fff); }
+  .edit-pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  /* Two tabs, the chosen one underlined, like the title bar's modes. */
+  .tabs { display:flex; gap:2px; height:36px; flex-shrink:0; padding:0 12px; border-bottom:1px solid var(--c-line); }
+  .tabs button { position:relative; display:flex; align-items:center; gap:7px; height:35px; padding:0 10px; border:0; border-radius:0; color:var(--c-tx-muted); font:13px var(--font-serif); }
+  .tabs button:hover:not(:disabled) { background:transparent; color:var(--c-tx-hi); }
+  .tabs .on { color:var(--c-tx-hi); font-weight:600; } .tabs .on::after { content:""; position:absolute; left:8px; right:8px; bottom:-1px; height:2px; background:var(--c-accent); }
+  .fields { flex:1; min-height:0; overflow:auto; padding:16px 18px 18px; scrollbar-gutter:stable; }
+  .caption-toolbar { position:sticky; top:-16px; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:8px; margin:-16px -18px 14px; padding:10px 18px 9px; background:var(--c-surface); border-bottom:1px solid var(--c-line); }
+  .caption-toolbar .section-label { justify-content:flex-start; gap:10px; }
+  .text-size { display:flex; align-items:center; border:1px solid var(--c-line); border-radius:var(--r-ui); background:var(--c-bg); } .text-size>span { padding:0 8px 0 9px; font:13px var(--font-serif); color:var(--c-tx-muted); } .text-size button { display:grid; place-items:center; width:22px; height:22px; padding:0; border:0; border-left:1px solid var(--c-line); border-radius:0; } .text-size output { min-width:26px; padding:0 2px; text-align:center; border-left:1px solid var(--c-line); font:11px/22px var(--font-mono); color:var(--c-tx); font-variant-numeric:tabular-nums; }
+  .hint { margin:0 0 12px; color:var(--c-tx-muted); font:11.5px/1.5 var(--font-serif); } .hint b { color:var(--c-tx-2); font-weight:600; } .hint kbd { margin:0 1px; vertical-align:1px; }
+  .caption-block { display:flex; flex-direction:column; gap:7px; margin-bottom:14px; } .block-heading { display:flex; align-items:center; gap:3px; }
+  .block-toggle { display:flex; align-items:center; flex:1; min-width:0; gap:8px; height:22px; padding:0; border:0; text-align:left; } .block-toggle:hover:not(:disabled) { background:transparent; }
+  .block-chev { width:8px; height:8px; flex-shrink:0; background:var(--c-tx-muted); -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat; transition:rotate 90ms var(--ease-standard); } .block-chev.open { rotate:90deg; } .block-toggle:hover .block-chev { background:var(--c-tx-hi); }
+  .block-tag { min-width:22px; height:18px; padding:0 6px; box-sizing:border-box; text-align:center; font:600 11px/16px var(--font-mono); color:var(--c-accent-bright); border:1px solid color-mix(in oklab,var(--c-accent) 50%,transparent); border-radius:var(--r-ui); background:var(--c-accent-tint); }
+  .block-kind { font:11.5px var(--font-serif); font-style:italic; color:var(--c-tx-muted); white-space:nowrap; } .block-rule { height:1px; flex:1; background:var(--c-line); }
+  .folded { gap:0; margin-bottom:8px; } .folded .block-tag { background:transparent; color:var(--c-tx-2); border-color:var(--c-line-strong); } .remove-ps { display:grid; place-items:center; width:22px; height:22px; padding:0; border-color:transparent; }
+  textarea { box-sizing:border-box; width:100%; min-height:60px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-bg); color:var(--c-tx-hi); padding:10px 12px; font:16px/1.55 var(--font-serif); resize:none; overflow:hidden; display:block; outline:none; transition:border-color 80ms linear, box-shadow 80ms linear; } textarea:hover { border-color:var(--c-tx-muted); } textarea:focus { border-color:var(--c-accent); box-shadow:0 0 0 3px var(--c-accent-tint-2); } textarea::placeholder { color:var(--c-tx-faint); font-style:italic; } .caption-content { animation:caption-reveal 80ms ease-out; } @keyframes caption-reveal { from {opacity:0} to {opacity:1} } @media(prefers-reduced-motion:reduce) { .caption-content { animation:none; } button, textarea, .find, .splitter, .block-chev { transition:none; } }
+  .add-ps { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; height:32px; border-style:dashed; border-color:var(--c-line-strong); color:var(--c-tx-muted); margin:2px 0 12px; } .add-ps b { margin-left:5px; font:600 10px var(--font-mono); color:var(--c-accent-bright); } .ps-hint { margin-top:-7px; }
+  .reference { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; padding-top:11px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); } .reference code { flex:1; font:11.5px var(--font-mono); color:var(--c-tx-2); overflow-wrap:anywhere; user-select:text; } .reference>span { font:600 10px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; } .reference button { height:22px; }
+  /* The state of your words, said once: a dot and a line. */
+  .status { min-height:30px; display:flex; gap:10px; align-items:center; padding:0 10px 0 12px; background:var(--c-bg-raised); border-top:1px solid var(--c-line); color:var(--c-tx-muted); font:11px var(--font-ui); }
+  .status .state { display:inline-flex; align-items:center; gap:7px; } .status .state::before { content:""; width:7px; height:7px; border-radius:50%; box-sizing:border-box; border:1px solid var(--c-tx-faint); }
+  .status[data-state="saved"] .state { color:var(--c-tx-2); } .status[data-state="saved"] .state::before { background:var(--c-success); border-color:var(--c-success); }
+  .status[data-state="draft"] .state::before, .status[data-state="saving"] .state::before { background:var(--c-comment); border-color:var(--c-comment); }
+  .status .error { color:var(--c-danger); } .status[data-state="error"] .state::before { background:var(--c-danger); border-color:var(--c-danger); }
+  .status button { height:20px; padding:0 7px; font:11px var(--font-ui); }
+  .hints { display:inline-flex; gap:14px; white-space:nowrap; } .hints kbd { margin-right:3px; }
+  .empty { padding:14px; color:var(--c-tx-muted); }
+  @media(max-width:1100px) { .hints span:first-child { display:none; } }
+  @media(max-width:900px) { .meta-wrap { padding:10px; } .detached { padding:0; } aside { width:160px; } .fields { padding:12px; } .caption-toolbar { top:-12px; margin:-12px -12px 12px; padding:9px 12px; } .chord { display:none; } footer { display:none; } }
+  @media(max-width:650px) { aside { width:128px; } .detail { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,40%) minmax(0,1fr); } .splitter { display:none; } .preview-pane { border-bottom:1px solid var(--c-line); } header { gap:6px; padding:0 4px 0 8px; } .ctx, .vsep { display:none; } .title { flex:1; } .hints { display:none; } }
 </style>

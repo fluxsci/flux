@@ -67,6 +67,14 @@ curl -fsSL https://fluxsci.github.io/install.sh | bash
 
 ### Figure and Slide
 
+- **Figure-Meta (Alt+M), rebuilt.** One slim header instead of a tall banner; three clear
+  columns: which figure, how it will print, what you write. The preview is a page proof: the
+  figure and its caption on paper, in the manuscript's type. The list shows how many words
+  each figure's caption has (a ring when it has none), and **↑** / **↓** in the search move
+  through the figures, with **Enter** going to the first field. The fields count the caption's
+  words as you type. The bar at the bottom says plainly whether your words are saved. The Name
+  tab and the preview's controls are redrawn to match. Filtering the list now returns it to
+  its top.
 - **Crystallize (Shift+A).** Select objects you placed by hand and press **Shift+A**: Flux reads
   them as the row, column or grid they are closest to and snaps them into it, aligned and evenly
   spaced, as one Undo step. Three in a row with a fourth under the first become a 2 × 2. A small

@@ -2631,6 +2631,18 @@ Persistence invariants (all machine-checked — do not weaken):
   (`RunnerSettings.svelte`, also in AI status) repeat the anatomy and read the dialog's `--ctl`
   control width. The dialog is mounted by `Shell.svelte` (it was inside the workspace, so the
   gear did nothing on Home and the dialog appeared by itself once a project opened).
+  **Figure-Meta (rebuilt 2026-11-18; owner: "sloppy and unpleasant and feels a bit half-baked").**
+  Three columns: which figure · how it will print · what you write. The header is one 36 px bar
+  (`.title`, then `.ctx` = name · title; the old 62 px banner and the second heading over the
+  preview are gone, so a gate that wants the title reads `header .ctx`). The preview
+  (`FigureMetaPreview`) is a PAGE PROOF: `.preview-sheet` is paper with literal ink colours,
+  whatever the chrome theme, and its padding is inside the 640 px sheet that Fit measures.
+  `.status` must still START with the state's words (gates use `startsWith('Saved')`): the dot
+  is a `::before`, the key hints come after. The button beside a draft is "Save now"; it is
+  "Retry save" only after a failure (the save-safety gate looks for that text then). The list
+  keeps its 54 px virtual pitch; a filter change must reset `listEl.scrollTop`, not only the
+  mirrored `scroll` (rows stayed drawn for the old offset). `searchKeys` walks `filtered` with
+  ↑/↓ through `choose()`, which flushes first, so a failed save keeps you on the figure.
   **The keyboard reference is DATA** (rebuilt 2026-11-18; owner: "more legible, and it should be
   searchable! Also do a check for that it is complete"). `src/lib/help/shortcuts.ts` holds every
   row in a small notation (`Mod+Shift+M`, ` / ` alternatives, ` – ` runs, ` · ` separate things;

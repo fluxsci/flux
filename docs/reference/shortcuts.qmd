@@ -209,6 +209,12 @@ finishes, **Escape** drops the draft).
 | **Ctrl+Shift+B** | Hide/show the right rail |
 | **Delete** / **Backspace** | Delete selection |
 
+In Figure-Meta (**Alt+M**): **↑ / ↓** in the search move through the figures · **Enter** there
+goes to the chosen figure's first field · **Ctrl+S** saves at once · **Ctrl+Z** /
+**Ctrl+Shift+Z** outside a field undo / redo a metadata edit · **Ctrl+wheel** zooms the preview
+(**Ctrl+=** / **Ctrl+−** too) and **Ctrl+0** fits the figure and its caption · **Shift+Alt+M**
+pins it in its own window · **Escape** closes it.
+
 In the Layers list: **↑ / ↓ / Home / End** move through the layers · **← / →** fold / unfold a
 group · **F2** renames.
 

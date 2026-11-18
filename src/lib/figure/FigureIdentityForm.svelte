@@ -93,15 +93,26 @@
   <div class="actions"><button class="save" type="submit" disabled={working || creating || !validNumber}>{working ? 'Saving…' : 'Save name'}</button></div>
 </form>
 <style>
+  /* The Name tab in the same hand as the rest of Figure-Meta: serif labels over 26 px fields. */
   form { display:flex; flex-direction:column; gap:12px; }
-  label { display:flex; flex-direction:column; gap:7px; font:12px var(--font-ui); color:var(--c-tx-2); }
-  input,select { box-sizing:border-box; width:100%; min-width:0; height:32px; padding:5px 8px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-bg); color:var(--c-tx); font:13px var(--font-ui); }
-  input:focus,select:focus { outline:1px solid var(--c-accent); }
-  .identity-row { display:flex; gap:12px; } .identity-row label { flex:1; } .identity-row .number { flex:0 0 80px; }
-  .number input { font-family:var(--font-mono); }
-  .hint { margin:0; font:11px/1.5 var(--font-ui); color:var(--c-tx-muted); }
-  button { align-self:start; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:transparent; color:var(--c-tx); padding:6px 10px; font:12px var(--font-ui); }
-  button:hover { border-color:var(--c-accent); } button:disabled { opacity:.45; } .save { color:var(--c-accent); background:var(--c-accent-tint); }
-  fieldset { border:1px solid var(--c-line); padding:12px; display:flex; flex-direction:column; gap:10px; min-width:0; } legend { font:11px var(--font-mono); }
-  .actions { display:flex; gap:8px; } .example { display:grid; grid-template-columns:80px minmax(0,1fr); gap:8px; padding:16px 0; border-block:1px solid var(--c-line); font-size:12px; } .example span { color:var(--c-tx-muted); } .example b { font-family:var(--font-serif); font-weight:400; overflow-wrap:anywhere; }
+  label { display:flex; flex-direction:column; gap:6px; font:600 10px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--c-tx-muted); }
+  input,select { box-sizing:border-box; width:100%; min-width:0; height:28px; padding:0 9px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-bg); color:var(--c-tx-hi); font:14px var(--font-serif); letter-spacing:0; text-transform:none; outline:none; transition:border-color 80ms linear, box-shadow 80ms linear; }
+  select { appearance:none; -webkit-appearance:none; padding-right:26px; font:12.5px var(--font-ui); background:var(--c-bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23878580' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5l3-3'/%3E%3C/svg%3E") no-repeat right 8px center / 11px 11px; text-overflow:ellipsis; }
+  input::placeholder { color:var(--c-tx-faint); font-style:italic; }
+  input:hover,select:hover { border-color:var(--c-tx-muted); }
+  input:focus,select:focus { border-color:var(--c-accent); box-shadow:0 0 0 3px var(--c-accent-tint-2); }
+  input[aria-invalid="true"] { border-color:var(--c-danger); }
+  .identity-row { display:flex; gap:12px; } .identity-row label { flex:1; } .identity-row .number { flex:0 0 84px; }
+  .number input { font:13px var(--font-mono); font-variant-numeric:tabular-nums; }
+  .hint { margin:-4px 0 0; font:11.5px/1.5 var(--font-serif); color:var(--c-tx-muted); }
+  button { align-self:start; height:24px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:transparent; color:var(--c-tx); padding:0 10px; font:12.5px var(--font-serif); transition:background-color 80ms linear,border-color 80ms linear,color 80ms linear; }
+  button:hover:not(:disabled) { background:var(--c-surface-2); border-color:var(--c-tx-muted); color:var(--c-tx-hi); } button:active:not(:disabled) { background:var(--c-accent-tint); border-color:var(--c-accent); } button:disabled { opacity:.45; }
+  .new-family { border-style:dashed; color:var(--c-tx-muted); }
+  .save { height:26px; padding:0 14px; color:var(--c-tx-hi); background:var(--c-accent-tint); border-color:color-mix(in oklab,var(--c-accent) 60%,transparent); font-weight:600; } .save:hover:not(:disabled) { background:color-mix(in oklab,var(--c-accent) 28%,transparent); border-color:var(--c-accent); }
+  fieldset { margin:0; border:1px solid var(--c-line); border-radius:var(--r-ui); padding:12px; display:flex; flex-direction:column; gap:10px; min-width:0; } legend { padding:0 5px; font:600 10px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--c-tx-muted); }
+  p[role="alert"] { margin:0; color:var(--c-danger); font:12px var(--font-serif); }
+  .actions { display:flex; gap:8px; }
+  /* How the name will read, in the manuscript's serif. */
+  .example { display:grid; grid-template-columns:76px minmax(0,1fr); gap:7px 10px; align-items:baseline; padding:13px 0; border-block:1px solid var(--c-line); } .example span { font:600 10px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--c-tx-muted); } .example b { font:15px var(--font-serif); font-weight:400; color:var(--c-tx-hi); overflow-wrap:anywhere; }
+  @media(prefers-reduced-motion:reduce) { button, input, select { transition:none; } }
 </style>

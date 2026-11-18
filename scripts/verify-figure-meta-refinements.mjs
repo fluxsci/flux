@@ -15,6 +15,16 @@ const fit=async p=>{await p.waitForFunction(()=>{const v=document.querySelector(
 try{
  await gotoApp(page,{url:'http://127.0.0.1:1420/?fixture=demo'});await open();await fit(page);
  h.ok(true,'default preview fits the complete artwork and caption');
+ // --- 2026-11-18 rebuild: one header, a page-proof preview, and a list you can walk ------------------
+ const look=await page.evaluate(()=>{
+  const meta=document.querySelector('.figure-meta'),head=meta.querySelector('header'),sheet=meta.querySelector('.preview-sheet'),cap=meta.querySelector('.caption-preview'),rgb=c=>c.match(/[\d.]+/g).slice(0,3).map(Number);
+  const lum=c=>{const [r,g,b]=rgb(c);return .2126*r+.7152*g+.0722*b};
+  return {headH:Math.round(head.getBoundingClientRect().height),title:head.querySelector('.title')?.textContent,ctx:head.querySelector('.ctx')?.textContent.trim(),brandWord:!!head.querySelector('.brand-word'),
+   paper:lum(getComputedStyle(sheet).backgroundColor),ink:lum(getComputedStyle(cap).color),capInside:cap.getBoundingClientRect().left>=sheet.getBoundingClientRect().left&&cap.getBoundingClientRect().right<=sheet.getBoundingClientRect().right+1,
+   words:meta.querySelector('.caption-toolbar .count')?.textContent,rowFont:getComputedStyle(meta.querySelector('.figure-row b')).fontFamily};});
+ h.ok(look.headH===36&&look.title==='Figure-Meta'&&!look.brandWord&&look.ctx.length>0,'one 36 px header: Figure-Meta, then which figure',JSON.stringify(look));
+ h.ok(look.paper>230&&look.ink<40&&look.capInside,'the preview is a page proof: paper, with the caption on it in ink',JSON.stringify({paper:look.paper,ink:look.ink}));
+ h.ok(/^\d+ words?$/.test(look.words)&&/Georgia|serif/i.test(look.rowFont),'the caption’s word count is shown, and the figures are named in the serif',JSON.stringify(look.words));
  await click(page,'.add-ps');await page.waitForSelector('[aria-label="ps caption"]');
  await fill(page,'[aria-label="ps caption"]','Closing prose follows every panel.');await waitFor(page,()=>document.querySelector('.status')?.textContent.includes('Saved'));
  const disk=await page.evaluate(async()=>{const root=window.__flux.get(window.__flux.shell.projectModel).root;const idx=JSON.parse(await window.fig.readText(root+'/fig/index.json'));const c=JSON.parse(await window.fig.readText(root+'/fig/canvases/'+idx.canvases[0].id+'.json'));return{md:await window.fig.readText(root+'/fig/captions/growth.md'),ps:c.figures[0].captions.__ps__}});
@@ -27,6 +37,27 @@ try{
  await click(page,'[aria-label="Decrease caption text size"]');await waitFor(page,n=>parseFloat(getComputedStyle(document.querySelector('textarea')).fontSize)===n,size);h.ok(true,'plus and minus update the actual caption typing size');
  await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.figure-meta'));await clickMode(page,'Figure');
  await page.evaluate(()=>window.__flux.fig.commit(p=>{p.figures[0].height=1600;p.figures[0].captions.__figure__='Tall figure caption. '.repeat(28)}));await open();await fit(page);h.ok(true,'a tall figure and long caption fit together without clipping');
+ // The search walks the figures: ↓ / ↑ choose the next / previous one, Enter goes to its first field.
+ await page.evaluate(()=>window.__flux.fig.commit(p=>{for(let i=0;i<40;i++)p.figures.push({...structuredClone(p.figures[0]),id:'walk-'+i,name:'Walk '+i,nickname:'walk '+i,referenceKey:'fig-walk-'+i,elements:[],captions:i%2?{__figure__:'One two three.'}:{}});}));
+ await page.waitForFunction(()=>document.querySelector('.figure-list > div')?.getBoundingClientRect().height>=41*54);
+ const chosen=()=>page.$eval('.figure-row.selected b',e=>e.textContent);
+ const first=await chosen();await page.click('.meta-search');await page.keyboard.press('ArrowDown');await page.waitForFunction(n=>document.querySelector('.figure-row.selected b')?.textContent!==n,{},first);
+ const second=await chosen();await page.keyboard.press('ArrowUp');await page.waitForFunction(n=>document.querySelector('.figure-row.selected b')?.textContent===n,{},first);
+ h.ok(second!==first&&await page.evaluate(()=>document.activeElement.classList.contains('meta-search')),'↓ and ↑ in the search move through the figures and keep the caret in the search',`${first} → ${second}`);
+ await page.keyboard.press('Enter');h.ok(await page.evaluate(()=>document.activeElement?.closest('.fields')&&document.activeElement.tagName==='TEXTAREA'),'Enter in the search goes to the chosen figure’s first caption');
+ // A row says how much caption its figure has: a word count, or a ring when it has none.
+ const marks=await page.$$eval('.figure-row',rows=>rows.filter(r=>/^Walk /.test(r.querySelector('b').textContent)).slice(0,4).map(r=>({name:r.querySelector('b').textContent,words:r.querySelector('.words').textContent,none:r.querySelector('.words').classList.contains('none')})));
+ h.ok(marks.length>=2&&marks.every(m=>/[13579]$/.test(m.name)?m.words==='3'&&!m.none:m.words===''&&m.none),'each figure row shows its caption’s word count, or a ring when it has none',JSON.stringify(marks));
+ // A new filter starts the list at its top (the scroll mirror alone used to reset, leaving stale rows).
+ await page.$eval('.figure-list',e=>{e.scrollTop=900});await page.waitForFunction(()=>document.querySelector('.figure-list').scrollTop>800);
+ await page.click('.meta-search');await page.keyboard.type('walk 1');
+ await page.waitForFunction(()=>document.querySelector('.figure-list').scrollTop===0&&[...document.querySelectorAll('.figure-row b')].length>0&&[...document.querySelectorAll('.figure-row b')].every(b=>/^Walk 1/.test(b.textContent)));
+ h.ok(await page.$eval('.figure-row',r=>Math.round(r.getBoundingClientRect().top-r.closest('.figure-list').getBoundingClientRect().top)===0),'filtering returns the list to its top with the matches drawn there');
+ await page.$eval('.meta-search',e=>{e.value='';e.dispatchEvent(new Event('input',{bubbles:true}))});
+ await page.evaluate(()=>window.__flux.fig.commit(p=>{p.figures=p.figures.filter(f=>!f.id.startsWith('walk-'))}));
+ await page.waitForFunction(()=>!document.querySelector('.figure-row.selected')||!/^Walk /.test(document.querySelector('.figure-row.selected b').textContent));
+ // Leave as the next checks expect: reopened on the tall figure, its preview settled.
+ await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.figure-meta'));await open();await fit(page);
  await page.waitForFunction(()=>document.querySelector('.art img')?.complete);
  const old=await page.$eval('.preview-viewport',e=>({scale:+e.dataset.scale,url:document.querySelector('.art img').src}));
  const v=await page.$eval('.preview-viewport',e=>{const b=e.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2}});await page.mouse.move(v.x,v.y);await page.keyboard.down(mod);await page.mouse.wheel({deltaY:-300});await page.keyboard.up(mod);

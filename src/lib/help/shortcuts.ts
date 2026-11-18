@@ -255,6 +255,20 @@ export const SECTIONS: ShortcutSection[] = [
         ],
       },
       {
+        title: "Figure-Meta",
+        when: "while Figure-Meta is open",
+        rows: [
+          r("Up / Down", "In the search: move through the figures"),
+          r("Enter", "In the search: go to the chosen figure's first field"),
+          r("Mod+S", "Save at once (captions also save as you leave a field)"),
+          r("Mod+Z / Mod+Shift+Z", "Outside a field: undo / redo a metadata edit"),
+          r("Mod+wheel", "Zoom the preview at the pointer"),
+          r("Mod+0", "Fit the figure and its caption"),
+          r("Shift+Alt+M", "Pin it in its own window"),
+          r("Esc", "Close it"),
+        ],
+      },
+      {
         title: "X-ray",
         when: "while the X-ray is open",
         rows: [
